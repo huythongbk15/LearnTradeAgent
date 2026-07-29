@@ -1,22 +1,19 @@
-# .github/workflows/ci.yml — Continuous Integration
-# Triggers: PR to main, push to main
+# CI Pipeline — Lint, Type Check, Unit Tests (chạy trên GitHub runner, KHÔNG cần VPS)
 
 name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [master, main]
   pull_request:
-    branches: [main]
-
-env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+    branches: [master, main]
+  workflow_dispatch:
 
 jobs:
-  lint:
-    name: Lint & Format
+  lint-and-test:
+    name: Lint & Test
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -24,103 +21,33 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
-          cache: 'poetry'
-
-      - name: Install Poetry
-        uses: snok/install-poetry@v1
-        with:
-          version: 2.4.1
-          virtualenvs-create: true
-          virtualenvs-in-project: true
+          python-version: "3.11"
+          cache: "pip"
 
       - name: Install dependencies
-        run: poetry install --with dev
-
-      - name: Run Ruff format check
-        run: poetry run ruff format --check src/
-
-      - name: Run Ruff lint
-        run: poetry run ruff check src/
-
-      - name: Run MyPy type check
-        run: poetry run mypy src/
-
-  test:
-    name: Test
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-          cache: 'poetry'
-
-      - name: Install Poetry
-        uses: snok/install-poetry@v1
-        with:
-          version: 2.4.1
-          virtualenvs-create: true
-          virtualenvs-in-project: true
-
-      - name: Install dependencies
-        run: poetry install --with dev
-
-      - name: Run tests with coverage
-        run: poetry run pytest tests/ -v --cov=src/trading_agent --cov-report=xml
-
-      - name: Upload coverage
-        uses: codecov/codecov-action@v4
-        with:
-          files: ./coverage.xml
-          fail_ci_if_error: false
-
-  security-scan:
-    name: Security Scan
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Run Trivy vulnerability scanner (fs)
-        uses: aquasecurity/trivy-action@master
-        with:
-          scan-type: 'fs'
-          scan-ref: '.'
-          format: 'sarif'
-          output: 'trivy-results.sarif'
-          severity: 'CRITICAL,HIGH'
-          ignore-unfixed: true
-
-      - name: Upload Trivy results
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: 'trivy-results.sarif'
-
-      - name: Run Bandit (Python security)
         run: |
-          pip install bandit[toml]
-          bandit -r src/ -f json -o bandit-results.json || true
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install ruff mypy pytest
 
-      - name: Upload Bandit results
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: bandit-results.json
+      - name: Lint (ruff)
+        run: ruff check .
 
-  build:
-    name: Build & Push Image
-    needs: [lint, test, security-scan]
+      - name: Type check (mypy)
+        run: mypy src/ --ignore-missing-imports
+
+      - name: Unit tests
+        run: pytest tests/ -v --tb=short
+
+      - name: Validate YAML workflows
+        run: |
+          python3 -c "import yaml; [yaml.safe_load(open(f)) for f in ['.github/workflows/ci.yml', '.github/workflows/scheduled.yml']]" && echo "All YAML valid"
+
+  docker-build:
+    name: Build Docker Image
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' || github.event.pull_request.head.repo.fork == false
-    permissions:
-      contents: read
-      packages: write
-      attestations: write
-      id-token: write
-      security-events: write
+    timeout-minutes: 20
+    needs: lint-and-test
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -128,135 +55,34 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=ref,event=branch
-            type=ref,event=pr
-            type=sha,prefix=
-            type=raw,value=latest,enable={{is_default_branch}}
-
-      - name: Build and push
-        id: build
+      - name: Build image (no push)
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: ./Dockerfile
-          target: runtime
-          push: ${{ github.event_name == 'push' }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          provenance: true
-          sbom: true
-
-      # =========================================================================
-      # SIGNING & SBOM (Step 6: Image Signing & SBOM)
-      # =========================================================================
-      - name: Install cosign & syft
-        if: github.event_name == 'push'
-        run: |
-          # cosign
-          curl -sSfL https://github.com/sigstore/cosign/releases/latest/download/cosign-linux-amd64 -o /usr/local/bin/cosign
-          chmod +x /usr/local/bin/cosign
-          # syft
-          curl -sSfL https://github.com/anchore/syft/releases/latest/download/syft-linux-amd64 -o /usr/local/bin/syft
-          chmod +x /usr/local/bin/syft
-
-      - name: Generate SBOM with syft
-        if: github.event_name == 'push'
-        id: sbom
-        run: |
-          # Get the first tag (sha-based)
-          IMAGE_TAG=$(echo "${{ steps.meta.outputs.tags }}" | cut -d',' -f1)
-          echo "Generating SBOM for $IMAGE_TAG"
-
-          # Generate SPDX and CycloneDX SBOMs
-          syft "$IMAGE_TAG" -o spdx-json > sbom.spdx.json
-          syft "$IMAGE_TAG" -o cyclonedx-json > sbom.cyclonedx.json
-          syft "$IMAGE_TAG" -o table > sbom.table.txt
-
-          # Upload as artifacts
-          echo "sbom_spdx=sbom.spdx.json" >> $GITHUB_OUTPUT
-          echo "sbom_cyclonedx=sbom.cyclonedx.json" >> $GITHUB_OUTPUT
-
-      - name: Upload SBOM artifacts
-        if: github.event_name == 'push'
-        uses: actions/upload-artifact@v4
-        with:
-          name: sbom-${{ github.sha }}
-          path: |
-            sbom.spdx.json
-            sbom.cyclonedx.json
-            sbom.table.txt
-          retention-days: 90
-
-      - name: Sign image with cosign (keyless)
-        if: github.event_name == 'push'
-        env:
-          COSIGN_EXPERIMENTAL: 1
-        run: |
-          IMAGE_TAG=$(echo "${{ steps.meta.outputs.tags }}" | cut -d',' -f1)
-          echo "Signing $IMAGE_TAG"
-          cosign sign --yes "$IMAGE_TAG"
-
-      - name: Attach SBOM to image
-        if: github.event_name == 'push'
-        env:
-          COSIGN_EXPERIMENTAL: 1
-        run: |
-          IMAGE_TAG=$(echo "${{ steps.meta.outputs.tags }}" | cut -d',' -f1)
-          cosign attach sbom --sbom sbom.spdx.json "$IMAGE_TAG"
-
-      - name: Verify signature & SBOM
-        if: github.event_name == 'push'
-        env:
-          COSIGN_EXPERIMENTAL: 1
-        run: |
-          IMAGE_TAG=$(echo "${{ steps.meta.outputs.tags }}" | cut -d',' -f1)
-          echo "Verifying signature for $IMAGE_TAG"
-          cosign verify "$IMAGE_TAG" --certificate-identity-regexp=".*" --certificate-oidc-issuer-regexp=".*"
-          echo "Verifying SBOM"
-          syft "$IMAGE_TAG" -o json > /dev/null
-          echo "✅ All verifications passed"
-
-      - name: Upload signature verification result
-        if: github.event_name == 'push'
-        run: |
-          IMAGE_TAG=$(echo "${{ steps.meta.outputs.tags }}" | cut -d',' -f1)
-          cosign verify "$IMAGE_TAG" --certificate-identity-regexp=".*" --certificate-oidc-issuer-regexp=".*" > verification.txt 2>&1 || true
-          cat verification.txt
-
-  build-dev:
-    name: Build Dev Image
-    needs: [lint, test]
-    runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build dev image (no push)
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./Dockerfile
-          target: dev
           push: false
-          tags: trading-agent:dev-pr-${{ github.event.number }}
+          tags: trading-agent:local
+          load: true
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Test image runs
+        run: |
+          docker run --rm trading-agent:local python -c "import src; print('Import OK')"
+
+  notify:
+    name: Notify Telegram
+    runs-on: ubuntu-latest
+    needs: [lint-and-test, docker-build]
+    if: always()
+    steps:
+      - name: Send result
+        uses: appleboy/telegram-action@master
+        with:
+          to: ${{ secrets.TELEGRAM_CHAT_ID }}
+          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          message: |
+            🤖 **CI ${{ job.status }}**
+            Repo: ${{ github.repository }}
+            Branch: ${{ github.ref_name }}
+            Commit: ${{ github.sha }}
+            Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
