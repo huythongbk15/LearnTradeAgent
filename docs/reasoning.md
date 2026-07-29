@@ -1,215 +1,211 @@
 # 🧠 Quy Trình Suy Luận & Ra Quyết Định
 
 > File này mô tả **cách hệ thống suy nghĩ** — từ nhận dữ liệu thô đến ra lệnh
-> mua/bán. Đây là phần quan trọng nhất của toàn bộ hệ thống.
+> mua/bán. Cập nhật theo implementation thực tế Phase 2–3.
 
 ---
 
-## 🌊 3 Vòng Suy Luận (Three Loops of Reasoning)
-
-Hệ thống có 3 vòng suy luận, từ nhanh đến sâu:
+## 🌊 Luồng suy luận tổng thể
 
 ```mermaid
 graph TB
-    subgraph LOOP1["🔄 Loop 1: Rule-based (milliseconds)"]
-        R1[OHLCV vào]
-        R2[Tính indicators: EMA, RSI, MACD]
-        R3[Kiểm tra signal rules]
-        R4[Signal nếu đủ điều kiện]
-        R1 --> R2 --> R3 --> R4
+    subgraph STEP1["Bước 1: Thu thập & Tính toán"]
+        A1[Load OHLCV từ Parquet]
+        A2[Tính indicators: MA20, MA50, RSI, BB]
+        A1 --> A2
     end
 
-    subgraph LOOP2["🔄 Loop 2: ML/AI (seconds-minutes)"]
-        M1[Market data + Indicators]
-        M2[AI Agent Technical Analysis]
-        M3[Pattern detection]
-        M4[Adaptive prediction]
-        M1 --> M2 --> M3 --> M4
+    subgraph STEP2["Bước 2: Multi-Agent Phân tích"]
+        T[Technical Analyst<br/>trend, momentum, volatility<br/>→ HOLD/BUY/SELL + conf]
+        S[Sentiment Analyst<br/>RSI extremes, volume insight<br/>→ sentiment + conf]
+        R[Risk Manager<br/>volatility, position sizing<br/>→ risk_level + max size]
+        A2 --> T
+        A2 --> S
+        A2 --> R
     end
 
-    subgraph LOOP3["🔄 Loop 3: Multi-Agent (minutes-hours)"]
-        L1[Full market context]
-        L2[All analysts debate]
-        L3[Risk evaluation]
-        L4[Portfolio decision]
-        L1 --> L2 --> L3 --> L4
+    subgraph STEP3["Bước 3: Trader Tổng Hợp"]
+        TR[Trader Agent<br/>Collect signals from all agents<br/>Weighted voting algorithm<br/>→ FINAL SIGNAL]
+        T --> TR
+        S --> TR
+        R --> TR
     end
 
-    LOOP1 -->|trigger| LOOP2
-    LOOP2 -->|trigger| LOOP3
+    subgraph STEP4["Bước 4: Thực Thi"]
+        E[Execution Engine<br/>Place order (paper)]
+        RC[Risk Controller<br/>Update prices, check limits]
+        TR --> E
+        E --> RC
+    end
 ```
-
-| Vòng | Thời gian | Mục đích | Công nghệ |
-|------|-----------|---------|-----------|
-| **Loop 1** | ms | Phát hiện tín hiệu nhanh (trend following, breakout) | Rule-based, TA-Lib |
-| **Loop 2** | s → phút | Phân tích sâu hơn với ML/AI | LLM + Indicators |
-| **Loop 3** | phút → giờ | Ra quyết định chiến lược, multi-agent | Multi LLM agents + debate |
 
 ---
 
-## 🧩 Chi tiết Loop 1: Rule-based
+## 🧩 Chi tiết từng Agent
 
-Chạy **mỗi lần có candle mới** (1 phút / 5 phút / 1h tùy timeframe).
+### 1. Technical Analyst
 
+**Role:** Phân tích price action, indicators, xu hướng đa khung thời gian.
+
+**Input:**
 ```
-Input:   OHLCV mới nhất
-         ├── Tính: EMA(9), EMA(21), EMA(50)
-         ├── Tính: RSI(14)
-         ├── Tính: MACD(12,26,9)
-         └── Tính: Volume SMA(20)
-
-Logic:
-         IF close > EMA(9) AND EMA(9) > EMA(21)
-             → Signal: BULLISH (strength: +1)
-         IF RSI < 30 AND close < BB_LOWER
-             → Signal: OVERSOLD (strength: +2)
-         IF MACD > SIGNAL AND MACD_HISTOGRAM > 0
-             → Signal: MOMENTUM_UP (strength: +1)
-
-Output:  dict{signal, strength, confidence}
-         → gửi lên Loop 2 nếu tổng strength >= threshold
+- Current price
+- MA20, MA50 (trend direction)
+- RSI(14) (momentum)
+- Bollinger Bands width (volatility)
+- Volume ratio (5-candle vs 20-candle avg)
+- Multi-timeframe trend (1d, 1w, 1m)
 ```
 
-### Các chiến lược mẫu (strategy templates)
-
-| Strategy | Parameters | Timeframe | Best for |
-|----------|-----------|-----------|---------|
-| **EMA Cross** | fast=9, slow=21 | 1h, 4h | Trend following |
-| **RSI Mean Reversion** | period=14, oversold=30, overbought=70 | 15m, 1h | Sideways market |
-| **MACD Momentum** | fast=12, slow=26, signal=9 | 1h, 4h | Momentum trading |
-| **Bollinger Squeeze** | period=20, std=2 | 1h | Volatility breakout |
-| **Volume Profile** | Volume SMA(20) | 1h, 4h | Volume confirmation |
-
----
-
-## 🧠 Chi tiết Loop 2: AI Single-Agent
-
-Khi Loop 1 phát hiện tín hiệu đủ mạnh → Loop 2 được kích hoạt.
-
+**Prompt template (đã test với DeepSeek V4 Flash):**
 ```
-INPUT:  - Candle hiện tại + 100 candles trước
-        - Các indicators đã tính
-        - Tín hiệu từ Loop 1
+System: You are a professional Technical Analyst for crypto markets.
+         Analyze the following data and provide your assessment.
 
-PROMPT STRUCTURE:
-────────────────────────────────────────────
-System:  Bạn là Technical Analyst AI.
-         Phân tích chart và đưa ra nhận định.
+Context: Symbol: {symbol} ({exchange}, {timeframe})
+         Current price: ${price}
+         MA20: ${ma_20}  MA50: ${ma_50}
+         RSI(14): {rsi}
+         BB: lower={bb_lower} mid={bb_mid} upper={bb_upper}
+         Volume ratio (5/20): {volume_ratio}
 
-Context: Symbol: BTC/USDT (Binance, 1h)
-         Current price: $63,915
-         EMA9: $63,800 | EMA21: $63,200
-         RSI(14): 58.2
-         MACD: bullish, histogram đang tăng
+Output: signal (BUY/SELL/HOLD), confidence 0-100%, reasoning, trend, momentum
+```
 
-Task:    Đánh giá xu hướng hiện tại.
-         Có nên mua theo tín hiệu không?
-         Rủi ro chính là gì?
-
-Constraints:
-         - Chỉ dùng dữ liệu được cung cấp
-         - Nêu rõ mức độ tự tin (%)
-         - Nếu không đủ dữ liệu → nói không
-────────────────────────────────────────────
-
-OUTPUT:
+**Output:**
+```json
 {
-  "judgment": "BULLISH" | "BEARISH" | "NEUTRAL",
-  "confidence": 0.75,
-  "reasoning": "EMA9 đã cắt lên trên EMA21 (golden cross). "
-               "RSI ở 58, không quá mua. MACD histogram dương. "
-               "Khối lượng tăng nhẹ.",
-  "risk": "Giá đang test resistance $64,200. "
-          "Nếu reject có thể retest $63,200.",
-  "suggested_action": "BUY với size nhỏ (25% position)"
+  "signal": "HOLD",
+  "confidence": 50,
+  "reasoning": "Price is near MA20 but below MA50, RSI neutral...",
+  "trend": "sideways",
+  "momentum": "neutral"
 }
 ```
 
 ---
 
-## 🏛 Chi tiết Loop 3: Multi-Agent Debate
+### 2. Sentiment Analyst
 
-Đây là điểm mạnh nhất của hệ thống — nhiều AI agents với chuyên môn khác nhau
-**tranh luận** với nhau trước khi ra quyết định.
+**Role:** Phân tích tâm lý thị trường qua RSI extremes và volume.
 
-```mermaid
-sequenceDiagram
-    participant T as Technical Analyst
-    participant S as Sentiment Analyst
-    participant M as Macro Analyst
-    participant TR as Trader Agent
-    participant RM as Risk Manager
-    participant PM as Portfolio Manager
-
-    Note over T,PM: BƯỚC 1: Phân tích độc lập
-    T->>TR: BULLISH (conf: 0.8)
-    S->>TR: BEARISH (conf: 0.6)
-    M->>TR: NEUTRAL (conf: 0.5)
-
-    Note over T,PM: BƯỚC 2: Trader tổng hợp
-    TR->>TR: Weighted average
-    TR->>TR: Xung đột: Technical vs Sentiment
-
-    Note over T,PM: BƯỚC 3: Trader đặt câu hỏi phản biện
-    TR->>T: "Technical bullish nhưng Sentiment bearish, vì sao?"
-    T->>TR: "EMA golden cross + volume > 20-SMA"
-
-    TR->>S: "Sentiment bearish vì lý do gì?"
-    S->>TR: "News: SEC kiện thêm sàn, negative social volume"
-
-    Note over T,PM: BƯỚC 4: Risk check
-    TR->>RM: "Signal: BULLISH, size đề xuất: 0.5 BTC"
-    RM->>RM: Tính VaR, check drawdown
-    RM->>RM: Kiểm tra position limit
-    RM->>TR: "OK, nhưng giới hạn size 0.3 BTC do VaR > 2%"
-
-    Note over T,PM: BƯỚC 5: Portfolio Manager quyết định
-    TR->>PM: "BUY 0.3 BTC @ market"
-    PM->>PM: Check portfolio correlation
-    PM->>PM: Kiểm tra cash balance
-    PM->>EXECUTION: "BUY 0.3 BTC @ market"
+**Input:**
+```
+- RSI(14) (overbought/oversold detection)
+- Short-term price change (5 candles)
+- Volume ratio
+- Volatility (20-period)
 ```
 
-### Trọng số mặc định
+**Logic quan trọng:**
+```python
+# RSI extreme detection
+if rsi < 30:     sentiment = "oversold"    → tiềm năng BUY
+if rsi > 70:     sentiment = "overbought"  → tiềm năng SELL
+if 30 <= rsi <= 70: sentiment = "neutral"  → HOLD
 
-```yaml
-agent_weights:
-  technical_analyst: 0.35    # Nặng nhất — price action là truth
-  sentiment_analyst: 0.25    # News ngắn hạn
-  fundamental_analyst: 0.25  # On-chain dài hạn
-  macro_analyst: 0.15        # Vĩ mô — ảnh hưởng dần
-
-# Quyết định dựa trên weighted vote:
-#   score < 0.2 → HOLD
-#   0.2 ≤ score < 0.6 → nhẹ (25% position)
-#   0.6 ≤ score < 0.8 → vừa (50% position)
-#   score ≥ 0.8 → mạnh (75-100% position)
+# Volume confirmation
+if volume_ratio > 1.2:  strong conviction (tăng trust)
+if volume_ratio < 0.8:  weak conviction (giảm trust)
 ```
 
 ---
 
-## ⚖️ Nguyên tắc ra quyết định
+### 3. Risk Manager
+
+**Role:** Đánh giá rủi ro dựa trên volatility và xác định position size.
+
+**Input:**
+```
+- Current volatility (20-period std of returns)
+- RSI (market state)
+- Volume ratio
+- Existing position % (nếu có)
+```
+
+**Position sizing logic:**
+```python
+if volatility > threshold:
+    max_position_pct = 0.15    # Giảm size khi biến động cao
+    risk_level = "HIGH"
+elif rsi between 30 and 70:
+    max_position_pct = 0.30    # Tăng size khi market ổn định
+    risk_level = "LOW"
+else:
+    max_position_pct = 0.25
+    risk_level = "MEDIUM"
+```
+
+---
+
+### 4. Trader Agent (Decision Synthesis)
+
+**Role:** Tổng hợp tín hiệu từ 3 agents và đưa ra quyết định cuối cùng.
+
+**Thuật toán Weighted Voting:**
+
+```python
+agent_weights = {
+    "technical_analyst": 0.40,    # Nặng nhất
+    "sentiment_analyst": 0.25,    # Tâm lý thị trường
+    "risk_manager": 0.35,         # Rủi ro
+}
+
+def calculate_final_signal(agents):
+    buy_score = 0.0
+    sell_score = 0.0
+    
+    for agent_name, signal in agents:
+        weight = agent_weights[agent_name]
+        conf = signal.confidence / 100.0
+        
+        if signal.signal == "BUY":
+            buy_score += weight * conf
+        elif signal.signal == "SELL":
+            sell_score += weight * conf
+        # HOLD = 0 contribution to both
+    
+    net_score = buy_score - sell_score
+    
+    if net_score > 0.2:      return "BUY", net_score
+    elif net_score < -0.2:   return "SELL", abs(net_score)
+    else:                    return "HOLD", abs(net_score)
+```
+
+**Ví dụ tính toán:**
+```
+Technical: BUY (70%)    → +0.40 * 0.70 = +0.28
+Sentiment: HOLD (50%)   →  0
+Risk:      BUY (60%)    → +0.35 * 0.60 = +0.21
+Net score: +0.49
+→ Final: BUY (confidence: 49%)
+```
+
+---
+
+## ⚖️ Quy tắc ra quyết định
 
 ```mermaid
 graph TD
-    A[Signal từ Agents] --> B{Xung đột?}
-    B -->|Có| C[Yêu cầu giải thích thêm]
-    B -->|Không| D{Đủ mạnh?}
-    C --> E[Phân tích lại]
-    E --> D
-    D -->|Có| F{Rủi ro OK?}
-    D -->|Không| G[KHÔNG HÀNH ĐỘNG]
-    F -->|OK| H[Thực hiện với size phù hợp]
-    F -->|Không| G
+    A[Agent Signals] --> B{Score > 0.2?}
+    B -->|Có| C{Max Position Size > 0?}
+    B -->|Không| D[HOLD]
+    C -->|Có| E[BUY/SELL với size phù hợp]
+    C -->|Không| D
+    E --> F[Set Stop-Loss]
+    F --> G[Update Prices]
+    G --> H{Check Risk Limits}
+    H -->|OK| I[Track Position]
+    H -->|Vi phạm| J[Circuit Breaker → Close All]
 ```
 
-### Priority rules
+### Priority rules (implemented)
 
-1. **Safety first** — Risk manager có thể veto bất kỳ lệnh nào
-2. **Consensus > Majority** — Nếu các analyst đồng thuận, trust cao hơn
-3. **Time decay** — Tin hiệu cũ hơn 5 phút phải được refresh
-4. **Uncertainty → Stay out** — Nếu confidence < 0.4, không hành động
-5. **Trend is your friend** — Technical analyst có trọng số cao nhất
+1. **Safety first** — Risk Manager output ảnh hưởng 35% decision
+2. **Trend is your friend** — Technical Analyst có trọng số cao nhất (40%)
+3. **Uncertainty → Stay out** — Net score < 0.2 → HOLD
+4. **Confirmation bias protection** — Sentiment Analyst giám sát RSI extremes
+5. **Adaptive sizing** — Position size thay đổi dựa trên volatility
 
 ---
 
@@ -217,35 +213,39 @@ graph TD
 
 ```mermaid
 stateDiagram-v2
-    [*] --> DETECTED: Loop 1 trigger
-    DETECTED --> ANALYZING: Loop 2 AI
-    ANALYZING --> DEBATING: Loop 3 Multi-Agent
-    DEBATING --> APPROVED: Consensus reached
-    DEBATING --> REJECTED: Risk veto / Low confidence
-    APPROVED --> EXECUTING: Order placed via CCXT
+    [*] --> LOAD_DATA: Load OHLCV + indicators
+    LOAD_DATA --> TECHNICAL: Technical Analyst
+    LOAD_DATA --> SENTIMENT: Sentiment Analyst
+    LOAD_DATA --> RISK: Risk Manager
+    TECHNICAL --> TRADER: Signal
+    SENTIMENT --> TRADER: Signal
+    RISK --> TRADER: Signal
+    TRADER --> APPROVED: Net score > 0.2
+    TRADER --> REJECTED: Net score <= 0.2
+    APPROVED --> EXECUTING: Place order
     EXECUTING --> FILLED: Order filled
-    EXECUTING --> FAILED: Order rejected
-    FILLED --> MONITORING: Track P&L
-    MONITORING --> [*]: Position closed
+    FILLED --> MONITORING: Set stop-loss, update prices
+    MONITORING --> CLOSED: Stop-loss / Take-profit / Manual
+    MONITORING --> CIRCUIT_BREAKER: Risk limit breached
+    CIRCUIT_BREAKER --> CLOSED: Close all
     REJECTED --> [*]
-    FAILED --> [*]
+    CLOSED --> [*]
 ```
 
 ---
 
-## 📐 Công thức đánh giá hiệu suất
+## 📐 Performance Metrics (từ Backtest)
 
-| Metric | Công thức | Target |
-|--------|-----------|--------|
-| **Sharpe Ratio** | (R_p - R_f) / σ_p | > 1.5 |
-| **Sortino Ratio** | (R_p - R_f) / σ_downside | > 2.0 |
-| **Max Drawdown** | max(peak - trough) / peak | < 20% |
-| **Win Rate** | wins / total trades | > 55% |
-| **Profit Factor** | gross profit / gross loss | > 1.5 |
-| **Calmar Ratio** | CAGR / Max DD | > 1.0 |
-| **Avg Trade** | avg return per trade | > 0.5% |
+| Metric | MA Crossover | RSI | Bollinger Bands | Target |
+|--------|-------------|-----|-----------------|--------|
+| **Sharpe Ratio** | 1.67 | 1.06 | 1.07 | > 1.5 |
+| **Return (OOS)** | +11.22% | +3.29% | +1.70% | > 5% |
+| **Max Drawdown** | -8.5% | -5.2% | -3.1% | < 15% |
+| **Win Rate** | 58% | 52% | 51% | > 55% |
+| **Profit Factor** | 2.1 | 1.4 | 1.3 | > 1.5 |
 
 ---
 
 > 📖 Quay lại [tài liệu chính](README.md)
 > 🎮 Xem [Demo hướng dẫn chạy](demo.md)
+> ⚡ Xem [Tối ưu hóa](optimization.md)

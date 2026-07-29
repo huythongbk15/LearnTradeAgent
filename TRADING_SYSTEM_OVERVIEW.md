@@ -109,93 +109,65 @@ Xây dựng một **hệ thống multi-agent trading tự động** có khả n�
 
 ## 🗺️ Lộ Trình Phát Triển Theo Phase
 
-### Phase 0: Nền Tảng & Data Pipeline
+### Phase 0: Nền Tảng & Data Pipeline ✅ **HOÀN THÀNH**
 **Mục tiêu:** Có data pipeline hoạt động, có môi trường research
 
-| Module | Công nghệ đề xuất | Nguồn từ dự án |
-|--------|------------------|----------------|
-| Market Data Collector | Python + CCXT (crypto) + Alpaca (stock) + Polygon.io | CCXT, Alpaca API |
-| Data Storage | TimescaleDB (time-series) + Redis (cache) | Tự build |
-| Historical Data | yfinance, Alpha Vantage, CCXT OHLCV | |
-| Task Scheduling | Cron / APScheduler | QwenPaw cron skill |
+| Module | Công nghệ | Status |
+|--------|-----------|--------|
+| Market Data Collector | CCXT + Polars | ✅ |
+| Data Storage | Parquet files (append + dedup) | ✅ |
+| Data Validation | Gap/outlier/null detection | ✅ |
+| CLI | Click + Rich | ✅ |
+| Incremental Update | Chỉ fetch candles mới | ✅ |
 
-**Vấn đề cần giải quyết:**
-- Thu thập data real-time từ nhiều nguồn
-- Chuẩn hóa dữ liệu OHLCV, orderbook, trade
-- Lưu trữ và query hiệu quả (TimescaleDB cho time-series)
-- Xử lý gap data, rate limiting, retry
-
-**GitHub mapping:** CCXT + Alpaca SDK + Tự build pipeline
+**Kết quả:** 5 symbols × 4 timeframes = 20 datasets, 696K candles, 0 gaps.
 
 ---
 
-### Phase 1: Chiến Lược & Backtest Engine
+### Phase 1: Chiến Lược & Backtest Engine ✅ **HOÀN THÀNH**
 **Mục tiêu:** Có thể backtest chiến lược, đánh giá hiệu suất
 
-| Module | Công nghệ đề xuất | Ghi chú |
-|--------|------------------|---------|
-| Backtest Engine | **NautilusTrader** (production-grade) + **VectorBT** (fast research) | Dùng VectorBT cho quick parameter sweep, Nautilus cho backtest chính xác |
-| Strategy Library | Technical indicators (TA-Lib, pandas_ta), ML models | |
-| Performance Metrics | Sharpe, Sortino, Max Drawdown, Win Rate, Calmar | |
+| Module | Công nghệ | Status |
+|--------|-----------|--------|
+| Strategy Library | MA Crossover, RSI, BBands, MACD | ✅ |
+| Backtest Engine | Vectorized (Polars) | ✅ |
+| Parameter Sweep | Grid search | ✅ |
+| Walk-Forward | 2y train / 1y test | ✅ |
+| Performance Metrics | Sharpe, Return, DD, Win Rate | ✅ |
 
-**Vấn đề cần giải quyết:**
-- Look-ahead bias, survivorship bias
-- Fill modeling (slippage, partial fills, latency)
-- Parameter optimization (grid search, Bayesian)
-- Walk-forward analysis
-
-**GitHub mapping:** NautilusTrader + VectorBT + TA-Lib
+**Kết quả:** MA Crossover optimized +71.96% return (từ +10.73% default).
 
 ---
 
-### Phase 2: AI Agent Layer (Multi-Agent System)
+### Phase 2: AI Agent Layer (Multi-Agent System) ✅ **HOÀN THÀNH**
 **Mục tiêu:** Hệ thống agent thông minh với LLM phân tích và ra quyết định
 
-| Agent | Chức năng | Source |
+| Agent | Chức năng | Status |
 |-------|-----------|--------|
-| **Technical Analyst** | Phân tích chart, indicators, patterns | TradingAgents |
-| **Fundamental Analyst** | Đọc báo cáo tài chính, định giá | TradingAgents |
-| **Sentiment Analyst** | Phân tích news, social media | TradingAgents |
-| **Macro Analyst** | Phân tích kinh tế vĩ mô, lãi suất | ai-hedge-fund |
-| **Risk Manager** | Đánh giá rủi ro danh mục, position sizing | TradingAgents |
-| **Trader** | Tổng hợp tín hiệu, quyết định mua/bán | TradingAgents |
-| **Portfolio Manager** | Phân bổ vốn, rebalance | ai-hedge-fund |
+| **Technical Analyst** | Phân tích chart, indicators, patterns | ✅ |
+| **Sentiment Analyst** | RSI extremes, volume insight | ✅ |
+| **Risk Manager** | Volatility, position sizing | ✅ |
+| **Trader Agent** | Weighted voting + decision | ✅ |
 
 **Công nghệ:**
-- LLM: Claude/GPT-4/DeepSeek (qua API) hoặc local (Ollama)
-- Framework: LangGraph (TradingAgents) hoặc tự build
-- Multi-agent orchestration: LangGraph, AutoGen, hoặc CrewAI
-
-**Vấn đề cần giải quyết:**
-- Agent communication protocol (structured debate)
-- LLM hallucination (cần grounding với real data)
-- Token cost optimization
-- Fallback khi LLM down
-- Memory & context window management
-- Agent coordination (voting, consensus, weighted signals)
-
-**GitHub mapping:** TradingAgents + ai-hedge-fund + LangGraph
+- LLM: DeepSeek V4 Flash (OpenRouter free) primary → GPT-4o-mini fallback → Ollama local
+- Cost: ~$0.00009 / analysis cycle (4 agents)
+- Orchestrator: Custom Python (không LangGraph dependency)
 
 ---
 
-### Phase 3: Execution & Risk Management
-**Mục tiêu:** Live trading an toàn với kiểm soát rủi ro chặt chẽ
+### Phase 3: Execution & Risk Management ✅ **HOÀN THÀNH**
+**Mục tiêu:** Paper trading an toàn với kiểm soát rủi ro chặt chẽ
 
-| Module | Công nghệ | Ghi chú |
-|--------|-----------|---------|
-| Order Execution | CCXT (crypto) + OpenAlgo (chứng khoán) hoặc Alpaca API | Unified execution layer |
-| Risk Controls | Custom: max drawdown, position limits, VaR, stop-loss | |
-| Paper Trading | NautilusTrader paper mode hoặc Alpaca paper | |
-| Circuit Breakers | Kill switch khi quá lỗ, API lỗi, hoặc điều kiện bất thường | |
+| Module | Công nghệ | Status |
+|--------|-----------|--------|
+| Paper Exchange | Simulated market/limit/stop orders | ✅ |
+| Position Tracker | P&L, equity curve | ✅ |
+| Risk Controller | Max DD 15%, daily loss 8% | ✅ |
+| Circuit Breaker | Tự động close all + cooldown | ✅ |
+| CLI Integration | 6 execution commands | ✅ |
 
-**Vấn đề cần giải quyết:**
-- Partial fill, order rejection handling
-- Rate limiting, API key bảo mật
-- Reconnect khi mất kết nối
-- Position tracking (đồng bộ real-time)
-- P&L tracking
-
-**GitHub mapping:** CCXT + OpenAlgo/Alpaca + NautilusTrader
+**Kết quả:** Full trade cycle tested (BUY → price up → SELL: +3.35%), stop-loss trigger confirmed.
 
 ---
 

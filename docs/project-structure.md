@@ -1,6 +1,8 @@
 # 📁 Cấu Trúc Mã Nguồn
 
 > Mỗi module làm gì, nằm ở đâu, phụ thuộc vào module nào.
+>
+> **Phiên bản:** v0.3.0 · Toàn bộ Phase 0–3 đã implemented.
 
 ---
 
@@ -10,28 +12,25 @@
 trading-agent/
 │
 ├── config/                          # 🛠 Cấu hình hệ thống
-│   ├── config.yaml                  #   File cấu hình chính (YAML)
-│   │   ├── exchanges                #   Danh sách sàn giao dịch
-│   │   ├── symbols                  #   Cặp giao dịch mặc định
-│   │   ├── data                     #   Cấu hình data pipeline
-│   │   ├── backtest                 #   Default backtest params
-│   │   ├── llm                      #   Cấu hình LLM (Phase 2+)
-│   │   └── logging                  #   Logging config
-│   └── ...                          #   Thêm file config khác nếu cần
+│   └── config.yaml                  #   File cấu hình chính (YAML)
+│       ├── exchanges                #   Danh sách sàn giao dịch
+│       ├── symbols                  #   Cặp giao dịch mặc định (5 symbols)
+│       ├── data                     #   Cấu hình data pipeline
+│       ├── backtest                 #   Default backtest params
+│       ├── llm                      #   Cấu hình LLM (DeepSeek/GPT/Ollama)
+│       └── execution                #   Capital, commission, slippage
 │
 ├── src/trading_agent/               # 📦 Mã nguồn chính
-│   ├── __init__.py                  #   Package init
+│   ├── __init__.py
 │   │
-│   ├── cli.py                       # 🎮 Command-Line Interface
-│   │   ├── main()                   #   Entry point: trading-agent
-│   │   ├── data group               #   Nhóm lệnh data:
-│   │   │   ├── fetch                #     Fetch OHLCV
-│   │   │   ├── inspect              #     Inspect stored data
-│   │   │   ├── list-datasets        #     List datasets
-│   │   │   ├── download-all         #     Download all symbols
-│   │   │   ├── list-exchanges       #     List configured exchanges
-│   │   │   └── list-symbols         #     List configured symbols
-│   │   └── info                     #   Show system info
+│   ├── cli.py                       # 🎮 CLI (Click + Rich)
+│   │   ├── main()                   #   Entry point
+│   │   ├── info                     #   System info
+│   │   ├── data group               #   Data commands (fetch, inspect, ...)
+│   │   ├── backtest group           #   Backtest commands (run, list)
+│   │   ├── config group             #   Config commands (validate)
+│   │   ├── agents group             #   Agent commands (analyze, list)
+│   │   └── execution group          #   Execution commands (status, run, trades, ...)
 │   │
 │   ├── config/                      # ⚙️ Config Loader
 │   │   ├── __init__.py
@@ -39,86 +38,102 @@ trading-agent/
 │   │       ├── Config class         #   Typed config với defaults
 │   │       └── config singleton     #   Load 1 lần, dùng global
 │   │
-│   ├── data/                        # 📡 Data Layer
+│   ├── data/                        # 📡 Phase 0: Data Layer
 │   │   ├── __init__.py
-│   │   ├── types.py                 #   Kiểu dữ liệu
-│   │   │   ├── OHLCV dataclass      #     Một candle
-│   │   │   ├── OHLCVList            #     Collection của candles
-│   │   │   └── Timeframe enum       #     Chuẩn hóa timeframe
+│   │   ├── types.py                 #   OHLCV types + Timeframe enum
 │   │   ├── collector.py             #   📥 CCXT Data Collector
-│   │   │   ├── get_exchange()       #     Exchange factory (cache)
+│   │   │   ├── get_exchange()       #     Exchange factory (cached)
 │   │   │   ├── Collector class      #     Fetch OHLCV từ 1 exchange
-│   │   │   │   ├── fetch_ohlcv()    #       Public fetch
-│   │   │   │   ├── available_symbols() #    Danh sách symbol
-│   │   │   │   └── _fetch_paginated() #   Paginated với progress bar
-│   │   │   └── download_all_symbols() #  High-level download
+│   │   │   │   ├── fetch_ohlcv()    #       Paginated fetch
+│   │   │   │   ├── update_ohlcv()   #       Incremental update
+│   │   │   │   ├── validate_data()  #       Data quality report
+│   │   │   │   └── available_symbols() #    Danh sách symbol
+│   │   │   └── download_all_symbols() #  High-level download (all config)
+│   │   │   └── validate_all_symbols() #  Validate all datasets
 │   │   └── storage.py               #   💾 Data Storage
-│   │       ├── save_ohlcv()         #     Save DataFrame → Parquet
+│   │       ├── save_ohlcv()         #     Save → Parquet (append + dedup)
 │   │       ├── load_ohlcv()         #     Load Parquet → DataFrame
+│   │       ├── get_date_range()     #     Date range info
 │   │       └── list_datasets()      #     Scan storage listing
 │   │
-│   ├── strategies/                  # 🧪 Strategy Library (Phase 1)
+│   ├── strategies/                  # 🧪 Phase 1: Strategy Library
 │   │   ├── __init__.py
-│   │   └── base.py                  #   Base strategy class
-│   │       ├── Strategy(ABC)        #     Abstract interface
-│   │       │   ├── on_data()        #       Xử lý data vào
-│   │       │   ├── on_signal()      #       Tạo signal
-│   │       │   └── indicators()     #       Tính indicators
-│   │       └── registry             #     Strategy registry pattern
+│   │   ├── base.py                  #   Abstract Strategy + registry
+│   │   │   ├── Strategy(ABC)        #     Interface: on_data, on_signal
+│   │   │   └── registry             #     Strategy registry pattern
+│   │   ├── ma_crossover.py          #   📈 MA Crossover (fast=5, slow=20)
+│   │   ├── rsi.py                   #   📉 RSI Mean Reversion (period=7)
+│   │   └── bbands.py                #   📊 Bollinger Bands (period=10, std=2.5)
 │   │
-│   ├── backtest/                    # 📊 Backtest Engine (Phase 1)
+│   ├── backtest/                    # 📊 Phase 1: Backtest Engine
 │   │   ├── __init__.py
-│   │   ├── engine.py                #   Backtest runner
-│   │   ├── metrics.py               #   Performance metrics
-│   │   └── optimiser.py             #   Parameter optimiser
+│   │   ├── engine.py                #   Vectorized backtest runner (Polars)
+│   │   │   ├── BacktestEngine       #     Single backtest
+│   │   │   └── run_backtest()       #     High-level runner
+│   │   └── metrics.py               #   Performance metrics
+│   │       ├── calculate_metrics()  #     Sharpe, Sortino, DD, Win Rate...
+│   │       └── print_metrics()      #     Rich table output
 │   │
-│   └── agents/                      # 🤖 AI Agents (Phase 2)
+│   ├── agents/                      # 🤖 Phase 2: AI Multi-Agent
+│   │   ├── __init__.py
+│   │   ├── base.py                  #   AgentMessage dataclass
+│   │   ├── llm.py                   #   🔗 LLM Client
+│   │   │   ├── LLMClient            #     Unified LLM interface
+│   │   │   ├── chat()               #     Chat completion
+│   │   │   └── ask_agent()          #     Agent-specific prompting
+│   │   ├── technical.py             #   📈 Technical Analyst
+│   │   ├── sentiment.py             #   💬 Sentiment Analyst
+│   │   ├── risk.py                  #   🛡️ Risk Manager
+│   │   ├── trader.py                #   🎯 Trader Agent (weighted voting)
+│   │   └── orchestrator.py          #   🔄 Orchestrator
+│   │       ├── analyze()            #     Run full 4-agent cycle
+│   │       └── print_report()       #     Pretty output
+│   │
+│   └── execution/                   # ⚡ Phase 3: Execution & Risk
 │       ├── __init__.py
-│       ├── base.py                  #   Base agent class
-│       ├── technical.py             #   Technical analyst
-│       ├── sentiment.py             #   Sentiment analyst
-│       ├── fundamental.py           #   Fundamental analyst
-│       ├── macro.py                 #   Macro analyst
-│       ├── trader.py                #   Trader agent
-│       ├── risk_manager.py          #   Risk manager
-│       └── portfolio_manager.py     #   Portfolio manager
+│       ├── types.py                 #   Order, Trade, Position dataclasses
+│       ├── paper_exchange.py        #   📄 Simulated exchange
+│       │   ├── PaperExchange        #     Place/cancel/fill orders
+│       │   ├── update_prices()      #     Price feed + stop-loss check
+│       │   ├── close_all_positions()#     Kill switch
+│       │   └── state persistence    #     JSON file
+│       ├── engine.py                #   🎯 Execution Engine
+│       │   ├── execute_signal()     #     AgentMessage → Order
+│       │   ├── set_stop_loss()      #     Auto stop-loss
+│       │   ├── get_summary()        #     Portfolio summary
+│       │   └── close_all()          #     Emergency close
+│       └── risk_controller.py       #   🛡️ Risk Controller
+│           ├── check_all()          #     Run all risk checks
+│           ├── max_drawdown check   #     15% limit
+│           ├── daily_loss check     #     8% limit
+│           ├── position_concentration #  50% limit
+│           └── circuit_breaker      #     Kill + cooldown
 │
 ├── data/                            # 📂 Dữ liệu market
-│   ├── raw/                         #   Raw OHLCV Parquet
+│   ├── raw/                         #   OHLCV Parquet files
 │   │   └── binance/
-│   │       ├── BTC_USDT/
-│   │       │   ├── 1h.parquet
-│   │       │   ├── 4h.parquet
-│   │       │   └── 1d.parquet
-│   │       └── ETH_USDT/
-│   │           └── 1h.parquet
-│   └── processed/                   #   Feature-engineered (sau này)
+│   │       ├── BTC_USDT/{1h,4h,1d}.parquet
+│   │       ├── ETH_USDT/{1h,4h,1d}.parquet
+│   │       └── ...
+│   ├── execution/                   #   Paper exchange state
+│   │   └── paper_binance.json
+│   └── processed/                   #   Feature-engineered (future)
 │
-├── tests/                           # 🧪 Unit tests
-│   ├── __init__.py
-│   ├── test_collector.py
-│   ├── test_storage.py
-│   └── test_config.py
-│
-├── notebooks/                       # 📓 Jupyter notebooks
-│   └── .gitkeep
-│
-├── docs/                            # 📘 Tài liệu (bạn đang ở đây)
-│   ├── README.md                    #   Index tài liệu
+├── docs/                            # 📘 Tài liệu
+│   ├── README.md                    #   Index
 │   ├── architecture.md              #   Kiến trúc hệ thống
 │   ├── reasoning.md                 #   Quy trình suy luận
 │   ├── demo.md                      #   Demo hướng dẫn chạy
-│   ├── project-structure.md         #   Cấu trúc mã nguồn
-│   └── getting-started.md           #   Quick start
+│   ├── project-structure.md         #   Cấu trúc mã nguồn (file này)
+│   ├── getting-started.md           #   Quick start
+│   └── optimization.md              #   Tối ưu hóa hệ thống
 │
-├── docker-compose.yml               # 🐳 Docker Compose (infra)
-├── Dockerfile                       # 🐳 Docker image (app)
+├── docker-compose.yml               # 🐳 Docker Compose (infra future)
+├── Dockerfile                       # 🐳 Docker image
 ├── Makefile                         # 🔨 Command shortcuts
 ├── pyproject.toml                   # 📦 Poetry project
-├── poetry.lock                      #   Lock file
 ├── README.md                        # 📖 Project overview
 ├── TRADING_SYSTEM_OVERVIEW.md        # 📐 Tổng quan chiến lược
-├── PHASE0_TODO.md                    # Session notes (gitignored)
 ├── .gitignore
 └── .env                             # 🔐 Environment variables (gitignored)
 ```
@@ -132,28 +147,35 @@ graph TD
     CLI[cli.py] --> CONFIG[config/loader.py]
     CLI --> COLLECTOR[data/collector.py]
     CLI --> STORAGE[data/storage.py]
+    CLI --> STRAT[strategies/*]
+    CLI --> BT[backtest/engine.py]
+    CLI --> AGENTS[agents/*]
+    CLI --> EXEC[execution/*]
 
     COLLECTOR --> CONFIG
-    COLLECTOR --> TYPES[data/types.py]
     COLLECTOR --> CCXT[ccxt library]
-
     STORAGE --> CONFIG
     STORAGE --> POLARS[polars library]
 
-    STRAT[strategies/*] --> CONFIG
+    STRAT --> CONFIG
     STRAT --> STORAGE
-    STRAT --> TYPES
 
-    BT[backtest/*] --> STRAT
+    BT --> STRAT
     BT --> CONFIG
 
-    AGENTS[agents/*] --> CONFIG
+    AGENTS --> CONFIG
     AGENTS --> STRAT
-    AGENTS --> TYPES
+    AGENTS --> LLM_CLIENT[agents/llm.py]
+    LLM_CLIENT --> OPENROUTER[OpenRouter API]
+    LLM_CLIENT --> OPENAI[OpenAI API]
+    LLM_CLIENT --> OLLAMA[Ollama local]
 
-    TESTS[tests/*] --> COLLECTOR
-    TESTS --> STORAGE
-    TESTS --> CONFIG
+    EXEC --> CONFIG
+    EXEC --> STORAGE
+    EXEC --> AGENTS
+
+    CLI --> RICH[rich library]
+    CLI --> CLICK[click library]
 ```
 
 ---

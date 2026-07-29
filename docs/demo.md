@@ -1,7 +1,7 @@
 # 🎮 Demo Hướng Dẫn Chạy
 
-> Hướng dẫn từ A→Z: từ cài đặt, chạy data collector, đến inspect kết quả.
-> Thời gian hoàn thành: ~10 phút.
+> Hướng dẫn từ A→Z: từ cài đặt, chạy data collector, backtest, AI agents, đến paper trading.
+> Thời gian hoàn thành: ~15 phút.
 
 ---
 
@@ -31,7 +31,7 @@ poetry run trading-agent info
 
 **Kết quả mong đợi:**
 ```
-Trading Agent System v0.1.0
+Trading Agent System v0.3.0
 
 ┏━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 ┃ Key               ┃ Value                        ┃
@@ -40,7 +40,7 @@ Trading Agent System v0.1.0
 │ Default Timeframe │ 1h                           │
 │ Data Storage      │ parquet                      │
 │ Enabled Exchanges │ binance, binance_futures     │
-│ LLM Provider      │ openai / gpt-4o-mini         │
+│ LLM Provider      │ deepseek/deepseek-chat-v4    │
 │ Initial Capital   │ $10,000.00                   │
 │ Commission        │ 0.100%                       │
 │ Slippage          │ 0.050%                       │
@@ -64,11 +64,6 @@ poetry run trading-agent data fetch BTC/USDT --since 2026-01-01
 
 # Fetch timeframe khác
 poetry run trading-agent data fetch ETH/USDT --timeframe 4h --limit 200
-
-# Fetch từ exchange khác (nếu đã cấu hình)
-poetry run trading-agent data fetch BTC/USDT:USDT \
-    --exchange binance_futures \
-    --timeframe 1h
 ```
 
 **Output mẫu:**
@@ -76,12 +71,6 @@ poetry run trading-agent data fetch BTC/USDT:USDT \
 Fetching BTC/USDT 1h from binance…
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 100% 0:00:02
 Got 5020 candles
-
-          timestamp     open     high      low    close     volume
-2026-01-01 00:00:00 87648.21 87849.26 87632.74 87809.23 233.66036
-2026-01-01 01:00:00 87809.24 88050.00 87809.23 87960.00 241.44162
-... (5000+ rows)
-
 Saved to data/raw/binance/BTC_USDT/1h.parquet
 ```
 
@@ -92,155 +81,156 @@ poetry run trading-agent data download-all
 ```
 
 Sẽ fetch tất cả **symbols × timeframes** trong `config/config.yaml`.
-Kiểm tra cấu hình trong:
-```yaml
-# config/config.yaml
-symbols:
-  binance:
-    - "BTC/USDT"
-    - "ETH/USDT"
-    - "SOL/USDT"
-    # ... thêm/xoá symbol tại đây
-
-data:
-  timeframes:
-    - "1m"
-    - "5m"
-    - "15m"
-    - "1h"
-    - "4h"
-    - "1d"
-```
 
 ---
 
-## Bước 3: Kiểm Tra Dữ Liệu
+## Bước 3: Kiểm Tra & Validate Dữ Liệu
 
-### Liệt kê datasets đã có
+### Liệt kê datasets
 
 ```bash
 poetry run trading-agent data list-datasets
-```
-
-**Output:**
-```
-┏━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━┓
-┃ Exchange ┃ Symbol   ┃ Timeframe ┃
-┡━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━┩
-│ binance  │ BTC/USDT │ 1h        │
-│ binance  │ ETH/USDT │ 1h        │
-│ binance  │ BTC/USDT │ 4h        │
-└──────────┴──────────┴───────────┘
 ```
 
 ### Inspect chi tiết
 
 ```bash
 poetry run trading-agent data inspect BTC/USDT
+
+# Output:
+# BTC/USDT (binance, 1h)
+#   Rows: 5,020
+#   Range: 2026-01-01 00:00:00 → 2026-07-29 03:00:00
 ```
 
-**Output:**
-```
-BTC/USDT (binance, 1h)
-  Rows: 5,020
-  Range: 2026-01-01 00:00:00 → 2026-07-29 03:00:00
-  Columns: timestamp, open, high, low, close, volume, exchange, symbol, timeframe
-```
-
-### Dùng Makefile (shortcut)
+### Kiểm tra chất lượng dữ liệu
 
 ```bash
-make info         # trading-agent info
-make fetch S=BTC/USDT T=1h   # fetch data
-make inspect S=BTC/USDT T=1h # inspect
-make datasets      # list datasets
+# Kiểm tra gaps, outliers
+poetry run trading-agent data validate --symbol BTC/USDT --timeframe 1h
+
+# Validate tất cả datasets
+poetry run trading-agent data validate
 ```
 
 ---
 
-## Bước 4: Khám Phá Dữ Liệu Với Python
+## Bước 4: Chạy Backtest
 
 ```bash
-# Mở Python shell với project context
-poetry run python
-```
+# Liệt kê strategies có sẵn
+poetry run trading-agent backtest list
 
-```python
-# Trong Python shell:
-from trading_agent.data.storage import load_ohlcv, list_datasets
+# Output:
+# ┏━━━━━━━━━━━━━━━━┓
+# ┃ Strategy       ┃
+# ┡━━━━━━━━━━━━━━━━┩
+# │ ma_crossover   │
+# │ rsi            │
+# │ bbands         │
+# └────────────────┘
 
-# Liệt kê datasets
-print(list_datasets())
+# Chạy backtest với tham số mặc định
+poetry run trading-agent backtest run ma_crossover BTC/USDT --timeframe 1h
 
-# Load dữ liệu
-df = load_ohlcv("binance", "BTC/USDT", "1h")
-print(df.describe())
+# Chạy với tham số tùy chỉnh
+poetry run trading-agent backtest run ma_crossover BTC/USDT \
+    --timeframe 1h \
+    -p fast_period=10 -p slow_period=30
 
-# Tính toán cơ bản
-df = df.with_columns(
-    (df["close"] - df["open"]).alias("body"),
-    ((df["close"] - df["open"]) / df["open"] * 100).alias("return_pct")
-)
-print(df.head())
+# Xem chi tiết metrics
+# Output includes: Sharpe Ratio, Return %, Max Drawdown, Win Rate, ...
 ```
 
 ---
 
-## Bước 5: Docker Infra (Khi cần)
+## Bước 5: Chạy Multi-Agent Analysis
 
-> Dùng Docker nếu bạn muốn TimescaleDB, Redis, Grafana chạy local.
-
-**Bước 5a:** Kích hoạt WSL integration trong Docker Desktop:
-- Mở Docker Desktop → Settings → Resources → WSL Integration
-- Bật cho WSL distro của bạn
-
-**Bước 5b:** Tạo file `.env`:
+> ⚠️ Yêu cầu: đã cấu hình LLM API key trong `config/config.yaml`.
 
 ```bash
-cat > .env << EOF
-TSDB_PASSWORD=trading_secret
-GRAFANA_PASSWORD=admin
-EOF
+# Phân tích đầy đủ (4 agents)
+poetry run trading-agent agents analyze BTC/USDT -t 1h
+
+# Chỉ xem kết quả cuối (không reasoning)
+poetry run trading-agent agents analyze BTC/USDT -t 1h --quiet
+
+# Output: BUY conf=70% price=$63,796 risk=LOW
 ```
 
-**Bước 5c:** Khởi động infra:
+**Kết quả mẫu:**
+```
+Multi-Agent Analysis — BTC/USDT (1h)
+Price: $63,796.01
+Final Signal: 🟡 HOLD  (confidence: 28%, risk: LOW)
 
-```bash
-# Start tất cả services
-docker compose --profile infra up -d
+├── technical_analyst — HOLD (conf: 50%)
+├── sentiment_analyst — HOLD (conf: 65%)
+└── risk_manager — BUY (conf: 70%)
 
-# Kiểm tra
-docker compose ps
-
-# View logs
-docker compose logs -f
-
-# Tắt
-docker compose down
+Key Indicators:
+  bb_lower: 63219.76  bb_mid: 63722.67  bb_upper: 64225.58
+  ma_20: 63722.67  ma_50: 64185.34  rsi: 57.90
 ```
 
 ---
 
-## Bước 6: Chạy Toàn Bộ Pipeline
+## Bước 6: Paper Trading
+
+### Xem trạng thái portfolio
 
 ```bash
-# 1. Fetch BTC + ETH data
-poetry run trading-agent data fetch BTC/USDT --since 2026-06-01
-poetry run trading-agent data fetch ETH/USDT --since 2026-06-01
+poetry run trading-agent execution status
 
-# 2. Inspect kết quả
-poetry run trading-agent data inspect BTC/USDT
+# Output:
+# 💰 Portfolio Summary
+# Equity: $10,000.00  (+0.00%)
+# Cash: $10,000.00  |  Positions: $0.00
+# Unrealized P&L: +0.00  |  Trades: 0
+```
 
-# 3. List tất cả datasets
-poetry run trading-agent data list-datasets
+### Chạy full cycle: phân tích → tự động trade
 
-# 4. Xem thông tin hệ thống
-poetry run trading-agent info
+```bash
+# Phân tích BTC → nếu BUY signal thì mua → set stop-loss
+poetry run trading-agent execution run BTC/USDT -t 1h --stop-loss 0.05
+```
+
+### Xem trade history
+
+```bash
+poetry run trading-agent execution trades
+```
+
+### Kiểm tra risk status
+
+```bash
+poetry run trading-agent execution risk
+# 🛡️ Risk Controller Status
+# Drawdown: 0.00% (limit: 15%) ✅
+# Daily Loss: 0.00% (limit: 8%) ✅
+# Circuit Breaker: OK
+```
+
+### Kill switch (đóng mọi vị thế)
+
+```bash
+# Đóng 1 symbol
+poetry run trading-agent execution close BTC/USDT
+
+# Đóng tất cả
+poetry run trading-agent execution close --all
+```
+
+### Reset về trạng thái ban đầu
+
+```bash
+poetry run trading-agent execution reset
 ```
 
 ---
 
-## 📊 Demo Script Đầy Đủ (Copy-Paste)
+## 🏁 Demo Script Đầy Đủ
 
 ```bash
 #!/bin/bash
@@ -252,45 +242,66 @@ poetry run trading-agent info
 set -e
 
 echo "🔧 Bước 1: Kiểm tra môi trường..."
-poetry --version
-python3 --version
+poetry --version ; python3 --version
 
 echo ""
-echo "📥 Bước 2: Fetch BTC và ETH data..."
-poetry run trading-agent data fetch BTC/USDT --since 2026-06-01
-poetry run trading-agent data fetch ETH/USDT --since 2026-06-01
+echo "📥 Bước 2: Fetch BTC/USDT 1h..."
+poetry run trading-agent data fetch BTC/USDT --since 2026-07-01
 
 echo ""
-echo "📋 Bước 3: Liệt kê datasets..."
-poetry run trading-agent data list-datasets
-
-echo ""
-echo "🔍 Bước 4: Inspect BTC/USDT..."
+echo "🔍 Bước 3: Kiểm tra dữ liệu..."
 poetry run trading-agent data inspect BTC/USDT
+poetry run trading-agent data validate --symbol BTC/USDT --timeframe 1h
 
 echo ""
-echo "📊 Bước 5: Phân tích nhanh với Python..."
-poetry run python -c "
-from trading_agent.data.storage import load_ohlcv
-import polars as pl
+echo "📊 Bước 4: Chạy backtest MA Crossover..."
+poetry run trading-agent backtest run ma_crossover BTC/USDT --timeframe 1h
 
-df = load_ohlcv('binance', 'BTC/USDT', '1h')
-print(f'Total candles: {len(df):,}')
-print(f'Date range: {df[\"timestamp\"].min()} → {df[\"timestamp\"].max()}')
-print(f'Price range: \${df[\"low\"].min():,.2f} → \${df[\"high\"].max():,.2f}')
-print(f'Avg volume: {df[\"volume\"].mean():,.2f} BTC')
-"
+echo ""
+echo "🧠 Bước 5: Multi-agent analysis..."
+poetry run trading-agent agents analyze BTC/USDT -t 1h --quiet
+
+echo ""
+echo "💰 Bước 6: Paper trading status..."
+poetry run trading-agent execution status
 
 echo ""
 echo "✅ Demo hoàn tất!"
-echo "   Xem thêm: docs/README.md"
 ```
 
-Lưu thành `demo.sh` và chạy:
+---
+
+## 📊 Toàn bộ CLI commands
 
 ```bash
-chmod +x demo.sh
-./demo.sh
+# ── System ──
+trading-agent info                    # System info
+trading-agent config validate         # Validate config
+
+# ── Data (Phase 0) ──
+trading-agent data fetch <symbol>     # Fetch OHLCV
+trading-agent data update <symbol>    # Incremental update
+trading-agent data inspect <symbol>   # Inspect data
+trading-agent data validate [...]     # Validate data quality
+trading-agent data list-datasets      # List datasets
+trading-agent data download-all       # Download all config'd symbols
+trading-agent data export <symbol>    # Export to CSV/JSON
+
+# ── Backtest (Phase 1) ──
+trading-agent backtest list           # List strategies
+trading-agent backtest run <strategy> # Run backtest
+
+# ── AI Agents (Phase 2) ──
+trading-agent agents list             # List agents
+trading-agent agents analyze <symbol> # Multi-agent analysis
+
+# ── Execution (Phase 3) ──
+trading-agent execution status        # Portfolio summary
+trading-agent execution run <symbol>  # Agents → trade
+trading-agent execution trades        # Trade history
+trading-agent execution close [sym]   # Close position(s)
+trading-agent execution risk          # Risk controller
+trading-agent execution reset         # Reset state
 ```
 
 ---
@@ -300,26 +311,13 @@ chmod +x demo.sh
 | Vấn đề | Nguyên nhân | Fix |
 |--------|------------|-----|
 | `ModuleNotFoundError` | Chưa `poetry install` | Chạy `poetry install` |
-| `Rate limit` | CCXT bị giới hạn | Tự động retry, hoặc giảm số lượng symbol |
-| `No data returned` | Symbol sai / hết hạn | Kiểm tra: `poetry run python -c "import ccxt; print(ccxt.binance().fetch_ohlcv('BTC/USDT', '1h', limit=1))"` |
-| Docker không chạy | WSL chưa được enable | Enable WSL integration trong Docker Desktop |
-| `ccxt.base.errors.BadSymbol` | Symbol không tồn tại | Kiểm tra `poetry run python -c "import ccxt; e=ccxt.binance(); e.load_markets(); print([s for s in e.markets if 'BTC' in s][:10])"` |
-
----
-
-## 🎯 Kết Quả Demo
-
-Sau khi hoàn thành demo, bạn sẽ có:
-
-| Thành quả | Mô tả |
-|-----------|-------|
-| ✅ Môi trường dev | Poetry + Python 3.12 |
-| ✅ Data pipeline | CCXT → Parquet với pagination + retry |
-| ✅ Dữ liệu | BTC/USDT + ETH/USDT (hoặc hơn) |
-| ✅ CLI thành thạo | `trading-agent data fetch/inspect/list-datasets` |
-| ✅ Docker infra sẵn sàng | TimescaleDB + Redis + Grafana |
+| `Rate limit` | CCXT bị giới hạn | Tự động retry hoặc giảm symbol |
+| `No data returned` | Symbol sai / hết hạn | Kiểm tra: `ccxt.binance().fetch_ohlcv('BTC/USDT', '1h', limit=1)` |
+| LLM timeout | API key hết hạn / quota | Kiểm tra OpenRouter API key trong config |
+| Paper state cũ | Reset chưa chạy | `trading-agent execution reset` |
 
 ---
 
 > 📖 Quay lại [tài liệu chính](README.md)
 > 🧠 Đọc [Quy trình suy luận](reasoning.md) để hiểu cách hệ thống ra quyết định
+> ⚡ Xem [Tối ưu hóa](optimization.md) để biết các optimization đã thực hiện

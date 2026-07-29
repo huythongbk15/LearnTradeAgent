@@ -89,6 +89,37 @@ def load_ohlcv(
     return df
 
 
+def get_date_range(
+    exchange: str,
+    symbol: str,
+    timeframe: str,
+) -> dict:
+    """Return date range info for a stored dataset.
+
+    Returns
+    -------
+    dict with keys: ``start`` (datetime), ``end`` (datetime), ``count`` (int).
+
+    Raises FileNotFoundError if no data exists.
+    """
+    path = _table_path(exchange, symbol, timeframe)
+    if not path.exists():
+        raise FileNotFoundError(
+            f"No data for {exchange} {symbol} {timeframe} at {path}"
+        )
+
+    df = pl.read_parquet(path)
+    n = len(df)
+    if n == 0:
+        return {"start": None, "end": None, "count": 0}
+
+    return {
+        "start": df["timestamp"].min(),
+        "end": df["timestamp"].max(),
+        "count": n,
+    }
+
+
 def list_datasets() -> list[dict[str, str]]:
     """List all available datasets in storage."""
     base = config.storage_abs_path

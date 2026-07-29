@@ -2,6 +2,8 @@
 
 > File này giải thích kiến trúc tổng thể của Trading Agent System — các layer,
 > luồng dữ liệu, cách các module giao tiếp với nhau.
+>
+> **Phiên bản hiện tại:** v0.3.0 (Phase 0–3 đã hoàn thành)
 
 ---
 
@@ -9,70 +11,51 @@
 
 ```mermaid
 graph TB
-    subgraph DATA["📡 DATA LAYER"]
+    subgraph DATA["📡 DATA LAYER (Phase 0)"]
         CCXT[CCXT<br/>100+ exchanges]
-        PARQ[Parquet Files]
-        TSDB[(TimescaleDB)]
+        PARQ[Parquet Files<br/>data/raw/]
         PL[Polars DataFrames]
         CCXT -->|fetch OHLCV| PARQ
         PARQ -->|load| PL
-        TSDB -.->|future| PL
     end
 
-    subgraph BACKTEST["🧪 BACKTEST LAYER"]
-        VB[VectorBT<br/>Fast research]
-        NT[NautilusTrader<br/>Production backtest]
-        SM[Strategy Manager]
-        PM[Performance Metrics]
-        SM --> VB
-        SM --> NT
-        VB --> PM
-        NT --> PM
+    subgraph BACKTEST["🧪 BACKTEST LAYER (Phase 1)"]
+        SM[Strategy Manager<br/>4 strategies<br/>MA · RSI · BBands · MACD]
+        BE[Backtest Engine<br/>Vectorized Polars]
+        PM[Performance Metrics<br/>Sharpe · Return · DD]
+        OPT[Optimizer<br/>Grid Search · Walk-Forward]
+        SM --> BE
+        BE --> PM
+        BE --> OPT
+        OPT -.->|tune params| SM
     end
 
-    subgraph AGENTS["🤖 AI AGENT LAYER"]
-        TA[Technical Analyst<br/>Indicators, Patterns]
-        SA[Sentiment Analyst<br/>News, Social]
-        FA[Fundamental Analyst<br/>On-chain, Valuations]
-        MA[Macro Analyst<br/>Macro trends]
-        TR[Trader Agent<br/>Decision synthesis]
-        RM[Risk Manager<br/>Exposure, VaR]
-        PMGR[Portfolio Manager<br/>Capital allocation]
+    subgraph AGENTS["🤖 AI AGENT LAYER (Phase 2)"]
+        TA[Technical Analyst<br/>Price Action · Indicators]
+        SA[Sentiment Analyst<br/>RSI extremes · Volume]
+        RM[Risk Manager<br/>Volatility · Position Size]
+        TR[Trader Agent<br/>Weighted voting · Decision]
 
         TA --> TR
         SA --> TR
-        FA --> TR
-        MA --> TR
-        TR --> RM
-        RM --> PMGR
+        RM --> TR
     end
 
-    subgraph EXEC["⚡ EXECUTION LAYER"]
-        ORD[Order Manager]
-        POS[Position Tracker]
-        CB[Circuit Breaker]
-        EXCHANGE[Exchange API<br/>CCXT / Alpaca]
-        ORD --> EXCHANGE
-        POS --> CB
-        CB --> ORD
-    end
-
-    subgraph MONITOR["📊 MONITORING"]
-        GRAF[Grafana Dashboard]
-        TEL[Telegram Alerts]
-        LOG[Structured Logs]
+    subgraph EXEC["⚡ EXECUTION LAYER (Phase 3)"]
+        PEX[Paper Exchange<br/>Simulated fills<br/>Slippage · Commission]
+        PMGR[Portfolio Manager<br/>Balance · P&L · Equity]
+        RC[Risk Controller<br/>Max DD · Daily Loss<br/>Circuit Breaker]
+        STATE[(JSON State<br/>data/execution/)]
+        PEX --> STATE
+        PMGR --> RC
     end
 
     %% Cross-layer connections
     PL --> SM
+    PL --> AGENTS
     PM --> AGENTS
-    PMGR --> ORD
-    EXCHANGE -->|order status| POS
-    EXCHANGE -->|market data| CCXT
-    ORD --> LOG
-    POS --> LOG
-    LOG --> GRAF
-    LOG --> TEL
+    TR --> PEX
+    PEX --> PMGR
 ```
 
 ---
@@ -81,34 +64,37 @@ graph TB
 
 ```mermaid
 sequenceDiagram
-    participant S as Strategy (Backtest)
     participant D as Data Pipeline
+    participant S as Backtest
     participant A as AI Agents
     participant E as Execution
-    participant M as Monitor
+    participant R as Risk Controller
 
-    Note over S,D: PHASE 1: Backtest
-    D->>D: Fetch OHLCV từ CCXT
-    D->>D: Lưu Parquet
-    S->>D: Load data
-    S->>S: Run backtest
-    S->>S: Tính metrics
+    Note over D,A: PHASE 0: Data Collection
+    D->>D: Fetch OHLCV từ CCXT (696K candles)
+    D->>D: Validate gaps, outliers
+    D->>D: Save Parquet
 
-    Note over A,E: PHASE 2-3: Live Trading
-    loop Every N minutes
-        D->>D: Fetch latest candles
-        D->>A: Gửi market data
-        par Agent analysis
-            A->>A: Technical analysis
-            A->>A: Sentiment analysis
-            A->>A: Macro analysis
-        end
-        A->>A: Agents debate & vote
-        A->>A: Risk check (VaR, drawdown)
-        A->>E: Signal: BUY/SELL/HOLD
-        E->>E: Validate order (size, limits)
-        E->>E: Place order (CCXT)
-        E->>M: Log trade + P&L
+    Note over S,A: PHASE 1: Strategy Optimization
+    S->>D: Load historical data
+    S->>S: Run parameter sweep
+    S->>S: Walk-forward validation
+    S->>S: Select best params
+
+    Note over A,E: PHASE 2-3: Trading Cycle
+    loop Mỗi candle mới
+        A->>D: Load latest data
+        A->>A: Technical Analyst → signal
+        A->>A: Sentiment Analyst → signal
+        A->>A: Risk Manager → position size
+        A->>A: Trader Agent → weighted vote
+        A->>E: Signal: BUY / SELL / HOLD
+        E->>E: Calculate position size
+        E->>E: Place order (paper simulated)
+        E->>R: Update prices
+        R->>R: Check risk limits
+        R->>R: Circuit breaker if needed
+        E->>E: Log trade + P&L
     end
 ```
 
@@ -116,123 +102,126 @@ sequenceDiagram
 
 ## 🧱 Chi tiết từng Layer
 
-### 📡 Data Layer (`src/trading_agent/data/`)
+### 📡 Data Layer — Phase 0 ✅
 
 ```
-collector.py    ← CCXT fetch + pagination + retry
-storage.py      ← Parquet save/load
-types.py        ← OHLCV dataclass + Timeframe enum
+src/trading_agent/data/
+├── collector.py    ← CCXT fetch + pagination + retry + validate
+├── storage.py      ← Parquet save/load (append + dedup)
+└── types.py        ← OHLCV types + timeframe enum
 ```
 
 | Thành phần | Input | Output | Ghi chú |
 |-----------|-------|--------|---------|
 | Collector | symbol + timeframe + since | Polars DataFrame | Paginated fetch, auto rate-limit |
-| Storage | DataFrame | `.parquet` file | Append + dedup, theo cấu trúc `exchange/symbol/tf.parquet` |
-| CLI | User command | Console output | `trading-agent data fetch/inspect/list-datasets` |
+| Storage | DataFrame | `.parquet` file | Append + dedup, cấu trúc `exchange/symbol/tf.parquet` |
+| validate_data | DataFrame | Gap/outlier/null report | Data quality assurance |
 
-**Cấu trúc thư mục data:**
-```
-data/raw/
-├── binance/
-│   ├── BTC_USDT/
-│   │   ├── 1h.parquet
-│   │   └── 1d.parquet
-│   └── ETH_USDT/
-│       └── 1h.parquet
-└── bybit/
-    └── ...
-```
+**Dữ liệu hiện tại:** 5 symbols × 4 timeframes = 20 datasets, 696K candles, 0 gaps.
 
 ---
 
-### 🧪 Backtest Layer (Phase 1 — đang xây dựng)
+### 🧪 Backtest Layer — Phase 1 ✅
+
+```
+src/trading_agent/
+├── strategies/
+│   ├── base.py       ← Abstract Strategy class + registry
+│   ├── ma_crossover.py  ← MA Crossover (fast=5, slow=20)
+│   ├── rsi.py        ← RSI Mean Reversion (period=7, oversold=25)
+│   └── bbands.py     ← Bollinger Bands (period=10, std=2.5)
+└── backtest/
+    ├── engine.py     ← Vectorized backtest runner (Polars)
+    └── metrics.py    ← Performance metrics
+```
+
+**4 strategies implemented:**
+| Strategy | Params tối ưu | OOS Return | Sharpe |
+|----------|--------------|------------|--------|
+| MA Crossover | fast=5, slow=20 | **+11.22%** | 1.67 |
+| RSI | period=7, oversold=25, overbought=75 | **+3.29%** | 1.06 |
+| Bollinger Bands | period=10, std=2.5 | **+1.70%** | 1.07 |
+| MACD | default | baseline | — |
+
+**Optimization:** Grid search + Walk-forward validation (2y train / 1y test).
+
+---
+
+### 🤖 AI Agent Layer — Phase 2 ✅
+
+```
+src/trading_agent/agents/
+├── base.py         ← AgentMessage dataclass + Agent interface
+├── llm.py          ← LLM client (OpenRouter/DeepSeek/OpenAI/Ollama)
+├── technical.py    ← Technical Analyst agent
+├── sentiment.py    ← Sentiment Analyst agent
+├── risk.py         ← Risk Manager agent
+├── trader.py       ← Trader Agent (decision synthesis)
+└── orchestrator.py ← Orchestrator (runs full analysis cycle)
+```
+
+**4 agents hoạt động end-to-end:**
 
 ```mermaid
 graph LR
-    A[Data] --> B[Strategy]
-    B --> C[Backtest Engine]
-    C --> D[Trade Log]
-    D --> E[Performance Metrics]
-    E --> F[Optimization]
-    F -.->|tune params| B
+    A[Data + Indicators] --> T[Technical Analyst<br/>trend, momentum, volatility]
+    A --> S[Sentiment Analyst<br/>RSI extremes, volume]
+    T --> TR[Trader Agent<br/>Weighted voting]
+    S --> TR
+    R[Risk Manager<br/>Volatility, sizing] --> TR
+    TR --> SIGNAL[BUY / SELL / HOLD]
 ```
 
-**2 engine song song:**
-| Engine | Khi nào dùng | Ưu điểm |
-|--------|-------------|---------|
-| **VectorBT** | Parameter sweep, quick research | 167x nhanh hơn Backtrader |
-| **NautilusTrader** | Production backtest, fill modeling | Rust core, event-driven, sát live nhất |
+**Luồng xử lý mỗi agent:**
+1. Nhận context: giá hiện tại, indicators, vị thế
+2. LLM phân tích với prompt chuyên biệt
+3. Output: signal + confidence + reasoning
+4. Trader Agent tổng hợp bằng weighted voting
+
+**LLM Provider Chain:**
+```
+Primary:   DeepSeek V4 Flash (OpenRouter free)  → ~$0.00003/req
+Fallback:  GPT-4o-mini (OpenAI)                  → ~$0.0004/req
+Local:     Qwen2.5:7b (Ollama)                   → Free
+```
 
 ---
 
-### 🤖 AI Agent Layer (Phase 2 — đang thiết kế)
+### ⚡ Execution Layer — Phase 3 ✅
 
-```mermaid
-graph TB
-    subgraph ANALYSTS["Phân Tích"]
-        TEC[Technical<br/>Price Action, Indicators]
-        SEN[Sentiment<br/>News, Twitter, Reddit]
-        FUN[Fundamental<br/>On-chain, TVL, Fees]
-        MAC[Macro<br/>Interest Rates, CPI]
-    end
-
-    subgraph DEBATE["Debate & Consensus"]
-        TRADER[Trader Agent<br/>Tổng hợp tín hiệu]
-    end
-
-    subgraph RISK["Risk"]
-        RISK_MGR[Risk Manager<br/>Kiểm tra VaR, Drawdown, Size]
-    end
-
-    subgraph DECISION["Decision"]
-        PM[Portfolio Manager<br/>Quyết định cuối cùng]
-        SIGNAL[BUY / SELL / HOLD]
-    end
-
-    TEC --> TRADER
-    SEN --> TRADER
-    FUN --> TRADER
-    MAC --> TRADER
-    TRADER --> RISK_MGR
-    RISK_MGR --> PM
-    PM --> SIGNAL
+```
+src/trading_agent/execution/
+├── types.py            ← Order, Trade, Position dataclasses
+├── paper_exchange.py   ← Simulated exchange (no real API)
+├── engine.py           ← Unified execution interface
+└── risk_controller.py  ← Risk limits + circuit breaker
 ```
 
-**Các agent:**
-| Agent | Nguồn dữ liệu | Công cụ |
-|-------|--------------|---------|
-| Technical Analyst | OHLCV, indicators | TA-Lib, pandas_ta |
-| Sentiment Analyst | News API, Twitter, Reddit | LLM + Web search |
-| Fundamental Analyst | On-chain data (CoinGecko, Dune) | API + LLM |
-| Macro Analyst | Economic calendar, Fed | Web fetch + LLM |
-| Trader Agent | Signals từ analysts | LLM debate + voting |
-| Risk Manager | Current positions, volatility | Tính VaR, max drawdown |
-| Portfolio Manager | All signals + risk | LLM + rules |
-
----
-
-### ⚡ Execution Layer (Phase 3 — đang thiết kế)
-
-```mermaid
-graph LR
-    SIGNAL[Signal từ AI] --> VALIDATE{Validate}
-    VALIDATE -->|OK| SIZE[Position Sizing]
-    VALIDATE -->|REJECT| LOG[Log + Alert]
-    SIZE --> ORDER[Create Order]
-    ORDER --> PLACE[Place via CCXT]
-    PLACE --> STATUS{Status}
-    STATUS -->|Filled| TRACK[Track Position]
-    STATUS -->|Partial| ADJUST[Adjust]
-    STATUS -->|Rejected| RETRY[Retry Logic]
-    TRACK --> MONITOR[Monitor P&L]
+**Paper Exchange:**
+```python
+engine = ExecutionEngine(initial_capital=10_000.0)
+engine.exchange.place_order("BTC/USDT", "buy", "market", amount=0.039)
+engine.update_prices({"BTC/USDT": 66000.0})
+print(engine.get_summary())
+# Equity: $10,082.64  |  Unrealized P&L: +$85.15  |  Return: +0.83%
 ```
 
-**Safety checks trước khi execute:**
-1. ✅ Symbol có khớp lệnh không?
-2. ✅ Số lượng có nằm trong giới hạn không?
-3. ✅ Có đủ balance không?
-4. ✅ Drawdown hiện tại có vượt ngưỡng không?
-5. ✅ Giá hiện tại có outlier không?
+| Feature | Mô tả |
+|---------|-------|
+| Market orders | Fill ngay tại current price + slippage |
+| Limit orders | Fill khi price cross limit |
+| Stop-loss | Trigger + market fill khi price chạm stop |
+| Slippage | 0.05% (cấu hình được) |
+| Commission | 0.1% (Binance spot rate) |
+| State persistence | JSON file, survive restart |
+
+**Risk Controller:**
+| Check | Limit | Hành vi khi vi phạm |
+|-------|-------|---------------------|
+| Max Drawdown | 15% | Circuit breaker → close all |
+| Daily Loss | 8% | Circuit breaker → close all |
+| Position Concentration | 50% | Warning + prevent new entry |
+| Cooldown | 24h | Ngăn trade mới sau stop-loss |
 
 ---
 
@@ -244,30 +233,47 @@ trading-agent/
 │   └── config.yaml
 ├── src/
 │   └── trading_agent/
-│       ├── __init__.py
-│       ├── cli.py           # CLI entry point
+│       ├── cli.py           # CLI entry point (Click + Rich)
 │       ├── config/
 │       │   └── loader.py    # Config parser
-│       ├── data/
+│       ├── data/            # Phase 0: Data Pipeline
 │       │   ├── collector.py # CCXT fetcher
 │       │   ├── storage.py   # Parquet IO
 │       │   └── types.py     # OHLCV types
-│       ├── strategies/      # Strategy zoo (Phase 1)
-│       ├── backtest/        # Backtest runner (Phase 1)
-│       └── agents/          # AI agents (Phase 2)
+│       ├── strategies/      # Phase 1: Strategy Library
+│       │   ├── base.py
+│       │   ├── ma_crossover.py
+│       │   ├── rsi.py
+│       │   └── bbands.py
+│       ├── backtest/        # Phase 1: Backtest Engine
+│       │   ├── engine.py
+│       │   └── metrics.py
+│       ├── agents/          # Phase 2: AI Multi-Agent
+│       │   ├── base.py
+│       │   ├── llm.py
+│       │   ├── technical.py
+│       │   ├── sentiment.py
+│       │   ├── risk.py
+│       │   ├── trader.py
+│       │   └── orchestrator.py
+│       └── execution/       # Phase 3: Execution & Risk
+│           ├── types.py
+│           ├── paper_exchange.py
+│           ├── engine.py
+│           └── risk_controller.py
 ├── data/                    # Market data
-│   ├── raw/                 # Raw OHLCV parquet
-│   └── processed/           # Feature-engineered data
-├── tests/                   # Unit tests
-├── notebooks/               # Jupyter notebooks
-├── docs/                    # 📘 BẠN ĐANG Ở ĐÂY
+│   ├── raw/                 # OHLCV parquet files
+│   └── execution/           # Paper exchange state
+├── docs/                    # Documentation
 ├── docker-compose.yml       # Infra stack
-├── Dockerfile               # App container
 ├── Makefile                 # Command shortcuts
 ├── pyproject.toml           # Python project
 └── README.md                # Project overview
 ```
 
+---
+
 > 📖 Xem chi tiết từng file trong [project-structure.md](project-structure.md)
 > 🧠 Xem quy trình suy luận trong [reasoning.md](reasoning.md)
 > 🎮 Xem demo từng bước trong [demo.md](demo.md)
+> ⚡ Xem tối ưu hóa trong [optimization.md](optimization.md)

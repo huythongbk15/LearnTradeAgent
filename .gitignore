@@ -5,8 +5,11 @@
 # ============================================================================
 
 # Market data (parquet files can be large)
-data/raw/*.parquet
-data/processed/*.parquet
+data/raw/**
+data/processed/**
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+data/execution/
 
 # Logs
 logs/
@@ -14,6 +17,12 @@ logs/
 
 # Session-local TODO files
 *_TODO.md
+
+# Scratch scripts
+fetch_all.py
+param_sweep.py
+validate.py
+mem_agent/
 
 # Environment files
 .env
@@ -96,3 +105,5 @@ SOUL.md
 
 # Drives
 drivers/
+PHASE2_TODO.md
+PHASE3_TODO.md

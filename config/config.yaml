@@ -67,15 +67,18 @@ backtest:
   output_path: "data/processed"
 
 # --- LLM (for Phase 2+) ---
+# Priority: openai / openrouter / deepseek / ollama
 llm:
-  provider: "openai"            # openai | anthropic | deepseek | ollama
-  model: "gpt-4o-mini"
+  provider: "openrouter"        # primary provider (via OpenRouter)
+  model: "deepseek/deepseek-v4-flash"  # rẻ: ~$0.00003/req
   temperature: 0.1
-  max_tokens: 2000
+  max_tokens: 2000              # DeepSeek V4 Flash siêu rẻ (~$0.00003/req), thoải mái tăng
   timeout: 30
 
   # Fallback chain (tries in order)
   fallback:
+    - provider: "openai"
+      model: "gpt-4o-mini"
     - provider: "deepseek"
       model: "deepseek-chat"
     - provider: "ollama"

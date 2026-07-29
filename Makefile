@@ -46,6 +46,39 @@ inspect:        ## Inspect dataset (usage: make inspect S=BTC/USDT T=1h)
 shell:          ## Open Python shell in project context
 	poetry run python
 
+# ── Backtest (Phase 1) ──────────────────────────────────────────────────
+
+backtest:       ## Run backtest (usage: make backtest S=BTC/USDT T=1h STRAT=ma_crossover)
+	poetry run trading-agent backtest run $(STRAT) $(S) --timeframe $(T)
+
+strategies:     ## List strategies
+	poetry run trading-agent backtest list
+
+# ── AI Agents (Phase 2) ─────────────────────────────────────────────────
+
+analyze:        ## Run multi-agent analysis (usage: make analyze S=BTC/USDT T=1h)
+	poetry run trading-agent agents analyze $(S) -t $(T)
+
+# ── Execution (Phase 3) ──────────────────────────────────────────────────
+
+status:         ## Show execution portfolio status
+	poetry run trading-agent execution status
+
+trade:          ## Full cycle: agents → trade (usage: make trade S=BTC/USDT)
+	poetry run trading-agent execution run $(S)
+
+trades:         ## Show trade history
+	poetry run trading-agent execution trades
+
+risk:           ## Show risk controller status
+	poetry run trading-agent execution risk
+
+close-all:      ## Kill switch — close all positions
+	poetry run trading-agent execution close --all
+
+reset:          ## Reset paper exchange state
+	poetry run trading-agent execution reset
+
 docker-up:      ## Start infrastructure (TimescaleDB + Redis + Grafana)
 	docker compose --profile infra up -d
 
