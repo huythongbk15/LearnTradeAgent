@@ -68,8 +68,10 @@ jobs:
         run: |
           ssh -o StrictHostKeyChecking=no ${{ env.STAGING_USER }}@${{ env.STAGING_HOST }} "
             cd /opt/trading-agent-staging &&
-            printf 'import sqlite3\nconn = sqlite3.connect(\"data/trading.db\")\ncur = conn.cursor()\ncur.execute(\"\"\"\n  SELECT strategy, MAX(total_return_pct) as best_return, MAX(sharpe) as best_sharpe\n  FROM backtest_results\n  WHERE created_at > datetime(\"now\", \"-2 days\")\n  GROUP BY strategy\n\"\"\")\nfor row in cur.fetchall():\n    print(f\"{row[0]}: return={row[1]:.2f}%%, sharpe={row[2]:.2f}\")\n' > /tmp/check_metrics.py &&
-            python3 /tmp/check_metrics.py
+            docker cp scripts/check_metrics.py trading-agent:/tmp/check_metrics.py 2>/dev/null || true &&
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm \
+              -e TRADING_CONFIG_PATH=/app/config/credentials.yaml \
+              trading-agent python3 /tmp/check_metrics.py
             rm -f /tmp/check_metrics.py
           " 2>/dev/null || echo 'Metrics table not yet available'
 
@@ -155,24 +157,24 @@ jobs:
         run: |
           ssh -o StrictHostKeyChecking=no ${{ env.STAGING_USER }}@${{ env.STAGING_HOST }} "
             set -e
-            DATE=$(date +%Y%m%d_%H%M%S)
-            BACKUP_DIR=/tmp/backup_$DATE
-            mkdir -p $BACKUP_DIR
+            DATE=\$(date +%Y%m%d_%H%M%S)
+            BACKUP_DIR=/tmp/backup_\$DATE
+            mkdir -p \$BACKUP_DIR
 
-            docker exec trading-timescaledb-1 pg_dump -U trading -Fc trading > $BACKUP_DIR/timescaledb_$DATE.dump
-            docker exec trading-redis-1 redis-cli --rdb $BACKUP_DIR/redis_$DATE.rdb
-            cp -r /opt/trading-agent-staging/config $BACKUP_DIR/
+            docker exec trading-timescaledb-1 pg_dump -U trading -Fc trading > \$BACKUP_DIR/timescaledb_\$DATE.dump
+            docker exec trading-redis-1 redis-cli --rdb \$BACKUP_DIR/redis_\$DATE.rdb
+            cp -r /opt/trading-agent-staging/config \$BACKUP_DIR/
 
             docker run --rm \
-              -v $BACKUP_DIR:/backup \
+              -v \$BACKUP_DIR:/backup \
               -e AWS_ACCESS_KEY_ID=${{ env.S3_ACCESS_KEY }} \
               -e AWS_SECRET_ACCESS_KEY=${{ env.S3_SECRET_KEY }} \
               -e AWS_ENDPOINT_URL=${{ env.S3_ENDPOINT }} \
               amazon/aws-cli:latest \
-              s3 sync /backup s3://${{ env.S3_BUCKET }}/trading-agent/backups/$DATE/ --storage-class STANDARD_IA
+              s3 sync /backup s3://${{ env.S3_BUCKET }}/trading-agent/backups/\$DATE/ --storage-class STANDARD_IA
 
-            rm -rf $BACKUP_DIR
-            echo 'Backup uploaded to s3://${{ env.S3_BUCKET }}/trading-agent/backups/$DATE/'
+            rm -rf \$BACKUP_DIR
+            echo 'Backup uploaded to s3://${{ env.S3_BUCKET }}/trading-agent/backups/\$DATE/'
           "
 
       - name: Verify backup
@@ -195,4 +197,4 @@ jobs:
           message: |
             💾 **Daily Backup ${{ job.status }}**
             Bucket: s3://${{ env.S3_BUCKET }}/trading-agent/backups/
-            Time: $(date -u +"%Y-%m-%d %H:%M UTC")
+            Time: \$(date -u +"%Y-%m-%d %H:%M UTC")
