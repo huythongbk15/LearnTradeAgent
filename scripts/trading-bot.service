@@ -1,0 +1,34 @@
+# Systemd user service for local trading bot
+# Install: mkdir -p ~/.config/systemd/user && cp this_file ~/.config/systemd/user/trading-bot.service
+# Enable: systemctl --user daemon-reload && systemctl --user enable --now trading-bot
+# Logs: journalctl --user -u trading-bot -f
+
+[Unit]
+Description=Trading Agent - Local Paper Trading Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/trading
+ExecStart=%h/trading/.venv/bin/python scripts/trade_local.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+# Environment variables (override in ~/.config/systemd/user/trading-bot.env)
+EnvironmentFile=-%h/.config/systemd/user/trading-bot.env
+
+# Resource limits
+MemoryMax=2G
+CPUQuota=200%
+
+# Security
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ReadWritePaths=%h/trading
+
+[Install]
+WantedBy=default.target
