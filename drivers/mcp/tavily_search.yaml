@@ -1,0 +1,35 @@
+name: tavily_search
+protocol: mcp
+endpoint:
+  transport: stdio
+  command: npx
+  args:
+  - -y
+  - tavily-mcp@latest
+  env:
+    TAVILY_API_KEY:
+      source: credential
+      credential: static
+      field: TAVILY_API_KEY
+credentials:
+  static:
+    kind: static
+    ref: mcp/tavily_search
+config:
+  display_name: tavily_mcp
+  description: ''
+enabled: false
+policy:
+  default_effect: deny
+  rules:
+  - subject: '*'
+    effect: ask
+    target:
+      kind: tool
+      name: '*'
+    principal:
+      source_type: '*'
+      source_value: '*'
+      subject_type: '*'
+      subject_value: '*'
+    condition: null

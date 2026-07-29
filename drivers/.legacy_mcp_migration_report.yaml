@@ -1,0 +1,6 @@
+migrated:
+- client_key: tavily_search
+  card_path: /home/huythong/.qwenpaw/workspaces/trading/drivers/mcp/tavily_search.yaml
+  credential_ref: mcp/tavily_search
+skipped: []
+warnings: []
