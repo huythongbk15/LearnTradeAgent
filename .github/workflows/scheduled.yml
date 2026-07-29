@@ -1,12 +1,12 @@
-# Scheduled Jobs — Nightly backtest, weekly optimization, daily backup
+# Scheduled Jobs — Nightly backtest, weekly optimization, daily backup (Cloudflare R2)
 
 name: Scheduled Jobs
 
 on:
   schedule:
-    - cron: '0 2 * * *'
-    - cron: '0 3 * * 0'
-    - cron: '0 4 * * *'
+    - cron: '0 2 * * *'   # Nightly backtest at 02:00 UTC
+    - cron: '0 3 * * 0'   # Weekly optimize at 03:00 UTC Sunday
+    - cron: '0 4 * * *'   # Daily backup at 04:00 UTC
   workflow_dispatch:
     inputs:
       job:
@@ -23,10 +23,11 @@ env:
   IMAGE_NAME: ${{ github.repository }}
   STAGING_HOST: ${{ secrets.STAGING_HOST }}
   STAGING_USER: ${{ secrets.STAGING_USER }}
-  S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
-  S3_BUCKET: ${{ secrets.S3_BUCKET }}
-  S3_ACCESS_KEY: ${{ secrets.S3_ACCESS_KEY }}
-  S3_SECRET_KEY: ${{ secrets.S3_SECRET_KEY }}
+  # Cloudflare R2 (S3-compatible) — 10 GB free forever, no egress fees
+  R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}          # https://<ACCOUNT_ID>.r2.cloudflarestorage.com
+  R2_BUCKET: ${{ secrets.R2_BUCKET }}              # trading-agent-backups
+  R2_ACCESS_KEY: ${{ secrets.R2_ACCESS_KEY }}      # R2 API token Access Key
+  R2_SECRET_KEY: ${{ secrets.R2_SECRET_KEY }}      # R2 API token Secret Key
 
 jobs:
   nightly-backtest:
@@ -140,7 +141,7 @@ jobs:
             Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
   daily-backup:
-    name: Daily Database Backup
+    name: Daily Database Backup (Cloudflare R2)
     if: github.event_name == 'schedule' || github.event.inputs.job == 'daily-backup'
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -161,31 +162,37 @@ jobs:
             BACKUP_DIR=/tmp/backup_\$DATE
             mkdir -p \$BACKUP_DIR
 
+            # 1. TimescaleDB dump (custom format)
             docker exec trading-timescaledb-1 pg_dump -U trading -Fc trading > \$BACKUP_DIR/timescaledb_\$DATE.dump
+
+            # 2. Redis RDB snapshot
             docker exec trading-redis-1 redis-cli --rdb \$BACKUP_DIR/redis_\$DATE.rdb
+
+            # 3. Config folder
             cp -r /opt/trading-agent-staging/config \$BACKUP_DIR/
 
+            # 4. Upload to Cloudflare R2 (S3-compatible API)
             docker run --rm \
               -v \$BACKUP_DIR:/backup \
-              -e AWS_ACCESS_KEY_ID=${{ env.S3_ACCESS_KEY }} \
-              -e AWS_SECRET_ACCESS_KEY=${{ env.S3_SECRET_KEY }} \
-              -e AWS_ENDPOINT_URL=${{ env.S3_ENDPOINT }} \
+              -e AWS_ACCESS_KEY_ID=${{ env.R2_ACCESS_KEY }} \
+              -e AWS_SECRET_ACCESS_KEY=${{ env.R2_SECRET_KEY }} \
+              -e AWS_ENDPOINT_URL=${{ env.R2_ENDPOINT }} \
               amazon/aws-cli:latest \
-              s3 sync /backup s3://${{ env.S3_BUCKET }}/trading-agent/backups/\$DATE/ --storage-class STANDARD_IA
+              s3 sync /backup s3://${{ env.R2_BUCKET }}/trading-agent/backups/\$DATE/ --storage-class STANDARD
 
             rm -rf \$BACKUP_DIR
-            echo 'Backup uploaded to s3://${{ env.S3_BUCKET }}/trading-agent/backups/\$DATE/'
+            echo 'Backup uploaded to s3://${{ env.R2_BUCKET }}/trading-agent/backups/\$DATE/'
           "
 
       - name: Verify backup
         run: |
           ssh -o StrictHostKeyChecking=no ${{ env.STAGING_USER }}@${{ env.STAGING_HOST }} "
             docker run --rm \
-              -e AWS_ACCESS_KEY_ID=${{ env.S3_ACCESS_KEY }} \
-              -e AWS_SECRET_ACCESS_KEY=${{ env.S3_SECRET_KEY }} \
-              -e AWS_ENDPOINT_URL=${{ env.S3_ENDPOINT }} \
+              -e AWS_ACCESS_KEY_ID=${{ env.R2_ACCESS_KEY }} \
+              -e AWS_SECRET_ACCESS_KEY=${{ env.R2_SECRET_KEY }} \
+              -e AWS_ENDPOINT_URL=${{ env.R2_ENDPOINT }} \
               amazon/aws-cli:latest \
-              s3 ls s3://${{ env.S3_BUCKET }}/trading-agent/backups/ | tail -5
+              s3 ls s3://${{ env.R2_BUCKET }}/trading-agent/backups/ | tail -5
           "
 
       - name: Notify
@@ -196,5 +203,5 @@ jobs:
           token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           message: |
             💾 **Daily Backup ${{ job.status }}**
-            Bucket: s3://${{ env.S3_BUCKET }}/trading-agent/backups/
+            Bucket: s3://${{ env.R2_BUCKET }}/trading-agent/backups/
             Time: \$(date -u +"%Y-%m-%d %H:%M UTC")
