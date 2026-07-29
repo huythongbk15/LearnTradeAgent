@@ -1,0 +1,79 @@
+# =============================================================================
+# Trading Agent System — Docker Compose
+# =============================================================================
+# Infrastructure services for the trading system.
+# Start with: docker compose up -d
+# =============================================================================
+
+services:
+  # ── App (for running in containers) ────────────────────────────────────
+  trading-agent:
+    build: .
+    image: trading-agent:latest
+    container_name: trading-agent
+    command: ["--help"]
+    volumes:
+      - ./config:/app/config:ro
+      - ./data:/app/data
+      - ./logs:/app/logs
+    env_file:
+      - .env
+    restart: unless-stopped
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    profiles:
+      - app
+
+  # ── TimescaleDB (time-series database for market data) ────────────────
+  timescaledb:
+    image: timescale/timescaledb:2-pg16
+    container_name: trading-timescaledb
+    environment:
+      POSTGRES_USER: trading
+      POSTGRES_PASSWORD: ${TSDB_PASSWORD:-trading_secret}
+      POSTGRES_DB: trading_market_data
+    ports:
+      - "5432:5432"
+    volumes:
+      - timescaledb_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U trading -d trading_market_data"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    profiles:
+      - infra
+
+  # ── Redis (caching, rate limiting, pub/sub) ───────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: trading-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: ["redis-server", "--appendonly", "yes"]
+    restart: unless-stopped
+    profiles:
+      - infra
+
+  # ── Grafana (dashboard) ───────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:latest
+    container_name: trading-grafana
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+    restart: unless-stopped
+    profiles:
+      - infra
+
+volumes:
+  timescaledb_data:
+  redis_data:
+  grafana_data:

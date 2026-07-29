@@ -1,0 +1,89 @@
+# =============================================================================
+# Trading Agent System — Global Configuration
+# =============================================================================
+
+# --- Exchanges ---
+exchanges:
+  binance:
+    enable: true
+    type: spot
+    rate_limit: 1200  # requests per minute
+  binance_futures:
+    enable: true
+    type: futures
+    rate_limit: 1200
+  bybit:
+    enable: false
+    type: spot
+    rate_limit: 600
+  okx:
+    enable: false
+    type: spot
+    rate_limit: 600
+
+# --- Data Collection ---
+data:
+  default_exchange: "binance"
+  default_timeframe: "1h"
+  storage: "parquet"            # parquet | csv | duckdb
+  storage_path: "data/raw"
+  batch_size: 1000              # candles per batch API call
+  max_retries: 3
+  retry_delay_sec: 5
+
+  # Timeframes to collect
+  timeframes:
+    - "1m"
+    - "5m"
+    - "15m"
+    - "1h"
+    - "4h"
+    - "1d"
+
+# --- Trading Pairs ---
+# Format: exchange: [symbols]
+symbols:
+  binance:
+    - "BTC/USDT"
+    - "ETH/USDT"
+    - "SOL/USDT"
+    - "BNB/USDT"
+    - "DOGE/USDT"
+    - "ADA/USDT"
+    - "XRP/USDT"
+    - "DOT/USDT"
+    - "AVAX/USDT"
+    - "LINK/USDT"
+  binance_futures:
+    - "BTC/USDT:USDT"
+    - "ETH/USDT:USDT"
+    - "SOL/USDT:USDT"
+
+# --- Backtest Defaults ---
+backtest:
+  initial_capital: 10000.0      # USD
+  commission: 0.001              # 0.1%
+  slippage: 0.0005              # 0.05%
+  output_path: "data/processed"
+
+# --- LLM (for Phase 2+) ---
+llm:
+  provider: "openai"            # openai | anthropic | deepseek | ollama
+  model: "gpt-4o-mini"
+  temperature: 0.1
+  max_tokens: 2000
+  timeout: 30
+
+  # Fallback chain (tries in order)
+  fallback:
+    - provider: "deepseek"
+      model: "deepseek-chat"
+    - provider: "ollama"
+      model: "qwen2.5:7b"
+      base_url: "http://localhost:11434/v1"
+
+# --- Logging ---
+logging:
+  level: "INFO"                  # DEBUG | INFO | WARNING | ERROR
+  format: "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
+  file: "logs/trading_agent.log"
