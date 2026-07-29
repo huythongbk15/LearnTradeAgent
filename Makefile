@@ -79,6 +79,24 @@ close-all:      ## Kill switch — close all positions
 reset:          ## Reset paper exchange state
 	poetry run trading-agent execution reset
 
+# ── Monitoring & Dashboard (Phase 4) ─────────────────────────────────────
+
+dashboard:      ## Start Streamlit dashboard
+	poetry run streamlit run dashboard/app.py
+
+db-stats:       ## Show database statistics
+	poetry run python -c "
+from trading_agent.monitoring.database import init_db, get_trade_stats, get_agent_decisions, get_equity_curve
+init_db()
+stats = get_trade_stats()
+print(f'Trades: {stats[\"total_trades\"]} | Wins: {stats[\"wins\"]} | Losses: {stats[\"losses\"]}')
+print(f'Win Rate: {stats[\"win_rate\"]:.1%} | Total P&L: \${stats[\"total_pnl\"]:+.2f}')
+eq = get_equity_curve(limit=2)
+print(f'Equity snapshots: {len(get_equity_curve(limit=99999))}')
+decisions = get_agent_decisions(limit=99999)
+print(f'Agent decisions logged: {len(decisions)}')
+"
+
 docker-up:      ## Start infrastructure (TimescaleDB + Redis + Grafana)
 	docker compose --profile infra up -d
 

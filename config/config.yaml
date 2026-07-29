@@ -85,6 +85,24 @@ llm:
       model: "qwen2.5:7b"
       base_url: "http://localhost:11434/v1"
 
+# --- Monitoring & Database ---
+monitoring:
+  database:
+    enabled: true
+    path: "data/trading.db"
+  dashboard:
+    port: 8501
+    auto_refresh: 5        # seconds
+
+# --- Alerting ---
+alerts:
+  console:
+    enabled: true
+  telegram:
+    enabled: false
+    # bot_token: set via TELEGRAM_BOT_TOKEN env
+    # chat_id: set via TELEGRAM_CHAT_ID env
+
 # --- Logging ---
 logging:
   level: "INFO"                  # DEBUG | INFO | WARNING | ERROR

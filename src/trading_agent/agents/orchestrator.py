@@ -31,8 +31,34 @@ from trading_agent.config.loader import config
 from trading_agent.strategies.ma_crossover import MaCrossover
 from trading_agent.strategies.rsi import RsiStrategy
 from trading_agent.strategies.bbands import BBandsStrategy
+from trading_agent.log_config import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
+
+
+def _log_agent_decision(
+    symbol: str,
+    timeframe: str,
+    agent_name: str,
+    msg: AgentMessage,
+    price: float | None = None,
+):
+    """Save agent decision to SQLite."""
+    try:
+        from trading_agent.monitoring.database import init_db, save_agent_decision
+        init_db()
+        save_agent_decision(
+            symbol=symbol,
+            agent_name=agent_name,
+            signal=msg.signal,
+            confidence=msg.confidence,
+            reasoning=msg.reasoning or "",
+            price=price,
+            timeframe=timeframe,
+            metadata={k: str(v) for k, v in (msg.details or {}).items() if v is not None},
+        )
+    except Exception as e:
+        logger.warning("Failed to log agent decision: %s", e)
 console = Console()
 
 
@@ -88,24 +114,28 @@ class Orchestrator:
         # Technical Analyst
         logger.info("Running Technical Analyst...")
         tech_msg = self.technical.analyze(context)
+        _log_agent_decision(symbol, timeframe, "technical_analyst", tech_msg, current_price)
         messages.append(tech_msg)
 
         # Sentiment Analyst (gets technical output for reference)
         context.agent_messages = messages
         logger.info("Running Sentiment Analyst...")
         sent_msg = self.sentiment.analyze(context)
+        _log_agent_decision(symbol, timeframe, "sentiment_analyst", sent_msg, current_price)
         messages.append(sent_msg)
 
         # Risk Manager
         context.agent_messages = messages
         logger.info("Running Risk Manager...")
         risk_msg = self.risk.analyze(context)
+        _log_agent_decision(symbol, timeframe, "risk_manager", risk_msg, current_price)
         messages.append(risk_msg)
 
         # Trader (final decision)
         context.agent_messages = messages
         logger.info("Running Trader...")
         final = self.trader.analyze(context)
+        _log_agent_decision(symbol, timeframe, "trader", final, current_price)
 
         # 5. Build report
         return AgentAnalysisReport(

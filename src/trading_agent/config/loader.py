@@ -116,6 +116,7 @@ class Config:
         self._load_symbols(raw)
         self._load_backtest(raw)
         self._load_llm(raw)
+        self._load_monitoring(raw)
         self._load_logging(raw)
 
     # ── helpers ──────────────────────────────────────────────────────────
@@ -154,6 +155,22 @@ class Config:
         self.llm_max_tokens: int = llm.get("max_tokens", 2000)
         self.llm_timeout: int = llm.get("timeout", 30)
         self.llm_fallback: list[dict] = llm.get("fallback", [])
+
+    def _load_monitoring(self, raw: dict) -> None:
+        m = raw.get("monitoring", {})
+        db = m.get("database", {})
+        self.monitoring_db_enabled: bool = db.get("enabled", True)
+        self.monitoring_db_path: str = db.get("path", "data/trading.db")
+        dash = m.get("dashboard", {})
+        self.dashboard_port: int = dash.get("port", 8501)
+        self.dashboard_auto_refresh: int = dash.get("auto_refresh", 5)
+
+        a = raw.get("alerts", {})
+        self.alert_console_enabled: bool = a.get("console", {}).get("enabled", True)
+        telegram = a.get("telegram", {})
+        self.alert_telegram_enabled: bool = telegram.get("enabled", False)
+        self.alert_telegram_bot_token: str = telegram.get("bot_token", "")
+        self.alert_telegram_chat_id: str = telegram.get("chat_id", "")
 
     def _load_logging(self, raw: dict) -> None:
         log = raw.get("logging", {})

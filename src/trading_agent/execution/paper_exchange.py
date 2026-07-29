@@ -24,8 +24,73 @@ from trading_agent.execution.types import (
     Trade,
     Position,
 )
+from trading_agent.log_config import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
+
+# Lazy import for DB — avoids circular import at module level
+_db_initialized = False
+
+
+def _lazy_db():
+    """Initialize and return the database module on first call."""
+    global _db_initialized
+    if not _db_initialized:
+        from trading_agent.monitoring.database import init_db
+        init_db()
+        _db_initialized = True
+
+
+def _log_trade_to_db(
+    trade: Trade,
+    action: str,  # "open" or "close"
+    pnl: float | None = None,
+    pnl_pct: float | None = None,
+    reason: str | None = None,
+):
+    """Write trade event to SQLite database."""
+    try:
+        _lazy_db()
+        from trading_agent.monitoring.database import insert_trade, close_trade
+
+        if action == "open":
+            insert_trade(
+                trade_id=trade.id,
+                symbol=trade.symbol,
+                side=trade.side.value if hasattr(trade.side, 'value') else str(trade.side),
+                amount=trade.quantity,
+                entry_price=trade.entry_price,
+                entry_time=trade.entry_time.isoformat() if hasattr(trade.entry_time, 'isoformat') else str(trade.entry_time),
+                entry_order_id=trade.entry_order_id,
+                strategy="agent",
+            )
+        elif action == "close":
+            close_trade(
+                trade_id=trade.id,
+                exit_price=pnl or 0,
+                pnl=pnl,
+                pnl_pct=pnl_pct,
+                fee=trade.fee or 0.0,
+                reason=reason,
+            )
+    except Exception as e:
+        logger.warning("Failed to log trade to DB: %s", e)
+
+
+def _log_equity_snapshot(equity: float, cash: float, pos_value: float, drawdown: float = 0.0, peak: float | None = None):
+    """Write equity snapshot to SQLite."""
+    try:
+        _lazy_db()
+        from trading_agent.monitoring.database import save_equity_snapshot
+        save_equity_snapshot(
+            equity=equity,
+            cash=cash,
+            position_value=pos_value,
+            drawdown_pct=drawdown,
+            peak_equity=peak,
+        )
+    except Exception as e:
+        logger.warning("Failed to log equity snapshot: %s", e)
 
 # ── Defaults ──────────────────────────────────────────────────────────────
 
@@ -67,6 +132,8 @@ class PaperExchange:
         self.trades: list[Trade] = []
         self.equity_history: list[dict[str, Any]] = []
         self._last_price_cache: dict[str, float] = {}
+        self._peak_equity: float = initial_balance
+        self._equity_snapshot_counter: int = 0
 
         # Load existing state if any
         self._load_state()
@@ -208,12 +275,28 @@ class PaperExchange:
             self._check_stop_order(order, prices)
 
         # Record equity snapshot
+        equity = self.get_total_equity()
+        cash = self.balances.get("USDT", 0.0)
+        pos_value = sum(p.market_value for p in self.positions.values() if p.is_active)
+
+        # Track peak equity for drawdown
+        peak = self._peak_equity
+        if equity > peak:
+            self._peak_equity = equity
+            peak = equity
+        drawdown = (peak - equity) / peak if peak > 0 else 0
+
         self.equity_history.append({
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "equity": self.get_total_equity(),
-            "cash": self.balances.get("USDT", 0.0),
-            "positions_value": sum(p.market_value for p in self.positions.values() if p.is_active),
+            "equity": equity,
+            "cash": cash,
+            "positions_value": pos_value,
         })
+
+        # Log to SQLite every ~20 updates (throttled)
+        self._equity_snapshot_counter = getattr(self, '_equity_snapshot_counter', 0) + 1
+        if self._equity_snapshot_counter % 20 == 0:
+            _log_equity_snapshot(equity, cash, pos_value, drawdown, peak)
 
         self._save_state()
 
@@ -364,6 +447,27 @@ class PaperExchange:
         logger.info(f"Filled {order.id}: {order.amount} {order.symbol} @ {fill_price:.2f} (fee: {fee_amount:.4f})")
         self._save_state()
 
+        # Log trade entry to SQLite on BUY fill (new position opened)
+        if order.side == OrderSide.BUY:
+            pos = self.positions.get(order.symbol)
+            if pos and pos.entry_price == fill_price:
+                from trading_agent.execution.types import Trade as TradeType
+                dummy_trade = TradeType(
+                    id=order.id,
+                    symbol=order.symbol,
+                    side=OrderSide.BUY,
+                    entry_price=fill_price,
+                    exit_price=None,
+                    quantity=order.amount,
+                    pnl=0,
+                    pnl_pct=0,
+                    entry_time=datetime.now(timezone.utc),
+                    exit_time=None,
+                    entry_order_id=order.id,
+                    reason="entry",
+                )
+                _log_trade_to_db(dummy_trade, action="open")
+
     def _close_position(self, symbol: str, price: float, reason: str = "manual"):
         """Force-close a position at given price."""
         pos = self.positions.get(symbol)
@@ -423,6 +527,7 @@ class PaperExchange:
             reason=reason or "signal",
         )
         self.trades.append(trade)
+        _log_trade_to_db(trade, action="close", pnl=pnl, pnl_pct=pnl_pct, reason=reason)
         logger.info(f"Trade closed: {pos.symbol} P&L={pnl:+.2f} ({pnl_pct:+.2f}%)")
 
     # ── State Persistence ──────────────────────────────────────────────

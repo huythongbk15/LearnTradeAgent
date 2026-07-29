@@ -18,6 +18,12 @@ logs/
 # Session-local TODO files
 *_TODO.md
 
+# Streamlit
+.streamlit/
+
+# Trading DB
+data/trading.db
+
 # Scratch scripts
 fetch_all.py
 param_sweep.py
