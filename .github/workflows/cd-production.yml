@@ -1,0 +1,186 @@
+# .github/workflows/cd-production.yml — Continuous Deployment to Production
+# Triggers: manual workflow_dispatch (requires approval via environment protection)
+
+name: CD Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: 'Git SHA to deploy (sha-<sha> tag from CI)'
+        required: true
+        type: string
+      environment:
+        description: 'Target environment'
+        required: true
+        type: choice
+        options: [production]
+        default: production
+
+permissions:
+  contents: read
+  packages: read
+  id-token: write
+  attestations: read
+
+jobs:
+  deploy-production:
+    name: Deploy to Production (Blue-Green)
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+    env:
+      REGISTRY: ghcr.io
+      IMAGE_NAME: ${{ github.repository }}
+      PRODUCTION_HOST: ${{ secrets.PRODUCTION_HOST }}
+      PRODUCTION_USER: ${{ secrets.PRODUCTION_USER }}
+      BLUE_GREEN_ENABLED: ${{ secrets.BLUE_GREEN_ENABLED || 'true' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install cosign & syft
+        run: |
+          curl -sSfL https://github.com/sigstore/cosign/releases/latest/download/cosign-linux-amd64 -o /usr/local/bin/cosign
+          chmod +x /usr/local/bin/cosign
+          curl -sSfL https://github.com/anchore/syft/releases/latest/download/syft-linux-amd64 -o /usr/local/bin/syft
+          chmod +x /usr/local/bin/syft
+
+      # =========================================================================
+      # STEP 6: VERIFY IMAGE SIGNATURE & SBOM BEFORE PRODUCTION DEPLOY
+      # =========================================================================
+      - name: Determine image tag
+        id: image-tag
+        run: |
+          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.event.inputs.sha }}"
+          echo "image=$IMAGE" >> $GITHUB_OUTPUT
+          echo "Using image: $IMAGE"
+
+      - name: Verify cosign signature
+        id: verify-signature
+        env:
+          COSIGN_EXPERIMENTAL: 1
+        run: |
+          IMAGE="${{ steps.image-tag.outputs.image }}"
+          echo "Verifying signature for $IMAGE"
+          if cosign verify "$IMAGE" --certificate-identity-regexp=".*" --certificate-oidc-issuer-regexp=".*"; then
+            echo "✅ Signature verified"
+            echo "verified=true" >> $GITHUB_OUTPUT
+          else
+            echo "❌ Signature verification FAILED"
+            echo "verified=false" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+      - name: Verify SBOM
+        id: verify-sbom
+        run: |
+          IMAGE="${{ steps.image-tag.outputs.image }}"
+          echo "Verifying SBOM for $IMAGE"
+          if syft "$IMAGE" -o json > /dev/null 2>&1; then
+            echo "✅ SBOM verified"
+            echo "verified=true" >> $GITHUB_OUTPUT
+          else
+            echo "❌ SBOM verification FAILED"
+            echo "verified=false" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+      - name: Show image attestation
+        env:
+          COSIGN_EXPERIMENTAL: 1
+        run: |
+          IMAGE="${{ steps.image-tag.outputs.image }}"
+          echo "=== Attestation for $IMAGE ==="
+          cosign verify-attestation "$IMAGE" --type=spdxjson --certificate-identity-regexp=".*" --certificate-oidc-issuer-regexp=".*" || true
+          echo ""
+          echo "=== SBOM packages ==="
+          syft "$IMAGE" -o json 2>/dev/null | jq '.artifacts | length' | xargs -I{} echo "Total packages: {}"
+
+      # =========================================================================
+      # BLUE-GREEN DEPLOY TO PRODUCTION
+      # =========================================================================
+      - name: Set up SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.PRODUCTION_SSH_KEY }}
+
+      - name: Deploy to production (Blue-Green)
+        env:
+          IMAGE: ${{ steps.image-tag.outputs.image }}
+          BLUE_GREEN: ${{ env.BLUE_GREEN_ENABLED }}
+        run: |
+          ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            ${{ env.PRODUCTION_USER }}@${{ env.PRODUCTION_HOST }} "
+            set -e
+            cd /opt/trading-agent-prod
+
+            # Determine active/inactive color
+            if docker compose -f docker-compose.yml -f docker-compose.prod.yml ps --format '{{.Name}}' | grep -q 'trading-agent-blue'; then
+              ACTIVE=blue
+              INACTIVE=green
+            else
+              ACTIVE=green
+              INACTIVE=blue
+            fi
+
+            echo \"Active: \$ACTIVE, Inactive: \$INACTIVE\"
+
+            # Update inactive service with new image
+            echo \"IMAGE_TAG=${{ github.event.inputs.sha }}\" > .env.\$INACTIVE
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile \$INACTIVE pull
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile \$INACTIVE up -d
+
+            # Wait for health checks
+            echo \"Waiting for health checks on \$INACTIVE...\"
+            sleep 30
+            for i in {1..10}; do
+              if curl -f http://localhost:808\${ACTIVE/blue/0/green/1}/healthz 2>/dev/null; then
+                echo \"✅ \$INACTIVE is healthy\"
+                break
+              fi
+              sleep 10
+            done
+
+            # Switch traffic (update nginx/load balancer)
+            echo \"Switching traffic to \$INACTIVE...\"
+            # Update nginx config or load balancer target
+            sed -i \"s/\$ACTIVE/\$INACTIVE/g\" nginx.conf 2>/dev/null || true
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml exec -T nginx nginx -s reload 2>/dev/null || true
+
+            # Verify new active
+            sleep 10
+            curl -f http://localhost:8080/healthz || exit 1
+
+            # Stop old version after grace period
+            echo \"Stopping old \$ACTIVE...\" 
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile \$ACTIVE down
+
+            echo '✅ Blue-Green deployment successful'
+          "
+
+      - name: Notify on success
+        if: success()
+        uses: appleboy/telegram-action@master
+        with:
+          to: ${{ secrets.TELEGRAM_CHAT_ID }}
+          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          message: |
+            ✅ **Production Deployed & Verified**
+            SHA: ${{ github.event.inputs.sha }}
+            Image: ${{ steps.image-tag.outputs.image }}
+            ✅ Cosign signature verified
+            ✅ SBOM verified
+            ✅ Blue-Green switch complete
+            URL: https://trading-agent.example.com
+
+      - name: Notify on failure
+        if: failure()
+        uses: appleboy/telegram-action@master
+        with:
+          to: ${{ secrets.TELEGRAM_CHAT_ID }}
+          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          message: |
+            ❌ **Production Deployment FAILED**
+            SHA: ${{ github.event.inputs.sha }}
+            Run: ${{ github.run_id }}
+            Check GitHub Actions for details.

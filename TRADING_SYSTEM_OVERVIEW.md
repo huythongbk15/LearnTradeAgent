@@ -171,41 +171,53 @@ Xây dựng một **hệ thống multi-agent trading tự động** có khả n�
 
 ---
 
-### Phase 4: Monitoring, Logging & Optimization
-**Mục tiêu:** Dashboard real-time, logging đầy đủ, tự động optimization
+### Phase 4: Monitoring, Logging & Optimization ✅ **HOÀN THÀNH**
+**Mục tiêu:** Dashboard real-time, logging đầy đủ, alerting, metrics
 
-| Module | Công nghệ |
-|--------|-----------|
-| Dashboard | Grafana + Prometheus hoặc Streamlit |
-| Logging | ELK stack hoặc Loki |
-| Alerting | Telegram Bot / Discord Webhook |
-| Optimization | Hyperopt (từ Freqtrade), Optuna |
-| CI/CD | GitHub Actions |
+| Module | Công nghệ | Status |
+|--------|-----------|--------|
+| Structured Logging | loguru + rotating file + WAL | ✅ |
+| Trade Database | SQLite (trades, equity, agent_decisions) | ✅ |
+| Performance Tracker | Sharpe, Sortino, DD, Win Rate, rolling | ✅ |
+| Streamlit Dashboard | Overview, Trades, Agents, Risk tabs | ✅ |
+| Alerting (Telegram) | Trade/risk/daily alerts | ✅ |
 
-**Vấn đề cần giải quyết:**
-- Real-time trade tracking
-- Performance monitoring (P&L, Sharpe trượt)
-- Alert khi có sự kiện bất thường
-- A/B testing chiến lược
-- Auto hyperparameter tuning
+**Kết quả:** Dashboard 4 tabs hiển thị P&L, equity curve, trade history, agent decisions, risk metrics.
 
 ---
 
-### Phase 5: Production Hóa & Scale
-**Mục tiêu:** Hệ thống chạy 24/7, tự động failover
+### Phase 5: Production Hardening & Operations 🚧 **TIẾP THEO**
+**Mục tiêu:** Production-ready: CI/CD, IaC, HA, backup/restore, security, observability stack
 
 | Module | Công nghệ |
 |--------|-----------|
-| Container | Docker + Docker Compose / Kubernetes |
-| CI/CD | GitHub Actions + ArgoCD |
-| High Availability | Multi-region, failover |
-| Database | TimescaleDB + PostgreSQL replication |
-| API Gateway | Nginx / Traefik |
-| Auth & Secrets | HashiCorp Vault / Doppler |
+| Container | Multi-stage Dockerfile, docker-compose.prod.yml |
+| CI/CD | GitHub Actions (lint, test, build, scan, deploy) |
+| IaC | Terraform/Ansible cho VPS provisioning |
+| HA Database | TimescaleDB + Patroni (3-node) |
+| HA Redis | Redis Sentinel (3-node) |
+| HA App | 3 replicas + leader election (Redis lock) |
+| Backup/DR | WAL-G to S3, PITR, monthly restore drill |
+| Security | Trivy scan, distroless, network policy, Vault |
+| Observability | Prometheus + Grafana + Loki + Tempo |
+| Runbook | Incident response, on-call, postmortem template |
 
 ---
 
-## 🔄 Ma Trận Kết Hợp Dự Án Tối Ưu
+### Phase 6: Scale & Multi-Asset 🔮 **TƯƠNG LAI**
+**Mục tiêu:** Multi-exchange, multi-asset class, portfolio manager, strategy marketplace
+
+| Module | Công nghệ |
+|--------|-----------|
+| Multi-Exchange | CCXT unified adapter (Binance, Bybit, OKX, Coinbase) |
+| Multi-Asset | Crypto + Stocks (Alpaca) + Forex (OANDA) |
+| Portfolio Manager | Risk budgeting, correlation monitoring, rebalancing |
+| Strategy Marketplace | Plugin architecture, sandboxed execution |
+| Advanced ML | Online learning, regime detection, adaptive sizing |
+
+---
+
+## 🔄 Ma Trận Kết Hợp Dự Án Tối Ưu (Production-Ready)
 
 | Layer | Dự án chính | Vai trò |
 |-------|-------------|---------|
@@ -216,27 +228,39 @@ Xây dựng một **hệ thống multi-agent trading tự động** có khả n�
 | **Data** | CCXT + Polygon.io + TimescaleDB | Pipeline data thống nhất |
 | **LLM** | Claude/GPT/DeepSeek + Ollama (local) | Qua TradingAgents hoặc tự orchestrate |
 | **Dashboard** | Grafana + Streamlit + Telegram Bot | Monitoring và alert |
+| **Infra/Deploy** | Docker + GitHub Actions + Terraform | CI/CD, IaC, container orchestration |
+| **Observability** | Prometheus + Grafana + Loki + Tempo | Metrics, logs, traces |
+| **Security** | Trivy + Vault + Network Policy | Scan, secrets, zero-trust network |
 
 ---
 
-## ✅ Kết Luận & Khuyến Nghị Phase 0
+## ✅ Kết Luận & Khuyến Nghị Phase 5
 
-**Bắt đầu ngay với:**
+**Phase 0-4 ĐÃ HOÀN THÀNH** — Hệ thống có đầy đủ: data pipeline, backtest, AI agents, paper execution, monitoring dashboard.
 
-1. Set up môi trường Python (poetry, virtualenv)
-2. Tích hợp CCXT lấy data crypto
-3. Tích hợp Alpaca API lấy stock data
-4. Thiết lập TimescaleDB cho lưu trữ time-series
-5. Cài đặt NautilusTrader + VectorBT cho backtest
-6. Clone và nghiên cứu TradingAgents cho multi-agent architecture
-7. Viết strategy đầu tiên (ví dụ: EMA cross + risk management)
+**Phase 5 TIẾP THEO — Production Hardening:**
 
-**Công cụ quản lý dự án:**
-- Python 3.12+
-- Poetry cho dependency
-- Git cho version control
-- Docker cho môi trường thống nhất
-- Makefile cho automation
+| Priority | Tasks | Timeline |
+|----------|-------|----------|
+| **P0** | Multi-stage Dockerfile, docker-compose.prod.yml, health checks | Tuần 1 |
+| **P0** | GitHub Actions: lint→test→build→scan→deploy staging | Tuần 1 |
+| **P0** | Terraform/Ansible cho VPS (DigitalOcean/Hetzner), DNS, TLS | Tuần 1-2 |
+| **P1** | Prometheus + Grafana + Loki stack (metrics, logs, dashboards) | Tuần 2 |
+| **P1** | TimescaleDB + Patroni (3-node), Redis Sentinel (3-node) | Tuần 2-3 |
+| **P1** | Leader election cho scheduler, graceful shutdown | Tuần 2 |
+| **P2** | WAL-G backup to S3, PITR test, restore drill | Tuần 3 |
+| **P2** | Trivy scan, distroless base, network policies, Vault secrets | Tuần 3 |
+| **P2** | Runbook, on-call rotation, incident template | Tuần 3 |
+
+**Estimated: 3-4 tuần cho production-ready baseline.**
+
+**Công cụ quản lý dự án (updated):**
+- Python 3.12+, Poetry
+- Git + GitHub (Actions, Environments, Secrets)
+- Docker + Docker Compose (dev/staging/prod overrides)
+- Terraform/Ansible (infra as code)
+- Makefile + Taskfile (automation)
+- Trivy (security scan), Hadolint (Dockerfile lint)
 
 ---
 

@@ -5,6 +5,8 @@ Command-line interface for the Trading Agent System.
 from __future__ import annotations
 
 from pathlib import Path
+import subprocess
+import time
 
 import click
 from rich.console import Console
@@ -917,6 +919,159 @@ def execution_reset():
     engine = ExecutionEngine()
     engine.reset()
     console.print("[green]✅ Paper exchange reset[/green]")
+
+
+# ── system subcommands ────────────────────────────────────────────────────
+
+
+@main.group()
+def system():
+    """System health & diagnostics."""
+
+
+@system.command("health")
+def system_health():
+    """Comprehensive health check of all components."""
+    import subprocess
+    import time
+
+    checks = [
+        ("Trading Agent HTTP", "curl -sf http://localhost:8000/healthz"),
+        ("TimescaleDB", "pg_isready -h timescaledb -p 5432 -U trading -d trading"),
+        ("Redis", "redis-cli -h redis -p 6379 ping | grep -q PONG"),
+        ("Prometheus", "curl -sf http://prometheus:9090/-/healthy"),
+        ("Grafana", "curl -sf http://grafana:3000/api/health | grep -q ok"),
+        ("Loki", "curl -sf http://loki:3100/ready"),
+        ("Nginx", "curl -sf http://nginx/healthz"),
+    ]
+
+    console.print("[bold]Running health checks...[/bold]\n")
+    results = []
+
+    for name, cmd in checks:
+        start = time.time()
+        try:
+            result = subprocess.run(cmd, shell=True, timeout=10, capture_output=True)
+            elapsed = time.time() - start
+            ok = result.returncode == 0
+            status = "[green]✓ OK[/green]" if ok else "[red]✗ FAIL[/red]"
+            results.append((name, status, f"{elapsed:.2f}s"))
+        except subprocess.TimeoutExpired:
+            results.append((name, "[red]✗ TIMEOUT[/red]", "10.00s"))
+        except Exception as e:
+            results.append((name, f"[red]✗ ERROR: {e}[/red]", "—"))
+
+    # Print results table
+    from rich.table import Table as RichTable
+    t = RichTable("Component", "Status", "Latency")
+    for name, status, latency in results:
+        t.add_row(name, status, latency)
+    console.print(t)
+
+    # Summary
+    failed = sum(1 for _, s, _ in results if "FAIL" in s or "TIMEOUT" in s or "ERROR" in s)
+    if failed:
+        console.print(f"\n[red]❌ {failed} check(s) failed[/red]")
+        raise SystemExit(1)
+    else:
+        console.print("\n[green]✅ All checks passed[/green]")
+
+
+@system.command("logs")
+@click.option("--lines", "-n", default=100, help="Number of lines")
+@click.option("--follow", "-f", is_flag=True, help="Follow logs")
+@click.option("--component", "-c", default=None,
+              type=click.Choice(["agent", "execution", "data", "risk", "all"]),
+              help="Filter by component")
+def system_logs(lines: int, follow: bool, component: str | None):
+    """View recent logs from trading agent container."""
+    import subprocess
+
+    # Map component to logger name
+    logger_map = {
+        "agent": "trading_agent.agents",
+        "execution": "trading_agent.execution",
+        "data": "trading_agent.data",
+        "risk": "trading_agent.execution.risk_controller",
+    }
+
+    grep_pattern = logger_map.get(component, "") if component else ""
+
+    cmd = f"docker compose -f docker-compose.prod.yml logs -f --tail {lines} trading-agent"
+    if grep_pattern:
+        cmd += f" | grep '{grep_pattern}'"
+
+    console.print(f"[dim]Running: {cmd}[/dim]")
+    try:
+        subprocess.run(cmd, shell=True)
+    except KeyboardInterrupt:
+        pass
+
+
+@system.command("metrics")
+def system_metrics():
+    """Show key Prometheus metrics."""
+    import httpx
+
+    console.print("[bold]Fetching metrics...[/bold]\n")
+
+    try:
+        response = httpx.get("http://localhost:8000/metrics", timeout=10.0)
+        response.raise_for_status()
+    except Exception as e:
+        console.print(f"[red]Failed to fetch metrics: {e}[/red]")
+        return
+
+    # Key metrics to extract
+    key_metrics = [
+        "trading_equity",
+        "trading_cash",
+        "trading_positions_value",
+        "trading_total_return_pct",
+        "trading_sharpe_ratio",
+        "trading_max_drawdown_pct",
+        "trading_win_rate",
+        "trading_trades_total",
+        "trading_open_positions",
+        "trading_daily_pnl",
+        "trading_circuit_breaker_active",
+    ]
+
+    metrics = {}
+    for line in response.text.splitlines():
+        if line.startswith("#") or not line.strip():
+            continue
+        parts = line.split()
+        if len(parts) >= 2:
+            name = parts[0]
+            # Check if matches any key metric (handles labels)
+            if any(km in name for km in key_metrics):
+                try:
+                    metrics[name] = float(parts[-1])
+                except ValueError:
+                    metrics[name] = parts[-1]
+
+    if not metrics:
+        console.print("[yellow]No matching metrics found[/yellow]")
+        return
+
+    from rich.table import Table as RichTable
+    t = RichTable("Metric", "Value")
+    for k, v in sorted(metrics.items()):
+        if isinstance(v, float):
+            if "pct" in k or "rate" in k:
+                t.add_row(k, f"{v:.2f}%")
+            elif "drawdown" in k:
+                t.add_row(k, f"[red]{v:.2f}%[/red]" if v > 5 else f"{v:.2f}%")
+            elif "sharpe" in k:
+                t.add_row(k, f"[green]{v:.2f}[/green]" if v > 1 else f"{v:.2f}")
+            elif "win_rate" in k:
+                t.add_row(k, f"[green]{v:.1%}[/green]" if v > 0.5 else f"{v:.1%}")
+            else:
+                t.add_row(k, f"{v:.2f}")
+        else:
+            t.add_row(k, str(v))
+    console.print(t)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,113 @@
+# Promtail Configuration — Ship logs to Loki
+# See: https://grafana.com/docs/loki/latest/clients/promtail/configuration/
+
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+    batchwait: 1s
+    batchsize: 102400
+    timeout: 10s
+
+scrape_configs:
+  # Trading Agent Application Logs (JSON structured)
+  - job_name: trading-agent
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: trading-agent
+          component: app
+          environment: production
+          __path__: /var/log/trading/*.log
+    pipeline_stages:
+      - json:
+          expressions:
+            level: level
+            message: message
+            logger: logger
+            timestamp: timestamp
+            symbol: symbol
+            strategy: strategy
+            trade_id: trade_id
+            pnl: pnl
+            signal: signal
+            confidence: confidence
+      - labels:
+          level:
+          logger:
+          symbol:
+          strategy:
+          trade_id:
+          signal:
+      - timestamp:
+          source: timestamp
+          format: RFC3339
+
+  # Systemd Journal (system logs)
+  - job_name: systemd
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: systemd
+          component: system
+          __path__: /var/log/journal
+    pipeline_stages:
+      - match:
+          selector: '{job="systemd"}'
+          stages:
+            - regex:
+                expression: '.*(?P<unit>\S+)\[(?P<pid>\d+)\]: (?P<message>.*)'
+            - labels:
+                unit:
+                pid:
+
+  # Nginx Access Logs
+  - job_name: nginx-access
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: nginx
+          component: proxy
+          __path__: /var/log/nginx/access.log
+    pipeline_stages:
+      - regex:
+          expression: '^(?P<remote_addr>\S+) - (?P<remote_user>\S+) \[(?P<time_local>[^\]]+)\] "(?P<request>[^"]+)" (?P<status>\d+) (?P<body_bytes_sent>\d+) "(?P<http_referer>[^"]*)" "(?P<http_user_agent>[^"]*)"'
+      - labels:
+          status:
+      - timestamp:
+          source: time_local
+          format: "02/Jan/2006:15:04:05 -0700"
+
+  # Nginx Error Logs
+  - job_name: nginx-error
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: nginx
+          component: proxy
+          level: error
+          __path__: /var/log/nginx/error.log
+
+  # Docker Container Logs (via Docker logging driver)
+  - job_name: docker-containers
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: docker
+          component: container
+          __path__: /var/lib/docker/containers/*/*-json.log
+    pipeline_stages:
+      - docker: {}
+      - labels:
+          container_name:
+          image_name:

@@ -1,0 +1,367 @@
+# Prometheus Alerting Rules — Trading Agent System
+# Reload: curl -X POST http://localhost:9090/-/reload
+
+groups:
+  # ===========================================================================
+  # TRADING BUSINESS ALERTS
+  # ===========================================================================
+  - name: trading_business
+    interval: 30s
+    rules:
+      # Max Drawdown Alert
+      - alert: TradingMaxDrawdownBreach
+        expr: |
+          trading_drawdown_pct > 10
+        for: 1m
+        labels:
+          severity: critical
+          team: trading
+        annotations:
+          summary: "⚠️ Max Drawdown exceeded 10%"
+          description: |
+            Current drawdown: {{ $value }}%
+            Threshold: 10%
+            Symbol: {{ $labels.symbol }}
+            Run: `trading-agent execution risk` to check circuit breaker status.
+
+      - alert: TradingMaxDrawdownWarning
+        expr: |
+          trading_drawdown_pct > 7
+        for: 5m
+        labels:
+          severity: warning
+          team: trading
+        annotations:
+          summary: "⚠️ Drawdown approaching limit (7%)"
+          description: |
+            Current drawdown: {{ $value }}%
+            Review positions and risk settings.
+
+      # Daily Loss Alert
+      - alert: TradingDailyLossBreach
+        expr: |
+          trading_daily_loss_pct > 5
+        for: 1m
+        labels:
+          severity: critical
+          team: trading
+        annotations:
+          summary: "🔴 Daily loss limit exceeded (5%)"
+          description: |
+            Daily loss: {{ $value }}%
+            Circuit breaker should activate. Check `trading-agent execution risk`.
+
+      - alert: TradingDailyLossWarning
+        expr: |
+          trading_daily_loss_pct > 3
+        for: 5m
+        labels:
+          severity: warning
+          team: trading
+        annotations:
+          summary: "🟡 Daily loss approaching limit (3%)"
+          description: |
+            Daily loss: {{ $value }}%
+
+      # Win Rate Degradation
+      - alert: TradingWinRateDegraded
+        expr: |
+          trading_win_rate < 0.35
+        for: 30m
+        labels:
+          severity: warning
+          team: trading
+        annotations:
+          summary: "📉 Win rate below 35%"
+          description: |
+            Current win rate: {{ $value | humanizePercentage }}
+            Consider strategy review or parameter re-optimization.
+
+      # Trade Execution Failures
+      - alert: TradingExecutionFailureRate
+        expr: |
+          rate(trading_execution_failures_total[5m]) > 0.1
+        for: 2m
+        labels:
+          severity: critical
+          team: trading
+        annotations:
+          summary: "💥 Trade execution failure rate high"
+          description: |
+            Failure rate: {{ $value }} per second
+            Check exchange connectivity, API keys, order parameters.
+
+      # No Trades for Extended Period (when market open)
+      - alert: TradingNoTradesExtended
+        expr: |
+          rate(trading_trades_total[1h]) == 0
+          and time() > 08:00 and time() < 22:00
+        for: 1h
+        labels:
+          severity: warning
+          team: trading
+        annotations:
+          summary: "🤷 No trades executed in 1 hour during market hours"
+          description: |
+            Check agent signals, risk controller, exchange connectivity.
+
+  # ===========================================================================
+  # INFRASTRUCTURE ALERTS
+  # ===========================================================================
+  - name: infrastructure
+    interval: 30s
+    rules:
+      # Instance Down
+      - alert: InstanceDown
+        expr: |
+          up == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "🔴 Instance {{ $labels.instance }} down"
+          description: |
+            Job: {{ $labels.job }}
+            Instance has been down for > 1 minute.
+
+      # High CPU Usage
+      - alert: HighCPUUsage
+        expr: |
+          100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 85
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "🔥 High CPU usage on {{ $labels.instance }}"
+          description: |
+            CPU usage: {{ $value }}%
+
+      # High Memory Usage
+      - alert: HighMemoryUsage
+        expr: |
+          (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "🧠 High memory usage on {{ $labels.instance }}"
+          description: |
+            Memory usage: {{ $value }}%
+
+      # Disk Space Critical
+      - alert: DiskSpaceCritical
+        expr: |
+          (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) * 100 < 10
+        for: 5m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "💾 Disk space critical on {{ $labels.instance }}"
+          description: |
+            Available: {{ $value }}%
+
+      # Disk Space Warning
+      - alert: DiskSpaceWarning
+        expr: |
+          (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) * 100 < 20
+        for: 15m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "💾 Disk space low on {{ $labels.instance }}"
+          description: |
+            Available: {{ $value }}%
+
+  # ===========================================================================
+  # DATABASE ALERTS (TimescaleDB)
+  # ===========================================================================
+  - name: database
+    interval: 30s
+    rules:
+      - alert: PostgresDown
+        expr: |
+          pg_up == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "🐘 PostgreSQL/TimescaleDB down"
+          description: |
+            Instance: {{ $labels.instance }}
+
+      - alert: PostgresConnectionsHigh
+        expr: |
+          (pg_stat_database_numbackends / pg_settings_max_connections) * 100 > 80
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "🔌 Postgres connections high"
+          description: |
+            Usage: {{ $value }}% of max_connections
+
+      - alert: PostgresReplicationLag
+        expr: |
+          pg_replication_lag_seconds > 30
+        for: 2m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "⏱️ Postgres replication lag > 30s"
+          description: |
+            Lag: {{ $value }}s
+            Check Patroni status: patronictl list
+
+      - alert: PostgresWALFilesHigh
+        expr: |
+          pg_wal_count > 1000
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "📁 Postgres WAL files accumulating"
+          description: |
+            Count: {{ $value }}
+            Check archive_command and backup status.
+
+  # ===========================================================================
+  # REDIS ALERTS
+  # ===========================================================================
+  - name: redis
+    interval: 30s
+    rules:
+      - alert: RedisDown
+        expr: |
+          redis_up == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "🔴 Redis down"
+          description: |
+            Instance: {{ $labels.instance }}
+
+      - alert: RedisMemoryHigh
+        expr: |
+          (redis_memory_used_bytes / redis_memory_max_bytes) * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "🧠 Redis memory high"
+          description: |
+            Usage: {{ $value }}%
+
+      - alert: RedisConnectedClientsHigh
+        expr: |
+          redis_connected_clients > 500
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "👥 Redis connected clients high"
+          description: |
+            Clients: {{ $value }}
+
+  # ===========================================================================
+  # APPLICATION ALERTS
+  # ===========================================================================
+  - name: application
+    interval: 30s
+    rules:
+      - alert: TradingAgentHighLatency
+        expr: |
+          histogram_quantile(0.95, rate(trading_agent_request_duration_seconds_bucket[5m])) > 5
+        for: 5m
+        labels:
+          severity: warning
+          team: trading
+        annotations:
+          summary: "🐢 Trading agent p95 latency > 5s"
+          description: |
+            p95 latency: {{ $value }}s
+
+      - alert: TradingAgentHighErrorRate
+        expr: |
+          rate(trading_agent_requests_total{status=~"5.."}[5m]) / rate(trading_agent_requests_total[5m]) > 0.05
+        for: 2m
+        labels:
+          severity: critical
+          team: trading
+        annotations:
+          summary: "💥 Trading agent error rate > 5%"
+          description: |
+            Error rate: {{ $value | humanizePercentage }}
+
+      - alert: TradingAgentRestartLoop
+        expr: |
+          rate(container_restart_count{container="trading-agent"}[10m]) > 0.1
+        for: 2m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "🔄 Trading agent restarting frequently"
+          description: |
+            Restart rate: {{ $value }} per minute
+            Check logs: `docker logs trading-agent`
+
+  # ===========================================================================
+  # EXCHANGE/API ALERTS
+  # ===========================================================================
+  - name: exchange
+    interval: 60s
+    rules:
+      - alert: ExchangeAPILatencyHigh
+        expr: |
+          histogram_quantile(0.95, rate(exchange_request_duration_seconds_bucket[5m])) > 3
+        for: 5m
+        labels:
+          severity: warning
+          team: trading
+        annotations:
+          summary: "🐢 Exchange API p95 latency > 3s"
+          description: |
+            Exchange: {{ $labels.exchange }}
+            Endpoint: {{ $labels.endpoint }}
+            Latency: {{ $value }}s
+
+      - alert: ExchangeAPIErrorRate
+        expr: |
+          rate(exchange_requests_total{status=~"5..|429"}[5m]) / rate(exchange_requests_total[5m]) > 0.1
+        for: 2m
+        labels:
+          severity: critical
+          team: trading
+        annotations:
+          summary: "💥 Exchange API error rate > 10%"
+          description: |
+            Exchange: {{ $labels.exchange }}
+            Error rate: {{ $value | humanizePercentage }}
+            Check rate limits, API key validity.
+
+      - alert: ExchangeWebsocketDisconnected
+        expr: |
+          exchange_websocket_connected == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: trading
+        annotations:
+          summary: "🔌 Exchange websocket disconnected"
+          description: |
+            Exchange: {{ $labels.exchange }}
+            Symbol: {{ $labels.symbol }}
+            Real-time data feed lost.

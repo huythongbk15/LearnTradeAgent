@@ -1,0 +1,229 @@
+# Scheduled Jobs — Nightly backtest, weekly optimization, daily backup
+
+name: Scheduled Jobs
+
+on:
+  schedule:
+    # Nightly backtest at 02:00 UTC
+    - cron: '0 2 * * *'
+    # Weekly param optimization Sunday 03:00 UTC
+    - cron: '0 3 * * 0'
+    # Daily DB backup at 04:00 UTC
+    - cron: '0 4 * * *'
+  workflow_dispatch:
+    inputs:
+      job:
+        description: 'Job to run manually'
+        required: true
+        type: choice
+        options:
+          - nightly-backtest
+          - weekly-optimize
+          - daily-backup
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  STAGING_HOST: ${{ secrets.STAGING_HOST }}
+  STAGING_USER: ${{ secrets.STAGING_USER }}
+  S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
+  S3_BUCKET: ${{ secrets.S3_BUCKET }}
+  S3_ACCESS_KEY: ${{ secrets.S3_ACCESS_KEY }}
+  S3_SECRET_KEY: ${{ secrets.S3_SECRET_KEY }}
+
+jobs:
+  # ===========================================================================
+  # NIGHTLY BACKTEST — Run full backtest suite on staging
+  # ===========================================================================
+  nightly-backtest:
+    name: Nightly Backtest
+    if: github.event_name == 'schedule' || github.event.inputs.job == 'nightly-backtest'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.STAGING_SSH_KEY }}
+
+      - name: Pull latest image
+        run: |
+          ssh -o StrictHostKeyChecking=no ${{ env.STAGING_USER }}@${{ env.STAGING_HOST }} "
+            docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          "
+
+      - name: Run backtest suite
+        run: |
+          ssh -o StrictHostKeyChecking=no ${{ env.STAGING_USER }}@${{ env.STAGING_HOST }} "
+            cd /opt/trading-agent-staging &&
+            # Run backtest for all strategies on major symbols
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm \
+              -e TRADING_CONFIG_PATH=/app/config/credentials.yaml \
+              trading-agent backtest run ma_crossover BTC/USDT --timeframe 1h --days 730 &&
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm \
+              -e TRADING_CONFIG_PATH=/app/config/credentials.yaml \
+              trading-agent backtest run rsi_mean_reversion BTC/USDT --timeframe 1h --days 730 &&
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm \
+              -e TRADING_CONFIG_PATH=/app/config/credentials.yaml \
+              trading-agent backtest run bbands_breakout BTC/USDT --timeframe 1h --days 730
+          "
+
+      - name: Extract metrics & compare
+        run: |
+          ssh -o StrictHostKeyChecking=no ${{ env.STAGING_USER }}@${{ env.STAGING_HOST }} "
+            cd /opt/trading-agent-staging &&
+            python -c \"
+import json, sqlite3, sys
+conn = sqlite3.connect('data/trading.db')
+cur = conn.cursor()
+cur.execute('''
+  SELECT strategy, MAX(total_return_pct) as best_return, MAX(sharpe) as best_sharpe
+  FROM backtest_results
+  WHERE created_at > datetime('now', '-2 days')
+  GROUP BY strategy
+''')
+for row in cur.fetchall():
+    print(f'{row[0]}: return={row[1]:.2f}%, sharpe={row[2]:.2f}')
+\" || echo 'Metrics table not yet available'
+          "
+
+      - name: Notify results
+        if: always()
+        uses: appleboy/telegram-action@master
+        with:
+          to: ${{ secrets.TELEGRAM_CHAT_ID }}
+          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          message: |
+            🌙 **Nightly Backtest ${{ job.status }}**
+            Time: ${{ github.event.workflow_run.created_at || github.event.head_commit.timestamp }}
+            Commit: ${{ github.sha }}
+            View logs: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+  # ===========================================================================
+  # WEEKLY OPTIMIZE — Parameter sweep for each strategy
+  # ===========================================================================
+  weekly-optimize:
+    name: Weekly Parameter Optimization
+    if: github.event_name == 'schedule' || github.event.inputs.job == 'weekly-optimize'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.STAGING_SSH_KEY }}
+
+      - name: Pull latest image
+        run: |
+          ssh -o StrictHostKeyChecking=no ${{ env.STAGING_USER }}@${{ env.STAGING_HOST }} "
+            docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          "
+
+      - name: Run parameter sweep
+        run: |
+          ssh -o StrictHostKeyChecking=no ${{ env.STAGING_USER }}@${{ env.STAGING_HOST }} "
+            cd /opt/trading-agent-staging &&
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm \
+              -e TRADING_CONFIG_PATH=/app/config/credentials.yaml \
+              trading-agent python param_sweep.py \
+                --strategies ma_crossover rsi_mean_reversion bbands_breakout \
+                --symbols BTC/USDT ETH/USDT SOL/USDT \
+                --timeframes 1h 4h \
+                --train-days 730 --test-days 365 \
+                --output /app/data/param_sweep_\$(date +%Y%m%d).json
+          "
+
+      - name: Upload results artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: param-sweep-results
+          path: /tmp/param_sweep_*.json
+          retention-days: 30
+
+      - name: Notify results
+        if: always()
+        uses: appleboy/telegram-action@master
+        with:
+          to: ${{ secrets.TELEGRAM_CHAT_ID }}
+          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          message: |
+            🔧 **Weekly Optimization ${{ job.status }}**
+            Check param sweep results in GitHub Artifacts.
+            Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+  # ===========================================================================
+  # DAILY BACKUP — TimescaleDB + Redis + Config to S3
+  # ===========================================================================
+  daily-backup:
+    name: Daily Database Backup
+    if: github.event_name == 'schedule' || github.event.inputs.job == 'daily-backup'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.STAGING_SSH_KEY }}
+
+      - name: Run backup script on staging
+        run: |
+          ssh -o StrictHostKeyChecking=no ${{ env.STAGING_USER }}@${{ env.STAGING_HOST }} "
+            set -e
+            DATE=\$(date +%Y%m%d_%H%M%S)
+            BACKUP_DIR=/tmp/backup_\$DATE
+            mkdir -p \$BACKUP_DIR
+
+            # TimescaleDB dump (custom format, compressed)
+            docker exec trading-timescaledb-1 pg_dump -U trading -Fc trading > \$BACKUP_DIR/timescaledb_\$DATE.dump
+
+            # Redis dump
+            docker exec trading-redis-1 redis-cli --rdb \$BACKUP_DIR/redis_\$DATE.rdb
+
+            # Config files
+            cp -r /opt/trading-agent-staging/config \$BACKUP_DIR/
+
+            # Upload to S3 (using rclone or aws cli)
+            docker run --rm \
+              -v \$BACKUP_DIR:/backup \
+              -e AWS_ACCESS_KEY_ID=${{ env.S3_ACCESS_KEY }} \
+              -e AWS_SECRET_ACCESS_KEY=${{ env.S3_SECRET_KEY }} \
+              -e AWS_ENDPOINT_URL=${{ env.S3_ENDPOINT }} \
+              amazon/aws-cli:latest \
+              s3 sync /backup s3://${{ env.S3_BUCKET }}/trading-agent/backups/\$DATE/ --storage-class STANDARD_IA
+
+            # Cleanup local
+            rm -rf \$BACKUP_DIR
+
+            echo \"✅ Backup uploaded to s3://${{ env.S3_BUCKET }}/trading-agent/backups/\$DATE/\"
+          "
+
+      - name: Verify backup
+        run: |
+          ssh -o StrictHostKeyChecking=no ${{ env.STAGING_USER }}@${{ env.STAGING_HOST }} "
+            docker run --rm \
+              -e AWS_ACCESS_KEY_ID=${{ env.S3_ACCESS_KEY }} \
+              -e AWS_SECRET_ACCESS_KEY=${{ env.S3_SECRET_KEY }} \
+              -e AWS_ENDPOINT_URL=${{ env.S3_ENDPOINT }} \
+              amazon/aws-cli:latest \
+              s3 ls s3://${{ env.S3_BUCKET }}/trading-agent/backups/ | tail -5
+          "
+
+      - name: Notify
+        if: always()
+        uses: appleboy/telegram-action@master
+        with:
+          to: ${{ secrets.TELEGRAM_CHAT_ID }}
+          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          message: |
+            💾 **Daily Backup ${{ job.status }}**
+            Bucket: s3://${{ env.S3_BUCKET }}/trading-agent/backups/
+            Time: $(date -u +"%Y-%m-%d %H:%M UTC")

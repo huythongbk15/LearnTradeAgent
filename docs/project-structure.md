@@ -134,6 +134,36 @@ trading-agent/
 ├── pyproject.toml                   # 📦 Poetry project
 ├── README.md                        # 📖 Project overview
 ├── TRADING_SYSTEM_OVERVIEW.md        # 📐 Tổng quan chiến lược
+├── .github/                         # 🤖 CI/CD Workflows
+│   └── workflows/
+│       ├── ci.yml                   #   CI: lint, test, security, build+sign
+│       ├── cd-staging.yml           #   CD: Deploy to staging
+│       └── cd-production.yml        #   CD: Deploy to production (signed + verified)
+│
+├── scripts/                         # 🛠️ Utility Scripts (Phase 5)
+│   ├── sign_and_verify.sh           #   Cosign sign + Syft SBOM + verify
+│   ├── verify_image.sh              #   Verify cosign signature + SBOM locally
+│   ├── db_stats.py                  #   DB statistics
+│   ├── db_backup.py                 #   DB backup to S3/GCS
+│   ├── db_restore.py                #   DB restore from backup
+│   └── notify.py                    #   Telegram/Slack notifications
+│
+├── .github/                         # 🔄 GitHub Actions CI/CD
+│   └── workflows/
+│       ├── ci.yml                   #   CI: lint, test, security, build, sign, SBOM
+│       ├── cd-staging.yml           #   CD Staging: verify sign+SBOM → deploy
+│       └── cd-production.yml        #   CD Production: manual, verify → blue-green
+│
+├── scripts/                         # 🛠 Scripts tiện ích
+│   ├── sign_and_verify.sh           #   Cosign sign + verify image
+│   └── verify_image.sh              #   Verify cosign + SBOM locally
+│
+├── docker-compose.yml               # 🐳 Docker Compose (infra future)
+├── Dockerfile                       # 🐳 Docker image
+├── Makefile                         # 🔨 Command shortcuts
+├── pyproject.toml                   # 📦 Poetry project
+├── README.md                        # 📖 Project overview
+├── TRADING_SYSTEM_OVERVIEW.md        # 📐 Tổng quan chiến lược
 ├── .gitignore
 └── .env                             # 🔐 Environment variables (gitignored)
 ```
@@ -176,6 +206,26 @@ graph TD
 
     CLI --> RICH[rich library]
     CLI --> CLICK[click library]
+
+    %% CI/CD & Scripts
+    CI[.github/workflows/ci.yml] --> DOCKER[Docker Build]
+    CI --> COSIGN[cosign sign]
+    CI --> SYFT[syft SBOM]
+    CI --> TRIVY[trivy scan]
+    
+    CD_STAGING[.github/workflows/cd-staging.yml] --> CI
+    CD_STAGING --> DOCKER
+    CD_STAGING --> DEPLOY_STAGING[Deploy to Staging]
+    
+    CD_PROD[.github/workflows/cd-production.yml] --> CD_STAGING
+    CD_PROD --> COSIGN_VERIFY[cosign verify]
+    CD_PROD --> SYFT_VERIFY[syft verify SBOM]
+    CD_PROD --> DEPLOY_PROD[Blue-Green Deploy to Prod]
+
+    SCRIPTS[scripts/verify_image.sh] --> COSIGN_VERIFY
+    SCRIPTS --> SYFT_VERIFY
+    SIGN_SCRIPT[scripts/sign_and_verify.sh] --> COSIGN
+    SIGN_SCRIPT --> SYFT
 ```
 
 ---

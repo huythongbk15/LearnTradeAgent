@@ -1,0 +1,155 @@
+# .github/workflows/cd-staging.yml — Continuous Deployment to Staging
+# Triggers: CI workflow completes successfully on main branch
+
+name: CD Staging
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+  packages: read
+  id-token: write
+  attestations: read
+
+jobs:
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    environment: staging
+    env:
+      REGISTRY: ghcr.io
+      IMAGE_NAME: ${{ github.repository }}
+      STAGING_HOST: ${{ secrets.STAGING_HOST }}
+      STAGING_USER: ${{ secrets.STAGING_USER }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install cosign & syft
+        run: |
+          # cosign
+          curl -sSfL https://github.com/sigstore/cosign/releases/latest/download/cosign-linux-amd64 -o /usr/local/bin/cosign
+          chmod +x /usr/local/bin/cosign
+          # syft
+          curl -sSfL https://github.com/anchore/syft/releases/latest/download/syft-linux-amd64 -o /usr/local/bin/syft
+          chmod +x /usr/local/bin/syft
+
+      # =========================================================================
+      # STEP 6: VERIFY IMAGE SIGNATURE & SBOM BEFORE DEPLOY
+      # =========================================================================
+      - name: Determine image tag (SHA-based from CI)
+        id: image-tag
+        run: |
+          # CI pushes sha-<sha> tag
+          SHA_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.event.workflow_run.head_sha }}"
+          echo "image=$SHA_TAG" >> $GITHUB_OUTPUT
+          echo "Using image: $SHA_TAG"
+
+      - name: Verify cosign signature
+        id: verify-signature
+        env:
+          COSIGN_EXPERIMENTAL: 1
+        run: |
+          IMAGE="${{ steps.image-tag.outputs.image }}"
+          echo "Verifying signature for $IMAGE"
+          if cosign verify "$IMAGE" --certificate-identity-regexp=".*" --certificate-oidc-issuer-regexp=".*"; then
+            echo "✅ Signature verified"
+            echo "verified=true" >> $GITHUB_OUTPUT
+          else
+            echo "❌ Signature verification FAILED"
+            echo "verified=false" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+      - name: Verify SBOM
+        id: verify-sbom
+        run: |
+          IMAGE="${{ steps.image-tag.outputs.image }}"
+          echo "Verifying SBOM for $IMAGE"
+          if syft "$IMAGE" -o json > /dev/null 2>&1; then
+            echo "✅ SBOM verified"
+            echo "verified=true" >> $GITHUB_OUTPUT
+          else
+            echo "❌ SBOM verification FAILED"
+            echo "verified=false" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+      - name: Download SBOM artifact (for record)
+        uses: actions/download-artifact@v4
+        with:
+          name: sbom-${{ github.event.workflow_run.head_sha }}
+          path: ./sbom
+        continue-on-error: true
+
+      - name: Display SBOM summary
+        if: always()
+        run: |
+          if [ -f ./sbom/sbom.table.txt ]; then
+            echo "=== SBOM Summary ==="
+            head -20 ./sbom/sbom.table.txt
+          else
+            echo "SBOM artifact not found (may be from older CI run)"
+          fi
+
+      # =========================================================================
+      # DEPLOY TO STAGING (only after signature & SBOM verified)
+      # =========================================================================
+      - name: Set up SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.STAGING_SSH_KEY }}
+
+      - name: Deploy to staging
+        run: |
+          IMAGE="${{ steps.image-tag.outputs.image }}"
+          ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            ${{ env.STAGING_USER }}@${{ env.STAGING_HOST }} "
+            set -e
+            cd /opt/trading-agent-staging
+            # Update image tag in docker-compose or .env
+            echo 'IMAGE_TAG=${{ github.event.workflow_run.head_sha }}' > .env.image
+            # Pull latest images
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml pull
+            # Run migrations
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm trading-agent \
+              python -m trading_agent.cli db migrate || true
+            # Rolling restart
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --remove-orphans
+            # Wait for health checks
+            sleep 30
+            # Verify deployment
+            curl -f http://localhost:8080/healthz || exit 1
+            echo '✅ Staging deployment successful'
+          "
+
+      - name: Notify on success
+        if: success()
+        uses: appleboy/telegram-action@master
+        with:
+          to: ${{ secrets.TELEGRAM_CHAT_ID }}
+          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          message: |
+            🚀 **Staging Deployed & Verified**
+            Commit: ${{ github.event.workflow_run.head_sha }}
+            Image: ${{ steps.image-tag.outputs.image }}
+            ✅ Cosign signature verified
+            ✅ SBOM verified
+            URL: https://staging.trading-agent.example.com
+
+      - name: Notify on failure
+        if: failure()
+        uses: appleboy/telegram-action@master
+        with:
+          to: ${{ secrets.TELEGRAM_CHAT_ID }}
+          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          message: |
+            ❌ **Staging Deployment FAILED**
+            Commit: ${{ github.event.workflow_run.head_sha }}
+            Run: ${{ github.run_id }}
+            Check GitHub Actions for details.

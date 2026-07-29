@@ -1,0 +1,398 @@
+# docker-compose.prod.yml — Production Deployment
+# Usage: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+
+services:
+  # ===========================================================================
+  # APPLICATION — Trading Agent (3 replicas behind load balancer)
+  # ===========================================================================
+  trading-agent:
+    image: ghcr.io/${GHCR_OWNER:-your-org}/trading-agent:${IMAGE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    deploy:
+      replicas: 3
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+        max_attempts: 3
+        window: 60s
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+      update_config:
+        parallelism: 1
+        delay: 30s
+        failure_action: rollback
+        monitor: 60s
+        max_failure_ratio: 0.1
+      rollback_config:
+        parallelism: 1
+        delay: 10s
+    environment:
+      - TRADING_CONFIG_PATH=/app/config/credentials.yaml
+      - TRADING_ENV=production
+      - PYTHONUNBUFFERED=1
+      - LOG_LEVEL=INFO
+      - LOG_FORMAT=json
+    volumes:
+      - trading-data:/app/data:rw
+      - trading-logs:/app/logs:rw
+      - ./config/credentials.yaml:/app/config/credentials.yaml:ro
+    secrets:
+      - binance_api_key
+      - binance_api_secret
+      - openrouter_api_key
+      - telegram_bot_token
+      - telegram_chat_id
+    healthcheck:
+      test: ["CMD", "python", "-m", "trading_agent.cli", "health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - trading-internal
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  # ===========================================================================
+  # SCHEDULER — Cron jobs (leader elected via Redis)
+  # ===========================================================================
+  trading-scheduler:
+    image: ghcr.io/${GHCR_OWNER:-your-org}/trading-agent:${IMAGE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    command: ["python", "-m", "trading_agent.scheduler"]
+    deploy:
+      replicas: 2
+      restart_policy:
+        condition: on-failure
+      placement:
+        constraints:
+          - node.role == manager
+    environment:
+      - TRADING_CONFIG_PATH=/app/config/credentials.yaml
+      - TRADING_ENV=production
+      - SCHEDULER_LEADER_ELECTION=true
+    volumes:
+      - trading-data:/app/data:ro
+      - ./config/credentials.yaml:/app/config/credentials.yaml:ro
+    secrets:
+      - binance_api_key
+      - binance_api_secret
+      - openrouter_api_key
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - trading-internal
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  # ===========================================================================
+  # INFRASTRUCTURE — TimescaleDB (Patroni HA), Redis (Sentinel), Monitoring
+  # ===========================================================================
+  timescaledb:
+    image: ghcr.io/timescaledb/timescaledb:latest-pg16
+    deploy:
+      replicas: 3
+      restart_policy:
+        condition: on-failure
+      placement:
+        constraints:
+          - node.role == manager
+    environment:
+      - POSTGRES_DB=trading
+      - POSTGRES_USER=trading
+      - POSTGRES_PASSWORD_FILE=/run/secrets/postgres_password
+      - PATRONI_SCOPE=trading-cluster
+      - PATRONI_NAMESPACE=/patroni/
+      - PATRONI_ETCD_URL=http://etcd:2379
+      - PATRONI_REPLICATION_USERNAME=replicator
+      - PATRONI_REPLICATION_PASSWORD_FILE=/run/secrets/patroni_replication_password
+      - PATRONI_SUPERUSER_USERNAME=trading
+      - PATRONI_SUPERUSER_PASSWORD_FILE=/run/secrets/postgres_password
+    volumes:
+      - timescaledb-data:/var/lib/postgresql/data:rw
+      - ./scripts/patroni.yml:/etc/patroni.yml:ro
+    secrets:
+      - postgres_password
+      - patroni_replication_password
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U trading -d trading"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - trading-internal
+
+  etcd:
+    image: bitnami/etcd:3.5
+    deploy:
+      replicas: 3
+      restart_policy:
+        condition: on-failure
+    environment:
+      - ETCD_NAME=etcd
+      - ETCD_INITIAL_CLUSTER=etcd1=http://etcd1:2380,etcd2=http://etcd2:2380,etcd3=http://etcd3:2380
+      - ETCD_INITIAL_CLUSTER_STATE=new
+      - ETCD_ADVERTISE_CLIENT_URLS=http://etcd:2379
+      - ETCD_LISTEN_CLIENT_URLS=http://0.0.0.0:2379
+      - ETCD_LISTEN_PEER_URLS=http://0.0.0.0:2380
+    volumes:
+      - etcd-data:/bitnami/etcd:rw
+    networks:
+      - trading-internal
+
+  redis:
+    image: redis:7-alpine
+    deploy:
+      replicas: 3
+      restart_policy:
+        condition: on-failure
+    command: >
+      redis-server
+      --sentinel-password-file /run/secrets/redis_sentinel_password
+      --masterauth-file /run/secrets/redis_password
+      --requirepass-file /run/secrets/redis_password
+    volumes:
+      - redis-data:/data:rw
+    secrets:
+      - redis_password
+      - redis_sentinel_password
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "$$REDIS_PASSWORD", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - trading-internal
+
+  # ===========================================================================
+  # MONITORING — Prometheus, Grafana, Loki, Promtail
+  # ===========================================================================
+  prometheus:
+    image: prom/prometheus:v2.53
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.enable-lifecycle'
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/prometheus/rules.yml:/etc/prometheus/rules.yml:ro
+      - prometheus-data:/prometheus:rw
+    ports:
+      - "9090:9090"
+    networks:
+      - trading-internal
+      - monitoring
+
+  grafana:
+    image: grafana/grafana:11.0
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD_FILE=/run/secrets/grafana_password
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_INSTALL_PLUGINS=grafana-piechart-panel
+    volumes:
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./monitoring/grafana/datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
+      - grafana-data:/var/lib/grafana:rw
+    secrets:
+      - grafana_password
+    ports:
+      - "3000:3000"
+    networks:
+      - trading-internal
+      - monitoring
+    depends_on:
+      - prometheus
+      - loki
+
+  loki:
+    image: grafana/loki:2.9
+    command: -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - ./monitoring/loki/config.yml:/etc/loki/local-config.yaml:ro
+      - loki-data:/loki:rw
+    ports:
+      - "3100:3100"
+    networks:
+      - monitoring
+
+  promtail:
+    image: grafana/promtail:2.9
+    volumes:
+      - ./monitoring/promtail/config.yml:/etc/promtail/config.yml:ro
+      - trading-logs:/var/log/trading:ro
+      - /var/log:/var/log:ro
+    networks:
+      - trading-internal
+      - monitoring
+    depends_on:
+      - loki
+
+  # ===========================================================================
+  # REVERSE PROXY — Nginx + Let's Encrypt (via certbot companion)
+  # ===========================================================================
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./monitoring/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./monitoring/nginx/conf.d:/etc/nginx/conf.d:ro
+      - certbot-webroot:/var/www/certbot:ro
+      - certbot-certs:/etc/letsencrypt:ro
+    networks:
+      - monitoring
+      - trading-external
+    depends_on:
+      - grafana
+      - trading-agent
+
+  certbot:
+    image: certbot/certbot:latest
+    volumes:
+      - certbot-webroot:/var/www/certbot:rw
+      - certbot-certs:/etc/letsencrypt:rw
+    entrypoint: >
+      sh -c 'certbot certonly --webroot -w /var/www/certbot
+      --email ${LETSENCRYPT_EMAIL} --agree-tos --no-eff-email
+      -d ${DOMAIN_NAME} -d grafana.${DOMAIN_NAME}
+      || exit 0'
+
+  # ===========================================================================
+  # EXPORTERS — Node, Postgres, Redis, cAdvisor
+  # ===========================================================================
+  node-exporter:
+    image: prometheus/node-exporter:v1.8
+    command:
+      - '--path.rootfs=/host'
+    pid: host
+    network_mode: host
+    volumes:
+      - '/:/host:ro,rslave'
+    networks:
+      - monitoring
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.15
+    environment:
+      - DATA_SOURCE_NAME=postgresql://trading:$$POSTGRES_PASSWORD@timescaledb:5432/trading?sslmode=disable
+    secrets:
+      - postgres_password
+    networks:
+      - trading-internal
+      - monitoring
+
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.61
+    environment:
+      - REDIS_ADDR=redis://:$$REDIS_PASSWORD@redis:6379
+    secrets:
+      - redis_password
+    networks:
+      - trading-internal
+      - monitoring
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    devices:
+      - /dev/kmsg:/dev/kmsg:ro
+    networks:
+      - monitoring
+
+# =============================================================================
+# VOLUMES
+# =============================================================================
+volumes:
+  trading-data:
+    driver: local
+  trading-logs:
+    driver: local
+  timescaledb-data:
+    driver: local
+  redis-data:
+    driver: local
+  etcd-data:
+    driver: local
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
+  loki-data:
+    driver: local
+  certbot-webroot:
+    driver: local
+  certbot-certs:
+    driver: local
+
+# =============================================================================
+# NETWORKS
+# =============================================================================
+networks:
+  trading-internal:
+    driver: overlay
+    attachable: true
+    internal: true
+  trading-external:
+    driver: overlay
+    attachable: true
+  monitoring:
+    driver: overlay
+    attachable: true
+    internal: true
+
+# =============================================================================
+# SECRETS (create via: echo "value" | docker secret create name -)
+# =============================================================================
+secrets:
+  binance_api_key:
+    external: true
+  binance_api_secret:
+    external: true
+  openrouter_api_key:
+    external: true
+  telegram_bot_token:
+    external: true
+  telegram_chat_id:
+    external: true
+  postgres_password:
+    external: true
+  patroni_replication_password:
+    external: true
+  redis_password:
+    external: true
+  redis_sentinel_password:
+    external: true
+  grafana_password:
+    external: true

@@ -50,13 +50,17 @@ st.caption("Real-time monitoring for multi-agent crypto trading system")
 
 st.sidebar.header("⚙️ Controls")
 refresh_interval = st.sidebar.selectbox(
-    "Auto-refresh (s)", [5, 10, 30, 60, 0], index=2
+    "Auto-refresh (s)", [0, 5, 10, 30, 60], index=0, format_func=lambda x: f"{x}s" if x > 0 else "Manual"
 )
-auto_refresh = refresh_interval > 0
 
-if auto_refresh:
-    st.sidebar.info(f"Auto-refreshing every {refresh_interval}s")
-    st.rerun()  # Streamlit handles rerun via query params
+if refresh_interval > 0:
+    st.sidebar.info(f"Auto-refresh every {refresh_interval}s")
+    from streamlit_autorefresh import st_autorefresh
+    st_autorefresh(interval=refresh_interval * 1000, key="data_refresh")
+else:
+    if st.sidebar.button("🔄 Refresh Now"):
+        st.cache_data.clear()
+        st.rerun()
 
 
 # ── Load Data ────────────────────────────────────────────────────────────
