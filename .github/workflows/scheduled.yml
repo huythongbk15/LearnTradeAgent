@@ -68,20 +68,10 @@ jobs:
         run: |
           ssh -o StrictHostKeyChecking=no ${{ env.STAGING_USER }}@${{ env.STAGING_HOST }} "
             cd /opt/trading-agent-staging &&
-            python3 -c '
-import sqlite3
-conn = sqlite3.connect("data/trading.db")
-cur = conn.cursor()
-cur.execute("""
-  SELECT strategy, MAX(total_return_pct) as best_return, MAX(sharpe) as best_sharpe
-  FROM backtest_results
-  WHERE created_at > datetime('now', '-2 days')
-  GROUP BY strategy
-""")
-for row in cur.fetchall():
-    print(f"{row[0]}: return={row[1]:.2f}%, sharpe={row[2]:.2f}")
-" 2>/dev/null || echo "Metrics table not yet available"
-          "
+            printf 'import sqlite3\nconn = sqlite3.connect(\"data/trading.db\")\ncur = conn.cursor()\ncur.execute(\"\"\"\n  SELECT strategy, MAX(total_return_pct) as best_return, MAX(sharpe) as best_sharpe\n  FROM backtest_results\n  WHERE created_at > datetime(\"now\", \"-2 days\")\n  GROUP BY strategy\n\"\"\")\nfor row in cur.fetchall():\n    print(f\"{row[0]}: return={row[1]:.2f}%%, sharpe={row[2]:.2f}\")\n' > /tmp/check_metrics.py &&
+            python3 /tmp/check_metrics.py
+            rm -f /tmp/check_metrics.py
+          " 2>/dev/null || echo 'Metrics table not yet available'
 
       - name: Notify results
         if: always()
