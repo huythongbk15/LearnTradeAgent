@@ -1,4 +1,4 @@
-# Scheduled Jobs — Nightly backtest, weekly optimization, daily backup (local)
+# Scheduled Jobs — Nightly backtest, weekly optimization (no daily backup)
 
 name: Scheduled Jobs
 
@@ -6,7 +6,6 @@ on:
   schedule:
     - cron: '0 2 * * *'   # Nightly backtest at 02:00 UTC
     - cron: '0 3 * * 0'   # Weekly optimize at 03:00 UTC Sunday
-    - cron: '0 4 * * *'   # Daily backup at 04:00 UTC
   workflow_dispatch:
     inputs:
       job:
@@ -16,7 +15,6 @@ on:
         options:
           - nightly-backtest
           - weekly-optimize
-          - daily-backup
 
 env:
   REGISTRY: ghcr.io
@@ -134,58 +132,3 @@ jobs:
             🔧 **Weekly Optimization ${{ job.status }}**
             Check param sweep results in GitHub Artifacts.
             Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
-
-  daily-backup:
-    name: Daily Database Backup (Local)
-    if: github.event_name == 'schedule' || github.event.inputs.job == 'daily-backup'
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up SSH
-        uses: webfactory/ssh-agent@v0.9.0
-        with:
-          ssh-private-key: ${{ secrets.STAGING_SSH_KEY }}
-
-      - name: Run backup script on staging (local)
-        run: |
-          ssh -o StrictHostKeyChecking=no ${{ env.STAGING_USER }}@${{ env.STAGING_HOST }} "
-            set -e
-            DATE=\$(date +%Y%m%d_%H%M%S)
-            BACKUP_DIR=/opt/trading-agent-backups/\$DATE
-            mkdir -p \$BACKUP_DIR
-
-            # 1. TimescaleDB dump (custom format)
-            docker exec trading-timescaledb-1 pg_dump -U trading -Fc trading > \$BACKUP_DIR/timescaledb_\$DATE.dump
-
-            # 2. Redis RDB snapshot
-            docker exec trading-redis-1 redis-cli --rdb \$BACKUP_DIR/redis_\$DATE.rdb
-
-            # 3. Config folder
-            cp -r /opt/trading-agent-staging/config \$BACKUP_DIR/
-
-            # 4. Keep only last 7 backups locally
-            ls -dt /opt/trading-agent-backups/*/ | tail -n +8 | xargs rm -rf
-
-            echo 'Backup saved to \$BACKUP_DIR'
-            du -sh \$BACKUP_DIR
-          "
-
-      - name: Verify backup
-        run: |
-          ssh -o StrictHostKeyChecking=no ${{ env.STAGING_USER }}@${{ env.STAGING_HOST }} "
-            ls -la /opt/trading-agent-backups/ | tail -10
-          "
-
-      - name: Notify
-        if: always()
-        uses: appleboy/telegram-action@master
-        with:
-          to: ${{ secrets.TELEGRAM_CHAT_ID }}
-          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          message: |
-            💾 **Daily Backup ${{ job.status }}**
-            Path: /opt/trading-agent-backups/YYYYMMDD_HHMMSS/
-            Time: \$(date -u +"%Y-%m-%d %H:%M UTC")
