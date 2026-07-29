@@ -1,4 +1,4 @@
-# Scheduled Jobs — Nightly backtest, weekly optimization, daily backup (Cloudflare R2)
+# Scheduled Jobs — Nightly backtest, weekly optimization, daily backup (local)
 
 name: Scheduled Jobs
 
@@ -23,11 +23,6 @@ env:
   IMAGE_NAME: ${{ github.repository }}
   STAGING_HOST: ${{ secrets.STAGING_HOST }}
   STAGING_USER: ${{ secrets.STAGING_USER }}
-  # Cloudflare R2 (S3-compatible) — 10 GB free forever, no egress fees
-  R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}          # https://<ACCOUNT_ID>.r2.cloudflarestorage.com
-  R2_BUCKET: ${{ secrets.R2_BUCKET }}              # trading-agent-backups
-  R2_ACCESS_KEY: ${{ secrets.R2_ACCESS_KEY }}      # R2 API token Access Key
-  R2_SECRET_KEY: ${{ secrets.R2_SECRET_KEY }}      # R2 API token Secret Key
 
 jobs:
   nightly-backtest:
@@ -141,7 +136,7 @@ jobs:
             Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
   daily-backup:
-    name: Daily Database Backup (Cloudflare R2)
+    name: Daily Database Backup (Local)
     if: github.event_name == 'schedule' || github.event.inputs.job == 'daily-backup'
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -154,12 +149,12 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.STAGING_SSH_KEY }}
 
-      - name: Run backup script on staging
+      - name: Run backup script on staging (local)
         run: |
           ssh -o StrictHostKeyChecking=no ${{ env.STAGING_USER }}@${{ env.STAGING_HOST }} "
             set -e
             DATE=\$(date +%Y%m%d_%H%M%S)
-            BACKUP_DIR=/tmp/backup_\$DATE
+            BACKUP_DIR=/opt/trading-agent-backups/\$DATE
             mkdir -p \$BACKUP_DIR
 
             # 1. TimescaleDB dump (custom format)
@@ -171,28 +166,17 @@ jobs:
             # 3. Config folder
             cp -r /opt/trading-agent-staging/config \$BACKUP_DIR/
 
-            # 4. Upload to Cloudflare R2 (S3-compatible API)
-            docker run --rm \
-              -v \$BACKUP_DIR:/backup \
-              -e AWS_ACCESS_KEY_ID=${{ env.R2_ACCESS_KEY }} \
-              -e AWS_SECRET_ACCESS_KEY=${{ env.R2_SECRET_KEY }} \
-              -e AWS_ENDPOINT_URL=${{ env.R2_ENDPOINT }} \
-              amazon/aws-cli:latest \
-              s3 sync /backup s3://${{ env.R2_BUCKET }}/trading-agent/backups/\$DATE/ --storage-class STANDARD
+            # 4. Keep only last 7 backups locally
+            ls -dt /opt/trading-agent-backups/*/ | tail -n +8 | xargs rm -rf
 
-            rm -rf \$BACKUP_DIR
-            echo 'Backup uploaded to s3://${{ env.R2_BUCKET }}/trading-agent/backups/\$DATE/'
+            echo 'Backup saved to \$BACKUP_DIR'
+            du -sh \$BACKUP_DIR
           "
 
       - name: Verify backup
         run: |
           ssh -o StrictHostKeyChecking=no ${{ env.STAGING_USER }}@${{ env.STAGING_HOST }} "
-            docker run --rm \
-              -e AWS_ACCESS_KEY_ID=${{ env.R2_ACCESS_KEY }} \
-              -e AWS_SECRET_ACCESS_KEY=${{ env.R2_SECRET_KEY }} \
-              -e AWS_ENDPOINT_URL=${{ env.R2_ENDPOINT }} \
-              amazon/aws-cli:latest \
-              s3 ls s3://${{ env.R2_BUCKET }}/trading-agent/backups/ | tail -5
+            ls -la /opt/trading-agent-backups/ | tail -10
           "
 
       - name: Notify
@@ -203,5 +187,5 @@ jobs:
           token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           message: |
             💾 **Daily Backup ${{ job.status }}**
-            Bucket: s3://${{ env.R2_BUCKET }}/trading-agent/backups/
+            Path: /opt/trading-agent-backups/YYYYMMDD_HHMMSS/
             Time: \$(date -u +"%Y-%m-%d %H:%M UTC")
