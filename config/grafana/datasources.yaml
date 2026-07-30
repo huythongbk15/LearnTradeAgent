@@ -1,0 +1,25 @@
+# =============================================================================
+# Grafana — Datasources (provisioned)
+# =============================================================================
+apiVersion: 1
+
+datasources:
+  - name: TimescaleDB
+    type: postgres
+    access: proxy
+    url: timescaledb:5432
+    user: trading
+    secureJsonData:
+      password: "${TSDB_PASSWORD}"
+    jsonData:
+      database: trading_market_data
+      sslmode: disable
+      postgresVersion: 1600
+      timescaledb: true
+    isDefault: true
+
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: false

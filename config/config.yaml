@@ -67,20 +67,27 @@ backtest:
   output_path: "data/processed"
 
 # --- LLM (for Phase 2+) ---
-# Priority: openai / openrouter / deepseek / ollama
+# Priority: opencode / nvidia / openrouter / ollama
 llm:
-  provider: "openrouter"        # primary provider (via OpenRouter)
-  model: "deepseek/deepseek-v4-flash"  # rẻ: ~$0.00003/req
+  provider: "opencode"          # OpenCode Zen — free, no API key needed
+  model: "deepseek-v4-flash-free"  # Free tier, cost = $0
   temperature: 0.1
-  max_tokens: 2000              # DeepSeek V4 Flash siêu rẻ (~$0.00003/req), thoải mái tăng
-  timeout: 30
+  max_tokens: 2000
 
-  # Fallback chain (tries in order)
+  # Model fallback WITHIN OpenCode (tried before switching provider)
+  model_fallback:
+    - "mimo-v2.5-free"
+    - "laguna-s-2.1-free"
+    - "ling-3.0-flash-free"
+    - "nemotron-3-ultra-free"
+    - "big-pickle"
+
+  # Provider fallback chain (tries in order) — only providers with WORKING keys
   fallback:
-    - provider: "openai"
-      model: "gpt-4o-mini"
-    - provider: "deepseek"
-      model: "deepseek-chat"
+    - provider: "nvidia"
+      model: "meta/llama-3.2-3b-instruct"
+    - provider: "openrouter"
+      model: "nvidia/nemotron-3-ultra-550b-a55b:free"
     - provider: "ollama"
       model: "qwen2.5:7b"
       base_url: "http://localhost:11434/v1"

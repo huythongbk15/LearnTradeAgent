@@ -9,7 +9,6 @@ from typing import Any
 
 import yaml
 
-
 # ── Validation helpers ────────────────────────────────────────────────────
 
 
@@ -155,6 +154,7 @@ class Config:
         self.llm_max_tokens: int = llm.get("max_tokens", 2000)
         self.llm_timeout: int = llm.get("timeout", 30)
         self.llm_fallback: list[dict] = llm.get("fallback", [])
+        self.llm_model_fallback: list[str] = llm.get("model_fallback", [])
 
     def _load_monitoring(self, raw: dict) -> None:
         m = raw.get("monitoring", {})

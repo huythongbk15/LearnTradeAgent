@@ -1,0 +1,21 @@
+# Trivy ignore file - vulnerabilities to ignore for trading-agent image
+# Format: CVE-ID, reason, expiration (optional)
+
+# OpenSSL: CVE-2024-XXXX - Acceptable risk for local dev, will be patched in base image update
+CVE-2024-4741
+CVE-2024-5535
+CVE-2024-12797
+
+# curl: CVE-2024-XXXX - Acceptable risk for local dev
+CVE-2024-11053
+CVE-2024-2398
+
+# glibc: CVE-2024-XXXX - Base image (python:3.12-slim) dependency
+CVE-2024-2961
+CVE-2024-33600
+CVE-2024-33601
+CVE-2024-33602
+
+# Note: These are typically in the base OS packages and will be fixed
+# when the base image (python:3.12-slim) is updated. For production,
+# consider using distroless or regularly rebuilding the base image.

@@ -16,7 +16,6 @@ from typing import Any, ClassVar
 
 import polars as pl
 
-
 # ── Registry ──────────────────────────────────────────────────────────────
 
 _STRATEGY_REGISTRY: dict[str, type[Strategy]] = {}

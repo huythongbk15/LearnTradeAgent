@@ -29,8 +29,7 @@ WORKDIR /app
 COPY pyproject.toml poetry.lock ./
 
 # Install production dependencies only (no dev group)
-RUN poetry install --only=main --no-root && \
-    poetry export -f requirements.txt --output requirements.txt --without-hashes
+RUN poetry install --only=main --no-root
 
 # =============================================================================
 # STAGE 2: Runtime — Minimal, non-root, read-only
@@ -45,8 +44,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user
-ARG UID=10001
-ARG GID=10001
+ARG UID=1000
+ARG GID=1000
 RUN groupadd -g $GID appgroup && \
     useradd -u $UID -g $GID -m -s /bin/bash appuser
 
@@ -77,6 +76,7 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
 # Environment
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONPATH="/app/src:$PYTHONPATH" \
     PATH="/home/appuser/.local/bin:$PATH" \
     TRADING_CONFIG_PATH=/app/config/credentials.yaml
 
@@ -89,11 +89,21 @@ CMD ["--help"]
 # =============================================================================
 FROM builder AS dev
 
-# Install dev dependencies
+# Copy all source FIRST so poetry can install the root package
+COPY --chown=appuser:appgroup . .
+
+# Create appuser for dev stage too (builder doesn't have it)
+ARG UID=1000
+ARG GID=1000
+RUN groupadd -g $GID appgroup 2>/dev/null || true && \
+    useradd -u $UID -g $GID -m -s /bin/bash appuser 2>/dev/null || true && \
+    mkdir -p /app/data/raw /app/data/execution /app/logs && \
+    chown -R appuser:appgroup /app
+
+# Install dev dependencies (+ re-links root package)
 RUN poetry install --with dev
 
-# Copy all source
-COPY --chown=appuser:appgroup . .
+ENV PYTHONPATH="/app/src:$PYTHONPATH"
 
 USER appuser
 

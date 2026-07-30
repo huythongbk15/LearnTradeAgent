@@ -30,10 +30,14 @@ param_sweep.py
 validate.py
 mem_agent/
 
-# Environment files
+# Environment files (secrets — DO NOT COMMIT)
 .env
-.env.*
-!env.example
+.env.local
+.env.production
+config/credentials.yaml
+
+# Allow these templates (commit-safe)
+!.env.example
 
 # IDE
 .idea/
@@ -113,3 +117,4 @@ SOUL.md
 drivers/
 PHASE2_TODO.md
 PHASE3_TODO.md
+PHASE5_TODO.md

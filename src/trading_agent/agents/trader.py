@@ -12,10 +12,8 @@ Nếu Risk Manager nói HIGH/EXTREME → signal bị override thành HOLD.
 from __future__ import annotations
 
 import logging
-from typing import Any
 
-from trading_agent.agents.base import AnalysisContext, AgentMessage, BaseAgent
-from trading_agent.agents.llm import ask_agent
+from trading_agent.agents.base import AgentMessage, AnalysisContext, BaseAgent
 
 logger = logging.getLogger(__name__)
 

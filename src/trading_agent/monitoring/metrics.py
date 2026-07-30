@@ -7,7 +7,6 @@ Provides both static (backtest-style) and rolling (live) metrics.
 from __future__ import annotations
 
 import math
-from datetime import datetime, timezone
 from typing import Any
 
 from trading_agent.log_config import get_logger
@@ -113,11 +112,9 @@ def _compute_max_drawdown(values: list[float]) -> float:
     peak = values[0] if values else 0
     max_dd = 0.0
     for v in values:
-        if v > peak:
-            peak = v
+        peak = max(peak, v)
         dd = (peak - v) / peak if peak > 0 else 0
-        if dd > max_dd:
-            max_dd = dd
+        max_dd = max(max_dd, dd)
     return round(max_dd * 100, 2)
 
 

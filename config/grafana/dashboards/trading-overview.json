@@ -1,0 +1,100 @@
+{
+  "title": "Trading Agent — Overview",
+  "uid": "trading-overview",
+  "version": 1,
+  "schemaVersion": 39,
+  "tags": ["trading"],
+  "timezone": "browser",
+  "panels": [
+    {
+      "title": "Portfolio Equity",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "targets": [{
+        "datasource": {"type": "postgres", "uid": "TimescaleDB"},
+        "rawSql": "SELECT timestamp, equity FROM equity_curve ORDER BY timestamp",
+        "format": "time_series",
+        "refId": "A"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "lineInterpolation": "smooth",
+            "spanNulls": true
+          }
+        }
+      }
+    },
+    {
+      "title": "P&L Total",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 4, "x": 0, "y": 8},
+      "targets": [{
+        "datasource": {"type": "postgres", "uid": "TimescaleDB"},
+        "rawSql": "SELECT SUM(pnl) as pnl FROM trades",
+        "format": "table",
+        "refId": "A"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "color": {"mode": "thresholds"},
+          "thresholds": {
+            "steps": [
+              {"color": "red", "value": null},
+              {"color": "green", "value": 0}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "Win Rate",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 4, "x": 4, "y": 8},
+      "targets": [{
+        "datasource": {"type": "postgres", "uid": "TimescaleDB"},
+        "rawSql": "SELECT ROUND(100.0 * SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) / COUNT(*), 1) as win_rate FROM trades",
+        "format": "table",
+        "refId": "A"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "color": {"mode": "thresholds"},
+          "thresholds": {
+            "steps": [
+              {"color": "red", "value": null},
+              {"color": "orange", "value": 40},
+              {"color": "green", "value": 60}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "Open Positions",
+      "type": "table",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
+      "targets": [{
+        "datasource": {"type": "postgres", "uid": "TimescaleDB"},
+        "rawSql": "SELECT symbol, side, quantity, entry_price, current_price, unrealized_pnl, stop_loss FROM positions WHERE status = 'open'",
+        "format": "table",
+        "refId": "A"
+      }]
+    },
+    {
+      "title": "Recent Trades",
+      "type": "table",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 20},
+      "targets": [{
+        "datasource": {"type": "postgres", "uid": "TimescaleDB"},
+        "rawSql": "SELECT entry_time, symbol, side, entry_price, exit_price, pnl, reason FROM trades ORDER BY entry_time DESC LIMIT 20",
+        "format": "table",
+        "refId": "A"
+      }]
+    }
+  ]
+}

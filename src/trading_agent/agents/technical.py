@@ -11,7 +11,7 @@ import logging
 
 import polars as pl
 
-from trading_agent.agents.base import AnalysisContext, AgentMessage, BaseAgent
+from trading_agent.agents.base import AgentMessage, AnalysisContext, BaseAgent
 from trading_agent.agents.llm import ask_agent
 
 logger = logging.getLogger(__name__)
@@ -126,12 +126,19 @@ class TechnicalAnalyst(BaseAgent):
 
     def _build_prompt(self, context: AnalysisContext, ind: dict) -> str:
         extra = ind.get("_extra", {})
+        # Price changes (some may be None when insufficient data)
+        changes = []
+        if context.price_change_1d is not None:
+            changes.append(f"1d={context.price_change_1d:+.2f}%")
+        if context.price_change_1w is not None:
+            changes.append(f"1w={context.price_change_1w:+.2f}%")
+        if context.price_change_1m is not None:
+            changes.append(f"1m={context.price_change_1m:+.2f}%")
+
         lines = [
             f"Symbol: {context.symbol} ({context.timeframe})",
             f"Current Price: ${context.current_price:.2f}",
-            f"Price Changes: 1d={context.price_change_1d:+.2f}% | "
-            f"1w={context.price_change_1w:+.2f}% | "
-            f"1m={context.price_change_1m:+.2f}%",
+            f"Price Changes: {' | '.join(changes)}" if changes else "",
             "",
             "--- Technical Indicators ---",
         ]

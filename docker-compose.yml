@@ -6,9 +6,11 @@
 # =============================================================================
 
 services:
-  # ── App (for running in containers) ────────────────────────────────────
+  # ── App (CLI tool — dùng docker compose run, không up -d) ────────────
   trading-agent:
-    build: .
+    build:
+      context: .
+      target: runtime
     image: trading-agent:latest
     container_name: trading-agent
     command: ["--help"]
@@ -17,17 +19,13 @@ services:
       - ./data:/app/data
       - ./logs:/app/logs
     env_file:
-      - .env
-    restart: unless-stopped
-    depends_on:
-      timescaledb:
-        condition: service_healthy
+      - .env.local          # secrets (gitignored)
     profiles:
       - app
 
   # ── TimescaleDB (time-series database for market data) ────────────────
   timescaledb:
-    image: timescale/timescaledb:2-pg16
+    image: timescale/timescaledb:latest-pg16
     container_name: trading-timescaledb
     environment:
       POSTGRES_USER: trading
@@ -59,7 +57,7 @@ services:
     profiles:
       - infra
 
-  # ── Grafana (dashboard) ───────────────────────────────────────────────
+  # ── Grafana (dashboard + alerting) ──────────────────────────────────
   grafana:
     image: grafana/grafana:latest
     container_name: trading-grafana
@@ -67,8 +65,28 @@ services:
       - "3000:3000"
     volumes:
       - grafana_data:/var/lib/grafana
+      - ./config/grafana/datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml:ro
+      - ./config/grafana/dashboards.yaml:/etc/grafana/provisioning/dashboards/dashboards.yaml:ro
+      - ./config/grafana/dashboards:/etc/grafana/provisioning/dashboards/dashboards:ro
     environment:
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+    restart: unless-stopped
+    profiles:
+      - infra
+
+  # ── Prometheus (metrics collection) ────────────────────────────────
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: trading-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./config/prometheus:/etc/prometheus:ro
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=30d"
     restart: unless-stopped
     profiles:
       - infra
@@ -77,3 +95,4 @@ volumes:
   timescaledb_data:
   redis_data:
   grafana_data:
+  prometheus_data:

@@ -8,21 +8,66 @@ Tự động chọn paper/live mode dựa trên config.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+import signal
+import sys
+import threading
+from collections.abc import Callable
 from typing import Any
 
 from trading_agent.agents.base import AgentMessage
+from trading_agent.config.loader import config
 from trading_agent.execution.paper_exchange import PaperExchange
 from trading_agent.execution.types import (
     Order,
     OrderSide,
     OrderType,
-    Position,
-    Trade,
 )
-from trading_agent.config.loader import config
 
 logger = logging.getLogger(__name__)
+
+# ── Graceful shutdown handling ────────────────────────────────────────
+
+_shutdown_handlers: list[Callable[[], None]] = []
+_shutdown_lock = threading.Lock()
+_shutdown_initiated = False
+
+
+def register_shutdown_handler(handler: Callable[[], None]) -> None:
+    """Register a function to be called on graceful shutdown (SIGTERM/SIGINT)."""
+    with _shutdown_lock:
+        _shutdown_handlers.append(handler)
+
+
+def _run_shutdown_handlers() -> None:
+    """Execute all registered shutdown handlers."""
+    global _shutdown_initiated
+    with _shutdown_lock:
+        if _shutdown_initiated:
+            return
+        _shutdown_initiated = True
+        handlers = list(_shutdown_handlers)
+        _shutdown_handlers.clear()
+
+    for handler in handlers:
+        try:
+            handler()
+        except Exception as e:
+            logger.error(f"Shutdown handler error: {e}", exc_info=True)
+
+
+def _signal_handler(signum: int, frame) -> None:
+    """Handle SIGTERM/SIGINT for graceful shutdown."""
+    sig_name = signal.Signals(signum).name
+    logger.info(f"Received {sig_name}, initiating graceful shutdown...")
+    _run_shutdown_handlers()
+    sys.exit(0)
+
+
+def setup_graceful_shutdown() -> None:
+    """Install signal handlers for SIGTERM and SIGINT."""
+    signal.signal(signal.SIGTERM, _signal_handler)
+    signal.signal(signal.SIGINT, _signal_handler)
+    logger.debug("Graceful shutdown handlers installed (SIGTERM, SIGINT)")
 
 
 class ExecutionEngine:
@@ -54,6 +99,17 @@ class ExecutionEngine:
             commission=commission or config.commission,
             slippage=slippage or config.slippage,
         )
+
+        # Register graceful shutdown handler
+        register_shutdown_handler(self._graceful_shutdown)
+
+    def _graceful_shutdown(self) -> None:
+        """Called on SIGTERM/SIGINT to close positions and persist state."""
+        logger.info("Graceful shutdown: closing all positions...")
+        try:
+            self.close_all(reason="graceful_shutdown")
+        except Exception as e:
+            logger.error(f"Error during graceful shutdown: {e}")
 
     # ── Execute signals from Phase 2 agents ────────────────────────────
 

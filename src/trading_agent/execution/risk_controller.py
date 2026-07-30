@@ -12,7 +12,7 @@ Chạy tự động sau mỗi lần update giá để kiểm tra:
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from trading_agent.execution.engine import ExecutionEngine
@@ -60,7 +60,7 @@ class RiskController:
         self._peak_equity: float = engine.exchange.get_total_equity()
         self._initial_equity: float = engine.exchange.get_total_equity()
         self._daily_start_equity: float = engine.exchange.get_total_equity()
-        self._last_trade_date: str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        self._last_trade_date: str = datetime.now(UTC).strftime("%Y-%m-%d")
         self._circuit_breaker_active: bool = False
         self._circuit_breaker_reason: str | None = None
         self._cooldown_until: datetime | None = None
@@ -77,11 +77,10 @@ class RiskController:
         equity = self.engine.exchange.get_total_equity()
 
         # Update peak
-        if equity > self._peak_equity:
-            self._peak_equity = equity
+        self._peak_equity = max(self._peak_equity, equity)
 
         # Update daily tracking
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        today = datetime.now(UTC).strftime("%Y-%m-%d")
         if today != self._last_trade_date:
             self._daily_start_equity = equity
             self._last_trade_date = today
@@ -92,8 +91,8 @@ class RiskController:
             return self._alerts
 
         # Skip if in cooldown
-        if self._cooldown_until and datetime.now(timezone.utc) < self._cooldown_until:
-            remaining = (self._cooldown_until - datetime.now(timezone.utc)).total_seconds() / 3600
+        if self._cooldown_until and datetime.now(UTC) < self._cooldown_until:
+            remaining = (self._cooldown_until - datetime.now(UTC)).total_seconds() / 3600
             self._alerts.append(f"⏳ Cooldown: {remaining:.1f}h remaining")
             return self._alerts
         elif self._cooldown_until:
@@ -155,7 +154,7 @@ class RiskController:
         self._circuit_breaker_active = True
         self._circuit_breaker_reason = reason
         self.engine.close_all(reason=f"circuit_breaker: {reason}")
-        self._cooldown_until = datetime.now(timezone.utc) + timedelta(hours=self.cooldown_hours)
+        self._cooldown_until = datetime.now(UTC) + timedelta(hours=self.cooldown_hours)
 
         logger.warning(f"CIRCUIT BREAKER ACTIVATED: {reason}")
 
@@ -184,7 +183,7 @@ class RiskController:
             "daily_loss_pct": round(daily_loss, 2),
             "max_drawdown_limit_pct": self.max_drawdown_pct * 100,
             "daily_loss_limit_pct": self.daily_loss_limit_pct * 100,
-            "cooldown_active": bool(self._cooldown_until and datetime.now(timezone.utc) < self._cooldown_until),
+            "cooldown_active": bool(self._cooldown_until and datetime.now(UTC) < self._cooldown_until),
             "cooldown_until": self._cooldown_until.isoformat() if self._cooldown_until else None,
             "warnings": self._alerts,
         }

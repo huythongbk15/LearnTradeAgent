@@ -8,11 +8,8 @@ State lưu dưới dạng JSON để persist qua các lần chạy.
 from __future__ import annotations
 
 import json
-import logging
-import os
-import time
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -21,8 +18,8 @@ from trading_agent.execution.types import (
     OrderSide,
     OrderStatus,
     OrderType,
-    Trade,
     Position,
+    Trade,
 )
 from trading_agent.log_config import get_logger
 
@@ -51,7 +48,7 @@ def _log_trade_to_db(
     """Write trade event to SQLite database."""
     try:
         _lazy_db()
-        from trading_agent.monitoring.database import insert_trade, close_trade
+        from trading_agent.monitoring.database import close_trade, insert_trade
 
         if action == "open":
             insert_trade(
@@ -206,7 +203,7 @@ class PaperExchange:
         order = self.orders.get(order_id)
         if order and order.is_open:
             order.status = OrderStatus.CANCELED
-            order.updated_at = datetime.now(timezone.utc)
+            order.updated_at = datetime.now(UTC)
             logger.info(f"Order {order_id} canceled")
             self._save_state()
         return order
@@ -253,11 +250,11 @@ class PaperExchange:
                 pos.current_price = price
                 pos.unrealized_pnl = pos.quantity * (price - pos.entry_price)
                 pos.unrealized_pnl_pct = ((price / pos.entry_price) - 1) * 100
-                pos.updated_at = datetime.now(timezone.utc)
+                pos.updated_at = datetime.now(UTC)
 
                 # Check stop-loss
                 if pos.stop_loss and (
-                    (pos.side == OrderSide.BUY and price <= pos.stop_loss)  # long
+                    pos.side == OrderSide.BUY and price <= pos.stop_loss  # long
                 ):
                     logger.warning(f"Stop-loss triggered for {symbol} at {price:.2f}")
                     self._close_position(symbol, price, reason="stop_loss")
@@ -287,7 +284,7 @@ class PaperExchange:
         drawdown = (peak - equity) / peak if peak > 0 else 0
 
         self.equity_history.append({
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "equity": equity,
             "cash": cash,
             "positions_value": pos_value,
@@ -345,9 +342,7 @@ class PaperExchange:
             return
 
         should_fill = False
-        if order.side == OrderSide.BUY and current_price <= order.price:
-            should_fill = True
-        elif order.side == OrderSide.SELL and current_price >= order.price:
+        if order.side == OrderSide.BUY and current_price <= order.price or order.side == OrderSide.SELL and current_price >= order.price:
             should_fill = True
 
         if should_fill:
@@ -363,9 +358,7 @@ class PaperExchange:
             return
 
         should_trigger = False
-        if order.side == OrderSide.SELL and current_price <= order.stop_price:
-            should_trigger = True
-        elif order.side == OrderSide.BUY and current_price >= order.stop_price:
+        if order.side == OrderSide.SELL and current_price <= order.stop_price or order.side == OrderSide.BUY and current_price >= order.stop_price:
             should_trigger = True
 
         if should_trigger:
@@ -442,7 +435,7 @@ class PaperExchange:
         order.avg_fill_price = fill_price
         order.cost = total_cost
         order.fee = fee_amount
-        order.updated_at = datetime.now(timezone.utc)
+        order.updated_at = datetime.now(UTC)
 
         logger.info(f"Filled {order.id}: {order.amount} {order.symbol} @ {fill_price:.2f} (fee: {fee_amount:.4f})")
         self._save_state()
@@ -461,7 +454,7 @@ class PaperExchange:
                     quantity=order.amount,
                     pnl=0,
                     pnl_pct=0,
-                    entry_time=datetime.now(timezone.utc),
+                    entry_time=datetime.now(UTC),
                     exit_time=None,
                     entry_order_id=order.id,
                     reason="entry",
@@ -522,7 +515,7 @@ class PaperExchange:
             pnl=pnl,
             pnl_pct=pnl_pct,
             entry_time=pos.opened_at,
-            exit_time=datetime.now(timezone.utc),
+            exit_time=datetime.now(UTC),
             entry_order_id=order.id,
             reason=reason or "signal",
         )

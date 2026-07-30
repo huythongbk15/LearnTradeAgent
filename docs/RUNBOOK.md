@@ -1,22 +1,21 @@
-# Trading Agent System — RUNBOOK (Sổ tay vận hành)
+# Trading Agent System — RUNBOOK (Local-First)
 
-> Hướng dẫn vận hành: incident response, deployment, và maintenance procedures.
+> Hướng dẫn vận hành cho môi trường LOCAL (WSL/Linux), không VPS, không SSH, không GitHub Actions staging.
 
 ---
 
-## 🚨 Incident Response — Quick Reference (Tra cứu nhanh)
+## 🚨 Incident Response — Quick Reference
 
-| Severity | Response Time | Escalation |
-|----------|---------------|------------|
-| **SEV-1** (Trading stopped, data loss) | 15 min | Page on-call → CTO |
-| **SEV-2** (Degraded performance, partial outage) | 30 min | Page on-call |
-| **SEV-3** (Minor issue, non-critical) | 2 hours | Ticket → next business day |
+| Severity | Mô tả | Response Time | Escalation |
+|----------|-------|---------------|------------|
+| **SEV-1** | Trading stopped, data loss, money at risk | 15 min | Page → Owner |
+| **SEV-2** | Degraded performance, partial outage | 30 min | Page → Owner |
+| **SEV-3** | Minor issue, non-critical | 2 hours | Ticket → next day |
 
 ### SEV-1 Checklist
-- [ ] Acknowledge alert in PagerDuty/Opsgenie
-- [ ] Check `#incidents` Slack channel
-- [ ] Run `./scripts/health_check.sh` to assess scope
-- [ ] If DB down → execute DB failover procedure
+- [ ] Acknowledge alert (Telegram/Phone)
+- [ ] Run `./scripts/health_check.sh` để assess scope
+- [ ] If DB down → `docker compose -f docker-compose.yml restart timescaledb`
 - [ ] If agent crashed → check logs, restart via `docker compose restart trading-agent`
 - [ ] If exchange API down → verify circuit breaker, check exchange status page
 - [ ] Document timeline in incident doc
@@ -24,149 +23,154 @@
 
 ---
 
-## 🔧 Common Procedures (Thủ tục thường dùng)
+## 🔧 Common Procedures (Local-First)
 
 ### 1. Health Check
 ```bash
 # Quick health check
 ./scripts/health_check.sh
 
-# Or manually:
-curl -sf https://trading-agent.example.com/healthz
-curl -sf https://trading-agent.example.com/api/metrics
-docker compose -f docker-compose.prod.yml ps
+# Manual checks
+curl -sf http://localhost:8000/healthz
+curl -sf http://localhost:8000/metrics | grep trading_equity
+docker compose ps
 ```
 
-### 2. View Logs (Xem logs)
+### 2. View Logs
 ```bash
-# Application logs (Loki/Grafana preferred)
-# Via CLI:
-docker compose -f docker-compose.prod.yml logs -f trading-agent --tail=100
+# App logs (structured JSON)
+docker compose logs -f trading-agent --tail=100
+
+# Filter by component
+docker compose logs -f trading-agent | grep "trading_agent.execution"
 
 # System logs
 journalctl -u docker -f
-
-# Nginx
-docker compose -f docker-compose.prod.yml logs nginx
 ```
 
-### 3. Restart Trading Agent (Zero-downtime)
+### 3. Restart Trading Agent
 ```bash
-# Rolling restart (3 replicas)
-docker compose -f docker-compose.prod.yml up -d --no-deps --scale trading-agent=3 trading-agent
-# Wait for health checks...
-docker compose -f docker-compose.prod.yml up -d --no-deps --scale trading-agent=3 trading-agent
+# Graceful restart (SIGTERM → SIGKILL after 30s)
+docker compose restart trading-agent
+
+# Force restart
+docker compose kill trading-agent && docker compose up -d trading-agent
+
+# With profile
+docker compose --profile app up -d trading-agent
 ```
 
-### 4. Emergency Stop All Trading (Dừng khẩn cấp tất cả trading)
+### 4. Emergency Stop All Trading
 ```bash
 # Via CLI (if agent responsive)
 python -m trading_agent.cli execution close --all --confirm
 
-# Via API
-curl -X POST https://trading-agent.example.com/api/execution/close-all \
-  -H "Authorization: Bearer $API_TOKEN"
-
 # Nuclear option: scale to 0
-docker compose -f docker-compose.prod.yml scale trading-agent=0
+docker compose scale trading-agent=0
+
+# Or stop entire stack
+docker compose down
 ```
 
-### 5. Database Failover (TimescaleDB + Patroni)
+### 5. Database Operations
 ```bash
-# Check cluster status
-patronictl -c /etc/patroni.yml list
+# Connect to TimescaleDB
+docker compose exec timescaledb psql -U trading -d trading_market_data
 
-# Manual failover (if auto-failover failed)
-patronictl -c /etc/patroni.yml failover --master trading-cluster --candidate <replica_name>
+# Check trade count
+psql -h localhost -U trading -d trading_market_data -c "SELECT COUNT(*) FROM trades;"
 
-# Verify
-psql -h timescaledb -U trading -c "SELECT pg_is_in_recovery();"
+# Backup DB
+./scripts/backup_local.sh
+
+# Restore from backup
+./scripts/restore_local.sh --date 20241215
 ```
 
-### 6. Redis Failover (Sentinel)
+### 6. Redis Operations
 ```bash
-# Check sentinel status
-redis-cli -h redis-sentinel -p 26379 SENTINEL get-master-addr-by-name trading-master
+# Connect
+docker compose exec redis redis-cli
 
-# Manual failover
-redis-cli -h redis-sentinel -p 26379 SENTINEL failover trading-master
-```
+# Check keys
+redis-cli KEYS "trading:*"
 
-### 7. Rollback Deployment
-```bash
-# Blue-green: switch nginx upstream back
-# Edit /etc/nginx/conf.d/upstream.conf to point to previous stack
-nginx -s reload
-
-# Or via GitHub Actions: re-run previous successful deployment workflow
+# Flush (careful!)
+redis-cli FLUSHDB
 ```
 
 ---
 
-## 📊 Monitoring & Alerts (Giám sát & Cảnh báo)
+## 📊 Monitoring & Alerts (Local Stack)
 
 ### Key Dashboards
-- **Trading Overview**: https://grafana.trading-agent.example.com/d/trading-overview
-- **System Metrics**: https://grafana.trading-agent.example.com/d/system-metrics
-- **Logs**: https://grafana.trading-agent.example.com/explore (Loki)
+| Dashboard | URL | Description |
+|-----------|-----|-------------|
+| Grafana | http://localhost:3000 | Main dashboards (admin/admin) |
+| Prometheus | http://localhost:9090 | Metrics query |
+| Streamlit | http://localhost:8501 | Trading dashboard |
+| Loki | http://localhost:3100 | Logs (via Grafana) |
 
-### Critical Alerts
+### Critical Local Alerts (Telegram)
 | Alert | Condition | Action |
 |-------|-----------|--------|
 | `TradingMaxDrawdownBreach` | Drawdown > 10% | Check circuit breaker, review positions |
 | `TradingDailyLossBreach` | Daily loss > 5% | Check circuit breaker, stop trading |
-| `TradingAgentDown` | No health check for 2 min | Restart agent, check logs |
-| `TimescaleDBReplicationLag` | Lag > 30s | Check replica, consider failover |
-| `RedisSentinelDown` | Sentinel quorum lost | Check Redis nodes, restart sentinel |
+| `TradingAgentDown` | No health check 2 min | Restart agent, check logs |
+| `TimescaleDBDown` | pg_isready fails | Restart timescaledb container |
 | `DiskSpaceCritical` | Disk > 85% | Cleanup logs, expand volume |
-| `ExchangeAPIErrorRate` | Error rate > 5% | Check exchange status, reduce rate |
 
-### Silencing Alerts (Tạm tắt cảnh báo)
+### Silencing Alerts (Local)
 ```bash
-# Via Alertmanager (if configured)
-amtool silence add --duration=2h --author="oncall" alertname=TradingAgentDown
-
-# Or in Grafana: Alerting → Silences
+# No Alertmanager in local stack — just disable cron temporarily
+crontab -l | grep -v "trade_local" | crontab -
+# Restore after fix
+crontab scripts/crontab_local.txt
 ```
 
 ---
 
-## 💾 Backup & Restore
+## 💾 Backup & Restore (Local-First)
 
-### Backup Schedule
-- **TimescaleDB**: Daily 04:00 UTC (pg_dump custom format, compressed)
-- **Redis**: Daily 04:00 UTC (RDB snapshot)
-- **Config**: Daily 04:00 UTC (tar.gz)
-- **Retention**: 30 days daily, 12 months monthly
+### Backup Schedule (via cron)
+| What | When | Retention |
+|------|------|-----------|
+| TimescaleDB (pg_dump) | Daily 23:00 | 30 days |
+| Redis (RDB) | Daily 23:00 | 30 days |
+| Config + .env.local | Daily 23:00 | 30 days |
+| Logs (tar.gz) | Weekly Sunday | 14 days |
 
 ### Manual Backup
 ```bash
-./scripts/backup.sh --s3-bucket trading-agent-backups
+# Full backup
+./scripts/backup_local.sh
+
+# Backup to custom location
+./scripts/backup_local.sh --dest /mnt/backup/trading-agent
+
+# List backups
+ls -la backups/
 ```
 
-### Restore Procedure
+### Restore
 ```bash
-# List available backups
-aws s3 ls s3://trading-agent-backups/trading-agent/ --recursive
+# Latest backup
+./scripts/restore_local.sh
 
-# Restore specific date
-./scripts/restore.sh --date 20241215
+# Specific date
+./scripts/restore_local.sh --date 20241215
 
-# Restore latest
-./scripts/restore.sh
-
-# Point-in-time recovery (TimescaleDB)
-# Requires WAL-G or pg_basebackup + WAL files
-# See: https://github.com/wal-g/wal-g
+# Dry run (show what would be restored)
+./scripts/restore_local.sh --dry-run
 ```
 
 ### Verify Restore
 ```bash
 # Check trade count
-psql -h timescaledb -U trading -d trading -c "SELECT COUNT(*) FROM trades;"
+psql -h localhost -U trading -d trading -c "SELECT COUNT(*) FROM trades;"
 
 # Check equity snapshots
-psql -h timescaledb -U trading -d trading -c "SELECT COUNT(*) FROM equity_snapshots;"
+psql -h localhost -U trading -d trading -c "SELECT COUNT(*) FROM equity_snapshots;"
 
 # Run health check
 ./scripts/health_check.sh
@@ -174,82 +178,82 @@ psql -h timescaledb -U trading -d trading -c "SELECT COUNT(*) FROM equity_snapsh
 
 ---
 
-## 🔐 Security Procedures
+## 🔐 Security Procedures (Local)
 
-### API Key Rotation (Quarterly / Hàng quý)
+### API Key Rotation (Quarterly)
 ```bash
-# 1. Generate new keys on exchange
-# 2. Update in 1Password/Vault
-# 3. Update Docker secrets
-echo "new_key" | docker secret create binance_api_key -
-# 4. Rolling restart
-docker compose -f docker-compose.prod.yml up -d --no-deps trading-agent
-# 5. Verify health
+# 1. Generate new keys on exchange (Binance, Bybit, etc.)
+# 2. Update .env.local
+nano .env.local
+# BINANCE_API_KEY=new_key
+# BINANCE_API_SECRET=new_secret
+
+# 3. Restart agent to pick up new keys
+docker compose restart trading-agent
+
+# 4. Verify health
 ./scripts/health_check.sh
-# 6. Revoke old keys on exchange
+
+# 5. Revoke old keys on exchange
 ```
 
-### Certificate Renewal (Let's Encrypt)
-```bash
-# Auto-renewed by certbot timer
-# Manual check:
-certbot certificates
+### Secrets Management (Local)
+- **DO NOT** commit `.env.local` to git (in `.gitignore`)
+- Store backup of `.env.local` in encrypted location (1Password, Bitwarden, age/gpg)
+- Rotate keys quarterly or after any suspected exposure
 
-# Force renewal
-certbot renew --force-renewal
-nginx -s reload
-```
-
-### Incident: Suspected Compromise (Nghi ngờ bị xâm nhập)
-1. **Isolate**: Scale trading-agent to 0, block outbound except monitoring
+### Incident: Suspected Compromise
+1. **Isolate**: `docker compose scale trading-agent=0`
 2. **Rotate**: All API keys, DB passwords, SSH keys
-3. **Audit**: Check logs for unusual activity (Loki query: `{job="trading-agent"} |~ "unauthorized|failed|error"`)
-4. **Report**: Security team, exchange security@ if API keys compromised
+3. **Audit**: Check logs for unusual activity
+   ```bash
+   docker compose logs trading-agent | grep -i "unauthorized\|failed\|error"
+   ```
+4. **Report**: Exchange security@ if API keys compromised
 
 ---
 
-## 📈 Capacity Planning
+## 📈 Capacity Planning (Local)
 
-### Current Specs (Production)
-| Component | Spec | Headroom |
-|-----------|------|----------|
-| Trading Agent | 3 × 1 vCPU, 1GB RAM | 50% CPU at peak |
-| TimescaleDB | 2 vCPU, 4GB RAM, 100GB SSD | 60% storage |
-| Redis | 1 vCPU, 2GB RAM | 40% memory |
-| Nginx | 1 vCPU, 512MB RAM | 30% CPU |
+### Current Specs (WSL2 / Linux)
+| Component | Resources | Headroom |
+|-----------|-----------|----------|
+| Trading Agent | 1 vCPU, 1GB RAM | 50% CPU at peak |
+| TimescaleDB | 2 vCPU, 4GB RAM, 50GB SSD | 60% storage |
+| Redis | 1 vCPU, 1GB RAM | 40% memory |
+| Grafana | 1 vCPU, 512MB RAM | 30% CPU |
+| Prometheus | 1 vCPU, 2GB RAM, 10GB | 30d retention |
 
-### Scaling Triggers
-- **CPU > 70% for 10min** → Add agent replica
-- **DB connections > 80%** → Add PgBouncer, consider read replica
-- **Redis memory > 75%** → Increase memory or add shard
-- **Disk > 80%** → Expand volume, cleanup old backups
+### Scaling Triggers (Local)
+- **CPU > 70% for 10min** → Reduce trade frequency (cron: 2h → 4h)
+- **DB connections > 80%** → Add PgBouncer (future)
+- **Redis memory > 75%** → Reduce cache TTL
+- **Disk > 80%** → Cleanup old backups, reduce Prometheus retention
 
-### Load Test
+### Load Test (Local)
 ```bash
-# Locust load test (100 users, 10 min)
-locust -f tests/load_test.py --host=https://trading-agent.example.com \
-  --users 100 --spawn-rate 10 --run-time 10m --headless
+# Quick load test
+for i in {1..10}; do
+  python -m trading_agent.cli execution run BTC/USDT --timeframe 1h &
+done
+wait
 ```
 
 ---
 
-## 📞 Contacts
+## 📞 Contacts (Local)
 
-| Role | Name | Phone | Slack | Email |
-|------|------|-------|-------|-------|
-| Primary On-call | | | | |
-| Secondary On-call | | | | |
-| Trading Lead | | | | |
-| Infra Lead | | | | |
-| Security | | | | |
-| Exchange Support (Binance) | | | | support@binance.com |
+| Role | Contact |
+|------|---------|
+| Owner/On-call | You (Telegram bot) |
+| Exchange Support | Binance: support@binance.com |
 
 ---
 
 ## 📝 Post-Incident Template
 
 ```markdown
-# Incident #INC-XXXX: [Title]
+# Incident #INC-YYYYMMDD-XXX: [Title]
 
 **Date**: YYYY-MM-DD
 **Duration**: HH:MM
@@ -261,7 +265,7 @@ Brief description of what happened.
 
 ## Timeline
 - HH:MM - Alert fired
-- HH:MM - On-call acknowledged
+- HH:MM - Acknowledged
 - HH:MM - Root cause identified
 - HH:MM - Fix deployed
 - HH:MM - Service restored
@@ -272,7 +276,7 @@ Technical explanation.
 ## Impact
 - Trades affected: X
 - P&L impact: $X
-- Users affected: X
+- Downtime: X min
 
 ## Action Items
 - [ ] Fix: Description (Owner, Due date)

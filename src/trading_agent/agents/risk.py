@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 
-from trading_agent.agents.base import AnalysisContext, AgentMessage, BaseAgent
+from trading_agent.agents.base import AgentMessage, AnalysisContext, BaseAgent
 from trading_agent.agents.llm import ask_agent
 
 logger = logging.getLogger(__name__)

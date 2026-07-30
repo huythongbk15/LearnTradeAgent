@@ -33,6 +33,11 @@ from pathlib import Path
 from typing import Any
 
 import requests
+from dotenv import load_dotenv
+
+# Load .env files (project .env + user ~/.env)
+load_dotenv()  # .env in current dir
+load_dotenv(Path.home() / ".env")  # ~/.env
 
 # ── Add project root to path ─────────────────────────────────────────────
 ROOT = Path(__file__).parent.parent
@@ -65,11 +70,14 @@ MAX_POSITION_PCT = float(os.getenv("MAX_POSITION_PCT", "0.50"))
 STOP_LOSS_PCT = float(os.getenv("STOP_LOSS_PCT", "0.05"))
 COOLDOWN_HOURS = float(os.getenv("COOLDOWN_HOURS", "24"))
 MAX_POS_SIZE_PCT = float(os.getenv("MAX_POS_SIZE_PCT", "0.25"))  # max % per trade
+# Skip LLM calls for fast local testing (uses rule-based fallbacks)
+USE_LLM = os.getenv("USE_LLM", "true").lower() != "false"
 
 # ── Global state ─────────────────────────────────────────────────────────
 shutdown = False
 last_data_update = 0
 last_pnl_notify = 0
+run_once = False  # set True when --once flag is passed
 
 
 def signal_handler(signum, frame):
@@ -188,9 +196,10 @@ def process_signals(engine: Any, risk_ctl: Any, signals: dict[str, Any], prices:
         # Create AgentMessage for engine
         from trading_agent.agents.base import AgentMessage
         msg = AgentMessage(
-            agent="trader",
+            role="trader",
             signal=signal,
             confidence=confidence,
+            reasoning=decision.reasoning,
             details={"symbol": symbol},
             max_position_size_pct=MAX_POS_SIZE_PCT,
             risk_level=risk_level,
@@ -339,6 +348,10 @@ def main_loop():
             break
         time.sleep(sleep_time)
 
+        # Exit after one iteration if --once flag
+        if run_once:
+            break
+
     # Graceful shutdown
     print("\n🛑 Shutting down…")
     summary = engine.get_summary()
@@ -368,5 +381,12 @@ if __name__ == "__main__":
     if args.once:
         LOOP_INTERVAL = 1
         DATA_UPDATE_INTERVAL = 0
+        globals()["run_once"] = True
 
-    main_loop()
+    try:
+        main_loop()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        if args.once:
+            print("\n✅ Single run complete")

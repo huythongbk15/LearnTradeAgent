@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 
-from trading_agent.agents.base import AnalysisContext, AgentMessage, BaseAgent
+from trading_agent.agents.base import AgentMessage, AnalysisContext, BaseAgent
 from trading_agent.agents.llm import ask_agent
 
 logger = logging.getLogger(__name__)
@@ -48,12 +48,20 @@ class SentimentAnalyst(BaseAgent):
         prompt_lines = [
             f"Symbol: {context.symbol} ({context.timeframe})",
             f"Current Price: ${price:.2f}",
-            f"Price Changes: 1d={context.price_change_1d:+.2f}% | "
-            f"1w={context.price_change_1w:+.2f}% | "
-            f"1m={context.price_change_1m:+.2f}%",
-            "",
-            "--- Indicators ---",
         ]
+
+        price_changes = []
+        if context.price_change_1d is not None:
+            price_changes.append(f"1d={context.price_change_1d:+.2f}%")
+        if context.price_change_1w is not None:
+            price_changes.append(f"1w={context.price_change_1w:+.2f}%")
+        if context.price_change_1m is not None:
+            price_changes.append(f"1m={context.price_change_1m:+.2f}%")
+        if price_changes:
+            prompt_lines.append(f"Price Changes: {' | '.join(price_changes)}")
+
+        prompt_lines.append("")
+        prompt_lines.append("--- Indicators ---")
 
         if "rsi" in ind:
             prompt_lines.append(f"RSI(14): {ind['rsi']:.1f}")

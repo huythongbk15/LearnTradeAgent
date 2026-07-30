@@ -12,7 +12,7 @@ Usage:
 from __future__ import annotations
 
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import ccxt
@@ -250,7 +250,7 @@ class Collector:
             std_ret = returns["ret_pct"].std()
             if std_ret > 0:
                 outliers = returns.filter(
-                    (pl.col("ret_pct").abs() > mean_ret + 5 * std_ret)
+                    pl.col("ret_pct").abs() > mean_ret + 5 * std_ret
                 )
                 report["checks"]["price_outliers"] = {
                     "count": len(outliers),
@@ -292,7 +292,7 @@ class Collector:
         try:
             dt = datetime.fromisoformat(since)
             if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
+                dt = dt.replace(tzinfo=UTC)
             return int(dt.timestamp() * 1000)
         except ValueError:
             _error_console.print(f"[red]Invalid date format: {since}[/red]")
@@ -503,7 +503,7 @@ def download_all_symbols(
     if total_candles > 0:
         console.print(f"\n[bold green]✅ Total: {total_candles:,} new candles[/bold green]")
     else:
-        console.print(f"\n[bold]✅ All up to date[/bold]")
+        console.print("\n[bold]✅ All up to date[/bold]")
 
 
 def validate_all_symbols(exchange_name: str | None = None) -> list[dict]:

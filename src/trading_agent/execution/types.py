@@ -5,8 +5,7 @@ Data types for execution layer: Order, Trade, Position.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from decimal import Decimal
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
@@ -50,8 +49,8 @@ class Order:
     avg_fill_price: float | None = None
     cost: float = 0.0      # total cost (quote currency)
     fee: float = 0.0
-    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-    updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     metadata: dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -187,8 +186,8 @@ class Position:
     unrealized_pnl: float = 0.0
     unrealized_pnl_pct: float = 0.0
     realized_pnl: float = 0.0
-    opened_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-    updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    opened_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     stop_loss: float | None = None
     take_profit: float | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -234,8 +233,8 @@ class Position:
             unrealized_pnl=d.get("unrealized_pnl", 0.0),
             unrealized_pnl_pct=d.get("unrealized_pnl_pct", 0.0),
             realized_pnl=d.get("realized_pnl", 0.0),
-            opened_at=datetime.fromisoformat(d["opened_at"]) if d.get("opened_at") else datetime.now(timezone.utc),
-            updated_at=datetime.fromisoformat(d["updated_at"]) if d.get("updated_at") else datetime.now(timezone.utc),
+            opened_at=datetime.fromisoformat(d["opened_at"]) if d.get("opened_at") else datetime.now(UTC),
+            updated_at=datetime.fromisoformat(d["updated_at"]) if d.get("updated_at") else datetime.now(UTC),
             stop_loss=d.get("stop_loss"),
             take_profit=d.get("take_profit"),
             metadata=d.get("metadata", {}),

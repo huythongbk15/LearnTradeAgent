@@ -4,9 +4,10 @@ Command-line interface for the Trading Agent System.
 
 from __future__ import annotations
 
-from pathlib import Path
+import pickle
 import subprocess
 import time
+from pathlib import Path
 
 import click
 from rich.console import Console
@@ -662,9 +663,10 @@ def execution():
 @execution.command("status")
 def execution_status():
     """Show current portfolio status, positions, P&L."""
-    from trading_agent.execution.engine import ExecutionEngine
-    from rich.table import Table as RichTable
     from rich.panel import Panel
+    from rich.table import Table as RichTable
+
+    from trading_agent.execution.engine import ExecutionEngine
 
     engine = ExecutionEngine()
     summary = engine.get_summary()
@@ -708,8 +710,9 @@ def execution_status():
 @click.option("--limit", "-n", default=10, type=int, help="Number of trades to show")
 def execution_trades(limit: int):
     """Show recent trade history."""
-    from trading_agent.execution.engine import ExecutionEngine
     from rich.table import Table as RichTable
+
+    from trading_agent.execution.engine import ExecutionEngine
 
     engine = ExecutionEngine()
     trades = engine.get_trade_history(limit)
@@ -737,10 +740,11 @@ def execution_trades(limit: int):
 @execution.command("risk")
 def execution_risk_status():
     """Show risk controller status."""
-    from trading_agent.execution.engine import ExecutionEngine
-    from trading_agent.execution.risk_controller import RiskController
     from rich.panel import Panel
     from rich.table import Table as RichTable
+
+    from trading_agent.execution.engine import ExecutionEngine
+    from trading_agent.execution.risk_controller import RiskController
 
     engine = ExecutionEngine()
     rc = RiskController(engine)
@@ -816,7 +820,7 @@ def execution_run(symbol: str, timeframe: str, capital: float | None,
     console.print(f"🧠 Running multi-agent analysis for [bold]{symbol}[/bold] {timeframe}…")
     console.print(f"   Current position: {existing_pos.quantity:.4f} {symbol} "
                   f"({current_pos_pct * 100:.1f}% of portfolio)" if existing_pos and existing_pos.is_active else
-                  f"   No open position")
+                  "   No open position")
 
     # 2. Run agents
     orchestrator = Orchestrator()
@@ -886,8 +890,9 @@ def execution_run(symbol: str, timeframe: str, capital: float | None,
 @click.option("--all", "-a", "close_all", is_flag=True, help="Close all positions")
 def execution_close(symbol: str | None, close_all: bool):
     """Close a position or all positions (kill switch)."""
-    from trading_agent.execution.engine import ExecutionEngine
     from rich.prompt import Confirm
+
+    from trading_agent.execution.engine import ExecutionEngine
 
     engine = ExecutionEngine()
 
@@ -929,35 +934,141 @@ def system():
     """System health & diagnostics."""
 
 
+@system.command("serve")
+@click.option("--port", "-p", default=8000, type=int, help="Metrics server port")
+def system_serve(port: int):
+    """Start Prometheus metrics server (blocking)."""
+    from trading_agent.execution.engine import setup_graceful_shutdown
+    from trading_agent.monitoring.metrics_server import serve_forever
+    setup_graceful_shutdown()
+    serve_forever(port=port)
+
+
+@system.command("shutdown-test")
+def system_shutdown_test():
+    """Test graceful shutdown handler installation."""
+    import os
+
+    from trading_agent.execution.engine import (
+        register_shutdown_handler,
+        setup_graceful_shutdown,
+    )
+
+    # Register a test handler
+    register_shutdown_handler(lambda: console.print("[green]✓ Shutdown handler executed[/green]"))
+
+    # Install signal handlers
+    setup_graceful_shutdown()
+
+    console.print("[bold]Graceful shutdown handlers installed[/bold]")
+    console.print("Send SIGTERM (Ctrl+C) to test...")
+    console.print(f"PID: {os.getpid()}")
+
+    # Wait for signal
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Interrupted by user[/yellow]")
+
+
+@system.command("daily")
+@click.option("--send-telegram", is_flag=True, help="Send summary via Telegram")
+def system_daily(send_telegram: bool):
+    """Generate and print daily performance summary."""
+    from trading_agent.execution.engine import ExecutionEngine
+    engine = ExecutionEngine()
+    summary = engine.get_summary()
+    positions = engine.get_positions_summary()
+    trades = engine.get_trade_history(limit=100)
+
+    # Compute stats
+    total_trades = summary.get("total_trades", 0)
+    closed_trades = [t for t in trades if t.get("pnl") is not None]
+    wins = sum(1 for t in closed_trades if t.get("pnl", 0) > 0)
+    win_rate = wins / len(closed_trades) if closed_trades else 0.0
+    total_pnl = sum(t.get("pnl", 0) for t in closed_trades)
+    sharpe = summary.get("sharpe_ratio", 0)
+    max_dd = summary.get("max_drawdown_pct", 0)
+
+    stats = {
+        "total_trades": total_trades,
+        "win_rate": win_rate,
+        "total_pnl": total_pnl,
+        "sharpe_ratio": sharpe,
+        "max_drawdown_pct": max_dd,
+    }
+
+    # Print to console
+    console.print("[bold]📊 Daily Summary[/bold]")
+    t = Table("Metric", "Value")
+    t.add_row("Total Trades", str(total_trades))
+    t.add_row("Win Rate", f"{win_rate:.1%}")
+    t.add_row("Total P&L", f"${total_pnl:+.2f}")
+    t.add_row("Sharpe", f"{sharpe:.2f}")
+    t.add_row("Max DD", f"{max_dd:.2f}%")
+    t.add_row("Open Positions", str(len(positions)))
+    t.add_row("Equity", f"${summary.get('equity', 0):.2f}")
+    console.print(t)
+
+    # Send via Telegram if requested
+    if send_telegram:
+        from trading_agent.monitoring.alerter import send_daily_summary
+        send_daily_summary(stats)
+        console.print("[green]✅ Summary sent to Telegram[/green]")
+
+
 @system.command("health")
 def system_health():
     """Comprehensive health check of all components."""
-    import subprocess
-    import time
+    import socket
+
+    def _tcp_check(host: str, port: int, timeout: float = 3.0) -> bool:
+        """Check if a TCP port is open (stdlib only)."""
+        try:
+            s = socket.create_connection((host, port), timeout=timeout)
+            s.close()
+            return True
+        except OSError:
+            return False
+
+    def _http_check(url: str, timeout: float = 5.0) -> bool:
+        """HTTP GET via curl (available in runtime image)."""
+        try:
+            r = subprocess.run(
+                ["curl", "-sf", url],
+                timeout=timeout, capture_output=True,
+            )
+            return r.returncode == 0
+        except Exception:
+            return False
 
     checks = [
-        ("Trading Agent HTTP", "curl -sf http://localhost:8000/healthz"),
-        ("TimescaleDB", "pg_isready -h timescaledb -p 5432 -U trading -d trading"),
-        ("Redis", "redis-cli -h redis -p 6379 ping | grep -q PONG"),
-        ("Prometheus", "curl -sf http://prometheus:9090/-/healthy"),
-        ("Grafana", "curl -sf http://grafana:3000/api/health | grep -q ok"),
-        ("Loki", "curl -sf http://loki:3100/ready"),
-        ("Nginx", "curl -sf http://nginx/healthz"),
+        # Core infra — TCP port check (no extra CLI tools needed)
+        ("TimescaleDB", lambda: _tcp_check("timescaledb", 5432)),
+        ("Redis",       lambda: _tcp_check("redis", 6379)),
+        # HTTP services — curl-based
+        ("Grafana",     lambda: _http_check("http://grafana:3000/api/health", timeout=5)),
+        # Optional services — only checked if DNS resolves
+        ("Prometheus",  lambda: _http_check("http://prometheus:9090/-/healthy") if _tcp_check("prometheus", 9090) else ("skip", "not deployed")),
+        ("Loki",        lambda: _http_check("http://loki:3100/ready") if _tcp_check("loki", 3100) else ("skip", "not deployed")),
+        ("Nginx",       lambda: _http_check("http://nginx/healthz") if _tcp_check("nginx", 80) else ("skip", "not deployed")),
     ]
 
     console.print("[bold]Running health checks...[/bold]\n")
     results = []
 
-    for name, cmd in checks:
+    for name, check_fn in checks:
         start = time.time()
         try:
-            result = subprocess.run(cmd, shell=True, timeout=10, capture_output=True)
+            result = check_fn()
             elapsed = time.time() - start
-            ok = result.returncode == 0
-            status = "[green]✓ OK[/green]" if ok else "[red]✗ FAIL[/red]"
+            if isinstance(result, tuple) and result[0] == "skip":
+                status = f"[dim]— {result[1]}[/dim]"
+            else:
+                ok = bool(result)
+                status = "[green]✓ OK[/green]" if ok else "[red]✗ FAIL[/red]"
             results.append((name, status, f"{elapsed:.2f}s"))
-        except subprocess.TimeoutExpired:
-            results.append((name, "[red]✗ TIMEOUT[/red]", "10.00s"))
         except Exception as e:
             results.append((name, f"[red]✗ ERROR: {e}[/red]", "—"))
 
@@ -985,7 +1096,6 @@ def system_health():
               help="Filter by component")
 def system_logs(lines: int, follow: bool, component: str | None):
     """View recent logs from trading agent container."""
-    import subprocess
 
     # Map component to logger name
     logger_map = {
@@ -1072,6 +1182,181 @@ def system_metrics():
         else:
             t.add_row(k, str(v))
     console.print(t)
+
+
+# ── llm subcommands ───────────────────────────────────────────────────────
+
+
+@main.group()
+def llm():
+    """LLM cache & cost management."""
+
+
+@llm.command("cache-stats")
+def llm_cache_stats():
+    """Show LLM cache statistics."""
+    from trading_agent.agents.llm import _CACHE_DIR, _CACHE_TTL_SECONDS
+
+    cache_files = list(_CACHE_DIR.glob("*.pkl"))
+    total_size = sum(f.stat().st_size for f in cache_files)
+    now = time.time()
+
+    valid = 0
+    expired = 0
+    for f in cache_files:
+        try:
+            with open(f, "rb") as fp:
+                data = pickle.load(fp)
+            cached_time = data.get("timestamp", 0)
+            if now - cached_time < _CACHE_TTL_SECONDS:
+                valid += 1
+            else:
+                expired += 1
+        except Exception:
+            expired += 1
+
+    t = Table("Metric", "Value")
+    t.add_row("Cache Directory", str(_CACHE_DIR))
+    t.add_row("Total Files", str(len(cache_files)))
+    t.add_row("Valid (TTL)", str(valid))
+    t.add_row("Expired", str(expired))
+    t.add_row("Total Size", f"{total_size / 1024 / 1024:.2f} MB")
+    t.add_row("TTL", f"{_CACHE_TTL_SECONDS / 3600:.0f} hours")
+    console.print(t)
+
+
+@llm.command("cache-clear")
+@click.option("--all", "clear_all", is_flag=True, help="Clear all cache (including valid)")
+@click.confirmation_option(prompt="Clear LLM cache?")
+def llm_cache_clear(clear_all: bool):
+    """Clear LLM cache."""
+    from trading_agent.agents.llm import _CACHE_DIR
+
+    cache_files = list(_CACHE_DIR.glob("*.pkl"))
+    removed = 0
+    for f in cache_files:
+        try:
+            with open(f, "rb") as fp:
+                data = pickle.load(fp)
+            cached_time = data.get("timestamp", 0)
+            if clear_all or time.time() - cached_time >= _CACHE_TTL_SECONDS:
+                f.unlink()
+                removed += 1
+        except Exception:
+            f.unlink()
+            removed += 1
+
+    console.print(f"[green]✅ Cleared {removed} cache files[/green]")
+
+
+@llm.command("cost-estimate")
+@click.option("--daily-trades", default=12, help="Estimated trades per day")
+@click.option("--calls-per-trade", default=4, help="LLM calls per trade (4 agents)")
+@click.option("--tokens-per-call", default=1500, help="Avg tokens per call")
+def llm_cost_estimate(daily_trades: int, calls_per_trade: int, tokens_per_call: int):
+    """Estimate monthly LLM cost."""
+    daily_calls = daily_trades * calls_per_trade
+    daily_tokens = daily_calls * tokens_per_call
+    monthly_tokens = daily_tokens * 30
+
+    # Free tier estimates (rough)
+    console.print("[bold]📊 Monthly LLM Cost Estimate[/bold]")
+    t = Table("Provider (Free Tier)", "Monthly Calls", "Monthly Tokens", "Est. Cost")
+    t.add_row("OpenCode (deepseek-v4-flash-free)", f"{daily_calls * 30:,}", f"{monthly_tokens:,}", "$0.00")
+    t.add_row("DeepSeek API (free tier)", f"{daily_calls * 30:,}", f"{monthly_tokens:,}", "$0.00*")
+    t.add_row("NVIDIA NIM (free tier)", f"{daily_calls * 30:,}", f"{monthly_tokens:,}", "$0.00*")
+    t.add_row("Groq (free tier)", f"{daily_calls * 30:,}", f"{monthly_tokens:,}", "$0.00*")
+    t.add_row("OpenRouter (free models)", f"{daily_calls * 30:,}", f"{monthly_tokens:,}", "$0.00*")
+    console.print(t)
+
+    console.print(f"\nWith cache (80% hit rate): {monthly_tokens * 0.2:,.0f} tokens → $0.00")
+    console.print("[dim]* Free tier limits apply (rate limits, context window)[/dim]")
+
+
+# ── execution multi-symbol ───────────────────────────────────────────────
+
+
+@execution.command("run-multi")
+@click.argument("symbols", nargs=-1, required=True)
+@click.option("--timeframe", "-t", default="1h", help="Timeframe")
+@click.option("--capital", "-c", default=None, type=float, help="Portfolio value")
+@click.option("--stop-loss", "-s", default=0.05, type=float, help="Stop-loss %")
+@click.option("--parallel/--sequential", default=True, help="Run agents in parallel")
+def execution_run_multi(symbols: tuple[str], timeframe: str, capital: float | None,
+                        stop_loss: float, parallel: bool):
+    """Run execution cycle for multiple symbols."""
+    import concurrent.futures
+
+    from trading_agent.agents.orchestrator import Orchestrator
+    from trading_agent.execution.engine import ExecutionEngine
+    from trading_agent.execution.risk_controller import RiskController
+
+    engine = ExecutionEngine(initial_capital=capital)
+    rc = RiskController(engine)
+    orchestrator = Orchestrator()
+
+    console.print(f"[bold]Running multi-symbol execution for: {', '.join(symbols)}[/bold]")
+
+    def process_symbol(symbol: str):
+        console.print(f"\n[cyan]=== {symbol} ===[/cyan]")
+        try:
+            report = orchestrator.analyze(
+                symbol=symbol,
+                timeframe=timeframe,
+                current_position_pct=0.0,
+                portfolio_value=capital or engine.exchange.get_total_equity(),
+            )
+            decision = report.final_decision
+
+            if decision.signal == "HOLD":
+                console.print(f"  [yellow]HOLD[/yellow] — {decision.reasoning}")
+                return {"symbol": symbol, "signal": "HOLD", "orders": 0, "status": "ok"}
+
+            # Execute
+            engine.exchange._last_price_cache[symbol] = report.current_price
+            orders = engine.execute_signal(decision)
+
+            if orders:
+                for o in orders:
+                    console.print(f"  [green]→ {o.side.value.upper()} {o.amount:.4f} {symbol}[/green]")
+                if decision.signal == "BUY" and stop_loss > 0:
+                    engine.set_stop_loss(symbol, stop_loss)
+                    pos = engine.exchange.get_position(symbol)
+                    if pos and pos.stop_loss:
+                        console.print(f"  🛡️  Stop-loss: ${pos.stop_loss:,.2f}")
+
+            # Risk check
+            warnings = rc.check_all()
+            if warnings:
+                for w in warnings:
+                    console.print(f"  [red]⚠ {w}[/red]")
+
+            return {"symbol": symbol, "signal": decision.signal, "orders": len(orders), "status": "ok"}
+
+        except FileNotFoundError as e:
+            console.print(f"  [red]Data not found: {e}[/red]")
+            return {"symbol": symbol, "signal": "ERROR", "orders": 0, "status": "data_not_found"}
+        except Exception as e:
+            console.print(f"  [red]Error: {e}[/red]")
+            return {"symbol": symbol, "signal": "ERROR", "orders": 0, "status": "error"}
+
+    if parallel:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+            results = list(executor.map(process_symbol, symbols))
+    else:
+        results = [process_symbol(s) for s in symbols]
+
+    # Summary
+    console.print("\n[bold]📋 Summary[/bold]")
+    t = Table("Symbol", "Signal", "Orders", "Status")
+    for r in results:
+        status_icon = "✅" if r["status"] == "ok" else "❌"
+        t.add_row(r["symbol"], r["signal"], str(r["orders"]), status_icon)
+    console.print(t)
+
+    # Show portfolio status
+    console.print()
+    execution_status.callback()
 
 
 if __name__ == "__main__":

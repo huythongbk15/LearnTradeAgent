@@ -11,7 +11,6 @@ Flow:
 
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass
 from typing import Any
 
@@ -21,17 +20,17 @@ from rich.panel import Panel
 from rich.table import Table as RichTable
 from rich.tree import Tree
 
-from trading_agent.agents.base import AnalysisContext, AgentMessage
-from trading_agent.agents.technical import TechnicalAnalyst
-from trading_agent.agents.sentiment import SentimentAnalyst
+from trading_agent.agents.base import AgentMessage, AnalysisContext
 from trading_agent.agents.risk import RiskManager
+from trading_agent.agents.sentiment import SentimentAnalyst
+from trading_agent.agents.technical import TechnicalAnalyst
 from trading_agent.agents.trader import Trader
-from trading_agent.data.storage import load_ohlcv
 from trading_agent.config.loader import config
+from trading_agent.data.storage import load_ohlcv
+from trading_agent.log_config import get_logger
+from trading_agent.strategies.bbands import BBandsStrategy
 from trading_agent.strategies.ma_crossover import MaCrossover
 from trading_agent.strategies.rsi import RsiStrategy
-from trading_agent.strategies.bbands import BBandsStrategy
-from trading_agent.log_config import get_logger
 
 logger = get_logger(__name__)
 

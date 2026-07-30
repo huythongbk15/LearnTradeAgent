@@ -12,14 +12,13 @@ Cách hoạt động:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 import polars as pl
 
 from trading_agent.config.loader import config
 from trading_agent.strategies.base import Strategy
-
 
 # ── Results ───────────────────────────────────────────────────────────────
 

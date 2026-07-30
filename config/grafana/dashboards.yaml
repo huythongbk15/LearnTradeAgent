@@ -1,0 +1,16 @@
+# =============================================================================
+# Grafana — Dashboard Provisioning
+# =============================================================================
+apiVersion: 1
+
+providers:
+  - name: "Trading Dashboards"
+    orgId: 1
+    folder: "Trading"
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards
+      foldersFromFilesStructure: false
