@@ -1,6 +1,6 @@
 """Strategy library — đăng ký tự động qua import."""
 
-from trading_agent.strategies import agent_ensemble, bbands, ma_crossover, rsi
+from trading_agent.strategies import agent_ensemble as agent_ensemble, bbands as bbands, ma_crossover as ma_crossover, rsi as rsi
 from trading_agent.strategies.base import (
     Strategy,
     get_strategy,

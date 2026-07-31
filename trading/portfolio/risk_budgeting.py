@@ -199,11 +199,14 @@ class RiskBudgeter:
 
         # Select objective
         if self.method == RiskBudgetMethod.EQUAL_RISK_CONTRIBUTION:
-            objective = lambda x: self._objective_erc(x, cov, target_risk)
+            def objective(x):
+                return self._objective_erc(x, cov, target_risk)
         elif self.method == RiskBudgetMethod.MAX_DIVERSIFICATION:
-            objective = lambda x: self._objective_max_div(x, cov)
+            def objective(x):
+                return self._objective_max_div(x, cov)
         elif self.method == RiskBudgetMethod.MIN_VARIANCE:
-            objective = lambda x: self._objective_min_var(x, cov)
+            def objective(x):
+                return self._objective_min_var(x, cov)
         elif self.method == RiskBudgetMethod.INVERSE_VOL:
             vol = np.sqrt(np.diag(cov))
             inv_vol = 1 / vol
@@ -269,7 +272,7 @@ class RiskBudgeter:
 
     def _hrp_optimize(self, returns: pd.DataFrame, cov: np.ndarray, symbols: list[Symbol]) -> RiskBudgetResult:
         """Hierarchical Risk Parity optimization"""
-        from scipy.cluster.hierarchy import linkage, fcluster
+        from scipy.cluster.hierarchy import linkage
         from scipy.spatial.distance import squareform
 
         # Correlation matrix

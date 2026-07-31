@@ -15,7 +15,6 @@ Run:  python scripts/benchmark_phase6.py
 
 import asyncio
 import sys
-import tempfile
 import time
 from decimal import Decimal
 from pathlib import Path

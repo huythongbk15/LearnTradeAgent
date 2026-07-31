@@ -75,14 +75,14 @@ class DataSource(ABC):
         timestamp/open/high/low/close/volume keys.
         """
         if isinstance(raw, (list, tuple)):
-            ts_ms, o, h, l, c = raw[0], raw[1], raw[2], raw[3], raw[4]
+            ts_ms, o, h, low, c = raw[0], raw[1], raw[2], raw[3], raw[4]
             v = raw[5] if len(raw) > 5 else 0
             ts = datetime.fromtimestamp(ts_ms / 1000.0, tz=timezone.utc)
         elif isinstance(raw, dict):
             ts = raw.get("timestamp") or raw.get("time")
             if isinstance(ts, (int, float)):
                 ts = datetime.fromtimestamp(ts / 1000.0, tz=timezone.utc) if ts > 1e11 else datetime.fromtimestamp(ts, tz=timezone.utc)
-            o, h, l, c, v = raw["open"], raw["high"], raw["low"], raw["close"], raw.get("volume", 0)
+            o, h, low, c, v = raw["open"], raw["high"], raw["low"], raw["close"], raw.get("volume", 0)
         else:
             raise TypeError(f"Unsupported raw candle format: {type(raw)}")
 
@@ -98,7 +98,7 @@ class DataSource(ABC):
             timeframe=timeframe,
             open=dec(o),
             high=dec(h),
-            low=dec(l),
+            low=dec(low),
             close=dec(c),
             volume=dec(v),
         )
@@ -245,11 +245,11 @@ class MockSource(DataSource):
             c = Decimal("0.00000001")
         scale = Decimal(str(round(1 + self.volatility * 0.3, 8)))
         h = max(o, c) * scale
-        l = min(o, c) * scale
+        low = min(o, c) * scale
         self.price = c
         return Candle(
             symbol=symbol, timestamp=ts, timeframe=timeframe,
-            open=o, high=h, low=l, close=c,
+            open=o, high=h, low=low, close=c,
             volume=Decimal(str(round(random.random() * 1000, 4))),
         )
 

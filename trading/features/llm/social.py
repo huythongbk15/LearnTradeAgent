@@ -1,11 +1,11 @@
 """Social sentiment feature extraction using LLM."""
 
+import asyncio
 import json
 import logging
 import re
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
 from collections import Counter
 
 from trading.llm.client import LLMClient
@@ -148,7 +148,7 @@ For each post, output JSON with:
                 analyses = json.loads(response[start:end])
             else:
                 analyses = []
-        except:
+        except Exception:
             analyses = []
         
         # Pad if needed
@@ -361,4 +361,3 @@ class SocialFeatureAggregator:
 
 
 from datetime import timedelta
-from collections import Counter

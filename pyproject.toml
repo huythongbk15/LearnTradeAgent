@@ -35,3 +35,14 @@ build-backend = "poetry.core.masonry.api"
 dev = [
     "pytest (>=9.1.1,<10.0.0)"
 ]
+
+[tool.ruff]
+# CI lint scope: real bugs (pyflakes) + syntax errors. Style rules (line
+# length, import sorting, datetime tz, etc.) are intentionally not enforced
+# here to keep `ruff check .` green on the existing codebase.
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]
+# F841 (unused variable) is harmless noise; cleaned incrementally.
+# E402 is intentional in scripts/ (sys.path setup) and several modules (lazy imports).
+ignore = ["F841", "E402"]

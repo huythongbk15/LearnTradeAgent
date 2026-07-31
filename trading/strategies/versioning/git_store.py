@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Optional
 
 from trading.strategies.versioning.registry import StrategyVersion, StrategyRegistry
-from trading.strategies.versioning.abi import StrategyABI
 
 logger = logging.getLogger(__name__)
 
@@ -193,7 +192,7 @@ class GitVersionStore:
             return []
         
         log_output = self._run_git(
-            "log", f"--oneline", f"-n", str(limit), "--", str(strategy_dir)
+            "log", "--oneline", "-n", str(limit), "--", str(strategy_dir)
         )
         
         history = []

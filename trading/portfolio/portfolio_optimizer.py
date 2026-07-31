@@ -17,14 +17,12 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum
-from typing import Optional
 import numpy as np
 import pandas as pd
 from scipy.optimize import minimize
-from scipy.linalg import sqrtm
 from scipy.stats import norm
 
-from trading.exchanges.models import Symbol, AssetClass, MarketType
+from trading.exchanges.models import Symbol, AssetClass
 from trading.portfolio.risk_budgeting import RiskBudgetMethod, RiskBudgeter
 
 logger = logging.getLogger(__name__)

@@ -3,17 +3,12 @@
 import asyncio
 import logging
 import os
-import subprocess
 import tempfile
-import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from decimal import Decimal
-from datetime import datetime
 from enum import Enum
 from typing import Any, Optional
 
-from trading.strategies.plugins import BaseStrategy as Strategy
 
 logger = logging.getLogger(__name__)
 

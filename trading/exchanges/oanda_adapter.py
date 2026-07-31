@@ -9,13 +9,11 @@ Supports:
 - Account management across sub-accounts
 """
 
-import asyncio
 import logging
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, Optional
-import json
+from typing import Optional
 
 import oandapyV20
 import oandapyV20.endpoints.accounts as accounts
@@ -23,7 +21,6 @@ import oandapyV20.endpoints.instruments as instruments
 import oandapyV20.endpoints.orders as orders
 import oandapyV20.endpoints.positions as positions
 import oandapyV20.endpoints.pricing as pricing
-import oandapyV20.endpoints.trades as trades
 from oandapyV20.exceptions import V20Error
 
 from trading.exchanges.models import (

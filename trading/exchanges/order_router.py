@@ -16,11 +16,11 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from decimal import Decimal
 from enum import Enum
-from typing import Any, Optional
+from typing import Any
 from collections import defaultdict
 
 from trading.exchanges.models import Symbol, Order, OrderSide, OrderType, OrderStatus, TimeInForce, Ticker, OrderBook, AssetClass, Balance, Position
-from trading.exchanges.ccxt_adapter import CCXTAdapter, MultiExchangeManager
+from trading.exchanges.ccxt_adapter import MultiExchangeManager
 from trading.exchanges.alpaca_adapter import AlpacaAdapter
 from trading.exchanges.oanda_adapter import OANDAAdapter
 

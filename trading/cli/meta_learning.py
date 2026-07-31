@@ -12,11 +12,10 @@ from typing import Optional
 import typer
 from rich.console import Console
 from rich.table import Table
-from rich.panel import Panel
 
 from trading.ml.meta import (
     MetaStrategyAdapter, MetaLearningConfig, 
-    StrategyParameterTask, MAML, Reptile, MetaSGD, ANIL
+    MAML, Reptile, MetaSGD, ANIL
 )
 
 logger = logging.getLogger(__name__)

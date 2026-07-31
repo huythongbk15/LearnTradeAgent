@@ -1,16 +1,15 @@
 """Uniswap V3 adapter for Ethereum and EVM-compatible chains."""
 
-import asyncio
 import json
 import logging
+from datetime import datetime
 from decimal import Decimal
 from typing import Optional
 
 from web3 import Web3
 from web3.contract import Contract
-from web3.types import TxParams, Wei
 
-from trading.exchanges.dex.base import BaseDEXAdapter, PoolInfo, SwapQuote, DEXRouter
+from trading.exchanges.dex.base import BaseDEXAdapter, PoolInfo, SwapQuote
 from trading.exchanges.models import Symbol, Order, OrderSide, OrderType, OrderStatus
 
 logger = logging.getLogger(__name__)

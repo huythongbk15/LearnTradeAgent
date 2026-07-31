@@ -7,7 +7,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Optional
 
-from trading.agents.base import BaseAgent as Agent, AgentSignal, AgentSpec, AgentRole
+from trading.agents.base import BaseAgent as Agent, AgentSignal, AgentSpec
 
 logger = logging.getLogger(__name__)
 

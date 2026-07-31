@@ -1,10 +1,8 @@
 """Event projections for read models."""
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
-from datetime import datetime
 from decimal import Decimal
-from typing import Any, Optional
+from typing import Optional
 
 from trading.events.models import Event, EventType, TradeEvent, SignalEvent, RiskEvent, OrderEvent, PositionEvent, PortfolioEvent
 

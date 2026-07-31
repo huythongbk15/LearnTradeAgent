@@ -5,6 +5,7 @@ import logging
 from pathlib import Path
 from typing import Optional
 
+import pandas as pd
 import typer
 from rich.console import Console
 from rich.table import Table
@@ -503,7 +504,6 @@ def install(
     force: bool = typer.Option(False, "--force", "-f", help="Overwrite existing version"),
 ):
     """Install strategy from local file, git repo, or registry."""
-    import shutil
     import subprocess
     import tempfile
     
@@ -774,7 +774,7 @@ def run(
     total_return = (equity - capital) / capital * 100
     
     # Results
-    console.print(f"\n[bold]Results:[/bold]")
+    console.print("\n[bold]Results:[/bold]")
     console.print(f"  Final Equity: ${equity:,.2f}")
     console.print(f"  Total Return: {total_return:+.2f}%")
     console.print(f"  Total Trades: {len([t for t in trades if 'pnl' in t])}")
@@ -809,7 +809,6 @@ def backtest(
 ):
     """Run comprehensive backtest with metrics."""
     import hashlib
-    import pandas as pd
     from trading_agent.backtest.engine import run_backtest
     from trading.strategies.plugins import get_registry
     
@@ -845,7 +844,7 @@ def backtest(
         raise typer.Exit(1)
     
     # Display metrics
-    console.print(f"\n[bold]Backtest Results:[/bold]")
+    console.print("\n[bold]Backtest Results:[/bold]")
     metrics_table = Table("Metric", "Value")
     metrics_table.add_row("Total Return", f"{result.total_return_pct:+.2f}%")
     metrics_table.add_row("Sharpe Ratio", f"{result.sharpe_ratio:.2f}")

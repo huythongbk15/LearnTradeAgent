@@ -20,7 +20,6 @@ from enum import Enum
 from typing import Optional
 import numpy as np
 import pandas as pd
-from scipy.stats import norm
 from sklearn.mixture import GaussianMixture
 from hmmlearn import hmm
 

@@ -6,7 +6,6 @@
 import asyncio
 import os
 
-import pytest
 
 from trading.exchanges.models import crypto_symbol
 from trading.exchanges.websocket_manager import (

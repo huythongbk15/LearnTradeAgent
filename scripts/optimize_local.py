@@ -74,7 +74,7 @@ def main():
         print(f"\n✅ Done — results: {output_file}")
         print(f"   View: cat {output_file} | jq .")
     else:
-        print(f"\n❌ Failed — check logs above")
+        print("\n❌ Failed — check logs above")
         sys.exit(1)
 
 if __name__ == "__main__":

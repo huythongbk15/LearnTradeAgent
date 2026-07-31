@@ -11,7 +11,6 @@ Provides a sandboxed plugin system for trading strategies with:
 
 from __future__ import annotations
 
-import abc
 import hashlib
 import importlib
 import importlib.metadata
@@ -22,7 +21,6 @@ import sys
 import tempfile
 import uuid
 from abc import ABC, abstractmethod
-from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
@@ -753,5 +751,4 @@ class ExampleRSIStrategy(BaseStrategy):
         pass
 
 
-from collections import defaultdict
 import subprocess

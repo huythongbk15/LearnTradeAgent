@@ -3,13 +3,16 @@
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Optional
+from typing import Optional, TYPE_CHECKING
 
 from trading.agents.base import BaseAgent as Agent, AgentSpec, AgentRole
 from trading.agents.swarm.specialized import (
     TechnicalAgent, FundamentalAgent, SentimentAgent, RiskAgent, ExecutionAgent
 )
-from trading.llm.client import LLMClient, LLMConfig
+from trading.llm.client import LLMClient
+
+if TYPE_CHECKING:
+    from trading.agents.swarm.coordinator import CoordinatorAgent
 
 logger = logging.getLogger(__name__)
 

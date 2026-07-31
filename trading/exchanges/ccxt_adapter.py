@@ -8,24 +8,24 @@ Supports: Binance, Bybit, OKX, Coinbase, Kraken, Gate.io, KuCoin, HTX, etc.
 import asyncio
 import logging
 from abc import ABC, abstractmethod
-from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
+from decimal import Decimal
 from enum import Enum
-from typing import Any, Optional
+from typing import Optional
 from collections import defaultdict
 
 import ccxt
 import ccxt.pro as ccxtpro
 from ccxt.base.errors import (
-    NetworkError, ExchangeError, AuthenticationError,
-    RateLimitExceeded, InsufficientFunds, InvalidOrder
+    AuthenticationError,
+    InsufficientFunds, InvalidOrder
 )
 
 from trading.exchanges.models import (
     Symbol, AssetClass, MarketType, OrderSide, OrderType,
     OrderStatus, TimeInForce, Order, Position, Balance,
-    Ticker, OrderBook, OrderBookLevel, Trade, Candle
+    Ticker, OrderBook, OrderBookLevel, Candle
 )
 
 logger = logging.getLogger(__name__)

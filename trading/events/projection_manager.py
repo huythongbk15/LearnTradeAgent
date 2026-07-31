@@ -7,7 +7,6 @@ Manages all event projections and provides query interface.
 import asyncio
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime
 from typing import Any, Optional
 
 from trading.events.store import EventStore

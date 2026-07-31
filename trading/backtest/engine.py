@@ -8,10 +8,11 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, Optional
+from typing import Any
 
 import numpy as np
 import pandas as pd
+import polars as pl
 
 from trading.strategies.plugins import get_registry
 from trading.exchanges.models import Symbol as ExSymbol, AssetClass, MarketType, Bar

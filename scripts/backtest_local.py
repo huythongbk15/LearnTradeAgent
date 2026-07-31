@@ -74,7 +74,7 @@ cur.execute('''
   GROUP BY strategy
 ''')
 for row in cur.fetchall():
-    print(f'{row[0]}: return={row[1]:.2f}%, sharpe={row[2]:.2f}')
+    print(f'{{row[0]}}: return={{row[1]:.2f}}%, sharpe={{row[2]:.2f}}')
 " 2>/dev/null || echo 'Metrics table not yet available'
     """, check=False)
 

@@ -5,22 +5,20 @@ Integrates adaptive online indicators into the trading strategy pipeline.
 Allows strategies to adapt parameters in real-time based on market regime.
 """
 
-import asyncio
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, Optional
+from typing import Optional
 
-from trading.exchanges.models import Symbol, OrderSide, Bar, Position
+from trading.exchanges.models import OrderSide, Position
 from trading.ml.online.indicators import (
-    OnlineEMA, OnlineRSI, OnlineBollingerBands, 
-    OnlineMACD, OnlineATR, OnlineVWAP,
+    OnlineATR, OnlineVWAP,
     OnlineStandardDeviation, OnlineCorrelation,
 )
 from trading.ml.online.adaptive import (
     AdaptiveConfig, AdaptiveEMA, AdaptiveRSI, 
-    AdaptiveBollingerBands, AdaptiveMACD, AdaptiveStrategy,
+    AdaptiveBollingerBands, AdaptiveMACD,
 )
 from trading.strategies.plugins import BaseStrategy, Signal, StrategyContext, StrategyMetadata, StrategyType, RiskProfile
 

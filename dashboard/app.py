@@ -20,7 +20,6 @@ import streamlit as st
 import polars as pl
 
 from trading_agent.monitoring.database import (
-    DEFAULT_DB_PATH,
     get_trade_stats,
     get_trades,
     get_equity_curve,

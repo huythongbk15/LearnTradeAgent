@@ -1,7 +1,6 @@
 """Adaptive indicators and strategies using online learning."""
 
-from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 import numpy as np
 
@@ -318,4 +317,3 @@ class AdaptiveStrategy:
 
 # Import needed classes
 from trading.ml.online.indicators import OnlineStandardDeviation, OnlineCorrelation
-import numpy as np

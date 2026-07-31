@@ -1,11 +1,9 @@
 """Specialized agents for the swarm."""
 
-import asyncio
 import logging
-from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from abc import abstractmethod
+from dataclasses import dataclass
 from datetime import datetime
-from decimal import Decimal
 from enum import Enum
 from typing import Any, Optional
 import uuid
@@ -172,7 +170,7 @@ Output JSON:
                 data = json.loads(match.group())
             else:
                 raise ValueError("No JSON found")
-        except:
+        except Exception:
             data = {}
         
         action = data.get("action", "hold")
@@ -321,7 +319,7 @@ Output JSON:
                 data = json.loads(match.group())
             else:
                 raise ValueError("No JSON found")
-        except:
+        except Exception:
             data = {}
         
         action = data.get("action", "hold")
@@ -455,7 +453,7 @@ Output JSON:
                 data = json.loads(match.group())
             else:
                 raise ValueError("No JSON found")
-        except:
+        except Exception:
             data = {}
         
         action = data.get("action", "hold")
@@ -587,7 +585,7 @@ Output JSON:
                 data = json.loads(match.group())
             else:
                 raise ValueError("No JSON found")
-        except:
+        except Exception:
             data = {}
         
         action = data.get("action", "approve")
@@ -736,7 +734,7 @@ Output JSON:
                 data = json.loads(match.group())
             else:
                 raise ValueError("No JSON found")
-        except:
+        except Exception:
             data = {}
         
         action = data.get("action", "market")
@@ -800,4 +798,3 @@ Output JSON:
         )
 
 
-import uuid

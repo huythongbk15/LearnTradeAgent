@@ -2,14 +2,16 @@
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from datetime import datetime
 from decimal import Decimal
-from typing import Any, Optional, AsyncIterator
+from typing import TYPE_CHECKING
 import asyncio
 import json
 import uuid
 
 from trading.events.models import Event, EventType, TradeEvent, SignalEvent, RiskEvent, OrderEvent, PositionEvent, PortfolioEvent
+
+if TYPE_CHECKING:
+    from trading.events.models import Projection
 
 
 @dataclass

@@ -1,11 +1,9 @@
 """LLM client for trading system."""
 
-import asyncio
-import json
 import logging
 import os
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Optional
 
 import aiohttp
 

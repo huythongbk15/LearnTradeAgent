@@ -2,7 +2,6 @@
 
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Optional
 
 import numpy as np
 
@@ -35,14 +34,14 @@ class KellySizer:
         """Calculate Kelly fraction from win/loss statistics."""
         w = float(params.win_rate)
         a = float(params.avg_win)
-        l = float(params.avg_loss)
-        
-        if l <= 0:
+        avg_loss = float(params.avg_loss)
+
+        if avg_loss <= 0:
             raise ValueError("Average loss must be positive")
-        
-        # Kelly formula: f* = (w * a - (1-w) * l) / (a * l) ... simplified for binary outcomes
-        # Full Kelly: f = (p * b - q) / b where b = a/l, p = w, q = 1-w
-        b = a / l
+
+        # Kelly formula: f* = (w * a - (1-w) * avg_loss) / (a * avg_loss) ... simplified for binary outcomes
+        # Full Kelly: f = (p * b - q) / b where b = a/avg_loss, p = w, q = 1-w
+        b = a / avg_loss
         kelly_f = (w * b - (1 - w)) / b if b > 0 else 0
         
         # Cap at max leverage

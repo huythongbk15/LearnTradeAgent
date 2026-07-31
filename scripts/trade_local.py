@@ -229,7 +229,7 @@ def main_loop():
     logger = get_logger("trade_local")
 
     # Initialize components
-    print(f"🚀 Starting Local Trading Runner")
+    print("🚀 Starting Local Trading Runner")
     print(f"   Exchange: {EXCHANGE}")
     print(f"   Symbols: {', '.join(SYMBOLS)}")
     print(f"   Timeframe: {TIMEFRAME}")

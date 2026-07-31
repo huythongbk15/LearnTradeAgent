@@ -2,11 +2,9 @@
 
 from abc import ABC, abstractmethod
 from decimal import Decimal
-from typing import Any, Optional
-from dataclasses import dataclass
-from datetime import datetime
+from typing import Optional
 
-from trading.exchanges.models import Symbol, AssetClass, MarketType, Order, OrderSide, OrderType, OrderStatus, PoolInfo, SwapQuote
+from trading.exchanges.models import Symbol, Order, PoolInfo, SwapQuote
 
 
 class BaseDEXAdapter(ABC):

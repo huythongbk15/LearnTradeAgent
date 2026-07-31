@@ -7,7 +7,7 @@ from typing import Optional, List
 
 from trading.exchanges.models import (
     Symbol, AssetClass, MarketType, Order, OrderSide, OrderType, 
-    OrderStatus, Ticker, OrderBook, Balance, Position
+    OrderStatus, Ticker, OrderBook, Balance
 )
 from trading.exchanges.ccxt_adapter import CCXTAdapter
 
@@ -65,7 +65,7 @@ class DeribitOptionsAdapter(CCXTAdapter):
             try:
                 from datetime import datetime
                 expiry = datetime.strptime(expiry_str, "%d%b%y").strftime("%Y-%m-%d")
-            except:
+            except Exception:
                 expiry = expiry_str
             
             return Symbol(

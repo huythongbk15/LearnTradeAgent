@@ -19,10 +19,8 @@ Run:  python -m pytest tests/test_phase6_integration.py -v
 """
 
 import asyncio
-import os
 import sys
-import tempfile
-from datetime import datetime, timedelta
+from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 
@@ -826,7 +824,7 @@ class TestStrategy:
         assert result.output == {"fast": 5, "slow": 20}
 
     def test_sandbox_factory_default(self):
-        from trading.strategies.sandbox import SandboxFactory, SandboxType
+        from trading.strategies.sandbox import SandboxFactory
 
         sandbox = SandboxFactory.create_default()
         assert sandbox is not None
@@ -856,7 +854,7 @@ class TestMessaging:
         assert restored.correlation_id == "corr-1"
 
     def test_in_memory_bus(self):
-        from trading.messaging import Message, MessageBus, MessagePriority
+        from trading.messaging import Message, MessageBus
 
         class InMemoryBus(MessageBus):
             def __init__(self):
@@ -909,7 +907,7 @@ class TestMultiRegion:
 
     def _make_controller(self):
         from trading.infrastructure.multi_region.sync_controller import (
-            RegionSyncController, RegionInfo, RegionRole, RegionStatus, SyncPolicy,
+            RegionSyncController, RegionInfo, RegionRole, SyncPolicy,
         )
         regions = [
             RegionInfo(name="ap-southeast-1", role=RegionRole.PRIMARY, priority=1, kube_context="sg"),

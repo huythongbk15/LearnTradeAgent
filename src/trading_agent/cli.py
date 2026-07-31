@@ -124,6 +124,8 @@ def fetch_ohlcv(
     save: bool,
 ):
     """Fetch OHLCV data for a symbol."""
+    from trading_agent.data.collector import Collector
+
     exchange = exchange or config.default_exchange
     timeframe = timeframe or config.default_timeframe
 
@@ -559,6 +561,8 @@ def config_group():
 @click.option("--config", "-c", "config_path", default=None, help="Config path")
 def validate_config(config_path: str | None):
     """Validate config.yaml and report any issues."""
+    from trading_agent.config.loader import Config, ConfigError
+
     path = Path(config_path) if config_path else Config.default_path()
     try:
         cfg = Config(path)
@@ -1230,7 +1234,7 @@ def llm_cache_stats():
 @click.confirmation_option(prompt="Clear LLM cache?")
 def llm_cache_clear(clear_all: bool):
     """Clear LLM cache."""
-    from trading_agent.agents.llm import _CACHE_DIR
+    from trading_agent.agents.llm import _CACHE_DIR, _CACHE_TTL_SECONDS
 
     cache_files = list(_CACHE_DIR.glob("*.pkl"))
     removed = 0
@@ -1455,7 +1459,7 @@ def portfolio_frontier(
     """Generate efficient frontier for visualization."""
     import plotext as plt
 
-    from trading.portfolio.portfolio_optimizer import PortfolioOptimizer, OptimizerMethod, OptimizationConstraints
+    from trading.portfolio.portfolio_optimizer import PortfolioOptimizer, OptimizerMethod
     from trading.exchanges.models import Symbol, AssetClass, MarketType
     from trading_agent.data.storage import load_ohlcv
 
@@ -1531,7 +1535,7 @@ def portfolio_monte_carlo(
     from rich.panel import Panel
     from rich.table import Table as RichTable
 
-    from trading.portfolio.portfolio_optimizer import PortfolioOptimizer, OptimizerMethod, OptimizationConstraints
+    from trading.portfolio.portfolio_optimizer import PortfolioOptimizer, OptimizerMethod
     from trading.exchanges.models import Symbol, AssetClass, MarketType
     from trading_agent.data.storage import load_ohlcv
 
@@ -1610,8 +1614,6 @@ def rebalancer_status(symbols: str | None, exchange: str | None):
     """Show rebalancer status and pending actions."""
     from rich.table import Table as RichTable
 
-    from trading.portfolio.auto_rebalancer import AutoRebalancer, CalendarRebalanceStrategy
-    from trading.exchanges.models import Symbol, AssetClass, MarketType
     from trading_agent.execution.engine import ExecutionEngine
 
     # Create rebalancer
@@ -1678,11 +1680,9 @@ def rebalancer_run(
         CPPIRebalanceStrategy,
         RiskBudgetRebalanceStrategy,
         RebalanceConfig,
-        RebalanceTrigger,
     )
     from trading.exchanges.models import Symbol, AssetClass, MarketType, Position
     from trading_agent.execution.engine import ExecutionEngine
-    from trading_agent.data.storage import load_ohlcv
     from decimal import Decimal
     import asyncio
 
@@ -1869,10 +1869,9 @@ def strategy_run(
 ):
     """Run a strategy on a symbol (paper trading)."""
     from trading.strategies.plugins import get_registry, StrategyContext
-    from trading.exchanges.models import Symbol, AssetClass, MarketType, Bar, Position
+    from trading.exchanges.models import Symbol, AssetClass, MarketType, Bar
     from trading_agent.data.storage import load_ohlcv
     from decimal import Decimal
-    from datetime import datetime
 
     # Parse params
     param_dict = {}
@@ -1969,7 +1968,6 @@ def strategy_validate(
     import json
 
     from trading.strategies.plugins import get_registry
-    from trading_agent.data.storage import load_ohlcv
     from trading_agent.backtest.engine import run_backtest
 
     # Parse params

@@ -1,6 +1,5 @@
 """Jupiter adapter for Solana DEX aggregation."""
 
-import asyncio
 import logging
 from decimal import Decimal
 from typing import Optional

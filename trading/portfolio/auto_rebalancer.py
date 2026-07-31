@@ -9,21 +9,17 @@ Supports:
 - Tax-lot optimization (future)
 """
 
-import asyncio
 import logging
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import Decimal
 from enum import Enum
-from typing import Any, Optional, Callable
-from collections import defaultdict
+from typing import Any, Callable
 
-import numpy as np
-import pandas as pd
 
 from trading.exchanges.models import Symbol, Position, Order, OrderSide, OrderType
-from trading.portfolio.risk_budgeting import RiskBudgeter, RiskBudgetMethod, RiskBudgetResult
+from trading.portfolio.risk_budgeting import RiskBudgeter, RiskBudgetMethod
 
 logger = logging.getLogger(__name__)
 

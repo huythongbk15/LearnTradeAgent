@@ -14,7 +14,6 @@ import argparse
 import asyncio
 import random
 import sys
-import tempfile
 import time
 from decimal import Decimal
 from pathlib import Path

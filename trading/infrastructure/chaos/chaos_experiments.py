@@ -8,13 +8,11 @@ Tests resilience of trading system under various failure scenarios.
 import asyncio
 import logging
 import random
-import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from typing import Any, Optional
-import kubernetes
 from kubernetes import client, config
 
 logger = logging.getLogger(__name__)
@@ -643,10 +641,10 @@ class ChaosExperimentSuite:
             status = "✅ PASS" if result.success else "❌ FAIL"
             lines.append(f"### {result.experiment_name} - {status}")
             lines.append(f"- Duration: {result.duration_seconds:.1f}s")
-            lines.append(f"- Observations:")
+            lines.append("- Observations:")
             for obs in result.observations:
                 lines.append(f"  - {obs}")
-            lines.append(f"- Recommendations:")
+            lines.append("- Recommendations:")
             for rec in result.recommendations:
                 lines.append(f"  - {rec}")
             lines.append("")

@@ -1,6 +1,5 @@
 """Capital Allocation methods for multi-strategy portfolio."""
 
-from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal

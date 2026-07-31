@@ -8,6 +8,7 @@ from trading.portfolio.attribution.analyzer import (
 )
 
 __all__ = [
+    "AttributionAnalyzer",
     "AttributionResult",
     "StrategyAttribution",
     "AssetClassAttribution",

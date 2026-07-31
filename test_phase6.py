@@ -24,8 +24,7 @@ def test_unified_data_model():
     """Test unified data model"""
     print("Testing Unified Data Model...")
     from trading.exchanges.models import (
-        Symbol, AssetClass, MarketType, OrderSide, OrderType,
-        OrderStatus, TimeInForce, Bar, OrderBook, OrderBookLevel,
+        AssetClass, MarketType, Bar, OrderBook, OrderBookLevel,
         crypto_symbol, stock_symbol, forex_symbol
     )
 
@@ -178,11 +177,9 @@ def test_strategy_plugins():
     """Test strategy plugin architecture"""
     print("Testing Strategy Plugin Architecture...")
     from trading.strategies.plugins.strategy_plugin import (
-        BaseStrategy, StrategyRegistry, StrategyMetadata,
-        Signal, StrategyContext, StrategyType, RiskProfile,
-        ExampleMAStrategy, ExampleRSIStrategy, get_registry
+        StrategyContext, ExampleMAStrategy, ExampleRSIStrategy, get_registry
     )
-    from trading.exchanges.models import Symbol, AssetClass, MarketType, Bar, Position, OrderSide
+    from trading.exchanges.models import Symbol, AssetClass, MarketType, Bar
 
     registry = get_registry()
 
@@ -369,8 +366,7 @@ def test_ccxt_adapter_structure():
     """Test CCXT adapter structure (without actual connections)"""
     print("Testing CCXT Adapter Structure...")
     from trading.exchanges.ccxt_adapter import (
-        ExchangeConfig, MultiExchangeManager, ExchangeStatus,
-        RateLimitManager, get_default_exchange_configs
+        ExchangeConfig, RateLimitManager, get_default_exchange_configs
     )
     from trading.exchanges.models import MarketType
 

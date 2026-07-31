@@ -9,13 +9,11 @@ Supports:
 - Polygon.io integration for historical data
 """
 
-import asyncio
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 from typing import Any, Optional
-from collections import defaultdict
 
 import alpaca.trading.client as trading_client
 import alpaca.trading.enums as trading_enums
@@ -29,7 +27,7 @@ from alpaca.common.exceptions import APIError
 from trading.exchanges.models import (
     Symbol, AssetClass, MarketType, OrderSide, OrderType,
     OrderStatus, TimeInForce, Order, Position, Balance,
-    Ticker, OrderBook, OrderBookLevel, Trade, Candle
+    Ticker, Candle
 )
 
 logger = logging.getLogger(__name__)

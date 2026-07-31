@@ -9,7 +9,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any
 
-from trading.exchanges.models import Symbol, AssetClass, MarketType, Bar, Position, Order, OrderSide
+from trading.exchanges.models import Order
 from trading.strategies.plugins.strategy_plugin import (
     BaseStrategy,
     StrategyContext,
@@ -65,7 +65,7 @@ class TradingAgentStrategyAdapter(BaseStrategy):
         self._config = strategy_params or {}
 
     @classmethod
-    def get_metadata(cls) -> StrategyMetadata:
+    def get_metadata(cls) -> StrategyMetadata:  # noqa: F811 — class-level fallback; instance method below shadows it
         # This is a classmethod, but we need instance metadata
         # Subclasses should override this
         return StrategyMetadata(
@@ -79,7 +79,7 @@ class TradingAgentStrategyAdapter(BaseStrategy):
             timeframes=["1h"],
         )
 
-    def get_metadata(self) -> StrategyMetadata:
+    def get_metadata(self) -> StrategyMetadata:  # noqa: F811 — shadows class-level fallback above
         return self._metadata
 
     def on_start(self, context: StrategyContext) -> None:
@@ -92,7 +92,6 @@ class TradingAgentStrategyAdapter(BaseStrategy):
 
     def on_bar(self, context: StrategyContext) -> list[Signal]:
         """Process a bar and generate signals using the wrapped strategy"""
-        import polars as pl
 
         # Build a small DataFrame from context
         # We need historical data - for now, we'll just return empty list
@@ -167,7 +166,6 @@ class MaCrossoverPluginStrategy(TradingAgentStrategyAdapter):
         )
 
     def on_bar(self, context: StrategyContext) -> list[Signal]:
-        import polars as pl
 
         # This is a simplified implementation - in production you'd maintain
         # a rolling window of bars to compute indicators

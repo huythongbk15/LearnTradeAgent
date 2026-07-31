@@ -5,10 +5,9 @@ import json
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Optional
 import hashlib
 
-from trading.llm.client import LLMClient, LLMConfig
+from trading.llm.client import LLMClient
 
 logger = logging.getLogger(__name__)
 
@@ -143,7 +142,7 @@ Output JSON array of analysis for each article, then aggregate summary."""
                 start = response.find("{")
                 end = response.rfind("}") + 1
                 analyses = [json.loads(response[start:end])]
-        except:
+        except Exception:
             logger.warning("Failed to parse LLM response, using defaults")
             analyses = [{} for _ in articles]
         

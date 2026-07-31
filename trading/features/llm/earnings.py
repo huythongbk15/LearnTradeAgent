@@ -146,7 +146,7 @@ Output JSON with:
                 data = json.loads(response[start:end])
             else:
                 data = {}
-        except:
+        except Exception:
             logger.warning("Failed to parse earnings LLM response")
             data = {}
         
