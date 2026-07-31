@@ -5,6 +5,8 @@ Provides unified interface for multiple exchanges via CCXT.
 Supports: Binance, Bybit, OKX, Coinbase, Kraken, Gate.io, KuCoin, HTX, etc.
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
 from abc import ABC, abstractmethod
@@ -15,12 +17,21 @@ from enum import Enum
 from typing import Optional
 from collections import defaultdict
 
-import ccxt
-import ccxt.pro as ccxtpro
-from ccxt.base.errors import (
-    AuthenticationError,
-    InsufficientFunds, InvalidOrder
-)
+try:
+    import ccxt
+    import ccxt.pro as ccxtpro
+    from ccxt.base.errors import (
+        AuthenticationError,
+        InsufficientFunds, InvalidOrder
+    )
+except ImportError:
+    # Optional SDK — adapter stays importable without ccxt (e.g. light env/CI).
+    # Runtime methods raise a clear error via CCXTAdapter.__init__.
+    ccxt = None  # type: ignore[assignment]
+    ccxtpro = None  # type: ignore[assignment]
+    AuthenticationError = None  # type: ignore[assignment,misc]
+    InsufficientFunds = None  # type: ignore[assignment,misc]
+    InvalidOrder = None  # type: ignore[assignment,misc]
 
 from trading.exchanges.models import (
     Symbol, AssetClass, MarketType, OrderSide, OrderType,
@@ -175,6 +186,11 @@ class CCXTAdapter(ExchangeAdapter):
     """CCXT-based exchange adapter supporting spot, futures, options"""
 
     def __init__(self, config: ExchangeConfig):
+        if ccxt is None:
+            raise ImportError(
+                "ccxt is not installed — run `pip install ccxt` (or `poetry add ccxt`) "
+                "to use live exchange adapters. Data model and backtest layers work without it."
+            )
         self.config = config
         self.exchange: ccxt.Exchange | None = None
         self.ws_exchange: ccxtpro.Exchange | None = None
