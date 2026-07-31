@@ -107,6 +107,12 @@ poetry run trading-agent info
 
 ---
 
+## 📚 Khóa học bóc tách hệ thống
+
+> Học lại từng phần nhỏ của dự án — đọc code thật, hiểu vì sao thiết kế như vậy, chạy demo.
+
+→ **[`COURSE/`](COURSE/) — 10 bài deep-dive** (Data Model → Data Pipeline → Backtest → Strategies → LLM → Agents → Execution → Portfolio → Multi-Exchange → ML + Infra)
+
 ## ⚠️ Disclaimer
 
 **Chỉ dành cho mục đích nghiên cứu và giáo dục.** Giao dịch tiền mã hóa tiềm ẩn rủi ro lớn. Không sử dụng số tiền bạn không thể mất. Luôn bắt đầu với paper trading trước khi giao dịch thật.
