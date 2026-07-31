@@ -173,7 +173,7 @@ def run_backtest(
     """
     # Load strategy
     registry = get_registry()
-    strategy_class = registry.get_strategy(strategy_name)
+    strategy_class = registry.get(strategy_name)
     
     if not strategy_class:
         raise ValueError(f"Strategy not found: {strategy_name}")

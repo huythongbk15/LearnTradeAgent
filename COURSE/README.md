@@ -33,7 +33,7 @@
 |---|-----|----------|------------|
 | [1](01_data_model.md) | Data Model | `trading/exchanges/models.py` | ✅ Đầy đủ |
 | [2](02_data_pipeline.md) | Data Pipeline | `trading/data/pipeline.py` (654d) | ✅ Đầy đủ |
-| [3](03_backtest_engine.md) | Backtest Engine | `trading/backtest/engine.py` (370d) | 📝 DRAFT |
+| [3](03_backtest_engine.md) | Backtest Engine | `trading/backtest/engine.py` (370d) + `src/trading_agent/backtest/engine.py` | ✅ Đầy đủ |
 | [4](04_strategies_plugins.md) | Strategies & Plugins | `trading/strategies/` | 📝 DRAFT |
 | [5](05_llm_layer.md) | LLM Layer | `trading/llm/client.py` (255d) | 📝 DRAFT |
 | [6](06_agents.md) | Agents | `trading/agents/base.py` (134d) | 📝 DRAFT |
