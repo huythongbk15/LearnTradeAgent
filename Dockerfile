@@ -11,6 +11,7 @@ FROM python:3.12-slim AS builder
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     libpq-dev \
+    && apt-get upgrade -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Poetry
@@ -41,6 +42,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 \
     ca-certificates \
     curl \
+    && apt-get upgrade -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user
