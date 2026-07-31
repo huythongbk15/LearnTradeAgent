@@ -78,11 +78,15 @@ embedding_cache/
 browser/
 dialog/
 backup/
+backups/
 active_skills/
 customized_skills/
 tool_result/
 tool_results/
 skills/
+digest/
+mem_metadata/
+refs/
 
 # Runtime files
 chats.json
@@ -118,3 +122,4 @@ drivers/
 PHASE2_TODO.md
 PHASE3_TODO.md
 PHASE5_TODO.md
+docs/wsl-guide/

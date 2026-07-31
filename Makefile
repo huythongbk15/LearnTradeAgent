@@ -98,3 +98,18 @@ docker-build:   ## Build app image
 
 docker-logs:    ## View logs
 	docker compose logs -f
+
+benchmark:      ## Run Phase 6 performance benchmarks
+	python scripts/benchmark_phase6.py
+
+loadtest:       ## Run Phase 6 load tests (usage: make loadtest QUICK=1 for quick mode)
+	python scripts/load_test_phase6.py $(if $(QUICK),--quick,)
+
+chaos-dryrun:   ## Run chaos experiments in dry-run (no cluster)
+	python scripts/chaos_dryrun.py
+
+region-dryrun:  ## Run multi-region sync controller in dry-run (no cluster)
+	python trading/infrastructure/multi_region/sync_controller.py dryrun
+
+integration:    ## Run Phase 6 integration tests
+	python -m pytest tests/test_phase6_integration.py -v

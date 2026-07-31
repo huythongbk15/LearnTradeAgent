@@ -1,0 +1,236 @@
+# Base Trading Agent Deployment
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: trading-agent
+  labels:
+    name: trading-agent
+    environment: production
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: trading-agent-config
+  namespace: trading-agent
+data:
+  config.yaml: |
+    # Base configuration - overridden by region overlays
+    environment: production
+    log_level: INFO
+    
+    # Trading settings
+    default_exchange: binance
+    default_timeframe: 1h
+    initial_capital: 100000
+    commission: 0.0004
+    slippage: 0.0005
+    
+    # Risk settings
+    max_drawdown_pct: 15
+    daily_loss_limit_pct: 8
+    max_position_concentration_pct: 50
+    cooldown_hours: 24
+    
+    # LLM settings
+    llm_provider: opencode
+    llm_model: deepseek-v4-flash-free
+    llm_max_tokens: 500
+    llm_temperature: 0.3
+    
+    # Data settings
+    data_storage: parquet
+    timeframes: ["1h", "4h", "1d"]
+    symbols:
+      binance:
+        - BTC/USDT
+        - ETH/USDT
+        - SOL/USDT
+        - BNB/USDT
+        - XRP/USDT
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: trading-agent
+  namespace: trading-agent
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: trading-agent
+  namespace: trading-agent
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps", "secrets", "pods", "services"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: trading-agent
+  namespace: trading-agent
+subjects:
+  - kind: ServiceAccount
+    name: trading-agent
+    namespace: trading-agent
+roleRef:
+  kind: Role
+  name: trading-agent
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: trading-agent
+  namespace: trading-agent
+  labels:
+    app: trading-agent
+    component: core
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: trading-agent
+      component: core
+  template:
+    metadata:
+      labels:
+        app: trading-agent
+        component: core
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: trading-agent
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: trading-agent
+          image: trading-agent:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+              name: metrics
+            - containerPort: 8080
+              name: http
+          env:
+            - name: TRADING_CONFIG_PATH
+              value: "/app/config/config.yaml"
+            - name: PYTHONUNBUFFERED
+              value: "1"
+            - name: REGION
+              valueFrom:
+                configMapKeyRef:
+                  name: trading-agent-region-config
+                  key: REGION
+                  optional: true
+            - name: REGION_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: trading-agent-region-config
+                  key: REGION_NAME
+                  optional: true
+            - name: IS_PRIMARY
+              valueFrom:
+                configMapKeyRef:
+                  name: trading-agent-region-config
+                  key: IS_PRIMARY
+                  optional: true
+            - name: FAILOVER_PRIORITY
+              valueFrom:
+                configMapKeyRef:
+                  name: trading-agent-region-config
+                  key: FAILOVER_PRIORITY
+                  optional: true
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "2000m"
+              memory: "4Gi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          volumeMounts:
+            - name: config
+              mountPath: /app/config
+            - name: data
+              mountPath: /app/data
+            - name: logs
+              mountPath: /app/logs
+      volumes:
+        - name: config
+          configMap:
+            name: trading-agent-config
+        - name: data
+          persistentVolumeClaim:
+            claimName: trading-agent-data
+        - name: logs
+          persistentVolumeClaim:
+            claimName: trading-agent-logs
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: trading-agent
+  namespace: trading-agent
+  labels:
+    app: trading-agent
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: 8080
+      name: http
+    - port: 8000
+      targetPort: 8000
+      name: metrics
+  selector:
+    app: trading-agent
+    component: core
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: trading-agent-data
+  namespace: trading-agent
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 50Gi
+  storageClassName: fast-ssd
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: trading-agent-logs
+  namespace: trading-agent
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: standard

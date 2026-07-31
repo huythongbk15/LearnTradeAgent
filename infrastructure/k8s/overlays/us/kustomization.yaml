@@ -1,0 +1,114 @@
+# Kustomization for US East Region (Secondary - us-east-1)
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: trading-agent
+
+resources:
+  - ../../base/trading-agent.yaml
+
+commonLabels:
+  topology.kubernetes.io/region: us-east-1
+  trading.agent/region: us-east
+  trading.agent/tier: secondary
+
+patches:
+  - patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: trading-agent
+        namespace: trading-agent
+      spec:
+        replicas: 2
+        template:
+          spec:
+            affinity:
+              nodeAffinity:
+                requiredDuringSchedulingIgnoredDuringExecution:
+                  nodeSelectorTerms:
+                    - matchExpressions:
+                        - key: topology.kubernetes.io/region
+                          operator: In
+                          values:
+                            - us-east-1
+              podAntiAffinity:
+                preferredDuringSchedulingIgnoredDuringExecution:
+                  - weight: 100
+                    podAffinityTerm:
+                      labelSelector:
+                        matchExpressions:
+                          - key: app
+                            operator: In
+                            values:
+                              - trading-agent
+                      topologyKey: topology.kubernetes.io/zone
+    target:
+      kind: Deployment
+      name: trading-agent
+
+  - patch: |-
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: trading-agent-config
+        namespace: trading-agent
+      data:
+        config.yaml: |
+          environment: production
+          region: us-east
+          log_level: INFO
+          
+          # Trading settings
+          default_exchange: binance
+          default_timeframe: 1h
+          initial_capital: 100000
+          commission: 0.0004
+          slippage: 0.0005
+          
+          # Risk settings
+          max_drawdown_pct: 15
+          daily_loss_limit_pct: 8
+          max_position_concentration_pct: 50
+          cooldown_hours: 24
+          
+          # LLM settings
+          llm_provider: opencode
+          llm_model: deepseek-v4-flash-free
+          llm_max_tokens: 500
+          llm_temperature: 0.3
+          
+          # Data settings
+          data_storage: parquet
+          timeframes: ["1h", "4h", "1d"]
+          symbols:
+            binance:
+              - BTC/USDT
+              - ETH/USDT
+              - SOL/USDT
+              - BNB/USDT
+              - XRP/USDT
+          
+          # Region-specific
+          primary_region: false
+          failover_regions:
+            - ap-southeast-1
+            - eu-west-1
+          data_sync_interval_seconds: 60
+          sync_from_primary: true
+    target:
+      kind: ConfigMap
+      name: trading-agent-config
+
+configMapGenerator:
+  - name: trading-agent-region-config
+    behavior: merge
+    literals:
+      - REGION=us-east-1
+      - REGION_NAME=us-east
+      - IS_PRIMARY=false
+      - FAILOVER_PRIORITY=2
+
+images:
+  - name: trading-agent
+    newTag: latest-us

@@ -1,0 +1,120 @@
+# Kustomization for Singapore Region (Primary - ap-southeast-1)
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: trading-agent
+
+resources:
+  - ../../base/trading-agent.yaml
+
+commonLabels:
+  topology.kubernetes.io/region: ap-southeast-1
+  trading.agent/region: singapore
+  trading.agent/tier: primary
+
+patches:
+  - patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: trading-agent
+        namespace: trading-agent
+      spec:
+        replicas: 3
+        template:
+          spec:
+            affinity:
+              nodeAffinity:
+                requiredDuringSchedulingIgnoredDuringExecution:
+                  nodeSelectorTerms:
+                    - matchExpressions:
+                        - key: topology.kubernetes.io/region
+                          operator: In
+                          values:
+                            - ap-southeast-1
+              podAntiAffinity:
+                preferredDuringSchedulingIgnoredDuringExecution:
+                  - weight: 100
+                    podAffinityTerm:
+                      labelSelector:
+                        matchExpressions:
+                          - key: app
+                            operator: In
+                            values:
+                              - trading-agent
+                      topologyKey: topology.kubernetes.io/zone
+            tolerations:
+              - key: "trading-agent"
+                operator: "Exists"
+                effect: "NoSchedule"
+    target:
+      kind: Deployment
+      name: trading-agent
+
+  - patch: |-
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: trading-agent-config
+        namespace: trading-agent
+      data:
+        config.yaml: |
+          environment: production
+          region: singapore
+          log_level: INFO
+          
+          # Trading settings
+          default_exchange: binance
+          default_timeframe: 1h
+          initial_capital: 100000
+          commission: 0.0004
+          slippage: 0.0005
+          
+          # Risk settings
+          max_drawdown_pct: 15
+          daily_loss_limit_pct: 8
+          max_position_concentration_pct: 50
+          cooldown_hours: 24
+          
+          # LLM settings
+          llm_provider: opencode
+          llm_model: deepseek-v4-flash-free
+          llm_max_tokens: 500
+          llm_temperature: 0.3
+          
+          # Data settings
+          data_storage: parquet
+          timeframes: ["1h", "4h", "1d"]
+          symbols:
+            binance:
+              - BTC/USDT
+              - ETH/USDT
+              - SOL/USDT
+              - BNB/USDT
+              - XRP/USDT
+              - ADA/USDT
+              - DOGE/USDT
+              - MATIC/USDT
+          
+          # Region-specific
+          primary_region: true
+          failover_regions:
+            - us-east-1
+            - eu-west-1
+          data_sync_interval_seconds: 30
+    target:
+      kind: ConfigMap
+      name: trading-agent-config
+
+configMapGenerator:
+  - name: trading-agent-region-config
+    behavior: merge
+    literals:
+      - REGION=ap-southeast-1
+      - REGION_NAME=singapore
+      - IS_PRIMARY=true
+      - FAILOVER_PRIORITY=1
+
+images:
+  - name: trading-agent
+    newTag: latest-sg
