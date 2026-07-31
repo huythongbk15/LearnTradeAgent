@@ -15,14 +15,23 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any, Optional
 
-import alpaca.trading.client as trading_client
-import alpaca.trading.enums as trading_enums
-import alpaca.trading.models as trading_models
-import alpaca.trading.requests as trading_requests
-import alpaca.data.historical as data_historical
-import alpaca.data.requests as data_requests
-import alpaca.data.enums as data_enums
-from alpaca.common.exceptions import APIError
+try:
+    import alpaca.trading.client as trading_client
+    import alpaca.trading.enums as trading_enums
+    import alpaca.trading.models as trading_models
+    import alpaca.trading.requests as trading_requests
+    import alpaca.data.historical as data_historical
+    import alpaca.data.requests as data_requests
+    import alpaca.data.enums as data_enums
+    from alpaca.common.exceptions import APIError
+    ALPACA_AVAILABLE = True
+except ImportError:
+    # Optional SDK — adapter is importable without alpaca-py (e.g. in CI),
+    # but raises a clear error when used.
+    trading_client = trading_enums = trading_models = trading_requests = None
+    data_historical = data_requests = data_enums = None
+    APIError = Exception
+    ALPACA_AVAILABLE = False
 
 from trading.exchanges.models import (
     Symbol, AssetClass, MarketType, OrderSide, OrderType,
@@ -31,6 +40,9 @@ from trading.exchanges.models import (
 )
 
 logger = logging.getLogger(__name__)
+
+if not ALPACA_AVAILABLE:
+    logger.warning("alpaca-py not installed — AlpacaAdapter disabled (pip install alpaca-py)")
 
 
 @dataclass
@@ -57,6 +69,8 @@ class AlpacaAdapter:
 
     async def connect(self) -> None:
         """Initialize Alpaca clients"""
+        if not ALPACA_AVAILABLE:
+            raise RuntimeError("alpaca-py is not installed — run `pip install alpaca-py`")
         try:
             self._trading_client = trading_client.TradingClient(
                 api_key=self.config.api_key,
@@ -368,6 +382,8 @@ class AlpacaAdapter:
 
 async def create_alpaca_adapter(config: AlpacaConfig) -> AlpacaAdapter:
     """Create and connect Alpaca adapter"""
+    if not ALPACA_AVAILABLE:
+        raise RuntimeError("alpaca-py is not installed — run `pip install alpaca-py`")
     adapter = AlpacaAdapter(config)
     await adapter.connect()
     return adapter

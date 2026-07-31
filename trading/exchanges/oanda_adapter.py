@@ -15,13 +15,22 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Optional
 
-import oandapyV20
-import oandapyV20.endpoints.accounts as accounts
-import oandapyV20.endpoints.instruments as instruments
-import oandapyV20.endpoints.orders as orders
-import oandapyV20.endpoints.positions as positions
-import oandapyV20.endpoints.pricing as pricing
-from oandapyV20.exceptions import V20Error
+try:
+    import oandapyV20
+    import oandapyV20.endpoints.accounts as accounts
+    import oandapyV20.endpoints.instruments as instruments
+    import oandapyV20.endpoints.orders as orders
+    import oandapyV20.endpoints.positions as positions
+    import oandapyV20.endpoints.pricing as pricing
+    from oandapyV20.exceptions import V20Error
+    OANDA_AVAILABLE = True
+except ImportError:
+    # Optional SDK — adapter is importable without oandapyV20 (e.g. in CI),
+    # but raises a clear error when used.
+    oandapyV20 = None
+    accounts = instruments = orders = positions = pricing = None
+    V20Error = Exception
+    OANDA_AVAILABLE = False
 
 from trading.exchanges.models import (
     Symbol, AssetClass, MarketType, OrderSide, OrderType,
@@ -30,6 +39,9 @@ from trading.exchanges.models import (
 )
 
 logger = logging.getLogger(__name__)
+
+if not OANDA_AVAILABLE:
+    logger.warning("oandapyV20 not installed — OANDAAdapter disabled (pip install oandapyV20)")
 
 
 @dataclass
@@ -52,6 +64,8 @@ class OANDAAdapter:
 
     async def connect(self) -> None:
         """Initialize OANDA client"""
+        if not OANDA_AVAILABLE:
+            raise RuntimeError("oandapyV20 is not installed — run `pip install oandapyV20`")
         try:
             self._client = oandapyV20.API(
                 access_token=self.config.access_token,
@@ -376,6 +390,8 @@ class OANDAAdapter:
 
 async def create_oanda_adapter(config: OANDAConfig) -> OANDAAdapter:
     """Create and connect OANDA adapter"""
+    if not OANDA_AVAILABLE:
+        raise RuntimeError("oandapyV20 is not installed — run `pip install oandapyV20`")
     adapter = OANDAAdapter(config)
     await adapter.connect()
     return adapter
