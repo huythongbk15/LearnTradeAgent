@@ -113,3 +113,17 @@ region-dryrun:  ## Run multi-region sync controller in dry-run (no cluster)
 
 integration:    ## Run Phase 6 integration tests
 	python -m pytest tests/test_phase6_integration.py -v
+
+# ── Real-Time Data (Phase 6 P1) ──────────────────────────────────────────
+
+ws-demo:        ## WebSocket Manager demo (mock provider)
+	python -m trading.exchanges.websocket_manager
+
+health-demo:    ## Exchange Health Monitor demo
+	python -m trading.exchanges.health_monitor
+
+pipeline-demo:  ## Unified Data Pipeline demo (mock source → SQLite)
+	python -m trading.data.pipeline
+
+realtime-test:  ## Run real-time data module tests
+	python -m pytest tests/test_realtime_data.py -v

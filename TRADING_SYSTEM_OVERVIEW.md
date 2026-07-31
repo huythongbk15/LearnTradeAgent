@@ -204,16 +204,19 @@ Xây dựng một **hệ thống multi-agent trading tự động** có khả n�
 
 ---
 
-### Phase 6: Scale & Multi-Asset 🔮 **TƯƠNG LAI**
+### Phase 6: Scale & Multi-Asset ✅ **HOÀN THÀNH**
 **Mục tiêu:** Multi-exchange, multi-asset class, portfolio manager, strategy marketplace
 
 | Module | Công nghệ |
 |--------|-----------|
 | Multi-Exchange | CCXT unified adapter (Binance, Bybit, OKX, Coinbase) |
-| Multi-Asset | Crypto + Stocks (Alpaca) + Forex (OANDA) |
-| Portfolio Manager | Risk budgeting, correlation monitoring, rebalancing |
+| Multi-Asset | Crypto + Stocks (Alpaca) + Forex (OANDA) + DEX + Futures/Options |
+| Real-Time Data | WebSocket Manager (ticker/orderbook/trades, auto-reconnect, heartbeat) + Health Monitor (latency, error rate, auto-failover) |
+| Unified Data Pipeline | Ingest multi-asset OHLCV → SQLite/TimescaleDB hypertable, backfill + incremental |
+| Portfolio Manager | Risk budgeting, correlation monitoring, rebalancing, Black-Litterman optimizer |
 | Strategy Marketplace | Plugin architecture, sandboxed execution |
-| Advanced ML | Online learning, regime detection, adaptive sizing |
+| Advanced ML | Online learning, regime detection, adaptive sizing, meta-learning |
+| Reliability | Multi-region sync, chaos engineering, event sourcing, distributed tracing |
 
 ---
 
@@ -234,11 +237,16 @@ Xây dựng một **hệ thống multi-agent trading tự động** có khả n�
 
 ---
 
-## ✅ Kết Luận & Khuyến Nghị Phase 5
+## ✅ Kết Luận & Khuyến Nghị Phase 5-6
 
-**Phase 0-4 ĐÃ HOÀN THÀNH** — Hệ thống có đầy đủ: data pipeline, backtest, AI agents, paper execution, monitoring dashboard.
+**Phase 0-6 ĐÃ HOÀN THÀNH** — Hệ thống có đầy đủ: data pipeline, backtest, AI agents, paper execution,
+monitoring dashboard, production hardening (CI/CD, container, observability, backup), multi-asset
+(CCXT crypto + Alpaca stocks + OANDA forex + DEX + futures/options), portfolio manager
+(risk budgeting, rebalancing, Black-Litterman optimizer), real-time data (WebSocket Manager +
+Health Monitor + auto-failover), strategy marketplace, và reliability (multi-region, chaos engineering,
+event sourcing, meta-learning).
 
-**Phase 5 TIẾP THEO — Production Hardening:**
+**Phase 5 — Production Hardening (ĐÃ HOÀN THÀNH):**
 
 | Priority | Tasks | Timeline |
 |----------|-------|----------|
@@ -252,7 +260,9 @@ Xây dựng một **hệ thống multi-agent trading tự động** có khả n�
 | **P2** | Trivy scan, distroless base, network policies, Vault secrets | Tuần 3 |
 | **P2** | Runbook, on-call rotation, incident template | Tuần 3 |
 
-**Estimated: 3-4 tuần cho production-ready baseline.**
+**Bước tiếp theo (go-live):** nối real-time data (WS Manager + Health Monitor) vào order router,
+chạy cron `data-pipeline` backfill lên TimescaleDB, thực hiện dry-run trước rồi mới paper trade
+trên nhiều asset class.
 
 **Công cụ quản lý dự án (updated):**
 - Python 3.12+, Poetry

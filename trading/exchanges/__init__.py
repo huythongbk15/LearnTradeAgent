@@ -17,6 +17,25 @@ from trading.exchanges.order_router import (
     ExecutionPlan,
     VenueQuote,
 )
+from trading.exchanges.websocket_manager import (
+    WebSocketManager,
+    StreamProvider,
+    MockStreamProvider,
+    WSChannel,
+    WSMessage,
+    WSMessageType,
+    create_mock_manager,
+)
+from trading.exchanges.health_monitor import (
+    HealthMonitor,
+    ExchangeHealth,
+    HealthStatus,
+    Checker,
+    DEFAULT_LATENCY_GOOD,
+    DEFAULT_LATENCY_DEGRADED,
+    DEFAULT_ERROR_RATE_MAX,
+    DEFAULT_FAILURES_TO_DOWN,
+)
 from trading.exchanges.models import (
     Symbol, AssetClass, MarketType,
     OrderSide, OrderType, OrderStatus, TimeInForce,
@@ -36,6 +55,13 @@ __all__ = [
     'OANDAAdapter', 'OANDAConfig', 'create_oanda_adapter',
     # Order Router
     'OrderRouter', 'RoutingStrategy', 'BestPriceRouter', 'ExecutionPlan', 'VenueQuote',
+    # WebSocket Manager
+    'WebSocketManager', 'StreamProvider', 'MockStreamProvider',
+    'WSChannel', 'WSMessage', 'WSMessageType', 'create_mock_manager',
+    # Health Monitor
+    'HealthMonitor', 'ExchangeHealth', 'HealthStatus', 'Checker',
+    'DEFAULT_LATENCY_GOOD', 'DEFAULT_LATENCY_DEGRADED',
+    'DEFAULT_ERROR_RATE_MAX', 'DEFAULT_FAILURES_TO_DOWN',
     # Models
     'Symbol', 'AssetClass', 'MarketType',
     'OrderSide', 'OrderType', 'OrderStatus', 'TimeInForce',
