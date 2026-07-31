@@ -87,6 +87,19 @@ jobs:
     needs: [lint-and-test, build-and-scan]
     if: always()
     steps:
+      - name: Check secrets presence
+        run: |
+          if [ -z "${{ secrets.TELEGRAM_BOT_TOKEN }}" ]; then
+            echo "TELEGRAM_BOT_TOKEN: EMPTY"
+          else
+            echo "TELEGRAM_BOT_TOKEN: SET"
+          fi
+          if [ -z "${{ secrets.TELEGRAM_CHAT_ID }}" ]; then
+            echo "TELEGRAM_CHAT_ID: EMPTY"
+          else
+            echo "TELEGRAM_CHAT_ID: SET"
+          fi
+
       - name: Send result
         continue-on-error: true
         uses: appleboy/telegram-action@master
