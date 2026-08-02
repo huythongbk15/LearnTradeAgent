@@ -36,7 +36,7 @@ class AlertConfig:
 
 
 # Global config, set once during init
-_alert_config: AlertConfig = field(default_factory=AlertConfig)
+_alert_config: AlertConfig = AlertConfig()
 
 
 def init_alerts(config: dict | None = None) -> None:

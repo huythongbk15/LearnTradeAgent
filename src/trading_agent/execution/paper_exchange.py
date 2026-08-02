@@ -64,10 +64,10 @@ def _log_trade_to_db(
         elif action == "close":
             close_trade(
                 trade_id=trade.id,
-                exit_price=pnl or 0,
+                exit_price=trade.exit_price or 0,
                 pnl=pnl,
                 pnl_pct=pnl_pct,
-                fee=trade.fee or 0.0,
+                fee=getattr(trade, "exit_fee", 0.0) or 0.0,
                 reason=reason,
             )
     except Exception as e:

@@ -106,8 +106,42 @@ class SentimentAnalyst(BaseAgent):
         rsi = ind.get("rsi", 50)
         extra = ind.get("_extra", {})
 
-        # Determine sentiment from RSI and volume
-        if isinstance(rsi, (int, float)):
+        # Determine sentiment from trend + RSI
+        # Trend-aware: khi MA20 < MA50 (downtrend) thì sentiment bearish
+        # (theo trend để hỗ trợ thoát lệnh), ngược lại contrarian ở vùng cực đoan.
+        ma_fast = ind.get("ma_20")
+        ma_slow = ind.get("ma_50")
+        downtrend = isinstance(ma_fast, (int, float)) and isinstance(ma_slow, (int, float)) and ma_fast < ma_slow
+        uptrend = isinstance(ma_fast, (int, float)) and isinstance(ma_slow, (int, float)) and ma_fast > ma_slow
+
+        if not isinstance(rsi, (int, float)):
+            sentiment = "neutral"
+            signal = "HOLD"
+            confidence = 0.2
+            reasoning = "No RSI data available"
+        elif downtrend:
+            if rsi >= 30:
+                sentiment = "bearish"
+                signal = "SELL"
+                confidence = 0.40
+                reasoning = f"Downtrend (MA20<MA50, RSI {rsi:.0f}) — bearish sentiment"
+            else:
+                sentiment = "fear"
+                signal = "SELL"
+                confidence = 0.30
+                reasoning = f"Downtrend + oversold (RSI {rsi:.0f}) — capitulation, stay out"
+        elif uptrend:
+            if rsi < 70:
+                sentiment = "bullish"
+                signal = "BUY"
+                confidence = 0.40
+                reasoning = f"Uptrend (MA20>MA50, RSI {rsi:.0f}) — bullish sentiment"
+            else:
+                sentiment = "greed"
+                signal = "HOLD"
+                confidence = 0.35
+                reasoning = f"Uptrend but RSI {rsi:.0f} overbought — don't chase"
+        else:
             if rsi < 30:
                 sentiment = "fear"
                 signal = "BUY"
@@ -124,20 +158,15 @@ class SentimentAnalyst(BaseAgent):
                 confidence = 0.3
                 reasoning = "RSI in neutral zone — no clear sentiment signal"
             elif 55 < rsi <= 70:
-                sentiment = "bullish"
-                signal = "HOLD"
-                confidence = 0.3
-                reasoning = f"Moderate bullish sentiment (RSI {rsi:.0f})"
+                sentiment = "greedy"
+                signal = "SELL"
+                confidence = 0.35
+                reasoning = f"Moderate bullish sentiment (RSI {rsi:.0f}) — slight caution"
             else:
-                sentiment = "bearish"
-                signal = "HOLD"
-                confidence = 0.3
-                reasoning = f"Moderate bearish sentiment (RSI {rsi:.0f})"
-        else:
-            sentiment = "neutral"
-            signal = "HOLD"
-            confidence = 0.2
-            reasoning = "No RSI data available"
+                sentiment = "fearful"
+                signal = "BUY"
+                confidence = 0.35
+                reasoning = f"Moderate bearish sentiment (RSI {rsi:.0f}) — slight bargain hunting"
 
         momentum = "weak"
         vol_ratio = extra.get("volume_ratio_5_20", 1.0)

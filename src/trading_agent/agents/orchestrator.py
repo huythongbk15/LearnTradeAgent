@@ -90,11 +90,22 @@ class Orchestrator:
         *,
         current_position_pct: float = 0.0,
         portfolio_value: float = 10000.0,
+        df: pl.DataFrame | None = None,
     ) -> AgentAnalysisReport:
-        """Run the full multi-agent analysis cycle."""
+        """Run the full multi-agent analysis cycle.
+
+        Parameters
+        ----------
+        df : pl.DataFrame | None
+            Optional pre-loaded OHLCV window (thường là dữ liệu tới hiện tại,
+            dùng cho backtest/simulation). Nếu None, tự load mới (production).
+        """
 
         # 1. Load data
-        df = load_ohlcv(config.default_exchange, symbol, timeframe).sort("timestamp")
+        if df is None:
+            df = load_ohlcv(config.default_exchange, symbol, timeframe).sort("timestamp")
+        else:
+            df = df.sort("timestamp")
         self._last_df = df  # cache for downstream (e.g. execution)
 
         # 2. Compute indicators (using existing strategies)

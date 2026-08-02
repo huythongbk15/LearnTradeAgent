@@ -144,7 +144,17 @@ class RiskManager(BaseAgent):
             max_pos *= 0.5
             reason += "; low volume — reduce further"
 
-        signal = "HOLD" if risk in ("HIGH", "EXTREME") else "BUY"
+        # Risk agent chỉ vote hướng khi rõ ràng:
+        #   LOW  → BUY (cho phép vào lệnh)
+        #   MEDIUM → HOLD (trung lập, không bias weighted vote)
+        #   HIGH → SELL nếu đang giữ vị thế (thoát), HOLD nếu đang đứng ngoài
+        #          + risk_level HIGH (trader override vẫn chặn lệnh mua mới)
+        in_position = (context.current_position_pct or 0.0) > 0.001
+        signal = "HOLD"
+        if risk == "LOW":
+            signal = "BUY"
+        elif risk == "HIGH":
+            signal = "SELL" if in_position else "HOLD"
 
         return AgentMessage(
             role="risk_manager",

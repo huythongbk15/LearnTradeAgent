@@ -85,6 +85,17 @@ class RiskController:
             self._daily_start_equity = equity
             self._last_trade_date = today
 
+        # Auto-reset circuit breaker sau khi cooldown hết hạn
+        # (vị thế đã được đóng khi breaker kích hoạt; sau thời gian tạm dừng,
+        #  reset peak về equity hiện tại = baseline mới, cho phép giao dịch trở lại —
+        #  manual reset vẫn khả dụng qua reset_circuit_breaker)
+        if self._circuit_breaker_active and self._cooldown_until and datetime.now(UTC) >= self._cooldown_until:
+            self._circuit_breaker_active = False
+            self._circuit_breaker_reason = None
+            self._cooldown_until = None
+            self._peak_equity = self.engine.exchange.get_total_equity()
+            logger.warning("Circuit breaker auto-reset after cooldown (new baseline)")
+
         # Skip if circuit breaker is active
         if self._circuit_breaker_active:
             self._alerts.append(f"⚠️  CIRCUIT BREAKER ACTIVE: {self._circuit_breaker_reason}")

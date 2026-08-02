@@ -75,19 +75,23 @@ class Trader(BaseAgent):
         else:
             final_score = 0.0
 
-        # Risk override
+        # Risk override: HIGH/EXTREME risk
+        # - Đang giữ vị thế → SELL (thoát ngay, bảo toàn vốn)
+        # - Đứng ngoài → HOLD (không mở lệnh mới trong rủi ro cao)
+        in_position = (context.current_position_pct or 0.0) > 0.001
         if risk_override:
-            final_signal = "HOLD"
+            final_signal = "SELL" if in_position else "HOLD"
             final_conf = min(0.6, sum(confidences) / len(confidences) if confidences else 0.5)
             reasoning_parts = [
-                f"[RISK OVERRIDE] Risk level: {risk_level}",
+                f"[RISK OVERRIDE] Risk level: {risk_level} "
+                f"{'(EXIT POSITION)' if in_position else '(NO NEW ENTRIES)'}",
                 *all_reasoning,
             ]
         else:
             # Map score to signal
-            if final_score > 0.3:
+            if final_score > 0.2:
                 final_signal = "BUY"
-            elif final_score < -0.3:
+            elif final_score < -0.2:
                 final_signal = "SELL"
             else:
                 final_signal = "HOLD"

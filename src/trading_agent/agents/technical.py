@@ -172,36 +172,80 @@ class TechnicalAnalyst(BaseAgent):
         return "\n".join(lines)
 
     def _rule_based(self, ind: dict, context: AnalysisContext) -> AgentMessage:
-        """Rule-based fallback when LLM is unavailable."""
-        rsi = ind.get("rsi", 50)
+        """Rule-based fallback khi LLM không available — multi-factor:
+        RSI + MA crossover + Bollinger Bands (dùng chung indicators với strategies)."""
+        rsi = ind.get("rsi")
+        ma_fast = ind.get("ma_20")
+        ma_slow = ind.get("ma_50")
         price = context.current_price
+        bb_upper = ind.get("bb_upper")
+        bb_lower = ind.get("bb_lower")
 
-        signal = "HOLD"
-        confidence = 0.3
-        reasoning = "Insufficient data for rule-based analysis"
-        details = {"trend": "unknown", "momentum": "neutral"}
+        score = 0.0  # > 0 bullish, < 0 bearish
+        factors = 0
+        reasons = []
 
-        if rsi and isinstance(rsi, (int, float)):
+        # 1. RSI
+        if isinstance(rsi, (int, float)):
             if rsi < 30:
-                signal = "BUY"
-                confidence = min(0.5 + (30 - rsi) / 100, 0.7)
-                reasoning = f"RSI at {rsi:.1f} — oversold, potential bounce"
-                details = {"trend": "potential reversal", "momentum": "bullish"}
+                score += 1
+                factors += 1
+                reasons.append(f"RSI {rsi:.1f} oversold — potential bounce")
             elif rsi > 70:
-                signal = "SELL"
-                confidence = min(0.5 + (rsi - 70) / 100, 0.7)
-                reasoning = f"RSI at {rsi:.1f} — overbought, potential pullback"
-                details = {"trend": "potential reversal", "momentum": "bearish"}
+                score -= 1
+                factors += 1
+                reasons.append(f"RSI {rsi:.1f} overbought — potential pullback")
+
+        # 2. MA crossover (trend filter)
+        if ma_fast and ma_slow:
+            if ma_fast > ma_slow:
+                score += 1
+                factors += 1
+                reasons.append(f"MA20 {ma_fast:.0f} > MA50 {ma_slow:.0f} — uptrend")
             else:
-                signal = "HOLD"
-                confidence = 0.4
-                reasoning = f"RSI at {rsi:.1f} — neutral zone"
-                details = {"trend": "sideways", "momentum": "neutral"}
+                score -= 1
+                factors += 1
+                reasons.append(f"MA20 {ma_fast:.0f} < MA50 {ma_slow:.0f} — downtrend")
+
+        # 3. Bollinger Bands (mean reversion)
+        if price and bb_upper and bb_lower:
+            if price < bb_lower:
+                score += 1
+                factors += 1
+                reasons.append("Price below lower band — oversold")
+            elif price > bb_upper:
+                score -= 1
+                factors += 1
+                reasons.append("Price above upper band — overbought")
+
+        # Trend gate: KHÔNG BUY khi MA20 < MA50 (downtrend) — tránh bắt dao rơi.
+        # Mean-reversion (RSI/BB) không được lấn át trend đã đảo chiều.
+        trend_down = isinstance(ma_fast, (int, float)) and isinstance(ma_slow, (int, float)) and ma_fast < ma_slow
+        if trend_down and score >= 1:
+            score = 0
+            reasons.append("Downtrend (MA20<MA50) — contrarian BUY blocked by trend filter")
+
+        if score >= 1:
+            signal = "BUY"
+            confidence = min(0.45 + 0.08 * factors, 0.65)
+            trend = "bullish" if score > 1 else "potential reversal"
+        elif score <= -1:
+            signal = "SELL"
+            confidence = min(0.45 + 0.08 * factors, 0.65)
+            trend = "bearish" if score < -1 else "potential reversal"
+        else:
+            signal = "HOLD"
+            confidence = 0.3
+            trend = "mixed"
+            reasons.append("Signals mixed/neutral — wait for confluence")
 
         return AgentMessage(
             role="technical_analyst",
             signal=signal,
             confidence=confidence,
-            reasoning=reasoning,
-            details=details,
+            reasoning=" | ".join(reasons) if reasons else "No indicator data",
+            details={
+                "trend": trend,
+                "momentum": "bullish" if score > 0 else "bearish" if score < 0 else "neutral",
+            },
         )
