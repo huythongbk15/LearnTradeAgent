@@ -7,6 +7,10 @@ from datetime import datetime
 from typing import Optional
 
 from trading.llm.client import LLMClient
+from trading.llm.pool import LLMPool
+
+# LLM backend: LLMClient (đơn) hoặc LLMPool (multi-provider failover)
+LLMBackend = LLMClient | LLMPool
 
 logger = logging.getLogger(__name__)
 
@@ -98,7 +102,7 @@ Output JSON with:
   "summary": string  // 2-3 sentence summary
 }"""
     
-    def __init__(self, llm_client: LLMClient):
+    def __init__(self, llm_client: LLMBackend):
         self.llm = llm_client
     
     async def extract(self, earnings: EarningsData) -> EarningsFeatures:

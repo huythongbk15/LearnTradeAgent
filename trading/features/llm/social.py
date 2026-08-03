@@ -9,6 +9,10 @@ from datetime import datetime
 from collections import Counter
 
 from trading.llm.client import LLMClient
+from trading.llm.pool import LLMPool
+
+# LLM backend: LLMClient (đơn) hoặc LLMPool (multi-provider failover)
+LLMBackend = LLMClient | LLMPool
 
 logger = logging.getLogger(__name__)
 
@@ -91,7 +95,7 @@ For each post, output JSON with:
   "time_horizon": "intraday|swing|long_term|unknown"
 }"""
     
-    def __init__(self, llm_client: LLMClient, batch_size: int = 50):
+    def __init__(self, llm_client: LLMBackend, batch_size: int = 50):
         self.llm = llm_client
         self.batch_size = batch_size
     

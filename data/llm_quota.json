@@ -1,0 +1,26 @@
+{
+  "days": {
+    "2026-08-02": {
+      "opencode": {
+        "requests": 3,
+        "errors": 0
+      },
+      "groq": {
+        "requests": 2,
+        "errors": 2
+      },
+      "openrouter": {
+        "requests": 2,
+        "errors": 2
+      },
+      "nvidia": {
+        "requests": 2,
+        "errors": 1
+      },
+      "ovhcloud": {
+        "requests": 1,
+        "errors": 1
+      }
+    }
+  }
+}

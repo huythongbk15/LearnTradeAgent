@@ -45,6 +45,9 @@ dev = [
     "pytest (>=9.1.1,<10.0.0)"
 ]
 
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+
 [tool.ruff]
 # CI lint scope: real bugs (pyflakes) + syntax errors. Style rules (line
 # length, import sorting, datetime tz, etc.) are intentionally not enforced

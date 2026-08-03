@@ -64,11 +64,14 @@ class Trader(BaseAgent):
             all_reasoning.append(f"[{msg.role}] {msg.reasoning}")
 
             # Check for risk override
-            if msg.role == "risk_manager" and msg.risk_level in ("HIGH", "EXTREME"):
-                risk_override = True
-                risk_level = msg.risk_level
+            if msg.role == "risk_manager":
+                # Luôn nhận position sizing theo volatility từ risk manager
                 if msg.max_position_size_pct is not None:
                     max_pos = msg.max_position_size_pct
+                if msg.risk_level:
+                    risk_level = msg.risk_level
+                if msg.risk_level in ("HIGH", "EXTREME"):
+                    risk_override = True
 
         if total_weight > 0:
             final_score = weighted_sum / total_weight

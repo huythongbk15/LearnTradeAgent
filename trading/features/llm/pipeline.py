@@ -12,7 +12,11 @@ import pandas as pd
 from trading.features.llm.news import NewsFeatureExtractor, NewsFeatures, NewsArticle
 from trading.features.llm.earnings import EarningsFeatureExtractor, EarningsFeatures, EarningsData
 from trading.features.llm.social import SocialSentimentExtractor, SocialFeatures, SocialPost
-from trading.llm.client import LLMClient, LLMConfig
+from trading.llm.client import LLMClient
+from trading.llm.pool import LLMPool, create_llm_pool
+
+# LLM backend: LLMClient (đơn) hoặc LLMPool (multi-provider failover)
+LLMBackend = LLMClient | LLMPool
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +80,7 @@ class LLMFeaturePipeline:
     
     def __init__(
         self,
-        llm_client: LLMClient,
+        llm_client: LLMBackend,
         news_weight: float = 0.4,
         earnings_weight: float = 0.3,
         social_weight: float = 0.3,
@@ -368,13 +372,8 @@ class LLMFeaturePipeline:
 # Example usage and testing
 async def demo():
     """Demo the pipeline."""
-    # Setup LLM client
-    config = LLMConfig(
-        provider="opencode",
-        model="deepseek-v4-flash-free",
-        api_key=None,  # Uses env
-    )
-    llm = LLMClient(config)
+    # Setup LLM pool (multi-provider failover + quota tracking)
+    llm = create_llm_pool()
     
     pipeline = LLMFeaturePipeline(llm)
     

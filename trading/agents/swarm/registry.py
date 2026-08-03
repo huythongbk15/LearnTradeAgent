@@ -10,6 +10,10 @@ from trading.agents.swarm.specialized import (
     TechnicalAgent, FundamentalAgent, SentimentAgent, RiskAgent, ExecutionAgent
 )
 from trading.llm.client import LLMClient
+from trading.llm.pool import LLMPool
+
+# LLM backend: LLMClient (đơn) hoặc LLMPool (multi-provider failover) — cùng interface chat()
+LLMBackend = LLMClient | LLMPool
 
 if TYPE_CHECKING:
     from trading.agents.swarm.coordinator import CoordinatorAgent
@@ -33,7 +37,7 @@ class AgentInstance:
 class AgentRegistry:
     """Registry for managing swarm agents."""
     
-    def __init__(self, llm_client: Optional[LLMClient] = None):
+    def __init__(self, llm_client: Optional[LLMBackend] = None):
         self.llm_client = llm_client
         self._agents: dict[str, AgentInstance] = {}
         self._role_index: dict[AgentRole, list[str]] = {}
@@ -176,7 +180,7 @@ class SwarmFactory:
     @staticmethod
     def create_standard_swarm(
         symbols: list[str],
-        llm_client: Optional[LLMClient] = None,
+        llm_client: Optional[LLMBackend] = None,
         coordinator_mode: str = "hierarchical",
     ) -> tuple["CoordinatorAgent", AgentRegistry]:
         """Create standard swarm with all agent types."""
@@ -258,7 +262,7 @@ class SwarmFactory:
     @staticmethod
     def create_minimal_swarm(
         symbols: list[str],
-        llm_client: Optional[LLMClient] = None,
+        llm_client: Optional[LLMBackend] = None,
     ) -> tuple["CoordinatorAgent", AgentRegistry]:
         """Create minimal swarm (technical + risk only)."""
         from trading.agents.swarm.coordinator import CoordinatorAgent, SwarmConfig
@@ -303,7 +307,7 @@ class SwarmFactory:
     @staticmethod
     def create_crypto_swarm(
         symbols: list[str],
-        llm_client: Optional[LLMClient] = None,
+        llm_client: Optional[LLMBackend] = None,
     ) -> tuple["CoordinatorAgent", AgentRegistry]:
         """Create crypto-optimized swarm."""
         from trading.agents.swarm.coordinator import CoordinatorAgent, SwarmConfig

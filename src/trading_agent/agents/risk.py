@@ -114,25 +114,33 @@ class RiskManager(BaseAgent):
         return msg
 
     def _rule_based(self, ind: dict, context: AnalysisContext) -> AgentMessage:
-        """Rule-based risk assessment."""
+        """Rule-based risk assessment with volatility-scaled position sizing."""
         extra = ind.get("_extra", {})
         vol = extra.get("volatility_20", None)
         vol_ratio = extra.get("volume_ratio_5_20", 1.0)
 
-        # Determine risk level
-        if vol is not None:
+        # ── Position sizing theo volatility ──────────────────────────────
+        # Công thức liên tục, hai ràng buộc:
+        #   1) Risk-based: mỗi lệnh chỉ rủi ro ~1.5% equity
+        #      size = risk_per_trade / stop_distance
+        #   2) Vol-cap: vol càng cao → size càng nhỏ (bất đối xứng với rủi ro)
+        RISK_PER_TRADE = 0.015
+        if vol is not None and vol > 0:
+            # Stop distance giãn theo vol (3-8%) → rủi ro thực tế được chuẩn hoá
+            stop_pct = max(0.03, min(0.08, vol / 100.0))
+            risk_based = RISK_PER_TRADE / stop_pct
+            # Vol cap liên tục: vol 1.5 → 0.40, vol 3.0 → 0.20, vol 6.0 → 0.10
+            vol_cap = 0.40 * min(1.0, 1.5 / vol)
+            max_pos = max(0.05, min(risk_based, vol_cap))
             if vol > 3.0:
                 risk = "HIGH"
-                max_pos = 0.15
-                reason = f"High volatility ({vol:.1f}%) — reduce position size"
+                reason = f"High volatility ({vol:.1f}%) — size {max_pos * 100:.0f}% of equity"
             elif vol > 1.5:
                 risk = "MEDIUM"
-                max_pos = 0.30
-                reason = f"Moderate volatility ({vol:.1f}%) — standard sizing"
+                reason = f"Moderate volatility ({vol:.1f}%) — size {max_pos * 100:.0f}% of equity"
             else:
                 risk = "LOW"
-                max_pos = 0.40
-                reason = f"Low volatility ({vol:.1f}%) — can increase size"
+                reason = f"Low volatility ({vol:.1f}%) — size {max_pos * 100:.0f}% of equity"
         else:
             risk = "MEDIUM"
             max_pos = 0.25

@@ -25,6 +25,8 @@ DEFAULT_MAX_DRAWDOWN_PCT = 0.15       # 15% max drawdown → kill
 DEFAULT_DAILY_LOSS_LIMIT_PCT = 0.08  # 8% loss in a day → halt
 DEFAULT_MAX_POSITION_PCT = 0.50      # 50% max in one position
 DEFAULT_STOP_LOSS_PCT = 0.05         # 5% default stop-loss
+DEFAULT_TAKE_PROFIT_PCT = 0.15       # 15% default take-profit (RR ~ 1:3)
+DEFAULT_TRAILING_STOP_PCT = 0.07     # 7% default trailing stop
 DEFAULT_COOLDOWN_HOURS = 24          # 24h cooldown after stop-loss trigger
 
 
@@ -47,6 +49,8 @@ class RiskController:
         daily_loss_limit_pct: float = DEFAULT_DAILY_LOSS_LIMIT_PCT,
         max_position_pct: float = DEFAULT_MAX_POSITION_PCT,
         default_stop_loss_pct: float = DEFAULT_STOP_LOSS_PCT,
+        default_take_profit_pct: float = DEFAULT_TAKE_PROFIT_PCT,
+        default_trailing_stop_pct: float = DEFAULT_TRAILING_STOP_PCT,
         cooldown_hours: float = DEFAULT_COOLDOWN_HOURS,
     ):
         self.engine = engine
@@ -54,6 +58,8 @@ class RiskController:
         self.daily_loss_limit_pct = daily_loss_limit_pct
         self.max_position_pct = max_position_pct
         self.default_stop_loss_pct = default_stop_loss_pct
+        self.default_take_profit_pct = default_take_profit_pct
+        self.default_trailing_stop_pct = default_trailing_stop_pct
         self.cooldown_hours = cooldown_hours
 
         # State
@@ -205,3 +211,17 @@ class RiskController:
         for pos in self.engine.exchange.get_all_positions():
             pos.stop_loss = pos.entry_price * (1 - pct)
             logger.info(f"Stop-loss set: {pos.symbol} @ {pos.stop_loss:.2f}")
+
+    def set_take_profit_on_all_positions(self, tp_pct: float | None = None):
+        """Set take-profit on all open positions (active profit taking)."""
+        pct = tp_pct or self.default_take_profit_pct
+        for pos in self.engine.exchange.get_all_positions():
+            pos.take_profit = pos.entry_price * (1 + pct)
+            logger.info(f"Take-profit set: {pos.symbol} @ {pos.take_profit:.2f}")
+
+    def set_trailing_stop_on_all_positions(self, trail_pct: float | None = None):
+        """Enable trailing stop on all open positions (ratchets SL as price rises)."""
+        pct = trail_pct or self.default_trailing_stop_pct
+        for pos in self.engine.exchange.get_all_positions():
+            pos.trailing_stop_pct = pct
+            logger.info(f"Trailing stop enabled: {pos.symbol} trail={pct:.2%}")

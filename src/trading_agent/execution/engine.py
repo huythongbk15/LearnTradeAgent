@@ -20,7 +20,14 @@ from trading_agent.execution.paper_exchange import PaperExchange
 from trading_agent.execution.types import (
     Order,
     OrderSide,
+    OrderStatus,
     OrderType,
+)
+from trading_agent.execution.indicators import (
+    compute_atr,
+    compute_atr_position_size,
+    compute_kelly_fraction,
+    compute_volatility_target_size,
 )
 
 logger = logging.getLogger(__name__)
@@ -126,6 +133,9 @@ class ExecutionEngine:
             - confidence: 0.0-1.0
             - max_position_size_pct: max % of portfolio to use
             - risk_level: risk assessment
+            - atr: current ATR value (optional, for risk-based sizing)
+            - risk_reward: target R:R ratio (optional, default 2.0)
+            - trailing_atr_mult: ATR multiplier for trailing stop (optional, default 2.0)
 
         Returns
         -------
@@ -142,6 +152,7 @@ class ExecutionEngine:
         # Determine position size
         symbol = signal.details.get("symbol", "BTC/USDT") if signal.details else "BTC/USDT"
         max_pos_pct = signal.max_position_size_pct or 0.25
+        confidence = signal.confidence or 0.5
 
         # Calculate amount based on portfolio allocation
         equity = self.exchange.get_total_equity()
@@ -150,6 +161,21 @@ class ExecutionEngine:
             logger.warning(f"Cannot execute: no price data for {symbol}")
             return orders
 
+        # Get ATR for risk-based sizing
+        atr = None
+        if signal.details and "atr" in signal.details:
+            atr = signal.details["atr"]
+        else:
+            # Try to compute ATR from latest data
+            try:
+                from trading_agent.data.storage import load_ohlcv
+                df = load_ohlcv(self.exchange_name, symbol, "1h")
+                if not df.is_empty():
+                    atr_series = compute_atr(df, period=14)
+                    atr = float(atr_series.tail(1).item()) if not atr_series.is_empty() else None
+            except Exception:
+                pass
+
         # Get existing position
         existing_pos = self.exchange.get_position(symbol)
         existing_qty = existing_pos.quantity if existing_pos else 0.0
@@ -157,15 +183,40 @@ class ExecutionEngine:
         if signal_str == "BUY":
             # Calculate buy amount
             if not existing_pos or not existing_pos.is_active:
-                max_cost = equity * max_pos_pct
-                amount = max_cost / current_price
+                # ── Enhanced position sizing ──────────────────────────────
+                if atr and atr > 0:
+                    # ATR-based position sizing: risk 2% per trade
+                    risk_pct = 0.02 * confidence  # Scale risk by confidence
+                    atr_mult = signal.details.get("trailing_atr_mult", 2.0) if signal.details else 2.0
+                    amount = compute_atr_position_size(
+                        equity=equity,
+                        atr=atr,
+                        current_price=current_price,
+                        risk_pct=risk_pct,
+                        atr_multiplier=atr_mult,
+                    )
+                    # Cap at max position size
+                    max_amount = (equity * max_pos_pct) / current_price
+                    amount = min(amount, max_amount)
+                    sizing_method = "ATR"
+                else:
+                    # Fallback: percentage of equity
+                    max_cost = equity * max_pos_pct
+                    amount = max_cost / current_price
+                    sizing_method = "fixed_pct"
+
                 # Round to reasonable precision (0.001 for BTC)
                 amount = max(0.001, round(amount, 4))
 
                 logger.info(
                     f"Signal: BUY {amount} {symbol} "
                     f"(${amount * current_price:,.2f}, "
-                    f"{max_pos_pct * 100:.0f}% of ${equity:,.2f})"
+                    f"{max_pos_pct * 100:.0f}% of ${equity:,.2f}) "
+                    f"[sizing: {sizing_method}, ATR={atr:.2f}]" if atr
+                    else f"Signal: BUY {amount} {symbol} "
+                    f"(${amount * current_price:,.2f}, "
+                    f"{max_pos_pct * 100:.0f}% of ${equity:,.2f}) "
+                    f"[sizing: {sizing_method}]"
                 )
                 order = self.exchange.place_order(
                     symbol=symbol,
@@ -174,6 +225,37 @@ class ExecutionEngine:
                     amount=amount,
                 )
                 orders.append(order)
+
+                # ── Set ATR-based trailing stop and take-profit ──────────
+                if order.status == OrderStatus.FILLED:
+                    pos = self.exchange.get_position(symbol)
+                    if pos:
+                        # ATR-based trailing stop
+                        if atr and atr > 0:
+                            trailing_mult = signal.details.get("trailing_atr_mult", 2.0) if signal.details else 2.0
+                            pos.trailing_stop_pct = trailing_mult  # repurpose field as ATR multiplier
+                            pos.stop_loss = current_price - (atr * trailing_mult)
+                            pos.metadata["trailing_stop_type"] = "atr"
+                            logger.info(f"ATR trailing stop set: {symbol} @ {pos.stop_loss:.2f} (ATR={atr:.2f}, mult={trailing_mult})")
+                        else:
+                            # Fixed percentage fallback
+                            stop_pct = 0.05
+                            pos.stop_loss = current_price * (1 - stop_pct)
+                            pos.metadata["trailing_stop_type"] = "fixed_pct"
+                            logger.info(f"Fixed stop-loss set: {symbol} @ {pos.stop_loss:.2f} ({stop_pct*100:.1f}%)")
+
+                        # Active take-profit: R:R based (default 2:1)
+                        risk_reward = signal.details.get("risk_reward", 2.0) if signal.details else 2.0
+                        if atr and atr > 0:
+                            take_profit_dist = atr * trailing_mult * risk_reward
+                            pos.take_profit = current_price + take_profit_dist
+                        else:
+                            # Fallback: fixed R:R from stop
+                            stop_dist = current_price - pos.stop_loss
+                            pos.take_profit = current_price + (stop_dist * risk_reward)
+                        pos.metadata["risk_reward"] = risk_reward
+                        logger.info(f"Take-profit set: {symbol} @ {pos.take_profit:.2f} (R:R={risk_reward})")
+
             else:
                 logger.info(f"BUY signal but already in position: {existing_pos.quantity} {symbol}")
 
@@ -227,6 +309,46 @@ class ExecutionEngine:
             return
         latest_close = float(df["close"].tail(1).item())
         self.update_prices({symbol: latest_close})
+
+    def update_with_atr(self, symbol: str, df: Any):
+        """Update prices with OHLCV data for ATR-based trailing stop.
+
+        Computes ATR and passes OHLCV to paper exchange for dynamic trailing stops.
+        """
+        if df.is_empty():
+            return
+        latest_close = float(df["close"].tail(1).item())
+        prices = {symbol: latest_close}
+
+        # Compute ATR if not already present
+        if "atr" not in df.columns:
+            atr_series = compute_atr(df, period=14)
+            df = df.with_columns(atr_series)
+
+        ohlcv_data = {symbol: df}
+        self.exchange.update_prices(prices, ohlcv_data)
+
+    def update_all_with_atr(self, data: dict[str, Any]):
+        """Update all tracked symbols with OHLCV data for ATR trailing stops.
+
+        Parameters
+        ----------
+        data : dict[str, Any]
+            Symbol -> OHLCV DataFrame mapping
+        """
+        prices = {}
+        ohlcv_data = {}
+        for symbol, df in data.items():
+            if not df.is_empty():
+                latest_close = float(df["close"].tail(1).item())
+                prices[symbol] = latest_close
+                if "atr" not in df.columns:
+                    atr_series = compute_atr(df, period=14)
+                    df = df.with_columns(atr_series)
+                ohlcv_data[symbol] = df
+
+        if prices:
+            self.exchange.update_prices(prices, ohlcv_data)
 
     # ── Status & Reporting ─────────────────────────────────────────────
 

@@ -190,6 +190,7 @@ class Position:
     updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     stop_loss: float | None = None
     take_profit: float | None = None
+    trailing_stop_pct: float | None = None   # ratchet SL as price moves in our favour (None = off)
     metadata: dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -220,6 +221,7 @@ class Position:
             "updated_at": self.updated_at.isoformat(),
             "stop_loss": self.stop_loss,
             "take_profit": self.take_profit,
+            "trailing_stop_pct": self.trailing_stop_pct,
         }
 
     @classmethod
@@ -237,5 +239,6 @@ class Position:
             updated_at=datetime.fromisoformat(d["updated_at"]) if d.get("updated_at") else datetime.now(UTC),
             stop_loss=d.get("stop_loss"),
             take_profit=d.get("take_profit"),
+            trailing_stop_pct=d.get("trailing_stop_pct"),
             metadata=d.get("metadata", {}),
         )

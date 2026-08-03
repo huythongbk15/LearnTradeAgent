@@ -8,6 +8,10 @@ from datetime import datetime, timedelta
 import hashlib
 
 from trading.llm.client import LLMClient
+from trading.llm.pool import LLMPool
+
+# LLM backend: LLMClient (đơn) hoặc LLMPool (multi-provider failover)
+LLMBackend = LLMClient | LLMPool
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +71,7 @@ For each article, output JSON with:
   "summary": string // 1-2 sentence summary
 }"""
     
-    def __init__(self, llm_client: LLMClient, cache_ttl: int = 3600):
+    def __init__(self, llm_client: LLMBackend, cache_ttl: int = 3600):
         self.llm = llm_client
         self.cache_ttl = cache_ttl
         self._cache = {}

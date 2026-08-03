@@ -61,6 +61,8 @@ MAX_DRAWDOWN_PCT = float(os.getenv("MAX_DRAWDOWN_PCT", "0.15"))
 DAILY_LOSS_LIMIT_PCT = float(os.getenv("DAILY_LOSS_LIMIT_PCT", "0.08"))
 MAX_POSITION_PCT = float(os.getenv("MAX_POSITION_PCT", "0.50"))
 STOP_LOSS_PCT = float(os.getenv("STOP_LOSS_PCT", "0.05"))
+TAKE_PROFIT_PCT = float(os.getenv("TAKE_PROFIT_PCT", "0.15"))
+TRAILING_STOP_PCT = float(os.getenv("TRAILING_STOP_PCT", "0.07"))
 COOLDOWN_HOURS = float(os.getenv("COOLDOWN_HOURS", "24"))
 MAX_POS_SIZE_PCT = float(os.getenv("MAX_POS_SIZE_PCT", "0.25"))
 
@@ -114,8 +116,8 @@ class FullSystemSimulator:
         end = end if end is not None else self.df.height
         n = end - start
         print(f"🚀 Simulating bars {start}→{end} ({n} bars, agent decision mỗi {freq}h)")
-        print(f"   USE_LLM={os.environ.get('USE_LLM')} | Stop-loss={STOP_LOSS_PCT:.0%} "
-              f"| Max pos={MAX_POS_SIZE_PCT:.0%} | Cooldown={COOLDOWN_HOURS:.0f}h\n")
+        print(f"   USE_LLM={os.environ.get('USE_LLM')} | SL={STOP_LOSS_PCT:.0%} TP={TAKE_PROFIT_PCT:.0%} "
+              f"Trail={TRAILING_STOP_PCT:.0%} | Cooldown={COOLDOWN_HOURS:.0f}h | Sizing=volatility\n")
 
         for i in range(start, end):
             row = self.df.row(i, named=True)
@@ -150,15 +152,17 @@ class FullSystemSimulator:
                     df=self.df.head(i + 1),
                 )
                 d = report.final_decision
+                # Position sizing theo volatility — ưu tiên max_position_size_pct từ risk manager
+                pos_size_pct = d.max_position_size_pct if d.max_position_size_pct else MAX_POS_SIZE_PCT
                 msg = AgentMessage(
                     role="trader", signal=d.signal, confidence=d.confidence,
                     reasoning=d.reasoning, details={"symbol": SYMBOL},
-                    max_position_size_pct=MAX_POS_SIZE_PCT, risk_level=d.risk_level,
+                    max_position_size_pct=pos_size_pct, risk_level=d.risk_level,
                 )
                 self.signal_log.append({
                     "timestamp": str(ts), "price": price, "position_pct": pos_pct,
                     "signal": d.signal, "confidence": float(d.confidence),
-                    "risk": d.risk_level,
+                    "risk": d.risk_level, "max_pos": pos_size_pct,
                 })
 
                 # 4. Execute → orders
@@ -173,8 +177,10 @@ class FullSystemSimulator:
                     })
                     side = "🟢 BUY" if order.side.value == "buy" else "🔴 SELL"
                     print(f"   {side} {order.filled_amount or order.amount:.4f} @ ${price:,.2f} @ {ts}")
-                    # Stop-loss cho vị thế mới
+                    # Exit plan cho vị thế mới: SL cố định + TP chủ động + trailing stop
                     self.risk.set_stop_loss_on_all_positions(STOP_LOSS_PCT)
+                    self.risk.set_take_profit_on_all_positions(TAKE_PROFIT_PCT)
+                    self.risk.set_trailing_stop_on_all_positions(TRAILING_STOP_PCT)
 
             # 5. Equity tracking
             self.equity_curve.append((ts, self.engine.exchange.get_total_equity()))

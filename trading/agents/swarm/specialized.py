@@ -10,6 +10,10 @@ import uuid
 
 from trading.agents.base import BaseAgent as Agent, AgentSignal, AgentConfig
 from trading.llm.client import LLMClient
+from trading.llm.pool import LLMPool
+
+# LLM backend: LLMClient (đơn) hoặc LLMPool (multi-provider failover) — cùng interface chat()
+LLMBackend = LLMClient | LLMPool
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +46,7 @@ class SpecializedAgent(Agent):
     def __init__(
         self,
         spec: AgentSpec,
-        llm_client: Optional[LLMClient] = None,
+        llm_client: Optional[LLMBackend] = None,
     ):
         super().__init__(spec.config)
         self.spec = spec
@@ -524,7 +528,7 @@ Output JSON:
   "hedge_suggestion": "SPY put|VIX call|none"
 }"""
     
-    def __init__(self, spec: AgentSpec, llm_client: Optional[LLMClient] = None):
+    def __init__(self, spec: AgentSpec, llm_client: Optional[LLMBackend] = None):
         super().__init__(spec, llm_client)
         # Risk limits
         self.max_position_pct = 0.10  # 10% max per position

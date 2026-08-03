@@ -77,11 +77,14 @@ class LLMClient:
             "max_tokens": max_tokens or self.config.max_tokens,
         }
         
-        # OpenCode doesn't require API key for free tier
+        # OpenCode Zen — free tier, không bắt buộc API key.
+        # Endpoint đúng là /zen/v1 (endpoint /api cũ đã trả HTML).
         headers = {"Content-Type": "application/json"}
+        if self.config.api_key:
+            headers["Authorization"] = f"Bearer {self.config.api_key}"
         
         async with session.post(
-            "https://opencode.ai/api/chat/completions",
+            "https://opencode.ai/zen/v1/chat/completions",
             json=payload,
             headers=headers,
         ) as resp:
@@ -237,8 +240,17 @@ class LLMClient:
             return data["message"]["content"]
 
 
-def create_llm_client(config: Optional[LLMConfig] = None) -> LLMClient:
-    """Factory function to create LLM client from config."""
+def create_llm_client(config: Optional[LLMConfig] = None):
+    """Factory function to create LLM client.
+
+    Mặc định trả về LLMPool (multi-provider failover + quota tracking) để các
+    callers cũ tự động hưởng lợi. Tắt pool bằng LLM_POOL_ENABLED=0 để quay về
+    LLMClient đơn provider như cũ.
+    """
+    if os.getenv("LLM_POOL_ENABLED", "1").lower() not in ("0", "false", "no"):
+        from trading.llm.pool import create_llm_pool
+        return create_llm_pool()
+
     if config is None:
         # Auto-detect from environment
         provider = os.getenv("LLM_PROVIDER", "opencode")

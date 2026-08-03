@@ -21,6 +21,7 @@ from trading_agent.execution.types import (
     Position,
     Trade,
 )
+from trading_agent.execution.indicators import compute_atr_trailing_stop
 from trading_agent.log_config import get_logger
 
 logger = get_logger(__name__)
@@ -235,10 +236,17 @@ class PaperExchange:
         pos_value = sum(p.market_value for p in self.positions.values() if p.is_active)
         return cash + pos_value
 
-    def update_prices(self, prices: dict[str, float]):
+    def update_prices(self, prices: dict[str, float], ohlcv_data: dict[str, Any] | None = None):
         """Update current prices and evaluate pending/stop orders.
 
         Called periodically with latest prices.
+
+        Parameters
+        ----------
+        prices : dict[str, float]
+            Current prices for each symbol
+        ohlcv_data : dict[str, Any], optional
+            OHLCV DataFrames for ATR calculation (symbol -> DataFrame)
         """
         self._last_price_cache.update(prices)
 
@@ -251,6 +259,31 @@ class PaperExchange:
                 pos.unrealized_pnl = pos.quantity * (price - pos.entry_price)
                 pos.unrealized_pnl_pct = ((price / pos.entry_price) - 1) * 100
                 pos.updated_at = datetime.now(UTC)
+
+                # ── Enhanced trailing stop: ATR-based or fixed percentage ────
+                if pos.trailing_stop_pct and pos.side == OrderSide.BUY and price > pos.entry_price:
+                    # If ATR data available, use ATR-based trailing stop
+                    if ohlcv_data and symbol in ohlcv_data and not ohlcv_data[symbol].is_empty():
+                        df = ohlcv_data[symbol]
+                        if "atr" in df.columns:
+                            # Get latest ATR
+                            latest_atr = df["atr"].tail(1).item()
+                            if latest_atr and latest_atr > 0:
+                                # ATR multiplier stored in trailing_stop_pct (repurposed)
+                                atr_multiplier = pos.trailing_stop_pct
+                                new_sl = price - (latest_atr * atr_multiplier)
+                                if pos.stop_loss is None or new_sl > pos.stop_loss:
+                                    pos.stop_loss = new_sl
+                                    pos.metadata["trailing_stop_high_water"] = new_sl
+                                    pos.metadata["trailing_stop_type"] = "atr"
+                                    logger.debug(f"ATR trailing stop updated: {symbol} @ {new_sl:.2f} (ATR={latest_atr:.2f}, mult={atr_multiplier})")
+                    else:
+                        # Fallback: fixed percentage trailing stop
+                        new_sl = price * (1.0 - pos.trailing_stop_pct)
+                        if pos.stop_loss is None or new_sl > pos.stop_loss:
+                            pos.stop_loss = new_sl
+                            pos.metadata["trailing_stop_high_water"] = new_sl
+                            pos.metadata["trailing_stop_type"] = "fixed_pct"
 
                 # Check stop-loss
                 if pos.stop_loss and (
