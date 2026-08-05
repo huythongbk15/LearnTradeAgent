@@ -31,7 +31,7 @@ def run_async(coro):
 
 def load_test_event_store(n_events=100_000, n_writers=4):
     print(f"\n[Event Store Load] {n_events} events, {n_writers} concurrent writers")
-    from trading.events.store import EventStore, EventStoreConfig
+    from trading_agent.events.store import EventStore, EventStoreConfig
 
     config = EventStoreConfig(file_path="/tmp/loadtest_events.jsonl")
     store = EventStore(config)
@@ -69,7 +69,7 @@ def load_test_event_store(n_events=100_000, n_writers=4):
 
 def load_test_concurrent_readers(n_events=20_000, n_readers=8):
     print(f"\n[Event Store Concurrent Readers] {n_events} events, {n_readers} readers")
-    from trading.events.store import EventStore, EventStoreConfig
+    from trading_agent.events.store import EventStore, EventStoreConfig
 
     config = EventStoreConfig(file_path="/tmp/loadtest_readers.jsonl")
     store = EventStore(config)
@@ -106,7 +106,7 @@ def load_test_concurrent_readers(n_events=20_000, n_readers=8):
 
 def load_test_online_learning(n_bars=200_000):
     print(f"\n[Online Learning Stream] {n_bars} bars")
-    from trading.ml.online.adaptive import AdaptiveConfig, AdaptiveStrategy
+    from trading_agent.ml.online.adaptive import AdaptiveConfig, AdaptiveStrategy
 
     np.random.seed(1)
     prices = 100 * np.exp(np.cumsum(np.random.normal(0.001, 0.01, n_bars)))
@@ -126,8 +126,8 @@ def load_test_online_learning(n_bars=200_000):
 def load_test_portfolio_large_universe(n_assets=100, n_periods=500):
     print(f"\n[Portfolio Optimizer Large Universe] {n_assets} assets")
     import pandas as pd
-    from trading.portfolio.portfolio_optimizer import PortfolioOptimizer, OptimizerMethod
-    from trading.exchanges.models import Symbol, AssetClass, MarketType
+    from trading_agent.portfolio.portfolio_optimizer import PortfolioOptimizer, OptimizerMethod
+    from trading_agent.exchanges.models import Symbol, AssetClass, MarketType
 
     np.random.seed(2)
     returns = pd.DataFrame(

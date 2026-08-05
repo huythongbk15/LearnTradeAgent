@@ -21,7 +21,6 @@ from trading_agent.execution.types import (
     Position,
     Trade,
 )
-from trading_agent.execution.indicators import compute_atr_trailing_stop
 from trading_agent.log_config import get_logger
 
 logger = get_logger(__name__)

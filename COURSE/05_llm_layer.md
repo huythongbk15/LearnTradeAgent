@@ -21,8 +21,8 @@
 ## 🧪 Demo plan
 
 ```bash
-python3 -c "from trading.llm.client import LLMClient; ..."
-python3 scripts/test_phase2.py
+python3 -c "from trading_agent.llm.client import LLMClient; ..."
+python3 -m pytest tests/test_phase2.py -q
 ```
 
 ## ❓ Câu hỏi tự kiểm tra

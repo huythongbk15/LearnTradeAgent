@@ -21,6 +21,28 @@
         "requests": 1,
         "errors": 1
       }
+    },
+    "2026-08-03": {
+      "opencode": {
+        "requests": 2,
+        "errors": 2
+      },
+      "groq": {
+        "requests": 2,
+        "errors": 2
+      },
+      "openrouter": {
+        "requests": 2,
+        "errors": 2
+      },
+      "nvidia": {
+        "requests": 2,
+        "errors": 2
+      },
+      "ovhcloud": {
+        "requests": 2,
+        "errors": 2
+      }
     }
   }
 }

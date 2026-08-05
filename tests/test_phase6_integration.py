@@ -71,7 +71,7 @@ def synthetic_prices() -> pd.Series:
 
 
 def _make_symbol(base: str, quote: str = "USDT", exchange: str = "binance"):
-    from trading.exchanges.models import Symbol, AssetClass, MarketType
+    from trading_agent.exchanges.models import Symbol, AssetClass, MarketType
     return Symbol(base, quote, AssetClass.CRYPTO, MarketType.SPOT, exchange)
 
 
@@ -88,7 +88,7 @@ class TestEventSourcing:
     """EventStore with file backend + projections."""
 
     def test_append_read_roundtrip(self, tmp_path):
-        from trading.events.store import EventStore, EventStoreConfig
+        from trading_agent.events.store import EventStore, EventStoreConfig
 
         config = EventStoreConfig(file_path=str(tmp_path / "events.jsonl"))
         store = EventStore(config)
@@ -131,7 +131,7 @@ class TestEventSourcing:
         run_async(scenario())
 
     def test_append_batch(self, tmp_path):
-        from trading.events.store import EventStore, EventStoreConfig
+        from trading_agent.events.store import EventStore, EventStoreConfig
 
         config = EventStoreConfig(file_path=str(tmp_path / "events_batch.jsonl"))
         store = EventStore(config)
@@ -156,8 +156,8 @@ class TestEventSourcing:
         run_async(scenario())
 
     def test_projections_update(self, tmp_path):
-        from trading.events.store import EventStore, EventStoreConfig
-        from trading.events.projections import (
+        from trading_agent.events.store import EventStore, EventStoreConfig
+        from trading_agent.events.projections import (
             TradeProjection, PositionProjection, RiskProjection, SignalProjection,
         )
 
@@ -264,7 +264,7 @@ class TestOnlineLearning:
     """Adaptive indicators and strategies."""
 
     def test_adaptive_ema(self):
-        from trading.ml.online.adaptive import AdaptiveEMA, AdaptiveConfig
+        from trading_agent.ml.online.adaptive import AdaptiveEMA, AdaptiveConfig
 
         cfg = AdaptiveConfig(min_period=5, max_period=30, min_samples=30)
         ema = AdaptiveEMA(cfg)
@@ -280,7 +280,7 @@ class TestOnlineLearning:
         assert max(results) < 140
 
     def test_adaptive_rsi(self):
-        from trading.ml.online.adaptive import AdaptiveRSI, AdaptiveConfig
+        from trading_agent.ml.online.adaptive import AdaptiveRSI, AdaptiveConfig
 
         cfg = AdaptiveConfig(min_period=7, max_period=21, min_samples=30)
         rsi = AdaptiveRSI(cfg)
@@ -293,7 +293,7 @@ class TestOnlineLearning:
         assert all(0 <= r <= 100 for r in ready)
 
     def test_adaptive_bollinger(self):
-        from trading.ml.online.adaptive import AdaptiveBollingerBands, AdaptiveConfig
+        from trading_agent.ml.online.adaptive import AdaptiveBollingerBands, AdaptiveConfig
 
         cfg = AdaptiveConfig(min_period=10, max_period=30, min_samples=30)
         bb = AdaptiveBollingerBands(cfg)
@@ -306,7 +306,7 @@ class TestOnlineLearning:
         assert 1.5 <= bb.current_std_mult <= 3.0
 
     def test_adaptive_strategy_signal(self):
-        from trading.ml.online.adaptive import AdaptiveConfig, AdaptiveStrategy
+        from trading_agent.ml.online.adaptive import AdaptiveConfig, AdaptiveStrategy
 
         cfg = AdaptiveConfig(min_period=5, max_period=30, min_samples=30)
         strat = AdaptiveStrategy(cfg)
@@ -332,7 +332,7 @@ class TestOnlineLearning:
         assert strat.position in (-1, 0, 1)
 
     def test_adaptive_strategy_reset(self):
-        from trading.ml.online.adaptive import AdaptiveConfig, AdaptiveStrategy
+        from trading_agent.ml.online.adaptive import AdaptiveConfig, AdaptiveStrategy
 
         strat = AdaptiveStrategy(AdaptiveConfig())
         for i in range(60):
@@ -351,7 +351,7 @@ class TestMetaLearning:
     """MAML / Reptile / MetaSGD / ANIL meta-learners."""
 
     def _make_tasks(self, n_tasks=3):
-        from trading.ml.meta import StrategyParameterTask
+        from trading_agent.ml.meta import StrategyParameterTask
         np.random.seed(123)
         tasks = []
         for i in range(n_tasks):
@@ -361,7 +361,7 @@ class TestMetaLearning:
         return tasks
 
     def test_maml(self):
-        from trading.ml.meta import MAML, MetaLearningConfig
+        from trading_agent.ml.meta import MAML, MetaLearningConfig
 
         config = MetaLearningConfig(meta_lr=0.001, inner_lr=0.1, inner_steps=2, meta_batch_size=2)
         initial = {"ema_fast": 12.0, "ema_slow": 26.0, "rsi_period": 14.0}
@@ -374,7 +374,7 @@ class TestMetaLearning:
         assert all(isinstance(v, float) for v in adapted.values())
 
     def test_reptile(self):
-        from trading.ml.meta import Reptile, MetaLearningConfig
+        from trading_agent.ml.meta import Reptile, MetaLearningConfig
 
         config = MetaLearningConfig(reptile_meta_lr=0.05, reptile_steps=3, inner_lr=0.1)
         initial = {"ema_fast": 12.0, "ema_slow": 26.0}
@@ -386,7 +386,7 @@ class TestMetaLearning:
         assert set(adapted.keys()) == set(initial.keys())
 
     def test_metasgd(self):
-        from trading.ml.meta import MetaSGD, MetaLearningConfig
+        from trading_agent.ml.meta import MetaSGD, MetaLearningConfig
 
         config = MetaLearningConfig(meta_lr=0.001, inner_lr=0.1, inner_steps=2)
         initial = {"ema_fast": 12.0, "ema_slow": 26.0, "rsi_period": 14.0}
@@ -400,7 +400,7 @@ class TestMetaLearning:
         assert set(adapted.keys()) == set(initial.keys())
 
     def test_anil(self):
-        from trading.ml.meta import ANIL, MetaLearningConfig
+        from trading_agent.ml.meta import ANIL, MetaLearningConfig
 
         config = MetaLearningConfig(meta_lr=0.001, inner_lr=0.1, inner_steps=2)
         initial = {"ema_fast": 12.0, "ema_slow": 26.0, "rsi_period": 14.0}
@@ -414,7 +414,7 @@ class TestMetaLearning:
         assert adapted["rsi_period"] == initial["rsi_period"]
 
     def test_meta_strategy_adapter(self):
-        from trading.ml.meta import MetaStrategyAdapter
+        from trading_agent.ml.meta import MetaStrategyAdapter
 
         np.random.seed(99)
         market_data = {
@@ -436,14 +436,14 @@ class TestMetaLearning:
         assert 7 <= adapted["rsi_period"] <= 21
 
     def test_meta_adapter_unknown_algorithm(self):
-        from trading.ml.meta import MetaStrategyAdapter
+        from trading_agent.ml.meta import MetaStrategyAdapter
 
         adapter = MetaStrategyAdapter(algorithm="unknown")
         with pytest.raises(ValueError):
             adapter.train({}, steps=1)
 
     def test_meta_adapter_requires_train(self):
-        from trading.ml.meta import MetaStrategyAdapter
+        from trading_agent.ml.meta import MetaStrategyAdapter
 
         adapter = MetaStrategyAdapter()
         with pytest.raises(RuntimeError):
@@ -458,7 +458,7 @@ class TestPortfolioOptimizer:
     """Portfolio optimization methods."""
 
     def _setup(self, method, synthetic_returns):
-        from trading.portfolio.portfolio_optimizer import PortfolioOptimizer, OptimizerMethod
+        from trading_agent.portfolio.portfolio_optimizer import PortfolioOptimizer, OptimizerMethod
         symbols = [_make_symbol(b) for b in ["BTC", "ETH", "SOL", "ADA", "XRP"]]
         optimizer = PortfolioOptimizer(method=OptimizerMethod(method))
         optimizer.set_universe(symbols, synthetic_returns)
@@ -482,7 +482,7 @@ class TestPortfolioOptimizer:
         assert abs(total - 1.0) < 0.05
 
     def test_black_litterman(self, synthetic_returns):
-        from trading.portfolio.portfolio_optimizer import (
+        from trading_agent.portfolio.portfolio_optimizer import (
             PortfolioOptimizer, OptimizerMethod, BlackLittermanViews,
         )
         symbols = [_make_symbol(b) for b in ["BTC", "ETH", "SOL", "ADA", "XRP"]]
@@ -520,7 +520,7 @@ class TestAttribution:
     """Performance attribution."""
 
     def test_brinson_attribution(self):
-        from trading.portfolio.attribution.analyzer import AttributionAnalyzer
+        from trading_agent.portfolio.attribution.analyzer import AttributionAnalyzer
 
         np.random.seed(5)
         dates = pd.date_range("2026-01-01", periods=100, freq="D")
@@ -556,7 +556,7 @@ class TestAutoRebalancer:
     """Rebalancing strategies and the AutoRebalancer."""
 
     def _positions_and_prices(self):
-        from trading.exchanges.models import Position
+        from trading_agent.exchanges.models import Position
         btc = _make_symbol("BTC")
         eth = _make_symbol("ETH")
         positions = {
@@ -569,7 +569,7 @@ class TestAutoRebalancer:
         return positions, prices
 
     def test_calendar_should_rebalance(self):
-        from trading.portfolio.auto_rebalancer import CalendarRebalanceStrategy, RebalanceConfig, RebalanceTrigger
+        from trading_agent.portfolio.auto_rebalancer import CalendarRebalanceStrategy, RebalanceConfig, RebalanceTrigger
 
         strat = CalendarRebalanceStrategy()
         config = RebalanceConfig(calendar_enabled=True, calendar_frequency="monthly", calendar_day=1)
@@ -585,7 +585,7 @@ class TestAutoRebalancer:
         assert not should
 
     def test_threshold_should_rebalance(self):
-        from trading.portfolio.auto_rebalancer import (
+        from trading_agent.portfolio.auto_rebalancer import (
             ThresholdRebalanceStrategy, RebalanceConfig, RebalanceTrigger,
         )
 
@@ -605,7 +605,7 @@ class TestAutoRebalancer:
         assert not should
 
     def test_cppi(self):
-        from trading.portfolio.auto_rebalancer import CPPIRebalanceStrategy, RebalanceConfig
+        from trading_agent.portfolio.auto_rebalancer import CPPIRebalanceStrategy, RebalanceConfig
 
         strat = CPPIRebalanceStrategy()
         config = RebalanceConfig(cppi_enabled=True, cppi_multiplier=3.0, cppi_floor_pct=0.8)
@@ -634,7 +634,7 @@ class TestAutoRebalancer:
         assert total2 > 0.5
 
     def test_force_rebalance_generates_trades(self):
-        from trading.portfolio.auto_rebalancer import AutoRebalancer, RebalanceConfig, RebalanceTrigger
+        from trading_agent.portfolio.auto_rebalancer import AutoRebalancer, RebalanceConfig, RebalanceTrigger
 
         config = RebalanceConfig(
             calendar_enabled=False, threshold_enabled=False,
@@ -657,7 +657,7 @@ class TestAutoRebalancer:
         assert status["total_rebalances"] == 1
 
     def test_disabled_no_rebalance(self):
-        from trading.portfolio.auto_rebalancer import AutoRebalancer, RebalanceConfig
+        from trading_agent.portfolio.auto_rebalancer import AutoRebalancer, RebalanceConfig
 
         rebalancer = AutoRebalancer(RebalanceConfig())
         rebalancer.disable()
@@ -675,10 +675,10 @@ class TestStrategyVersioning:
     """Strategy registry + git store."""
 
     def test_registry_register_and_activate(self, tmp_path):
-        from trading.strategies.versioning import (
+        from trading_agent.strategies.versioning import (
             StrategyRegistry, StrategyMetadata, AssetClass, RiskProfile,
         )
-        from trading.strategies.plugins.strategy_plugin import ExampleMAStrategy
+        from trading_agent.strategies.plugins.strategy_plugin import ExampleMAStrategy
 
         registry = StrategyRegistry(store_path=str(tmp_path / "registry"))
         metadata = StrategyMetadata(
@@ -714,10 +714,10 @@ class TestStrategyVersioning:
         assert registry.get_active("MA_Crossover") is None
 
     def test_registry_loader(self, tmp_path):
-        from trading.strategies.versioning import (
+        from trading_agent.strategies.versioning import (
             StrategyRegistry, StrategyMetadata, StrategyLoader, AssetClass, RiskProfile,
         )
-        from trading.strategies.plugins.strategy_plugin import ExampleMAStrategy
+        from trading_agent.strategies.plugins.strategy_plugin import ExampleMAStrategy
 
         registry = StrategyRegistry(store_path=str(tmp_path / "registry2"))
         metadata = StrategyMetadata(
@@ -735,10 +735,10 @@ class TestStrategyVersioning:
         assert hasattr(cls, "on_bar")
 
     def test_git_store_save_load(self, tmp_path):
-        from trading.strategies.versioning import (
+        from trading_agent.strategies.versioning import (
             StrategyRegistry, StrategyMetadata, GitVersionStore, AssetClass, RiskProfile,
         )
-        from trading.strategies.plugins.strategy_plugin import ExampleMAStrategy
+        from trading_agent.strategies.plugins.strategy_plugin import ExampleMAStrategy
 
         registry = StrategyRegistry(store_path=str(tmp_path / "registry3"))
         metadata = StrategyMetadata(
@@ -783,14 +783,14 @@ class TestStrategy:
 """
 
     def test_validate_ok(self):
-        from trading.strategies.sandbox import SubprocessSandbox, SandboxConfig
+        from trading_agent.strategies.sandbox import SubprocessSandbox, SandboxConfig
 
         sandbox = SubprocessSandbox(SandboxConfig())
         result = run_async(sandbox.validate(self.STRATEGY_CODE))
         assert result.success
 
     def test_validate_forbidden_import(self):
-        from trading.strategies.sandbox import SubprocessSandbox, SandboxConfig
+        from trading_agent.strategies.sandbox import SubprocessSandbox, SandboxConfig
 
         sandbox = SubprocessSandbox(SandboxConfig())
         code = "import os\nclass Evil:\n    pass\n"
@@ -799,14 +799,14 @@ class TestStrategy:
         assert "Forbidden import" in result.error
 
     def test_validate_syntax_error(self):
-        from trading.strategies.sandbox import SubprocessSandbox, SandboxConfig
+        from trading_agent.strategies.sandbox import SubprocessSandbox, SandboxConfig
 
         sandbox = SubprocessSandbox(SandboxConfig())
         result = run_async(sandbox.validate("def broken(:\n"))
         assert not result.success
 
     def test_execute_on_bar(self):
-        from trading.strategies.sandbox import SubprocessSandbox, SandboxConfig
+        from trading_agent.strategies.sandbox import SubprocessSandbox, SandboxConfig
 
         sandbox = SubprocessSandbox(SandboxConfig(timeout_seconds=15))
         result = run_async(sandbox.execute(
@@ -816,7 +816,7 @@ class TestStrategy:
         assert result.output["signal"] == 1
 
     def test_execute_get_params(self):
-        from trading.strategies.sandbox import SubprocessSandbox, SandboxConfig
+        from trading_agent.strategies.sandbox import SubprocessSandbox, SandboxConfig
 
         sandbox = SubprocessSandbox(SandboxConfig(timeout_seconds=15))
         result = run_async(sandbox.execute(self.STRATEGY_CODE, "get_params"))
@@ -824,7 +824,7 @@ class TestStrategy:
         assert result.output == {"fast": 5, "slow": 20}
 
     def test_sandbox_factory_default(self):
-        from trading.strategies.sandbox import SandboxFactory
+        from trading_agent.strategies.sandbox import SandboxFactory
 
         sandbox = SandboxFactory.create_default()
         assert sandbox is not None
@@ -838,7 +838,7 @@ class TestMessaging:
     """Message envelope + bus pattern."""
 
     def test_message_roundtrip(self):
-        from trading.messaging import Message, MessagePriority
+        from trading_agent.messaging import Message, MessagePriority
 
         msg = Message(
             topic="signal.generated",
@@ -854,7 +854,7 @@ class TestMessaging:
         assert restored.correlation_id == "corr-1"
 
     def test_in_memory_bus(self):
-        from trading.messaging import Message, MessageBus
+        from trading_agent.messaging import Message, MessageBus
 
         class InMemoryBus(MessageBus):
             def __init__(self):
@@ -906,7 +906,7 @@ class TestMultiRegion:
     """RegionSyncController status + failover logic (no cluster needed)."""
 
     def _make_controller(self):
-        from trading.infrastructure.multi_region.sync_controller import (
+        from trading_agent.infrastructure.multi_region.sync_controller import (
             RegionSyncController, RegionInfo, RegionRole, SyncPolicy,
         )
         regions = [
@@ -932,7 +932,7 @@ class TestMultiRegion:
 
         # Mark secondary healthy and trigger failover check on primary
         secondary.status = None  # ensure healthy default
-        from trading.infrastructure.multi_region.sync_controller import RegionStatus
+        from trading_agent.infrastructure.multi_region.sync_controller import RegionStatus
         secondary.status = RegionStatus.HEALTHY
 
         # Patch _update_region_config to avoid k8s call
@@ -952,7 +952,7 @@ class TestMultiRegion:
         secondary = regions[1]
         tertiary = regions[2]
 
-        from trading.infrastructure.multi_region.sync_controller import RegionStatus
+        from trading_agent.infrastructure.multi_region.sync_controller import RegionStatus
         tertiary.status = RegionStatus.HEALTHY
 
         async def noop(region, is_primary):
@@ -963,7 +963,7 @@ class TestMultiRegion:
         assert tertiary.role.value == "secondary"
 
     def test_sync_policy_defaults(self):
-        from trading.infrastructure.multi_region.sync_controller import SyncPolicy
+        from trading_agent.infrastructure.multi_region.sync_controller import SyncPolicy
 
         policy = SyncPolicy()
         assert policy.max_lag_seconds == 300
@@ -1010,7 +1010,7 @@ class TestMultiRegion:
 
     def test_dry_run_cli_get_controller(self):
         """Global factory with dry_run=True should work."""
-        from trading.infrastructure.multi_region.sync_controller import (
+        from trading_agent.infrastructure.multi_region.sync_controller import (
             get_sync_controller, shutdown_sync_controller,
         )
 
@@ -1031,7 +1031,7 @@ class TestChaos:
     """Chaos experiment suite structure + reporting."""
 
     def test_suite_add_experiments(self):
-        from trading.infrastructure.chaos.chaos_experiments import (
+        from trading_agent.infrastructure.chaos.chaos_experiments import (
             ChaosExperimentSuite, ChaosExperimentType,
         )
 
@@ -1051,7 +1051,7 @@ class TestChaos:
         assert ChaosExperimentType.CPU_STRESS in types
 
     def test_runner_selection(self):
-        from trading.infrastructure.chaos.chaos_experiments import (
+        from trading_agent.infrastructure.chaos.chaos_experiments import (
             ChaosExperimentSuite, ChaosExperiment, ChaosExperimentType,
             PodKillExperiment, NetworkLatencyExperiment,
         )
@@ -1066,7 +1066,7 @@ class TestChaos:
         assert isinstance(runner2, NetworkLatencyExperiment)
 
     def test_generate_report(self):
-        from trading.infrastructure.chaos.chaos_experiments import (
+        from trading_agent.infrastructure.chaos.chaos_experiments import (
             ChaosExperimentSuite, ExperimentResult,
         )
 
@@ -1084,7 +1084,7 @@ class TestChaos:
 
     def test_dry_run_run_all(self):
         """Dry-run suite should simulate experiments without a cluster."""
-        from trading.infrastructure.chaos.chaos_experiments import ChaosExperimentSuite
+        from trading_agent.infrastructure.chaos.chaos_experiments import ChaosExperimentSuite
 
         suite = ChaosExperimentSuite(namespace="trading-agent", dry_run=True)
         suite.add_pod_kill("pod-kill-1", {"app": "trading-agent"}, duration=1)
@@ -1103,7 +1103,7 @@ class TestChaos:
 
     def test_dry_run_experiment_status_transitions(self):
         """Dry-run should mark experiments running -> completed."""
-        from trading.infrastructure.chaos.chaos_experiments import (
+        from trading_agent.infrastructure.chaos.chaos_experiments import (
             ChaosExperimentSuite, ChaosExperimentType, ChaosExperiment, ExperimentStatus,
         )
 
@@ -1123,11 +1123,11 @@ class TestEndToEndFlow:
     """Full pipeline: adaptive strategy -> events -> projections -> rebalance."""
 
     def test_full_pipeline(self, tmp_path):
-        from trading.events.store import EventStore, EventStoreConfig
-        from trading.events.projections import TradeProjection, SignalProjection, RiskProjection
-        from trading.ml.online.adaptive import AdaptiveConfig, AdaptiveStrategy
-        from trading.portfolio.auto_rebalancer import AutoRebalancer, RebalanceConfig, RebalanceTrigger
-        from trading.exchanges.models import Position
+        from trading_agent.events.store import EventStore, EventStoreConfig
+        from trading_agent.events.projections import TradeProjection, SignalProjection, RiskProjection
+        from trading_agent.ml.online.adaptive import AdaptiveConfig, AdaptiveStrategy
+        from trading_agent.portfolio.auto_rebalancer import AutoRebalancer, RebalanceConfig, RebalanceTrigger
+        from trading_agent.exchanges.models import Position
 
         np.random.seed(21)
         prices = 100 * np.exp(np.cumsum(np.random.normal(0.001, 0.01, 200)))

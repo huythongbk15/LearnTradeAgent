@@ -35,7 +35,7 @@ jobs:
 
       - name: Import smoke test
         run: |
-          python -c "import trading_agent, trading; from trading.exchanges import WebSocketManager, HealthMonitor; from trading.data import DataPipeline; print('Imports OK')"
+          python -c "import trading_agent; from trading_agent.exchanges import WebSocketManager, HealthMonitor; from trading_agent.data import DataPipeline, DataPipeline; print('Imports OK')"
 
       - name: Unit tests
         run: pytest tests/ -v --tb=short

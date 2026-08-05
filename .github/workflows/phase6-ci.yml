@@ -4,12 +4,12 @@ on:
   push:
     branches: [main]
     paths:
-      - 'trading/**'
+      - 'src/trading_agent/**'
       - 'tests/**'
       - 'scripts/**'
   pull_request:
     paths:
-      - 'trading/**'
+      - 'src/trading_agent/**'
       - 'tests/**'
       - 'scripts/**'
   workflow_dispatch:
@@ -39,11 +39,11 @@ jobs:
 
       - name: Run full test suite
         run: |
-          python -m pytest tests/ test_phase6.py -q
+          python -m pytest tests/ -q
 
       - name: Verify multi-region dry-run (no cluster)
         run: |
-          timeout 15 python trading/infrastructure/multi_region/sync_controller.py dryrun
+          timeout 15 python -m trading_agent.infrastructure.multi_region.sync_controller dryrun
 
       - name: Verify chaos dry-run (no cluster)
         run: |
@@ -82,8 +82,8 @@ jobs:
 
       - name: Validate sync controller imports
         run: |
-          python -c "from trading.infrastructure.multi_region.sync_controller import RegionSyncController, RegionInfo, RegionRole, SyncPolicy; print('multi-region imports OK')"
+          python -c "from trading_agent.infrastructure.multi_region.sync_controller import RegionSyncController, RegionInfo, RegionRole, SyncPolicy; print('multi-region imports OK')"
 
       - name: Validate chaos imports
         run: |
-          python -c "from trading.infrastructure.chaos.chaos_experiments import ChaosExperimentSuite, ChaosExperimentType; print('chaos imports OK')"
+          python -c "from trading_agent.infrastructure.chaos.chaos_experiments import ChaosExperimentSuite, ChaosExperimentType; print('chaos imports OK')"

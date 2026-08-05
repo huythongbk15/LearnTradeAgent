@@ -30,7 +30,7 @@
 python3 scripts/benchmark_phase6.py
 python3 scripts/load_test_phase6.py --quick
 python3 scripts/chaos_dryrun.py
-python3 -m trading.cli.meta_learning --help
+python3 -m trading_agent.cli.meta_learning --help
 python3 -m pytest tests/test_phase6_integration.py -k "maml or event or chaos"
 ```
 

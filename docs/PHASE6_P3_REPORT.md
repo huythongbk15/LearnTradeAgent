@@ -127,6 +127,6 @@ integration    # Phase 6 integration tests
 ## 8. Full Test Status
 
 ```
-python -m pytest tests/ test_phase6.py -q
+python -m pytest tests/ -q
 68 passed
 ```

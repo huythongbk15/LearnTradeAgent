@@ -23,7 +23,7 @@
 ## 🧪 Demo plan
 
 ```bash
-python3 -c "from trading.strategies.plugins.adapters import ...; ..."
+python3 -c "from trading_agent.strategies.plugins.adapters import ...; ..."
 python3 -m pytest tests/test_phase6_integration.py -k "registry or sandbox or validate"
 ```
 

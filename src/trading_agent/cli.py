@@ -1329,10 +1329,10 @@ def portfolio_optimize(
     from rich.panel import Panel
     from rich.table import Table as RichTable
 
-    from trading.portfolio.portfolio_optimizer import (
+    from trading_agent.portfolio.portfolio_optimizer import (
         PortfolioOptimizer, OptimizerMethod, OptimizationConstraints,
     )
-    from trading.exchanges.models import Symbol, AssetClass, MarketType
+    from trading_agent.exchanges.models import Symbol, AssetClass, MarketType
     from trading_agent.data.storage import load_ohlcv
 
     console.print(f"[bold]Optimizing portfolio with {len(symbols)} assets using {method}...[/bold]")
@@ -1391,7 +1391,7 @@ def portfolio_optimize(
     # Handle Black-Litterman views
     bl_views = None
     if method == "black_litterman" and views:
-        from trading.portfolio.portfolio_optimizer import BlackLittermanViews
+        from trading_agent.portfolio.portfolio_optimizer import BlackLittermanViews
         absolute_views = {}
         confidence_dict = {}
         for i, view_str in enumerate(views):
@@ -1459,8 +1459,8 @@ def portfolio_frontier(
     """Generate efficient frontier for visualization."""
     import plotext as plt
 
-    from trading.portfolio.portfolio_optimizer import PortfolioOptimizer, OptimizerMethod
-    from trading.exchanges.models import Symbol, AssetClass, MarketType
+    from trading_agent.portfolio.portfolio_optimizer import PortfolioOptimizer, OptimizerMethod
+    from trading_agent.exchanges.models import Symbol, AssetClass, MarketType
     from trading_agent.data.storage import load_ohlcv
 
     console.print(f"[bold]Generating efficient frontier for {len(symbols)} assets...[/bold]")
@@ -1535,8 +1535,8 @@ def portfolio_monte_carlo(
     from rich.panel import Panel
     from rich.table import Table as RichTable
 
-    from trading.portfolio.portfolio_optimizer import PortfolioOptimizer, OptimizerMethod
-    from trading.exchanges.models import Symbol, AssetClass, MarketType
+    from trading_agent.portfolio.portfolio_optimizer import PortfolioOptimizer, OptimizerMethod
+    from trading_agent.exchanges.models import Symbol, AssetClass, MarketType
     from trading_agent.data.storage import load_ohlcv
 
     console.print(f"[bold]Running Monte Carlo simulation ({simulations} paths, {horizon} days)...[/bold]")
@@ -1673,7 +1673,7 @@ def rebalancer_run(
     dry_run: bool,
 ):
     """Run rebalancing for specified symbols."""
-    from trading.portfolio.auto_rebalancer import (
+    from trading_agent.portfolio.auto_rebalancer import (
         AutoRebalancer,
         CalendarRebalanceStrategy,
         ThresholdRebalanceStrategy,
@@ -1681,7 +1681,7 @@ def rebalancer_run(
         RiskBudgetRebalanceStrategy,
         RebalanceConfig,
     )
-    from trading.exchanges.models import Symbol, AssetClass, MarketType, Position
+    from trading_agent.exchanges.models import Symbol, AssetClass, MarketType, Position
     from trading_agent.execution.engine import ExecutionEngine
     from decimal import Decimal
     import asyncio
@@ -1783,7 +1783,7 @@ def strategy_list():
     """List all registered strategies."""
     from rich.table import Table as RichTable
 
-    from trading.strategies.plugins import get_registry
+    from trading_agent.strategies.plugins import get_registry
 
     registry = get_registry()
     strategies = registry.list_strategies()
@@ -1814,7 +1814,7 @@ def strategy_info(name: str, version: str | None):
     from rich.panel import Panel
     from rich.table import Table as RichTable
 
-    from trading.strategies.plugins import get_registry
+    from trading_agent.strategies.plugins import get_registry
 
     registry = get_registry()
     meta = registry.get_metadata(name, version)
@@ -1868,8 +1868,8 @@ def strategy_run(
     capital: float,
 ):
     """Run a strategy on a symbol (paper trading)."""
-    from trading.strategies.plugins import get_registry, StrategyContext
-    from trading.exchanges.models import Symbol, AssetClass, MarketType, Bar
+    from trading_agent.strategies.plugins import get_registry, StrategyContext
+    from trading_agent.exchanges.models import Symbol, AssetClass, MarketType, Bar
     from trading_agent.data.storage import load_ohlcv
     from decimal import Decimal
 
@@ -1967,7 +1967,7 @@ def strategy_validate(
     import hashlib
     import json
 
-    from trading.strategies.plugins import get_registry
+    from trading_agent.strategies.plugins import get_registry
     from trading_agent.backtest.engine import run_backtest
 
     # Parse params
@@ -2149,7 +2149,7 @@ def meta_train(data_dir: str, algorithm: str, steps: int, meta_lr: float,
                inner_lr: float, inner_steps: int, batch_size: int, output: str | None):
     """Meta-train on multiple market regimes."""
     import asyncio
-    from trading.cli.meta_learning import train
+    from trading_agent.ml.meta_learning import train
     
     asyncio.run(train.callback(
         data_dir=data_dir,
@@ -2171,7 +2171,7 @@ def meta_train(data_dir: str, algorithm: str, steps: int, meta_lr: float,
 def meta_adapt(model_path: str, regime_data: str, n_samples: int, output: str | None):
     """Adapt meta-learned strategy to new regime."""
     import asyncio
-    from trading.cli.meta_learning import adapt
+    from trading_agent.ml.meta_learning import adapt
     
     asyncio.run(adapt.callback(
         model_path=model_path,
@@ -2190,7 +2190,7 @@ def meta_adapt(model_path: str, regime_data: str, n_samples: int, output: str | 
 def meta_backtest(adapted_params: str, data: str, capital: float, commission: float, slippage: float):
     """Run backtest with meta-learned parameters."""
     import asyncio
-    from trading.cli.meta_learning import backtest
+    from trading_agent.ml.meta_learning import backtest
     
     asyncio.run(backtest.callback(
         adapted_params=adapted_params,
@@ -2206,7 +2206,7 @@ def meta_backtest(adapted_params: str, data: str, capital: float, commission: fl
 def meta_regimes(data_dir: str):
     """Analyze available regimes in data directory."""
     import asyncio
-    from trading.cli.meta_learning import regimes
+    from trading_agent.ml.meta_learning import regimes
     
     asyncio.run(regimes.callback(data_dir=data_dir))
 
@@ -2226,7 +2226,7 @@ def projection():
 def projection_rebuild(event_store_path: str, from_position: int, projection: str | None):
     """Rebuild projections from event store."""
     import asyncio
-    from trading.events.projection_manager import rebuild
+    from trading_agent.events.projection_manager import rebuild
     
     asyncio.run(rebuild.callback(
         event_store_path=event_store_path,
@@ -2241,7 +2241,7 @@ def projection_rebuild(event_store_path: str, from_position: int, projection: st
 def projection_status(event_store_path: str, projection: str | None):
     """Show projection status."""
     import asyncio
-    from trading.events.projection_manager import status
+    from trading_agent.events.projection_manager import status
     
     asyncio.run(status.callback(
         event_store_path=event_store_path,
@@ -2256,7 +2256,7 @@ def projection_status(event_store_path: str, projection: str | None):
 def projection_query(event_store_path: str, projection: str, key: str | None):
     """Query projection state."""
     import asyncio
-    from trading.events.projection_manager import query
+    from trading_agent.events.projection_manager import query
     
     asyncio.run(query.callback(
         event_store_path=event_store_path,

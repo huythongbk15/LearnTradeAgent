@@ -126,15 +126,15 @@ by_asset = {
 cd /home/huythong/.qwenpaw/workspaces/trading
 
 # 1. Demo built-in (MockSource + SQLite, không cần API key)
-python3 -m trading.data.pipeline
+python3 -m trading_agent.data.pipeline
 # → report: {'total_written': 48, 'total_read': 48, ...}  (2 ngày × 24h)
 
 # 2. Demo tự viết: backfill + incremental + đọc lại
 python3 -c "
 import asyncio
 from datetime import datetime, timezone
-from trading.data.pipeline import DataPipeline, SQLiteCandleStore, MockSource
-from trading.exchanges.models import crypto_symbol
+from trading_agent.data.pipeline import DataPipeline, SQLiteCandleStore, MockSource
+from trading_agent.exchanges.models import crypto_symbol
 
 async def main():
     store = SQLiteCandleStore(db_path='data/demo_pipeline.db')

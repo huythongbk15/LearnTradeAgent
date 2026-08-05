@@ -17,7 +17,7 @@ import json
 import os
 import urllib.parse
 import urllib.request
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from trading_agent.log_config import get_logger

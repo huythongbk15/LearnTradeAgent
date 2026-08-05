@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Extract and print latest backtest metrics from trading.db"""
+"""Extract and print latest backtest metrics from trading_agent.db"""
 import sqlite3
 import sys
 

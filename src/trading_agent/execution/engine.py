@@ -26,8 +26,6 @@ from trading_agent.execution.types import (
 from trading_agent.execution.indicators import (
     compute_atr,
     compute_atr_position_size,
-    compute_kelly_fraction,
-    compute_volatility_target_size,
 )
 
 logger = logging.getLogger(__name__)

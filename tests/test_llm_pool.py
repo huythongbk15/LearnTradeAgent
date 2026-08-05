@@ -8,7 +8,7 @@ import time
 
 import pytest
 
-from trading.llm.pool import (
+from trading_agent.llm.pool import (
     LLMPool,
     PoolProvider,
     QuotaTracker,

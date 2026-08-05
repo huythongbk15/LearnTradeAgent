@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Kiểm tra toàn bộ trade history + pnl thật."""
 import sys
-sys.path.insert(0, '/home/huythong/.qwenpaw/workspaces/trading')
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 from trading_agent.execution.paper_exchange import PaperExchange
 
 ex = PaperExchange(exchange_name='binance', initial_balance=10000)

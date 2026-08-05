@@ -1,9 +1,17 @@
 """
 Base agent framework — AgentMessage protocol, BaseAgent abstract class.
+
+Merged from two generations:
+- Core (sync): BaseAgent.analyze(context) -> AgentMessage, name-based init.
+- Phase 6 (async): AgentConfig/AgentSpec/AgentRole/AgentSignal + process().
+
+BaseAgent supports both styles: ``analyze`` may be sync (core agents) or
+async (swarm agents); ``process()`` handles both.
 """
 
 from __future__ import annotations
 
+import inspect
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any
@@ -50,20 +58,80 @@ class AgentMessage:
         )
 
 
+@dataclass
+class AgentConfig:
+    """Configuration for an agent (Phase 6 style)."""
+    name: str
+    role: str
+    params: dict[str, Any] = field(default_factory=dict)
+    enabled: bool = True
+
+
 class BaseAgent(ABC):
     """Abstract base for all trading agents.
 
-    Each agent subclass implements ``analyze()`` which receives a
-    ``AnalysisContext`` and returns an ``AgentMessage``.
+    Core style: subclass implements ``analyze(context) -> AgentMessage``
+    (may be sync or async). Phase 6 style: subclass may also implement
+    ``process(market_data)`` and receive an ``AgentConfig`` at init.
     """
 
-    def __init__(self, name: str | None = None):
-        self.name = name or self.__class__.__name__
+    def __init__(
+        self,
+        config: AgentConfig | None = None,
+        name: str | None = None,
+    ):
+        self.config = config
+        self.name = name or (config.name if config else self.__class__.__name__)
+        self.role = config.role if config else getattr(self, "role", None)
 
     @abstractmethod
     def analyze(self, context: AnalysisContext) -> AgentMessage:
         """Analyze the current market context and return a signal."""
         ...
+
+    async def process(self, market_data: dict[str, Any]) -> AgentMessage:
+        """Process market data (interface for swarm coordinator).
+
+        Works for both sync and async ``analyze`` implementations.
+        """
+        result = self.analyze(market_data)
+        if inspect.isawaitable(result):
+            return await result
+        return result
+
+
+@dataclass
+class AgentSpec:
+    """Specification for creating an agent."""
+    name: str
+    role: str
+    symbols: list[str]
+    timeframes: list[str] = field(default_factory=list)
+    params: dict[str, Any] = field(default_factory=dict)
+    weight: float = 1.0
+    enabled: bool = True
+
+
+class AgentRole:
+    """Agent roles in the swarm."""
+    TECHNICAL = "technical"
+    FUNDAMENTAL = "fundamental"
+    SENTIMENT = "sentiment"
+    RISK = "risk"
+    EXECUTION = "execution"
+    COORDINATOR = "coordinator"
+
+
+@dataclass
+class AgentSignal:
+    """Trading signal from an agent."""
+    signal_id: str
+    symbol: str
+    action: str  # buy, sell, hold, close_long, close_short
+    confidence: float
+    size_pct: float
+    reasoning: str
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -74,7 +142,7 @@ class AnalysisContext:
     symbol: str
     timeframe: str
     current_price: float
-    ohlcv: Any  # full OHLCV DataFrame (polars)
+    ohlcv: Any = None  # full OHLCV DataFrame (polars), optional
 
     # Computed indicators
     indicators: dict[str, Any] = field(default_factory=dict)

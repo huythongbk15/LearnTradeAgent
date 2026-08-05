@@ -22,7 +22,7 @@
 ## 🧪 Demo plan
 
 ```bash
-python3 -m trading.cli.main agents analyze BTC/USDT
+python3 -m trading_agent.cli.main agents analyze BTC/USDT
 python3 -m pytest tests/ -k "agent"
 ```
 

@@ -24,7 +24,7 @@
 
 ```bash
 python3 scripts/trade_local.py --once
-python3 -m trading.cli.main execution status
+python3 -m trading_agent.cli.main execution status
 ```
 
 ## ❓ Câu hỏi tự kiểm tra

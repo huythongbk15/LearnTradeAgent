@@ -28,7 +28,7 @@ if env_file.exists():
 
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from trading.llm.pool import create_llm_pool  # noqa: E402
+from trading_agent.llm.pool import create_llm_pool  # noqa: E402
 
 
 def print_status(pool) -> None:

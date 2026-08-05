@@ -41,7 +41,7 @@ def run_async(coro):
 
 def benchmark_event_store():
     print("\n[Event Store]")
-    from trading.events.store import EventStore, EventStoreConfig
+    from trading_agent.events.store import EventStore, EventStoreConfig
 
     config = EventStoreConfig(file_path="/tmp/bench_events.jsonl")
     store = EventStore(config)
@@ -74,7 +74,7 @@ def benchmark_event_store():
 
 def benchmark_online_learning():
     print("\n[Online Learning]")
-    from trading.ml.online.adaptive import AdaptiveConfig, AdaptiveStrategy
+    from trading_agent.ml.online.adaptive import AdaptiveConfig, AdaptiveStrategy
 
     np.random.seed(1)
     prices = 100 * np.exp(np.cumsum(np.random.normal(0.001, 0.01, 10000)))
@@ -94,7 +94,7 @@ def benchmark_online_learning():
 
 def benchmark_meta_learning():
     print("\n[Meta-Learning]")
-    from trading.ml.meta import Reptile, MetaLearningConfig, StrategyParameterTask
+    from trading_agent.ml.meta import Reptile, MetaLearningConfig, StrategyParameterTask
 
     np.random.seed(2)
     tasks = []
@@ -111,8 +111,8 @@ def benchmark_meta_learning():
 
 def benchmark_portfolio_optimizer():
     print("\n[Portfolio Optimizer]")
-    from trading.portfolio.portfolio_optimizer import PortfolioOptimizer, OptimizerMethod
-    from trading.exchanges.models import Symbol, AssetClass, MarketType
+    from trading_agent.portfolio.portfolio_optimizer import PortfolioOptimizer, OptimizerMethod
+    from trading_agent.exchanges.models import Symbol, AssetClass, MarketType
 
     np.random.seed(3)
     n_assets = 10
@@ -137,7 +137,7 @@ def benchmark_portfolio_optimizer():
 
 def benchmark_attribution():
     print("\n[Attribution]")
-    from trading.portfolio.attribution.analyzer import AttributionAnalyzer
+    from trading_agent.portfolio.attribution.analyzer import AttributionAnalyzer
 
     np.random.seed(4)
     dates = pd.date_range("2026-01-01", periods=500, freq="D")
@@ -155,7 +155,7 @@ def benchmark_attribution():
 
 def benchmark_sandbox():
     print("\n[Sandbox]")
-    from trading.strategies.sandbox import SubprocessSandbox, SandboxConfig
+    from trading_agent.strategies.sandbox import SubprocessSandbox, SandboxConfig
 
     STRATEGY_CODE = """
 class TestStrategy:
@@ -174,8 +174,8 @@ class TestStrategy:
 
 def benchmark_rebalancer():
     print("\n[Auto-Rebalancer]")
-    from trading.portfolio.auto_rebalancer import AutoRebalancer, RebalanceConfig, RebalanceTrigger
-    from trading.exchanges.models import Position, Symbol, AssetClass, MarketType
+    from trading_agent.portfolio.auto_rebalancer import AutoRebalancer, RebalanceConfig, RebalanceTrigger
+    from trading_agent.exchanges.models import Position, Symbol, AssetClass, MarketType
 
     symbols = [Symbol(f"SYM{i}", "USDT", AssetClass.CRYPTO, MarketType.SPOT, "binance") for i in range(5)]
     positions = {

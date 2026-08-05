@@ -109,7 +109,7 @@ chaos-dryrun:   ## Run chaos experiments in dry-run (no cluster)
 	python scripts/chaos_dryrun.py
 
 region-dryrun:  ## Run multi-region sync controller in dry-run (no cluster)
-	python trading/infrastructure/multi_region/sync_controller.py dryrun
+	python -m trading_agent.infrastructure.multi_region.sync_controller dryrun
 
 integration:    ## Run Phase 6 integration tests
 	python -m pytest tests/test_phase6_integration.py -v
@@ -117,13 +117,13 @@ integration:    ## Run Phase 6 integration tests
 # ── Real-Time Data (Phase 6 P1) ──────────────────────────────────────────
 
 ws-demo:        ## WebSocket Manager demo (mock provider)
-	python -m trading.exchanges.websocket_manager
+	python -m trading_agent.exchanges.websocket_manager
 
 health-demo:    ## Exchange Health Monitor demo
-	python -m trading.exchanges.health_monitor
+	python -m trading_agent.exchanges.health_monitor
 
 pipeline-demo:  ## Unified Data Pipeline demo (mock source → SQLite)
-	python -m trading.data.pipeline
+	python -m trading_agent.data.pipeline
 
 realtime-test:  ## Run real-time data module tests
 	python -m pytest tests/test_realtime_data.py -v
