@@ -7,6 +7,18 @@ from __future__ import annotations
 
 import os
 from datetime import datetime
+from pathlib import Path
+
+import pytest
+
+# Integration test này cần data thật (không có trên CI runner).
+# Thiếu data local → skip cả module.
+_DATA_FILE = (
+    Path(__file__).resolve().parents[1]
+    / "data" / "raw" / "binance" / "BTC_USDT" / "1h.parquet"
+)
+if not _DATA_FILE.exists():
+    pytest.skip(f"Bỏ qua integration test: thiếu data local {_DATA_FILE}", allow_module_level=True)
 
 import polars as pl
 
