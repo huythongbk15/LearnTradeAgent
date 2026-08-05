@@ -126,7 +126,15 @@ integration    # Phase 6 integration tests
 
 ## 8. Full Test Status
 
+Sau refactor `trading/` → `src/trading_agent/`, test di dời về `tests/` (conftest chèn src/ vào sys.path).
+
 ```
 python -m pytest tests/ -q
-68 passed
+107 passed      # +7 MetaLearning (MAML/Reptile/MetaSGD/ANIL), +Phase6 integration
 ```
+
+Verification khác:
+- `ruff check .` → All checks passed (format chưa đạt, cosmetic — giữ nguyên)
+- import-all smoke: 98/100 module OK (chỉ web3/jaeger optional deps)
+- `scripts/benchmark_phase6.py` → online learning 9.2k bars/s, portfolio optimizer 1.3–14ms
+- `scripts/load_test_phase6.py --quick` → event store concurrency + throughput OK

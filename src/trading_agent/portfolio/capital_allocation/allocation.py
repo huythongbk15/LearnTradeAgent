@@ -9,7 +9,7 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
-from trading_agent.portfolio.risk_budgeting import RiskBudgeting, RiskBudgetMethod
+from trading_agent.portfolio.risk_budgeting import RiskBudgeter, RiskBudgetMethod
 
 
 class AllocationMethod(Enum):
@@ -167,7 +167,7 @@ class CapitalAllocator:
 
     def _risk_parity(self, cov: np.ndarray) -> np.ndarray:
         """Risk parity allocation."""
-        risk_budgeting = RiskBudgeting(method=RiskBudgetMethod.ERC)
+        risk_budgeting = RiskBudgeter(method=RiskBudgetMethod.EQUAL_RISK_CONTRIBUTION)
         # Simplified - use inverse volatility as approximation
         vols = np.sqrt(np.diag(cov))
         inv_vol = 1 / (vols + 1e-8)
@@ -234,7 +234,7 @@ class CapitalAllocator:
     def _hrp(self, cov: np.ndarray, strategy_ids: list[str]) -> np.ndarray:
         """Hierarchical Risk Parity (simplified)."""
         # Use the risk budgeting HRP implementation
-        risk_budgeting = RiskBudgeting(method=RiskBudgetMethod.HRP)
+        risk_budgeting = RiskBudgeter(method=RiskBudgetMethod.HIERARCHICAL_RP)
         # Simplified - return equal weight for now
         return np.ones(len(strategy_ids)) / len(strategy_ids)
 
