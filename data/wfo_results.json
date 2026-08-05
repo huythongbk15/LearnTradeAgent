@@ -1,0 +1,431 @@
+[
+  {
+    "window": 1,
+    "train_start": "2023-07-29",
+    "train_end": "2024-01-25",
+    "test_start": "2024-01-25",
+    "test_end": "2024-03-25",
+    "train_bars": 4320,
+    "test_bars": 1440,
+    "top_params": [
+      {
+        "fast_ma": 15,
+        "slow_ma": 20,
+        "rsi_period": 21,
+        "rsi_buy": 30,
+        "rsi_sell": 70
+      },
+      {
+        "fast_ma": 15,
+        "slow_ma": 80,
+        "rsi_period": 21,
+        "rsi_buy": 45,
+        "rsi_sell": 55
+      },
+      {
+        "fast_ma": 10,
+        "slow_ma": 30,
+        "rsi_period": 21,
+        "rsi_buy": 45,
+        "rsi_sell": 55
+      }
+    ],
+    "test_metrics": [
+      {
+        "sharpe": 3.478854257544429,
+        "return": 29.894507322680457,
+        "dd": 16.347177494160952,
+        "trades": 1,
+        "win_rate": 100.0
+      },
+      {
+        "sharpe": 5.600300237726297,
+        "return": 29.59082504622504,
+        "dd": 7.518398667698735,
+        "trades": 3,
+        "win_rate": 100.0
+      }
+    ],
+    "avg_oos_sharpe": 4.539577247635363,
+    "avg_oos_return": 29.742666184452748,
+    "avg_oos_dd": 11.932788080929843
+  },
+  {
+    "window": 2,
+    "train_start": "2023-10-27",
+    "train_end": "2024-04-24",
+    "test_start": "2024-04-24",
+    "test_end": "2024-06-23",
+    "train_bars": 4320,
+    "test_bars": 1440,
+    "top_params": [
+      {
+        "fast_ma": 10,
+        "slow_ma": 20,
+        "rsi_period": 7,
+        "rsi_buy": 30,
+        "rsi_sell": 55
+      },
+      {
+        "fast_ma": 10,
+        "slow_ma": 20,
+        "rsi_period": 7,
+        "rsi_buy": 30,
+        "rsi_sell": 60
+      },
+      {
+        "fast_ma": 10,
+        "slow_ma": 20,
+        "rsi_period": 7,
+        "rsi_buy": 35,
+        "rsi_sell": 55
+      }
+    ],
+    "test_metrics": [
+      {
+        "sharpe": 0.22935102867072507,
+        "return": 0.11690006576385713,
+        "dd": 1.1337211768113047,
+        "trades": 1,
+        "win_rate": 100.0
+      }
+    ],
+    "avg_oos_sharpe": 0.22935102867072507,
+    "avg_oos_return": 0.11690006576385713,
+    "avg_oos_dd": 1.1337211768113047
+  },
+  {
+    "window": 3,
+    "train_start": "2024-01-25",
+    "train_end": "2024-07-23",
+    "test_start": "2024-07-23",
+    "test_end": "2024-09-21",
+    "train_bars": 4320,
+    "test_bars": 1440,
+    "top_params": [
+      {
+        "fast_ma": 15,
+        "slow_ma": 20,
+        "rsi_period": 10,
+        "rsi_buy": 30,
+        "rsi_sell": 55
+      },
+      {
+        "fast_ma": 10,
+        "slow_ma": 40,
+        "rsi_period": 21,
+        "rsi_buy": 45,
+        "rsi_sell": 55
+      },
+      {
+        "fast_ma": 15,
+        "slow_ma": 20,
+        "rsi_period": 7,
+        "rsi_buy": 25,
+        "rsi_sell": 65
+      }
+    ],
+    "test_metrics": [
+      {
+        "sharpe": -0.06338758799828027,
+        "return": -1.8762807898556821,
+        "dd": 18.436998460581048,
+        "trades": 3,
+        "win_rate": 100.0
+      },
+      {
+        "sharpe": -1.059249875860487,
+        "return": -5.80305601718952,
+        "dd": 17.980239759895884,
+        "trades": 2,
+        "win_rate": 0.0
+      },
+      {
+        "sharpe": 0.5184968400667268,
+        "return": 2.1939825037332774,
+        "dd": 18.436998460581048,
+        "trades": 6,
+        "win_rate": 100.0
+      }
+    ],
+    "avg_oos_sharpe": -0.20138020793068015,
+    "avg_oos_return": -1.828451434437308,
+    "avg_oos_dd": 18.28474556035266
+  },
+  {
+    "window": 4,
+    "train_start": "2024-04-24",
+    "train_end": "2024-10-21",
+    "test_start": "2024-10-21",
+    "test_end": "2024-12-20",
+    "train_bars": 4320,
+    "test_bars": 1440,
+    "top_params": [
+      {
+        "fast_ma": 25,
+        "slow_ma": 40,
+        "rsi_period": 10,
+        "rsi_buy": 35,
+        "rsi_sell": 65
+      },
+      {
+        "fast_ma": 5,
+        "slow_ma": 20,
+        "rsi_period": 10,
+        "rsi_buy": 45,
+        "rsi_sell": 55
+      },
+      {
+        "fast_ma": 30,
+        "slow_ma": 40,
+        "rsi_period": 14,
+        "rsi_buy": 30,
+        "rsi_sell": 65
+      }
+    ],
+    "test_metrics": [
+      {
+        "sharpe": -0.39384641541248766,
+        "return": -2.043036117448355,
+        "dd": 10.94497156294303,
+        "trades": 1,
+        "win_rate": 0.0
+      }
+    ],
+    "avg_oos_sharpe": -0.39384641541248766,
+    "avg_oos_return": -2.043036117448355,
+    "avg_oos_dd": 10.94497156294303
+  },
+  {
+    "window": 5,
+    "train_start": "2024-07-23",
+    "train_end": "2025-01-19",
+    "test_start": "2025-01-19",
+    "test_end": "2025-03-20",
+    "train_bars": 4320,
+    "test_bars": 1440,
+    "top_params": [
+      {
+        "fast_ma": 20,
+        "slow_ma": 40,
+        "rsi_period": 7,
+        "rsi_buy": 35,
+        "rsi_sell": 80
+      },
+      {
+        "fast_ma": 20,
+        "slow_ma": 40,
+        "rsi_period": 7,
+        "rsi_buy": 45,
+        "rsi_sell": 55
+      },
+      {
+        "fast_ma": 10,
+        "slow_ma": 80,
+        "rsi_period": 7,
+        "rsi_buy": 45,
+        "rsi_sell": 55
+      }
+    ],
+    "test_metrics": [
+      {
+        "sharpe": -0.8344313008098285,
+        "return": -9.119570875328572,
+        "dd": 22.119603349362706,
+        "trades": 4,
+        "win_rate": 25.0
+      },
+      {
+        "sharpe": -0.7924330542777781,
+        "return": -8.169122712881272,
+        "dd": 20.266135511736046,
+        "trades": 4,
+        "win_rate": 50.0
+      },
+      {
+        "sharpe": -1.3358921136820907,
+        "return": -6.084761397842449,
+        "dd": 12.842502136513973,
+        "trades": 2,
+        "win_rate": 0.0
+      }
+    ],
+    "avg_oos_sharpe": -0.9875854895898991,
+    "avg_oos_return": -7.791151662017431,
+    "avg_oos_dd": 18.409413665870908
+  },
+  {
+    "window": 6,
+    "train_start": "2024-10-21",
+    "train_end": "2025-04-19",
+    "test_start": "2025-04-19",
+    "test_end": "2025-06-18",
+    "train_bars": 4320,
+    "test_bars": 1440,
+    "top_params": [
+      {
+        "fast_ma": 25,
+        "slow_ma": 50,
+        "rsi_period": 10,
+        "rsi_buy": 40,
+        "rsi_sell": 55
+      },
+      {
+        "fast_ma": 25,
+        "slow_ma": 50,
+        "rsi_period": 10,
+        "rsi_buy": 35,
+        "rsi_sell": 55
+      },
+      {
+        "fast_ma": 25,
+        "slow_ma": 50,
+        "rsi_period": 14,
+        "rsi_buy": 40,
+        "rsi_sell": 55
+      }
+    ],
+    "test_metrics": [
+      {
+        "sharpe": -1.0884411196442831,
+        "return": -3.235275229357722,
+        "dd": 7.847124622101299,
+        "trades": 2,
+        "win_rate": 50.0
+      },
+      {
+        "sharpe": -1.0884411196442831,
+        "return": -3.235275229357722,
+        "dd": 7.847124622101299,
+        "trades": 2,
+        "win_rate": 50.0
+      },
+      {
+        "sharpe": -1.0884411196442831,
+        "return": -3.235275229357722,
+        "dd": 7.847124622101299,
+        "trades": 3,
+        "win_rate": 66.66666666666666
+      }
+    ],
+    "avg_oos_sharpe": -1.0884411196442831,
+    "avg_oos_return": -3.235275229357722,
+    "avg_oos_dd": 7.8471246221013
+  },
+  {
+    "window": 7,
+    "train_start": "2025-01-19",
+    "train_end": "2025-07-18",
+    "test_start": "2025-07-18",
+    "test_end": "2025-09-16",
+    "train_bars": 4320,
+    "test_bars": 1440,
+    "top_params": [
+      {
+        "fast_ma": 25,
+        "slow_ma": 60,
+        "rsi_period": 10,
+        "rsi_buy": 30,
+        "rsi_sell": 60
+      },
+      {
+        "fast_ma": 25,
+        "slow_ma": 60,
+        "rsi_period": 10,
+        "rsi_buy": 30,
+        "rsi_sell": 65
+      },
+      {
+        "fast_ma": 25,
+        "slow_ma": 60,
+        "rsi_period": 10,
+        "rsi_buy": 30,
+        "rsi_sell": 70
+      }
+    ],
+    "test_metrics": [
+      {
+        "sharpe": 0.7493077713628717,
+        "return": 1.206563739465437,
+        "dd": 4.163589803527104,
+        "trades": 1,
+        "win_rate": 100.0
+      },
+      {
+        "sharpe": 0.7493077713628717,
+        "return": 1.206563739465437,
+        "dd": 4.163589803527104,
+        "trades": 1,
+        "win_rate": 100.0
+      },
+      {
+        "sharpe": -0.19151859671424626,
+        "return": -1.7036793508865957,
+        "dd": 13.273329052273192,
+        "trades": 1,
+        "win_rate": 0.0
+      }
+    ],
+    "avg_oos_sharpe": 0.4356989820038324,
+    "avg_oos_return": 0.2364827093480927,
+    "avg_oos_dd": 7.200169553109134
+  },
+  {
+    "window": 8,
+    "train_start": "2025-04-19",
+    "train_end": "2025-10-16",
+    "test_start": "2025-10-16",
+    "test_end": "2025-12-15",
+    "train_bars": 4320,
+    "test_bars": 1440,
+    "top_params": [
+      {
+        "fast_ma": 30,
+        "slow_ma": 60,
+        "rsi_period": 10,
+        "rsi_buy": 45,
+        "rsi_sell": 55
+      },
+      {
+        "fast_ma": 30,
+        "slow_ma": 60,
+        "rsi_period": 10,
+        "rsi_buy": 45,
+        "rsi_sell": 60
+      },
+      {
+        "fast_ma": 15,
+        "slow_ma": 30,
+        "rsi_period": 7,
+        "rsi_buy": 40,
+        "rsi_sell": 55
+      }
+    ],
+    "test_metrics": [
+      {
+        "sharpe": -1.8074763333261747,
+        "return": -14.548060251673887,
+        "dd": 28.651240919257138,
+        "trades": 4,
+        "win_rate": 0.0
+      },
+      {
+        "sharpe": -2.155687207898421,
+        "return": -16.833466011703184,
+        "dd": 28.651240919257138,
+        "trades": 4,
+        "win_rate": 0.0
+      },
+      {
+        "sharpe": -4.214797658756982,
+        "return": -14.392027942375934,
+        "dd": 16.010933377470334,
+        "trades": 6,
+        "win_rate": 66.66666666666666
+      }
+    ],
+    "avg_oos_sharpe": -2.725987066660526,
+    "avg_oos_return": -15.257851401917668,
+    "avg_oos_dd": 24.43780507199487
+  }
+]
