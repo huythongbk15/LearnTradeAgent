@@ -110,6 +110,11 @@ def _json_fallback(system_prompt: str, user_prompt: str) -> dict[str, Any]:
 
 
 # Fast skip for local testing
+def llm_enabled() -> bool:
+    """True nếu pipeline LLM bật (USE_LLM != 'false')."""
+    return os.getenv("USE_LLM", "true").lower() != "false"
+
+
 if os.getenv("USE_LLM", "true").lower() == "false":
     class LLMError(Exception):
         """Raised when all LLM providers fail."""

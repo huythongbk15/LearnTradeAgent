@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 
 from trading_agent.agents.base import AgentMessage, AnalysisContext, BaseAgent
-from trading_agent.agents.llm import ask_agent
+from trading_agent.agents.llm import ask_agent, llm_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +45,10 @@ class RiskManager(BaseAgent):
         ind = context.indicators
         extra = ind.get("_extra", {})
         price = context.current_price
+
+        # LLM disabled → rule-based ngay, không build prompt
+        if not llm_enabled():
+            return self._rule_based(ind, context)
 
         prompt_lines = [
             f"Symbol: {context.symbol} ({context.timeframe})",

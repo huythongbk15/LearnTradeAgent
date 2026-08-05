@@ -88,18 +88,21 @@ class AgentStrategy(Strategy):
             pl.Series("bb_mid", sma20),
         ])
 
+        # Pre-extract indicator columns to numpy once — tránh polars .item() mỗi bar
+        _IND_COLS = ["ma_5", "ma_10", "ma_20", "ma_50", "rsi", "bb_upper", "bb_lower", "bb_mid"]
+        _arr = {c: df_i[c].to_numpy() for c in _IND_COLS}
+
         # Position state
         in_position = False
         bars_in_position = 0
 
         for i in range(self.lookback, n):
             window = df_i.slice(i - self.lookback + 1, self.lookback)
-            last = window.tail(1)
 
-            # Extract indicators
+            # Extract indicators (numpy indexing, không còn .slice().tail().item() per bar)
             ind: dict[str, Any] = {}
-            for col in ["ma_5", "ma_10", "ma_20", "ma_50", "rsi", "bb_upper", "bb_lower", "bb_mid"]:
-                v = last[col].item()
+            for col in _IND_COLS:
+                v = _arr[col][i]
                 if v is not None and not (isinstance(v, float) and np.isnan(v)):
                     ind[col] = float(v)
 

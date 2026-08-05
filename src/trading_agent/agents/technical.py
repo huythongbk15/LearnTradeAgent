@@ -12,7 +12,7 @@ import logging
 import polars as pl
 
 from trading_agent.agents.base import AgentMessage, AnalysisContext, BaseAgent
-from trading_agent.agents.llm import ask_agent
+from trading_agent.agents.llm import ask_agent, llm_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +52,10 @@ class TechnicalAnalyst(BaseAgent):
         df = context.ohlcv
         if df is not None and len(df) > 50:
             ind = self._compute_extra_indicators(df, ind)
+
+        # LLM disabled → rule-based ngay, không build prompt (backtest USE_LLM=false)
+        if not llm_enabled():
+            return self._rule_based(ind, context)
 
         # Build prompt
         prompt = self._build_prompt(context, ind)
