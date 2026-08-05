@@ -71,9 +71,9 @@ RUN mkdir -p /app/data/raw /app/data/execution /app/logs && \
 # Switch to non-root
 USER appuser
 
-# Healthcheck endpoint (requires trading-agent CLI with health subcommand)
+# Healthcheck endpoint (requires trading-agent CLI health subcommand)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
-    CMD python -m trading_agent.cli health || exit 1
+    CMD python -m trading_agent.cli system health || exit 1
 
 # Environment
 ENV PYTHONUNBUFFERED=1 \

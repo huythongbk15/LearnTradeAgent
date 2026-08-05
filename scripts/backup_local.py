@@ -13,10 +13,10 @@ import shutil
 
 # === CONFIG (sửa cho máy bạn) ===
 BACKUP_ROOT = Path("./backups")
-DB_CONTAINER = "trading-timescaledb-1"      # tên container TimescaleDB
-REDIS_CONTAINER = "trading-redis-1"         # tên container Redis
+DB_CONTAINER = "trading-timescaledb"      # tên container TimescaleDB (docker-compose container_name)
+REDIS_CONTAINER = "trading-redis"         # tên container Redis
 DB_USER = "trading"
-DB_NAME = "trading"
+DB_NAME = "trading_market_data"
 CONFIG_DIR = Path("./config")               # thư mục config local
 KEEP_LAST = 7
 # =================================
@@ -47,7 +47,11 @@ def main():
     # 2. Redis RDB
     print("\n2. Dumping Redis...")
     rdb_file = backup_dir / f"redis_{timestamp}.rdb"
-    run(f"docker exec {REDIS_CONTAINER} redis-cli --rdb {rdb_file}")
+    tmp_rdb = f"/tmp/redis_{timestamp}.rdb"
+    run(f"docker exec {REDIS_CONTAINER} redis-cli SAVE")
+    run(f"docker exec {REDIS_CONTAINER} redis-cli --rdb {tmp_rdb}")
+    run(f"docker cp {REDIS_CONTAINER}:{tmp_rdb} {rdb_file}")
+    run(f"docker exec {REDIS_CONTAINER} rm -f {tmp_rdb}")
 
     # 3. Config folder
     print("\n3. Copying config...")
