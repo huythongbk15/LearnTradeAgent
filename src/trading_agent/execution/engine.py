@@ -171,8 +171,8 @@ class ExecutionEngine:
                 if not df.is_empty():
                     atr_series = compute_atr(df, period=14)
                     atr = float(atr_series.tail(1).item()) if not atr_series.is_empty() else None
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"ATR computation failed for {symbol}: {e}")
 
         # Get existing position
         existing_pos = self.exchange.get_position(symbol)
@@ -419,6 +419,6 @@ class ExecutionEngine:
                 price = float(df["close"].tail(1).item())
                 self.exchange._last_price_cache[symbol] = price
                 return price
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to fetch last price for {symbol}: {e}")
         return None

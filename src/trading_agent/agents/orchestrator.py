@@ -161,16 +161,16 @@ class Orchestrator:
         """Compute all indicators using existing strategies."""
         try:
             df = MaCrossover({"fast_period": 20, "slow_period": 50}).compute_indicators(df)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"MA crossover indicators failed: {e}")
         try:
             df = RsiStrategy({"period": 14}).compute_indicators(df)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"RSI indicators failed: {e}")
         try:
             df = BBandsStrategy({"period": 20, "std_dev": 2.0}).compute_indicators(df)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"BBands indicators failed: {e}")
         return df
 
     def _build_context(

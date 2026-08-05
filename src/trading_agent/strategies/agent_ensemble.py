@@ -16,6 +16,7 @@ Cách dùng:
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import numpy as np
@@ -23,6 +24,8 @@ import polars as pl
 
 from trading_agent.agents.base import AnalysisContext
 from trading_agent.agents.risk import RiskManager
+
+logger = logging.getLogger(__name__)
 from trading_agent.agents.sentiment import SentimentAnalyst
 from trading_agent.agents.technical import TechnicalAnalyst
 from trading_agent.agents.trader import Trader
@@ -129,7 +132,8 @@ class AgentStrategy(Strategy):
                 rm = self.risk.analyze(ctx)
                 ctx.agent_messages = [tm, sm, rm]
                 final = self.trader.analyze(ctx)
-            except Exception:
+            except Exception as e:
+                logger.warning(f"Agent ensemble failed for symbol {i} at bar: {e}")
                 signals[i] = 0.0
                 continue
 

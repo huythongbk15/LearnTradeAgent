@@ -94,8 +94,8 @@ def _cache_prune() -> None:
             for f in files[: len(files) // 2]:
                 f.unlink()
             logger.info(f"Pruned LLM cache: {total_size / 1024 / 1024:.1f}MB → under limit")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"LLM cache prune failed: {e}")
 
 
 # Shared fallback (accessible from both branches)
