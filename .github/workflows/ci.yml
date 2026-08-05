@@ -63,6 +63,7 @@ jobs:
           push: false
           tags: trading-agent:local
           load: true
+          pull: true
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
