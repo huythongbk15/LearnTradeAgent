@@ -13,6 +13,7 @@ import polars as pl
 
 from trading_agent.agents.base import AgentMessage, AnalysisContext, BaseAgent
 from trading_agent.agents.llm import ask_agent, llm_enabled
+from trading_agent.regime import add_regime_indicators
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +87,13 @@ class TechnicalAnalyst(BaseAgent):
                     "momentum": details.get("momentum", "neutral"),
                     "indicators_summary": details.get("indicators_summary", ""),
                     "extra_indicators": ind.get("_extra", {}),
+                    "regime": {
+                        "vol_regime": ind.get("_extra", {}).get("vol_regime"),
+                        "trend_regime": ind.get("_extra", {}).get("trend_regime"),
+                        "trend_dir": ind.get("_extra", {}).get("trend_dir"),
+                        "adx": ind.get("_extra", {}).get("adx"),
+                        "atr_pctl": ind.get("_extra", {}).get("atr_pctl"),
+                    },
                 },
             )
         except Exception as e:
@@ -124,6 +132,20 @@ class TechnicalAnalyst(BaseAgent):
                 extra["volume_ratio_5_20"] = (
                     float(avg_vol_5 / avg_vol_20) if avg_vol_20 > 0 else 1.0
                 )
+
+        # === REGIME DETECTION ===
+        if len(df) > 50:
+            try:
+                regime_df = add_regime_indicators(df)
+                last = regime_df.tail(1)
+                extra["vol_regime"] = last["vol_regime"].item()
+                extra["trend_regime"] = last["trend_regime"].item()
+                extra["trend_dir"] = last["trend_dir"].item()
+                extra["atr"] = float(last["atr"].item()) if last["atr"].item() else None
+                extra["adx"] = float(last["adx"].item()) if last["adx"].item() else None
+                extra["atr_pctl"] = float(last["atr_pctl"].item()) if last["atr_pctl"].item() else None
+            except Exception as e:
+                logger.warning(f"Regime detection failed: {e}")
 
         existing["_extra"] = extra
         return existing
@@ -176,14 +198,22 @@ class TechnicalAnalyst(BaseAgent):
         return "\n".join(lines)
 
     def _rule_based(self, ind: dict, context: AnalysisContext) -> AgentMessage:
-        """Rule-based fallback khi LLM không available — multi-factor:
-        RSI + MA crossover + Bollinger Bands (dùng chung indicators với strategies)."""
+        """Rule-based fallback khi LLM không available — multi-factor regime-aware:
+        RSI + MA crossover + Bollinger Bands + Regime filter (ADX, ATR percentile)."""
         rsi = ind.get("rsi")
         ma_fast = ind.get("ma_20")
         ma_slow = ind.get("ma_50")
         price = context.current_price
         bb_upper = ind.get("bb_upper")
         bb_lower = ind.get("bb_lower")
+
+        # Regime info
+        extra = ind.get("_extra", {})
+        vol_regime = extra.get("vol_regime", "mid_vol")
+        trend_regime = extra.get("trend_regime", "ranging")
+        trend_dir = extra.get("trend_dir", "up")
+        adx = extra.get("adx")
+        atr_pctl = extra.get("atr_pctl")
 
         score = 0.0  # > 0 bullish, < 0 bearish
         factors = 0
@@ -222,6 +252,41 @@ class TechnicalAnalyst(BaseAgent):
                 factors += 1
                 reasons.append("Price above upper band — overbought")
 
+        # 4. REGIME-AWARE ADJUSTMENTS
+        # In trending regime: favor trend-following, discount mean-reversion
+        if trend_regime == "trending" and adx and adx > 25:
+            # Boost MA trend signal weight
+            if ma_fast and ma_slow and ((ma_fast > ma_slow and trend_dir == "up") or (ma_fast < ma_slow and trend_dir == "down")):
+                score += 0.5
+                reasons.append(f"Strong trend (ADX {adx:.1f}, dir={trend_dir}) — trend signal boosted")
+            # Reduce mean-reversion (RSI/BB) weight
+            if isinstance(rsi, (int, float)):
+                if rsi < 30 and trend_dir == "down":
+                    score -= 0.5
+                    reasons.append(f"Oversold RSI in downtrend — mean reversion discounted")
+                elif rsi > 70 and trend_dir == "up":
+                    score += 0.5
+                    reasons.append(f"Overbought RSI in uptrend — continuation likely")
+
+        # In ranging regime: favor mean-reversion, discount trend
+        elif trend_regime == "ranging":
+            # RSI/BB mean reversion more reliable
+            if isinstance(rsi, (int, float)):
+                if rsi < 35 or rsi > 65:
+                    reasons.append(f"Ranging market — RSI mean reversion favored")
+            # MA crossover less reliable (whipsaws)
+            if ma_fast and ma_slow:
+                reasons.append(f"Ranging market — MA crossover discounted (whipsaw risk)")
+
+        # Volatility regime adjustments
+        if vol_regime == "high_vol":
+            # Wider stops needed, reduce position conviction
+            score *= 0.7
+            reasons.append(f"High vol regime (ATR pctl {atr_pctl:.0%}) — conviction reduced" if atr_pctl else "High vol regime — conviction reduced")
+        elif vol_regime == "low_vol":
+            # Tighter stops, potential breakout
+            reasons.append(f"Low vol regime (ATR pctl {atr_pctl:.0%}) — breakout watch" if atr_pctl else "Low vol regime — breakout watch")
+
         # Trend gate: KHÔNG BUY khi MA20 < MA50 (downtrend) — tránh bắt dao rơi.
         # Mean-reversion (RSI/BB) không được lấn át trend đã đảo chiều.
         trend_down = isinstance(ma_fast, (int, float)) and isinstance(ma_slow, (int, float)) and ma_fast < ma_slow
@@ -251,5 +316,12 @@ class TechnicalAnalyst(BaseAgent):
             details={
                 "trend": trend,
                 "momentum": "bullish" if score > 0 else "bearish" if score < 0 else "neutral",
+                "regime": {
+                    "vol_regime": vol_regime,
+                    "trend_regime": trend_regime,
+                    "trend_dir": trend_dir,
+                    "adx": adx,
+                    "atr_pctl": atr_pctl,
+                },
             },
         )

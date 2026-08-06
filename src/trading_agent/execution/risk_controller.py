@@ -7,15 +7,17 @@ Chạy tự động sau mỗi lần update giá để kiểm tra:
 - Position concentration limit
 - Circuit breaker (kill switch)
 - Cooldown after stop-loss
+- Dynamic position sizing (Half-Kelly + Vol Targeting)
 """
 
 from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, Optional
 
 from trading_agent.execution.engine import ExecutionEngine
+from trading_agent.risk.position_sizer import PositionSizer, PositionSizingParams, calculate_half_kelly
 
 logger = logging.getLogger(__name__)
 
@@ -35,10 +37,12 @@ class RiskController:
 
     Monitors positions and portfolio continuously.
     Can force-close positions when risk limits are breached.
+    Calculates dynamic position sizes using Half-Kelly + Vol Targeting.
 
     Usage:
         rc = RiskController(engine)
         rc.check_all()  # called after each price update
+        size = rc.calculate_position_size(symbol, price, atr, regime_info)
     """
 
     def __init__(
@@ -52,6 +56,10 @@ class RiskController:
         default_take_profit_pct: float = DEFAULT_TAKE_PROFIT_PCT,
         default_trailing_stop_pct: float = DEFAULT_TRAILING_STOP_PCT,
         cooldown_hours: float = DEFAULT_COOLDOWN_HOURS,
+        # Position sizing config
+        position_sizing_method: str = "half_kelly",
+        target_annual_vol: float = 0.15,
+        kelly_fraction: float = 0.5,
     ):
         self.engine = engine
         self.max_drawdown_pct = max_drawdown_pct
@@ -61,6 +69,18 @@ class RiskController:
         self.default_take_profit_pct = default_take_profit_pct
         self.default_trailing_stop_pct = default_trailing_stop_pct
         self.cooldown_hours = cooldown_hours
+
+        # Dynamic position sizer
+        self.position_sizer = PositionSizer(PositionSizingParams(
+            method=position_sizing_method,
+            kelly_fraction=kelly_fraction,
+            target_annual_vol=target_annual_vol,
+            max_position_pct=max_position_pct,
+            max_portfolio_heat=0.8,
+        ))
+
+        # Trade history for Kelly calculation
+        self._trade_history: list[dict] = []
 
         # State
         self._peak_equity: float = engine.exchange.get_total_equity()
@@ -92,9 +112,6 @@ class RiskController:
             self._last_trade_date = today
 
         # Auto-reset circuit breaker sau khi cooldown hết hạn
-        # (vị thế đã được đóng khi breaker kích hoạt; sau thời gian tạm dừng,
-        #  reset peak về equity hiện tại = baseline mới, cho phép giao dịch trở lại —
-        #  manual reset vẫn khả dụng qua reset_circuit_breaker)
         if self._circuit_breaker_active and self._cooldown_until and datetime.now(UTC) >= self._cooldown_until:
             self._circuit_breaker_active = False
             self._circuit_breaker_reason = None
@@ -183,6 +200,168 @@ class RiskController:
         self._peak_equity = self.engine.exchange.get_total_equity()
         logger.info("Circuit breaker reset manually")
 
+    # ── Dynamic Position Sizing ────────────────────────────────────────
+
+    def record_trade(self, pnl: float, entry_price: float, exit_price: float, size: float):
+        """Record a completed trade for Kelly/Optimal-f calculation."""
+        self._trade_history.append({
+            "pnl": pnl,
+            "entry": entry_price,
+            "exit": exit_price,
+            "size": size,
+            "return_pct": pnl / (entry_price * size) if entry_price * size != 0 else 0,
+            "win": pnl > 0,
+        })
+        # Update position sizer
+        self.position_sizer.update_trade(pnl, entry_price, exit_price, size)
+
+    def calculate_position_size(
+        self,
+        symbol: str,
+        price: float,
+        atr: Optional[float] = None,
+        regime_info: Optional[dict] = None,
+    ) -> float:
+        """
+        Calculate dynamic position size for a new trade.
+        
+        Uses volatility targeting with regime adjustments.
+        
+        Args:
+            symbol: Trading symbol (e.g., "BTC/USDT")
+            price: Current price
+            atr: ATR value for stop-loss sizing
+            regime_info: Dict with vol_regime, trend_regime, trend_dir, adx, atr_pctl
+            
+        Returns:
+            Position size in base currency units (e.g., BTC amount)
+        """
+        equity = self.engine.exchange.get_total_equity()
+        current_portfolio_value = sum(
+            pos.market_value for pos in self.engine.exchange.get_all_positions()
+        )
+        
+        # Base: volatility targeting
+        # Estimate daily vol from ATR percentile or use default
+        if regime_info and regime_info.get("atr_pctl") is not None:
+            atr_pctl = regime_info["atr_pctl"]
+            # Map ATR percentile to daily vol estimate (30%-90% annual = ~2%-6% daily)
+            est_daily_vol = 0.02 + atr_pctl * 0.04
+        else:
+            est_daily_vol = 0.03  # 3% daily default
+        
+        target_daily_vol = 0.15 / (252 ** 0.5)  # ~0.94% daily for 15% annual
+        vol_scale = min(target_daily_vol / est_daily_vol, 2.0) if est_daily_vol > 0 else 1.0
+        
+        # Base position: 25% of equity, vol-adjusted
+        base_pct = 0.25 * vol_scale
+        
+        # Regime adjustments
+        if regime_info:
+            trend_regime = regime_info.get("trend_regime", "ranging")
+            vol_regime = regime_info.get("vol_regime", "mid_vol")
+            
+            if trend_regime == "trending":
+                base_pct *= 1.3
+            elif trend_regime == "ranging":
+                base_pct *= 0.7
+            
+            if vol_regime == "high_vol":
+                base_pct *= 0.6
+            elif vol_regime == "low_vol":
+                base_pct *= 1.2
+        
+        # Cap at max
+        base_pct = max(0.05, min(base_pct, 0.40))  # 5%-40%
+        
+        # Risk amount
+        risk_amount = equity * base_pct
+        
+        # ATR-based stop loss sizing
+        if atr and atr > 0:
+            risk_per_unit = atr * 2.0  # 2x ATR stop
+            position_size = risk_amount / risk_per_unit
+        else:
+            position_size = risk_amount / price
+        
+        # Cap at max position %
+        max_size = equity * 0.40 / price
+        position_size = min(position_size, max_size)
+        
+        # Cap at available capital
+        available_capital = equity - current_portfolio_value
+        max_affordable = available_capital * 0.95 / price
+        position_size = min(position_size, max_affordable)
+        
+        # Cap at portfolio heat limit
+        max_heat_value = equity * 0.85
+        if current_portfolio_value + position_size * price > max_heat_value:
+            position_size = max(0, (max_heat_value - current_portfolio_value) / price)
+        
+        # Minimum size
+        min_size = equity * 0.005 / price
+        if position_size < min_size:
+            return 0.0
+        
+        return position_size
+
+    def _estimate_kelly_params(self, regime_info: Optional[dict]) -> tuple:
+        """Estimate win_rate, avg_win, avg_loss based on regime."""
+        if not regime_info:
+            return 0.55, 0.035, 0.025
+        
+        trend_regime = regime_info.get("trend_regime", "ranging")
+        vol_regime = regime_info.get("vol_regime", "mid_vol")
+        
+        if trend_regime == "trending":
+            win_rate, avg_win, avg_loss = 0.58, 0.04, 0.03
+        elif trend_regime == "ranging":
+            win_rate, avg_win, avg_loss = 0.52, 0.025, 0.025
+        else:
+            win_rate, avg_win, avg_loss = 0.55, 0.035, 0.025
+        
+        if vol_regime == "high_vol":
+            win_rate *= 0.9
+            avg_loss *= 1.3
+        elif vol_regime == "low_vol":
+            win_rate *= 1.05
+            avg_win *= 1.1
+        
+        return win_rate, avg_win, avg_loss
+
+    def get_dynamic_stop_loss(self, entry_price: float, atr: float, regime_info: Optional[dict] = None) -> float:
+        """Calculate dynamic stop loss based on ATR and regime."""
+        mult = 2.0  # Base multiplier
+        
+        if regime_info:
+            vol_regime = regime_info.get("vol_regime", "mid_vol")
+            trend_regime = regime_info.get("trend_regime", "ranging")
+            
+            if vol_regime == "high_vol":
+                mult = 2.5
+            elif vol_regime == "low_vol":
+                mult = 1.5
+            
+            if trend_regime == "trending":
+                mult *= 0.9  # Tighter in trends
+            elif trend_regime == "ranging":
+                mult *= 1.1  # Wider in ranging
+        
+        return entry_price * (1 - mult * atr / entry_price)
+
+    def get_dynamic_take_profit(self, entry_price: float, atr: float, regime_info: Optional[dict] = None) -> float:
+        """Calculate dynamic take profit based on ATR and regime."""
+        # Target 2:1 reward:risk ratio
+        stop_mult = 2.0
+        if regime_info:
+            vol_regime = regime_info.get("vol_regime", "mid_vol")
+            if vol_regime == "high_vol":
+                stop_mult = 2.5
+            elif vol_regime == "low_vol":
+                stop_mult = 1.5
+        
+        return entry_price * (1 + stop_mult * atr / entry_price * 2)
+
     # ── Status ─────────────────────────────────────────────────────────
 
     def get_status(self) -> dict[str, Any]:
@@ -203,6 +382,8 @@ class RiskController:
             "cooldown_active": bool(self._cooldown_until and datetime.now(UTC) < self._cooldown_until),
             "cooldown_until": self._cooldown_until.isoformat() if self._cooldown_until else None,
             "warnings": self._alerts,
+            "trade_count": len(self._trade_history),
+            "position_sizing_method": self.position_sizer.params.method,
         }
 
     def set_stop_loss_on_all_positions(self, stop_pct: float | None = None):

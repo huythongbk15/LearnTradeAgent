@@ -31,6 +31,7 @@ from trading_agent.log_config import get_logger
 from trading_agent.strategies.bbands import BBandsStrategy
 from trading_agent.strategies.ma_crossover import MaCrossover
 from trading_agent.strategies.rsi import RsiStrategy
+from trading_agent.risk.position_sizer import PositionSizer, PositionSizingParams, calculate_half_kelly
 
 logger = get_logger(__name__)
 
@@ -82,6 +83,23 @@ class Orchestrator:
         self.risk = RiskManager()
         self.trader = Trader()
         self._last_df: pl.DataFrame | None = None  # cached after analyze
+        
+        # Ensemble weights for agent signals
+        self.ensemble_weights = {
+            "technical_analyst": 0.40,
+            "sentiment_analyst": 0.20,
+            "risk_manager": 0.20,
+            "trader": 0.20,
+        }
+        
+        # Dynamic position sizer
+        self.position_sizer = PositionSizer(PositionSizingParams(
+            method="half_kelly",
+            kelly_fraction=0.5,
+            target_annual_vol=0.15,
+            max_position_pct=0.25,
+            max_portfolio_heat=0.8,
+        ))
 
     def analyze(
         self,
@@ -147,7 +165,33 @@ class Orchestrator:
         final = self.trader.analyze(context)
         _log_agent_decision(symbol, timeframe, "trader", final, current_price)
 
-        # 5. Build report
+        # 5. Ensemble voting: combine agent signals with dynamic weights
+        ensemble_decision = self._ensemble_vote(messages, context)
+        
+        # 6. Dynamic position sizing based on strategy performance
+        position_size_pct = self._calculate_dynamic_position_size(
+            context, ensemble_decision, df
+        )
+        
+        # Override final decision with ensemble + position sizing
+        final = AgentMessage(
+            role="trader",
+            signal=ensemble_decision["signal"],
+            confidence=ensemble_decision["confidence"],
+            reasoning=ensemble_decision["reasoning"],
+            details={
+                **ensemble_decision.get("details", {}),
+                "ensemble": True,
+                "agent_weights": self.ensemble_weights,
+                "max_position_size_pct": position_size_pct,
+                "regime": ensemble_decision.get("regime", {}),
+            },
+            max_position_size_pct=position_size_pct,
+            risk_level=ensemble_decision.get("risk_level", "medium"),
+        )
+        _log_agent_decision(symbol, timeframe, "trader", final, current_price)
+
+        # 7. Build report
         return AgentAnalysisReport(
             symbol=symbol,
             timeframe=timeframe,
@@ -156,6 +200,123 @@ class Orchestrator:
             final_decision=final,
             indicators=self._extract_indicators(df),
         )
+
+    def _ensemble_vote(self, messages: list[AgentMessage], context: AnalysisContext) -> dict:
+        """Combine agent signals using weighted voting with regime awareness.
+        
+        Simplified: Trust the trader agent as final decision maker, use others as confirmation.
+        """
+        # Get regime from technical analyst
+        tech_msg = next((m for m in messages if m.role == "technical_analyst"), None)
+        regime = tech_msg.details.get("regime", {}) if tech_msg else {}
+        trend_regime = regime.get("trend_regime", "ranging")
+        vol_regime = regime.get("vol_regime", "mid_vol")
+        trend_dir = regime.get("trend_dir", "up")
+        adx = regime.get("adx")
+        
+        # Get trader's decision (final say)
+        trader_msg = next((m for m in messages if m.role == "trader"), None)
+        if trader_msg:
+            base_signal = trader_msg.signal
+            base_confidence = trader_msg.confidence
+        else:
+            # Fallback to technical
+            tech_msg = next((m for m in messages if m.role == "technical_analyst"), None)
+            base_signal = tech_msg.signal if tech_msg else "HOLD"
+            base_confidence = tech_msg.confidence if tech_msg else 0.3
+        
+        # Apply regime filter - only override if strong regime disagreement
+        reasons = []
+        final_signal = base_signal
+        confidence = base_confidence
+        
+        # In high vol ranging, be more conservative
+        if vol_regime == "high_vol" and trend_regime == "ranging":
+            if base_signal in ("BUY", "SELL"):
+                # Reduce confidence, maybe flip to HOLD if weak
+                if base_confidence < 0.5:
+                    final_signal = "HOLD"
+                    confidence = 0.4
+                    reasons.append("High vol ranging — weak signal downgraded to HOLD")
+                else:
+                    confidence = base_confidence * 0.8
+                    reasons.append("High vol ranging — confidence reduced")
+        
+        # In trending, boost trend-aligned signals
+        elif trend_regime == "trending" and adx and adx > 25:
+            if base_signal == "BUY" and trend_dir == "up":
+                confidence = min(base_confidence * 1.2, 0.8)
+                reasons.append(f"Trending up (ADX {adx:.0f}) — BUY boosted")
+            elif base_signal == "SELL" and trend_dir == "down":
+                confidence = min(base_confidence * 1.2, 0.8)
+                reasons.append(f"Trending down (ADX {adx:.0f}) — SELL boosted")
+            elif base_signal in ("BUY", "SELL"):
+                # Counter-trend signal - reduce confidence
+                confidence = base_confidence * 0.7
+                reasons.append(f"Counter-trend signal — confidence reduced")
+        
+        # Details
+        details = {
+            "agent_votes": {m.role: {"signal": m.signal, "confidence": m.confidence} for m in messages},
+            "regime": regime,
+        }
+        
+        return {
+            "signal": final_signal,
+            "confidence": confidence,
+            "reasoning": "Ensemble: " + " | ".join(reasons) if reasons else f"Trader: {base_signal} ({base_confidence:.0%})",
+            "details": details,
+            "risk_level": "high" if vol_regime == "high_vol" else "medium",
+            "regime": regime,
+        }
+
+    def _calculate_dynamic_position_size(
+        self, context: AnalysisContext, ensemble_decision: dict, df: pl.DataFrame
+    ) -> float:
+        """Calculate position size using volatility targeting (no Kelly - needs trade history)."""
+        regime = ensemble_decision.get("regime", {})
+        trend_regime = regime.get("trend_regime", "ranging")
+        vol_regime = regime.get("vol_regime", "mid_vol")
+        
+        # Base position size: volatility targeting
+        extra = context.indicators.get("_extra", {})
+        realized_vol = extra.get("volatility_20", 50) / 100  # Daily vol as decimal
+        
+        # Target 15% annual vol = ~1% daily (15% / sqrt(252))
+        target_daily_vol = 0.15 / (252 ** 0.5)
+        
+        if realized_vol > 0:
+            vol_scale = min(target_daily_vol / realized_vol, 2.0)
+        else:
+            vol_scale = 1.0
+        
+        # Base size 20% adjusted by vol
+        base_size = 0.20 * vol_scale
+        
+        # Regime adjustments
+        if trend_regime == "trending":
+            base_size *= 1.3  # More conviction in trends
+        elif trend_regime == "ranging":
+            base_size *= 0.7  # Less in choppy markets
+        
+        if vol_regime == "high_vol":
+            base_size *= 0.6
+        elif vol_regime == "low_vol":
+            base_size *= 1.2
+        
+        # Signal confidence adjustment
+        confidence = ensemble_decision.get("confidence", 0.5)
+        base_size *= confidence
+        
+        # Cap at max position
+        max_pos = 0.40  # 40% max per position
+        position_size_pct = min(base_size, max_pos)
+        
+        # Minimum threshold
+        if position_size_pct < 0.05:
+            position_size_pct = 0.05
+        
+        return round(position_size_pct, 4)
 
     def _compute_indicators(self, df: pl.DataFrame) -> pl.DataFrame:
         """Compute all indicators using existing strategies."""

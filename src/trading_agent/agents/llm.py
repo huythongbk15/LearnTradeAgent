@@ -123,7 +123,8 @@ if os.getenv("USE_LLM", "true").lower() == "false":
         raise LLMError("LLM disabled via USE_LLM=false")
 
     def ask_agent(*args, **kwargs) -> dict[str, Any]:
-        raise LLMError("LLM disabled via USE_LLM=false")
+        # Return fallback when LLM disabled
+        return _json_fallback(args[0] if args else "", args[1] if len(args) > 1 else "")
 
 else:
     @dataclass

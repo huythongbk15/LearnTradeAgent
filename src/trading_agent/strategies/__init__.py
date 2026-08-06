@@ -5,7 +5,7 @@ Core (long-only, vectorized): Strategy, get_strategy, list_strategies.
 Plugins (Phase 6): BaseStrategy, Signal, StrategyContext, get_registry, ...
 """
 
-from trading_agent.strategies import agent_ensemble as agent_ensemble, bbands as bbands, ma_crossover as ma_crossover, rsi as rsi
+from trading_agent.strategies import agent_ensemble as agent_ensemble, bbands as bbands, enhanced_ma as enhanced_ma, ma_crossover as ma_crossover, rsi as rsi
 from trading_agent.strategies.base import (
     Strategy,
     get_strategy,
