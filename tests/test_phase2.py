@@ -16,7 +16,6 @@ Usage:
 """
 
 import os
-import sys
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -336,4 +335,5 @@ if fail_count == 0:
     print("  ✅ ALL TESTS PASSED\n")
 else:
     print(f"  ❌ {fail_count} TEST(S) FAILED\n")
-    sys.exit(1)
+    # Don't sys.exit here - let pytest handle it
+    raise AssertionError(f"{fail_count} tests failed")

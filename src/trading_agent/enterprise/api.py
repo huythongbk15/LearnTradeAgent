@@ -23,7 +23,6 @@ import secrets
 import time
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
-from typing import Optional
 
 
 # ── Auth Manager ─────────────────────────────────────────────
@@ -354,6 +353,6 @@ if __name__ == "__main__":
         api.handle("POST", "/api/v1/backtest", {"strategy": "rsi", "symbol": "ETH/USDT"}, api_key=key1),
         api.handle("GET", "/api/v1/strategies", api_key="invalid_key"),
     ]
-    print(f"\nAPI Responses:")
+    print("\nAPI Responses:")
     for r in responses:
         print(f"  status={r['status']} {'✓' if r['status'] == 200 else r.get('error', '')}")

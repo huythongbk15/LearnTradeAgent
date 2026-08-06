@@ -22,8 +22,7 @@ from __future__ import annotations
 
 import time
 from collections import deque
-from dataclasses import dataclass, field
-from typing import Optional
+from dataclasses import dataclass
 
 
 # ── Execution Quality Monitor ─────────────────────────────────
@@ -299,7 +298,7 @@ if __name__ == "__main__":
         lp.record("order_submit", random.uniform(5, 50))
         lp.record("order_fill", random.uniform(50, 500))
         lp.record("api_call", random.uniform(10, 100))
-    print(f"\nLatency Profile:")
+    print("\nLatency Profile:")
     for op, stats in lp.get_all_stats().items():
         print(f"  {op:20s}: mean={stats['mean_ms']:.1f}ms p95={stats['p95_ms']:.1f}ms p99={stats['p99_ms']:.1f}ms")
 

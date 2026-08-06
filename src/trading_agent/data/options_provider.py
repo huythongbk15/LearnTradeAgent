@@ -22,7 +22,6 @@ import math
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Optional
 
 
 # ── Black-Scholes ─────────────────────────────────────────────
@@ -266,19 +265,19 @@ if __name__ == "__main__":
     chain = provider.get_chain("BTC", expiry="2026-09-25")
     print(f"\nBTC Options Chain — Spot: ${chain.spot:,.0f}, Expiry: {chain.expiry}")
     print(f"Calls: {len(chain.calls)}, Puts: {len(chain.puts)}")
-    print(f"\nTop 5 Calls:")
+    print("\nTop 5 Calls:")
     for c in sorted(chain.calls, key=lambda x: x.volume, reverse=True)[:5]:
         print(f"  K=${c.strike:>10,.0f}  IV={c.iv:.1%}  Vol={c.volume:>6}  Bid/Ask={c.bid:.2f}/{c.ask:.2f}")
-    print(f"\nTop 5 Puts:")
+    print("\nTop 5 Puts:")
     for p in sorted(chain.puts, key=lambda x: x.volume, reverse=True)[:5]:
         print(f"  K=${p.strike:>10,.0f}  IV={p.iv:.1%}  Vol={p.volume:>6}  Bid/Ask={p.bid:.2f}/{p.ask:.2f}")
-    print(f"\nGreeks (ATM Call):")
+    print("\nGreeks (ATM Call):")
     atm = [c for c in chain.calls if abs(c.strike - chain.spot) / chain.spot < 0.03]
     if atm:
         print(f"  {atm[0].greeks}")
 
     flow = provider.analyze_flow("BTC")
-    print(f"\nOptions Flow:")
+    print("\nOptions Flow:")
     print(f"  Call Vol: {flow.total_call_volume}, Put Vol: {flow.total_put_volume}")
     print(f"  P/C Ratio: {flow.put_call_ratio:.2f}")
     print(f"  Unusual trades: {len(flow.unusual_trades)}")

@@ -345,7 +345,7 @@ class TestAuth:
         key, api_key = auth.create_key("tenant_1")
         assert auth.validate(key) is not None
         assert auth.validate("invalid") is None
-        print(f"  Auth: key created and validated")
+        print("  Auth: key created and validated")
 
     def test_revoke(self):
         from src.trading_agent.enterprise.api import AuthManager
@@ -353,7 +353,7 @@ class TestAuth:
         key, api_key = auth.create_key("tenant_1")
         assert auth.revoke(api_key.key_hash)
         assert auth.validate(key) is None
-        print(f"  Auth: key revoked")
+        print("  Auth: key revoked")
 
 
 class TestRateLimiter:
@@ -365,7 +365,7 @@ class TestRateLimiter:
             assert allowed
         allowed, info = rl.check("tenant_1")
         assert not allowed
-        print(f"  Rate limiter: blocked at request 4 (limit=3)")
+        print("  Rate limiter: blocked at request 4 (limit=3)")
 
 
 class TestTenantManager:
@@ -384,7 +384,7 @@ class TestTenantManager:
         assert t.max_symbols == 5
         t2 = tm.upgrade_plan(t.tenant_id, "enterprise")
         assert t2.max_symbols == -1
-        print(f"  Upgrade: free → enterprise (symbols: 5 → unlimited)")
+        print("  Upgrade: free → enterprise (symbols: 5 → unlimited)")
 
 
 class TestTradingAPI:

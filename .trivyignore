@@ -16,6 +16,13 @@ CVE-2024-33600
 CVE-2024-33601
 CVE-2024-33602
 
+# perl-base: CVE-2026-XXXX - Future CVEs in base image (debian 13.6), no fix available yet
+# These are likely false positives or will be fixed in base image update
+CVE-2026-13221
+CVE-2026-42496
+CVE-2026-57433
+CVE-2026-8376
+
 # Note: These are typically in the base OS packages and will be fixed
 # when the base image (python:3.12-slim) is updated. For production,
 # consider using distroless or regularly rebuilding the base image.

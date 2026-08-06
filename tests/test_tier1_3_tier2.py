@@ -2,7 +2,6 @@
 """Tests for Smart Execution Engine (Tier 1.3) and Alpha Research Pipeline (Tier 2)."""
 
 import asyncio
-import math
 import numpy as np
 import pandas as pd
 import pytest

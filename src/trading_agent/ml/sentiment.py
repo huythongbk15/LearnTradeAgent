@@ -17,11 +17,9 @@ Design:
 
 from __future__ import annotations
 
-import math
 import re
 import time
-from dataclasses import dataclass, field
-from typing import Optional
+from dataclasses import dataclass
 
 
 # ── Keyword-based Sentiment (no external NLP dependency) ──────
@@ -288,7 +286,7 @@ if __name__ == "__main__":
 
     composite = SentimentComposite()
     signal = composite.get_signal("BTC")
-    print(f"\nComposite Signal:")
+    print("\nComposite Signal:")
     print(f"  Score: {signal['composite_score']:.3f}")
     print(f"  Signal: {signal['signal']}")
     print(f"  Confidence: {signal['confidence']:.2f}")

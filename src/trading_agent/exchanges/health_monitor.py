@@ -22,7 +22,7 @@ import logging
 import statistics
 import time
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Awaitable, Callable, Optional
 
@@ -182,7 +182,7 @@ class HealthMonitor:
             return
 
         health.total_checks += 1
-        health.last_check = datetime.utcnow()
+        health.last_check = datetime.now(timezone.utc)
         start = time.monotonic()
         try:
             latency = await asyncio.wait_for(checker(name), timeout=self.check_timeout)
@@ -194,7 +194,7 @@ class HealthMonitor:
             if len(health.recent_latencies) > self.latency_window:
                 health.recent_latencies.pop(0)
             health.avg_latency_ms = statistics.mean(health.recent_latencies)
-            health.last_success = datetime.utcnow()
+            health.last_success = datetime.now(timezone.utc)
             health.last_error = None
             health.consecutive_failures = 0
             health.consecutive_successes += 1
@@ -228,7 +228,7 @@ class HealthMonitor:
             return
         old = health.status
         health.status = new_status
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         if new_status == HealthStatus.HEALTHY:
             health.healthy_since = now
             health.down_since = None

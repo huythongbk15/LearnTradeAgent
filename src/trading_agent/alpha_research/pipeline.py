@@ -18,11 +18,10 @@ import hashlib
 import json
 import math
 import os
-import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Optional, Sequence
+from typing import Any, Callable
 
 import numpy as np
 
@@ -214,8 +213,8 @@ def _make_library() -> AlphaLibrary:
 
     @lib.register("garman_klass_vol", "volatility")
     def garman_klass_vol(df, **kw):
-        o, h, l, c = df["open"], df["high"], df["low"], df["close"]
-        gk = 0.5 * np.log(h / l) ** 2 - (2 * math.log(2) - 1) * np.log(c / o) ** 2
+        o, h, low_, c = df["open"], df["high"], df["low"], df["close"]
+        gk = 0.5 * np.log(h / low_) ** 2 - (2 * math.log(2) - 1) * np.log(c / o) ** 2
         return np.sqrt(gk.rolling(20).mean())
 
     @lib.register("vol_of_vol", "volatility")
@@ -597,7 +596,6 @@ class AutoMLPipeline:
         Compute all alphas, evaluate each, return top performers.
         Returns: { "alphas": [AlphaReport...], "top_10": [...], "best_combo": {...} }
         """
-        import pandas as pd
 
         Path(report_path).mkdir(parents=True, exist_ok=True)
         forward_ret = df[target_col].pct_change(forward_periods).shift(-forward_periods).values
@@ -747,7 +745,7 @@ if __name__ == "__main__":
 
     print(f"\nTotal alphas: {report['total_alphas']}")
     print(f"Grade distribution: {report['grade_distribution']}")
-    print(f"\nTop 10:")
+    print("\nTop 10:")
     for a in report["top_10"][:10]:
         print(f"  {a['name']:30s} | {a['category']:15s} | IC={a['ic_mean']:+.4f} | IR={a['ic_ir']:.2f} | Grade={a['grade']}")
     print(f"\nBest combo: {report['best_combo']}")

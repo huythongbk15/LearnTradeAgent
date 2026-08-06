@@ -20,10 +20,8 @@ from __future__ import annotations
 
 import math
 import random
-import time
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Optional
 
 import numpy as np
 
@@ -359,7 +357,7 @@ if __name__ == "__main__":
     agent = DQNAgent(state_dim=env.state_dim, action_dim=env.action_dim)
     metrics = RLMetrics()
 
-    print(f"\nTraining DQN for 50 episodes...")
+    print("\nTraining DQN for 50 episodes...")
     for ep in range(50):
         state = env.reset()
         total_reward = 0
@@ -376,7 +374,7 @@ if __name__ == "__main__":
         loss = agent.train(batch_size=32)
         metrics.record_episode(total_reward, steps, loss, agent.epsilon, len(env.trades))
 
-    print(f"\nTraining Complete:")
+    print("\nTraining Complete:")
     s = metrics.summary()
     for k, v in s.items():
         print(f"  {k}: {v:.4f}" if isinstance(v, float) else f"  {k}: {v}")

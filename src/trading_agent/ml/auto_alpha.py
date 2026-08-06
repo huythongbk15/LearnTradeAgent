@@ -17,11 +17,8 @@ Design:
 from __future__ import annotations
 
 import copy
-import math
 import random
-import time
 from dataclasses import dataclass, field
-from typing import Callable, Optional
 
 import numpy as np
 
@@ -448,15 +445,15 @@ if __name__ == "__main__":
 
     redundancy = fi.detect_redundancy(alpha_values, threshold=0.8)
     if redundancy:
-        print(f"\nRedundant pairs (>0.8 correlation):")
+        print("\nRedundant pairs (>0.8 correlation):")
         for n1, n2, corr in redundancy[:5]:
             print(f"  {n1} ↔ {n2}: {corr}")
 
     # Auto-Alpha
-    print(f"\nAuto-Alpha Generation (20 gen, pop=20)...")
+    print("\nAuto-Alpha Generation (20 gen, pop=20)...")
     data = {col: df[col].values for col in ["open", "high", "low", "close", "volume"]}
     gen = AutoAlphaGenerator(max_depth=3)
     new_alphas = gen.evolve(data, target, population_size=20, n_generations=20)
-    print(f"\nTop discovered alphas:")
+    print("\nTop discovered alphas:")
     for a in new_alphas[:5]:
         print(f"  IC={a['ic']:.4f}  {a['expression']}")

@@ -19,7 +19,6 @@ from __future__ import annotations
 import math
 import time
 from dataclasses import dataclass, field
-from typing import Optional
 
 import numpy as np
 
@@ -268,13 +267,13 @@ if __name__ == "__main__":
 
     cloner2 = StrategyCloner()
     rules = cloner2.extract_rules(profile)
-    print(f"\nCloned Rules:")
+    print("\nCloned Rules:")
     for section, data in rules.items():
         print(f"  {section}:")
         for k, v in data.items():
             print(f"    {k}: {v}")
 
     perf = cloner2.estimate_performance(profile)
-    print(f"\nEstimated Performance:")
+    print("\nEstimated Performance:")
     for k, v in perf.items():
         print(f"  {k}: {v}")
