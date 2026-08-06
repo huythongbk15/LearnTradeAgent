@@ -218,7 +218,10 @@ class OptionChainProvider:
         tte = self._tte(expiry)
         base_iv = 0.5 + random.uniform(-0.1, 0.1)
 
-        strikes = [spot * (1 + d) for d in [-0.2, -0.15, -0.1, -0.05, -0.025, 0, 0.025, 0.05, 0.1, 0.15, 0.2]]
+        # Extended strikes: -50% to +50% for more OTM options
+        strikes = [spot * (1 + d) for d in
+                   [-0.5, -0.4, -0.3, -0.25, -0.2, -0.15, -0.1, -0.05, -0.025, 0,
+                    0.025, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.4, 0.5]]
         strikes = [round(s, 2) for s in strikes]
 
         calls, puts = [], []

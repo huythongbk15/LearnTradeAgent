@@ -4,6 +4,7 @@ Command-line interface for the Trading Agent System.
 
 from __future__ import annotations
 
+import math
 import pickle
 import subprocess
 import time
@@ -12,11 +13,24 @@ from pathlib import Path
 import click
 from rich.console import Console
 from rich.table import Table
+from rich.panel import Panel
 
 # ── Lazy imports ─────────────────────────────────────────────────────────
 # Heavy modules (polars, ccxt, llm, etc.) are imported inside each function
 # to keep CLI startup fast for simple commands (status, reset, etc.).
 
+# Import for options strategies CLI
+from trading_agent.strategies.options_strategies import (
+    OptionChainProvider,
+    CoveredCallStrategy,
+    CashSecuredPutStrategy,
+    ShortStraddleStrategy,
+    ShortStrangleStrategy,
+    IronCondorStrategy,
+    GammaScalpStrategy,
+    CalendarSpreadStrategy,
+    DispersionStrategy,
+)
 
 # ── Lazy module singleton ─────────────────────────────────────────────────
 class _LazyConfig:
@@ -2263,6 +2277,320 @@ def projection_query(event_store_path: str, projection: str, key: str | None):
         projection=projection,
         key=key,
     ))
+
+
+# ── options strategies subcommands ───────────────────────────────────────
+
+
+@main.group()
+def options():
+    """Options strategies: vol selling, gamma scalping, dispersion."""
+
+
+@options.command("chain")
+@click.argument("symbol", default="BTC")
+@click.option("--expiry", "-e", default=None, help="Expiry date (YYYY-MM-DD)")
+@click.option("--spot", "-s", default=0.0, type=float, help="Spot price (0 = auto)")
+def options_chain(symbol: str, expiry: str | None, spot: float):
+    """Display option chain for a symbol."""
+    from rich.table import Table as RichTable
+
+    provider = OptionChainProvider(dry_run=True)
+    chain = provider.get_chain(symbol, expiry=expiry, spot=spot)
+
+    console.print(f"\n[bold]{symbol} Options Chain[/bold] — Spot: ${chain.spot:,.0f}, Expiry: {chain.expiry}")
+
+    # Calls
+    t = RichTable("Strike", "IV", "Delta", "Gamma", "Theta", "Vega", "Volume", "OI", "Bid/Ask")
+    for c in sorted(chain.calls, key=lambda x: x.volume, reverse=True)[:10]:
+        g = c.greeks
+        t.add_row(
+            f"${c.strike:,.0f}",
+            f"{c.iv:.1%}",
+            f"{g.get('delta', 0):.3f}",
+            f"{g.get('gamma', 0):.5f}",
+            f"{g.get('theta', 0):.2f}",
+            f"{g.get('vega', 0):.2f}",
+            f"{c.volume:,}",
+            f"{c.open_interest:,}",
+            f"{c.bid:.2f}/{c.ask:.2f}",
+        )
+    console.print(Panel(t, title="Calls (Top 10 by Volume)", border_style="green"))
+
+    # Puts
+    t = RichTable("Strike", "IV", "Delta", "Gamma", "Theta", "Vega", "Volume", "OI", "Bid/Ask")
+    for p in sorted(chain.puts, key=lambda x: x.volume, reverse=True)[:10]:
+        g = p.greeks
+        t.add_row(
+            f"${p.strike:,.0f}",
+            f"{p.iv:.1%}",
+            f"{g.get('delta', 0):.3f}",
+            f"{g.get('gamma', 0):.5f}",
+            f"{g.get('theta', 0):.2f}",
+            f"{g.get('vega', 0):.2f}",
+            f"{p.volume:,}",
+            f"{p.open_interest:,}",
+            f"{p.bid:.2f}/{p.ask:.2f}",
+        )
+    console.print(Panel(t, title="Puts (Top 10 by Volume)", border_style="red"))
+
+
+@options.command("flow")
+@click.argument("symbol", default="BTC")
+@click.option("--hours", "-h", default=24, type=int, help="Lookback hours")
+def options_flow(symbol: str, hours: int):
+    """Analyze options flow: unusual volume, put/call ratio, delta exposure."""
+    provider = OptionChainProvider(dry_run=True)
+    flow = provider.analyze_flow(symbol, lookback_hours=hours)
+
+    console.print(f"\n[bold]{symbol} Options Flow[/bold] ({hours}h lookback)")
+    t = Table("Metric", "Value")
+    t.add_row("Call Volume", f"{flow.total_call_volume:,}")
+    t.add_row("Put Volume", f"{flow.total_put_volume:,}")
+    t.add_row("Put/Call Ratio", f"{flow.put_call_ratio:.2f}")
+    t.add_row("Unusual Trades", str(len(flow.unusual_trades)))
+    t.add_row("Net Delta Exposure", f"{flow.net_delta_exposure:,.0f}")
+    t.add_row("25Δ Skew", f"{flow.skew_25d:.4f}")
+    console.print(t)
+
+    if flow.unusual_trades:
+        console.print("\n[bold]Unusual Trades:[/bold]")
+        ut = Table("Strike", "Type", "Volume", "IV", "OI")
+        for ut in flow.unusual_trades:
+            ut.add_row(f"${ut['strike']:,.0f}", ut['type'].upper(), f"{ut['volume']:,}",
+                       f"{ut['iv']:.1%}", f"{ut['oi']:,}")
+        console.print(ut)
+
+
+@options.command("covered-call")
+@click.argument("symbol", default="BTC")
+@click.option("--delta", "-d", default=0.20, type=float, help="Target delta for short call")
+@click.option("--dte-min", default=7, type=int, help="Min DTE")
+@click.option("--dte-max", default=45, type=int, help="Max DTE")
+@click.option("--min-yield", default=0.05, type=float, help="Min annualized yield")
+def options_covered_call(symbol: str, delta: float, dte_min: int, dte_max: int, min_yield: float):
+    """Find covered call opportunities."""
+    from rich.table import Table as RichTable
+
+    provider = OptionChainProvider(dry_run=True)
+    strategy = CoveredCallStrategy(symbol, provider, config={
+        "delta_target": delta,
+        "dte_min": dte_min,
+        "dte_max": dte_max,
+        "min_annual_yield": min_yield,
+    })
+    chain = provider.get_chain(symbol)
+    signals = strategy.generate_signals(chain)
+
+    if not signals:
+        console.print("[yellow]No covered call signals found[/yellow]")
+        return
+
+    console.print(f"\n[bold]Covered Call Signals for {symbol}[/bold] (Spot: ${chain.spot:,.0f})")
+    t = RichTable("Strike", "Delta", "Bid", "Annual Yield", "DTE")
+    for s in signals:
+        c = s["contract"]
+        t.add_row(
+            f"${c.strike:,.0f}",
+            f"{s['delta']:.2f}",
+            f"${c.bid:.2f}",
+            f"{s['premium_yield_annual']:.1%}",
+            f"{strategy._dte(chain.expiry)}",
+        )
+    console.print(t)
+
+
+@options.command("cash-secured-put")
+@click.argument("symbol", default="BTC")
+@click.option("--delta", "-d", default=0.20, type=float, help="Target delta for short put")
+@click.option("--dte-min", default=7, type=int, help="Min DTE")
+@click.option("--dte-max", default=45, type=int, help="Max DTE")
+@click.option("--min-yield", default=0.05, type=float, help="Min annualized yield")
+def options_cash_secured_put(symbol: str, delta: float, dte_min: int, dte_max: int, min_yield: float):
+    """Find cash-secured put opportunities."""
+    from rich.table import Table as RichTable
+
+    provider = OptionChainProvider(dry_run=True)
+    strategy = CashSecuredPutStrategy(symbol, provider, config={
+        "delta_target": delta,
+        "dte_min": dte_min,
+        "dte_max": dte_max,
+        "min_annual_yield": min_yield,
+    })
+    chain = provider.get_chain(symbol)
+    signals = strategy.generate_signals(chain)
+
+    if not signals:
+        console.print("[yellow]No cash-secured put signals found[/yellow]")
+        return
+
+    console.print(f"\n[bold]Cash-Secured Put Signals for {symbol}[/bold] (Spot: ${chain.spot:,.0f})")
+    t = RichTable("Strike", "Delta", "Bid", "Cash Required", "Annual Yield", "DTE")
+    for s in signals:
+        p = s["contract"]
+        t.add_row(
+            f"${p.strike:,.0f}",
+            f"{s['delta']:.2f}",
+            f"${p.bid:.2f}",
+            f"${s['cash_required']:,.0f}",
+            f"{s['premium_yield_annual']:.1%}",
+            f"{strategy._dte(chain.expiry)}",
+        )
+    console.print(t)
+
+
+@options.command("iron-condor")
+@click.argument("symbol", default="BTC")
+@click.option("--delta-short", default=0.15, type=float, help="Short strike delta")
+@click.option("--delta-long", default=0.05, type=float, help="Long wing delta")
+@click.option("--dte-min", default=14, type=int, help="Min DTE")
+@click.option("--dte-max", default=60, type=int, help="Max DTE")
+def options_iron_condor(symbol: str, delta_short: float, delta_long: float, dte_min: int, dte_max: int):
+    """Find iron condor opportunities."""
+    from rich.table import Table as RichTable
+
+    provider = OptionChainProvider(dry_run=True)
+    strategy = IronCondorStrategy(symbol, provider, config={
+        "delta_short": delta_short,
+        "delta_long": delta_long,
+        "dte_min": dte_min,
+        "dte_max": dte_max,
+    })
+    chain = provider.get_chain(symbol)
+    signals = strategy.generate_signals(chain)
+
+    if not signals:
+        console.print("[yellow]No iron condor signals found[/yellow]")
+        return
+
+    console.print(f"\n[bold]Iron Condor Signals for {symbol}[/bold] (Spot: ${chain.spot:,.0f})")
+    t = RichTable("Short Call", "Short Put", "Long Call", "Long Put", "Credit", "Max Loss", "R/R", "Prob Profit", "DTE")
+    for s in signals:
+        t.add_row(
+            f"${s['short_call'].strike:,.0f}",
+            f"${s['short_put'].strike:,.0f}",
+            f"${s['long_call'].strike:,.0f}",
+            f"${s['long_put'].strike:,.0f}",
+            f"${s['credit']:.0f}",
+            f"${s['max_loss']:.0f}",
+            f"{s['risk_reward']:.2f}",
+            f"{s['prob_profit']:.1%}",
+            f"{s['dte']}",
+        )
+    console.print(t)
+
+
+@options.command("gamma-scalp")
+@click.argument("symbol", default="BTC")
+@click.option("--simulate", "-s", is_flag=True, help="Run simulation with random price path")
+@click.option("--steps", default=50, type=int, help="Simulation steps")
+@click.option("--vol", default=0.5, type=float, help="Realized volatility for simulation")
+def options_gamma_scalp(symbol: str, simulate: bool, steps: int, vol: float):
+    """Gamma scalping: buy straddle + dynamic delta hedge."""
+    import random
+    from rich.table import Table as RichTable
+
+    provider = OptionChainProvider(dry_run=True)
+    strategy = GammaScalpStrategy(symbol, provider)
+    chain = provider.get_chain(symbol)
+
+    # Enter straddle
+    enter_result = strategy.enter_straddle(chain)
+    if not enter_result:
+        console.print("[red]Could not enter straddle[/red]")
+        return
+
+    console.print(f"\n[bold]Gamma Scalp Entered[/bold]")
+    console.print(f"  Strike: ${enter_result['strike']:,.0f}")
+    console.print(f"  Cost: ${enter_result['total_cost']:.2f}")
+    console.print(f"  Initial Delta: {enter_result['initial_delta']:.4f}")
+    console.print(f"  Initial Gamma: {enter_result['initial_gamma']:.6f}")
+    console.print(f"  Initial Hedge: {enter_result['hedge_qty']:.4f} {symbol}")
+
+    if simulate:
+        console.print(f"\n[bold]Simulating {steps} steps with vol={vol:.0%}...[/bold]")
+        spot = chain.spot
+        for i in range(steps):
+            # Random walk
+            dt = 1 / (252 * 6.5)  # 1 hour steps
+            spot *= math.exp((vol**2 * -0.5) * dt + vol * math.sqrt(dt) * random.gauss(0, 1))
+            new_chain = provider.get_chain(symbol, spot=spot)
+            strategy.rebalance_delta(spot, new_chain)
+
+        # Exit
+        exit_result = strategy.exit_straddle(provider.get_chain(symbol, spot=spot))
+        console.print(f"\n[bold]Simulation Complete[/bold]")
+        console.print(f"  Final Spot: ${spot:,.0f}")
+        console.print(f"  Straddle P&L: ${exit_result['straddle_pnl']:+.2f}")
+        console.print(f"  Scalp P&L: ${exit_result['scalp_pnl']:+.2f}")
+        console.print(f"  Total P&L: ${exit_result['total_pnl']:+.2f}")
+        console.print(f"  Rebalances: {exit_result['rebalance_count']}")
+
+
+@options.command("calendar")
+@click.argument("symbol", default="BTC")
+@click.option("--spot", "-s", default=0.0, type=float, help="Spot price")
+def options_calendar(symbol: str, spot: float):
+    """Find calendar spread opportunities."""
+    from rich.table import Table as RichTable
+
+    provider = OptionChainProvider(dry_run=True)
+    strategy = CalendarSpreadStrategy(symbol, provider)
+    signals = strategy.generate_signals(spot or 0)
+
+    if not signals:
+        console.print("[yellow]No calendar spread signals found[/yellow]")
+        return
+
+    console.print(f"\n[bold]Calendar Spread Signals for {symbol}[/bold]")
+    t = RichTable("Type", "Strike", "Near Expiry", "Far Expiry", "Near IV", "Far IV", "Term Struct", "Theta Carry", "Net Debit")
+    for s in signals:
+        t.add_row(
+            s["action"].replace("BUY_CALENDAR_", ""),
+            f"${s['strike']:,.0f}",
+            s["near_expiry"],
+            s["far_expiry"],
+            f"{s['iv_near']:.1%}",
+            f"{s['iv_far']:.1%}",
+            f"{s['term_structure']:.4f}",
+            f"{s['theta_carry']:.4f}",
+            f"${s['net_debit']:.2f}",
+        )
+    console.print(t)
+
+
+@options.command("dispersion")
+@click.argument("index_symbol", default="BTC")
+@click.option("--components", "-c", default="ETH,SOL,ADA", help="Component symbols (comma-separated)")
+def options_dispersion(index_symbol: str, components: str):
+    """Dispersion trading: index vs component vol."""
+    provider = OptionChainProvider(dry_run=True)
+    comp_list = [c.strip() for c in components.split(",")]
+
+    # Get component spots
+    comp_spots = {}
+    for c in comp_list:
+        chain = provider.get_chain(c)
+        comp_spots[c] = chain.spot
+
+    strategy = DispersionStrategy(index_symbol, comp_list, provider)
+    signals = strategy.generate_signals(
+        index_spot=provider.get_chain(index_symbol).spot,
+        component_spots=comp_spots,
+    )
+
+    if not signals:
+        console.print("[yellow]No dispersion signals found[/yellow]")
+        return
+
+    console.print(f"\n[bold]Dispersion Signals[/bold]")
+    console.print(f"  Index: {index_symbol}")
+    console.print(f"  Components: {', '.join(comp_list)}")
+    for s in signals:
+        console.print(f"  Index IV: {s['index_iv']:.1%}")
+        console.print(f"  Avg Component IV: {s['avg_component_iv']:.1%}")
+        console.print(f"  Dispersion Spread: {s['dispersion_spread']:.4f}")
+        console.print(f"  Implied Correlation: {s['implied_correlation']:.2%}")
 
 
 if __name__ == "__main__":

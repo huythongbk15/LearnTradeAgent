@@ -1,43 +1,42 @@
+# Trading Agent Strategies Package
 """
-Trading Strategies Package — core strategy library + plugin architecture.
-
-Core (long-only, vectorized): Strategy, get_strategy, list_strategies.
-Plugins (Phase 6): BaseStrategy, Signal, StrategyContext, get_registry, ...
+Strategy implementations for the trading agent system.
 """
 
-from trading_agent.strategies import agent_ensemble as agent_ensemble, bbands as bbands, enhanced_ma as enhanced_ma, ma_crossover as ma_crossover, rsi as rsi
 from trading_agent.strategies.base import (
     Strategy,
+    register_strategy,
     get_strategy,
     list_strategies,
-    register_strategy,
 )
-from trading_agent.strategies.plugins import (
-    BaseStrategy,
-    StrategyMetadata,
-    Signal,
-    StrategyContext,
-    StrategyRegistry,
-    StrategySandbox,
-    StrategyType,
-    RiskProfile,
-    StrategyStatus,
-    get_registry,
+from trading_agent.strategies.options_strategies import (
+    OptionStrategyType,
+    OptionsStrategy,
+    CoveredCallStrategy,
+    CashSecuredPutStrategy,
+    ShortStraddleStrategy,
+    ShortStrangleStrategy,
+    IronCondorStrategy,
+    GammaScalpStrategy,
+    CalendarSpreadStrategy,
+    DispersionStrategy,
+    Position,
 )
 
 __all__ = [
     "Strategy",
+    "register_strategy",
     "get_strategy",
     "list_strategies",
-    "register_strategy",
-    "BaseStrategy",
-    "StrategyMetadata",
-    "Signal",
-    "StrategyContext",
-    "StrategyRegistry",
-    "StrategySandbox",
-    "StrategyType",
-    "RiskProfile",
-    "StrategyStatus",
-    "get_registry",
+    "OptionStrategyType",
+    "OptionsStrategy",
+    "CoveredCallStrategy",
+    "CashSecuredPutStrategy",
+    "ShortStraddleStrategy",
+    "ShortStrangleStrategy",
+    "IronCondorStrategy",
+    "GammaScalpStrategy",
+    "CalendarSpreadStrategy",
+    "DispersionStrategy",
+    "Position",
 ]
