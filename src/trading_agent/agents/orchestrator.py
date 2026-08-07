@@ -31,7 +31,7 @@ from trading_agent.log_config import get_logger
 from trading_agent.strategies.bbands import BBandsStrategy
 from trading_agent.strategies.ma_crossover import MaCrossover
 from trading_agent.strategies.rsi import RsiStrategy
-from trading_agent.risk.position_sizer import PositionSizer, PositionSizingParams, calculate_half_kelly
+from trading_agent.risk.position_sizer import PositionSizer, PositionSizingParams
 
 logger = get_logger(__name__)
 
@@ -253,7 +253,7 @@ class Orchestrator:
             elif base_signal in ("BUY", "SELL"):
                 # Counter-trend signal - reduce confidence
                 confidence = base_confidence * 0.7
-                reasons.append(f"Counter-trend signal — confidence reduced")
+                reasons.append("Counter-trend signal — confidence reduced")
         
         # Details
         details = {

@@ -263,20 +263,20 @@ class TechnicalAnalyst(BaseAgent):
             if isinstance(rsi, (int, float)):
                 if rsi < 30 and trend_dir == "down":
                     score -= 0.5
-                    reasons.append(f"Oversold RSI in downtrend — mean reversion discounted")
+                    reasons.append("Oversold RSI in downtrend — mean reversion discounted")
                 elif rsi > 70 and trend_dir == "up":
                     score += 0.5
-                    reasons.append(f"Overbought RSI in uptrend — continuation likely")
+                    reasons.append("Overbought RSI in uptrend — continuation likely")
 
         # In ranging regime: favor mean-reversion, discount trend
         elif trend_regime == "ranging":
             # RSI/BB mean reversion more reliable
             if isinstance(rsi, (int, float)):
                 if rsi < 35 or rsi > 65:
-                    reasons.append(f"Ranging market — RSI mean reversion favored")
+                    reasons.append("Ranging market — RSI mean reversion favored")
             # MA crossover less reliable (whipsaws)
             if ma_fast and ma_slow:
-                reasons.append(f"Ranging market — MA crossover discounted (whipsaw risk)")
+                reasons.append("Ranging market — MA crossover discounted (whipsaw risk)")
 
         # Volatility regime adjustments
         if vol_regime == "high_vol":

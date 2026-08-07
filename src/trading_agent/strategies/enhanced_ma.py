@@ -11,7 +11,7 @@ Enhanced MA Crossover Strategy with:
 
 import polars as pl
 from trading_agent.strategies.base import Strategy, register_strategy
-from trading_agent.regime import add_regime_indicators, get_regime_params
+from trading_agent.regime import add_regime_indicators
 
 
 @register_strategy("enhanced_ma")

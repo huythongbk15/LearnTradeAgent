@@ -3,13 +3,15 @@
 QwenPaw Agent: Tracked subagent spawning with registry integration.
 Wraps spawn_subagent to auto-register, heartbeat, and capture results.
 """
-import json, time, os, sys
+import json
+import time
+import sys
 from pathlib import Path
 from typing import Optional, Dict, Any
 
 # Add parent to path for process_registry
 sys.path.insert(0, str(Path(__file__).parent))
-from process_registry import register, heartbeat, complete, get as get_process
+from process_registry import register, heartbeat, complete
 
 class TrackedSubagent:
     """Wrapper for QwenPaw spawn_subagent with full lifecycle tracking."""

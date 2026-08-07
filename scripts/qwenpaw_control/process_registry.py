@@ -3,7 +3,11 @@
 QwenPaw Agent: Process Registry - track all spawned subprocesses and subagents.
 SQLite-backed, survives restarts, CLI for inspection.
 """
-import sqlite3, json, time, os, signal
+import sqlite3
+import json
+import time
+import os
+import signal
 from pathlib import Path
 from dataclasses import dataclass, asdict
 from typing import Optional, List, Dict
@@ -79,7 +83,8 @@ def complete(pid: int, status: str, result_file: str = ""):
 def get(pid: int) -> Optional[ProcessRecord]:
     with _db() as con:
         row = con.execute("SELECT * FROM qwenpaw_processes WHERE pid=?", (pid,)).fetchone()
-        if row: return ProcessRecord(**dict(row))
+        if row:
+            return ProcessRecord(**dict(row))
     return None
 
 def list_active() -> List[ProcessRecord]:

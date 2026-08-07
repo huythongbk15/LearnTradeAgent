@@ -98,11 +98,11 @@ class FullSystemSimulator:
         })
         
         # Pre-compute indicators on full dataset
-        print(f"🔧 Computing strategy indicators...")
+        print("🔧 Computing strategy indicators...")
         self.df = self.strategy.compute_indicators(self.df)
         
         # Generate all signals upfront
-        print(f"🔧 Generating signals...")
+        print("🔧 Generating signals...")
         self.signals = self.df.with_columns(self.strategy.generate_signals(self.df)).select(pl.col("signal")).to_series().to_list()
 
         # Khởi tạo execution engine + risk controller
@@ -250,7 +250,6 @@ class FullSystemSimulator:
             print("❌ No data")
             return
 
-        import numpy as np
         eq_values = np.array([e[1] for e in self.equity_curve])
         returns = np.diff(eq_values) / eq_values[:-1]
         returns = returns[~np.isnan(returns)]
@@ -282,7 +281,7 @@ class FullSystemSimulator:
         print(f"   Circuit breakers: {len(self.circuit_breakers)}")
 
         # Phân bố theo năm
-        print(f"\n📅 PHÂN BỐ THEO NĂM")
+        print("\n📅 PHÂN BỐ THEO NĂM")
         from collections import defaultdict
         yearly = defaultdict(list)
         for ts, eq in self.equity_curve:
@@ -295,7 +294,7 @@ class FullSystemSimulator:
             print(f"   {year}: ${eqs[0]:,.2f} → ${eqs[-1]:,.2f}  ({ret:+.2f}%)")
 
         # 10 trades gần nhất
-        print(f"\n🧾 10 TRADES GẦN NHẤT")
+        print("\n🧾 10 TRADES GẦN NHẤT")
         for t in self.trade_log[-10:]:
             pnl = t.get("pnl", 0)
             side = "🟢" if pnl > 0 else "🔴"

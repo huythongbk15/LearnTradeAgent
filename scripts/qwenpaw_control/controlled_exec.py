@@ -3,7 +3,12 @@
 QwenPaw Agent: Controlled subprocess execution with timeout, heartbeat, structured result.
 Replaces raw execute_shell_command for long-running commands.
 """
-import subprocess, signal, json, time, sys, os, threading
+import subprocess
+import json
+import time
+import sys
+import os
+import threading
 from pathlib import Path
 from dataclasses import dataclass, asdict
 from typing import Optional, List
@@ -119,8 +124,11 @@ class ControlledExec:
         if self._proc and self._proc.poll() is None:
             print(f"[QWENPAW] Terminating PID={self._proc.pid} reason={reason}", flush=True)
             self._proc.terminate()
-            try: self._proc.wait(timeout=10)
-            except: self._proc.kill(); self._proc.wait()
+            try:
+                self._proc.wait(timeout=10)
+            except Exception:
+                self._proc.kill()
+                self._proc.wait()
 
 # CLI for direct use
 if __name__ == "__main__":

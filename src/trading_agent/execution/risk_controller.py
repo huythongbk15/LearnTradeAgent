@@ -17,7 +17,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
 from trading_agent.execution.engine import ExecutionEngine
-from trading_agent.risk.position_sizer import PositionSizer, PositionSizingParams, calculate_half_kelly
+from trading_agent.risk.position_sizer import PositionSizer, PositionSizingParams
 
 logger = logging.getLogger(__name__)
 

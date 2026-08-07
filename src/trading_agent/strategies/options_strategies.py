@@ -13,14 +13,12 @@ Implements systematic options strategies for production use:
 
 from __future__ import annotations
 
-import math
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Optional
 
-from trading_agent.data.options_provider import OptionChainProvider, OptionChain, OptionContract, bs_price, bs_greeks
+from trading_agent.data.options_provider import OptionChainProvider, OptionChain, OptionContract
 
 
 class OptionStrategyType(Enum):

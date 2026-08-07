@@ -3,7 +3,10 @@
 QwenPaw Agent: Health check & metrics endpoint.
 Can be called via HTTP (if server) or CLI for monitoring.
 """
-import sys, os, json, time, psutil
+import sys
+import json
+import time
+import psutil
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 from process_registry import list_active, list_recent
@@ -24,7 +27,8 @@ def health_check() -> dict:
                      "hb_age_sec": int(time.time()-p.heartbeat_at), "cmd": p.cmd[:60]} 
                     for p in active[:10]]
     }
-    if stale_count > 0: overall = "degraded"
+    if stale_count > 0:
+        overall = "degraded"
     
     # 2. Disk space
     data_dir = Path(__file__).parent.parent.parent / "data"
@@ -36,8 +40,10 @@ def health_check() -> dict:
         "free_gb": round(disk.free / 1e9, 2),
         "pct_used": round(disk_pct, 1)
     }
-    if disk_pct > 90: overall = "critical"
-    elif disk_pct > 80: overall = "degraded"
+    if disk_pct > 90:
+        overall = "critical"
+    elif disk_pct > 80:
+        overall = "degraded"
     
     # 3. Memory (current process)
     mem = psutil.Process().memory_info()
@@ -54,7 +60,7 @@ def health_check() -> dict:
             if 'qwenpaw' in ' '.join(proc.info['cmdline'] or []).lower() and 'app' in ' '.join(proc.info['cmdline'] or []):
                 main_proc = proc.info
                 break
-        except:
+        except Exception:
             pass
     
     checks["qwenpaw_main"] = {
@@ -62,7 +68,8 @@ def health_check() -> dict:
         "pid": main_proc['pid'] if main_proc else None,
         "uptime_sec": int(time.time() - main_proc['create_time']) if main_proc else None
     }
-    if not main_proc: overall = "degraded"
+    if not main_proc:
+        overall = "degraded"
     
     # 5. Recent task success rate
     recent = list_recent(50)
@@ -77,8 +84,10 @@ def health_check() -> dict:
         "failed": failed,
         "success_rate_pct": round(success_rate, 1)
     }
-    if success_rate < 50: overall = "critical"
-    elif success_rate < 80: overall = "degraded"
+    if success_rate < 50:
+        overall = "critical"
+    elif success_rate < 80:
+        overall = "degraded"
     
     return {
         "overall": overall,

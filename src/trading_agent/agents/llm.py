@@ -323,6 +323,30 @@ else:
         raise LLMError(f"All LLM providers failed. Last error: {last_error}")
 
 
+    def _ensure_reasoning_content(
+        messages: list[dict[str, str]],
+    ) -> list[dict[str, str]]:
+        """Trả về messages mới: thêm `reasoning_content=" "` vào mỗi assistant
+        message thiếu. DeepSeek V4 Flash (thinking mode) trả 400 nếu thiếu field
+        này trong history multi-turn.
+
+        Chỉ copy khi cần để tránh rác; giữ nguyên dict nếu không cần inject.
+        """
+        need_inject = any(
+            m.get("role") == "assistant" and "reasoning_content" not in m
+            for m in messages
+        )
+        if not need_inject:
+            return messages
+        out = []
+        for m in messages:
+            new = dict(m)
+            if new.get("role") == "assistant" and "reasoning_content" not in new:
+                new["reasoning_content"] = " "
+            out.append(new)
+        return out
+
+
     def _try_provider(
         provider: str,
         model: str,
@@ -341,39 +365,74 @@ else:
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
 
-        body = {
-            "model": model,
-            "messages": messages,
-            "temperature": temperature,
-            "max_tokens": max_tokens,
-        }
+        # DeepSeek (and other thinking-mode via OpenAI-compat) yêu cầu MỌI
+        # assistant message trong history phải kèm reasoning_content. Nếu
+        # thiếu → trả 400. Inject trước để tránh lỗi vô ích.
+        work_messages = _ensure_reasoning_content(messages)
 
-        url = urljoin(base_url.rstrip("/") + "/", "chat/completions")
-        logger.debug(f"LLM request to {url} with model={model}")
+        # Retry loop riêng: 400 reasoning_content → inject lại và thử cùng
+        # model; các lỗi transient (429/5xx) để chat()/fallback xử lý.
+        last_exc: Exception | None = None
+        for attempt in range(1, 4):
+            body = {
+                "model": model,
+                "messages": work_messages,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+            }
 
-        resp = httpx.post(
-            url,
-            headers=headers,
-            json=body,
-            timeout=timeout,
-        )
-        resp.raise_for_status()
-        data = resp.json()
+            url = urljoin(base_url.rstrip("/") + "/", "chat/completions")
+            logger.debug(f"LLM request to {url} with model={model} (attempt {attempt})")
 
-        msg = data["choices"][0]["message"]
-        content = msg.get("content", "")
-        # Reasoning models (DeepSeek V4 Flash) may put text in reasoning_content
-        if not content:
-            content = msg.get("reasoning_content", "") or msg.get("reasoning", "")
-        usage = data.get("usage", {})
-        tokens = usage.get("total_tokens", 0)
+            try:
+                resp = httpx.post(
+                    url,
+                    headers=headers,
+                    json=body,
+                    timeout=timeout,
+                )
+            except httpx.HTTPError as exc:
+                last_exc = exc
+                raise
 
-        return LLMResponse(
-            content=content.strip(),
-            provider=provider,
-            model=data.get("model", model),
-            tokens_used=tokens,
-        )
+            # Nếu 400 do thiếu reasoning_content → inject và retry cùng model
+            if resp.status_code == 400 and "reasoning_content" in resp.text:
+                if attempt < 3:
+                    logger.warning(
+                        "[llm] %s needs reasoning_content (400) — injecting & retry %d/3",
+                        model, attempt,
+                    )
+                    work_messages = _ensure_reasoning_content(work_messages)
+                    last_exc = None
+                    continue
+                raise httpx.HTTPStatusError(
+                    f"{model} still missing reasoning_content after retries",
+                    request=resp.request, response=resp,
+                )
+
+            if resp.status_code != 200:
+                raise httpx.HTTPStatusError(
+                    f"LLM {model} HTTP {resp.status_code}", request=resp.request, response=resp,
+                )
+
+            data = resp.json()
+
+            msg = data["choices"][0]["message"]
+            content = msg.get("content", "")
+            # Reasoning models (DeepSeek V4 Flash) may put text in reasoning_content
+            if not content:
+                content = msg.get("reasoning_content", "") or msg.get("reasoning", "")
+            usage = data.get("usage", {})
+            tokens = usage.get("total_tokens", 0)
+
+            return LLMResponse(
+                content=content.strip(),
+                provider=provider,
+                model=data.get("model", model),
+                tokens_used=tokens,
+            )
+
+        raise LLMError(f"LLM provider {provider}/{model} failed after reasoning retries: {last_exc}")
 
 
     # ── Structured output helpers ────────────────────────────────────────────

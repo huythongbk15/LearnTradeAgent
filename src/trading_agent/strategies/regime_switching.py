@@ -342,7 +342,6 @@ def run_regime_switching_backtest(
 
 if __name__ == "__main__":
     # Quick demo
-    import pandas as pd
 
     np.random.seed(42)
     n = 1000
@@ -364,7 +363,7 @@ if __name__ == "__main__":
     })
 
     result = run_regime_switching_backtest(df, params={"regime_method": "rule_based"})
-    print(f"Regime Switching Backtest:")
+    print("Regime Switching Backtest:")
     print(f"  Return: {result['total_return']:.2%}")
     print(f"  Sharpe: {result['sharpe']:.2f}")
     print(f"  Max DD: {result['max_drawdown']:.2%}")

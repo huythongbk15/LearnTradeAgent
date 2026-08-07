@@ -3,12 +3,14 @@
 QwenPaw Agent: Cleanup cron - kill stale processes, archive old results.
 Run via crontab every 5-10 minutes.
 """
-import sys, os
+import sys
+import os
 sys.path.insert(0, os.path.dirname(__file__))
 
 from process_registry import cleanup_stale, list_active
 from pathlib import Path
-import json, time, shutil
+import time
+import shutil
 
 def main():
     print(f"=== QWENPAW CLEANUP {time.ctime()} ===", flush=True)

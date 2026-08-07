@@ -19,7 +19,7 @@ import numpy as np
 import polars as pl
 
 from trading_agent.config.loader import config
-from trading_agent.risk.position_sizer import PositionSizer, PositionSizingParams, calculate_kelly_fraction, calculate_half_kelly
+from trading_agent.risk.position_sizer import PositionSizer, PositionSizingParams
 from trading_agent.strategies.base import Strategy
 
 # ── Results ───────────────────────────────────────────────────────────────
