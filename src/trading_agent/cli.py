@@ -931,7 +931,8 @@ def execution_run(symbol: str, timeframe: str, capital: float | None,
 @execution.command("close")
 @click.argument("symbol", default=None, required=False)
 @click.option("--all", "-a", "close_all", is_flag=True, help="Close all positions")
-def execution_close(symbol: str | None, close_all: bool):
+@click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt (for automation)")
+def execution_close(symbol: str | None, close_all: bool, yes: bool):
     """Close a position or all positions (kill switch)."""
     from rich.prompt import Confirm
 
@@ -940,7 +941,7 @@ def execution_close(symbol: str | None, close_all: bool):
     engine = ExecutionEngine()
 
     if close_all or symbol is None:
-        if not Confirm.ask("⚠️  Close ALL positions?"):
+        if not yes and not Confirm.ask("⚠️  Close ALL positions?"):
             return
         engine.close_all(reason="manual_kill")
         console.print("[red]🔴 All positions closed[/red]")
@@ -949,7 +950,7 @@ def execution_close(symbol: str | None, close_all: bool):
         if not pos or not pos.is_active:
             console.print(f"[yellow]No open position for {symbol}[/yellow]")
             return
-        if not Confirm.ask(f"Close {pos.quantity:.4f} {symbol}?"):
+        if not yes and not Confirm.ask(f"Close {pos.quantity:.4f} {symbol}?"):
             return
         engine.exchange._close_position(symbol, pos.current_price, reason="manual")
         console.print(f"[red]Position closed: {symbol}[/red]")
@@ -958,10 +959,11 @@ def execution_close(symbol: str | None, close_all: bool):
 
 
 @execution.command("reset")
-def execution_reset():
+@click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt (for automation)")
+def execution_reset(yes: bool):
     """Reset paper exchange to initial state."""
     from rich.prompt import Confirm
-    if not Confirm.ask("⚠️  Reset ALL trade history and state?"):
+    if not yes and not Confirm.ask("⚠️  Reset ALL trade history and state?"):
         return
     from trading_agent.execution.engine import ExecutionEngine
     engine = ExecutionEngine()
