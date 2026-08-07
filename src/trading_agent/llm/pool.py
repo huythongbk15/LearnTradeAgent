@@ -127,6 +127,9 @@ RETRYABLE_STATUS = {429, 500, 502, 503, 504}
 COOLDOWN_SECONDS = 60          # sau 429
 FAIL_COOLDOWN_SECONDS = 300    # sau lỗi liên tiếp
 MAX_CONSECUTIVE_FAILURES = 3
+# Thinking-mode (e.g. DeepSeek V4 Flash) yêu cầu MỌI assistant message trong
+# history phải kèm reasoning_content. Nếu thiếu → API trả 400.
+MAX_REASONING_RETRIES = 3
 
 
 @dataclass
@@ -312,6 +315,11 @@ class LLMPool:
                 self.quota.record(provider.name, success=True)
                 self.last_provider = provider.name
                 return text
+            except PoolReasoningError as exc:
+                # Missing reasoning_content — đã retry cục bộ hết. Không cooldown
+                # provider (lỗi do history, không phải provider unavailable).
+                self.quota.record(provider.name, success=False)
+                errors.append(f"{provider.name}: {exc}")
             except PoolRateLimitError as exc:
                 self.mark_cooldown(provider, status=429)
                 self.quota.record(provider.name, success=False)
@@ -334,48 +342,71 @@ class LLMPool:
         temperature: Optional[float],
         max_tokens: Optional[int],
     ) -> str:
-        """Gọi 1 provider. Ném PoolError/PoolRateLimitError khi fail."""
+        """Gọi 1 provider. Ném PoolError/PoolRateLimitError khi fail.
+
+        Lỗi 400 "reasoning_content must be passed back" (thinking mode) được
+        xử lý cục bộ: inject reasoning_content=" " vào các assistant message
+        thiếu, rồi retry CÙNG provider tối đa MAX_REASONING_RETRIES lần — thay
+        vì failover provider khác (vì lỗi này do history cũ thiếu field).
+        """
         session = await self._get_session()
 
-        payload = {
-            "model": provider.model,
-            "messages": messages,
-            "temperature": temperature if temperature is not None else 0.1,
-            "max_tokens": max_tokens if max_tokens is not None else 1000,
-        }
-
-        if provider.name == "ollama":
-            url = f"{provider.base_url}/api/chat"
+        messages_work = messages
+        for attempt in range(1, MAX_REASONING_RETRIES + 1):
             payload = {
                 "model": provider.model,
-                "messages": messages,
-                "stream": False,
-                "options": {
-                    "temperature": payload["temperature"],
-                    "num_predict": payload["max_tokens"],
-                },
+                "messages": messages_work,
+                "temperature": temperature if temperature is not None else 0.1,
+                "max_tokens": max_tokens if max_tokens is not None else 1000,
             }
-            headers = {"Content-Type": "application/json"}
-        else:
-            url = f"{provider.base_url}/chat/completions"
-            headers = {"Content-Type": "application/json"}
-            if provider.api_key:
-                headers["Authorization"] = f"Bearer {provider.api_key}"
 
-        async with session.post(url, json=payload, headers=headers) as resp:
-            if resp.status == 429:
-                text = await resp.text()
-                raise PoolRateLimitError(f"{provider.name}: HTTP 429 — {text[:200]}")
-            if resp.status != 200:
-                text = await resp.text()
-                raise PoolError(f"{provider.name}: HTTP {resp.status} — {text[:200]}")
-            data = await resp.json()
-            content = data["choices"][0]["message"].get("content") or ""
-            if not content.strip():
-                # Free tier hay trả 200 kèm content rỗng (reasoning consume hết token,
-                # hoặc rate limit mềm). Coi như fail để pool failover provider khác.
-                raise PoolError(f"{provider.name}: empty content — {str(data)[:200]}")
-            return content
+            if provider.name == "ollama":
+                url = f"{provider.base_url}/api/chat"
+                payload = {
+                    "model": provider.model,
+                    "messages": messages_work,
+                    "stream": False,
+                    "options": {
+                        "temperature": payload["temperature"],
+                        "num_predict": payload["max_tokens"],
+                    },
+                }
+                headers = {"Content-Type": "application/json"}
+            else:
+                url = f"{provider.base_url}/chat/completions"
+                headers = {"Content-Type": "application/json"}
+                if provider.api_key:
+                    headers["Authorization"] = f"Bearer {provider.api_key}"
+
+            async with session.post(url, json=payload, headers=headers) as resp:
+                if resp.status == 429:
+                    text = await resp.text()
+                    raise PoolRateLimitError(f"{provider.name}: HTTP 429 — {text[:200]}")
+                if resp.status == 400 and "reasoning_content" in (
+                    text := await resp.text()
+                ):
+                    if attempt < MAX_REASONING_RETRIES:
+                        logger.warning(
+                            "[llm] %s needs reasoning_content (400) — injecting & retry %d/%d",
+                            provider.name, attempt, MAX_REASONING_RETRIES,
+                        )
+                        messages_work = _inject_reasoning_content(messages_work)
+                        continue
+                    raise PoolReasoningError(
+                        f"{provider.name}: missing reasoning_content after {attempt} retries — {text[:200]}"
+                    )
+                if resp.status != 200:
+                    text = await resp.text()
+                    raise PoolError(f"{provider.name}: HTTP {resp.status} — {text[:200]}")
+                data = await resp.json()
+                content = data["choices"][0]["message"].get("content") or ""
+                if not content.strip():
+                    # Free tier hay trả 200 kèm content rỗng (reasoning consume hết token,
+                    # hoặc rate limit mềm). Coi như fail để pool failover provider khác.
+                    raise PoolError(f"{provider.name}: empty content — {str(data)[:200]}")
+                return content
+
+        raise PoolError(f"{provider.name}: unexpected reasoning retry exhaustion")
 
     # ── status / health ───────────────────────────────────────
     def status(self) -> dict:
@@ -424,6 +455,29 @@ class PoolError(RuntimeError):
 
 class PoolRateLimitError(PoolError):
     """Provider trả 429 — cần cooldown."""
+
+
+class PoolReasoningError(PoolError):
+    """Provider trả 400 do thiếu reasoning_content (thinking mode).
+
+    Không phải failover ngay: cần inject reasoning_content vào assistant
+    messages rồi retry CÙNG provider, giống QwenPaw wrapper.
+    """
+
+
+def _inject_reasoning_content(messages: list[dict]) -> list[dict]:
+    """Return a copy of *messages* with `reasoning_content=" "` added to every
+    assistant message that lacks it (required by thinking-mode DeepSeek)."""
+    out = []
+    modified = False
+    for msg in messages:
+        new = dict(msg)
+        if new.get("role") == "assistant" and "reasoning_content" not in new:
+            new["reasoning_content"] = " "
+            modified = True
+        out.append(new)
+    logger.debug("[llm] injected reasoning_content=%s", modified)
+    return out
 
 
 def build_default_providers() -> list[PoolProvider]:

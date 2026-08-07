@@ -51,8 +51,10 @@ def calculate_kelly_fraction(win_rate: float, avg_win: float, avg_loss: float) -
     
     Returns fraction of capital to bet (0 to 1).
     """
-    if win_rate <= 0 or win_rate >= 1:
+    if win_rate <= 0:
         return 0.0
+    if win_rate >= 1:
+        return 0.99  # Cap at 99% instead of 100% to avoid infinite leverage
     if avg_win <= 0:
         return 0.0
     if avg_loss <= 0:
@@ -222,13 +224,13 @@ class PositionSizer:
     def get_kelly_stats(self) -> tuple:
         """Calculate win rate, avg win, avg loss from history."""
         if not self.trade_history:
-            return 0.5, 0.01, 0.01  # Defaults
+            return 0.55, 0.02, 0.01  # Defaults: 55% WR, 2:1 R:R
         
         wins = [t["return_pct"] for t in self.trade_history if t["win"]]
         losses = [abs(t["return_pct"]) for t in self.trade_history if not t["win"]]
         
         win_rate = len(wins) / len(self.trade_history)
-        avg_win = sum(wins) / len(wins) if wins else 0.01
+        avg_win = sum(wins) / len(wins) if wins else 0.02
         avg_loss = sum(losses) / len(losses) if losses else 0.01
         
         return win_rate, avg_win, avg_loss

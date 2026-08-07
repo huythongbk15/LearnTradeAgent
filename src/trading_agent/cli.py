@@ -24,8 +24,6 @@ from trading_agent.strategies.options_strategies import (
     OptionChainProvider,
     CoveredCallStrategy,
     CashSecuredPutStrategy,
-    ShortStraddleStrategy,
-    ShortStrangleStrategy,
     IronCondorStrategy,
     GammaScalpStrategy,
     CalendarSpreadStrategy,
@@ -470,12 +468,29 @@ def list_strategies_cmd():
     help="Strategy params: key=value (e.g. -p fast_period=10 -p slow_period=30)",
 )
 @click.option("--capital", default=None, type=float, help="Initial capital")
+@click.option(
+    "--position-sizing",
+    type=click.Choice(["fixed", "kelly", "half_kelly", "quarter_kelly", "vol_target", "optimal_f"]),
+    default="fixed",
+    help="Position sizing method",
+)
+@click.option("--fixed-pct", default=0.1, type=float, help="Fixed position % (for fixed method)")
+@click.option("--kelly-fraction", default=0.5, type=float, help="Kelly fraction (0.5=half, 0.25=quarter)")
+@click.option("--commission", default=None, type=float, help="Commission rate (default from config)")
+@click.option("--slippage", default=None, type=float, help="Slippage rate (default from config)")
+@click.option("--long-only/--long-short", default=True, help="Long-only mode")
 def run_backtest_cmd(
     strategy_name: str,
     symbol: str,
     timeframe: str,
     params: tuple[str],
     capital: float | None,
+    position_sizing: str,
+    fixed_pct: float,
+    kelly_fraction: float,
+    commission: float | None,
+    slippage: float | None,
+    long_only: bool,
 ):
     """Run a backtest for a strategy on a symbol."""
     from trading_agent.backtest.engine import run_backtest
@@ -498,6 +513,16 @@ def run_backtest_cmd(
     engine_kwargs = {}
     if capital is not None:
         engine_kwargs["initial_capital"] = capital
+    engine_kwargs["position_sizing_method"] = position_sizing
+    if position_sizing == "fixed":
+        engine_kwargs["fixed_position_pct"] = fixed_pct
+    elif position_sizing in ["kelly", "half_kelly", "quarter_kelly"]:
+        engine_kwargs["kelly_fraction"] = kelly_fraction
+    if commission is not None:
+        engine_kwargs["commission"] = commission
+    if slippage is not None:
+        engine_kwargs["slippage"] = slippage
+    engine_kwargs["long_only"] = long_only
 
     console.print(
         f"Running [bold]{strategy_name}[/bold] on "
@@ -2142,6 +2167,592 @@ def execution_run_multi(symbols: tuple[str], timeframe: str, capital: float | No
     execution_status.callback()
 
 
+# ── live trading subcommands ─────────────────────────────────────────────
+
+
+@main.group()
+def live():
+    """Live trading with real brokers (Alpaca, OANDA, CCXT)."""
+
+
+@live.command("connect")
+@click.option("--broker", "-b", type=click.Choice(["alpaca", "oanda", "ccxt"]), default="alpaca", help="Broker to connect to")
+@click.option("--paper/--live", default=True, help="Paper trading mode (default) or live")
+@click.option("--api-key", envvar="ALPACA_API_KEY", default=None, help="API key (or set ALPACA_API_KEY env)")
+@click.option("--api-secret", envvar="ALPACA_API_SECRET", default=None, help="API secret (or set ALPACA_API_SECRET env)")
+@click.option("--base-url", default=None, help="Base URL (for Alpaca: paper=https://paper-api.alpaca.markets, live=https://api.alpaca.markets)")
+@click.option("--account-id", envvar="OANDA_ACCOUNT_ID", default=None, help="OANDA account ID")
+def live_connect(
+    broker: str,
+    paper: bool,
+    api_key: str | None,
+    api_secret: str | None,
+    base_url: str | None,
+    account_id: str | None,
+):
+    """Connect to a broker and test connection."""
+    import asyncio
+    from trading_agent.exchanges.alpaca_adapter import (
+        AlpacaAdapter, AlpacaConfig,
+    )
+    from trading_agent.exchanges.oanda_adapter import (
+        OANDAAdapter, OANDAConfig,
+    )
+    from trading_agent.exchanges.live_broker import LiveBroker
+
+    console.print(f"[bold]Connecting to {broker.upper()} ({'paper' if paper else 'live'})...[/bold]")
+
+    try:
+        if broker == "alpaca":
+            if not api_key or not api_secret:
+                console.print("[red]API key and secret required (use --api-key/--api-secret or ALPACA_API_KEY/ALPACA_API_SECRET env vars)[/red]")
+                return
+
+            base = base_url or ("https://paper-api.alpaca.markets" if paper else "https://api.alpaca.markets")
+            adapter = AlpacaAdapter(AlpacaConfig(
+                api_key=api_key,
+                secret_key=api_secret,
+                paper=paper,
+                base_url=base,
+            ))
+
+        elif broker == "oanda":
+            if not api_key or not api_secret or not account_id:
+                console.print("[red]API key, secret, and account ID required for OANDA[/red]")
+                return
+
+            base = base_url or ("https://api-fxpractice.oanda.com" if paper else "https://api-fxtrade.oanda.com")
+            adapter = OANDAAdapter(OANDAConfig(
+                access_token=api_key,
+                account_id=account_id,
+                environment="practice" if paper else "live",
+            ))
+
+        elif broker == "ccxt":
+            # CCXT would need exchange-specific config
+            console.print("[yellow]CCXT adapter not yet implemented[/yellow]")
+            return
+
+        # Test connection (async connect → sync facade)
+        asyncio.run(adapter.connect())
+        broker_face = LiveBroker(broker, adapter)
+
+        console.print("[green]✅ Connected successfully![/green]")
+        account = broker_face.get_account()
+        console.print(f"  Account ID: {account.get('id', 'N/A')}")
+        console.print(f"  Status: {account.get('status', 'N/A')}")
+        console.print(f"  Currency: {account.get('currency', 'N/A')}")
+        console.print(f"  Cash: ${float(account.get('cash', 0)):,.2f}")
+        console.print(f"  Portfolio Value: ${float(account.get('portfolio_value', 0)):,.2f}")
+        console.print(f"  Buying Power: ${float(account.get('buying_power', 0)):,.2f}")
+
+        # Store facade for subsequent commands (in-memory for session)
+        from trading_agent.cli import _live_adapters
+        _live_adapters[broker] = broker_face
+        console.print("\n[dim]Adapter cached for session. Use `trading-agent live balance` etc.[/dim]")
+
+    except Exception as e:
+        console.print(f"[red]❌ Connection failed: {e}[/red]")
+        import traceback
+        traceback.print_exc()
+
+
+# In-memory adapter storage for session
+_live_adapters: dict = {}
+
+
+@live.command("balance")
+@click.option("--broker", "-b", type=click.Choice(["alpaca", "oanda", "ccxt"]), default="alpaca", help="Broker")
+def live_balance(broker: str):
+    """Show account balance and portfolio value."""
+    from trading_agent.cli import _live_adapters
+
+    adapter = _live_adapters.get(broker)
+    if not adapter:
+        console.print(f"[yellow]Not connected to {broker}. Run `trading-agent live connect --broker {broker}` first.[/yellow]")
+        return
+
+    try:
+        account = adapter.get_account()
+        console.print(f"[bold]{broker.upper()} Account Balance[/bold]")
+        t = Table("Metric", "Value")
+        t.add_row("Cash", f"${float(account.get('cash', 0)):,.2f}")
+        t.add_row("Portfolio Value", f"${float(account.get('portfolio_value', 0)):,.2f}")
+        t.add_row("Buying Power", f"${float(account.get('buying_power', 0)):,.2f}")
+        t.add_row("Equity", f"${float(account.get('equity', 0)):,.2f}")
+        t.add_row("Long Market Value", f"${float(account.get('long_market_value', 0)):,.2f}")
+        t.add_row("Short Market Value", f"${float(account.get('short_market_value', 0)):,.2f}")
+        t.add_row("Unrealized P&L", f"${float(account.get('unrealized_pl', 0)):+,.2f}")
+        t.add_row("Realized P&L (Day)", f"${float(account.get('realized_pl_day', 0)):+,.2f}")
+        console.print(t)
+    except Exception as e:
+        console.print(f"[red]Error fetching balance: {e}[/red]")
+
+
+@live.command("positions")
+@click.option("--broker", "-b", type=click.Choice(["alpaca", "oanda", "ccxt"]), default="alpaca", help="Broker")
+def live_positions(broker: str):
+    """Show current open positions."""
+    from trading_agent.cli import _live_adapters
+
+    adapter = _live_adapters.get(broker)
+    if not adapter:
+        console.print(f"[yellow]Not connected to {broker}. Run `trading-agent live connect --broker {broker}` first.[/yellow]")
+        return
+
+    try:
+        positions = adapter.get_positions()
+        
+        if not positions:
+            console.print("[dim]No open positions[/dim]")
+            return
+        
+        console.print(f"[bold]{broker.upper()} Open Positions[/bold]")
+        t = Table("Symbol", "Side", "Qty", "Entry", "Current", "P&L", "P&L%", "Market Value")
+        for pos in positions:
+            pnl = float(pos.get('unrealized_pl', 0))
+            pnl_pct = float(pos.get('unrealized_plpc', 0)) * 100
+            color = "green" if pnl >= 0 else "red"
+            side = pos.get('side', 'long')
+            t.add_row(
+                pos.get('symbol', 'N/A'),
+                side.upper(),
+                f"{float(pos.get('qty', 0)):.4f}",
+                f"${float(pos.get('avg_entry_price', 0)):,.2f}",
+                f"${float(pos.get('current_price', 0)):,.2f}",
+                f"[{color}]${pnl:+,.2f}[/{color}]",
+                f"[{color}]{pnl_pct:+.2f}%[/{color}]",
+                f"${float(pos.get('market_value', 0)):,.2f}",
+            )
+        console.print(t)
+    except Exception as e:
+        console.print(f"[red]Error fetching positions: {e}[/red]")
+
+
+@live.command("orders")
+@click.option("--broker", "-b", type=click.Choice(["alpaca", "oanda", "ccxt"]), default="alpaca", help="Broker")
+@click.option("--status", "-s", type=click.Choice(["open", "closed", "all"]), default="open", help="Order status filter")
+@click.option("--limit", "-n", default=20, type=int, help="Number of orders to show")
+def live_orders(broker: str, status: str, limit: int):
+    """Show order history."""
+    from trading_agent.cli import _live_adapters
+
+    adapter = _live_adapters.get(broker)
+    if not adapter:
+        console.print(f"[yellow]Not connected to {broker}. Run `trading-agent live connect --broker {broker}` first.[/yellow]")
+        return
+
+    try:
+        orders = adapter.get_orders(status=status, limit=limit)
+        
+        if not orders:
+            console.print(f"[dim]No {status} orders[/dim]")
+            return
+        
+        console.print(f"[bold]{broker.upper()} {status.title()} Orders (last {limit})[/bold]")
+        t = Table("ID", "Symbol", "Side", "Type", "Qty", "Filled", "Price", "Status", "Time")
+        for o in orders:
+            filled = float(o.get('filled_qty', 0))
+            total = float(o.get('qty', 0))
+            avg_price = float(o.get('avg_fill_price', 0)) if o.get('avg_fill_price') else 0
+            t.add_row(
+                o.get('id', 'N/A')[:8],
+                o.get('symbol', 'N/A'),
+                o.get('side', 'N/A').upper(),
+                o.get('type', 'N/A').upper(),
+                f"{total:.4f}",
+                f"{filled:.4f}",
+                f"${avg_price:,.2f}" if avg_price else "—",
+                o.get('status', 'N/A').upper(),
+                o.get('submitted_at', 'N/A')[:19].replace('T', ' '),
+            )
+        console.print(t)
+    except Exception as e:
+        console.print(f"[red]Error fetching orders: {e}[/red]")
+
+
+@live.command("order")
+@click.argument("symbol")
+@click.argument("side", type=click.Choice(["buy", "sell"]))
+@click.argument("qty", type=float)
+@click.option("--broker", "-b", type=click.Choice(["alpaca", "oanda", "ccxt"]), default="alpaca", help="Broker")
+@click.option("--type", "order_type", type=click.Choice(["market", "limit", "stop", "stop_limit", "twap", "vwap"]), default="market", help="Order type")
+@click.option("--price", "-p", default=None, type=float, help="Limit/stop price")
+@click.option("--stop-price", default=None, type=float, help="Stop price for stop_limit")
+@click.option("--time-in-force", type=click.Choice(["day", "gtc", "ioc", "fok"]), default="day", help="Time in force")
+@click.option("--dry-run/--execute", default=True, help="Dry run (default) or execute")
+def live_order(
+    symbol: str,
+    side: str,
+    qty: float,
+    broker: str,
+    order_type: str,
+    price: float | None,
+    stop_price: float | None,
+    time_in_force: str,
+    dry_run: bool,
+):
+    """Place an order."""
+    from trading_agent.cli import _live_adapters
+    from decimal import Decimal
+    from trading_agent.exchanges.models import (
+        OrderSide, OrderType, TimeInForce, Order, crypto_symbol, stock_symbol,
+        forex_symbol,
+    )
+
+    adapter = _live_adapters.get(broker)
+    if not adapter:
+        console.print(f"[yellow]Not connected to {broker}. Run `trading-agent live connect --broker {broker}` first.[/yellow]")
+        return
+
+    if order_type in ["limit", "stop_limit"] and price is None:
+        console.print(f"[red]Price required for {order_type} orders[/red]")
+        return
+
+    if order_type == "stop_limit" and stop_price is None:
+        console.print("[red]Stop price required for stop_limit orders[/red]")
+        return
+
+    # Determine unified symbol by broker asset class
+    if broker == "alpaca":
+        sym = stock_symbol(symbol, "alpaca")
+    elif broker == "oanda":
+        base, _, quote = symbol.partition("/")
+        sym = forex_symbol(base, quote, "oanda")
+    else:
+        sym = crypto_symbol(symbol, "binance")
+
+    # twap/vwap are smart-execution types, not broker types → execute as market
+    broker_type = order_type if order_type in ("market", "limit", "stop", "stop_limit") else "market"
+
+    from datetime import datetime
+    order = Order(
+        id=f"cli_{datetime.now().timestamp()}",
+        symbol=sym,
+        side=OrderSide.BUY if side == "buy" else OrderSide.SELL,
+        type=OrderType(broker_type.upper()),
+        size=Decimal(str(qty)),
+        price=Decimal(str(price)) if price else None,
+        stop_price=Decimal(str(stop_price)) if stop_price else None,
+        time_in_force=TimeInForce(time_in_force.upper()),
+    )
+
+    console.print(f"[bold]Order: {side.upper()} {qty:.4f} {sym.pair} @ {order_type.upper()}{f' ${price:,.2f}' if price else ''}[/bold]")
+    console.print(f"  Time in force: {time_in_force.upper()}")
+
+    if dry_run:
+        console.print("[yellow]DRY RUN - order not placed[/yellow]")
+        return
+
+    # Confirm
+    from rich.prompt import Confirm
+    if not Confirm.ask("Execute this order?"):
+        console.print("[yellow]Cancelled[/yellow]")
+        return
+
+    try:
+        result = adapter.place_order(order)
+        console.print("[green]✅ Order placed![/green]")
+        console.print(f"  Order ID: {result.get('id', 'N/A')}")
+        console.print(f"  Status: {result.get('status', 'N/A')}")
+        if result.get('filled_qty'):
+            console.print(f"  Filled: {float(result['filled_qty']):.4f} @ ${float(result['avg_fill_price']):,.2f}")
+        if result.get('error'):
+            console.print(f"[red]  Error: {result['error']}[/red]")
+    except Exception as e:
+        console.print(f"[red]❌ Order failed: {e}[/red]")
+
+
+@live.command("run")
+@click.argument("symbol")
+@click.option("--timeframe", "-t", default="1h", help="Timeframe")
+@click.option("--broker", "-b", type=click.Choice(["alpaca", "oanda", "ccxt"]), default="alpaca", help="Broker")
+@click.option("--strategy", "-s", default="regime_switching", help="Strategy to run")
+@click.option("--capital", "-c", default=None, type=float, help="Portfolio value override")
+@click.option("--stop-loss", default=0.05, type=float, help="Stop-loss distance")
+@click.option("--interval", "-i", default=300, type=int, help="Run interval in seconds")
+@click.option("--iterations", "-n", default=0, type=int, help="Number of iterations (0 = infinite)")
+@click.option("--dry-run/--execute", default=True, help="Dry run (default) or execute")
+def live_run(
+    symbol: str,
+    timeframe: str,
+    broker: str,
+    strategy: str,
+    capital: float | None,
+    stop_loss: float,
+    interval: int,
+    iterations: int,
+    dry_run: bool,
+):
+    """Run live trading loop with regime-switching strategy."""
+    import time
+    from trading_agent.cli import _live_adapters
+    from trading_agent.agents.orchestrator import Orchestrator
+
+    adapter = _live_adapters.get(broker)
+    if not adapter:
+        console.print(f"[yellow]Not connected to {broker}. Run `trading-agent live connect --broker {broker}` first.[/yellow]")
+        return
+
+    # Create execution engine with live adapter
+    from trading_agent.execution.engine import ExecutionEngine
+    from trading_agent.execution.risk_controller import RiskController
+    
+    class LiveExchange:
+        def __init__(self, adapter):
+            self.adapter = adapter
+            self._last_price_cache = {}
+        
+        def get_position(self, symbol):
+            positions = self.adapter.get_positions()
+            for p in positions:
+                if p.get('symbol') == symbol:
+                    return type('obj', (object,), {
+                        'symbol': symbol,
+                        'quantity': float(p.get('qty', 0)),
+                        'entry_price': float(p.get('avg_entry_price', 0)),
+                        'current_price': float(p.get('current_price', 0)),
+                        'is_active': float(p.get('qty', 0)) != 0,
+                        'stop_loss': None,
+                    })()
+            return type('obj', (object,), {
+                'symbol': symbol, 'quantity': 0, 'entry_price': 0,
+                'current_price': 0, 'is_active': False, 'stop_loss': None
+            })()
+        
+        def get_total_equity(self):
+            account = self.adapter.get_account()
+            return float(account.get('portfolio_value', 0))
+        
+        def get_cash(self):
+            account = self.adapter.get_account()
+            return float(account.get('cash', 0))
+        
+        def get_last_price(self, symbol):
+            if symbol in self._last_price_cache:
+                return self._last_price_cache[symbol]
+            # Try to get from positions or quotes
+            positions = self.adapter.get_positions()
+            for p in positions:
+                if p.get('symbol') == symbol:
+                    return float(p.get('current_price', 0))
+            return 0
+        
+        def place_order(self, order):
+            return self.adapter.place_order(order)
+        
+        def cancel_order(self, order_id):
+            return self.adapter.cancel_order(order_id)
+        
+        def get_open_orders(self):
+            return self.adapter.get_orders(status="open")
+
+    live_exchange = LiveExchange(adapter)
+    engine = ExecutionEngine(exchange=live_exchange, initial_capital=capital or live_exchange.get_total_equity())
+    rc = RiskController(engine)
+    orchestrator = Orchestrator()
+
+    console.print(f"[bold]Starting live trading: {symbol} {timeframe} on {broker.upper()}[/bold]")
+    console.print(f"  Strategy: {strategy}")
+    console.print(f"  Stop-loss: {stop_loss * 100:.1f}%")
+    console.print(f"  Interval: {interval}s")
+    console.print(f"  Mode: {'DRY RUN' if dry_run else 'LIVE EXECUTION'}")
+    console.print(f"  Iterations: {'∞' if iterations == 0 else iterations}")
+    console.print("\n[dim]Press Ctrl+C to stop[/dim]\n")
+
+    try:
+        iteration = 0
+        while iterations == 0 or iteration < iterations:
+            iteration += 1
+            console.print(f"\n[cyan]=== Iteration {iteration} @ {time.strftime('%H:%M:%S')} ===[/cyan]")
+
+            try:
+                # 1. Get current position
+                existing_pos = engine.exchange.get_position(symbol)
+                current_pos_pct = (existing_pos.quantity * existing_pos.entry_price / engine.exchange.get_total_equity()) if existing_pos and existing_pos.is_active else 0.0
+                port_value = capital or engine.exchange.get_total_equity()
+
+                # 2. Run agents
+                report = orchestrator.analyze(
+                    symbol=symbol,
+                    timeframe=timeframe,
+                    current_position_pct=current_pos_pct,
+                    portfolio_value=port_value,
+                )
+
+                decision = report.final_decision
+                console.print(f"  Signal: {decision.signal} (conf={decision.confidence:.0%}) — {decision.reasoning[:80]}")
+
+                if decision.signal == "HOLD":
+                    console.print("  [yellow]HOLD — no trade[/yellow]")
+                else:
+                    # 3. Execute signal
+                    engine.exchange._last_price_cache[symbol] = report.current_price
+                    orders = engine.execute_signal(decision)
+
+                    if orders:
+                        for o in orders:
+                            console.print(f"  [green]→ {o.side.value.upper()} {o.amount:.4f} {symbol} @ ${o.avg_fill_price or report.current_price:,.2f}[/green]")
+                        if decision.signal == "BUY" and stop_loss > 0:
+                            engine.set_stop_loss(symbol, stop_loss)
+                            pos = engine.exchange.get_position(symbol)
+                            if pos and pos.stop_loss:
+                                console.print(f"  🛡️  Stop-loss: ${pos.stop_loss:,.2f}")
+
+                    # 4. Risk checks
+                    warnings = rc.check_all()
+                    if warnings:
+                        for w in warnings:
+                            console.print(f"  [red]⚠ {w}[/red]")
+                        if rc._circuit_breaker_active:
+                            console.print("[bold red]🔴 CIRCUIT BREAKER ACTIVATED[/bold red]")
+                            break
+
+            except FileNotFoundError as e:
+                console.print(f"  [red]Data not found: {e}[/red]")
+            except Exception as e:
+                console.print(f"  [red]Error: {e}[/red]")
+                import traceback
+                traceback.print_exc()
+
+            if iterations == 0 or iteration < iterations:
+                console.print(f"  [dim]Sleeping {interval}s...[/dim]")
+                time.sleep(interval)
+
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Stopped by user[/yellow]")
+    finally:
+        console.print("[green]Live trading session ended[/green]")
+
+
+@live.command("monitor")
+@click.option("--broker", "-b", type=click.Choice(["alpaca", "oanda", "ccxt"]), default="alpaca", help="Broker")
+@click.option("--interval", "-i", default=30, type=int, help="Update interval in seconds")
+@click.option("--iterations", "-n", default=0, type=int, help="Number of iterations (0 = infinite)")
+def live_monitor(broker: str, interval: int, iterations: int):
+    """Monitor live trading: positions, P&L, orders, risk."""
+    import time
+    from trading_agent.cli import _live_adapters
+    from trading_agent.execution.engine import ExecutionEngine
+    from trading_agent.execution.risk_controller import RiskController
+
+    adapter = _live_adapters.get(broker)
+    if not adapter:
+        console.print(f"[yellow]Not connected to {broker}. Run `trading-agent live connect --broker {broker}` first.[/yellow]")
+        return
+
+    class LiveExchange:
+        def __init__(self, adapter):
+            self.adapter = adapter
+        
+        def get_position(self, symbol):
+            positions = self.adapter.get_positions()
+            for p in positions:
+                if p.get('symbol') == symbol:
+                    return type('obj', (object,), {
+                        'symbol': symbol,
+                        'quantity': float(p.get('qty', 0)),
+                        'entry_price': float(p.get('avg_entry_price', 0)),
+                        'current_price': float(p.get('current_price', 0)),
+                        'is_active': float(p.get('qty', 0)) != 0,
+                        'stop_loss': None,
+                    })()
+            return type('obj', (object,), {
+                'symbol': symbol, 'quantity': 0, 'entry_price': 0,
+                'current_price': 0, 'is_active': False, 'stop_loss': None
+            })()
+        
+        def get_total_equity(self):
+            account = self.adapter.get_account()
+            return float(account.get('portfolio_value', 0))
+        
+        def get_cash(self):
+            account = self.adapter.get_account()
+            return float(account.get('cash', 0))
+        
+        def get_open_orders(self):
+            return self.adapter.get_orders(status="open")
+
+    live_exchange = LiveExchange(adapter)
+    engine = ExecutionEngine(exchange=live_exchange)
+    rc = RiskController(engine)
+
+    console.print(f"[bold]Monitoring {broker.upper()}...[/bold]")
+    console.print("[dim]Press Ctrl+C to stop[/dim]\n")
+
+    try:
+        iteration = 0
+        while iterations == 0 or iteration < iterations:
+            iteration += 1
+            console.print(f"\n[cyan]=== Monitor Update {iteration} @ {time.strftime('%H:%M:%S')} ===[/cyan]")
+
+            # Portfolio summary
+            account = adapter.get_account()
+            equity = float(account.get('portfolio_value', 0))
+            cash = float(account.get('cash', 0))
+            unrealized = float(account.get('unrealized_pl', 0))
+            
+            ret_str = f"[green]{unrealized:+,.2f}[/green]" if unrealized >= 0 else f"[red]{unrealized:+,.2f}[/red]"
+            console.print(f"  Equity: ${equity:,.2f}  Cash: ${cash:,.2f}  Unrealized P&L: {ret_str}")
+
+            # Positions
+            positions = adapter.get_positions()
+            if positions:
+                t = Table("Symbol", "Qty", "Entry", "Current", "P&L", "P&L%")
+                for p in positions:
+                    pnl = float(p.get('unrealized_pl', 0))
+                    pnl_pct = float(p.get('unrealized_plpc', 0)) * 100
+                    color = "green" if pnl >= 0 else "red"
+                    t.add_row(
+                        p.get('symbol', 'N/A'),
+                        f"{float(p.get('qty', 0)):.4f}",
+                        f"${float(p.get('avg_entry_price', 0)):,.2f}",
+                        f"${float(p.get('current_price', 0)):,.2f}",
+                        f"[{color}]${pnl:+,.2f}[/{color}]",
+                        f"[{color}]{pnl_pct:+.2f}%[/{color}]",
+                    )
+                console.print(t)
+            else:
+                console.print("  [dim]No open positions[/dim]")
+
+            # Open orders
+            orders = adapter.get_orders(status="open", limit=10)
+            if orders:
+                console.print("  [bold]Open Orders:[/bold]")
+                t = Table("Symbol", "Side", "Type", "Qty", "Filled", "Status")
+                for o in orders:
+                    t.add_row(
+                        o.get('symbol', 'N/A'),
+                        o.get('side', 'N/A').upper(),
+                        o.get('type', 'N/A').upper(),
+                        f"{float(o.get('qty', 0)):.4f}",
+                        f"{float(o.get('filled_qty', 0)):.4f}",
+                        o.get('status', 'N/A').upper(),
+                    )
+                console.print(t)
+
+            # Risk status
+            warnings = rc.check_all()
+            if warnings:
+                console.print("  [bold red]Risk Warnings:[/bold red]")
+                for w in warnings:
+                    console.print(f"    ⚠ {w}")
+
+            if iterations == 0 or iteration < iterations:
+                time.sleep(interval)
+
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Monitor stopped[/yellow]")
+
+
+# ── meta-learning subcommands ───────────────────────────────────────────.add_row(r["symbol"], r["signal"], str(r["orders"]), status_icon)
+    console.print(t)
+
+    # Show portfolio status
+    console.print()
+    execution_status.callback()
+
+
 # ── meta-learning subcommands ───────────────────────────────────────────
 
 
@@ -2488,7 +3099,6 @@ def options_iron_condor(symbol: str, delta_short: float, delta_long: float, dte_
 def options_gamma_scalp(symbol: str, simulate: bool, steps: int, vol: float):
     """Gamma scalping: buy straddle + dynamic delta hedge."""
     import random
-    from rich.table import Table as RichTable
 
     provider = OptionChainProvider(dry_run=True)
     strategy = GammaScalpStrategy(symbol, provider)
@@ -2500,7 +3110,7 @@ def options_gamma_scalp(symbol: str, simulate: bool, steps: int, vol: float):
         console.print("[red]Could not enter straddle[/red]")
         return
 
-    console.print(f"\n[bold]Gamma Scalp Entered[/bold]")
+    console.print("\n[bold]Gamma Scalp Entered[/bold]")
     console.print(f"  Strike: ${enter_result['strike']:,.0f}")
     console.print(f"  Cost: ${enter_result['total_cost']:.2f}")
     console.print(f"  Initial Delta: {enter_result['initial_delta']:.4f}")
@@ -2519,7 +3129,7 @@ def options_gamma_scalp(symbol: str, simulate: bool, steps: int, vol: float):
 
         # Exit
         exit_result = strategy.exit_straddle(provider.get_chain(symbol, spot=spot))
-        console.print(f"\n[bold]Simulation Complete[/bold]")
+        console.print("\n[bold]Simulation Complete[/bold]")
         console.print(f"  Final Spot: ${spot:,.0f}")
         console.print(f"  Straddle P&L: ${exit_result['straddle_pnl']:+.2f}")
         console.print(f"  Scalp P&L: ${exit_result['scalp_pnl']:+.2f}")
@@ -2583,7 +3193,7 @@ def options_dispersion(index_symbol: str, components: str):
         console.print("[yellow]No dispersion signals found[/yellow]")
         return
 
-    console.print(f"\n[bold]Dispersion Signals[/bold]")
+    console.print("\n[bold]Dispersion Signals[/bold]")
     console.print(f"  Index: {index_symbol}")
     console.print(f"  Components: {', '.join(comp_list)}")
     for s in signals:

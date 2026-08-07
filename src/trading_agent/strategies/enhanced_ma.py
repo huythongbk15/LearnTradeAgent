@@ -115,7 +115,10 @@ class EnhancedMaCrossover(Strategy):
             (filtered == -1) & (~pl.col("trend_up"))
         ).then(-1).otherwise(0)
         
-        return final_signal.alias("signal")
+        return (
+            df.select(final_signal.alias("signal"))
+            .to_series()
+        )
 
 
 # Also create a simpler version with just ADX filter
@@ -179,7 +182,10 @@ class MaAdxCrossover(Strategy):
             (crossover == -1) & (pl.col("adx") > self.adx_threshold) & (~pl.col("trend_up"))
         ).then(-1).otherwise(0)
         
-        return final.alias("signal")
+        return (
+            df.select(final.alias("signal"))
+            .to_series()
+        )
 
 
 @register_strategy("ma_vol_target")
@@ -208,7 +214,12 @@ class MaVolTargetCrossover(Strategy):
         slow_col = f"ma_{self.slow}"
         raw = pl.when(pl.col(fast_col) > pl.col(slow_col)).then(1).when(pl.col(fast_col) < pl.col(slow_col)).then(-1).otherwise(0)
         prev = raw.shift(1)
-        return pl.when((raw != prev) & (raw != 0)).then(raw).otherwise(0).alias("signal")
+        return (
+            df.select(
+                pl.when((raw != prev) & (raw != 0)).then(raw).otherwise(0).alias("signal")
+            )
+            .to_series()
+        )
 
 
 # ============================================================
@@ -347,7 +358,10 @@ class EnsembleMaAdx(Strategy):
         else:
             final_signal = pl.lit(0)
         
-        return final_signal.alias("signal")
+        return (
+            df.select(final_signal.alias("signal"))
+            .to_series()
+        )
 
 
 @register_strategy("ma_adx_regime")
@@ -406,4 +420,7 @@ class MaAdxRegimeAware(Strategy):
                   .when(short_cond).then(-1) \
                   .otherwise(0)
         
-        return final.alias("signal")
+        return (
+            df.select(final.alias("signal"))
+            .to_series()
+        )

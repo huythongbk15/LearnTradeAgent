@@ -36,6 +36,20 @@ mem_agent/
 .env.production
 config/credentials.yaml
 
+# Backtest result artifacts (per-symbol / WFO / strength dumps at repo root)
+/enhanced_*.json
+/ma_*.json
+/rsi_*.json
+/bbands_*.json
+/test_exec*.json
+config/wfo_config.json
+data/wfo_results_3y.json
+data/wfo_ma_adx_results.json
+data/multi_pair_optimization_results.json
+data/optimal_strategy_config.json
+data/qwenpaw_process_registry.db
+data/wfo_results/
+
 # Allow these templates (commit-safe)
 !.env.example
 

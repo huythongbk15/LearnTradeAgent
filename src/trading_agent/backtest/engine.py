@@ -15,9 +15,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+import numpy as np
 import polars as pl
 
 from trading_agent.config.loader import config
+from trading_agent.risk.position_sizer import PositionSizer, PositionSizingParams, calculate_kelly_fraction, calculate_half_kelly
 from trading_agent.strategies.base import Strategy
 
 # ── Results ───────────────────────────────────────────────────────────────
@@ -90,12 +92,40 @@ class BacktestEngine:
         commission: float = 0.001,
         slippage: float = 0.0005,
         long_only: bool = True,
+        # Position sizing
+        position_sizing_method: str = "fixed",  # fixed, kelly, half_kelly, vol_target, optimal_f
+        fixed_position_pct: float = 0.1,        # Fixed fraction of equity per trade
+        kelly_fraction: float = 0.5,            # 0.5 = half-Kelly, 0.25 = quarter-Kelly
+        target_annual_vol: float = 0.15,        # For vol targeting
+        max_leverage: float = 2.0,              # Max portfolio leverage
+        max_position_pct: float = 1.0,          # Max single position as fraction of equity
     ) -> None:
         self.strategy = strategy
         self.initial_capital = initial_capital
         self.commission = commission
         self.slippage = slippage
         self.long_only = long_only
+
+        # Position sizing config
+        self.position_sizing_method = position_sizing_method
+        self.fixed_position_pct = fixed_position_pct
+        self.kelly_fraction = kelly_fraction
+        self.target_annual_vol = target_annual_vol
+        self.max_leverage = max_leverage
+        self.max_position_pct = max_position_pct
+
+        # Initialize position sizer
+        self.position_sizer = PositionSizer(PositionSizingParams(
+            method=position_sizing_method,
+            fixed_fraction=fixed_position_pct,
+            kelly_fraction=kelly_fraction,
+            target_annual_vol=target_annual_vol,
+            max_leverage=max_leverage,
+            max_position_pct=max_position_pct,
+        ))
+
+        # Trade history for Kelly estimation
+        self._trade_history: list[dict] = []
 
     def run(
         self,
@@ -121,13 +151,10 @@ class BacktestEngine:
         signals = self.strategy.generate_signals(df)
         df = df.with_columns(signals.alias("signal"))
 
-        # 3. Track positions (vectorized)
-        df = self._compute_positions(df)
+        # 3. Compute positions and returns together (handles dynamic sizing)
+        df = self._compute_positions_and_returns(df)
 
-        # 4. Compute portfolio returns
-        df = self._compute_returns(df)
-
-        # 5. Build equity curve
+        # 4. Build equity curve
         df = self._build_equity_curve(df)
 
         # 6. Extract trades
@@ -148,70 +175,72 @@ class BacktestEngine:
 
     # ── Internal computation steps ─────────────────────────────────────
 
-    def _compute_positions(self, df: pl.DataFrame) -> pl.DataFrame:
-        """Từ signals (+1, 0, -1), tính position từng bar."""
-        # Vị thế được giữ cho đến khi có tín hiệu đổi
-        # +1 → position = 1, -1 → position = 0, 0 → giữ nguyên
-        if self.long_only:
-            position = df.select(
-                pl.when(pl.col("signal") == 1)
-                .then(1)
-                .when(pl.col("signal") == -1)
-                .then(0)
-                .otherwise(None)  # forward-fill
-                .alias("_pos_temp")
-            ).to_series()
-
-            # Forward-fill: giữ position cho đến khi có tín hiệu mới
-            position = position.forward_fill().fill_null(0)
-            df = df.with_columns(position.alias("position"))
-        else:
-            # Long/Short mode
-            position = df.select(
-                pl.when(pl.col("signal") == 1)
-                .then(1)
-                .when(pl.col("signal") == -1)
-                .then(-1)
-                .otherwise(None)
-                .alias("_pos_temp")
-            ).to_series()
-
-            position = position.forward_fill().fill_null(0)
-            df = df.with_columns(position.alias("position"))
-
+    def _compute_positions_and_returns(self, df: pl.DataFrame) -> pl.DataFrame:
+        """
+        Compute positions and returns in a single pass.
+        This avoids circular dependency between equity and position sizing.
+        """
+        n = len(df)
+        positions = np.zeros(n, dtype=np.float64)
+        net_returns = np.zeros(n, dtype=np.float64)
+        
+        close_prices = df["close"].to_numpy()
+        signals = df["signal"].to_numpy()
+        atr_values = df["atr"].to_numpy() if "atr" in df.columns else None
+        
+        # Track equity for position sizing
+        equity = self.initial_capital
+        position = 0.0
+        entry_price = 0.0
+        
+        for i in range(n):
+            signal = signals[i]
+            price = close_prices[i]
+            
+            if signal == 1 and position == 0:
+                # Enter long
+                atr = atr_values[i] if atr_values is not None else None
+                size = self.position_sizer.calculate_position_size(
+                    equity=equity,
+                    price=price,
+                    atr=atr,
+                    current_portfolio_value=0,
+                    current_positions=0,
+                )
+                position = size
+                entry_price = price
+                
+            elif signal == -1 and position > 0:
+                # Exit long
+                pnl = (price - entry_price) * position
+                self.position_sizer.update_trade(
+                    pnl=pnl,
+                    entry_price=entry_price,
+                    exit_price=price,
+                    size=position
+                )
+                # Net return for this bar (exit bar)
+                net_returns[i] = pnl / equity - (self.commission + self.slippage)
+                position = 0.0
+                entry_price = 0.0
+            
+            positions[i] = position
+            
+            # Compute bar return for holding period
+            if position > 0 and i > 0:
+                price_return = price / close_prices[i-1] - 1
+                # Return on equity = position_value / equity * price_return
+                position_value = position * close_prices[i-1]
+                net_returns[i] = (position_value / equity) * price_return
+            
+            # Update equity for next bar's position sizing
+            equity *= (1 + net_returns[i])
+        
+        df = df.with_columns([
+            pl.Series("position", positions),
+            pl.Series("net_return", net_returns),
+        ])
         return df
-
-    def _compute_returns(self, df: pl.DataFrame) -> pl.DataFrame:
-        """Tính return từng bar dựa trên position."""
-        # Price return (close → close) — tính trước
-        df = df.with_columns(
-            (pl.col("close") / pl.col("close").shift(1) - 1).alias("price_return")
-        )
-
-        # Strategy return = position × previous-bar price return
-        df = df.with_columns(
-            (pl.col("position").shift(1) * pl.col("price_return")).alias("strategy_return")
-        )
-
-        # Phí giao dịch khi position thay đổi
-        df = df.with_columns(
-            ((pl.col("position") != pl.col("position").shift(1))
-             & pl.col("position").is_not_null())
-            .alias("_pos_changed")
-        )
-        df = df.with_columns(
-            pl.when(pl.col("_pos_changed"))
-            .then(self.commission + self.slippage)
-            .otherwise(0.0)
-            .alias("trade_cost")
-        )
-
-        # Net return
-        df = df.with_columns(
-            (pl.col("strategy_return") - pl.col("trade_cost")).alias("net_return")
-        )
-
-        return df.drop("_pos_changed")
 
     def _build_equity_curve(self, df: pl.DataFrame) -> pl.DataFrame:
         """Từ net return, build equity curve với compounding."""
@@ -243,15 +272,17 @@ class BacktestEngine:
         in_position = False
         entry_idx = -1
         entry_price = 0.0
+        position_size = 0.0
 
         for i in range(len(pos_col)):
             pos = pos_col[i]
-            if not in_position and pos == 1:
+            if not in_position and pos > 0:
                 # Enter long
                 in_position = True
                 entry_idx = i
                 entry_price = close_col[i]
-            elif in_position and pos != 1:
+                position_size = pos
+            elif in_position and pos == 0:
                 # Exit
                 exit_price = close_col[i]
                 pnl_pct = (exit_price / entry_price - 1) * 100
@@ -265,6 +296,7 @@ class BacktestEngine:
                     bars_held=i - entry_idx,
                 ))
                 in_position = False
+                position_size = 0.0
 
         return trades
 
@@ -351,6 +383,8 @@ def run_backtest(
     """Load data + run backtest — one function for CLI use."""
     from trading_agent.data.storage import load_ohlcv
     from trading_agent.strategies.base import get_strategy
+    # Import strategies to register them
+    import trading_agent.strategies  # noqa: F401
 
     df = load_ohlcv(config.default_exchange, symbol, timeframe)
     strategy_cls = get_strategy(strategy_name)
