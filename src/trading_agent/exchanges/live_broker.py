@@ -113,7 +113,8 @@ class LiveBroker:
 
     def place_order(self, order: Order) -> dict:
         if not order.client_order_id:
-            order.client_order_id = "cli"
+            import uuid
+            order.client_order_id = f"cli-{uuid.uuid4().hex[:16]}"
         result = _run(self.adapter.create_order(order))
         return {
             "id": result.id,

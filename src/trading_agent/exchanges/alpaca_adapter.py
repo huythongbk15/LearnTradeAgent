@@ -24,14 +24,16 @@ try:
     import alpaca.trading.requests as trading_requests
     import alpaca.data.historical as data_historical
     import alpaca.data.requests as data_requests
-    import alpaca.data.enums as data_enums
+    import alpaca.data as data_module
+    from alpaca.data import TimeFrame, TimeFrameUnit
     from alpaca.common.exceptions import APIError
     ALPACA_AVAILABLE = True
 except ImportError:
     # Optional SDK — adapter is importable without alpaca-py (e.g. in CI),
     # but raises a clear error when used.
     trading_client = trading_enums = trading_models = trading_requests = None
-    data_historical = data_requests = data_enums = None
+    data_historical = data_requests = data_module = None
+    TimeFrame = TimeFrameUnit = None
     APIError = Exception
     ALPACA_AVAILABLE = False
 
@@ -179,13 +181,13 @@ class AlpacaAdapter:
         """Fetch OHLCV bars"""
         try:
             tf_map = {
-                "1m": data_enums.TimeFrame.Minute,
-                "5m": data_enums.TimeFrame.Minute * 5,
-                "15m": data_enums.TimeFrame.Minute * 15,
-                "1h": data_enums.TimeFrame.Hour,
-                "1d": data_enums.TimeFrame.Day,
+                "1m": TimeFrame(1, TimeFrameUnit.Minute),
+                "5m": TimeFrame(5, TimeFrameUnit.Minute),
+                "15m": TimeFrame(15, TimeFrameUnit.Minute),
+                "1h": TimeFrame(1, TimeFrameUnit.Hour),
+                "1d": TimeFrame(1, TimeFrameUnit.Day),
             }
-            tf = tf_map.get(timeframe, data_enums.TimeFrame.Day)
+            tf = tf_map.get(timeframe, TimeFrame(1, TimeFrameUnit.Day))
 
             request = data_requests.StockBarsRequest(
                 symbol_or_symbols=symbol.base,
@@ -220,7 +222,8 @@ class AlpacaAdapter:
                 TimeInForce.GTC: trading_enums.TimeInForce.GTC,
                 TimeInForce.IOC: trading_enums.TimeInForce.IOC,
                 TimeInForce.FOK: trading_enums.TimeInForce.FOK,
-                TimeInForce.GTD: trading_enums.TimeInForce.GTD,
+                # GTD natively unsupported by alpaca-py — gracefully fall back to GTC
+                TimeInForce.GTD: getattr(trading_enums.TimeInForce, "GTD", trading_enums.TimeInForce.GTC),
             }
 
             req = trading_requests.MarketOrderRequest(
@@ -334,7 +337,7 @@ class AlpacaAdapter:
             trading_enums.TimeInForce.GTC: TimeInForce.GTC,
             trading_enums.TimeInForce.IOC: TimeInForce.IOC,
             trading_enums.TimeInForce.FOK: TimeInForce.FOK,
-            trading_enums.TimeInForce.GTD: TimeInForce.GTD,
+            trading_enums.TimeInForce.DAY: TimeInForce.IOC,  # DAY → IOC approximation
         }
 
         return Order(
