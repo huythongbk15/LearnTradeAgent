@@ -31,11 +31,14 @@ from trading_agent.exchanges.live_broker import LiveBroker
 
 # ── Config ─────────────────────────────────────────────────────────────
 # NOTE: Alpaca does NOT support BNB — replace with ETH (liquid, supported)
+# FULL-CAPITAL allocation (100% deployed, no idle cash):
+#   BTC 40% · SOL 30% · AVAX 30%   (all currently LONG per strategy)
+#   ETH excluded — strategy state FLAT (ADX>40 but no fresh BUY crossover);
+#   keep 0% so cash is fully deployed on the 3 trending symbols.
 SYMBOLS = [
-    ("BTC/USDT", "BTCUSD", 0.30),   # 30% capital
-    ("SOL/USDT", "SOLUSD", 0.25),   # 25%
-    ("AVAX/USDT", "AVAXUSD", 0.20), # 20%
-    ("ETH/USDT", "ETHUSD", 0.25),   # 25% (BNB not on Alpaca)
+    ("BTC/USDT", "BTCUSD", 0.40),   # 40% capital
+    ("SOL/USDT", "SOLUSD", 0.30),   # 30%
+    ("AVAX/USDT", "AVAXUSD", 0.30), # 30%
 ]
 TIMEFRAME = "1h"
 LOOKBACK = 1000
@@ -213,6 +216,24 @@ def main():
             print(f"  [DRY-RUN] Would {d['action']} {d['qty']:.6f} {d['alpaca_symbol']} @ ${d['price']:.2f}")
             continue
 
+        # Cap BUY size by REAL available cash (re-fetch before each order)
+        # → tránh "insufficient balance" khi nhiều lệnh BUY cùng chu kỳ
+        try:
+            acct_now = broker.get_account()
+            cash_now = float(acct_now["cash"])
+        except Exception:
+            cash_now = float(acct_now["cash"]) if "acct_now" in dir() else 0.0
+
+        qty = float(d["qty"])
+        if d["action"] == "BUY":
+            cost = qty * d["price"]
+            if cost > cash_now:
+                qty = (cash_now * 0.95) / d["price"]   # buffer 5% cho slippage (market order)
+                print(f"  ℹ️  cash-limited: {d['qty']:.6f} → {qty:.6f} (cash ${cash_now:,.2f})")
+            if qty <= 0:
+                print(f"  ⏭️  SKIP — no available cash (${cash_now:,.2f})")
+                continue
+
         try:
             symbol = Symbol(
                 base=d["alpaca_symbol"],
@@ -226,7 +247,7 @@ def main():
                 symbol=symbol,
                 side=OrderSide.BUY if d["action"] == "BUY" else OrderSide.SELL,
                 type=OrderType.MARKET,
-                size=Decimal(str(round(d["qty"], 6))),
+                size=Decimal(str(round(qty, 6))),
                 time_in_force=TimeInForce.GTC,
             )
             result = broker.place_order(order)
