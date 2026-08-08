@@ -48,6 +48,46 @@ class LiveBroker:
                 "unrealized_pl": 0.0,
                 "realized_pl_day": 0.0,
             }
+        if self.broker in ("ccxt", "binance", "bybit", "okx"):
+            # Spot-style account from fetch_balance()
+            balance = _run(self.adapter.fetch_balance())
+            assets = balance.get(AssetClass.CRYPTO, None)
+            total_usdt = 0.0
+            free_usdt = 0.0
+            # Lấy toàn bộ coin khác quote → giá trị qui về USDT
+            main_quote = "USDT" if self.broker == "binance" else "USDT"
+            base_total = {}
+            for pair, amounts in (assets.assets.items() if assets else {}):
+                base_total[pair] = float(amounts.get("total", 0))
+            free_usdt = base_total.get(main_quote, 0.0)
+            # Định giá coin khác quote bằng ticker (bỏ coin quote chính)
+            for coin, amt in base_total.items():
+                if coin == main_quote or amt <= 0:
+                    continue
+                try:
+                    tick = _run(self.adapter.fetch_ticker(Symbol(
+                        base=coin, quote=main_quote, asset_class=AssetClass.CRYPTO,
+                        market_type=MarketType.SPOT, exchange=self.adapter.config.id,
+                    )))
+                    total_usdt += amt * float(tick.close or tick.last)
+                except Exception:
+                    pass  # cặp không tồn tại — bỏ qua
+            total_usdt += free_usdt
+            return {
+                "id": self.broker,
+                "status": "active",
+                "currency": main_quote,
+                "cash": free_usdt,
+                "equity": total_usdt,
+                "portfolio_value": total_usdt,
+                "long_market_value": total_usdt - free_usdt,
+                "short_market_value": 0.0,
+                "buying_power": free_usdt,
+                "initial_margin": 0.0,
+                "maintenance_margin": 0.0,
+                "unrealized_pl": 0.0,
+                "realized_pl_day": 0.0,
+            }
         # OANDA
         summary = self.adapter.get_account_summary()
         return {
@@ -69,6 +109,38 @@ class LiveBroker:
     # ── positions ──────────────────────────────────────────────────────────
 
     def get_positions(self) -> list[dict]:
+        if self.broker in ("ccxt", "binance", "bybit", "okx"):
+            # CCXT spot: positions = balance coins (excluding main quote)
+            balance = _run(self.adapter.fetch_balance())
+            assets = balance.get(AssetClass.CRYPTO, None)
+            main_quote = "USDT" if self.broker == "binance" else "USDT"
+            out = []
+            if not assets:
+                return out
+            for coin, amounts in assets.assets.items():
+                total = float(amounts.get("total", 0))
+                if coin == main_quote or total <= 0:
+                    continue
+                try:
+                    tick = _run(self.adapter.fetch_ticker(Symbol(
+                        base=coin, quote=main_quote, asset_class=AssetClass.CRYPTO,
+                        market_type=MarketType.SPOT, exchange=self.adapter.config.id,
+                    )))
+                    price = float(tick.close or tick.last)
+                    out.append({
+                        "symbol": f"{coin}/{main_quote}",
+                        "side": "long",
+                        "qty": total,
+                        "avg_entry_price": price,  # không có cost basis — dùng mark
+                        "current_price": price,
+                        "unrealized_pl": 0.0,
+                        "unrealized_plpc": 0.0,
+                        "market_value": total * price,
+                    })
+                except Exception:
+                    continue
+            return out
+
         positions = _run(self.adapter.fetch_positions())
         out = []
         for p in positions:

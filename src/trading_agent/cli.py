@@ -5,6 +5,7 @@ Command-line interface for the Trading Agent System.
 from __future__ import annotations
 
 import math
+import os
 import pickle
 import subprocess
 import time
@@ -2304,9 +2305,25 @@ def live_connect(
             ))
 
         elif broker == "ccxt":
-            # CCXT would need exchange-specific config
-            console.print("[yellow]CCXT adapter not yet implemented[/yellow]")
-            return
+            from trading_agent.exchanges.ccxt_adapter import (
+                CCXTAdapter, ExchangeConfig,
+            )
+            from trading_agent.exchanges.models import MarketType
+            # Binance spot via env: BINANCE_API_KEY / BINANCE_API_SECRET
+            binance_key = os.environ.get("BINANCE_API_KEY") or api_key
+            binance_secret = os.environ.get("BINANCE_API_SECRET") or api_secret
+            if not binance_key or not binance_secret:
+                console.print("[red]Binance API key/secret required — set BINANCE_API_KEY / BINANCE_API_SECRET env vars (or --api-key/--api-secret)[/red]")
+                return
+            adapter = CCXTAdapter(ExchangeConfig(
+                id="binance",
+                name="Binance",
+                api_key=binance_key,
+                secret=binance_secret,
+                sandbox=paper,
+                markets=[MarketType.SPOT, MarketType.FUTURES],
+                options={"defaultType": "spot"},
+            ))
 
         # Test connection (async connect → sync facade)
         asyncio.run(adapter.connect())
