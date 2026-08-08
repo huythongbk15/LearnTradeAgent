@@ -154,12 +154,13 @@ def main():
             print(f"  Crossovers last 24h: {state['n_buy_24h']} BUY / {state['n_sell_24h']} SELL")
             print(f"  Strategy state: {state['state']} | Alpaca: {current_state}")
 
-            # ── Rebalance vs strategy target state ──
+            # ── Rebalance vs strategy target state (deadband 5%) ──
             target_notional = equity * alloc
             current_notional = current_qty * state["price"]
             delta_usd = target_notional - current_notional
+            deadband = alloc * equity * 0.05  # 5% of target — tránh lệnh nhỏ lặt vặt
 
-            if state["state"] == "LONG" and delta_usd > alloc * equity * 0.05:  # >5% off target
+            if state["state"] == "LONG" and delta_usd > deadband:
                 qty = delta_usd / state["price"]
                 decisions.append({
                     "market_symbol": market_symbol,
@@ -171,7 +172,7 @@ def main():
                 })
                 print(f"  → ACTION: BUY {qty:.6f} {alpaca_symbol} "
                       f"(rebalance {current_notional:,.0f} → {target_notional:,.0f} USD)")
-            elif state["state"] == "LONG" and delta_usd < 0:
+            elif state["state"] == "LONG" and delta_usd < -deadband:
                 decisions.append({
                     "market_symbol": market_symbol,
                     "alpaca_symbol": alpaca_symbol,
