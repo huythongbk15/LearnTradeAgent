@@ -537,6 +537,7 @@ class PaperExchange:
         reason: str | None = None,
     ):
         """Record a completed trade."""
+        sizing_method = pos.metadata.get("sizing_method", "unknown")
         trade = Trade(
             id=self._next_id("trade"),
             symbol=pos.symbol,
@@ -550,10 +551,11 @@ class PaperExchange:
             exit_time=datetime.now(UTC),
             entry_order_id=order.id,
             reason=reason or "signal",
+            metadata={"sizing_method": sizing_method},
         )
         self.trades.append(trade)
         _log_trade_to_db(trade, action="close", pnl=pnl, pnl_pct=pnl_pct, reason=reason)
-        logger.info(f"Trade closed: {pos.symbol} P&L={pnl:+.2f} ({pnl_pct:+.2f}%)")
+        logger.info(f"Trade closed: {pos.symbol} P&L={pnl:+.2f} ({pnl_pct:+.2f}%) sizing={sizing_method}")
 
     # ── State Persistence ──────────────────────────────────────────────
 

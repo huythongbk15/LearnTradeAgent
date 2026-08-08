@@ -8,6 +8,7 @@
 
 | Tài liệu | Mô tả |
 |----------|-------|
+| [📊 Tổng kết dự án cuối](PROJECT_SUMMARY.md) | 🆕 Tính năng, ưu/nhược, cấu trúc & vận hành tối ưu |
 | [🏛 Kiến trúc hệ thống](architecture.md) | Sơ đồ tổng quan, luồng dữ liệu, các layer |
 | [🧠 Quy trình suy luận & Ra quyết định](reasoning.md) | Cách agent suy luận, phối hợp và ra lệnh |
 | [🤖 Phase 2: AI Agents](phase2-agents.md) | Chi tiết 4 agent, weighted voting, LLM fallback |

@@ -6,11 +6,15 @@ Current backend: Parquet files (fast, columnar, queryable with DuckDB later).
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import polars as pl
 
 from trading_agent.config.loader import config
+from trading_agent.execution.indicators import compute_atr
+
+logger = logging.getLogger(__name__)
 
 
 def _table_path(
@@ -140,3 +144,55 @@ def list_datasets() -> list[dict[str, str]]:
                     "timeframe": parquet_file.stem,
                 })
     return datasets
+
+
+def enrich_with_atr(
+    exchange: str,
+    symbol: str,
+    timeframe: str,
+    period: int = 14,
+) -> Path:
+    """Load OHLCV data, compute ATR, and overwrite with enriched data.
+
+    This pre-computes ATR and stores it in the parquet file, so downstream
+    consumers (paper exchange, risk controller) don't need to compute it
+    on-demand.
+    """
+    path = _table_path(exchange, symbol, timeframe)
+    if not path.exists():
+        raise FileNotFoundError(
+            f"No data for {exchange} {symbol} {timeframe} at {path}"
+        )
+
+    df = pl.read_parquet(path).sort("timestamp")
+    if df.is_empty():
+        logger.warning(f"Empty dataset: {exchange} {symbol} {timeframe}")
+        return path
+
+    # Compute ATR
+    atr_series = compute_atr(df, period=period)
+    
+    # Add ATR column (replace if exists)
+    df = df.with_columns(atr_series)
+
+    # Save back
+    df.write_parquet(path)
+    logger.info(f"Enriched {exchange} {symbol} {timeframe} with ATR (period={period})")
+    return path
+
+
+def enrich_all_datasets(period: int = 14) -> list[Path]:
+    """Enrich all stored datasets with ATR."""
+    enriched = []
+    for ds in list_datasets():
+        try:
+            path = enrich_with_atr(
+                ds["exchange"],
+                ds["symbol"],
+                ds["timeframe"],
+                period=period,
+            )
+            enriched.append(path)
+        except Exception as e:
+            logger.warning(f"Failed to enrich {ds}: {e}")
+    return enriched

@@ -406,3 +406,50 @@ class RiskController:
         for pos in self.engine.exchange.get_all_positions():
             pos.trailing_stop_pct = pct
             logger.info(f"Trailing stop enabled: {pos.symbol} trail={pct:.2%}")
+
+    def update_atr_trailing_stops(self, ohlcv_data: dict[str, Any]):
+        """
+        Update ATR-based trailing stops for all open positions.
+        
+        Uses compute_atr_trailing_stop to calculate dynamic trailing stops
+        that ratchet in favorable direction.
+        
+        Parameters
+        ----------
+        ohlcv_data : dict[str, DataFrame]
+            Symbol -> OHLCV DataFrame mapping with 'close', 'high', 'low' columns
+        """
+        from trading_agent.execution.indicators import compute_atr_trailing_stop
+        
+        for pos in self.engine.exchange.get_all_positions():
+            if not pos.is_active:
+                continue
+            
+            df = ohlcv_data.get(pos.symbol)
+            if df is None or df.is_empty():
+                continue
+            
+            # Determine side
+            side = "long" if pos.side.value == "buy" else "short"
+            
+            # Use existing ATR multiplier from position metadata or default
+            atr_mult = pos.metadata.get("trailing_atr_mult", 2.0)
+            
+            # Compute trailing stop
+            trailing_series = compute_atr_trailing_stop(
+                df, period=14, multiplier=atr_mult, side=side
+            )
+            
+            # Get latest trailing stop level
+            latest_stop = float(trailing_series.tail(1).item())
+            if latest_stop and latest_stop > 0:
+                if side == "long" and (pos.stop_loss is None or latest_stop > pos.stop_loss):
+                    pos.stop_loss = latest_stop
+                    pos.metadata["trailing_stop_type"] = "atr"
+                    pos.metadata["trailing_atr_mult"] = atr_mult
+                    logger.debug(f"ATR trailing stop updated: {pos.symbol} @ {latest_stop:.2f} (mult={atr_mult})")
+                elif side == "short" and (pos.stop_loss is None or latest_stop < pos.stop_loss):
+                    pos.stop_loss = latest_stop
+                    pos.metadata["trailing_stop_type"] = "atr"
+                    pos.metadata["trailing_atr_mult"] = atr_mult
+                    logger.debug(f"ATR trailing stop updated: {pos.symbol} @ {latest_stop:.2f} (mult={atr_mult})")

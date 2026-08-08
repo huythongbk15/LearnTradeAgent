@@ -1,246 +1,225 @@
-# 📁 Cấu Trúc Mã Nguồn
+# 📁 Cấu Trúc Mã Nguồn (Final)
 
-> Mỗi module làm gì, nằm ở đâu, phụ thuộc vào module nào.
+> Cấu trúc cuối cùng sau khi dọn dẹp — 133 modules Python, không dead code.
 >
-> **Phiên bản:** v0.3.0 · Toàn bộ Phase 0–3 đã implemented.
+> **Phiên bản:** v1.0.0 · Toàn bộ 7 phase hoàn thành
 
 ---
 
-## Cây thư mục đầy đủ
+## Cây thư mục tổng quan
 
 ```
 trading-agent/
 │
-├── config/                          # 🛠 Cấu hình hệ thống
-│   └── config.yaml                  #   File cấu hình chính (YAML)
-│       ├── exchanges                #   Danh sách sàn giao dịch
-│       ├── symbols                  #   Cặp giao dịch mặc định (5 symbols)
-│       ├── data                     #   Cấu hình data pipeline
-│       ├── backtest                 #   Default backtest params
-│       ├── llm                      #   Cấu hình LLM (DeepSeek/GPT/Ollama)
-│       └── execution                #   Capital, commission, slippage
-│
-├── src/trading_agent/               # 📦 Mã nguồn chính
-│   ├── __init__.py
+├── src/trading_agent/          # 📦 Mã nguồn chính (133 modules)
+│   ├── cli.py                  # 🎮 CLI (Click + Rich) — 12 command groups
+│   ├── log_config.py           # 📝 Logging setup
+│   ├── regime.py               # 🌡 Regime detection facade
 │   │
-│   ├── cli.py                       # 🎮 CLI (Click + Rich)
-│   │   ├── main()                   #   Entry point
-│   │   ├── info                     #   System info
-│   │   ├── data group               #   Data commands (fetch, inspect, ...)
-│   │   ├── backtest group           #   Backtest commands (run, list)
-│   │   ├── config group             #   Config commands (validate)
-│   │   ├── agents group             #   Agent commands (analyze, list)
-│   │   └── execution group          #   Execution commands (status, run, trades, ...)
+│   ├── agents/                 # 🤖 AI Multi-Agent (Phase 2)
+│   │   ├── base.py             #   AgentMessage dataclass
+│   │   ├── llm.py              #   LLM client + fallback chain
+│   │   ├── technical.py        #   📈 Technical Analyst
+│   │   ├── sentiment.py        #   💬 Sentiment Analyst
+│   │   ├── risk.py             #   🛡 Risk Manager
+│   │   ├── trader.py           #   🎯 Trader Agent (weighted voting)
+│   │   ├── orchestrator.py     #   🔄 Orchestrator — full 4-agent cycle
+│   │   ├── portfolio.py        #   💼 Portfolio Manager
+│   │   └── swarm/              #   🐝 Agent swarm (coordinator + registry + specialized)
 │   │
-│   ├── config/                      # ⚙️ Config Loader
-│   │   ├── __init__.py
-│   │   └── loader.py                #   Đọc & parse config.yaml
-│   │       ├── Config class         #   Typed config với defaults
-│   │       └── config singleton     #   Load 1 lần, dùng global
+│   ├── config/                 # ⚙️ Config
+│   │   └── loader.py           #   Typed config + singleton
 │   │
-│   ├── data/                        # 📡 Phase 0: Data Layer
-│   │   ├── __init__.py
-│   │   ├── types.py                 #   OHLCV types + Timeframe enum
-│   │   ├── collector.py             #   📥 CCXT Data Collector
-│   │   │   ├── get_exchange()       #     Exchange factory (cached)
-│   │   │   ├── Collector class      #     Fetch OHLCV từ 1 exchange
-│   │   │   │   ├── fetch_ohlcv()    #       Paginated fetch
-│   │   │   │   ├── update_ohlcv()   #       Incremental update
-│   │   │   │   ├── validate_data()  #       Data quality report
-│   │   │   │   └── available_symbols() #    Danh sách symbol
-│   │   │   └── download_all_symbols() #  High-level download (all config)
-│   │   │   └── validate_all_symbols() #  Validate all datasets
-│   │   └── storage.py               #   💾 Data Storage
-│   │       ├── save_ohlcv()         #     Save → Parquet (append + dedup)
-│   │       ├── load_ohlcv()         #     Load Parquet → DataFrame
-│   │       ├── get_date_range()     #     Date range info
-│   │       └── list_datasets()      #     Scan storage listing
+│   ├── data/                   # 📡 Data Layer (Phase 0)
+│   │   ├── collector.py        #   CCXT collector (fetch/update/validate)
+│   │   ├── storage.py          #   Parquet storage (save/load/dedup)
+│   │   ├── pipeline.py         #   Data pipeline orchestration
+│   │   ├── market_data.py      #   Market data service
+│   │   ├── dex_integration.py  #   DEX data integration
+│   │   ├── onchain.py          #   On-chain data
+│   │   └── options_provider.py #   Options chain data
 │   │
-│   ├── strategies/                  # 🧪 Phase 1: Strategy Library
-│   │   ├── __init__.py
-│   │   ├── base.py                  #   Abstract Strategy + registry
-│   │   │   ├── Strategy(ABC)        #     Interface: on_data, on_signal
-│   │   │   └── registry             #     Strategy registry pattern
-│   │   ├── ma_crossover.py          #   📈 MA Crossover (fast=5, slow=20)
-│   │   ├── rsi.py                   #   📉 RSI Mean Reversion (period=7)
-│   │   └── bbands.py                #   📊 Bollinger Bands (period=10, std=2.5)
+│   ├── strategies/             # 🧪 Strategy Library (Phase 1 + Tier 2/3)
+│   │   ├── base.py             #   Abstract Strategy + registry
+│   │   ├── ma_crossover.py     #   MA Crossover
+│   │   ├── rsi.py              #   RSI Mean Reversion
+│   │   ├── bbands.py           #   Bollinger Bands
+│   │   ├── enhanced_ma.py      #   ⭐ Enhanced MA (ADX filter) — chiến lược live
+│   │   ├── agent_ensemble.py   #   Agent ensemble strategy
+│   │   ├── regime_switching.py #   Regime-switching (Tier 3)
+│   │   ├── online_learning_strategy.py
+│   │   ├── options_strategies.py  #   Vol selling, gamma scalping, dispersion
+│   │   ├── sandbox.py          #   Strategy sandbox
+│   │   └── plugins/            #   🔌 Plugin marketplace (pluggy)
+│   │       └── versioning/     #   📦 Strategy versioning (git store + ABI)
 │   │
-│   ├── backtest/                    # 📊 Phase 1: Backtest Engine
-│   │   ├── __init__.py
-│   │   ├── engine.py                #   Vectorized backtest runner (Polars)
-│   │   │   ├── BacktestEngine       #     Single backtest
-│   │   │   └── run_backtest()       #     High-level runner
-│   │   └── metrics.py               #   Performance metrics
-│   │       ├── calculate_metrics()  #     Sharpe, Sortino, DD, Win Rate...
-│   │       └── print_metrics()      #     Rich table output
+│   ├── backtest/               # 📊 Backtest Engine (Phase 1)
+│   │   ├── engine.py           #   Vectorized backtest (Polars) + event-driven
+│   │   └── metrics.py          #   Sharpe, Sortino, DD, Win Rate...
 │   │
-│   ├── agents/                      # 🤖 Phase 2: AI Multi-Agent
-│   │   ├── __init__.py
-│   │   ├── base.py                  #   AgentMessage dataclass
-│   │   ├── llm.py                   #   🔗 LLM Client
-│   │   │   ├── LLMClient            #     Unified LLM interface
-│   │   │   ├── chat()               #     Chat completion
-│   │   │   └── ask_agent()          #     Agent-specific prompting
-│   │   ├── technical.py             #   📈 Technical Analyst
-│   │   ├── sentiment.py             #   💬 Sentiment Analyst
-│   │   ├── risk.py                  #   🛡️ Risk Manager
-│   │   ├── trader.py                #   🎯 Trader Agent (weighted voting)
-│   │   └── orchestrator.py          #   🔄 Orchestrator
-│   │       ├── analyze()            #     Run full 4-agent cycle
-│   │       └── print_report()       #     Pretty output
+│   ├── execution/              # ⚡ Execution & Risk (Phase 3)
+│   │   ├── types.py            #   Order, Trade, Position
+│   │   ├── paper_exchange.py   #   📄 Simulated exchange
+│   │   ├── engine.py           #   Execution engine + ATR trailing stop
+│   │   ├── risk_controller.py  #   Stop-loss, DD limit, circuit breaker
+│   │   ├── indicators.py       #   Technical indicators (ATR...)
+│   │   ├── monitoring.py       #   Execution monitoring
+│   │   └── smart_router.py     #   Order routing (TWAP/VWAP...)
 │   │
-│   └── execution/                   # ⚡ Phase 3: Execution & Risk
-│       ├── __init__.py
-│       ├── types.py                 #   Order, Trade, Position dataclasses
-│       ├── paper_exchange.py        #   📄 Simulated exchange
-│       │   ├── PaperExchange        #     Place/cancel/fill orders
-│       │   ├── update_prices()      #     Price feed + stop-loss check
-│       │   ├── close_all_positions()#     Kill switch
-│       │   └── state persistence    #     JSON file
-│       ├── engine.py                #   🎯 Execution Engine
-│       │   ├── execute_signal()     #     AgentMessage → Order
-│       │   ├── set_stop_loss()      #     Auto stop-loss
-│       │   ├── get_summary()        #     Portfolio summary
-│       │   └── close_all()          #     Emergency close
-│       └── risk_controller.py       #   🛡️ Risk Controller
-│           ├── check_all()          #     Run all risk checks
-│           ├── max_drawdown check   #     15% limit
-│           ├── daily_loss check     #     8% limit
-│           ├── position_concentration #  50% limit
-│           └── circuit_breaker      #     Kill + cooldown
+│   ├── exchanges/              # 🌐 Exchange Adapters (Phase 6)
+│   │   ├── ccxt_adapter.py     #   CCXT — 8 CEX
+│   │   ├── alpaca_adapter.py   #   🏦 Alpaca — stocks (live paper)
+│   │   ├── oanda_adapter.py    #   💱 OANDA — forex
+│   │   ├── live_broker.py      #   🟢 LiveBroker facade (Tier 3 live)
+│   │   ├── order_router.py     #   Best Price/TWAP/VWAP/Split
+│   │   ├── websocket_manager.py#   WS streaming
+│   │   ├── health_monitor.py   #   Exchange health + failover
+│   │   ├── models.py           #   Exchange models
+│   │   ├── dex/                #   Uniswap V3, Jupiter, PancakeSwap
+│   │   └── futures/            #   Binance/Bitget futures, Deribit options
+│   │
+│   ├── portfolio/              # 💼 Portfolio Management (Phase 6)
+│   │   ├── portfolio_optimizer.py   #   Black-Litterman, MPT
+│   │   ├── risk_budgeting.py        #   Risk parity, HRP
+│   │   ├── auto_rebalancer.py       #   Auto-rebalance
+│   │   ├── capital_allocation/       #   Allocation + Kelly
+│   │   └── attribution/              #   Performance attribution
+│   │
+│   ├── risk/                   # 🛡 Risk & Sizing
+│   │   ├── position_sizer.py   #   ATR / fixed_pct / Kelly sizing
+│   │   └── portfolio_risk.py   #   Portfolio-level risk
+│   │
+│   ├── ml/                     # 🧠 Adaptive ML (Phase 6)
+│   │   ├── regime_detection.py #   HMM/GMM regime
+│   │   ├── meta_learning.py    #   MAML/Reptile
+│   │   ├── online/             #   Online learning (River)
+│   │   ├── rl_agent.py         #   RL agent (DQN/PPO)
+│   │   ├── auto_alpha.py       #   Auto-alpha generator
+│   │   ├── sentiment.py        #   ML sentiment
+│   │   └── strategy_cloner.py  #   Strategy cloning
+│   │
+│   ├── alpha_research/         # 🔬 Alpha Research (Tier 2)
+│   │   └── pipeline.py         #   Factor scan pipeline
+│   │
+│   ├── features/llm/           # 📰 LLM Feature Pipeline
+│   │   ├── pipeline.py         #   News/social/earnings LLM analysis
+│   │   ├── news.py · social.py · earnings.py
+│   │
+│   ├── events/                 # 🎯 Event Sourcing (Phase 6)
+│   │   ├── models.py           #   Event models
+│   │   ├── store.py            #   Event store
+│   │   ├── projections.py      #   Projections
+│   │   └── projection_manager.py
+│   │
+│   ├── messaging/              # 📨 Messaging
+│   │   ├── nats_bus.py         #   NATS
+│   │   └── redis_streams.py    #   Redis Streams
+│   │
+│   ├── observability/          # 📊 Observability
+│   │   ├── logging.py          #   Structured logging
+│   │   ├── metrics.py          #   Metrics
+│   │   └── tracing.py          #   OpenTelemetry tracing
+│   │
+│   ├── monitoring/             # 🖥 Monitoring (Phase 4/5)
+│   │   ├── metrics.py          #   Metrics engine
+│   │   ├── metrics_server.py   #   Metrics HTTP server
+│   │   ├── alerter.py          #   Telegram/Slack alerts
+│   │   └── database.py         #   SQLite DB
+│   │
+│   ├── infrastructure/         # 🏗 Infra (Phase 6)
+│   │   ├── chaos/              #   Chaos experiments
+│   │   └── multi_region/       #   K8s multi-region sync
+│   │
+│   ├── infra/                  #   Multi-region helper
+│   ├── llm/                    #   LLM pool + client
+│   └── enterprise/             #   REST API
 │
-├── data/                            # 📂 Dữ liệu market
-│   ├── raw/                         #   OHLCV Parquet files
-│   │   └── binance/
-│   │       ├── BTC_USDT/{1h,4h,1d}.parquet
-│   │       ├── ETH_USDT/{1h,4h,1d}.parquet
-│   │       └── ...
-│   ├── execution/                   #   Paper exchange state
-│   │   └── paper_binance.json
-│   └── processed/                   #   Feature-engineered (future)
+├── config/                     # 🛠 Cấu hình (config.yaml)
+├── data/                       # 📂 Dữ liệu market (parquet, gitignored)
+│   ├── raw/                    #   OHLCV parquet
+│   ├── processed/              #   Feature-engineered
+│   └── execution/              #   Paper/live state
 │
-├── docs/                            # 📘 Tài liệu
-│   ├── README.md                    #   Index
-│   ├── architecture.md              #   Kiến trúc hệ thống
-│   ├── reasoning.md                 #   Quy trình suy luận
-│   ├── demo.md                      #   Demo hướng dẫn chạy
-│   ├── project-structure.md         #   Cấu trúc mã nguồn (file này)
-│   ├── getting-started.md           #   Quick start
-│   └── optimization.md              #   Tối ưu hóa hệ thống
+├── docs/                       # 📘 Tài liệu
+├── scripts/                    # 🛠 Scripts vận hành
+│   ├── live_cron_runner.py     #   ⭐ Live trading runner (cron hourly)
+│   ├── live_enhanced_ma.py     #   Live Enhanced MA
+│   ├── cron_wrapper.sh         #   Cron wrapper (trade/backup/retention)
+│   ├── trade_local.py          #   Local paper trading
+│   ├── backtest_local.py       #   Local backtest
+│   ├── backup.sh / backup_local.py / restore.sh   # Backup/restore
+│   ├── health_check.sh / check_metrics.py         # Health
+│   ├── watchdog.sh             #   ⭐ Auto-restart watchdog (@reboot)
+│   ├── monthly_wfo.py · wfo_optimize.py · wfo_ma_adx.py · multi_symbol_bench.py
+│   ├── benchmark_phase6.py · load_test_phase6.py · chaos_dryrun.py
+│   └── qwenpaw_control/        #   Task control toolkit
 │
-├── docker-compose.yml               # 🐳 Docker Compose (infra future)
-├── Dockerfile                       # 🐳 Docker image
-├── Makefile                         # 🔨 Command shortcuts
-├── pyproject.toml                   # 📦 Poetry project
-├── README.md                        # 📖 Project overview
-├── TRADING_SYSTEM_OVERVIEW.md        # 📐 Tổng quan chiến lược
-├── .github/                         # 🤖 CI/CD Workflows
-│   └── workflows/
-│       ├── ci.yml                   #   CI: lint, test, security, build+sign
-│       ├── cd-staging.yml           #   CD: Deploy to staging
-│       └── cd-production.yml        #   CD: Deploy to production (signed + verified)
-│
-├── scripts/                         # 🛠️ Utility Scripts (Phase 5)
-│   ├── sign_and_verify.sh           #   Cosign sign + Syft SBOM + verify
-│   ├── verify_image.sh              #   Verify cosign signature + SBOM locally
-│   ├── db_stats.py                  #   DB statistics
-│   ├── db_backup.py                 #   DB backup to S3/GCS
-│   ├── db_restore.py                #   DB restore from backup
-│   └── notify.py                    #   Telegram/Slack notifications
-│
-├── .github/                         # 🔄 GitHub Actions CI/CD
-│   └── workflows/
-│       ├── ci.yml                   #   CI: lint, test, security, build, sign, SBOM
-│       ├── cd-staging.yml           #   CD Staging: verify sign+SBOM → deploy
-│       └── cd-production.yml        #   CD Production: manual, verify → blue-green
-│
-├── scripts/                         # 🛠 Scripts tiện ích
-│   ├── sign_and_verify.sh           #   Cosign sign + verify image
-│   └── verify_image.sh              #   Verify cosign + SBOM locally
-│
-├── docker-compose.yml               # 🐳 Docker Compose (infra future)
-├── Dockerfile                       # 🐳 Docker image
-├── Makefile                         # 🔨 Command shortcuts
-├── pyproject.toml                   # 📦 Poetry project
-├── README.md                        # 📖 Project overview
-├── TRADING_SYSTEM_OVERVIEW.md        # 📐 Tổng quan chiến lược
-├── .gitignore
-└── .env                             # 🔐 Environment variables (gitignored)
+├── dashboard/                  # 📊 Streamlit dashboard
+├── monitoring/                 # 🖥 Prometheus/Grafana/Loki configs
+├── infrastructure/k8s/         # ☸ K8s multi-region manifests
+├── tests/                      # 🧪 175 tests
+├── Dockerfile · docker-compose.yml · docker-compose.prod.yml
+├── Makefile · pyproject.toml · poetry.lock
+├── .github/workflows/          # 🤖 CI/CD
+└── README.md · TRADING_SYSTEM_OVERVIEW.md · BACKTEST_SUMMARY.md
 ```
 
 ---
 
-## 🗺 Sơ đồ phụ thuộc giữa các module
+## 🗺 Sơ đồ kiến trúc tổng thể
 
 ```mermaid
 graph TD
-    CLI[cli.py] --> CONFIG[config/loader.py]
-    CLI --> COLLECTOR[data/collector.py]
-    CLI --> STORAGE[data/storage.py]
+    CRON[Cron: hourly/2h/23h/retention] --> CRW[cron_wrapper.sh]
+    CRON2[QwenPaw job: Live EMA hourly] --> LCR[live_cron_runner.py]
+    LCR --> LB[LiveBroker]
+    LCR --> EMA[enhanced_ma strategy]
+    LCR --> ALPACA[Alpaca Paper API]
+    LCR --> TELEGRAM[Telegram notify]
+
+    CRW --> TRADE[trade_local.py / live]
+    CRW --> BACKUP[backup.sh]
+    CRW --> RETENTION[data retention]
+
+    CLI[cli.py] --> DATA[data/*]
+    CLI --> BT[backtest/engine]
     CLI --> STRAT[strategies/*]
-    CLI --> BT[backtest/engine.py]
     CLI --> AGENTS[agents/*]
     CLI --> EXEC[execution/*]
+    CLI --> PORT[portfolio/*]
+    CLI --> OPT[options_strategies]
+    CLI --> META[ml/meta_learning]
 
-    COLLECTOR --> CONFIG
-    COLLECTOR --> CCXT[ccxt library]
-    STORAGE --> CONFIG
-    STORAGE --> POLARS[polars library]
-
-    STRAT --> CONFIG
-    STRAT --> STORAGE
-
+    DATA --> STORAGE[data/storage.py → Parquet]
     BT --> STRAT
-    BT --> CONFIG
+    AGENTS --> LLM[llm/client + pool → OpenCode/DeepSeek]
+    EXEC --> RISK[risk_controller]
+    EXEC --> PAPER[paper_exchange]
+    EXEC --> ROUTER[order_router]
+    ROUTER --> ADAPTERS[ccxt/alpaca/oanda/dex/futures]
 
-    AGENTS --> CONFIG
-    AGENTS --> STRAT
-    AGENTS --> LLM_CLIENT[agents/llm.py]
-    LLM_CLIENT --> OPENROUTER[OpenRouter API]
-    LLM_CLIENT --> OPENAI[OpenAI API]
-    LLM_CLIENT --> OLLAMA[Ollama local]
+    PORT --> ALLOC[capital_allocation/kelly]
+    PORT --> OPTZ[portfolio_optimizer]
+    PORT --> REBAL[auto_rebalancer]
 
-    EXEC --> CONFIG
-    EXEC --> STORAGE
-    EXEC --> AGENTS
+    MON[monitoring/*] --> SQLITE[SQLite history.db]
+    MON --> TELEGRAM
+    DASH[dashboard/app.py] --> SQLITE
 
-    CLI --> RICH[rich library]
-    CLI --> CLICK[click library]
-
-    %% CI/CD & Scripts
-    CI[.github/workflows/ci.yml] --> DOCKER[Docker Build]
-    CI --> COSIGN[cosign sign]
-    CI --> SYFT[syft SBOM]
-    CI --> TRIVY[trivy scan]
-    
-    CD_STAGING[.github/workflows/cd-staging.yml] --> CI
-    CD_STAGING --> DOCKER
-    CD_STAGING --> DEPLOY_STAGING[Deploy to Staging]
-    
-    CD_PROD[.github/workflows/cd-production.yml] --> CD_STAGING
-    CD_PROD --> COSIGN_VERIFY[cosign verify]
-    CD_PROD --> SYFT_VERIFY[syft verify SBOM]
-    CD_PROD --> DEPLOY_PROD[Blue-Green Deploy to Prod]
-
-    SCRIPTS[scripts/verify_image.sh] --> COSIGN_VERIFY
-    SCRIPTS --> SYFT_VERIFY
-    SIGN_SCRIPT[scripts/sign_and_verify.sh] --> COSIGN
-    SIGN_SCRIPT --> SYFT
+    OBS[observability/*] --> OTLP[OpenTelemetry]
+    MSG[messaging/*] --> NATS[Redis/NATS]
 ```
 
 ---
 
-## 📌 Quy ước đặt tên
+## 📌 Quy ước
 
-| Quy tắc | Ví dụ | Giải thích |
-|---------|-------|-----------|
-| Module/file: snake_case | `data/collector.py` | Tuân theo PEP8 |
-| Class: PascalCase | `class Collector:` | Python convention |
-| Function: snake_case | `def fetch_ohlcv():` | PEP8 |
-| Private: _prefix | `def _fetch_paginated():` | Internal use |
-| Constant: UPPER_CASE | `DEFAULT_TIMEFRAME = "1h"` | Config constants |
-| Symbol format | `BTC/USDT` | CCXT format |
-| Exchange folder | `binance/BTC_USDT/` | Symbol / → _ in path |
+| Quy tắc | Ví dụ |
+|---------|-------|
+| Module/file: snake_case | `data/collector.py` |
+| Class: PascalCase | `class Collector:` |
+| Symbol format | `BTC/USDT` (CCXT) |
+| Storage path | `data/raw/binance/BTC_USDT/1h.parquet` |
 
 ---
 

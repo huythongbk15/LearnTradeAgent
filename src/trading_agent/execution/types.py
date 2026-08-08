@@ -150,6 +150,7 @@ class Trade:
             "reason": self.reason,
             "entry_time": self.entry_time.isoformat() if self.entry_time else None,
             "exit_time": self.exit_time.isoformat() if self.exit_time else None,
+            "metadata": self.metadata,
         }
 
     @classmethod
@@ -222,6 +223,7 @@ class Position:
             "stop_loss": self.stop_loss,
             "take_profit": self.take_profit,
             "trailing_stop_pct": self.trailing_stop_pct,
+            "metadata": self.metadata,
         }
 
     @classmethod

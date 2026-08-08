@@ -164,15 +164,19 @@ class ExecutionEngine:
         if signal.details and "atr" in signal.details:
             atr = signal.details["atr"]
         else:
-            # Try to compute ATR from latest data
+            # Try to load pre-computed ATR from storage first
             try:
                 from trading_agent.data.storage import load_ohlcv
                 df = load_ohlcv(self.exchange_name, symbol, "1h")
-                if not df.is_empty():
-                    atr_series = compute_atr(df, period=14)
+                if not df.is_empty() and "atr" in df.columns:
+                    atr = float(df["atr"].tail(1).item())
+                elif not df.is_empty():
+                    # Fallback: compute ATR on-demand
+                    atr_expr = compute_atr(df, period=14)
+                    atr_series = df.select(atr_expr).to_series()
                     atr = float(atr_series.tail(1).item()) if not atr_series.is_empty() else None
             except Exception as e:
-                logger.warning(f"ATR computation failed for {symbol}: {e}")
+                logger.warning(f"ATR load failed for {symbol}: {e}")
 
         # Get existing position
         existing_pos = self.exchange.get_position(symbol)
@@ -228,6 +232,9 @@ class ExecutionEngine:
                 if order.status == OrderStatus.FILLED:
                     pos = self.exchange.get_position(symbol)
                     if pos:
+                        # Store sizing method in position metadata for trade history
+                        pos.metadata["sizing_method"] = sizing_method
+
                         # ATR-based trailing stop
                         if atr and atr > 0:
                             trailing_mult = signal.details.get("trailing_atr_mult", 2.0) if signal.details else 2.0
@@ -253,6 +260,9 @@ class ExecutionEngine:
                             pos.take_profit = current_price + (stop_dist * risk_reward)
                         pos.metadata["risk_reward"] = risk_reward
                         logger.info(f"Take-profit set: {symbol} @ {pos.take_profit:.2f} (R:R={risk_reward})")
+
+                        # Persist position metadata (sizing_method, trailing_stop_type, risk_reward)
+                        self.exchange._save_state()
 
             else:
                 logger.info(f"BUY signal but already in position: {existing_pos.quantity} {symbol}")
@@ -318,7 +328,7 @@ class ExecutionEngine:
         latest_close = float(df["close"].tail(1).item())
         prices = {symbol: latest_close}
 
-        # Compute ATR if not already present
+        # Use pre-computed ATR if available, otherwise compute
         if "atr" not in df.columns:
             atr_series = compute_atr(df, period=14)
             df = df.with_columns(atr_series)

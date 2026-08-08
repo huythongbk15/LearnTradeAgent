@@ -397,6 +397,41 @@ def export_data(
     console.print(f"Exported [green]{len(df):,}[/green] rows → [blue]{output_path}[/blue]")
 
 
+@data.command("enrich-at")
+@click.option("--exchange", "-e", default=None)
+@click.option("--symbol", "-s", default=None)
+@click.option("--timeframe", "-t", default=None)
+@click.option("--period", "-p", default=14, type=int, help="ATR period")
+@click.option("--all", "-a", "enrich_all", is_flag=True, help="Enrich all datasets")
+def enrich_atr_cmd(
+    exchange: str | None,
+    symbol: str | None,
+    timeframe: str | None,
+    period: int,
+    enrich_all: bool,
+):
+    """Pre-compute and store ATR for stored OHLCV data."""
+    from trading_agent.data.storage import enrich_with_atr, enrich_all_datasets
+    
+    if enrich_all:
+        console.print(f"[cyan]Enriching all datasets with ATR (period={period})...[/cyan]")
+        paths = enrich_all_datasets(period=period)
+        console.print(f"[green]Enriched {len(paths)} datasets[/green]")
+        return
+    
+    if not symbol or not timeframe:
+        console.print("[red]--symbol and --timeframe required unless --all is used[/red]")
+        return
+    
+    exchange = exchange or config.default_exchange
+    
+    try:
+        path = enrich_with_atr(exchange, symbol, timeframe, period=period)
+        console.print(f"[green]Enriched {exchange} {symbol} {timeframe} → {path}[/green]")
+    except FileNotFoundError as e:
+        console.print(f"[red]{e}[/red]")
+
+
 # ── info ──────────────────────────────────────────────────────────────────
 
 
@@ -751,23 +786,50 @@ def execution_status():
 
 @execution.command("trades")
 @click.option("--limit", "-n", default=10, type=int, help="Number of trades to show")
-def execution_trades(limit: int):
+@click.option("--all", "-a", "show_all", is_flag=True, help="Include open positions (unrealized)")
+def execution_trades(limit: int, show_all: bool):
     """Show recent trade history."""
     from rich.table import Table as RichTable
 
     from trading_agent.execution.engine import ExecutionEngine
 
     engine = ExecutionEngine()
+
+    # Get closed trades
     trades = engine.get_trade_history(limit)
 
-    if not trades:
+    # Get open positions if requested
+    open_positions = engine.exchange.get_all_positions() if show_all else []
+
+    if not trades and not open_positions:
         console.print("[yellow]No trades yet[/yellow]")
         return
 
-    t = RichTable("Date", "Symbol", "Side", "Entry", "Exit", "P&L%", "Reason")
+    t = RichTable("Date", "Symbol", "Side", "Entry", "Current/Exit", "P&L%", "Status", "Reason", "Sizing")
+    
+    # Show open positions first (unrealized)
+    for pos in open_positions:
+        pnl_color = "green" if pos.unrealized_pnl_pct >= 0 else "red"
+        opened = pos.opened_at.isoformat()[:16] if pos.opened_at else "?"
+        sizing = pos.metadata.get("sizing_method", "?")
+        t.add_row(
+            opened,
+            pos.symbol,
+            pos.side.value.upper(),
+            f"${pos.entry_price:.2f}",
+            f"${pos.current_price:.2f}",
+            f"[{pnl_color}]{pos.unrealized_pnl_pct:+.2f}%[/{pnl_color}]",
+            "[yellow]OPEN[/yellow]",
+            "—",
+            sizing,
+        )
+    
+    # Show closed trades
     for tr in trades:
         pnl_color = "green" if tr.get("pnl_pct", 0) >= 0 else "red"
         entry_time = tr.get("entry_time", "")[:16] if tr.get("entry_time") else "?"
+        status = "CLOSED" if tr.get("exit_price") else "OPEN"
+        sizing = tr.get("metadata", {}).get("sizing_method", "?")
         t.add_row(
             entry_time,
             tr.get("symbol", "?"),
@@ -775,9 +837,20 @@ def execution_trades(limit: int):
             f"${tr.get('entry_price', 0):.2f}",
             f"${tr.get('exit_price', 0):.2f}" if tr.get("exit_price") else "—",
             f"[{pnl_color}]{tr.get('pnl_pct', 0):+.2f}%[/{pnl_color}]",
+            status,
             tr.get("reason", "—"),
+            sizing,
         )
     console.print(t)
+    
+    # Summary
+    if trades:
+        total_realized = sum(t.get("pnl", 0) for t in trades)
+        total_realized_pct = sum(t.get("pnl_pct", 0) for t in trades) / len(trades) if trades else 0
+        console.print(f"\n[bold]Realized P&L (last {len(trades)} trades):[/bold] ${total_realized:.2f} ({total_realized_pct:+.2f}% avg)")
+    if open_positions:
+        total_unrealized = sum(p.unrealized_pnl for p in open_positions)
+        console.print(f"[bold]Unrealized P&L ({len(open_positions)} open):[/bold] ${total_unrealized:.2f}")
 
 
 @execution.command("risk")

@@ -105,6 +105,7 @@ refs/
 # Runtime files
 chats.json
 jobs.json
+jobs_history/
 skill.json
 *.skill.json.lock
 .skill.json.lock
