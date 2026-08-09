@@ -8,14 +8,16 @@ Cách dùng:
 
 Telegram config: env TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID (hoặc .env)
 """
-import sys, os, subprocess, json
+import sys
+import os
+import subprocess
+import json
 from datetime import datetime
 sys.path.insert(0, 'src')
 
 from dotenv import load_dotenv
 load_dotenv('.env')
 
-from trading_agent.monitoring.alerter import init_alerts, send_trade_alert
 
 def send_telegram(text: str) -> bool:
     """Gửi 1 message Telegram trực tiếp, trả True nếu gửi được."""

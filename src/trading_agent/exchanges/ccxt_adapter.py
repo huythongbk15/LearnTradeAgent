@@ -345,25 +345,6 @@ class CCXTAdapter(ExchangeAdapter):
         faucet coins that have no tradeable market)."""
         return self.exchange is not None and ex_symbol in self.exchange.markets
 
-    async def fetch_tickers(self, symbols: list[Symbol]) -> dict[str, float]:
-        """Batch-fetch last prices for many symbols with a single API call."""
-        ex_symbols = [self._unified_to_ccxt_symbol(s) for s in symbols]
-        try:
-            raw = await self._maybe_await(self.exchange.fetch_tickers(ex_symbols))
-            prices: dict[str, float] = {}
-            for ex_sym, ticker in raw.items():
-                last = ticker.get('last') or ticker.get('close')
-                if last is None:
-                    continue
-                market = self.exchange.markets.get(ex_sym)
-                unified = self._ccxt_to_unified_symbol(market) if market else None
-                if unified is not None:
-                    prices[unified.pair] = float(last)
-            return prices
-        except Exception as e:
-            logger.error(f"fetch_tickers failed for {len(symbols)} symbols: {e}")
-            return {}
-
     # --- Market Data ---
 
     @staticmethod
