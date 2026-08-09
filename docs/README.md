@@ -1,6 +1,6 @@
 # 📘 Trading Agent System — Tài Liệu Kỹ Thuật
 
-> Phiên bản: `v1.0.0` · Cập nhật: 2026-07-31 · **7 phase hoàn thành 100%**
+> Phiên bản: `v1.0.0` · Cập nhật: 2026-08-10 · **7 phase hoàn thành 100%**
 
 ---
 
@@ -8,7 +8,8 @@
 
 | Tài liệu | Mô tả |
 |----------|-------|
-| [📊 Tổng kết dự án cuối](PROJECT_SUMMARY.md) | 🆕 Tính năng, ưu/nhược, cấu trúc & vận hành tối ưu |
+| [📘 **Tài liệu tổng hợp hệ thống**](SYSTEM_GUIDE.md) | 🆕 Tính năng, cách dùng cụ thể, phương pháp trade (các option), UI/UX, Telegram notify — **đọc đầu tiên** |
+| [📊 Tổng kết dự án cuối](PROJECT_SUMMARY.md) | Tính năng, ưu/nhược, cấu trúc & vận hành tối ưu |
 | [🏛 Kiến trúc hệ thống](architecture.md) | Sơ đồ tổng quan, luồng dữ liệu, các layer |
 | [🧠 Quy trình suy luận & Ra quyết định](reasoning.md) | Cách agent suy luận, phối hợp và ra lệnh |
 | [🤖 Phase 2: AI Agents](phase2-agents.md) | Chi tiết 4 agent, weighted voting, LLM fallback |

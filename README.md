@@ -35,7 +35,7 @@
 | **5** | Production | Docker 24/7, CI/CD xanh, Trivy scan, backup/restore, runbook |
 | **6** | Scale & Multi-Asset | 8 sàn + DEX + stocks + forex, portfolio optimizer, plugin marketplace, meta-learning |
 
-> 📊 Kiến trúc đầy đủ: [`TRADING_SYSTEM_OVERVIEW.md`](TRADING_SYSTEM_OVERVIEW.md) · Index tài liệu: [`docs/README.md`](docs/README.md) · Tổng kết cuối: [`docs/PROJECT_SUMMARY.md`](docs/PROJECT_SUMMARY.md)
+> 📊 Kiến trúc đầy đủ: [`TRADING_SYSTEM_OVERVIEW.md`](TRADING_SYSTEM_OVERVIEW.md) · **Tài liệu tổng hợp (tính năng/cách dùng/trade options/UI/notify): [`docs/SYSTEM_GUIDE.md`](docs/SYSTEM_GUIDE.md)** · Index tài liệu: [`docs/README.md`](docs/README.md) · Tổng kết cuối: [`docs/PROJECT_SUMMARY.md`](docs/PROJECT_SUMMARY.md)
 
 ## 🔬 Chi tiết từng phase
 
