@@ -316,6 +316,9 @@ def main():
             cash_now = float(acct_now["cash"]) if "acct_now" in dir() else 0.0
 
         qty = float(d["qty"])
+        if round(qty, 6) <= 0:
+            print(f"  ⏭️  SKIP — {d['action']} qty {qty:.6f} ≈ 0 (dust position, không đáng lệnh)")
+            continue
         if d["action"] == "BUY":
             cost = qty * d["price"]
             if cost > cash_now:
