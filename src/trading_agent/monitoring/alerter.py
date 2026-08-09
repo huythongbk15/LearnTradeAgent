@@ -133,6 +133,11 @@ def send_daily_summary(stats: dict[str, Any]) -> None:
     _send(msg)
 
 
+def send_status_report(msg: str) -> None:
+    """Send a free-form status message (live equity/positions heartbeat)."""
+    _send(msg)
+
+
 # ---------------------------------------------------------------------------
 # Internal
 # ---------------------------------------------------------------------------
