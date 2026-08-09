@@ -106,7 +106,7 @@ alerts:
   console:
     enabled: true
   telegram:
-    enabled: false
+    enabled: true
     # bot_token: set via TELEGRAM_BOT_TOKEN env
     # chat_id: set via TELEGRAM_CHAT_ID env
 
