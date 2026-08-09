@@ -10,7 +10,10 @@ then sync with Alpaca:
   - Desired state == current      → HOLD
 """
 
-import sys, os, asyncio
+import sys
+import os
+import asyncio
+import json
 from decimal import Decimal
 sys.path.insert(0, 'src')
 
@@ -28,24 +31,30 @@ from trading_agent.exchanges.models import (
 )
 from trading_agent.exchanges.alpaca_adapter import AlpacaAdapter, AlpacaConfig
 from trading_agent.exchanges.live_broker import LiveBroker
+from trading_agent.risk.portfolio_risk import PortfolioRiskManager, DrawdownConfig
+from live_config import (
+    SYMBOLS_ALPACA as SYMBOLS, STRATEGY_PARAMS, LOOKBACK,
+    ATR_SL_MULT, ATR_SL_WINDOW, DRAWDOWN_TIERS,
+)
 
-# ── Config ─────────────────────────────────────────────────────────────
-# NOTE: Alpaca does NOT support BNB — replace with ETH (liquid, supported)
-# FULL-CAPITAL allocation (100% deployed, no idle cash):
-#   BTC 40% · SOL 30% · AVAX 30%   (all currently LONG per strategy)
-#   ETH excluded — strategy state FLAT (ADX>40 but no fresh BUY crossover);
-#   keep 0% so cash is fully deployed on the 3 trending symbols.
-SYMBOLS = [
-    ("BTC/USDT", "BTCUSD", 0.40),   # 40% capital
-    ("SOL/USDT", "SOLUSD", 0.30),   # 30%
-    ("AVAX/USDT", "AVAXUSD", 0.30), # 30%
-]
-TIMEFRAME = "1h"
-LOOKBACK = 1000
-# Verified champion: fast_period=20, slow_period=80, adx_threshold=40
-# (earlier "10,30,40" tests used wrong keys — actual result was 20/80 all along)
-STRATEGY_PARAMS = {"fast_period": 20, "slow_period": 80, "adx_threshold": 40}
+# ── Risk guard (P0) ────────────────────────────────────────────────────
+# (config: ATR_SL_MULT, ATR_SL_WINDOW, DRAWDOWN_TIERS ở live_config.py)
+PEAK_STATE_FILE = "data/live_peak_equity.json"   # persist peak equity giữa các lần chạy
+
 DRY_RUN = "--execute" not in sys.argv
+
+def load_peak_equity() -> float:
+    """Đọc peak equity đã lưu (None nếu chưa có)."""
+    try:
+        with open(PEAK_STATE_FILE) as f:
+            return float(json.load(f).get("peak", 0.0))
+    except (OSError, ValueError, KeyError):
+        return 0.0
+
+def save_peak_equity(peak: float) -> None:
+    os.makedirs("data", exist_ok=True)
+    with open(PEAK_STATE_FILE, "w") as f:
+        json.dump({"peak": round(peak, 2), "updated": datetime.now().isoformat()}, f)
 
 def compute_state(df: pl.DataFrame) -> dict:
     """Replay strategy over history, return current desired state + signals."""
@@ -72,6 +81,7 @@ def compute_state(df: pl.DataFrame) -> dict:
     adx = float(last["adx"][0]) if "adx" in last.columns else None
     trend_up = bool(last["trend_up"][0]) if "trend_up" in last.columns else None
     price = float(last["close"][0])
+    atr = float(last["atr"][0]) if "atr" in last.columns else None
     
     # Recent crossover events (last 24h)
     recent_sigs = sig[-24:]
@@ -85,9 +95,29 @@ def compute_state(df: pl.DataFrame) -> dict:
         "ma_slow": ma_slow,
         "adx": adx,
         "trend_up": trend_up,
+        "atr": atr,
         "n_buy_24h": n_buy,
         "n_sell_24h": n_sell,
     }
+
+
+def trailing_stop_price(entry_price: float, df: pl.DataFrame) -> float | None:
+    """ATR trailing stop = max(initial stop, peak(highs, window) - k*ATR).
+
+    - Không cần state file: peak lấy từ highs của window gần nhất.
+    - Stop chỉ được nâng lên (không hạ xuống dưới initial stop).
+    - Trả None nếu thiếu dữ liệu ATR.
+    """
+    if "atr" not in df.columns or "high" not in df.columns:
+        return None
+    atr_arr = df["atr"].to_numpy()
+    atr = float(atr_arr[~np.isnan(atr_arr)][-1]) if np.isfinite(atr_arr[-1]) else None
+    if atr is None or atr <= 0:
+        return None
+    peak = float(df["high"][-ATR_SL_WINDOW:].max())
+    trail = peak - ATR_SL_MULT * atr
+    initial = entry_price - ATR_SL_MULT * atr
+    return max(trail, initial)
 
 
 def get_recent_df(symbol: str) -> pl.DataFrame:
@@ -122,8 +152,21 @@ def main():
     broker = LiveBroker("alpaca", adapter)
 
     acct = broker.get_account()
-    print(f"\n✅ Alpaca Paper connected")
+    print("\n✅ Alpaca Paper connected")
     print(f"  Equity: ${acct['equity']:,.2f} | Cash: ${acct['cash']:,.2f}")
+
+    # ── Risk guard: portfolio drawdown controller ─────────────────────
+    pm = PortfolioRiskManager(DrawdownConfig(tiers=DRAWDOWN_TIERS))
+    peak_seen = load_peak_equity()
+    if peak_seen > 0:
+        pm.update_equity(peak_seen)      # seed peak từ các lần chạy trước
+    pm.update_equity(float(acct["equity"]))
+    save_peak_equity(pm.peak_equity)
+    halted = pm.is_trading_halted()
+    scale = pm.position_scale_factor()
+    print(f"  🛡 Risk: equity ${float(acct['equity']):,.2f} | peak ${pm.peak_equity:,.2f} | "
+          f"DD {pm.current_dd:.1%} | scale {scale:.0%} | "
+          f"{'⛔ HALTED (đóng hết vị thế)' if halted else '✅ trading allowed'}")
 
     positions = broker.get_positions()
     pos_map = {p["symbol"].split("/")[0]: p for p in positions}
@@ -143,6 +186,8 @@ def main():
         print(f"\n--- {market_symbol} (Alpaca: {alpaca_symbol}) ---")
         try:
             df = get_recent_df(market_symbol)
+            # Tính indicators TRƯỚC để downstream (ATR stop) dùng được cột atr
+            df = EnhancedMaCrossover(STRATEGY_PARAMS).compute_indicators(df)
             state = compute_state(df)
 
             existing = pos_map.get(alpaca_symbol)
@@ -157,35 +202,21 @@ def main():
             print(f"  Crossovers last 24h: {state['n_buy_24h']} BUY / {state['n_sell_24h']} SELL")
             print(f"  Strategy state: {state['state']} | Alpaca: {current_state}")
 
-            # ── Rebalance vs strategy target state (deadband 5%) ──
-            target_notional = equity * alloc
-            current_notional = current_qty * state["price"]
-            delta_usd = target_notional - current_notional
-            deadband = alloc * equity * 0.05  # 5% of target — tránh lệnh nhỏ lặt vặt
+            # ── RISK 1: ATR trailing stop — đóng lệnh nếu phá stop ──
+            risk_exit = False
+            if has_position and current_qty > 0:
+                stop = trailing_stop_price(float(existing["avg_entry_price"]), df)
+                if stop is not None:
+                    if state["price"] <= stop:
+                        risk_exit = True
+                        print(f"  🛑 RISK EXIT: giá ${state['price']:,.2f} ≤ ATR stop ${stop:,.2f} "
+                              f"(entry ${float(existing['avg_entry_price']):,.2f})")
+                    else:
+                        print(f"  🛡 ATR trailing stop: ${stop:,.2f} (buffer ${state['price'] - stop:,.2f})")
+                else:
+                    print("  ⚠️ Không tính được ATR stop (thiếu dữ liệu)")
 
-            if state["state"] == "LONG" and delta_usd > deadband:
-                qty = delta_usd / state["price"]
-                decisions.append({
-                    "market_symbol": market_symbol,
-                    "alpaca_symbol": alpaca_symbol,
-                    "action": "BUY",
-                    "qty": qty,
-                    "price": state["price"],
-                    "size_pct": alloc,
-                })
-                print(f"  → ACTION: BUY {qty:.6f} {alpaca_symbol} "
-                      f"(rebalance {current_notional:,.0f} → {target_notional:,.0f} USD)")
-            elif state["state"] == "LONG" and delta_usd < -deadband:
-                decisions.append({
-                    "market_symbol": market_symbol,
-                    "alpaca_symbol": alpaca_symbol,
-                    "action": "SELL",
-                    "qty": abs(delta_usd) / state["price"],
-                    "price": state["price"],
-                    "size_pct": alloc,
-                })
-                print(f"  → ACTION: SELL (trim excess {current_notional:,.0f} → {target_notional:,.0f} USD)")
-            elif state["state"] == "FLAT" and has_position:
+            if risk_exit:
                 decisions.append({
                     "market_symbol": market_symbol,
                     "alpaca_symbol": alpaca_symbol,
@@ -193,10 +224,70 @@ def main():
                     "qty": current_qty,
                     "price": state["price"],
                     "size_pct": alloc,
+                    "reason": "ATR_TRAILING_STOP",
                 })
-                print(f"  → ACTION: SELL {current_qty:.6f} {alpaca_symbol} (strategy flat → close)")
+                print(f"  → ACTION: SELL {current_qty:.6f} {alpaca_symbol} (ATR trailing stop)")
+
+            # ── RISK 2: portfolio halt — đóng hết, dừng mua ──────────
+            elif halted and has_position:
+                decisions.append({
+                    "market_symbol": market_symbol,
+                    "alpaca_symbol": alpaca_symbol,
+                    "action": "SELL",
+                    "qty": current_qty,
+                    "price": state["price"],
+                    "size_pct": alloc,
+                    "reason": "PORTFOLIO_HALT",
+                })
+                print(f"  ⛔ HALT: đóng {current_qty:.6f} {alpaca_symbol} (drawdown > 20%)")
+            elif halted:
+                print(f"  ⛔ HALTED: bỏ qua {alpaca_symbol} (drawdown > 20%)")
+
+            # ── Rebalance vs strategy target state (deadband 5%) ──
+            #    target bị scale theo drawdown tier (75/50/25%)
             else:
-                print(f"  → NO ACTION (state matches)")
+                target_notional = equity * alloc * scale
+                current_notional = current_qty * state["price"]
+                delta_usd = target_notional - current_notional
+                deadband = alloc * equity * 0.05  # 5% of target — tránh lệnh nhỏ lặt vặt
+
+                if state["state"] == "LONG" and delta_usd > deadband:
+                    qty = delta_usd / state["price"]
+                    decisions.append({
+                        "market_symbol": market_symbol,
+                        "alpaca_symbol": alpaca_symbol,
+                        "action": "BUY",
+                        "qty": qty,
+                        "price": state["price"],
+                        "size_pct": alloc,
+                        "reason": "REBALANCE",
+                    })
+                    print(f"  → ACTION: BUY {qty:.6f} {alpaca_symbol} "
+                          f"(rebalance {current_notional:,.0f} → {target_notional:,.0f} USD, scale {scale:.0%})")
+                elif state["state"] == "LONG" and delta_usd < -deadband:
+                    decisions.append({
+                        "market_symbol": market_symbol,
+                        "alpaca_symbol": alpaca_symbol,
+                        "action": "SELL",
+                        "qty": abs(delta_usd) / state["price"],
+                        "price": state["price"],
+                        "size_pct": alloc,
+                        "reason": "REBALANCE",
+                    })
+                    print(f"  → ACTION: SELL (trim excess {current_notional:,.0f} → {target_notional:,.0f} USD)")
+                elif state["state"] == "FLAT" and has_position:
+                    decisions.append({
+                        "market_symbol": market_symbol,
+                        "alpaca_symbol": alpaca_symbol,
+                        "action": "SELL",
+                        "qty": current_qty,
+                        "price": state["price"],
+                        "size_pct": alloc,
+                        "reason": "STRATEGY_FLAT",
+                    })
+                    print(f"  → ACTION: SELL {current_qty:.6f} {alpaca_symbol} (strategy flat → close)")
+                else:
+                    print("  → NO ACTION (state matches)")
 
         except Exception as e:
             print(f"  ❌ Error: {e}")

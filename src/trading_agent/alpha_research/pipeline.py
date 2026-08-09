@@ -478,10 +478,11 @@ class AlphaEvaluator:
         # Rolling IC
         window = min(20, len(a) // 3)
         if window > 5:
-            rolling_ic = [
-                sp_stats.spearmanr(a[i:i + window], f[i:i + window])[0]
-                for i in range(0, len(a) - window, window)
-            ]
+            rolling_ic = []
+            for i in range(0, len(a) - window, window):
+                with np.errstate(invalid="ignore", divide="ignore"):
+                    ic_win = sp_stats.spearmanr(a[i:i + window], f[i:i + window])[0]
+                rolling_ic.append(ic_win)
             rolling_ic = [x for x in rolling_ic if not np.isnan(x)]
             if rolling_ic:
                 report.ic_ir = report.ic_mean / (np.std(rolling_ic) + 1e-9)
@@ -687,9 +688,14 @@ class AutoMLPipeline:
                 selected.append(best_name)
 
         # Build composite
-        combo_values = np.nanmean(
-            [alpha_values[n] for n in selected if n in alpha_values], axis=0
-        )
+        stack = [alpha_values[n] for n in selected if n in alpha_values]
+        if not stack:
+            return {"names": selected, "composite_ic": 0, "n_alphas": len(selected)}
+        with np.errstate(invalid="ignore", divide="ignore"):
+            combo_values = np.nanmean(stack, axis=0)
+        if combo_values.size == 0 or not np.all(np.isfinite(combo_values)):
+            # Không đủ dữ liệu alpha hợp lệ → trả 0 thay vì NaN
+            return {"names": selected, "composite_ic": 0, "n_alphas": len(selected)}
         ic = sp_stats.spearmanr(combo_values, forward_ret)[0] if len(combo_values) > 10 else 0
 
         return {

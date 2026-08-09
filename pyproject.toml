@@ -49,6 +49,17 @@ dev = [
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+# Bộ lọc warning có chủ đích (P1 cleanup):
+# - Deprecation của thư viện / Python stdlib — không phải bug dự án
+# - SciPy/numpy cảnh báo phụ trợ mà code đã xử lý nan an toàn
+filterwarnings = [
+    "ignore:datetime\\.datetime\\.utcnow\\(\\) is deprecated:DeprecationWarning",
+    "ignore:websockets\\.legacy is deprecated:DeprecationWarning",
+    "ignore::DeprecationWarning:hmmlearn\\.utils",
+    "ignore:An input array is constant:RuntimeWarning",
+    "ignore:Mean of empty slice:RuntimeWarning",
+    "ignore:invalid value encountered in scalar divide:RuntimeWarning",
+]
 
 [tool.ruff]
 # CI lint scope: real bugs (pyflakes) + syntax errors. Style rules (line

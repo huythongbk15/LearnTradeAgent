@@ -351,9 +351,10 @@ class PortfolioOptimizer:
         corr = (corr + corr.T) / 2
         np.fill_diagonal(corr, 1.0)
         dist = squareform(1 - np.abs(corr), checks=False)
-        if dist.ndim == 1:
-            dist = squareform(dist)
-
+        # squareform(2D square) → 1D condensed — linkage cần condensed.
+        # Chỉ chuyển nếu input bất thường vẫn còn dạng 2D (defensive).
+        if dist.ndim == 2:
+            dist = squareform(dist, checks=False)
         link = linkage(dist, method='ward')
 
         # Simplified HRP - use dendrogram ordering directly

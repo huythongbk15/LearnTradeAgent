@@ -152,6 +152,7 @@ class ExchangeAdapter(ABC):
     async def disconnect(self) -> None: ...
 
     @abstractmethod
+    @abstractmethod
     async def fetch_markets(self) -> list[dict]: ...
 
     @abstractmethod
@@ -207,13 +208,23 @@ class CCXTAdapter(ExchangeAdapter):
             exchange_class = getattr(ccxt, self.config.id)
             self.exchange = exchange_class(self.config.to_ccxt_config())
 
-            # Load markets
-            await self.exchange.load_markets()
+            # Sandbox/testnet mode (CCXT: binance → testnet.binance.vision
+            # for spot, testnet.binancefuture.com for futures)
+            if self.config.sandbox or self.config.testnet:
+                self.exchange.set_sandbox_mode(True)
+                logger.info(f"Sandbox/testnet mode ENABLED for {self.config.name}")
+
+            # Load markets (sync ccxt returns dict, ccxt.pro returns coroutine)
+            markets_load = self.exchange.load_markets()
+            if asyncio.iscoroutine(markets_load):
+                await markets_load
             self._markets = self.exchange.markets
             self._build_symbol_maps()
 
             # Test connection
-            await self.exchange.fetch_time()
+            time_res = self.exchange.fetch_time()
+            if asyncio.iscoroutine(time_res):
+                await time_res
             self._status = ExchangeStatus.HEALTHY
             self._connected = True
             logger.info(f"Connected to {self.config.name} ({self.config.id})")
@@ -230,9 +241,9 @@ class CCXTAdapter(ExchangeAdapter):
     async def disconnect(self) -> None:
         """Close connections"""
         if self.exchange:
-            await self.exchange.close()
+            await self._maybe_await(self.exchange.close())
         if self.ws_exchange:
-            await self.ws_exchange.close()
+            await self._maybe_await(self.ws_exchange.close())
         self._connected = False
         self._status = ExchangeStatus.DOWN
         logger.info(f"Disconnected from {self.config.name}")
@@ -296,6 +307,25 @@ class CCXTAdapter(ExchangeAdapter):
         # Fallback: construct standard format
         return f"{symbol.base}/{symbol.quote}"
 
+    async def fetch_tickers(self, symbols: list[Symbol]) -> dict[str, float]:
+        """Batch-fetch last prices for many symbols with a single API call."""
+        ex_symbols = [self._unified_to_ccxt_symbol(s) for s in symbols]
+        try:
+            raw = await self._maybe_await(self.exchange.fetch_tickers(ex_symbols))
+            prices: dict[str, float] = {}
+            for ex_sym, ticker in raw.items():
+                last = ticker.get('last') or ticker.get('close')
+                if last is None:
+                    continue
+                market = self.exchange.markets.get(ex_sym)
+                unified = self._ccxt_to_unified_symbol(market) if market else None
+                if unified is not None:
+                    prices[unified.pair] = float(last)
+            return prices
+        except Exception as e:
+            logger.error(f"fetch_tickers failed for {len(symbols)} symbols: {e}")
+            return {}
+
     async def fetch_markets(self) -> list[dict]:
         """Get all available markets"""
         return list(self._markets.values())
@@ -308,7 +338,40 @@ class CCXTAdapter(ExchangeAdapter):
         """Get exchange-specific symbol from unified symbol"""
         return self._unified_to_ccxt_symbol(symbol)
 
+    def has_market(self, ex_symbol: str) -> bool:
+        """True if the exchange exposes this market symbol.
+
+        Avoids slow/erroring ticker calls for junk pairs (e.g. testnet
+        faucet coins that have no tradeable market)."""
+        return self.exchange is not None and ex_symbol in self.exchange.markets
+
+    async def fetch_tickers(self, symbols: list[Symbol]) -> dict[str, float]:
+        """Batch-fetch last prices for many symbols with a single API call."""
+        ex_symbols = [self._unified_to_ccxt_symbol(s) for s in symbols]
+        try:
+            raw = await self._maybe_await(self.exchange.fetch_tickers(ex_symbols))
+            prices: dict[str, float] = {}
+            for ex_sym, ticker in raw.items():
+                last = ticker.get('last') or ticker.get('close')
+                if last is None:
+                    continue
+                market = self.exchange.markets.get(ex_sym)
+                unified = self._ccxt_to_unified_symbol(market) if market else None
+                if unified is not None:
+                    prices[unified.pair] = float(last)
+            return prices
+        except Exception as e:
+            logger.error(f"fetch_tickers failed for {len(symbols)} symbols: {e}")
+            return {}
+
     # --- Market Data ---
+
+    @staticmethod
+    async def _maybe_await(result: object):
+        """ccxt (sync) returns plain values; ccxt.pro returns coroutines."""
+        if asyncio.iscoroutine(result):
+            return await result
+        return result
 
     async def fetch_ticker(self, symbol: Symbol) -> Ticker:
         """Fetch ticker for a symbol"""
@@ -316,7 +379,7 @@ class CCXTAdapter(ExchangeAdapter):
         await self._rate_limiter.acquire(self.config.id, weight=1)
 
         try:
-            ticker = await self.exchange.fetch_ticker(ex_symbol)
+            ticker = await self._maybe_await(self.exchange.fetch_ticker(ex_symbol))
             return self._parse_ticker(ticker, symbol)
         except Exception as e:
             logger.error(f"fetch_ticker failed for {symbol}: {e}")
@@ -328,7 +391,7 @@ class CCXTAdapter(ExchangeAdapter):
         await self._rate_limiter.acquire(self.config.id, weight=1)
 
         try:
-            ob = await self.exchange.fetch_order_book(ex_symbol, limit)
+            ob = await self._maybe_await(self.exchange.fetch_order_book(ex_symbol, limit))
             return self._parse_order_book(ob, symbol)
         except Exception as e:
             logger.error(f"fetch_order_book failed for {symbol}: {e}")
@@ -341,7 +404,7 @@ class CCXTAdapter(ExchangeAdapter):
         await self._rate_limiter.acquire(self.config.id, weight=1)
 
         try:
-            ohlcv = await self.exchange.fetch_ohlcv(ex_symbol, timeframe, since, limit)
+            ohlcv = await self._maybe_await(self.exchange.fetch_ohlcv(ex_symbol, timeframe, since, limit))
             return [self._parse_candle(c, symbol, timeframe) for c in ohlcv]
         except Exception as e:
             logger.error(f"fetch_ohlcv failed for {symbol}: {e}")
@@ -354,7 +417,7 @@ class CCXTAdapter(ExchangeAdapter):
         await self._rate_limiter.acquire(self.config.id, weight=1)
 
         try:
-            balance = await self.exchange.fetch_balance()
+            balance = await self._maybe_await(self.exchange.fetch_balance())
             return self._parse_balance(balance)
         except Exception as e:
             logger.error(f"fetch_balance failed: {e}")
@@ -370,14 +433,14 @@ class CCXTAdapter(ExchangeAdapter):
         try:
             # Convert order to CCXT params
             params = self._order_to_ccxt_params(order)
-            result = await self.exchange.create_order(
+            result = await self._maybe_await(self.exchange.create_order(
                 ex_symbol,
                 order.type.value.lower(),
                 order.side.value.lower(),
                 float(order.size),
                 float(order.price) if order.price else None,
                 params
-            )
+            ))
             return self._parse_order(result, order.symbol)
         except InsufficientFunds:
             logger.error(f"Insufficient funds for order {order}")
@@ -395,7 +458,7 @@ class CCXTAdapter(ExchangeAdapter):
         await self._rate_limiter.acquire(self.config.id, weight=1)
 
         try:
-            await self.exchange.cancel_order(order_id, ex_symbol)
+            await self._maybe_await(self.exchange.cancel_order(order_id, ex_symbol))
             return True
         except Exception as e:
             logger.error(f"cancel_order failed: {e}")
@@ -407,7 +470,7 @@ class CCXTAdapter(ExchangeAdapter):
         await self._rate_limiter.acquire(self.config.id, weight=1)
 
         try:
-            order = await self.exchange.fetch_order(order_id, ex_symbol)
+            order = await self._maybe_await(self.exchange.fetch_order(order_id, ex_symbol))
             return self._parse_order(order, symbol)
         except Exception as e:
             logger.error(f"fetch_order failed: {e}")
@@ -419,7 +482,7 @@ class CCXTAdapter(ExchangeAdapter):
         await self._rate_limiter.acquire(self.config.id, weight=1)
 
         try:
-            orders = await self.exchange.fetch_open_orders(ex_symbol)
+            orders = await self._maybe_await(self.exchange.fetch_open_orders(ex_symbol))
             return [self._parse_order(o, self._ccxt_to_unified_symbol(o['symbol'])) for o in orders]
         except Exception as e:
             logger.error(f"fetch_open_orders failed: {e}")
@@ -430,9 +493,9 @@ class CCXTAdapter(ExchangeAdapter):
         await self._rate_limiter.acquire(self.config.id, weight=1)
 
         try:
-            positions = await self.exchange.fetch_positions(
+            positions = await self._maybe_await(self.exchange.fetch_positions(
                 [self._unified_to_ccxt_symbol(symbol)] if symbol else None
-            )
+            ))
             return [self._parse_position(p) for p in positions if float(p.get('contracts', 0)) != 0]
         except Exception as e:
             logger.error(f"fetch_positions failed: {e}")
@@ -480,7 +543,9 @@ class CCXTAdapter(ExchangeAdapter):
     def _parse_balance(self, balance: dict) -> dict[AssetClass, Balance]:
         result = {}
         for currency, amounts in balance.items():
-            if currency in ('info', 'free', 'used', 'total'):
+            if currency in ('info', 'free', 'used', 'total', 'timestamp', 'datetime'):
+                continue
+            if not isinstance(amounts, dict):
                 continue
             free = float(amounts.get('free', 0))
             used = float(amounts.get('used', 0))
@@ -497,7 +562,9 @@ class CCXTAdapter(ExchangeAdapter):
 
     def _order_to_ccxt_params(self, order: Order) -> dict:
         params = {}
-        if order.time_in_force:
+        # Binance chỉ chấp nhận timeInForce cho limit orders; market orders
+        # sẽ bị reject (-1106) nếu gửi kèm.
+        if order.time_in_force and order.type == OrderType.LIMIT:
             params['timeInForce'] = order.time_in_force.value
         if order.reduce_only:
             params['reduceOnly'] = True
@@ -519,21 +586,19 @@ class CCXTAdapter(ExchangeAdapter):
             id=order['id'],
             client_order_id=order.get('clientOrderId'),
             symbol=symbol,
-            side=OrderSide(order['side'].upper()),
-            type=OrderType(order['type'].upper()),
+            side=OrderSide(str(order['side']).lower()),
+            type=OrderType(str(order['type']).lower()),
             status=status_map.get(order['status'], OrderStatus.OPEN),
             size=order['amount'],
             filled_size=order['filled'],
             avg_fill_price=order['average'],
             price=order['price'],
             fee=order['fee']['cost'] if order.get('fee') else Decimal(0),
-            fee_currency=order['fee']['currency'] if order.get('fee') else "",
-            time_in_force=TimeInForce(order['timeInForce']) if order.get('timeInForce') else TimeInForce.GTC,
+            time_in_force=TimeInForce(str(order['timeInForce']).lower()) if order.get('timeInForce') else TimeInForce.GTC,
             reduce_only=order.get('reduceOnly', False),
             post_only=order.get('postOnly', False),
             created_at=datetime.fromtimestamp(order['timestamp'] / 1000) if order.get('timestamp') else datetime.now(),
             updated_at=datetime.fromtimestamp(order['lastTradeTimestamp'] / 1000) if order.get('lastTradeTimestamp') else None,
-            info=order,
         )
 
     def _parse_position(self, pos: dict) -> Position:

@@ -10,7 +10,10 @@ Cách dùng:
     - Key API chỉ cần quyền: đọc + giao dịch spot; TẮT quyền rút tiền (withdraw).
     - Chiến lược trend-following có thể giữ lệnh lâu và chịu drawdown sâu.
 """
-import sys, os, asyncio
+import sys
+import os
+import asyncio
+import argparse
 from decimal import Decimal
 sys.path.insert(0, 'src')
 
@@ -28,17 +31,30 @@ from trading_agent.exchanges.models import (
 )
 from trading_agent.exchanges.ccxt_adapter import CCXTAdapter, ExchangeConfig
 from trading_agent.exchanges.live_broker import LiveBroker
+from live_config import STRATEGY_PARAMS, LOOKBACK
 
 # ── Config ─────────────────────────────────────────────────────────────
-SYMBOLS = [
-    ("BTC/USDT", 0.40),   # 40% capital
-    ("SOL/USDT", 0.30),   # 30%
-    ("AVAX/USDT", 0.30),  # 30%
-]
-TIMEFRAME = "1h"
-LOOKBACK = 1000
-STRATEGY_PARAMS = {"fast_period": 20, "slow_period": 80, "adx_threshold": 40}
-DRY_RUN = "--execute" not in sys.argv
+_parser = argparse.ArgumentParser()
+_parser.add_argument("--execute", action="store_true", help="Đặt lệnh thật (mặc định dry-run)")
+_parser.add_argument("--testnet", action="store_true", help="Dùng Binance Spot Testnet (tiền ảo)")
+_parser.add_argument("--symbols", default="BTC/USDT,SOL/USDT,AVAX/USDT", help="Comma-separated symbols")
+_parser.add_argument("--weights", default="40,30,30", help="Comma-separated allocation weights (%)")
+_args = _parser.parse_args()
+DRY_RUN = not _args.execute
+TESTNET = _args.testnet
+
+# ── SYMBOLS từ CLI (weights tự chuẩn hoá về 100%) ─────────────────────────
+_cli_syms = [s.strip() for s in _args.symbols.split(",") if s.strip()]
+_cli_ws = []
+for w in _args.weights.split(","):
+    w = w.strip()
+    if w:
+        _cli_ws.append(float(w))
+while len(_cli_ws) < len(_cli_syms):
+    _cli_ws.append(20.0)
+_cli_ws = _cli_ws[:len(_cli_syms)]
+_total_w = sum(_cli_ws) or 1.0
+SYMBOLS = [(s, w / _total_w) for s, w in zip(_cli_syms, _cli_ws)]
 
 
 def compute_state(df: pl.DataFrame) -> dict:
@@ -79,6 +95,8 @@ def compute_state(df: pl.DataFrame) -> dict:
 
 
 def get_recent_df(symbol: str) -> pl.DataFrame:
+    # HYBRID: signal luôn dùng dữ liệu Binance PUBLIC (live data, 1000+ candles)
+    # để chiến lược warmup đầy đủ. Chỉ LỆNH mới đi qua testnet (tiền ảo).
     exchange = ccxt.binance({"enableRateLimit": True})
     ohlcv = exchange.fetch_ohlcv(symbol, "1h", limit=LOOKBACK)
     if not ohlcv:
@@ -96,15 +114,26 @@ def get_recent_df(symbol: str) -> pl.DataFrame:
 def main():
     print("=" * 80)
     print("🚀 LIVE BINANCE SPOT — Single 1h Enhanced MA (20,80,40)")
-    print(f"  Mode: {'DRY RUN (no orders placed)' if DRY_RUN else 'EXECUTE — TIỀN THẬT'}")
+    if TESTNET:
+        mode = "HYBRID: signal from Binance PUBLIC data | LỆNH trên TESTNET (tiền ảo)"
+    else:
+        mode = "DRY RUN (no orders placed)" if DRY_RUN else "EXECUTE — TIỀN THẬT"
+    print(f"  Mode: {mode}")
     print("=" * 80)
 
-    binance_key = os.environ.get("BINANCE_API_KEY", "")
-    binance_secret = os.environ.get("BINANCE_API_SECRET", "")
+    key_env = "BINANCE_TESTNET_API_KEY" if TESTNET else "BINANCE_API_KEY"
+    secret_env = "BINANCE_TESTNET_API_SECRET" if TESTNET else "BINANCE_API_SECRET"
+    binance_key = os.environ.get(key_env, "")
+    binance_secret = os.environ.get(secret_env, "")
     if not binance_key or not binance_secret:
-        print("❌ BINANCE_API_KEY / BINANCE_API_SECRET chưa set trong .env")
-        print("   Tạo key tại https://www.binance.com/en/my/settings/api-management")
-        print("   Chỉ bật: Enable Reading + Enable Spot & Futures Trading; TẮT withdrawals.")
+        if TESTNET:
+            print(f"❌ {key_env} / {secret_env} chưa set trong .env")
+            print("   → Tạo key testnet tại https://testnet.binance.vision/ (key RIÊNG, không dùng key live)")
+            print("   → Bấm nút faucet để nhận USDT ảo, rồi thêm 2 biến trên vào .env")
+        else:
+            print("❌ BINANCE_API_KEY / BINANCE_API_SECRET chưa set trong .env")
+            print("   Tạo key tại https://www.binance.com/en/my/settings/api-management")
+            print("   Chỉ bật: Enable Reading + Enable Spot & Futures Trading; TẮT withdrawals.")
         return
 
     # Connect Binance
@@ -113,15 +142,16 @@ def main():
         name="Binance",
         api_key=binance_key,
         secret=binance_secret,
-        sandbox=False,
+        testnet=TESTNET,
+        enable_rate_limit=False,  # rate_limit 1200ms của adapter gây delay ~20s/request trên testnet
         markets=[MarketType.SPOT, MarketType.FUTURES],
         options={"defaultType": "spot"},
     ))
     asyncio.run(adapter.connect())
-    broker = LiveBroker("binance", adapter)
+    broker = LiveBroker("binance", adapter, pricing_symbols=[m for m, _ in SYMBOLS])
 
     acct = broker.get_account()
-    print(f"\n✅ Binance connected")
+    print("\n✅ Binance connected")
     print(f"  Equity: ${acct['equity']:,.2f} | Cash: ${acct['cash']:,.2f}")
 
     positions = broker.get_positions()
@@ -190,7 +220,7 @@ def main():
                 })
                 print(f"  → ACTION: SELL {current_qty:.6f} {market_symbol.split('/')[0]} (strategy flat → close)")
             else:
-                print(f"  → NO ACTION (state matches)")
+                print("  → NO ACTION (state matches)")
 
         except Exception as e:
             print(f"  ❌ Error: {e}")

@@ -17,7 +17,7 @@ import sys
 from decimal import Decimal
 from datetime import datetime
 
-def test_unified_data_model():
+def smoke_unified_data_model():
     """Test unified data model"""
     print("Testing Unified Data Model...")
     from trading_agent.exchanges.models import (
@@ -76,7 +76,7 @@ def test_unified_data_model():
     return True
 
 
-def test_risk_budgeting():
+def smoke_risk_budgeting():
     """Test risk budgeting and correlation monitoring"""
     print("Testing Risk Budgeting & Correlation Monitor...")
     import numpy as np
@@ -170,7 +170,7 @@ def test_risk_budgeting():
     return True
 
 
-def test_strategy_plugins():
+def smoke_strategy_plugins():
     """Test strategy plugin architecture"""
     print("Testing Strategy Plugin Architecture...")
     from trading_agent.strategies.plugins.strategy_plugin import (
@@ -274,7 +274,7 @@ def test_strategy_plugins():
     return True
 
 
-def test_regime_detection():
+def smoke_regime_detection():
     """Test regime detection"""
     print("Testing Regime Detection...")
     import numpy as np
@@ -359,7 +359,7 @@ def test_regime_detection():
     return True
 
 
-def test_ccxt_adapter_structure():
+def smoke_ccxt_adapter_structure():
     """Test CCXT adapter structure (without actual connections)"""
     print("Testing CCXT Adapter Structure...")
     from trading_agent.exchanges.ccxt_adapter import (
@@ -402,11 +402,11 @@ async def main():
     print()
 
     tests = [
-        test_unified_data_model,
-        test_risk_budgeting,
-        test_strategy_plugins,
-        test_regime_detection,
-        test_ccxt_adapter_structure,
+        smoke_unified_data_model,
+        smoke_risk_budgeting,
+        smoke_strategy_plugins,
+        smoke_regime_detection,
+        smoke_ccxt_adapter_structure,
     ]
 
     passed = 0

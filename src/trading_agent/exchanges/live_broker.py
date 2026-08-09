@@ -23,9 +23,24 @@ def _run(coro):
 class LiveBroker:
     """Sync facade over an async Alpaca/OANDA adapter."""
 
-    def __init__(self, broker: str, adapter):
+    def __init__(self, broker: str, adapter, pricing_symbols: list[str] | None = None):
         self.broker = broker
         self.adapter = adapter
+        # Coins được phép định giá (vd ['BTC/USDT','SOL/USDT']) — tránh gọi ticker
+        # cho hàng trăm faucet coins rác trên testnet.
+        self.pricing_symbols = pricing_symbols
+
+    def _need_coins(self, base_total: dict, main_quote: str) -> list[str]:
+        """Coins cần fetch giá: whitelist nếu có, ngược lại top 20 theo total."""
+        candidates = [
+            coin for coin, amt in base_total.items()
+            if coin != main_quote and amt > 0
+            and self.adapter.has_market(f"{coin}/{main_quote}")
+        ]
+        if self.pricing_symbols:
+            wanted = {s.split("/")[0].upper() for s in self.pricing_symbols}
+            return [c for c in candidates if c.upper() in wanted]
+        return sorted(candidates, key=lambda c: base_total[c], reverse=True)[:20]
 
     # ── account ────────────────────────────────────────────────────────────
 
@@ -61,17 +76,24 @@ class LiveBroker:
                 base_total[pair] = float(amounts.get("total", 0))
             free_usdt = base_total.get(main_quote, 0.0)
             # Định giá coin khác quote bằng ticker (bỏ coin quote chính)
+            need = self._need_coins(base_total, main_quote)
+            prices = {}
+            if need:
+                try:
+                    prices = _run(self.adapter.fetch_tickers([
+                        Symbol(base=c, quote=main_quote, asset_class=AssetClass.CRYPTO,
+                               market_type=MarketType.SPOT, exchange=self.adapter.config.id)
+                        for c in need
+                    ]))
+                except Exception:
+                    prices = {}
             for coin, amt in base_total.items():
                 if coin == main_quote or amt <= 0:
                     continue
-                try:
-                    tick = _run(self.adapter.fetch_ticker(Symbol(
-                        base=coin, quote=main_quote, asset_class=AssetClass.CRYPTO,
-                        market_type=MarketType.SPOT, exchange=self.adapter.config.id,
-                    )))
-                    total_usdt += amt * float(tick.close or tick.last)
-                except Exception:
-                    pass  # cặp không tồn tại — bỏ qua
+                price = prices.get(f"{coin}/{main_quote}")
+                if not price:
+                    continue
+                total_usdt += amt * float(price)
             total_usdt += free_usdt
             return {
                 "id": self.broker,
@@ -117,28 +139,34 @@ class LiveBroker:
             out = []
             if not assets:
                 return out
+            need = self._need_coins({c: float(a.get("total", 0)) for c, a in assets.assets.items()}, main_quote)
+            prices = {}
+            if need:
+                try:
+                    prices = _run(self.adapter.fetch_tickers([
+                        Symbol(base=c, quote=main_quote, asset_class=AssetClass.CRYPTO,
+                               market_type=MarketType.SPOT, exchange=self.adapter.config.id)
+                        for c in need
+                    ]))
+                except Exception:
+                    prices = {}
             for coin, amounts in assets.assets.items():
                 total = float(amounts.get("total", 0))
                 if coin == main_quote or total <= 0:
                     continue
-                try:
-                    tick = _run(self.adapter.fetch_ticker(Symbol(
-                        base=coin, quote=main_quote, asset_class=AssetClass.CRYPTO,
-                        market_type=MarketType.SPOT, exchange=self.adapter.config.id,
-                    )))
-                    price = float(tick.close or tick.last)
-                    out.append({
-                        "symbol": f"{coin}/{main_quote}",
-                        "side": "long",
-                        "qty": total,
-                        "avg_entry_price": price,  # không có cost basis — dùng mark
-                        "current_price": price,
-                        "unrealized_pl": 0.0,
-                        "unrealized_plpc": 0.0,
-                        "market_value": total * price,
-                    })
-                except Exception:
-                    continue
+                price = prices.get(f"{coin}/{main_quote}")
+                if not price:
+                    continue  # cặp rác — không gọi ticker
+                out.append({
+                    "symbol": f"{coin}/{main_quote}",
+                    "side": "long",
+                    "qty": total,
+                    "avg_entry_price": price,  # không có cost basis — dùng mark
+                    "current_price": price,
+                    "unrealized_pl": 0.0,
+                    "unrealized_plpc": 0.0,
+                    "market_value": total * price,
+                })
             return out
 
         positions = _run(self.adapter.fetch_positions())
