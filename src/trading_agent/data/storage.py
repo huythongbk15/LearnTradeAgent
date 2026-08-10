@@ -54,6 +54,13 @@ def save_ohlcv(
 
     if append and path.exists():
         existing = pl.read_parquet(path)
+        # Align schema với file cũ: cột thừa (vd atr từ enrich-at) = null cho dòng mới
+        missing_cols = [c for c in existing.columns if c not in df.columns]
+        if missing_cols:
+            df = df.with_columns(
+                [pl.lit(None, dtype=existing.schema[c]).alias(c) for c in missing_cols]
+            )
+        df = df.select(existing.columns)
         df = pl.concat([existing, df]).unique(
             subset=["timestamp"], keep="last"
         ).sort("timestamp")

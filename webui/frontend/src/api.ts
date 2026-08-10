@@ -129,10 +129,10 @@ export const agentsAnalyze = (symbol: string, timeframe: string) =>
     method: "POST",
     body: JSON.stringify({ symbol, timeframe }),
   });
-export const dataFetch = (symbol: string, timeframe: string, since?: string) =>
+export const dataFetch = (symbol: string, timeframe: string, since?: string, exchange = "binance", save = false) =>
   api<{ job_id: string }>("/api/data/fetch", {
     method: "POST",
-    body: JSON.stringify({ symbol, timeframe, since }),
+    body: JSON.stringify({ symbol, timeframe, since, exchange, save }),
   });
 export const dataDatasets = () => api<{ datasets: { path: string; size: number }[] }>("/api/data/datasets");
 export const portfolioOptimize = (symbols: string[], method: string, lookback = 90) =>

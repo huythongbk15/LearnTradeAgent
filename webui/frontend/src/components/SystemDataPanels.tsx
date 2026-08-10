@@ -16,6 +16,8 @@ export function DataPanel({ symbols, timeframes }: { symbols: string[]; timefram
   const [symbol, setSymbol] = useState(symbols[0] ?? "BTC/USDT");
   const [tf, setTf] = useState(timeframes.includes("1h") ? "1h" : timeframes[0] ?? "1h");
   const [since, setSince] = useState("2024-01-01");
+  const [exchange, setExchange] = useState("binance");
+  const [save, setSave] = useState(false);
   const [datasets, setDatasets] = useState<{ path: string; size: number }[]>([]);
 
   const load = async () => setDatasets((await dataDatasets()).datasets);
@@ -28,8 +30,8 @@ export function DataPanel({ symbols, timeframes }: { symbols: string[]; timefram
       <CliJobPanel
         title="Dữ liệu — Fetch OHLCV"
         icon="📦"
-        description="Tải dữ liệu lịch sử từ Binance về kho parquet."
-        run={() => dataFetch(symbol, tf, since)}
+        description="Tải dữ liệu lịch sử về kho parquet (tích checkbox Lưu dữ liệu để dùng cho backtest)."
+        run={() => dataFetch(symbol, tf, since, exchange, save)}
         fields={
           <>
             <select value={symbol} onChange={(e) => setSymbol(e.target.value)}>
@@ -38,7 +40,15 @@ export function DataPanel({ symbols, timeframes }: { symbols: string[]; timefram
             <select value={tf} onChange={(e) => setTf(e.target.value)}>
               {timeframes.map((t) => <option key={t}>{t}</option>)}
             </select>
-            <input value={since} onChange={(e) => setSince(e.target.value)} title="Ngày bắt đầu (ISO)" />
+            <input value={since} onChange={(e) => setSince(e.target.value)} title="Ngày bắt đầu (ISO)" style={{ minWidth: 130 }} />
+            <select value={exchange} onChange={(e) => setExchange(e.target.value)} title="Sàn giao dịch">
+              <option value="binance">binance</option>
+              <option value="binance_futures">binance_futures</option>
+            </select>
+            <label style={{ display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
+              <input type="checkbox" checked={save} onChange={(e) => setSave(e.target.checked)} />
+              💾 Lưu dữ liệu
+            </label>
           </>
         }
       />

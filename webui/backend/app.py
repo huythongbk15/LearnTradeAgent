@@ -418,6 +418,8 @@ class FetchRequest(BaseModel):
     symbol: str = "BTC/USDT"
     timeframe: str = "1h"
     since: str | None = None
+    exchange: str = "binance"
+    save: bool = False
 
 
 class OptimizeRequest(BaseModel):
@@ -516,9 +518,11 @@ def api_data_datasets() -> dict:
 @app.post("/api/data/fetch")
 def api_data_fetch(req: FetchRequest) -> dict:
     job_id = uuid.uuid4().hex[:8]
-    args = ["data", "fetch", req.symbol, "-t", req.timeframe]
+    args = ["data", "fetch", req.symbol, "-t", req.timeframe, "-e", req.exchange]
     if req.since:
         args += ["-s", req.since]
+    if req.save:
+        args += ["--save"]
     _spawn_job(job_id, _run_cli_stream, run_job_id=job_id, args=args, timeout=600)
     return {"job_id": job_id}
 
