@@ -23,12 +23,27 @@ def _run(coro):
 class LiveBroker:
     """Sync facade over an async Alpaca/OANDA adapter."""
 
-    def __init__(self, broker: str, adapter, pricing_symbols: list[str] | None = None):
+    def __init__(
+        self,
+        broker: str,
+        adapter,
+        pricing_symbols: list[str] | None = None,
+        *,
+        strict_pricing: bool = False,
+    ):
         self.broker = broker
         self.adapter = adapter
         # Coins được phép định giá (vd ['BTC/USDT','SOL/USDT']) — tránh gọi ticker
         # cho hàng trăm faucet coins rác trên testnet.
         self.pricing_symbols = pricing_symbols
+        self.strict_pricing = strict_pricing
+
+    def _require_prices(self, coins: list[str], prices: dict[str, float], quote: str) -> None:
+        if not self.strict_pricing:
+            return
+        missing = [coin for coin in coins if not prices.get(f"{coin}/{quote}")]
+        if missing:
+            raise RuntimeError(f"Missing prices for account assets: {', '.join(missing)}")
 
     def _need_coins(self, base_total: dict, main_quote: str) -> list[str]:
         """Coins cần fetch giá: whitelist nếu có, ngược lại top 20 theo total."""
@@ -87,6 +102,7 @@ class LiveBroker:
                     ]))
                 except Exception:
                     prices = {}
+            self._require_prices(need, prices, main_quote)
             for coin, amt in base_total.items():
                 if coin == main_quote or amt <= 0:
                     continue
@@ -150,6 +166,7 @@ class LiveBroker:
                     ]))
                 except Exception:
                     prices = {}
+            self._require_prices(need, prices, main_quote)
             for coin, amounts in assets.assets.items():
                 total = float(amounts.get("total", 0))
                 if coin == main_quote or total <= 0:
@@ -190,6 +207,16 @@ class LiveBroker:
         return out
 
     # ── orders ─────────────────────────────────────────────────────────────
+
+    def get_ticker(self, symbol: Symbol) -> dict:
+        """Return a fresh broker quote for pre-trade validation."""
+        ticker = _run(self.adapter.fetch_ticker(symbol))
+        return {
+            "timestamp": ticker.timestamp,
+            "bid": float(ticker.bid) if ticker.bid is not None else None,
+            "ask": float(ticker.ask) if ticker.ask is not None else None,
+            "last": float(ticker.last) if ticker.last is not None else None,
+        }
 
     def get_orders(self, status: str = "open", limit: int = 20) -> list[dict]:
         if status == "open":

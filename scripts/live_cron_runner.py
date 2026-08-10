@@ -49,10 +49,10 @@ def main():
     execute = "--execute" in sys.argv
     if execute and os.getenv("TRADING_EXECUTION_ENABLED", "false").lower() != "true":
         print("REFUSED: TRADING_EXECUTION_ENABLED is not true", file=sys.stderr)
-        sys.exit(3)
+        return 3
     if execute and os.getenv("TRADING_MODE", "paper").lower() != "paper":
         print("REFUSED: only TRADING_MODE=paper is supported", file=sys.stderr)
-        sys.exit(3)
+        return 3
 
     # 1. Chạy live script, capture output
     cmd = [sys.executable, "scripts/live_enhanced_ma.py"]
@@ -61,8 +61,21 @@ def main():
 
     ts = datetime.now().strftime("%Y-%m-%d %H:%M")
     print(f"=== {ts} | live_enhanced_ma {'PAPER EXECUTE' if execute else 'DRY-RUN'} ===")
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+    except subprocess.TimeoutExpired as exc:
+        out = (exc.stdout or "") + (exc.stderr or "")
+        print(out)
+        send_telegram("⚠️ *Live trading runner timed out after 180 seconds*")
+        return 124
     out = result.stdout + result.stderr
+    if result.returncode != 0:
+        print(out)
+        excerpt = out[-1500:] if out else "No child output"
+        send_telegram(
+            f"⚠️ *Live trading runner failed (exit {result.returncode})*\n```\n{excerpt}\n```"
+        )
+        return result.returncode if 0 < result.returncode < 126 else 1
 
     # 2. Parse orders từ output (dòng '✅ Order: ...' hoặc '❌ Order failed: ...' sau EXECUTION)
     lines = out.splitlines()
@@ -123,12 +136,12 @@ def main():
 
     # Exit code
     if failed:
-        sys.exit(2)
-    sys.exit(0)
+        return 2
+    return 0
 
 
 def emoji(side: str) -> str:
     return "🟢" if "BUY" in side.upper() else "🔴" if "SELL" in side.upper() else "🔵"
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

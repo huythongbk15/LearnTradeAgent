@@ -152,3 +152,9 @@ webui/frontend/dist/
 .webui/
 webui/frontend/tsconfig.tsbuildinfo
 data/live_peak_equity.json
+data/binance_live_risk_state.json
+data/binance_testnet_risk_state.json
+data/live_strategy_evidence.json
+data/live_strategy_evidence.candidate.json
+data/live_strategy_evidence.rejected.json
+strategies_repo/
