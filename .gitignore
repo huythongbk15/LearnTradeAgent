@@ -141,3 +141,10 @@ docs/wsl-guide/
 data/demo_pipeline.db
 OPTIMIZE_TODO.md
 _TODO.md
+
+# Web UI
+webui/frontend/node_modules/
+webui/frontend/dist/
+.webui/
+webui/frontend/tsconfig.tsbuildinfo
+data/live_peak_equity.json

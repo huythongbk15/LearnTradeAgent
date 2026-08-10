@@ -127,3 +127,18 @@ pipeline-demo:  ## Unified Data Pipeline demo (mock source → SQLite)
 
 realtime-test:  ## Run real-time data module tests
 	python -m pytest tests/test_realtime_data.py -v
+
+# --- Web UI (FastAPI + React) ---
+webui-start:
+	bash scripts/webui.sh start
+webui-stop:
+	bash scripts/webui.sh stop
+webui-status:
+	bash scripts/webui.sh status
+webui-logs:
+	bash scripts/webui.sh logs
+webui-build:
+	cd webui/frontend && npm run build
+webui-dev:
+	bash scripts/webui.sh start
+	cd webui/frontend && npm run dev

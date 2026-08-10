@@ -37,6 +37,20 @@
 
 > 📊 Kiến trúc đầy đủ: [`TRADING_SYSTEM_OVERVIEW.md`](TRADING_SYSTEM_OVERVIEW.md) · **Tài liệu tổng hợp (tính năng/cách dùng/trade options/UI/notify): [`docs/SYSTEM_GUIDE.md`](docs/SYSTEM_GUIDE.md)** · Index tài liệu: [`docs/README.md`](docs/README.md) · Tổng kết cuối: [`docs/PROJECT_SUMMARY.md`](docs/PROJECT_SUMMARY.md)
 
+## 🌐 Web UI (FastAPI + React)
+
+Giao diện web thay thế CLI — realtime, điều khiển trực tiếp:
+```bash
+make webui-build     # build React frontend (lần đầu)
+make webui-start     # chạy backend + serve UI tại http://localhost:8000
+make webui-status    # kiểm tra server
+make webui-dev       # dev mode: backend 8000 + Vite HMR 5173
+```
+- **Backend**: `webui/backend/app.py` — FastAPI REST + WebSocket `/ws` (push realtime 5s).
+- **Frontend**: `webui/frontend/` — React + Vite + TypeScript + lightweight-charts (dark theme).
+- Tính năng: equity/cash/positions/trades realtime, risk (DD, trading allowed), chạy **Backtest** từ UI (async job), **Live cycle** (dry/live), **Kill Switch**.
+- Quản lý server: `bash scripts/webui.sh {start|stop|restart|status|logs}` (load `.env`, không treo terminal).
+
 ## 🔬 Chi tiết từng phase
 
 ### Phase 0 — Data Pipeline ✅

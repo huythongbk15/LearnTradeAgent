@@ -9,6 +9,7 @@
 | Tài liệu | Mô tả |
 |----------|-------|
 | [📘 **Tài liệu tổng hợp hệ thống**](SYSTEM_GUIDE.md) | 🆕 Tính năng, cách dùng cụ thể, phương pháp trade (các option), UI/UX, Telegram notify — **đọc đầu tiên** |
+| [🌐 Web UI (FastAPI + React)](../README.md#-web-ui-fastapi--react) | 🆕 Giao diện web realtime thay CLI: `make webui-start` → localhost:8000 |
 | [📊 Tổng kết dự án cuối](PROJECT_SUMMARY.md) | Tính năng, ưu/nhược, cấu trúc & vận hành tối ưu |
 | [🏛 Kiến trúc hệ thống](architecture.md) | Sơ đồ tổng quan, luồng dữ liệu, các layer |
 | [🧠 Quy trình suy luận & Ra quyết định](reasoning.md) | Cách agent suy luận, phối hợp và ra lệnh |
