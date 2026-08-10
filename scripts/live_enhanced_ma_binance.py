@@ -1,291 +1,555 @@
 #!/usr/bin/env python3
-"""
-LIVE Trading on Binance SPOT (real money!) — Single 1h Enhanced MA (20,80,40)
+"""Fail-closed Binance Spot runner for the Enhanced MA strategy.
 
-Cách dùng:
-    python scripts/live_enhanced_ma_binance.py              # DRY-RUN (mặc định, không lệnh)
-    python scripts/live_enhanced_ma_binance.py --execute    # THẬT — đặt lệnh bằng tiền thật
-
-⚠️  BINANCE LÀ TIỀN THẬT. Chỉ chạy --execute khi đã hiểu rõ rủi ro:
-    - Key API chỉ cần quyền: đọc + giao dịch spot; TẮT quyền rút tiền (withdraw).
-    - Chiến lược trend-following có thể giữ lệnh lâu và chịu drawdown sâu.
+Dry-run is the default.  Testnet execution requires the execution and mode
+environment gates.  Mainnet additionally requires matching environment and CLI
+confirmation phrases; see ``docs/LIVE_TRADING_RUNBOOK.md``.
 """
-import sys
-import os
-import asyncio
+
+from __future__ import annotations
+
 import argparse
+import asyncio
+import math
+import os
+import sys
+from contextlib import suppress
+from dataclasses import replace
+from datetime import UTC, datetime
 from decimal import Decimal
-sys.path.insert(0, 'src')
 
-from dotenv import load_dotenv
-load_dotenv('.env')
+sys.path.insert(0, "src")
 
-import polars as pl
 import ccxt
-import numpy as np
-from datetime import datetime
+import polars as pl
+from dotenv import load_dotenv
 
-from trading_agent.strategies.enhanced_ma import EnhancedMaCrossover
-from trading_agent.exchanges.models import (
-    Symbol, AssetClass, MarketType, Order, OrderSide, OrderType, TimeInForce,
+from live_config import LOOKBACK, STRATEGY_PARAMS
+from trading_agent.execution.live_safety import (
+    LIVE_CONFIRMATION,
+    LiveRiskLimits,
+    LiveRiskStateStore,
+    LiveSafetyError,
+    make_order_key,
+    require_execution_authorization,
+    validate_fresh_quote,
+    validate_order_risk,
+    validate_strategy_evidence,
 )
 from trading_agent.exchanges.ccxt_adapter import CCXTAdapter, ExchangeConfig
 from trading_agent.exchanges.live_broker import LiveBroker
-from live_config import STRATEGY_PARAMS, LOOKBACK
-
-# ── Config ─────────────────────────────────────────────────────────────
-_parser = argparse.ArgumentParser()
-_parser.add_argument("--execute", action="store_true", help="Đặt lệnh thật (mặc định dry-run)")
-_parser.add_argument("--testnet", action="store_true", help="Dùng Binance Spot Testnet (tiền ảo)")
-_parser.add_argument("--symbols", default="BTC/USDT,SOL/USDT,AVAX/USDT", help="Comma-separated symbols")
-_parser.add_argument("--weights", default="40,30,30", help="Comma-separated allocation weights (%)")
-_args = _parser.parse_args()
-DRY_RUN = not _args.execute
-TESTNET = _args.testnet
-
-# ── SYMBOLS từ CLI (weights tự chuẩn hoá về 100%) ─────────────────────────
-_cli_syms = [s.strip() for s in _args.symbols.split(",") if s.strip()]
-_cli_ws = []
-for w in _args.weights.split(","):
-    w = w.strip()
-    if w:
-        _cli_ws.append(float(w))
-while len(_cli_ws) < len(_cli_syms):
-    _cli_ws.append(20.0)
-_cli_ws = _cli_ws[:len(_cli_syms)]
-_total_w = sum(_cli_ws) or 1.0
-SYMBOLS = [(s, w / _total_w) for s, w in zip(_cli_syms, _cli_ws)]
+from trading_agent.exchanges.models import (
+    AssetClass,
+    MarketType,
+    Order,
+    OrderSide,
+    OrderType,
+    Symbol,
+    TimeInForce,
+)
+from trading_agent.strategies.enhanced_ma import EnhancedMaCrossover
 
 
-def compute_state(df: pl.DataFrame) -> dict:
-    """Replay strategy over history, return current desired state + signals."""
-    strat = EnhancedMaCrossover(STRATEGY_PARAMS)
-    df = strat.compute_indicators(df)
-    sig = strat.generate_signals(df).to_numpy()
+load_dotenv(".env")
 
-    pos = np.zeros(len(sig), dtype=np.int8)
-    in_pos = False
-    for i in range(len(sig)):
-        if not in_pos and sig[i] == 1:
-            in_pos = True
-        elif in_pos and sig[i] == -1:
-            in_pos = False
-        pos[i] = 1 if in_pos else 0
 
-    last_state = "LONG" if in_pos else "FLAT"
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--execute", action="store_true", help="Submit orders (default: dry-run)")
+    parser.add_argument("--testnet", action="store_true", help="Use Binance Spot Testnet")
+    parser.add_argument(
+        "--confirm-live",
+        default=None,
+        help=f"Mainnet only: must equal {LIVE_CONFIRMATION}",
+    )
+    parser.add_argument(
+        "--symbols",
+        default="BTC/USDT,SOL/USDT,AVAX/USDT",
+        help="Comma-separated Binance Spot symbols",
+    )
+    parser.add_argument(
+        "--weights",
+        default="20,15,15",
+        help="Percent of equity per symbol; values are not normalized",
+    )
+    parser.add_argument("--state-file", default=None, help="Override persistent live-risk state path")
+    parser.add_argument(
+        "--evidence-file",
+        default="data/live_strategy_evidence.json",
+        help="Cost-aware walk-forward evidence required for mainnet execution",
+    )
+    return parser
 
-    last = df.tail(1)
-    ma_fast = float(last[f"ma_{STRATEGY_PARAMS['fast_period']}"][0]) if f"ma_{STRATEGY_PARAMS['fast_period']}" in last.columns else None
-    ma_slow = float(last[f"ma_{STRATEGY_PARAMS['slow_period']}"][0]) if f"ma_{STRATEGY_PARAMS['slow_period']}" in last.columns else None
-    adx = float(last["adx"][0]) if "adx" in last.columns else None
-    trend_up = bool(last["trend_up"][0]) if "trend_up" in last.columns else None
-    price = float(last["close"][0])
 
-    recent_sigs = sig[-24:]
+def parse_allocations(
+    symbols_raw: str,
+    weights_raw: str,
+    limits: LiveRiskLimits,
+) -> list[tuple[str, float]]:
+    symbols = [value.strip().upper() for value in symbols_raw.split(",") if value.strip()]
+    weight_parts = [value.strip() for value in weights_raw.split(",") if value.strip()]
+    if not symbols or len(symbols) != len(weight_parts):
+        raise LiveSafetyError("--symbols and --weights must contain the same non-zero count")
+    if len(set(symbols)) != len(symbols):
+        raise LiveSafetyError("duplicate symbols are not allowed")
+
+    allocations: list[tuple[str, float]] = []
+    for symbol, raw_weight in zip(symbols, weight_parts, strict=True):
+        parts = symbol.split("/")
+        if len(parts) != 2 or not all(parts) or parts[1] != "USDT":
+            raise LiveSafetyError(f"only BASE/USDT spot symbols are supported: {symbol}")
+        try:
+            allocation = float(raw_weight) / 100
+        except ValueError as exc:
+            raise LiveSafetyError(f"invalid allocation for {symbol}: {raw_weight}") from exc
+        if not math.isfinite(allocation) or allocation <= 0:
+            raise LiveSafetyError(f"allocation for {symbol} must be positive and finite")
+        if allocation > limits.max_symbol_exposure_pct:
+            raise LiveSafetyError(
+                f"allocation for {symbol} ({allocation:.1%}) exceeds symbol limit "
+                f"({limits.max_symbol_exposure_pct:.1%})"
+            )
+        allocations.append((symbol, allocation))
+
+    total = sum(weight for _, weight in allocations)
+    if total > limits.max_gross_exposure_pct + 1e-12:
+        raise LiveSafetyError(
+            f"total allocation {total:.1%} exceeds gross limit "
+            f"{limits.max_gross_exposure_pct:.1%}"
+        )
+    return allocations
+
+
+def exchange_symbol(pair: str) -> Symbol:
+    base, quote = pair.split("/")
+    return Symbol(
+        base=base,
+        quote=quote,
+        asset_class=AssetClass.CRYPTO,
+        market_type=MarketType.SPOT,
+        exchange="binance",
+    )
+
+
+def compute_state(frame: pl.DataFrame) -> dict:
+    """Replay the strategy and return the desired state on the last closed bar."""
+
+    strategy = EnhancedMaCrossover(STRATEGY_PARAMS)
+    enriched = strategy.compute_indicators(frame)
+    signals = strategy.generate_signals(enriched).to_numpy()
+    in_position = False
+    for signal in signals:
+        if not in_position and signal == 1:
+            in_position = True
+        elif in_position and signal == -1:
+            in_position = False
+
+    last = enriched.tail(1)
+    required = [
+        "timestamp",
+        "close",
+        f"ma_{STRATEGY_PARAMS['fast_period']}",
+        f"ma_{STRATEGY_PARAMS['slow_period']}",
+        "adx",
+        "trend_up",
+    ]
+    if any(column not in last.columns for column in required):
+        raise LiveSafetyError("strategy output is missing required indicators")
+    numeric_values = {
+        "price": float(last["close"][0]),
+        "ma_fast": float(last[f"ma_{STRATEGY_PARAMS['fast_period']}"][0]),
+        "ma_slow": float(last[f"ma_{STRATEGY_PARAMS['slow_period']}"][0]),
+        "adx": float(last["adx"][0]),
+    }
+    if any(not math.isfinite(value) or value <= 0 for value in numeric_values.values()):
+        raise LiveSafetyError("latest strategy indicators are invalid")
+    recent = signals[-24:]
     return {
-        "state": last_state,
-        "price": price,
-        "ma_fast": ma_fast,
-        "ma_slow": ma_slow,
-        "adx": adx,
-        "trend_up": trend_up,
-        "n_buy_24h": int((recent_sigs == 1).sum()),
-        "n_sell_24h": int((recent_sigs == -1).sum()),
+        "state": "LONG" if in_position else "FLAT",
+        **numeric_values,
+        "trend_up": bool(last["trend_up"][0]),
+        "candle_timestamp": last["timestamp"][0],
+        "n_buy_24h": int((recent == 1).sum()),
+        "n_sell_24h": int((recent == -1).sum()),
     }
 
 
 def get_recent_df(symbol: str) -> pl.DataFrame:
-    # HYBRID: signal luôn dùng dữ liệu Binance PUBLIC (live data, 1000+ candles)
-    # để chiến lược warmup đầy đủ. Chỉ LỆNH mới đi qua testnet (tiền ảo).
-    exchange = ccxt.binance({"enableRateLimit": True})
-    ohlcv = exchange.fetch_ohlcv(symbol, "1h", limit=LOOKBACK)
-    if not ohlcv:
-        raise RuntimeError(f"No data for {symbol}")
-    return pl.DataFrame({
-        "timestamp": [datetime.fromtimestamp(b[0]/1000) for b in ohlcv],
-        "open": [b[1] for b in ohlcv],
-        "high": [b[2] for b in ohlcv],
-        "low": [b[3] for b in ohlcv],
-        "close": [b[4] for b in ohlcv],
-        "volume": [b[5] for b in ohlcv],
-    }).sort("timestamp")
+    """Fetch only fully closed 1h Binance candles."""
+
+    public_exchange = ccxt.binance({"enableRateLimit": True})
+    bars = public_exchange.fetch_ohlcv(symbol, "1h", limit=LOOKBACK)
+    now_ms = int(datetime.now(UTC).timestamp() * 1000)
+    closed = [bar for bar in bars if int(bar[0]) + 3_600_000 <= now_ms]
+    minimum = STRATEGY_PARAMS["slow_period"] + 50
+    if len(closed) < minimum:
+        raise LiveSafetyError(
+            f"insufficient closed candles for {symbol}: {len(closed)} < {minimum}"
+        )
+    return pl.DataFrame(
+        {
+            "timestamp": [datetime.fromtimestamp(bar[0] / 1000, tz=UTC) for bar in closed],
+            "open": [bar[1] for bar in closed],
+            "high": [bar[2] for bar in closed],
+            "low": [bar[3] for bar in closed],
+            "close": [bar[4] for bar in closed],
+            "volume": [bar[5] for bar in closed],
+        }
+    ).sort("timestamp")
 
 
-def main():
-    print("=" * 80)
-    print("🚀 LIVE BINANCE SPOT — Single 1h Enhanced MA (20,80,40)")
-    if TESTNET:
-        mode = "HYBRID: signal from Binance PUBLIC data | LỆNH trên TESTNET (tiền ảo)"
-    else:
-        mode = "DRY RUN (no orders placed)" if DRY_RUN else "EXECUTE — TIỀN THẬT"
-    print(f"  Mode: {mode}")
-    print("=" * 80)
+def require_dedicated_account(adapter: CCXTAdapter, allocations: list[tuple[str, float]]) -> None:
+    """Refuse mainnet accounts containing assets outside the managed universe."""
 
-    key_env = "BINANCE_TESTNET_API_KEY" if TESTNET else "BINANCE_API_KEY"
-    secret_env = "BINANCE_TESTNET_API_SECRET" if TESTNET else "BINANCE_API_SECRET"
-    binance_key = os.environ.get(key_env, "")
-    binance_secret = os.environ.get(secret_env, "")
-    if not binance_key or not binance_secret:
-        if TESTNET:
-            print(f"❌ {key_env} / {secret_env} chưa set trong .env")
-            print("   → Tạo key testnet tại https://testnet.binance.vision/ (key RIÊNG, không dùng key live)")
-            print("   → Bấm nút faucet để nhận USDT ảo, rồi thêm 2 biến trên vào .env")
-        else:
-            print("❌ BINANCE_API_KEY / BINANCE_API_SECRET chưa set trong .env")
-            print("   Tạo key tại https://www.binance.com/en/my/settings/api-management")
-            print("   Chỉ bật: Enable Reading + Enable Spot & Futures Trading; TẮT withdrawals.")
-        return
+    balances = asyncio.run(adapter.fetch_balance())
+    crypto = balances.get(AssetClass.CRYPTO)
+    allowed = {"USDT", *(symbol.split("/")[0] for symbol, _ in allocations)}
+    unmanaged = []
+    for asset, amounts in (crypto.assets.items() if crypto else []):
+        if asset not in allowed and float(amounts.get("total", 0)) > 0:
+            unmanaged.append(asset)
+    if unmanaged:
+        raise LiveSafetyError(
+            "mainnet account is not dedicated; unmanaged positive balances: "
+            + ", ".join(sorted(unmanaged))
+        )
 
-    # Connect Binance
-    adapter = CCXTAdapter(ExchangeConfig(
-        id="binance",
-        name="Binance",
-        api_key=binance_key,
-        secret=binance_secret,
-        testnet=TESTNET,
-        enable_rate_limit=False,  # rate_limit 1200ms của adapter gây delay ~20s/request trên testnet
-        markets=[MarketType.SPOT, MarketType.FUTURES],
-        options={"defaultType": "spot"},
-    ))
-    asyncio.run(adapter.connect())
-    broker = LiveBroker("binance", adapter, pricing_symbols=[m for m, _ in SYMBOLS])
 
-    acct = broker.get_account()
-    print("\n✅ Binance connected")
-    print(f"  Equity: ${acct['equity']:,.2f} | Cash: ${acct['cash']:,.2f}")
+def build_decisions(
+    *,
+    allocations: list[tuple[str, float]],
+    states: dict[str, dict],
+    positions: list[dict],
+    equity: float,
+    locked_reason: str | None,
+) -> list[dict]:
+    position_map = {position["symbol"]: position for position in positions}
+    decisions: list[dict] = []
+    for market_symbol, allocation in allocations:
+        state = states[market_symbol]
+        existing = position_map.get(market_symbol)
+        current_qty = float(existing["qty"]) if existing else 0.0
+        current_notional = current_qty * state["price"]
+        target_notional = equity * allocation
+        delta = target_notional - current_notional
+        deadband = max(target_notional * 0.05, 10.0)
 
-    positions = broker.get_positions()
-    pos_map = {p['symbol'].split('/')[0]: p for p in positions}
-    print(f"  Open positions: {len(positions)}")
-    for p in positions:
-        print(f"    {p['symbol']}: {p['qty']} @ ${p['avg_entry_price']:.2f}")
-
-    # ── Compute signals & decisions ───────────────────────────────────
-    print("\n" + "=" * 80)
-    print("📡 SIGNAL COMPUTATION")
-    print("=" * 80)
-
-    equity = float(acct["equity"])
-    decisions = []
-
-    for market_symbol, alloc in SYMBOLS:
-        print(f"\n--- {market_symbol} ---")
-        try:
-            df = get_recent_df(market_symbol)
-            state = compute_state(df)
-
-            existing = pos_map.get(market_symbol.split('/')[0])
-            has_position = existing is not None
-            current_qty = float(existing["qty"]) if has_position else 0.0
-            current_state = "LONG" if has_position else "FLAT"
-
-            print(f"  Price: ${state['price']:,.2f}")
-            print(f"  MA({STRATEGY_PARAMS['fast_period']}): {state['ma_fast']:.2f} | MA({STRATEGY_PARAMS['slow_period']}): {state['ma_slow']:.2f} "
-                  f"({'BULL' if state['ma_fast'] > state['ma_slow'] else 'BEAR'})")
-            print(f"  ADX: {state['adx']:.1f} (threshold 40) | Trend: {'UP' if state['trend_up'] else 'DOWN'}")
-            print(f"  Crossovers last 24h: {state['n_buy_24h']} BUY / {state['n_sell_24h']} SELL")
-            print(f"  Strategy state: {state['state']} | Binance: {current_state}")
-
-            target_notional = equity * alloc
-            current_notional = current_qty * state["price"]
-            delta_usd = target_notional - current_notional
-            deadband = alloc * equity * 0.05  # 5% target — tránh lệnh nhỏ
-
-            if state["state"] == "LONG" and delta_usd > deadband:
-                decisions.append({
-                    "market_symbol": market_symbol,
-                    "action": "BUY",
-                    "qty": delta_usd / state["price"],
-                    "price": state["price"],
-                    "size_pct": alloc,
-                })
-                print(f"  → ACTION: BUY {delta_usd / state['price']:.6f} {market_symbol.split('/')[0]} "
-                      f"(rebalance {current_notional:,.0f} → {target_notional:,.0f} USD)")
-            elif state["state"] == "LONG" and delta_usd < -deadband:
-                decisions.append({
-                    "market_symbol": market_symbol,
-                    "action": "SELL",
-                    "qty": abs(delta_usd) / state["price"],
-                    "price": state["price"],
-                    "size_pct": alloc,
-                })
-                print(f"  → ACTION: SELL (trim excess {current_notional:,.0f} → {target_notional:,.0f} USD)")
-            elif state["state"] == "FLAT" and has_position:
-                decisions.append({
-                    "market_symbol": market_symbol,
-                    "action": "SELL",
-                    "qty": current_qty,
-                    "price": state["price"],
-                    "size_pct": alloc,
-                })
-                print(f"  → ACTION: SELL {current_qty:.6f} {market_symbol.split('/')[0]} (strategy flat → close)")
-            else:
-                print("  → NO ACTION (state matches)")
-
-        except Exception as e:
-            print(f"  ❌ Error: {e}")
-
-    # ── Execute ────────────────────────────────────────────────────────
-    print("\n" + "=" * 80)
-    print("🎯 EXECUTION")
-    print("=" * 80)
-
-    if not decisions:
-        print("\n[No trades to execute — all positions in sync]")
-        return
-
-    for d in decisions:
-        print(f"\n--- {d['market_symbol']} → {d['action']} {d['qty']:.6f} ---")
-        if DRY_RUN:
-            print(f"  [DRY-RUN] Would {d['action']} {d['qty']:.6f} {d['market_symbol']} @ ${d['price']:.2f}")
+        if locked_reason and current_qty > 0:
+            action, qty, reason = "SELL", current_qty, "RISK_CIRCUIT_BREAKER"
+        elif locked_reason:
             continue
+        elif state["state"] == "LONG" and delta > deadband:
+            action, qty, reason = "BUY", delta / state["price"], "REBALANCE"
+        elif state["state"] == "LONG" and delta < -deadband:
+            action, qty, reason = "SELL", min(abs(delta) / state["price"], current_qty), "REBALANCE"
+        elif state["state"] == "FLAT" and current_qty > 0:
+            action, qty, reason = "SELL", current_qty, "STRATEGY_FLAT"
+        else:
+            continue
+        if qty <= 0 or not math.isfinite(qty):
+            raise LiveSafetyError(f"invalid decision quantity for {market_symbol}")
+        decisions.append(
+            {
+                "market_symbol": market_symbol,
+                "action": action,
+                "qty": qty,
+                "signal_price": state["price"],
+                "candle_timestamp": state["candle_timestamp"],
+                "reason": reason,
+            }
+        )
+    return sorted(decisions, key=lambda item: 0 if item["action"] == "SELL" else 1)
 
-        # Cap BUY size by real available cash (re-fetch before each order)
-        try:
-            acct_now = broker.get_account()
-            cash_now = float(acct_now["cash"])
-        except Exception:
-            cash_now = 0.0
 
-        qty = float(d["qty"])
-        if d["action"] == "BUY":
-            cost = qty * d["price"]
-            if cost > cash_now:
-                qty = (cash_now * 0.95) / d["price"]
-                print(f"  ℹ️ cash-limited: {d['qty']:.6f} → {qty:.6f} (cash ${cash_now:,.2f})")
-            if qty <= 0:
-                print(f"  ⏭️ SKIP — no available cash (${cash_now:,.2f})")
-                continue
+def position_snapshot(positions: list[dict]) -> tuple[dict[str, dict], float]:
+    by_symbol = {position["symbol"]: position for position in positions}
+    gross = sum(float(position["market_value"]) for position in positions)
+    if not math.isfinite(gross) or gross < 0:
+        raise LiveSafetyError("invalid gross exposure")
+    return by_symbol, gross
 
-        try:
-            base, quote = d["market_symbol"].split('/')
-            symbol = Symbol(base=base, quote=quote, asset_class=AssetClass.CRYPTO,
-                            market_type=MarketType.SPOT, exchange="binance")
-            order = Order(
-                id="", symbol=symbol,
-                side=OrderSide.BUY if d["action"] == "BUY" else OrderSide.SELL,
-                type=OrderType.MARKET,
-                size=Decimal(str(round(qty, 6))),
-                time_in_force=TimeInForce.GTC,
-            )
-            result = broker.place_order(order)
-            print(f"  ✅ Order: {result['side']} {result['qty']} {result['symbol']} → {result['status']}")
-            if result.get("error"):
-                print(f"  ⚠️ {result['error']}")
-        except Exception as e:
-            print(f"  ❌ Order failed: {e}")
 
-    if not DRY_RUN:
-        print("\n" + "=" * 80)
-        print("📊 FINAL STATE")
-        print("=" * 80)
-        acct = broker.get_account()
+def prepare_orders(
+    *,
+    decisions: list[dict],
+    broker: LiveBroker,
+    account: dict,
+    positions: list[dict],
+    limits: LiveRiskLimits,
+    locked_reason: str | None,
+    testnet: bool,
+) -> list[dict]:
+    """Preflight the complete batch before any order can be submitted."""
+
+    simulated_cash = float(account["cash"])
+    equity = float(account["equity"])
+    simulated_positions, simulated_gross = position_snapshot(positions)
+    quote_limits = (
+        replace(limits, max_price_deviation_pct=max(limits.max_price_deviation_pct, 0.25))
+        if testnet
+        else limits
+    )
+    prepared: list[dict] = []
+
+    for decision in decisions:
+        pair = decision["market_symbol"]
+        symbol = exchange_symbol(pair)
+        quote = broker.get_ticker(symbol)
+        quote_price = (
+            quote.get("ask") if decision["action"] == "BUY" else quote.get("bid")
+        ) or quote.get("last")
+        if quote_price is None:
+            raise LiveSafetyError(f"no executable quote for {pair}")
+        validate_fresh_quote(
+            signal_price=decision["signal_price"],
+            quote_price=float(quote_price),
+            quote_timestamp=quote["timestamp"],
+            limits=quote_limits,
+        )
+
+        existing = simulated_positions.get(pair)
+        current_notional = float(existing["market_value"]) if existing else 0.0
+        notional = float(decision["qty"]) * float(quote_price)
+        validate_order_risk(
+            side=decision["action"],
+            notional_usd=notional,
+            equity=equity,
+            cash=simulated_cash,
+            current_symbol_notional=current_notional,
+            gross_exposure=simulated_gross,
+            limits=limits,
+            locked_reason=locked_reason,
+        )
+
+        if decision["action"] == "BUY":
+            simulated_cash -= notional
+            simulated_gross += notional
+            simulated_positions[pair] = {"market_value": current_notional + notional}
+        else:
+            simulated_cash += notional
+            simulated_gross = max(0.0, simulated_gross - notional)
+            simulated_positions[pair] = {"market_value": max(0.0, current_notional - notional)}
+        prepared.append({**decision, "quote_price": float(quote_price), "notional": notional})
+    return prepared
+
+
+def execute_orders(
+    *,
+    orders: list[dict],
+    broker: LiveBroker,
+    store: LiveRiskStateStore,
+    limits: LiveRiskLimits,
+    testnet: bool,
+) -> None:
+    quote_limits = (
+        replace(limits, max_price_deviation_pct=max(limits.max_price_deviation_pct, 0.25))
+        if testnet
+        else limits
+    )
+    for planned in orders:
+        account = broker.get_account()
         positions = broker.get_positions()
-        print(f"  Equity: ${acct['equity']:,.2f}")
-        print(f"  Positions: {len(positions)}")
-        for p in positions:
-            print(f"    {p['symbol']}: {p['qty']} @ ${p['avg_entry_price']:.2f}")
+        position_map, gross = position_snapshot(positions)
+        pair = planned["market_symbol"]
+        symbol = exchange_symbol(pair)
+        quote = broker.get_ticker(symbol)
+        quote_price = (
+            quote.get("ask") if planned["action"] == "BUY" else quote.get("bid")
+        ) or quote.get("last")
+        if quote_price is None:
+            raise LiveSafetyError(f"no executable quote for {pair}")
+        validate_fresh_quote(
+            signal_price=planned["signal_price"],
+            quote_price=float(quote_price),
+            quote_timestamp=quote["timestamp"],
+            limits=quote_limits,
+        )
+        current = position_map.get(pair)
+        current_notional = float(current["market_value"]) if current else 0.0
+        notional = float(planned["qty"]) * float(quote_price)
+        validate_order_risk(
+            side=planned["action"],
+            notional_usd=notional,
+            equity=float(account["equity"]),
+            cash=float(account["cash"]),
+            current_symbol_notional=current_notional,
+            gross_exposure=gross,
+            limits=limits,
+            locked_reason=store.state.locked_reason,
+        )
+
+        order_key = make_order_key(
+            symbol=pair,
+            side=planned["action"],
+            candle_timestamp=planned["candle_timestamp"],
+        )
+        store.reserve_order(order_key)
+        order = Order(
+            id="",
+            client_order_id=order_key,
+            symbol=symbol,
+            side=OrderSide.BUY if planned["action"] == "BUY" else OrderSide.SELL,
+            type=OrderType.MARKET,
+            size=Decimal(str(round(float(planned["qty"]), 8))),
+            time_in_force=TimeInForce.GTC,
+        )
+        result = broker.place_order(order)
+        if result.get("error") or result.get("status") not in {"open", "partial", "filled"}:
+            raise LiveSafetyError(f"order rejected or failed: {result}")
+        print(
+            f"  ✅ Order: {result['side']} {result['qty']} {result['symbol']} "
+            f"→ {result['status']} ({planned['reason']}, id={order_key})"
+        )
+
+
+def run(args: argparse.Namespace) -> int:
+    limits = LiveRiskLimits.from_env()
+    allocations = parse_allocations(args.symbols, args.weights, limits)
+    require_execution_authorization(
+        execute=args.execute,
+        testnet=args.testnet,
+        cli_confirmation=args.confirm_live,
+    )
+
+    default_state = (
+        "data/binance_testnet_risk_state.json"
+        if args.testnet
+        else "data/binance_live_risk_state.json"
+    )
+    store = LiveRiskStateStore(args.state_file or default_state)
+    if args.execute and not args.testnet and not store.existed:
+        raise LiveSafetyError("run a successful mainnet dry-run first to initialize risk state")
+    if args.execute and not args.testnet:
+        validate_strategy_evidence(
+            args.evidence_file,
+            expected_symbols=[symbol for symbol, _ in allocations],
+            expected_params=STRATEGY_PARAMS,
+        )
+
+    key_name = "BINANCE_TESTNET_API_KEY" if args.testnet else "BINANCE_API_KEY"
+    secret_name = "BINANCE_TESTNET_API_SECRET" if args.testnet else "BINANCE_API_SECRET"
+    api_key = os.getenv(key_name, "")
+    secret = os.getenv(secret_name, "")
+    if not api_key or not secret:
+        raise LiveSafetyError(f"{key_name} and {secret_name} are required")
+
+    print("=" * 80)
+    mode = "DRY-RUN" if not args.execute else "TESTNET EXECUTION" if args.testnet else "MAINNET EXECUTION"
+    print(f"BINANCE SPOT — Enhanced MA — {mode}")
+    print(
+        f"Limits: order ${limits.max_order_notional_usd:,.2f}, "
+        f"symbol {limits.max_symbol_exposure_pct:.0%}, gross {limits.max_gross_exposure_pct:.0%}, "
+        f"cash reserve {limits.min_cash_reserve_pct:.0%}"
+    )
+    print("=" * 80)
+
+    adapter = CCXTAdapter(
+        ExchangeConfig(
+            id="binance",
+            name="Binance",
+            api_key=api_key,
+            secret=secret,
+            testnet=args.testnet,
+            enable_rate_limit=True,
+            markets=[MarketType.SPOT],
+            options={"defaultType": "spot"},
+        )
+    )
+    asyncio.run(adapter.connect())
+    try:
+        if not args.testnet:
+            require_dedicated_account(adapter, allocations)
+        broker = LiveBroker(
+            "binance",
+            adapter,
+            pricing_symbols=[symbol for symbol, _ in allocations],
+            strict_pricing=True,
+        )
+        account = broker.get_account()
+        positions = broker.get_positions()
+        equity = float(account["equity"])
+        locked_reason = store.observe_equity(equity, limits)
+        metrics = store.metrics(equity)
+        print(
+            f"Account: equity ${equity:,.2f}, cash ${float(account['cash']):,.2f}, "
+            f"DD {float(metrics['drawdown_pct']):.2%}, "
+            f"daily loss {float(metrics['daily_loss_pct']):.2%}"
+        )
+        if locked_reason:
+            print(f"⛔ CIRCUIT BREAKER: {locked_reason}; only risk-reducing sells are allowed")
+
+        states: dict[str, dict] = {}
+        data_errors: list[str] = []
+        for pair, allocation in allocations:
+            try:
+                state = compute_state(get_recent_df(pair))
+                states[pair] = state
+                print(
+                    f"{pair}: {state['state']} @ ${state['price']:,.2f}, "
+                    f"MA {state['ma_fast']:.2f}/{state['ma_slow']:.2f}, "
+                    f"ADX {state['adx']:.1f}, target {allocation:.0%}"
+                )
+            except Exception as exc:
+                data_errors.append(f"{pair}: {exc}")
+        if data_errors:
+            raise LiveSafetyError("market-data batch failed; no orders submitted: " + "; ".join(data_errors))
+
+        decisions = build_decisions(
+            allocations=allocations,
+            states=states,
+            positions=positions,
+            equity=equity,
+            locked_reason=locked_reason,
+        )
+        if not decisions:
+            print("No trades to execute — positions already match the permitted targets")
+            return 0
+
+        prepared = prepare_orders(
+            decisions=decisions,
+            broker=broker,
+            account=account,
+            positions=positions,
+            limits=limits,
+            locked_reason=locked_reason,
+            testnet=args.testnet,
+        )
+        print("\nEXECUTION PLAN")
+        for planned in prepared:
+            print(
+                f"  {planned['action']} {planned['qty']:.8f} {planned['market_symbol']} "
+                f"≈ ${planned['notional']:,.2f} ({planned['reason']})"
+            )
+        if not args.execute:
+            print("DRY-RUN complete — no orders submitted")
+            return 0
+
+        execute_orders(
+            orders=prepared,
+            broker=broker,
+            store=store,
+            limits=limits,
+            testnet=args.testnet,
+        )
+        final_account = broker.get_account()
+        final_positions = broker.get_positions()
+        print(
+            f"Final: equity ${float(final_account['equity']):,.2f}, "
+            f"cash ${float(final_account['cash']):,.2f}, positions {len(final_positions)}"
+        )
+        return 0
+    finally:
+        with suppress(Exception):
+            asyncio.run(adapter.disconnect())
+
+
+def main() -> int:
+    try:
+        return run(build_parser().parse_args())
+    except Exception as exc:
+        print(f"FATAL: {exc}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

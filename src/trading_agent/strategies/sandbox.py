@@ -1,11 +1,13 @@
 """Sandboxed execution for untrusted strategy code."""
 
+import ast
 import asyncio
 import logging
 import os
+import sys
 import tempfile
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Optional
 
@@ -30,9 +32,9 @@ class SandboxConfig:
     cpu_limit_percent: int = 50
     timeout_seconds: int = 30
     network_enabled: bool = False
-    allowed_imports: list[str] = None
+    allowed_imports: list[str] = field(default_factory=list)
     working_dir: Optional[str] = None
-    environment_vars: dict[str, str] = None
+    environment_vars: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -71,7 +73,12 @@ class StrategySandbox(ABC):
 
 
 class SubprocessSandbox(StrategySandbox):
-    """Simple subprocess-based sandbox."""
+    """Restricted subprocess runner for reviewed code.
+
+    A subprocess is not a kernel security boundary.  Secrets are removed and
+    source is AST-validated, but truly untrusted code still requires the Docker,
+    gVisor or microVM backends.
+    """
 
     def __init__(self, config: SandboxConfig):
         super().__init__(config)
@@ -93,6 +100,10 @@ class SubprocessSandbox(StrategySandbox):
 
         start_time = time.time()
 
+        validation = await self.validate(strategy_code)
+        if not validation.success:
+            return validation
+
         # Prepare execution script
         script = self._prepare_script(strategy_code, method, args, kwargs)
         
@@ -104,11 +115,11 @@ class SubprocessSandbox(StrategySandbox):
         try:
             # Run subprocess with limits
             proc = await asyncio.create_subprocess_exec(
-                "python3", script_path,
+                sys.executable, script_path,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=self.config.working_dir,
-                env={**os.environ, **(self.config.environment_vars or {})},
+                env=self._subprocess_environment(),
             )
 
             try:
@@ -158,29 +169,47 @@ class SubprocessSandbox(StrategySandbox):
 
     async def validate(self, strategy_code: str) -> ExecutionResult:
         """Validate strategy code syntax and imports."""
-        # Check for forbidden imports
-        forbidden = ["os", "sys", "subprocess", "threading", "multiprocessing", 
-                     "socket", "requests", "urllib", "http", "ftplib", "telnetlib",
-                     "importlib", "pkgutil", "runpy", "exec", "eval", "compile",
-                     "open", "__import__", "getattr", "setattr", "delattr"]
-        
-        for forbidden_mod in forbidden:
-            if f"import {forbidden_mod}" in strategy_code or f"from {forbidden_mod}" in strategy_code:
-                return ExecutionResult(
-                    success=False,
-                    error=f"Forbidden import: {forbidden_mod}",
-                )
-
-        # Check syntax
         try:
-            compile(strategy_code, "<string>", "exec")
+            tree = ast.parse(strategy_code, filename="<strategy>", mode="exec")
         except SyntaxError as e:
             return ExecutionResult(
                 success=False,
                 error=f"Syntax error: {e}",
             )
 
+        dangerous_calls = {
+            "breakpoint", "compile", "delattr", "eval", "exec", "getattr",
+            "globals", "input", "locals", "open", "setattr", "vars", "__import__",
+        }
+        allowed = set(self._allowed_imports)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    root = alias.name.split(".", 1)[0]
+                    if root not in allowed:
+                        return ExecutionResult(success=False, error=f"Forbidden import: {root}")
+            elif isinstance(node, ast.ImportFrom):
+                root = (node.module or "").split(".", 1)[0]
+                if node.level or root not in allowed:
+                    return ExecutionResult(success=False, error=f"Forbidden import: {root or 'relative'}")
+            elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+                if node.func.id in dangerous_calls:
+                    return ExecutionResult(success=False, error=f"Forbidden call: {node.func.id}")
+            elif isinstance(node, ast.Attribute) and node.attr.startswith("__"):
+                return ExecutionResult(success=False, error=f"Forbidden attribute: {node.attr}")
         return ExecutionResult(success=True)
+
+    def _subprocess_environment(self) -> dict[str, str]:
+        """Build a minimal environment without inheriting API keys or tokens."""
+        safe_names = {
+            "COMSPEC", "LANG", "LC_ALL", "PATH", "PATHEXT", "SYSTEMDRIVE",
+            "SYSTEMROOT", "TEMP", "TMP", "TZ", "WINDIR",
+        }
+        environment = {name: value for name, value in os.environ.items() if name.upper() in safe_names}
+        environment["PYTHONIOENCODING"] = "utf-8"
+        environment["PYTHONUNBUFFERED"] = "1"
+        environment.update(self.config.environment_vars)
+        return environment
 
     def _prepare_script(self, strategy_code: str, method: str, args, kwargs) -> str:
         """Prepare execution script."""

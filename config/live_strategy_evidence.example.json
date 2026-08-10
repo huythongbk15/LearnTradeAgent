@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "strategy": "enhanced_ma",
+  "strategy_params": {
+    "fast_period": 20,
+    "slow_period": 80,
+    "adx_threshold": 40
+  },
+  "generated_at": "2026-08-10T00:00:00+00:00",
+  "data_end": "2026-08-09T23:00:00+00:00",
+  "costs": {
+    "commission_bps": 10,
+    "slippage_bps": 5
+  },
+  "symbols": {
+    "BTC/USDT": {
+      "folds": [
+        {"sharpe": 0.0, "return_pct": 0.0, "max_drawdown_pct": 0.0, "trades": 0}
+      ]
+    }
+  }
+}

@@ -11,7 +11,7 @@ import asyncio
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from enum import Enum
 from typing import Optional
@@ -485,9 +485,12 @@ class CCXTAdapter(ExchangeAdapter):
     # --- Parsing helpers ---
 
     def _parse_ticker(self, ticker: dict, symbol: Symbol) -> Ticker:
+        timestamp_ms = ticker.get('timestamp')
+        if timestamp_ms is None:
+            raise ValueError(f"Ticker for {symbol.pair} has no timestamp")
         return Ticker(
             symbol=symbol,
-            timestamp=datetime.fromtimestamp(ticker['timestamp'] / 1000),
+            timestamp=datetime.fromtimestamp(timestamp_ms / 1000, tz=UTC),
             bid=ticker['bid'],
             ask=ticker['ask'],
             last=ticker['last'],
@@ -504,7 +507,7 @@ class CCXTAdapter(ExchangeAdapter):
     def _parse_order_book(self, ob: dict, symbol: Symbol) -> OrderBook:
         return OrderBook(
             symbol=symbol,
-            timestamp=datetime.fromtimestamp(ob['timestamp'] / 1000) if ob['timestamp'] else datetime.now(),
+            timestamp=datetime.fromtimestamp(ob['timestamp'] / 1000, tz=UTC) if ob['timestamp'] else datetime.now(UTC),
             bids=[OrderBookLevel(price=float(b[0]), size=float(b[1])) for b in ob['bids']],
             asks=[OrderBookLevel(price=float(a[0]), size=float(a[1])) for a in ob['asks']],
         )
@@ -512,7 +515,7 @@ class CCXTAdapter(ExchangeAdapter):
     def _parse_candle(self, candle: list, symbol: Symbol, timeframe: str) -> Candle:
         return Candle(
             symbol=symbol,
-            timestamp=datetime.fromtimestamp(candle[0] / 1000),
+            timestamp=datetime.fromtimestamp(candle[0] / 1000, tz=UTC),
             timeframe=timeframe,
             open=candle[1],
             high=candle[2],
@@ -570,16 +573,16 @@ class CCXTAdapter(ExchangeAdapter):
             side=OrderSide(str(order['side']).lower()),
             type=OrderType(str(order['type']).lower()),
             status=status_map.get(order['status'], OrderStatus.OPEN),
-            size=order['amount'],
-            filled_size=order['filled'],
-            avg_fill_price=order['average'],
-            price=order['price'],
-            fee=order['fee']['cost'] if order.get('fee') else Decimal(0),
+            size=Decimal(str(order.get('amount') or 0)),
+            filled_size=Decimal(str(order.get('filled') or 0)),
+            avg_fill_price=Decimal(str(order.get('average') or 0)),
+            price=Decimal(str(order['price'])) if order.get('price') is not None else None,
+            fee=Decimal(str(order['fee']['cost'])) if order.get('fee') else Decimal(0),
             time_in_force=TimeInForce(str(order['timeInForce']).lower()) if order.get('timeInForce') else TimeInForce.GTC,
             reduce_only=order.get('reduceOnly', False),
             post_only=order.get('postOnly', False),
-            created_at=datetime.fromtimestamp(order['timestamp'] / 1000) if order.get('timestamp') else datetime.now(),
-            updated_at=datetime.fromtimestamp(order['lastTradeTimestamp'] / 1000) if order.get('lastTradeTimestamp') else None,
+            created_at=datetime.fromtimestamp(order['timestamp'] / 1000, tz=UTC) if order.get('timestamp') else datetime.now(UTC),
+            updated_at=datetime.fromtimestamp(order['lastTradeTimestamp'] / 1000, tz=UTC) if order.get('lastTradeTimestamp') else None,
         )
 
     def _parse_position(self, pos: dict) -> Position:
@@ -593,7 +596,7 @@ class CCXTAdapter(ExchangeAdapter):
             realized_pnl=Decimal(str(pos.get('realizedPnl', 0))),
             leverage=Decimal(str(pos['leverage'])) if pos.get('leverage') else Decimal(1),
             liquidation_price=Decimal(str(pos['liquidationPrice'])) if pos.get('liquidationPrice') else None,
-            updated_at=datetime.fromtimestamp(pos['timestamp'] / 1000) if pos.get('timestamp') else datetime.now(),
+            updated_at=datetime.fromtimestamp(pos['timestamp'] / 1000, tz=UTC) if pos.get('timestamp') else datetime.now(UTC),
         )
 
     def get_status(self) -> ExchangeStatus:

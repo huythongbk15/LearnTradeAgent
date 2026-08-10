@@ -52,8 +52,16 @@ def register(
     timeframes: str = typer.Option("1h", help="Comma-separated timeframes"),
     symbols: str = typer.Option("", help="Comma-separated symbols"),
     tags: str = typer.Option("", help="Comma-separated tags"),
+    trust_source: bool = typer.Option(
+        False,
+        "--trust-source",
+        help="Acknowledge that this command executes the Python source in the current process",
+    ),
 ):
     """Register a new strategy version."""
+    if not trust_source:
+        console.print("[red]Refused:[/red] strategy inspection executes Python code; review it and pass --trust-source")
+        raise typer.Exit(2)
     # Load strategy file
     source_code = file.read_text()
     
@@ -428,8 +436,16 @@ def verify(
 def abi(
     file: Path = typer.Argument(..., help="Path to strategy Python file"),
     output: Optional[Path] = typer.Option(None, "--output", "-o", help="Output JSON file"),
+    trust_source: bool = typer.Option(
+        False,
+        "--trust-source",
+        help="Acknowledge that ABI extraction executes the Python source",
+    ),
 ):
     """Extract and display ABI from strategy file."""
+    if not trust_source:
+        console.print("[red]Refused:[/red] ABI extraction executes Python code; review it and pass --trust-source")
+        raise typer.Exit(2)
     source_code = file.read_text()
     
     namespace = {}
@@ -502,11 +518,29 @@ def install(
     version: str = typer.Option(None, "--version", "-v", help="Version to install (latest if not specified)"),
     registry_url: str = typer.Option(None, "--registry", "-r", help="Custom registry URL"),
     force: bool = typer.Option(False, "--force", "-f", help="Overwrite existing version"),
+    trust_source: bool = typer.Option(
+        False,
+        "--trust-source",
+        help="Acknowledge execution of Python from a local path or Git repository",
+    ),
 ):
     """Install strategy from local file, git repo, or registry."""
     import subprocess
     import tempfile
     
+    executes_source = (
+        source.startswith("http://")
+        or source.startswith("https://")
+        or source.startswith("git@")
+        or Path(source).exists()
+    )
+    if executes_source and not trust_source:
+        console.print(
+            "[red]Refused:[/red] installation executes strategy Python in the current process. "
+            "Review and pin the source, then pass --trust-source."
+        )
+        raise typer.Exit(2)
+
     registry = get_registry()
     git_store = get_git_store()
     
