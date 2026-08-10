@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { getJob, type Job } from "../api";
+import { ProgressBar } from "./ProgressBar";
 
 /** Panel chạy job CLI chung: nút chạy + poll job + hiện stdout/stderr. */
 export function CliJobPanel({
@@ -72,6 +73,7 @@ export function CliJobPanel({
       </div>
       {description && <p style={{ color: "var(--muted)", marginBottom: 8 }}>{description}</p>}
       {fields && <div className="row" style={{ marginBottom: 10 }}>{fields}</div>}
+      <ProgressBar progress={job?.progress} />
       {job?.status === "error" && <p className="neg">Lỗi: {job.error}</p>}
       {(text || (defaultStdout && !job)) && (
         <pre className="joblog">{text || defaultStdout}</pre>

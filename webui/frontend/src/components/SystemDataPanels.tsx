@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { CliJobPanel } from "./CliJob";
 import { PieChart } from "./PieChart";
+import { ProgressBar } from "./ProgressBar";
 import { dataFetch, dataDatasets, llmCacheStats, metaRegimes, executionReset, systemDaily, systemHealth, backtestCompare, portfolioWeights, getJob, type BacktestCompareResult, type PortfolioWeightsResult } from "../api";
 
 export const STRATEGIES = [
@@ -72,6 +73,7 @@ export function PortfolioPanel({ symbols }: { symbols: string[] }) {
   const [res, setRes] = useState<PortfolioWeightsResult | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState<{ pct: number; stage: string } | null>(null);
 
   useEffect(() => {
     if (!jobId) return;
@@ -79,6 +81,7 @@ export function PortfolioPanel({ symbols }: { symbols: string[] }) {
     const poll = window.setInterval(async () => {
       try {
         const j = await getJob(jobId);
+        setProgress(j.progress ?? null);
         if (j.status === "done") {
           const r = j.result as PortfolioWeightsResult;
           setRes(r);
@@ -121,6 +124,7 @@ export function PortfolioPanel({ symbols }: { symbols: string[] }) {
       <p style={{ color: "var(--muted)", marginBottom: 8 }}>
         Tối ưu tỷ trọng danh mục theo 8 phương pháp (max_sharpe, HRP, Black-Litterman, risk_parity…).
       </p>
+      <ProgressBar progress={progress} />
       {err && <p className="neg">Lỗi: {err}</p>}
       {res && !res.error && (
         <div className="row" style={{ gap: 24, flexWrap: "wrap", marginTop: 6 }}>
@@ -171,6 +175,7 @@ export function BacktestComparePanel({
   const [res, setRes] = useState<BacktestCompareResult | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState<{ pct: number; stage: string } | null>(null);
 
   useEffect(() => {
     if (!jobId) return;
@@ -178,6 +183,7 @@ export function BacktestComparePanel({
     const poll = window.setInterval(async () => {
       try {
         const j = await getJob(jobId);
+        setProgress(j.progress ?? null);
         if (j.status === "done") {
           setRes(j.result as BacktestCompareResult);
           setBusy(false);
@@ -233,6 +239,7 @@ export function BacktestComparePanel({
           </label>
         ))}
       </div>
+      <ProgressBar progress={progress} />
       {err && <p className="neg">Lỗi: {err}</p>}
       {res && (
         <>

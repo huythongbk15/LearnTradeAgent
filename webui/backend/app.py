@@ -166,17 +166,29 @@ def _risk() -> RiskController:
 JOBS: dict[str, dict] = {}
 
 
+def _set_progress(job_id: str, pct: int, stage: str) -> None:
+    """Cập nhật tiến độ job (thread-safe qua dict)."""
+    try:
+        JOBS[job_id]["progress"] = {"pct": max(0, min(100, int(pct))), "stage": stage[:120]}
+    except KeyError:
+        pass
+
+
 def _spawn_job(job_id: str, fn, **kwargs) -> None:
     """Chạy fn trong thread; kết quả lưu vào JOBS[job_id]."""
 
     def worker() -> None:
         try:
+            JOBS[job_id]["progress"] = {"pct": 0, "stage": "bắt đầu"}
             result = fn(**kwargs)
-            JOBS[job_id] = {"status": "done", "result": result, "error": None}
+            JOBS[job_id] = {"status": "done", "result": result, "error": None,
+                            "progress": {"pct": 100, "stage": "hoàn tất"}}
         except Exception as exc:  # noqa: BLE001
-            JOBS[job_id] = {"status": "error", "result": None, "error": str(exc)}
+            JOBS[job_id] = {"status": "error", "result": None, "error": str(exc),
+                            "progress": {"pct": 100, "stage": "lỗi"}}
 
-    JOBS[job_id] = {"status": "running", "result": None, "error": None}
+    JOBS[job_id] = {"status": "running", "result": None, "error": None,
+                    "progress": {"pct": 0, "stage": "khởi động"}}
     threading.Thread(target=worker, daemon=True).start()
 
 
@@ -356,6 +368,32 @@ def _run_cli(args: list[str], timeout: int = 300, cwd: Path | None = None) -> di
     }
 
 
+def _run_cli_stream(job_id: str, args: list[str], timeout: int = 300) -> dict:
+    """Chạy CLI subprocess, stream từng dòng → stage + % tiến độ (ước lượng)."""
+    import subprocess
+
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "trading_agent.cli", *args],
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        text=True, bufsize=1, cwd=str(PROJECT_ROOT),
+    )
+    assert proc.stdout is not None
+    lines: list[str] = []
+    pct = 5
+    for line in proc.stdout:
+        clean = _ANSI_RE.sub("", line).strip()
+        if clean:
+            lines.append(clean)
+            pct = min(92, pct + 4)
+            _set_progress(job_id, pct, clean[:110])
+    proc.wait(timeout=timeout)
+    return {
+        "exit_code": proc.returncode,
+        "stdout": "\n".join(lines)[-8000:],
+        "stderr": "",
+    }
+
+
 class AnalyzeRequest(BaseModel):
     symbol: str = "BTC/USDT"
     timeframe: str = "1h"
@@ -375,13 +413,52 @@ class OptimizeRequest(BaseModel):
 
 @app.post("/api/agents/analyze")
 def api_agents_analyze(req: AnalyzeRequest) -> dict:
-    """Chạy 4 AI agents → job; kết quả JSON hoá (signal/confidence/reasoning)."""
+    """Chạy 4 AI agents → job; % tiến độ đếm theo agent_decisions trong DB."""
     job_id = uuid.uuid4().hex[:8]
 
+    def count_decisions(symbol: str, timeframe: str) -> int:
+        try:
+            import sqlite3
+
+            conn = sqlite3.connect(str(PROJECT_ROOT / "data" / "trading.db"))
+            try:
+                row = conn.execute(
+                    "SELECT COUNT(*) FROM agent_decisions WHERE symbol=? AND timeframe=?",
+                    (symbol, timeframe),
+                ).fetchone()
+            finally:
+                conn.close()
+            return int(row[0] if row else 0)
+        except Exception:  # noqa: BLE001
+            return -1  # không xác định được → không dùng % thật
+
     def run(symbol: str, timeframe: str) -> dict:
+        import threading as _t
+
         from trading_agent.agents.orchestrator import Orchestrator
 
-        report = Orchestrator().analyze(symbol=symbol, timeframe=timeframe)
+        before = count_decisions(symbol, timeframe)
+        orch = Orchestrator()
+        holder: dict[str, object] = {}
+
+        def _analyze() -> None:
+            try:
+                holder["report"] = orch.analyze(symbol=symbol, timeframe=timeframe)
+            except Exception as exc:  # noqa: BLE001
+                holder["error"] = exc
+
+        t = _t.Thread(target=_analyze, daemon=True)
+        t.start()
+        # Poll DB — mỗi agent xong = 1 dòng decision mới (tối đa 4)
+        while t.is_alive():
+            t.join(timeout=1.5)
+            delta = count_decisions(symbol, timeframe) - before
+            if delta > 0:
+                _set_progress(job_id, min(92, delta * 22), f"agent {min(delta, 4)}/4 đã xong")
+        if "error" in holder:
+            raise holder["error"]  # type: ignore[misc]
+
+        report = holder["report"]  # type: ignore[assignment]
         agents = []
         for m in report.agent_messages:
             agents.append({
@@ -427,7 +504,7 @@ def api_data_fetch(req: FetchRequest) -> dict:
     args = ["data", "fetch", req.symbol, "-t", req.timeframe]
     if req.since:
         args += ["-s", req.since]
-    _spawn_job(job_id, _run_cli, args=args, timeout=600)
+    _spawn_job(job_id, _run_cli_stream, job_id=job_id, args=args, timeout=600)
     return {"job_id": job_id}
 
 
@@ -488,7 +565,8 @@ def api_backtest_compare(req: BacktestCompareRequest) -> dict:
 
         rows = []
         errors = {}
-        for name in strategies:
+        for i, name in enumerate(strategies):
+            _set_progress(job_id, int(i / max(1, len(strategies)) * 88), f"backtest: {name} ({i + 1}/{len(strategies)})")
             try:
                 r = run_backtest(name, symbol=symbol, timeframe=timeframe)
                 rows.append({
@@ -531,13 +609,15 @@ def api_portfolio_weights(req: PortfolioWeightsRequest) -> dict:
         )
 
         returns_data, symbol_objs = {}, []
-        for sym_str in symbols:
+        for i, sym_str in enumerate(symbols):
+            _set_progress(job_id, int(i / max(1, len(symbols)) * 60), f"tải dữ liệu {sym_str} ({i + 1}/{len(symbols)})")
             df = load_ohlcv(config.default_exchange, sym_str, "1d")
             close = pd.Series(df["close"].to_numpy())
             returns_data[sym_str] = close.pct_change().dropna()
             base, quote = sym_str.split("/") if "/" in sym_str else (sym_str, "USDT")
             symbol_objs.append(Symbol(base, quote, AssetClass.CRYPTO, MarketType.SPOT, "binance"))
 
+        _set_progress(job_id, 68, "xây dựng covariance & universe")
         returns_df = pd.DataFrame(returns_data).dropna()
         current_weights = {s: 1.0 / len(symbol_objs) for s in symbol_objs}
         constraints = OptimizationConstraints(current_weights=current_weights)
@@ -545,6 +625,7 @@ def api_portfolio_weights(req: PortfolioWeightsRequest) -> dict:
             method=OptimizerMethod(method), constraints=constraints, lookback=lookback,
         ).set_universe(symbol_objs, returns_df, current_weights)
 
+        _set_progress(job_id, 85, f"tối ưu {method}…")
         try:
             result = optimizer.optimize()
         except Exception as exc:  # noqa: BLE001

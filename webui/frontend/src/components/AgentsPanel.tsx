@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 import { agentsAnalyze, getJob, type AnalyzeResult, type SystemInfo } from "../api";
+import { ProgressBar } from "./ProgressBar";
 
 export function AgentsPanel({ system }: { system: SystemInfo | null }) {
   const [symbol, setSymbol] = useState("BTC/USDT");
   const [timeframe, setTimeframe] = useState("1h");
   const [jobId, setJobId] = useState<string | null>(null);
+  const [progress, setProgress] = useState<{ pct: number; stage: string } | null>(null);
   const [result, setResult] = useState<AnalyzeResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -15,6 +17,7 @@ export function AgentsPanel({ system }: { system: SystemInfo | null }) {
     const poll = window.setInterval(async () => {
       try {
         const j = await getJob(jobId);
+        setProgress(j.progress ?? null);
         if (j.status === "done" && j.result && (j.result as AnalyzeResult).decision) {
           setResult(j.result as AnalyzeResult);
           setBusy(false);
@@ -68,6 +71,7 @@ export function AgentsPanel({ system }: { system: SystemInfo | null }) {
       <p style={{ color: "var(--muted)", marginBottom: 8 }}>
         Flow: Technical → Sentiment → Risk → Trader · LLM: {system?.llm.provider} ({system?.llm.model})
       </p>
+      <ProgressBar progress={progress} />
       {error && <p className="neg">Lỗi: {error}</p>}
       <div className="row" style={{ marginTop: 8 }}>
         {result?.agents.map((a) => (

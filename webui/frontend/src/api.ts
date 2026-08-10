@@ -70,6 +70,7 @@ export interface Job {
   status: "running" | "done" | "error";
   result?: BacktestResult | { output?: string; exit_code?: number; live?: boolean } | null;
   error?: string | null;
+  progress?: { pct: number; stage: string } | null;
 }
 
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
