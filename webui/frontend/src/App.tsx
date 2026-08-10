@@ -4,10 +4,11 @@ import { EquityChart } from "./components/EquityChart";
 import { PositionsTable, TradesTable, fmtUsd } from "./components/Tables";
 import { BacktestPanel } from "./components/BacktestPanel";
 import { LivePanel } from "./components/LivePanel";
+import { LogsPanel } from "./components/LogsPanel";
 import { AgentsPanel } from "./components/AgentsPanel";
 import { DataPanel, PortfolioPanel, SystemPanel, BacktestComparePanel, STRATEGIES } from "./components/SystemDataPanels";
 
-type TabKey = "dashboard" | "agents" | "backtest" | "data" | "portfolio" | "live" | "system";
+type TabKey = "dashboard" | "agents" | "backtest" | "data" | "portfolio" | "live" | "logs" | "system";
 
 const TABS: { key: TabKey; label: string }[] = [
   { key: "dashboard", label: "📊 Dashboard" },
@@ -16,6 +17,7 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: "data", label: "📦 Dữ liệu" },
   { key: "portfolio", label: "📈 Portfolio" },
   { key: "live", label: "🚀 Live" },
+  { key: "logs", label: "📋 Logs" },
   { key: "system", label: "⚙️ Hệ thống" },
 ];
 
@@ -135,6 +137,7 @@ export default function App() {
       {tab === "data" && <DataPanel symbols={symbols} timeframes={timeframes} />}
       {tab === "portfolio" && <PortfolioPanel symbols={symbols} />}
       {tab === "live" && <LivePanel />}
+      {tab === "logs" && <LogsPanel />}
       {tab === "system" && <SystemPanel />}
     </div>
   );

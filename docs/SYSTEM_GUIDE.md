@@ -229,7 +229,15 @@ make docker-logs      # log container
 # Grafana: http://localhost:3000 (metrics từ /metrics endpoint của app)
 ```
 
-### 6.4 DB & logs
+### 6.4 Web UI (React + FastAPI) — khuyến nghị
+```bash
+bash scripts/webui.sh start      # http://localhost:8000 — start/stop/status/restart
+```
+8 tab: **Dashboard** (equity chart realtime, positions, trades) · **AI Agents** · **Backtest** (so sánh nhiều strategy, % tiến độ) · **Dữ liệu** (fetch) · **Portfolio** (weights pie, optimize) · **Live** · **Logs** · **Hệ thống**.
+- **📋 Logs realtime**: xem `trading_agent.log`/`server.log` trực tiếp trên web (tự làm mới 2s), lọc theo level (INFO/WARNING/ERROR/DEBUG), tìm kiếm, pause auto-scroll — tiện theo dõi mỗi khi chạy tiến trình.
+- Tiến trình chạy (fetch/backtest/live) hiện cả **% + dòng log stream realtime** ngay trong panel.
+
+### 6.5 DB & logs
 ```bash
 make db-stats         # thống kê SQLite/Timescale
 python -m trading_agent.cli system logs      # log container app

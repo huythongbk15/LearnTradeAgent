@@ -174,6 +174,18 @@ def _set_progress(job_id: str, pct: int, stage: str) -> None:
         pass
 
 
+def _add_job_line(job_id: str, line: str) -> None:
+    """Append dòng log vào job (stream khi đang chạy)."""
+    try:
+        lines = JOBS[job_id].setdefault("lines", [])
+        if line:
+            lines.append(line[:500])
+        if len(lines) > 400:
+            del lines[:-300]
+    except KeyError:
+        pass
+
+
 def _spawn_job(job_id: str, fn, **kwargs) -> None:
     """Chạy fn trong thread; kết quả lưu vào JOBS[job_id]."""
 
@@ -182,10 +194,12 @@ def _spawn_job(job_id: str, fn, **kwargs) -> None:
             JOBS[job_id]["progress"] = {"pct": 0, "stage": "bắt đầu"}
             result = fn(**kwargs)
             JOBS[job_id] = {"status": "done", "result": result, "error": None,
-                            "progress": {"pct": 100, "stage": "hoàn tất"}}
+                            "progress": {"pct": 100, "stage": "hoàn tất"},
+                            "lines": JOBS.get(job_id, {}).get("lines") or []}
         except Exception as exc:  # noqa: BLE001
             JOBS[job_id] = {"status": "error", "result": None, "error": str(exc),
-                            "progress": {"pct": 100, "stage": "lỗi"}}
+                            "progress": {"pct": 100, "stage": "lỗi"},
+                            "lines": JOBS.get(job_id, {}).get("lines") or []}
 
     JOBS[job_id] = {"status": "running", "result": None, "error": None,
                     "progress": {"pct": 0, "stage": "khởi động"}}
@@ -368,7 +382,7 @@ def _run_cli(args: list[str], timeout: int = 300, cwd: Path | None = None) -> di
     }
 
 
-def _run_cli_stream(job_id: str, args: list[str], timeout: int = 300) -> dict:
+def _run_cli_stream(run_job_id: str, args: list[str], timeout: int = 300) -> dict:
     """Chạy CLI subprocess, stream từng dòng → stage + % tiến độ (ước lượng)."""
     import subprocess
 
@@ -384,8 +398,9 @@ def _run_cli_stream(job_id: str, args: list[str], timeout: int = 300) -> dict:
         clean = _ANSI_RE.sub("", line).strip()
         if clean:
             lines.append(clean)
+            _add_job_line(run_job_id, clean)
             pct = min(92, pct + 4)
-            _set_progress(job_id, pct, clean[:110])
+            _set_progress(run_job_id, pct, clean[:110])
     proc.wait(timeout=timeout)
     return {
         "exit_code": proc.returncode,
@@ -504,7 +519,7 @@ def api_data_fetch(req: FetchRequest) -> dict:
     args = ["data", "fetch", req.symbol, "-t", req.timeframe]
     if req.since:
         args += ["-s", req.since]
-    _spawn_job(job_id, _run_cli_stream, job_id=job_id, args=args, timeout=600)
+    _spawn_job(job_id, _run_cli_stream, run_job_id=job_id, args=args, timeout=600)
     return {"job_id": job_id}
 
 
@@ -515,6 +530,28 @@ def api_portfolio_optimize(req: OptimizeRequest) -> dict:
             "--lookback", str(req.lookback)]
     _spawn_job(job_id, _run_cli, args=args, timeout=600)
     return {"job_id": job_id}
+
+
+@app.get("/api/logs/tail")
+def api_logs_tail(lines: int = 300, source: str = "trading") -> dict:
+    """Đọc N dòng cuối của file log (source=trading|server)."""
+    path = (
+        PROJECT_ROOT / "logs" / "trading_agent.log"
+        if source == "trading"
+        else PROJECT_ROOT / ".webui" / "server.log"
+    )
+    if not path.exists():
+        return {"lines": [], "source": source, "path": str(path)}
+    try:
+        with open(path, "rb") as f:
+            f.seek(0, 2)
+            size = f.tell()
+            f.seek(max(0, size - 200 * 8192))
+            data = f.read().decode("utf-8", "replace")
+        out = data.splitlines()[-max(20, min(lines, 1000)):]
+    except OSError as exc:
+        return {"lines": [], "source": source, "path": str(path), "error": str(exc)}
+    return {"lines": out, "source": source, "path": str(path)}
 
 
 @app.get("/api/system/daily")

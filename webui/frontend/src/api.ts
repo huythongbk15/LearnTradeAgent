@@ -71,6 +71,7 @@ export interface Job {
   result?: BacktestResult | { output?: string; exit_code?: number; live?: boolean } | null;
   error?: string | null;
   progress?: { pct: number; stage: string } | null;
+  lines?: string[];
 }
 
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
@@ -188,3 +189,9 @@ export const portfolioWeights = (symbols: string[], method: string, lookback = 9
     method: "POST",
     body: JSON.stringify({ symbols, method, lookback }),
   });
+
+// --- Logs realtime ---
+export const logsTail = (lines = 300, source = "trading") =>
+  api<{ lines: string[]; source: string; path: string; error?: string }>(
+    `/api/logs/tail?lines=${lines}&source=${source}`,
+  );

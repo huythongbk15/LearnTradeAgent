@@ -60,6 +60,8 @@ export function CliJobPanel({
   const out = job?.result as { stdout?: string; stderr?: string; exit_code?: number } | null | undefined;
   const text = out?.stdout || out?.stderr || "";
   const starting = job?.status === "running";
+  // Stream log realtime khi job đang chạy (nếu có lines)
+  const liveText = (job?.lines ?? []).join("\n");
 
   return (
     <div className="panel">
@@ -75,8 +77,8 @@ export function CliJobPanel({
       {fields && <div className="row" style={{ marginBottom: 10 }}>{fields}</div>}
       <ProgressBar progress={job?.progress} />
       {job?.status === "error" && <p className="neg">Lỗi: {job.error}</p>}
-      {(text || (defaultStdout && !job)) && (
-        <pre className="joblog">{text || defaultStdout}</pre>
+      {(liveText || text || (defaultStdout && !job)) && (
+        <pre className="joblog">{liveText || text || defaultStdout}</pre>
       )}
     </div>
   );
