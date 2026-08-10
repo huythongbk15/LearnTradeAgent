@@ -41,6 +41,7 @@
 
 Giao diện web thay thế CLI — realtime, điều khiển trực tiếp:
 ```bash
+pip install -r requirements-web.txt  # dependency FastAPI + Alpaca cho Web UI
 make webui-build     # build React frontend (lần đầu)
 make webui-start     # chạy backend + serve UI tại http://localhost:8000
 make webui-status    # kiểm tra server

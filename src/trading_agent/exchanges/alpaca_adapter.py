@@ -187,7 +187,9 @@ class AlpacaAdapter:
                 "1h": TimeFrame(1, TimeFrameUnit.Hour),
                 "1d": TimeFrame(1, TimeFrameUnit.Day),
             }
-            tf = tf_map.get(timeframe, TimeFrame(1, TimeFrameUnit.Day))
+            if timeframe not in tf_map:
+                raise ValueError(f"Unsupported Alpaca timeframe: {timeframe!r}")
+            tf = tf_map[timeframe]
 
             request = data_requests.StockBarsRequest(
                 symbol_or_symbols=symbol.base,
@@ -212,12 +214,6 @@ class AlpacaAdapter:
                 OrderSide.BUY: trading_enums.OrderSide.BUY,
                 OrderSide.SELL: trading_enums.OrderSide.SELL,
             }
-            type_map = {
-                OrderType.MARKET: trading_enums.OrderType.MARKET,
-                OrderType.LIMIT: trading_enums.OrderType.LIMIT,
-                OrderType.STOP: trading_enums.OrderType.STOP,
-                OrderType.STOP_LIMIT: trading_enums.OrderType.STOP_LIMIT,
-            }
             tif_map = {
                 TimeInForce.GTC: trading_enums.TimeInForce.GTC,
                 TimeInForce.IOC: trading_enums.TimeInForce.IOC,
@@ -226,44 +222,42 @@ class AlpacaAdapter:
                 TimeInForce.GTD: getattr(trading_enums.TimeInForce, "GTD", trading_enums.TimeInForce.GTC),
             }
 
-            req = trading_requests.MarketOrderRequest(
-                symbol=order.symbol.base,
-                qty=float(order.size),
-                side=side_map[order.side],
-                type=type_map.get(order.type, trading_enums.OrderType.MARKET),
-                time_in_force=tif_map.get(order.time_in_force, trading_enums.TimeInForce.GTC),
-                limit_price=float(order.price) if order.price else None,
-                stop_price=float(order.stop_price) if order.stop_price else None,
-                client_order_id=order.client_order_id,
-            )
+            request_kwargs = {
+                "symbol": order.symbol.base,
+                "qty": float(order.size),
+                "side": side_map[order.side],
+                "time_in_force": tif_map.get(
+                    order.time_in_force,
+                    trading_enums.TimeInForce.GTC,
+                ),
+                "client_order_id": order.client_order_id,
+            }
 
-            if order.type in (OrderType.LIMIT, OrderType.STOP_LIMIT):
-                req = trading_requests.LimitOrderRequest(
-                    symbol=order.symbol.base,
-                    qty=float(order.size),
-                    side=side_map[order.side],
+            if order.type == OrderType.STOP_LIMIT:
+                if order.price is None or order.stop_price is None:
+                    raise ValueError("STOP_LIMIT orders require price and stop_price")
+                req = trading_requests.StopLimitOrderRequest(
+                    **request_kwargs,
+                    stop_price=float(order.stop_price),
                     limit_price=float(order.price),
-                    time_in_force=tif_map.get(order.time_in_force, trading_enums.TimeInForce.GTC),
-                    client_order_id=order.client_order_id,
+                )
+            elif order.type == OrderType.LIMIT:
+                if order.price is None:
+                    raise ValueError("LIMIT orders require price")
+                req = trading_requests.LimitOrderRequest(
+                    **request_kwargs,
+                    limit_price=float(order.price),
                 )
             elif order.type == OrderType.STOP:
+                if order.stop_price is None:
+                    raise ValueError("STOP orders require stop_price")
                 req = trading_requests.StopOrderRequest(
-                    symbol=order.symbol.base,
-                    qty=float(order.size),
-                    side=side_map[order.side],
+                    **request_kwargs,
                     stop_price=float(order.stop_price),
-                    time_in_force=tif_map.get(order.time_in_force, trading_enums.TimeInForce.GTC),
-                    client_order_id=order.client_order_id,
                 )
-            elif order.type == OrderType.STOP_LIMIT:
-                req = trading_requests.StopLimitOrderRequest(
-                    symbol=order.symbol.base,
-                    qty=float(order.size),
-                    side=side_map[order.side],
-                    stop_price=float(order.stop_price),
-                    limit_price=float(order.price),
-                    time_in_force=tif_map.get(order.time_in_force, trading_enums.TimeInForce.GTC),
-                    client_order_id=order.client_order_id,
+            else:
+                req = trading_requests.MarketOrderRequest(
+                    **request_kwargs,
                 )
 
             result = self._trading_client.submit_order(req)
@@ -281,6 +275,26 @@ class AlpacaAdapter:
         except APIError as e:
             logger.error(f"cancel_order failed: {e}")
             return False
+
+    async def close_all_positions(self, *, cancel_orders: bool = True) -> dict[str, Any]:
+        """Liquidate every Alpaca paper position and optionally cancel orders."""
+        if not self.config.paper:
+            raise RuntimeError("close_all_positions is restricted to Alpaca paper accounts")
+        if not self._connected or self._trading_client is None:
+            raise RuntimeError("Alpaca adapter is not connected")
+
+        try:
+            responses = self._trading_client.close_all_positions(
+                cancel_orders=cancel_orders,
+            )
+            return {
+                "requested": len(responses or []),
+                "cancel_orders": cancel_orders,
+                "account": "paper",
+            }
+        except APIError as e:
+            logger.error(f"close_all_positions failed: {e}")
+            raise
 
     async def fetch_order(self, order_id: str, symbol: Symbol) -> Order:
         """Fetch order status"""

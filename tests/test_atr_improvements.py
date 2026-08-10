@@ -111,6 +111,7 @@ def test_execution_with_atr():
     )
 
     # Execute signal
+    engine.update_prices({"BTC/USDT": entry_price})
     orders = engine.execute_signal(signal)
     print(f"Orders placed: {len(orders)}")
     for o in orders:
@@ -179,6 +180,7 @@ def test_comparison_fixed_vs_atr():
         reasoning="Fixed stop test",
         details={"symbol": "BTC/USDT", "max_position_size_pct": 0.25},
     )
+    engine_fixed.update_prices({"BTC/USDT": float(df["close"][150])})
     engine_fixed.execute_signal(signal)
     pos_fixed = engine_fixed.exchange.get_position("BTC/USDT")
     if pos_fixed:
@@ -202,6 +204,7 @@ def test_comparison_fixed_vs_atr():
             "atr": entry_atr,  # Pass ATR
         },
     )
+    engine_atr.update_prices({"BTC/USDT": float(df["close"][150])})
     engine_atr.execute_signal(signal_atr)
 
     # Run both

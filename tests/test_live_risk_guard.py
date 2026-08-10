@@ -8,6 +8,7 @@ import polars as pl
 import numpy as np
 import pytest
 
+import live_enhanced_ma as live_script
 from live_enhanced_ma import trailing_stop_price, ATR_SL_MULT
 from trading_agent.risk.portfolio_risk import PortfolioRiskManager, DrawdownConfig
 
@@ -75,3 +76,29 @@ class TestDrawdownHalt:
         pm.update_equity(100_000)  # equity hiện tại
         assert pm.current_dd == pytest.approx(10_000 / 110_000)
         assert pm.position_scale_factor() == 0.75  # DD 9.1% → tier đầu (-5% → 0.75)
+
+
+def test_corrupt_peak_state_fails_closed(tmp_path, monkeypatch):
+    peak_file = tmp_path / "peak.json"
+    peak_file.write_text("corrupt")
+    monkeypatch.setattr(live_script, "PEAK_STATE_FILE", str(peak_file))
+
+    with pytest.raises(RuntimeError, match="refusing to trade"):
+        live_script.load_peak_equity()
+
+
+def test_live_data_drops_forming_candle(monkeypatch):
+    now_ms = int(live_script.datetime.now(live_script.UTC).timestamp() * 1000)
+
+    class FakeExchange:
+        def fetch_ohlcv(self, symbol, timeframe, limit):
+            return [
+                [now_ms - 7_200_000, 100, 101, 99, 100, 1],
+                [now_ms - 1_000, 200, 201, 199, 200, 1],
+            ]
+
+    monkeypatch.setattr(live_script.ccxt, "binance", lambda config: FakeExchange())
+    frame = live_script.get_recent_df("BTC/USDT")
+
+    assert len(frame) == 1
+    assert frame["close"].item() == 100

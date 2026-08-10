@@ -28,40 +28,46 @@ def post(url, payload):
         return json.loads(r.read())
 
 
-ok = fail = 0
-for symbol, tf, since in CASES:
-    payload = {"symbol": symbol, "timeframe": tf}
-    if since:
-        payload["since"] = since
-    try:
-        job = post(f"{BASE}/api/data/fetch", payload).get("job_id")
-    except Exception as exc:
-        print(f"✗ {symbol:12s} {tf:4s} since={since}  — POST lỗi: {exc}")
-        fail += 1
-        continue
-    # poll tối đa 60s
-    lines, status, err = [], "running", ""
-    for _ in range(30):
+def main() -> int:
+    """Run the manual API smoke test against a locally running server."""
+    ok = fail = 0
+    for symbol, tf, since in CASES:
+        payload = {"symbol": symbol, "timeframe": tf}
+        if since:
+            payload["since"] = since
         try:
-            with urllib.request.urlopen(f"{BASE}/api/backtest/{job}", timeout=10) as r:
-                d = json.loads(r.read())
-        except Exception:
-            time.sleep(2)
+            job = post(f"{BASE}/api/data/fetch", payload).get("job_id")
+        except Exception as exc:
+            print(f"✗ {symbol:12s} {tf:4s} since={since}  — POST lỗi: {exc}")
+            fail += 1
             continue
-        status = d.get("status")
-        lines = d.get("lines") or []
-        err = d.get("error") or ""
-        if status in ("done", "error"):
-            break
-        time.sleep(2)
-    got = next((l for l in lines if "Got " in l), "")
-    n = got.split("Got ")[-1] if got else "?"
-    if status == "done" and "Got " in "".join(lines):
-        print(f"✓ {symbol:12s} {tf:4s} since={since}  → {n.strip()}")
-        ok += 1
-    else:
-        print(f"✗ {symbol:12s} {tf:4s} since={since}  — {status} {err[:100]}")
-        fail += 1
+        # poll tối đa 60s
+        lines, status, err = [], "running", ""
+        for _ in range(30):
+            try:
+                with urllib.request.urlopen(f"{BASE}/api/backtest/{job}", timeout=10) as r:
+                    d = json.loads(r.read())
+            except Exception:
+                time.sleep(2)
+                continue
+            status = d.get("status")
+            lines = d.get("lines") or []
+            err = d.get("error") or ""
+            if status in ("done", "error"):
+                break
+            time.sleep(2)
+        got = next((line for line in lines if "Got " in line), "")
+        n = got.split("Got ")[-1] if got else "?"
+        if status == "done" and "Got " in "".join(lines):
+            print(f"✓ {symbol:12s} {tf:4s} since={since}  → {n.strip()}")
+            ok += 1
+        else:
+            print(f"✗ {symbol:12s} {tf:4s} since={since}  — {status} {err[:100]}")
+            fail += 1
 
-print(f"\n==> {ok} OK / {fail} FAIL")
-sys.exit(1 if fail else 0)
+    print(f"\n==> {ok} OK / {fail} FAIL")
+    return 1 if fail else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

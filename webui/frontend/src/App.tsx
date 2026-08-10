@@ -40,7 +40,7 @@ export default function App() {
           <h1>📊 Trading Agent System</h1>
           <div className="sub">
             {sys?.name} v{sys?.version} · LLM: {sys?.llm.provider ?? "—"} ({sys?.llm.model ?? ""}) · Telegram:{" "}
-            {sys?.alerts.telegram?.enabled ? "bật" : "tắt"}
+            {sys?.alerts.telegram_configured ? "đã cấu hình" : "chưa cấu hình"}
           </div>
         </div>
         <div className="row">

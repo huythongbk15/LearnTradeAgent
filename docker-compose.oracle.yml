@@ -1,0 +1,91 @@
+name: learntradeagent
+
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    image: learntradeagent:oracle
+    entrypoint: []
+    command:
+      - uvicorn
+      - webui.backend.app:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --workers
+      - "1"
+      - --proxy-headers
+      - --forwarded-allow-ips=*
+    environment:
+      TRADING_CONFIG_PATH: /app/config/config.yaml
+      XDG_CACHE_HOME: /app/data/cache
+      TRADING_AGENT_LLM_CACHE_DIR: /app/data/cache/llm
+      TRADING_AGENT_STRATEGY_DIR: /app/data/strategies
+      WEBUI_API_KEY: ${WEBUI_API_KEY:?WEBUI_API_KEY must be set}
+      WEBUI_ALLOWED_ORIGINS: ${WEBUI_ALLOWED_ORIGINS:-http://localhost:8000}
+      TRADING_MODE: ${TRADING_MODE:-paper}
+      TRADING_EXECUTION_ENABLED: ${TRADING_EXECUTION_ENABLED:-false}
+      USE_LLM: ${USE_LLM:-false}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      ALPACA_API_KEY: ${ALPACA_API_KEY:-}
+      ALPACA_API_SECRET: ${ALPACA_API_SECRET:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+    volumes:
+      - ${APP_STATE_DIR:-./runtime}/data:/app/data
+      - ${APP_STATE_DIR:-./runtime}/logs:/app/logs
+    expose:
+      - "8000"
+    init: true
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 3g
+    cpus: 2.0
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 45s
+
+  caddy:
+    image: caddy:2.10.2-alpine
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:-:80}
+      CADDY_USER: ${CADDY_USER:-admin}
+      CADDY_PASSWORD_HASH: ${CADDY_PASSWORD_HASH:?CADDY_PASSWORD_HASH must be set}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile.oracle:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      web:
+        condition: service_healthy
+    restart: unless-stopped
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 256m
+    cpus: 0.5
+
+volumes:
+  caddy_data:
+  caddy_config:

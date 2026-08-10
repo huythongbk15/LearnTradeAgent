@@ -471,4 +471,4 @@ class OnlineLearningStrategy(BaseStrategy):
 from trading_agent.strategies.plugins import get_registry
 
 registry = get_registry()
-registry.register(OnlineLearningStrategy)
+registry.register(OnlineLearningStrategy, persist=False)

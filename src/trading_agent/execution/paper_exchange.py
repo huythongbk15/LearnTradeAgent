@@ -8,8 +8,13 @@ State lưu dưới dạng JSON để persist qua các lần chạy.
 from __future__ import annotations
 
 import json
+import math
+import os
+import tempfile
+import threading
 import uuid
 from datetime import UTC, datetime
+from functools import wraps
 from pathlib import Path
 from typing import Any
 
@@ -63,12 +68,26 @@ def _log_trade_to_db(
                 strategy="agent",
             )
         elif action == "close":
+            # Persist completed fills as self-contained rows. This also models
+            # partial exits correctly instead of leaving an unmatched open row.
+            insert_trade(
+                trade_id=trade.id,
+                symbol=trade.symbol,
+                side=trade.side.value if hasattr(trade.side, "value") else str(trade.side),
+                amount=trade.quantity,
+                entry_price=trade.entry_price,
+                entry_time=trade.entry_time.isoformat() if trade.entry_time else None,
+                entry_order_id=trade.entry_order_id,
+                strategy="agent",
+            )
             close_trade(
                 trade_id=trade.id,
                 exit_price=trade.exit_price or 0,
+                exit_time=trade.exit_time.isoformat() if trade.exit_time else None,
+                exit_order_id=trade.exit_order_id,
                 pnl=pnl,
                 pnl_pct=pnl_pct,
-                fee=getattr(trade, "exit_fee", 0.0) or 0.0,
+                fee=(trade.entry_fee or 0.0) + (trade.exit_fee or 0.0),
                 reason=reason,
             )
     except Exception as e:
@@ -97,6 +116,15 @@ DEFAULT_SLIPPAGE = 0.0005   # 0.05%
 STATE_DIR = Path("data/execution")
 
 
+def _synchronized(method):
+    """Serialize state mutations within a PaperExchange instance."""
+    @wraps(method)
+    def wrapper(self, *args, **kwargs):
+        with self._state_lock:
+            return method(self, *args, **kwargs)
+    return wrapper
+
+
 class PaperExchange:
     """Simulated exchange for paper trading.
 
@@ -115,11 +143,24 @@ class PaperExchange:
         commission: float = DEFAULT_COMMISSION,
         slippage: float = DEFAULT_SLIPPAGE,
         state_dir: str | Path = STATE_DIR,
+        max_price_age_seconds: float = 300.0,
     ):
+        if initial_balance <= 0:
+            raise ValueError("initial_balance must be positive")
+        if not 0 <= commission < 1:
+            raise ValueError("commission must be in [0, 1)")
+        if not 0 <= slippage < 1:
+            raise ValueError("slippage must be in [0, 1)")
+        if max_price_age_seconds <= 0:
+            raise ValueError("max_price_age_seconds must be positive")
+
         self.exchange_name = exchange_name
         self.commission = commission
         self.slippage = slippage
         self.state_dir = Path(state_dir)
+        self.initial_balance = float(initial_balance)
+        self.max_price_age_seconds = float(max_price_age_seconds)
+        self._state_lock = threading.RLock()
 
         # In-memory state
         self.balances: dict[str, float] = {
@@ -130,6 +171,7 @@ class PaperExchange:
         self.trades: list[Trade] = []
         self.equity_history: list[dict[str, Any]] = []
         self._last_price_cache: dict[str, float] = {}
+        self._last_price_timestamps: dict[str, float] = {}
         self._peak_equity: float = initial_balance
         self._equity_snapshot_counter: int = 0
 
@@ -138,6 +180,7 @@ class PaperExchange:
 
     # ── Public API ─────────────────────────────────────────────────────
 
+    @_synchronized
     def place_order(
         self,
         symbol: str,
@@ -219,6 +262,7 @@ class PaperExchange:
 
         return order
 
+    @_synchronized
     def cancel_order(self, order_id: str) -> Order | None:
         """Cancel an open order."""
         order = self.orders.get(order_id)
@@ -256,6 +300,15 @@ class PaperExchange:
         pos_value = sum(p.market_value for p in self.positions.values() if p.is_active)
         return cash + pos_value
 
+    def _fresh_price(self, symbol: str) -> float | None:
+        price = self._last_price_cache.get(symbol)
+        price_timestamp = self._last_price_timestamps.get(symbol, 0.0)
+        age = datetime.now(UTC).timestamp() - price_timestamp
+        if price is None or price <= 0 or age > self.max_price_age_seconds:
+            return None
+        return price
+
+    @_synchronized
     def update_prices(self, prices: dict[str, float], ohlcv_data: dict[str, Any] | None = None):
         """Update current prices and evaluate pending/stop orders.
 
@@ -268,7 +321,16 @@ class PaperExchange:
         ohlcv_data : dict[str, Any], optional
             OHLCV DataFrames for ATR calculation (symbol -> DataFrame)
         """
-        self._last_price_cache.update(prices)
+        invalid = {
+            symbol: price
+            for symbol, price in prices.items()
+            if not math.isfinite(float(price)) or float(price) <= 0
+        }
+        if invalid:
+            raise ValueError(f"Prices must be finite and positive: {invalid}")
+        now_timestamp = datetime.now(UTC).timestamp()
+        self._last_price_cache.update({k: float(v) for k, v in prices.items()})
+        self._last_price_timestamps.update({symbol: now_timestamp for symbol in prices})
 
         # Check stop-loss / take-profit orders
         for symbol, price in prices.items():
@@ -350,23 +412,40 @@ class PaperExchange:
 
         self._save_state()
 
-    def close_all_positions(self, reason: str = "manual"):
-        """Emergency close — kill switch."""
-        prices = self._last_price_cache
+    @_synchronized
+    def close_all_positions(self, reason: str = "manual") -> dict[str, list[str]]:
+        """Emergency close using only fresh known prices; never invent a fill."""
+        for order in self.get_open_orders():
+            self.cancel_order(order.id)
+
+        closed: list[str] = []
+        skipped: list[str] = []
         for symbol in list(self.positions.keys()):
             pos = self.positions.get(symbol)
             if pos and pos.is_active:
-                price = prices.get(symbol, pos.entry_price)
+                price = self._fresh_price(symbol)
+                if price is None:
+                    skipped.append(symbol)
+                    logger.error("Kill switch skipped %s: no fresh market price", symbol)
+                    continue
                 self._close_position(symbol, price, reason=reason)
+                closed.append(symbol)
         logger.warning(f"All positions closed: {reason}")
+        remaining = [p.symbol for p in self.get_all_positions()]
+        return {"closed": closed, "skipped": skipped, "remaining": remaining}
 
+    @_synchronized
     def reset(self):
         """Reset all state — start fresh."""
-        self.balances = {"USDT": 10_000.0}
+        self.balances = {"USDT": self.initial_balance}
         self.orders.clear()
         self.positions.clear()
         self.trades.clear()
         self.equity_history.clear()
+        self._last_price_cache.clear()
+        self._last_price_timestamps.clear()
+        self._peak_equity = self.initial_balance
+        self._equity_snapshot_counter = 0
         self._delete_state()
         logger.info("Paper exchange reset to initial state")
 
@@ -375,10 +454,11 @@ class PaperExchange:
     def _fill_market_order(self, order_id: str):
         """Fill a market order immediately (can be partial in future extensions)."""
         order = self.orders[order_id]
-        price = self._last_price_cache.get(order.symbol)
-        if not price:
-            logger.warning(f"Cannot fill {order_id}: no price data for {order.symbol}")
+        price = self._fresh_price(order.symbol)
+        if price is None:
+            logger.warning(f"Cannot fill {order_id}: no fresh price for {order.symbol}")
             order.status = OrderStatus.REJECTED
+            self._save_state()
             return
 
         # Apply slippage
@@ -469,6 +549,14 @@ class PaperExchange:
                     entry_price=fill_price,
                     current_price=fill_price,
                 )
+            active_position = self.positions[order.symbol]
+            active_position.metadata["entry_fees"] = (
+                float(active_position.metadata.get("entry_fees", 0.0))
+                + fee_amount
+            )
+            entry_order_ids = active_position.metadata.setdefault("entry_order_ids", [])
+            if order.id not in entry_order_ids:
+                entry_order_ids.append(order.id)
 
         elif order.side == OrderSide.SELL:
             # Decrease or close position
@@ -480,21 +568,44 @@ class PaperExchange:
                 return
 
             # Calculate P&L
-            pnl = fill_amount * (fill_price - pos.entry_price) - fee_amount
-            pnl_pct = ((fill_price / pos.entry_price) - 1) * 100
+            entry_fees_total = float(pos.metadata.get("entry_fees", 0.0))
+            entry_fee_alloc = entry_fees_total * min(1.0, fill_amount / pos.quantity)
+            pnl = (
+                fill_amount * (fill_price - pos.entry_price)
+                - entry_fee_alloc
+                - fee_amount
+            )
+            entry_cost = fill_amount * pos.entry_price + entry_fee_alloc
+            pnl_pct = pnl / entry_cost * 100 if entry_cost else 0.0
 
             # Add proceeds
             self.balances["USDT"] = self.balances.get("USDT", 0.0) + (total_cost - fee_amount)
 
+            # Record each completed exit fill so partial closes reconcile too.
+            is_full_close = fill_amount >= pos.quantity - 0.0001
+            self._record_trade(
+                pos,
+                fill_price,
+                order,
+                pnl,
+                pnl_pct,
+                quantity=fill_amount,
+                entry_fee=entry_fee_alloc,
+                exit_fee=fee_amount,
+                reason="signal" if is_full_close else "partial_exit",
+            )
+
             # Reduce position
-            if fill_amount >= pos.quantity - 0.0001:
+            if is_full_close:
                 # Full close
-                self._record_trade(pos, fill_price, order, pnl, pnl_pct)
                 del self.positions[order.symbol]
             else:
                 # Partial close
                 pos.quantity -= fill_amount
                 pos.realized_pnl += pnl
+                pos.metadata["entry_fees"] = max(
+                    0.0, entry_fees_total - entry_fee_alloc
+                )
 
         # Update order fill status
         prev_filled = order.filled_amount
@@ -516,32 +627,13 @@ class PaperExchange:
         logger.info(f"Filled {order.id}: {fill_amount}/{order.amount} {order.symbol} @ {fill_price:.2f} (fee: {fee_amount:.4f}, status: {order.status.value})")
         self._save_state()
 
-        # Log trade entry to SQLite on BUY fill (new position opened)
-        if order.side == OrderSide.BUY and prev_filled == 0:
-            pos = self.positions.get(order.symbol)
-            if pos and pos.entry_price == fill_price:
-                from trading_agent.execution.types import Trade as TradeType
-                dummy_trade = TradeType(
-                    id=order.id,
-                    symbol=order.symbol,
-                    side=OrderSide.BUY,
-                    entry_price=fill_price,
-                    exit_price=None,
-                    quantity=fill_amount,
-                    pnl=0,
-                    pnl_pct=0,
-                    entry_time=datetime.now(UTC),
-                    exit_time=None,
-                    entry_order_id=order.id,
-                    reason="entry",
-                )
-                _log_trade_to_db(dummy_trade, action="open")
-
     def _close_position(self, symbol: str, price: float, reason: str = "manual"):
         """Force-close a position at given price."""
         pos = self.positions.get(symbol)
         if not pos or not pos.is_active:
             return
+
+        fill_price = price * (1.0 - self.slippage)
 
         # Close order
         order_id = self._next_id("close")
@@ -551,23 +643,25 @@ class PaperExchange:
             side=OrderSide.SELL,
             type=OrderType.MARKET,
             amount=pos.quantity,
-            price=price,
+            price=fill_price,
             status=OrderStatus.FILLED,
             filled_amount=pos.quantity,
-            avg_fill_price=price,
-            cost=pos.quantity * price,
-            fee=pos.quantity * price * self.commission,
+            avg_fill_price=fill_price,
+            cost=pos.quantity * fill_price,
+            fee=pos.quantity * fill_price * self.commission,
         )
         self.orders[order_id] = order
 
         # P&L
-        pnl = pos.quantity * (price - pos.entry_price) - order.fee
-        pnl_pct = ((price / pos.entry_price) - 1) * 100
+        entry_fee = float(pos.metadata.get("entry_fees", 0.0))
+        pnl = pos.quantity * (fill_price - pos.entry_price) - entry_fee - order.fee
+        entry_cost = pos.quantity * pos.entry_price + entry_fee
+        pnl_pct = pnl / entry_cost * 100 if entry_cost else 0.0
 
         # Add proceeds
-        self.balances["USDT"] = self.balances.get("USDT", 0.0) + (pos.quantity * price - order.fee)
+        self.balances["USDT"] = self.balances.get("USDT", 0.0) + (pos.quantity * fill_price - order.fee)
 
-        self._record_trade(pos, price, order, pnl, pnl_pct, reason=reason)
+        self._record_trade(pos, fill_price, order, pnl, pnl_pct, reason=reason)
         del self.positions[symbol]
         self._save_state()
 
@@ -578,6 +672,9 @@ class PaperExchange:
         order: Order,
         pnl: float,
         pnl_pct: float,
+        quantity: float | None = None,
+        entry_fee: float | None = None,
+        exit_fee: float | None = None,
         reason: str | None = None,
     ):
         """Record a completed trade."""
@@ -588,12 +685,19 @@ class PaperExchange:
             side=pos.side,
             entry_price=pos.entry_price,
             exit_price=exit_price,
-            quantity=pos.quantity,
+            quantity=pos.quantity if quantity is None else quantity,
             pnl=pnl,
             pnl_pct=pnl_pct,
+            entry_fee=(
+                float(pos.metadata.get("entry_fees", 0.0))
+                if entry_fee is None
+                else entry_fee
+            ),
+            exit_fee=order.fee if exit_fee is None else exit_fee,
             entry_time=pos.opened_at,
             exit_time=datetime.now(UTC),
-            entry_order_id=order.id,
+            entry_order_id=(pos.metadata.get("entry_order_ids") or [None])[0],
+            exit_order_id=order.id,
             reason=reason or "signal",
             metadata={"sizing_method": sizing_method},
         )
@@ -603,6 +707,7 @@ class PaperExchange:
 
     # ── Order Reconciliation ──────────────────────────────────────────────
 
+    @_synchronized
     def reconcile_orders(self, exchange_orders: dict[str, dict]) -> dict[str, int]:
         """Reconcile local orders with exchange state.
         
@@ -687,27 +792,39 @@ class PaperExchange:
         try:
             with open(path) as f:
                 data = json.load(f)
-            self.balances = data.get("balances", {"USDT": 10_000.0})
+            self.balances = data.get("balances", {"USDT": self.initial_balance})
             self.orders = {k: Order.from_dict(v) for k, v in data.get("orders", {}).items()}
             self.positions = {k: Position.from_dict(v) for k, v in data.get("positions", {}).items()}
             self.trades = [Trade.from_dict(t) for t in data.get("trades", [])]
             self.equity_history = data.get("equity_history", [])
+            self._peak_equity = float(data.get("peak_equity", self.initial_balance))
             logger.info(f"Loaded paper state from {path} ({len(self.trades)} trades)")
         except Exception as e:
-            logger.warning(f"Failed to load paper state: {e}")
+            raise RuntimeError(f"Paper state is unreadable; refusing unsafe reset: {path}") from e
 
     def _save_state(self):
         path = self._state_path()
         path.parent.mkdir(parents=True, exist_ok=True)
-        data = {
-            "balances": self.balances,
-            "orders": {k: v.to_dict() for k, v in self.orders.items()},
-            "positions": {k: v.to_dict() for k, v in self.positions.items()},
-            "trades": [t.to_dict() for t in self.trades],
-            "equity_history": self.equity_history[-5000:],  # keep last 5000 snapshots
-        }
-        with open(path, "w") as f:
-            json.dump(data, f, indent=2, default=str)
+        with self._state_lock:
+            data = {
+                "balances": self.balances,
+                "orders": {k: v.to_dict() for k, v in self.orders.items()},
+                "positions": {k: v.to_dict() for k, v in self.positions.items()},
+                "trades": [t.to_dict() for t in self.trades],
+                "equity_history": self.equity_history[-5000:],
+                "peak_equity": self._peak_equity,
+            }
+            fd, tmp_name = tempfile.mkstemp(
+                prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
+            )
+            try:
+                with os.fdopen(fd, "w") as f:
+                    json.dump(data, f, indent=2, default=str)
+                    f.flush()
+                    os.fsync(f.fileno())
+                os.replace(tmp_name, path)
+            finally:
+                Path(tmp_name).unlink(missing_ok=True)
 
     def _delete_state(self):
         path = self._state_path()

@@ -12,6 +12,7 @@ import signal
 import sys
 import threading
 from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from trading_agent.agents.base import AgentMessage
@@ -100,9 +101,11 @@ class ExecutionEngine:
         # Use config default values
         self.exchange = PaperExchange(
             exchange_name=self.exchange_name,
-            initial_balance=initial_capital or config.initial_capital,
-            commission=commission or config.commission,
-            slippage=slippage or config.slippage,
+            initial_balance=(
+                config.initial_capital if initial_capital is None else initial_capital
+            ),
+            commission=config.commission if commission is None else commission,
+            slippage=config.slippage if slippage is None else slippage,
         )
 
         # Register graceful shutdown handler
@@ -311,12 +314,53 @@ class ExecutionEngine:
         """
         self.exchange.update_prices(prices)
 
-    def update_from_dataframe(self, symbol: str, df: Any):
-        """Update prices from latest OHLCV data."""
+    @staticmethod
+    def _timeframe_seconds(timeframe: str) -> int:
+        tf = timeframe.lower().strip()
+        units = {"m": 60, "h": 3600, "d": 86400, "w": 604800}
+        if len(tf) < 2 or tf[-1] not in units:
+            raise ValueError(f"Unsupported timeframe: {timeframe!r}")
+        try:
+            amount = int(tf[:-1])
+        except ValueError as exc:
+            raise ValueError(f"Unsupported timeframe: {timeframe!r}") from exc
+        if amount <= 0:
+            raise ValueError(f"Unsupported timeframe: {timeframe!r}")
+        return amount * units[tf[-1]]
+
+    def update_market_price(
+        self,
+        symbol: str,
+        price: float,
+        candle_open_time: datetime,
+        timeframe: str,
+    ) -> None:
+        """Accept a price only from a recently closed candle."""
+        if not isinstance(candle_open_time, datetime):
+            raise ValueError("Market data timestamp must be a datetime")
+        if candle_open_time.tzinfo is None:
+            candle_open_time = candle_open_time.replace(tzinfo=UTC)
+        else:
+            candle_open_time = candle_open_time.astimezone(UTC)
+
+        duration = self._timeframe_seconds(timeframe)
+        bar_close = candle_open_time + timedelta(seconds=duration)
+        now = datetime.now(UTC)
+        if now < bar_close:
+            raise ValueError("Refusing execution from an incomplete candle")
+        if (now - bar_close).total_seconds() > max(duration * 2, 300):
+            raise ValueError("Refusing execution from stale market data")
+        self.update_prices({symbol: price})
+
+    def update_from_dataframe(self, symbol: str, df: Any, timeframe: str = "1h"):
+        """Update from the latest recently closed OHLCV candle."""
         if df.is_empty():
             return
         latest_close = float(df["close"].tail(1).item())
-        self.update_prices({symbol: latest_close})
+        if "timestamp" not in df.columns:
+            raise ValueError("OHLCV data must contain timestamp for execution")
+        latest_timestamp = df["timestamp"].tail(1).item()
+        self.update_market_price(symbol, latest_close, latest_timestamp, timeframe)
 
     def update_with_atr(self, symbol: str, df: Any):
         """Update prices with OHLCV data for ATR-based trailing stop.
@@ -405,9 +449,9 @@ class ExecutionEngine:
         """Get recent trade history."""
         return [t.to_dict() for t in self.exchange.get_trade_history(limit)]
 
-    def close_all(self, reason: str = "manual_kill"):
+    def close_all(self, reason: str = "manual_kill") -> dict[str, list[str]]:
         """Emergency close all positions."""
-        self.exchange.close_all_positions(reason=reason)
+        return self.exchange.close_all_positions(reason=reason)
 
     def reset(self):
         """Reset paper exchange to initial state."""
@@ -416,19 +460,5 @@ class ExecutionEngine:
     # ── Helpers ────────────────────────────────────────────────────────
 
     def _get_current_price(self, symbol: str) -> float | None:
-        """Try to get current price from cache, then from data."""
-        price = self.exchange._last_price_cache.get(symbol)
-        if price:
-            return price
-
-        # Fall back to latest candle
-        try:
-            from trading_agent.data.storage import load_ohlcv
-            df = load_ohlcv(self.exchange_name, symbol, "1h")
-            if not df.is_empty():
-                price = float(df["close"].tail(1).item())
-                self.exchange._last_price_cache[symbol] = price
-                return price
-        except Exception as e:
-            logger.warning(f"Failed to fetch last price for {symbol}: {e}")
-        return None
+        """Return only a recently timestamped price; never revive stale storage."""
+        return self.exchange._fresh_price(symbol)

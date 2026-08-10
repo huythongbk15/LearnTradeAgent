@@ -16,6 +16,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import ccxt
+import numpy as np
 import polars as pl
 from rich.console import Console
 from rich.progress import (
@@ -230,11 +231,15 @@ class Collector:
                     "from": str(df["timestamp"][idx]),
                     "to": str(df["timestamp"][idx + 1]),
                     "gap_ms": int(diffs[idx]),
-                    "gap_candles": int(diffs[idx] / tf_ms),
+                    "gap_candles": max(0, int(diffs[idx] / tf_ms) - 1),
                 })
+            missing_counts = np.maximum(
+                (diffs[diffs > tf_ms * 1.5] // tf_ms) - 1,
+                0,
+            )
             report["checks"]["gaps"] = {
                 "count": len(gaps),
-                "total_missing_candles": int(sum(diffs[diffs > tf_ms * 1.5]) / tf_ms),
+                "total_missing_candles": int(missing_counts.sum()),
                 "samples": gap_samples,
             }
         else:
@@ -250,7 +255,7 @@ class Collector:
             std_ret = returns["ret_pct"].std()
             if std_ret > 0:
                 outliers = returns.filter(
-                    pl.col("ret_pct").abs() > mean_ret + 5 * std_ret
+                    (pl.col("ret_pct") - mean_ret).abs() > 5 * std_ret
                 )
                 report["checks"]["price_outliers"] = {
                     "count": len(outliers),
@@ -294,9 +299,10 @@ class Collector:
             if dt.tzinfo is None:
                 dt = dt.replace(tzinfo=UTC)
             return int(dt.timestamp() * 1000)
-        except ValueError:
-            _error_console.print(f"[red]Invalid date format: {since}[/red]")
-            return None
+        except ValueError as exc:
+            raise ValueError(
+                f"Invalid date format {since!r}; expected ISO-8601 or unix milliseconds"
+            ) from exc
 
     def _fetch_single(self, symbol: str, tf: str, limit: int) -> pl.DataFrame:
         raw = self._fetch_with_retry(symbol, tf, limit=limit)
@@ -415,39 +421,51 @@ class Collector:
             "1d": 86400000,
             "1w": 604800000,
         }
-        return mapping.get(tf, 3600000)
+        if tf not in mapping:
+            raise ValueError(f"Unsupported timeframe: {tf!r}")
+        return mapping[tf]
 
     @staticmethod
     def _raw_to_df(
         raw: list[list], exchange: str, symbol: str, tf: str
     ) -> pl.DataFrame:
         """Convert CCXT raw OHLCV list to a Polars DataFrame."""
+        empty_schema = {
+            "timestamp": pl.Datetime,
+            "open": pl.Float64,
+            "high": pl.Float64,
+            "low": pl.Float64,
+            "close": pl.Float64,
+            "volume": pl.Float64,
+            "exchange": pl.String,
+            "symbol": pl.String,
+            "timeframe": pl.String,
+            "is_closed": pl.Boolean,
+        }
         if not raw:
-            return pl.DataFrame(
-                schema={
-                    "timestamp": pl.Datetime,
-                    "open": pl.Float64,
-                    "high": pl.Float64,
-                    "low": pl.Float64,
-                    "close": pl.Float64,
-                    "volume": pl.Float64,
-                }
-            )
+            return pl.DataFrame(schema=empty_schema)
+
+        timeframe_ms = Collector._timeframe_ms(tf)
+        now_ms = int(time.time() * 1000)
+        closed_raw = [c for c in raw if int(c[0]) + timeframe_ms <= now_ms]
+        if not closed_raw:
+            return pl.DataFrame(schema=empty_schema)
 
         df = pl.DataFrame(
             {
-                "timestamp": [int(c[0]) for c in raw],
-                "open": [float(c[1]) for c in raw],
-                "high": [float(c[2]) for c in raw],
-                "low": [float(c[3]) for c in raw],
-                "close": [float(c[4]) for c in raw],
-                "volume": [float(c[5]) for c in raw],
+                "timestamp": [int(c[0]) for c in closed_raw],
+                "open": [float(c[1]) for c in closed_raw],
+                "high": [float(c[2]) for c in closed_raw],
+                "low": [float(c[3]) for c in closed_raw],
+                "close": [float(c[4]) for c in closed_raw],
+                "volume": [float(c[5]) for c in closed_raw],
             }
         ).with_columns(
             pl.from_epoch("timestamp", time_unit="ms").alias("timestamp"),
             pl.lit(exchange).alias("exchange"),
             pl.lit(symbol).alias("symbol"),
             pl.lit(tf).alias("timeframe"),
+            pl.lit(True).alias("is_closed"),
         )
 
         return df.sort("timestamp")

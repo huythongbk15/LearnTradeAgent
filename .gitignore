@@ -13,6 +13,7 @@ data/execution/
 
 # Logs
 logs/
+/runtime/
 *.log
 
 # Session-local TODO files
@@ -23,6 +24,7 @@ logs/
 
 # Trading DB
 data/trading.db
+data/trading.db-*
 
 # Scratch scripts
 fetch_all.py
@@ -52,6 +54,7 @@ data/wfo_results/
 
 # Allow these templates (commit-safe)
 !.env.example
+!.env.oracle.example
 
 # IDE
 .idea/
@@ -71,6 +74,7 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 .venv/
+.venv-*/
 venv/
 env/
 

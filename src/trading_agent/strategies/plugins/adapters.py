@@ -262,7 +262,7 @@ def _auto_register():
     registry = get_registry()
     for strategy_class in [MaCrossoverPluginStrategy, RsiPluginStrategy, BBandsPluginStrategy]:
         try:
-            registry.register(strategy_class)
+            registry.register(strategy_class, persist=False)
         except Exception:
             pass  # Already registered
 

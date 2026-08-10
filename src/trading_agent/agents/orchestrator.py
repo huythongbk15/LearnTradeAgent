@@ -11,9 +11,8 @@ Flow:
 
 from __future__ import annotations
 
-import json
 import numpy as np
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Literal
 
 import polars as pl
@@ -268,6 +267,7 @@ class AgentAnalysisReport:
     agent_messages: list[AgentMessage]
     final_decision: AgentMessage
     indicators: dict[str, Any]
+    data_timestamp: Any | None = None
 
 
 class Orchestrator:
@@ -372,8 +372,28 @@ class Orchestrator:
         # Trader (final decision - always runs)
         context.agent_messages = messages
         logger.info("Running Trader...")
-        final = self.trader.analyze(context)
-        _log_agent_decision(symbol, timeframe, "trader", final, current_price)
+        trader_decision = self.trader.analyze(context)
+
+        # Risk is a hard safety gate, not a weighted vote. This second check
+        # protects the execution path even if a custom Trader implementation
+        # ignores the Risk Manager message.
+        risk_msg = next((m for m in messages if m.role == "risk_manager"), None)
+        if risk_msg and risk_msg.risk_level in ("HIGH", "EXTREME"):
+            in_position = current_position_pct > 0.001
+            trader_decision = AgentMessage(
+                role="trader",
+                signal="SELL" if in_position else "HOLD",
+                confidence=min(trader_decision.confidence, 0.6),
+                reasoning=(
+                    f"[HARD RISK GATE] {risk_msg.risk_level}: "
+                    f"{'exit current position' if in_position else 'block new entries'}.\n"
+                    f"{trader_decision.reasoning}"
+                ),
+                details={**trader_decision.details, "risk_gate": True},
+                max_position_size_pct=0.0,
+                risk_level=risk_msg.risk_level,
+                warnings=[*trader_decision.warnings, *risk_msg.warnings],
+            )
 
         # 5. Apply correlation-based diversification discount to weights
         self.correlation_tracker.update(messages)
@@ -382,29 +402,23 @@ class Orchestrator:
         
         # Record entry signals for PnL attribution
         self.pnl_tracker.record_entry(
-            messages, current_price, 
-            final.details.get("max_position_size_pct", 0.1)
+            [*messages, trader_decision], current_price,
+            trader_decision.max_position_size_pct or 0.0,
         )
 
         # 6. Compute dynamic position sizing
         position_size_pct = self._calculate_dynamic_position_size(
-            context, final, df
+            context, trader_decision, df
         )
-
-        # 7. Apply ablation risk override setting
-        risk_override = self.ablation.should_override_risk()
-        if risk_override and final.risk_level in ("HIGH", "EXTREME"):
-            # Risk override already handled in Trader.analyze()
-            pass
 
         # 8. Build final decision with correlation info
         final = AgentMessage(
             role="trader",
-            signal=final.signal,
-            confidence=final.confidence,
-            reasoning=final.reasoning,
+            signal=trader_decision.signal,
+            confidence=trader_decision.confidence,
+            reasoning=trader_decision.reasoning,
             details={
-                **final.details,
+                **trader_decision.details,
                 "diversification_discount": diversification_discount,
                 "per_agent_correlation": per_agent_corr,
                 "base_weights": self.base_ensemble_weights,
@@ -413,13 +427,14 @@ class Orchestrator:
                     for k, v in self.base_ensemble_weights.items()
                 },
                 "max_position_size_pct": position_size_pct,
-                "regime": final.details.get("regime", {}),
+                "regime": trader_decision.details.get("regime", {}),
                 "ablation_preset": self.ablation.preset_name,
             },
             max_position_size_pct=position_size_pct,
-            risk_level=final.risk_level,
-            warnings=final.warnings,
+            risk_level=trader_decision.risk_level,
+            warnings=trader_decision.warnings,
         )
+        messages.append(final)
         _log_agent_decision(symbol, timeframe, "trader", final, current_price)
 
         # 9. Build report
@@ -430,6 +445,7 @@ class Orchestrator:
             agent_messages=messages,
             final_decision=final,
             indicators=self._extract_indicators(df),
+            data_timestamp=df["timestamp"].tail(1).item(),
         )
 
     def _ensemble_vote(self, messages: list[AgentMessage], context: AnalysisContext) -> dict:
@@ -505,19 +521,19 @@ class Orchestrator:
         self, context: AnalysisContext, final_msg: AgentMessage, df: pl.DataFrame
     ) -> float:
         """Calculate position size using volatility targeting (no Kelly - needs trade history)."""
+        if final_msg.signal != "BUY" or final_msg.risk_level in ("HIGH", "EXTREME"):
+            return 0.0
+
         regime = final_msg.details.get("regime", {})
         trend_regime = regime.get("trend_regime", "ranging")
         vol_regime = regime.get("vol_regime", "mid_vol")
         
         # Base position size: volatility targeting
         extra = context.indicators.get("_extra", {})
-        realized_vol = extra.get("volatility_20", 50) / 100  # Daily vol as decimal
-        
-        # Target 15% annual vol = ~1% daily (15% / sqrt(252))
-        target_daily_vol = 0.15 / (252 ** 0.5)
+        realized_vol = extra.get("volatility_20_annualized", 50) / 100
         
         if realized_vol > 0:
-            vol_scale = min(target_daily_vol / realized_vol, 2.0)
+            vol_scale = min(0.15 / realized_vol, 2.0)
         else:
             vol_scale = 1.0
         
@@ -543,11 +559,7 @@ class Orchestrator:
         max_pos = 0.40  # 40% max per position
         position_size_pct = min(base_size, max_pos)
         
-        # Minimum threshold
-        if position_size_pct < 0.05:
-            position_size_pct = 0.05
-        
-        return round(position_size_pct, 4)
+        return round(max(0.0, position_size_pct), 4)
 
     def _compute_indicators(self, df: pl.DataFrame) -> pl.DataFrame:
         """Compute all indicators using existing strategies."""
@@ -576,7 +588,7 @@ class Orchestrator:
     ) -> AnalysisContext:
         """Build AnalysisContext from loaded data."""
         indicators = self._extract_indicators(df)
-        extra = self._compute_extra(df)
+        extra = self._compute_extra(df, timeframe)
 
         # Price changes
         closes = df["close"].to_numpy()
@@ -584,12 +596,21 @@ class Orchestrator:
         price_change_1w = None
         price_change_1m = None
 
-        if len(closes) > 24:
-            price_change_1d = float((closes[-1] / closes[-25] - 1) * 100)
-        if len(closes) > 168:
-            price_change_1w = float((closes[-1] / closes[-169] - 1) * 100)
-        if len(closes) > 720:
-            price_change_1m = float((closes[-1] / closes[-721] - 1) * 100)
+        timeframe_minutes = self._timeframe_minutes(timeframe)
+        for attr, period_minutes in (
+            ("price_change_1d", 24 * 60),
+            ("price_change_1w", 7 * 24 * 60),
+            ("price_change_1m", 30 * 24 * 60),
+        ):
+            bars_back = max(1, int(np.ceil(period_minutes / timeframe_minutes)))
+            if len(closes) > bars_back:
+                value = float((closes[-1] / closes[-1 - bars_back] - 1) * 100)
+                if attr == "price_change_1d":
+                    price_change_1d = value
+                elif attr == "price_change_1w":
+                    price_change_1w = value
+                else:
+                    price_change_1m = value
 
         # ── Fetch alt-data (funding, OI, CVD) for sentiment ────────────────
         try:
@@ -660,7 +681,7 @@ class Orchestrator:
 
         return ind
 
-    def _compute_extra(self, df: pl.DataFrame) -> dict[str, Any]:
+    def _compute_extra(self, df: pl.DataFrame, timeframe: str = "1h") -> dict[str, Any]:
         """Compute extra contextual indicators."""
         extra = {}
         closes = df["close"].to_numpy()
@@ -675,7 +696,10 @@ class Orchestrator:
         # Volatility
         import numpy as np
         returns_20 = np.diff(closes[-21:]) / closes[-21:-1]
-        extra["volatility_20"] = float(np.std(returns_20) * 100)
+        per_bar_vol = float(np.std(returns_20))
+        extra["volatility_20"] = per_bar_vol * 100
+        bars_per_year = 365.25 * 24 * 60 / self._timeframe_minutes(timeframe)
+        extra["volatility_20_annualized"] = per_bar_vol * np.sqrt(bars_per_year) * 100
 
         # Volume
         if "volume" in df.columns:
@@ -686,6 +710,20 @@ class Orchestrator:
                 extra["volume_ratio_5_20"] = float(avg_5 / avg_20) if avg_20 > 0 else 1.0
 
         return extra
+
+    @staticmethod
+    def _timeframe_minutes(timeframe: str) -> int:
+        tf = timeframe.lower().strip()
+        units = {"m": 1, "h": 60, "d": 1440, "w": 10080}
+        if len(tf) < 2 or tf[-1] not in units:
+            raise ValueError(f"Unsupported timeframe: {timeframe!r}")
+        try:
+            amount = int(tf[:-1])
+        except ValueError as exc:
+            raise ValueError(f"Unsupported timeframe: {timeframe!r}") from exc
+        if amount <= 0:
+            raise ValueError(f"Unsupported timeframe: {timeframe!r}")
+        return amount * units[tf[-1]]
 
 
 # ── Pretty printing ──────────────────────────────────────────────────────

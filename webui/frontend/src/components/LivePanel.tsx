@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { getJob, liveRun, liveStatus, closeAll, type Job } from "../api";
 
 export function LivePanel() {
-  const [live, setLive] = useState(false);
+  const [confirmed, setConfirmed] = useState(false);
+  const [apiKey, setApiKey] = useState(() => window.localStorage.getItem("trading_api_key") ?? "");
   const [jobId, setJobId] = useState<string | null>(null);
   const [job, setJob] = useState<Job | null>(null);
   const [report, setReport] = useState<string | null>(null);
@@ -29,25 +30,48 @@ export function LivePanel() {
   }, [jobId]);
 
   const run = async () => {
+    if (!confirmed) {
+      alert("Hãy xác nhận đây là một chu kỳ Alpaca Paper trước khi chạy.");
+      return;
+    }
     setJob(null);
-    const { job_id } = await liveRun(live);
-    setJobId(job_id);
-    setReport(null);
+    try {
+      const { job_id } = await liveRun();
+      setJobId(job_id);
+      setReport(null);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : String(error));
+    }
   };
 
   const status = async () => {
-    const s = await liveStatus();
-    setReport(s.ok ? (s.report ?? "") : `Lỗi: ${s.error ?? ""}`);
+    try {
+      const s = await liveStatus();
+      setReport(s.ok ? (s.report ?? "") : `Lỗi: ${s.error ?? ""}`);
+    } catch (error) {
+      setReport(error instanceof Error ? error.message : String(error));
+    }
   };
 
   const kill = async () => {
+    if (!window.confirm("Đóng toàn bộ vị thế và hủy lệnh trên tài khoản Alpaca Paper?")) return;
     setClosing(true);
     try {
       const r = await closeAll();
-      alert(r.closed ? "✅ Đã đóng toàn bộ vị thế (kill switch)" : `❌ ${r.error}`);
+      alert(r.closed
+        ? "✅ Đã gửi lệnh đóng và xác minh không còn vị thế Paper"
+        : `❌ ${r.error ?? `Còn lại: ${(r.remaining ?? []).join(", ")}`}`);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : String(error));
     } finally {
       setClosing(false);
     }
+  };
+
+  const saveApiKey = (value: string) => {
+    setApiKey(value);
+    if (value.trim()) window.localStorage.setItem("trading_api_key", value.trim());
+    else window.localStorage.removeItem("trading_api_key");
   };
 
   const out = job?.result as { output?: string; exit_code?: number } | null | undefined;
@@ -55,17 +79,34 @@ export function LivePanel() {
   return (
     <div className="panel">
       <div className="row spread">
-        <h2>🚀 Live Trading</h2>
+        <h2>🧪 Alpaca Paper Trading</h2>
         <button className="danger" onClick={kill} disabled={closing}>
           {closing ? "⏳ Đang đóng…" : "🛑 Kill Switch — đóng tất cả vị thế"}
         </button>
       </div>
       <div className="row" style={{ marginTop: 10 }}>
         <label>
-          <input type="checkbox" checked={live} onChange={(e) => setLive(e.target.checked)} /> Cho phép đặt lệnh (--live)
+          Khóa quản trị
+          <input
+            type="password"
+            value={apiKey}
+            onChange={(e) => saveApiKey(e.target.value)}
+            autoComplete="off"
+            placeholder="WEBUI_API_KEY"
+            style={{ marginLeft: 8 }}
+          />
+        </label>
+      </div>
+      <div className="row" style={{ marginTop: 10 }}>
+        <label>
+          <input
+            type="checkbox"
+            checked={confirmed}
+            onChange={(e) => setConfirmed(e.target.checked)}
+          /> Xác nhận chạy một chu kỳ trên tài khoản Paper
         </label>
         <button onClick={run} disabled={busy}>
-          {busy ? "⏳ Đang chạy…" : "▶ Chạy live cycle"}
+          {busy ? "⏳ Đang chạy…" : "▶ Chạy Paper cycle"}
         </button>
         <button className="ghost" onClick={status}>
           📄 Status report

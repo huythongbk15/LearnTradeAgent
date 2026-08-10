@@ -252,12 +252,13 @@ def test_regime_switching_backtest_runs_on_engine():
     rng = np.random.default_rng(42)
     n = 800
     prices = 100 * np.exp(np.cumsum(rng.normal(0.0006, 0.012, n)))
+    opens = prices * (1 + rng.normal(0, 0.002, n))
     df = pl.DataFrame({
         "timestamp": [datetime.now().replace(microsecond=0)
                       + timedelta(hours=i) for i in range(n)],
-        "open": prices * (1 + rng.normal(0, 0.002, n)),
-        "high": prices * (1 + np.abs(rng.normal(0, 0.004, n))),
-        "low": prices * (1 - np.abs(rng.normal(0, 0.004, n))),
+        "open": opens,
+        "high": np.maximum(opens, prices) * (1 + np.abs(rng.normal(0, 0.004, n))),
+        "low": np.minimum(opens, prices) * (1 - np.abs(rng.normal(0, 0.004, n))),
         "close": prices,
         "volume": rng.uniform(1000, 5000, n),
     })

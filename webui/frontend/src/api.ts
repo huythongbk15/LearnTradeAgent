@@ -6,7 +6,7 @@ export interface SystemInfo {
   symbols: string[];
   timeframes: string[];
   llm: { provider?: string; model?: string };
-  alerts: { telegram?: { enabled?: boolean } };
+  alerts: { telegram_configured: boolean };
 }
 
 export interface Position {
@@ -75,11 +75,23 @@ export interface Job {
 }
 
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
+  const apiKey = window.localStorage.getItem("trading_api_key")?.trim();
+  const headers = new Headers(init?.headers);
+  if (!headers.has("Content-Type")) headers.set("Content-Type", "application/json");
+  if (apiKey) headers.set("X-API-Key", apiKey);
   const res = await fetch(path, {
-    headers: { "Content-Type": "application/json" },
     ...init,
+    headers,
   });
-  if (!res.ok) throw new Error(`${path} → ${res.status}`);
+  if (!res.ok) {
+    let detail = "";
+    try {
+      detail = String((await res.json() as { detail?: string }).detail ?? "");
+    } catch {
+      detail = await res.text().catch(() => "");
+    }
+    throw new Error(`${path} → ${res.status}${detail ? `: ${detail}` : ""}`);
+  }
   return res.json() as Promise<T>;
 }
 
@@ -92,14 +104,14 @@ export const startBacktest = (body: { strategy: string; symbol: string; timefram
   api<{ job_id: string }>("/api/backtest", { method: "POST", body: JSON.stringify(body) });
 export const getJob = (jobId: string) => api<Job>(`/api/backtest/${jobId}`);
 export const closeAll = (reason = "webui_kill_switch") =>
-  api<{ closed: boolean; error?: string }>("/api/positions/close", {
+  api<{ closed: boolean; error?: string; remaining?: string[] }>("/api/positions/close", {
     method: "POST",
-    body: JSON.stringify({ reason }),
+    body: JSON.stringify({ reason, confirm: "CLOSE_ALL_PAPER_POSITIONS" }),
   });
-export const liveRun = (live: boolean) =>
+export const liveRun = () =>
   api<{ job_id: string }>("/api/live/run", {
     method: "POST",
-    body: JSON.stringify({ live }),
+    body: JSON.stringify({ live: false, confirm: "RUN_PAPER_CYCLE" }),
   });
 export const liveStatus = () => api<{ ok: boolean; report?: string; error?: string }>("/api/live/status");
 
@@ -144,7 +156,10 @@ export const systemDaily = () => api<CliResult>("/api/system/daily");
 export const systemHealth = () => api<CliResult>("/api/system/health");
 export const llmCacheStats = () => api<CliResult>("/api/llm/cache-stats");
 export const metaRegimes = () => api<CliResult>("/api/meta/regimes");
-export const executionReset = () => api<CliResult>("/api/execution/reset", { method: "POST" });
+export const executionReset = () => api<CliResult>("/api/execution/reset", {
+  method: "POST",
+  body: JSON.stringify({ confirm: "RESET_LOCAL_PAPER_STATE" }),
+});
 
 // --- So sánh backtest + portfolio weights JSON ---
 export interface BacktestCompareRow {

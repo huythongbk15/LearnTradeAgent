@@ -3,7 +3,18 @@
 # Run: docker run -d --name trading-agent ghcr.io/your-org/trading-agent:latest
 
 # =============================================================================
-# STAGE 1: Builder — Install dependencies, compile wheels
+# STAGE 0: Frontend — deterministic React/Vite production bundle
+# =============================================================================
+FROM node:22-alpine AS frontend
+
+WORKDIR /frontend
+COPY webui/frontend/package.json webui/frontend/package-lock.json ./
+RUN npm ci
+COPY webui/frontend/ ./
+RUN npm run build
+
+# =============================================================================
+# STAGE 1: Builder — Install Python dependencies
 # =============================================================================
 FROM python:3.12-slim AS builder
 
@@ -27,10 +38,11 @@ RUN pip install "poetry==$POETRY_VERSION"
 WORKDIR /app
 
 # Copy only dependency files first (cache layer)
-COPY pyproject.toml poetry.lock ./
+COPY pyproject.toml poetry.lock requirements-web.txt ./
 
 # Install production dependencies only (no dev group)
 RUN poetry install --only=main --no-root
+RUN pip install --no-cache-dir -r requirements-web.txt
 
 # =============================================================================
 # STAGE 2: Runtime — Minimal, non-root, read-only
@@ -62,6 +74,8 @@ COPY --chown=appuser:appgroup src/ ./src/
 COPY --chown=appuser:appgroup config/ ./config/
 COPY --chown=appuser:appgroup scripts/ ./scripts/
 COPY --chown=appuser:appgroup dashboard/ ./dashboard/
+COPY --chown=appuser:appgroup webui/backend/ ./webui/backend/
+COPY --from=frontend --chown=appuser:appgroup /frontend/dist/ ./webui/frontend/dist/
 COPY --chown=appuser:appgroup pyproject.toml ./
 
 # Create data directories with correct permissions
@@ -80,7 +94,7 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONPATH="/app/src:$PYTHONPATH" \
     PATH="/home/appuser/.local/bin:$PATH" \
-    TRADING_CONFIG_PATH=/app/config/credentials.yaml
+    TRADING_CONFIG_PATH=/app/config/config.yaml
 
 # Default command (can be overridden in compose)
 ENTRYPOINT ["python", "-m", "trading_agent.cli"]
@@ -91,16 +105,15 @@ CMD ["--help"]
 # =============================================================================
 FROM builder AS dev
 
-# Copy all source FIRST so poetry can install the root package
-COPY --chown=appuser:appgroup . .
-
-# Create appuser for dev stage too (builder doesn't have it)
+# Create appuser before COPY --chown.
 ARG UID=1000
 ARG GID=1000
 RUN groupadd -g $GID appgroup 2>/dev/null || true && \
     useradd -u $UID -g $GID -m -s /bin/bash appuser 2>/dev/null || true && \
     mkdir -p /app/data/raw /app/data/execution /app/logs && \
     chown -R appuser:appgroup /app
+
+COPY --chown=appuser:appgroup . .
 
 # Install dev dependencies (+ re-links root package)
 RUN poetry install --with dev

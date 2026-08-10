@@ -12,7 +12,7 @@ import hashlib
 import json
 import logging
 import os
-import pickle
+import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -27,8 +27,12 @@ logger = logging.getLogger(__name__)
 
 # ── LLM Response Cache ────────────────────────────────────────────────────
 
-_CACHE_DIR = Path.home() / ".cache" / "trading_agent" / "llm"
-_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+_CACHE_DIR = Path(
+    os.getenv(
+        "TRADING_AGENT_LLM_CACHE_DIR",
+        str(Path(os.getenv("XDG_CACHE_HOME", Path.home() / ".cache")) / "trading_agent" / "llm"),
+    )
+)
 _CACHE_TTL_SECONDS = 3600  # 1 hour default
 _MAX_CACHE_SIZE_MB = 100
 
@@ -50,7 +54,7 @@ def _cache_key(messages: list[dict[str, str]], **kwargs) -> str:
 
 
 def _get_cache_path(key: str) -> Path:
-    return _CACHE_DIR / f"{key}.pkl"
+    return _CACHE_DIR / f"{key}.json"
 
 
 def _cache_get(key: str) -> Any | None:
@@ -60,8 +64,8 @@ def _cache_get(key: str) -> Any | None:
         return None
 
     try:
-        with open(path, "rb") as f:
-            cached = pickle.load(f)
+        with path.open(encoding="utf-8") as f:
+            cached = json.load(f)
         if time.time() - cached["timestamp"] < _CACHE_TTL_SECONDS:
             logger.debug(f"LLM cache HIT: {key[:8]}...")
             return cached["data"]
@@ -73,20 +77,38 @@ def _cache_get(key: str) -> Any | None:
 
 
 def _cache_set(key: str, data: Any) -> None:
-    """Cache response with timestamp."""
+    """Cache a JSON response with an atomic replace."""
     path = _get_cache_path(key)
+    tmp_path: Path | None = None
     try:
-        with open(path, "wb") as f:
-            pickle.dump({"timestamp": time.time(), "data": data}, f)
+        _CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=_CACHE_DIR,
+            prefix=f".{key}.",
+            suffix=".tmp",
+            delete=False,
+        ) as f:
+            json.dump({"timestamp": time.time(), "data": data}, f)
+            f.flush()
+            os.fsync(f.fileno())
+            tmp_path = Path(f.name)
+        os.replace(tmp_path, path)
         logger.debug(f"LLM cache SET: {key[:8]}...")
     except Exception as e:
         logger.warning(f"LLM cache write failed: {e}")
+    finally:
+        if tmp_path is not None and tmp_path.exists():
+            tmp_path.unlink(missing_ok=True)
 
 
 def _cache_prune() -> None:
     """Remove expired/old cache entries if over size limit."""
     try:
-        files = list(_CACHE_DIR.glob("*.pkl"))
+        if not _CACHE_DIR.exists():
+            return
+        files = list(_CACHE_DIR.glob("*.json"))
         total_size = sum(f.stat().st_size for f in files)
         if total_size > _MAX_CACHE_SIZE_MB * 1024 * 1024:
             # Remove oldest first

@@ -319,7 +319,12 @@ export function SystemPanel() {
         title="Execution — Reset Paper Exchange"
         icon="♻️"
         description="Đặt lại trạng thái paper exchange nội bộ về ban đầu."
-        run={executionReset}
+        run={() => {
+          if (!window.confirm("Xóa toàn bộ trạng thái Paper Exchange nội bộ?")) {
+            return Promise.reject(new Error("Đã hủy thao tác reset"));
+          }
+          return executionReset();
+        }}
       />
     </>
   );

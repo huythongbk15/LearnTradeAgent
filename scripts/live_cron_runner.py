@@ -4,7 +4,7 @@ Cron runner: chạy live trading Enhanced MA + notify Telegram (chỉ khi có l�
 
 Cách dùng:
     python scripts/live_cron_runner.py            # dry-run + notify
-    python scripts/live_cron_runner.py --execute  # thật + notify
+    python scripts/live_cron_runner.py --execute  # Alpaca Paper + notify
 
 Telegram config: env TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID (hoặc .env)
 """
@@ -46,13 +46,21 @@ def send_telegram(text: str) -> bool:
 
 
 def main():
+    execute = "--execute" in sys.argv
+    if execute and os.getenv("TRADING_EXECUTION_ENABLED", "false").lower() != "true":
+        print("REFUSED: TRADING_EXECUTION_ENABLED is not true", file=sys.stderr)
+        sys.exit(3)
+    if execute and os.getenv("TRADING_MODE", "paper").lower() != "paper":
+        print("REFUSED: only TRADING_MODE=paper is supported", file=sys.stderr)
+        sys.exit(3)
+
     # 1. Chạy live script, capture output
     cmd = [sys.executable, "scripts/live_enhanced_ma.py"]
-    if "--execute" in sys.argv:
+    if execute:
         cmd.append("--execute")
 
     ts = datetime.now().strftime("%Y-%m-%d %H:%M")
-    print(f"=== {ts} | live_enhanced_ma {'EXECUTE' if '--execute' in sys.argv else 'DRY-RUN'} ===")
+    print(f"=== {ts} | live_enhanced_ma {'PAPER EXECUTE' if execute else 'DRY-RUN'} ===")
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
     out = result.stdout + result.stderr
 

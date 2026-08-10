@@ -4,6 +4,7 @@ Configuration loader — reads config.yaml, validates, and exposes typed setting
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -21,10 +22,17 @@ _VALID_STORAGE = {"parquet", "csv", "duckdb"}
 _VALID_LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
 
 
-def _check_type(value: Any, name: str, expected: type) -> None:
-    if not isinstance(value, expected):
+def _check_type(
+    value: Any,
+    name: str,
+    expected: type | tuple[type, ...],
+) -> None:
+    expected_types = expected if isinstance(expected, tuple) else (expected,)
+    is_bool_disguised_as_number = isinstance(value, bool) and bool not in expected_types
+    if not isinstance(value, expected) or is_bool_disguised_as_number:
+        expected_name = " or ".join(item.__name__ for item in expected_types)
         raise ConfigError(
-            f"'{name}' must be {expected.__name__}, got {type(value).__name__}"
+            f"'{name}' must be {expected_name}, got {type(value).__name__}"
         )
 
 
@@ -58,8 +66,12 @@ def _validate(raw: dict) -> None:
             _check_in(tf, "data.timeframes[]", _VALID_TIMEFRAMES)
     if "max_retries" in data:
         _check_type(data["max_retries"], "data.max_retries", int)
+        if data["max_retries"] < 1:
+            raise ConfigError("'data.max_retries' must be at least 1")
     if "batch_size" in data:
         _check_type(data["batch_size"], "data.batch_size", int)
+        if data["batch_size"] < 1:
+            raise ConfigError("'data.batch_size' must be at least 1")
 
     # Symbols
     symbols = raw.get("symbols", {})
@@ -74,6 +86,13 @@ def _validate(raw: dict) -> None:
     _check_type(bt, "backtest", dict)
     if "initial_capital" in bt:
         _check_type(bt["initial_capital"], "backtest.initial_capital", (int, float))
+        if bt["initial_capital"] <= 0:
+            raise ConfigError("'backtest.initial_capital' must be positive")
+    for field in ("commission", "slippage"):
+        if field in bt:
+            _check_type(bt[field], f"backtest.{field}", (int, float))
+            if not 0 <= bt[field] < 1:
+                raise ConfigError(f"'backtest.{field}' must be in [0, 1)")
 
     # Logging
     log = raw.get("logging", {})
@@ -97,7 +116,8 @@ class Config:
     after construction (convention — mutating is allowed but not advised)."""
 
     def __init__(self, path: str | Path | None = None) -> None:
-        path = Path(path) if path else _DEFAULT_CONFIG_PATH
+        configured_path = path or os.getenv("TRADING_CONFIG_PATH")
+        path = Path(configured_path) if configured_path else _DEFAULT_CONFIG_PATH
         if not path.exists():
             raise ConfigError(f"Config file not found: {path}")
 
@@ -193,10 +213,5 @@ class Config:
         return _DEFAULT_CONFIG_PATH
 
 
-# Singleton — load once, use everywhere
-try:
-    config = Config()
-except ConfigError as e:
-    import sys
-    print(f"[red]Config error: {e}[/red]", file=sys.stderr)
-    sys.exit(1)
+# Singleton — fail with ConfigError instead of terminating the importing process.
+config = Config()

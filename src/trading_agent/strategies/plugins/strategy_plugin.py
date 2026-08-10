@@ -17,6 +17,7 @@ import importlib.metadata
 import inspect
 import json
 import logging
+import os
 import sys
 import tempfile
 import uuid
@@ -372,8 +373,15 @@ class StrategyRegistry:
     """
 
     def __init__(self, registry_path: Path | None = None):
-        self.registry_path = registry_path or Path.home() / '.trading' / 'strategies'
-        self.registry_path.mkdir(parents=True, exist_ok=True)
+        default_data_home = Path(
+            os.getenv("XDG_DATA_HOME", Path.home() / ".local" / "share")
+        )
+        self.registry_path = registry_path or Path(
+            os.getenv(
+                "TRADING_AGENT_STRATEGY_DIR",
+                default_data_home / "trading_agent" / "strategies",
+            )
+        )
         self._strategies: dict[str, type[BaseStrategy]] = {}
         self._metadata: dict[str, StrategyMetadata] = {}
         self._instances: dict[str, BaseStrategy] = {}
@@ -396,7 +404,12 @@ class StrategyRegistry:
                 logger.warning(f"Failed to load {meta_file}: {e}")
         return count
 
-    def register(self, strategy_class: type[BaseStrategy], validate: bool = True) -> StrategyMetadata:
+    def register(
+        self,
+        strategy_class: type[BaseStrategy],
+        validate: bool = True,
+        persist: bool = True,
+    ) -> StrategyMetadata:
         """Register a strategy class"""
         meta = strategy_class.get_metadata()
         key = f"{meta.name}@{meta.version}"
@@ -422,7 +435,8 @@ class StrategyRegistry:
             except Exception:
                 pass
 
-        self._save_metadata(meta)
+        if persist:
+            self._save_metadata(meta)
         logger.info(f"Registered strategy: {key}")
         return meta
 
@@ -466,6 +480,7 @@ class StrategyRegistry:
 
     def _save_metadata(self, meta: StrategyMetadata) -> None:
         """Save metadata to disk"""
+        self.registry_path.mkdir(parents=True, exist_ok=True)
         meta_file = self.registry_path / f"{meta.name}@{meta.version}.json"
         with open(meta_file, 'w') as f:
             json.dump(meta.to_dict(), f, indent=2)

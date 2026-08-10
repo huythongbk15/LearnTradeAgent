@@ -31,12 +31,16 @@ from trading_agent.strategies.base import Strategy
 class Trade:
     """Một giao dịch hoàn chỉnh (entry → exit)."""
     entry_date: Any
-    exit_date: Any
+    exit_date: Any | None
     entry_price: float
     exit_price: float
     direction: int  # 1 = long
     pnl_pct: float
     bars_held: int
+    pnl_abs: float = 0.0
+    fees: float = 0.0
+    exit_reason: str = "signal"
+    is_open: bool = False
 
 
 @dataclass
@@ -117,6 +121,17 @@ class BacktestEngine:
         # Timeframe for correct annualization
         timeframe: str = "1h",
     ) -> None:
+        if initial_capital <= 0:
+            raise ValueError("initial_capital must be positive")
+        if not 0 <= commission < 1:
+            raise ValueError("commission must be in [0, 1)")
+        if not 0 <= slippage < 1:
+            raise ValueError("slippage must be in [0, 1)")
+        if spread_bps < 0 or spread_bps >= 20_000:
+            raise ValueError("spread_bps must be in [0, 20000)")
+        if not long_only:
+            raise NotImplementedError("BacktestEngine currently supports long_only=True")
+
         self.strategy = strategy
         self.initial_capital = initial_capital
         self.commission = commission
@@ -166,6 +181,10 @@ class BacktestEngine:
         symbol, timeframe : str, optional
             Metadata cho kết quả.
         """
+        required = {"timestamp", "open", "high", "low", "close", "volume"}
+        missing = required - set(df.columns)
+        if missing:
+            raise ValueError(f"DataFrame missing OHLCV columns: {sorted(missing)}")
         df = df.sort("timestamp")
 
         # 1. Compute indicators
@@ -211,168 +230,200 @@ class BacktestEngine:
         - SL/TP/trailing evaluated intrabar using high/low
         """
         n = len(df)
+        float_columns = {
+            "position": np.zeros(n, dtype=np.float64),
+            "net_return": np.zeros(n, dtype=np.float64),
+            "entry_price": np.zeros(n, dtype=np.float64),
+            "stop_loss": np.zeros(n, dtype=np.float64),
+            "take_profit": np.zeros(n, dtype=np.float64),
+            "cash": np.zeros(n, dtype=np.float64),
+            "ledger_equity": np.zeros(n, dtype=np.float64),
+            "entry_fill": np.zeros(n, dtype=np.float64),
+            "exit_fill": np.zeros(n, dtype=np.float64),
+            "fees": np.zeros(n, dtype=np.float64),
+            "realized_pnl": np.zeros(n, dtype=np.float64),
+        }
         if n == 0:
             return df.with_columns([
-                pl.Series("position", []),
-                pl.Series("net_return", []),
+                pl.Series(name, values, dtype=pl.Float64)
+                for name, values in float_columns.items()
             ])
 
-        positions = np.zeros(n, dtype=np.float64)
-        net_returns = np.zeros(n, dtype=np.float64)
-        entry_prices = np.zeros(n, dtype=np.float64)  # Track entry price per bar
-        stop_losses = np.zeros(n, dtype=np.float64)
-        take_profits = np.zeros(n, dtype=np.float64)
-        
-        open_prices = df["open"].to_numpy()
-        high_prices = df["high"].to_numpy()
-        low_prices = df["low"].to_numpy()
-        close_prices = df["close"].to_numpy()
+        open_prices = df["open"].to_numpy().astype(np.float64)
+        high_prices = df["high"].to_numpy().astype(np.float64)
+        low_prices = df["low"].to_numpy().astype(np.float64)
+        close_prices = df["close"].to_numpy().astype(np.float64)
         signals = df["signal"].to_numpy()
+        timestamps = df["timestamp"].to_numpy()
         atr_values = df["atr"].to_numpy() if "atr" in df.columns else None
-        
-        # Track equity for position sizing
-        equity = self.initial_capital
+
+        if (
+            np.any(~np.isfinite(open_prices))
+            or np.any(~np.isfinite(high_prices))
+            or np.any(~np.isfinite(low_prices))
+            or np.any(~np.isfinite(close_prices))
+            or np.any(open_prices <= 0)
+            or np.any(high_prices <= 0)
+            or np.any(low_prices <= 0)
+            or np.any(close_prices <= 0)
+        ):
+            raise ValueError("OHLC prices must be finite and positive")
+        if np.any(high_prices < np.maximum(open_prices, close_prices)):
+            raise ValueError("Invalid OHLC: high is below open/close")
+        if np.any(low_prices > np.minimum(open_prices, close_prices)):
+            raise ValueError("Invalid OHLC: low is above open/close")
+
         position = 0.0
+        cash = float(self.initial_capital)
         entry_price = 0.0
+        entry_fee = 0.0
+        entry_idx = -1
         current_sl = 0.0
         current_tp = 0.0
         trailing_high = 0.0
-        
-        # Cost per trade (round-trip = entry + exit)
-        # Entry: buy at ask = mid * (1 + spread/2 + slippage)
-        # Exit: sell at bid = mid * (1 - spread/2 - slippage)
-        spread = self.spread_bps / 10000.0
-        entry_cost_factor = 1 + spread/2 + self.slippage + self.commission
-        exit_cost_factor = 1 - spread/2 - self.slippage - self.commission
-        # Net cost per round trip ≈ 2*(commission + slippage) + spread
-        
+        previous_equity = float(self.initial_capital)
+        spread_half = self.spread_bps / 20_000.0
+        buy_factor = 1.0 + spread_half + self.slippage
+        sell_factor = 1.0 - spread_half - self.slippage
+        self._ledger_trades: list[Trade] = []
+
+        def close_position(i: int, reference_price: float, reason: str) -> None:
+            nonlocal cash, position, entry_price, entry_fee, entry_idx
+            nonlocal current_sl, current_tp, trailing_high
+
+            exit_price = reference_price * sell_factor
+            exit_notional = position * exit_price
+            exit_fee = exit_notional * self.commission
+            cash += exit_notional - exit_fee
+            net_pnl = (exit_price - entry_price) * position - entry_fee - exit_fee
+            entry_notional = entry_price * position
+
+            float_columns["exit_fill"][i] = exit_price
+            float_columns["fees"][i] += exit_fee
+            float_columns["realized_pnl"][i] = net_pnl
+            self.position_sizer.update_trade(
+                pnl=net_pnl,
+                entry_price=entry_price,
+                exit_price=exit_price,
+                size=position,
+            )
+            self._ledger_trades.append(Trade(
+                entry_date=timestamps[entry_idx],
+                exit_date=timestamps[i],
+                entry_price=float(entry_price),
+                exit_price=float(exit_price),
+                direction=1,
+                pnl_pct=float(net_pnl / entry_notional * 100) if entry_notional else 0.0,
+                bars_held=max(i - entry_idx, 0),
+                pnl_abs=float(net_pnl),
+                fees=float(entry_fee + exit_fee),
+                exit_reason=reason,
+            ))
+
+            position = 0.0
+            entry_price = 0.0
+            entry_fee = 0.0
+            entry_idx = -1
+            current_sl = 0.0
+            current_tp = 0.0
+            trailing_high = 0.0
+
         for i in range(n):
-            # --- 1. Check SL/TP/trailing FIRST (using previous bar's position) ---
-            if position > 0 and i > 0:
-                # Check stop loss (using LOW of current bar)
-                if current_sl > 0 and low_prices[i] <= current_sl:
-                    # Stop loss hit - exit at stop price (or open if gapped)
-                    exit_price = max(current_sl, open_prices[i])
-                    exit_price *= exit_cost_factor
-                    pnl = (exit_price - entry_price) * position
-                    net_returns[i] = pnl / equity
-                    position = 0.0
-                    entry_price = 0.0
-                    current_sl = 0.0
-                    current_tp = 0.0
-                    trailing_high = 0.0
-                
-                # Check take profit (using HIGH of current bar)
-                elif current_tp > 0 and high_prices[i] >= current_tp:
-                    exit_price = min(current_tp, open_prices[i])
-                    exit_price *= exit_cost_factor
-                    pnl = (exit_price - entry_price) * position
-                    net_returns[i] = pnl / equity
-                    position = 0.0
-                    entry_price = 0.0
-                    current_sl = 0.0
-                    current_tp = 0.0
-                    trailing_high = 0.0
-                
-                # Update trailing stop (using HIGH of current bar)
-                elif self.trailing_atr_mult > 0 and atr_values is not None:
-                    atr = atr_values[i-1] if i > 0 else atr_values[i]  # Use previous bar's ATR
-                    if atr and atr > 0 and high_prices[i] > trailing_high:
-                        trailing_high = high_prices[i]
-                        new_sl = trailing_high - (atr * self.trailing_atr_mult)
-                        if new_sl > current_sl:
-                            current_sl = new_sl
-            
-            # --- 2. Record position for THIS bar (from signal at i-1) ---
-            positions[i] = position
-            entry_prices[i] = entry_price
-            stop_losses[i] = current_sl
-            take_profits[i] = current_tp
-            
-            # --- 3. Compute holding return for THIS bar (if in position from previous bar) ---
-            if position > 0 and i > 0:
-                # Position held from previous close to current close
-                price_return = close_prices[i] / close_prices[i-1] - 1
-                position_value = position * close_prices[i-1]
-                net_returns[i] = (position_value / equity) * price_return
-            
-            # --- 4. Process NEW signals from THIS bar (takes effect NEXT bar) ---
-            signal = signals[i]
-            if signal == 1 and position == 0:
-                # Entry signal at bar i → enter at open[i+1] (handled next iteration)
-                # But we set up SL/TP now using current bar's ATR
-                atr = atr_values[i] if atr_values is not None else None
+            # A signal is only actionable at the next bar's open.
+            previous_signal = signals[i - 1] if i > 0 else 0
+
+            if previous_signal == -1 and position > 0:
+                close_position(i, open_prices[i], "signal")
+            elif previous_signal == 1 and position == 0:
+                signal_atr = atr_values[i - 1] if atr_values is not None else None
+                signal_atr = (
+                    float(signal_atr)
+                    if signal_atr is not None and np.isfinite(signal_atr) and signal_atr > 0
+                    else None
+                )
+                buy_price = open_prices[i] * buy_factor
                 size = self.position_sizer.calculate_position_size(
-                    equity=equity,
-                    price=close_prices[i],  # Use close for sizing calculation
-                    atr=atr,
+                    equity=previous_equity,
+                    price=buy_price,
+                    atr=signal_atr,
                     current_portfolio_value=0,
                     current_positions=0,
                 )
-                # Pre-compute entry for next bar
-                if i + 1 < n:
-                    # Entry at next bar's open
-                    entry_price = open_prices[i+1] * entry_cost_factor
-                    position = size
-                    
-                    # Set initial SL/TP using current bar's ATR (known at signal time)
-                    if atr and atr > 0:
+                # Commission is separate from the slippage-adjusted fill price.
+                max_affordable = cash / (buy_price * (1.0 + self.commission))
+                position = max(0.0, min(float(size), max_affordable))
+                if position > 0:
+                    entry_price = buy_price
+                    entry_idx = i
+                    entry_notional = position * entry_price
+                    entry_fee = entry_notional * self.commission
+                    cash -= entry_notional + entry_fee
+                    float_columns["entry_fill"][i] = entry_price
+                    float_columns["fees"][i] += entry_fee
+                    if signal_atr:
                         if self.atr_sl_mult > 0:
-                            current_sl = entry_price - (atr * self.atr_sl_mult)
+                            current_sl = entry_price - signal_atr * self.atr_sl_mult
                         if self.atr_tp_mult > 0:
-                            current_tp = entry_price + (atr * self.atr_tp_mult)
+                            current_tp = entry_price + signal_atr * self.atr_tp_mult
                         if self.trailing_atr_mult > 0:
                             trailing_high = entry_price
-                    # Note: actual fill and equity update happens at next bar (i+1)
-            
-            elif signal == -1 and position > 0:
-                # Exit signal at bar i → exit at open[i+1] (handled next iteration)
-                # We'll process the exit at the start of next iteration
-                pass
-            
-            # --- 5. Handle exit signal from PREVIOUS bar (execute at this bar's open) ---
-            if i > 0 and signals[i-1] == -1 and position > 0:
-                # Exit at current bar's open
-                exit_price = open_prices[i] * exit_cost_factor
-                pnl = (exit_price - entry_price) * position
-                self.position_sizer.update_trade(
-                    pnl=pnl,
-                    entry_price=entry_price,
-                    exit_price=exit_price,
-                    size=position
-                )
-                net_returns[i] = pnl / equity
-                position = 0.0
-                entry_price = 0.0
-                current_sl = 0.0
-                current_tp = 0.0
-                trailing_high = 0.0
-            
-            # --- 6. Handle entry signal from PREVIOUS bar (execute at this bar's open) ---
-            if i > 0 and signals[i-1] == 1 and position > 0 and entry_price > 0:
-                # Entry already set up at previous bar, now deduct entry cost from equity
-                entry_cost = position * entry_price * (self.commission + self.slippage + spread/2)
-                net_returns[i] -= entry_cost / equity
-            
-            # Update equity for next bar's position sizing
-            equity *= (1 + net_returns[i])
-        
-        df = df.with_columns([
-            pl.Series("position", positions),
-            pl.Series("net_return", net_returns),
-            pl.Series("entry_price", entry_prices),
-            pl.Series("stop_loss", stop_losses),
-            pl.Series("take_profit", take_profits),
+
+            # Intrabar protective orders. If both SL and TP are touched, use the
+            # conservative stop-first assumption because tick order is unknown.
+            if position > 0:
+                if current_sl > 0 and low_prices[i] <= current_sl:
+                    stop_reference = open_prices[i] if open_prices[i] <= current_sl else current_sl
+                    close_position(i, stop_reference, "stop_loss")
+                elif current_tp > 0 and high_prices[i] >= current_tp:
+                    tp_reference = open_prices[i] if open_prices[i] >= current_tp else current_tp
+                    close_position(i, tp_reference, "take_profit")
+                elif self.trailing_atr_mult > 0 and atr_values is not None:
+                    known_atr = atr_values[i - 1] if i > 0 else None
+                    if known_atr is not None and np.isfinite(known_atr) and known_atr > 0:
+                        trailing_high = max(trailing_high, high_prices[i])
+                        current_sl = max(
+                            current_sl,
+                            trailing_high - float(known_atr) * self.trailing_atr_mult,
+                        )
+
+            end_equity = cash + position * close_prices[i]
+            float_columns["position"][i] = position
+            float_columns["entry_price"][i] = entry_price
+            float_columns["stop_loss"][i] = current_sl
+            float_columns["take_profit"][i] = current_tp
+            float_columns["cash"][i] = cash
+            float_columns["ledger_equity"][i] = end_equity
+            float_columns["net_return"][i] = (
+                end_equity / previous_equity - 1.0 if previous_equity else 0.0
+            )
+            previous_equity = end_equity
+
+        if position > 0:
+            mark_price = close_prices[-1]
+            unrealized_pnl = (mark_price - entry_price) * position - entry_fee
+            entry_notional = entry_price * position
+            self._ledger_trades.append(Trade(
+                entry_date=timestamps[entry_idx],
+                exit_date=None,
+                entry_price=float(entry_price),
+                exit_price=float(mark_price),
+                direction=1,
+                pnl_pct=float(unrealized_pnl / entry_notional * 100) if entry_notional else 0.0,
+                bars_held=max(n - 1 - entry_idx, 0),
+                pnl_abs=float(unrealized_pnl),
+                fees=float(entry_fee),
+                exit_reason="open",
+                is_open=True,
+            ))
+
+        return df.with_columns([
+            pl.Series(name, values, dtype=pl.Float64)
+            for name, values in float_columns.items()
         ])
-        return df
 
     def _build_equity_curve(self, df: pl.DataFrame) -> pl.DataFrame:
-        """Từ net return, build equity curve với compounding."""
-        equity = (
-            (1 + pl.col("net_return"))
-            .cum_prod()
-            .alias("equity") * self.initial_capital
-        )
+        """Build equity directly from the reconciled cash/position ledger."""
+        equity = pl.col("ledger_equity").alias("equity")
 
         # Peak equity (running max)
         peak = equity.cum_max().alias("peak")
@@ -387,45 +438,8 @@ class BacktestEngine:
         ])
 
     def _extract_trades(self, df: pl.DataFrame) -> list[Trade]:
-        """Duyệt qua position changes để extract danh sách trades."""
-        trades: list[Trade] = []
-        pos_col = df["position"].to_numpy()
-        entry_price_col = df["entry_price"].to_numpy() if "entry_price" in df.columns else None
-        open_col = df["open"].to_numpy()
-        close_col = df["close"].to_numpy()
-        ts_col = df["timestamp"].to_numpy()
-
-        in_position = False
-        entry_idx = -1
-        entry_price = 0.0
-        position_size = 0.0
-
-        for i in range(len(pos_col)):
-            pos = pos_col[i]
-            if not in_position and pos > 0:
-                # Enter long
-                in_position = True
-                entry_idx = i
-                # Use actual entry price (from entry_price col or open)
-                entry_price = entry_price_col[i] if entry_price_col is not None else open_col[i]
-                position_size = pos
-            elif in_position and pos == 0:
-                # Exit
-                exit_price = open_col[i]  # Exit at open (next bar after signal)
-                pnl_pct = (exit_price / entry_price - 1) * 100
-                trades.append(Trade(
-                    entry_date=ts_col[entry_idx],
-                    exit_date=ts_col[i],
-                    entry_price=float(entry_price),
-                    exit_price=float(exit_price),
-                    direction=1,
-                    pnl_pct=float(pnl_pct),
-                    bars_held=i - entry_idx,
-                ))
-                in_position = False
-                position_size = 0.0
-
-        return trades
+        """Return trades recorded by the reconciled execution ledger."""
+        return list(getattr(self, "_ledger_trades", []))
 
     # ── Metrics ────────────────────────────────────────────────────────
 
@@ -478,18 +492,19 @@ class BacktestEngine:
         result.max_drawdown_pct = float(df["drawdown"].min() * 100)
 
         # Trade stats
-        result.total_trades = len(trades)
-        if trades:
-            winning = [t for t in trades if t.pnl_pct > 0]
-            result.win_rate = len(winning) / len(trades)
+        closed_trades = [trade for trade in trades if not trade.is_open]
+        result.total_trades = len(closed_trades)
+        if closed_trades:
+            winning = [t for t in closed_trades if t.pnl_abs > 0]
+            result.win_rate = len(winning) / len(closed_trades)
 
-            gross_profit = sum(t.pnl_pct for t in winning)
-            gross_loss = abs(sum(t.pnl_pct for t in trades if t.pnl_pct <= 0))
+            gross_profit = sum(t.pnl_abs for t in winning)
+            gross_loss = abs(sum(t.pnl_abs for t in closed_trades if t.pnl_abs <= 0))
             result.profit_factor = (
                 gross_profit / max(gross_loss, 0.001)
             )
             result.avg_hold_bars = float(
-                sum(t.bars_held for t in trades) / len(trades)
+                sum(t.bars_held for t in closed_trades) / len(closed_trades)
             )
 
         # Calmar = annualized return / |max dd|
@@ -508,8 +523,7 @@ class BacktestEngine:
             return int(tf[:-1]) * 24 * 60
         elif tf.endswith('w'):
             return int(tf[:-1]) * 7 * 24 * 60
-        else:
-            return 60  # default 1h
+        raise ValueError(f"Unsupported timeframe: {timeframe!r}")
 
 
 # ── High-level helper ─────────────────────────────────────────────────────

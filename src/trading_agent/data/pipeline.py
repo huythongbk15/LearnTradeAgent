@@ -120,12 +120,12 @@ class CCXTSource(DataSource):
         klass = getattr(ccxt, self.exchange_id)
         return klass({"enableRateLimit": True})
 
-    async def _fetch(self, symbol: Symbol, timeframe: str, since_ms: int, limit: int) -> list[Candle]:
+    async def _fetch(self, symbol: Symbol, timeframe: str, since_ms: int | None, limit: int) -> list[Candle]:
         return await asyncio.to_thread(
             self._fetch_sync, symbol, timeframe, since_ms, limit
         )
 
-    def _fetch_sync(self, symbol: Symbol, timeframe: str, since_ms: int, limit: int) -> list[Candle]:
+    def _fetch_sync(self, symbol: Symbol, timeframe: str, since_ms: int | None, limit: int) -> list[Candle]:
         ex = self._get_exchange()
         ccxt_symbol = symbol.ccxt_symbol
         raw = ex.fetch_ohlcv(ccxt_symbol, timeframe=timeframe, since=since_ms, limit=limit)
@@ -145,10 +145,27 @@ class CCXTSource(DataSource):
             if last_ts <= cursor:
                 break
             cursor = int(last_ts) + 1
-        return [c for c in out if c.timestamp.timestamp() * 1000 <= end_ms]
+        return [c for c in out if c.timestamp.timestamp() * 1000 < end_ms]
 
     async def fetch_recent(self, symbol: Symbol, timeframe: str, limit: int = 200) -> list[Candle]:
-        return await self._fetch(symbol, timeframe, 0, limit)
+        candles = await self._fetch(symbol, timeframe, None, limit)
+        now = datetime.now(timezone.utc).timestamp()
+        duration = self._timeframe_seconds(timeframe)
+        return [c for c in candles if c.timestamp.timestamp() + duration <= now][-limit:]
+
+    @staticmethod
+    def _timeframe_seconds(timeframe: str) -> int:
+        units = {"m": 60, "h": 3600, "d": 86400, "w": 604800}
+        tf = timeframe.lower().strip()
+        if len(tf) < 2 or tf[-1] not in units:
+            raise ValueError(f"Unsupported timeframe: {timeframe!r}")
+        try:
+            amount = int(tf[:-1])
+        except ValueError as exc:
+            raise ValueError(f"Unsupported timeframe: {timeframe!r}") from exc
+        if amount <= 0:
+            raise ValueError(f"Unsupported timeframe: {timeframe!r}")
+        return amount * units[tf[-1]]
 
 
 class AlpacaSource(DataSource):
@@ -243,9 +260,10 @@ class MockSource(DataSource):
         c = Decimal(str(round(o_f + delta, 8)))
         if c <= 0:
             c = Decimal("0.00000001")
-        scale = Decimal(str(round(1 + self.volatility * 0.3, 8)))
-        h = max(o, c) * scale
-        low = min(o, c) * scale
+        upper_scale = Decimal(str(round(1 + self.volatility * 0.3, 8)))
+        lower_scale = Decimal(str(round(max(0.00000001, 1 - self.volatility * 0.3), 8)))
+        h = max(o, c) * upper_scale
+        low = min(o, c) * lower_scale
         self.price = c
         return Candle(
             symbol=symbol, timestamp=ts, timeframe=timeframe,

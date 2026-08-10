@@ -5,11 +5,12 @@ Command-line interface for the Trading Agent System.
 from __future__ import annotations
 
 import math
+import json
 import os
-import pickle
 import subprocess
 import time
 from pathlib import Path
+from typing import Any
 
 import click
 from rich.console import Console
@@ -984,7 +985,7 @@ def execution_run(symbol: str, timeframe: str, capital: float | None,
     if signal_str == "HOLD":
         console.print("[yellow]Signal: HOLD — no trade[/yellow]")
         # Still update prices for P&L tracking
-        engine.update_from_dataframe(symbol, orchestrator._last_df)
+        engine.update_from_dataframe(symbol, orchestrator._last_df, timeframe)
         return
 
     # Confirm if requested
@@ -995,7 +996,12 @@ def execution_run(symbol: str, timeframe: str, capital: float | None,
             return
 
     # 4. Place order
-    engine.exchange._last_price_cache[symbol] = report.current_price
+    engine.update_market_price(
+        symbol,
+        report.current_price,
+        report.data_timestamp,
+        timeframe,
+    )
     orders = engine.execute_signal(decision)
 
     if orders:
@@ -1040,8 +1046,14 @@ def execution_close(symbol: str | None, close_all: bool, yes: bool):
     if close_all or symbol is None:
         if not yes and not Confirm.ask("⚠️  Close ALL positions?"):
             return
-        engine.close_all(reason="manual_kill")
-        console.print("[red]🔴 All positions closed[/red]")
+        result = engine.close_all(reason="manual_kill")
+        if result["remaining"]:
+            console.print(
+                f"[bold red]Close-all incomplete; remaining: "
+                f"{', '.join(result['remaining'])} (fresh prices required)[/bold red]"
+            )
+        else:
+            console.print("[red]🔴 All positions closed[/red]")
     else:
         pos = engine.exchange.get_position(symbol)
         if not pos or not pos.is_active:
@@ -1339,7 +1351,7 @@ def llm_cache_stats():
     """Show LLM cache statistics."""
     from trading_agent.agents.llm import _CACHE_DIR, _CACHE_TTL_SECONDS
 
-    cache_files = list(_CACHE_DIR.glob("*.pkl"))
+    cache_files = list(_CACHE_DIR.glob("*.json")) if _CACHE_DIR.exists() else []
     total_size = sum(f.stat().st_size for f in cache_files)
     now = time.time()
 
@@ -1347,8 +1359,8 @@ def llm_cache_stats():
     expired = 0
     for f in cache_files:
         try:
-            with open(f, "rb") as fp:
-                data = pickle.load(fp)
+            with f.open(encoding="utf-8") as fp:
+                data = json.load(fp)
             cached_time = data.get("timestamp", 0)
             if now - cached_time < _CACHE_TTL_SECONDS:
                 valid += 1
@@ -1374,12 +1386,12 @@ def llm_cache_clear(clear_all: bool):
     """Clear LLM cache."""
     from trading_agent.agents.llm import _CACHE_DIR, _CACHE_TTL_SECONDS
 
-    cache_files = list(_CACHE_DIR.glob("*.pkl"))
+    cache_files = list(_CACHE_DIR.glob("*.json")) if _CACHE_DIR.exists() else []
     removed = 0
     for f in cache_files:
         try:
-            with open(f, "rb") as fp:
-                data = pickle.load(fp)
+            with f.open(encoding="utf-8") as fp:
+                data = json.load(fp)
             cached_time = data.get("timestamp", 0)
             if clear_all or time.time() - cached_time >= _CACHE_TTL_SECONDS:
                 f.unlink()
@@ -2192,22 +2204,19 @@ def strategy_validate(
 def execution_run_multi(symbols: tuple[str], timeframe: str, capital: float | None,
                         stop_loss: float, parallel: bool):
     """Run execution cycle for multiple symbols."""
-    import concurrent.futures
-
     from trading_agent.agents.orchestrator import Orchestrator
     from trading_agent.execution.engine import ExecutionEngine
     from trading_agent.execution.risk_controller import RiskController
 
     engine = ExecutionEngine(initial_capital=capital)
     rc = RiskController(engine)
-    orchestrator = Orchestrator()
-
     console.print(f"[bold]Running multi-symbol execution for: {', '.join(symbols)}[/bold]")
 
     def process_symbol(symbol: str):
         console.print(f"\n[cyan]=== {symbol} ===[/cyan]")
         try:
-            report = orchestrator.analyze(
+            local_orchestrator = Orchestrator()
+            report = local_orchestrator.analyze(
                 symbol=symbol,
                 timeframe=timeframe,
                 current_position_pct=0.0,
@@ -2220,7 +2229,12 @@ def execution_run_multi(symbols: tuple[str], timeframe: str, capital: float | No
                 return {"symbol": symbol, "signal": "HOLD", "orders": 0, "status": "ok"}
 
             # Execute
-            engine.exchange._last_price_cache[symbol] = report.current_price
+            engine.update_market_price(
+                symbol,
+                report.current_price,
+                report.data_timestamp,
+                timeframe,
+            )
             orders = engine.execute_signal(decision)
 
             if orders:
@@ -2248,10 +2262,11 @@ def execution_run_multi(symbols: tuple[str], timeframe: str, capital: float | No
             return {"symbol": symbol, "signal": "ERROR", "orders": 0, "status": "error"}
 
     if parallel:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
-            results = list(executor.map(process_symbol, symbols))
-    else:
-        results = [process_symbol(s) for s in symbols]
+        console.print(
+            "[yellow]Parallel order execution is disabled; processing symbols "
+            "sequentially against the shared portfolio.[/yellow]"
+        )
+    results = [process_symbol(symbol) for symbol in symbols]
 
     # Summary
     console.print("\n[bold]📋 Summary[/bold]")
@@ -2271,7 +2286,21 @@ def execution_run_multi(symbols: tuple[str], timeframe: str, capital: float | No
 
 @main.group()
 def live():
-    """Live trading with real brokers (Alpaca, OANDA, CCXT)."""
+    """Broker monitoring; execution is restricted to Alpaca Paper."""
+
+
+def _paper_execution_error(broker: str, broker_facade: Any) -> str | None:
+    """Return a fail-closed reason, or None for an authorized Paper account."""
+    if os.getenv("TRADING_EXECUTION_ENABLED", "false").lower() != "true":
+        return "TRADING_EXECUTION_ENABLED is not true"
+    if os.getenv("TRADING_MODE", "paper").lower() != "paper":
+        return "only TRADING_MODE=paper is supported"
+    if broker != "alpaca":
+        return "order execution is restricted to Alpaca Paper"
+    adapter = getattr(broker_facade, "adapter", None)
+    if getattr(getattr(adapter, "config", None), "paper", None) is not True:
+        return "the connected Alpaca adapter is not a verified Paper account"
+    return None
 
 
 @live.command("connect")
@@ -2290,6 +2319,11 @@ def live_connect(
     account_id: str | None,
 ):
     """Connect to a broker and test connection."""
+    if not paper:
+        console.print(
+            "[bold red]Live-money connections are disabled; use --paper.[/bold red]"
+        )
+        return
     import asyncio
     from trading_agent.exchanges.alpaca_adapter import (
         AlpacaAdapter, AlpacaConfig,
@@ -2559,6 +2593,11 @@ def live_order(
         console.print("[yellow]DRY RUN - order not placed[/yellow]")
         return
 
+    execution_error = _paper_execution_error(broker, adapter)
+    if execution_error:
+        console.print(f"[bold red]Execution refused: {execution_error}[/bold red]")
+        return
+
     # Confirm
     from rich.prompt import Confirm
     if not Confirm.ask("Execute this order?"):
@@ -2599,145 +2638,12 @@ def live_run(
     iterations: int,
     dry_run: bool,
 ):
-    """Run live trading loop with regime-switching strategy."""
-    import time
-    from trading_agent.cli import _live_adapters
-    from trading_agent.agents.orchestrator import Orchestrator
-
-    adapter = _live_adapters.get(broker)
-    if not adapter:
-        console.print(f"[yellow]Not connected to {broker}. Run `trading-agent live connect --broker {broker}` first.[/yellow]")
-        return
-
-    # Create execution engine with live adapter
-    from trading_agent.execution.engine import ExecutionEngine
-    from trading_agent.execution.risk_controller import RiskController
-    
-    class LiveExchange:
-        def __init__(self, adapter):
-            self.adapter = adapter
-            self._last_price_cache = {}
-        
-        def get_position(self, symbol):
-            positions = self.adapter.get_positions()
-            for p in positions:
-                if p.get('symbol') == symbol:
-                    return type('obj', (object,), {
-                        'symbol': symbol,
-                        'quantity': float(p.get('qty', 0)),
-                        'entry_price': float(p.get('avg_entry_price', 0)),
-                        'current_price': float(p.get('current_price', 0)),
-                        'is_active': float(p.get('qty', 0)) != 0,
-                        'stop_loss': None,
-                    })()
-            return type('obj', (object,), {
-                'symbol': symbol, 'quantity': 0, 'entry_price': 0,
-                'current_price': 0, 'is_active': False, 'stop_loss': None
-            })()
-        
-        def get_total_equity(self):
-            account = self.adapter.get_account()
-            return float(account.get('portfolio_value', 0))
-        
-        def get_cash(self):
-            account = self.adapter.get_account()
-            return float(account.get('cash', 0))
-        
-        def get_last_price(self, symbol):
-            if symbol in self._last_price_cache:
-                return self._last_price_cache[symbol]
-            # Try to get from positions or quotes
-            positions = self.adapter.get_positions()
-            for p in positions:
-                if p.get('symbol') == symbol:
-                    return float(p.get('current_price', 0))
-            return 0
-        
-        def place_order(self, order):
-            return self.adapter.place_order(order)
-        
-        def cancel_order(self, order_id):
-            return self.adapter.cancel_order(order_id)
-        
-        def get_open_orders(self):
-            return self.adapter.get_orders(status="open")
-
-    live_exchange = LiveExchange(adapter)
-    engine = ExecutionEngine(exchange=live_exchange, initial_capital=capital or live_exchange.get_total_equity())
-    rc = RiskController(engine)
-    orchestrator = Orchestrator()
-
-    console.print(f"[bold]Starting live trading: {symbol} {timeframe} on {broker.upper()}[/bold]")
-    console.print(f"  Strategy: {strategy}")
-    console.print(f"  Stop-loss: {stop_loss * 100:.1f}%")
-    console.print(f"  Interval: {interval}s")
-    console.print(f"  Mode: {'DRY RUN' if dry_run else 'LIVE EXECUTION'}")
-    console.print(f"  Iterations: {'∞' if iterations == 0 else iterations}")
-    console.print("\n[dim]Press Ctrl+C to stop[/dim]\n")
-
-    try:
-        iteration = 0
-        while iterations == 0 or iteration < iterations:
-            iteration += 1
-            console.print(f"\n[cyan]=== Iteration {iteration} @ {time.strftime('%H:%M:%S')} ===[/cyan]")
-
-            try:
-                # 1. Get current position
-                existing_pos = engine.exchange.get_position(symbol)
-                current_pos_pct = (existing_pos.quantity * existing_pos.entry_price / engine.exchange.get_total_equity()) if existing_pos and existing_pos.is_active else 0.0
-                port_value = capital or engine.exchange.get_total_equity()
-
-                # 2. Run agents
-                report = orchestrator.analyze(
-                    symbol=symbol,
-                    timeframe=timeframe,
-                    current_position_pct=current_pos_pct,
-                    portfolio_value=port_value,
-                )
-
-                decision = report.final_decision
-                console.print(f"  Signal: {decision.signal} (conf={decision.confidence:.0%}) — {decision.reasoning[:80]}")
-
-                if decision.signal == "HOLD":
-                    console.print("  [yellow]HOLD — no trade[/yellow]")
-                else:
-                    # 3. Execute signal
-                    engine.exchange._last_price_cache[symbol] = report.current_price
-                    orders = engine.execute_signal(decision)
-
-                    if orders:
-                        for o in orders:
-                            console.print(f"  [green]→ {o.side.value.upper()} {o.amount:.4f} {symbol} @ ${o.avg_fill_price or report.current_price:,.2f}[/green]")
-                        if decision.signal == "BUY" and stop_loss > 0:
-                            engine.set_stop_loss(symbol, stop_loss)
-                            pos = engine.exchange.get_position(symbol)
-                            if pos and pos.stop_loss:
-                                console.print(f"  🛡️  Stop-loss: ${pos.stop_loss:,.2f}")
-
-                    # 4. Risk checks
-                    warnings = rc.check_all()
-                    if warnings:
-                        for w in warnings:
-                            console.print(f"  [red]⚠ {w}[/red]")
-                        if rc._circuit_breaker_active:
-                            console.print("[bold red]🔴 CIRCUIT BREAKER ACTIVATED[/bold red]")
-                            break
-
-            except FileNotFoundError as e:
-                console.print(f"  [red]Data not found: {e}[/red]")
-            except Exception as e:
-                console.print(f"  [red]Error: {e}[/red]")
-                import traceback
-                traceback.print_exc()
-
-            if iterations == 0 or iteration < iterations:
-                console.print(f"  [dim]Sleeping {interval}s...[/dim]")
-                time.sleep(interval)
-
-    except KeyboardInterrupt:
-        console.print("\n[yellow]Stopped by user[/yellow]")
-    finally:
-        console.print("[green]Live trading session ended[/green]")
+    """Deprecated generic loop; use the reviewed Alpaca Paper cycle instead."""
+    console.print(
+        "[bold red]Generic `live run` is disabled because its broker adapter path "
+        "is not execution-safe. Use the Alpaca Paper Web cycle or "
+        "scripts/live_enhanced_ma.py.[/bold red]"
+    )
 
 
 @live.command("monitor")
@@ -2745,52 +2651,14 @@ def live_run(
 @click.option("--interval", "-i", default=30, type=int, help="Update interval in seconds")
 @click.option("--iterations", "-n", default=0, type=int, help="Number of iterations (0 = infinite)")
 def live_monitor(broker: str, interval: int, iterations: int):
-    """Monitor live trading: positions, P&L, orders, risk."""
+    """Read-only monitor for broker positions, P&L, and open orders."""
     import time
     from trading_agent.cli import _live_adapters
-    from trading_agent.execution.engine import ExecutionEngine
-    from trading_agent.execution.risk_controller import RiskController
 
     adapter = _live_adapters.get(broker)
     if not adapter:
         console.print(f"[yellow]Not connected to {broker}. Run `trading-agent live connect --broker {broker}` first.[/yellow]")
         return
-
-    class LiveExchange:
-        def __init__(self, adapter):
-            self.adapter = adapter
-        
-        def get_position(self, symbol):
-            positions = self.adapter.get_positions()
-            for p in positions:
-                if p.get('symbol') == symbol:
-                    return type('obj', (object,), {
-                        'symbol': symbol,
-                        'quantity': float(p.get('qty', 0)),
-                        'entry_price': float(p.get('avg_entry_price', 0)),
-                        'current_price': float(p.get('current_price', 0)),
-                        'is_active': float(p.get('qty', 0)) != 0,
-                        'stop_loss': None,
-                    })()
-            return type('obj', (object,), {
-                'symbol': symbol, 'quantity': 0, 'entry_price': 0,
-                'current_price': 0, 'is_active': False, 'stop_loss': None
-            })()
-        
-        def get_total_equity(self):
-            account = self.adapter.get_account()
-            return float(account.get('portfolio_value', 0))
-        
-        def get_cash(self):
-            account = self.adapter.get_account()
-            return float(account.get('cash', 0))
-        
-        def get_open_orders(self):
-            return self.adapter.get_orders(status="open")
-
-    live_exchange = LiveExchange(adapter)
-    engine = ExecutionEngine(exchange=live_exchange)
-    rc = RiskController(engine)
 
     console.print(f"[bold]Monitoring {broker.upper()}...[/bold]")
     console.print("[dim]Press Ctrl+C to stop[/dim]\n")
@@ -2846,26 +2714,11 @@ def live_monitor(broker: str, interval: int, iterations: int):
                     )
                 console.print(t)
 
-            # Risk status
-            warnings = rc.check_all()
-            if warnings:
-                console.print("  [bold red]Risk Warnings:[/bold red]")
-                for w in warnings:
-                    console.print(f"    ⚠ {w}")
-
             if iterations == 0 or iteration < iterations:
                 time.sleep(interval)
 
     except KeyboardInterrupt:
         console.print("\n[yellow]Monitor stopped[/yellow]")
-
-
-# ── meta-learning subcommands ───────────────────────────────────────────.add_row(r["symbol"], r["signal"], str(r["orders"]), status_icon)
-    console.print(t)
-
-    # Show portfolio status
-    console.print()
-    execution_status.callback()
 
 
 # ── meta-learning subcommands ───────────────────────────────────────────

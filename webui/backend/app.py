@@ -9,30 +9,36 @@ import asyncio
 import json
 import os
 import re
+import secrets
 import sys
 import threading
 import time
 import uuid
 from pathlib import Path
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from trading_agent.execution.paper_exchange import PaperExchange
-from trading_agent.execution.risk_controller import RiskController
+from scripts.live_config import DRAWDOWN_TIERS
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-STATE_DIR = PROJECT_ROOT / "data"
 DIST_DIR = PROJECT_ROOT / "webui" / "frontend" / "dist"
 
 app = FastAPI(title="Trading Agent System — Web UI", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        origin.strip()
+        for origin in os.getenv(
+            "WEBUI_ALLOWED_ORIGINS",
+            "http://127.0.0.1:8000,http://localhost:8000",
+        ).split(",")
+        if origin.strip()
+    ],
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -43,6 +49,28 @@ app.add_middleware(
 # ---------------------------------------------------------------------------
 _services: dict = {}
 _snapshot_cache: dict = {"data": None, "ts": 0.0}
+MAX_DRAWDOWN_FRACTION = max(
+    (threshold for threshold, scale in DRAWDOWN_TIERS if scale <= 0),
+    default=0.20,
+)
+
+
+def _require_admin(x_api_key: str | None = Header(default=None)) -> None:
+    expected = os.getenv("WEBUI_API_KEY", "")
+    if not expected:
+        raise HTTPException(
+            status_code=503,
+            detail="WEBUI_API_KEY is not configured; administrative actions are disabled",
+        )
+    if not x_api_key or not secrets.compare_digest(x_api_key, expected):
+        raise HTTPException(status_code=401, detail="Invalid administrative API key")
+
+
+def _require_paper_execution() -> None:
+    if os.getenv("TRADING_EXECUTION_ENABLED", "false").lower() != "true":
+        raise HTTPException(status_code=403, detail="Trading execution is disabled")
+    if os.getenv("TRADING_MODE", "paper").lower() != "paper":
+        raise HTTPException(status_code=403, detail="Only paper trading is supported")
 
 
 def _run_async(coro):
@@ -70,15 +98,8 @@ def _run_async(coro):
 def _fetch_live_snapshot() -> dict:
     """Gọi Alpaca paper → snapshot. Luôn chạy ở context an toàn."""
 
-    from trading_agent.exchanges.alpaca_adapter import AlpacaAdapter, AlpacaConfig
-
     async def _connect_and_fetch():
-        adapter = AlpacaAdapter(AlpacaConfig(
-            api_key=os.environ["ALPACA_API_KEY"],
-            secret_key=os.environ["ALPACA_API_SECRET"],
-            paper=True,
-        ))
-        await adapter.connect()
+        adapter = await _alpaca()
         info = adapter.get_account_info()  # sync trên adapter
         positions = await adapter.fetch_positions()  # async → await trực tiếp
         return info, positions
@@ -138,9 +159,10 @@ def _live_snapshot(ttl: float = 20.0) -> dict:
                 peak = float(json.loads(peak_file.read_text()).get("peak", snap["equity"]))
             except (ValueError, OSError):
                 pass
+        peak = max(peak, snap["equity"])
         snap["peak"] = peak
         snap["dd"] = max(0.0, (peak - snap["equity"]) / peak) if peak else 0.0
-        snap["trading_allowed"] = snap["dd"] < 0.10  # max DD guard 10%
+        snap["trading_allowed"] = snap["dd"] < MAX_DRAWDOWN_FRACTION
         _snapshot_cache.update(data=snap, ts=now)
     except Exception as exc:  # noqa: BLE001
         snap["note"] = str(exc)[:200]
@@ -148,28 +170,46 @@ def _live_snapshot(ttl: float = 20.0) -> dict:
     return snap
 
 
-def _paper() -> PaperExchange:
-    if "paper" not in _services:
-        _services["paper"] = PaperExchange(exchange_name="paper", state_dir=str(STATE_DIR))
-    return _services["paper"]
+async def _alpaca():
+    """Return the single Alpaca Paper adapter used by portfolio and kill switch."""
+    from trading_agent.exchanges.alpaca_adapter import AlpacaAdapter, AlpacaConfig
 
-
-def _risk() -> RiskController:
-    if "risk" not in _services:
-        _services["risk"] = RiskController()
-    return _services["risk"]
+    if "alpaca" not in _services:
+        adapter = AlpacaAdapter(AlpacaConfig(
+            api_key=os.environ["ALPACA_API_KEY"],
+            secret_key=os.environ["ALPACA_API_SECRET"],
+            paper=True,
+        ))
+        await adapter.connect()
+        _services["alpaca"] = adapter
+    return _services["alpaca"]
 
 
 # ---------------------------------------------------------------------------
 # Job registry (backtest / live runs chạy nền)
 # ---------------------------------------------------------------------------
 JOBS: dict[str, dict] = {}
+JOBS_LOCK = threading.RLock()
+LIVE_JOB_LOCK = threading.Lock()
+JOB_TTL_SECONDS = 3600
+
+
+def _cleanup_jobs() -> None:
+    cutoff = time.time() - JOB_TTL_SECONDS
+    with JOBS_LOCK:
+        expired = [
+            job_id for job_id, job in JOBS.items()
+            if job.get("created_at", 0) < cutoff and job.get("status") != "running"
+        ]
+        for job_id in expired:
+            JOBS.pop(job_id, None)
 
 
 def _set_progress(job_id: str, pct: int, stage: str) -> None:
     """Cập nhật tiến độ job (thread-safe qua dict)."""
     try:
-        JOBS[job_id]["progress"] = {"pct": max(0, min(100, int(pct))), "stage": stage[:120]}
+        with JOBS_LOCK:
+            JOBS[job_id]["progress"] = {"pct": max(0, min(100, int(pct))), "stage": stage[:120]}
     except KeyError:
         pass
 
@@ -177,11 +217,12 @@ def _set_progress(job_id: str, pct: int, stage: str) -> None:
 def _add_job_line(job_id: str, line: str) -> None:
     """Append dòng log vào job (stream khi đang chạy)."""
     try:
-        lines = JOBS[job_id].setdefault("lines", [])
-        if line:
-            lines.append(line[:500])
-        if len(lines) > 400:
-            del lines[:-300]
+        with JOBS_LOCK:
+            lines = JOBS[job_id].setdefault("lines", [])
+            if line:
+                lines.append(line[:500])
+            if len(lines) > 400:
+                del lines[:-300]
     except KeyError:
         pass
 
@@ -191,18 +232,26 @@ def _spawn_job(job_id: str, fn, **kwargs) -> None:
 
     def worker() -> None:
         try:
-            JOBS[job_id]["progress"] = {"pct": 0, "stage": "bắt đầu"}
+            with JOBS_LOCK:
+                JOBS[job_id]["progress"] = {"pct": 0, "stage": "bắt đầu"}
             result = fn(**kwargs)
-            JOBS[job_id] = {"status": "done", "result": result, "error": None,
-                            "progress": {"pct": 100, "stage": "hoàn tất"},
-                            "lines": JOBS.get(job_id, {}).get("lines") or []}
+            with JOBS_LOCK:
+                JOBS[job_id] = {"status": "done", "result": result, "error": None,
+                                "progress": {"pct": 100, "stage": "hoàn tất"},
+                                "lines": JOBS.get(job_id, {}).get("lines") or [],
+                                "created_at": JOBS.get(job_id, {}).get("created_at", time.time())}
         except Exception as exc:  # noqa: BLE001
-            JOBS[job_id] = {"status": "error", "result": None, "error": str(exc),
-                            "progress": {"pct": 100, "stage": "lỗi"},
-                            "lines": JOBS.get(job_id, {}).get("lines") or []}
+            with JOBS_LOCK:
+                JOBS[job_id] = {"status": "error", "result": None, "error": str(exc),
+                                "progress": {"pct": 100, "stage": "lỗi"},
+                                "lines": JOBS.get(job_id, {}).get("lines") or [],
+                                "created_at": JOBS.get(job_id, {}).get("created_at", time.time())}
 
-    JOBS[job_id] = {"status": "running", "result": None, "error": None,
-                    "progress": {"pct": 0, "stage": "khởi động"}}
+    _cleanup_jobs()
+    with JOBS_LOCK:
+        JOBS[job_id] = {"status": "running", "result": None, "error": None,
+                        "progress": {"pct": 0, "stage": "khởi động"},
+                        "created_at": time.time()}
     threading.Thread(target=worker, daemon=True).start()
 
 
@@ -217,10 +266,16 @@ class BacktestRequest(BaseModel):
 
 class CloseRequest(BaseModel):
     reason: str = "webui_kill_switch"
+    confirm: str = ""
 
 
 class LiveRunRequest(BaseModel):
     live: bool = False
+    confirm: str = ""
+
+
+class ResetRequest(BaseModel):
+    confirm: str = ""
 
 
 @app.get("/api/system")
@@ -243,8 +298,15 @@ def api_system() -> dict:
             "regime_switching", "agent_ensemble",
         ],
         "symbols": (cfg.get("symbols", {}).get("binance") or [])[:12],
-        "llm": (cfg.get("llm", {}) or {}),
-        "alerts": (cfg.get("alerts", {}) or {}),
+        "llm": {
+            "provider": (cfg.get("llm", {}) or {}).get("provider"),
+            "model": (cfg.get("llm", {}) or {}).get("model"),
+        },
+        "alerts": {
+            "telegram_configured": bool(
+                os.getenv("TELEGRAM_BOT_TOKEN") and os.getenv("TELEGRAM_CHAT_ID")
+            ),
+        },
         "timeframes": (cfg.get("data", {}).get("timeframes") or []),
     }
 
@@ -263,11 +325,11 @@ def api_portfolio() -> dict:
 
 @app.get("/api/trades")
 def api_trades(limit: int = 20) -> dict:
-    try:
-        trades = _paper().get_trade_history(limit=limit)  # type: ignore[attr-defined]
-        return {"trades": trades}
-    except Exception:  # noqa: BLE001
-        return {"trades": [], "note": "paper exchange unavailable"}
+    return {
+        "trades": [],
+        "source": "alpaca_paper",
+        "note": "Alpaca trade-history synchronization is not implemented yet",
+    }
 
 
 @app.get("/api/risk")
@@ -278,7 +340,7 @@ def api_risk() -> dict:
             "equity": snap["equity"],
             "peak": snap["peak"],
             "drawdown_pct": round(snap["dd"] * 100, 2),
-            "max_drawdown_pct": 10.0,
+            "max_drawdown_pct": MAX_DRAWDOWN_FRACTION * 100,
             "trading_allowed": snap["trading_allowed"],
             "note": snap["note"],
         }
@@ -312,39 +374,63 @@ def api_backtest(req: BacktestRequest) -> dict:
 
 @app.get("/api/backtest/{job_id}")
 def api_backtest_status(job_id: str) -> dict:
-    job = JOBS.get(job_id)
+    with JOBS_LOCK:
+        job = JOBS.get(job_id)
     if not job:
         return {"status": "not_found"}
     return job
 
 
-@app.post("/api/positions/close")
-def api_close(req: CloseRequest) -> dict:
+@app.post("/api/positions/close", dependencies=[Depends(_require_admin)])
+async def api_close(req: CloseRequest) -> dict:
+    if req.confirm != "CLOSE_ALL_PAPER_POSITIONS":
+        raise HTTPException(status_code=400, detail="Explicit close-all confirmation required")
     try:
-        closed = _paper().close_all_positions(reason=req.reason)  # type: ignore[attr-defined]
-        return {"closed": True, "detail": str(closed)[:300]}
+        adapter = await _alpaca()
+        detail = await adapter.close_all_positions(cancel_orders=True)
+        remaining = await adapter.fetch_positions()
+        return {
+            "closed": len(remaining) == 0,
+            "detail": detail,
+            "remaining": [position.symbol.pair for position in remaining],
+        }
     except Exception as exc:  # noqa: BLE001
-        return {"closed": False, "error": str(exc)}
+        raise HTTPException(status_code=502, detail=f"Paper close-all failed: {exc}") from exc
 
 
-@app.post("/api/live/run")
+@app.post("/api/live/run", dependencies=[Depends(_require_admin)])
 def api_live_run(req: LiveRunRequest) -> dict:
+    _require_paper_execution()
+    if req.live:
+        raise HTTPException(status_code=400, detail="Live-money mode is not supported")
+    if req.confirm != "RUN_PAPER_CYCLE":
+        raise HTTPException(status_code=400, detail="Explicit paper-cycle confirmation required")
+    if not LIVE_JOB_LOCK.acquire(blocking=False):
+        raise HTTPException(status_code=409, detail="Another paper trading cycle is running")
     job_id = uuid.uuid4().hex[:8]
-    flag = "--live" if req.live else "--execute"
 
-    def run(live: bool) -> dict:
+    def run() -> dict:
         import subprocess
 
-        cmd = ["python", "scripts/live_cron_runner.py", "--execute"]
-        if live:
-            cmd.append("--live")
-        proc = subprocess.run(
-            cmd, cwd=str(PROJECT_ROOT), capture_output=True, text=True, timeout=600
-        )
-        out = (proc.stdout or "")[-3000:]
-        return {"exit_code": proc.returncode, "output": out, "live": live}
+        try:
+            cmd = [sys.executable, "scripts/live_enhanced_ma.py", "--execute"]
+            proc = subprocess.run(
+                cmd, cwd=str(PROJECT_ROOT), capture_output=True, text=True, timeout=600
+            )
+            out = ((proc.stdout or "") + (proc.stderr or ""))[-3000:]
+            if proc.returncode != 0:
+                raise RuntimeError(
+                    f"Paper cycle failed with exit code {proc.returncode}: {out}"
+                )
+            return {"exit_code": proc.returncode, "output": out, "mode": "paper"}
+        finally:
+            LIVE_JOB_LOCK.release()
 
-    _spawn_job(job_id, run, live=req.live)
+    try:
+        _spawn_job(job_id, run)
+    except Exception:
+        LIVE_JOB_LOCK.release()
+        raise
     return {"job_id": job_id}
 
 
@@ -579,9 +665,11 @@ def api_meta_regimes() -> dict:
     return _run_cli(["meta", "regimes", str(raw)], timeout=300)
 
 
-@app.post("/api/execution/reset")
-def api_execution_reset() -> dict:
-    return _run_cli(["execution", "reset"], timeout=120)
+@app.post("/api/execution/reset", dependencies=[Depends(_require_admin)])
+def api_execution_reset(req: ResetRequest) -> dict:
+    if req.confirm != "RESET_LOCAL_PAPER_STATE":
+        raise HTTPException(status_code=400, detail="Explicit reset confirmation required")
+    return _run_cli(["execution", "reset", "--yes"], timeout=120)
 
 
 class BacktestCompareRequest(BaseModel):
@@ -738,6 +826,11 @@ async def ws_endpoint(ws: WebSocket) -> None:
 # ---------------------------------------------------------------------------
 # Static frontend (production build) + catch-all
 # ---------------------------------------------------------------------------
+@app.get("/health")
+def health() -> dict:
+    return {"status": "ok", "time": time.time()}
+
+
 if DIST_DIR.exists():
     app.mount("/assets", StaticFiles(directory=DIST_DIR / "assets"), name="assets")
 
@@ -747,8 +840,3 @@ if DIST_DIR.exists():
         if full_path and f.is_file():
             return FileResponse(f)
         return FileResponse(DIST_DIR / "index.html")
-
-
-@app.get("/health")
-def health() -> dict:
-    return {"status": "ok", "time": time.time()}

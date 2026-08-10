@@ -128,10 +128,27 @@ class RiskManager(BaseAgent):
         if len(closes) < 20:
             return 5.0
         
-        # 20-bar realized volatility (annualized)
+        # Normalize per-bar volatility to a 24-hour volatility so thresholds
+        # remain comparable across 15m/1h/4h/daily inputs.
         returns = np.diff(closes[-21:]) / closes[-21:-1]
-        daily_vol = float(np.std(returns) * np.sqrt(252) * 100)  # as percentage
+        timeframe_minutes = self._timeframe_minutes(context.timeframe)
+        bars_per_day = max(1.0, 24 * 60 / timeframe_minutes)
+        daily_vol = float(np.std(returns) * np.sqrt(bars_per_day) * 100)
         return max(daily_vol, 0.5)  # Floor at 0.5%
+
+    @staticmethod
+    def _timeframe_minutes(timeframe: str) -> int:
+        tf = timeframe.lower().strip()
+        units = {"m": 1, "h": 60, "d": 1440, "w": 10080}
+        if len(tf) < 2 or tf[-1] not in units:
+            raise ValueError(f"Unsupported timeframe: {timeframe!r}")
+        try:
+            amount = int(tf[:-1])
+        except ValueError as exc:
+            raise ValueError(f"Unsupported timeframe: {timeframe!r}") from exc
+        if amount <= 0:
+            raise ValueError(f"Unsupported timeframe: {timeframe!r}")
+        return amount * units[tf[-1]]
 
     def _rule_based(self, ind: dict, context: AnalysisContext) -> AgentMessage:
         """Rule-based risk assessment with volatility-scaled position sizing."""

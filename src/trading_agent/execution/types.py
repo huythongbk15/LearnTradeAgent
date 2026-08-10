@@ -185,6 +185,8 @@ class Trade:
             "pnl_pct": self.pnl_pct,
             "entry_fee": self.entry_fee,
             "exit_fee": self.exit_fee,
+            "entry_order_id": self.entry_order_id,
+            "exit_order_id": self.exit_order_id,
             "reason": self.reason,
             "entry_time": self.entry_time.isoformat() if self.entry_time else None,
             "exit_time": self.exit_time.isoformat() if self.exit_time else None,

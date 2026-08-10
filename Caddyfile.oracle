@@ -1,0 +1,32 @@
+{$SITE_ADDRESS::80} {
+    encode zstd gzip
+
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        Permissions-Policy "camera=(), microphone=(), geolocation=()"
+        Content-Security-Policy "default-src 'self'; connect-src 'self' ws: wss:; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+        -Server
+    }
+
+    # Public, read-only liveness check for Oracle/external monitoring.
+    handle /health {
+        reverse_proxy web:8000
+    }
+
+    # Protect dashboard data as well as actions. Administrative actions also
+    # require the independent X-API-Key checked by FastAPI.
+    handle {
+        basic_auth {
+            {$CADDY_USER:admin} {$CADDY_PASSWORD_HASH}
+        }
+        reverse_proxy web:8000
+    }
+
+    log {
+        output stdout
+        format console
+    }
+}

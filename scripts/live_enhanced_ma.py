@@ -14,7 +14,9 @@ import sys
 import os
 import asyncio
 import json
+import tempfile
 from decimal import Decimal
+from pathlib import Path
 sys.path.insert(0, 'src')
 
 from dotenv import load_dotenv
@@ -23,7 +25,7 @@ load_dotenv('.env')
 import polars as pl
 import ccxt
 import numpy as np
-from datetime import datetime
+from datetime import UTC, datetime
 
 from trading_agent.strategies.enhanced_ma import EnhancedMaCrossover
 from trading_agent.exchanges.models import (
@@ -45,16 +47,30 @@ DRY_RUN = "--execute" not in sys.argv
 
 def load_peak_equity() -> float:
     """Đọc peak equity đã lưu (None nếu chưa có)."""
-    try:
-        with open(PEAK_STATE_FILE) as f:
-            return float(json.load(f).get("peak", 0.0))
-    except (OSError, ValueError, KeyError):
+    path = Path(PEAK_STATE_FILE)
+    if not path.exists():
         return 0.0
+    try:
+        with path.open() as f:
+            peak = float(json.load(f)["peak"])
+        if not np.isfinite(peak) or peak <= 0:
+            raise ValueError("peak must be finite and positive")
+        return peak
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise RuntimeError(f"Corrupt peak-equity state; refusing to trade: {path}") from exc
 
 def save_peak_equity(peak: float) -> None:
-    os.makedirs("data", exist_ok=True)
-    with open(PEAK_STATE_FILE, "w") as f:
-        json.dump({"peak": round(peak, 2), "updated": datetime.now().isoformat()}, f)
+    path = Path(PEAK_STATE_FILE)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump({"peak": round(peak, 2), "updated": datetime.now(UTC).isoformat()}, f)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_name, path)
+    finally:
+        Path(tmp_name).unlink(missing_ok=True)
 
 def compute_state(df: pl.DataFrame) -> dict:
     """Replay strategy over history, return current desired state + signals."""
@@ -121,13 +137,15 @@ def trailing_stop_price(entry_price: float, df: pl.DataFrame) -> float | None:
 
 
 def get_recent_df(symbol: str) -> pl.DataFrame:
-    """Fetch recent 1h data from Binance via CCXT."""
+    """Fetch only fully closed 1h candles from Binance via CCXT."""
     exchange = ccxt.binance({"enableRateLimit": True})
     ohlcv = exchange.fetch_ohlcv(symbol, "1h", limit=LOOKBACK)
+    now_ms = int(datetime.now(UTC).timestamp() * 1000)
+    ohlcv = [bar for bar in ohlcv if int(bar[0]) + 3_600_000 <= now_ms]
     if not ohlcv:
-        raise RuntimeError(f"No data for {symbol}")
+        raise RuntimeError(f"No closed 1h candles for {symbol}")
     return pl.DataFrame({
-        "timestamp": [datetime.fromtimestamp(b[0]/1000) for b in ohlcv],
+        "timestamp": [datetime.fromtimestamp(b[0] / 1000, tz=UTC) for b in ohlcv],
         "open": [b[1] for b in ohlcv],
         "high": [b[2] for b in ohlcv],
         "low": [b[3] for b in ohlcv],
@@ -137,6 +155,12 @@ def get_recent_df(symbol: str) -> pl.DataFrame:
 
 
 def main():
+    if not DRY_RUN:
+        if os.getenv("TRADING_EXECUTION_ENABLED", "false").lower() != "true":
+            raise RuntimeError("Paper execution is disabled (TRADING_EXECUTION_ENABLED=false)")
+        if os.getenv("TRADING_MODE", "paper").lower() != "paper":
+            raise RuntimeError("Only TRADING_MODE=paper is supported")
+
     print("=" * 80)
     print("🚀 LIVE PAPER TRADING — Single 1h Enhanced MA (20,80,40)")
     print(f"  Mode: {'DRY RUN (no orders placed)' if DRY_RUN else 'EXECUTE (real paper orders)'}")

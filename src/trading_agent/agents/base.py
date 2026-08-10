@@ -12,6 +12,7 @@ async (swarm agents); ``process()`` handles both.
 from __future__ import annotations
 
 import inspect
+import math
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any
@@ -31,6 +32,51 @@ class AgentMessage:
     max_position_size_pct: float | None = None  # 0.0 to 1.0
     risk_level: str | None = None  # "LOW" | "MEDIUM" | "HIGH" | "EXTREME"
     warnings: list[str] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        """Normalize untrusted agent/LLM output to a safe domain message."""
+        if not isinstance(self.details, dict):
+            self.details = {}
+        if not isinstance(self.warnings, list):
+            self.warnings = [str(self.warnings)]
+        else:
+            self.warnings = [str(warning) for warning in self.warnings]
+
+        signal = str(self.signal).upper()
+        if signal not in {"BUY", "SELL", "HOLD"}:
+            self.warnings.append(f"Invalid signal {self.signal!r}; forced to HOLD")
+            signal = "HOLD"
+        self.signal = signal
+
+        try:
+            confidence = float(self.confidence)
+            if not math.isfinite(confidence):
+                raise ValueError("non-finite confidence")
+            self.confidence = max(0.0, min(1.0, confidence))
+        except (TypeError, ValueError):
+            self.warnings.append("Invalid confidence; forced to 0")
+            self.confidence = 0.0
+
+        if self.risk_level is not None:
+            risk_level = str(self.risk_level).upper()
+            if risk_level not in {"LOW", "MEDIUM", "HIGH", "EXTREME"}:
+                self.warnings.append(
+                    f"Invalid risk level {self.risk_level!r}; forced to MEDIUM"
+                )
+                risk_level = "MEDIUM"
+            self.risk_level = risk_level
+
+        if self.max_position_size_pct is not None:
+            try:
+                position_size = float(self.max_position_size_pct)
+                if not math.isfinite(position_size):
+                    raise ValueError("non-finite position size")
+                self.max_position_size_pct = max(
+                    0.0, min(1.0, position_size)
+                )
+            except (TypeError, ValueError):
+                self.warnings.append("Invalid position size; forced to 0")
+                self.max_position_size_pct = 0.0
 
     def to_dict(self) -> dict[str, Any]:
         return {

@@ -6,7 +6,11 @@ Current backend: Parquet files (fast, columnar, queryable with DuckDB later).
 
 from __future__ import annotations
 
+import os
 import logging
+import tempfile
+import threading
+from contextlib import contextmanager
 from pathlib import Path
 
 import polars as pl
@@ -15,6 +19,42 @@ from trading_agent.config.loader import config
 from trading_agent.execution.indicators import compute_atr
 
 logger = logging.getLogger(__name__)
+_STORAGE_LOCK = threading.RLock()
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - Windows development fallback
+    fcntl = None
+
+
+@contextmanager
+def _dataset_lock(path: Path):
+    """Serialize read-merge-write across threads and Unix processes."""
+    lock_path = path.with_suffix(path.suffix + ".lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with _STORAGE_LOCK, lock_path.open("a+") as lock_file:
+        if fcntl is not None:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            if fcntl is not None:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+
+def _write_parquet_atomic(df: pl.DataFrame, path: Path) -> None:
+    """Write a complete parquet file and atomically replace the old version."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(
+        prefix=f".{path.stem}.", suffix=".tmp.parquet", dir=path.parent
+    )
+    os.close(fd)
+    tmp_path = Path(tmp_name)
+    try:
+        df.write_parquet(tmp_path)
+        os.replace(tmp_path, path)
+    finally:
+        tmp_path.unlink(missing_ok=True)
 
 
 def _table_path(
@@ -52,20 +92,19 @@ def save_ohlcv(
     if missing:
         raise ValueError(f"DataFrame missing columns: {missing}")
 
-    if append and path.exists():
-        existing = pl.read_parquet(path)
-        # Align schema với file cũ: cột thừa (vd atr từ enrich-at) = null cho dòng mới
-        missing_cols = [c for c in existing.columns if c not in df.columns]
-        if missing_cols:
-            df = df.with_columns(
-                [pl.lit(None, dtype=existing.schema[c]).alias(c) for c in missing_cols]
-            )
-        df = df.select(existing.columns)
-        df = pl.concat([existing, df]).unique(
-            subset=["timestamp"], keep="last"
-        ).sort("timestamp")
+    with _dataset_lock(path):
+        if append and path.exists():
+            existing = pl.read_parquet(path)
+            had_atr = "atr" in existing.columns
+            df = pl.concat([existing, df], how="diagonal_relaxed").unique(
+                subset=["timestamp"], keep="last"
+            ).sort("timestamp")
+            # ATR is derived data. Recompute it after an append instead of
+            # leaving the newly appended rows as null/stale values.
+            if had_atr:
+                df = df.with_columns(compute_atr(df, period=14))
 
-    df.write_parquet(path)
+        _write_parquet_atomic(df, path)
     return path
 
 
@@ -180,19 +219,15 @@ def enrich_with_atr(
             f"No data for {exchange} {symbol} {timeframe} at {path}"
         )
 
-    df = pl.read_parquet(path).sort("timestamp")
-    if df.is_empty():
-        logger.warning(f"Empty dataset: {exchange} {symbol} {timeframe}")
-        return path
+    with _dataset_lock(path):
+        df = pl.read_parquet(path).sort("timestamp")
+        if df.is_empty():
+            logger.warning(f"Empty dataset: {exchange} {symbol} {timeframe}")
+            return path
 
-    # Compute ATR
-    atr_series = compute_atr(df, period=period)
-    
-    # Add ATR column (replace if exists)
-    df = df.with_columns(atr_series)
-
-    # Save back
-    df.write_parquet(path)
+        atr_series = compute_atr(df, period=period)
+        df = df.with_columns(atr_series)
+        _write_parquet_atomic(df, path)
     logger.info(f"Enriched {exchange} {symbol} {timeframe} with ATR (period={period})")
     return path
 

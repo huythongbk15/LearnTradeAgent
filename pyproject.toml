@@ -49,6 +49,7 @@ dev = [
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+testpaths = ["tests"]
 # Bộ lọc warning có chủ đích (P1 cleanup):
 # - Deprecation của thư viện / Python stdlib — không phải bug dự án
 # - SciPy/numpy cảnh báo phụ trợ mà code đã xử lý nan an toàn

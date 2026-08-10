@@ -60,6 +60,23 @@ class TestValidate:
         with pytest.raises(ConfigError, match="must be dict"):
             _validate(_make_cfg(symbols="not_a_dict"))
 
+    def test_invalid_numeric_type_has_useful_error(self):
+        with pytest.raises(ConfigError, match="int or float"):
+            _validate(_make_cfg(backtest={"initial_capital": "10000"}))
+
+    @pytest.mark.parametrize(
+        "backtest",
+        [
+            {"initial_capital": True},
+            {"initial_capital": 0},
+            {"commission": -0.1},
+            {"slippage": 1.0},
+        ],
+    )
+    def test_invalid_backtest_numbers(self, backtest):
+        with pytest.raises(ConfigError):
+            _validate(_make_cfg(backtest=backtest))
+
 
 class TestConfig:
     def test_load_valid(self):
@@ -85,3 +102,8 @@ class TestConfig:
         p = _write_tmp(_make_cfg(symbols={"binance": ["BTC/USDT"]}))
         cfg = Config(p)
         assert cfg.symbols["binance"] == ["BTC/USDT"]
+
+    def test_environment_config_path(self, monkeypatch):
+        p = _write_tmp(_make_cfg(data={"default_timeframe": "4h"}))
+        monkeypatch.setenv("TRADING_CONFIG_PATH", str(p))
+        assert Config().default_timeframe == "4h"
