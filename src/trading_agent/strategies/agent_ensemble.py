@@ -4,12 +4,19 @@ AgentStrategy — wraps multi-agent system as a backtest strategy.
 Cho phép chạy backtest với tín hiệu từ các AI agents (rule-based mode).
 Dùng USE_LLM=false để đảm bảo tốc độ.
 
+Hỗ trợ LLM deterministic mode cho backtest:
+    from trading_agent.agents.llm import enable_backtest_mode
+    enable_backtest_mode()  # temp=0, seed=0, fixed provider, no cache
+
 Cách dùng:
-    # CLI
+    # CLI (rule-based, fast)
     USE_LLM=false trading-agent backtest run agent_ensemble -s BTC/USDT -t 1h
 
+    # CLI (LLM deterministic)
+    trading-agent backtest run agent_ensemble -s BTC/USDT -t 1h --llm
+
     # Python
-    strategy = AgentStrategy({"threshold_buy": 0.2})
+    strategy = AgentStrategy({"threshold_buy": 0.2, "use_llm": True})
     engine = BacktestEngine(strategy, initial_capital=10000)
     result = engine.run(df)
 """
@@ -17,32 +24,37 @@ Cách dùng:
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 
 import numpy as np
 import polars as pl
 
 from trading_agent.agents.base import AnalysisContext
+from trading_agent.agents.llm import enable_backtest_mode, disable_backtest_mode, is_backtest_mode
 from trading_agent.agents.risk import RiskManager
-
-logger = logging.getLogger(__name__)
 from trading_agent.agents.sentiment import SentimentAnalyst
 from trading_agent.agents.technical import TechnicalAnalyst
 from trading_agent.agents.trader import Trader
 from trading_agent.strategies.base import Strategy, register_strategy
+
+logger = logging.getLogger(__name__)
 
 
 @register_strategy("agent_ensemble")
 class AgentStrategy(Strategy):
     """Backtest strategy that uses multi-agent signals.
 
-    Rule-based mode (no LLM calls) for speed. Evaluates bar-by-bar.
+    Supports both rule-based mode (fast, USE_LLM=false) and LLM deterministic mode.
 
     Parameters:
         threshold_buy (float): Score > this → enter long (default: 0.3)
         threshold_exit (float): Score < this → exit (default: 0.0)
         lookback (int): Indicator history bars (default: 100)
         max_hold_bars (int): Max bars per trade (default: 48)
+        use_llm (bool): Enable LLM agents in backtest (default: False)
+        llm_provider (str): LLM provider for backtest (default: "opencode")
+        llm_model (str): LLM model for backtest (default: "deepseek-v4-flash-free")
     """
 
     def __init__(self, params: dict[str, Any] | None = None):
@@ -52,11 +64,38 @@ class AgentStrategy(Strategy):
         self.threshold_exit = float(params.get("threshold_exit", 0.0))
         self.lookback = int(params.get("lookback", 100))
         self.max_hold_bars = int(params.get("max_hold_bars", 48))
-
+        
+        # LLM mode for backtest
+        self.use_llm = bool(params.get("use_llm", False))
+        self.llm_provider = params.get("llm_provider", "opencode")
+        self.llm_model = params.get("llm_model", "deepseek-v4-flash-free")
+        
+        # Initialize agents
         self.technical = TechnicalAnalyst()
         self.sentiment = SentimentAnalyst()
         self.risk = RiskManager()
         self.trader = Trader()
+        
+        # Enable backtest LLM mode if requested
+        if self.use_llm:
+            enable_backtest_mode(
+                provider=self.llm_provider,
+                model=self.llm_model,
+                temperature=0.0,
+                max_tokens=500,
+                seed=0,
+                use_cache=False,
+            )
+            # Force enable LLM for this process
+            os.environ["USE_LLM"] = "true"
+        else:
+            # Ensure rule-based mode
+            os.environ["USE_LLM"] = "false"
+
+    def __del__(self):
+        """Clean up backtest mode on destruction."""
+        if is_backtest_mode():
+            disable_backtest_mode()
 
     @property
     def name(self) -> str:

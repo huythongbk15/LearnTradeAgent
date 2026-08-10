@@ -7,6 +7,7 @@ Không có vị thế thực (Phase 2) nên đánh giá rủi ro dựa trên vol
 from __future__ import annotations
 
 import logging
+import numpy as np
 
 from trading_agent.agents.base import AgentMessage, AnalysisContext, BaseAgent
 from trading_agent.agents.llm import ask_agent, llm_enabled
@@ -117,10 +118,25 @@ class RiskManager(BaseAgent):
 
         return msg
 
+    def _compute_volatility(self, context: AnalysisContext) -> float:
+        """Compute realized volatility from raw OHLCV (no dependency on pre-computed context)."""
+        df = context.ohlcv
+        if df is None or len(df) < 20:
+            return 5.0  # Default moderate volatility
+        
+        closes = df["close"].to_numpy()
+        if len(closes) < 20:
+            return 5.0
+        
+        # 20-bar realized volatility (annualized)
+        returns = np.diff(closes[-21:]) / closes[-21:-1]
+        daily_vol = float(np.std(returns) * np.sqrt(252) * 100)  # as percentage
+        return max(daily_vol, 0.5)  # Floor at 0.5%
+
     def _rule_based(self, ind: dict, context: AnalysisContext) -> AgentMessage:
         """Rule-based risk assessment with volatility-scaled position sizing."""
         extra = ind.get("_extra", {})
-        vol = extra.get("volatility_20", None)
+        vol = self._compute_volatility(context)
         vol_ratio = extra.get("volume_ratio_5_20", 1.0)
 
         # ── Position sizing theo volatility ──────────────────────────────
@@ -138,7 +154,8 @@ class RiskManager(BaseAgent):
             max_pos = max(0.05, min(risk_based, vol_cap))
             if vol > 3.0:
                 risk = "HIGH"
-                reason = f"High volatility ({vol:.1f}%) — size {max_pos * 100:.0f}% of equity"
+                max_pos = 0.0  # HIGH risk: symmetric — reduce to 0 both entry AND exit
+                reason = f"High volatility ({vol:.1f}%) — position size REDUCED TO 0%"
             elif vol > 1.5:
                 risk = "MEDIUM"
                 reason = f"Moderate volatility ({vol:.1f}%) — size {max_pos * 100:.0f}% of equity"
@@ -153,7 +170,7 @@ class RiskManager(BaseAgent):
         # Adjust for volume
         if vol_ratio < 0.5:
             risk = "HIGH" if risk == "MEDIUM" else risk
-            max_pos *= 0.5
+            max_pos = 0.0 if risk == "HIGH" else max_pos * 0.5
             reason += "; low volume — reduce further"
 
         # Risk agent chỉ vote hướng khi rõ ràng:

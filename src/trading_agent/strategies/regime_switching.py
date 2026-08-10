@@ -14,14 +14,10 @@ Architecture:
     - CRISIS / RECOVERY → Defensive / aggressive respectively
 - Combines signals with regime-confidence-weighted ensemble
 
-Usage:
-    strategy = RegimeSwitchingStrategy({
-        "regime_method": "hybrid",
-        "lookback": 200,
-        "min_confidence": 0.6,
-    })
-    engine = BacktestEngine(strategy, initial_capital=10000)
-    result = engine.run(df)
+FIXES applied:
+- Pre-fit detector once (O(n) instead of O(n²))
+- Use rolling predict instead of re-fitting every bar
+- Regime labels stable across bars
 """
 
 from __future__ import annotations
@@ -113,6 +109,9 @@ class RegimeSwitchingStrategy(Strategy):
 
     Detects market regime and dynamically combines sub-strategies
     optimized for that regime. Uses confidence-weighted ensemble.
+
+    PERFORMANCE FIX: Detector is fit ONCE on the first `lookback` bars,
+    then only `predict` is called for subsequent bars (O(n) instead of O(n²)).
     """
 
     def __init__(self, params: dict[str, Any] | None = None):
@@ -124,12 +123,13 @@ class RegimeSwitchingStrategy(Strategy):
         self.lookback = int(params.get("lookback", 200))
         self.min_confidence = float(params.get("min_confidence", 0.55))
         self.regime_smoothing = int(params.get("regime_smoothing", 3))  # bars to confirm regime change
+        self.refit_every = int(params.get("refit_every", 0))  # 0 = never refit, else refit every N bars
 
         # Custom regime-strategy mapping (overrides defaults)
         self.custom_mapping: dict[str, list[dict]] | None = params.get("regime_strategies")
 
         # Position sizing
-        self.position_sizing = params.get("position_sizing", "fixed")  # fixed, kelly, half_kelly, vol_target
+        self.position_sizing = params.get("position_sizing", "fixed")
         self.base_position_pct = float(params.get("base_position_pct", 0.1))
 
         # Internal state
@@ -139,7 +139,8 @@ class RegimeSwitchingStrategy(Strategy):
         self._regime_confidence = 0.0
         self._regime_history: list[MarketRegime] = []
         self._regime_stable_count = 0
-        self._last_regime_bar = -1
+        self._detector_fitted = False
+        self._bars_since_refit = 0
 
         # Pre-instantiate all possible sub-strategies
         self._init_sub_strategies()
@@ -181,9 +182,47 @@ class RegimeSwitchingStrategy(Strategy):
             return configs
         return DEFAULT_REGIME_STRATEGIES.get(regime, DEFAULT_REGIME_STRATEGIES[MarketRegime.UNKNOWN])
 
-    def _detect_regime(self, df: pl.DataFrame, bar_idx: int) -> tuple[MarketRegime, float]:
-        """Detect regime at a specific bar using historical data up to that bar."""
-        # Use data up to bar_idx for regime detection
+    def _fit_detector(self, df: pl.DataFrame) -> None:
+        """Fit detector ONCE on initial data (first lookback bars)."""
+        if self._detector_fitted:
+            return
+
+        prices = df["close"][:self.lookback]
+        volumes = df["volume"][:self.lookback] if "volume" in df.columns else None
+
+        if len(prices) < 50:
+            logger.warning(f"Not enough data to fit detector: {len(prices)} bars")
+            return
+
+        try:
+            detector = self._get_detector()
+            prices_pd = prices.to_pandas()
+            volumes_pd = volumes.to_pandas() if volumes is not None else None
+
+            if isinstance(detector, HybridRegimeDetector):
+                detector.initialize(prices_pd, volumes_pd)
+            elif isinstance(detector, HMMStrategy):
+                detector.fit(prices_pd, volumes_pd)
+            elif isinstance(detector, GMMStrategy):
+                returns = np.log(prices_pd / prices_pd.shift(1)).dropna()
+                detector.fit(returns)
+            # RuleBasedStrategy doesn't need fitting
+
+            self._detector_fitted = True
+            self._bars_since_refit = 0
+            logger.info(f"Regime detector ({self.regime_method}) fitted on {len(prices)} bars")
+
+        except Exception as e:
+            logger.warning(f"Failed to fit regime detector: {e}")
+
+    def _predict_regime(self, df: pl.DataFrame, bar_idx: int) -> tuple[MarketRegime, float]:
+        """Predict regime at bar_idx using already-fitted detector (fast, no re-fit)."""
+        if not self._detector_fitted:
+            self._fit_detector(df)
+            if not self._detector_fitted:
+                return MarketRegime.UNKNOWN, 0.0
+
+        # Use expanding window up to bar_idx for prediction
         hist_df = df.slice(0, bar_idx + 1)
         if len(hist_df) < 50:
             return MarketRegime.UNKNOWN, 0.0
@@ -193,24 +232,16 @@ class RegimeSwitchingStrategy(Strategy):
 
         try:
             detector = self._get_detector()
-
-            # Convert to pandas for regime detectors
             prices_pd = prices.to_pandas()
             volumes_pd = volumes.to_pandas() if volumes is not None else None
 
             if isinstance(detector, HybridRegimeDetector):
-                if not detector._detectors:
-                    detector.initialize(prices_pd, volumes_pd)
                 state = detector.detect(prices_pd, volumes_pd)
             elif isinstance(detector, HMMStrategy):
-                if not detector._fitted:
-                    detector.fit(prices_pd, volumes_pd)
                 state = detector.predict(prices_pd, volumes_pd)
             elif isinstance(detector, GMMStrategy):
-                if not detector._fitted:
-                    returns = np.log(prices_pd / prices_pd.shift(1)).dropna()
-                    detector.fit(returns)
-                state = detector.predict(np.log(prices_pd / prices_pd.shift(1)).dropna())
+                returns = np.log(prices_pd / prices_pd.shift(1)).dropna()
+                state = detector.predict(returns)
             elif isinstance(detector, RuleBasedStrategy):
                 state = detector.detect(prices_pd)
             else:
@@ -219,8 +250,35 @@ class RegimeSwitchingStrategy(Strategy):
             return state.regime, state.confidence
 
         except Exception as e:
-            logger.debug(f"Regime detection failed at bar {bar_idx}: {e}")
+            logger.debug(f"Regime prediction failed at bar {bar_idx}: {e}")
             return MarketRegime.UNKNOWN, 0.0
+
+    def _maybe_refit(self, df: pl.DataFrame, bar_idx: int) -> None:
+        """Optionally re-fit detector periodically (e.g., every 500 bars)."""
+        if self.refit_every <= 0:
+            return
+        self._bars_since_refit += 1
+        if self._bars_since_refit >= self.refit_every:
+            # Re-fit on recent data (last lookback bars)
+            start = max(0, bar_idx - self.lookback)
+            hist_df = df.slice(start, bar_idx - start + 1)
+            try:
+                detector = self._get_detector()
+                prices_pd = hist_df["close"].to_pandas()
+                volumes_pd = hist_df["volume"].to_pandas() if "volume" in hist_df.columns else None
+
+                if isinstance(detector, HybridRegimeDetector):
+                    detector.initialize(prices_pd, volumes_pd)
+                elif isinstance(detector, HMMStrategy):
+                    detector.fit(prices_pd, volumes_pd)
+                elif isinstance(detector, GMMStrategy):
+                    returns = np.log(prices_pd / prices_pd.shift(1)).dropna()
+                    detector.fit(returns)
+
+                self._bars_since_refit = 0
+                logger.debug(f"Regime detector re-fitted at bar {bar_idx}")
+            except Exception as e:
+                logger.warning(f"Failed to re-fit detector: {e}")
 
     def _is_regime_stable(self, regime: MarketRegime) -> bool:
         """Check if regime has been stable for smoothing period."""
@@ -248,13 +306,15 @@ class RegimeSwitchingStrategy(Strategy):
             from trading_agent.regime import add_regime_indicators
             df = add_regime_indicators(df)
 
+        # Pre-fit detector on initial data
+        self._fit_detector(df)
+
         return df
 
     def generate_signals(self, df: pl.DataFrame) -> pl.Series:
         """Generate regime-aware ensemble signals (discrete: 1=buy, -1=sell, 0=hold)."""
         n = len(df)
         raw_signals = np.zeros(n, dtype=np.float64)
-        closes = df["close"].to_numpy()
 
         # Pre-compute all sub-strategy signals
         sub_signals: dict[str, np.ndarray] = {}
@@ -269,8 +329,11 @@ class RegimeSwitchingStrategy(Strategy):
         # Bar-by-bar regime detection and ensemble
         in_position = False
         for i in range(self.lookback, n):
-            # Detect regime
-            regime, confidence = self._detect_regime(df, i)
+            # Predict regime (fast - no re-fit)
+            regime, confidence = self._predict_regime(df, i)
+
+            # Optionally re-fit periodically
+            self._maybe_refit(df, i)
 
             # Smooth regime transitions
             if regime == self._current_regime:

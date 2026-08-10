@@ -8,6 +8,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
+import hashlib
+import time
 
 
 class OrderSide(Enum):
@@ -33,6 +35,33 @@ class OrderStatus(Enum):
     EXPIRED = "expired"
 
 
+def generate_idempotency_key(
+    symbol: str,
+    side: OrderSide | str,
+    order_type: OrderType | str,
+    amount: float,
+    price: float | None = None,
+    nonce: str | None = None,
+) -> str:
+    """
+    Generate a deterministic idempotency key for order deduplication.
+    
+    Key format: hash(symbol|side|type|amount|price|timestamp_minute|nonce)
+    This ensures the same order submitted twice within the same minute
+    gets the same key (if nonce is not provided).
+    
+    For true idempotency, caller should provide a unique nonce per order attempt.
+    """
+    side_str = side.value if isinstance(side, OrderSide) else str(side)
+    type_str = order_type.value if isinstance(order_type, OrderType) else str(order_type)
+    price_str = f"{price:.8f}" if price is not None else "market"
+    ts_minute = str(int(time.time() // 60))  # Minute-level timestamp
+    nonce_str = nonce or ""
+    
+    data = f"{symbol}|{side_str}|{type_str}|{amount:.8f}|{price_str}|{ts_minute}|{nonce_str}"
+    return hashlib.sha256(data.encode()).hexdigest()[:32]
+
+
 @dataclass
 class Order:
     """A single order placed on an exchange."""
@@ -52,6 +81,10 @@ class Order:
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     metadata: dict[str, Any] = field(default_factory=dict)
+    # Idempotency key for duplicate detection
+    idempotency_key: str | None = None
+    # Client order ID (for exchange correlation)
+    client_order_id: str | None = None
 
     @property
     def is_open(self) -> bool:
@@ -81,6 +114,9 @@ class Order:
             "fee": self.fee,
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
+            "idempotency_key": self.idempotency_key,
+            "client_order_id": self.client_order_id,
+            "metadata": self.metadata,
         }
 
     @classmethod
@@ -100,6 +136,8 @@ class Order:
             fee=d.get("fee", 0.0),
             created_at=datetime.fromisoformat(d["created_at"]),
             updated_at=datetime.fromisoformat(d["updated_at"]),
+            idempotency_key=d.get("idempotency_key"),
+            client_order_id=d.get("client_order_id"),
             metadata=d.get("metadata", {}),
         )
 

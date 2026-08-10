@@ -1,0 +1,875 @@
+Bạn là một **Senior Quant Engineer + ML/LLM Engineer + Trading Systems Architect + SRE**, hãy giúp tôi cải tiến repository **LearnTradeAgent** theo hướng trở thành một **reproducible quantitative trading research platform có khả năng tiến tới production**, ưu tiên **tính đúng đắn của backtest, khả năng chứng minh alpha, risk management và execution correctness** hơn việc bổ sung thêm tính năng mới.
+
+Repository:
+https://github.com/huythongbk15/LearnTradeAgent
+
+## MỤC TIÊU QUAN TRỌNG NHẤT
+
+Không được mặc định rằng các kết quả backtest hiện tại là alpha thật.
+
+Hãy ưu tiên chứng minh:
+
+1. Strategy có alpha out-of-sample hay không.
+2. Alpha có tồn tại sau transaction costs, spread, slippage và execution delay hay không.
+3. LLM/multi-agent có thực sự tạo thêm giá trị so với systematic strategy hay không.
+4. Risk management có cải thiện risk-adjusted return hay chỉ làm thay đổi distribution của drawdown.
+5. Backtest có reproducible và không có look-ahead/data leakage hay không.
+6. Execution engine có thể xử lý đúng partial fill, timeout, duplicate order, reconciliation và exchange failure hay không.
+
+---
+
+# PHASE 0 — AUDIT TOÀN BỘ PROJECT
+
+Trước khi sửa code, hãy audit repository hiện tại.
+
+Kiểm tra:
+
+* architecture;
+* data pipeline;
+* strategy layer;
+* backtest engine;
+* agents;
+* LLM integration;
+* risk management;
+* portfolio;
+* execution;
+* exchange adapters;
+* paper trading;
+* monitoring;
+* tests;
+* CI/CD;
+* Docker;
+* configuration;
+* dependency management;
+* documentation.
+
+Tạo một báo cáo:
+
+```text
+AUDIT_REPORT.md
+```
+
+phân loại issue thành:
+
+* P0 = ảnh hưởng tính đúng đắn của backtest/live trading;
+* P1 = ảnh hưởng đáng kể đến research/production;
+* P2 = cải tiến architecture/maintainability;
+* P3 = nice-to-have.
+
+Không refactor lớn trước khi xác định P0/P1.
+
+---
+
+# PHASE 1 — FIX BACKTEST ENGINE
+
+Đây là ưu tiên cao nhất.
+
+Thiết kế backtest theo nguyên tắc:
+
+```text
+historical data
+      ↓
+signal generated at t
+      ↓
+order submitted
+      ↓
+execution at t+1 hoặc realistic execution model
+      ↓
+fees
+      ↓
+slippage
+      ↓
+portfolio update
+```
+
+Tuyệt đối tránh look-ahead bias.
+
+Kiểm tra toàn bộ:
+
+* signal timing;
+* indicator calculation;
+* position timing;
+* entry price;
+* exit price;
+* stop loss;
+* take profit;
+* trailing stop;
+* portfolio valuation;
+* cash accounting;
+* fee accounting;
+* leverage;
+* funding;
+* liquidation;
+* position sizing.
+
+## Transaction cost model
+
+Implement rõ ràng:
+
+```text
+commission
+bid/ask spread
+slippage
+market impact
+latency
+```
+
+Phải tính **cả entry và exit cost**.
+
+Cho phép cấu hình:
+
+```yaml
+fees:
+  maker: ...
+  taker: ...
+
+execution:
+  spread_bps: ...
+  slippage_bps: ...
+  latency_ms: ...
+```
+
+Không hard-code.
+
+Viết unit tests để chứng minh:
+
+```text
+zero-fee case
+fee case
+round-trip trade
+partial fill
+slippage
+spread
+```
+
+---
+
+# PHASE 2 — EVENT-DRIVEN BACKTESTER
+
+Nếu hiện tại backtester còn thiên về vectorized calculation, xây thêm một event-driven execution path.
+
+Architecture:
+
+```text
+MarketEvent
+    ↓
+Strategy
+    ↓
+Signal
+    ↓
+Portfolio
+    ↓
+RiskManager
+    ↓
+Order
+    ↓
+ExecutionSimulator
+    ↓
+Fill
+    ↓
+PortfolioState
+```
+
+Mọi state transition phải deterministic.
+
+Mục tiêu là dùng **cùng execution abstraction** cho:
+
+```text
+backtest
+paper trading
+live trading
+```
+
+chỉ thay:
+
+```text
+ExecutionSimulator
+```
+
+bằng:
+
+```text
+PaperExchange
+LiveExchange
+```
+
+---
+
+# PHASE 3 — WALK-FORWARD VALIDATION
+
+Loại bỏ cách tối ưu parameter trên toàn bộ dataset.
+
+Implement:
+
+```text
+Train → Validation → Test
+```
+
+và rolling walk-forward:
+
+```text
+Train 1 → Test 1
+Train 2 → Test 2
+Train 3 → Test 3
+...
+```
+
+Không cho phép test data ảnh hưởng đến parameter selection.
+
+Nếu dùng ML:
+
+* purged CV;
+* embargo;
+* leakage detection.
+
+Lưu lại:
+
+```text
+train_period
+validation_period
+test_period
+parameters
+dataset_hash
+code_commit
+random_seed
+```
+
+---
+
+# PHASE 4 — REPRODUCIBLE EXPERIMENT SYSTEM
+
+Xây một experiment registry.
+
+Mỗi experiment phải lưu:
+
+```json
+{
+  "experiment_id": "...",
+  "git_commit": "...",
+  "dataset_hash": "...",
+  "strategy": "...",
+  "parameters": {},
+  "fees": {},
+  "slippage": {},
+  "universe": [],
+  "timeframe": "...",
+  "train_period": "...",
+  "test_period": "...",
+  "seed": 42
+}
+```
+
+Kết quả phải có:
+
+```text
+total return
+CAGR
+Sharpe
+Sortino
+Calmar
+max drawdown
+volatility
+win rate
+profit factor
+expectancy
+turnover
+number of trades
+average holding period
+fees paid
+slippage cost
+exposure
+```
+
+---
+
+# PHASE 5 — BENCHMARK FRAMEWORK
+
+Không chỉ báo cáo strategy return.
+
+Mỗi experiment phải so sánh với:
+
+```text
+Buy & Hold
+Simple MA
+RSI
+Bollinger Bands
+Momentum
+Risk Parity
+Volatility Target
+```
+
+Tạo bảng:
+
+```text
+Strategy
+Return
+CAGR
+Sharpe
+Sortino
+Max DD
+Calmar
+Turnover
+Fees
+```
+
+Mục tiêu:
+
+> chứng minh strategy tốt hơn benchmark một cách có ý nghĩa, không chỉ có positive return.
+
+---
+
+# PHASE 6 — STATISTICAL VALIDATION
+
+Bổ sung:
+
+* bootstrap confidence intervals;
+* Sharpe confidence interval;
+* Deflated Sharpe Ratio;
+* Probability of Backtest Overfitting;
+* sensitivity analysis;
+* parameter perturbation;
+* Monte Carlo trade reshuffling;
+* regime analysis.
+
+Ví dụ parameter robustness:
+
+```text
+MA fast:
+15
+18
+20
+22
+25
+```
+
+Nếu chỉ một parameter duy nhất cho kết quả cực tốt còn các giá trị xung quanh đều tệ → cảnh báo overfitting.
+
+Tạo heatmaps để phát hiện parameter cliffs.
+
+---
+
+# PHASE 7 — ABLATION STUDY CHO LLM
+
+Đây là phần cực kỳ quan trọng.
+
+So sánh tối thiểu:
+
+```text
+A = Systematic strategy only
+
+B = Systematic + Risk Management
+
+C = Systematic + LLM
+
+D = Systematic + Multi-Agent
+
+E = Full system
+```
+
+Tất cả phải sử dụng:
+
+* cùng dataset;
+* cùng period;
+* cùng execution model;
+* cùng fees;
+* cùng slippage;
+* cùng risk constraints.
+
+Báo cáo:
+
+```text
+Return
+Sharpe
+Sortino
+Max DD
+Turnover
+Fees
+Trade count
+```
+
+Mục tiêu là trả lời:
+
+> LLM có thực sự cải thiện risk-adjusted performance không?
+
+Nếu không, không được giả định rằng LLM có alpha.
+
+---
+
+# PHASE 8 — CẢI TIẾN MULTI-AGENT ARCHITECTURE
+
+Không để các agent chỉ nhìn cùng một OHLCV dataset rồi vote với nhau.
+
+Thiết kế lại:
+
+```text
+Technical Alpha
+        │
+Fundamental Alpha
+        │
+Sentiment Alpha
+        │
+Market Regime
+        │
+        ↓
+Alpha Ensemble
+        ↓
+Portfolio Construction
+        ↓
+Risk Gate
+        ↓
+Execution
+```
+
+Mỗi agent phải có:
+
+* input độc lập hoặc khác biệt rõ ràng;
+* output schema;
+* confidence;
+* timestamp;
+* evidence;
+* model version.
+
+Không dùng weighted voting đơn giản nếu các signal có correlation cao.
+
+Tính:
+
+```text
+signal correlation
+agent agreement
+agent disagreement
+information overlap
+```
+
+---
+
+# PHASE 9 — THIẾT KẾ LLM ĐÚNG VAI TRÒ
+
+LLM không nên là nguồn alpha duy nhất.
+
+Ưu tiên để LLM làm:
+
+```text
+market interpretation
+regime interpretation
+news interpretation
+risk explanation
+signal validation
+```
+
+thay vì:
+
+```text
+"BTC BUY hay SELL?"
+```
+
+Sentiment agent phải thực sự sử dụng dữ liệu sentiment nếu có:
+
+```text
+news
+social
+funding
+open interest
+on-chain
+macro
+```
+
+Nếu không có các nguồn này thì gọi chính xác là:
+
+```text
+Market Context Analyst
+```
+
+thay vì:
+
+```text
+Sentiment Analyst
+```
+
+---
+
+# PHASE 10 — PORTFOLIO-LEVEL RISK
+
+Risk không chỉ đánh giá từng position.
+
+Implement:
+
+```text
+portfolio volatility
+correlation
+concentration
+sector/asset exposure
+gross exposure
+net exposure
+leverage
+VaR
+Expected Shortfall
+```
+
+Position sizing phải xét:
+
+```text
+signal confidence
+volatility
+correlation
+portfolio exposure
+drawdown state
+liquidity
+```
+
+Không sử dụng Kelly một cách mù quáng.
+
+Nếu dùng Kelly:
+
+```text
+Full Kelly
+Half Kelly
+Quarter Kelly
+```
+
+phải có stress test.
+
+---
+
+# PHASE 11 — EXECUTION STATE MACHINE
+
+Thiết kế order lifecycle:
+
+```text
+CREATED
+ ↓
+SUBMITTED
+ ↓
+ACKNOWLEDGED
+ ↓
+PARTIALLY_FILLED
+ ↓
+FILLED
+ ↓
+RECONCILED
+```
+
+Failure states:
+
+```text
+REJECTED
+CANCELLED
+TIMEOUT
+UNKNOWN
+```
+
+Phải xử lý:
+
+* duplicate orders;
+* exchange timeout;
+* network failure;
+* partial fill;
+* order cancellation;
+* stale order;
+* retry;
+* idempotency;
+* reconciliation.
+
+Đặc biệt:
+
+> Không bao giờ submit lại order chỉ vì request timeout trước khi kiểm tra order status trên exchange.
+
+---
+
+# PHASE 12 — LIVE/PAPER RECONCILIATION
+
+Định kỳ so sánh:
+
+```text
+Local Position
+vs
+Exchange Position
+```
+
+và:
+
+```text
+Local Orders
+vs
+Exchange Orders
+```
+
+Nếu mismatch:
+
+```text
+HALT TRADING
++
+ALERT
++
+RECONCILE
+```
+
+Thêm:
+
+```text
+stale market data detection
+clock drift detection
+exchange health check
+API rate-limit monitoring
+```
+
+---
+
+# PHASE 13 — OBSERVABILITY
+
+Mỗi trading decision phải trace được:
+
+```text
+market snapshot
+→ indicators
+→ agent outputs
+→ ensemble
+→ risk decision
+→ position sizing
+→ order
+→ execution
+→ fill
+→ PnL
+```
+
+Dùng structured logging.
+
+Mỗi decision có:
+
+```json
+{
+  "timestamp": "...",
+  "symbol": "...",
+  "strategy": "...",
+  "signal": "...",
+  "confidence": 0.0,
+  "regime": "...",
+  "risk_score": 0.0,
+  "position_size": 0.0,
+  "order_id": "...",
+  "model_version": "..."
+}
+```
+
+---
+
+# PHASE 14 — TESTING
+
+Tăng test theo các tầng:
+
+```text
+Unit tests
+Integration tests
+Property-based tests
+Backtest regression tests
+Execution simulation tests
+Failure-injection tests
+```
+
+Đặc biệt test:
+
+```text
+NaN data
+missing candles
+duplicate candles
+out-of-order candles
+exchange timeout
+partial fill
+duplicate order
+negative balance
+extreme volatility
+flash crash
+API failure
+stale data
+```
+
+Thêm invariant tests:
+
+```text
+cash >= 0
+position size <= max_position
+risk exposure <= limit
+no duplicate order
+portfolio accounting balances
+```
+
+---
+
+# PHASE 15 — DATA QUALITY
+
+Xây data validation layer:
+
+```text
+timestamp continuity
+duplicate detection
+OHLC validity
+volume validity
+timezone normalization
+missing candle detection
+symbol mapping
+exchange-specific anomalies
+```
+
+Không cho backtest chạy nếu data quality check fail.
+
+Lưu:
+
+```text
+dataset version
+dataset hash
+source exchange
+download timestamp
+time range
+timeframe
+```
+
+---
+
+# PHASE 16 — SIMPLIFY THE ROADMAP
+
+Tạm thời KHÔNG ưu tiên:
+
+* thêm nhiều exchange;
+* DEX;
+* options;
+* RL;
+* MAML;
+* multi-region Kubernetes;
+* marketplace;
+* quá nhiều LLM providers.
+
+Chỉ triển khai chúng sau khi:
+
+```text
+1. Backtest correctness
+2. OOS alpha
+3. Cost realism
+4. LLM ablation
+5. Execution correctness
+6. Paper trading validation
+```
+
+đã đạt yêu cầu.
+
+Nguyên tắc:
+
+> Depth before breadth.
+
+---
+
+# PHASE 17 — PAPER TRADING GATE
+
+Trước live trading phải có gate:
+
+```text
+Backtest
+   ↓
+Walk-forward
+   ↓
+OOS
+   ↓
+Stress Test
+   ↓
+Paper Trading
+   ↓
+Reconciliation
+   ↓
+Small Capital
+   ↓
+Production
+```
+
+Không tự động chuyển sang live.
+
+---
+
+# DEFINITION OF DONE
+
+Project chỉ được coi là đạt mục tiêu khi có thể trả lời rõ:
+
+### Quant
+
+* Strategy có OOS alpha không?
+* Sharpe OOS là bao nhiêu?
+* Max DD?
+* Cost-adjusted return?
+* Alpha có tồn tại qua nhiều market regimes không?
+* Parameter có robust không?
+
+### LLM
+
+* LLM ON vs OFF khác nhau thế nào?
+* Multi-agent có tốt hơn single-agent không?
+* LLM đóng góp alpha hay chỉ explanation?
+* LLM latency/cost có đáng không?
+
+### Risk
+
+* Portfolio DD limit hoạt động đúng không?
+* Circuit breaker có thực sự halt trading không?
+* Position sizing có stress-tested không?
+
+### Execution
+
+* Partial fill xử lý đúng không?
+* Duplicate order có thể xảy ra không?
+* Timeout có gây double position không?
+* Local/exchange reconciliation hoạt động không?
+
+### Reproducibility
+
+Một người khác clone repository và chạy:
+
+```bash
+pytest
+```
+
+và:
+
+```bash
+backtest --experiment <id>
+```
+
+phải có khả năng tái tạo kết quả với sai số chấp nhận được.
+
+---
+
+# OUTPUT FORMAT BẮT BUỘC
+
+Sau khi audit repository:
+
+1. Tạo `AUDIT_REPORT.md`.
+2. Tạo `IMPROVEMENT_PLAN.md`.
+3. Liệt kê toàn bộ P0/P1/P2/P3.
+4. Chỉ ra file/class/function cần sửa.
+5. Giải thích nguyên nhân và tác động.
+6. Ưu tiên sửa P0 trước.
+7. Sau mỗi thay đổi chạy test.
+8. Không phá vỡ API hiện tại nếu không cần thiết.
+9. Không thêm dependency nếu chưa thực sự cần.
+10. Không tuyên bố strategy có alpha nếu chưa có OOS evidence.
+
+Quan trọng nhất:
+
+**Đừng cố làm project “to hơn”. Hãy làm nó “đáng tin hơn”.**
+
+Mục tiêu cuối cùng là biến LearnTradeAgent từ:
+
+```text
+LLM Trading Demo / Large Feature Set
+```
+
+thành:
+
+```text
+Reproducible Quant Research Platform
+        +
+Reliable Risk Engine
+        +
+Correct Execution Engine
+        +
+Measurable LLM Contribution
+```
+
+Mọi quyết định engineering phải ưu tiên 4 yếu tố:
+
+**Correctness > Reproducibility > Evidence > Features**

@@ -164,6 +164,15 @@ def enrich_with_atr(
     This pre-computes ATR and stores it in the parquet file, so downstream
     consumers (paper exchange, risk controller) don't need to compute it
     on-demand.
+
+    ⚠️  WARNING FOR BACKTESTING:
+    This computes ATR using high/low/close of the SAME bar (t).
+    If used for backtesting, position sizing at bar t would use ATR[t]
+    which is ONLY known after bar t closes — LOOK-AHEAD BIAS.
+    
+    For backtesting, DO NOT use pre-enriched ATR. Instead, compute ATR
+    on-the-fly in the strategy/engine with shift(1) so ATR[t-1] is used
+    for bar t's position sizing.
     """
     path = _table_path(exchange, symbol, timeframe)
     if not path.exists():

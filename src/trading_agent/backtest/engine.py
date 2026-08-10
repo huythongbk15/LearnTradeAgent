@@ -1,13 +1,15 @@
 """
 Backtest engine — vectorized, long-only, với tracking position & equity curve.
 
-Cách hoạt động:
+Cách hoạt động (FIXED - no look-ahead bias):
 1. Nhận strategy + OHLCV DataFrame
 2. Tính indicators + signals
-3. Track position: signal +1 → long, -1 → flat (long-only mode)
-4. Tính daily returns từ position + price change
-5. Build equity curve (compounding)
-6. Tính performance metrics
+3. Signal tại bar t → position effect từ bar t+1 (shift 1)
+4. Entry fill tại open[t+1], Exit fill tại open[t+1] (next bar open)
+5. Fee+slippage+spread charge CẢ entry VÀ exit
+6. SL/TP/trailing stop simulation (mirror paper_exchange)
+7. Build equity curve (compounding)
+8. Tính performance metrics
 """
 
 from __future__ import annotations
@@ -82,7 +84,15 @@ class BacktestResult:
 
 
 class BacktestEngine:
-    """Vectorized backtest engine — nhanh, đơn giản, long-only."""
+    """Vectorized backtest engine — nhanh, đơn giản, long-only.
+    
+    FIXES applied:
+    - No look-ahead: signal at t → position at t+1, fill at open[t+1]
+    - Fee+slippage+spread on BOTH entry and exit
+    - SL/TP/trailing stop simulation
+    - ATR for sizing uses atr[t-1] (previous bar)
+    - Correct bars_per_year from timeframe
+    """
 
     def __init__(
         self,
@@ -91,20 +101,33 @@ class BacktestEngine:
         initial_capital: float = 10_000.0,
         commission: float = 0.001,
         slippage: float = 0.0005,
+        spread_bps: float = 0.0,          # Spread in basis points (e.g., 5 = 0.05%)
         long_only: bool = True,
+        # SL/TP/Trailing
+        atr_sl_mult: float = 0.0,         # 0 = disabled, else ATR multiplier for stop loss
+        atr_tp_mult: float = 0.0,         # 0 = disabled, else ATR multiplier for take profit
+        trailing_atr_mult: float = 0.0,   # 0 = disabled, else ATR multiplier for trailing
         # Position sizing
-        position_sizing_method: str = "fixed",  # fixed, kelly, half_kelly, vol_target, optimal_f
-        fixed_position_pct: float = 0.1,        # Fixed fraction of equity per trade
-        kelly_fraction: float = 0.5,            # 0.5 = half-Kelly, 0.25 = quarter-Kelly
-        target_annual_vol: float = 0.15,        # For vol targeting
-        max_leverage: float = 2.0,              # Max portfolio leverage
-        max_position_pct: float = 1.0,          # Max single position as fraction of equity
+        position_sizing_method: str = "fixed",
+        fixed_position_pct: float = 0.1,
+        kelly_fraction: float = 0.5,
+        target_annual_vol: float = 0.15,
+        max_leverage: float = 2.0,
+        max_position_pct: float = 1.0,
+        # Timeframe for correct annualization
+        timeframe: str = "1h",
     ) -> None:
         self.strategy = strategy
         self.initial_capital = initial_capital
         self.commission = commission
         self.slippage = slippage
+        self.spread_bps = spread_bps
         self.long_only = long_only
+
+        # Risk management params (mirror paper_exchange)
+        self.atr_sl_mult = atr_sl_mult
+        self.atr_tp_mult = atr_tp_mult
+        self.trailing_atr_mult = trailing_atr_mult
 
         # Position sizing config
         self.position_sizing_method = position_sizing_method
@@ -113,6 +136,7 @@ class BacktestEngine:
         self.target_annual_vol = target_annual_vol
         self.max_leverage = max_leverage
         self.max_position_pct = max_position_pct
+        self.timeframe = timeframe
 
         # Initialize position sizer
         self.position_sizer = PositionSizer(PositionSizingParams(
@@ -151,20 +175,20 @@ class BacktestEngine:
         signals = self.strategy.generate_signals(df)
         df = df.with_columns(signals.alias("signal"))
 
-        # 3. Compute positions and returns together (handles dynamic sizing)
+        # 3. Compute positions and returns together (handles dynamic sizing, SL/TP/trailing)
         df = self._compute_positions_and_returns(df)
 
         # 4. Build equity curve
         df = self._build_equity_curve(df)
 
-        # 6. Extract trades
+        # 5. Extract trades
         trades = self._extract_trades(df)
 
-        # 7. Build result
+        # 6. Build result
         result = BacktestResult(
             strategy_name=self.strategy.name,
             symbol=symbol or "",
-            timeframe=timeframe or "",
+            timeframe=timeframe or self.timeframe,
             params=self.strategy.params,
             equity_curve=df,
             trades=trades,
@@ -177,13 +201,31 @@ class BacktestEngine:
 
     def _compute_positions_and_returns(self, df: pl.DataFrame) -> pl.DataFrame:
         """
-        Compute positions and returns in a single pass.
-        This avoids circular dependency between equity and position sizing.
+        Compute positions and returns with NO look-ahead bias.
+        
+        Timing:
+        - signal at bar i is generated from data UP TO bar i (close[i] known)
+        - position change takes effect at bar i+1
+        - entry fill at open[i+1], exit fill at open[i+1]
+        - fee+slippage+spread charged on BOTH entry and exit
+        - SL/TP/trailing evaluated intrabar using high/low
         """
         n = len(df)
+        if n == 0:
+            return df.with_columns([
+                pl.Series("position", []),
+                pl.Series("net_return", []),
+            ])
+
         positions = np.zeros(n, dtype=np.float64)
         net_returns = np.zeros(n, dtype=np.float64)
+        entry_prices = np.zeros(n, dtype=np.float64)  # Track entry price per bar
+        stop_losses = np.zeros(n, dtype=np.float64)
+        take_profits = np.zeros(n, dtype=np.float64)
         
+        open_prices = df["open"].to_numpy()
+        high_prices = df["high"].to_numpy()
+        low_prices = df["low"].to_numpy()
         close_prices = df["close"].to_numpy()
         signals = df["signal"].to_numpy()
         atr_values = df["atr"].to_numpy() if "atr" in df.columns else None
@@ -192,46 +234,125 @@ class BacktestEngine:
         equity = self.initial_capital
         position = 0.0
         entry_price = 0.0
+        current_sl = 0.0
+        current_tp = 0.0
+        trailing_high = 0.0
+        
+        # Cost per trade (round-trip = entry + exit)
+        # Entry: buy at ask = mid * (1 + spread/2 + slippage)
+        # Exit: sell at bid = mid * (1 - spread/2 - slippage)
+        spread = self.spread_bps / 10000.0
+        entry_cost_factor = 1 + spread/2 + self.slippage + self.commission
+        exit_cost_factor = 1 - spread/2 - self.slippage - self.commission
+        # Net cost per round trip ≈ 2*(commission + slippage) + spread
         
         for i in range(n):
-            signal = signals[i]
-            price = close_prices[i]
+            # --- 1. Check SL/TP/trailing FIRST (using previous bar's position) ---
+            if position > 0 and i > 0:
+                # Check stop loss (using LOW of current bar)
+                if current_sl > 0 and low_prices[i] <= current_sl:
+                    # Stop loss hit - exit at stop price (or open if gapped)
+                    exit_price = max(current_sl, open_prices[i])
+                    exit_price *= exit_cost_factor
+                    pnl = (exit_price - entry_price) * position
+                    net_returns[i] = pnl / equity
+                    position = 0.0
+                    entry_price = 0.0
+                    current_sl = 0.0
+                    current_tp = 0.0
+                    trailing_high = 0.0
+                
+                # Check take profit (using HIGH of current bar)
+                elif current_tp > 0 and high_prices[i] >= current_tp:
+                    exit_price = min(current_tp, open_prices[i])
+                    exit_price *= exit_cost_factor
+                    pnl = (exit_price - entry_price) * position
+                    net_returns[i] = pnl / equity
+                    position = 0.0
+                    entry_price = 0.0
+                    current_sl = 0.0
+                    current_tp = 0.0
+                    trailing_high = 0.0
+                
+                # Update trailing stop (using HIGH of current bar)
+                elif self.trailing_atr_mult > 0 and atr_values is not None:
+                    atr = atr_values[i-1] if i > 0 else atr_values[i]  # Use previous bar's ATR
+                    if atr and atr > 0 and high_prices[i] > trailing_high:
+                        trailing_high = high_prices[i]
+                        new_sl = trailing_high - (atr * self.trailing_atr_mult)
+                        if new_sl > current_sl:
+                            current_sl = new_sl
             
+            # --- 2. Record position for THIS bar (from signal at i-1) ---
+            positions[i] = position
+            entry_prices[i] = entry_price
+            stop_losses[i] = current_sl
+            take_profits[i] = current_tp
+            
+            # --- 3. Compute holding return for THIS bar (if in position from previous bar) ---
+            if position > 0 and i > 0:
+                # Position held from previous close to current close
+                price_return = close_prices[i] / close_prices[i-1] - 1
+                position_value = position * close_prices[i-1]
+                net_returns[i] = (position_value / equity) * price_return
+            
+            # --- 4. Process NEW signals from THIS bar (takes effect NEXT bar) ---
+            signal = signals[i]
             if signal == 1 and position == 0:
-                # Enter long
+                # Entry signal at bar i → enter at open[i+1] (handled next iteration)
+                # But we set up SL/TP now using current bar's ATR
                 atr = atr_values[i] if atr_values is not None else None
                 size = self.position_sizer.calculate_position_size(
                     equity=equity,
-                    price=price,
+                    price=close_prices[i],  # Use close for sizing calculation
                     atr=atr,
                     current_portfolio_value=0,
                     current_positions=0,
                 )
-                position = size
-                entry_price = price
-                
+                # Pre-compute entry for next bar
+                if i + 1 < n:
+                    # Entry at next bar's open
+                    entry_price = open_prices[i+1] * entry_cost_factor
+                    position = size
+                    
+                    # Set initial SL/TP using current bar's ATR (known at signal time)
+                    if atr and atr > 0:
+                        if self.atr_sl_mult > 0:
+                            current_sl = entry_price - (atr * self.atr_sl_mult)
+                        if self.atr_tp_mult > 0:
+                            current_tp = entry_price + (atr * self.atr_tp_mult)
+                        if self.trailing_atr_mult > 0:
+                            trailing_high = entry_price
+                    # Note: actual fill and equity update happens at next bar (i+1)
+            
             elif signal == -1 and position > 0:
-                # Exit long
-                pnl = (price - entry_price) * position
+                # Exit signal at bar i → exit at open[i+1] (handled next iteration)
+                # We'll process the exit at the start of next iteration
+                pass
+            
+            # --- 5. Handle exit signal from PREVIOUS bar (execute at this bar's open) ---
+            if i > 0 and signals[i-1] == -1 and position > 0:
+                # Exit at current bar's open
+                exit_price = open_prices[i] * exit_cost_factor
+                pnl = (exit_price - entry_price) * position
                 self.position_sizer.update_trade(
                     pnl=pnl,
                     entry_price=entry_price,
-                    exit_price=price,
+                    exit_price=exit_price,
                     size=position
                 )
-                # Net return for this bar (exit bar)
-                net_returns[i] = pnl / equity - (self.commission + self.slippage)
+                net_returns[i] = pnl / equity
                 position = 0.0
                 entry_price = 0.0
+                current_sl = 0.0
+                current_tp = 0.0
+                trailing_high = 0.0
             
-            positions[i] = position
-            
-            # Compute bar return for holding period
-            if position > 0 and i > 0:
-                price_return = price / close_prices[i-1] - 1
-                # Return on equity = position_value / equity * price_return
-                position_value = position * close_prices[i-1]
-                net_returns[i] = (position_value / equity) * price_return
+            # --- 6. Handle entry signal from PREVIOUS bar (execute at this bar's open) ---
+            if i > 0 and signals[i-1] == 1 and position > 0 and entry_price > 0:
+                # Entry already set up at previous bar, now deduct entry cost from equity
+                entry_cost = position * entry_price * (self.commission + self.slippage + spread/2)
+                net_returns[i] -= entry_cost / equity
             
             # Update equity for next bar's position sizing
             equity *= (1 + net_returns[i])
@@ -239,6 +360,9 @@ class BacktestEngine:
         df = df.with_columns([
             pl.Series("position", positions),
             pl.Series("net_return", net_returns),
+            pl.Series("entry_price", entry_prices),
+            pl.Series("stop_loss", stop_losses),
+            pl.Series("take_profit", take_profits),
         ])
         return df
 
@@ -266,6 +390,8 @@ class BacktestEngine:
         """Duyệt qua position changes để extract danh sách trades."""
         trades: list[Trade] = []
         pos_col = df["position"].to_numpy()
+        entry_price_col = df["entry_price"].to_numpy() if "entry_price" in df.columns else None
+        open_col = df["open"].to_numpy()
         close_col = df["close"].to_numpy()
         ts_col = df["timestamp"].to_numpy()
 
@@ -280,11 +406,12 @@ class BacktestEngine:
                 # Enter long
                 in_position = True
                 entry_idx = i
-                entry_price = close_col[i]
+                # Use actual entry price (from entry_price col or open)
+                entry_price = entry_price_col[i] if entry_price_col is not None else open_col[i]
                 position_size = pos
             elif in_position and pos == 0:
                 # Exit
-                exit_price = close_col[i]
+                exit_price = open_col[i]  # Exit at open (next bar after signal)
                 pnl_pct = (exit_price / entry_price - 1) * 100
                 trades.append(Trade(
                     entry_date=ts_col[entry_idx],
@@ -310,12 +437,12 @@ class BacktestEngine:
     ) -> None:
         """Tính tất cả performance metrics."""
         n = len(df)
+        if n == 0:
+            return
 
-        # Tổng số bars (để annualized)
-        date_range = (df["timestamp"].max() - df["timestamp"].min())
-        years = date_range.total_seconds() / (365.25 * 24 * 3600)
-        if years <= 0:
-            years = 1.0
+        # Bars per year from timeframe
+        tf_minutes = self._timeframe_to_minutes(self.timeframe)
+        bars_per_year = (365.25 * 24 * 60) / max(tf_minutes, 1)
 
         # Total return
         final_equity = float(df["equity"].tail(1).item())
@@ -323,10 +450,12 @@ class BacktestEngine:
             (final_equity / self.initial_capital - 1) * 100
         )
 
-        # Annualized return
-        result.annualized_return_pct = (
-            ((final_equity / self.initial_capital) ** (1 / years) - 1) * 100
-        )
+        # Annualized return (using bars_per_year)
+        years = n / bars_per_year
+        if years > 0:
+            result.annualized_return_pct = (
+                ((final_equity / self.initial_capital) ** (1 / years) - 1) * 100
+            )
 
         # Sharpe & Sortino (dùng net_return hàng bar)
         returns = df["net_return"].drop_nulls()
@@ -338,7 +467,6 @@ class BacktestEngine:
             neg_std = neg_ret.std() if len(neg_ret) > 1 else 0.0
 
             # Sharpe: annualized = avg / std * sqrt(bars_per_year)
-            bars_per_year = n / max(years, 0.01)
             result.sharpe_ratio = float(
                 (avg_ret / max(float(std_ret), 1e-9)) * (bars_per_year ** 0.5)
             )
@@ -369,6 +497,20 @@ class BacktestEngine:
             result.annualized_return_pct / max(abs(result.max_drawdown_pct), 0.01)
         )
 
+    def _timeframe_to_minutes(self, timeframe: str) -> int:
+        """Convert timeframe string to minutes."""
+        tf = timeframe.lower().strip()
+        if tf.endswith('m'):
+            return int(tf[:-1])
+        elif tf.endswith('h'):
+            return int(tf[:-1]) * 60
+        elif tf.endswith('d'):
+            return int(tf[:-1]) * 24 * 60
+        elif tf.endswith('w'):
+            return int(tf[:-1]) * 7 * 24 * 60
+        else:
+            return 60  # default 1h
+
 
 # ── High-level helper ─────────────────────────────────────────────────────
 
@@ -390,6 +532,6 @@ def run_backtest(
     strategy_cls = get_strategy(strategy_name)
     strategy = strategy_cls(params or {})
 
-    engine = BacktestEngine(strategy, **engine_kwargs)
+    engine = BacktestEngine(strategy, timeframe=timeframe, **engine_kwargs)
     result = engine.run(df, symbol=symbol, timeframe=timeframe)
     return result

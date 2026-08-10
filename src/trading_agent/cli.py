@@ -515,6 +515,9 @@ def list_strategies_cmd():
 @click.option("--commission", default=None, type=float, help="Commission rate (default from config)")
 @click.option("--slippage", default=None, type=float, help="Slippage rate (default from config)")
 @click.option("--long-only/--long-short", default=True, help="Long-only mode")
+@click.option("--llm/--no-llm", default=False, help="Enable LLM agents in backtest (deterministic mode)")
+@click.option("--llm-provider", default="opencode", help="LLM provider for backtest (opencode, deepseek, openai, ollama)")
+@click.option("--llm-model", default="deepseek-v4-flash-free", help="LLM model for backtest")
 def run_backtest_cmd(
     strategy_name: str,
     symbol: str,
@@ -527,6 +530,9 @@ def run_backtest_cmd(
     commission: float | None,
     slippage: float | None,
     long_only: bool,
+    llm: bool,
+    llm_provider: str,
+    llm_model: str,
 ):
     """Run a backtest for a strategy on a symbol."""
     from trading_agent.backtest.engine import run_backtest
@@ -545,6 +551,12 @@ def run_backtest_cmd(
                 param_dict[k] = int(v)
         except ValueError:
             param_dict[k] = v
+
+    # Add LLM params to strategy params
+    if llm:
+        param_dict["use_llm"] = True
+        param_dict["llm_provider"] = llm_provider
+        param_dict["llm_model"] = llm_model
 
     engine_kwargs = {}
     if capital is not None:
@@ -677,19 +689,30 @@ def agents():
 @click.option("--capital", "-c", default=10000.0, type=float,
               help="Portfolio value")
 @click.option("--quiet", "-q", is_flag=True, help="Only print final signal")
+@click.option("--ablation", type=click.Choice(["A", "B", "C", "D"]), default="A",
+              help="Ablation preset: A=all agents, B=no sentiment, C=no risk override, D=technical only")
 def analyze_signal(
     symbol: str,
     timeframe: str,
     position: float,
     capital: float,
     quiet: bool,
+    ablation: str,
 ):
-    """Run multi-agent AI analysis on a symbol."""
+    """Run multi-agent AI analysis on a symbol with ablation support.
+    
+    Ablation presets:
+    - A: All agents (baseline)
+    - B: Technical + Risk (no Sentiment)
+    - C: Technical + Sentiment + Risk (no Risk override)
+    - D: Technical only (no Sentiment, no Risk)
+    """
     from trading_agent.agents.orchestrator import Orchestrator, print_report
 
     console.print(f"Running multi-agent analysis on [bold]{symbol}[/bold] {timeframe}…")
+    console.print(f"Ablation preset: [bold]{ablation}[/bold]")
 
-    orchestrator = Orchestrator()
+    orchestrator = Orchestrator(ablation_preset=ablation)
     try:
         report = orchestrator.analyze(
             symbol=symbol,

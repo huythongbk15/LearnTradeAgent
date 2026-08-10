@@ -80,6 +80,16 @@ class SentimentAnalyst(BaseAgent):
         if extra.get("volatility_20"):
             prompt_lines.append(f"20-bar volatility: {extra['volatility_20']:.2f}%")
 
+        # ── Alt-data for LLM ───────────────────────────────────────────
+        if extra.get("funding_rate") is not None:
+            prompt_lines.append(f"Funding Rate: {extra['funding_rate']:.6f} ({extra['funding_rate']*100:.4f}%)")
+        if extra.get("open_interest") is not None:
+            prompt_lines.append(f"Open Interest: {extra['open_interest']:,.0f}")
+        if extra.get("buy_pressure") is not None:
+            prompt_lines.append(f"Buy Pressure: {extra['buy_pressure']:.2%} | Sell Pressure: {extra.get('sell_pressure', 0):.2%}")
+        if extra.get("cvd_short_window") is not None:
+            prompt_lines.append(f"CVD (short): {extra['cvd_short_window']:.2f}")
+
         prompt_lines.append("")
         prompt_lines.append("What is the market sentiment based on this data? "
                             "Is fear or greed dominating right now?")
@@ -97,6 +107,9 @@ class SentimentAnalyst(BaseAgent):
                     "sentiment": result.get("details", {}).get("sentiment", "neutral"),
                     "momentum_strength": result.get("details", {}).get("momentum_strength", "weak"),
                     "volume_insight": result.get("details", {}).get("volume_insight", ""),
+                    "funding_rate": extra.get("funding_rate"),
+                    "buy_pressure": extra.get("buy_pressure"),
+                    "cvd": extra.get("cvd_short_window"),
                 },
             )
         except Exception as e:
@@ -109,6 +122,13 @@ class SentimentAnalyst(BaseAgent):
         """Rule-based sentiment when LLM unavailable."""
         rsi = ind.get("rsi", 50)
         extra = ind.get("_extra", {})
+
+        # ── Alt-data: funding, OI, CVD ─────────────────────────────────
+        funding_rate = extra.get("funding_rate", 0.0)  # e.g., 0.0001 = 0.01%
+        buy_pressure = extra.get("buy_pressure", 0.5)
+        sell_pressure = extra.get("sell_pressure", 0.5)
+        cvd = extra.get("cvd_short_window", 0.0)
+        open_interest = extra.get("open_interest", None)
 
         # Determine sentiment from trend + RSI
         # Trend-aware: khi MA20 < MA50 (downtrend) thì sentiment bearish
@@ -172,6 +192,54 @@ class SentimentAnalyst(BaseAgent):
                 confidence = 0.35
                 reasoning = f"Moderate bearish sentiment (RSI {rsi:.0f}) — slight bargain hunting"
 
+        # ── Adjust confidence/signal based on alt-data ───────────────────
+        alt_notes = []
+        
+        # Funding rate interpretation
+        if abs(funding_rate) > 0.0005:  # > 0.05%
+            if funding_rate > 0:
+                # Positive funding = longs pay shorts = crowded longs = risk
+                if signal == "BUY":
+                    confidence *= 0.7
+                    alt_notes.append(f"funding {funding_rate:.4%} (crowded longs)")
+                elif signal == "SELL":
+                    confidence *= 1.2
+                    alt_notes.append(f"funding {funding_rate:.4%} (shorts favored)")
+            else:
+                # Negative funding = shorts pay longs = crowded shorts = risk
+                if signal == "SELL":
+                    confidence *= 0.7
+                    alt_notes.append(f"funding {funding_rate:.4%} (crowded shorts)")
+                elif signal == "BUY":
+                    confidence *= 1.2
+                    alt_notes.append(f"funding {funding_rate:.4%} (longs favored)")
+
+        # Buy/Sell pressure
+        if buy_pressure > 0.65:
+            if signal == "BUY":
+                confidence *= 1.1
+                alt_notes.append(f"buy pressure {buy_pressure:.0%}")
+            elif signal == "SELL":
+                confidence *= 0.85
+                alt_notes.append(f"buy pressure {buy_pressure:.0%} (divergence)")
+        elif sell_pressure > 0.65:
+            if signal == "SELL":
+                confidence *= 1.1
+                alt_notes.append(f"sell pressure {sell_pressure:.0%}")
+            elif signal == "BUY":
+                confidence *= 0.85
+                alt_notes.append(f"sell pressure {sell_pressure:.0%} (divergence)")
+
+        # CVD
+        if abs(cvd) > 0:
+            if cvd > 0 and signal == "SELL":
+                confidence *= 0.9
+                alt_notes.append("positive CVD (buying)")
+            elif cvd < 0 and signal == "BUY":
+                confidence *= 0.9
+                alt_notes.append("negative CVD (selling)")
+
+        # Volume momentum
         momentum = "weak"
         vol_ratio = extra.get("volume_ratio_5_20", 1.0)
         if isinstance(vol_ratio, (int, float)):
@@ -179,6 +247,14 @@ class SentimentAnalyst(BaseAgent):
                 momentum = "strong"
             elif vol_ratio > 1.2:
                 momentum = "moderate"
+
+        # Cap confidence
+        confidence = min(max(confidence, 0.1), 0.9)
+
+        reasoning_parts = [reasoning]
+        if alt_notes:
+            reasoning_parts.append("Alt-data: " + "; ".join(alt_notes))
+        reasoning = " | ".join(reasoning_parts)
 
         return AgentMessage(
             role="sentiment_analyst",
@@ -189,5 +265,8 @@ class SentimentAnalyst(BaseAgent):
                 "sentiment": sentiment,
                 "momentum_strength": momentum,
                 "volume_insight": f"Volume ratio: {vol_ratio:.2f}x",
+                "funding_rate": funding_rate,
+                "buy_pressure": buy_pressure,
+                "cvd": cvd,
             },
         )

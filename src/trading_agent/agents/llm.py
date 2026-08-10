@@ -486,3 +486,117 @@ Rules:
             return _json_fallback(system_prompt, user_prompt)
 
 # ─── End USE_LLM conditional block ───
+
+
+# ── Deterministic Backtest Mode ────────────────────────────────────────────
+
+_BACKTEST_MODE = False
+_BACKTEST_CONFIG: dict[str, Any] = {}
+
+
+def enable_backtest_mode(
+    provider: str = "opencode",
+    model: str = "deepseek-v4-flash-free",
+    temperature: float = 0.0,
+    max_tokens: int = 500,
+    seed: int = 0,
+    use_cache: bool = False,
+) -> None:
+    """
+    Enable deterministic LLM mode for backtesting.
+    
+    This forces:
+    - Fixed provider/model (no fallback chain)
+    - Temperature = 0 (deterministic)
+    - Fixed seed (if supported by provider)
+    - No caching (to ensure reproducibility)
+    - Single attempt per call
+    
+    Args:
+        provider: LLM provider to use (default: opencode for free tier)
+        model: Model name
+        temperature: Must be 0 for deterministic output
+        max_tokens: Token limit
+        seed: Random seed (0 = deterministic if provider supports it)
+        use_cache: False to disable caching
+    """
+    global _BACKTEST_MODE, _BACKTEST_CONFIG
+    _BACKTEST_MODE = True
+    _BACKTEST_CONFIG = {
+        "provider": provider,
+        "model": model,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+        "seed": seed,
+        "use_cache": use_cache,
+        "timeout": 30,
+    }
+    logger.info(f"LLM backtest mode enabled: {provider}/{model}, temp={temperature}, seed={seed}")
+
+
+def disable_backtest_mode() -> None:
+    """Disable deterministic backtest mode."""
+    global _BACKTEST_MODE
+    _BACKTEST_MODE = False
+    logger.info("LLM backtest mode disabled")
+
+
+def is_backtest_mode() -> bool:
+    """Check if backtest mode is active."""
+    return _BACKTEST_MODE
+
+
+def backtest_chat(
+    messages: list[dict[str, str]],
+    **kwargs,
+) -> LLMResponse:
+    """
+    Chat completion in deterministic backtest mode.
+    
+    Ignores fallback chain, uses fixed provider/model, temperature=0, no cache.
+    """
+    if not _BACKTEST_MODE:
+        return chat(messages, **kwargs)
+    
+    cfg = _BACKTEST_CONFIG.copy()
+    cfg.update(kwargs)  # Allow override of some params
+    return chat(
+        messages,
+        provider=cfg["provider"],
+        model=cfg["model"],
+        temperature=cfg["temperature"],
+        max_tokens=cfg["max_tokens"],
+        timeout=cfg["timeout"],
+        use_cache=cfg["use_cache"],
+    )
+
+
+def backtest_ask_agent(
+    system_prompt: str,
+    user_prompt: str,
+    **kwargs,
+) -> dict[str, Any]:
+    """Structured output in deterministic backtest mode."""
+    if not _BACKTEST_MODE:
+        return ask_agent(system_prompt, user_prompt, **kwargs)
+    
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt},
+    ]
+    
+    try:
+        response = backtest_chat(messages, **kwargs)
+        text = response.content.strip()
+        if text.startswith("```"):
+            text = text.split("\n", 1)[1] if "\n" in text else text[3:]
+            if "```" in text:
+                text = text.split("```")[0]
+        start = text.find("{")
+        end = text.rfind("}")
+        if start >= 0 and end > start:
+            text = text[start:end + 1]
+        return json.loads(text)
+    except (json.JSONDecodeError, LLMError) as e:
+        logger.warning(f"Backtest LLM parsing failed ({e}), returning fallback")
+        return _json_fallback(system_prompt, user_prompt)

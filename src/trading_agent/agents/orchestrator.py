@@ -11,8 +11,10 @@ Flow:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any
+import json
+import numpy as np
+from dataclasses import dataclass, field
+from typing import Any, Literal
 
 import polars as pl
 from rich.console import Console
@@ -26,6 +28,7 @@ from trading_agent.agents.sentiment import SentimentAnalyst
 from trading_agent.agents.technical import TechnicalAnalyst
 from trading_agent.agents.trader import Trader
 from trading_agent.config.loader import config
+from trading_agent.data.onchain import fetch_funding_rate, fetch_open_interest, fetch_recent_trades_pressure
 from trading_agent.data.storage import load_ohlcv
 from trading_agent.log_config import get_logger
 from trading_agent.strategies.bbands import BBandsStrategy
@@ -34,6 +37,199 @@ from trading_agent.strategies.rsi import RsiStrategy
 from trading_agent.risk.position_sizer import PositionSizer, PositionSizingParams
 
 logger = get_logger(__name__)
+
+
+# ─── Ablation Harness ─────────────────────────────────────────────────────
+
+class AblationConfig:
+    """Configuration for agent ablation experiments.
+    
+    A/B/C/D systematic toggle:
+    - A: All agents (baseline)
+    - B: Technical + Risk (no Sentiment)
+    - C: Technical + Sentiment (no Risk override)
+    - D: Technical only (no Sentiment, no Risk)
+    """
+    
+    PRESETS = {
+        "A": {"technical": True, "sentiment": True, "risk": True, "risk_override": True},
+        "B": {"technical": True, "sentiment": False, "risk": True, "risk_override": True},
+        "C": {"technical": True, "sentiment": True, "risk": True, "risk_override": False},
+        "D": {"technical": True, "sentiment": False, "risk": False, "risk_override": False},
+    }
+    
+    def __init__(self, preset: Literal["A", "B", "C", "D"] | dict = "A"):
+        if isinstance(preset, str):
+            self.config = self.PRESETS.get(preset, self.PRESETS["A"])
+            self.preset_name = preset
+        else:
+            self.config = preset
+            self.preset_name = "custom"
+    
+    def should_run(self, agent: str) -> bool:
+        return self.config.get(agent, True)
+    
+    def should_override_risk(self) -> bool:
+        return self.config.get("risk_override", True)
+
+
+class AgentCorrelationTracker:
+    """Track rolling correlation between agent signals for diversification discount."""
+    
+    def __init__(self, window: int = 50):
+        self.window = window
+        self.signal_history: dict[str, list[float]] = {
+            "technical_analyst": [],
+            "sentiment_analyst": [],
+            "risk_manager": [],
+        }
+    
+    def update(self, messages: list[AgentMessage]) -> None:
+        """Add new signals to history."""
+        for msg in messages:
+            if msg.role in self.signal_history:
+                signal_val = {"BUY": 1.0, "SELL": -1.0, "HOLD": 0.0}.get(msg.signal, 0.0)
+                self.signal_history[msg.role].append(signal_val * msg.confidence)
+                # Keep only window
+                if len(self.signal_history[msg.role]) > self.window:
+                    self.signal_history[msg.role].pop(0)
+    
+    def get_correlation_matrix(self) -> np.ndarray | None:
+        """Compute rolling correlation matrix between agent signals.
+        
+        Returns 3x3 matrix or None if insufficient data.
+        """
+        # Check if all agents have enough history
+        if any(len(v) < 10 for v in self.signal_history.values()):
+            return None
+        
+        # Align to shortest length
+        min_len = min(len(v) for v in self.signal_history.values())
+        if min_len < 10:
+            return None
+        
+        signals = np.array([
+            self.signal_history["technical_analyst"][-min_len:],
+            self.signal_history["sentiment_analyst"][-min_len:],
+            self.signal_history["risk_manager"][-min_len:],
+        ])
+        
+        # Compute correlation
+        try:
+            corr = np.corrcoef(signals)
+            return corr
+        except Exception:
+            return None
+    
+    def get_diversification_discount(self) -> float:
+        """Calculate diversification discount based on signal correlations.
+        
+        High correlation = low diversification = higher discount (reduce weight)
+        Low correlation = high diversification = lower discount (keep weight)
+        
+        Returns discount factor in [0.5, 1.0] to apply to ensemble weights.
+        """
+        corr = self.get_correlation_matrix()
+        if corr is None:
+            return 1.0  # No discount if insufficient data
+        
+        # Average off-diagonal correlation
+        off_diag = (corr[0,1] + corr[0,2] + corr[1,2]) / 3
+        
+        # Discount: 1.0 at corr=0, 0.5 at corr=1
+        discount = 1.0 - 0.5 * max(0, off_diag)
+        return max(0.5, min(1.0, discount))
+    
+    def get_per_agent_correlation(self) -> dict[str, float]:
+        """Get each agent's average correlation with others."""
+        corr = self.get_correlation_matrix()
+        if corr is None:
+            return {"technical_analyst": 0, "sentiment_analyst": 0, "risk_manager": 0}
+        
+        return {
+            "technical_analyst": (corr[0,1] + corr[0,2]) / 2,
+            "sentiment_analyst": (corr[1,0] + corr[1,2]) / 2,
+            "risk_manager": (corr[2,0] + corr[2,1]) / 2,
+        }
+
+
+class PerAgentPnLTracker:
+    """Track PnL attribution per agent for ablation analysis."""
+    
+    def __init__(self):
+        self.trades: list[dict] = []
+        self.agent_signals_at_entry: list[dict] = []
+    
+    def record_entry(self, messages: list[AgentMessage], price: float, position_pct: float) -> None:
+        """Record agent signals at entry for later attribution."""
+        signals = {m.role: {"signal": m.signal, "confidence": m.confidence} for m in messages}
+        self.agent_signals_at_entry.append({
+            "price": price,
+            "position_pct": position_pct,
+            "signals": signals,
+        })
+    
+    def record_exit(self, entry_price: float, exit_price: float, position_pct: float, 
+                    portfolio_value: float) -> dict:
+        """Record exit and compute per-agent PnL attribution."""
+        if not self.agent_signals_at_entry:
+            return {}
+        
+        entry = self.agent_signals_at_entry.pop(0)
+        pnl_pct = (exit_price / entry_price - 1) * 100
+        pnl_usd = portfolio_value * position_pct * pnl_pct / 100
+        
+        # Attribute PnL to each agent based on their signal alignment
+        attribution = {}
+        for role, sig in entry["signals"].items():
+            signal_val = {"BUY": 1.0, "SELL": -1.0, "HOLD": 0.0}.get(sig["signal"], 0.0)
+            # If signal aligns with trade direction, credit the agent
+            trade_direction = 1.0 if exit_price > entry_price else -1.0
+            alignment = signal_val * trade_direction
+            weight = sig["confidence"] * max(0, alignment)  # Only positive alignment
+            attribution[role] = weight
+        
+        # Normalize weights
+        total = sum(attribution.values()) or 1
+        for k in attribution:
+            attribution[k] = attribution[k] / total * pnl_usd
+        
+        self.trades.append({
+            "entry_price": entry_price,
+            "exit_price": exit_price,
+            "pnl_pct": pnl_pct,
+            "pnl_usd": pnl_usd,
+            "attribution": attribution,
+        })
+        
+        return attribution
+    
+    def get_attribution_summary(self) -> dict:
+        """Get cumulative PnL attribution per agent."""
+        total = {role: 0.0 for role in ["technical_analyst", "sentiment_analyst", "risk_manager"]}
+        for t in self.trades:
+            for role, pnl in t["attribution"].items():
+                total[role] += pnl
+        return total
+    
+    def get_ablation_performance(self) -> dict:
+        """Compute performance per ablation preset."""
+        # This would need full backtest runs per preset
+        # Placeholder for integration with backtest engine
+        return {}
+
+
+# Global instances for correlation tracking and PnL attribution
+_correlation_tracker = AgentCorrelationTracker()
+_pnl_tracker = PerAgentPnLTracker()
+
+
+def get_correlation_tracker() -> AgentCorrelationTracker:
+    return _correlation_tracker
+
+
+def get_pnl_tracker() -> PerAgentPnLTracker:
+    return _pnl_tracker
 
 
 def _log_agent_decision(
@@ -77,19 +273,27 @@ class AgentAnalysisReport:
 class Orchestrator:
     """Orchestrates the multi-agent analysis cycle."""
 
-    def __init__(self):
+    def __init__(self, ablation_preset: Literal["A", "B", "C", "D"] | dict = "A"):
         self.technical = TechnicalAnalyst()
         self.sentiment = SentimentAnalyst()
         self.risk = RiskManager()
         self.trader = Trader()
         self._last_df: pl.DataFrame | None = None  # cached after analyze
         
-        # Ensemble weights for agent signals
-        self.ensemble_weights = {
+        # Ablation config for systematic agent toggles
+        self.ablation = AblationConfig(ablation_preset)
+        
+        # Correlation tracker for diversification discount
+        self.correlation_tracker = AgentCorrelationTracker()
+        
+        # PnL attribution tracker
+        self.pnl_tracker = PerAgentPnLTracker()
+        
+        # Ensemble weights for agent signals (base weights before correlation discount)
+        self.base_ensemble_weights = {
             "technical_analyst": 0.40,
             "sentiment_analyst": 0.20,
-            "risk_manager": 0.20,
-            "trader": 0.20,
+            "risk_manager": 0.40,
         }
         
         # Dynamic position sizer
@@ -110,7 +314,7 @@ class Orchestrator:
         portfolio_value: float = 10000.0,
         df: pl.DataFrame | None = None,
     ) -> AgentAnalysisReport:
-        """Run the full multi-agent analysis cycle.
+        """Run the full multi-agent analysis cycle with ablation support.
 
         Parameters
         ----------
@@ -136,62 +340,89 @@ class Orchestrator:
             current_position_pct, portfolio_value,
         )
 
-        # 4. Run agents in order
+        # 4. Run agents in order (respecting ablation config)
         messages: list[AgentMessage] = []
 
-        # Technical Analyst
+        # Technical Analyst (always runs - base agent)
         logger.info("Running Technical Analyst...")
         tech_msg = self.technical.analyze(context)
         _log_agent_decision(symbol, timeframe, "technical_analyst", tech_msg, current_price)
         messages.append(tech_msg)
 
-        # Sentiment Analyst (gets technical output for reference)
-        context.agent_messages = messages
-        logger.info("Running Sentiment Analyst...")
-        sent_msg = self.sentiment.analyze(context)
-        _log_agent_decision(symbol, timeframe, "sentiment_analyst", sent_msg, current_price)
-        messages.append(sent_msg)
+        # Sentiment Analyst (conditional on ablation)
+        if self.ablation.should_run("sentiment"):
+            context.agent_messages = messages
+            logger.info("Running Sentiment Analyst...")
+            sent_msg = self.sentiment.analyze(context)
+            _log_agent_decision(symbol, timeframe, "sentiment_analyst", sent_msg, current_price)
+            messages.append(sent_msg)
+        else:
+            logger.info("Sentiment Analyst SKIPPED (ablation)")
 
-        # Risk Manager
-        context.agent_messages = messages
-        logger.info("Running Risk Manager...")
-        risk_msg = self.risk.analyze(context)
-        _log_agent_decision(symbol, timeframe, "risk_manager", risk_msg, current_price)
-        messages.append(risk_msg)
+        # Risk Manager (conditional on ablation)
+        if self.ablation.should_run("risk"):
+            context.agent_messages = messages
+            logger.info("Running Risk Manager...")
+            risk_msg = self.risk.analyze(context)
+            _log_agent_decision(symbol, timeframe, "risk_manager", risk_msg, current_price)
+            messages.append(risk_msg)
+        else:
+            logger.info("Risk Manager SKIPPED (ablation)")
 
-        # Trader (final decision)
+        # Trader (final decision - always runs)
         context.agent_messages = messages
         logger.info("Running Trader...")
         final = self.trader.analyze(context)
         _log_agent_decision(symbol, timeframe, "trader", final, current_price)
 
-        # 5. Ensemble voting: combine agent signals with dynamic weights
-        ensemble_decision = self._ensemble_vote(messages, context)
+        # 5. Apply correlation-based diversification discount to weights
+        self.correlation_tracker.update(messages)
+        diversification_discount = self.correlation_tracker.get_diversification_discount()
+        per_agent_corr = self.correlation_tracker.get_per_agent_correlation()
         
-        # 6. Dynamic position sizing based on strategy performance
-        position_size_pct = self._calculate_dynamic_position_size(
-            context, ensemble_decision, df
+        # Record entry signals for PnL attribution
+        self.pnl_tracker.record_entry(
+            messages, current_price, 
+            final.details.get("max_position_size_pct", 0.1)
         )
-        
-        # Override final decision with ensemble + position sizing
+
+        # 6. Compute dynamic position sizing
+        position_size_pct = self._calculate_dynamic_position_size(
+            context, final, df
+        )
+
+        # 7. Apply ablation risk override setting
+        risk_override = self.ablation.should_override_risk()
+        if risk_override and final.risk_level in ("HIGH", "EXTREME"):
+            # Risk override already handled in Trader.analyze()
+            pass
+
+        # 8. Build final decision with correlation info
         final = AgentMessage(
             role="trader",
-            signal=ensemble_decision["signal"],
-            confidence=ensemble_decision["confidence"],
-            reasoning=ensemble_decision["reasoning"],
+            signal=final.signal,
+            confidence=final.confidence,
+            reasoning=final.reasoning,
             details={
-                **ensemble_decision.get("details", {}),
-                "ensemble": True,
-                "agent_weights": self.ensemble_weights,
+                **final.details,
+                "diversification_discount": diversification_discount,
+                "per_agent_correlation": per_agent_corr,
+                "base_weights": self.base_ensemble_weights,
+                "effective_weights": {
+                    k: v * diversification_discount 
+                    for k, v in self.base_ensemble_weights.items()
+                },
                 "max_position_size_pct": position_size_pct,
-                "regime": ensemble_decision.get("regime", {}),
+                "regime": final.details.get("regime", {}),
+                "ablation_preset": self.ablation.preset_name,
             },
             max_position_size_pct=position_size_pct,
-            risk_level=ensemble_decision.get("risk_level", "medium"),
+            risk_level=final.risk_level,
+            warnings=final.warnings,
         )
         _log_agent_decision(symbol, timeframe, "trader", final, current_price)
 
-        # 7. Build report
+        # 9. Build report
         return AgentAnalysisReport(
             symbol=symbol,
             timeframe=timeframe,
@@ -271,10 +502,10 @@ class Orchestrator:
         }
 
     def _calculate_dynamic_position_size(
-        self, context: AnalysisContext, ensemble_decision: dict, df: pl.DataFrame
+        self, context: AnalysisContext, final_msg: AgentMessage, df: pl.DataFrame
     ) -> float:
         """Calculate position size using volatility targeting (no Kelly - needs trade history)."""
-        regime = ensemble_decision.get("regime", {})
+        regime = final_msg.details.get("regime", {})
         trend_regime = regime.get("trend_regime", "ranging")
         vol_regime = regime.get("vol_regime", "mid_vol")
         
@@ -305,7 +536,7 @@ class Orchestrator:
             base_size *= 1.2
         
         # Signal confidence adjustment
-        confidence = ensemble_decision.get("confidence", 0.5)
+        confidence = final_msg.confidence
         base_size *= confidence
         
         # Cap at max position
@@ -359,6 +590,32 @@ class Orchestrator:
             price_change_1w = float((closes[-1] / closes[-169] - 1) * 100)
         if len(closes) > 720:
             price_change_1m = float((closes[-1] / closes[-721] - 1) * 100)
+
+        # ── Fetch alt-data (funding, OI, CVD) for sentiment ────────────────
+        try:
+            # Convert symbol format (BTC/USDT -> BTCUSDT for Binance)
+            perp_symbol = symbol.replace("/", "").upper()
+            
+            # Funding rate (latest)
+            funding_df = fetch_funding_rate(perp_symbol, limit=1)
+            if not funding_df.is_empty():
+                latest_funding = funding_df.tail(1)["funding_rate"].item()
+                extra["funding_rate"] = float(latest_funding)
+            
+            # Open Interest
+            oi = fetch_open_interest(perp_symbol)
+            if oi is not None:
+                extra["open_interest"] = float(oi)
+            
+            # CVD / Buy Pressure
+            cvd_data = fetch_recent_trades_pressure(perp_symbol)
+            if "error" not in cvd_data:
+                extra["cvd_short_window"] = float(cvd_data.get("cvd_short_window", 0))
+                extra["buy_pressure"] = float(cvd_data.get("buy_pressure", 0.5))
+                extra["sell_pressure"] = float(cvd_data.get("sell_pressure", 0.5))
+                
+        except Exception as e:
+            logger.debug(f"Alt-data fetch failed for {symbol}: {e}")
 
         return AnalysisContext(
             symbol=symbol,

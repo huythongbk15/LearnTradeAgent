@@ -1,0 +1,1 @@
+from trading_agent.config import config  # noqa: F401
