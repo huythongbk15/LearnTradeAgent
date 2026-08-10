@@ -143,3 +143,47 @@ export const systemHealth = () => api<CliResult>("/api/system/health");
 export const llmCacheStats = () => api<CliResult>("/api/llm/cache-stats");
 export const metaRegimes = () => api<CliResult>("/api/meta/regimes");
 export const executionReset = () => api<CliResult>("/api/execution/reset", { method: "POST" });
+
+// --- So sánh backtest + portfolio weights JSON ---
+export interface BacktestCompareRow {
+  strategy: string;
+  params?: Record<string, string>;
+  total_return_pct: number;
+  annualized_return_pct: number;
+  sharpe_ratio: number;
+  sortino_ratio: number;
+  max_drawdown_pct: number;
+  win_rate: number;
+  profit_factor: number;
+  total_trades: number;
+  calmar_ratio: number;
+  avg_hold_bars: number;
+}
+export interface BacktestCompareResult {
+  rows: BacktestCompareRow[];
+  errors: Record<string, string>;
+  symbol: string;
+  timeframe: string;
+}
+export const backtestCompare = (strategies: string[], symbol: string, timeframe: string) =>
+  api<{ job_id: string }>("/api/backtest/compare", {
+    method: "POST",
+    body: JSON.stringify({ strategies, symbol, timeframe }),
+  });
+export interface PortfolioWeightsResult {
+  method: string;
+  symbols: string[];
+  weights: number[];
+  expected_return: number;
+  expected_volatility: number;
+  sharpe_ratio: number;
+  diversification_ratio: number;
+  var_95: number;
+  cvar_95: number;
+  error?: string;
+}
+export const portfolioWeights = (symbols: string[], method: string, lookback = 90) =>
+  api<{ job_id: string }>("/api/portfolio/weights", {
+    method: "POST",
+    body: JSON.stringify({ symbols, method, lookback }),
+  });

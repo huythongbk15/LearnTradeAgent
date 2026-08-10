@@ -5,7 +5,7 @@ import { PositionsTable, TradesTable, fmtUsd } from "./components/Tables";
 import { BacktestPanel } from "./components/BacktestPanel";
 import { LivePanel } from "./components/LivePanel";
 import { AgentsPanel } from "./components/AgentsPanel";
-import { DataPanel, PortfolioPanel, SystemPanel } from "./components/SystemDataPanels";
+import { DataPanel, PortfolioPanel, SystemPanel, BacktestComparePanel, STRATEGIES } from "./components/SystemDataPanels";
 
 type TabKey = "dashboard" | "agents" | "backtest" | "data" | "portfolio" | "live" | "system";
 
@@ -126,7 +126,12 @@ export default function App() {
       )}
 
       {tab === "agents" && <AgentsPanel system={sys} />}
-      {tab === "backtest" && <BacktestPanel system={sys} />}
+      {tab === "backtest" && (
+        <>
+          <BacktestComparePanel symbols={symbols} timeframes={timeframes} strategies={STRATEGIES} />
+          <BacktestPanel system={sys} />
+        </>
+      )}
       {tab === "data" && <DataPanel symbols={symbols} timeframes={timeframes} />}
       {tab === "portfolio" && <PortfolioPanel symbols={symbols} />}
       {tab === "live" && <LivePanel />}

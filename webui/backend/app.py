@@ -466,6 +466,109 @@ def api_execution_reset() -> dict:
     return _run_cli(["execution", "reset"], timeout=120)
 
 
+class BacktestCompareRequest(BaseModel):
+    strategies: list[str] = ["ma_crossover", "rsi", "bbands", "enhanced_ma"]
+    symbol: str = "BTC/USDT"
+    timeframe: str = "1h"
+
+
+class PortfolioWeightsRequest(BaseModel):
+    symbols: list[str] = ["BTC/USDT", "ETH/USDT", "SOL/USDT"]
+    method: str = "max_sharpe"
+    lookback: int = 90
+
+
+@app.post("/api/backtest/compare")
+def api_backtest_compare(req: BacktestCompareRequest) -> dict:
+    """Chạy backtest nhiều strategy cùng lúc → bảng metrics so sánh."""
+    job_id = uuid.uuid4().hex[:8]
+
+    def run(strategies: list[str], symbol: str, timeframe: str) -> dict:
+        from trading_agent.backtest.engine import run_backtest
+
+        rows = []
+        errors = {}
+        for name in strategies:
+            try:
+                r = run_backtest(name, symbol=symbol, timeframe=timeframe)
+                rows.append({
+                    "strategy": r.strategy_name,
+                    "params": {str(k): str(v) for k, v in (r.params or {}).items()},
+                    "total_return_pct": round(r.total_return_pct, 2),
+                    "annualized_return_pct": round(r.annualized_return_pct, 2),
+                    "sharpe_ratio": round(r.sharpe_ratio, 2),
+                    "sortino_ratio": round(r.sortino_ratio, 2),
+                    "max_drawdown_pct": round(r.max_drawdown_pct, 2),
+                    "win_rate": round(r.win_rate, 3),
+                    "profit_factor": round(r.profit_factor, 2),
+                    "total_trades": r.total_trades,
+                    "calmar_ratio": round(r.calmar_ratio, 2),
+                    "avg_hold_bars": round(r.avg_hold_bars, 1),
+                })
+            except Exception as exc:  # noqa: BLE001
+                errors[name] = str(exc)[:200]
+        return {"rows": rows, "errors": errors, "symbol": symbol, "timeframe": timeframe}
+
+    _spawn_job(job_id, run, strategies=req.strategies, symbol=req.symbol, timeframe=req.timeframe)
+    return {"job_id": job_id}
+
+
+@app.post("/api/portfolio/weights")
+def api_portfolio_weights(req: PortfolioWeightsRequest) -> dict:
+    """Tối ưu portfolio → trả weights JSON (cho pie chart)."""
+    job_id = uuid.uuid4().hex[:8]
+
+    def run(symbols: list[str], method: str, lookback: int) -> dict:
+        import pandas as pd
+
+        from trading_agent.config.loader import config
+        from trading_agent.data.storage import load_ohlcv
+        from trading_agent.exchanges.models import AssetClass, MarketType, Symbol
+        from trading_agent.portfolio.portfolio_optimizer import (
+            OptimizationConstraints,
+            OptimizerMethod,
+            PortfolioOptimizer,
+        )
+
+        returns_data, symbol_objs = {}, []
+        for sym_str in symbols:
+            df = load_ohlcv(config.default_exchange, sym_str, "1d")
+            close = pd.Series(df["close"].to_numpy())
+            returns_data[sym_str] = close.pct_change().dropna()
+            base, quote = sym_str.split("/") if "/" in sym_str else (sym_str, "USDT")
+            symbol_objs.append(Symbol(base, quote, AssetClass.CRYPTO, MarketType.SPOT, "binance"))
+
+        returns_df = pd.DataFrame(returns_data).dropna()
+        current_weights = {s: 1.0 / len(symbol_objs) for s in symbol_objs}
+        constraints = OptimizationConstraints(current_weights=current_weights)
+        optimizer = PortfolioOptimizer(
+            method=OptimizerMethod(method), constraints=constraints, lookback=lookback,
+        ).set_universe(symbol_objs, returns_df, current_weights)
+
+        try:
+            result = optimizer.optimize()
+        except Exception as exc:  # noqa: BLE001
+            return {"error": str(exc)[:300]}
+
+        if not result.success:
+            return {"error": result.message}
+
+        return {
+            "method": method,
+            "symbols": [f"{s.base}/{s.quote}" for s in result.weights],
+            "weights": [round(float(w), 4) for w in result.weights.values()],
+            "expected_return": round(float(result.expected_return), 4),
+            "expected_volatility": round(float(result.expected_volatility), 4),
+            "sharpe_ratio": round(float(result.sharpe_ratio), 3),
+            "diversification_ratio": round(float(result.diversification_ratio), 3),
+            "var_95": round(float(result.var_95), 4),
+            "cvar_95": round(float(result.cvar_95), 4),
+        }
+
+    _spawn_job(job_id, run, symbols=req.symbols, method=req.method, lookback=req.lookback)
+    return {"job_id": job_id}
+
+
 # ---------------------------------------------------------------------------
 # WebSocket — realtime snapshot push
 # ---------------------------------------------------------------------------

@@ -204,8 +204,9 @@ class PortfolioOptimizer:
         weights = {s: Decimal('1') / n for s in self._symbols}
         mu = self._mean_returns
         cov = self._cov_matrix
-        port_return = float(np.sum(list(weights.values()) * mu))
-        port_vol = float(np.sqrt(np.array(list(weights.values())) @ cov @ np.array(list(weights.values()))))
+        w_arr = np.array([float(w) for w in weights.values()])
+        port_return = float(np.sum(w_arr * mu))
+        port_vol = float(np.sqrt(w_arr @ cov @ w_arr))
         return OptimizationResult(
             weights=weights,
             expected_return=Decimal(str(port_return)),
