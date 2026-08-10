@@ -8,6 +8,8 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
+import sys
 import threading
 import time
 import uuid
@@ -330,6 +332,138 @@ def api_live_status() -> dict:
         return {"ok": True, "report": str(out)[:2000]}
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "error": str(exc)}
+
+
+# ===========================================================================
+# Mở rộng: Agents / Data / Portfolio / System / LLM / Meta / Execution
+# ===========================================================================
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _run_cli(args: list[str], timeout: int = 300, cwd: Path | None = None) -> dict:
+    """Chạy lệnh CLI trading_agent trong subprocess, strip ANSI, trả text."""
+    import subprocess
+
+    proc = subprocess.run(
+        [sys.executable, "-m", "trading_agent.cli", *args],
+        capture_output=True, text=True, timeout=timeout,
+        cwd=str(cwd or PROJECT_ROOT),
+    )
+    return {
+        "exit_code": proc.returncode,
+        "stdout": _ANSI_RE.sub("", proc.stdout or "")[-8000:],
+        "stderr": _ANSI_RE.sub("", proc.stderr or "")[-2000:],
+    }
+
+
+class AnalyzeRequest(BaseModel):
+    symbol: str = "BTC/USDT"
+    timeframe: str = "1h"
+
+
+class FetchRequest(BaseModel):
+    symbol: str = "BTC/USDT"
+    timeframe: str = "1h"
+    since: str | None = None
+
+
+class OptimizeRequest(BaseModel):
+    symbols: list[str] = ["BTC/USDT", "ETH/USDT", "SOL/USDT"]
+    method: str = "max_sharpe"
+    lookback: int = 90
+
+
+@app.post("/api/agents/analyze")
+def api_agents_analyze(req: AnalyzeRequest) -> dict:
+    """Chạy 4 AI agents → job; kết quả JSON hoá (signal/confidence/reasoning)."""
+    job_id = uuid.uuid4().hex[:8]
+
+    def run(symbol: str, timeframe: str) -> dict:
+        from trading_agent.agents.orchestrator import Orchestrator
+
+        report = Orchestrator().analyze(symbol=symbol, timeframe=timeframe)
+        agents = []
+        for m in report.agent_messages:
+            agents.append({
+                "name": getattr(m, "agent_name", None) or m.role or "agent",
+                "signal": m.signal,
+                "confidence": float(m.confidence) if m.confidence is not None else None,
+                "reasoning": m.reasoning,
+                "details": {str(k): str(v)[:200] for k, v in (m.details or {}).items()},
+            })
+        d = report.final_decision
+        return {
+            "symbol": symbol, "timeframe": timeframe,
+            "current_price": float(report.current_price),
+            "decision": {
+                "signal": d.signal, "confidence": float(d.confidence or 0),
+                "reasoning": d.reasoning,
+            },
+            "agents": agents,
+        }
+
+    _spawn_job(job_id, run, symbol=req.symbol, timeframe=req.timeframe)
+    return {"job_id": job_id}
+
+
+@app.get("/api/data/datasets")
+def api_data_datasets() -> dict:
+    raw = PROJECT_ROOT / "data" / "raw"
+    out = []
+    if raw.exists():
+        for p in sorted(raw.rglob("*.parquet")):
+            rel = p.relative_to(raw)
+            try:
+                size = p.stat().st_size
+            except OSError:
+                size = 0
+            out.append({"path": str(rel), "size": size})
+    return {"datasets": out[-100:]}
+
+
+@app.post("/api/data/fetch")
+def api_data_fetch(req: FetchRequest) -> dict:
+    job_id = uuid.uuid4().hex[:8]
+    args = ["data", "fetch", req.symbol, "-t", req.timeframe]
+    if req.since:
+        args += ["-s", req.since]
+    _spawn_job(job_id, _run_cli, args=args, timeout=600)
+    return {"job_id": job_id}
+
+
+@app.post("/api/portfolio/optimize")
+def api_portfolio_optimize(req: OptimizeRequest) -> dict:
+    job_id = uuid.uuid4().hex[:8]
+    args = ["portfolio", "optimize", *req.symbols, "-m", req.method,
+            "--lookback", str(req.lookback)]
+    _spawn_job(job_id, _run_cli, args=args, timeout=600)
+    return {"job_id": job_id}
+
+
+@app.get("/api/system/daily")
+def api_system_daily() -> dict:
+    return _run_cli(["system", "daily"], timeout=90)
+
+
+@app.get("/api/system/health")
+def api_system_health() -> dict:
+    return _run_cli(["system", "health"], timeout=180)
+
+
+@app.get("/api/llm/cache-stats")
+def api_llm_cache_stats() -> dict:
+    return _run_cli(["llm", "cache-stats"], timeout=60)
+
+
+@app.get("/api/meta/regimes")
+def api_meta_regimes() -> dict:
+    raw = PROJECT_ROOT / "data" / "raw"
+    return _run_cli(["meta", "regimes", str(raw)], timeout=300)
+
+
+@app.post("/api/execution/reset")
+def api_execution_reset() -> dict:
+    return _run_cli(["execution", "reset"], timeout=120)
 
 
 # ---------------------------------------------------------------------------

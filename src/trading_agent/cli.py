@@ -2922,10 +2922,9 @@ def meta_backtest(adapted_params: str, data: str, capital: float, commission: fl
 @click.argument("data_dir", type=click.Path(exists=True, file_okay=False))
 def meta_regimes(data_dir: str):
     """Analyze available regimes in data directory."""
-    import asyncio
     from trading_agent.ml.meta_learning import regimes
-    
-    asyncio.run(regimes.callback(data_dir=data_dir))
+
+    regimes(data_dir=data_dir)
 
 
 # ── event sourcing projections ───────────────────────────────────────────

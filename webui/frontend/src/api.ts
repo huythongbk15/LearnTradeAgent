@@ -100,3 +100,46 @@ export const liveRun = (live: boolean) =>
     body: JSON.stringify({ live }),
   });
 export const liveStatus = () => api<{ ok: boolean; report?: string; error?: string }>("/api/live/status");
+
+// --- Mở rộng: Agents / Data / Portfolio / System / LLM / Meta / Execution ---
+export interface AgentSignal {
+  name: string;
+  signal: string;
+  confidence: number | null;
+  reasoning?: string;
+  details?: Record<string, string>;
+}
+export interface AnalyzeResult {
+  symbol: string;
+  timeframe: string;
+  current_price: number;
+  decision: { signal: string; confidence: number; reasoning?: string };
+  agents: AgentSignal[];
+}
+export interface CliResult {
+  exit_code: number;
+  stdout: string;
+  stderr: string;
+}
+
+export const agentsAnalyze = (symbol: string, timeframe: string) =>
+  api<{ job_id: string }>("/api/agents/analyze", {
+    method: "POST",
+    body: JSON.stringify({ symbol, timeframe }),
+  });
+export const dataFetch = (symbol: string, timeframe: string, since?: string) =>
+  api<{ job_id: string }>("/api/data/fetch", {
+    method: "POST",
+    body: JSON.stringify({ symbol, timeframe, since }),
+  });
+export const dataDatasets = () => api<{ datasets: { path: string; size: number }[] }>("/api/data/datasets");
+export const portfolioOptimize = (symbols: string[], method: string, lookback = 90) =>
+  api<{ job_id: string }>("/api/portfolio/optimize", {
+    method: "POST",
+    body: JSON.stringify({ symbols, method, lookback }),
+  });
+export const systemDaily = () => api<CliResult>("/api/system/daily");
+export const systemHealth = () => api<CliResult>("/api/system/health");
+export const llmCacheStats = () => api<CliResult>("/api/llm/cache-stats");
+export const metaRegimes = () => api<CliResult>("/api/meta/regimes");
+export const executionReset = () => api<CliResult>("/api/execution/reset", { method: "POST" });
