@@ -20,7 +20,9 @@ Run a quick demo (mock provider):
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import math
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -28,6 +30,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Awaitable, Callable, Optional
 
+from trading_agent.execution.data_trust import DiffStreamState, SequenceGapError
 from trading_agent.exchanges.models import Symbol
 
 logger = logging.getLogger(__name__)
@@ -386,6 +389,234 @@ def create_mock_manager() -> WebSocketManager:
     manager = WebSocketManager()
     manager.register_provider(MockStreamProvider("mock"))
     return manager
+
+
+def apply_order_book_delta(
+    levels: dict[float, float],
+    delta: list[list],
+) -> None:
+    """Apply a Binance depth delta to a price→size map.
+
+    Zero/negative size removes the level (Binance convention); otherwise the
+    level is overwritten. Keeps the map sorted on read, not on write, so
+    bursts of 100ms diffs stay cheap.
+    """
+    for raw in delta:
+        try:
+            price = float(raw[0])
+            size = float(raw[1])
+        except (TypeError, ValueError, IndexError):
+            raise SequenceGapError(f"malformed depth delta level: {raw!r}") from None
+        if price <= 0 or not math.isfinite(price) or not math.isfinite(size):
+            raise SequenceGapError(f"invalid depth delta level: {raw!r}")
+        if size <= 0:
+            levels.pop(price, None)
+        else:
+            levels[price] = size
+
+
+class BinanceDepthProvider(StreamProvider):
+    """Binance Spot order-book provider — snapshot + diff stream.
+
+    Implements the official local order-book management protocol
+    (``@depth@100ms`` diffs + REST snapshot on a gap):
+      https://developers.binance.com/docs/binance-spot-api-docs/web-socket-streams
+
+    Fails closed: any gap, stale or out-of-order update forces a REST
+    snapshot resync. While a book is unsynced the provider publishes a
+    STATUS(``orderbook_resync``) message instead of an ORDERBOOK message,
+    so consumers can never act on a partially-rebuilt book.
+
+    The protocol logic lives in :class:`DiffStreamState` (network-free);
+    this class only owns the WebSocket transport and the local book maps.
+    """
+
+    DEPTH_STREAM_TEMPLATE = "{pair_lower}@depth@100ms"
+    DEFAULT_WS_URL = "wss://stream.binance.com:9443/ws"
+    DEFAULT_REST_DEPTH_URL = "https://api.binance.com/api/v3/depth"
+
+    def __init__(
+        self,
+        exchange: str = "binance",
+        *,
+        ws_url: str = DEFAULT_WS_URL,
+        rest_depth_url: str = DEFAULT_REST_DEPTH_URL,
+        snapshot_limit: int = 100,
+        timeout_s: float = 5.0,
+    ) -> None:
+        super().__init__(exchange)
+        self.ws_url = ws_url
+        self.rest_depth_url = rest_depth_url
+        self.snapshot_limit = int(snapshot_limit)
+        self.timeout_s = timeout_s
+        self._books: dict[str, DiffStreamState] = {}
+        self._local: dict[str, dict[str, dict[float, float]]] = {}
+        self._ws: Optional[object] = None
+        self._pump_task: Optional[asyncio.Task] = None
+        self._next_id = 1
+
+    # --- lifecycle -------------------------------------------------------
+    async def connect(self) -> None:
+        import websockets  # lazy: transport lib only needed for a real stream
+
+        self._ws = await websockets.connect(self.ws_url, max_size=2**23)
+        self._connected = True
+        self._pump_task = asyncio.create_task(self._pump())
+
+    async def disconnect(self) -> None:
+        self._connected = False
+        if self._pump_task:
+            self._pump_task.cancel()
+            self._pump_task = None
+        ws, self._ws = self._ws, None
+        if ws is not None:
+            try:
+                await ws.close()
+            except Exception as exc:  # pragma: no cover — transport teardown
+                logger.warning(f"{self.exchange} ws close error: {exc}")
+
+    # --- subscriptions ---------------------------------------------------
+    def _stream_name(self, symbol: Symbol) -> str:
+        return self.DEPTH_STREAM_TEMPLATE.format(pair_lower=symbol.pair.lower().replace("/", ""))
+
+    async def _on_subscribe(self, symbol: Symbol, channel: WSChannel) -> None:
+        if channel is not WSChannel.ORDERBOOK:
+            return
+        if symbol.pair not in self._books:
+            self._books[symbol.pair] = DiffStreamState(symbol.pair)
+            self._local[symbol.pair] = {"bids": {}, "asks": {}}
+        if self._ws is not None:
+            await self._ws.send(json.dumps({
+                "method": "SUBSCRIBE",
+                "params": [self._stream_name(symbol)],
+                "id": self._next_id,
+            }))
+            self._next_id += 1
+
+    async def _on_unsubscribe(self, symbol: Symbol, channel: WSChannel) -> None:
+        if channel is not WSChannel.ORDERBOOK or self._ws is None:
+            return
+        await self._ws.send(json.dumps({
+            "method": "UNSUBSCRIBE",
+            "params": [self._stream_name(symbol)],
+            "id": self._next_id,
+        }))
+        self._next_id += 1
+
+    # --- message pump ----------------------------------------------------
+    async def _pump(self) -> None:
+        while True:
+            try:
+                raw = await self._ws.recv()
+            except Exception as exc:
+                logger.warning(f"{self.exchange} depth stream closed: {exc}")
+                break
+            try:
+                payload = json.loads(raw)
+            except (TypeError, ValueError):
+                logger.warning(f"{self.exchange} dropped non-JSON payload")
+                continue
+            await self._handle_payload(payload)
+
+    async def _handle_payload(self, payload: dict) -> None:
+        event = payload.get("e")
+        symbol_pair = payload.get("s")
+        symbol = None
+        for pair in self._books:
+            if pair.replace("/", "").lower() == (symbol_pair or "").lower():
+                symbol = self._symbol_for(pair, self.exchange)
+                break
+        if event != "depthUpdate" or symbol is None:
+            return
+        state = self._books[symbol.pair]
+        status = state.apply_diff(
+            first_update_id=int(payload["U"]),
+            final_update_id=int(payload["u"]),
+            previous_update_id=int(payload.get("pu")),
+            bids=[],
+            asks=[],
+        )
+        book = self._local[symbol.pair]
+        if status == "gap":
+            # Fail closed: drop the local book and rebuild from REST.
+            await self._resync(symbol, state, book)
+            return
+        if status == "stale" or status == "ready_first":
+            # ready_first: diff is buffered and book is in sync — apply it.
+            pass
+        if state.last_u is None:
+            return
+        try:
+            apply_order_book_delta(book["bids"], payload.get("b", []))
+            apply_order_book_delta(book["asks"], payload.get("a", []))
+        except SequenceGapError:
+            await self._resync(symbol, state, book)
+            return
+        await self._deliver(WSMessage(
+            exchange=self.exchange,
+            channel=WSChannel.ORDERBOOK,
+            symbol=symbol,
+            data={
+                "bids": self._top(book["bids"]),
+                "asks": self._top(book["asks"]),
+                "sequence": state.last_u,
+                "first_update_id": payload.get("U"),
+                "final_update_id": payload.get("u"),
+                "previous_update_id": payload.get("pu"),
+            },
+        ))
+
+    async def _resync(
+        self,
+        symbol: Symbol,
+        state: DiffStreamState,
+        book: dict[str, dict[float, float]],
+    ) -> None:
+        """Fetch a REST snapshot and seed the local book (fail-closed)."""
+        state.needs_resync = True
+        book["bids"].clear()
+        book["asks"].clear()
+        try:
+            snapshot = await self._fetch_snapshot(symbol)
+        except Exception as exc:
+            logger.error(f"{self.exchange} depth resync failed for {symbol.pair}: {exc}")
+            await self._deliver(WSMessage(
+                exchange=self.exchange,
+                channel=WSChannel.STATUS,
+                symbol=symbol,
+                data={"event": "orderbook_resync_failed", "error": str(exc)[:300]},
+            ))
+            return
+        state.initialize(int(snapshot["lastUpdateId"]))
+        for price, size in snapshot.get("bids", []):
+            book["bids"][float(price)] = float(size)
+        for price, size in snapshot.get("asks", []):
+            book["asks"][float(price)] = float(size)
+        # A diff that arrived while resyncing will be handled on the next
+        # pump because apply_diff sees needs_resync=True; the first valid
+        # straddling diff re-opens the stream (last_u is set) — exactly the
+        # Binance protocol.
+        await self._deliver(WSMessage(
+            exchange=self.exchange,
+            channel=WSChannel.STATUS,
+            symbol=symbol,
+            data={"event": "orderbook_resynced", "sequence": state.last_update_id},
+        ))
+
+    async def _fetch_snapshot(self, symbol: Symbol) -> dict:
+        import urllib.request
+
+        url = (
+            f"{self.rest_depth_url}?symbol="
+            f"{symbol.pair.replace('/', '')}&limit={self.snapshot_limit}"
+        )
+        request = urllib.request.Request(url, headers={"User-Agent": "trading-agent/1.0"})
+        with urllib.request.urlopen(request, timeout=self.timeout_s) as response:  # noqa: S310
+            return json.loads(response.read().decode("utf-8"))
+
+    @staticmethod
+    def _top(levels: dict[float, float], n: int = 20) -> list[list[float]]:
+        return [[price, size] for price, size in sorted(levels.items())[:n]]
 
 
 if __name__ == "__main__":

@@ -25,7 +25,23 @@ import ccxt
 import polars as pl
 from dotenv import load_dotenv
 
-from live_config import ATR_SL_MULT, ATR_SL_WINDOW, LOOKBACK, STRATEGY_PARAMS
+from live_config import (
+    ATR_SL_MULT,
+    ATR_SL_WINDOW,
+    DEFAULT_CLOCK_SKEW_S,
+    LOOKBACK,
+    STRATEGY_PARAMS,
+)
+from trading_agent.execution.data_trust import (
+    BINANCE_MAINNET_TIME_URL,
+    BINANCE_TESTNET_TIME_URL,
+    DataTrustError,
+    DataTrustMonitor,
+    SequenceGapError,
+    ServerClock,
+    TimeStampedFetch,
+    reject_high_latency,
+)
 from trading_agent.execution.live_safety import (
     LIVE_CONFIRMATION,
     RISK_INCREASE_CONFIRMATION,
@@ -789,12 +805,27 @@ def validate_live_hourly_bars(
     return closed
 
 
-def get_recent_df(symbol: str) -> pl.DataFrame:
+def get_recent_df(
+    symbol: str,
+    monitor: DataTrustMonitor | None = None,
+) -> pl.DataFrame:
     """Fetch and validate only fully closed 1h Binance candles."""
 
     public_exchange = ccxt.binance({"enableRateLimit": True})
+    started_at = time.monotonic()
     bars = public_exchange.fetch_ohlcv(symbol, "1h", limit=LOOKBACK)
+    received_at = time.monotonic()
     closed = validate_live_hourly_bars(bars, symbol=symbol)
+    if monitor is not None:
+        # Trust metrics use the newest *closed* candle (the open-time of the
+        # in-progress bar is by design up to one full interval old, so the
+        # stale-quote gate does not apply — only latency is enforced here).
+        fetch = TimeStampedFetch(
+            exchange_timestamp=float(closed[-1][0]) if closed else None,
+            request_started_at=started_at,
+            received_at=received_at,
+        )
+        monitor.record_fetch(symbol, fetch, reject_stale=False)
     minimum = STRATEGY_PARAMS["slow_period"] + 50
     if len(closed) < minimum:
         raise LiveSafetyError(
@@ -1028,6 +1059,7 @@ def protected_execution_quote(
     requested_quantity: float,
     signal_price: float,
     limits: LiveRiskLimits,
+    monitor: DataTrustMonitor | None = None,
 ) -> tuple[float, float]:
     """Return exchange-normalized quantity and depth-aware expected fill price."""
 
@@ -1036,6 +1068,17 @@ def protected_execution_quote(
     ask = ticker.get("ask")
     if bid is None or ask is None:
         raise LiveSafetyError(f"two-sided executable quote is missing for {symbol.pair}")
+    ticker_started = ticker.get("request_started_at")
+    ticker_received = ticker.get("received_at")
+    if ticker_started is not None and ticker_received is not None:
+        ticker_fetch = TimeStampedFetch(
+            exchange_timestamp=ticker["timestamp"].timestamp() * 1000,
+            request_started_at=float(ticker_started),
+            received_at=float(ticker_received),
+        )
+        reject_high_latency(ticker_fetch, context=f"{symbol.pair} ticker")
+        if monitor is not None:
+            monitor.record_fetch(symbol.pair, ticker_fetch)
     validate_spread(bid=float(bid), ask=float(ask), limits=limits)
     top_price = float(ask if side == "BUY" else bid)
     validate_fresh_quote(
@@ -1052,6 +1095,23 @@ def protected_execution_quote(
     book = broker.get_order_book(symbol, limit=50)
     if not book["bids"] or not book["asks"]:
         raise LiveSafetyError(f"two-sided order book is missing for {symbol.pair}")
+    book_started = book.get("request_started_at")
+    book_received = book.get("received_at")
+    if book_started is not None and book_received is not None:
+        book_fetch = TimeStampedFetch(
+            exchange_timestamp=book["timestamp"].timestamp() * 1000,
+            request_started_at=float(book_started),
+            received_at=float(book_received),
+        )
+        reject_high_latency(book_fetch, context=f"{symbol.pair} order book")
+        if monitor is not None:
+            monitor.record_fetch(symbol.pair, book_fetch)
+    if monitor is not None and book.get("sequence") is not None:
+        seq_status = monitor.sequences.on_update(symbol.pair, book["sequence"])
+        if seq_status in ("gap", "invalid"):
+            raise SequenceGapError(
+                f"order book sequence for {symbol.pair} is untrusted ({seq_status})"
+            )
     validate_spread(
         bid=float(book["bids"][0][0]),
         ask=float(book["asks"][0][0]),
@@ -1089,6 +1149,7 @@ def prepare_orders(
     locked_reason: str | None,
     store: LiveRiskStateStore,
     audit_log_path: str | None = None,
+    monitor: DataTrustMonitor | None = None,
 ) -> list[dict]:
     """Preflight the complete batch before any order can be submitted."""
 
@@ -1113,6 +1174,7 @@ def prepare_orders(
                 requested_quantity=float(decision["qty"]),
                 signal_price=decision["signal_price"],
                 limits=limits,
+                monitor=monitor,
             )
         except OrderConstraintError as exc:
             dust = None
@@ -1266,6 +1328,7 @@ def execute_orders(
     locked_reason: str | None = None,
     audit_log_path: str | None = None,
     reconciliation_timeout_seconds: float = 0.0,
+    monitor: DataTrustMonitor | None = None,
     sleep_fn=time.sleep,
     monotonic_fn=time.monotonic,
 ) -> None:
@@ -1292,6 +1355,7 @@ def execute_orders(
                 requested_quantity=float(planned["qty"]),
                 signal_price=planned["signal_price"],
                 limits=limits,
+                monitor=monitor,
             )
         except OrderConstraintError as exc:
             dust = None
@@ -1842,6 +1906,23 @@ def run_locked(
     )
     print("=" * 80)
 
+    # P0.3 — trusted time: sync local clock with the exchange before any
+    # market data or order activity, and fail closed on excessive skew.
+    clock = ServerClock(
+        time_url=BINANCE_TESTNET_TIME_URL if args.testnet else BINANCE_MAINNET_TIME_URL,
+        tolerance_s=DEFAULT_CLOCK_SKEW_S,
+    )
+    monitor = DataTrustMonitor(clock=clock)
+    try:
+        clock.sync()
+        skew = clock.check()
+    except DataTrustError as exc:
+        raise LiveSafetyError(f"clock sync failed: {exc}") from exc
+    print(
+        f"Clock sync: exchange offset {skew:+.3f}s "
+        f"(tolerance {clock.tolerance_s:.1f}s)"
+    )
+
     adapter = CCXTAdapter(
         ExchangeConfig(
             id="binance",
@@ -1911,7 +1992,7 @@ def run_locked(
         data_errors: list[str] = []
         for pair, allocation in allocations:
             try:
-                state = compute_state(get_recent_df(pair))
+                state = compute_state(get_recent_df(pair, monitor=monitor))
                 states[pair] = state
                 print(
                     f"{pair}: {state['state']} @ ${state['price']:,.2f}, "
@@ -1922,6 +2003,13 @@ def run_locked(
                 data_errors.append(f"{pair}: {exc}")
         if data_errors:
             raise LiveSafetyError("market-data batch failed; no orders submitted: " + "; ".join(data_errors))
+        trust_metrics = monitor.metrics()
+        print(
+            f"Data trust: max data age {trust_metrics['max_quote_age_s']:.1f}s "
+            f"(candles), max latency {trust_metrics['max_request_latency_s']:.1f}s, "
+            f"clock skew {trust_metrics['clock_skew_s']:+.2f}s, "
+            f"sequence gaps {trust_metrics['max_sequence_gap']}"
+        )
 
         apply_atr_protection(states=states, positions=positions, store=store)
         for pair, state in states.items():
@@ -1964,6 +2052,7 @@ def run_locked(
             locked_reason=locked_reason,
             store=store,
             audit_log_path=args.audit_log,
+            monitor=monitor,
         )
         print("\nEXECUTION PLAN")
         for planned in prepared:
@@ -1983,6 +2072,7 @@ def run_locked(
             locked_reason=locked_reason,
             audit_log_path=args.audit_log,
             reconciliation_timeout_seconds=reconciliation_timeout,
+            monitor=monitor,
         )
         final_account = broker.get_account()
         final_positions = broker.get_positions()

@@ -258,6 +258,8 @@ class LiveBroker:
             "bid": float(ticker.bid) if ticker.bid is not None else None,
             "ask": float(ticker.ask) if ticker.ask is not None else None,
             "last": float(ticker.last) if ticker.last is not None else None,
+            "request_started_at": ticker.request_started_at,
+            "received_at": ticker.received_at,
         }
 
     def get_order_book(self, symbol: Symbol, limit: int = 50) -> dict:
@@ -266,6 +268,9 @@ class LiveBroker:
             "timestamp": book.timestamp,
             "bids": [(float(level.price), float(level.size)) for level in book.bids],
             "asks": [(float(level.price), float(level.size)) for level in book.asks],
+            "sequence": book.sequence,
+            "request_started_at": book.request_started_at,
+            "received_at": book.received_at,
         }
 
     def normalize_order_amount(

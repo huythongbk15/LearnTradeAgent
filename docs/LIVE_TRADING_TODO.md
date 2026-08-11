@@ -80,10 +80,14 @@ does not remove protection already held by the exchange.
 
 ### P0.3 Trusted time and market data
 
-- [ ] Separate exchange timestamp, request start and local receive timestamp.
-- [ ] Reject high-latency responses and excessive exchange clock skew.
-- [ ] Validate order-book sequence/update IDs and WebSocket snapshot+diff sync.
-- [ ] Export quote age, request latency, sequence gap and clock-skew metrics.
+- [x] Separate exchange timestamp, request start and local receive timestamp.
+      (`TimeStampedFetch` + `Ticker`/`OrderBook.request_started_at/received_at`.)
+- [x] Reject high-latency responses and excessive exchange clock skew.
+      (`reject_high_latency`, `ServerClock.sync/check` wired before every run.)
+- [x] Validate order-book sequence/update IDs and WebSocket snapshot+diff sync.
+      (`OrderBookSequenceTracker`, `DiffStreamState`, `BinanceDepthProvider`.)
+- [x] Export quote age, request latency, sequence gap and clock-skew metrics.
+      (`DataTrustMonitor.metrics()` printed each run cycle; 27 new tests.)
 
 ### P0.4 Quantity-based risk-reducing sells
 

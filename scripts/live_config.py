@@ -42,6 +42,11 @@ SYMBOLS_ALPACA = [
 # ATR trailing stop: đóng lệnh khi giá phá stop = max(initial, peak - k*ATR)
 ATR_SL_MULT = 2.0          # k — khớp default enhanced_ma
 ATR_SL_WINDOW = 48         # trailing window (48h trên TF 1h)
+
+# ── Trusted time (P0.3) ────────────────────────────────────────────────
+# Clock skew tối đa giữa máy local và Binance server trước khi refuse run.
+# Exchange timestamp lệch quá mức này = không tin dữ liệu → dừng toàn batch.
+DEFAULT_CLOCK_SKEW_S = 2.0
 # Drawdown tiers: giảm dần vị thế, stop hoàn toàn ở mốc cuối
 DRAWDOWN_TIERS = [
     (0.05, 0.75),   # -5%  → còn 75% vị thế

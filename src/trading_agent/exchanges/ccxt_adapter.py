@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -421,8 +422,14 @@ class CCXTAdapter(ExchangeAdapter):
         await self._rate_limiter.acquire(self.config.id, weight=1)
 
         try:
+            request_started_at = time.monotonic()
             ticker = await self._maybe_await(self.exchange.fetch_ticker(ex_symbol))
-            return self._parse_ticker(ticker, symbol)
+            return self._parse_ticker(
+                ticker,
+                symbol,
+                request_started_at=request_started_at,
+                received_at=time.monotonic(),
+            )
         except Exception as e:
             logger.error(f"fetch_ticker failed for {symbol}: {e}")
             raise
@@ -433,8 +440,14 @@ class CCXTAdapter(ExchangeAdapter):
         await self._rate_limiter.acquire(self.config.id, weight=1)
 
         try:
+            request_started_at = time.monotonic()
             ob = await self._maybe_await(self.exchange.fetch_order_book(ex_symbol, limit))
-            return self._parse_order_book(ob, symbol)
+            return self._parse_order_book(
+                ob,
+                symbol,
+                request_started_at=request_started_at,
+                received_at=time.monotonic(),
+            )
         except Exception as e:
             logger.error(f"fetch_order_book failed for {symbol}: {e}")
             raise
@@ -664,7 +677,14 @@ class CCXTAdapter(ExchangeAdapter):
 
     # --- Parsing helpers ---
 
-    def _parse_ticker(self, ticker: dict, symbol: Symbol) -> Ticker:
+    def _parse_ticker(
+        self,
+        ticker: dict,
+        symbol: Symbol,
+        *,
+        request_started_at: Optional[float] = None,
+        received_at: Optional[float] = None,
+    ) -> Ticker:
         timestamp_ms = ticker.get('timestamp')
         if timestamp_ms is None:
             raise ValueError(f"Ticker for {symbol.pair} has no timestamp")
@@ -682,14 +702,27 @@ class CCXTAdapter(ExchangeAdapter):
             quote_volume=ticker['quoteVolume'],
             change=ticker['change'],
             percentage=ticker['percentage'],
+            info=ticker.get('info', {}),
+            request_started_at=request_started_at,
+            received_at=received_at,
         )
 
-    def _parse_order_book(self, ob: dict, symbol: Symbol) -> OrderBook:
+    def _parse_order_book(
+        self,
+        ob: dict,
+        symbol: Symbol,
+        *,
+        request_started_at: Optional[float] = None,
+        received_at: Optional[float] = None,
+    ) -> OrderBook:
         return OrderBook(
             symbol=symbol,
             timestamp=datetime.fromtimestamp(ob['timestamp'] / 1000, tz=UTC) if ob['timestamp'] else datetime.now(UTC),
             bids=[OrderBookLevel(price=float(b[0]), size=float(b[1])) for b in ob['bids']],
             asks=[OrderBookLevel(price=float(a[0]), size=float(a[1])) for a in ob['asks']],
+            sequence=ob.get('nonce') or ob.get('lastUpdateId'),
+            request_started_at=request_started_at,
+            received_at=received_at,
         )
 
     def _parse_candle(self, candle: list, symbol: Symbol, timeframe: str) -> Candle:

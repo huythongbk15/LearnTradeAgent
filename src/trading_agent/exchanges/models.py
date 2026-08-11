@@ -209,6 +209,9 @@ class OrderBook:
     bids: list[OrderBookLevel] = field(default_factory=list)
     asks: list[OrderBookLevel] = field(default_factory=list)
     sequence: Optional[int] = None
+    # P0.3 trusted-time fields: local monotonic instants around the request.
+    request_started_at: Optional[float] = None
+    received_at: Optional[float] = None
 
     @property
     def best_bid(self) -> Optional[Decimal]:
@@ -361,6 +364,9 @@ class Ticker:
     change: Optional[Decimal] = None
     percentage: Optional[Decimal] = None
     info: dict = field(default_factory=dict)
+    # P0.3 trusted-time fields: local monotonic instants around the request.
+    request_started_at: Optional[float] = None
+    received_at: Optional[float] = None
 
     @property
     def mid(self) -> Optional[Decimal]:
