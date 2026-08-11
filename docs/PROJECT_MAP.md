@@ -412,11 +412,6 @@
 │   │   ├── __init__.py
 │   │   └── app.py
 │   └── frontend
-│       ├── dist
-│       │   ├── assets
-│       │   │   ├── index-BRDWj4Kh.css
-│       │   │   └── index-DDBKCasS.js
-│       │   └── index.html
 │       ├── public
 │       ├── src
 │       │   ├── components
@@ -439,7 +434,6 @@
 │       ├── index.html
 │       ├── package.json
 │       ├── tsconfig.json
-│       ├── tsconfig.tsbuildinfo
 │       └── vite.config.ts
 ├── AGENTS.md
 ├── AUDIT_FIX_TODO.md

@@ -28,7 +28,8 @@ EXCLUDED_DIRS = {
     "tool_result", "tool_results", "skills", "digest", "refs", "drivers",
     "active_skills", "customized_skills", "ralph_loops",
 }
-EXCLUDED_FILES = {".coverage", "poetry.lock", "package-lock.json"}
+EXCLUDED_FILES = {".coverage", "poetry.lock", "package-lock.json",
+                  "tsconfig.tsbuildinfo"}
 
 
 def tree_lines(root: Path, prefix: str = "") -> list[str]:
