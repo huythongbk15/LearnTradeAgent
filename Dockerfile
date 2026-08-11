@@ -127,7 +127,7 @@ RUN groupadd -g $GID appgroup 2>/dev/null || true && \
 COPY --chown=appuser:appgroup . .
 
 # Install dev dependencies (+ re-links root package)
-RUN poetry install --with dev
+RUN poetry install --all-extras
 
 ENV PYTHONPATH="/app/src:$PYTHONPATH"
 
