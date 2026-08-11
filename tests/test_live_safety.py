@@ -106,16 +106,71 @@ def test_order_ledger_persists_terminal_and_unfinished_states(tmp_path):
         signal_timestamp=datetime(2026, 8, 10, tzinfo=UTC),
     )
     assert set(store.unfinished_orders()) == {"pending"}
+    store.update_order("pending", status="submitted")
+    store.update_order("pending", status="acknowledged")
     store.update_order(
         "pending",
         status="filled",
         exchange_order_id="123",
         filled_quantity=0.1,
         average_fill_price=100.0,
+        quote_cost=10.0,
+        fees={"USDT": 0.01, "BNB": 0.001},
+        trade_ids=["trade-1", "trade-2"],
+        exchange_status="closed",
     )
     reloaded = LiveRiskStateStore(state_path)
     assert reloaded.unfinished_orders() == {}
-    assert reloaded.state.order_ledger["pending"]["exchange_order_id"] == "123"
+    record = reloaded.state.order_ledger["pending"]
+    assert record["exchange_order_id"] == "123"
+    assert record["quote_cost"] == pytest.approx(10.0)
+    assert record["fees"] == {"USDT": 0.01, "BNB": 0.001}
+    assert record["trade_ids"] == ["trade-1", "trade-2"]
+    assert record["exchange_status"] == "closed"
+    assert [event["status"] for event in record["status_history"]] == [
+        "reserved", "submitted", "acknowledged", "filled",
+    ]
+
+
+def test_order_fill_accounting_cannot_move_backwards(tmp_path):
+    store = LiveRiskStateStore(tmp_path / "risk.json")
+    store.reserve_order("order", quantity=1.0)
+    store.update_order("order", status="submitted")
+    store.update_order("order", status="acknowledged")
+    store.update_order(
+        "order",
+        status="partial",
+        filled_quantity=0.5,
+        quote_cost=50.0,
+        fees={"USDT": 0.05},
+        trade_ids=["trade-1"],
+    )
+    with pytest.raises(LiveSafetyError, match="filled quantity cannot decrease"):
+        store.update_order("order", status="partial", filled_quantity=0.4)
+    with pytest.raises(LiveSafetyError, match="quote cost cannot decrease"):
+        store.update_order("order", status="partial", quote_cost=49.0)
+    with pytest.raises(LiveSafetyError, match="cannot decrease"):
+        store.update_order(
+            "order",
+            status="partial",
+            fees={"USDT": 0.04},
+        )
+
+
+def test_order_ledger_pruning_never_discards_an_uncertain_intent(tmp_path):
+    store = LiveRiskStateStore(tmp_path / "risk.json")
+    timestamp = datetime(2026, 8, 10, tzinfo=UTC).isoformat()
+    for index in range(999):
+        key = f"manual-{index}"
+        store.state.reserved_orders[key] = timestamp
+        store.state.order_ledger[key] = {"status": "manual_intervention"}
+    store.state.reserved_orders["old-terminal"] = timestamp
+    store.state.order_ledger["old-terminal"] = {"status": "filled"}
+    store.reserve_order("new-intent")
+    assert "old-terminal" not in store.state.order_ledger
+    assert "manual-0" in store.state.order_ledger
+    assert "new-intent" in store.state.order_ledger
+    assert len(store.state.order_ledger) == 1000
 
 
 def test_protective_order_state_preserves_active_during_replacement(tmp_path):
