@@ -21,6 +21,7 @@ OUTPUT = REPO_ROOT / "docs" / "PROJECT_MAP.md"
 EXCLUDED_DIRS = {
     ".git", "node_modules", "__pycache__", ".pytest_cache", ".mypy_cache",
     ".ruff_cache", "venv", ".venv", "data", "logs", "media", "memory",
+    "build", "dist", ".eggs", "trading_agent.egg-info",
     ".agents", ".webui", "strategies_repo", "backup", "backups",
     # QwenPaw agent workspace runtime (gitignored)
     "browser", "sessions", "missions", "embedding_cache", "dialog",
