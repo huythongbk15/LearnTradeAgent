@@ -34,7 +34,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install -e ".[dev,web,infra]"
+          pip install -e ".[dev,web,infra,ml,research,portfolio]"
           pip install pytest
 
       - name: Run full test suite
@@ -63,7 +63,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install -e ".[dev,web,infra]"
+          pip install -e ".[dev,web,infra,ml,research,portfolio]"
           pip install pytest
 
       - name: Run quick load tests
@@ -86,7 +86,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install package
-        run: pip install -e ".[dev,web,infra]"
+        run: pip install -e ".[dev,web,infra,ml,research,portfolio]"
 
       - name: Validate sync controller imports
         run: |
