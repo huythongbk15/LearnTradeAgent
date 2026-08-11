@@ -37,6 +37,7 @@ mem_agent/
 .env.local
 .env.production
 config/credentials.yaml
+/credentials.yaml
 
 # Backtest result artifacts (per-symbol / WFO / strength dumps at repo root)
 /enhanced_*.json

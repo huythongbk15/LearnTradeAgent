@@ -14,7 +14,6 @@ import math
 import os
 import sys
 from contextlib import suppress
-from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
 
@@ -24,17 +23,25 @@ import ccxt
 import polars as pl
 from dotenv import load_dotenv
 
-from live_config import LOOKBACK, STRATEGY_PARAMS
+from live_config import ATR_SL_MULT, ATR_SL_WINDOW, LOOKBACK, STRATEGY_PARAMS
 from trading_agent.execution.live_safety import (
     LIVE_CONFIRMATION,
+    LiveExecutionLock,
     LiveRiskLimits,
     LiveRiskStateStore,
     LiveSafetyError,
+    account_fingerprint,
+    append_live_audit_event,
     make_order_key,
     require_execution_authorization,
+    strategy_fingerprint,
+    validate_build_sha,
     validate_fresh_quote,
+    validate_order_book_depth,
     validate_order_risk,
+    validate_spread,
     validate_strategy_evidence,
+    validate_integrity_key,
 )
 from trading_agent.exchanges.ccxt_adapter import CCXTAdapter, ExchangeConfig
 from trading_agent.exchanges.live_broker import LiveBroker
@@ -51,6 +58,9 @@ from trading_agent.strategies.enhanced_ma import EnhancedMaCrossover
 
 
 load_dotenv(".env")
+
+HOUR_MS = 3_600_000
+MAX_CLOSED_CANDLE_LAG_SECONDS = 5_400
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -77,6 +87,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--evidence-file",
         default="data/live_strategy_evidence.json",
         help="Cost-aware walk-forward evidence required for mainnet execution",
+    )
+    parser.add_argument(
+        "--audit-log",
+        default="data/execution/binance_live_audit.jsonl",
+        help="Durable local JSONL execution and heartbeat audit log",
     )
     return parser
 
@@ -148,6 +163,7 @@ def compute_state(frame: pl.DataFrame) -> dict:
     required = [
         "timestamp",
         "close",
+        "high",
         f"ma_{STRATEGY_PARAMS['fast_period']}",
         f"ma_{STRATEGY_PARAMS['slow_period']}",
         "adx",
@@ -160,6 +176,7 @@ def compute_state(frame: pl.DataFrame) -> dict:
         "ma_fast": float(last[f"ma_{STRATEGY_PARAMS['fast_period']}"][0]),
         "ma_slow": float(last[f"ma_{STRATEGY_PARAMS['slow_period']}"][0]),
         "adx": float(last["adx"][0]),
+        "atr": float(last["atr"][0]),
     }
     if any(not math.isfinite(value) or value <= 0 for value in numeric_values.values()):
         raise LiveSafetyError("latest strategy indicators are invalid")
@@ -168,19 +185,100 @@ def compute_state(frame: pl.DataFrame) -> dict:
         "state": "LONG" if in_position else "FLAT",
         **numeric_values,
         "trend_up": bool(last["trend_up"][0]),
+        "recent_high": float(enriched["high"].tail(ATR_SL_WINDOW).max()),
         "candle_timestamp": last["timestamp"][0],
         "n_buy_24h": int((recent == 1).sum()),
         "n_sell_24h": int((recent == -1).sum()),
     }
 
 
+def apply_atr_protection(
+    *,
+    states: dict[str, dict],
+    positions: list[dict],
+    store: LiveRiskStateStore,
+) -> None:
+    """Force a risk-reducing exit when a persistent ATR trail is breached."""
+
+    position_map = {position["symbol"]: position for position in positions}
+    for pair, state in states.items():
+        position = position_map.get(pair)
+        quantity = float(position["qty"]) if position else 0.0
+        if quantity <= 0:
+            store.clear_position_risk(pair)
+            state["atr_stop"] = None
+            continue
+        peak, stop = store.observe_position_risk(
+            pair,
+            quantity=quantity,
+            observed_high=float(state["recent_high"]),
+            atr=float(state["atr"]),
+            atr_multiplier=ATR_SL_MULT,
+        )
+        state["atr_stop"] = stop
+        if float(state["price"]) <= stop:
+            state["state"] = "FLAT"
+            state["risk_exit"] = (
+                f"ATR trail breached: {state['price']:.2f} <= {stop:.2f} "
+                f"(peak {peak:.2f})"
+            )
+
+
+def validate_live_hourly_bars(
+    bars: list[list],
+    *,
+    symbol: str,
+    now: datetime | None = None,
+) -> list[tuple[int, float, float, float, float, float]]:
+    """Normalize and reject stale, gapped or malformed closed Binance bars."""
+
+    current = (now or datetime.now(UTC)).astimezone(UTC)
+    now_ms = int(current.timestamp() * 1000)
+    closed: list[tuple[int, float, float, float, float, float]] = []
+    for index, bar in enumerate(bars):
+        if not isinstance(bar, (list, tuple)) or len(bar) < 6:
+            raise LiveSafetyError(f"malformed OHLCV bar {index} for {symbol}")
+        try:
+            timestamp = int(bar[0])
+            values = tuple(float(value) for value in bar[1:6])
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise LiveSafetyError(f"non-numeric OHLCV bar {index} for {symbol}") from exc
+        if timestamp + HOUR_MS > now_ms:
+            continue
+        open_price, high, low, close, volume = values
+        prices = (open_price, high, low, close)
+        if any(not math.isfinite(value) or value <= 0 for value in prices):
+            raise LiveSafetyError(f"invalid OHLC price in bar {index} for {symbol}")
+        if not math.isfinite(volume) or volume < 0:
+            raise LiveSafetyError(f"invalid volume in bar {index} for {symbol}")
+        if high < max(open_price, low, close) or low > min(open_price, high, close):
+            raise LiveSafetyError(f"inconsistent OHLC range in bar {index} for {symbol}")
+        closed.append((timestamp, *values))
+
+    timestamps = [bar[0] for bar in closed]
+    if timestamps != sorted(timestamps) or len(timestamps) != len(set(timestamps)):
+        raise LiveSafetyError(f"duplicate or unordered hourly candles for {symbol}")
+    if any(current_ts - previous_ts != HOUR_MS for previous_ts, current_ts in zip(
+        timestamps,
+        timestamps[1:],
+        strict=False,
+    )):
+        raise LiveSafetyError(f"hourly candle gap detected for {symbol}")
+    if closed:
+        lag_seconds = (now_ms - (closed[-1][0] + HOUR_MS)) / 1_000
+        if lag_seconds > MAX_CLOSED_CANDLE_LAG_SECONDS:
+            raise LiveSafetyError(
+                f"latest closed candle for {symbol} is stale by {lag_seconds:.0f}s"
+            )
+    return closed
+
+
 def get_recent_df(symbol: str) -> pl.DataFrame:
-    """Fetch only fully closed 1h Binance candles."""
+    """Fetch and validate only fully closed 1h Binance candles."""
 
     public_exchange = ccxt.binance({"enableRateLimit": True})
     bars = public_exchange.fetch_ohlcv(symbol, "1h", limit=LOOKBACK)
-    now_ms = int(datetime.now(UTC).timestamp() * 1000)
-    closed = [bar for bar in bars if int(bar[0]) + 3_600_000 <= now_ms]
+    closed = validate_live_hourly_bars(bars, symbol=symbol)
     minimum = STRATEGY_PARAMS["slow_period"] + 50
     if len(closed) < minimum:
         raise LiveSafetyError(
@@ -233,16 +331,25 @@ def build_decisions(
         target_notional = equity * allocation
         delta = target_notional - current_notional
         deadband = max(target_notional * 0.05, 10.0)
+        # The finite replay window may not contain an old entry crossover. An
+        # existing position remains valid while the fast MA is still above the
+        # slow MA; otherwise a healthy long held for >LOOKBACK bars could be
+        # liquidated merely because its original entry fell out of memory.
+        desired_long = state["state"] == "LONG" or (
+            current_qty > 0
+            and state.get("risk_exit") is None
+            and float(state["ma_fast"]) > float(state["ma_slow"])
+        )
 
         if locked_reason and current_qty > 0:
             action, qty, reason = "SELL", current_qty, "RISK_CIRCUIT_BREAKER"
         elif locked_reason:
             continue
-        elif state["state"] == "LONG" and delta > deadband:
+        elif desired_long and delta > deadband:
             action, qty, reason = "BUY", delta / state["price"], "REBALANCE"
-        elif state["state"] == "LONG" and delta < -deadband:
+        elif desired_long and delta < -deadband:
             action, qty, reason = "SELL", min(abs(delta) / state["price"], current_qty), "REBALANCE"
-        elif state["state"] == "FLAT" and current_qty > 0:
+        elif not desired_long and current_qty > 0:
             action, qty, reason = "SELL", current_qty, "STRATEGY_FLAT"
         else:
             continue
@@ -269,6 +376,65 @@ def position_snapshot(positions: list[dict]) -> tuple[dict[str, dict], float]:
     return by_symbol, gross
 
 
+def protected_execution_quote(
+    *,
+    broker: LiveBroker,
+    symbol: Symbol,
+    side: str,
+    requested_quantity: float,
+    signal_price: float,
+    limits: LiveRiskLimits,
+) -> tuple[float, float]:
+    """Return exchange-normalized quantity and depth-aware expected fill price."""
+
+    ticker = broker.get_ticker(symbol)
+    bid = ticker.get("bid")
+    ask = ticker.get("ask")
+    if bid is None or ask is None:
+        raise LiveSafetyError(f"two-sided executable quote is missing for {symbol.pair}")
+    validate_spread(bid=float(bid), ask=float(ask), limits=limits)
+    top_price = float(ask if side == "BUY" else bid)
+    validate_fresh_quote(
+        signal_price=signal_price,
+        quote_price=top_price,
+        quote_timestamp=ticker["timestamp"],
+        limits=limits,
+    )
+    quantity = broker.normalize_order_amount(
+        symbol,
+        requested_quantity,
+        reference_price=top_price,
+    )
+    book = broker.get_order_book(symbol, limit=50)
+    if not book["bids"] or not book["asks"]:
+        raise LiveSafetyError(f"two-sided order book is missing for {symbol.pair}")
+    validate_spread(
+        bid=float(book["bids"][0][0]),
+        ask=float(book["asks"][0][0]),
+        limits=limits,
+    )
+    expected_vwap = validate_order_book_depth(
+        side=side,
+        quantity=quantity,
+        bids=book["bids"],
+        asks=book["asks"],
+        book_timestamp=book["timestamp"],
+        limits=limits,
+    )
+    quantity = broker.normalize_order_amount(
+        symbol,
+        quantity,
+        reference_price=expected_vwap,
+    )
+    validate_fresh_quote(
+        signal_price=signal_price,
+        quote_price=expected_vwap,
+        quote_timestamp=book["timestamp"],
+        limits=limits,
+    )
+    return quantity, expected_vwap
+
+
 def prepare_orders(
     *,
     decisions: list[dict],
@@ -277,45 +443,29 @@ def prepare_orders(
     positions: list[dict],
     limits: LiveRiskLimits,
     locked_reason: str | None,
-    testnet: bool,
 ) -> list[dict]:
     """Preflight the complete batch before any order can be submitted."""
 
     simulated_cash = float(account["cash"])
     equity = float(account["equity"])
     simulated_positions, simulated_gross = position_snapshot(positions)
-    # Testnet tickers update slowly (thin liquidity), so relax quote freshness
-    # for testnet only — mainnet keeps strict 15s / 1% limits.
-    quote_limits = (
-        replace(
-            limits,
-            max_price_deviation_pct=max(limits.max_price_deviation_pct, 0.25),
-            max_quote_age_seconds=max(limits.max_quote_age_seconds, 60.0),
-        )
-        if testnet
-        else limits
-    )
     prepared: list[dict] = []
 
     for decision in decisions:
         pair = decision["market_symbol"]
         symbol = exchange_symbol(pair)
-        quote = broker.get_ticker(symbol)
-        quote_price = (
-            quote.get("ask") if decision["action"] == "BUY" else quote.get("bid")
-        ) or quote.get("last")
-        if quote_price is None:
-            raise LiveSafetyError(f"no executable quote for {pair}")
-        validate_fresh_quote(
+        quantity, quote_price = protected_execution_quote(
+            broker=broker,
+            symbol=symbol,
+            side=decision["action"],
+            requested_quantity=float(decision["qty"]),
             signal_price=decision["signal_price"],
-            quote_price=float(quote_price),
-            quote_timestamp=quote["timestamp"],
-            limits=quote_limits,
+            limits=limits,
         )
 
         existing = simulated_positions.get(pair)
         current_notional = float(existing["market_value"]) if existing else 0.0
-        notional = float(decision["qty"]) * float(quote_price)
+        notional = quantity * float(quote_price)
         validate_order_risk(
             side=decision["action"],
             notional_usd=notional,
@@ -335,7 +485,12 @@ def prepare_orders(
             simulated_cash += notional
             simulated_gross = max(0.0, simulated_gross - notional)
             simulated_positions[pair] = {"market_value": max(0.0, current_notional - notional)}
-        prepared.append({**decision, "quote_price": float(quote_price), "notional": notional})
+        prepared.append({
+            **decision,
+            "qty": quantity,
+            "quote_price": float(quote_price),
+            "notional": notional,
+        })
     return prepared
 
 
@@ -345,40 +500,25 @@ def execute_orders(
     broker: LiveBroker,
     store: LiveRiskStateStore,
     limits: LiveRiskLimits,
-    testnet: bool,
+    audit_log_path: str | None = None,
 ) -> None:
-    # Testnet tickers update slowly (thin liquidity), so relax quote freshness
-    # for testnet only — mainnet keeps strict 15s / 1% limits.
-    quote_limits = (
-        replace(
-            limits,
-            max_price_deviation_pct=max(limits.max_price_deviation_pct, 0.25),
-            max_quote_age_seconds=max(limits.max_quote_age_seconds, 60.0),
-        )
-        if testnet
-        else limits
-    )
     for planned in orders:
         account = broker.get_account()
         positions = broker.get_positions()
         position_map, gross = position_snapshot(positions)
         pair = planned["market_symbol"]
         symbol = exchange_symbol(pair)
-        quote = broker.get_ticker(symbol)
-        quote_price = (
-            quote.get("ask") if planned["action"] == "BUY" else quote.get("bid")
-        ) or quote.get("last")
-        if quote_price is None:
-            raise LiveSafetyError(f"no executable quote for {pair}")
-        validate_fresh_quote(
+        quantity, quote_price = protected_execution_quote(
+            broker=broker,
+            symbol=symbol,
+            side=planned["action"],
+            requested_quantity=float(planned["qty"]),
             signal_price=planned["signal_price"],
-            quote_price=float(quote_price),
-            quote_timestamp=quote["timestamp"],
-            limits=quote_limits,
+            limits=limits,
         )
         current = position_map.get(pair)
         current_notional = float(current["market_value"]) if current else 0.0
-        notional = float(planned["qty"]) * float(quote_price)
+        notional = quantity * float(quote_price)
         validate_order_risk(
             side=planned["action"],
             notional_usd=notional,
@@ -395,55 +535,202 @@ def execute_orders(
             side=planned["action"],
             candle_timestamp=planned["candle_timestamp"],
         )
-        store.reserve_order(order_key)
+        store.reserve_order(
+            order_key,
+            symbol=pair,
+            side=planned["action"],
+            quantity=quantity,
+            signal_timestamp=planned["candle_timestamp"],
+        )
         order = Order(
             id="",
             client_order_id=order_key,
             symbol=symbol,
             side=OrderSide.BUY if planned["action"] == "BUY" else OrderSide.SELL,
             type=OrderType.MARKET,
-            size=Decimal(str(round(float(planned["qty"]), 8))),
+            size=Decimal(str(quantity)),
             time_in_force=TimeInForce.GTC,
         )
-        result = broker.place_order(order)
+        try:
+            result = broker.place_order(order)
+        except Exception as exc:
+            store.update_order(order_key, status="unknown", error=str(exc))
+            if audit_log_path:
+                append_live_audit_event(
+                    audit_log_path,
+                    "order_submission_unknown",
+                    {"order_key": order_key, "symbol": pair, "error": str(exc)[:500]},
+                )
+            try:
+                reconciled = broker.get_order_by_client_id(order_key, symbol)
+            except Exception as reconcile_exc:
+                raise LiveSafetyError(
+                    f"order submission outcome is unknown for {order_key}; "
+                    f"reconciliation failed: {reconcile_exc}"
+                ) from exc
+            if reconciled is not None:
+                persist_order_result(store, order_key, reconciled)
+                raise LiveSafetyError(
+                    f"order submission raised but exchange reports "
+                    f"{reconciled['status']} for {order_key}; batch stopped"
+                ) from exc
+            raise LiveSafetyError(
+                f"order submission outcome is unknown for {order_key}; "
+                "exchange did not find the client order ID"
+            ) from exc
+
+        persist_order_result(store, order_key, result)
         if result.get("error") or result.get("status") not in {"open", "partial", "filled"}:
             raise LiveSafetyError(f"order rejected or failed: {result}")
+        if result.get("status") != "filled":
+            if audit_log_path:
+                append_live_audit_event(
+                    audit_log_path,
+                    "order_non_terminal",
+                    {
+                        "order_key": order_key,
+                        "symbol": pair,
+                        "status": str(result.get("status")),
+                        "filled_qty": float(result.get("filled_qty") or 0.0),
+                    },
+                )
+            raise LiveSafetyError(
+                f"order {order_key} is {result.get('status')}; "
+                "batch stopped until reconciliation completes"
+            )
+        if audit_log_path:
+            append_live_audit_event(
+                audit_log_path,
+                "order_filled",
+                {
+                    "order_key": order_key,
+                    "exchange_order_id": str(result.get("id") or ""),
+                    "symbol": pair,
+                    "side": planned["action"],
+                    "filled_qty": float(result.get("filled_qty") or 0.0),
+                    "average_fill_price": float(result.get("avg_fill_price") or 0.0),
+                },
+            )
         print(
             f"  ✅ Order: {result['side']} {result['qty']} {result['symbol']} "
             f"→ {result['status']} ({planned['reason']}, id={order_key})"
         )
 
 
-def run(args: argparse.Namespace) -> int:
-    limits = LiveRiskLimits.from_env()
-    allocations = parse_allocations(args.symbols, args.weights, limits)
-    require_execution_authorization(
-        execute=args.execute,
-        testnet=args.testnet,
-        cli_confirmation=args.confirm_live,
+def persist_order_result(
+    store: LiveRiskStateStore,
+    order_key: str,
+    result: dict,
+) -> None:
+    store.update_order(
+        order_key,
+        status=str(result.get("status") or "unknown"),
+        exchange_order_id=str(result.get("id") or ""),
+        filled_quantity=float(result.get("filled_qty") or 0.0),
+        average_fill_price=float(result.get("avg_fill_price") or 0.0),
+        error=str(result.get("error") or ""),
     )
 
-    default_state = (
-        "data/binance_testnet_risk_state.json"
-        if args.testnet
-        else "data/binance_live_risk_state.json"
-    )
-    store = LiveRiskStateStore(args.state_file or default_state)
-    if args.execute and not args.testnet and not store.existed:
-        raise LiveSafetyError("run a successful mainnet dry-run first to initialize risk state")
-    if args.execute and not args.testnet:
-        validate_strategy_evidence(
-            args.evidence_file,
-            expected_symbols=[symbol for symbol, _ in allocations],
-            expected_params=STRATEGY_PARAMS,
+
+def reconcile_unfinished_orders(
+    *,
+    broker: LiveBroker,
+    store: LiveRiskStateStore,
+    audit_log_path: str | None = None,
+) -> None:
+    """Reconcile every non-terminal intent before a new batch can be planned."""
+
+    unresolved: list[str] = []
+    for order_key, record in store.unfinished_orders().items():
+        pair = str(record.get("symbol") or "")
+        if not pair:
+            unresolved.append(f"{order_key}: missing symbol metadata")
+            continue
+        try:
+            result = broker.get_order_by_client_id(order_key, exchange_symbol(pair))
+        except Exception as exc:
+            unresolved.append(f"{order_key}: reconciliation error: {exc}")
+            continue
+        if result is None:
+            store.update_order(
+                order_key,
+                status="unknown",
+                error="client order ID not found during reconciliation",
+            )
+            unresolved.append(f"{order_key}: client order ID not found")
+            continue
+        persist_order_result(store, order_key, result)
+        if audit_log_path:
+            append_live_audit_event(
+                audit_log_path,
+                "order_reconciled",
+                {
+                    "order_key": order_key,
+                    "symbol": pair,
+                    "status": str(result.get("status")),
+                    "filled_qty": float(result.get("filled_qty") or 0.0),
+                },
+            )
+        if result.get("status") != "filled":
+            unresolved.append(f"{order_key}: exchange status {result.get('status')}")
+    if unresolved:
+        if audit_log_path:
+            append_live_audit_event(
+                audit_log_path,
+                "reconciliation_blocked",
+                {"reasons": unresolved},
+            )
+        raise LiveSafetyError(
+            "unfinished order reconciliation blocked the batch: " + "; ".join(unresolved)
         )
 
+
+def run_locked(
+    args: argparse.Namespace,
+    *,
+    limits: LiveRiskLimits,
+    allocations: list[tuple[str, float]],
+    state_path: str,
+) -> int:
     key_name = "BINANCE_TESTNET_API_KEY" if args.testnet else "BINANCE_API_KEY"
     secret_name = "BINANCE_TESTNET_API_SECRET" if args.testnet else "BINANCE_API_SECRET"
     api_key = os.getenv(key_name, "")
     secret = os.getenv(secret_name, "")
     if not api_key or not secret:
         raise LiveSafetyError(f"{key_name} and {secret_name} are required")
+    # Context binding persists state even during dry-runs, so every runner mode
+    # requires the integrity key. This prevents creating an unsigned baseline
+    # that cannot be safely reused for later execution.
+    integrity_key = validate_integrity_key(os.getenv("LIVE_SAFETY_HMAC_KEY", ""))
+    store = LiveRiskStateStore(
+        state_path,
+        integrity_key=integrity_key,
+    )
+    if args.execute and not args.testnet and not store.existed:
+        raise LiveSafetyError("run a successful mainnet dry-run first to initialize risk state")
+    allocation_map = dict(allocations)
+    store.bind_context(
+        account=account_fingerprint(
+            exchange="binance-testnet" if args.testnet else "binance-mainnet",
+            api_key=api_key,
+        ),
+        strategy=strategy_fingerprint(
+            strategy="enhanced_ma",
+            params=STRATEGY_PARAMS,
+            allocations=allocation_map,
+        ),
+        symbols=list(allocation_map),
+    )
+    if args.execute and not args.testnet:
+        build_sha = validate_build_sha(os.getenv("TRADING_BUILD_SHA"))
+        validate_strategy_evidence(
+            args.evidence_file,
+            expected_symbols=[symbol for symbol, _ in allocations],
+            expected_params=STRATEGY_PARAMS,
+            expected_allocations=allocation_map,
+            expected_build_sha=build_sha,
+            integrity_key=integrity_key,
+        )
 
     print("=" * 80)
     mode = "DRY-RUN" if not args.execute else "TESTNET EXECUTION" if args.testnet else "MAINNET EXECUTION"
@@ -477,6 +764,11 @@ def run(args: argparse.Namespace) -> int:
             pricing_symbols=[symbol for symbol, _ in allocations],
             strict_pricing=True,
         )
+        reconcile_unfinished_orders(
+            broker=broker,
+            store=store,
+            audit_log_path=args.audit_log,
+        )
         account = broker.get_account()
         positions = broker.get_positions()
         equity = float(account["equity"])
@@ -506,6 +798,11 @@ def run(args: argparse.Namespace) -> int:
         if data_errors:
             raise LiveSafetyError("market-data batch failed; no orders submitted: " + "; ".join(data_errors))
 
+        apply_atr_protection(states=states, positions=positions, store=store)
+        for pair, state in states.items():
+            if state.get("risk_exit"):
+                print(f"{pair}: RISK EXIT — {state['risk_exit']}")
+
         decisions = build_decisions(
             allocations=allocations,
             states=states,
@@ -524,7 +821,6 @@ def run(args: argparse.Namespace) -> int:
             positions=positions,
             limits=limits,
             locked_reason=locked_reason,
-            testnet=args.testnet,
         )
         print("\nEXECUTION PLAN")
         for planned in prepared:
@@ -541,7 +837,7 @@ def run(args: argparse.Namespace) -> int:
             broker=broker,
             store=store,
             limits=limits,
-            testnet=args.testnet,
+            audit_log_path=args.audit_log,
         )
         final_account = broker.get_account()
         final_positions = broker.get_positions()
@@ -555,10 +851,49 @@ def run(args: argparse.Namespace) -> int:
             asyncio.run(adapter.disconnect())
 
 
+def run(args: argparse.Namespace) -> int:
+    limits = LiveRiskLimits.from_env()
+    allocations = parse_allocations(args.symbols, args.weights, limits)
+    require_execution_authorization(
+        execute=args.execute,
+        testnet=args.testnet,
+        cli_confirmation=args.confirm_live,
+    )
+    state_path = args.state_file or (
+        "data/binance_testnet_risk_state.json"
+        if args.testnet
+        else "data/binance_live_risk_state.json"
+    )
+    with LiveExecutionLock(f"{state_path}.lock"):
+        return run_locked(
+            args,
+            limits=limits,
+            allocations=allocations,
+            state_path=state_path,
+        )
+
+
 def main() -> int:
+    args = build_parser().parse_args()
+    append_live_audit_event(
+        args.audit_log,
+        "run_started",
+        {
+            "execute": bool(args.execute),
+            "testnet": bool(args.testnet),
+            "symbols": args.symbols,
+        },
+    )
     try:
-        return run(build_parser().parse_args())
+        result = run(args)
+        append_live_audit_event(args.audit_log, "run_completed", {"exit_code": result})
+        return result
     except Exception as exc:
+        append_live_audit_event(
+            args.audit_log,
+            "run_failed",
+            {"error_type": type(exc).__name__, "error": str(exc)[:1000]},
+        )
         print(f"FATAL: {exc}", file=sys.stderr)
         return 1
 

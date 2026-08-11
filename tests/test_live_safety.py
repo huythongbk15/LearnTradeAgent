@@ -8,13 +8,20 @@ import pytest
 from trading_agent.execution.live_safety import (
     LIVE_CONFIRMATION,
     DuplicateOrderError,
+    LiveExecutionLock,
     LiveRiskLimits,
     LiveRiskStateStore,
     LiveSafetyError,
+    account_fingerprint,
+    append_live_audit_event,
     make_order_key,
     require_execution_authorization,
+    sign_strategy_evidence,
+    strategy_fingerprint,
     validate_fresh_quote,
+    validate_order_book_depth,
     validate_order_risk,
+    validate_spread,
     validate_strategy_evidence,
 )
 
@@ -74,6 +81,78 @@ def test_order_reservation_is_idempotent(tmp_path):
         store.reserve_order("lta-order")
 
 
+def test_order_ledger_persists_terminal_and_unfinished_states(tmp_path):
+    state_path = tmp_path / "risk.json"
+    store = LiveRiskStateStore(state_path)
+    store.reserve_order(
+        "pending",
+        symbol="BTC/USDT",
+        side="BUY",
+        quantity=0.1,
+        signal_timestamp=datetime(2026, 8, 10, tzinfo=UTC),
+    )
+    assert set(store.unfinished_orders()) == {"pending"}
+    store.update_order(
+        "pending",
+        status="filled",
+        exchange_order_id="123",
+        filled_quantity=0.1,
+        average_fill_price=100.0,
+    )
+    reloaded = LiveRiskStateStore(state_path)
+    assert reloaded.unfinished_orders() == {}
+    assert reloaded.state.order_ledger["pending"]["exchange_order_id"] == "123"
+
+
+def test_signed_state_detects_tampering_and_context_mismatch(tmp_path):
+    state_path = tmp_path / "risk.json"
+    key = "state-integrity-key-with-more-than-32-characters"
+    store = LiveRiskStateStore(state_path, integrity_key=key)
+    context = {
+        "account": account_fingerprint(exchange="binance-mainnet", api_key="api-key-a"),
+        "strategy": strategy_fingerprint(
+            strategy="enhanced_ma",
+            params={"fast": 20},
+            allocations={"BTC/USDT": 0.2},
+        ),
+        "symbols": ["BTC/USDT"],
+    }
+    store.bind_context(**context)
+    with pytest.raises(LiveSafetyError, match="different account"):
+        store.bind_context(**{**context, "account": "different"})
+
+    payload = json.loads(state_path.read_text(encoding="utf-8"))
+    payload["peak_equity"] = 999_999
+    state_path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(LiveSafetyError, match="integrity check failed"):
+        LiveRiskStateStore(state_path, integrity_key=key)
+
+
+def test_local_audit_log_is_structured_and_durable(tmp_path):
+    audit_path = tmp_path / "execution.jsonl"
+    now = datetime(2026, 8, 10, tzinfo=UTC)
+    append_live_audit_event(
+        audit_path,
+        "heartbeat",
+        {"mode": "testnet"},
+        now=now,
+    )
+    event = json.loads(audit_path.read_text(encoding="utf-8"))
+    assert event["event"] == "heartbeat"
+    assert event["timestamp"] == now.isoformat()
+    assert event["details"] == {"mode": "testnet"}
+
+
+def test_execution_lock_rejects_concurrent_runner(tmp_path):
+    lock_path = tmp_path / "live.lock"
+    with LiveExecutionLock(lock_path):
+        with pytest.raises(LiveSafetyError, match="another live runner"):
+            with LiveExecutionLock(lock_path):
+                pass
+    with LiveExecutionLock(lock_path):
+        pass
+
+
 def test_buy_order_limits_and_risk_reducing_sell():
     limits = LiveRiskLimits(max_order_notional_usd=100)
     with pytest.raises(LiveSafetyError, match="exceeds"):
@@ -120,6 +199,37 @@ def test_stale_and_divergent_quotes_are_rejected():
         )
 
 
+def test_wide_spread_and_thin_order_book_are_rejected():
+    limits = LiveRiskLimits(
+        max_spread_pct=0.002,
+        max_book_slippage_pct=0.003,
+        min_book_depth_multiple=1.25,
+    )
+    with pytest.raises(LiveSafetyError, match="spread"):
+        validate_spread(bid=100.0, ask=101.0, limits=limits)
+    now = datetime(2026, 8, 10, tzinfo=UTC)
+    with pytest.raises(LiveSafetyError, match="depth"):
+        validate_order_book_depth(
+            side="BUY",
+            quantity=1.0,
+            bids=[(99.9, 2.0)],
+            asks=[(100.0, 1.1)],
+            book_timestamp=now,
+            limits=limits,
+            now=now,
+        )
+    vwap = validate_order_book_depth(
+        side="BUY",
+        quantity=1.0,
+        bids=[(99.9, 2.0)],
+        asks=[(100.0, 0.5), (100.1, 1.0)],
+        book_timestamp=now,
+        limits=limits,
+        now=now,
+    )
+    assert vwap == pytest.approx(100.05)
+
+
 def test_client_order_id_is_stable_and_side_specific():
     candle = datetime(2026, 8, 10, 10, 0, tzinfo=UTC)
     first = make_order_key(symbol="BTC/USDT", side="BUY", candle_timestamp=candle)
@@ -131,18 +241,30 @@ def test_client_order_id_is_stable_and_side_specific():
 
 
 def _strategy_evidence(now: datetime) -> dict:
-    folds = [
-        {"sharpe": 0.7, "return_pct": 1.0, "max_drawdown_pct": 5.0, "trades": 4}
-        for _ in range(6)
-    ]
+    first_start = now - timedelta(days=6 * 90)
+    folds = []
+    for index in range(6):
+        start = first_start + timedelta(days=index * 90)
+        end = start + timedelta(days=90)
+        folds.append({
+            "start": start.isoformat(),
+            "end": end.isoformat(),
+            "bars": 90 * 24,
+            "sharpe": 0.7,
+            "return_pct": 1.0,
+            "max_drawdown_pct": 5.0,
+            "trades": 4,
+        })
     return {
         "version": 1,
         "strategy": "enhanced_ma",
         "strategy_params": {"fast_period": 20, "slow_period": 80, "adx_threshold": 40},
         "generated_at": now.isoformat(),
-        "data_end": (now - timedelta(days=1)).isoformat(),
-        "costs": {"commission_bps": 10, "slippage_bps": 5},
-        "symbols": {"BTC/USDT": {"folds": folds}},
+        "data_end": (now - timedelta(hours=1)).isoformat(),
+        "allocations": {"BTC/USDT": 0.2},
+        "costs": {"commission_bps": 10, "slippage_bps": 5, "spread_bps": 2},
+        "symbols": {"BTC/USDT": {"allocation": 0.2, "folds": folds}},
+        "portfolio": {"folds": [dict(fold) for fold in folds]},
     }
 
 
@@ -154,6 +276,7 @@ def test_strategy_evidence_must_pass_every_symbol(tmp_path):
         evidence_path,
         expected_symbols=["BTC/USDT"],
         expected_params={"fast_period": 20, "slow_period": 80, "adx_threshold": 40},
+        expected_allocations={"BTC/USDT": 0.2},
         now=now,
     )
     assert summary["BTC/USDT"]["median_sharpe"] == pytest.approx(0.7)
@@ -172,5 +295,67 @@ def test_strategy_evidence_rejects_negative_oos(tmp_path):
             evidence_path,
             expected_symbols=["BTC/USDT"],
             expected_params=evidence["strategy_params"],
+            expected_allocations={"BTC/USDT": 0.2},
+            now=now,
+        )
+
+
+def test_strategy_evidence_rejects_stale_market_data(tmp_path):
+    now = datetime(2026, 8, 10, tzinfo=UTC)
+    evidence = _strategy_evidence(now)
+    evidence["data_end"] = (now - timedelta(hours=7)).isoformat()
+    evidence_path = tmp_path / "evidence.json"
+    evidence_path.write_text(json.dumps(evidence), encoding="utf-8")
+    with pytest.raises(LiveSafetyError, match="data_end is stale"):
+        validate_strategy_evidence(
+            evidence_path,
+            expected_symbols=["BTC/USDT"],
+            expected_params=evidence["strategy_params"],
+            expected_allocations={"BTC/USDT": 0.2},
+            now=now,
+        )
+
+
+def test_strategy_evidence_rejects_live_allocation_mismatch(tmp_path):
+    now = datetime(2026, 8, 10, tzinfo=UTC)
+    evidence_path = tmp_path / "evidence.json"
+    evidence_path.write_text(json.dumps(_strategy_evidence(now)), encoding="utf-8")
+    with pytest.raises(LiveSafetyError, match="allocation does not match"):
+        validate_strategy_evidence(
+            evidence_path,
+            expected_symbols=["BTC/USDT"],
+            expected_params={"fast_period": 20, "slow_period": 80, "adx_threshold": 40},
+            expected_allocations={"BTC/USDT": 0.1},
+            now=now,
+        )
+
+
+def test_strategy_evidence_signature_and_build_are_bound(tmp_path):
+    now = datetime(2026, 8, 10, tzinfo=UTC)
+    key = "evidence-integrity-key-with-more-than-32-characters"
+    evidence = _strategy_evidence(now)
+    evidence["build_sha"] = "0123456789abcdef"
+    signed = sign_strategy_evidence(evidence, key)
+    evidence_path = tmp_path / "evidence.json"
+    evidence_path.write_text(json.dumps(signed), encoding="utf-8")
+    validate_strategy_evidence(
+        evidence_path,
+        expected_symbols=["BTC/USDT"],
+        expected_params=evidence["strategy_params"],
+        expected_allocations={"BTC/USDT": 0.2},
+        expected_build_sha="0123456789abcdef",
+        integrity_key=key,
+        now=now,
+    )
+    signed["symbols"]["BTC/USDT"]["folds"][0]["return_pct"] = 999
+    evidence_path.write_text(json.dumps(signed), encoding="utf-8")
+    with pytest.raises(LiveSafetyError, match="integrity check failed"):
+        validate_strategy_evidence(
+            evidence_path,
+            expected_symbols=["BTC/USDT"],
+            expected_params=evidence["strategy_params"],
+            expected_allocations={"BTC/USDT": 0.2},
+            expected_build_sha="0123456789abcdef",
+            integrity_key=key,
             now=now,
         )

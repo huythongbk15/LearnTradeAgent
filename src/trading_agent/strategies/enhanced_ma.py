@@ -103,16 +103,15 @@ class EnhancedMaCrossover(Strategy):
             pl.when((raw != prev_raw) & (raw != 0)).then(raw).otherwise(0)
         )
         
-        # Apply ADX filter: only trade when trend is strong
-        # If ADX < threshold, force signal to 0 (stay flat)
-        filtered = pl.when(pl.col("adx") > self.adx_threshold).then(crossover).otherwise(0)
-        
-        # Also require trend direction matches signal
-        # Long only when trend_up, Short only when !trend_up
+        # ADX and direction are entry filters. A bearish crossover must remain
+        # actionable even when ADX is weak; otherwise a long can become stuck
+        # because the one-bar crossover event will not be emitted again.
         final_signal = pl.when(
-            (filtered == 1) & pl.col("trend_up")
+            (crossover == 1)
+            & (pl.col("adx") > self.adx_threshold)
+            & pl.col("trend_up")
         ).then(1).when(
-            (filtered == -1) & (~pl.col("trend_up"))
+            crossover == -1
         ).then(-1).otherwise(0)
         
         return (

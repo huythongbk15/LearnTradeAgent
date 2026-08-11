@@ -10,6 +10,7 @@ running the underlying coroutines with ``asyncio.run``.
 from __future__ import annotations
 
 import asyncio
+from decimal import Decimal
 
 from trading_agent.exchanges.models import (
     Symbol, AssetClass, MarketType, Order,
@@ -218,6 +219,28 @@ class LiveBroker:
             "last": float(ticker.last) if ticker.last is not None else None,
         }
 
+    def get_order_book(self, symbol: Symbol, limit: int = 50) -> dict:
+        book = _run(self.adapter.fetch_order_book(symbol, limit=limit))
+        return {
+            "timestamp": book.timestamp,
+            "bids": [(float(level.price), float(level.size)) for level in book.bids],
+            "asks": [(float(level.price), float(level.size)) for level in book.asks],
+        }
+
+    def normalize_order_amount(
+        self,
+        symbol: Symbol,
+        amount: float,
+        *,
+        reference_price: float,
+    ) -> float:
+        normalized = self.adapter.normalize_order_amount(
+            symbol,
+            Decimal(str(amount)),
+            reference_price=Decimal(str(reference_price)),
+        )
+        return float(normalized)
+
     def get_orders(self, status: str = "open", limit: int = 20) -> list[dict]:
         if status == "open":
             orders = _run(self.adapter.fetch_open_orders())
@@ -238,6 +261,24 @@ class LiveBroker:
             })
         return out[:limit]
 
+    def get_order_by_client_id(self, client_order_id: str, symbol: Symbol) -> dict | None:
+        """Return a normalized order used to reconcile an uncertain submission."""
+
+        result = _run(self.adapter.fetch_order_by_client_id(client_order_id, symbol))
+        if result is None:
+            return None
+        return {
+            "id": result.id,
+            "client_order_id": result.client_order_id,
+            "status": result.status.value,
+            "symbol": result.symbol.pair,
+            "side": result.side.value,
+            "qty": float(result.size),
+            "filled_qty": float(result.filled_size),
+            "avg_fill_price": float(result.avg_fill_price),
+            "error": result.error,
+        }
+
     def place_order(self, order: Order) -> dict:
         if not order.client_order_id:
             import uuid
@@ -245,6 +286,7 @@ class LiveBroker:
         result = _run(self.adapter.create_order(order))
         return {
             "id": result.id,
+            "client_order_id": result.client_order_id,
             "status": result.status.value,
             "symbol": result.symbol.pair,
             "side": result.side.value,
