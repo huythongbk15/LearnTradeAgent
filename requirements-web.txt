@@ -2,5 +2,5 @@
 # Install after the base project: pip install -r requirements-web.txt
 fastapi>=0.141.1,<1.0
 pydantic>=2.13.4,<3.0
-uvicorn[standard]>=0.30,<1.0
+uvicorn[standard]>=0.52.1,<1.0
 alpaca-py>=0.42,<0.44
