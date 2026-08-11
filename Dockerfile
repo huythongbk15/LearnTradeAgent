@@ -42,7 +42,8 @@ ENV POETRY_VERSION=2.4.1 \
 # Create and activate the virtualenv for the runtime image.
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH" \
-    POETRY_VIRTUALENVS_CREATE=false
+    POETRY_VIRTUALENVS_CREATE=false \
+    VIRTUAL_ENV="/opt/venv"
 
 RUN pip install "poetry==$POETRY_VERSION"
 
