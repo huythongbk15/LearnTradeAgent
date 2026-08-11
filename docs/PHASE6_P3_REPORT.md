@@ -8,7 +8,7 @@
 P3 wraps up Phase 6 by making the advanced components **testable**, **observable**
 and **operable** outside a live Kubernetes cluster:
 
-- Full **integration test suite** (52 tests) covering every P2 component
+- Full **integration test suite** covering every P2 component (52 tests tại thời điểm viết)
 - **Production hardening** of event sourcing, online learning, messaging,
   multi-region and chaos components (incl. real bug fixes)
 - **Dry-run modes** for multi-region sync controller and chaos experiments

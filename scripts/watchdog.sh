@@ -27,7 +27,7 @@ while true; do
     # Check if QwenPaw app is running
     if ! pgrep -f "$APP_PATTERN" > /dev/null 2>&1; then
         log "QwenPaw app NOT running — restarting..."
-        cd /home/huythong/.qwenpaw/workspaces/trading
+        cd "$(dirname "$0")/.."
         qwenpaw app &
         sleep 10
         error_count=0
@@ -40,7 +40,7 @@ while true; do
         log "Too many recent errors ($recent_errors > $MAX_ERRORS) — restarting..."
         pkill -f "$APP_PATTERN" 2>/dev/null
         sleep 5
-        cd /home/huythong/.qwenpaw/workspaces/trading
+        cd "$(dirname "$0")/.."
         qwenpaw app &
         sleep 10
         error_count=0

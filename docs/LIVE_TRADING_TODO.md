@@ -132,9 +132,12 @@ does not remove protection already held by the exchange.
 - [ ] P1.4: out-of-band kill switch and documented incident/credential drills.
 - [ ] P1.5: one execution leader, separate scheduler/monitoring, tested health and
   rollback behavior, and no deployment-triggered mainnet enablement.
-  - [ ] Reconcile the production workflow's expected blue/green services with
-    the actual Compose topology; the current fail-closed validation intentionally
-    blocks the inconsistent deployment.
+  - [x] Reconcile the production workflow's expected blue/green services with
+    the actual Compose topology. Resolved by simplifying to a **single execution
+    leader** (commit e7f51ba): removed the fake blue/green requirement, the
+    `trading-scheduler` service (module did not exist) and the wrong
+    `:8080/healthz` checks; CD now verifies digest + signature + SBOM and health
+    via `cli system health`, with a documented rollback path.
 - [ ] P1.6: dedicated spot subaccount, withdrawal disabled, IP allowlist and
   separate read-only monitoring credentials.
 

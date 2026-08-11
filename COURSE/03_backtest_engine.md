@@ -232,7 +232,7 @@ Backtest bất kỳ qua engine mới đều crash `AttributeError`. Đã sửa t
 ## 6. Demo — chạy thật và đọc kết quả
 
 ```bash
-cd /home/huythong/.qwenpaw/workspaces/trading
+cd <repo-root>
 python3 -c "
 from trading_agent.backtest.engine import run_backtest
 r = run_backtest('ma_crossover', 'BTC/USDT', '1h', initial_capital=10000)

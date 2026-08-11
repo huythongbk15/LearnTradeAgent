@@ -1,6 +1,7 @@
 # 🌐 Phase 6 — Scale & Multi-Asset
 
-> **Trạng thái:** ✅ HOÀN THÀNH 100% (P0 · P1 · P2 · P3)
+> **Trạng thái:** Implementation ✅ (P0 · P1 · P2 · P3) — research/paper only, **mainnet NO-GO**
+> (xem [LIVE_TRADING_TODO.md](LIVE_TRADING_TODO.md) · [CAPABILITY_MATRIX.md](CAPABILITY_MATRIX.md))
 > **Cập nhật:** 2026-07-31
 
 ## 🎯 Mục tiêu
@@ -110,4 +111,4 @@ cấp portfolio, strategy marketplace plugin, và advanced ML adaptive.
 - **P2** (DEX, futures/options, capital allocation, attribution, sandbox, versioning, LLM features, swarm, multi-region, event sourcing, chaos) — ✅ 100%
 - **P3** (52 integration tests, dry-run modes, benchmarks, CI/CD) — ✅ 100%
 
-> 81 tests pass toàn hệ thống · CI/CD green · chi tiết: [PHASE6_P3_REPORT.md](PHASE6_P3_REPORT.md) · [phase6-p2-completion.md](phase6-p2-completion.md)
+> CI status: xem [GitHub Actions](https://github.com/huythongbk15/LearnTradeAgent/actions) — chi tiết: [PHASE6_P3_REPORT.md](PHASE6_P3_REPORT.md) · [phase6-p2-completion.md](phase6-p2-completion.md)

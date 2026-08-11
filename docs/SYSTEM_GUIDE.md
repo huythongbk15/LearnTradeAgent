@@ -4,6 +4,16 @@
 > các phương pháp trade, UI/UX và notification**.
 > Ngôn ngữ cấu hình: `config/config.yaml` · Biến bí mật: `.env` · CLI: `python -m trading_agent.cli`
 
+> ⚠️ **SAFETY STATUS — READ FIRST**
+>
+> * **Mainnet trading status: `NO-GO`.** Code live có tồn tại (Binance/Alpaca/OANDA), nhưng
+>   real-money mainnet **chưa được chứng nhận production-ready**.
+> * Có code live **không** đồng nghĩa được phép dùng vốn thật; deploy không tự enable mainnet.
+> * Thứ tự bắt buộc: Backtest → Paper → Testnet → Acceptance → Soak → Drills → Operator
+>   approval → Mainnet canary → Controlled scaling.
+> * Chi tiết gates: [`LIVE_TRADING_TODO.md`](LIVE_TRADING_TODO.md) · Maturity:
+>   [`CAPABILITY_MATRIX.md`](CAPABILITY_MATRIX.md)
+
 ---
 
 ## 1. Tổng quan hệ thống
@@ -51,7 +61,7 @@ Hệ thống **multi-agent AI crypto trading** kết hợp:
 
 ### 3.1 Cài đặt
 ```bash
-cd /home/huythong/.qwenpaw/workspaces/trading
+cd <repo-root>
 make install          # poetry install
 make test             # chạy 176+ tests
 make info             # kiểm tra cấu hình hệ thống
@@ -96,7 +106,7 @@ TELEGRAM_CHAT_ID=...
 
 ## 4. Cách sử dụng cụ thể — CLI & Makefile
 
-Mọi lệnh gõ từ thư mục gốc: `/home/huythong/.qwenpaw/workspaces/trading`
+Mọi lệnh gõ từ thư mục gốc: `<repo-root>`
 
 ### 4.1 Dữ liệu
 ```bash
@@ -283,7 +293,7 @@ alerts:
 Hệ thống có cron để chạy live định kỳ (thường mỗi khung 1h sau khi có candle đóng):
 ```bash
 # Ví dụ: chạy live paper mỗi giờ
-0 * * * * cd /home/huythong/.qwenpaw/workspaces/trading && python scripts/live_cron_runner.py --execute --live >> logs/live.log 2>&1
+0 * * * * cd <repo-root> && python scripts/live_cron_runner.py --execute --live >> logs/live.log 2>&1
 ```
 - Kiểm tra cron daemon đang chạy: `service cron status` (WSL cần `sudo service cron start`).
 - Dùng skill `cron` của agent nếu muốn quản lý job qua QwenPaw (`qwenpaw cron create ... --agent-id trading`).

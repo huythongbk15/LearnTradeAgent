@@ -1,8 +1,10 @@
 # 📊 Trading Agent System — Tổng Kết Dự Án
 
-> **Trạng thái:** SẴN SÀNG ✅ · v1.0.0 · 7 phase hoàn thành · 175 tests pass
+> **Trạng thái:** RESEARCH + PAPER · **Mainnet: NO-GO** · v1.0.0 · 7 phase đã triển khai
+> (implementation), production validation chưa đạt — xem [Capability Matrix](CAPABILITY_MATRIX.md)
+> và [Live Readiness](LIVE_TRADING_TODO.md)
 >
-> Cập nhật: 2026-08-08
+> Cập nhật: 2026-08-11
 
 ---
 
@@ -52,7 +54,7 @@
 3. **An toàn khi chạy live** — risk controller nhiều lớp, circuit breaker, kill switch, sandbox execution, dry-run mode
 4. **Đầy đủ ops chuẩn production** — CI/CD, Docker, monitoring, backup/restore, runbook, watchdog, cron tự động
 5. **Đa tài sản thực sự** — 1 codebase → crypto + stocks + forex + futures + options + DEX
-6. **175 tests pass + CI xanh** — refactor an toàn
+6. **Test suite + CI** — chạy đầy đủ trên GitHub Actions (xem badge; số test thay đổi theo thời gian, không hard-code ở đây)
 7. **Chi phí thấp, lợi nhuận thực tế** — backtest 3.5 năm +22% → 1h Enhanced MA +822% BTC trending (paper live xác nhận)
 8. **LLM bổ trợ thông minh** — không chỉ rule-based; agent đưa rủi ro + sentiment có thể ưu tiên/block lệnh
 

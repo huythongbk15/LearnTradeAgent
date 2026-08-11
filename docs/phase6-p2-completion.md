@@ -83,7 +83,7 @@
 
 ## Verification
 - All new Python files compile successfully
-- All existing tests pass (18/18)
+- All existing tests pass (18/18 tại thời điểm viết)
 - New CLI commands available and functional:
   - `trading-agent meta train/adapt/backtest/regimes`
   - `trading-agent projection rebuild/status/query`

@@ -123,7 +123,7 @@ by_asset = {
 ## 🧪 Demo
 
 ```bash
-cd /home/huythong/.qwenpaw/workspaces/trading
+cd <repo-root>
 
 # 1. Demo built-in (MockSource + SQLite, không cần API key)
 python3 -m trading_agent.data.pipeline

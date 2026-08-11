@@ -1,8 +1,8 @@
-# 📁 Cấu Trúc Mã Nguồn (Final)
+# 📁 Cấu Trúc Mã Nguồn
 
-> Cấu trúc cuối cùng sau khi dọn dẹp — 133 modules Python, không dead code.
+> Cấu trúc sau khi dọn dẹp. Tree thật (auto-generated): [`PROJECT_MAP.md`](PROJECT_MAP.md).
 >
-> **Phiên bản:** v1.0.0 · Toàn bộ 7 phase hoàn thành
+> **Phiên bản:** v1.0.0 · Implementation 7 phase xong · **mainnet NO-GO**
 
 ---
 

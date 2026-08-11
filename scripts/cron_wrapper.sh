@@ -5,7 +5,7 @@
 # =============================================================================
 set -euo pipefail
 
-PROJECT_DIR="/home/huythong/.qwenpaw/workspaces/trading"
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LOG_DIR="$PROJECT_DIR/logs"
 TIMESTAMP=$(date '+%Y%m%d_%H%M%S')
 

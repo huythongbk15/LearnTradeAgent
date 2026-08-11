@@ -46,7 +46,7 @@
 
 ```bash
 # Từ thư mục gốc của project
-cd /home/huythong/.qwenpaw/workspaces/trading
+cd <repo-root>
 
 # Môi trường Python đã cài sẵn các dependency của project
 python3 -c "import trading; print('OK')"

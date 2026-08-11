@@ -127,7 +127,7 @@ COMMON_FOREX    # EUR/USD, GBP/USD, USD/JPY, USD/CHF, AUD/USD, USD/CAD
 ## 🧪 Demo
 
 ```bash
-cd /home/huythong/.qwenpaw/workspaces/trading
+cd <repo-root>
 python3 -c "
 from trading_agent.exchanges.models import *
 from datetime import datetime

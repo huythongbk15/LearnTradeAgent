@@ -1,189 +1,110 @@
 # 🤖 Trading Agent System
 
-**Multi-Agent AI Trading Platform** — kết hợp LLM agents với chiến lược giao dịch systematic, multi-exchange, multi-asset (Crypto + Stocks + Forex + Futures/Options).
+**Multi-Agent AI Trading Platform** — kết hợp LLM agents với chiến lược giao dịch systematic,
+multi-exchange, multi-asset (Crypto + Stocks + Forex + Futures/Options).
 
 [![CI](https://github.com/huythongbk15/LearnTradeAgent/actions/workflows/ci.yml/badge.svg)](https://github.com/huythongbk15/LearnTradeAgent/actions/workflows/ci.yml)
 
+> ⚠️ **SAFETY STATUS — READ FIRST**
+>
+> Repository này **có chứa live-trading code** (Binance/Alpaca/OANDA adapters, live runner,
+> protective orders). Tuy nhiên:
+>
+> * **Mainnet trading status: `NO-GO`** — real-money mainnet chưa được chứng nhận production-ready.
+> * Có code live **không** đồng nghĩa được phép dùng vốn thật.
+> * Việc deploy/chạy hệ thống **không tự động enable mainnet** — hai việc độc lập.
+> * Release flow bắt buộc: Backtest → Paper → Testnet → Acceptance → Soak → Drills →
+>   Operator approval → Mainnet canary → Controlled scaling.
+>
+> Chi tiết: [`docs/LIVE_TRADING_TODO.md`](docs/LIVE_TRADING_TODO.md) · [`docs/CAPABILITY_MATRIX.md`](docs/CAPABILITY_MATRIX.md)
+
 ---
 
-## 🏗 Kiến trúc 3 tầng
+## Dự án này là gì?
 
-```
-┌─ PHASE 0-3 · CORE LOOP ────────────────────────────────────────┐
-│  data/pipeline ──→ backtest/engine ──→ 4 LLM agents ──→ execution│
-│  (fetch·validate)   (vectorized)      (weighted voting)  (paper)│
-└────────────────────────────────────────────────────────────────┘
-┌─ PHASE 4-5 · OPS ──────────────────────────────────────────────┐
-│  logging · SQLite · metrics · Streamlit dashboard · Telegram   │
-│  Docker · CI/CD · Trivy scan · backup/restore · runbook        │
-└────────────────────────────────────────────────────────────────┘
-┌─ PHASE 6 · SCALE ──────────────────────────────────────────────┐
-│  8 CEX + DEX + Alpaca + OANDA · order router · portfolio       │
-│  strategy marketplace · adaptive ML · event sourcing · chaos   │
-└────────────────────────────────────────────────────────────────┘
-```
+Hệ thống giao dịch tự động theo hướng nghiên cứu (research-oriented):
 
-## ✅ Trạng thái 7 phase — HOÀN THÀNH 100%
+- **Data pipeline**: CCXT → Polars → Parquet, fetch/validate/incremental update
+- **Backtest engine**: vectorized + event-driven, walk-forward, OOS, parameter sweep
+- **AI agents**: Technical · Sentiment · Risk · Trader (LLM weighted voting, fallback chain)
+- **Execution**: paper exchange, risk controller, circuit breaker, kill switch, live broker
+  facade (Alpaca paper, Binance testnet), trusted-time market-data checks, protective orders
+- **Ops**: logging, SQLite, metrics, Streamlit/Web UI, Telegram alerts, Docker, CI/CD, Trivy
 
-| Phase | Module | Điểm nổi bật |
-|-------|--------|--------------|
-| **0** | Data Pipeline | 5 symbols × 4 TFs, 696K candles, 0 gaps, incremental update |
-| **1** | Backtest Engine | 4 strategies, parameter sweep +71.96%, walk-forward, OOS |
-| **2** | AI Agents | Technical · Sentiment · Risk · Trader, DeepSeek V4 Flash ($0), fallback chain |
-| **3** | Execution & Risk | Paper exchange, risk controller, circuit breaker, kill switch |
-| **4** | Monitoring & Ops | Logging, SQLite, metrics engine, Streamlit dashboard, Telegram alerts |
-| **5** | Production | Docker 24/7, CI/CD xanh, Trivy scan, backup/restore, runbook |
-| **6** | Scale & Multi-Asset | 8 sàn + DEX + stocks + forex, portfolio optimizer, plugin marketplace, meta-learning |
+## Current maturity
 
-> 📊 Kiến trúc đầy đủ: [`TRADING_SYSTEM_OVERVIEW.md`](TRADING_SYSTEM_OVERVIEW.md) · **Tài liệu tổng hợp (tính năng/cách dùng/trade options/UI/notify): [`docs/SYSTEM_GUIDE.md`](docs/SYSTEM_GUIDE.md)** · Index tài liệu: [`docs/README.md`](docs/README.md) · Tổng kết cuối: [`docs/PROJECT_SUMMARY.md`](docs/PROJECT_SUMMARY.md)
+| Mặt | Trạng thái |
+| --- | --- |
+| Research / backtest | Hoạt động, nhiều strategy + WFO — xem [`docs/RESEARCH_EVIDENCE.md`](docs/RESEARCH_EVIDENCE.md) |
+| Paper trading | Hoạt động (Alpaca paper validated) |
+| Testnet (Binance) | Partial — P0.3 execute đã chạy, acceptance chưa xong |
+| Mainnet (vốn thật) | **NO-GO** — xem [`docs/LIVE_TRADING_TODO.md`](docs/LIVE_TRADING_TODO.md) |
+| CI/CD | Xem GitHub Actions badge — không claim "xanh" cố định trong docs |
+| Production validated | Chưa — xem [`docs/CAPABILITY_MATRIX.md`](docs/CAPABILITY_MATRIX.md) |
 
-## 🌐 Web UI (FastAPI + React)
-
-Giao diện web thay thế CLI — realtime, điều khiển trực tiếp:
-```bash
-pip install -r requirements-web.txt  # dependency FastAPI + Alpaca cho Web UI
-make webui-build     # build React frontend (lần đầu)
-make webui-start     # chạy backend + serve UI tại http://localhost:8000
-make webui-status    # kiểm tra server
-make webui-dev       # dev mode: backend 8000 + Vite HMR 5173
-```
-- **Backend**: `webui/backend/app.py` — FastAPI REST + WebSocket `/ws` (push realtime 5s).
-- **Frontend**: `webui/frontend/` — React + Vite + TypeScript + lightweight-charts (dark theme).
-- Tính năng: equity/cash/positions/trades realtime, risk (DD, trading allowed), chạy **Backtest** từ UI (async job), **Live cycle** (dry/live), **Kill Switch**.
-- Quản lý server: `bash scripts/webui.sh {start|stop|restart|status|logs}` (load `.env`, không treo terminal).
-
-## 🔬 Chi tiết từng phase
-
-### Phase 0 — Data Pipeline ✅
-**Mục tiêu:** Xây nền tảng dữ liệu sạch cho toàn bộ hệ thống.
-- Fetch **5 symbols × 4 timeframes** (1h/4h/1d...) qua CCXT → Polars → Parquet
-- **696K candles, 0 gaps** — data validation, gap detection, duplicate check
-- **Incremental update**: chỉ tải dữ liệu mới → tiết kiệm **95-99% bandwidth**
-- Data sufficiency analysis: xác định đủ dữ liệu cho backtest/ML
-
-### Phase 1 — Backtest Engine ✅
-**Mục tiêu:** Đo hiệu quả chiến lược trước khi đưa tiền thật.
-- 4 chiến lược: **MA Crossover, RSI, Bollinger Bands, MACD** (vectorized Polars)
-- **Parameter sweep**: default +10.73% → optimized **+71.96%**
-- **Walk-forward + Out-of-Sample + stability analysis** — phát hiện overfitting, chọn bộ tham số bền
-- Metrics: Sharpe, Return, Win Rate, Max Drawdown
-
-### Phase 2 — AI Agents ✅
-**Mục tiêu:** Kết hợp LLM với phân tích kỹ thuật truyền thống.
-- 4 agent chuyên biệt: **Technical · Sentiment · Risk · Trader** + weighted voting
-- **Multi-timeframe** (1h/4h/1d) — 28 tests pass
-- **LLM fallback chain**: OpenCode (deepseek-v4-flash-free, **$0**) → OpenAI → DeepSeek → Ollama; `USE_LLM=false` khi offline
-- Chi phí: $0.002 → **$0/cycle** · PortfolioManager + AgentStrategy backtest integration
-
-### Phase 3 — Execution & Risk ✅
-**Mục tiêu:** Đặt lệnh an toàn, có kiểm soát rủi ro.
-- **Paper exchange** (mô phỏng khớp lệnh, fee, slippage) + execution engine
-- **Risk controller**: stop-loss, position sizing · **circuit breaker** · **kill switch**
-- CLI 6 lệnh (`execution run/status/trades/risk...`), lazy import → startup **0.22s**
-- Demo full cycle: **BUY → SELL +3.35%** trên BTC
-
-### Phase 4 — Monitoring & Ops ✅
-**Mục tiêu:** Nhìn thấy hệ thống đang làm gì.
-- Structured logging + **SQLite DB** (trades, PnL, risk events)
-- **Metrics engine** + **Streamlit dashboard** (equity curve, drawdown, phân bổ)
-- **Telegram alerts** (lệnh, stop-loss, lỗi) — 7 tài liệu docs cập nhật
-
-### Phase 5 — Production Hardening ✅
-**Mục tiêu:** Chạy 24/7 như production thật.
-- **Docker** multi-stage, docker-compose prod · **CI/CD GitHub Actions** (lint, test, build, **Trivy security scan**)
-- Monitoring: Prometheus + Grafana + Loki · **backup/restore** (WAL-G pattern) + runbook
-- Graceful shutdown, LLM caching (TTL), multi-symbol execution CLI
-- **CI/CD xanh hoàn toàn** — kể cả Telegram notify (secrets chuẩn)
-
-### Phase 6 — Scale & Multi-Asset ✅
-**Mục tiêu:** Mở rộng đa sàn, đa tài sản, đa chiến lược. *(chi tiết: [docs/phase6-scale.md](docs/phase6-scale.md))*
-- **Multi-exchange**: CCXT 8 CEX + **DEX** (Uniswap V3/Jupiter/PancakeSwap) + **Alpaca** (stocks) + **OANDA** (forex) + Futures/Options
-- **Order router** (Best Price/TWAP/VWAP/Split) · WebSocket Manager · Health Monitor failover
-- **Portfolio**: risk budgeting, correlation monitor, auto-rebalancer, Black-Litterman optimizer, Kelly allocation, attribution
-- **Strategy marketplace**: plugin (pluggy), registry, sandbox, versioning, backtest validation
-- **Adaptive ML**: regime detection (HMM/GMM), online learning (River), meta-learning (MAML/Reptile)
-- **Infra**: event sourcing, NATS/Redis messaging, OpenTelemetry tracing, K8s multi-region, chaos engineering
-- 52 integration tests · 81 tests tổng · benchmarks + load tests
-
-## 🚀 Bắt đầu nhanh (10 lệnh)
+## Quick start
 
 ```bash
-# 1. Cài đặt
-poetry install
+# 1. Cài đặt (Python 3.12)
+pip install -e ".[dev,web,infra]"
 
-# 2. Fetch dữ liệu Bitcoin
-poetry run trading-agent data fetch BTC/USDT --since 2026-07-01
+# 2. Fetch dữ liệu
+trading-agent data fetch BTC/USDT --since 2026-07-01
 
-# 3. Kiểm tra dữ liệu
-poetry run trading-agent data inspect BTC/USDT
+# 3. Backtest
+trading-agent backtest run ma_crossover BTC/USDT
 
-# 4. Chạy backtest
-poetry run trading-agent backtest run ma_crossover BTC/USDT
+# 4. Phân tích multi-agent
+trading-agent agents analyze BTC/USDT
 
-# 5. Phân tích multi-agent
-poetry run trading-agent agents analyze BTC/USDT
-
-# 6. Xem portfolio
-poetry run trading-agent execution status
-
-# 7. Full cycle: phân tích → trade
-poetry run trading-agent execution run BTC/USDT
-
-# 8. Xem trade history
-poetry run trading-agent execution trades
-
-# 9. Xem risk status
-poetry run trading-agent execution risk
-
-# 10. System info
-poetry run trading-agent info
+# 5. Xem hệ thống
+trading-agent system health
 ```
 
-## 📚 Tài liệu & Khóa học
+Yêu cầu: **Python >=3.12,<3.13**. Credentials template: [`.env.example`](.env.example)
+(không chứa secret thật).
 
-| Đâu | Mô tả |
-|-----|-------|
-| [`docs/README.md`](docs/README.md) | 🧭 Index toàn bộ tài liệu kỹ thuật |
-| [`TRADING_SYSTEM_OVERVIEW.md`](TRADING_SYSTEM_OVERVIEW.md) | 🏛 Tổng quan kiến trúc & lộ trình 6 phase |
-| [`COURSE/`](COURSE/) | 🎓 Khóa học 10 bài bóc tách hệ thống (deep-dive + demo) |
-| [`docs/architecture.md`](docs/architecture.md) | 🏗 Kiến trúc chi tiết |
-| [`docs/demo.md`](docs/demo.md) | 🎮 Demo từng bước A→Z |
-| [`docs/getting-started.md`](docs/getting-started.md) | ⚡ Quick start chi tiết |
-| [`docs/optimization.md`](docs/optimization.md) | ⚡ Hồ sơ tối ưu hóa |
-| [`docs/phase6-scale.md`](docs/phase6-scale.md) | 🌐 Phase 6: Scale & Multi-Asset |
-| [`docs/RUNBOOK.md`](docs/RUNBOOK.md) · [`RUNBOOK_LOCAL.md`](docs/RUNBOOK_LOCAL.md) | 🚑 Vận hành production & local |
+## Kiến trúc tổng quan
 
-## ⚡ Con số nổi bật
+```
+RESEARCH PLANE   Data → Features → Strategies → Backtest → Statistical Validation → Evidence
+DECISION PLANE   Strategies/Agents → Portfolio → Risk → Order Intent
+EXECUTION PLANE  Order Planner → Broker Adapter → Order Lifecycle → Fill Ledger → Reconciliation → Protective Orders
+CONTROL PLANE    Configuration → Release Gates → Kill Switch → Leader/Fencing → Audit
+OBSERVABILITY    Logs → Metrics → Alerts → Incident Response
+```
 
-| Tối ưu | Chỉ số |
-|--------|--------|
-| CLI startup time | 4s → **0.22s** (lazy imports) |
-| Parameter sweep | default +10.73% → **optimized +71.96%** |
-| LLM cost | $0.002/analysis → **$0** (DeepSeek V4 Flash qua OpenCode) |
-| Incremental data | 95-99% ít dữ liệu phải tải lại |
-| Test suite | **81 tests pass** · CI/CD xanh |
+Chi tiết: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 
-## 🛠 Stack
+## Tài liệu chính thức (authoritative)
+
+| Tài liệu | Nội dung |
+| --- | --- |
+| [`docs/LIVE_TRADING_TODO.md`](docs/LIVE_TRADING_TODO.md) | Live readiness — gates P0-P3, mainnet NO-GO |
+| [`docs/CAPABILITY_MATRIX.md`](docs/CAPABILITY_MATRIX.md) | Mức độ trưởng thành từng capability |
+| [`docs/RESEARCH_EVIDENCE.md`](docs/RESEARCH_EVIDENCE.md) | Bằng chứng research (in-sample/OOS/WF/holdout) |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Kiến trúc theo code thực tế |
+| [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) | Hướng dẫn phát triển, test, lint |
+| [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) | Deploy topology, fail-closed, rollback |
+| [`docs/SECURITY.md`](docs/SECURITY.md) | Supply chain, credentials, hardening |
+| [`docs/LIVE_RUNBOOK.md`](docs/LIVE_RUNBOOK.md) · [`docs/RUNBOOK.md`](docs/RUNBOOK.md) | Vận hành |
+
+## Stack
 
 | Layer | Công nghệ |
-|-------|-----------|
-| **CLI** | Click + Rich |
-| **Data** | CCXT → Polars → Parquet, SQLite/TimescaleDB |
-| **Backtest** | Custom engine vectorized (Polars) |
-| **AI Agents** | DeepSeek V4 Flash (primary) → OpenAI → DeepSeek → Ollama (fallback) |
-| **Exchanges** | CCXT (8 CEX) · Web3.py (DEX) · Alpaca (stocks) · OANDA (forex) |
-| **Portfolio** | Risk parity · HRP · Black-Litterman · Kelly allocation |
-| **Execution** | Paper exchange (simulated) |
-| **Infra** | Docker · GitHub Actions · K8s (multi-region) · OpenTelemetry |
+| --- | --- |
+| CLI | Click + Rich |
+| Data | CCXT → Polars → Parquet, SQLite/TimescaleDB |
+| Backtest | Custom engine vectorized (Polars) + event-driven |
+| AI Agents | DeepSeek V4 Flash (primary) → OpenAI → DeepSeek → Ollama (fallback) |
+| Exchanges | CCXT (8 CEX) · Web3.py (DEX) · Alpaca (stocks) · OANDA (forex) |
+| Portfolio | Risk parity · HRP · Black-Litterman · Kelly |
+| Infra | Docker · GitHub Actions · K8s (multi-region) · OpenTelemetry |
 
 ---
 
-## ⚠️ Disclaimer
+## Disclaimer
 
-**Chỉ dành cho mục đích nghiên cứu và giáo dục.** Giao dịch tiền mã hóa tiềm ẩn rủi ro lớn. Không sử dụng số tiền bạn không thể mất. Luôn bắt đầu với paper trading trước khi giao dịch thật.
-
----
-
-<div align="center">
-<sub>Built with ❤️ · v1.0.0 · 2026-07-31</sub>
-</div>
+**Chỉ dành cho mục đích nghiên cứu và giáo dục.** Giao dịch tiền mã hóa tiềm ẩn rủi ro lớn.
+Không sử dụng số tiền bạn không thể mất. Luôn bắt đầu với paper trading trước khi giao dịch thật.
+**Mainnet status: NO-GO.**

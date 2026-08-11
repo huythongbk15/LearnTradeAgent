@@ -1,6 +1,6 @@
 # TRADING SYSTEM IMPROVEMENT ROADMAP
 # Generated: 2026-08-05
-# Current State: Phase 6 complete, 107 tests pass, multi-pair optimization done
+# Current State: Phase 6 implementation complete; research/paper only (mainnet NO-GO)
 
 ## 🎯 TIER 0: QUICK WINS (1-2 tuần, impact cao, effort thấp)
 
