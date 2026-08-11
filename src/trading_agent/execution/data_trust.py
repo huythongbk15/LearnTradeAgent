@@ -294,6 +294,9 @@ class OrderBookSequenceTracker:
     def on_update(self, symbol: str, sequence: Optional[int]) -> str:
         """Validate one update ID. Returns one of:
         ``"ok"``, ``"duplicate"``, ``"gap"``, ``"uninitialized"``, ``"invalid"``.
+
+        This is the *diff-stream* path (WS): IDs must be strictly contiguous,
+        so any jump is a gap that requires resync.
         """
         if sequence is None:
             return "uninitialized"
@@ -311,6 +314,33 @@ class OrderBookSequenceTracker:
             self._gaps[symbol] = self._gaps.get(symbol, 0) + 1
             self._last[symbol] = sequence
             return "gap"
+        self._last[symbol] = sequence
+        return "ok"
+
+    def on_rest_snapshot(self, symbol: str, sequence: Optional[int]) -> str:
+        """Validate a REST order-book snapshot's lastUpdateId.
+
+        REST snapshots jump by thousands of IDs between calls — that is
+        expected and must NOT be treated as a gap (unlike WS diffs). We only
+        reject a backwards or repeated ID, which signals a stale/cached
+        response. Returns ``"ok"``, ``"duplicate"``, ``"stale"``,
+        ``"invalid"`` or ``"uninitialized"``.
+        """
+        if sequence is None:
+            return "uninitialized"
+        if not isinstance(sequence, int) or sequence <= 0:
+            self._gaps[symbol] = self._gaps.get(symbol, 0) + 1
+            return "invalid"
+        last = self._last.get(symbol)
+        if last is None:
+            self._last[symbol] = sequence
+            return "ok"
+        if sequence < last:
+            self._duplicates[symbol] = self._duplicates.get(symbol, 0) + 1
+            return "stale"
+        if sequence == last:
+            self._duplicates[symbol] = self._duplicates.get(symbol, 0) + 1
+            return "duplicate"
         self._last[symbol] = sequence
         return "ok"
 

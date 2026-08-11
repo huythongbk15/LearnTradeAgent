@@ -1107,8 +1107,8 @@ def protected_execution_quote(
         if monitor is not None:
             monitor.record_fetch(symbol.pair, book_fetch)
     if monitor is not None and book.get("sequence") is not None:
-        seq_status = monitor.sequences.on_update(symbol.pair, book["sequence"])
-        if seq_status in ("gap", "invalid"):
+        seq_status = monitor.sequences.on_rest_snapshot(symbol.pair, book["sequence"])
+        if seq_status in ("stale", "duplicate", "invalid"):
             raise SequenceGapError(
                 f"order book sequence for {symbol.pair} is untrusted ({seq_status})"
             )

@@ -160,6 +160,27 @@ def test_sequence_tracker_snapshot_rejects_bad_id():
         tracker.on_snapshot("BTC/USDT", -1)
 
 
+def test_rest_snapshot_jumps_are_not_gaps():
+    """REST depth lastUpdateId jumps by thousands between calls — expected."""
+    tracker = OrderBookSequenceTracker()
+    assert tracker.on_rest_snapshot("BTC/USDT", 100) == "ok"
+    assert tracker.on_rest_snapshot("BTC/USDT", 99_999_000) == "ok"
+    assert tracker.last_sequence("BTC/USDT") == 99_999_000
+
+
+def test_rest_snapshot_rejects_backwards_id():
+    tracker = OrderBookSequenceTracker()
+    tracker.on_rest_snapshot("BTC/USDT", 500)
+    assert tracker.on_rest_snapshot("BTC/USDT", 499) == "stale"
+    assert tracker.duplicate_count("BTC/USDT") == 1
+
+
+def test_rest_snapshot_rejects_duplicate_id():
+    tracker = OrderBookSequenceTracker()
+    tracker.on_rest_snapshot("BTC/USDT", 500)
+    assert tracker.on_rest_snapshot("BTC/USDT", 500) == "duplicate"
+
+
 # ── Binance diff stream protocol (snapshot + diff) ─────────────────────
 
 def test_diff_stream_first_diff_straddles_snapshot():
