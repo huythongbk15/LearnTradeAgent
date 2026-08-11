@@ -13,7 +13,6 @@ stops — otherwise evidence no longer represents live behaviour.
 
 from __future__ import annotations
 
-import itertools
 import json
 import sys
 import time
