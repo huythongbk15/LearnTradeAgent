@@ -33,8 +33,9 @@
 │   └── app.py
 ├── docs
 │   ├── archive
-│   │   └── research
-│   │       └── BACKTEST_SUMMARY_2026-08-06.md
+│   │   ├── research
+│   │   │   └── BACKTEST_SUMMARY_2026-08-06.md
+│   │   └── architecture_2026-08.md
 │   ├── wsl-guide
 │   │   ├── Contributing.md
 │   │   ├── Getting Started with WSL.sh
@@ -59,7 +60,6 @@
 │   ├── RUNBOOK_LOCAL.md
 │   ├── SECURITY.md
 │   ├── SYSTEM_GUIDE.md
-│   ├── architecture.md
 │   ├── demo.md
 │   ├── getting-started.md
 │   ├── optimization.md
