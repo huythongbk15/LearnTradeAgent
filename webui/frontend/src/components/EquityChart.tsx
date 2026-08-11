@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { createChart, ColorType, type IChartApi } from "lightweight-charts";
+import { createChart, ColorType, LineSeries, type IChartApi } from "lightweight-charts";
 
 interface Props {
   data: { ts: number; equity: number }[];
@@ -25,7 +25,7 @@ export function EquityChart({ data }: Props) {
       timeScale: { borderColor: "#232a3b" },
     });
     chartRef.current = chart;
-    const series = chart.addLineSeries({
+    const series = chart.addSeries(LineSeries, {
       color: "#4da3ff",
       lineWidth: 2,
       priceLineVisible: false,
@@ -41,10 +41,10 @@ export function EquityChart({ data }: Props) {
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart || data.length === 0) return;
-    const series = chart.addLineSeries({ color: "#4da3ff", lineWidth: 2, priceLineVisible: false });
+    const series = chart.addSeries(LineSeries, { color: "#4da3ff", lineWidth: 2, priceLineVisible: false });
     // series API: replace data — remove & re-add to keep it simple on updates
     chart.removeSeries(series);
-    const s2 = chart.addLineSeries({ color: "#4da3ff", lineWidth: 2, priceLineVisible: false });
+    const s2 = chart.addSeries(LineSeries, { color: "#4da3ff", lineWidth: 2, priceLineVisible: false });
     s2.setData(data.map((d) => ({ time: d.ts as never, value: d.equity })));
     chart.timeScale().fitContent();
   }, [data]);
