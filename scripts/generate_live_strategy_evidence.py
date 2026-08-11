@@ -44,7 +44,7 @@ INITIAL_CAPITAL = 10_000.0
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--symbols", default="BTC/USDT,SOL/USDT,AVAX/USDT")
-    parser.add_argument("--weights", default="20,15,15", help="Live equity percentages")
+    parser.add_argument("--weights", default="4,3,3", help="Live equity percentages")
     parser.add_argument("--folds", type=int, default=6)
     parser.add_argument("--fold-days", type=int, default=90)
     parser.add_argument("--output", default="data/live_strategy_evidence.json")
