@@ -117,6 +117,8 @@ jobs:
       - name: Test image runs (container smoke test)
         run: |
           IMAGE="${{ steps.image.outputs.name }}:sha-${{ github.sha }}"
+          # DIAG: inspect interpreter + rich location before smoke tests
+          docker run --rm "$IMAGE" python -c "import sys; print('EXE', sys.executable); print('PATH', sys.path); import rich; print('RICH', rich.__file__)" || true
           # CLI help exits 0
           docker run --rm "$IMAGE" --help >/dev/null
           # Package importable
