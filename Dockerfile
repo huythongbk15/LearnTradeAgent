@@ -41,6 +41,8 @@ WORKDIR /app
 
 # Copy only dependency files first (cache layer)
 COPY pyproject.toml requirements-web.txt ./
+# Copy source code needed for pip install
+COPY src/ ./src/
 
 # Install production dependencies into /opt/venv
 RUN pip install --no-cache-dir --upgrade pip \
