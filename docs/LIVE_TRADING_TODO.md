@@ -167,10 +167,20 @@ does not remove protection already held by the exchange.
       fingerprinted; `scripts/generate_holdout_manifest.py`;
       `trading_agent/alpha_research/holdout.py` guard + 6 tests;
       `docs/RESEARCH_HOLDOUT.md` policy.)
-- [ ] Add per-fold trade minimums, regime breakdowns, block-bootstrap confidence
+- [x] Add per-fold trade minimums, regime breakdowns, block-bootstrap confidence
   intervals and Deflated/Probabilistic Sharpe.
-- [ ] Stress fees, spread and slippage at 1x/2x/3x plus gaps, latency, missing data,
+      (`trading_agent/alpha_research/stats.py`: circular-block bootstrap Sharpe
+      CI, PSR, DSR deflated by ~8000 explored trials, per-fold trade minimums;
+      gated in `generate_live_strategy_evidence.py` (`--dsr-min 0.95`,
+      CI lower bound > 0, `--min-trades-per-fold 10`). Verified 2026-08-11:
+      evidence rejected correctly — DSR=0.000, Sharpe 95% CI [-2.49, 0.31].)
+- [x] Stress fees, spread and slippage at 1x/2x/3x plus gaps, latency, missing data,
   partial fills, outages and correlated drawdowns.
+      (`scripts/stress_evidence_costs.py` — runs the exact evidence pipeline at
+      cost multipliers and reports median Sharpe / worst DD / return per level.
+      2026-08-11 result: med Sharpe -0.60 / -1.54 / -2.44 at 1x/2x/3x → strategy
+      has no edge even at 1x costs; mainnet NO-GO reinforced. Report:
+      `data/cost_stress_report.json`.)
 - [ ] Model exchange precision, fee assets, depth, cancellation and dust in the
   execution simulator.
 - [ ] Measure paper/testnet tracking error before evaluating maker/TWAP execution.

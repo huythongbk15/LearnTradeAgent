@@ -127,6 +127,10 @@ def evaluate_symbol(
     symbol: str,
     ranges: list[tuple[datetime, datetime]],
     allocation: float,
+    *,
+    commission: float = COMMISSION,
+    slippage: float = SLIPPAGE,
+    spread_bps: float = SPREAD_BPS,
 ) -> tuple[list[dict], list[pl.DataFrame]]:
     required = {"timestamp", "open", "high", "low", "close", "volume"}
     missing = required - set(frame.columns)
@@ -167,9 +171,9 @@ def evaluate_symbol(
         engine = BacktestEngine(
             strategy=EnhancedMaCrossover(STRATEGY_PARAMS),
             initial_capital=INITIAL_CAPITAL,
-            commission=COMMISSION,
-            slippage=SLIPPAGE,
-            spread_bps=SPREAD_BPS,
+            commission=commission,
+            slippage=slippage,
+            spread_bps=spread_bps,
             long_only=True,
             atr_sl_mult=ATR_SL_MULT,
             trailing_atr_mult=ATR_SL_MULT,
