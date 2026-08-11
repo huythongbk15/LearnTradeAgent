@@ -1379,6 +1379,67 @@ def llm_cache_stats():
     console.print(t)
 
 
+@llm.command("calibration")
+@click.option(
+    "--pairs",
+    type=click.Path(exists=True, dir_okay=False),
+    default=None,
+    help="JSON file with [confidence, correct] pairs, e.g. [[0.8, true], ...]",
+)
+def llm_calibration(pairs):
+    """Show confidence reliability diagram + ECE (calibration audit).
+
+    Reads (confidence, correct) observations from a JSON file of
+    [confidence, correct] pairs, e.g.::
+
+        [[0.8, true], [0.6, false], [0.9, true], ...]
+
+    Prints per-bin reliability (avg confidence vs empirical accuracy) and
+    the Expected Calibration Error (ECE).  ECE close to 0 means the
+    model's confidence matches its hit rate.
+    """
+    from trading_agent.agents.calibration import ConfidenceCalibrator
+
+    if pairs is None:
+        raise click.ClickException(
+            "need --pairs FILE (JSON list of [confidence, correct]) — "
+            "e.g. `trading-agent llm calibration --pairs pairs.json`"
+        )
+
+    with open(pairs, encoding="utf-8") as fp:
+        raw = json.load(fp)
+    if not isinstance(raw, list):
+        raise click.ClickException("--pairs must be a JSON list of [confidence, correct]")
+
+    cal = ConfidenceCalibrator(bins=10)
+    for item in raw:
+        if not (isinstance(item, list) and len(item) == 2):
+            raise click.ClickException(f"invalid pair: {item!r}")
+        cal.add_observation(float(item[0]), bool(item[1]))
+
+    report = cal.report()
+    if report["n"] == 0:
+        console.print("[yellow]No observations loaded.[/yellow]")
+        return
+
+    t = Table("Confidence bin", "Count", "Avg confidence", "Accuracy", "Gap")
+    for bin_ in report["bins"]:
+        gap = abs(bin_["avg_confidence"] - bin_["accuracy"])
+        t.add_row(
+            f"{bin_['low']:.1f}-{bin_['high']:.1f}",
+            str(bin_["count"]),
+            f"{bin_['avg_confidence']:.3f}",
+            f"{bin_['accuracy']:.3f}",
+            f"{gap:.3f}",
+        )
+    console.print(t)
+    console.print(f"Observations: [bold]{report['n']}[/bold]")
+    console.print(
+        f"Expected Calibration Error (ECE): [bold]{report['ece']:.4f}[/bold] "
+        "[green](0 = perfectly calibrated)[/green]"
+    )
+
+
 @llm.command("cache-clear")
 @click.option("--all", "clear_all", is_flag=True, help="Clear all cache (including valid)")
 @click.confirmation_option(prompt="Clear LLM cache?")

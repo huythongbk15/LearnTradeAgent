@@ -16,6 +16,7 @@ import math
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any
+from uuid import uuid4
 
 
 @dataclass
@@ -178,6 +179,51 @@ class AgentSignal:
     size_pct: float
     reasoning: str
     metadata: dict[str, Any] = field(default_factory=dict)
+
+
+# ─── AgentMessage <-> AgentSignal interop ─────────────────────────────────
+# The core agents emit AgentMessage; the Phase 6 swarm consumes AgentSignal.
+# These converters bridge the two ecosystems losslessly so a swarm can run
+# core agents (or vice versa) without rewriting either side.
+
+def message_to_signal(
+    msg: AgentMessage,
+    *,
+    symbol: str,
+    signal_id: str | None = None,
+) -> AgentSignal:
+    """Convert a core ``AgentMessage`` into a swarm ``AgentSignal``."""
+    action = str(msg.signal).lower()
+    return AgentSignal(
+        signal_id=signal_id or f"msg-{uuid4().hex[:8]}",
+        symbol=symbol,
+        action=action,
+        confidence=msg.confidence,
+        size_pct=msg.max_position_size_pct or 0.0,
+        reasoning=msg.reasoning or "",
+        metadata={
+            "role": msg.role,
+            "risk_level": msg.risk_level,
+            "warnings": list(msg.warnings),
+            "details": dict(msg.details or {}),
+        },
+    )
+
+
+def signal_to_message(
+    sig: AgentSignal,
+    *,
+    role: str = "agent",
+) -> AgentMessage:
+    """Convert a swarm ``AgentSignal`` into a core ``AgentMessage``."""
+    return AgentMessage(
+        role=role,
+        signal=str(sig.action).upper(),
+        confidence=sig.confidence,
+        reasoning=sig.reasoning or "",
+        details=dict(sig.metadata or {}),
+        max_position_size_pct=sig.size_pct,
+    )
 
 
 @dataclass
