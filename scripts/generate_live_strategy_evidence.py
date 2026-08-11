@@ -53,6 +53,26 @@ def build_parser() -> argparse.ArgumentParser:
         default=os.getenv("TRADING_BUILD_SHA", ""),
         help="Commit SHA of the immutable live build",
     )
+    parser.add_argument("--bootstrap-iters", type=int, default=1_000)
+    parser.add_argument(
+        "--trials",
+        type=int,
+        default=8_000,
+        help="Number of parameter trials already explored; deflates the Sharpe",
+    )
+    parser.add_argument("--min-trades-per-fold", type=int, default=10)
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument(
+        "--dsr-min",
+        type=float,
+        default=0.95,
+        help="Minimum deflated Sharpe ratio to publish evidence",
+    )
+    parser.add_argument(
+        "--no-stats-gate",
+        action="store_true",
+        help="Report statistical metrics without rejecting on them",
+    )
     return parser
 
 
@@ -129,7 +149,14 @@ def evaluate_symbol(
     results: list[dict] = []
     equity_curves: list[pl.DataFrame] = []
     for index, (start, end) in enumerate(ranges, start=1):
-        fold = ordered.filter((pl.col("timestamp") >= start) & (pl.col("timestamp") < end))
+        # Dataset timestamps are stored naive UTC; fold boundaries come from
+        # an aware datetime.  Normalize before filtering to avoid polars
+        # Datetime('us') vs Datetime('us','UTC') comparison errors.
+        start_filter = start.replace(tzinfo=None) if start.tzinfo else start
+        end_filter = end.replace(tzinfo=None) if end.tzinfo else end
+        fold = ordered.filter(
+            (pl.col("timestamp") >= start_filter) & (pl.col("timestamp") < end_filter)
+        )
         validate_hourly_fold(
             fold,
             symbol=symbol,
@@ -169,10 +196,17 @@ def evaluate_symbol(
 def build_portfolio_folds(
     symbol_results: dict[str, dict],
     equity_curves: dict[str, list[pl.DataFrame]],
-) -> list[dict]:
+) -> tuple[list[dict], np.ndarray]:
+    """Return (portfolio fold summaries, concatenated hourly returns).
+
+    The concatenated hourly return series stitches every fold end-to-end so
+    the statistical-hardening toolkit (bootstrap CI, PSR, DSR) has one long
+    continuous sample instead of six isolated point estimates.
+    """
     symbols = list(symbol_results)
     count = len(symbol_results[symbols[0]]["folds"])
     portfolio: list[dict] = []
+    all_hourly_returns: list[np.ndarray] = []
     for index in range(count):
         first = equity_curves[symbols[0]][index]
         timestamps = first["timestamp"].to_list()
@@ -189,6 +223,8 @@ def build_portfolio_folds(
         if np.any(~np.isfinite(portfolio_equity)) or np.any(portfolio_equity <= 0):
             raise LiveSafetyError(f"portfolio fold {index + 1} equity is invalid")
         hourly_returns = portfolio_equity[1:] / portfolio_equity[:-1] - 1.0
+        if len(hourly_returns):
+            all_hourly_returns.append(hourly_returns.astype(np.float64))
         volatility = float(np.std(hourly_returns, ddof=1)) if len(hourly_returns) > 1 else 0.0
         sharpe = (
             float(np.mean(hourly_returns) / volatility * math.sqrt(365 * 24))
@@ -207,7 +243,9 @@ def build_portfolio_folds(
             "max_drawdown_pct": float(np.max(drawdown) * 100),
             "trades": trades,
         })
-    return portfolio
+    if not all_hourly_returns:
+        raise LiveSafetyError("no hourly returns produced for portfolio")
+    return portfolio, np.concatenate(all_hourly_returns)
 
 
 def utc_iso(value: datetime) -> str:
@@ -274,7 +312,37 @@ def run(args: argparse.Namespace) -> int:
             "folds": folds,
         }
         print(f"{symbol}: evaluated {len(folds)} folds")
-    portfolio_folds = build_portfolio_folds(symbol_results, curves)
+    portfolio_folds, portfolio_returns = build_portfolio_folds(symbol_results, curves)
+
+    # P2 statistical hardening: per-fold trade minimums, bootstrap CI, PSR/DSR.
+    from trading_agent.alpha_research.stats import (
+        min_trades_check,
+        summarize_sharpe,
+    )
+
+    violations = min_trades_check(
+        portfolio_folds, args.min_trades_per_fold, label="portfolio"
+    )
+    if violations:
+        raise LiveSafetyError("; ".join(violations))
+    stats_summary = summarize_sharpe(
+        portfolio_returns,
+        periods_per_year=365 * 24,
+        trials=args.trials,
+        bootstrap_iters=args.bootstrap_iters,
+        seed=args.seed,
+    )
+    if not args.no_stats_gate and (
+        stats_summary["deflated_sharpe_ratio"] < args.dsr_min
+        or stats_summary["sharpe_ci95_lo"] <= 0.0
+    ):
+        raise LiveSafetyError(
+            "statistical gate failed: "
+            f"DSR={stats_summary['deflated_sharpe_ratio']:.3f} "
+            f"(min {args.dsr_min}), "
+            f"Sharpe 95% CI=[{stats_summary['sharpe_ci95_lo']:.2f}, "
+            f"{stats_summary['sharpe_ci95_hi']:.2f}]"
+        )
 
     now = datetime.now(UTC)
     evidence = {
@@ -292,6 +360,7 @@ def run(args: argparse.Namespace) -> int:
         },
         "symbols": symbol_results,
         "portfolio": {"folds": portfolio_folds},
+        "statistical": stats_summary,
     }
     evidence = sign_strategy_evidence(evidence, integrity_key)
 
@@ -323,6 +392,14 @@ def run(args: argparse.Namespace) -> int:
             f"median return {summary['median_return_pct']:.2f}%, "
             f"worst DD {summary['worst_drawdown_pct']:.2f}%"
         )
+    print(
+        f"STATS portfolio: Sharpe {stats_summary['annualized_sharpe']:.2f} "
+        f"(95% CI [{stats_summary['sharpe_ci95_lo']:.2f}, "
+        f"{stats_summary['sharpe_ci95_hi']:.2f}]), "
+        f"PSR {stats_summary['probabilistic_sharpe_ratio']:.3f}, "
+        f"DSR({stats_summary['trials']} trials) "
+        f"{stats_summary['deflated_sharpe_ratio']:.3f}"
+    )
     print(f"Mainnet evidence published: {output}")
     return 0
 

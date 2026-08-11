@@ -73,6 +73,7 @@ def test_portfolio_fold_combines_weighted_component_pnl():
         "BTC/USDT": [pl.DataFrame({"timestamp": timestamps, "equity": [10_000, 10_100, 10_200]})],
         "SOL/USDT": [pl.DataFrame({"timestamp": timestamps, "equity": [10_000, 9_900, 10_000]})],
     }
-    portfolio = build_portfolio_folds(symbol_results, curves)
+    portfolio, hourly_returns = build_portfolio_folds(symbol_results, curves)
     assert portfolio[0]["return_pct"] == pytest.approx(2.0)
     assert portfolio[0]["trades"] == 2
+    assert len(hourly_returns) == 2  # one hourly return per equity step
