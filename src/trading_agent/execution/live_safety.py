@@ -391,4 +391,813 @@ def validate_strategy_evidence(
             raise LiveSafetyError("strategy evidence allocation symbols do not match")
         for symbol, expected in expected_allocations.items():
             try:
-                ë{¶‰žËkºwµç@É•ÑÕÉ¸ì‰É•Ù¥Í¥½¸ˆè€À°€‰…Ñ¥Ù”ˆè9½¹”°€‰Á•¹‘¥¹œˆè9½¹•ô(€€€€€€€…Ñ¥Ù”€ôÁÉ½Ñ•Ñ¥½¸¹•Ð ‰…Ñ¥Ù”ˆ¤(€€€€€€€Á•¹‘¥¹œ€ôÁÉ½Ñ•Ñ¥½¸¹•Ð ‰Á•¹‘¥¹œˆ¤(€€€€€€€É•ÑÕÉ¸ì(€€€€€€€€€€€€‰É•Ù¥Í¥½¸ˆè¥¹Ð¡ÁÉ½Ñ•Ñ¥½¸¹•Ð ‰É•Ù¥Í¥½¸ˆ°€À¤¤°(€€€€€€€€€€€€‰…Ñ¥Ù”ˆè‘¥Ð¡…Ñ¥Ù”¤¥˜¥Í¥¹ÍÑ…¹”¡…Ñ¥Ù”°‘¥Ð¤•±Í”9½¹”°(€€€€€€€€€€€€‰Á•¹‘¥¹œˆè‘¥Ð¡Á•¹‘¥¹œ¤¥˜¥Í¥¹ÍÑ…¹”¡Á•¹‘¥¹œ°‘¥Ð¤•±Í”9½¹”°(€€€€€€€ô((€€€‘•˜É•Í•ÉÙ•}ÁÉ½Ñ•Ñ¥Ù•}½É‘•È (€€€€€€€Í•±˜°(€€€€€€€Íåµ‰½°èÍÑÈ°(€€€€€€€€¨°(€€€€€€€ÅÕ…¹Ñ¥Ñäè™±½…Ð°(€€€€€€€ÍÑ½Á}ÁÉ¥”è™±½…Ð°(€€€€€€€¹½Üè‘…Ñ•Ñ¥µ”ð9½¹”€ô9½¹”°(€€€€¤€´ø‘¥ÑmÍÑÈ°½‰©•Ñtè(€€€€€€€€ˆˆ‰A•ÉÍ¥ÍÐ„ÁÉ½Ñ•Ñ¥Ù”¥¹Ñ•¹ÐÝ¡¥±”É•Ñ…¥¹¥¹œÑ¡”±…ÍÐ…Ñ¥Ù”½É‘•È¸ˆˆˆ((€€€€€€€¥˜…¹ä (€€€€€€€€€€€¹½Ðµ…Ñ ¹¥Í™¥¹¥Ñ”¡Ù…±Õ”¤½ÈÙ…±Õ”€ðô€À(€€€€€€€€€€€™½ÈÙ…±Õ”¥¸€¡ÅÕ…¹Ñ¥Ñä°ÍÑ½Á}ÁÉ¥”¤(€€€€€€€€¤è(€€€€€€€€€€€É…¥Í”1¥Ù•M…™•ÑåÉÉ½È ‰ÁÉ½Ñ•Ñ¥Ù”ÅÕ…¹Ñ¥Ñä…¹ÍÑ½ÀÁÉ¥”µÕÍÐ‰”Á½Í¥Ñ¥Ù”ˆ¤(€€€€€€€É•½É€ôÍ•±˜¹ÍÑ…Ñ”¹Á½Í¥Ñ¥½¹}É¥Í¬¹•Ð¡Íåµ‰½°¤(€€€€€€€¥˜¹½Ð¥Í¥¹ÍÑ…¹”¡É•½É°‘¥Ð¤è(€€€€€€€€€€€É…¥Í”1¥Ù•M…™•ÑåÉÉ½È¡˜‰Á½Í¥Ñ¥½¸É¥Í¬¥Ì¹½Ð¥¹¥Ñ¥…±¥é•™½ÈíÍåµ‰½±ôˆ¤(€€€€€€€ÕÉÉ•¹Ð€ô¹½Ü½È‘…Ñ•Ñ¥µ”¹¹½Ü¡UQ¤(€€€€€€€ÁÉ½Ñ•Ñ¥½¸€ôÉ•½É¹•Ð ‰ÁÉ½Ñ•Ñ¥Ù•}½É‘•Èˆ¤(€€€€€€€¥˜¹½Ð¥Í¥¹ÍÑ…¹”¡ÁÉ½Ñ•Ñ¥½¸°‘¥Ð¤è(€€€€€€€€€€€ÁÉ½Ñ•Ñ¥½¸€ôì‰É•Ù¥Í¥½¸ˆè€À°€‰…Ñ¥Ù”ˆè9½¹”°€‰Á•¹‘¥¹œˆè9½¹•ô(€€€€€€€¥˜¥Í¥¹ÍÑ…¹”¡ÁÉ½Ñ•Ñ¥½¸¹•Ð ‰Á•¹‘¥¹œˆ¤°‘¥Ð¤è(€€€€€€€€€€€É…¥Í”1¥Ù•M…™•ÑåÉÉ½È¡˜‰ÁÉ½Ñ•Ñ¥Ù”½É‘•ÈÍÕ‰µ¥ÍÍ¥½¸¥Ì…±É•…‘äÁ•¹‘¥¹œ™½ÈíÍåµ‰½±ôˆ¤(€€€€€€€É•Ù¥Í¥½¸€ô¥¹Ð¡ÁÉ½Ñ•Ñ¥½¸¹•Ð ‰É•Ù¥Í¥½¸ˆ°€À¤¤€¬€Ä(€€€€€€€±¥•¹Ñ}½É‘•É}¥€ôµ…­•}ÁÉ½Ñ•Ñ¥Ù•}½É‘•É}­•ä (€€€€€€€€€€€Íåµ‰½°õÍåµ‰½°°(€€€€€€€€€€€É•Ù¥Í¥½¸õÉ•Ù¥Í¥½¸°(€€€€€€€€€€€ÍÑ½Á}ÁÉ¥”õÍÑ½Á}ÁÉ¥”°(€€€€€€€€¤(€€€€€€€Á•¹‘¥¹œè‘¥ÑmÍÑÈ°½‰©•Ñt€ôì(€€€€€€€€€€€€‰±¥•¹Ñ}½É‘•É}¥ˆè±¥•¹Ñ}½É‘•É}¥°(€€€€€€€€€€€€‰•á¡…¹•}½É‘•É}¥ˆè€ˆˆ°(€€€€€€€€€€€€‰ÅÕ…¹Ñ¥ÑäˆèÅÕ…¹Ñ¥Ñä°(€€€€€€€€€€€€‰ÍÑ½Á}ÁÉ¥”ˆèÍÑ½Á}ÁÉ¥”°(€€€€€€€€€€€€‰ÍÑ…ÑÕÌˆè€‰ÍÕ‰µ¥ÑÑ¥¹œˆ°(€€€€€€€€€€€€‰•ÉÉ½Èˆè€ˆˆ°(€€€€€€€€€€€€‰É•…Ñ•‘}…ÐˆèÕÉÉ•¹Ð¹…ÍÑ¥µ•é½¹”¡UQ¤¹¥Í½™½Éµ…Ð ¤°(€€€€€€€€€€€€‰ÕÁ‘…Ñ•‘}…ÐˆèÕÉÉ•¹Ð¹…ÍÑ¥µ•é½¹”¡UQ¤¹¥Í½™½Éµ…Ð ¤°(€€€€€€€ô(€€€€€€€ÁÉ½Ñ•Ñ¥½¸¹ÕÁ‘…Ñ”¡ì‰É•Ù¥Í¥½¸ˆèÉ•Ù¥Í¥½¸°€‰Á•¹‘¥¹œˆèÁ•¹‘¥¹ô¤(€€€€€€€É•½É‘l‰ÁÉ½Ñ•Ñ¥Ù•}½É‘•È‰t€ôÁÉ½Ñ•Ñ¥½¸(€€€€€€€Í•±˜¹Í…Ù”¡¹½ÜõÕÉÉ•¹Ð¤(€€€€€€€É•ÑÕÉ¸‘¥Ð¡Á•¹‘¥¹œ¤((€€€‘•˜ÕÁ‘…Ñ•}Á•¹‘¥¹}ÁÉ½Ñ•Ñ¥Ù•}½É‘•È (€€€€€€€Í•±˜°(€€€€€€€Íåµ‰½°èÍÑÈ°(€€€€€€€€¨°(€€€€€€€ÍÑ…ÑÕÌèÍÑÈ°(€€€€€€€•á¡…¹•}½É‘•É}¥èÍÑÈ€ô€ˆˆ°(€€€€€€€•ÉÉ½ÈèÍÑÈ€ô€ˆˆ°(€€€€€€€¹½Üè‘…Ñ•Ñ¥µ”ð9½¹”€ô9½¹”°(€€€€¤€´ø9½¹”è(€€€€€€€ÁÉ½Ñ•Ñ¥½¸€ôÍ•±˜¹ÁÉ½Ñ•Ñ¥Ù•}½É‘•É}ÍÑ…Ñ”¡Íåµ‰½°¤(€€€€€€€Á•¹‘¥¹œ€ôÁÉ½Ñ•Ñ¥½¸¹•Ð ‰Á•¹‘¥¹œˆ¤(€€€€€€€¥˜¹½Ð¥Í¥¹ÍÑ…¹”¡Á•¹‘¥¹œ°‘¥Ð¤è(€€€€€€€€€€€É…¥Í”1¥Ù•M…™•ÑåÉÉ½È¡˜‰ÁÉ½Ñ•Ñ¥Ù”½É‘•È¥¹Ñ•¹Ð¥Ì¹½ÐÁ•¹‘¥¹œ™½ÈíÍåµ‰½±ôˆ¤(€€€€€€€¹½Éµ…±¥é•€ôÍÑ…ÑÕÌ¹ÍÑÉ¥À ¤¹±½Ý•È ¤(€€€€€€€…±±½Ý•€ôì(€€€€€€€€€€€€‰ÍÕ‰µ¥ÑÑ¥¹œˆ°€‰½Á•¸ˆ°€‰Á…ÉÑ¥…°ˆ°€‰™¥±±•ˆ°€‰…¹•±±•ˆ°(€€€€€€€€€€€€‰É•©•Ñ•ˆ°€‰•áÁ¥É•ˆ°€‰Õ¹­¹½Ý¸ˆ°(€€€€€€€ô(€€€€€€€¥˜¹½Éµ…±¥é•¹½Ð¥¸…±±½Ý•è(€€€€€€€€€€€É…¥Í”1¥Ù•M…™•ÑåÉÉ½È¡˜‰Õ¹ÍÕÁÁ½ÉÑ•ÁÉ½Ñ•Ñ¥Ù”½É‘•ÈÍÑ…ÑÕÌèíÍÑ…ÑÕÍôˆ¤(€€€€€€€ÕÉÉ•¹Ð€ô¹½Ü½È‘…Ñ•Ñ¥µ”¹¹½Ü¡UQ¤(€€€€€€€Á•¹‘¥¹œ¹ÕÁ‘…Ñ”¡ì(€€€€€€€€€€€€‰ÍÑ…ÑÕÌˆè¹½Éµ…±¥é•°(€€€€€€€€€€€€‰•á¡…¹•}½É‘•É}¥ˆè•á¡…¹•}½É‘•É}¥½ÈÁ•¹‘¥¹œ¹•Ð ‰•á¡…¹•}½É‘•É}¥ˆ°€ˆˆ¤°(€€€€€€€€€€€€‰•ÉÉ½Èˆè•ÉÉ½È°(€€€€€€€€€€€€‰ÕÁ‘…Ñ•‘}…ÐˆèÕÉÉ•¹Ð¹…ÍÑ¥µ•é½¹”¡UQ¤¹¥Í½™½Éµ…Ð ¤°(€€€€€€€ô¤(€€€€€€€É•½É€ôÍ•±˜¹ÍÑ…Ñ”¹Á½Í¥Ñ¥½¹}É¥Í­mÍåµ‰½±t(€€€€€€€É…Ý}ÁÉ½Ñ•Ñ¥½¸€ôÉ•½É‘l‰ÁÉ½Ñ•Ñ¥Ù•}½É‘•È‰t(€€€€€€€É…Ý}ÁÉ½Ñ•Ñ¥½¹l‰Á•¹‘¥¹œ‰t€ôÁ•¹‘¥¹œ(€€€€€€€Í•±˜¹Í…Ù”¡¹½ÜõÕÉÉ•¹Ð¤((€€€‘•˜…Ñ¥Ù…Ñ•}Á•¹‘¥¹}ÁÉ½Ñ•Ñ¥Ù•}½É‘•È (€€€€€€€Í•±˜°(€€€€€€€Íåµ‰½°èÍÑÈ°(€€€€€€€€¨°(€€€€€€€•á¡…¹•}½É‘•É}¥èÍÑÈ°(€€€€€€€ÍÑ…ÑÕÌèÍÑÈ€ô€‰½Á•¸ˆ°(€€€€€€€ÅÕ…¹Ñ¥Ñäè™±½…Ðð9½¹”€ô9½¹”°(€€€€€€€ÍÑ½Á}ÁÉ¥”è™±½…Ðð9½¹”€ô9½¹”°(€€€€€€€¹½Üè‘…Ñ•Ñ¥µ”ð9½¹”€ô9½¹”°(€€€€¤€´ø‘¥ÑmÍÑÈ°½‰©•Ñtè(€€€€€€€€ˆˆ‰AÉ½µ½Ñ”„½¹™¥Éµ•Á•¹‘¥¹œÍÑ½ÀÝ¡¥±”…Ñ½µ¥…±±ä™½É•ÑÑ¥¹œÑ¡”½±½¹”¸ˆˆˆ((€€€€€€€¹½Éµ…±¥é•€ôÍÑ…ÑÕÌ¹ÍÑÉ¥À ¤¹±½Ý•È ¤(€€€€€€€¥˜¹½Éµ…±¥é•¹½Ð¥¸ì‰½Á•¸ˆ°€‰Á…ÉÑ¥…°‰ôè(€€€€€€€€€€€É…¥Í”1¥Ù•M…™•ÑåÉÉ½È¡˜‰…¹¹½Ð…Ñ¥Ù…Ñ”Ñ•Éµ¥¹…°ÁÉ½Ñ•Ñ¥Ù”½É‘•ÈèíÍÑ…ÑÕÍôˆ¤(€€€€€€€ÁÉ½Ñ•Ñ¥½¸€ôÍ•±˜¹ÁÉ½Ñ•Ñ¥Ù•}½É‘•É}ÍÑ…Ñ”¡Íåµ‰½°¤(€€€€€€€Á•¹‘¥¹œ€ôÁÉ½Ñ•Ñ¥½¸¹•Ð ‰Á•¹‘¥¹œˆ¤(€€€€€€€¥˜¹½Ð¥Í¥¹ÍÑ…¹”¡Á•¹‘¥¹œ°‘¥Ð¤è(€€€€€€€€€€€É…¥Í”1¥Ù•M…™•ÑåÉÉ½È¡˜‰ÁÉ½Ñ•Ñ¥Ù”½É‘•È¥¹Ñ•¹Ð¥Ì¹½ÐÁ•¹‘¥¹œ™½ÈíÍåµ‰½±ôˆ¤(€€€€€€€ÕÉÉ•¹Ð€ô¹½Ü½È‘…Ñ•Ñ¥µ”¹¹½Ü¡UQ¤(€€€€€€€¥˜ÅÕ…¹Ñ¥Ñä¥Ì¹½Ð9½¹”è(€€€€€€€€€€€¥˜¹½Ðµ…Ñ ¹¥Í™¥¹¥Ñ”¡ÅÕ…¹Ñ¥Ñä¤½ÈÅÕ…¹Ñ¥Ñä€ðô€Àè(€€€€€€€€€€€€€€€É…¥Í”1¥Ù•M…™•ÑåÉÉ½È ‰½¹™¥Éµ•ÁÉ½Ñ•Ñ¥Ù”ÅÕ…¹Ñ¥ÑäµÕÍÐ‰”Á½Í¥Ñ¥Ù”ˆ¤(€€€€€€€€€€€Á•¹‘¥¹l‰ÅÕ…¹Ñ¥Ñä‰t€ôÅÕ…¹Ñ¥Ñä(€€€€€€€¥˜ÍÑ½Á}ÁÉ¥”¥Ì¹½Ð9½¹”è(€€€€€€€€€€€¥˜¹½Ðµ…Ñ ¹¥Í™¥¹¥Ñ”¡ÍÑ½Á}ÁÉ¥”¤½ÈÍÑ½Á}ÁÉ¥”€ðô€Àè(€€€€€€€€€€€€€€€É…¥Í”1¥Ù•M…™•ÑåÉÉ½È ‰½¹™¥Éµ•ÁÉ½Ñ•Ñ¥Ù”ÍÑ½ÀÁÉ¥”µÕÍÐ‰”Á½Í¥Ñ¥Ù”ˆ¤(€€€€€€€€€€€Á•¹‘¥¹l‰ÍÑ½Á}ÁÉ¥”‰t€ôÍÑ½Á}ÁÉ¥”(€€€€€€€Á•¹‘¥¹œ¹ÕÁ‘…Ñ”¡ì(€€€€€€€€€€€€‰•á¡…¹•}½É‘•É}¥ˆè•á¡…¹•}½É‘•É}¥°(€€€€€€€€€€€€‰ÍÑ…ÑÕÌˆè¹½Éµ…±¥é•°(€€€€€€€€€€€€‰•ÉÉ½Èˆè€ˆˆ°(€€€€€€€€€€€€‰ÕÁ‘…Ñ•‘}…ÐˆèÕÉÉ•¹Ð¹…ÍÑ¥µ•é½¹”¡UQ¤¹¥Í½™½Éµ…Ð ¤°(€€€€€€€ô¤(€€€€€€€É•½É€ôÍ•±˜¹ÍÑ…Ñ”¹Á½Í¥Ñ¥½¹}É¥Í­mÍåµ‰½±t(€€€€€€€É…Ý}ÁÉ½Ñ•Ñ¥½¸€ôÉ•½É‘l‰ÁÉ½Ñ•Ñ¥Ù•}½É‘•È‰t(€€€€€€€É…Ý}ÁÉ½Ñ•Ñ¥½¹l‰…Ñ¥Ù”‰t€ôÁ•¹‘¥¹œ(€€€€€€€É…Ý}ÁÉ½Ñ•Ñ¥½¹l‰Á•¹‘¥¹œ‰t€ô9½¹”(€€€€€€€Í•±˜¹Í…Ù”¡¹½ÜõÕÉÉ•¹Ð¤(€€€€€€€É•ÑÕÉ¸‘¥Ð¡Á•¹‘¥¹œ¤((€€€‘•˜…‰…¹‘½¹}Á•¹‘¥¹}ÁÉ½Ñ•Ñ¥Ù•}½É‘•È (€€€€€€€Í•±˜°(€€€€€€€Íåµ‰½°èÍÑÈ°(€€€€€€€€¨°(€€€€€€€¹½Üè‘…Ñ•Ñ¥µ”ð9½¹”€ô9½¹”°(€€€€¤€´ø9½¹”è(€€€€€€€É•½É€ôÍ•±˜¹ÍÑ…Ñ”¹Á½Í¥Ñ¥½¹}É¥Í¬¹•Ð¡Íåµ‰½°¤(€€€€€€€¥˜¹½Ð¥Í¥¹ÍÑ…¹”¡É•½É°‘¥Ð¤è(€€€€€€€€€€€É•ÑÕÉ¸(€€€€€€€ÁÉ½Ñ•Ñ¥½¸€ôÉ•½É¹•Ð ‰ÁÉ½Ñ•Ñ¥Ù•}½É‘•Èˆ¤(€€€€€€€¥˜¥Í¥¹ÍÑ…¹”¡ÁÉ½Ñ•Ñ¥½¸°‘¥Ð¤…¹ÁÉ½Ñ•Ñ¥½¸¹•Ð ‰Á•¹‘¥¹œˆ¤¥Ì¹½Ð9½¹”è(€€€€€€€€€€€ÁÉ½Ñ•Ñ¥½¹l‰Á•¹‘¥¹œ‰t€ô9½¹”(€€€€€€€€€€€Í•±˜¹Í…Ù”¡¹½Üõ¹½Ü¤((€€€‘•˜±•…É}…Ñ¥Ù•}ÁÉ½Ñ•Ñ¥Ù•}½É‘•È (€€€€€€€Í•±˜°(€€€€€€€Íåµ‰½°èÍÑÈ°(€€€€€€€€¨°(€€€€€€€¹½Üè‘…Ñ•Ñ¥µ”ð9½¹”€ô9½¹”°(€€€€¤€´ø9½¹”è(€€€€€€€É•½É€ôÍ•±˜¹ÍÑ…Ñ”¹Á½Í¥Ñ¥½¹}É¥Í¬¹•Ð¡Íåµ‰½°¤(€€€€€€€¥˜¹½Ð¥Í¥¹ÍÑ…¹”¡É•½É°‘¥Ð¤è(€€€€€€€€€€€É•ÑÕÉ¸(€€€€€€€ÁÉ½Ñ•Ñ¥½¸€ôÉ•½É¹•Ð ‰ÁÉ½Ñ•Ñ¥Ù•}½É‘•Èˆ¤(€€€€€€€¥˜¥Í¥¹ÍÑ…¹”¡ÁÉ½Ñ•Ñ¥½¸°‘¥Ð¤…¹ÁÉ½Ñ•Ñ¥½¸¹•Ð ‰…Ñ¥Ù”ˆ¤¥Ì¹½Ð9½¹”è(€€€€€€€€€€€ÁÉ½Ñ•Ñ¥½¹l‰…Ñ¥Ù”‰t€ô9½¹”(€€€€€€€€€€€Í•±˜¹Í…Ù”¡¹½Üõ¹½Ü¤((€€€‘•˜±•…É}Á½Í¥Ñ¥½¹}É¥Í¬¡Í•±˜°Íåµ‰½°èÍÑÈ°€¨°¹½Üè‘…Ñ•Ñ¥µ”ð9½¹”€ô9½¹”¤€´ø9½¹”è(€€€€€€€¥˜Íåµ‰½°¥¸Í•±˜¹ÍÑ…Ñ”¹Á½Í¥Ñ¥½¹}É¥Í¬è(€€€€€€€€€€€Í•±˜¹ÍÑ…Ñ”¹Á½Í¥Ñ¥½¹}É¥Í¬¹Á½À¡Íåµ‰½°°9½¹”¤(€€€€€€€€€€€Í•±˜¹Í…Ù”¡¹½Üõ¹½Ü¤((€€€‘•˜Í…Ù”¡Í•±˜°€¨°¹½Üè‘…Ñ•Ñ¥µ”ð9½¹”€ô9½¹”¤€´ø9½¹”è(€€€€€€€ÕÉÉ•¹Ð€ô¹½Ü½È‘…Ñ•Ñ¥µ”¹¹½Ü¡UQ¤(€€€€€€€Í•±˜¹ÍÑ…Ñ”¹ÕÁ‘…Ñ•‘}…Ð€ôÕÉÉ•¹Ð¹…ÍÑ¥µ•é½¹”¡UQ¤¹¥Í½™½Éµ…Ð ¤(€€€€€€€Í•±˜¹Á…Ñ ¹Á…É•¹Ð¹µ­‘¥È¡Á…É•¹ÑÌõQÉÕ”°•á¥ÍÑ}½¬õQÉÕ”¤(€€€€€€€Á…å±½…€ô…Í‘¥Ð¡Í•±˜¹ÍÑ…Ñ”¤(€€€€€€€Á…å±½…¹Á½À ‰¥¹Ñ•É¥Ñäˆ°9½¹”¤(€€€€€€€¥˜Í•±˜¹¥¹Ñ•É¥Ñå}­•ä¥Ì¹½Ð9½¹”è(€€€€€€€€€€€Í•±˜¹ÍÑ…Ñ”¹¥¹Ñ•É¥Ñä€ô}Á…å±½…‘}¡µ…Œ¡Á…å±½…°Í•±˜¹¥¹Ñ•É¥Ñå}­•ä¤(€€€€€€€•±¥˜Í•±˜¹ÍÑ…Ñ”¹¥¹Ñ•É¥Ñäè(€€€€€€€€€€€É…¥Í”1¥Ù•M…™•ÑåÉÉ½È ‰…¹¹½Ðµ½‘¥™ä„Í¥¹•±¥Ù”É¥Í¬ÍÑ…Ñ”Ý¥Ñ¡½ÕÐ¥ÑÌ¥¹Ñ•É¥Ñä­•äˆ¤(€€€€€€€Á…å±½…‘l‰¥¹Ñ•É¥Ñä‰t€ôÍ•±˜¹ÍÑ…Ñ”¹¥¹Ñ•É¥Ñä(€€€€€€€™°Ñ•µÁ}¹…µ”€ôÑ•µÁ™¥±”¹µ­ÍÑ•µÀ (€€€€€€€€€€€ÁÉ•™¥àõ˜ˆ¹íÍ•±˜¹Á…Ñ ¹¹…µ•ô¸ˆ°ÍÕ™™¥àôˆ¹ÑµÀˆ°‘¥ÈõÍ•±˜¹Á…Ñ ¹Á…É•¹Ð(€€€€€€€€¤(€€€€€€€ÑÉäè(€€€€€€€€€€€Ý¥Ñ ½Ì¹™‘½Á•¸¡™°€‰Üˆ°•¹½‘¥¹œô‰ÕÑ˜´àˆ¤…Ì¡…¹‘±”è(€€€€€€€€€€€€€€€©Í½¸¹‘ÕµÀ¡Á…å±½…°¡…¹‘±”°¥¹‘•¹ÐôÈ°Í½ÉÑ}­•åÌõQÉÕ”¤(€€€€€€€€€€€€€€€¡…¹‘±”¹™±ÕÍ  ¤(€€€€€€€€€€€€€€€½Ì¹™Íå¹Œ¡¡…¹‘±”¹™¥±•¹¼ ¤¤(€€€€€€€€€€€½Ì¹¡µ½¡Ñ•µÁ}¹…µ”°€Á¼ØÀÀ¤(€€€€€€€€€€€½Ì¹É•Á±…”¡Ñ•µÁ}¹…µ”°Í•±˜¹Á…Ñ ¤(€€€€€€€™¥¹…±±äè(€€€€€€€€€€€A…Ñ ¡Ñ•µÁ}¹…µ”¤¹Õ¹±¥¹¬¡µ¥ÍÍ¥¹}½¬õQÉÕ”¤(()‘•˜Ù…±¥‘…Ñ•}™É•Í¡}ÅÕ½Ñ” (€€€€¨°(€€€Í¥¹…±}ÁÉ¥”è™±½…Ð°(€€€ÅÕ½Ñ•}ÁÉ¥”è™±½…Ð°(€€€ÅÕ½Ñ•}Ñ¥µ•ÍÑ…µÀè‘…Ñ•Ñ¥µ”°(€€€±¥µ¥ÑÌè1¥Ù•I¥Í­1¥µ¥ÑÌ°(€€€¹½Üè‘…Ñ•Ñ¥µ”ð9½¹”€ô9½¹”°(¤€´ø9½¹”è(€€€€ˆˆ‰I•©•ÐÍÑ…±”°™ÕÑÕÉ”µ‘…Ñ•½ÈÍ¡…ÉÁ±ä‘¥Ù•É•¹ÐÅÕ½Ñ•Ì¸ˆˆˆ((€€€¥˜¹½Ðµ…Ñ ¹¥Í™¥¹¥Ñ”¡Í¥¹…±}ÁÉ¥”¤½ÈÍ¥¹…±}ÁÉ¥”€ðô€Àè(€€€€€€€É…¥Í”1¥Ù•M…™•ÑåÉÉ½È ‰Í¥¹…°ÁÉ¥”µÕÍÐ‰”™¥¹¥Ñ”…¹Á½Í¥Ñ¥Ù”ˆ¤(€€€¥˜¹½Ðµ…Ñ ¹¥Í™¥¹¥Ñ”¡ÅÕ½Ñ•}ÁÉ¥”¤½ÈÅÕ½Ñ•}ÁÉ¥”€ðô€Àè(€€€€€€€É…¥Í”1¥Ù•M…™•ÑåÉÉ½È ‰ÅÕ½Ñ”ÁÉ¥”µÕÍÐ‰”™¥¹¥Ñ”…¹Á½Í¥Ñ¥Ù”ˆ¤(€€€ÕÉÉ•¹Ð€ô¹½Ü½È‘…Ñ•Ñ¥µ”¹¹½Ü¡UQ¤(€€€¥˜ÕÉÉ•¹Ð¹Ñé¥¹™¼¥Ì9½¹”è(€€€€€€€ÕÉÉ•¹Ð€ôÕÉÉ•¹Ð¹É•Á±…”¡Ñé¥¹™¼õUQ¤(€€€Ñ¥µ•ÍÑ…µÀ€ôÅÕ½Ñ•}Ñ¥µ•ÍÑ…µÀ(€€€¥˜Ñ¥µ•ÍÑ…µÀ¹Ñé¥¹™¼¥Ì9½¹”è(€€€€€€€Ñ¥µ•ÍÑ…µÀ€ôÑ¥µ•ÍÑ…µÀ¹…ÍÑ¥µ•é½¹” ¤¹…ÍÑ¥µ•é½¹”¡UQ¤(€€€•±Í”è(€€€€€€€Ñ¥µ•ÍÑ…µÀ€ôÑ¥µ•ÍÑ…µÀ¹…ÍÑ¥µ•é½¹”¡UQ¤(€€€…”€ô€¡ÕÉÉ•¹Ð¹…ÍÑ¥µ•é½¹”¡UQ¤€´Ñ¥µ•ÍÑ…µÀ¤¹Ñ½Ñ…±}Í•½¹‘Ì ¤(€€€¥˜…”€ð€´Ôè(€€€€€€€É…¥Í”1¥Ù•M…™•ÑåÉÉ½È¡˜‰ÅÕ½Ñ”Ñ¥µ•ÍÑ…µÀ¥Ìí…‰Ì¡…”¤è¸Å™õÌ¥¸Ñ¡”™ÕÑÕÉ”ˆ¤(€€€¥˜…”€ø±¥µ¥ÑÌ¹µ…á}ÅÕ½Ñ•}…•}Í•½¹‘Ìè(€€€€€€€É…¥Í”1¥Ù•M…™•ÑåÉÉ½È (€€€€€€€€€€€˜‰ÅÕ½Ñ”¥ÌÍÑ…±”èí…”è¸Å™õÌ€øí±¥µ¥ÑÌ¹µ…á}ÅÕ½Ñ•}…•}Í•½¹‘Ìè¸Å™õÌˆ(€€€€€€€€¤(€€€‘•Ù¥…Ñ¥½¸€ô…‰Ì¡ÅÕ½Ñ•}ÁÉ¥”€´Í¥¹…±}ÁÉ¥”¤€¼Í¥¹…±}ÁÉ¥”(€€€¥˜‘•Ù¥…Ñ¥½¸€ø±¥µ¥ÑÌ¹µ…á}ÁÉ¥•}‘•Ù¥…Ñ¥½¹}ÁÐè(€€€€€€€É…¥Í”1¥Ù•M…™•ÑåÉÉ½È (€€€€€€€€€€€˜‰ÅÕ½Ñ”‘•Ù¥…Ñ¥½¸Ñ½¼±…É”èí‘•Ù¥…Ñ¥½¸è¸È•ô€ø€ˆ(€€€€€€€€€€€˜‰í±¥µ¥ÑÌ¹µ…á}ÁÉ¥•}‘•Ù¥…Ñ¥½¹}ÁÐè¸È•ôˆ(€€€€€€€€¤(()‘•˜Ù…±¥‘…Ñ•}ÍÁÉ•… ¨°‰¥è™±½…Ð°…Í¬è™±½…Ð°±¥µ¥ÑÌè1¥Ù•I¥Í­1¥µ¥ÑÌ¤€´ø9½¹”è(€€€¥˜…¹ä¡¹½Ðµ…Ñ ¹¥Í™¥¹¥Ñ”¡Ù…±Õ”¤½ÈÙ…±Õ”€ðô€À™½ÈÙ…±Õ”¥¸€¡‰¥°…Í¬¤¤è(€€€€€€€É…¥Í”1¥Ù•M…™•ÑåÉÉ½È ‰‰¥…¹…Í¬µÕÍÐ‰”™¥¹¥Ñ”…¹Á½Í¥Ñ¥Ù”ˆ¤(€€€¥˜…Í¬€ð‰¥è(€€€€€€€É…¥Í”1¥Ù•M…™•ÑåÉÉ½È ‰É½ÍÍ•µ…É­•ÐÅÕ½Ñ”¥Ì¥¹Ù…±¥ˆ¤(€€€µ¥‘Á½¥¹Ð€ô€¡‰¥€¬…Í¬¤€¼€È(€€€ÍÁÉ•…€ô€¡…Í¬€´‰¥¤€¼µ¥‘Á½¥¹Ð(€€€¥˜ÍÁÉ•…€ø±¥µ¥ÑÌ¹µ…á}ÍÁÉ•…‘}ÁÐè(€€€€€€€É…¥Í”1¥Ù•M…™•ÑåÉÉ½È (€€€€€€€€€€€˜‰ÍÁÉ•…¥ÌÑ½¼Ý¥‘”èíÍÁÉ•…è¸È•ô€øí±¥µ¥ÑÌ¹µ…á}ÍÁÉ•…‘}ÁÐè¸È•ôˆ(€€€€€€€€¤(()‘•˜Ù…±¥‘…Ñ•}½É‘•É}‰½½­}‘•ÁÑ  (€€€€¨°(€€€Í¥‘”èÍÑÈ°(€€€ÅÕ…¹Ñ¥Ñäè™±½…Ð°(€€€‰¥‘Ìè±¥ÍÑmÑÕÁ±•m™±½…Ð°™±½…Ñut°(€€€…Í­Ìè±¥ÍÑmÑÕÁ±•m™±½…Ð°™±½…Ñut°(€€€‰½½­}Ñ¥µ•ÍÑ…µÀè‘…Ñ•Ñ¥µ”°(€€€±¥µ¥ÑÌè1¥Ù•I¥Í­1¥µ¥ÑÌ°(€€€¹½Üè‘…Ñ•Ñ¥µ”ð9½¹”€ô9½¹”°(¤€´ø™±½…Ðè(€€€€ˆˆ‰I•ÑÕÉ¸•áÁ•Ñ•Y]@…™Ñ•ÈÉ•©•Ñ¥¹œÍÑ…±”°Ñ¡¥¸½È¡¥ µ¥µÁ…Ð‰½½­Ì¸ˆˆˆ((€€€¥˜¹½Ðµ…Ñ ¹¥Í™¥¹¥Ñ”¡ÅÕ…¹Ñ¥Ñä¤½ÈÅÕ…¹Ñ¥Ñä€ðô€Àè(€€€€€€€É…¥Í”1¥Ù•M…™•ÑåÉÉ½È ‰½É‘•Èµ‰½½¬ÅÕ…¹Ñ¥ÑäµÕÍÐ‰”™¥¹¥Ñ”…¹Á½Í¥Ñ¥Ù”ˆ¤(€€€ÕÉÉ•¹Ð€ô¹½Ü½È‘…Ñ•Ñ¥µ”¹¹½Ü¡UQ¤(€€€¥˜ÕÉÉ•¹Ð¹Ñé¥¹™¼¥Ì9½¹”è(€€€€€€€ÕÉÉ•¹Ð€ôÕÉÉ•¹Ð¹É•Á±…”¡Ñé¥¹™¼õUQ¤(€€€Ñ¥µ•ÍÑ…µÀ€ô‰½½­}Ñ¥µ•ÍÑ…µÀ(€€€¥˜Ñ¥µ•ÍÑ…µÀ¹Ñé¥¹™¼¥Ì9½¹”è(€€€€€€€Ñ¥µ•ÍÑ…µÀ€ôÑ¥µ•ÍÑ…µÀ¹É•Á±…”¡Ñé¥¹™¼õUQ¤(€€€…”€ô€¡ÕÉÉ•¹Ð¹…ÍÑ¥µ•é½¹”¡UQ¤€´Ñ¥µ•ÍÑ…µÀ¹…ÍÑ¥µ•é½¹”¡UQ¤¤¹Ñ½Ñ…±}Í•½¹‘Ì ¤(€€€¥˜…”€ð€´Ô½È…”€ø±¥µ¥ÑÌ¹µ…á}ÅÕ½Ñ•}…•}Í•½¹‘Ìè(€€€€€€€É…¥Í”1¥Ù•M…™•ÑåÉÉ½È¡˜‰½É‘•È‰½½¬Ñ¥µ•ÍÑ…µÀ¥Ì¥¹Ù…±¥½ÈÍÑ…±”èí…”è¸Å™õÌˆ¤((€€€¹½Éµ…±¥é•‘}Í¥‘”€ôÍ¥‘”¹ÕÁÁ•È ¤(€€€¥˜¹½Éµ…±¥é•‘}Í¥‘”¹½Ð¥¸ì‰	Udˆ°€‰M10‰ôè(€€€€€€€É…¥Í”1¥Ù•M…™•ÑåÉÉ½È¡˜‰Õ¹ÍÕÁÁ½ÉÑ•½É‘•Èµ‰½½¬Í¥‘”èíÍ¥‘•ôˆ¤(€€€±•Ù•±Ì€ô…Í­Ì¥˜¹½Éµ…±¥é•‘}Í¥‘”€ôô€‰	Udˆ•±Í”‰¥‘Ì(€€€¥˜¹½Ð±•Ù•±Ìè(€€€€€€€É…¥Í”1¥Ù•M…™•ÑåÉÉ½È ‰•á•ÕÑ…‰±”½É‘•È‰½½¬¥Ì•µÁÑäˆ¤(€€€±•…¹•è±¥ÍÑmÑÕÁ±•m™±½…Ð°™±½…Ñut€ômt(€€€™½ÈÁÉ¥”°Í¥é”¥¸±•Ù•±Ìè(€€€€€€€¥˜…¹ä¡¹½Ðµ…Ñ ¹¥Í™¥¹¥Ñ”¡Ù…±Õ”¤½ÈÙ…±Õ”€ðô€À™½ÈÙ…±Õ”¥¸€¡ÁÉ¥”°Í¥é”¤¤è(€€€€€€€€€€€É…¥Í”1¥Ù•M…™•ÑåÉÉ½È ‰½É‘•È‰½½¬½¹Ñ…¥¹Ì¥¹Ù…±¥±•Ù•±Ìˆ¤(€€€€€€€±•…¹•¹…ÁÁ•¹ ¡ÁÉ¥”°Í¥é”¤¤(€€€ÁÉ¥•Ì€ômÁÉ¥”™½ÈÁÉ¥”°|¥¸±•…¹•‘t(€€€¥˜¹½Éµ…±¥é•‘}Í¥‘”€ôô€‰	Udˆ…¹ÁÉ¥•Ì€„ôÍ½ÉÑ•¡ÁÉ¥•Ì¤è(€€€€€€€É…¥Í”1¥Ù•M…™•ÑåÉÉ½È ‰…Í¬±•Ù•±Ì…É”¹½ÐÍ½ÉÑ•ˆ¤(€€€¥˜¹½Éµ…±¥é•‘}Í¥‘”€ôô€‰M10ˆ…¹ÁÉ¥•Ì€„ôÍ½ÉÑ•¡ÁÉ¥•Ì°É•Ù•ÉÍ”õQÉÕ”¤è(€€€€€€€É…¥Í”1¥Ù•M…™•ÑåÉÉ½È ‰‰¥±•Ù•±Ì…É”¹½ÐÍ½ÉÑ•ˆ¤((€€€É•ÅÕ¥É•‘}‘•ÁÑ €ôÅÕ…¹Ñ¥Ñä€¨±¥µ¥ÑÌ¹µ¥¹}‰½½­}‘•ÁÑ¡}µÕ±Ñ¥Á±”(€€€Ñ½Ñ…±}‘•ÁÑ €ôÍÕ´¡Í¥é”™½È|°Í¥é”¥¸±•…¹•¤(€€€¥˜Ñ½Ñ…±}‘•ÁÑ €¬€Å”´ÄÈ€ðÉ•ÅÕ¥É•‘}‘•ÁÑ è(€€€€€€€É…¥Í”1¥Ù•M…™•ÑåÉÉ½È (€€€€€€€€€€€˜‰½É‘•Èµ‰½½¬‘•ÁÑ ¥Ì¥¹ÍÕ™™¥¥•¹ÐèíÑ½Ñ…±}‘•ÁÑ è¸á™ô€ðíÉ•ÅÕ¥É•‘}‘•ÁÑ è¸á™ôˆ(€€€€€€€€¤(€€€É•µ…¥¹¥¹œ€ôÅÕ…¹Ñ¥Ñä(€€€¹½Ñ¥½¹…°€ô€À¸À(€€€™½ÈÁÉ¥”°Í¥é”¥¸±•…¹•è(€€€€€€€™¥±±•€ôµ¥¸¡É•µ…¥¹¥¹œ°Í¥é”¤(€€€€€€€¹½Ñ¥½¹…°€¬ô™¥±±•€¨ÁÉ¥”(€€€€€€€É•µ…¥¹¥¹œ€´ô™¥±±•(€€€€€€€¥˜É•µ…¥¹¥¹œ€ðô€Å”´ÄÈè(€€€€€€€€€€€‰É•…¬(€€€¥˜É•µ…¥¹¥¹œ€ø€Å”´ÄÈè(€€€€€€€É…¥Í”1¥Ù•M…™•ÑåÉÉ½È ‰½É‘•È‰½½¬…¹¹½Ð™¥±°Ñ¡”É•ÅÕ•ÍÑ•ÅÕ…¹Ñ¥Ñäˆ¤(€€€•áÁ•Ñ•‘}ÙÝ…À€ô¹½Ñ¥½¹…°€¼ÅÕ…¹Ñ¥Ñä(€€€‰•ÍÐ€ô±•…¹•‘lÁulÁt(€€€¥µÁ…Ð€ô…‰Ì¡•áÁ•Ñ•‘}ÙÝ…À€´‰•ÍÐ¤€¼‰•ÍÐ(€€€¥˜¥µÁ…Ð€ø±¥µ¥ÑÌ¹µ…á}‰½½­}Í±¥ÁÁ…•}ÁÐè(€€€€€€€É…¥Í”1¥Ù•M…™•ÑåÉÉ½È (€€€€€€€€€€€˜‰•áÁ•Ñ•‰½½¬Í±¥ÁÁ…”¥ÌÑ½¼¡¥ è€ˆ(€€€€€€€€€€€˜‰í¥µÁ…Ðè¸È•ô€øí±¥µ¥ÑÌ¹µ…á}‰½½­}Í±¥ÁÁ…•}ÁÐè¸È•ôˆ(€€€€€€€€¤(€€€É•ÑÕÉ¸•áÁ•Ñ•‘}ÙÝ…À(()‘•˜Ù…±¥‘…Ñ•}½É‘•É}É¥Í¬ (€€€€¨°(€€€Í¥‘”èÍÑÈ°(€€€¹½Ñ¥½¹…±}ÕÍè™±½…Ð°(€€€•ÅÕ¥Ñäè™±½…Ð°(€€€…Í è™±½…Ð°(€€€ÕÉÉ•¹Ñ}Íåµ‰½±}¹½Ñ¥½¹…°è™±½…Ð°(€€€É½ÍÍ}•áÁ½ÍÕÉ”è™±½…Ð°(€€€±¥µ¥ÑÌè1¥Ù•I¥Í­1¥µ¥ÑÌ°(€€€±½­•‘}É•…Í½¸èÍÑÈð9½¹”°(¤€´ø9½¹”è(€€€€ˆˆ‰Y…±¥‘…Ñ”„ÁÉ½Á½Í•½É‘•È……¥¹ÍÐ…½Õ¹Ðµ±•Ù•°¡…É±¥µ¥ÑÌ¸ˆˆˆ((€€€Ù…±Õ•Ì€ô€¡¹½Ñ¥½¹…±}ÕÍ°•ÅÕ¥Ñä°…Í °ÕÉÉ•¹Ñ}Íåµ‰½±}¹½Ñ¥½¹…°°É½ÍÍ}•áÁ½ÍÕÉ”¤(€€€¥˜…¹ä¡¹½Ðµ…Ñ ¹¥Í™¥¹¥Ñ”¡Ù…±Õ”¤½ÈÙ…±Õ”€ð€À™½ÈÙ…±Õ”¥¸Ù…±Õ•Ì¤½È•ÅÕ¥Ñä€ðô€Àè(€€€€€€€É…¥Í”1¥Ù•M…™•ÑåÉÉ½È ‰¥¹Ù…±¥…½Õ¹Ð½È½É‘•ÈÙ…±Õ”ˆ¤(€€€¹½Éµ…±¥é•‘}Í¥‘”€ôÍ¥‘”¹ÕÁÁ•È ¤(€€€¥˜¹½Éµ…±¥é•‘}Í¥‘”¹½Ð¥¸ì‰	Udˆ°€‰M10‰ôè(€€€€€€€É…¥Í”1¥Ù•M…™•ÑåÉÉ½È¡˜‰Õ¹ÍÕÁÁ½ÉÑ•½É‘•ÈÍ¥‘”èíÍ¥‘•ôˆ¤(€€€¥˜¹½Ñ¥½¹…±}ÕÍ€ðô€Àè(€€€€€€€É…¥Í”1¥Ù•M…™•ÑåÉÉ½È ‰½É‘•È¹½Ñ¥½¹…°µÕÍÐ‰”Á½Í¥Ñ¥Ù”ˆ¤((€€€¥˜¹½Éµ…±¥é•‘}Í¥‘”€ôô€‰M10ˆè(€€€€€€€¥˜¹½Ñ¥½¹…±}ÕÍ€øÕÉÉ•¹Ñ}Íåµ‰½±}¹½Ñ¥½¹…°€¨€Ä¸ÀÄè(€€€€€€€€€€€É…¥Í”1¥Ù•M…™•ÑåÉÉ½È ‰Í•±°½É‘•È•á••‘ÌÑ¡”ÕÉÉ•¹ÐÁ½Í¥Ñ¥½¸ˆ¤(€€€€€€€É•ÑÕÉ¸((€€€¥˜±½­•‘}É•…Í½¸è(€€€€€€€É…¥Í”1¥Ù•M…™•ÑåÉÉ½È¡˜‰É¥Í¬¥ÉÕ¥Ð‰É•…­•È¥Ì±½­•èí±½­•‘}É•…Í½¹ôˆ¤(€€€¥˜¹½Ñ¥½¹…±}ÕÍ€ø±¥µ¥ÑÌ¹µ…á}½É‘•É}¹½Ñ¥½¹…±}ÕÍè(€€€€€€€É…¥Í”1¥Ù•M…™•ÑåÉÉ½È (€€€€€€€€€€€˜‰½É‘•È¹½Ñ¥½¹…°€‘í¹½Ñ¥½¹…±}ÕÍè°¸É™ô•á••‘Ì€ˆ(€€€€€€€€€€€˜ˆ‘í±¥µ¥ÑÌ¹µ…á}½É‘•É}¹½Ñ¥½¹…±}ÕÍè°¸É™ôˆ(€€€€€€€€¤(€€€¥˜ÕÉÉ•¹Ñ}Íåµ‰½±}¹½Ñ¥½¹…°€¬¹½Ñ¥½¹…±}ÕÍ€ø•ÅÕ¥Ñä€¨±¥µ¥ÑÌ¹µ…á}Íåµ‰½±}•áÁ½ÍÕÉ•}ÁÐè(€€€€€€€É…¥Í”1¥Ù•M…™•ÑåÉÉ½È ‰Á½ÍÐµÑÉ…‘”Íåµ‰½°•áÁ½ÍÕÉ”•á••‘Ì±¥µ¥Ðˆ¤(€€€¥˜É½ÍÍ}•áÁ½ÍÕÉ”€¬¹½Ñ¥½¹…±}ÕÍ€ø•ÅÕ¥Ñä€¨±¥µ¥ÑÌ¹µ…á}É½ÍÍ}•áÁ½ÍÕÉ•}ÁÐè(€€€€€€€É…¥Í”1¥Ù•M…™•ÑåÉÉ½È ‰Á½ÍÐµÑÉ…‘”É½ÍÌ•áÁ½ÍÕÉ”•á••‘Ì±¥µ¥Ðˆ¤(€€€¥˜…Í €´¹½Ñ¥½¹…±}ÕÍ€ð•ÅÕ¥Ñä€¨±¥µ¥ÑÌ¹µ¥¹}…Í¡}É•Í•ÉÙ•}ÁÐè(€€€€€€€É…¥Í”1¥Ù•M…™•ÑåÉÉ½È ‰Á½ÍÐµÑÉ…‘”…Í É•Í•ÉÙ”Ý½Õ±™…±°‰•±½Ü±¥µ¥Ðˆ¤(()‘•˜µ…­•}½É‘•É}­•ä ¨°Íåµ‰½°èÍÑÈ°Í¥‘”èÍÑÈ°…¹‘±•}Ñ¥µ•ÍÑ…µÀè‘…Ñ•Ñ¥µ”¤€´øÍÑÈè(€€€€ˆˆ‰	Õ¥±„ÍÑ…‰±”	¥¹…¹”µ½µÁ…Ñ¥‰±”±¥•¹Ð½É‘•È¥‘•¹Ñ¥™¥•È¸ˆˆˆ((€€€Ñ¥µ•ÍÑ…µÀ€ô…¹‘±•}Ñ¥µ•ÍÑ…µÀ(€€€¥˜Ñ¥µ•ÍÑ…µÀ¹Ñé¥¹™¼¥Ì9½¹”è(€€€€€€€Ñ¥µ•ÍÑ…µÀ€ôÑ¥µ•ÍÑ…µÀ¹É•Á±…”¡Ñé¥¹™¼õUQ¤(€€€É…Ü€ô˜‰•¹¡…¹•µµ„µØÅñíÍåµ‰½°¹ÕÁÁ•È ¥õñíÍ¥‘”¹ÕÁÁ•È ¥õñíÑ¥µ•ÍÑ…µÀ¹…ÍÑ¥µ•é½¹”¡UQ¤¹¥Í½™½Éµ…Ð ¥ôˆ(€€€‘¥•ÍÐ€ô¡…Í¡±¥ˆ¹Í¡„ÈÔØ¡É…Ü¹•¹½‘” ‰ÕÑ˜´àˆ¤¤¹¡•á‘¥•ÍÐ ¥lèÈÑt(€€€É•ÑÕÉ¸˜‰±Ñ„µí‘¥•ÍÑôˆ(()‘•˜µ…­•}ÁÉ½Ñ•Ñ¥Ù•}½É‘•É}­•ä (€€€€¨°(€€€Íåµ‰½°èÍÑÈ°(€€€É•Ù¥Í¥½¸è¥¹Ð°(€€€ÍÑ½Á}ÁÉ¥”è™±½…Ð°(¤€´øÍÑÈè(€€€€ˆˆ‰	Õ¥±„Õ¹¥ÅÕ”°É•ÑÉäµÍÑ…‰±”	¥¹…¹”±¥•¹Ð%™½È½¹”ÍÑ½ÀÉ•Ù¥Í¥½¸¸ˆˆˆ((€€€¥˜É•Ù¥Í¥½¸€ðô€Àè(€€€€€€€É…¥Í”1¥Ù•M…™•ÑåÉÉ½È ‰ÁÉ½Ñ•Ñ¥Ù”½É‘•ÈÉ•Ù¥Í¥½¸µÕÍÐ‰”Á½Í¥Ñ¥Ù”ˆ¤(€€€¥˜¹½Ðµ…Ñ ¹¥Í™¥¹¥Ñ”¡ÍÑ½Á}ÁÉ¥”¤½ÈÍÑ½Á}ÁÉ¥”€ðô€Àè(€€€€€€€É…¥Í”1¥Ù•M…™•ÑåÉÉ½È ‰ÁÉ½Ñ•Ñ¥Ù”ÍÑ½ÀÁÉ¥”µÕÍÐ‰”™¥¹¥Ñ”…¹Á½Í¥Ñ¥Ù”ˆ¤(€€€É…Ü€ô˜‰•¹¡…¹•µµ„µÍÑ½ÀµØÅñíÍåµ‰½°¹ÕÁÁ•È ¥õñíÉ•Ù¥Í¥½¹õñíÍÑ½Á}ÁÉ¥”è¸ÄÉôˆ(€€€‘¥•ÍÐ€ô¡…Í¡±¥ˆ¹Í¡„ÈÔØ¡É…Ü¹•¹½‘” ‰ÕÑ˜´àˆ¤¤¹¡•á‘¥•ÍÐ ¥lèÈÁt(€€€É•ÑÕÉ¸˜‰±Ñ„µÁÌµíÉ•Ù¥Í¥½¹ôµí‘¥•ÍÑô‰lèÌÙt(
+                actual = float(allocations[symbol])
+            except (TypeError, ValueError) as exc:
+                raise LiveSafetyError("strategy evidence allocations are invalid") from exc
+            if not math.isfinite(actual) or not math.isclose(actual, expected, abs_tol=1e-12):
+                raise LiveSafetyError(f"strategy evidence allocation does not match for {symbol}")
+            normalized_allocations[symbol] = actual
+
+    evidence_symbols = raw.get("symbols")
+    if not isinstance(evidence_symbols, dict):
+        raise LiveSafetyError("strategy evidence symbols are missing")
+    summaries: dict[str, dict[str, float]] = {}
+    reference_layout: list[tuple[object, object, object]] | None = None
+    for symbol in expected_symbols:
+        item = evidence_symbols.get(symbol)
+        folds = item.get("folds") if isinstance(item, dict) else None
+        if not isinstance(folds, list) or len(folds) < selected_policy.min_folds:
+            raise LiveSafetyError(
+                f"strategy evidence for {symbol} needs at least {selected_policy.min_folds} folds"
+            )
+        layout = [
+            (
+                fold.get("start") if isinstance(fold, dict) else None,
+                fold.get("end") if isinstance(fold, dict) else None,
+                fold.get("bars") if isinstance(fold, dict) else None,
+            )
+            for fold in folds
+        ]
+        if reference_layout is None:
+            reference_layout = layout
+        elif layout != reference_layout:
+            raise LiveSafetyError("strategy evidence symbol folds do not align")
+        if normalized_allocations is not None:
+            try:
+                item_allocation = float(item.get("allocation"))
+            except (TypeError, ValueError) as exc:
+                raise LiveSafetyError(f"strategy evidence allocation is invalid for {symbol}") from exc
+            if not math.isclose(
+                item_allocation,
+                normalized_allocations[symbol],
+                abs_tol=1e-12,
+            ):
+                raise LiveSafetyError(f"strategy evidence allocation does not match for {symbol}")
+        summaries[symbol] = _validate_evidence_folds(symbol, folds, selected_policy)
+
+    if normalized_allocations is not None:
+        portfolio = raw.get("portfolio")
+        portfolio_folds = portfolio.get("folds") if isinstance(portfolio, dict) else None
+        if not isinstance(portfolio_folds, list):
+            raise LiveSafetyError("portfolio OOS evidence is missing")
+        portfolio_layout = [
+            (
+                fold.get("start") if isinstance(fold, dict) else None,
+                fold.get("end") if isinstance(fold, dict) else None,
+                fold.get("bars") if isinstance(fold, dict) else None,
+            )
+            for fold in portfolio_folds
+        ]
+        if portfolio_layout != reference_layout:
+            raise LiveSafetyError("portfolio OOS folds do not align with symbols")
+        summaries["__portfolio__"] = _validate_evidence_folds(
+            "portfolio",
+            portfolio_folds,
+            selected_policy,
+        )
+    return summaries
+
+
+def _validate_evidence_folds(
+    label: str,
+    folds: list[object],
+    policy: StrategyEvidencePolicy,
+) -> dict[str, float]:
+    if len(folds) < policy.min_folds:
+        raise LiveSafetyError(f"strategy evidence for {label} needs at least {policy.min_folds} folds")
+    sharpes: list[float] = []
+    returns: list[float] = []
+    drawdowns: list[float] = []
+    trades: list[int] = []
+    previous_end: datetime | None = None
+    for fold in folds:
+        if not isinstance(fold, dict):
+            raise LiveSafetyError(f"strategy evidence metrics are invalid for {label}")
+        try:
+            start = _parse_utc_datetime(fold["start"], f"{label}.fold.start")
+            end = _parse_utc_datetime(fold["end"], f"{label}.fold.end")
+            bars = int(fold["bars"])
+            sharpes.append(float(fold["sharpe"]))
+            returns.append(float(fold["return_pct"]))
+            drawdowns.append(abs(float(fold["max_drawdown_pct"])))
+            trades.append(int(fold["trades"]))
+        except (KeyError, TypeError, ValueError) as exc:
+            raise LiveSafetyError(f"strategy evidence metrics are invalid for {label}") from exc
+        duration_hours = (end - start).total_seconds() / 3_600
+        if duration_hours < policy.min_fold_days * 24:
+            raise LiveSafetyError(f"strategy evidence fold is too short for {label}")
+        if bars != int(duration_hours):
+            raise LiveSafetyError(f"strategy evidence fold contains hourly gaps for {label}")
+        if previous_end is not None and start != previous_end:
+            raise LiveSafetyError(f"strategy evidence folds are not contiguous for {label}")
+        previous_end = end
+    all_metrics = [*sharpes, *returns, *drawdowns, *trades]
+    if any(not math.isfinite(value) for value in all_metrics) or any(value < 0 for value in trades):
+        raise LiveSafetyError(f"strategy evidence contains invalid metrics for {label}")
+
+    median_sharpe = median(sharpes)
+    median_return = median(returns)
+    positive_ratio = sum(value > 0 for value in returns) / len(returns)
+    worst_drawdown = max(drawdowns)
+    total_trades = sum(trades)
+    if median_sharpe < policy.min_median_oos_sharpe:
+        raise LiveSafetyError(f"{label} median OOS Sharpe does not pass")
+    if median_return <= policy.min_median_oos_return_pct:
+        raise LiveSafetyError(f"{label} median OOS return does not pass")
+    if positive_ratio < policy.min_positive_fold_ratio:
+        raise LiveSafetyError(f"{label} positive-fold ratio does not pass")
+    if worst_drawdown > policy.max_worst_oos_drawdown_pct:
+        raise LiveSafetyError(f"{label} worst OOS drawdown does not pass")
+    if total_trades < policy.min_total_oos_trades:
+        raise LiveSafetyError(f"{label} OOS trade count does not pass")
+    return {
+        "median_sharpe": median_sharpe,
+        "median_return_pct": median_return,
+        "positive_fold_ratio": positive_ratio,
+        "worst_drawdown_pct": worst_drawdown,
+        "total_trades": float(total_trades),
+    }
+
+
+def require_execution_authorization(
+    *,
+    execute: bool,
+    testnet: bool,
+    cli_confirmation: str | None,
+    env: Mapping[str, str] | None = None,
+) -> None:
+    """Require independent environment and CLI gates before order submission."""
+
+    if not execute:
+        return
+    source = os.environ if env is None else env
+    if _is_true(source.get("TRADING_KILL_SWITCH")):
+        raise LiveSafetyError("TRADING_KILL_SWITCH is active")
+    if not _is_true(source.get("TRADING_EXECUTION_ENABLED")):
+        raise LiveSafetyError("TRADING_EXECUTION_ENABLED is not true")
+
+    expected_mode = "testnet" if testnet else "live"
+    actual_mode = (source.get("TRADING_MODE") or "").strip().lower()
+    if actual_mode != expected_mode:
+        raise LiveSafetyError(f"TRADING_MODE must be {expected_mode!r}")
+
+    if testnet:
+        return
+    env_confirmation = source.get("TRADING_LIVE_CONFIRMATION", "")
+    if not hmac.compare_digest(env_confirmation, LIVE_CONFIRMATION):
+        raise LiveSafetyError("TRADING_LIVE_CONFIRMATION is missing or invalid")
+    if not hmac.compare_digest(cli_confirmation or "", LIVE_CONFIRMATION):
+        raise LiveSafetyError("--confirm-live is missing or invalid")
+
+
+@dataclass
+class LiveRiskState:
+    version: int = STATE_VERSION
+    peak_equity: float = 0.0
+    daily_start_equity: float = 0.0
+    trading_day: str = ""
+    locked_reason: str | None = None
+    reserved_orders: dict[str, str] = field(default_factory=dict)
+    order_ledger: dict[str, dict[str, object]] = field(default_factory=dict)
+    position_risk: dict[str, dict[str, object]] = field(default_factory=dict)
+    account_fingerprint: str = ""
+    strategy_fingerprint: str = ""
+    managed_symbols: list[str] = field(default_factory=list)
+    integrity: str = ""
+    updated_at: str = ""
+
+
+class LiveRiskStateStore:
+    """Atomic persistent state for loss limits and order idempotency."""
+
+    def __init__(self, path: str | Path, *, integrity_key: str | None = None):
+        self.path = Path(path)
+        self.integrity_key = (
+            validate_integrity_key(integrity_key) if integrity_key is not None else None
+        )
+        self.existed = self.path.exists()
+        self.state = self._load()
+
+    def _load(self) -> LiveRiskState:
+        if not self.path.exists():
+            return LiveRiskState()
+        try:
+            raw = json.loads(self.path.read_text(encoding="utf-8"))
+            if self.integrity_key is not None:
+                supplied_integrity = raw.get("integrity")
+                unsigned = dict(raw)
+                unsigned.pop("integrity", None)
+                expected_integrity = _payload_hmac(unsigned, self.integrity_key)
+                if not isinstance(supplied_integrity, str) or not hmac.compare_digest(
+                    supplied_integrity,
+                    expected_integrity,
+                ):
+                    raise LiveSafetyError(f"live risk state integrity check failed: {self.path}")
+            state = LiveRiskState(**raw)
+        except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+            raise LiveSafetyError(f"corrupt live risk state: {self.path}") from exc
+        if state.version != STATE_VERSION:
+            raise LiveSafetyError(f"unsupported live risk state version: {state.version}")
+        numeric = (state.peak_equity, state.daily_start_equity)
+        if any(not math.isfinite(value) or value < 0 for value in numeric):
+            raise LiveSafetyError(f"invalid equity values in live risk state: {self.path}")
+        if not isinstance(state.reserved_orders, dict):
+            raise LiveSafetyError(f"invalid reserved_orders in live risk state: {self.path}")
+        if not isinstance(state.order_ledger, dict):
+            raise LiveSafetyError(f"invalid order_ledger in live risk state: {self.path}")
+        if not isinstance(state.position_risk, dict):
+            raise LiveSafetyError(f"invalid position_risk in live risk state: {self.path}")
+        if not isinstance(state.managed_symbols, list):
+            raise LiveSafetyError(f"invalid managed_symbols in live risk state: {self.path}")
+        return state
+
+    def bind_context(
+        self,
+        *,
+        account: str,
+        strategy: str,
+        symbols: list[str],
+    ) -> None:
+        """Bind a state file to one account and one immutable strategy context."""
+
+        normalized_symbols = sorted(symbols)
+        existing = (
+            self.state.account_fingerprint,
+            self.state.strategy_fingerprint,
+            sorted(self.state.managed_symbols),
+        )
+        requested = (account, strategy, normalized_symbols)
+        if any(existing) and existing != requested:
+            raise LiveSafetyError(
+                "live risk state belongs to a different account, strategy or symbol set"
+            )
+        self.state.account_fingerprint = account
+        self.state.strategy_fingerprint = strategy
+        self.state.managed_symbols = normalized_symbols
+        self.save()
+
+    def observe_equity(
+        self,
+        equity: float,
+        limits: LiveRiskLimits,
+        *,
+        now: datetime | None = None,
+    ) -> str | None:
+        """Update baselines and persist a circuit breaker when a loss limit trips."""
+
+        if not math.isfinite(equity) or equity <= 0:
+            raise LiveSafetyError("account equity must be finite and positive")
+        current = now or datetime.now(UTC)
+        if current.tzinfo is None:
+            current = current.replace(tzinfo=UTC)
+        day = current.astimezone(UTC).date().isoformat()
+        if self.state.trading_day != day:
+            self.state.trading_day = day
+            self.state.daily_start_equity = equity
+        if self.state.peak_equity <= 0:
+            self.state.peak_equity = equity
+        self.state.peak_equity = max(self.state.peak_equity, equity)
+
+        drawdown = (self.state.peak_equity - equity) / self.state.peak_equity
+        daily_loss = (
+            (self.state.daily_start_equity - equity) / self.state.daily_start_equity
+            if self.state.daily_start_equity > 0
+            else 0.0
+        )
+        if self.state.locked_reason is None and drawdown >= limits.max_drawdown_pct:
+            self.state.locked_reason = (
+                f"max drawdown breached: {drawdown:.2%} >= {limits.max_drawdown_pct:.2%}"
+            )
+        if self.state.locked_reason is None and daily_loss >= limits.max_daily_loss_pct:
+            self.state.locked_reason = (
+                f"daily loss breached: {daily_loss:.2%} >= {limits.max_daily_loss_pct:.2%}"
+            )
+        self.save(now=current)
+        return self.state.locked_reason
+
+    def metrics(self, equity: float) -> dict[str, float | str | None]:
+        drawdown = (
+            (self.state.peak_equity - equity) / self.state.peak_equity
+            if self.state.peak_equity > 0
+            else 0.0
+        )
+        daily_loss = (
+            (self.state.daily_start_equity - equity) / self.state.daily_start_equity
+            if self.state.daily_start_equity > 0
+            else 0.0
+        )
+        return {
+            "drawdown_pct": max(drawdown, 0.0),
+            "daily_loss_pct": max(daily_loss, 0.0),
+            "locked_reason": self.state.locked_reason,
+        }
+
+    def reserve_order(
+        self,
+        order_key: str,
+        *,
+        symbol: str = "",
+        side: str = "",
+        quantity: float = 0.0,
+        signal_timestamp: datetime | None = None,
+        now: datetime | None = None,
+    ) -> None:
+        """Persist an intent before submission so crashes cannot duplicate an order."""
+
+        if order_key in self.state.reserved_orders:
+            raise DuplicateOrderError(f"order intent already reserved: {order_key}")
+        current = now or datetime.now(UTC)
+        timestamp = current.astimezone(UTC).isoformat()
+        self.state.reserved_orders[order_key] = timestamp
+        self.state.order_ledger[order_key] = {
+            "client_order_id": order_key,
+            "exchange_order_id": "",
+            "symbol": symbol,
+            "side": side.upper(),
+            "quantity": quantity,
+            "filled_quantity": 0.0,
+            "average_fill_price": 0.0,
+            "signal_timestamp": (
+                signal_timestamp.astimezone(UTC).isoformat()
+                if signal_timestamp is not None
+                else ""
+            ),
+            "status": "reserved",
+            "error": "",
+            "created_at": timestamp,
+            "updated_at": timestamp,
+        }
+        if len(self.state.reserved_orders) > 1000:
+            oldest = sorted(self.state.reserved_orders.items(), key=lambda item: item[1])[:-1000]
+            for key, _ in oldest:
+                self.state.reserved_orders.pop(key, None)
+                self.state.order_ledger.pop(key, None)
+        self.save(now=current)
+
+    def update_order(
+        self,
+        order_key: str,
+        *,
+        status: str,
+        exchange_order_id: str = "",
+        filled_quantity: float = 0.0,
+        average_fill_price: float = 0.0,
+        error: str = "",
+        now: datetime | None = None,
+    ) -> None:
+        """Persist the latest broker acknowledgement for a reserved intent."""
+
+        record = self.state.order_ledger.get(order_key)
+        if not isinstance(record, dict):
+            raise LiveSafetyError(f"order intent is not present in ledger: {order_key}")
+        normalized = status.strip().lower()
+        allowed = {
+            "reserved", "submitted", "open", "partial", "filled",
+            "cancelled", "rejected", "expired", "unknown",
+        }
+        if normalized not in allowed:
+            raise LiveSafetyError(f"unsupported order ledger status: {status}")
+        numeric = (filled_quantity, average_fill_price)
+        if any(not math.isfinite(value) or value < 0 for value in numeric):
+            raise LiveSafetyError("order fill values must be finite and non-negative")
+        current = now or datetime.now(UTC)
+        record.update({
+            "status": normalized,
+            "exchange_order_id": exchange_order_id or record.get("exchange_order_id", ""),
+            "filled_quantity": filled_quantity,
+            "average_fill_price": average_fill_price,
+            "error": error,
+            "updated_at": current.astimezone(UTC).isoformat(),
+        })
+        self.save(now=current)
+
+    def unfinished_orders(self) -> dict[str, dict[str, object]]:
+        unfinished = {"reserved", "submitted", "open", "partial", "unknown"}
+        return {
+            key: dict(record)
+            for key, record in self.state.order_ledger.items()
+            if isinstance(record, dict) and str(record.get("status", "")).lower() in unfinished
+        }
+
+    def observe_position_risk(
+        self,
+        symbol: str,
+        *,
+        quantity: float,
+        observed_high: float,
+        atr: float,
+        atr_multiplier: float,
+        now: datetime | None = None,
+    ) -> tuple[float, float]:
+        """Persist a peak and a trailing stop that can tighten but never widen."""
+
+        if not math.isfinite(quantity) or quantity <= 0:
+            raise LiveSafetyError("position quantity must be finite and positive")
+        if not math.isfinite(observed_high) or observed_high <= 0:
+            raise LiveSafetyError("observed position high must be finite and positive")
+        if not math.isfinite(atr) or atr <= 0:
+            raise LiveSafetyError("position ATR must be finite and positive")
+        if not math.isfinite(atr_multiplier) or atr_multiplier <= 0:
+            raise LiveSafetyError("ATR multiplier must be finite and positive")
+        current = now or datetime.now(UTC)
+        record = self.state.position_risk.get(symbol)
+        previous_peak = 0.0
+        previous_stop = 0.0
+        if isinstance(record, dict):
+            try:
+                previous_peak = float(record.get("peak_price", 0.0))
+                previous_stop = float(record.get("trailing_stop", 0.0))
+            except (TypeError, ValueError) as exc:
+                raise LiveSafetyError(f"invalid position risk state for {symbol}") from exc
+        peak = max(previous_peak, observed_high)
+        trailing_stop = max(previous_stop, peak - atr_multiplier * atr)
+        updated_record = dict(record) if isinstance(record, dict) else {}
+        updated_record.update({
+            "quantity": quantity,
+            "peak_price": peak,
+            "trailing_stop": trailing_stop,
+            "updated_at": current.astimezone(UTC).isoformat(),
+        })
+        self.state.position_risk[symbol] = updated_record
+        self.save(now=current)
+        return peak, trailing_stop
+
+    def protective_order_state(self, symbol: str) -> dict[str, object]:
+        """Return a copy of active/pending exchange-native protection state."""
+
+        record = self.state.position_risk.get(symbol)
+        if not isinstance(record, dict):
+            return {"revision": 0, "active": None, "pending": None}
+        protection = record.get("protective_order")
+        if not isinstance(protection, dict):
+            return {"revision": 0, "active": None, "pending": None}
+        active = protection.get("active")
+        pending = protection.get("pending")
+        return {
+            "revision": int(protection.get("revision", 0)),
+            "active": dict(active) if isinstance(active, dict) else None,
+            "pending": dict(pending) if isinstance(pending, dict) else None,
+        }
+
+    def reserve_protective_order(
+        self,
+        symbol: str,
+        *,
+        quantity: float,
+        stop_price: float,
+        now: datetime | None = None,
+    ) -> dict[str, object]:
+        """Persist a protective intent while retaining the last active order."""
+
+        if any(
+            not math.isfinite(value) or value <= 0
+            for value in (quantity, stop_price)
+        ):
+            raise LiveSafetyError("protective quantity and stop price must be positive")
+        record = self.state.position_risk.get(symbol)
+        if not isinstance(record, dict):
+            raise LiveSafetyError(f"position risk is not initialized for {symbol}")
+        current = now or datetime.now(UTC)
+        protection = record.get("protective_order")
+        if not isinstance(protection, dict):
+            protection = {"revision": 0, "active": None, "pending": None}
+        if isinstance(protection.get("pending"), dict):
+            raise LiveSafetyError(f"protective order submission is already pending for {symbol}")
+        revision = int(protection.get("revision", 0)) + 1
+        client_order_id = make_protective_order_key(
+            symbol=symbol,
+            revision=revision,
+            stop_price=stop_price,
+        )
+        pending: dict[str, object] = {
+            "client_order_id": client_order_id,
+            "exchange_order_id": "",
+            "quantity": quantity,
+            "stop_price": stop_price,
+            "status": "submitting",
+            "error": "",
+            "created_at": current.astimezone(UTC).isoformat(),
+            "updated_at": current.astimezone(UTC).isoformat(),
+        }
+        protection.update({"revision": revision, "pending": pending})
+        record["protective_order"] = protection
+        self.save(now=current)
+        return dict(pending)
+
+    def update_pending_protective_order(
+        self,
+        symbol: str,
+        *,
+        status: str,
+        exchange_order_id: str = "",
+        error: str = "",
+        now: datetime | None = None,
+    ) -> None:
+        protection = self.protective_order_state(symbol)
+        pending = protection.get("pending")
+        if not isinstance(pending, dict):
+            raise LiveSafetyError(f"protective order intent is not pending for {symbol}")
+        normalized = status.strip().lower()
+        allowed = {
+            "submitting", "open", "partial", "filled", "cancelled",
+            "rejected", "expired", "unknown",
+        }
+        if normalized not in allowed:
+            raise LiveSafetyError(f"unsupported protective order status: {status}")
+        current = now or datetime.now(UTC)
+        pending.update({
+            "status": normalized,
+            "exchange_order_id": exchange_order_id or pending.get("exchange_order_id", ""),
+            "error": error,
+            "updated_at": current.astimezone(UTC).isoformat(),
+        })
+        record = self.state.position_risk[symbol]
+        raw_protection = record["protective_order"]
+        raw_protection["pending"] = pending
+        self.save(now=current)
+
+    def activate_pending_protective_order(
+        self,
+        symbol: str,
+        *,
+        exchange_order_id: str,
+        status: str = "open",
+        quantity: float | None = None,
+        stop_price: float | None = None,
+        now: datetime | None = None,
+    ) -> dict[str, object]:
+        """Promote a confirmed pending stop while atomically forgetting the old one."""
+
+        normalized = status.strip().lower()
+        if normalized not in {"open", "partial"}:
+            raise LiveSafetyError(f"cannot activate terminal protective order: {status}")
+        protection = self.protective_order_state(symbol)
+        pending = protection.get("pending")
+        if not isinstance(pending, dict):
+            raise LiveSafetyError(f"protective order intent is not pending for {symbol}")
+        current = now or datetime.now(UTC)
+        if quantity is not None:
+            if not math.isfinite(quantity) or quantity <= 0:
+                raise LiveSafetyError("confirmed protective quantity must be positive")
+            pending["quantity"] = quantity
+        if stop_price is not None:
+            if not math.isfinite(stop_price) or stop_price <= 0:
+                raise LiveSafetyError("confirmed protective stop price must be positive")
+            pending["stop_price"] = stop_price
+        pending.update({
+            "exchange_order_id": exchange_order_id,
+            "status": normalized,
+            "error": "",
+            "updated_at": current.astimezone(UTC).isoformat(),
+        })
+        record = self.state.position_risk[symbol]
+        raw_protection = record["protective_order"]
+        raw_protection["active"] = pending
+        raw_protection["pending"] = None
+        self.save(now=current)
+        return dict(pending)
+
+    def abandon_pending_protective_order(
+        self,
+        symbol: str,
+        *,
+        now: datetime | None = None,
+    ) -> None:
+        record = self.state.position_risk.get(symbol)
+        if not isinstance(record, dict):
+            return
+        protection = record.get("protective_order")
+        if isinstance(protection, dict) and protection.get("pending") is not None:
+            protection["pending"] = None
+            self.save(now=now)
+
+    def clear_active_protective_order(
+        self,
+        symbol: str,
+        *,
+        now: datetime | None = None,
+    ) -> None:
+        record = self.state.position_risk.get(symbol)
+        if not isinstance(record, dict):
+            return
+        protection = record.get("protective_order")
+        if isinstance(protection, dict) and protection.get("active") is not None:
+            protection["active"] = None
+            self.save(now=now)
+
+    def clear_position_risk(self, symbol: str, *, now: datetime | None = None) -> None:
+        if symbol in self.state.position_risk:
+            self.state.position_risk.pop(symbol, None)
+            self.save(now=now)
+
+    def save(self, *, now: datetime | None = None) -> None:
+        current = now or datetime.now(UTC)
+        self.state.updated_at = current.astimezone(UTC).isoformat()
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        payload = asdict(self.state)
+        payload.pop("integrity", None)
+        if self.integrity_key is not None:
+            self.state.integrity = _payload_hmac(payload, self.integrity_key)
+        elif self.state.integrity:
+            raise LiveSafetyError("cannot modify a signed live risk state without its integrity key")
+        payload["integrity"] = self.state.integrity
+        fd, temp_name = tempfile.mkstemp(
+            prefix=f".{self.path.name}.", suffix=".tmp", dir=self.path.parent
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                json.dump(payload, handle, indent=2, sort_keys=True)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.chmod(temp_name, 0o600)
+            os.replace(temp_name, self.path)
+        finally:
+            Path(temp_name).unlink(missing_ok=True)
+
+
+def validate_fresh_quote(
+    *,
+    signal_price: float,
+    quote_price: float,
+    quote_timestamp: datetime,
+    limits: LiveRiskLimits,
+    now: datetime | None = None,
+) -> None:
+    """Reject stale, future-dated or sharply divergent quotes."""
+
+    if not math.isfinite(signal_price) or signal_price <= 0:
+        raise LiveSafetyError("signal price must be finite and positive")
+    if not math.isfinite(quote_price) or quote_price <= 0:
+        raise LiveSafetyError("quote price must be finite and positive")
+    current = now or datetime.now(UTC)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=UTC)
+    timestamp = quote_timestamp
+    if timestamp.tzinfo is None:
+        timestamp = timestamp.astimezone().astimezone(UTC)
+    else:
+        timestamp = timestamp.astimezone(UTC)
+    age = (current.astimezone(UTC) - timestamp).total_seconds()
+    if age < -5:
+        raise LiveSafetyError(f"quote timestamp is {abs(age):.1f}s in the future")
+    if age > limits.max_quote_age_seconds:
+        raise LiveSafetyError(
+            f"quote is stale: {age:.1f}s > {limits.max_quote_age_seconds:.1f}s"
+        )
+    deviation = abs(quote_price - signal_price) / signal_price
+    if deviation > limits.max_price_deviation_pct:
+        raise LiveSafetyError(
+            f"quote deviation too large: {deviation:.2%} > "
+            f"{limits.max_price_deviation_pct:.2%}"
+        )
+
+
+def validate_spread(*, bid: float, ask: float, limits: LiveRiskLimits) -> None:
+    if any(not math.isfinite(value) or value <= 0 for value in (bid, ask)):
+        raise LiveSafetyError("bid and ask must be finite and positive")
+    if ask < bid:
+        raise LiveSafetyError("crossed market quote is invalid")
+    midpoint = (bid + ask) / 2
+    spread = (ask - bid) / midpoint
+    if spread > limits.max_spread_pct:
+        raise LiveSafetyError(
+            f"spread is too wide: {spread:.2%} > {limits.max_spread_pct:.2%}"
+        )
+
+
+def validate_order_book_depth(
+    *,
+    side: str,
+    quantity: float,
+    bids: list[tuple[float, float]],
+    asks: list[tuple[float, float]],
+    book_timestamp: datetime,
+    limits: LiveRiskLimits,
+    now: datetime | None = None,
+) -> float:
+    """Return expected VWAP after rejecting stale, thin or high-impact books."""
+
+    if not math.isfinite(quantity) or quantity <= 0:
+        raise LiveSafetyError("order-book quantity must be finite and positive")
+    current = now or datetime.now(UTC)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=UTC)
+    timestamp = book_timestamp
+    if timestamp.tzinfo is None:
+        timestamp = timestamp.replace(tzinfo=UTC)
+    age = (current.astimezone(UTC) - timestamp.astimezone(UTC)).total_seconds()
+    if age < -5 or age > limits.max_quote_age_seconds:
+        raise LiveSafetyError(f"order book timestamp is invalid or stale: {age:.1f}s")
+
+    normalized_side = side.upper()
+    if normalized_side not in {"BUY", "SELL"}:
+        raise LiveSafetyError(f"unsupported order-book side: {side}")
+    levels = asks if normalized_side == "BUY" else bids
+    if not levels:
+        raise LiveSafetyError("executable order book is empty")
+    cleaned: list[tuple[float, float]] = []
+    for price, size in levels:
+        if any(not math.isfinite(value) or value <= 0 for value in (price, size)):
+            raise LiveSafetyError("order book contains invalid levels")
+        cleaned.append((price, size))
+    prices = [price for price, _ in cleaned]
+    if normalized_side == "BUY" and prices != sorted(prices):
+        raise LiveSafetyError("ask levels are not sorted")
+    if normalized_side == "SELL" and prices != sorted(prices, reverse=True):
+        raise LiveSafetyError("bid levels are not sorted")
+
+    required_depth = quantity * limits.min_book_depth_multiple
+    total_depth = sum(size for _, size in cleaned)
+    if total_depth + 1e-12 < required_depth:
+        raise LiveSafetyError(
+            f"order-book depth is insufficient: {total_depth:.8f} < {required_depth:.8f}"
+        )
+    remaining = quantity
+    notional = 0.0
+    for price, size in cleaned:
+        filled = min(remaining, size)
+        notional += filled * price
+        remaining -= filled
+        if remaining <= 1e-12:
+            break
+    if remaining > 1e-12:
+        raise LiveSafetyError("order book cannot fill the requested quantity")
+    expected_vwap = notional / quantity
+    best = cleaned[0][0]
+    impact = abs(expected_vwap - best) / best
+    if impact > limits.max_book_slippage_pct:
+        raise LiveSafetyError(
+            f"expected book slippage is too high: "
+            f"{impact:.2%} > {limits.max_book_slippage_pct:.2%}"
+        )
+    return expected_vwap
+
+
+def validate_order_risk(
+    *,
+    side: str,
+    notional_usd: float,
+    equity: float,
+    cash: float,
+    current_symbol_notional: float,
+    gross_exposure: float,
+    limits: LiveRiskLimits,
+    locked_reason: str | None,
+) -> None:
+    """Validate a proposed order against account-level hard limits."""
+
+    values = (notional_usd, equity, cash, current_symbol_notional, gross_exposure)
+    if any(not math.isfinite(value) or value < 0 for value in values) or equity <= 0:
+        raise LiveSafetyError("invalid account or order value")
+    normalized_side = side.upper()
+    if normalized_side not in {"BUY", "SELL"}:
+        raise LiveSafetyError(f"unsupported order side: {side}")
+    if notional_usd <= 0:
+        raise LiveSafetyError("order notional must be positive")
+
+    if normalized_side == "SELL":
+        if notional_usd > current_symbol_notional * 1.01:
+            raise LiveSafetyError("sell order exceeds the current position")
+        return
+
+    if locked_reason:
+        raise LiveSafetyError(f"risk circuit breaker is locked: {locked_reason}")
+    if notional_usd > limits.max_order_notional_usd:
+        raise LiveSafetyError(
+            f"order notional ${notional_usd:,.2f} exceeds "
+            f"${limits.max_order_notional_usd:,.2f}"
+        )
+    if current_symbol_notional + notional_usd > equity * limits.max_symbol_exposure_pct:
+        raise LiveSafetyError("post-trade symbol exposure exceeds limit")
+    if gross_exposure + notional_usd > equity * limits.max_gross_exposure_pct:
+        raise LiveSafetyError("post-trade gross exposure exceeds limit")
+    if cash - notional_usd < equity * limits.min_cash_reserve_pct:
+        raise LiveSafetyError("post-trade cash reserve would fall below limit")
+
+
+def make_order_key(*, symbol: str, side: str, candle_timestamp: datetime) -> str:
+    """Build a stable Binance-compatible client order identifier."""
+
+    timestamp = candle_timestamp
+    if timestamp.tzinfo is None:
+        timestamp = timestamp.replace(tzinfo=UTC)
+    raw = f"enhanced-ma-v1|{symbol.upper()}|{side.upper()}|{timestamp.astimezone(UTC).isoformat()}"
+    digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:24]
+    return f"lta-{digest}"
+
+
+def make_protective_order_key(
+    *,
+    symbol: str,
+    revision: int,
+    stop_price: float,
+) -> str:
+    """Build a unique, retry-stable Binance client ID for one stop revision."""
+
+    if revision <= 0:
+        raise LiveSafetyError("protective order revision must be positive")
+    if not math.isfinite(stop_price) or stop_price <= 0:
+        raise LiveSafetyError("protective stop price must be finite and positive")
+    raw = f"enhanced-ma-stop-v1|{symbol.upper()}|{revision}|{stop_price:.12g}"
+    digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:20]
+    return f"lta-ps-{revision}-{digest}"[:36]

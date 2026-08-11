@@ -67,4 +67,82 @@ does not remove protection already held by the exchange.
 
 ### P0.2 Order lifecycle and fill accounting
 
-- [ ] Add eçÏ8ÚÚ$z{-®éÜj×Ì ¤(€€€½É‘•È€ô=É‘•È (€€€€€€€¥ôˆˆ°(€€€€€€€±¥•¹Ñ}½É‘•É}¥ô‰±Ñ„µÁÌ´Äˆ°(€€€€€€€Íåµ‰½°õ‰Ñ}Íåµ‰½° ¤°(€€€€€€€Í¥‘”õ=É‘•ÉM¥‘”¹M10°(€€€€€€€ÑåÁ”õ=É‘•ÉQåÁ”¹MQ=@°(€€€€€€€Í¥é”õ•¥µ…° ˆÀ¸ÀÄˆ¤°(€€€€€€€ÍÑ½Á}ÁÉ¥”õ•¥µ…° ˆäÀˆ¤°(€€€€¤(€€€…ÍÍ•ÉĞ…‘…ÁÑ•È¹}áÑ}½É‘•É}ÑåÁ”¡½É‘•È¤€ôô€‰µ…É­•Ğˆ(€€€…ÍÍ•ÉĞ…‘…ÁÑ•È¹}½É‘•É}Ñ½}áÑ}Á…É…µÌ¡½É‘•È¤€ôôì(€€€€€€€€‰ÍÑ½Á1½ÍÍAÉ¥”ˆè€äÀ¸À°(€€€€€€€€‰±¥•¹Ñ=É‘•É%ˆè€‰±Ñ„µÁÌ´Äˆ°(€€€ô(()‘•˜Ñ•ÍÑ}áÑ}ÍÑ½Á}±½ÍÍ}É•ÍÁ½¹Í•}¥Í}Á…ÉÍ•‘}…Í}ÁÉ½Ñ•Ñ¥Ù•}ÍÑ½À ¤è(€€€Á…ÉÍ•€ô…‘…ÁÑ•É}İ¥Ñ¡}™¥±Ñ•ÉÌ ¤¹}Á…ÉÍ•}½É‘•È (€€€€€€€ì(€€€€€€€€€€€€‰¥ˆè€‰ÍÑ½À´Äˆ°(€€€€€€€€€€€€‰±¥•¹Ñ=É‘•É%ˆè€‰±Ñ„µÁÌ´Äˆ°(€€€€€€€€€€€€‰ÍÑ…ÑÕÌˆè€‰½Á•¸ˆ°(€€€€€€€€€€€€‰Íåµ‰½°ˆè€‰	Q½UMPˆ°(€€€€€€€€€€€€‰Í¥‘”ˆè€‰Í•±°ˆ°(€€€€€€€€€€€€‰ÑåÁ”ˆè€‰ÍÑ½Á}±½ÍÌˆ°(€€€€€€€€€€€€‰…µ½Õ¹Ğˆè€À¸ÀÄ°(€€€€€€€€€€€€‰™¥±±•ˆè€À°(€€€€€€€€€€€€‰…Ù•É…”ˆè9½¹”°(€€€€€€€€€€€€‰ÁÉ¥”ˆè9½¹”°(€€€€€€€€€€€€‰ÍÑ½ÁAÉ¥”ˆè€äÀ°(€€€€€€€€€€€€‰™•”ˆè9½¹”°(€€€€€€€€€€€€‰Ñ¥µ•%¹½É”ˆè9½¹”°(€€€€€€€€€€€€‰Ñ¥µ•ÍÑ…µÀˆè9½¹”°(€€€€€€€€€€€€‰±…ÍÑQÉ…‘•Q¥µ•ÍÑ…µÀˆè9½¹”°(€€€€€€€ô°(€€€€€€€‰Ñ}Íåµ‰½° ¤°(€€€€¤(€€€…ÍÍ•ÉĞÁ…ÉÍ•¹ÑåÁ”€ôô=É‘•ÉQåÁ”¹MQ=@(€€€…ÍÍ•ÉĞÁ…ÉÍ•¹ÍÑ½Á}ÁÉ¥”€ôô•¥µ…° ˆäÀˆ¤(
+- [ ] Add explicit submitted/acknowledged/reconciling/manual-intervention states.
+- [ ] Poll non-terminal orders with a bounded deadline and jitter.
+- [ ] Fall back to order history and trade history by client order ID.
+- [ ] Persist cumulative fills, quote cost, trade IDs and all fee currencies.
+- [ ] Reconcile ledger, trades and balances before any new order batch.
+- [ ] Preserve and audit raw exchange statuses instead of silently normalizing
+  unknown values to `open`.
+
+### P0.3 Trusted time and market data
+
+- [ ] Separate exchange timestamp, request start and local receive timestamp.
+- [ ] Reject high-latency responses and excessive exchange clock skew.
+- [ ] Validate order-book sequence/update IDs and WebSocket snapshot+diff sync.
+- [ ] Export quote age, request latency, sequence gap and clock-skew metrics.
+
+### P0.4 Quantity-based risk-reducing sells
+
+- [ ] Validate sell quantity against free base-asset balance after precision.
+- [ ] Account for locked quantity and protective-order reservations.
+- [ ] Permit valid risk-reducing sells while entry limits are locked.
+- [ ] Define a controlled dust/minimum-notional policy.
+
+### P0.5 Canary profiles
+
+- [ ] Add explicit `testnet`, `mainnet-canary` and `mainnet-normal` profiles.
+- [ ] Canary maximum order: `min(USD 25, 0.25% equity)`.
+- [ ] Canary maximum symbol exposure: 5%; gross exposure: 10%.
+- [ ] Canary minimum cash reserve: 80%.
+- [ ] Canary daily-loss lock: 0.5%; account-drawdown lock: 2%.
+- [ ] Prevent automatic risk-limit escalation and audit every limit change.
+
+### P0.6 Repository and supply-chain gates
+
+- [ ] Require PRs and successful CI checks before merging to `master`.
+- [ ] Add CODEOWNERS for live runner, risk state, exchange adapter and workflows.
+- [ ] Require production-environment approval and disable practical bypasses.
+- [ ] Pin base/service container images by digest and validate Compose in CI.
+
+## P1 - production operations
+
+- [ ] P1.1: distributed leader lease with fencing, schema migrations, encrypted
+  versioned snapshots and automated restore tests.
+- [ ] P1.2: correlation IDs and off-host append-only audit retention.
+- [ ] P1.3: Prometheus metrics plus independently supervised paging and synthetic
+  alert-delivery tests.
+- [ ] P1.4: out-of-band kill switch and documented incident/credential drills.
+- [ ] P1.5: one execution leader, separate scheduler/monitoring, tested health and
+  rollback behavior, and no deployment-triggered mainnet enablement.
+- [ ] P1.6: dedicated spot subaccount, withdrawal disabled, IP allowlist and
+  separate read-only monitoring credentials.
+
+## P2 - statistical and execution quality
+
+- [ ] Freeze a 6-12 month final holdout and publish an immutable research manifest.
+- [ ] Add per-fold trade minimums, regime breakdowns, block-bootstrap confidence
+  intervals and Deflated/Probabilistic Sharpe.
+- [ ] Stress fees, spread and slippage at 1x/2x/3x plus gaps, latency, missing data,
+  partial fills, outages and correlated drawdowns.
+- [ ] Model exchange precision, fee assets, depth, cancellation and dust in the
+  execution simulator.
+- [ ] Measure paper/testnet tracking error before evaluating maker/TWAP execution.
+
+## P3 - release gates
+
+- [ ] At least 30 continuous calendar days on Binance Spot Testnet.
+- [ ] At least 100 complete order lifecycles.
+- [ ] Zero unexplained duplicate or deadline-expired unresolved orders.
+- [ ] 100% protective-stop coverage for eligible open positions.
+- [ ] No unexplained ledger/balance drift outside the documented tolerance.
+- [ ] Restart, network-loss, API-timeout and stale-data drills pass.
+- [ ] Alerts reach the independent operator device and synthetic tests pass.
+- [ ] Backup/restore and emergency credential-revocation drills pass.
+- [ ] All required CI/security checks pass on the exact release commit.
+- [ ] Paper/testnet tracking error stays inside approved limits.
+- [ ] Canary limits and maximum acceptable loss receive explicit approval.
+
+Only after every release gate passes may the status move from `NO-GO` to
+`CANARY-READY`. Enabling mainnet and increasing capital remain separate manual
+decisions.

@@ -381,4 +381,500 @@ class CCXTAdapter(ExchangeAdapter):
             maximum_cost = cost_limits.get("max")
             if minimum_cost is not None and cost < Decimal(str(minimum_cost)):
                 raise InvalidOrder(f"order notional is below market minimum for {ex_symbol}")
-            if maximum_cost is not None and cost > Decimal(str(maximum_cost×¾{¶‰žËkºwµçT¡Í•±˜¹½¹™¥œ¹¥°Ý•¥¡ÐôÄ¤4(4(€€€€€€€ÑÉäè4(€€€€€€€€€€€½É‘•È€ô…Ý…¥ÐÍ•±˜¹}µ…å‰•}…Ý…¥Ð¡Í•±˜¹•á¡…¹”¹™•Ñ¡}½É‘•È¡½É‘•É}¥°•á}Íåµ‰½°¤¤4(€€€€€€€€€€€É•ÑÕÉ¸Í•±˜¹}Á…ÉÍ•}½É‘•È¡½É‘•È°Íåµ‰½°¤4(€€€€€€€•á•ÁÐá•ÁÑ¥½¸…Ì”è4(€€€€€€€€€€€±½•È¹•ÉÉ½È¡˜‰™•Ñ¡}½É‘•È™…¥±•èí•ôˆ¤(€€€€€€€€€€€É…¥Í”((€€€…Íå¹Œ‘•˜™•Ñ¡}½É‘•É}‰å}±¥•¹Ñ}¥ (€€€€€€€Í•±˜°(€€€€€€€±¥•¹Ñ}½É‘•É}¥èÍÑÈ°(€€€€€€€Íåµ‰½°èMåµ‰½°°(€€€€¤€´ø=É‘•Èð9½¹”è(€€€€€€€€ˆˆ‰•Ñ „	¥¹…¹”µÍÑå±”½É‘•È‰äÑ¡”‘•Ñ•Éµ¥¹¥ÍÑ¥Œ±¥•¹Ð½É‘•È%¸ˆˆˆ((€€€€€€€•á}Íåµ‰½°€ôÍ•±˜¹}Õ¹¥™¥•‘}Ñ½}áÑ}Íåµ‰½°¡Íåµ‰½°¤(€€€€€€€…Ý…¥ÐÍ•±˜¹}É…Ñ•}±¥µ¥Ñ•È¹…ÅÕ¥É”¡Í•±˜¹½¹™¥œ¹¥°Ý•¥¡ÐôÄ¤(€€€€€€€ÑÉäè(€€€€€€€€€€€½É‘•È€ô…Ý…¥ÐÍ•±˜¹}µ…å‰•}…Ý…¥Ð¡Í•±˜¹•á¡…¹”¹™•Ñ¡}½É‘•È (€€€€€€€€€€€€€€€9½¹”°(€€€€€€€€€€€€€€€•á}Íåµ‰½°°(€€€€€€€€€€€€€€€ì‰½É¥±¥•¹Ñ=É‘•É%ˆè±¥•¹Ñ}½É‘•É}¥‘ô°(€€€€€€€€€€€€¤¤(€€€€€€€€€€€É•ÑÕÉ¸Í•±˜¹}Á…ÉÍ•}½É‘•È¡½É‘•È°Íåµ‰½°¤(€€€€€€€•á•ÁÐá•ÁÑ¥½¸…Ì•áŒè(€€€€€€€€€€€¥˜áÐ¥Ì¹½Ð9½¹”…¹¥Í¥¹ÍÑ…¹”¡•áŒ°áÐ¹=É‘•É9½Ñ½Õ¹¤è(€€€€€€€€€€€€€€€É•ÑÕÉ¸9½¹”(€€€€€€€€€€€±½•È¹•ÉÉ½È¡˜‰™•Ñ¡}½É‘•É}‰å}±¥•¹Ñ}¥™…¥±•èí•áôˆ¤(€€€€€€€€€€€É…¥Í”(4(€€€…Íå¹Œ‘•˜™•Ñ¡}½Á•¹}½É‘•ÉÌ¡Í•±˜°Íåµ‰½°èMåµ‰½°ð9½¹”€ô9½¹”¤€´ø±¥ÍÑm=É‘•Étè4(€€€€€€€€ˆˆ‰•Ñ …±°½Á•¸½É‘•ÉÌˆˆˆ4(€€€€€€€•á}Íåµ‰½°€ôÍ•±˜¹}Õ¹¥™¥•‘}Ñ½}áÑ}Íåµ‰½°¡Íåµ‰½°¤¥˜Íåµ‰½°•±Í”9½¹”4(€€€€€€€…Ý…¥ÐÍ•±˜¹}É…Ñ•}±¥µ¥Ñ•È¹…ÅÕ¥É”¡Í•±˜¹½¹™¥œ¹¥°Ý•¥¡ÐôÄ¤4(4(€€€€€€€ÑÉäè4(€€€€€€€€€€€½É‘•ÉÌ€ô…Ý…¥ÐÍ•±˜¹}µ…å‰•}…Ý…¥Ð¡Í•±˜¹•á¡…¹”¹™•Ñ¡}½Á•¹}½É‘•ÉÌ¡•á}Íåµ‰½°¤¤4(€€€€€€€€€€€É•ÑÕÉ¸mÍ•±˜¹}Á…ÉÍ•}½É‘•È¡¼°Í•±˜¹}áÑ}Ñ½}Õ¹¥™¥•‘}Íåµ‰½°¡½lÍåµ‰½°t¤¤™½È¼¥¸½É‘•ÉÍt4(€€€€€€€•á•ÁÐá•ÁÑ¥½¸…Ì”è4(€€€€€€€€€€€±½•È¹•ÉÉ½È¡˜‰™•Ñ¡}½Á•¹}½É‘•ÉÌ™…¥±•èí•ôˆ¤4(€€€€€€€€€€€É…¥Í”4(4(€€€…Íå¹Œ‘•˜™•Ñ¡}Á½Í¥Ñ¥½¹Ì¡Í•±˜°Íåµ‰½°èMåµ‰½°ð9½¹”€ô9½¹”¤€´ø±¥ÍÑmA½Í¥Ñ¥½¹tè4(€€€€€€€€ˆˆ‰•Ñ Á½Í¥Ñ¥½¹Ì€¡™½È™ÕÑÕÉ•Ì½Á•ÉÀ¤ˆˆˆ4(€€€€€€€…Ý…¥ÐÍ•±˜¹}É…Ñ•}±¥µ¥Ñ•È¹…ÅÕ¥É”¡Í•±˜¹½¹™¥œ¹¥°Ý•¥¡ÐôÄ¤4(4(€€€€€€€ÑÉäè4(€€€€€€€€€€€Á½Í¥Ñ¥½¹Ì€ô…Ý…¥ÐÍ•±˜¹}µ…å‰•}…Ý…¥Ð¡Í•±˜¹•á¡…¹”¹™•Ñ¡}Á½Í¥Ñ¥½¹Ì 4(€€€€€€€€€€€€€€€mÍ•±˜¹}Õ¹¥™¥•‘}Ñ½}áÑ}Íåµ‰½°¡Íåµ‰½°¥t¥˜Íåµ‰½°•±Í”9½¹”4(€€€€€€€€€€€€¤¤4(€€€€€€€€€€€É•ÑÕÉ¸mÍ•±˜¹}Á…ÉÍ•}Á½Í¥Ñ¥½¸¡À¤™½ÈÀ¥¸Á½Í¥Ñ¥½¹Ì¥˜™±½…Ð¡À¹•Ð ½¹ÑÉ…ÑÌœ°€À¤¤€„ô€Át4(€€€€€€€•á•ÁÐá•ÁÑ¥½¸…Ì”è4(€€€€€€€€€€€±½•È¹•ÉÉ½È¡˜‰™•Ñ¡}Á½Í¥Ñ¥½¹Ì™…¥±•èí•ôˆ¤4(€€€€€€€€€€€É…¥Í”4(4(€€€€Œ€´´´A…ÉÍ¥¹œ¡•±Á•ÉÌ€´´´4(4(€€€‘•˜}Á…ÉÍ•}Ñ¥­•È¡Í•±˜°Ñ¥­•Èè‘¥Ð°Íåµ‰½°èMåµ‰½°¤€´øQ¥­•Èè(€€€€€€€Ñ¥µ•ÍÑ…µÁ}µÌ€ôÑ¥­•È¹•Ð Ñ¥µ•ÍÑ…µÀœ¤(€€€€€€€¥˜Ñ¥µ•ÍÑ…µÁ}µÌ¥Ì9½¹”è(€€€€€€€€€€€É…¥Í”Y…±Õ•ÉÉ½È¡˜‰Q¥­•È™½ÈíÍåµ‰½°¹Á…¥Éô¡…Ì¹¼Ñ¥µ•ÍÑ…µÀˆ¤(€€€€€€€É•ÑÕÉ¸Q¥­•È (€€€€€€€€€€€Íåµ‰½°õÍåµ‰½°°(€€€€€€€€€€€Ñ¥µ•ÍÑ…µÀõ‘…Ñ•Ñ¥µ”¹™É½µÑ¥µ•ÍÑ…µÀ¡Ñ¥µ•ÍÑ…µÁ}µÌ€¼€ÄÀÀÀ°ÑèõUQ¤°(€€€€€€€€€€€‰¥õÑ¥­•Él‰¥t°4(€€€€€€€€€€€…Í¬õÑ¥­•Él…Í¬t°4(€€€€€€€€€€€±…ÍÐõÑ¥­•Él±…ÍÐt°4(€€€€€€€€€€€¡¥ õÑ¥­•Él¡¥ t°4(€€€€€€€€€€€±½ÜõÑ¥­•Él±½Üt°4(€€€€€€€€€€€½Á•¸õÑ¥­•Él½Á•¸t°4(€€€€€€€€€€€±½Í”õÑ¥­•Él±½Í”t°4(€€€€€€€€€€€‰…Í•}Ù½±Õµ”õÑ¥­•Él‰…Í•Y½±Õµ”t°4(€€€€€€€€€€€ÅÕ½Ñ•}Ù½±Õµ”õÑ¥­•ÉlÅÕ½Ñ•Y½±Õµ”t°4(€€€€€€€€€€€¡…¹”õÑ¥­•Él¡…¹”t°4(€€€€€€€€€€€Á•É•¹Ñ…”õÑ¥­•ÉlÁ•É•¹Ñ…”t°4(€€€€€€€€¤4(4(€€€‘•˜}Á…ÉÍ•}½É‘•É}‰½½¬¡Í•±˜°½ˆè‘¥Ð°Íåµ‰½°èMåµ‰½°¤€´ø=É‘•É	½½¬è4(€€€€€€€É•ÑÕÉ¸=É‘•É	½½¬ 4(€€€€€€€€€€€Íåµ‰½°õÍåµ‰½°°4(€€€€€€€€€€€Ñ¥µ•ÍÑ…µÀõ‘…Ñ•Ñ¥µ”¹™É½µÑ¥µ•ÍÑ…µÀ¡½‰lÑ¥µ•ÍÑ…µÀt€¼€ÄÀÀÀ°ÑèõUQ¤¥˜½‰lÑ¥µ•ÍÑ…µÀt•±Í”‘…Ñ•Ñ¥µ”¹¹½Ü¡UQ¤°(€€€€€€€€€€€‰¥‘Ìõm=É‘•É	½½­1•Ù•°¡ÁÉ¥”õ™±½…Ð¡‰lÁt¤°Í¥é”õ™±½…Ð¡‰lÅt¤¤™½Èˆ¥¸½‰l‰¥‘Ìut°4(€€€€€€€€€€€…Í­Ìõm=É‘•É	½½­1•Ù•°¡ÁÉ¥”õ™±½…Ð¡…lÁt¤°Í¥é”õ™±½…Ð¡…lÅt¤¤™½È„¥¸½‰l…Í­Ìut°4(€€€€€€€€¤4(4(€€€‘•˜}Á…ÉÍ•}…¹‘±”¡Í•±˜°…¹‘±”è±¥ÍÐ°Íåµ‰½°èMåµ‰½°°Ñ¥µ•™É…µ”èÍÑÈ¤€´ø…¹‘±”è4(€€€€€€€É•ÑÕÉ¸…¹‘±” 4(€€€€€€€€€€€Íåµ‰½°õÍåµ‰½°°4(€€€€€€€€€€€Ñ¥µ•ÍÑ…µÀõ‘…Ñ•Ñ¥µ”¹™É½µÑ¥µ•ÍÑ…µÀ¡…¹‘±•lÁt€¼€ÄÀÀÀ°ÑèõUQ¤°(€€€€€€€€€€€Ñ¥µ•™É…µ”õÑ¥µ•™É…µ”°4(€€€€€€€€€€€½Á•¸õ…¹‘±•lÅt°4(€€€€€€€€€€€¡¥ õ…¹‘±•lÉt°4(€€€€€€€€€€€±½Üõ…¹‘±•lÍt°4(€€€€€€€€€€€±½Í”õ…¹‘±•lÑt°4(€€€€€€€€€€€Ù½±Õµ”õ…¹‘±•lÕt°4(€€€€€€€€¤4(4(€€€‘•˜}Á…ÉÍ•}‰…±…¹”¡Í•±˜°‰…±…¹”è‘¥Ð¤€´ø‘¥ÑmÍÍ•Ñ±…ÍÌ°	…±…¹•tè4(€€€€€€€É•ÍÕ±Ð€ôíô4(€€€€€€€™½ÈÕÉÉ•¹ä°…µ½Õ¹ÑÌ¥¸‰…±…¹”¹¥Ñ•µÌ ¤è4(€€€€€€€€€€€¥˜ÕÉÉ•¹ä¥¸€ ¥¹™¼œ°€™É•”œ°€ÕÍ•œ°€Ñ½Ñ…°œ°€Ñ¥µ•ÍÑ…µÀœ°€‘…Ñ•Ñ¥µ”œ¤è4(€€€€€€€€€€€€€€€½¹Ñ¥¹Õ”4(€€€€€€€€€€€¥˜¹½Ð¥Í¥¹ÍÑ…¹”¡…µ½Õ¹ÑÌ°‘¥Ð¤è4(€€€€€€€€€€€€€€€½¹Ñ¥¹Õ”4(€€€€€€€€€€€™É•”€ô™±½…Ð¡…µ½Õ¹ÑÌ¹•Ð ™É•”œ°€À¤¤4(€€€€€€€€€€€ÕÍ•€ô™±½…Ð¡…µ½Õ¹ÑÌ¹•Ð ÕÍ•œ°€À¤¤4(€€€€€€€€€€€Ñ½Ñ…°€ô™±½…Ð¡…µ½Õ¹ÑÌ¹•Ð Ñ½Ñ…°œ°€À¤¤4(€€€€€€€€€€€¥˜Ñ½Ñ…°€ø€Àè4(€€€€€€€€€€€€€€€€Œ•Ñ•Éµ¥¹”…ÍÍ•Ð±…ÍÌ™É½´ÕÉÉ•¹ä4(€€€€€€€€€€€€€€€…ÍÍ•Ñ}±…ÍÌ€ôÍÍ•Ñ±…ÍÌ¹IeAQ<¥˜ÕÉÉ•¹ä¹½Ð¥¸€ UMœ°€UHœ°€	@œ°€)Adœ¤•±Í”ÍÍ•Ñ±…ÍÌ¹=I`4(€€€€€€€€€€€€€€€¥˜…ÍÍ•Ñ}±…ÍÌ¹½Ð¥¸É•ÍÕ±Ðè4(€€€€€€€€€€€€€€€€€€€É•ÍÕ±Ñm…ÍÍ•Ñ}±…ÍÍt€ô	…±…¹”¡…ÍÍ•Ñ}±…ÍÌõ…ÍÍ•Ñ}±…ÍÌ¤4(€€€€€€€€€€€€€€€É•ÍÕ±Ñm…ÍÍ•Ñ}±…ÍÍt¹…ÍÍ•ÑÍmÕÉÉ•¹åt€ôì4(€€€€€€€€€€€€€€€€€€€€™É•”œè™É•”°€ÕÍ•œèÕÍ•°€Ñ½Ñ…°œèÑ½Ñ…°4(€€€€€€€€€€€€€€€ô4(€€€€€€€É•ÑÕÉ¸É•ÍÕ±Ð4(4(€€€ÍÑ…Ñ¥µ•Ñ¡½(€€€‘•˜}áÑ}½É‘•É}ÑåÁ”¡½É‘•Èè=É‘•È¤€´øÍÑÈè(€€€€€€€€ˆˆ‰5…À¥¹Ñ•É¹…°ÁÉ½Ñ•Ñ¥Ù”ÑåÁ•Ì½¹Ñ¼aP½¹‘¥Ñ¥½¹…°½É‘•ÉÌ¸ˆˆˆ((€€€€€€€¥˜½É‘•È¹ÑåÁ”€ôô=É‘•ÉQåÁ”¹MQ=@è(€€€€€€€€€€€É•ÑÕÉ¸€‰µ…É­•Ðˆ(€€€€€€€¥˜½É‘•È¹ÑåÁ”€ôô=É‘•ÉQåÁ”¹MQ=A}1%5%Pè(€€€€€€€€€€€É•ÑÕÉ¸€‰±¥µ¥Ðˆ(€€€€€€€É•ÑÕÉ¸½É‘•È¹ÑåÁ”¹Ù…±Õ”¹±½Ý•È ¤((€€€‘•˜}½É‘•É}Ñ½}áÑ}Á…É…µÌ¡Í•±˜°½É‘•Èè=É‘•È¤€´ø‘¥Ðè(€€€€€€€Á…É…µÌ€ôíô(€€€€€€€€Œ	¥¹…¹”£†î$£†ê•À¹£†êµ¸Ñ¥µ•%¹½É”¡¼±¥µ¥Ð½É‘•ÉÌìµ…É­•Ð½É‘•ÉÌ4(€€€€€€€€ŒÏ†êô‹†î,É•©•Ð€ ´ÄÄÀØ¤»†êýÔŸ†îµ¤¯¡´¸4(€€€€€€€¥˜½É‘•È¹Ñ¥µ•}¥¹}™½É”…¹½É‘•È¹ÑåÁ”¥¸í=É‘•ÉQåÁ”¹1%5%P°=É‘•ÉQåÁ”¹MQ=A}1%5%Qôè(€€€€€€€€€€€Á…É…µÍlÑ¥µ•%¹½É”t€ô½É‘•È¹Ñ¥µ•}¥¹}™½É”¹Ù…±Õ”(€€€€€€€¥˜½É‘•È¹ÑåÁ”¥¸í=É‘•ÉQåÁ”¹MQ=@°=É‘•ÉQåÁ”¹MQ=A}1%5%Qôè(€€€€€€€€€€€¥˜½É‘•È¹ÍÑ½Á}ÁÉ¥”¥Ì9½¹”½È½É‘•È¹ÍÑ½Á}ÁÉ¥”€ðô€Àè(€€€€€€€€€€€€€€€É…¥Í”%¹Ù…±¥‘=É‘•È ‰ÁÉ½Ñ•Ñ¥Ù”ÍÑ½À½É‘•ÉÌÉ•ÅÕ¥É”„Á½Í¥Ñ¥Ù”ÍÑ½ÀÁÉ¥”ˆ¤(€€€€€€€€€€€¥˜½É‘•È¹ÑåÁ”€ôô=É‘•ÉQåÁ”¹MQ=A}1%5%P…¹€ (€€€€€€€€€€€€€€€½É‘•È¹ÁÉ¥”¥Ì9½¹”½È½É‘•È¹ÁÉ¥”€ðô€À(€€€€€€€€€€€€¤è(€€€€€€€€€€€€€€€É…¥Í”%¹Ù…±¥‘=É‘•È ‰ÍÑ½Àµ±¥µ¥Ð½É‘•ÉÌÉ•ÅÕ¥É”„Á½Í¥Ñ¥Ù”±¥µ¥ÐÁÉ¥”ˆ¤(€€€€€€€€€€€Á…É…µÍlÍÑ½Á1½ÍÍAÉ¥”t€ô™±½…Ð¡½É‘•È¹ÍÑ½Á}ÁÉ¥”¤(€€€€€€€¥˜½É‘•È¹É•‘Õ•}½¹±äè4(€€€€€€€€€€€Á…É…µÍlÉ•‘Õ•=¹±ät€ôQÉÕ”4(€€€€€€€¥˜½É‘•È¹Á½ÍÑ}½¹±äè4(€€€€€€€€€€€Á…É…µÍlÁ½ÍÑ=¹±ät€ôQÉÕ”4(€€€€€€€¥˜½É‘•È¹±¥•¹Ñ}½É‘•É}¥è4(€€€€€€€€€€€Á…É…µÍl±¥•¹Ñ=É‘•É%t€ô½É‘•È¹±¥•¹Ñ}½É‘•É}¥4(€€€€€€€É•ÑÕÉ¸Á…É…µÌ4(4(€€€‘•˜}Á…ÉÍ•}½É‘•È¡Í•±˜°½É‘•Èè‘¥Ð°Íåµ‰½°èMåµ‰½°¤€´ø=É‘•Èè4(€€€€€€€ÍÑ…ÑÕÍ}µ…À€ôì4(€€€€€€€€€€€€½Á•¸œè=É‘•ÉMÑ…ÑÕÌ¹=A8°4(€€€€€€€€€€€€±½Í•œè=É‘•ÉMÑ…ÑÕÌ¹%11°4(€€€€€€€€€€€€…¹•±•œè=É‘•ÉMÑ…ÑÕÌ¹911°4(€€€€€€€€€€€€É•©•Ñ•œè=É‘•ÉMÑ…ÑÕÌ¹I)Q°4(€€€€€€€€€€€€•áÁ¥É•œè=É‘•ÉMÑ…ÑÕÌ¹aA%I°4(€€€€€€€ô4(€€€€€€€™¥±±•‘}Í¥é”€ô•¥µ…°¡ÍÑÈ¡½É‘•È¹•Ð ™¥±±•œ¤½È€À¤¤(€€€€€€€Á…ÉÍ•‘}ÍÑ…ÑÕÌ€ôÍÑ…ÑÕÍ}µ…À¹•Ð¡½É‘•ÉlÍÑ…ÑÕÌt°=É‘•ÉMÑ…ÑÕÌ¹=A8¤(€€€€€€€¥˜Á…ÉÍ•‘}ÍÑ…ÑÕÌ€ôô=É‘•ÉMÑ…ÑÕÌ¹=A8…¹™¥±±•‘}Í¥é”€ø€Àè(€€€€€€€€€€€Á…ÉÍ•‘}ÍÑ…ÑÕÌ€ô=É‘•ÉMÑ…ÑÕÌ¹AIQ%0(€€€€€€€É…Ý}ÑåÁ”€ôÍÑÈ¡½É‘•ÉlÑåÁ”t¤¹±½Ý•È ¤(€€€€€€€Á…ÉÍ•‘}ÑåÁ”€ôì(€€€€€€€€€€€€ÍÑ½Àœè=É‘•ÉQåÁ”¹MQ=@°(€€€€€€€€€€€€ÍÑ½Á}±½ÍÌœè=É‘•ÉQåÁ”¹MQ=@°(€€€€€€€€€€€€ÍÑ½Á}µ…É­•Ðœè=É‘•ÉQåÁ”¹MQ=@°(€€€€€€€€€€€€ÍÑ½Á}±¥µ¥Ðœè=É‘•ÉQåÁ”¹MQ=A}1%5%P°(€€€€€€€€€€€€ÍÑ½Á}±½ÍÍ}±¥µ¥Ðœè=É‘•ÉQåÁ”¹MQ=A}1%5%P°(€€€€€€€ô¹•Ð¡É…Ý}ÑåÁ”¤(€€€€€€€¥˜Á…ÉÍ•‘}ÑåÁ”¥Ì9½¹”è(€€€€€€€€€€€Á…ÉÍ•‘}ÑåÁ”€ô=É‘•ÉQåÁ”¡É…Ý}ÑåÁ”¤(€€€€€€€ÍÑ½Á}ÁÉ¥”€ô½É‘•È¹•Ð ÍÑ½ÁAÉ¥”œ¤(€€€€€€€¥˜ÍÑ½Á}ÁÉ¥”¥Ì9½¹”è(€€€€€€€€€€€ÍÑ½Á}ÁÉ¥”€ô½É‘•È¹•Ð ÑÉ¥•ÉAÉ¥”œ¤(€€€€€€€É•ÑÕÉ¸=É‘•È (€€€€€€€€€€€¥õ½É‘•Él¥t°(€€€€€€€€€€€±¥•¹Ñ}½É‘•É}¥õ½É‘•È¹•Ð ±¥•¹Ñ=É‘•É%œ¤°(€€€€€€€€€€€Íåµ‰½°õÍåµ‰½°°(€€€€€€€€€€€Í¥‘”õ=É‘•ÉM¥‘”¡ÍÑÈ¡½É‘•ÉlÍ¥‘”t¤¹±½Ý•È ¤¤°(€€€€€€€€€€€ÑåÁ”õÁ…ÉÍ•‘}ÑåÁ”°(€€€€€€€€€€€ÍÑ…ÑÕÌõÁ…ÉÍ•‘}ÍÑ…ÑÕÌ°(€€€€€€€€€€€Í¥é”õ•¥µ…°¡ÍÑÈ¡½É‘•È¹•Ð …µ½Õ¹Ðœ¤½È€À¤¤°(€€€€€€€€€€€™¥±±•‘}Í¥é”õ™¥±±•‘}Í¥é”°(€€€€€€€€€€€…Ù}™¥±±}ÁÉ¥”õ•¥µ…°¡ÍÑÈ¡½É‘•È¹•Ð …Ù•É…”œ¤½È€À¤¤°(€€€€€€€€€€€ÁÉ¥”õ•¥µ…°¡ÍÑÈ¡½É‘•ÉlÁÉ¥”t¤¤¥˜½É‘•È¹•Ð ÁÉ¥”œ¤¥Ì¹½Ð9½¹”•±Í”9½¹”°(€€€€€€€€€€€ÍÑ½Á}ÁÉ¥”õ•¥µ…°¡ÍÑÈ¡ÍÑ½Á}ÁÉ¥”¤¤¥˜ÍÑ½Á}ÁÉ¥”¥Ì¹½Ð9½¹”•±Í”9½¹”°(€€€€€€€€€€€™•”õ•¥µ…°¡ÍÑÈ¡½É‘•Él™•”ul½ÍÐt¤¤¥˜½É‘•È¹•Ð ™•”œ¤•±Í”•¥µ…° À¤°(€€€€€€€€€€€Ñ¥µ•}¥¹}™½É”õQ¥µ•%¹½É”¡ÍÑÈ¡½É‘•ÉlÑ¥µ•%¹½É”t¤¹±½Ý•È ¤¤¥˜½É‘•È¹•Ð Ñ¥µ•%¹½É”œ¤•±Í”Q¥µ•%¹½É”¹Q°4(€€€€€€€€€€€É•‘Õ•}½¹±äõ½É‘•È¹•Ð É•‘Õ•=¹±äœ°…±Í”¤°4(€€€€€€€€€€€Á½ÍÑ}½¹±äõ½É‘•È¹•Ð Á½ÍÑ=¹±äœ°…±Í”¤°4(€€€€€€€€€€€É•…Ñ•‘}…Ðõ‘…Ñ•Ñ¥µ”¹™É½µÑ¥µ•ÍÑ…µÀ¡½É‘•ÉlÑ¥µ•ÍÑ…µÀt€¼€ÄÀÀÀ°ÑèõUQ¤¥˜½É‘•È¹•Ð Ñ¥µ•ÍÑ…µÀœ¤•±Í”‘…Ñ•Ñ¥µ”¹¹½Ü¡UQ¤°(€€€€€€€€€€€ÕÁ‘…Ñ•‘}…Ðõ‘…Ñ•Ñ¥µ”¹™É½µÑ¥µ•ÍÑ…µÀ¡½É‘•Él±…ÍÑQÉ…‘•Q¥µ•ÍÑ…µÀt€¼€ÄÀÀÀ°ÑèõUQ¤¥˜½É‘•È¹•Ð ±…ÍÑQÉ…‘•Q¥µ•ÍÑ…µÀœ¤•±Í”9½¹”°(€€€€€€€€¤4(4(€€€‘•˜}Á…ÉÍ•}Á½Í¥Ñ¥½¸¡Í•±˜°Á½Ìè‘¥Ð¤€´øA½Í¥Ñ¥½¸è4(€€€€€€€Íåµ‰½°€ôÍ•±˜¹•Ñ}Õ¹¥™¥•‘}Íåµ‰½°¡Á½ÍlÍåµ‰½°t¤4(€€€€€€€É•ÑÕÉ¸A½Í¥Ñ¥½¸ 4(€€€€€€€€€€€Íåµ‰½°õÍåµ‰½°°4(€€€€€€€€€€€Í¥é”õ•¥µ…°¡ÍÑÈ¡Á½Íl½¹ÑÉ…ÑÌt¤¤°4(€€€€€€€€€€€•¹ÑÉå}ÁÉ¥”õ•¥µ…°¡ÍÑÈ¡Á½Íl•¹ÑÉåAÉ¥”t¤¤°4(€€€€€€€€€€€µ…É­}ÁÉ¥”õ•¥µ…°¡ÍÑÈ¡Á½Ílµ…É­AÉ¥”t¤¤°4(€€€€€€€€€€€Õ¹É•…±¥é•‘}Á¹°õ•¥µ…°¡ÍÑÈ¡Á½Ì¹•Ð Õ¹É•…±¥é•‘A¹°œ°€À¤¤¤°4(€€€€€€€€€€€É•…±¥é•‘}Á¹°õ•¥µ…°¡ÍÑÈ¡Á½Ì¹•Ð É•…±¥é•‘A¹°œ°€À¤¤¤°4(€€€€€€€€€€€±•Ù•É…”õ•¥µ…°¡ÍÑÈ¡Á½Íl±•Ù•É…”t¤¤¥˜Á½Ì¹•Ð ±•Ù•É…”œ¤•±Í”•¥µ…° Ä¤°4(€€€€€€€€€€€±¥ÅÕ¥‘…Ñ¥½¹}ÁÉ¥”õ•¥µ…°¡ÍÑÈ¡Á½Íl±¥ÅÕ¥‘…Ñ¥½¹AÉ¥”t¤¤¥˜Á½Ì¹•Ð ±¥ÅÕ¥‘…Ñ¥½¹AÉ¥”œ¤•±Í”9½¹”°4(€€€€€€€€€€€ÕÁ‘…Ñ•‘}…Ðõ‘…Ñ•Ñ¥µ”¹™É½µÑ¥µ•ÍÑ…µÀ¡Á½ÍlÑ¥µ•ÍÑ…µÀt€¼€ÄÀÀÀ°ÑèõUQ¤¥˜Á½Ì¹•Ð Ñ¥µ•ÍÑ…µÀœ¤•±Í”‘…Ñ•Ñ¥µ”¹¹½Ü¡UQ¤°(€€€€€€€€¤4(4(€€€‘•˜•Ñ}ÍÑ…ÑÕÌ¡Í•±˜¤€´øá¡…¹•MÑ…ÑÕÌè4(€€€€€€€É•ÑÕÉ¸Í•±˜¹}ÍÑ…ÑÕÌ4(4(€€€‘•˜¥Í}¡•…±Ñ¡ä¡Í•±˜¤€´ø‰½½°è4(€€€€€€€É•ÑÕÉ¸Í•±˜¹}ÍÑ…ÑÕÌ€ôôá¡…¹•MÑ…ÑÕÌ¹!1Q!d…¹Í•±˜¹}½¹¹•Ñ•4(4(4)±…ÍÌ5Õ±Ñ¥á¡…¹•5…¹…•Èè4(€€€€ˆˆ‰5…¹…•ÌµÕ±Ñ¥Á±”•á¡…¹”½¹¹•Ñ¥½¹Ìˆˆˆ4(4(€€€‘•˜}}¥¹¥Ñ}|¡Í•±˜¤è4(€€€€€€€Í•±˜¹•á¡…¹•Ìè‘¥ÑmÍÑÈ°aQ‘…ÁÑ•Ét€ôíô4(€€€€€€€Í•±˜¹}ÁÉ¥µ…Éå}•á¡…¹”èÍÑÈð9½¹”€ô9½¹”4(4(€€€‘•˜…‘‘}•á¡…¹”¡Í•±˜°½¹™¥œèá¡…¹•½¹™¥œ¤€´øaQ‘…ÁÑ•Èè4(€€€€€€€€ˆˆ‰‘…¸•á¡…¹”Ñ¼Ñ¡”µ…¹…•Èˆˆˆ4(€€€€€€€…‘…ÁÑ•È€ôaQ‘…ÁÑ•È¡½¹™¥œ¤4(€€€€€€€Í•±˜¹•á¡…¹•Ím½¹™¥œ¹¥‘t€ô…‘…ÁÑ•È4(€€€€€€€¥˜Í•±˜¹}ÁÉ¥µ…Éå}•á¡…¹”¥Ì9½¹”è4(€€€€€€€€€€€Í•±˜¹}ÁÉ¥µ…Éå}•á¡…¹”€ô½¹™¥œ¹¥4(€€€€€€€É•ÑÕÉ¸…‘…ÁÑ•È4(4(€€€‘•˜•Ñ}•á¡…¹”¡Í•±˜°•á¡…¹•}¥èÍÑÈ¤€´øaQ‘…ÁÑ•Èð9½¹”è4(€€€€€€€É•ÑÕÉ¸Í•±˜¹•á¡…¹•Ì¹•Ð¡•á¡…¹•}¥¤4(4(€€€‘•˜•Ñ}ÁÉ¥µ…Éä¡Í•±˜¤€´øaQ‘…ÁÑ•Èð9½¹”è4(€€€€€€€É•ÑÕÉ¸Í•±˜¹•á¡…¹•Ì¹•Ð¡Í•±˜¹}ÁÉ¥µ…Éå}•á¡…¹”¤¥˜Í•±˜¹}ÁÉ¥µ…Éå}•á¡…¹”•±Í”9½¹”4(4(€€€‘•˜Í•Ñ}ÁÉ¥µ…Éä¡Í•±˜°•á¡…¹•}¥èÍÑÈ¤€´ø9½¹”è4(€€€€€€€¥˜•á¡…¹•}¥¥¸Í•±˜¹•á¡…¹•Ìè4(€€€€€€€€€€€Í•±˜¹}ÁÉ¥µ…Éå}•á¡…¹”€ô•á¡…¹•}¥4(4(€€€…Íå¹Œ‘•˜½¹¹•Ñ}…±°¡Í•±˜¤€´ø‘¥ÑmÍÑÈ°‰½½±tè4(€€€€€€€€ˆˆ‰½¹¹•ÐÑ¼…±°•¹…‰±••á¡…¹•Ìˆˆˆ4(€€€€€€€É•ÍÕ±ÑÌ€ôíô4(€€€€€€€™½È•á¡…¹•}¥°…‘…ÁÑ•È¥¸Í•±˜¹•á¡…¹•Ì¹¥Ñ•µÌ ¤è4(€€€€€€€€€€€¥˜¹½Ð…‘…ÁÑ•È¹½¹™¥œ¹•¹…‰±•è4(€€€€€€€€€€€€€€€É•ÍÕ±ÑÍm•á¡…¹•}¥‘t€ô…±Í”4(€€€€€€€€€€€€€€€½¹Ñ¥¹Õ”4(€€€€€€€€€€€ÑÉäè4(€€€€€€€€€€€€€€€…Ý…¥Ð…‘…ÁÑ•È¹½¹¹•Ð ¤4(€€€€€€€€€€€€€€€É•ÍÕ±ÑÍm•á¡…¹•}¥‘t€ôQÉÕ”4(€€€€€€€€€€€•á•ÁÐá•ÁÑ¥½¸…Ì”è4(€€€€€€€€€€€€€€€±½•È¹•ÉÉ½È¡˜‰…¥±•Ñ¼½¹¹•ÐÑ¼í•á¡…¹•}¥‘ôèí•ôˆ¤4(€€€€€€€€€€€€€€€É•ÍÕ±ÑÍm•á¡…¹•}¥‘t€ô…±Í”4(€€€€€€€É•ÑÕÉ¸É•ÍÕ±ÑÌ4(4(€€€…Íå¹Œ‘•˜‘¥Í½¹¹•Ñ}…±°¡Í•±˜¤€´ø9½¹”è4(€€€€€€€™½È…‘…ÁÑ•È¥¸Í•±˜¹•á¡…¹•Ì¹Ù…±Õ•Ì ¤è4(€€€€€€€€€€€…Ý…¥Ð…‘…ÁÑ•È¹‘¥Í½¹¹•Ð ¤4(4(€€€‘•˜•Ñ}¡•…±Ñ¡å}•á¡…¹•Ì¡Í•±˜¤€´ø±¥ÍÑmaQ‘…ÁÑ•Étè4(€€€€€€€É•ÑÕÉ¸m•à™½È•à¥¸Í•±˜¹•á¡…¹•Ì¹Ù…±Õ•Ì ¤¥˜•à¹¥Í}¡•…±Ñ¡ä ¥t4(4(€€€…Íå¹Œ‘•˜™•Ñ¡}Ñ¥­•É}…±°¡Í•±˜°Íåµ‰½°èMåµ‰½°¤€´ø‘¥ÑmÍÑÈ°Q¥­•Étè4(€€€€€€€€ˆˆ‰•Ñ Ñ¥­•È™É½´…±°¡•…±Ñ¡ä•á¡…¹•Ìˆˆˆ4(€€€€€€€É•ÍÕ±ÑÌ€ôíô4(€€€€€€€™½È•á¡…¹•}¥°…‘…ÁÑ•È¥¸Í•±˜¹•á¡…¹•Ì¹¥Ñ•µÌ ¤è4(€€€€€€€€€€€¥˜¹½Ð…‘…ÁÑ•È¹¥Í}¡•…±Ñ¡ä ¤è4(€€€€€€€€€€€€€€€½¹Ñ¥¹Õ”4(€€€€€€€€€€€ÑÉäè4(€€€€€€€€€€€€€€€Ñ¥­•È€ô…Ý…¥Ð…‘…ÁÑ•È¹™•Ñ¡}Ñ¥­•È¡Íåµ‰½°¤4(€€€€€€€€€€€€€€€É•ÍÕ±ÑÍm•á¡…¹•}¥‘t€ôÑ¥­•È4(€€€€€€€€€€€•á•ÁÐá•ÁÑ¥½¸…Ì”è4(€€€€€€€€€€€€€€€±½•È¹‘•‰Õœ¡˜‰™•Ñ¡}Ñ¥­•È™…¥±•½¸í•á¡…¹•}¥‘ôèí•ôˆ¤4(€€€€€€€É•ÑÕÉ¸É•ÍÕ±ÑÌ4(4(€€€…Íå¹Œ‘•˜™•Ñ¡}‰•ÍÑ}‰¥‘}…Í¬¡Í•±˜°Íåµ‰½°èMåµ‰½°¤€´øÑÕÁ±•mQ¥­•Èð9½¹”°Q¥­•Èð9½¹•tè4(€€€€€€€€ˆˆ‰•Ð‰•ÍÐ‰¥½…Í¬…É½ÍÌ…±°•á¡…¹•Ìˆˆˆ4(€€€€€€€Ñ¥­•ÉÌ€ô…Ý…¥ÐÍ•±˜¹™•Ñ¡}Ñ¥­•É}…±°¡Íåµ‰½°¤4(€€€€€€€¥˜¹½ÐÑ¥­•ÉÌè4(€€€€€€€€€€€É•ÑÕÉ¸9½¹”°9½¹”4(4(€€€€€€€‰•ÍÑ}‰¥€ôµ…à¡Ñ¥­•ÉÌ¹Ù…±Õ•Ì ¤°­•äõ±…µ‰‘„ÐèÐ¹‰¥½È€À¤4(€€€€€€€‰•ÍÑ}…Í¬€ôµ¥¸¡Ñ¥­•ÉÌ¹Ù…±Õ•Ì ¤°­•äõ±…µ‰‘„ÐèÐ¹…Í¬½È™±½…Ð ¥¹˜œ¤¤4(€€€€€€€É•ÑÕÉ¸‰•ÍÑ}‰¥°‰•ÍÑ}…Í¬4(4(4(Œ€´´´AÉ•‘•™¥¹••á¡…¹”½¹™¥Ì€´´´4(4)‘•˜•Ñ}‘•™…Õ±Ñ}•á¡…¹•}½¹™¥Ì ¤€´ø±¥ÍÑmá¡…¹•½¹™¥tè4(€€€€ˆˆ‰•Ð‘•™…Õ±Ð½¹™¥ÕÉ…Ñ¥½¹Ì™½Èµ…©½È•á¡…¹•Ìˆˆˆ4(€€€É•ÑÕÉ¸l4(€€€€€€€á¡…¹•½¹™¥œ 4(€€€€€€€€€€€¥ô‰¥¹…¹”œ°4(€€€€€€€€€€€¹…µ”ô	¥¹…¹”œ°4(€€€€€€€€€€€Í…¹‘‰½àõ…±Í”°4(€€€€€€€€€€€É…Ñ•}±¥µ¥ÐôÄÈÀÀ°4(€€€€€€€€€€€µ…É­•ÑÌõm5…É­•ÑQåÁ”¹MA=P°5…É­•ÑQåÁ”¹UQUIL°5…É­•ÑQåÁ”¹AIAQU1t°4(€€€€€€€€€€€½ÁÑ¥½¹Ìõì‘•™…Õ±ÑQåÁ”œè€ÍÁ½Ðô°4(€€€€€€€€¤°4(€€€€€€€á¡…¹•½¹™¥œ 4(€€€€€€€€€€€¥ô‰å‰¥Ðœ°4(€€€€€€€€€€€¹…µ”ô	å‰¥Ðœ°4(€€€€€€€€€€€Í…¹‘‰½àõ…±Í”°4(€€€€€€€€€€€É…Ñ•}±¥µ¥ÐôÄÀÀÀ°4(€€€€€€€€€€€µ…É­•ÑÌõm5…É­•ÑQåÁ”¹MA=P°5…É­•ÑQåÁ”¹UQUIL°5…É­•ÑQåÁ”¹AIAQU1t°4(€€€€€€€€€€€½ÁÑ¥½¹Ìõì‘•™…Õ±ÑQåÁ”œè€ÍÁ½Ðô°4(€€€€€€€€¤°4(€€€€€€€á¡…¹•½¹™¥œ 4(€€€€€€€€€€€¥ô½­àœ°4(€€€€€€€€€€€¹…µ”ô=-`œ°4(€€€€€€€€€€€Í…¹‘‰½àõ…±Í”°4(€€€€€€€€€€€É…Ñ•}±¥µ¥ÐôÄÀÀÀ°4(€€€€€€€€€€€µ…É­•ÑÌõm5…É­•ÑQåÁ”¹MA=P°5…É­•ÑQåÁ”¹UQUIL°5…É­•ÑQåÁ”¹AIAQU0°5…É­•ÑQåÁ”¹=AQ%=9Mt°4(€€€€€€€€€€€½ÁÑ¥½¹Ìõì‘•™…Õ±ÑQåÁ”œè€ÍÁ½Ðô°4(€€€€€€€€¤°4(€€€€€€€á¡…¹•½¹™¥œ 4(€€€€€€€€€€€¥ô½¥¹‰…Í”œ°4(€€€€€€€€€€€¹…µ”ô½¥¹‰…Í”œ°4(€€€€€€€€€€€Í…¹‘‰½àõ…±Í”°4(€€€€€€€€€€€É…Ñ•}±¥µ¥ÐôÄÀÀÀ°4(€€€€€€€€€€€µ…É­•ÑÌõm5…É­•ÑQåÁ”¹MA=Qt°4(€€€€€€€€¤°4(€€€€€€€á¡…¹•½¹™¥œ 4(€€€€€€€€€€€¥ô­É…­•¸œ°4(€€€€€€€€€€€¹…µ”ô-É…­•¸œ°4(€€€€€€€€€€€Í…¹‘‰½àõ…±Í”°4(€€€€€€€€€€€É…Ñ•}±¥µ¥ÐôÄÀÀÀ°4(€€€€€€€€€€€µ…É­•ÑÌõm5…É­•ÑQåÁ”¹MA=P°5…É­•ÑQåÁ”¹UQUIMt°4(€€€€€€€€¤°4(€€€€€€€á¡…¹•½¹™¥œ 4(€€€€€€€€€€€¥ô…Ñ•¥¼œ°4(€€€€€€€€€€€¹…µ”ô…Ñ”¹¥¼œ°4(€€€€€€€€€€€Í…¹‘‰½àõ…±Í”°4(€€€€€€€€€€€É…Ñ•}±¥µ¥ÐôÄÀÀÀ°4(€€€€€€€€€€€µ…É­•ÑÌõm5…É­•ÑQåÁ”¹MA=P°5…É­•ÑQåÁ”¹UQUIL°5…É­•ÑQåÁ”¹AIAQU1t°4(€€€€€€€€¤°4(€€€€€€€á¡…¹•½¹™¥œ 4(€€€€€€€€€€€¥ô­Õ½¥¸œ°4(€€€€€€€€€€€¹…µ”ô-Õ½¥¸œ°4(€€€€€€€€€€€Í…¹‘‰½àõ…±Í”°4(€€€€€€€€€€€É…Ñ•}±¥µ¥ÐôÄÀÀÀ°4(€€€€€€€€€€€µ…É­•ÑÌõm5…É­•ÑQåÁ”¹MA=P°5…É­•ÑQåÁ”¹UQUIL°5…É­•ÑQåÁ”¹AIAQU1t°4(€€€€€€€€¤°4(€€€€€€€á¡…¹•½¹™¥œ 4(€€€€€€€€€€€¥ô¡Ñàœ°4(€€€€€€€€€€€¹…µ”ô!Q`€¡!Õ½‰¤¤œ°4(€€€€€€€€€€€Í…¹‘‰½àõ…±Í”°4(€€€€€€€€€€€É…Ñ•}±¥µ¥ÐôÄÀÀÀ°4(€€€€€€€€€€€µ…É­•ÑÌõm5…É­•ÑQåÁ”¹MA=P°5…É­•ÑQåÁ”¹UQUIL°5…É­•ÑQåÁ”¹AIAQU1t°4(€€€€€€€€¤°4(€€€t4(4(4)…Íå¹Œ‘•˜É•…Ñ•}µÕ±Ñ¥}•á¡…¹•}µ…¹…•È¡½¹™¥Ìè±¥ÍÑmá¡…¹•½¹™¥tð9½¹”€ô9½¹”¤€´ø5Õ±Ñ¥á¡…¹•5…¹…•Èè4(€€€€ˆˆ‰É•…Ñ”…¹½¹¹•ÐµÕ±Ñ¤µ•á¡…¹”µ…¹…•Èˆˆˆ4(€€€µ…¹…•È€ô5Õ±Ñ¥á¡…¹•5…¹…•È ¤4(4(€€€¥˜½¹™¥Ì¥Ì9½¹”è4(€€€€€€€½¹™¥Ì€ô•Ñ}‘•™…Õ±Ñ}•á¡…¹•}½¹™¥Ì ¤4(4(€€€™½È½¹™¥œ¥¸½¹™¥Ìè4(€€€€€€€µ…¹…•È¹…‘‘}•á¡…¹”¡½¹™¥œ¤4(4(€€€…Ý…¥Ðµ…¹…•È¹½¹¹•Ñ}…±° ¤4(€€€É•ÑÕÉ¸µ…¹…•È
+            if maximum_cost is not None and cost > Decimal(str(maximum_cost)):
+                raise InvalidOrder(f"order notional exceeds market maximum for {ex_symbol}")
+        return normalized
+
+    # --- Market Data ---
+
+    @staticmethod
+    async def _maybe_await(result: object):
+        """ccxt (sync) returns plain values; ccxt.pro returns coroutines."""
+        if asyncio.iscoroutine(result):
+            return await result
+        return result
+
+    async def fetch_ticker(self, symbol: Symbol) -> Ticker:
+        """Fetch ticker for a symbol"""
+        ex_symbol = self._unified_to_ccxt_symbol(symbol)
+        await self._rate_limiter.acquire(self.config.id, weight=1)
+
+        try:
+            ticker = await self._maybe_await(self.exchange.fetch_ticker(ex_symbol))
+            return self._parse_ticker(ticker, symbol)
+        except Exception as e:
+            logger.error(f"fetch_ticker failed for {symbol}: {e}")
+            raise
+
+    async def fetch_order_book(self, symbol: Symbol, limit: int = 100) -> OrderBook:
+        """Fetch order book"""
+        ex_symbol = self._unified_to_ccxt_symbol(symbol)
+        await self._rate_limiter.acquire(self.config.id, weight=1)
+
+        try:
+            ob = await self._maybe_await(self.exchange.fetch_order_book(ex_symbol, limit))
+            return self._parse_order_book(ob, symbol)
+        except Exception as e:
+            logger.error(f"fetch_order_book failed for {symbol}: {e}")
+            raise
+
+    async def fetch_ohlcv(self, symbol: Symbol, timeframe: str,
+                          since: int | None = None, limit: int = 100) -> list[Candle]:
+        """Fetch OHLCV candles"""
+        ex_symbol = self.get_exchange_symbol(symbol)
+        await self._rate_limiter.acquire(self.config.id, weight=1)
+
+        try:
+            ohlcv = await self._maybe_await(self.exchange.fetch_ohlcv(ex_symbol, timeframe, since, limit))
+            return [self._parse_candle(c, symbol, timeframe) for c in ohlcv]
+        except Exception as e:
+            logger.error(f"fetch_ohlcv failed for {symbol}: {e}")
+            raise
+
+    # --- Account ---
+
+    async def fetch_balance(self) -> dict[AssetClass, Balance]:
+        """Fetch account balances"""
+        await self._rate_limiter.acquire(self.config.id, weight=1)
+
+        try:
+            balance = await self._maybe_await(self.exchange.fetch_balance())
+            return self._parse_balance(balance)
+        except Exception as e:
+            logger.error(f"fetch_balance failed: {e}")
+            raise
+
+    # --- Trading ---
+
+    async def create_order(self, order: Order) -> Order:
+        """Create a new order"""
+        ex_symbol = self.get_exchange_symbol(order.symbol)
+        await self._rate_limiter.acquire(self.config.id, weight=1)
+
+        try:
+            # Convert order to CCXT params
+            params = self._order_to_ccxt_params(order)
+            result = await self._maybe_await(self.exchange.create_order(
+                ex_symbol,
+                self._ccxt_order_type(order),
+                order.side.value.lower(),
+                float(order.size),
+                float(order.price) if order.price else None,
+                params
+            ))
+            return self._parse_order(result, order.symbol)
+        except InsufficientFunds:
+            logger.error(f"Insufficient funds for order {order}")
+            raise
+        except InvalidOrder as e:
+            logger.error(f"Invalid order {order}: {e}")
+            raise
+        except Exception as e:
+            logger.error(f"create_order failed: {e}")
+            raise
+
+    async def replace_order(self, order_id: str, order: Order) -> Order:
+        """Cancel-replace a Binance Spot order through CCXT's edit API.
+
+        The caller must reconcile both client order IDs after a timeout because
+        cancellation can succeed while placement of the replacement fails.
+        """
+
+        ex_symbol = self.get_exchange_symbol(order.symbol)
+        await self._rate_limiter.acquire(self.config.id, weight=1)
+        try:
+            result = await self._maybe_await(self.exchange.edit_order(
+                order_id,
+                ex_symbol,
+                self._ccxt_order_type(order),
+                order.side.value.lower(),
+                float(order.size),
+                float(order.price) if order.price else None,
+                self._order_to_ccxt_params(order),
+            ))
+            return self._parse_order(result, order.symbol)
+        except Exception as exc:
+            logger.error(f"replace_order failed: {exc}")
+            raise
+
+    async def cancel_order(self, order_id: str, symbol: Symbol) -> bool:
+        """Cancel an order"""
+        ex_symbol = self._unified_to_ccxt_symbol(symbol)
+        await self._rate_limiter.acquire(self.config.id, weight=1)
+
+        try:
+            await self._maybe_await(self.exchange.cancel_order(order_id, ex_symbol))
+            return True
+        except Exception as e:
+            logger.error(f"cancel_order failed: {e}")
+            return False
+
+    async def fetch_order(self, order_id: str, symbol: Symbol) -> Order:
+        """Fetch order status"""
+        ex_symbol = self._unified_to_ccxt_symbol(symbol)
+        await self._rate_limiter.acquire(self.config.id, weight=1)
+
+        try:
+            order = await self._maybe_await(self.exchange.fetch_order(order_id, ex_symbol))
+            return self._parse_order(order, symbol)
+        except Exception as e:
+            logger.error(f"fetch_order failed: {e}")
+            raise
+
+    async def fetch_order_by_client_id(
+        self,
+        client_order_id: str,
+        symbol: Symbol,
+    ) -> Order | None:
+        """Fetch a Binance-style order by the deterministic client order ID."""
+
+        ex_symbol = self._unified_to_ccxt_symbol(symbol)
+        await self._rate_limiter.acquire(self.config.id, weight=1)
+        try:
+            order = await self._maybe_await(self.exchange.fetch_order(
+                None,
+                ex_symbol,
+                {"origClientOrderId": client_order_id},
+            ))
+            return self._parse_order(order, symbol)
+        except Exception as exc:
+            if ccxt is not None and isinstance(exc, ccxt.OrderNotFound):
+                return None
+            logger.error(f"fetch_order_by_client_id failed: {exc}")
+            raise
+
+    async def fetch_open_orders(self, symbol: Symbol | None = None) -> list[Order]:
+        """Fetch all open orders"""
+        ex_symbol = self._unified_to_ccxt_symbol(symbol) if symbol else None
+        await self._rate_limiter.acquire(self.config.id, weight=1)
+
+        try:
+            orders = await self._maybe_await(self.exchange.fetch_open_orders(ex_symbol))
+            return [self._parse_order(o, self._ccxt_to_unified_symbol(o['symbol'])) for o in orders]
+        except Exception as e:
+            logger.error(f"fetch_open_orders failed: {e}")
+            raise
+
+    async def fetch_positions(self, symbol: Symbol | None = None) -> list[Position]:
+        """Fetch positions (for futures/perp)"""
+        await self._rate_limiter.acquire(self.config.id, weight=1)
+
+        try:
+            positions = await self._maybe_await(self.exchange.fetch_positions(
+                [self._unified_to_ccxt_symbol(symbol)] if symbol else None
+            ))
+            return [self._parse_position(p) for p in positions if float(p.get('contracts', 0)) != 0]
+        except Exception as e:
+            logger.error(f"fetch_positions failed: {e}")
+            raise
+
+    # --- Parsing helpers ---
+
+    def _parse_ticker(self, ticker: dict, symbol: Symbol) -> Ticker:
+        timestamp_ms = ticker.get('timestamp')
+        if timestamp_ms is None:
+            raise ValueError(f"Ticker for {symbol.pair} has no timestamp")
+        return Ticker(
+            symbol=symbol,
+            timestamp=datetime.fromtimestamp(timestamp_ms / 1000, tz=UTC),
+            bid=ticker['bid'],
+            ask=ticker['ask'],
+            last=ticker['last'],
+            high=ticker['high'],
+            low=ticker['low'],
+            open=ticker['open'],
+            close=ticker['close'],
+            base_volume=ticker['baseVolume'],
+            quote_volume=ticker['quoteVolume'],
+            change=ticker['change'],
+            percentage=ticker['percentage'],
+        )
+
+    def _parse_order_book(self, ob: dict, symbol: Symbol) -> OrderBook:
+        return OrderBook(
+            symbol=symbol,
+            timestamp=datetime.fromtimestamp(ob['timestamp'] / 1000, tz=UTC) if ob['timestamp'] else datetime.now(UTC),
+            bids=[OrderBookLevel(price=float(b[0]), size=float(b[1])) for b in ob['bids']],
+            asks=[OrderBookLevel(price=float(a[0]), size=float(a[1])) for a in ob['asks']],
+        )
+
+    def _parse_candle(self, candle: list, symbol: Symbol, timeframe: str) -> Candle:
+        return Candle(
+            symbol=symbol,
+            timestamp=datetime.fromtimestamp(candle[0] / 1000, tz=UTC),
+            timeframe=timeframe,
+            open=candle[1],
+            high=candle[2],
+            low=candle[3],
+            close=candle[4],
+            volume=candle[5],
+        )
+
+    def _parse_balance(self, balance: dict) -> dict[AssetClass, Balance]:
+        result = {}
+        for currency, amounts in balance.items():
+            if currency in ('info', 'free', 'used', 'total', 'timestamp', 'datetime'):
+                continue
+            if not isinstance(amounts, dict):
+                continue
+            free = float(amounts.get('free', 0))
+            used = float(amounts.get('used', 0))
+            total = float(amounts.get('total', 0))
+            if total > 0:
+                # Determine asset class from currency
+                asset_class = AssetClass.CRYPTO if currency not in ('USD', 'EUR', 'GBP', 'JPY') else AssetClass.FOREX
+                if asset_class not in result:
+                    result[asset_class] = Balance(asset_class=asset_class)
+                result[asset_class].assets[currency] = {
+                    'free': free, 'used': used, 'total': total
+                }
+        return result
+
+    @staticmethod
+    def _ccxt_order_type(order: Order) -> str:
+        """Map internal protective types onto CCXT conditional orders."""
+
+        if order.type == OrderType.STOP:
+            return "market"
+        if order.type == OrderType.STOP_LIMIT:
+            return "limit"
+        return order.type.value.lower()
+
+    def _order_to_ccxt_params(self, order: Order) -> dict:
+        params = {}
+        # Binance chá»‰ cháº¥p nháº­n timeInForce cho limit orders; market orders
+        # sáº½ bá»‹ reject (-1106) náº¿u gá»­i kÃ¨m.
+        if order.time_in_force and order.type in {OrderType.LIMIT, OrderType.STOP_LIMIT}:
+            params['timeInForce'] = order.time_in_force.value
+        if order.type in {OrderType.STOP, OrderType.STOP_LIMIT}:
+            if order.stop_price is None or order.stop_price <= 0:
+                raise InvalidOrder("protective stop orders require a positive stop price")
+            if order.type == OrderType.STOP_LIMIT and (
+                order.price is None or order.price <= 0
+            ):
+                raise InvalidOrder("stop-limit orders require a positive limit price")
+            params['stopLossPrice'] = float(order.stop_price)
+        if order.reduce_only:
+            params['reduceOnly'] = True
+        if order.post_only:
+            params['postOnly'] = True
+        if order.client_order_id:
+            params['clientOrderId'] = order.client_order_id
+        return params
+
+    def _parse_order(self, order: dict, symbol: Symbol) -> Order:
+        status_map = {
+            'open': OrderStatus.OPEN,
+            'closed': OrderStatus.FILLED,
+            'canceled': OrderStatus.CANCELLED,
+            'rejected': OrderStatus.REJECTED,
+            'expired': OrderStatus.EXPIRED,
+        }
+        filled_size = Decimal(str(order.get('filled') or 0))
+        parsed_status = status_map.get(order['status'], OrderStatus.OPEN)
+        if parsed_status == OrderStatus.OPEN and filled_size > 0:
+            parsed_status = OrderStatus.PARTIAL
+        raw_type = str(order['type']).lower()
+        parsed_type = {
+            'stop': OrderType.STOP,
+            'stop_loss': OrderType.STOP,
+            'stop_market': OrderType.STOP,
+            'stop_limit': OrderType.STOP_LIMIT,
+            'stop_loss_limit': OrderType.STOP_LIMIT,
+        }.get(raw_type)
+        if parsed_type is None:
+            parsed_type = OrderType(raw_type)
+        stop_price = order.get('stopPrice')
+        if stop_price is None:
+            stop_price = order.get('triggerPrice')
+        return Order(
+            id=order['id'],
+            client_order_id=order.get('clientOrderId'),
+            symbol=symbol,
+            side=OrderSide(str(order['side']).lower()),
+            type=parsed_type,
+            status=parsed_status,
+            size=Decimal(str(order.get('amount') or 0)),
+            filled_size=filled_size,
+            avg_fill_price=Decimal(str(order.get('average') or 0)),
+            price=Decimal(str(order['price'])) if order.get('price') is not None else None,
+            stop_price=Decimal(str(stop_price)) if stop_price is not None else None,
+            fee=Decimal(str(order['fee']['cost'])) if order.get('fee') else Decimal(0),
+            time_in_force=TimeInForce(str(order['timeInForce']).lower()) if order.get('timeInForce') else TimeInForce.GTC,
+            reduce_only=order.get('reduceOnly', False),
+            post_only=order.get('postOnly', False),
+            created_at=datetime.fromtimestamp(order['timestamp'] / 1000, tz=UTC) if order.get('timestamp') else datetime.now(UTC),
+            updated_at=datetime.fromtimestamp(order['lastTradeTimestamp'] / 1000, tz=UTC) if order.get('lastTradeTimestamp') else None,
+        )
+
+    def _parse_position(self, pos: dict) -> Position:
+        symbol = self.get_unified_symbol(pos['symbol'])
+        return Position(
+            symbol=symbol,
+            size=Decimal(str(pos['contracts'])),
+            entry_price=Decimal(str(pos['entryPrice'])),
+            mark_price=Decimal(str(pos['markPrice'])),
+            unrealized_pnl=Decimal(str(pos.get('unrealizedPnl', 0))),
+            realized_pnl=Decimal(str(pos.get('realizedPnl', 0))),
+            leverage=Decimal(str(pos['leverage'])) if pos.get('leverage') else Decimal(1),
+            liquidation_price=Decimal(str(pos['liquidationPrice'])) if pos.get('liquidationPrice') else None,
+            updated_at=datetime.fromtimestamp(pos['timestamp'] / 1000, tz=UTC) if pos.get('timestamp') else datetime.now(UTC),
+        )
+
+    def get_status(self) -> ExchangeStatus:
+        return self._status
+
+    def is_healthy(self) -> bool:
+        return self._status == ExchangeStatus.HEALTHY and self._connected
+
+
+class MultiExchangeManager:
+    """Manages multiple exchange connections"""
+
+    def __init__(self):
+        self.exchanges: dict[str, CCXTAdapter] = {}
+        self._primary_exchange: str | None = None
+
+    def add_exchange(self, config: ExchangeConfig) -> CCXTAdapter:
+        """Add an exchange to the manager"""
+        adapter = CCXTAdapter(config)
+        self.exchanges[config.id] = adapter
+        if self._primary_exchange is None:
+            self._primary_exchange = config.id
+        return adapter
+
+    def get_exchange(self, exchange_id: str) -> CCXTAdapter | None:
+        return self.exchanges.get(exchange_id)
+
+    def get_primary(self) -> CCXTAdapter | None:
+        return self.exchanges.get(self._primary_exchange) if self._primary_exchange else None
+
+    def set_primary(self, exchange_id: str) -> None:
+        if exchange_id in self.exchanges:
+            self._primary_exchange = exchange_id
+
+    async def connect_all(self) -> dict[str, bool]:
+        """Connect to all enabled exchanges"""
+        results = {}
+        for exchange_id, adapter in self.exchanges.items():
+            if not adapter.config.enabled:
+                results[exchange_id] = False
+                continue
+            try:
+                await adapter.connect()
+                results[exchange_id] = True
+            except Exception as e:
+                logger.error(f"Failed to connect to {exchange_id}: {e}")
+                results[exchange_id] = False
+        return results
+
+    async def disconnect_all(self) -> None:
+        for adapter in self.exchanges.values():
+            await adapter.disconnect()
+
+    def get_healthy_exchanges(self) -> list[CCXTAdapter]:
+        return [ex for ex in self.exchanges.values() if ex.is_healthy()]
+
+    async def fetch_ticker_all(self, symbol: Symbol) -> dict[str, Ticker]:
+        """Fetch ticker from all healthy exchanges"""
+        results = {}
+        for exchange_id, adapter in self.exchanges.items():
+            if not adapter.is_healthy():
+                continue
+            try:
+                ticker = await adapter.fetch_ticker(symbol)
+                results[exchange_id] = ticker
+            except Exception as e:
+                logger.debug(f"fetch_ticker failed on {exchange_id}: {e}")
+        return results
+
+    async def fetch_best_bid_ask(self, symbol: Symbol) -> tuple[Ticker | None, Ticker | None]:
+        """Get best bid/ask across all exchanges"""
+        tickers = await self.fetch_ticker_all(symbol)
+        if not tickers:
+            return None, None
+
+        best_bid = max(tickers.values(), key=lambda t: t.bid or 0)
+        best_ask = min(tickers.values(), key=lambda t: t.ask or float('inf'))
+        return best_bid, best_ask
+
+
+# --- Predefined exchange configs ---
+
+def get_default_exchange_configs() -> list[ExchangeConfig]:
+    """Get default configurations for major exchanges"""
+    return [
+        ExchangeConfig(
+            id='binance',
+            name='Binance',
+            sandbox=False,
+            rate_limit=1200,
+            markets=[MarketType.SPOT, MarketType.FUTURES, MarketType.PERPETUAL],
+            options={'defaultType': 'spot'},
+        ),
+        ExchangeConfig(
+            id='bybit',
+            name='Bybit',
+            sandbox=False,
+            rate_limit=1000,
+            markets=[MarketType.SPOT, MarketType.FUTURES, MarketType.PERPETUAL],
+            options={'defaultType': 'spot'},
+        ),
+        ExchangeConfig(
+            id='okx',
+            name='OKX',
+            sandbox=False,
+            rate_limit=1000,
+            markets=[MarketType.SPOT, MarketType.FUTURES, MarketType.PERPETUAL, MarketType.OPTIONS],
+            options={'defaultType': 'spot'},
+        ),
+        ExchangeConfig(
+            id='coinbase',
+            name='Coinbase',
+            sandbox=False,
+            rate_limit=1000,
+            markets=[MarketType.SPOT],
+        ),
+        ExchangeConfig(
+            id='kraken',
+            name='Kraken',
+            sandbox=False,
+            rate_limit=1000,
+            markets=[MarketType.SPOT, MarketType.FUTURES],
+        ),
+        ExchangeConfig(
+            id='gateio',
+            name='Gate.io',
+            sandbox=False,
+            rate_limit=1000,
+            markets=[MarketType.SPOT, MarketType.FUTURES, MarketType.PERPETUAL],
+        ),
+        ExchangeConfig(
+            id='kucoin',
+            name='KuCoin',
+            sandbox=False,
+            rate_limit=1000,
+            markets=[MarketType.SPOT, MarketType.FUTURES, MarketType.PERPETUAL],
+        ),
+        ExchangeConfig(
+            id='htx',
+            name='HTX (Huobi)',
+            sandbox=False,
+            rate_limit=1000,
+            markets=[MarketType.SPOT, MarketType.FUTURES, MarketType.PERPETUAL],
+        ),
+    ]
+
+
+async def create_multi_exchange_manager(configs: list[ExchangeConfig] | None = None) -> MultiExchangeManager:
+    """Create and connect multi-exchange manager"""
+    manager = MultiExchangeManager()
+
+    if configs is None:
+        configs = get_default_exchange_configs()
+
+    for config in configs:
+        manager.add_exchange(config)
+
+    await manager.connect_all()
+    return manager
