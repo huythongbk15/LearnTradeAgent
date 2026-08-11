@@ -51,8 +51,19 @@ jobs:
           # CI pushes sha-<sha> tag
           REPOSITORY="${GITHUB_REPOSITORY,,}"
           SHA_TAG="${{ env.REGISTRY }}/$REPOSITORY:sha-${{ github.event.workflow_run.head_sha }}"
-          echo "image=$SHA_TAG" >> $GITHUB_OUTPUT
-          echo "Using image: $SHA_TAG"
+          docker pull "$SHA_TAG"
+          REVISION="$(docker image inspect --format='{{index .Config.Labels "org.opencontainers.image.revision"}}' "$SHA_TAG")"
+          if [ "$REVISION" != "${{ github.event.workflow_run.head_sha }}" ]; then
+            echo "Image revision label does not match the successful CI commit" >&2
+            exit 1
+          fi
+          DIGEST_IMAGE="$(docker image inspect --format='{{index .RepoDigests 0}}' "$SHA_TAG")"
+          case "$DIGEST_IMAGE" in
+            *@sha256:*) ;;
+            *) echo "Registry did not return an immutable digest" >&2; exit 1 ;;
+          esac
+          echo "image=$DIGEST_IMAGE" >> "$GITHUB_OUTPUT"
+          echo "Using immutable image: $DIGEST_IMAGE"
 
       - name: Verify cosign signature
         id: verify-signature
