@@ -155,6 +155,97 @@ def test_protective_order_state_preserves_active_during_replacement(tmp_path):
     assert retained["pending"] is None
 
 
+def test_controlled_dust_is_signed_and_cleared_by_confirmed_protection(tmp_path):
+    state_path = tmp_path / "risk.json"
+    key = "dust-state-integrity-key-with-more-than-32-characters"
+    store = LiveRiskStateStore(state_path, integrity_key=key)
+    store.observe_position_risk(
+        "BTC/USDT",
+        quantity=0.04,
+        observed_high=100.0,
+        atr=5.0,
+        atr_multiplier=2.0,
+    )
+    dust = store.mark_position_dust(
+        "BTC/USDT",
+        quantity=0.04,
+        estimated_notional=4.0,
+        reason="minimum_notional",
+    )
+    assert dust["status"] == "controlled_dust"
+    reloaded = LiveRiskStateStore(state_path, integrity_key=key)
+    assert reloaded.protective_order_state("BTC/USDT")["dust"][
+        "estimated_notional"
+    ] == pytest.approx(4.0)
+
+    reloaded.reserve_protective_order(
+        "BTC/USDT",
+        quantity=0.04,
+        stop_price=90.0,
+    )
+    reloaded.activate_pending_protective_order(
+        "BTC/USDT",
+        exchange_order_id="stop-1",
+    )
+    assert reloaded.protective_order_state("BTC/USDT")["dust"] is None
+
+
+def test_dust_limit_is_hard_capped():
+    assert LiveRiskLimits.from_env({"LIVE_MAX_DUST_USD": "5"}).max_dust_notional_usd == 5
+    with pytest.raises(LiveSafetyError, match="LIVE_MAX_DUST_USD"):
+        LiveRiskLimits.from_env({"LIVE_MAX_DUST_USD": "11"})
+
+
+def test_mainnet_canary_profile_enforces_hard_caps():
+    limits = LiveRiskLimits.for_profile(
+        "mainnet-canary",
+        {
+            "LIVE_MAX_ORDER_USD": "1000",
+            "LIVE_MAX_ORDER_EQUITY_PCT": "0.5",
+            "LIVE_MAX_SYMBOL_PCT": "0.5",
+            "LIVE_MAX_GROSS_EXPOSURE_PCT": "0.9",
+            "LIVE_MIN_CASH_RESERVE_PCT": "0.1",
+            "LIVE_MAX_DAILY_LOSS_PCT": "0.1",
+            "LIVE_MAX_DRAWDOWN_PCT": "0.2",
+        },
+    )
+    assert limits.max_order_notional_usd == pytest.approx(25.0)
+    assert limits.max_order_equity_pct == pytest.approx(0.0025)
+    assert limits.max_symbol_exposure_pct == pytest.approx(0.05)
+    assert limits.max_gross_exposure_pct == pytest.approx(0.10)
+    assert limits.min_cash_reserve_pct == pytest.approx(0.80)
+    assert limits.max_daily_loss_pct == pytest.approx(0.005)
+    assert limits.max_drawdown_pct == pytest.approx(0.02)
+    with pytest.raises(LiveSafetyError, match="exceeds.*2.50"):
+        validate_order_risk(
+            side="BUY",
+            notional_usd=3.0,
+            equity=1_000.0,
+            cash=1_000.0,
+            current_symbol_notional=0.0,
+            gross_exposure=0.0,
+            limits=limits,
+            locked_reason=None,
+        )
+
+
+def test_signed_state_blocks_unapproved_risk_limit_increase(tmp_path):
+    store = LiveRiskStateStore(tmp_path / "risk.json")
+    canary = LiveRiskLimits.for_profile("mainnet-canary", {})
+    normal = LiveRiskLimits.for_profile("mainnet-normal", {})
+    initialized = store.bind_risk_limits(profile="mainnet-canary", limits=canary)
+    assert initialized["previous_limits"] == {}
+    with pytest.raises(LiveSafetyError, match="explicit confirmation"):
+        store.bind_risk_limits(profile="mainnet-normal", limits=normal)
+    changed = store.bind_risk_limits(
+        profile="mainnet-normal",
+        limits=normal,
+        approve_increase=True,
+    )
+    assert changed["risk_increases"]
+    assert store.state.risk_profile == "mainnet-normal"
+
+
 def test_signed_state_detects_tampering_and_context_mismatch(tmp_path):
     state_path = tmp_path / "risk.json"
     key = "state-integrity-key-with-more-than-32-characters"
