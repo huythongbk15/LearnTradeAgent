@@ -356,10 +356,10 @@
       "size_bytes": 4852928
     }
   },
-  "freeze_date": "2026-08-11T15:40:25.450711+00:00",
-  "generator_commit": "fbdb0d10d4168834f7aa5cab7257fac13b643d07",
+  "freeze_date": "2026-08-11T15:51:55.023152+00:00",
+  "generator_commit": "0ca3b86dd80a1d478cbc52d8153e6f61a72af8dd",
   "holdout_months": 6,
-  "integrity": "e12bc30ec9294874ce0822d726dbb786b2885cab21594f0ca45ebcb767722059",
+  "integrity": "86819f6ef42666e169daf2928bc2f951e5f061580ea2d867fcea8e58198eac80",
   "rules": {
     "forbidden_uses": [
       "parameter selection / optimization",

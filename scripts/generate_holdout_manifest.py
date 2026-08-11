@@ -140,7 +140,13 @@ def main() -> int:
         "integrity": "",
     }
     # Bind the manifest with a SHA-256 of its own serialized content.
-    body = json.dumps(manifest, sort_keys=True, ensure_ascii=False)
+    # NOTE: hash the body WITHOUT "integrity" — load_manifest() recomputes the
+    # hash over the same keys, so both sides must agree on the exact body.
+    body = json.dumps(
+        {k: v for k, v in manifest.items() if k != "integrity"},
+        sort_keys=True,
+        ensure_ascii=False,
+    )
     manifest["integrity"] = hashlib.sha256(body.encode("utf-8")).hexdigest()
 
     if args.write:

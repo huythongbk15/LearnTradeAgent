@@ -93,6 +93,7 @@ def archive_trail(audit_path: Path, archive_dir: Path) -> Path:
             sha.update(raw)
             dst.write(raw)
             line_count += 1
+    os.chmod(archive_path, 0o600)  # archive phải giữ quyền 0600 như live trail
 
     manifest = _load_manifest(archive_dir)
     manifest["archives"][archive_path.name] = {
@@ -142,7 +143,8 @@ def verify_trail(audit_path: Path) -> int:
     if mode != 0o600:
         print(f"WARNING: {audit_path} mode is {oct(mode)}, expected 0600")
     count = 0
-    with open(audit_path, "r", encoding="utf-8") as handle:
+    opener = gzip.open if audit_path.suffix == ".gz" else open
+    with opener(audit_path, "rt", encoding="utf-8") as handle:
         for lineno, line in enumerate(handle, 1):
             if not line.strip():
                 continue

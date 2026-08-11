@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -51,11 +51,18 @@ def load_manifest(path: str | Path = DEFAULT_MANIFEST) -> dict[str, Any]:
 def holdout_window(
     manifest: dict[str, Any] | None = None,
 ) -> tuple[datetime, datetime]:
-    """Return (start, end) of the frozen holdout window (UTC)."""
+    """Return (start, end) of the frozen holdout window (UTC, aware)."""
     manifest = manifest or load_manifest()
     window = manifest["window"]
     start = datetime.fromisoformat(window["start_utc"])
     end = datetime.fromisoformat(window["end_utc"])
+    # Normalize: dataset end timestamps are naive epoch-derived values; keep
+    # the window timezone-aware so comparisons with caller datetimes always
+    # work regardless of which side carries tzinfo.
+    if start.tzinfo is None:
+        start = start.replace(tzinfo=UTC)
+    if end.tzinfo is None:
+        end = end.replace(tzinfo=UTC)
     return start, end
 
 
