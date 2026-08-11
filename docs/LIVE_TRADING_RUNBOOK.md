@@ -17,6 +17,14 @@ operational checklist below.
 - A process lock prevents two runners from sharing one state file. Unfinished
   client order IDs are reconciled before new orders; unknown, open or partial
   states stop the whole batch.
+- Every eligible managed Spot position receives a Binance-native `STOP_LOSS`
+  market order immediately after an entry fill. The stop remains at the
+  exchange if the hourly strategy process or host dies. Later runs may tighten
+  it but never widen it.
+- Protective state retains both the last confirmed active stop and a pending
+  replacement. Restart/timeout recovery queries both deterministic client
+  order IDs before allowing another order. A risk-reducing market exit uses
+  Binance cancel-replace to hand off the locked stop quantity to the exit.
 - Mainnet requires environment authorization and the same explicit phrase on
   the command line. `TRADING_KILL_SWITCH=true` overrides all other gates.
 - Mainnet also requires a recent `data/live_strategy_evidence.json` whose
@@ -80,6 +88,23 @@ python scripts/live_enhanced_ma_binance.py --testnet --execute
 Run for at least 30 calendar days and cover entries, exits, exchange rejection,
 network timeout, restart/idempotency and alert delivery. Reconcile every fill
 against the local state and exchange history.
+
+For each managed position, verify in the Binance Spot Testnet UI/API that:
+
+- exactly one protective sell is open with the expected quantity and stop;
+- terminating the hourly runner leaves that order open at Binance;
+- restarting the runner adopts the same client order ID instead of duplicating
+  it;
+- a tighter ATR trail produces one replacement and the old stop is terminal;
+- a strategy exit replaces/cancels the stop before selling the locked balance;
+- timeout-after-accept recovery blocks the batch unless either the old or new
+  protective client ID is confirmed.
+
+Do not manually cancel protective orders during normal operation. An alert
+about unknown protection is an incident: disable new entries, inspect both
+client order IDs and reconcile balances/order history before resuming. A
+market stop can fill below its trigger during a gap; this is intentional and
+preferred to leaving a stop-limit order unfilled.
 
 ## Stage 3 — mainnet canary
 

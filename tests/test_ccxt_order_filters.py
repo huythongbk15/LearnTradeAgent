@@ -5,7 +5,14 @@ from decimal import Decimal, ROUND_DOWN
 import pytest
 
 from trading_agent.exchanges.ccxt_adapter import CCXTAdapter
-from trading_agent.exchanges.models import AssetClass, MarketType, Symbol
+from trading_agent.exchanges.models import (
+    AssetClass,
+    MarketType,
+    Order,
+    OrderSide,
+    OrderType,
+    Symbol,
+)
 
 
 class FilterExchange:
@@ -58,3 +65,46 @@ def test_minimum_notional_filter_is_enforced():
             Decimal("0.001"),
             reference_price=Decimal("100"),
         )
+
+
+def test_spot_stop_maps_to_ccxt_market_stop_loss_price():
+    adapter = adapter_with_filters()
+    order = Order(
+        id="",
+        client_order_id="lta-ps-1",
+        symbol=btc_symbol(),
+        side=OrderSide.SELL,
+        type=OrderType.STOP,
+        size=Decimal("0.01"),
+        stop_price=Decimal("90"),
+    )
+    assert adapter._ccxt_order_type(order) == "market"
+    assert adapter._order_to_ccxt_params(order) == {
+        "stopLossPrice": 90.0,
+        "clientOrderId": "lta-ps-1",
+    }
+
+
+def test_ccxt_stop_loss_response_is_parsed_as_protective_stop():
+    parsed = adapter_with_filters()._parse_order(
+        {
+            "id": "stop-1",
+            "clientOrderId": "lta-ps-1",
+            "status": "open",
+            "symbol": "BTC/USDT",
+            "side": "sell",
+            "type": "stop_loss",
+            "amount": 0.01,
+            "filled": 0,
+            "average": None,
+            "price": None,
+            "stopPrice": 90,
+            "fee": None,
+            "timeInForce": None,
+            "timestamp": None,
+            "lastTradeTimestamp": None,
+        },
+        btc_symbol(),
+    )
+    assert parsed.type == OrderType.STOP
+    assert parsed.stop_price == Decimal("90")

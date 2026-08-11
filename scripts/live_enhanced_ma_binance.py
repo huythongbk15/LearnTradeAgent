@@ -205,7 +205,9 @@ def apply_atr_protection(
         position = position_map.get(pair)
         quantity = float(position["qty"]) if position else 0.0
         if quantity <= 0:
-            store.clear_position_risk(pair)
+            protection = store.protective_order_state(pair)
+            if not protection.get("active") and not protection.get("pending"):
+                store.clear_position_risk(pair)
             state["atr_stop"] = None
             continue
         peak, stop = store.observe_position_risk(
@@ -224,679 +226,193 @@ def apply_atr_protection(
             )
 
 
-def validate_live_hourly_bars(
-    bars: list[list],
+def _protective_order(
     *,
-    symbol: str,
-    now: datetime | None = None,
-) -> list[tuple[int, float, float, float, float, float]]:
-    """Normalize and reject stale, gapped or malformed closed Binance bars."""
-
-    current = (now or datetime.now(UTC)).astimezone(UTC)
-    now_ms = int(current.timestamp() * 1000)
-    closed: list[tuple[int, float, float, float, float, float]] = []
-    for index, bar in enumerate(bars):
-        if not isinstance(bar, (list, tuple)) or len(bar) < 6:
-            raise LiveSafetyError(f"malformed OHLCV bar {index} for {symbol}")
-        try:
-            timestamp = int(bar[0])
-            values = tuple(float(value) for value in bar[1:6])
-        except (TypeError, ValueError, OverflowError) as exc:
-            raise LiveSafetyError(f"non-numeric OHLCV bar {index} for {symbol}") from exc
-        if timestamp + HOUR_MS > now_ms:
-            continue
-        open_price, high, low, close, volume = values
-        prices = (open_price, high, low, close)
-        if any(not math.isfinite(value) or value <= 0 for value in prices):
-            raise LiveSafetyError(f"invalid OHLC price in bar {index} for {symbol}")
-        if not math.isfinite(volume) or volume < 0:
-            raise LiveSafetyError(f"invalid volume in bar {index} for {symbol}")
-        if high < max(open_price, low, close) or low > min(open_price, high, close):
-            raise LiveSafetyError(f"inconsistent OHLC range in bar {index} for {symbol}")
-        closed.append((timestamp, *values))
-
-    timestamps = [bar[0] for bar in closed]
-    if timestamps != sorted(timestamps) or len(timestamps) != len(set(timestamps)):
-        raise LiveSafetyError(f"duplicate or unordered hourly candles for {symbol}")
-    if any(current_ts - previous_ts != HOUR_MS for previous_ts, current_ts in zip(
-        timestamps,
-        timestamps[1:],
-        strict=False,
-    )):
-        raise LiveSafetyError(f"hourly candle gap detected for {symbol}")
-    if closed:
-        lag_seconds = (now_ms - (closed[-1][0] + HOUR_MS)) / 1_000
-        if lag_seconds > MAX_CLOSED_CANDLE_LAG_SECONDS:
-            raise LiveSafetyError(
-                f"latest closed candle for {symbol} is stale by {lag_seconds:.0f}s"
-            )
-    return closed
-
-
-def get_recent_df(symbol: str) -> pl.DataFrame:
-    """Fetch and validate only fully closed 1h Binance candles."""
-
-    public_exchange = ccxt.binance({"enableRateLimit": True})
-    bars = public_exchange.fetch_ohlcv(symbol, "1h", limit=LOOKBACK)
-    closed = validate_live_hourly_bars(bars, symbol=symbol)
-    minimum = STRATEGY_PARAMS["slow_period"] + 50
-    if len(closed) < minimum:
-        raise LiveSafetyError(
-            f"insufficient closed candles for {symbol}: {len(closed)} < {minimum}"
-        )
-    return pl.DataFrame(
-        {
-            "timestamp": [datetime.fromtimestamp(bar[0] / 1000, tz=UTC) for bar in closed],
-            "open": [bar[1] for bar in closed],
-            "high": [bar[2] for bar in closed],
-            "low": [bar[3] for bar in closed],
-            "close": [bar[4] for bar in closed],
-            "volume": [bar[5] for bar in closed],
-        }
-    ).sort("timestamp")
-
-
-def require_dedicated_account(adapter: CCXTAdapter, allocations: list[tuple[str, float]]) -> None:
-    """Refuse mainnet accounts containing assets outside the managed universe."""
-
-    balances = asyncio.run(adapter.fetch_balance())
-    crypto = balances.get(AssetClass.CRYPTO)
-    allowed = {"USDT", *(symbol.split("/")[0] for symbol, _ in allocations)}
-    unmanaged = []
-    for asset, amounts in (crypto.assets.items() if crypto else []):
-        if asset not in allowed and float(amounts.get("total", 0)) > 0:
-            unmanaged.append(asset)
-    if unmanaged:
-        raise LiveSafetyError(
-            "mainnet account is not dedicated; unmanaged positive balances: "
-            + ", ".join(sorted(unmanaged))
-        )
-
-
-def build_decisions(
-    *,
-    allocations: list[tuple[str, float]],
-    states: dict[str, dict],
-    positions: list[dict],
-    equity: float,
-    locked_reason: str | None,
-) -> list[dict]:
-    position_map = {position["symbol"]: position for position in positions}
-    decisions: list[dict] = []
-    for market_symbol, allocation in allocations:
-        state = states[market_symbol]
-        existing = position_map.get(market_symbol)
-        current_qty = float(existing["qty"]) if existing else 0.0
-        current_notional = current_qty * state["price"]
-        target_notional = equity * allocation
-        delta = target_notional - current_notional
-        deadband = max(target_notional * 0.05, 10.0)
-        # The finite replay window may not contain an old entry crossover. An
-        # existing position remains valid while the fast MA is still above the
-        # slow MA; otherwise a healthy long held for >LOOKBACK bars could be
-        # liquidated merely because its original entry fell out of memory.
-        desired_long = state["state"] == "LONG" or (
-            current_qty > 0
-            and state.get("risk_exit") is None
-            and float(state["ma_fast"]) > float(state["ma_slow"])
-        )
-
-        if locked_reason and current_qty > 0:
-            action, qty, reason = "SELL", current_qty, "RISK_CIRCUIT_BREAKER"
-        elif locked_reason:
-            continue
-        elif desired_long and delta > deadband:
-            action, qty, reason = "BUY", delta / state["price"], "REBALANCE"
-        elif desired_long and delta < -deadband:
-            action, qty, reason = "SELL", min(abs(delta) / state["price"], current_qty), "REBALANCE"
-        elif not desired_long and current_qty > 0:
-            action, qty, reason = "SELL", current_qty, "STRATEGY_FLAT"
-        else:
-            continue
-        if qty <= 0 or not math.isfinite(qty):
-            raise LiveSafetyError(f"invalid decision quantity for {market_symbol}")
-        decisions.append(
-            {
-                "market_symbol": market_symbol,
-                "action": action,
-                "qty": qty,
-                "signal_price": state["price"],
-                "candle_timestamp": state["candle_timestamp"],
-                "reason": reason,
-            }
-        )
-    return sorted(decisions, key=lambda item: 0 if item["action"] == "SELL" else 1)
-
-
-def position_snapshot(positions: list[dict]) -> tuple[dict[str, dict], float]:
-    by_symbol = {position["symbol"]: position for position in positions}
-    gross = sum(float(position["market_value"]) for position in positions)
-    if not math.isfinite(gross) or gross < 0:
-        raise LiveSafetyError("invalid gross exposure")
-    return by_symbol, gross
-
-
-def protected_execution_quote(
-    *,
-    broker: LiveBroker,
     symbol: Symbol,
-    side: str,
-    requested_quantity: float,
-    signal_price: float,
-    limits: LiveRiskLimits,
-) -> tuple[float, float]:
-    """Return exchange-normalized quantity and depth-aware expected fill price."""
-
-    ticker = broker.get_ticker(symbol)
-    bid = ticker.get("bid")
-    ask = ticker.get("ask")
-    if bid is None or ask is None:
-        raise LiveSafetyError(f"two-sided executable quote is missing for {symbol.pair}")
-    validate_spread(bid=float(bid), ask=float(ask), limits=limits)
-    top_price = float(ask if side == "BUY" else bid)
-    validate_fresh_quote(
-        signal_price=signal_price,
-        quote_price=top_price,
-        quote_timestamp=ticker["timestamp"],
-        limits=limits,
+    client_order_id: str,
+    quantity: float,
+    stop_price: float,
+) -> Order:
+    return Order(
+        id="",
+        client_order_id=client_order_id,
+        symbol=symbol,
+        side=OrderSide.SELL,
+        type=OrderType.STOP,
+        size=Decimal(str(quantity)),
+        stop_price=Decimal(str(stop_price)),
+        time_in_force=TimeInForce.GTC,
     )
-    quantity = broker.normalize_order_amount(
-        symbol,
-        requested_quantity,
-        reference_price=top_price,
-    )
-    book = broker.get_order_book(symbol, limit=50)
-    if not book["bids"] or not book["asks"]:
-        raise LiveSafetyError(f"two-sided order book is missing for {symbol.pair}")
-    validate_spread(
-        bid=float(book["bids"][0][0]),
-        ask=float(book["asks"][0][0]),
-        limits=limits,
-    )
-    expected_vwap = validate_order_book_depth(
-        side=side,
-        quantity=quantity,
-        bids=book["bids"],
-        asks=book["asks"],
-        book_timestamp=book["timestamp"],
-        limits=limits,
-    )
-    quantity = broker.normalize_order_amount(
-        symbol,
-        quantity,
-        reference_price=expected_vwap,
-    )
-    validate_fresh_quote(
-        signal_price=signal_price,
-        quote_price=expected_vwap,
-        quote_timestamp=book["timestamp"],
-        limits=limits,
-    )
-    return quantity, expected_vwap
 
 
-def prepare_orders(
+def _audit_protective_event(
+    audit_log_path: str | None,
+    event: str,
+    payload: dict,
+) -> None:
+    if audit_log_path:
+        append_live_audit_event(audit_log_path, event, payload)
+
+
+def reconcile_protective_stop(
     *,
-    decisions: list[dict],
-    broker: LiveBroker,
-    account: dict,
-    positions: list[dict],
-    limits: LiveRiskLimits,
-    locked_reason: str | None,
-) -> list[dict]:
-    """Preflight the complete batch before any order can be submitted."""
-
-    simulated_cash = float(account["cash"])
-    equity = float(account["equity"])
-    simulated_positions, simulated_gross = position_snapshot(positions)
-    prepared: list[dict] = []
-
-    for decision in decisions:
-        pair = decision["market_symbol"]
-        symbol = exchange_symbol(pair)
-        quantity, quote_price = protected_execution_quote(
-            broker=broker,
-            symbol=symbol,
-            side=decision["action"],
-            requested_quantity=float(decision["qty"]),
-            signal_price=decision["signal_price"],
-            limits=limits,
-        )
-
-        existing = simulated_positions.get(pair)
-        current_notional = float(existing["market_value"]) if existing else 0.0
-        notional = quantity * float(quote_price)
-        validate_order_risk(
-            side=decision["action"],
-            notional_usd=notional,
-            equity=equity,
-            cash=simulated_cash,
-            current_symbol_notional=current_notional,
-            gross_exposure=simulated_gross,
-            limits=limits,
-            locked_reason=locked_reason,
-        )
-
-        if decision["action"] == "BUY":
-            simulated_cash -= notional
-            simulated_gross += notional
-            simulated_positions[pair] = {"market_value": current_notional + notional}
-        else:
-            simulated_cash += notional
-            simulated_gross = max(0.0, simulated_gross - notional)
-            simulated_positions[pair] = {"market_value": max(0.0, current_notional - notional)}
-        prepared.append({
-            **decision,
-            "qty": quantity,
-            "quote_price": float(quote_price),
-            "notional": notional,
-        })
-    return prepared
-
-
-def execute_orders(
-    *,
-    orders: list[dict],
+    pair: str,
     broker: LiveBroker,
     store: LiveRiskStateStore,
-    limits: LiveRiskLimits,
     audit_log_path: str | None = None,
-) -> None:
-    for planned in orders:
-        account = broker.get_account()
-        positions = broker.get_positions()
-        position_map, gross = position_snapshot(positions)
-        pair = planned["market_symbol"]
-        symbol = exchange_symbol(pair)
-        quantity, quote_price = protected_execution_quote(
-            broker=broker,
-            symbol=symbol,
-            side=planned["action"],
-            requested_quantity=float(planned["qty"]),
-            signal_price=planned["signal_price"],
-            limits=limits,
-        )
-        current = position_map.get(pair)
-        current_notional = float(current["market_value"]) if current else 0.0
-        notional = quantity * float(quote_price)
-        validate_order_risk(
-            side=planned["action"],
-            notional_usd=notional,
-            equity=float(account["equity"]),
-            cash=float(account["cash"]),
-            current_symbol_notional=current_notional,
-            gross_exposure=gross,
-            limits=limits,
-            locked_reason=store.state.locked_reason,
-        )
+) -> dict | None:
+    """Reconcile active and pending protective client IDs after restart/timeouts."""
 
-        order_key = make_order_key(
-            symbol=pair,
-            side=planned["action"],
-            candle_timestamp=planned["candle_timestamp"],
-        )
-        store.reserve_order(
-            order_key,
-            symbol=pair,
-            side=planned["action"],
-            quantity=quantity,
-            signal_timestamp=planned["candle_timestamp"],
-        )
-        order = Order(
-            id="",
-            client_order_id=order_key,
-            symbol=symbol,
-            side=OrderSide.BUY if planned["action"] == "BUY" else OrderSide.SELL,
-            type=OrderType.MARKET,
-            size=Decimal(str(quantity)),
-            time_in_force=TimeInForce.GTC,
-        )
+    symbol = exchange_symbol(pair)
+    protection = store.protective_order_state(pair)
+    active = protection.get("active")
+    pending = protection.get("pending")
+
+    def lookup(record: dict | None) -> dict | None:
+        if not isinstance(record, dict):
+            return None
+        client_order_id = str(record.get("client_order_id") or "")
+        if not client_order_id:
+            raise LiveSafetyError(f"protective order metadata is invalid for {pair}")
         try:
-            result = broker.place_order(order)
+            return broker.get_order_by_client_id(client_order_id, symbol)
         except Exception as exc:
-            store.update_order(order_key, status="unknown", error=str(exc))
-            if audit_log_path:
-                append_live_audit_event(
-                    audit_log_path,
-                    "order_submission_unknown",
-                    {"order_key": order_key, "symbol": pair, "error": str(exc)[:500]},
-                )
-            try:
-                reconciled = broker.get_order_by_client_id(order_key, symbol)
-            except Exception as reconcile_exc:
-                raise LiveSafetyError(
-                    f"order submission outcome is unknown for {order_key}; "
-                    f"reconciliation failed: {reconcile_exc}"
-                ) from exc
-            if reconciled is not None:
-                persist_order_result(store, order_key, reconciled)
-                raise LiveSafetyError(
-                    f"order submission raised but exchange reports "
-                    f"{reconciled['status']} for {order_key}; batch stopped"
-                ) from exc
             raise LiveSafetyError(
-                f"order submission outcome is unknown for {order_key}; "
-                "exchange did not find the client order ID"
+                f"protective order reconciliation failed for {pair}: {exc}"
             ) from exc
 
-        persist_order_result(store, order_key, result)
-        if result.get("error") or result.get("status") not in {"open", "partial", "filled"}:
-            raise LiveSafetyError(f"order rejected or failed: {result}")
-        if result.get("status") != "filled":
-            if audit_log_path:
-                append_live_audit_event(
-                    audit_log_path,
-                    "order_non_terminal",
-                    {
-                        "order_key": order_key,
-                        "symbol": pair,
-                        "status": str(result.get("status")),
-                        "filled_qty": float(result.get("filled_qty") or 0.0),
-                    },
+    if isinstance(pending, dict):
+        pending_result = lookup(pending)
+        if pending_result is not None:
+            pending_status = str(pending_result.get("status") or "unknown").lower()
+            if pending_status == "open":
+                if isinstance(active, dict):
+                    active_result = lookup(active)
+                    active_result_status = (
+                        str(active_result.get("status") or "unknown").lower()
+                        if active_result is not None
+                        else "missing"
+                    )
+                    if (
+                        active_result is not None
+                        and active_result_status == "open"
+                        and str(active.get("client_order_id"))
+                        != str(pending.get("client_order_id"))
+                    ):
+                        raise LiveSafetyError(
+                            f"duplicate active protective orders detected for {pair}"
+                        )
+                    if active_result_status in {"partial", "filled"}:
+                        raise LiveSafetyError(
+                            f"previous protective stop changed position while "
+                            f"replacement was pending for {pair}: {active_result_status}"
+                        )
+                pending_exchange_id = str(pending_result.get("id") or "")
+                if not pending_exchange_id:
+                    raise LiveSafetyError(
+                        f"confirmed protective order ID is missing for {pair}"
+                    )
+                confirmed = store.activate_pending_protective_order(
+                    pair,
+                    exchange_order_id=pending_exchange_id,
+                    status="open",
+                    quantity=float(
+                        pending_result.get("qty") or pending.get("quantity") or 0.0
+                    ),
+                    stop_price=float(
+                        pending_result.get("stop_price")
+                        or pending.get("stop_price")
+                        or 0.0
+                    ),
                 )
+                _audit_protective_event(
+                    audit_log_path,
+                    "protective_stop_reconciled",
+                    {"symbol": pair, **confirmed},
+                )
+                return confirmed
+            store.update_pending_protective_order(
+                pair,
+                status=pending_status,
+                exchange_order_id=str(pending_result.get("id") or ""),
+                error=str(pending_result.get("error") or ""),
+            )
+            if pending_status in {"partial", "filled"}:
+                raise LiveSafetyError(
+                    f"protective stop changed position while reconciling {pair}: "
+                    f"{pending_status}"
+                )
+            store.abandon_pending_protective_order(pair)
+        elif isinstance(active, dict):
+            active_result = lookup(active)
+            active_status = (
+                str(active_result.get("status") or "unknown").lower()
+                if active_result is not None
+                else "missing"
+            )
+            if active_status == "open":
+                store.abandon_pending_protective_order(pair)
+                return active
+            if active_status in {"partial", "filled"}:
+                raise LiveSafetyError(
+                    f"protective stop changed position while recovering {pair}: "
+                    f"{active_status}"
+                )
+            store.clear_active_protective_order(pair)
+            store.abandon_pending_protective_order(pair)
+            active = None
+        else:
+            store.update_pending_protective_order(
+                pair,
+                status="unknown",
+                error="client order ID not found during protective reconciliation",
+            )
             raise LiveSafetyError(
-                f"order {order_key} is {result.get('status')}; "
-                "batch stopped until reconciliation completes"
+                f"protective stop outcome is unknown for {pair}; no previous stop exists"
             )
-        if audit_log_path:
-            append_live_audit_event(
-                audit_log_path,
-                "order_filled",
-                {
-                    "order_key": order_key,
-                    "exchange_order_id": str(result.get("id") or ""),
-                    "symbol": pair,
-                    "side": planned["action"],
-                    "filled_qty": float(result.get("filled_qty") or 0.0),
-                    "average_fill_price": float(result.get("avg_fill_price") or 0.0),
-                },
-            )
-        print(
-            f"  ‚úÖ Order: {result['side']} {result['qty']} {result['symbol']} "
-            f"‚Üí {result['status']} ({planned['reason']}, id={order_key})"
+
+    protection = store.protective_order_state(pair)
+    active = protection.get("active")
+    if not isinstance(active, dict):
+        return None
+    active_result = lookup(active)
+    if active_result is None:
+        store.clear_active_protective_order(pair)
+        return None
+    active_status = str(active_result.get("status") or "unknown").lower()
+    if active_status == "open":
+        return active
+    if active_status in {"partial", "filled"}:
+        raise LiveSafetyError(
+            f"protective stop changed position for {pair}: {active_status}"
         )
-
-
-def persist_order_result(
-    store: LiveRiskStateStore,
-    order_key: str,
-    result: dict,
-) -> None:
-    store.update_order(
-        order_key,
-        status=str(result.get("status") or "unknown"),
-        exchange_order_id=str(result.get("id") or ""),
-        filled_quantity=float(result.get("filled_qty") or 0.0),
-        average_fill_price=float(result.get("avg_fill_price") or 0.0),
-        error=str(result.get("error") or ""),
+    if active_status in {"cancelled", "rejected", "expired"}:
+        store.clear_active_protective_order(pair)
+        return None
+    raise LiveSafetyError(
+        f"protective stop has unsupported exchange status for {pair}: {active_status}"
     )
 
 
-def reconcile_unfinished_orders(
+def ensure_protective_stop(
     *,
+    pair: str,
+    quantity: float,
+    desired_stop: float,
+    current_price: float,
     broker: LiveBroker,
     store: LiveRiskStateStore,
     audit_log_path: str | None = None,
-) -> None:
-    """Reconcile every non-terminal intent before a new batch can be planned."""
+) -> dict:
+    """Create or tighten one exchange-native stop for an existing position."""
 
-    unresolved: list[str] = []
-    for order_key, record in store.unfinished_orders().items():
-        pair = str(record.get("symbol") or "")
-        if not pair:
-            unresolved.append(f"{order_key}: missing symbol metadata")
-            continue
-        try:
-            result = broker.get_order_by_client_id(order_key, exchange_symbol(pair))
-        except Exception as exc:
-            unresolved.append(f"{order_key}: reconciliation error: {exc}")
-            continue
-        if result is None:
-            store.update_order(
-                order_key,
-                status="unknown",
-                error="client order ID not found during reconciliation",
-            )
-            unresolved.append(f"{order_key}: client order ID not found")
-            continue
-        persist_order_result(store, order_key, result)
-        if audit_log_path:
-            append_live_audit_event(
-                audit_log_path,
-                "order_reconciled",
-                {
-                    "order_key": order_key,
-                    "symbol": pair,
-                    "status": str(result.get("status")),
-                    "filled_qty": float(result.get("filled_qty") or 0.0),
-                },
-            )
-        if result.get("status") != "filled":
-            unresolved.append(f"{order_key}: exchange status {result.get('status')}")
-    if unresolved:
-        if audit_log_path:
-            append_live_audit_event(
-                audit_log_path,
-                "reconciliation_blocked",
-                {"reasons": unresolved},
-            )
+    if any(
+        not math.isfinite(value) or value <= 0
+        for value in (quantity, desired_stop, current_price)
+    ):
+        raise LiveSafetyError(f"invalid protective stop inputs for {pair}")
+    if desired_stop >= current_price:
         raise LiveSafetyError(
-            "unfinished order reconciliation blocked the batch: " + "; ".join(unresolved)
-        )
-
-
-def run_locked(
-    args: argparse.Namespace,
-    *,
-    limits: LiveRiskLimits,
-    allocations: list[tuple[str, float]],
-    state_path: str,
-) -> int:
-    key_name = "BINANCE_TESTNET_API_KEY" if args.testnet else "BINANCE_API_KEY"
-    secret_name = "BINANCE_TESTNET_API_SECRET" if args.testnet else "BINANCE_API_SECRET"
-    api_key = os.getenv(key_name, "")
-    secret = os.getenv(secret_name, "")
-    if not api_key or not secret:
-        raise LiveSafetyError(f"{key_name} and {secret_name} are required")
-    # Context binding persists state even during dry-runs, so every runner mode
-    # requires the integrity key. This prevents creating an unsigned baseline
-    # that cannot be safely reused for later execution.
-    integrity_key = validate_integrity_key(os.getenv("LIVE_SAFETY_HMAC_KEY", ""))
-    store = LiveRiskStateStore(
-        state_path,
-        integrity_key=integrity_key,
-    )
-    if args.execute and not args.testnet and not store.existed:
-        raise LiveSafetyError("run a successful mainnet dry-run first to initialize risk state")
-    allocation_map = dict(allocations)
-    store.bind_context(
-        account=account_fingerprint(
-            exchange="binance-testnet" if args.testnet else "binance-mainnet",
-            api_key=api_key,
-        ),
-        strategy=strategy_fingerprint(
-            strategy="enhanced_ma",
-            params=STRATEGY_PARAMS,
-            allocations=allocation_map,
-        ),
-        symbols=list(allocation_map),
-    )
-    if args.execute and not args.testnet:
-        build_sha = validate_build_sha(os.getenv("TRADING_BUILD_SHA"))
-        validate_strategy_evidence(
-            args.evidence_file,
-            expected_symbols=[symbol for symbol, _ in allocations],
-            expected_params=STRATEGY_PARAMS,
-            expected_allocations=allocation_map,
-            expected_build_sha=build_sha,
-            integrity_key=integrity_key,
-        )
-
-    print("=" * 80)
-    mode = "DRY-RUN" if not args.execute else "TESTNET EXECUTION" if args.testnet else "MAINNET EXECUTION"
-    print(f"BINANCE SPOT ‚Äî Enhanced MA ‚Äî {mode}")
-    print(
-        f"Limits: order ${limits.max_order_notional_usd:,.2f}, "
-        f"symbol {limits.max_symbol_exposure_pct:.0%}, gross {limits.max_gross_exposure_pct:.0%}, "
-        f"cash reserve {limits.min_cash_reserve_pct:.0%}"
-    )
-    print("=" * 80)
-
-    adapter = CCXTAdapter(
-        ExchangeConfig(
-            id="binance",
-            name="Binance",
-            api_key=api_key,
-            secret=secret,
-            testnet=args.testnet,
-            enable_rate_limit=True,
-            markets=[MarketType.SPOT],
-            options={"defaultType": "spot"},
-        )
-    )
-    asyncio.run(adapter.connect())
-    try:
-        if not args.testnet:
-            require_dedicated_account(adapter, allocations)
-        broker = LiveBroker(
-            "binance",
-            adapter,
-            pricing_symbols=[symbol for symbol, _ in allocations],
-            strict_pricing=True,
-        )
-        reconcile_unfinished_orders(
-            broker=broker,
-            store=store,
-            audit_log_path=args.audit_log,
-        )
-        account = broker.get_account()
-        positions = broker.get_positions()
-        equity = float(account["equity"])
-        locked_reason = store.observe_equity(equity, limits)
-        metrics = store.metrics(equity)
-        print(
-            f"Account: equity ${equity:,.2f}, cash ${float(account['cash']):,.2f}, "
-            f"DD {float(metrics['drawdown_pct']):.2%}, "
-            f"daily loss {float(metrics['daily_loss_pct']):.2%}"
-        )
-        if locked_reason:
-            print(f"‚õî CIRCUIT BREAKER: {locked_reason}; only risk-reducing sells are allowed")
-
-        states: dict[str, dict] = {}
-        data_errors: list[str] = []
-        for pair, allocation in allocations:
-            try:
-                state = compute_state(get_recent_df(pair))
-                states[pair] = state
-                print(
-                    f"{pair}: {state['state']} @ ${state['price']:,.2f}, "
-                    f"MA {state['ma_fast']:.2f}/{state['ma_slow']:.2f}, "
-                    f"ADX {state['adx']:.1f}, target {allocation:.0%}"
-                )
-            except Exception as exc:
-                data_errors.append(f"{pair}: {exc}")
-        if data_errors:
-            raise LiveSafetyError("market-data batch failed; no orders submitted: " + "; ".join(data_errors))
-
-        apply_atr_protection(states=states, positions=positions, store=store)
-        for pair, state in states.items():
-            if state.get("risk_exit"):
-                print(f"{pair}: RISK EXIT ‚Äî {state['risk_exit']}")
-
-        decisions = build_decisions(
-            allocations=allocations,
-            states=states,
-            positions=positions,
-            equity=equity,
-            locked_reason=locked_reason,
-        )
-        if not decisions:
-            print("No trades to execute ‚Äî positions already match the permitted targets")
-            return 0
-
-        prepared = prepare_orders(
-            decisions=decisions,
-            broker=broker,
-            account=account,
-            positions=positions,
-            limits=limits,
-            locked_reason=locked_reason,
-        )
-        print("\nEXECUTION PLAN")
-        for planned in prepared:
-            print(
-                f"  {planned['action']} {planned['qty']:.8f} {planned['market_symbol']} "
-                f"‚âà ${planned['notional']:,.2f} ({planned['reason']})"
-            )
-        if not args.execute:
-            print("DRY-RUN complete ‚Äî no orders submitted")
-            return 0
-
-        execute_orders(
-            orders=prepared,
-            broker=broker,
-            store=store,
-            limits=limits,
-            audit_log_path=args.audit_log,
-        )
-        final_account = broker.get_account()
-        final_positions = broker.get_positions()
-        print(
-            f"Final: equity ${float(final_account['equity']):,.2f}, "
-            f"cash ${float(final_account['cash']):,.2f}, positions {len(final_positions)}"
-        )
-        return 0
-    finally:
-        with suppress(Exception):
-            asyncio.run(adapter.disconnect())
-
-
-def run(args: argparse.Namespace) -> int:
-    limits = LiveRiskLimits.from_env()
-    allocations = parse_allocations(args.symbols, args.weights, limits)
-    require_execution_authorization(
-        execute=args.execute,
-        testnet=args.testnet,
-        cli_confirmation=args.confirm_live,
-    )
-    state_path = args.state_file or (
-        "data/binance_testnet_risk_state.json"
-        if args.testnet
-        else "data/binance_live_risk_state.json"
-    )
-    with LiveExecutionLock(f"{state_path}.lock"):
-        return run_locked(
-            args,
-            limits=limits,
-            allocations=allocations,
-            state_path=state_path,
-        )
-
-
-def main() -> int:
-    args = build_parser().parse_args()
-    append_live_audit_event(
-        args.audit_log,
-        "run_started",
-        {
-            "execute": bool(args.execute),
-            "testnet": bool(args.testnet),
-            "symbols": args.symbols,
-        },
-    )
-    try:
-        result = run(args)
-        append_live_audit_event(args.audit_log, "run_completed", {"exit_code": result})
-        return result
-    except Exception as exc:
-        append_live_audit_event(
-            args.audit_log,
-            "run_failed",
-            {"error_type": type(exc).__name__, "error": str(exc)[:1000]},
-        )
-        print(f"FATAL: {exc}", file=sys.stderr)
-        return 1
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
+            f"protective stop is already breached for {pair}: "
+            f"{desired_stop:.8f} >= {current_price:.8f}"
+        )Ôù<∂âûÀk∫wµÁeïπ—}•ê†(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ—»°Öç—•Ÿï}¡…Ω—ïç—•Ÿîπùï–†âç±•ïπ—}Ω…ëï…}•êà§ÅΩ»Äàà§∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕÂµâΩ∞∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅï·çï¡–Å·çï¡—•Ω∏ÅÖÃÅÕ—Ω¡}…ïçΩπç•±ï}ï·åË(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ…Ö•ÕîÅ1•ŸïMÖôï—Â……Ω»†(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅòâï·•–ÅÖπêÅ¡…Ω—ïç—•ŸîÅÕ—Ω¿ÅΩ’—çΩµïÃÅÖ…îÅ’π≠πΩ›∏ÅôΩ»ÅÌ¡Ö•…ÙËÄà(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅòâÌÕ—Ω¡}…ïçΩπç•±ï}ï·çÙà(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ§Åô…Ω¥Åï·å(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ•òÄ†(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅΩ±ë}Õ—Ω¿Å•ÃÅπΩ–Å9Ωπî(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÖπêÅÕ—»°Ω±ë}Õ—Ω¿πùï–†âÕ—Ö—’Ãà§ÅΩ»Äàà§π±Ω›ï»†§ÄÙÙÄâΩ¡ï∏à(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ§Ë(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ…Ö•ÕîÅ1•ŸïMÖôï—Â……Ω»†(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅòâï·•–ÅΩ’—çΩµîÅ•ÃÅ’π≠πΩ›∏ÅôΩ»ÅÌΩ…ëï…}≠ïÂÙÏÅ¡…ïŸ•Ω’ÃÅ¡…Ω—ïç—•ŸîÄà(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄâÕ—Ω¿Å…ïµÖ•πÃÅÖç—•Ÿîà(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ§Åô…Ω¥Åï·å(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ—Ω…îπç±ïÖ…}Öç—•Ÿï}¡…Ω—ïç—•Ÿï}Ω…ëï»°¡Ö•»§(ÄÄÄÄÄÄÄÄÄÄÄÅ…Ö•ÕîÅ1•ŸïMÖôï—Â……Ω»†(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅòâΩ…ëï»ÅÕ’âµ•ÕÕ•Ω∏ÅΩ’—çΩµîÅ•ÃÅ’π≠πΩ›∏ÅôΩ»ÅÌΩ…ëï…}≠ïÂÙÏÄà(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄâï·ç°ÖπùîÅë•êÅπΩ–Åô•πêÅ—°îÅç±•ïπ–ÅΩ…ëï»Å%à(ÄÄÄÄÄÄÄÄÄÄÄÄ§Åô…Ω¥Åï·å((ÄÄÄÄÄÄÄÅ¡ï…Õ•Õ—}Ω…ëï…}…ïÕ’±–°Õ—Ω…î∞ÅΩ…ëï…}≠ï‰∞Å…ïÕ’±–§(ÄÄÄÄÄÄÄÅ•òÅ…ïÕ’±–πùï–†âï……Ω»à§ÅΩ»Å…ïÕ’±–πùï–†âÕ—Ö—’Ãà§ÅπΩ–Å•∏ÅÏâΩ¡ï∏à∞Äâ¡Ö…—•Ö∞à∞Äâô•±±ïêâÙË(ÄÄÄÄÄÄÄÄÄÄÄÅ…Ö•ÕîÅ1•ŸïMÖôï—Â……Ω»°òâΩ…ëï»Å…ï©ïç—ïêÅΩ»ÅôÖ•±ïêËÅÌ…ïÕ’±—Ùà§(ÄÄÄÄÄÄÄÅ•òÅ…ïÕ’±–πùï–†âÕ—Ö—’Ãà§ÄÑÙÄâô•±±ïêàË(ÄÄÄÄÄÄÄÄÄÄÄÅ•òÅÖ’ë•—}±Ωù}¡Ö—†Ë(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÖ¡¡ïπë}±•Ÿï}Ö’ë•—}ïŸïπ–†(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÖ’ë•—}±Ωù}¡Ö—†∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄâΩ…ëï…}πΩπ}—ï…µ•πÖ∞à∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄâΩ…ëï…}≠ï‰àËÅΩ…ëï…}≠ï‰∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄâÕÂµâΩ∞àËÅ¡Ö•»∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄâÕ—Ö—’ÃàËÅÕ—»°…ïÕ’±–πùï–†âÕ—Ö—’Ãà§§∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄâô•±±ïë}≈—‰àËÅô±ΩÖ–°…ïÕ’±–πùï–†âô•±±ïë}≈—‰à§ÅΩ»Ä¿∏¿§∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÙ∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÄÄÄÄÅ…Ö•ÕîÅ1•ŸïMÖôï—Â……Ω»†(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅòâΩ…ëï»ÅÌΩ…ëï…}≠ïÂÙÅ•ÃÅÌ…ïÕ’±–πùï–†ùÕ—Ö—’Ãú•ÙÏÄà(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄââÖ—ç†ÅÕ—Ω¡¡ïêÅ’π—•∞Å…ïçΩπç•±•Ö—•Ω∏ÅçΩµ¡±ï—ïÃà(ÄÄÄÄÄÄÄÄÄÄÄÄ§((ÄÄÄÄÄÄÄÅ…ïô…ïÕ°ïë}¡ΩÕ•—•ΩπÃÄÙÅâ…Ω≠ï»πùï—}¡ΩÕ•—•ΩπÃ†§(ÄÄÄÄÄÄÄÅ…ïô…ïÕ°ïêÄÙÅπï·–†(ÄÄÄÄÄÄÄÄÄÄÄÄ°¡ΩÕ•—•Ω∏ÅôΩ»Å¡ΩÕ•—•Ω∏Å•∏Å…ïô…ïÕ°ïë}¡ΩÕ•—•ΩπÃÅ•òÅ¡ΩÕ•—•ΩπlâÕÂµâΩ∞âtÄÙÙÅ¡Ö•»§∞(ÄÄÄÄÄÄÄÄÄÄÄÅ9Ωπî∞(ÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÅ…ïµÖ•π•πù}≈’Öπ—•—‰ÄÙÅô±ΩÖ–°…ïô…ïÕ°ïëlâ≈—‰ât§Å•òÅ…ïô…ïÕ°ïêÅï±ÕîÄ¿∏¿(ÄÄÄÄÄÄÄÅ•òÅ…ïµÖ•π•πù}≈’Öπ—•—‰Ä¯Ä¿Ë(ÄÄÄÄÄÄÄÄÄÄÄÅÖ—»ÄÙÅô±ΩÖ–°¡±Öππïêπùï–†âÖ—»à§ÅΩ»Ä¿∏¿§(ÄÄÄÄÄÄÄÄÄÄÄÅ•òÅπΩ–ÅµÖ—†π•Õô•π•—î°Ö—»§ÅΩ»ÅÖ—»ÄÙÄ¿Ë(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ…Ö•ÕîÅ1•ŸïMÖôï—Â……Ω»†(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅòâçÖππΩ–Å¡…Ω—ïç–Åô•±±ïêÅΩ…ëï»Å›•—°Ω’–ÅÑÅŸÖ±•êÅQHÅôΩ»ÅÌ¡Ö•…Ùà(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÄÄÄÄÅô•±±}¡…•çîÄÙÅô±ΩÖ–°…ïÕ’±–πùï–†âÖŸù}ô•±±}¡…•çîà§ÅΩ»Å¡±ÖππïëlâÕ•ùπÖ±}¡…•çîât§(ÄÄÄÄÄÄÄÄÄÄÄÅ•òÅ¡±ÖππïëlâÖç—•Ω∏âtÄÙÙÄâ	UdàË(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅΩâÕï…Ÿïë}°•ù†ÄÙÅµÖ‡°ô•±±}¡…•çî∞Åô±ΩÖ–°¡±ÖππïëlâÕ•ùπÖ±}¡…•çîât§§(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ|∞ÅëïÕ•…ïë}Õ—Ω¿ÄÙÅÕ—Ω…îπΩâÕï…Ÿï}¡ΩÕ•—•Ωπ}…•Õ¨†(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ¡Ö•»∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ≈’Öπ—•—‰ı…ïµÖ•π•πù}≈’Öπ—•—‰∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅΩâÕï…Ÿïë}°•ù†ıΩâÕï…Ÿïë}°•ù†∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÖ—»ıÖ—»∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÖ—…}µ’±—•¡±•ï»ıQI}M1}5U1P∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÄÄÄÄÅï±ÕîË(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ…•Õ≠}…ïçΩ…êÄÙÅÕ—Ω…îπÕ—Ö—îπ¡ΩÕ•—•Ωπ}…•Õ¨πùï–°¡Ö•»§ÅΩ»ÅÌÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅëïÕ•…ïë}Õ—Ω¿ÄÙÅô±ΩÖ–°…•Õ≠}…ïçΩ…êπùï–†â—…Ö•±•πù}Õ—Ω¿à§ÅΩ»Ä¿∏¿§(ÄÄÄÄÄÄÄÄÄÄÄÅïπÕ’…ï}¡…Ω—ïç—•Ÿï}Õ—Ω¿†(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ¡Ö•»ı¡Ö•»∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ≈’Öπ—•—‰ı…ïµÖ•π•πù}≈’Öπ—•—‰∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅëïÕ•…ïë}Õ—Ω¿ıëïÕ•…ïë}Õ—Ω¿∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅç’……ïπ—}¡…•çîıô±ΩÖ–°¡±ÖππïëlâÕ•ùπÖ±}¡…•çîât§∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅâ…Ω≠ï»ıâ…Ω≠ï»∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ—Ω…îıÕ—Ω…î∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÖ’ë•—}±Ωù}¡Ö—†ıÖ’ë•—}±Ωù}¡Ö—†∞(ÄÄÄÄÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÅï±ÕîË(ÄÄÄÄÄÄÄÄÄÄÄÅÕ—Ω…îπç±ïÖ…}¡ΩÕ•—•Ωπ}…•Õ¨°¡Ö•»§(ÄÄÄÄÄÄÄÅ•òÅÖ’ë•—}±Ωù}¡Ö—†Ë(ÄÄÄÄÄÄÄÄÄÄÄÅÖ¡¡ïπë}±•Ÿï}Ö’ë•—}ïŸïπ–†(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÖ’ë•—}±Ωù}¡Ö—†∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄâΩ…ëï…}ô•±±ïêà∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄâΩ…ëï…}≠ï‰àËÅΩ…ëï…}≠ï‰∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄâï·ç°Öπùï}Ω…ëï…}•êàËÅÕ—»°…ïÕ’±–πùï–†â•êà§ÅΩ»Äàà§∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄâÕÂµâΩ∞àËÅ¡Ö•»∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄâÕ•ëîàËÅ¡±ÖππïëlâÖç—•Ω∏ât∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄâô•±±ïë}≈—‰àËÅô±ΩÖ–°…ïÕ’±–πùï–†âô•±±ïë}≈—‰à§ÅΩ»Ä¿∏¿§∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄâÖŸï…Öùï}ô•±±}¡…•çîàËÅô±ΩÖ–°…ïÕ’±–πùï–†âÖŸù}ô•±±}¡…•çîà§ÅΩ»Ä¿∏¿§∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÙ∞(ÄÄÄÄÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÅ¡…•π–†(ÄÄÄÄÄÄÄÄÄÄÄÅòàÄÉärÅ=…ëï»ËÅÌ…ïÕ’±—lùÕ•ëîùuÙÅÌ…ïÕ’±—lù≈—‰ùuÙÅÌ…ïÕ’±—lùÕÂµâΩ∞ùuÙÄà(ÄÄÄÄÄÄÄÄÄÄÄÅòãäHÅÌ…ïÕ’±—lùÕ—Ö—’ÃùuÙÄ°Ì¡±Öππïëlù…ïÖÕΩ∏ùuÙ∞Å•êıÌΩ…ëï…}≠ïÂÙ§à(ÄÄÄÄÄÄÄÄ§(()ëïòÅ¡ï…Õ•Õ—}Ω…ëï…}…ïÕ’±–†(ÄÄÄÅÕ—Ω…îËÅ1•ŸïI•Õ≠M—Ö—ïM—Ω…î∞(ÄÄÄÅΩ…ëï…}≠ï‰ËÅÕ—»∞(ÄÄÄÅ…ïÕ’±–ËÅë•ç–∞(§Ä¥¯Å9ΩπîË(ÄÄÄÅÕ—Ω…îπ’¡ëÖ—ï}Ω…ëï»†(ÄÄÄÄÄÄÄÅΩ…ëï…}≠ï‰∞(ÄÄÄÄÄÄÄÅÕ—Ö—’ÃıÕ—»°…ïÕ’±–πùï–†âÕ—Ö—’Ãà§ÅΩ»Äâ’π≠πΩ›∏à§∞(ÄÄÄÄÄÄÄÅï·ç°Öπùï}Ω…ëï…}•êıÕ—»°…ïÕ’±–πùï–†â•êà§ÅΩ»Äàà§∞(ÄÄÄÄÄÄÄÅô•±±ïë}≈’Öπ—•—‰ıô±ΩÖ–°…ïÕ’±–πùï–†âô•±±ïë}≈—‰à§ÅΩ»Ä¿∏¿§∞(ÄÄÄÄÄÄÄÅÖŸï…Öùï}ô•±±}¡…•çîıô±ΩÖ–°…ïÕ’±–πùï–†âÖŸù}ô•±±}¡…•çîà§ÅΩ»Ä¿∏¿§∞(ÄÄÄÄÄÄÄÅï……Ω»ıÕ—»°…ïÕ’±–πùï–†âï……Ω»à§ÅΩ»Äàà§∞(ÄÄÄÄ§(()ëïòÅ…ïçΩπç•±ï}’πô•π•Õ°ïë}Ω…ëï…Ã†(ÄÄÄÄ®∞(ÄÄÄÅâ…Ω≠ï»ËÅ1•Ÿï	…Ω≠ï»∞(ÄÄÄÅÕ—Ω…îËÅ1•ŸïI•Õ≠M—Ö—ïM—Ω…î∞(ÄÄÄÅÖ’ë•—}±Ωù}¡Ö—†ËÅÕ—»ÅÅ9ΩπîÄÙÅ9Ωπî∞(§Ä¥¯Å9ΩπîË(ÄÄÄÄààâIïçΩπç•±îÅïŸï…‰ÅπΩ∏µ—ï…µ•πÖ∞Å•π—ïπ–ÅâïôΩ…îÅÑÅπï‹ÅâÖ—ç†ÅçÖ∏ÅâîÅ¡±Öππïê∏ààà((ÄÄÄÅ’π…ïÕΩ±ŸïêËÅ±•Õ—mÕ—…tÄÙÅmt(ÄÄÄÅôΩ»ÅΩ…ëï…}≠ï‰∞Å…ïçΩ…êÅ•∏ÅÕ—Ω…îπ’πô•π•Õ°ïë}Ω…ëï…Ã†§π•—ïµÃ†§Ë(ÄÄÄÄÄÄÄÅ¡Ö•»ÄÙÅÕ—»°…ïçΩ…êπùï–†âÕÂµâΩ∞à§ÅΩ»Äàà§(ÄÄÄÄÄÄÄÅ•òÅπΩ–Å¡Ö•»Ë(ÄÄÄÄÄÄÄÄÄÄÄÅ’π…ïÕΩ±ŸïêπÖ¡¡ïπê°òâÌΩ…ëï…}≠ïÂÙËÅµ•ÕÕ•πúÅÕÂµâΩ∞Åµï—ÖëÖ—Ñà§(ÄÄÄÄÄÄÄÄÄÄÄÅçΩπ—•π’î(ÄÄÄÄÄÄÄÅ—…‰Ë(ÄÄÄÄÄÄÄÄÄÄÄÅ…ïÕ’±–ÄÙÅâ…Ω≠ï»πùï—}Ω…ëï…}âÂ}ç±•ïπ—}•ê°Ω…ëï…}≠ï‰∞Åï·ç°Öπùï}ÕÂµâΩ∞°¡Ö•»§§(ÄÄÄÄÄÄÄÅï·çï¡–Å·çï¡—•Ω∏ÅÖÃÅï·åË(ÄÄÄÄÄÄÄÄÄÄÄÅ’π…ïÕΩ±ŸïêπÖ¡¡ïπê°òâÌΩ…ëï…}≠ïÂÙËÅ…ïçΩπç•±•Ö—•Ω∏Åï……Ω»ËÅÌï·çÙà§(ÄÄÄÄÄÄÄÄÄÄÄÅçΩπ—•π’î(ÄÄÄÄÄÄÄÅ•òÅ…ïÕ’±–Å•ÃÅ9ΩπîË(ÄÄÄÄÄÄÄÄÄÄÄÅÕ—Ω…îπ’¡ëÖ—ï}Ω…ëï»†(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅΩ…ëï…}≠ï‰∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ—Ö—’ÃÙâ’π≠πΩ›∏à∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅï……Ω»Ùâç±•ïπ–ÅΩ…ëï»Å%ÅπΩ–ÅôΩ’πêÅë’…•πúÅ…ïçΩπç•±•Ö—•Ω∏à∞(ÄÄÄÄÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÄÄÄÄÅ’π…ïÕΩ±ŸïêπÖ¡¡ïπê°òâÌΩ…ëï…}≠ïÂÙËÅç±•ïπ–ÅΩ…ëï»Å%ÅπΩ–ÅôΩ’πêà§(ÄÄÄÄÄÄÄÄÄÄÄÅçΩπ—•π’î(ÄÄÄÄÄÄÄÅ¡ï…Õ•Õ—}Ω…ëï…}…ïÕ’±–°Õ—Ω…î∞ÅΩ…ëï…}≠ï‰∞Å…ïÕ’±–§(ÄÄÄÄÄÄÄÅ•òÅÖ’ë•—}±Ωù}¡Ö—†Ë(ÄÄÄÄÄÄÄÄÄÄÄÅÖ¡¡ïπë}±•Ÿï}Ö’ë•—}ïŸïπ–†(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÖ’ë•—}±Ωù}¡Ö—†∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄâΩ…ëï…}…ïçΩπç•±ïêà∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄâΩ…ëï…}≠ï‰àËÅΩ…ëï…}≠ï‰∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄâÕÂµâΩ∞àËÅ¡Ö•»∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄâÕ—Ö—’ÃàËÅÕ—»°…ïÕ’±–πùï–†âÕ—Ö—’Ãà§§∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄâô•±±ïë}≈—‰àËÅô±ΩÖ–°…ïÕ’±–πùï–†âô•±±ïë}≈—‰à§ÅΩ»Ä¿∏¿§∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÙ∞(ÄÄÄÄÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÅ•òÅ…ïÕ’±–πùï–†âÕ—Ö—’Ãà§ÄÑÙÄâô•±±ïêàË(ÄÄÄÄÄÄÄÄÄÄÄÅ’π…ïÕΩ±ŸïêπÖ¡¡ïπê°òâÌΩ…ëï…}≠ïÂÙËÅï·ç°ÖπùîÅÕ—Ö—’ÃÅÌ…ïÕ’±–πùï–†ùÕ—Ö—’Ãú•Ùà§(ÄÄÄÅ•òÅ’π…ïÕΩ±ŸïêË(ÄÄÄÄÄÄÄÅ•òÅÖ’ë•—}±Ωù}¡Ö—†Ë(ÄÄÄÄÄÄÄÄÄÄÄÅÖ¡¡ïπë}±•Ÿï}Ö’ë•—}ïŸïπ–†(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÖ’ë•—}±Ωù}¡Ö—†∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄâ…ïçΩπç•±•Ö—•Ωπ}â±Ωç≠ïêà∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÏâ…ïÖÕΩπÃàËÅ’π…ïÕΩ±ŸïëÙ∞(ÄÄÄÄÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÅ…Ö•ÕîÅ1•ŸïMÖôï—Â……Ω»†(ÄÄÄÄÄÄÄÄÄÄÄÄâ’πô•π•Õ°ïêÅΩ…ëï»Å…ïçΩπç•±•Ö—•Ω∏Åâ±Ωç≠ïêÅ—°îÅâÖ—ç†ËÄàÄ¨ÄàÏÄàπ©Ω•∏°’π…ïÕΩ±Ÿïê§(ÄÄÄÄÄÄÄÄ§(()ëïòÅ…’π}±Ωç≠ïê†(ÄÄÄÅÖ…ùÃËÅÖ…ù¡Ö…Õîπ9ÖµïÕ¡Öçî∞(ÄÄÄÄ®∞(ÄÄÄÅ±•µ•—ÃËÅ1•ŸïI•Õ≠1•µ•—Ã∞(ÄÄÄÅÖ±±ΩçÖ—•ΩπÃËÅ±•Õ—m—’¡±ïmÕ—»∞Åô±ΩÖ—ut∞(ÄÄÄÅÕ—Ö—ï}¡Ö—†ËÅÕ—»∞(§Ä¥¯Å•π–Ë(ÄÄÄÅ≠ïÂ}πÖµîÄÙÄâ	%99}QMQ9Q}A%}-dàÅ•òÅÖ…ùÃπ—ïÕ—πï–Åï±ÕîÄâ	%99}A%}-dà(ÄÄÄÅÕïç…ï—}πÖµîÄÙÄâ	%99}QMQ9Q}A%}MIPàÅ•òÅÖ…ùÃπ—ïÕ—πï–Åï±ÕîÄâ	%99}A%}MIPà(ÄÄÄÅÖ¡•}≠ï‰ÄÙÅΩÃπùï—ïπÿ°≠ïÂ}πÖµî∞Äàà§(ÄÄÄÅÕïç…ï–ÄÙÅΩÃπùï—ïπÿ°Õïç…ï—}πÖµî∞Äàà§(ÄÄÄÅ•òÅπΩ–ÅÖ¡•}≠ï‰ÅΩ»ÅπΩ–ÅÕïç…ï–Ë(ÄÄÄÄÄÄÄÅ…Ö•ÕîÅ1•ŸïMÖôï—Â……Ω»°òâÌ≠ïÂ}πÖµïÙÅÖπêÅÌÕïç…ï—}πÖµïÙÅÖ…îÅ…ï≈’•…ïêà§(ÄÄÄÄåÅΩπ—ï·–Åâ•πë•πúÅ¡ï…Õ•Õ—ÃÅÕ—Ö—îÅïŸï∏Åë’…•πúÅë…‰µ…’πÃ∞ÅÕºÅïŸï…‰Å…’ππï»ÅµΩëî(ÄÄÄÄåÅ…ï≈’•…ïÃÅ—°îÅ•π—ïù…•—‰Å≠ï‰∏ÅQ°•ÃÅ¡…ïŸïπ—ÃÅç…ïÖ—•πúÅÖ∏Å’πÕ•ùπïêÅâÖÕï±•πî(ÄÄÄÄåÅ—°Ö–ÅçÖππΩ–ÅâîÅÕÖôï±‰Å…ï’ÕïêÅôΩ»Å±Ö—ï»Åï·ïç’—•Ω∏∏(ÄÄÄÅ•π—ïù…•—Â}≠ï‰ÄÙÅŸÖ±•ëÖ—ï}•π—ïù…•—Â}≠ï‰°ΩÃπùï—ïπÿ†â1%Y}MQe}!5}-dà∞Äàà§§(ÄÄÄÅÕ—Ω…îÄÙÅ1•ŸïI•Õ≠M—Ö—ïM—Ω…î†(ÄÄÄÄÄÄÄÅÕ—Ö—ï}¡Ö—†∞(ÄÄÄÄÄÄÄÅ•π—ïù…•—Â}≠ï‰ı•π—ïù…•—Â}≠ï‰∞(ÄÄÄÄ§(ÄÄÄÅ•òÅÖ…ùÃπï·ïç’—îÅÖπêÅπΩ–ÅÖ…ùÃπ—ïÕ—πï–ÅÖπêÅπΩ–ÅÕ—Ω…îπï·•Õ—ïêË(ÄÄÄÄÄÄÄÅ…Ö•ÕîÅ1•ŸïMÖôï—Â……Ω»†â…’∏ÅÑÅÕ’ççïÕÕô’∞ÅµÖ•ππï–Åë…‰µ…’∏Åô•…Õ–Å—ºÅ•π•—•Ö±•ÈîÅ…•Õ¨ÅÕ—Ö—îà§(ÄÄÄÅÖ±±ΩçÖ—•Ωπ}µÖ¿ÄÙÅë•ç–°Ö±±ΩçÖ—•ΩπÃ§(ÄÄÄÅÕ—Ω…îπâ•πë}çΩπ—ï·–†(ÄÄÄÄÄÄÄÅÖççΩ’π–ıÖççΩ’π—}ô•πùï…¡…•π–†(ÄÄÄÄÄÄÄÄÄÄÄÅï·ç°ÖπùîÙââ•πÖπçîµ—ïÕ—πï–àÅ•òÅÖ…ùÃπ—ïÕ—πï–Åï±ÕîÄââ•πÖπçîµµÖ•ππï–à∞(ÄÄÄÄÄÄÄÄÄÄÄÅÖ¡•}≠ï‰ıÖ¡•}≠ï‰∞(ÄÄÄÄÄÄÄÄ§∞(ÄÄÄÄÄÄÄÅÕ—…Ö—ïù‰ıÕ—…Ö—ïùÂ}ô•πùï…¡…•π–†(ÄÄÄÄÄÄÄÄÄÄÄÅÕ—…Ö—ïù‰Ùâïπ°Öπçïë}µÑà∞(ÄÄÄÄÄÄÄÄÄÄÄÅ¡Ö…ÖµÃıMQIQe}AI5L∞(ÄÄÄÄÄÄÄÄÄÄÄÅÖ±±ΩçÖ—•ΩπÃıÖ±±ΩçÖ—•Ωπ}µÖ¿∞(ÄÄÄÄÄÄÄÄ§∞(ÄÄÄÄÄÄÄÅÕÂµâΩ±Ãı±•Õ–°Ö±±ΩçÖ—•Ωπ}µÖ¿§∞(ÄÄÄÄ§(ÄÄÄÅ•òÅÖ…ùÃπï·ïç’—îÅÖπêÅπΩ–ÅÖ…ùÃπ—ïÕ—πï–Ë(ÄÄÄÄÄÄÄÅâ’•±ë}Õ°ÑÄÙÅŸÖ±•ëÖ—ï}â’•±ë}Õ°Ñ°ΩÃπùï—ïπÿ†âQI%9}	U%1}M!à§§(ÄÄÄÄÄÄÄÅŸÖ±•ëÖ—ï}Õ—…Ö—ïùÂ}ïŸ•ëïπçî†(ÄÄÄÄÄÄÄÄÄÄÄÅÖ…ùÃπïŸ•ëïπçï}ô•±î∞(ÄÄÄÄÄÄÄÄÄÄÄÅï·¡ïç—ïë}ÕÂµâΩ±ÃımÕÂµâΩ∞ÅôΩ»ÅÕÂµâΩ∞∞Å|Å•∏ÅÖ±±ΩçÖ—•ΩπÕt∞(ÄÄÄÄÄÄÄÄÄÄÄÅï·¡ïç—ïë}¡Ö…ÖµÃıMQIQe}AI5L∞(ÄÄÄÄÄÄÄÄÄÄÄÅï·¡ïç—ïë}Ö±±ΩçÖ—•ΩπÃıÖ±±ΩçÖ—•Ωπ}µÖ¿∞(ÄÄÄÄÄÄÄÄÄÄÄÅï·¡ïç—ïë}â’•±ë}Õ°Ñıâ’•±ë}Õ°Ñ∞(ÄÄÄÄÄÄÄÄÄÄÄÅ•π—ïù…•—Â}≠ï‰ı•π—ïù…•—Â}≠ï‰∞(ÄÄÄÄÄÄÄÄ§((ÄÄÄÅ¡…•π–†àÙàÄ®Ä‡¿§(ÄÄÄÅµΩëîÄÙÄâIdµIU8àÅ•òÅπΩ–ÅÖ…ùÃπï·ïç’—îÅï±ÕîÄâQMQ9PÅaUQ%=8àÅ•òÅÖ…ùÃπ—ïÕ—πï–Åï±ÕîÄâ5%99PÅaUQ%=8à(ÄÄÄÅ¡…•π–°òâ	%99ÅMA=PÉäPÅπ°ÖπçïêÅ5ÉäPÅÌµΩëïÙà§(ÄÄÄÅ¡…•π–†(ÄÄÄÄÄÄÄÅòâ1•µ•—ÃËÅΩ…ëï»ÄëÌ±•µ•—ÃπµÖ·}Ω…ëï…}πΩ—•ΩπÖ±}’ÕêË∞∏…ôÙ∞Äà(ÄÄÄÄÄÄÄÅòâÕÂµâΩ∞ÅÌ±•µ•—ÃπµÖ·}ÕÂµâΩ±}ï·¡ΩÕ’…ï}¡ç–Ë∏¿ïÙ∞Åù…ΩÕÃÅÌ±•µ•—ÃπµÖ·}ù…ΩÕÕ}ï·¡ΩÕ’…ï}¡ç–Ë∏¿ïÙ∞Äà(ÄÄÄÄÄÄÄÅòâçÖÕ†Å…ïÕï…ŸîÅÌ±•µ•—Ãπµ•π}çÖÕ°}…ïÕï…Ÿï}¡ç–Ë∏¿ïÙà(ÄÄÄÄ§(ÄÄÄÅ¡…•π–†àÙàÄ®Ä‡¿§((ÄÄÄÅÖëÖ¡—ï»ÄÙÅaQëÖ¡—ï»†(ÄÄÄÄÄÄÄÅ·ç°ÖπùïΩπô•ú†(ÄÄÄÄÄÄÄÄÄÄÄÅ•êÙââ•πÖπçîà∞(ÄÄÄÄÄÄÄÄÄÄÄÅπÖµîÙâ	•πÖπçîà∞(ÄÄÄÄÄÄÄÄÄÄÄÅÖ¡•}≠ï‰ıÖ¡•}≠ï‰∞(ÄÄÄÄÄÄÄÄÄÄÄÅÕïç…ï–ıÕïç…ï–∞(ÄÄÄÄÄÄÄÄÄÄÄÅ—ïÕ—πï–ıÖ…ùÃπ—ïÕ—πï–∞(ÄÄÄÄÄÄÄÄÄÄÄÅïπÖâ±ï}…Ö—ï}±•µ•–ıQ…’î∞(ÄÄÄÄÄÄÄÄÄÄÄÅµÖ…≠ï—Ãım5Ö…≠ï—QÂ¡îπMA=Qt∞(ÄÄÄÄÄÄÄÄÄÄÄÅΩ¡—•ΩπÃıÏâëïôÖ’±—QÂ¡îàËÄâÕ¡Ω–âÙ∞(ÄÄÄÄÄÄÄÄ§(ÄÄÄÄ§(ÄÄÄÅÖÕÂπç•ºπ…’∏°ÖëÖ¡—ï»πçΩππïç–†§§(ÄÄÄÅ—…‰Ë(ÄÄÄÄÄÄÄÅ•òÅπΩ–ÅÖ…ùÃπ—ïÕ—πï–Ë(ÄÄÄÄÄÄÄÄÄÄÄÅ…ï≈’•…ï}ëïë•çÖ—ïë}ÖççΩ’π–°ÖëÖ¡—ï»∞ÅÖ±±ΩçÖ—•ΩπÃ§(ÄÄÄÄÄÄÄÅâ…Ω≠ï»ÄÙÅ1•Ÿï	…Ω≠ï»†(ÄÄÄÄÄÄÄÄÄÄÄÄââ•πÖπçîà∞(ÄÄÄÄÄÄÄÄÄÄÄÅÖëÖ¡—ï»∞(ÄÄÄÄÄÄÄÄÄÄÄÅ¡…•ç•πù}ÕÂµâΩ±ÃımÕÂµâΩ∞ÅôΩ»ÅÕÂµâΩ∞∞Å|Å•∏ÅÖ±±ΩçÖ—•ΩπÕt∞(ÄÄÄÄÄÄÄÄÄÄÄÅÕ—…•ç—}¡…•ç•πúıQ…’î∞(ÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÅ…ïçΩπç•±ï}’πô•π•Õ°ïë}Ω…ëï…Ã†(ÄÄÄÄÄÄÄÄÄÄÄÅâ…Ω≠ï»ıâ…Ω≠ï»∞(ÄÄÄÄÄÄÄÄÄÄÄÅÕ—Ω…îıÕ—Ω…î∞(ÄÄÄÄÄÄÄÄÄÄÄÅÖ’ë•—}±Ωù}¡Ö—†ıÖ…ùÃπÖ’ë•—}±Ωú∞(ÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÅÖççΩ’π–ÄÙÅâ…Ω≠ï»πùï—}ÖççΩ’π–†§(ÄÄÄÄÄÄÄÅ¡ΩÕ•—•ΩπÃÄÙÅâ…Ω≠ï»πùï—}¡ΩÕ•—•ΩπÃ†§(ÄÄÄÄÄÄÄÅ•òÅÖ…ùÃπï·ïç’—îË(ÄÄÄÄÄÄÄÄÄÄÄÅç±ïÖπ’¡}Ω…¡°Öπ}¡…Ω—ïç—•Ÿï}Õ—Ω¡Ã†(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅµÖπÖùïë}ÕÂµâΩ±ÃımÕÂµâΩ∞ÅôΩ»ÅÕÂµâΩ∞∞Å|Å•∏ÅÖ±±ΩçÖ—•ΩπÕt∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ¡ΩÕ•—•ΩπÃı¡ΩÕ•—•ΩπÃ∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅâ…Ω≠ï»ıâ…Ω≠ï»∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ—Ω…îıÕ—Ω…î∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÖ’ë•—}±Ωù}¡Ö—†ıÖ…ùÃπÖ’ë•—}±Ωú∞(ÄÄÄÄÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÅï≈’•—‰ÄÙÅô±ΩÖ–°ÖççΩ’π—lâï≈’•—‰ât§(ÄÄÄÄÄÄÄÅ±Ωç≠ïë}…ïÖÕΩ∏ÄÙÅÕ—Ω…îπΩâÕï…Ÿï}ï≈’•—‰°ï≈’•—‰∞Å±•µ•—Ã§(ÄÄÄÄÄÄÄÅµï—…•çÃÄÙÅÕ—Ω…îπµï—…•çÃ°ï≈’•—‰§(ÄÄÄÄÄÄÄÅ¡…•π–†(ÄÄÄÄÄÄÄÄÄÄÄÅòâççΩ’π–ËÅï≈’•—‰ÄëÌï≈’•—‰Ë∞∏…ôÙ∞ÅçÖÕ†ÄëÌô±ΩÖ–°ÖççΩ’π—lùçÖÕ†ùt§Ë∞∏…ôÙ∞Äà(ÄÄÄÄÄÄÄÄÄÄÄÅòâÅÌô±ΩÖ–°µï—…•çÕlùë…Ö›ëΩ›π}¡ç–ùt§Ë∏»ïÙ∞Äà(ÄÄÄÄÄÄÄÄÄÄÄÅòâëÖ•±‰Å±ΩÕÃÅÌô±ΩÖ–°µï—…•çÕlùëÖ•±Â}±ΩÕÕ}¡ç–ùt§Ë∏»ïÙà(ÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÅ•òÅ±Ωç≠ïë}…ïÖÕΩ∏Ë(ÄÄÄÄÄÄÄÄÄÄÄÅ¡…•π–°òãänPÅ%IU%PÅ	I-HËÅÌ±Ωç≠ïë}…ïÖÕΩπÙÏÅΩπ±‰Å…•Õ¨µ…ïë’ç•πúÅÕï±±ÃÅÖ…îÅÖ±±Ω›ïêà§((ÄÄÄÄÄÄÄÅÕ—Ö—ïÃËÅë•ç—mÕ—»∞Åë•ç—tÄÙÅÌÙ(ÄÄÄÄÄÄÄÅëÖ—Ö}ï……Ω…ÃËÅ±•Õ—mÕ—…tÄÙÅmt(ÄÄÄÄÄÄÄÅôΩ»Å¡Ö•»∞ÅÖ±±ΩçÖ—•Ω∏Å•∏ÅÖ±±ΩçÖ—•ΩπÃË(ÄÄÄÄÄÄÄÄÄÄÄÅ—…‰Ë(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ—Ö—îÄÙÅçΩµ¡’—ï}Õ—Ö—î°ùï—}…ïçïπ—}ëò°¡Ö•»§§(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ—Ö—ïÕm¡Ö•…tÄÙÅÕ—Ö—î(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ¡…•π–†(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅòâÌ¡Ö•…ÙËÅÌÕ—Ö—ïlùÕ—Ö—îùuÙÅ ÄëÌÕ—Ö—ïlù¡…•çîùtË∞∏…ôÙ∞Äà(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅòâ5ÅÌÕ—Ö—ïlùµÖ}ôÖÕ–ùtË∏…ôÙΩÌÕ—Ö—ïlùµÖ}Õ±Ω‹ùtË∏…ôÙ∞Äà(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅòâ`ÅÌÕ—Ö—ïlùÖë‡ùtË∏≈ôÙ∞Å—Ö…ùï–ÅÌÖ±±ΩçÖ—•Ω∏Ë∏¿ïÙà(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÄÄÄÄÅï·çï¡–Å·çï¡—•Ω∏ÅÖÃÅï·åË(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅëÖ—Ö}ï……Ω…ÃπÖ¡¡ïπê°òâÌ¡Ö•…ÙËÅÌï·çÙà§(ÄÄÄÄÄÄÄÅ•òÅëÖ—Ö}ï……Ω…ÃË(ÄÄÄÄÄÄÄÄÄÄÄÅ…Ö•ÕîÅ1•ŸïMÖôï—Â……Ω»†âµÖ…≠ï–µëÖ—ÑÅâÖ—ç†ÅôÖ•±ïêÏÅπºÅΩ…ëï…ÃÅÕ’âµ•——ïêËÄàÄ¨ÄàÏÄàπ©Ω•∏°ëÖ—Ö}ï……Ω…Ã§§((ÄÄÄÄÄÄÄÅÖ¡¡±Â}Ö—…}¡…Ω—ïç—•Ω∏°Õ—Ö—ïÃıÕ—Ö—ïÃ∞Å¡ΩÕ•—•ΩπÃı¡ΩÕ•—•ΩπÃ∞ÅÕ—Ω…îıÕ—Ω…î§(ÄÄÄÄÄÄÄÅôΩ»Å¡Ö•»∞ÅÕ—Ö—îÅ•∏ÅÕ—Ö—ïÃπ•—ïµÃ†§Ë(ÄÄÄÄÄÄÄÄÄÄÄÅ•òÅÕ—Ö—îπùï–†â…•Õ≠}ï·•–à§Ë(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ¡…•π–°òâÌ¡Ö•…ÙËÅI%M,Åa%PÉäPÅÌÕ—Ö—ïlù…•Õ≠}ï·•–ùuÙà§((ÄÄÄÄÄÄÄÅëïç•Õ•ΩπÃÄÙÅâ’•±ë}ëïç•Õ•ΩπÃ†(ÄÄÄÄÄÄÄÄÄÄÄÅÖ±±ΩçÖ—•ΩπÃıÖ±±ΩçÖ—•ΩπÃ∞(ÄÄÄÄÄÄÄÄÄÄÄÅÕ—Ö—ïÃıÕ—Ö—ïÃ∞(ÄÄÄÄÄÄÄÄÄÄÄÅ¡ΩÕ•—•ΩπÃı¡ΩÕ•—•ΩπÃ∞(ÄÄÄÄÄÄÄÄÄÄÄÅï≈’•—‰ıï≈’•—‰∞(ÄÄÄÄÄÄÄÄÄÄÄÅ±Ωç≠ïë}…ïÖÕΩ∏ı±Ωç≠ïë}…ïÖÕΩ∏∞(ÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÅ•òÅÖ…ùÃπï·ïç’—îË(ÄÄÄÄÄÄÄÄÄÄÄÅïπÕ’…ï}¡…Ω—ïç—•Ÿï}Õ—Ω¡Ã†(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ—Ö—ïÃıÕ—Ö—ïÃ∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ¡ΩÕ•—•ΩπÃı¡ΩÕ•—•ΩπÃ∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅâ…Ω≠ï»ıâ…Ω≠ï»∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ—Ω…îıÕ—Ω…î∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ≠•¡}ÕÂµâΩ±ÃıÏ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅëïç•Õ•ΩπlâµÖ…≠ï—}ÕÂµâΩ∞ât(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅôΩ»Åëïç•Õ•Ω∏Å•∏Åëïç•Õ•ΩπÃ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ•òÅëïç•Õ•ΩπlâÖç—•Ω∏âtÄÙÙÄâM10à(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÙ∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÖ’ë•—}±Ωù}¡Ö—†ıÖ…ùÃπÖ’ë•—}±Ωú∞(ÄÄÄÄÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÅ•òÅπΩ–Åëïç•Õ•ΩπÃË(ÄÄÄÄÄÄÄÄÄÄÄÅ¡…•π–†â9ºÅ—…ÖëïÃÅ—ºÅï·ïç’—îÉäPÅ¡ΩÕ•—•ΩπÃÅÖ±…ïÖë‰ÅµÖ—ç†Å—°îÅ¡ï…µ•——ïêÅ—Ö…ùï—Ãà§(ÄÄÄÄÄÄÄÄÄÄÄÅ…ï—’…∏Ä¿((ÄÄÄÄÄÄÄÅ¡…ï¡Ö…ïêÄÙÅ¡…ï¡Ö…ï}Ω…ëï…Ã†(ÄÄÄÄÄÄÄÄÄÄÄÅëïç•Õ•ΩπÃıëïç•Õ•ΩπÃ∞(ÄÄÄÄÄÄÄÄÄÄÄÅâ…Ω≠ï»ıâ…Ω≠ï»∞(ÄÄÄÄÄÄÄÄÄÄÄÅÖççΩ’π–ıÖççΩ’π–∞(ÄÄÄÄÄÄÄÄÄÄÄÅ¡ΩÕ•—•ΩπÃı¡ΩÕ•—•ΩπÃ∞(ÄÄÄÄÄÄÄÄÄÄÄÅ±•µ•—Ãı±•µ•—Ã∞(ÄÄÄÄÄÄÄÄÄÄÄÅ±Ωç≠ïë}…ïÖÕΩ∏ı±Ωç≠ïë}…ïÖÕΩ∏∞(ÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÅ¡…•π–†âqπaUQ%=8ÅA18à§(ÄÄÄÄÄÄÄÅôΩ»Å¡±ÖππïêÅ•∏Å¡…ï¡Ö…ïêË(ÄÄÄÄÄÄÄÄÄÄÄÅ¡…•π–†(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅòàÄÅÌ¡±ÖππïëlùÖç—•Ω∏ùuÙÅÌ¡±Öππïëlù≈—‰ùtË∏·ôÙÅÌ¡±ÖππïëlùµÖ…≠ï—}ÕÂµâΩ∞ùuÙÄà(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅòãä& ÄëÌ¡±ÖππïëlùπΩ—•ΩπÖ∞ùtË∞∏…ôÙÄ°Ì¡±Öππïëlù…ïÖÕΩ∏ùuÙ§à(ÄÄÄÄÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÅ•òÅπΩ–ÅÖ…ùÃπï·ïç’—îË(ÄÄÄÄÄÄÄÄÄÄÄÅ¡…•π–†âIdµIU8ÅçΩµ¡±ï—îÉäPÅπºÅΩ…ëï…ÃÅÕ’âµ•——ïêà§(ÄÄÄÄÄÄÄÄÄÄÄÅ…ï—’…∏Ä¿((ÄÄÄÄÄÄÄÅï·ïç’—ï}Ω…ëï…Ã†(ÄÄÄÄÄÄÄÄÄÄÄÅΩ…ëï…Ãı¡…ï¡Ö…ïê∞(ÄÄÄÄÄÄÄÄÄÄÄÅâ…Ω≠ï»ıâ…Ω≠ï»∞(ÄÄÄÄÄÄÄÄÄÄÄÅÕ—Ω…îıÕ—Ω…î∞(ÄÄÄÄÄÄÄÄÄÄÄÅ±•µ•—Ãı±•µ•—Ã∞(ÄÄÄÄÄÄÄÄÄÄÄÅÖ’ë•—}±Ωù}¡Ö—†ıÖ…ùÃπÖ’ë•—}±Ωú∞(ÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÅô•πÖ±}ÖççΩ’π–ÄÙÅâ…Ω≠ï»πùï—}ÖççΩ’π–†§(ÄÄÄÄÄÄÄÅô•πÖ±}¡ΩÕ•—•ΩπÃÄÙÅâ…Ω≠ï»πùï—}¡ΩÕ•—•ΩπÃ†§(ÄÄÄÄÄÄÄÅ¡…•π–†(ÄÄÄÄÄÄÄÄÄÄÄÅòâ•πÖ∞ËÅï≈’•—‰ÄëÌô±ΩÖ–°ô•πÖ±}ÖççΩ’π—lùï≈’•—‰ùt§Ë∞∏…ôÙ∞Äà(ÄÄÄÄÄÄÄÄÄÄÄÅòâçÖÕ†ÄëÌô±ΩÖ–°ô•πÖ±}ÖççΩ’π—lùçÖÕ†ùt§Ë∞∏…ôÙ∞Å¡ΩÕ•—•ΩπÃÅÌ±ï∏°ô•πÖ±}¡ΩÕ•—•ΩπÃ•Ùà(ÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÅ…ï—’…∏Ä¿(ÄÄÄÅô•πÖ±±‰Ë(ÄÄÄÄÄÄÄÅ›•—†ÅÕ’¡¡…ïÕÃ°·çï¡—•Ω∏§Ë(ÄÄÄÄÄÄÄÄÄÄÄÅÖÕÂπç•ºπ…’∏°ÖëÖ¡—ï»πë•ÕçΩππïç–†§§(()ëïòÅ…’∏°Ö…ùÃËÅÖ…ù¡Ö…Õîπ9ÖµïÕ¡Öçî§Ä¥¯Å•π–Ë(ÄÄÄÅ±•µ•—ÃÄÙÅ1•ŸïI•Õ≠1•µ•—Ãπô…Ωµ}ïπÿ†§(ÄÄÄÅÖ±±ΩçÖ—•ΩπÃÄÙÅ¡Ö…Õï}Ö±±ΩçÖ—•ΩπÃ°Ö…ùÃπÕÂµâΩ±Ã∞ÅÖ…ùÃπ›ï•ù°—Ã∞Å±•µ•—Ã§(ÄÄÄÅ…ï≈’•…ï}ï·ïç’—•Ωπ}Ö’—°Ω…•ÈÖ—•Ω∏†(ÄÄÄÄÄÄÄÅï·ïç’—îıÖ…ùÃπï·ïç’—î∞(ÄÄÄÄÄÄÄÅ—ïÕ—πï–ıÖ…ùÃπ—ïÕ—πï–∞(ÄÄÄÄÄÄÄÅç±•}çΩπô•…µÖ—•Ω∏ıÖ…ùÃπçΩπô•…µ}±•Ÿî∞(ÄÄÄÄ§(ÄÄÄÅÕ—Ö—ï}¡Ö—†ÄÙÅÖ…ùÃπÕ—Ö—ï}ô•±îÅΩ»Ä†(ÄÄÄÄÄÄÄÄâëÖ—ÑΩâ•πÖπçï}—ïÕ—πï—}…•Õ≠}Õ—Ö—îπ©ÕΩ∏à(ÄÄÄÄÄÄÄÅ•òÅÖ…ùÃπ—ïÕ—πï–(ÄÄÄÄÄÄÄÅï±ÕîÄâëÖ—ÑΩâ•πÖπçï}±•Ÿï}…•Õ≠}Õ—Ö—îπ©ÕΩ∏à(ÄÄÄÄ§(ÄÄÄÅ›•—†Å1•Ÿï·ïç’—•Ωπ1Ωç¨°òâÌÕ—Ö—ï}¡Ö—°Ùπ±Ωç¨à§Ë(ÄÄÄÄÄÄÄÅ…ï—’…∏Å…’π}±Ωç≠ïê†(ÄÄÄÄÄÄÄÄÄÄÄÅÖ…ùÃ∞(ÄÄÄÄÄÄÄÄÄÄÄÅ±•µ•—Ãı±•µ•—Ã∞(ÄÄÄÄÄÄÄÄÄÄÄÅÖ±±ΩçÖ—•ΩπÃıÖ±±ΩçÖ—•ΩπÃ∞(ÄÄÄÄÄÄÄÄÄÄÄÅÕ—Ö—ï}¡Ö—†ıÕ—Ö—ï}¡Ö—†∞(ÄÄÄÄÄÄÄÄ§(()ëïòÅµÖ•∏†§Ä¥¯Å•π–Ë(ÄÄÄÅÖ…ùÃÄÙÅâ’•±ë}¡Ö…Õï»†§π¡Ö…Õï}Ö…ùÃ†§(ÄÄÄÅÖ¡¡ïπë}±•Ÿï}Ö’ë•—}ïŸïπ–†(ÄÄÄÄÄÄÄÅÖ…ùÃπÖ’ë•—}±Ωú∞(ÄÄÄÄÄÄÄÄâ…’π}Õ—Ö…—ïêà∞(ÄÄÄÄÄÄÄÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÄâï·ïç’—îàËÅâΩΩ∞°Ö…ùÃπï·ïç’—î§∞(ÄÄÄÄÄÄÄÄÄÄÄÄâ—ïÕ—πï–àËÅâΩΩ∞°Ö…ùÃπ—ïÕ—πï–§∞(ÄÄÄÄÄÄÄÄÄÄÄÄâÕÂµâΩ±ÃàËÅÖ…ùÃπÕÂµâΩ±Ã∞(ÄÄÄÄÄÄÄÅÙ∞(ÄÄÄÄ§(ÄÄÄÅ—…‰Ë(ÄÄÄÄÄÄÄÅ…ïÕ’±–ÄÙÅ…’∏°Ö…ùÃ§(ÄÄÄÄÄÄÄÅÖ¡¡ïπë}±•Ÿï}Ö’ë•—}ïŸïπ–°Ö…ùÃπÖ’ë•—}±Ωú∞Äâ…’π}çΩµ¡±ï—ïêà∞ÅÏâï·•—}çΩëîàËÅ…ïÕ’±—Ù§(ÄÄÄÄÄÄÄÅ…ï—’…∏Å…ïÕ’±–(ÄÄÄÅï·çï¡–Å·çï¡—•Ω∏ÅÖÃÅï·åË(ÄÄÄÄÄÄÄÅÖ¡¡ïπë}±•Ÿï}Ö’ë•—}ïŸïπ–†(ÄÄÄÄÄÄÄÄÄÄÄÅÖ…ùÃπÖ’ë•—}±Ωú∞(ÄÄÄÄÄÄÄÄÄÄÄÄâ…’π}ôÖ•±ïêà∞(ÄÄÄÄÄÄÄÄÄÄÄÅÏâï……Ω…}—Â¡îàËÅ—Â¡î°ï·å§π}}πÖµï}|∞Äâï……Ω»àËÅÕ—»°ï·å•lËƒ¿¿¡uÙ∞(ÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÅ¡…•π–°òâQ0ËÅÌï·çÙà∞Åô•±îıÕÂÃπÕ—ëï…»§(ÄÄÄÄÄÄÄÅ…ï—’…∏Äƒ(()•òÅ}}πÖµï}|ÄÙÙÄâ}}µÖ•π}|àË(ÄÄÄÅ…Ö•ÕîÅMÂÕ—ïµ·•–°µÖ•∏†§§

@@ -250,12 +250,14 @@ class LiveBroker:
         for o in orders:
             out.append({
                 "id": o.id,
+                "client_order_id": o.client_order_id,
                 "symbol": o.symbol.pair,
                 "side": o.side.value,
                 "type": o.type.value,
                 "qty": float(o.size),
                 "filled_qty": float(o.filled_size),
                 "avg_fill_price": float(o.avg_fill_price),
+                "stop_price": float(o.stop_price) if o.stop_price is not None else None,
                 "status": o.status.value,
                 "submitted_at": o.created_at.isoformat() if o.created_at else "",
             })
@@ -276,6 +278,10 @@ class LiveBroker:
             "qty": float(result.size),
             "filled_qty": float(result.filled_size),
             "avg_fill_price": float(result.avg_fill_price),
+            "stop_price": (
+                float(result.stop_price) if result.stop_price is not None else None
+            ),
+            "type": result.type.value,
             "error": result.error,
         }
 
@@ -294,13 +300,41 @@ class LiveBroker:
             "qty": float(result.size),
             "filled_qty": float(result.filled_size),
             "avg_fill_price": float(result.avg_fill_price),
+            "stop_price": (
+                float(result.stop_price) if result.stop_price is not None else None
+            ),
             "error": result.error,
         }
 
-    def cancel_order(self, order_id: str) -> bool:
-        # cancel_order needs a symbol; best-effort with a pseudo BTC symbol.
-        # CLI's live loop only cancels when we have a concrete order, so this
-        # is acceptable for the paper/live demo paths that don't rely on it.
-        sym = Symbol(base="BTC", quote="USD", asset_class=AssetClass.STOCK,
-                     market_type=MarketType.SPOT, exchange="alpaca")
-        return _run(self.adapter.cancel_order(order_id, sym))
+    def replace_order(self, order_id: str, order: Order) -> dict:
+        """Cancel-replace one concrete order without guessing its symbol."""
+
+        result = _run(self.adapter.replace_order(order_id, order))
+        return {
+            "id": result.id,
+            "client_order_id": result.client_order_id,
+            "status": result.status.value,
+            "symbol": result.symbol.pair,
+            "side": result.side.value,
+            "type": result.type.value,
+            "qty": float(result.size),
+            "filled_qty": float(result.filled_size),
+            "avg_fill_price": float(result.avg_fill_price),
+            "stop_price": (
+                float(result.stop_price) if result.stop_price is not None else None
+            ),
+            "error": result.error,
+        }
+
+    def cancel_order(self, order_id: str, symbol: Symbol | None = None) -> bool:
+        if symbol is None:
+            # Preserve the historical CLI fallback; live trading must always
+            # pass the concrete symbol so it cannot cancel on the wrong market.
+            symbol = Symbol(
+                base="BTC",
+                quote="USD",
+                asset_class=AssetClass.STOCK,
+                market_type=MarketType.SPOT,
+                exchange="alpaca",
+            )
+        return _run(self.adapter.cancel_order(order_id, symbol))

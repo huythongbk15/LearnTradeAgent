@@ -104,6 +104,43 @@ def test_order_ledger_persists_terminal_and_unfinished_states(tmp_path):
     assert reloaded.state.order_ledger["pending"]["exchange_order_id"] == "123"
 
 
+def test_protective_order_state_preserves_active_during_replacement(tmp_path):
+    state_path = tmp_path / "risk.json"
+    store = LiveRiskStateStore(state_path)
+    store.observe_position_risk(
+        "BTC/USDT",
+        quantity=0.1,
+        observed_high=100.0,
+        atr=5.0,
+        atr_multiplier=2.0,
+    )
+    first = store.reserve_protective_order(
+        "BTC/USDT",
+        quantity=0.1,
+        stop_price=90.0,
+    )
+    active = store.activate_pending_protective_order(
+        "BTC/USDT",
+        exchange_order_id="stop-1",
+    )
+    assert active["client_order_id"] == first["client_order_id"]
+
+    second = store.reserve_protective_order(
+        "BTC/USDT",
+        quantity=0.1,
+        stop_price=92.0,
+    )
+    replacing = LiveRiskStateStore(state_path).protective_order_state("BTC/USDT")
+    assert replacing["active"]["exchange_order_id"] == "stop-1"
+    assert replacing["pending"]["client_order_id"] == second["client_order_id"]
+    assert second["client_order_id"] != first["client_order_id"]
+
+    store.abandon_pending_protective_order("BTC/USDT")
+    retained = store.protective_order_state("BTC/USDT")
+    assert retained["active"]["exchange_order_id"] == "stop-1"
+    assert retained["pending"] is None
+
+
 def test_signed_state_detects_tampering_and_context_mismatch(tmp_path):
     state_path = tmp_path / "risk.json"
     key = "state-integrity-key-with-more-than-32-characters"
