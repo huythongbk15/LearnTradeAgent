@@ -35,7 +35,8 @@
 │   ├── prometheus
 │   │   └── prometheus.yml
 │   ├── config.yaml
-│   └── live_strategy_evidence.example.json
+│   ├── live_strategy_evidence.example.json
+│   └── trading.example.yaml
 ├── dashboard
 │   ├── __init__.py
 │   └── app.py
