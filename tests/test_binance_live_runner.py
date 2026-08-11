@@ -18,6 +18,7 @@ from trading_agent.execution.live_safety import (
     LiveRiskStateStore,
     LiveSafetyError,
 )
+from trading_agent.exchanges.models import OrderConstraintError
 
 
 def test_allocations_are_not_normalized():
@@ -25,6 +26,47 @@ def test_allocations_are_not_normalized():
         "BTC/USDT,SOL/USDT", "20,10", LiveRiskLimits()
     )
     assert allocations == [("BTC/USDT", 0.2), ("SOL/USDT", 0.1)]
+
+
+def test_risk_profile_is_bound_to_exchange_mode():
+    testnet = runner.argparse.Namespace(testnet=True, profile=None)
+    mainnet = runner.argparse.Namespace(testnet=False, profile=None)
+    assert runner.resolve_trading_profile(testnet, {}) == "testnet"
+    assert runner.resolve_trading_profile(mainnet, {}) == "mainnet-canary"
+    with pytest.raises(LiveSafetyError, match="Testnet requires"):
+        runner.resolve_trading_profile(
+            runner.argparse.Namespace(testnet=True, profile="mainnet-normal"),
+            {},
+        )
+    with pytest.raises(LiveSafetyError, match="do not match"):
+        runner.resolve_trading_profile(
+            runner.argparse.Namespace(testnet=False, profile="mainnet-canary"),
+            {"LIVE_TRADING_PROFILE": "mainnet-normal"},
+        )
+
+
+def test_canary_buy_decision_is_sliced_to_dynamic_order_cap():
+    limits = LiveRiskLimits.for_profile("mainnet-canary")
+    decisions = runner.build_decisions(
+        allocations=[("BTC/USDT", 0.04)],
+        states={
+            "BTC/USDT": {
+                "state": "LONG",
+                "price": 100.0,
+                "ma_fast": 110.0,
+                "ma_slow": 100.0,
+                "candle_timestamp": datetime(2026, 8, 10, 10, tzinfo=UTC),
+            }
+        },
+        positions=[],
+        equity=10_000.0,
+        locked_reason=None,
+        limits=limits,
+    )
+    assert decisions[0]["action"] == "BUY"
+    assert decisions[0]["qty"] * decisions[0]["signal_price"] == pytest.approx(
+        25.0 / 1.01
+    )
 
 
 def test_allocations_cannot_exceed_gross_limit():
@@ -370,6 +412,18 @@ class ProtectiveBroker:
         return False
 
 
+class DustRejectedBroker(ProtectiveBroker):
+    def __init__(self, constraint="minimum_notional"):
+        super().__init__()
+        self.constraint = constraint
+
+    def normalize_order_amount(self, symbol, amount, *, reference_price):
+        raise OrderConstraintError(
+            "order is outside a deterministic exchange filter",
+            constraint=self.constraint,
+        )
+
+
 def initialized_position_store(tmp_path):
     store = LiveRiskStateStore(tmp_path / "state.json")
     store.observe_position_risk(
@@ -380,6 +434,66 @@ def initialized_position_store(tmp_path):
         atr_multiplier=2.0,
     )
     return store
+
+
+def test_sell_capacity_counts_only_free_and_our_protective_reservation():
+    position = {"qty": 0.1, "free_qty": 0.02, "locked_qty": 0.08}
+    active = {"status": "open", "quantity": 0.05}
+    assert runner.sellable_position_quantity(position, active) == pytest.approx(0.07)
+    assert runner.sellable_position_quantity(position, None) == pytest.approx(0.02)
+    with pytest.raises(LiveSafetyError, match="available balance"):
+        runner.validate_sell_quantity_capacity(
+            pair="BTC/USDT",
+            requested_quantity=0.03,
+            position=position,
+            active_protective=None,
+        )
+
+
+def test_minimum_filter_remainder_is_persisted_as_controlled_dust(tmp_path):
+    store = initialized_position_store(tmp_path)
+    audit_path = tmp_path / "execution.jsonl"
+    result = runner.ensure_protective_stop(
+        pair="BTC/USDT",
+        quantity=0.04,
+        desired_stop=90.0,
+        current_price=100.0,
+        broker=DustRejectedBroker(),
+        store=store,
+        limits=LiveRiskLimits(max_dust_notional_usd=5.0),
+        audit_log_path=audit_path,
+    )
+    assert result["status"] == "controlled_dust"
+    assert store.protective_order_state("BTC/USDT")["dust"][
+        "estimated_notional"
+    ] == pytest.approx(4.0)
+    event = json.loads(audit_path.read_text(encoding="utf-8"))
+    assert event["event"] == "position_dust_classified"
+    assert event["details"]["context"] == "protective_stop"
+
+
+def test_large_or_non_minimum_remainder_still_fails_closed(tmp_path):
+    store = initialized_position_store(tmp_path)
+    with pytest.raises(OrderConstraintError):
+        runner.ensure_protective_stop(
+            pair="BTC/USDT",
+            quantity=0.06,
+            desired_stop=90.0,
+            current_price=100.0,
+            broker=DustRejectedBroker(),
+            store=store,
+            limits=LiveRiskLimits(max_dust_notional_usd=5.0),
+        )
+    with pytest.raises(OrderConstraintError):
+        runner.ensure_protective_stop(
+            pair="BTC/USDT",
+            quantity=0.04,
+            desired_stop=90.0,
+            current_price=100.0,
+            broker=DustRejectedBroker(constraint="maximum_notional"),
+            store=store,
+            limits=LiveRiskLimits(max_dust_notional_usd=5.0),
+        )
 
 
 def test_exchange_native_stop_is_idempotent_and_only_tightens(tmp_path):
@@ -639,6 +753,8 @@ class FilledExitBroker(ProtectiveBroker):
         self.positions = [{
             "symbol": "BTC/USDT",
             "qty": 0.1,
+            "free_qty": 0.0,
+            "locked_qty": 0.1,
             "market_value": 10.0,
         }]
         self.exit_replace_calls = 0
