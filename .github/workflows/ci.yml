@@ -121,8 +121,10 @@ jobs:
           docker run --rm "$IMAGE" --help >/dev/null
           # Package importable
           docker run --rm --entrypoint python "$IMAGE" -c "import trading_agent; print('Import OK')"
-          # Health command executes (exit 0; infra deps may report FAIL when absent)
-          docker run --rm "$IMAGE" system health >/dev/null
+          # Health command executes; rc=1 expected when infra deps absent
+          docker run --rm "$IMAGE" system health >/dev/null 2>&1 || rc=$?
+          if [ -n "${rc:-}" ] && [ "$rc" -ne 1 ]; then exit "$rc"; fi
+          echo "health executed (rc=${rc:-0})"
 
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
