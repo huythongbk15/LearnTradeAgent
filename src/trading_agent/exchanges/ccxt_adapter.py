@@ -36,7 +36,7 @@ except ImportError:
 from trading_agent.exchanges.models import (
     Symbol, AssetClass, MarketType, OrderSide, OrderType,
     OrderStatus, TimeInForce, Order, Position, Balance,
-    Ticker, OrderBook, OrderBookLevel, Candle
+    Ticker, OrderBook, OrderBookLevel, Candle, OrderConstraintError
 )
 
 logger = logging.getLogger(__name__)
@@ -359,10 +359,16 @@ class CCXTAdapter(ExchangeAdapter):
         ex_symbol = self._unified_to_ccxt_symbol(symbol)
         market = self.exchange.market(ex_symbol)
         if not market or not market.get("active", True):
-            raise InvalidOrder(f"market is unavailable or inactive: {ex_symbol}")
+            raise OrderConstraintError(
+                f"market is unavailable or inactive: {ex_symbol}",
+                constraint="market_unavailable",
+            )
         normalized = Decimal(str(self.exchange.amount_to_precision(ex_symbol, float(amount))))
         if normalized <= 0:
-            raise InvalidOrder(f"amount rounds to zero for {ex_symbol}")
+            raise OrderConstraintError(
+                f"amount rounds to zero for {ex_symbol}",
+                constraint="amount_zero",
+            )
 
         limits = market.get("limits") or {}
         amount_limits = limits.get("amount") or {}
@@ -370,19 +376,34 @@ class CCXTAdapter(ExchangeAdapter):
         minimum_amount = amount_limits.get("min")
         maximum_amount = amount_limits.get("max")
         if minimum_amount is not None and normalized < Decimal(str(minimum_amount)):
-            raise InvalidOrder(f"amount is below market minimum for {ex_symbol}")
+            raise OrderConstraintError(
+                f"amount is below market minimum for {ex_symbol}",
+                constraint="minimum_amount",
+            )
         if maximum_amount is not None and normalized > Decimal(str(maximum_amount)):
-            raise InvalidOrder(f"amount exceeds market maximum for {ex_symbol}")
+            raise OrderConstraintError(
+                f"amount exceeds market maximum for {ex_symbol}",
+                constraint="maximum_amount",
+            )
         if reference_price is not None:
             if reference_price <= 0:
-                raise InvalidOrder("reference price must be positive")
+                raise OrderConstraintError(
+                    "reference price must be positive",
+                    constraint="reference_price",
+                )
             cost = normalized * reference_price
             minimum_cost = cost_limits.get("min")
             maximum_cost = cost_limits.get("max")
             if minimum_cost is not None and cost < Decimal(str(minimum_cost)):
-                raise InvalidOrder(f"order notional is below market minimum for {ex_symbol}")
+                raise OrderConstraintError(
+                    f"order notional is below market minimum for {ex_symbol}",
+                    constraint="minimum_notional",
+                )
             if maximum_cost is not None and cost > Decimal(str(maximum_cost)):
-                raise InvalidOrder(f"order notional exceeds market maximum for {ex_symbol}")
+                raise OrderConstraintError(
+                    f"order notional exceeds market maximum for {ex_symbol}",
+                    constraint="maximum_notional",
+                )
         return normalized
 
     # --- Market Data ---
