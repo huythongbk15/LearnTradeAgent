@@ -282,27 +282,40 @@ class LiveBroker:
         )
         return float(normalized)
 
+    @staticmethod
+    def _order_result(order: Order) -> dict:
+        """Expose complete cumulative fill evidence to the live safety ledger."""
+
+        return {
+            "id": order.id,
+            "client_order_id": order.client_order_id,
+            "status": order.status.value,
+            "exchange_status": order.raw_status,
+            "symbol": order.symbol.pair,
+            "side": order.side.value,
+            "type": order.type.value,
+            "qty": float(order.size),
+            "filled_qty": float(order.filled_size),
+            "avg_fill_price": float(order.avg_fill_price),
+            "quote_cost": float(order.quote_cost),
+            "fees": {
+                currency: float(cost)
+                for currency, cost in order.fee_breakdown.items()
+            },
+            "trade_ids": list(order.trade_ids),
+            "stop_price": (
+                float(order.stop_price) if order.stop_price is not None else None
+            ),
+            "submitted_at": order.created_at.isoformat() if order.created_at else "",
+            "error": order.error,
+        }
+
     def get_orders(self, status: str = "open", limit: int = 20) -> list[dict]:
         if status == "open":
             orders = _run(self.adapter.fetch_open_orders())
         else:
             orders = _run(self.adapter.fetch_open_orders())  # closed fetch not in async surface
-        out = []
-        for o in orders:
-            out.append({
-                "id": o.id,
-                "client_order_id": o.client_order_id,
-                "symbol": o.symbol.pair,
-                "side": o.side.value,
-                "type": o.type.value,
-                "qty": float(o.size),
-                "filled_qty": float(o.filled_size),
-                "avg_fill_price": float(o.avg_fill_price),
-                "stop_price": float(o.stop_price) if o.stop_price is not None else None,
-                "status": o.status.value,
-                "submitted_at": o.created_at.isoformat() if o.created_at else "",
-            })
-        return out[:limit]
+        return [self._order_result(order) for order in orders[:limit]]
 
     def get_order_by_client_id(self, client_order_id: str, symbol: Symbol) -> dict | None:
         """Return a normalized order used to reconcile an uncertain submission."""
@@ -310,62 +323,20 @@ class LiveBroker:
         result = _run(self.adapter.fetch_order_by_client_id(client_order_id, symbol))
         if result is None:
             return None
-        return {
-            "id": result.id,
-            "client_order_id": result.client_order_id,
-            "status": result.status.value,
-            "symbol": result.symbol.pair,
-            "side": result.side.value,
-            "qty": float(result.size),
-            "filled_qty": float(result.filled_size),
-            "avg_fill_price": float(result.avg_fill_price),
-            "stop_price": (
-                float(result.stop_price) if result.stop_price is not None else None
-            ),
-            "type": result.type.value,
-            "error": result.error,
-        }
+        return self._order_result(result)
 
     def place_order(self, order: Order) -> dict:
         if not order.client_order_id:
             import uuid
             order.client_order_id = f"cli-{uuid.uuid4().hex[:16]}"
         result = _run(self.adapter.create_order(order))
-        return {
-            "id": result.id,
-            "client_order_id": result.client_order_id,
-            "status": result.status.value,
-            "symbol": result.symbol.pair,
-            "side": result.side.value,
-            "type": result.type.value,
-            "qty": float(result.size),
-            "filled_qty": float(result.filled_size),
-            "avg_fill_price": float(result.avg_fill_price),
-            "stop_price": (
-                float(result.stop_price) if result.stop_price is not None else None
-            ),
-            "error": result.error,
-        }
+        return self._order_result(result)
 
     def replace_order(self, order_id: str, order: Order) -> dict:
         """Cancel-replace one concrete order without guessing its symbol."""
 
         result = _run(self.adapter.replace_order(order_id, order))
-        return {
-            "id": result.id,
-            "client_order_id": result.client_order_id,
-            "status": result.status.value,
-            "symbol": result.symbol.pair,
-            "side": result.side.value,
-            "type": result.type.value,
-            "qty": float(result.size),
-            "filled_qty": float(result.filled_size),
-            "avg_fill_price": float(result.avg_fill_price),
-            "stop_price": (
-                float(result.stop_price) if result.stop_price is not None else None
-            ),
-            "error": result.error,
-        }
+        return self._order_result(result)
 
     def cancel_order(self, order_id: str, symbol: Symbol | None = None) -> bool:
         if symbol is None:
