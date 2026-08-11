@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import sys
 from datetime import UTC, datetime, timedelta
@@ -126,6 +127,47 @@ def test_existing_long_exits_when_fast_ma_is_below_slow_ma():
     )
     assert decisions[0]["action"] == "SELL"
     assert decisions[0]["reason"] == "STRATEGY_FLAT"
+
+
+def test_entry_lock_blocks_buys_but_preserves_strategy_exits():
+    candle = datetime(2026, 8, 10, 10, tzinfo=UTC)
+    entry_locked = "TRADING_ENTRY_KILL_SWITCH is active"
+    blocked_buy = runner.build_decisions(
+        allocations=[("BTC/USDT", 0.2)],
+        states={
+            "BTC/USDT": {
+                "state": "LONG",
+                "price": 100.0,
+                "ma_fast": 110.0,
+                "ma_slow": 100.0,
+                "candle_timestamp": candle,
+            }
+        },
+        positions=[],
+        equity=1_000.0,
+        locked_reason=None,
+        entries_locked_reason=entry_locked,
+    )
+    assert blocked_buy == []
+
+    permitted_exit = runner.build_decisions(
+        allocations=[("BTC/USDT", 0.2)],
+        states={
+            "BTC/USDT": {
+                "state": "FLAT",
+                "price": 100.0,
+                "ma_fast": 90.0,
+                "ma_slow": 100.0,
+                "candle_timestamp": candle,
+            }
+        },
+        positions=[{"symbol": "BTC/USDT", "qty": 2.0}],
+        equity=1_000.0,
+        locked_reason=None,
+        entries_locked_reason=entry_locked,
+    )
+    assert permitted_exit[0]["action"] == "SELL"
+    assert permitted_exit[0]["reason"] == "STRATEGY_FLAT"
 
 
 class ExecutionBroker:
@@ -495,6 +537,47 @@ class FilledBuyBroker(ProtectiveBroker):
         return super().place_order(order)
 
 
+class PartialBuyBroker(FilledBuyBroker):
+    def place_order(self, order):
+        if order.type != runner.OrderType.MARKET:
+            return super().place_order(order)
+        filled = 0.04
+        self.positions = [{
+            "symbol": order.symbol.pair,
+            "qty": filled,
+            "market_value": filled * 100.0,
+        }]
+        return {
+            "id": "entry-partial-1",
+            "client_order_id": order.client_order_id,
+            "status": "partial",
+            "symbol": order.symbol.pair,
+            "side": order.side.value,
+            "type": order.type.value,
+            "qty": float(order.size),
+            "filled_qty": filled,
+            "avg_fill_price": 100.0,
+            "stop_price": None,
+            "error": None,
+        }
+
+
+class FilterRejectedPartialBuyBroker(PartialBuyBroker):
+    def __init__(self):
+        super().__init__()
+        self.normalization_calls = 0
+
+    def normalize_order_amount(self, symbol, amount, *, reference_price):
+        self.normalization_calls += 1
+        if self.normalization_calls >= 3:
+            raise ValueError("order notional is below market minimum")
+        return super().normalize_order_amount(
+            symbol,
+            amount,
+            reference_price=reference_price,
+        )
+
+
 def test_filled_buy_installs_exchange_stop_before_batch_continues(tmp_path):
     store = LiveRiskStateStore(tmp_path / "state.json")
     broker = FilledBuyBroker()
@@ -509,6 +592,45 @@ def test_filled_buy_installs_exchange_stop_before_batch_continues(tmp_path):
     assert protection["active"]["status"] == "open"
     assert protection["active"]["stop_price"] == pytest.approx(90.0)
     assert store.unfinished_orders() == {}
+
+
+def test_partial_buy_is_protected_before_the_batch_stops(tmp_path):
+    store = LiveRiskStateStore(tmp_path / "state.json")
+    broker = PartialBuyBroker()
+    order = {**planned_buy(), "atr": 5.0, "observed_high": 100.0}
+    with pytest.raises(LiveSafetyError, match="batch stopped"):
+        runner.execute_orders(
+            orders=[order],
+            broker=broker,
+            store=store,
+            limits=LiveRiskLimits(),
+        )
+    protection = store.protective_order_state("BTC/USDT")
+    assert protection["active"]["status"] == "open"
+    assert protection["active"]["quantity"] == pytest.approx(0.04)
+    record = next(iter(store.unfinished_orders().values()))
+    assert record["status"] == "partial"
+    assert record["filled_quantity"] == pytest.approx(0.04)
+
+
+def test_unprotectable_partial_fill_is_audited_and_fails_closed(tmp_path):
+    store = LiveRiskStateStore(tmp_path / "state.json")
+    broker = FilterRejectedPartialBuyBroker()
+    audit_path = tmp_path / "execution.jsonl"
+    order = {**planned_buy(), "atr": 5.0, "observed_high": 100.0}
+    with pytest.raises(LiveSafetyError, match="cannot be protected"):
+        runner.execute_orders(
+            orders=[order],
+            broker=broker,
+            store=store,
+            limits=LiveRiskLimits(),
+            audit_log_path=audit_path,
+        )
+    events = [json.loads(line) for line in audit_path.read_text().splitlines()]
+    failed = next(event for event in events if event["event"] == "position_protection_failed")
+    assert failed["details"]["order_status"] == "partial"
+    assert failed["details"]["remaining_quantity"] == pytest.approx(0.04)
+    assert store.protective_order_state("BTC/USDT")["active"] is None
 
 
 class FilledExitBroker(ProtectiveBroker):
@@ -565,6 +687,34 @@ class FilledExitBroker(ProtectiveBroker):
         }
 
 
+class PartialExitBroker(FilledExitBroker):
+    def replace_order(self, order_id, order):
+        if order.type != runner.OrderType.MARKET:
+            return super().replace_order(order_id, order)
+        self.exit_replace_calls += 1
+        for existing in self.orders.values():
+            if existing["id"] == order_id:
+                existing["status"] = "cancelled"
+        self.positions = [{
+            "symbol": "BTC/USDT",
+            "qty": 0.04,
+            "market_value": 4.0,
+        }]
+        return {
+            "id": "exit-partial-1",
+            "client_order_id": order.client_order_id,
+            "status": "partial",
+            "symbol": order.symbol.pair,
+            "side": order.side.value,
+            "type": order.type.value,
+            "qty": float(order.size),
+            "filled_qty": 0.06,
+            "avg_fill_price": 99.9,
+            "stop_price": None,
+            "error": None,
+        }
+
+
 def test_market_exit_hands_off_exchange_stop_with_cancel_replace(tmp_path):
     store = initialized_position_store(tmp_path)
     broker = FilledExitBroker()
@@ -595,3 +745,37 @@ def test_market_exit_hands_off_exchange_stop_with_cancel_replace(tmp_path):
     assert broker.exit_replace_calls == 1
     assert "BTC/USDT" not in store.state.position_risk
     assert store.unfinished_orders() == {}
+
+
+def test_partial_exit_reprotects_the_remaining_position_before_stopping(tmp_path):
+    store = initialized_position_store(tmp_path)
+    broker = PartialExitBroker()
+    runner.ensure_protective_stop(
+        pair="BTC/USDT",
+        quantity=0.1,
+        desired_stop=90.0,
+        current_price=100.0,
+        broker=broker,
+        store=store,
+    )
+    sell = {
+        "market_symbol": "BTC/USDT",
+        "action": "SELL",
+        "qty": 0.1,
+        "signal_price": 100.0,
+        "candle_timestamp": datetime(2026, 8, 10, 10, tzinfo=UTC),
+        "atr": 5.0,
+        "observed_high": 100.0,
+        "reason": "test-partial-exit",
+    }
+    with pytest.raises(LiveSafetyError, match="batch stopped"):
+        runner.execute_orders(
+            orders=[sell],
+            broker=broker,
+            store=store,
+            limits=LiveRiskLimits(),
+        )
+    protection = store.protective_order_state("BTC/USDT")
+    assert protection["active"]["status"] == "open"
+    assert protection["active"]["quantity"] == pytest.approx(0.04)
+    assert broker.exit_replace_calls == 1

@@ -14,6 +14,7 @@ from trading_agent.execution.live_safety import (
     LiveSafetyError,
     account_fingerprint,
     append_live_audit_event,
+    configured_entry_lock_reason,
     make_order_key,
     require_execution_authorization,
     sign_strategy_evidence,
@@ -54,6 +55,19 @@ def test_kill_switch_overrides_all_execution_gates():
         require_execution_authorization(
             execute=True, testnet=True, cli_confirmation=None, env=env
         )
+
+
+def test_entry_kill_switch_keeps_the_authorized_exit_path_available():
+    env = {
+        "TRADING_ENTRY_KILL_SWITCH": "true",
+        "TRADING_EXECUTION_ENABLED": "true",
+        "TRADING_MODE": "testnet",
+    }
+    require_execution_authorization(
+        execute=True, testnet=True, cli_confirmation=None, env=env
+    )
+    assert configured_entry_lock_reason(env) == "TRADING_ENTRY_KILL_SWITCH is active"
+    assert configured_entry_lock_reason({"TRADING_ENTRY_KILL_SWITCH": "false"}) is None
 
 
 def test_corrupt_state_fails_closed(tmp_path):
@@ -213,6 +227,17 @@ def test_buy_order_limits_and_risk_reducing_sell():
         limits=limits,
         locked_reason="daily loss breached",
     )
+    with pytest.raises(LiveSafetyError, match="locked"):
+        validate_order_risk(
+            side="BUY",
+            notional_usd=10,
+            equity=800,
+            cash=100,
+            current_symbol_notional=0,
+            gross_exposure=0,
+            limits=limits,
+            locked_reason="TRADING_ENTRY_KILL_SWITCH is active",
+        )
 
 
 def test_stale_and_divergent_quotes_are_rejected():
