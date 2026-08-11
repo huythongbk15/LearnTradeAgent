@@ -526,7 +526,12 @@ def require_execution_authorization(
     cli_confirmation: str | None,
     env: Mapping[str, str] | None = None,
 ) -> None:
-    """Require independent environment and CLI gates before order submission."""
+    """Require independent environment and CLI gates before order submission.
+
+    ``TRADING_KILL_SWITCH`` is the hard stop and blocks every submission.  The
+    entry-only switch is evaluated separately so an authorized runner can
+    still submit a risk-reducing sell.
+    """
 
     if not execute:
         return
@@ -548,6 +553,17 @@ def require_execution_authorization(
         raise LiveSafetyError("TRADING_LIVE_CONFIRMATION is missing or invalid")
     if not hmac.compare_digest(cli_confirmation or "", LIVE_CONFIRMATION):
         raise LiveSafetyError("--confirm-live is missing or invalid")
+
+
+def configured_entry_lock_reason(
+    env: Mapping[str, str] | None = None,
+) -> str | None:
+    """Return the configured entry lock without disabling risk-reducing exits."""
+
+    source = os.environ if env is None else env
+    if _is_true(source.get("TRADING_ENTRY_KILL_SWITCH")):
+        return "TRADING_ENTRY_KILL_SWITCH is active"
+    return None
 
 
 @dataclass

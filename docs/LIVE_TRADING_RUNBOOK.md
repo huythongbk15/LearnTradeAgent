@@ -25,8 +25,16 @@ operational checklist below.
   replacement. Restart/timeout recovery queries both deterministic client
   order IDs before allowing another order. A risk-reducing market exit uses
   Binance cancel-replace to hand off the locked stop quantity to the exit.
+- A partial entry or exit stops the batch, but only after the refreshed
+  remaining position has received an acknowledged exchange-native stop. If
+  exchange precision or minimum-notional filters make that impossible, the
+  runner emits `position_protection_failed` and fails closed for operator
+  reconciliation; it never silently treats an unprotected remainder as safe.
 - Mainnet requires environment authorization and the same explicit phrase on
   the command line. `TRADING_KILL_SWITCH=true` overrides all other gates.
+- `TRADING_ENTRY_KILL_SWITCH=true` blocks new buys without trapping an existing
+  position: strategy exits, ATR risk exits and circuit-breaker sells remain
+  available after the normal quote, balance and exchange checks pass.
 - Mainnet also requires a recent `data/live_strategy_evidence.json` whose
   cost-aware walk-forward folds pass every fixed threshold for the portfolio
   and every traded symbol. The evidence must contain six contiguous 90-day
@@ -78,6 +86,7 @@ Use a separate testnet key and deliberately small limits:
 
 ```powershell
 $env:TRADING_KILL_SWITCH = "false"
+$env:TRADING_ENTRY_KILL_SWITCH = "false"
 $env:TRADING_EXECUTION_ENABLED = "true"
 $env:TRADING_MODE = "testnet"
 $env:LIVE_SAFETY_HMAC_KEY = "<load-from-secret-manager>"
@@ -141,6 +150,7 @@ Then use the smallest practical canary and both confirmations:
 
 ```powershell
 $env:TRADING_KILL_SWITCH = "false"
+$env:TRADING_ENTRY_KILL_SWITCH = "false"
 $env:TRADING_EXECUTION_ENABLED = "true"
 $env:TRADING_MODE = "live"
 $env:TRADING_LIVE_CONFIRMATION = "LIVE_TRADING_WITH_REAL_MONEY"
@@ -150,10 +160,13 @@ $env:LIVE_MAX_ORDER_USD = "25"
 python scripts/live_enhanced_ma_binance.py --execute --confirm-live LIVE_TRADING_WITH_REAL_MONEY
 ```
 
-Set `TRADING_KILL_SWITCH=true` to prevent subsequent order submissions. A
-persistent risk lock permits risk-reducing sells but blocks buys. Do not delete
-or edit the risk-state file to bypass a lock; stop the service, reconcile the
-account and perform a documented incident review first.
+Set `TRADING_KILL_SWITCH=true` only when every subsequent order submission must
+stop, including exits. Prefer `TRADING_ENTRY_KILL_SWITCH=true` when the operator
+must freeze exposure increases while retaining validated risk-reducing sells.
+A persistent risk lock also permits risk-reducing sells, blocks buys and may
+liquidate managed positions. Do not delete or edit the risk-state file to bypass
+a lock; stop the service, reconcile the account and perform a documented
+incident review first.
 
 For GitHub deployments, configure `STAGING_KNOWN_HOSTS` and
 `PRODUCTION_KNOWN_HOSTS` with the pinned SSH host-key lines. CD rejects images

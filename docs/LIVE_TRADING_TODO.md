@@ -12,12 +12,12 @@ gates in this document and an explicit operator approval.
 - Local starting commit: `0c62522` (`harden real-money Binance execution`).
   Its tree contains the PR #2 hardening changes; the sandbox could not fetch the
   newer merge ref because outbound Git access is blocked.
-- Remote PR #2 is merged; its CI and Phase 6 workflow runs completed
-  successfully.
+- Remote repair PR #4 is merged; its CI and Phase 6 workflow runs completed
+  successfully and restored the exact Git-normalized P0.1 tree.
 - Python: 3.12.13.
-- Full test suite after P0.1: **279 passed, 3 skipped**.
-- Critical live-path suite after P0.1: **41 passed**.
-- `trading_agent.execution.live_safety` coverage: **78.08%** (gate: 75%).
+- Full test suite after the latest P0.1 hardening: **284 passed, 3 skipped**.
+- Critical live-path suite after the latest P0.1 hardening: **46 passed**.
+- `trading_agent.execution.live_safety` coverage: **78.51%** (gate: 75%).
 - Ruff: passed.
 - GitHub workflow YAML parse: passed.
 - `pip check`: no broken requirements.
@@ -54,8 +54,11 @@ gates in this document and an explicit operator approval.
 - [x] Reconcile position and stop coverage before planning any entry/rebalance.
 - [x] Recreate a missing stop without creating duplicates.
 - [x] Replace a tightened stop safely and never widen a trailing stop.
-- [ ] Keep risk-reducing exits available while the entry kill switch is active.
+- [x] Keep risk-reducing exits available while the entry kill switch is active.
 - [ ] Handle partial fills, dust, exchange precision and minimum notional.
+  - [x] Reprotect the refreshed remainder before stopping on a partial fill.
+  - [x] Fail closed and audit when exchange filters reject protective quantity.
+  - [ ] Define and enforce the controlled dust policy in P0.4.
 - [x] Audit create, acknowledge, replace, cancel, fill and recovery events.
 - [x] Add unit, integration, restart and timeout-after-accept regression tests.
 - [ ] Add an opt-in Binance Spot Testnet acceptance test; never run it in unit CI.

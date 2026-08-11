@@ -32,6 +32,7 @@ from trading_agent.execution.live_safety import (
     LiveSafetyError,
     account_fingerprint,
     append_live_audit_event,
+    configured_entry_lock_reason,
     make_order_key,
     require_execution_authorization,
     strategy_fingerprint,
@@ -703,6 +704,7 @@ def build_decisions(
     positions: list[dict],
     equity: float,
     locked_reason: str | None,
+    entries_locked_reason: str | None = None,
 ) -> list[dict]:
     position_map = {position["symbol"]: position for position in positions}
     decisions: list[dict] = []
@@ -727,6 +729,8 @@ def build_decisions(
         if locked_reason and current_qty > 0:
             action, qty, reason = "SELL", current_qty, "RISK_CIRCUIT_BREAKER"
         elif locked_reason:
+            continue
+        elif desired_long and delta > deadband and entries_locked_reason:
             continue
         elif desired_long and delta > deadband:
             action, qty, reason = "BUY", delta / state["price"], "REBALANCE"
@@ -879,12 +883,91 @@ def prepare_orders(
     return prepared
 
 
+def protect_remaining_position(
+    *,
+    planned: dict,
+    result: dict,
+    broker: LiveBroker,
+    store: LiveRiskStateStore,
+    audit_log_path: str | None = None,
+) -> float:
+    """Protect any position left after a filled or partially filled order."""
+
+    pair = planned["market_symbol"]
+    refreshed_positions = broker.get_positions()
+    refreshed = next(
+        (position for position in refreshed_positions if position["symbol"] == pair),
+        None,
+    )
+    remaining_quantity = float(refreshed["qty"]) if refreshed else 0.0
+    if not math.isfinite(remaining_quantity) or remaining_quantity < 0:
+        raise LiveSafetyError(f"invalid post-order position quantity for {pair}")
+    if remaining_quantity == 0:
+        store.clear_position_risk(pair)
+        return 0.0
+
+    atr = float(planned.get("atr") or 0.0)
+    if not math.isfinite(atr) or atr <= 0:
+        raise LiveSafetyError(
+            f"cannot protect post-order position without a valid ATR for {pair}"
+        )
+    fill_price = float(result.get("avg_fill_price") or planned["signal_price"])
+    if planned["action"] == "BUY":
+        observed_high = max(fill_price, float(planned["signal_price"]))
+        _, desired_stop = store.observe_position_risk(
+            pair,
+            quantity=remaining_quantity,
+            observed_high=observed_high,
+            atr=atr,
+            atr_multiplier=ATR_SL_MULT,
+        )
+    else:
+        risk_record = store.state.position_risk.get(pair) or {}
+        desired_stop = float(risk_record.get("trailing_stop") or 0.0)
+        if not math.isfinite(desired_stop) or desired_stop <= 0:
+            raise LiveSafetyError(
+                f"cannot restore protection after a partial exit for {pair}: "
+                "trailing stop state is missing"
+            )
+    try:
+        ensure_protective_stop(
+            pair=pair,
+            quantity=remaining_quantity,
+            desired_stop=desired_stop,
+            current_price=float(planned["signal_price"]),
+            broker=broker,
+            store=store,
+            audit_log_path=audit_log_path,
+        )
+    except Exception as exc:
+        if audit_log_path:
+            append_live_audit_event(
+                audit_log_path,
+                "position_protection_failed",
+                {
+                    "symbol": pair,
+                    "side": planned["action"],
+                    "order_status": str(result.get("status") or "unknown"),
+                    "remaining_quantity": remaining_quantity,
+                    "estimated_notional": (
+                        remaining_quantity * float(planned["signal_price"])
+                    ),
+                    "error": str(exc)[:500],
+                },
+            )
+        raise LiveSafetyError(
+            f"post-order position cannot be protected for {pair}: {exc}"
+        ) from exc
+    return remaining_quantity
+
+
 def execute_orders(
     *,
     orders: list[dict],
     broker: LiveBroker,
     store: LiveRiskStateStore,
     limits: LiveRiskLimits,
+    locked_reason: str | None = None,
     audit_log_path: str | None = None,
 ) -> None:
     for planned in orders:
@@ -912,7 +995,7 @@ def execute_orders(
             current_symbol_notional=current_notional,
             gross_exposure=gross,
             limits=limits,
-            locked_reason=store.state.locked_reason,
+            locked_reason=locked_reason or store.state.locked_reason,
         )
 
         active_protective = None
@@ -1003,6 +1086,16 @@ def execute_orders(
                         "open", "partial", "filled",
                     }:
                         store.clear_active_protective_order(pair)
+                if str(reconciled.get("status") or "unknown").lower() in {
+                    "open", "partial", "filled",
+                }:
+                    protect_remaining_position(
+                        planned=planned,
+                        result=reconciled,
+                        broker=broker,
+                        store=store,
+                        audit_log_path=audit_log_path,
+                    )
                 raise LiveSafetyError(
                     f"order submission raised but exchange reports "
                     f"{reconciled['status']} for {order_key}; batch stopped"
@@ -1035,6 +1128,13 @@ def execute_orders(
         persist_order_result(store, order_key, result)
         if result.get("error") or result.get("status") not in {"open", "partial", "filled"}:
             raise LiveSafetyError(f"order rejected or failed: {result}")
+        protect_remaining_position(
+            planned=planned,
+            result=result,
+            broker=broker,
+            store=store,
+            audit_log_path=audit_log_path,
+        )
         if result.get("status") != "filled":
             if audit_log_path:
                 append_live_audit_event(
@@ -1051,43 +1151,6 @@ def execute_orders(
                 f"order {order_key} is {result.get('status')}; "
                 "batch stopped until reconciliation completes"
             )
-
-        refreshed_positions = broker.get_positions()
-        refreshed = next(
-            (position for position in refreshed_positions if position["symbol"] == pair),
-            None,
-        )
-        remaining_quantity = float(refreshed["qty"]) if refreshed else 0.0
-        if remaining_quantity > 0:
-            atr = float(planned.get("atr") or 0.0)
-            if not math.isfinite(atr) or atr <= 0:
-                raise LiveSafetyError(
-                    f"cannot protect filled order without a valid ATR for {pair}"
-                )
-            fill_price = float(result.get("avg_fill_price") or planned["signal_price"])
-            if planned["action"] == "BUY":
-                observed_high = max(fill_price, float(planned["signal_price"]))
-                _, desired_stop = store.observe_position_risk(
-                    pair,
-                    quantity=remaining_quantity,
-                    observed_high=observed_high,
-                    atr=atr,
-                    atr_multiplier=ATR_SL_MULT,
-                )
-            else:
-                risk_record = store.state.position_risk.get(pair) or {}
-                desired_stop = float(risk_record.get("trailing_stop") or 0.0)
-            ensure_protective_stop(
-                pair=pair,
-                quantity=remaining_quantity,
-                desired_stop=desired_stop,
-                current_price=float(planned["signal_price"]),
-                broker=broker,
-                store=store,
-                audit_log_path=audit_log_path,
-            )
-        else:
-            store.clear_position_risk(pair)
         if audit_log_path:
             append_live_audit_event(
                 audit_log_path,
@@ -1270,15 +1333,31 @@ def run_locked(
                 audit_log_path=args.audit_log,
             )
         equity = float(account["equity"])
-        locked_reason = store.observe_equity(equity, limits)
+        risk_locked_reason = store.observe_equity(equity, limits)
+        entries_locked_reason = configured_entry_lock_reason()
+        locked_reason = risk_locked_reason or entries_locked_reason
         metrics = store.metrics(equity)
         print(
             f"Account: equity ${equity:,.2f}, cash ${float(account['cash']):,.2f}, "
             f"DD {float(metrics['drawdown_pct']):.2%}, "
             f"daily loss {float(metrics['daily_loss_pct']):.2%}"
         )
-        if locked_reason:
-            print(f"⛔ CIRCUIT BREAKER: {locked_reason}; only risk-reducing sells are allowed")
+        if risk_locked_reason:
+            print(
+                f"⛔ CIRCUIT BREAKER: {risk_locked_reason}; "
+                "positions will be reduced and buys are blocked"
+            )
+        if entries_locked_reason:
+            print(
+                f"⛔ ENTRY LOCK: {entries_locked_reason}; "
+                "buys are blocked while risk-reducing sells remain enabled"
+            )
+            if args.audit_log:
+                append_live_audit_event(
+                    args.audit_log,
+                    "entry_kill_switch_active",
+                    {"reason": entries_locked_reason},
+                )
 
         states: dict[str, dict] = {}
         data_errors: list[str] = []
@@ -1306,7 +1385,8 @@ def run_locked(
             states=states,
             positions=positions,
             equity=equity,
-            locked_reason=locked_reason,
+            locked_reason=risk_locked_reason,
+            entries_locked_reason=entries_locked_reason,
         )
         if args.execute:
             ensure_protective_stops(
@@ -1348,6 +1428,7 @@ def run_locked(
             broker=broker,
             store=store,
             limits=limits,
+            locked_reason=locked_reason,
             audit_log_path=args.audit_log,
         )
         final_account = broker.get_account()
