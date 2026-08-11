@@ -32,30 +32,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get upgrade -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Poetry
-ENV POETRY_VERSION=2.4.1 \
-    POETRY_HOME="/opt/poetry" \
-    POETRY_NO_INTERACTION=1 \
-    PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
-
 # Create and activate the virtualenv for the runtime image.
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH" \
-    POETRY_VIRTUALENVS_CREATE=false \
     VIRTUAL_ENV="/opt/venv"
-
-RUN pip install "poetry==$POETRY_VERSION"
 
 WORKDIR /app
 
 # Copy only dependency files first (cache layer)
-COPY pyproject.toml poetry.lock requirements-web.txt ./
+COPY pyproject.toml requirements-web.txt ./
 
-# Install production dependencies only (no dev group) into /opt/venv
-RUN poetry install --only=main --no-root \
-    && python -c "import rich, pandas, ccxt; print('poetry deps OK:', rich.__file__)"
-RUN pip install --no-cache-dir -r requirements-web.txt
+# Install production dependencies into /opt/venv
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir -e ".[web,ml,research,portfolio]" \
+    && python -c "import rich, pandas, ccxt; print('pip deps OK:', rich.__file__)"
 
 # =============================================================================
 # STAGE 2: Runtime — Minimal, non-root, read-only
@@ -128,8 +118,8 @@ RUN groupadd -g $GID appgroup 2>/dev/null || true && \
 
 COPY --chown=appuser:appgroup . .
 
-# Install dev dependencies (+ re-links root package)
-RUN poetry install --all-extras
+# Install dev dependencies
+RUN pip install --no-cache-dir -e ".[dev,web,infra,ml,research,portfolio]"
 
 ENV PYTHONPATH="/app/src:$PYTHONPATH"
 
