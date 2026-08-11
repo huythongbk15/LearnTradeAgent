@@ -18,6 +18,7 @@ logs/
 
 # Session-local TODO files
 *_TODO.md
+!docs/LIVE_TRADING_TODO.md
 
 # Streamlit
 .streamlit/

@@ -268,3 +268,330 @@ def test_atr_trail_forces_exit_and_persists_peak(tmp_path):
         atr_multiplier=2.0,
     )
     assert widened_atr_stop == pytest.approx(100.0)
+
+
+class ProtectiveBroker:
+    def __init__(self, *, timeout_after_accept=False):
+        self.orders = {}
+        self.next_id = 1
+        self.timeout_after_accept = timeout_after_accept
+        self.place_calls = 0
+        self.replace_calls = 0
+        self.cancel_calls = 0
+
+    def normalize_order_amount(self, symbol, amount, *, reference_price):
+        return round(float(amount), 6)
+
+    def _result(self, order, *, status="open"):
+        result = {
+            "id": f"stop-{self.next_id}",
+            "client_order_id": order.client_order_id,
+            "status": status,
+            "symbol": order.symbol.pair,
+            "side": order.side.value,
+            "type": order.type.value,
+            "qty": float(order.size),
+            "filled_qty": 0.0,
+            "avg_fill_price": 0.0,
+            "stop_price": float(order.stop_price) if order.stop_price else None,
+            "error": None,
+        }
+        self.next_id += 1
+        self.orders[order.client_order_id] = result
+        return result
+
+    def place_order(self, order):
+        self.place_calls += 1
+        result = self._result(order)
+        if self.timeout_after_accept:
+            self.timeout_after_accept = False
+            raise TimeoutError("accepted but response lost")
+        return result
+
+    def replace_order(self, order_id, order):
+        self.replace_calls += 1
+        for existing in self.orders.values():
+            if existing["id"] == order_id:
+                existing["status"] = "cancelled"
+        return self._result(order)
+
+    def get_order_by_client_id(self, client_order_id, symbol):
+        result = self.orders.get(client_order_id)
+        return dict(result) if result else None
+
+    def cancel_order(self, order_id, symbol):
+        self.cancel_calls += 1
+        for existing in self.orders.values():
+            if existing["id"] == order_id:
+                existing["status"] = "cancelled"
+                return True
+        return False
+
+
+def initialized_position_store(tmp_path):
+    store = LiveRiskStateStore(tmp_path / "state.json")
+    store.observe_position_risk(
+        "BTC/USDT",
+        quantity=0.1,
+        observed_high=100.0,
+        atr=5.0,
+        atr_multiplier=2.0,
+    )
+    return store
+
+
+def test_exchange_native_stop_is_idempotent_and_only_tightens(tmp_path):
+    store = initialized_position_store(tmp_path)
+    broker = ProtectiveBroker()
+    first = runner.ensure_protective_stop(
+        pair="BTC/USDT",
+        quantity=0.1,
+        desired_stop=90.0,
+        current_price=100.0,
+        broker=broker,
+        store=store,
+    )
+    assert first["status"] == "open"
+    assert first["stop_price"] == pytest.approx(90.0)
+
+    unchanged = runner.ensure_protective_stop(
+        pair="BTC/USDT",
+        quantity=0.1,
+        desired_stop=89.0,
+        current_price=100.0,
+        broker=broker,
+        store=store,
+    )
+    assert unchanged["client_order_id"] == first["client_order_id"]
+    assert broker.place_calls == 1
+    assert broker.replace_calls == 0
+
+    tightened = runner.ensure_protective_stop(
+        pair="BTC/USDT",
+        quantity=0.1,
+        desired_stop=92.0,
+        current_price=100.0,
+        broker=broker,
+        store=store,
+    )
+    assert tightened["stop_price"] == pytest.approx(92.0)
+    assert tightened["client_order_id"] != first["client_order_id"]
+    assert broker.replace_calls == 1
+
+
+def test_protective_stop_timeout_after_accept_is_recovered(tmp_path):
+    store = initialized_position_store(tmp_path)
+    broker = ProtectiveBroker(timeout_after_accept=True)
+    recovered = runner.ensure_protective_stop(
+        pair="BTC/USDT",
+        quantity=0.1,
+        desired_stop=90.0,
+        current_price=100.0,
+        broker=broker,
+        store=store,
+    )
+    assert recovered["status"] == "open"
+    assert store.protective_order_state("BTC/USDT")["pending"] is None
+
+
+def test_duplicate_active_and_pending_stops_fail_closed(tmp_path):
+    store = initialized_position_store(tmp_path)
+    broker = ProtectiveBroker()
+    runner.ensure_protective_stop(
+        pair="BTC/USDT",
+        quantity=0.1,
+        desired_stop=90.0,
+        current_price=100.0,
+        broker=broker,
+        store=store,
+    )
+    pending = store.reserve_protective_order(
+        "BTC/USDT",
+        quantity=0.1,
+        stop_price=92.0,
+    )
+    pending_order = runner._protective_order(
+        symbol=runner.exchange_symbol("BTC/USDT"),
+        client_order_id=pending["client_order_id"],
+        quantity=0.1,
+        stop_price=92.0,
+    )
+    broker._result(pending_order)
+    with pytest.raises(LiveSafetyError, match="duplicate active protective"):
+        runner.reconcile_protective_stop(
+            pair="BTC/USDT",
+            broker=broker,
+            store=store,
+        )
+
+
+def test_orphan_protective_stop_is_cancelled_before_state_is_cleared(tmp_path):
+    store = initialized_position_store(tmp_path)
+    broker = ProtectiveBroker()
+    runner.ensure_protective_stop(
+        pair="BTC/USDT",
+        quantity=0.1,
+        desired_stop=90.0,
+        current_price=100.0,
+        broker=broker,
+        store=store,
+    )
+    runner.cleanup_orphan_protective_stops(
+        managed_symbols=["BTC/USDT"],
+        positions=[],
+        broker=broker,
+        store=store,
+    )
+    assert broker.cancel_calls == 1
+    assert "BTC/USDT" not in store.state.position_risk
+
+
+class FilledBuyBroker(ProtectiveBroker):
+    def __init__(self):
+        super().__init__()
+        self.positions = []
+
+    def get_account(self):
+        return {"equity": 1_000.0, "cash": 1_000.0}
+
+    def get_positions(self):
+        return [dict(position) for position in self.positions]
+
+    def get_ticker(self, symbol):
+        return {
+            "timestamp": datetime.now(UTC),
+            "bid": 99.9,
+            "ask": 100.0,
+            "last": 100.0,
+        }
+
+    def get_order_book(self, symbol, limit=50):
+        return {
+            "timestamp": datetime.now(UTC),
+            "bids": [(99.9, 10.0)],
+            "asks": [(100.0, 10.0)],
+        }
+
+    def place_order(self, order):
+        if order.type == runner.OrderType.MARKET:
+            self.positions = [{
+                "symbol": order.symbol.pair,
+                "qty": float(order.size),
+                "market_value": float(order.size) * 100.0,
+            }]
+            return {
+                "id": "entry-1",
+                "client_order_id": order.client_order_id,
+                "status": "filled",
+                "symbol": order.symbol.pair,
+                "side": order.side.value,
+                "type": order.type.value,
+                "qty": float(order.size),
+                "filled_qty": float(order.size),
+                "avg_fill_price": 100.0,
+                "stop_price": None,
+                "error": None,
+            }
+        return super().place_order(order)
+
+
+def test_filled_buy_installs_exchange_stop_before_batch_continues(tmp_path):
+    store = LiveRiskStateStore(tmp_path / "state.json")
+    broker = FilledBuyBroker()
+    order = {**planned_buy(), "atr": 5.0, "observed_high": 100.0}
+    runner.execute_orders(
+        orders=[order],
+        broker=broker,
+        store=store,
+        limits=LiveRiskLimits(),
+    )
+    protection = store.protective_order_state("BTC/USDT")
+    assert protection["active"]["status"] == "open"
+    assert protection["active"]["stop_price"] == pytest.approx(90.0)
+    assert store.unfinished_orders() == {}
+
+
+class FilledExitBroker(ProtectiveBroker):
+    def __init__(self):
+        super().__init__()
+        self.positions = [{
+            "symbol": "BTC/USDT",
+            "qty": 0.1,
+            "market_value": 10.0,
+        }]
+        self.exit_replace_calls = 0
+
+    def get_account(self):
+        return {"equity": 1_000.0, "cash": 990.0}
+
+    def get_positions(self):
+        return [dict(position) for position in self.positions]
+
+    def get_ticker(self, symbol):
+        return {
+            "timestamp": datetime.now(UTC),
+            "bid": 99.9,
+            "ask": 100.0,
+            "last": 100.0,
+        }
+
+    def get_order_book(self, symbol, limit=50):
+        return {
+            "timestamp": datetime.now(UTC),
+            "bids": [(99.9, 10.0)],
+            "asks": [(100.0, 10.0)],
+        }
+
+    def replace_order(self, order_id, order):
+        if order.type != runner.OrderType.MARKET:
+            return super().replace_order(order_id, order)
+        self.exit_replace_calls += 1
+        for existing in self.orders.values():
+            if existing["id"] == order_id:
+                existing["status"] = "cancelled"
+        self.positions = []
+        return {
+            "id": "exit-1",
+            "client_order_id": order.client_order_id,
+            "status": "filled",
+            "symbol": order.symbol.pair,
+            "side": order.side.value,
+            "type": order.type.value,
+            "qty": float(order.size),
+            "filled_qty": float(order.size),
+            "avg_fill_price": 99.9,
+            "stop_price": None,
+            "error": None,
+        }
+
+
+def test_market_exit_hands_off_exchange_stop_with_cancel_replace(tmp_path):
+    store = initialized_position_store(tmp_path)
+    broker = FilledExitBroker()
+    runner.ensure_protective_stop(
+        pair="BTC/USDT",
+        quantity=0.1,
+        desired_stop=90.0,
+        current_price=100.0,
+        broker=broker,
+        store=store,
+    )
+    sell = {
+        "market_symbol": "BTC/USDT",
+        "action": "SELL",
+        "qty": 0.1,
+        "signal_price": 100.0,
+        "candle_timestamp": datetime(2026, 8, 10, 10, tzinfo=UTC),
+        "atr": 5.0,
+        "observed_high": 100.0,
+        "reason": "test-exit",
+    }
+    runner.execute_orders(
+        orders=[sell],
+        broker=broker,
+        store=store,
+        limits=LiveRiskLimits(),
+    )
+    assert broker.exit_replace_calls == 1
+    assert "BTC/USDT" not in store.state.position_risk
+    assert store.unfinished_orders() == {}
