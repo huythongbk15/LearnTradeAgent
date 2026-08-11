@@ -1827,6 +1827,7 @@ def run_locked(
     allocations: list[tuple[str, float]],
     state_path: str,
     profile: str,
+    run_id: str,
 ) -> int:
     reconciliation_timeout = order_reconciliation_timeout_seconds()
     key_name = "BINANCE_TESTNET_API_KEY" if args.testnet else "BINANCE_API_KEY"
@@ -2112,6 +2113,7 @@ def run(args: argparse.Namespace) -> int:
             allocations=allocations,
             state_path=state_path,
             profile=profile,
+            run_id=run_id,
         )
 
 

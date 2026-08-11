@@ -157,7 +157,7 @@ trading-agent/
 ├── dashboard/                  # 📊 Streamlit dashboard
 ├── monitoring/                 # 🖥 Prometheus/Grafana/Loki configs
 ├── infrastructure/k8s/         # ☸ K8s multi-region manifests
-├── tests/                      # 🧪 175 tests
+├── tests/                      # 🧪 450 tests
 ├── Dockerfile · docker-compose.yml · docker-compose.prod.yml
 ├── Makefile · pyproject.toml · poetry.lock
 ├── .github/workflows/          # 🤖 CI/CD

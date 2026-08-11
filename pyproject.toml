@@ -19,13 +19,12 @@ dependencies = [
     "typer (>=0.12,<1.0)",
     "httpx (>=0.27)",
     "pyyaml (>=6.0)",
-    # ML/routing used by the core CLI (regime detection, portfolio, strategy marketplace)
-    "scipy (>=1.11)",
-    "scikit-learn (>=1.3)",
-    "hmmlearn (>=0.3)",
 ]
 
 [project.optional-dependencies]
+# Core CLI — minimal deps for basic commands (status, reset, config)
+core = []
+
 # Web dashboard + Web UI backend (Streamlit / FastAPI). Not required for the core CLI.
 web = [
     "streamlit (>=1.61.1,<2.0.0)",
@@ -34,10 +33,38 @@ web = [
     "uvicorn[standard] (>=0.52.1,<1.0)",
     "alpaca-py (>=0.42,<0.44)",
 ]
+
+# Machine learning: regime detection, online learning, RL, meta-learning
+ml = [
+    "scipy (>=1.11)",
+    "scikit-learn (>=1.3)",
+    "hmmlearn (>=0.3)",
+    "river (>=0.21,<1.0)",
+]
+
+# Alpha research pipeline: factor scanning, statistical hardening
+research = [
+    "scipy (>=1.11)",
+    "scikit-learn (>=1.3)",
+]
+
+# Portfolio optimization: Black-Litterman, HRP, risk parity, Kelly
+portfolio = [
+    "scipy (>=1.11)",
+    "scikit-learn (>=1.3)",
+]
+
+# Live trading on Binance/Alpaca/OANDA/CEX: exchange adapters + live broker
+live-binance = [
+    "alpaca-py (>=0.42,<0.44)",
+    "ccxt (>=4.0)",
+]
+
 # Kubernetes multi-region / chaos tooling. Only needed when operating a cluster.
 infra = [
     "kubernetes (>=28.0)",
 ]
+
 # Development and test tooling.
 dev = [
     "pytest (>=9.1.1,<10.0.0)",
@@ -45,6 +72,11 @@ dev = [
     "pytest-cov (>=5.0)",
     "ruff (>=0.6)",
     "hypothesis (>=6.100,<7.0)",
+]
+
+# Meta extra: install everything for full functionality
+all = [
+    "trading-agent[web,ml,research,portfolio,live-binance,infra,dev]",
 ]
 
 

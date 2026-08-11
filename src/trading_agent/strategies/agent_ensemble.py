@@ -32,6 +32,7 @@ import polars as pl
 
 from trading_agent.agents.base import AnalysisContext
 from trading_agent.agents.llm import enable_backtest_mode, disable_backtest_mode, is_backtest_mode
+from trading_agent.regime import add_regime_indicators
 from trading_agent.agents.risk import RiskManager
 from trading_agent.agents.sentiment import SentimentAnalyst
 from trading_agent.agents.technical import TechnicalAnalyst
@@ -102,7 +103,17 @@ class AgentStrategy(Strategy):
         return "agent_ensemble"
 
     def compute_indicators(self, df: pl.DataFrame) -> pl.DataFrame:
-        return df
+        # Vectorized regime indicators ONCE on the full frame (~0.3s) instead of
+        # re-running add_regime_indicators(window) per bar (~3.5ms x N bars = 110s).
+        # Semantics are matched exactly to the old per-window path: the old
+        # window was 100 bars < regime lookback (252) so atr_pctl was always
+        # None and vol_regime always fell through to "high_vol"; adx /
+        # trend_regime / trend_dir (rolling 14/25) are identical either way.
+        df = add_regime_indicators(df)
+        return df.with_columns(
+            pl.lit(None, pl.Float64).alias("atr_pctl"),
+            pl.lit("high_vol").alias("vol_regime"),
+        )
 
     def generate_signals(self, df: pl.DataFrame) -> pl.Series:
         """Bar-by-bar signal generation with state tracking."""
@@ -131,6 +142,14 @@ class AgentStrategy(Strategy):
         _IND_COLS = ["ma_5", "ma_10", "ma_20", "ma_50", "rsi", "bb_upper", "bb_lower", "bb_mid"]
         _arr = {c: df_i[c].to_numpy() for c in _IND_COLS}
 
+        # Precomputed regime indicators (vectorized in compute_indicators).
+        # Match old per-window semantics: atr_pctl=None, vol_regime="high_vol";
+        # adx / trend_regime / trend_dir carry the real rolling values.
+        _regime = {
+            c: df_i[c].to_numpy()
+            for c in ("atr", "atr_pctl", "vol_regime", "adx", "trend_regime", "trend_dir")
+        }
+
         # Position state
         in_position = False
         bars_in_position = 0
@@ -156,6 +175,15 @@ class AgentStrategy(Strategy):
                 v5 = float(vols[i - 4:i + 1].mean())
                 v20 = float(vols[i - 19:i + 1].mean())
                 extra["volume_ratio_5_20"] = v5 / v20 if v20 > 0 else 1.0
+            # Regime values with the old `if v else None` convention (0 -> None)
+            extra["_regime"] = {
+                "atr": float(_regime["atr"][i]) if _regime["atr"][i] else None,
+                "atr_pctl": None,  # old window path always produced None
+                "vol_regime": "high_vol",  # atr_pctl None -> otherwise branch
+                "adx": float(_regime["adx"][i]) if _regime["adx"][i] else None,
+                "trend_regime": _regime["trend_regime"][i],
+                "trend_dir": _regime["trend_dir"][i],
+            }
             ind["_extra"] = extra
 
             ctx = AnalysisContext(

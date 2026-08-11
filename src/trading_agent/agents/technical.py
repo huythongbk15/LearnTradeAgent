@@ -134,7 +134,14 @@ class TechnicalAnalyst(BaseAgent):
                 )
 
         # === REGIME DETECTION ===
-        if len(df) > 50:
+        # Fast path: upstream (e.g. agent_ensemble backtest) precomputes regime
+        # indicators vectorized once and passes them via existing["_extra"]
+        # ["_regime"]. Use them directly instead of re-running
+        # add_regime_indicators per call (~3.5ms x N bars).
+        pre_regime = (existing.get("_extra") or {}).get("_regime")
+        if pre_regime:
+            extra.update(pre_regime)
+        elif len(df) > 50:
             try:
                 regime_df = add_regime_indicators(df)
                 last = regime_df.tail(1)

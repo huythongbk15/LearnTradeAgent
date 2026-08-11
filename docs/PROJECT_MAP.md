@@ -57,6 +57,7 @@
 │   ├── PROJECT_SUMMARY.md
 │   ├── README.md
 │   ├── RESEARCH_EVIDENCE.md
+│   ├── RESEARCH_HOLDOUT.md
 │   ├── RUNBOOK.md
 │   ├── RUNBOOK_LOCAL.md
 │   ├── SECURITY.md
@@ -112,6 +113,7 @@
 │   │   ├── process_registry.py
 │   │   └── tracked_subagent.py
 │   ├── _probe_config.py
+│   ├── audit_retention.py
 │   ├── backtest_local.py
 │   ├── backup.sh
 │   ├── backup_local.py
@@ -127,6 +129,7 @@
 │   ├── deep_dive_binance.py
 │   ├── download_intraday.py
 │   ├── full_system_backtest.py
+│   ├── generate_holdout_manifest.py
 │   ├── generate_live_strategy_evidence.py
 │   ├── generate_project_map.py
 │   ├── health_check.sh
@@ -140,8 +143,10 @@
 │   ├── monthly_wfo.py
 │   ├── multi_symbol_bench.py
 │   ├── optimize_local.py
+│   ├── pin_image_digests.py
 │   ├── restore.sh
 │   ├── sign_and_verify.sh
+│   ├── stress_evidence_costs.py
 │   ├── sweep_evidence_params.py
 │   ├── sweep_evidence_params_risk.py
 │   ├── sweep_momentum_quick.py
@@ -166,6 +171,7 @@
 │       │   │   └── specialized.py
 │       │   ├── __init__.py
 │       │   ├── base.py
+│       │   ├── calibration.py
 │       │   ├── llm.py
 │       │   ├── orchestrator.py
 │       │   ├── portfolio.py
@@ -175,7 +181,9 @@
 │       │   └── trader.py
 │       ├── alpha_research
 │       │   ├── __init__.py
-│       │   └── pipeline.py
+│       │   ├── holdout.py
+│       │   ├── pipeline.py
+│       │   └── stats.py
 │       ├── backtest
 │       │   ├── __init__.py
 │       │   └── engine.py
@@ -214,6 +222,7 @@
 │       │   └── websocket_manager.py
 │       ├── execution
 │       │   ├── __init__.py
+│       │   ├── correlation.py
 │       │   ├── data_trust.py
 │       │   ├── engine.py
 │       │   ├── indicators.py
@@ -231,9 +240,6 @@
 │       │   │   ├── pipeline.py
 │       │   │   └── social.py
 │       │   └── __init__.py
-│       ├── infra
-│       │   ├── __init__.py
-│       │   └── multi_region.py
 │       ├── infrastructure
 │       │   ├── chaos
 │       │   │   ├── chaos_experiments.py
@@ -268,11 +274,6 @@
 │       │   ├── database.py
 │       │   ├── metrics.py
 │       │   └── metrics_server.py
-│       ├── observability
-│       │   ├── __init__.py
-│       │   ├── logging.py
-│       │   ├── metrics.py
-│       │   └── tracing.py
 │       ├── portfolio
 │       │   ├── attribution
 │       │   │   ├── __init__.py
@@ -318,33 +319,48 @@
 ├── tests
 │   ├── __init__.py
 │   ├── conftest.py
+│   ├── test_agent_correlation.py
+│   ├── test_agent_interop.py
 │   ├── test_agent_safety.py
 │   ├── test_alpaca_safety.py
 │   ├── test_atr_improvements.py
+│   ├── test_audit_correlation.py
 │   ├── test_backtest_accounting.py
 │   ├── test_binance_live_runner.py
+│   ├── test_binance_testnet_acceptance.py
+│   ├── test_calibration.py
+│   ├── test_ccxt_contract.py
 │   ├── test_ccxt_order_filters.py
+│   ├── test_ccxt_property.py
 │   ├── test_cli_execution_safety.py
 │   ├── test_config.py
 │   ├── test_data_trust.py
+│   ├── test_decision_trace.py
 │   ├── test_enhanced_ma_exit_safety.py
+│   ├── test_holdout_manifest.py
 │   ├── test_live_audit_watchdog.py
 │   ├── test_live_broker_balances.py
 │   ├── test_live_cron_runner.py
 │   ├── test_live_evidence_generator.py
 │   ├── test_live_risk_guard.py
 │   ├── test_live_safety.py
+│   ├── test_live_safety_property.py
+│   ├── test_llm_backtest_mode.py
 │   ├── test_llm_comparison.py
 │   ├── test_llm_comparison_lite.py
 │   ├── test_llm_pool.py
+│   ├── test_llm_schema.py
 │   ├── test_p4_p7.py
 │   ├── test_paper_exchange_accounting.py
 │   ├── test_phase2.py
+│   ├── test_phase3_audit.py
 │   ├── test_phase6.py
 │   ├── test_phase6_integration.py
 │   ├── test_realtime_data.py
+│   ├── test_research_stats.py
 │   ├── test_storage.py
 │   ├── test_strategy_security.py
+│   ├── test_synthetic_alerts.py
 │   ├── test_tier1_3_tier2.py
 │   ├── test_tier3_live.py
 │   └── test_web_security.py

@@ -18,19 +18,10 @@ from rich.table import Table
 from rich.panel import Panel
 
 # ── Lazy imports ─────────────────────────────────────────────────────────
-# Heavy modules (polars, ccxt, llm, etc.) are imported inside each function
-# to keep CLI startup fast for simple commands (status, reset, etc.).
-
-# Import for options strategies CLI
-from trading_agent.strategies.options_strategies import (
-    OptionChainProvider,
-    CoveredCallStrategy,
-    CashSecuredPutStrategy,
-    IronCondorStrategy,
-    GammaScalpStrategy,
-    CalendarSpreadStrategy,
-    DispersionStrategy,
-)
+# Heavy modules (polars, ccxt, sklearn, llm, etc.) are imported inside each
+# function to keep CLI startup fast for simple commands (status, reset, etc.).
+# NOTE: options_strategies pulls in data.pipeline (polars) + ml.regime_detection
+# (sklearn) — ~2s at import time. It MUST stay function-local, never top-level.
 
 # ── Lazy module singleton ─────────────────────────────────────────────────
 class _LazyConfig:
@@ -2933,6 +2924,7 @@ def options():
 def options_chain(symbol: str, expiry: str | None, spot: float):
     """Display option chain for a symbol."""
     from rich.table import Table as RichTable
+    from trading_agent.strategies.options_strategies import OptionChainProvider
 
     provider = OptionChainProvider(dry_run=True)
     chain = provider.get_chain(symbol, expiry=expiry, spot=spot)
@@ -2979,6 +2971,8 @@ def options_chain(symbol: str, expiry: str | None, spot: float):
 @click.option("--hours", "-h", default=24, type=int, help="Lookback hours")
 def options_flow(symbol: str, hours: int):
     """Analyze options flow: unusual volume, put/call ratio, delta exposure."""
+    from trading_agent.strategies.options_strategies import OptionChainProvider
+
     provider = OptionChainProvider(dry_run=True)
     flow = provider.analyze_flow(symbol, lookback_hours=hours)
 
@@ -3010,6 +3004,10 @@ def options_flow(symbol: str, hours: int):
 def options_covered_call(symbol: str, delta: float, dte_min: int, dte_max: int, min_yield: float):
     """Find covered call opportunities."""
     from rich.table import Table as RichTable
+    from trading_agent.strategies.options_strategies import (
+        CoveredCallStrategy,
+        OptionChainProvider,
+    )
 
     provider = OptionChainProvider(dry_run=True)
     strategy = CoveredCallStrategy(symbol, provider, config={
@@ -3048,6 +3046,10 @@ def options_covered_call(symbol: str, delta: float, dte_min: int, dte_max: int, 
 def options_cash_secured_put(symbol: str, delta: float, dte_min: int, dte_max: int, min_yield: float):
     """Find cash-secured put opportunities."""
     from rich.table import Table as RichTable
+    from trading_agent.strategies.options_strategies import (
+        CashSecuredPutStrategy,
+        OptionChainProvider,
+    )
 
     provider = OptionChainProvider(dry_run=True)
     strategy = CashSecuredPutStrategy(symbol, provider, config={
@@ -3087,6 +3089,10 @@ def options_cash_secured_put(symbol: str, delta: float, dte_min: int, dte_max: i
 def options_iron_condor(symbol: str, delta_short: float, delta_long: float, dte_min: int, dte_max: int):
     """Find iron condor opportunities."""
     from rich.table import Table as RichTable
+    from trading_agent.strategies.options_strategies import (
+        IronCondorStrategy,
+        OptionChainProvider,
+    )
 
     provider = OptionChainProvider(dry_run=True)
     strategy = IronCondorStrategy(symbol, provider, config={
@@ -3127,6 +3133,11 @@ def options_iron_condor(symbol: str, delta_short: float, delta_long: float, dte_
 def options_gamma_scalp(symbol: str, simulate: bool, steps: int, vol: float):
     """Gamma scalping: buy straddle + dynamic delta hedge."""
     import random
+
+    from trading_agent.strategies.options_strategies import (
+        GammaScalpStrategy,
+        OptionChainProvider,
+    )
 
     provider = OptionChainProvider(dry_run=True)
     strategy = GammaScalpStrategy(symbol, provider)
@@ -3171,6 +3182,10 @@ def options_gamma_scalp(symbol: str, simulate: bool, steps: int, vol: float):
 def options_calendar(symbol: str, spot: float):
     """Find calendar spread opportunities."""
     from rich.table import Table as RichTable
+    from trading_agent.strategies.options_strategies import (
+        CalendarSpreadStrategy,
+        OptionChainProvider,
+    )
 
     provider = OptionChainProvider(dry_run=True)
     strategy = CalendarSpreadStrategy(symbol, provider)
@@ -3202,6 +3217,11 @@ def options_calendar(symbol: str, spot: float):
 @click.option("--components", "-c", default="ETH,SOL,ADA", help="Component symbols (comma-separated)")
 def options_dispersion(index_symbol: str, components: str):
     """Dispersion trading: index vs component vol."""
+    from trading_agent.strategies.options_strategies import (
+        DispersionStrategy,
+        OptionChainProvider,
+    )
+
     provider = OptionChainProvider(dry_run=True)
     comp_list = [c.strip() for c in components.split(",")]
 
