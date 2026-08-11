@@ -10,7 +10,9 @@ running the underlying coroutines with ``asyncio.run``.
 from __future__ import annotations
 
 import asyncio
+import math
 from decimal import Decimal
+from typing import Mapping
 
 from trading_agent.exchanges.models import (
     Symbol, AssetClass, MarketType, Order,
@@ -58,6 +60,39 @@ class LiveBroker:
             return [c for c in candidates if c.upper() in wanted]
         return sorted(candidates, key=lambda c: base_total[c], reverse=True)[:20]
 
+    @staticmethod
+    def _spot_balance_quantities(
+        amounts: Mapping[str, object],
+    ) -> tuple[float, float, float]:
+        """Return validated total, free and locked spot quantities."""
+
+        try:
+            total = float(amounts.get("total", 0) or 0)
+            raw_free = amounts.get("free")
+            raw_used = amounts.get("used")
+            free = float(raw_free) if raw_free is not None else None
+            locked = float(raw_used) if raw_used is not None else None
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError("spot balance quantities must be numeric") from exc
+        values = [total]
+        values.extend(value for value in (free, locked) if value is not None)
+        if any(not math.isfinite(value) or value < 0 for value in values):
+            raise RuntimeError("spot balance quantities must be finite and non-negative")
+        if free is None and locked is None:
+            free, locked = total, 0.0
+        elif free is None:
+            free = max(0.0, total - float(locked))
+        elif locked is None:
+            locked = max(0.0, total - free)
+        tolerance = max(1e-12, total * 1e-8)
+        if (
+            free > total + tolerance
+            or locked > total + tolerance
+            or abs((free + locked) - total) > tolerance
+        ):
+            raise RuntimeError("spot free and locked quantities are inconsistent with total")
+        return total, min(free, total), min(locked, total)
+
     # ── account ────────────────────────────────────────────────────────────
 
     def get_account(self) -> dict:
@@ -88,9 +123,13 @@ class LiveBroker:
             # Lấy toàn bộ coin khác quote → giá trị qui về USDT
             main_quote = "USDT" if self.broker == "binance" else "USDT"
             base_total = {}
+            quote_total = 0.0
             for pair, amounts in (assets.assets.items() if assets else {}):
-                base_total[pair] = float(amounts.get("total", 0))
-            free_usdt = base_total.get(main_quote, 0.0)
+                total, free, _ = self._spot_balance_quantities(amounts)
+                base_total[pair] = total
+                if pair == main_quote:
+                    quote_total = total
+                    free_usdt = free
             # Định giá coin khác quote bằng ticker (bỏ coin quote chính)
             need = self._need_coins(base_total, main_quote)
             prices = {}
@@ -111,7 +150,7 @@ class LiveBroker:
                 if not price:
                     continue
                 total_usdt += amt * float(price)
-            total_usdt += free_usdt
+            total_usdt += quote_total
             return {
                 "id": self.broker,
                 "status": "active",
@@ -169,7 +208,7 @@ class LiveBroker:
                     prices = {}
             self._require_prices(need, prices, main_quote)
             for coin, amounts in assets.assets.items():
-                total = float(amounts.get("total", 0))
+                total, free, locked = self._spot_balance_quantities(amounts)
                 if coin == main_quote or total <= 0:
                     continue
                 price = prices.get(f"{coin}/{main_quote}")
@@ -179,6 +218,8 @@ class LiveBroker:
                     "symbol": f"{coin}/{main_quote}",
                     "side": "long",
                     "qty": total,
+                    "free_qty": free,
+                    "locked_qty": locked,
                     "avg_entry_price": price,  # không có cost basis — dùng mark
                     "current_price": price,
                     "unrealized_pl": 0.0,
