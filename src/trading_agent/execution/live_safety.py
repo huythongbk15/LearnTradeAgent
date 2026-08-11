@@ -156,11 +156,20 @@ def _is_true(value: str | None) -> bool:
 
 def _read_float(env: Mapping[str, str], name: str, default: float) -> float:
     raw = env.get(name)
-    if raw is None or not raw.strip():
+    if raw is None:
         return default
+    # os.environ always yields str, but from_env(env=dict) accepts programmatic
+    # envs too — non-str must fail closed with LiveSafetyError, never crash
+    # with a raw AttributeError (which would be an unhandled fail-open).
+    if isinstance(raw, str):
+        if not raw.strip():
+            return default
+        raw = raw.strip()
+    elif not isinstance(raw, (int, float)):
+        raise LiveSafetyError(f"{name} must be a number")
     try:
         value = float(raw)
-    except ValueError as exc:
+    except (ValueError, TypeError) as exc:
         raise LiveSafetyError(f"{name} must be a number") from exc
     if not math.isfinite(value):
         raise LiveSafetyError(f"{name} must be finite")
