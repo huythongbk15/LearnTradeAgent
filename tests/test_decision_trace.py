@@ -7,7 +7,6 @@ import re
 from datetime import UTC, datetime, timedelta
 
 import polars as pl
-import pytest
 
 from trading_agent.agents.orchestrator import AgentAnalysisReport, Orchestrator
 
