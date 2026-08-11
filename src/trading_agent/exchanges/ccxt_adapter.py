@@ -305,8 +305,9 @@ class CCXTAdapter(ExchangeAdapter):
         """Convert unified Symbol to exchange-specific symbol"""
         if symbol in self._reverse_symbol_map:
             return self._reverse_symbol_map[symbol]
-        # Fallback: construct standard format
-        return f"{symbol.base}/{symbol.quote}"
+        # Fallback: use the canonical ccxt format (futures get :SETTLE suffix,
+        # so the wire symbol is correct even before markets are loaded).
+        return symbol.ccxt_symbol
 
     async def fetch_tickers(self, symbols: list[Symbol]) -> dict[str, float]:
         """Batch-fetch last prices for many symbols with a single API call."""
