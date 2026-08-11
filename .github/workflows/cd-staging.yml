@@ -145,15 +145,20 @@ jobs:
             chmod 600 .env.image
             # Pull latest images
             docker compose --env-file .env.image -f docker-compose.yml -f docker-compose.prod.yml pull
-            # Run migrations
-            docker compose --env-file .env.image -f docker-compose.yml -f docker-compose.prod.yml run --rm trading-agent \
-              python -m trading_agent.cli db migrate
             # Rolling restart
             docker compose --env-file .env.image -f docker-compose.yml -f docker-compose.prod.yml up -d --remove-orphans
             # Wait for health checks
             sleep 30
-            # Verify deployment
-            curl -f http://localhost:8080/healthz || exit 1
+            for i in {1..10}; do
+              if docker compose --env-file .env.image -f docker-compose.yml -f docker-compose.prod.yml \
+                  exec -T trading-agent python -m trading_agent.cli system health >/dev/null 2>&1; then
+                echo \"✅ trading-agent is healthy\"
+                break
+              fi
+              sleep 10
+            done
+            docker compose --env-file .env.image -f docker-compose.yml -f docker-compose.prod.yml \
+              exec -T trading-agent python -m trading_agent.cli system health
             echo '✅ Staging deployment successful'
           "
 

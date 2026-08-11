@@ -3,8 +3,12 @@
 
 services:
   # ===========================================================================
-  # APPLICATION — Trading Agent (3 replicas behind load balancer)
+  # APPLICATION — Trading Agent (single execution leader)
   # ===========================================================================
+  # IMPORTANT: exactly ONE execution leader. Multiple active execution workers
+  # require a distributed lease + fencing token + proven failover; until those
+  # exist (P1.1 in docs/LIVE_TRADING_TODO.md) scaling replicas would risk
+  # duplicate orders. Correctness > HA.
   trading-agent:
     image: ${TRADING_AGENT_IMAGE:?TRADING_AGENT_IMAGE must be an immutable digest}
     build:
@@ -12,7 +16,7 @@ services:
       dockerfile: Dockerfile
       target: runtime
     deploy:
-      replicas: 3
+      replicas: 1
       restart_policy:
         condition: on-failure
         delay: 10s
@@ -51,7 +55,7 @@ services:
       - telegram_bot_token
       - telegram_chat_id
     healthcheck:
-      test: ["CMD", "python", "-m", "trading_agent.cli", "health"]
+      test: ["CMD", "python", "-m", "trading_agent.cli", "system", "health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -68,45 +72,6 @@ services:
       options:
         max-size: "50m"
         max-file: "5"
-
-  # ===========================================================================
-  # SCHEDULER — Cron jobs (leader elected via Redis)
-  # ===========================================================================
-  trading-scheduler:
-    image: ${TRADING_AGENT_IMAGE:?TRADING_AGENT_IMAGE must be an immutable digest}
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: runtime
-    command: ["python", "-m", "trading_agent.scheduler"]
-    deploy:
-      replicas: 2
-      restart_policy:
-        condition: on-failure
-      placement:
-        constraints:
-          - node.role == manager
-    environment:
-      - TRADING_CONFIG_PATH=/app/config/credentials.yaml
-      - TRADING_ENV=production
-      - SCHEDULER_LEADER_ELECTION=true
-    volumes:
-      - trading-data:/app/data:ro
-      - ./config/credentials.yaml:/app/config/credentials.yaml:ro
-    secrets:
-      - binance_api_key
-      - binance_api_secret
-      - openrouter_api_key
-    depends_on:
-      redis:
-        condition: service_healthy
-    networks:
-      - trading-internal
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "50m"
-        max-file: "3"
 
   # ===========================================================================
   # INFRASTRUCTURE — TimescaleDB (Patroni HA), Redis (Sentinel), Monitoring

@@ -1,5 +1,10 @@
 # .github/workflows/cd-production.yml — Continuous Deployment to Production
 # Triggers: manual workflow_dispatch (requires approval via environment protection)
+#
+# Topology: single execution leader (docker-compose.prod.yml `trading-agent`).
+# Blue/green multi-replica execution is intentionally NOT deployed until
+# distributed lease + fencing + proven failover exist (P1.5 in
+# docs/LIVE_TRADING_TODO.md). Deploying does NOT enable mainnet trading.
 
 name: CD Production
 
@@ -22,7 +27,7 @@ concurrency:
 
 jobs:
   deploy-production:
-    name: Deploy to Production (Blue-Green)
+    name: Deploy to Production (Single Execution Leader)
     runs-on: ubuntu-latest
     environment: production
     env:
@@ -30,20 +35,9 @@ jobs:
       IMAGE_NAME: ${{ github.repository }}
       PRODUCTION_HOST: ${{ secrets.PRODUCTION_HOST }}
       PRODUCTION_USER: ${{ secrets.PRODUCTION_USER }}
-      BLUE_GREEN_ENABLED: ${{ secrets.BLUE_GREEN_ENABLED || 'true' }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Validate declared blue-green topology
-        shell: bash
-        run: |
-          for service in trading-agent-blue trading-agent-green; do
-            if ! grep -Eq "^[[:space:]]{2}${service}:" docker-compose.prod.yml; then
-              echo "Production deployment is blocked: missing Compose service ${service}" >&2
-              exit 1
-            fi
-          done
 
       - name: Install cosign
         uses: sigstore/cosign-installer@f713795cb21599bc4e5c4b58cbad1da852d7eeb9 # v3
@@ -56,7 +50,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       # =========================================================================
-      # STEP 6: VERIFY IMAGE SIGNATURE & SBOM BEFORE PRODUCTION DEPLOY
+      # VERIFY IMAGE SIGNATURE & SBOM BEFORE PRODUCTION DEPLOY
       # =========================================================================
       - name: Determine image tag
         id: image-tag
@@ -120,7 +114,7 @@ jobs:
           fi
 
       # =========================================================================
-      # BLUE-GREEN DEPLOY TO PRODUCTION
+      # DEPLOY SINGLE EXECUTION LEADER (manual, digest-pinned)
       # =========================================================================
       - name: Set up SSH
         uses: webfactory/ssh-agent@e83874834305fe9a4a2997156cb26c5de65a8555 # v0.10.0
@@ -134,57 +128,41 @@ jobs:
           printf '%s\n' "${{ secrets.PRODUCTION_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
 
-      - name: Deploy to production (Blue-Green)
+      - name: Deploy to production (single leader)
         env:
           IMAGE: ${{ steps.image-tag.outputs.image }}
-          BLUE_GREEN: ${{ env.BLUE_GREEN_ENABLED }}
         run: |
           ssh ${{ env.PRODUCTION_USER }}@${{ env.PRODUCTION_HOST }} "
             set -e
             cd /opt/trading-agent-prod
 
-            # Determine active/inactive color
-            if docker compose -f docker-compose.yml -f docker-compose.prod.yml ps --format '{{.Name}}' | grep -q 'trading-agent-blue'; then
-              ACTIVE=blue
-              INACTIVE=green
-            else
-              ACTIVE=green
-              INACTIVE=blue
+            # Save the currently deployed digest for rollback.
+            if [ -f .env.image ]; then
+              cp .env.image .env.image.previous || true
             fi
 
-            echo \"Active: \$ACTIVE, Inactive: \$INACTIVE\"
+            # Pin deployment to the exact image that passed signature verification.
+            echo 'TRADING_AGENT_IMAGE=${{ steps.image-tag.outputs.image }}' > .env.image
+            chmod 600 .env.image
 
-            # Update inactive service with new image
-            echo \"TRADING_AGENT_IMAGE=${{ steps.image-tag.outputs.image }}\" > .env.\$INACTIVE
-            docker compose --env-file .env.\$INACTIVE -f docker-compose.yml -f docker-compose.prod.yml --profile \$INACTIVE pull
-            docker compose --env-file .env.\$INACTIVE -f docker-compose.yml -f docker-compose.prod.yml --profile \$INACTIVE up -d
+            docker compose --env-file .env.image -f docker-compose.yml -f docker-compose.prod.yml pull
+            docker compose --env-file .env.image -f docker-compose.yml -f docker-compose.prod.yml up -d --remove-orphans
 
-            # Wait for health checks
-            echo \"Waiting for health checks on \$INACTIVE...\"
+            # Wait for health checks.
             sleep 30
             for i in {1..10}; do
-              if curl -f http://localhost:808\${ACTIVE/blue/0/green/1}/healthz 2>/dev/null; then
-                echo \"✅ \$INACTIVE is healthy\"
+              if docker compose --env-file .env.image -f docker-compose.yml -f docker-compose.prod.yml \
+                  exec -T trading-agent python -m trading_agent.cli system health >/dev/null 2>&1; then
+                echo \"✅ trading-agent is healthy\"
                 break
               fi
               sleep 10
             done
+            docker compose --env-file .env.image -f docker-compose.yml -f docker-compose.prod.yml \
+              exec -T trading-agent python -m trading_agent.cli system health
 
-            # Switch traffic (update nginx/load balancer)
-            echo \"Switching traffic to \$INACTIVE...\"
-            # Update nginx config or load balancer target
-            sed -i \"s/\$ACTIVE/\$INACTIVE/g\" nginx.conf 2>/dev/null || true
-            docker compose -f docker-compose.yml -f docker-compose.prod.yml exec -T nginx nginx -s reload 2>/dev/null || true
-
-            # Verify new active
-            sleep 10
-            curl -f http://localhost:8080/healthz || exit 1
-
-            # Stop old version after grace period
-            echo \"Stopping old \$ACTIVE...\" 
-            docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile \$ACTIVE down
-
-            echo '✅ Blue-Green deployment successful'
+            echo '✅ Single-leader deployment successful'
+            echo 'Rollback: restore .env.image.previous -> .env.image, then re-run compose up -d'
           "
 
       - name: Notify on success
@@ -199,8 +177,8 @@ jobs:
             Image: ${{ steps.image-tag.outputs.image }}
             ✅ Cosign signature verified
             ✅ SBOM verified
-            ✅ Blue-Green switch complete
-            URL: https://trading-agent.example.com
+            ✅ Single execution leader healthy
+            ⚠️ Mainnet trading remains NO-GO unless explicitly enabled by operator.
 
       - name: Notify on failure
         if: failure()

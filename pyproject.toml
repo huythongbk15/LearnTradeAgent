@@ -6,47 +6,56 @@ authors = [
     {name = "trading"}
 ]
 license = "MIT"
-requires-python = ">=3.12"
+requires-python = ">=3.12,<3.13"
 dependencies = [
     "ccxt (>=4.0)",
     "pandas (>=2.0)",
     "polars (>=1.43.2)",
     "pyarrow (>=15.0)",
+    "numpy (>=1.26)",
     "rich (>=13.0)",
     "python-dotenv (>=1.0)",
     "click (>=8.0)",
     "typer (>=0.12,<1.0)",
     "httpx (>=0.27)",
     "pyyaml (>=6.0)",
-    "streamlit (>=1.61.1,<2.0.0)",
+    # ML/routing used by the core CLI (regime detection, portfolio, strategy marketplace)
     "scipy (>=1.11)",
     "scikit-learn (>=1.3)",
     "hmmlearn (>=0.3)",
-    "kubernetes (>=28.0)"
 ]
 
 [project.optional-dependencies]
+# Web dashboard + Web UI backend (Streamlit / FastAPI). Not required for the core CLI.
+web = [
+    "streamlit (>=1.61.1,<2.0.0)",
+    "fastapi (>=0.141.1,<1.0)",
+    "pydantic (>=2.13.4,<3.0)",
+    "uvicorn[standard] (>=0.52.1,<1.0)",
+    "alpaca-py (>=0.42,<0.44)",
+]
+# Kubernetes multi-region / chaos tooling. Only needed when operating a cluster.
+infra = [
+    "kubernetes (>=28.0)",
+]
+# Development and test tooling.
 dev = [
     "pytest (>=9.1.1,<10.0.0)",
     "pytest-asyncio (>=1.4.0,<2.0.0)",
+    "pytest-cov (>=5.0)",
+    "ruff (>=0.6)",
 ]
 
 
 [tool.poetry]
 packages = [{include = "trading_agent", from = "src"}]
 
-[tool.poetry.scripts]
+[project.scripts]
 trading-agent = "trading_agent.cli:main"
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
-
-[dependency-groups]
-dev = [
-    "pytest (>=9.1.1,<10.0.0)",
-    "pytest-asyncio (>=1.4.0,<2.0.0)"
-]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
@@ -67,6 +76,8 @@ filterwarnings = [
 # CI lint scope: real bugs (pyflakes) + syntax errors. Style rules (line
 # length, import sorting, datetime tz, etc.) are intentionally not enforced
 # here to keep `ruff check .` green on the existing codebase.
+# Safety-critical modules (execution/exchanges/risk/live) get stricter rules
+# incrementally — see [tool.ruff.lint.per-file-ignores].
 
 [tool.ruff.lint]
 select = ["E4", "E7", "E9", "F"]
