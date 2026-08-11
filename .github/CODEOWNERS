@@ -1,0 +1,16 @@
+# Default owner
+* @huythongbk15
+
+# Capital-bearing execution and risk controls require explicit review.
+/scripts/live_enhanced_ma_binance.py @huythongbk15
+/scripts/generate_live_strategy_evidence.py @huythongbk15
+/src/trading_agent/execution/ @huythongbk15
+/src/trading_agent/exchanges/ @huythongbk15
+/config/live_strategy_evidence.example.json @huythongbk15
+
+# Release and supply-chain controls.
+/.github/ @huythongbk15
+/Dockerfile @huythongbk15
+/docker-compose*.yml @huythongbk15
+/pyproject.toml @huythongbk15
+/poetry.lock @huythongbk15
