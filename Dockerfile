@@ -52,7 +52,8 @@ WORKDIR /app
 COPY pyproject.toml poetry.lock requirements-web.txt ./
 
 # Install production dependencies only (no dev group) into /opt/venv
-RUN poetry install --only=main --no-root
+RUN poetry install --only=main --no-root \
+    && python -c "import rich, pandas, ccxt; print('poetry deps OK:', rich.__file__)"
 RUN pip install --no-cache-dir -r requirements-web.txt
 
 # =============================================================================
