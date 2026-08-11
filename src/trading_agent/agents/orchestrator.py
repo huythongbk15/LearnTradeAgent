@@ -59,8 +59,9 @@ class AblationConfig:
     
     def __init__(self, preset: Literal["A", "B", "C", "D"] | dict = "A"):
         if isinstance(preset, str):
-            self.config = self.PRESETS.get(preset, self.PRESETS["A"])
-            self.preset_name = preset
+            resolved = preset if preset in self.PRESETS else "A"
+            self.config = self.PRESETS[resolved]
+            self.preset_name = resolved
         else:
             self.config = preset
             self.preset_name = "custom"
@@ -115,10 +116,28 @@ class AgentCorrelationTracker:
         
         # Compute correlation
         try:
-            corr = np.corrcoef(signals)
-            return corr
+            with np.errstate(invalid="ignore", divide="ignore"):
+                corr = np.corrcoef(signals)
         except Exception:
             return None
+
+        # Constant series (zero variance) make corrcoef return NaN even when
+        # agents are perfectly correlated (or anti-correlated).  Substitute
+        # ±1.0 from the sign of the constant signal instead of leaving NaN,
+        # which previously disabled the diversification discount entirely.
+        if not np.isfinite(corr).all():
+            for i in range(3):
+                if np.std(signals[i]) == 0.0:
+                    for j in range(3):
+                        if np.std(signals[j]) == 0.0:
+                            corr[i, j] = (
+                                1.0
+                                if (signals[i][0] >= 0) == (signals[j][0] >= 0)
+                                else -1.0
+                            )
+            corr = np.nan_to_num(corr, nan=0.0)
+            np.fill_diagonal(corr, 1.0)
+        return corr
     
     def get_diversification_discount(self) -> float:
         """Calculate diversification discount based on signal correlations.
@@ -447,75 +466,6 @@ class Orchestrator:
             indicators=self._extract_indicators(df),
             data_timestamp=df["timestamp"].tail(1).item(),
         )
-
-    def _ensemble_vote(self, messages: list[AgentMessage], context: AnalysisContext) -> dict:
-        """Combine agent signals using weighted voting with regime awareness.
-        
-        Simplified: Trust the trader agent as final decision maker, use others as confirmation.
-        """
-        # Get regime from technical analyst
-        tech_msg = next((m for m in messages if m.role == "technical_analyst"), None)
-        regime = tech_msg.details.get("regime", {}) if tech_msg else {}
-        trend_regime = regime.get("trend_regime", "ranging")
-        vol_regime = regime.get("vol_regime", "mid_vol")
-        trend_dir = regime.get("trend_dir", "up")
-        adx = regime.get("adx")
-        
-        # Get trader's decision (final say)
-        trader_msg = next((m for m in messages if m.role == "trader"), None)
-        if trader_msg:
-            base_signal = trader_msg.signal
-            base_confidence = trader_msg.confidence
-        else:
-            # Fallback to technical
-            tech_msg = next((m for m in messages if m.role == "technical_analyst"), None)
-            base_signal = tech_msg.signal if tech_msg else "HOLD"
-            base_confidence = tech_msg.confidence if tech_msg else 0.3
-        
-        # Apply regime filter - only override if strong regime disagreement
-        reasons = []
-        final_signal = base_signal
-        confidence = base_confidence
-        
-        # In high vol ranging, be more conservative
-        if vol_regime == "high_vol" and trend_regime == "ranging":
-            if base_signal in ("BUY", "SELL"):
-                # Reduce confidence, maybe flip to HOLD if weak
-                if base_confidence < 0.5:
-                    final_signal = "HOLD"
-                    confidence = 0.4
-                    reasons.append("High vol ranging — weak signal downgraded to HOLD")
-                else:
-                    confidence = base_confidence * 0.8
-                    reasons.append("High vol ranging — confidence reduced")
-        
-        # In trending, boost trend-aligned signals
-        elif trend_regime == "trending" and adx and adx > 25:
-            if base_signal == "BUY" and trend_dir == "up":
-                confidence = min(base_confidence * 1.2, 0.8)
-                reasons.append(f"Trending up (ADX {adx:.0f}) — BUY boosted")
-            elif base_signal == "SELL" and trend_dir == "down":
-                confidence = min(base_confidence * 1.2, 0.8)
-                reasons.append(f"Trending down (ADX {adx:.0f}) — SELL boosted")
-            elif base_signal in ("BUY", "SELL"):
-                # Counter-trend signal - reduce confidence
-                confidence = base_confidence * 0.7
-                reasons.append("Counter-trend signal — confidence reduced")
-        
-        # Details
-        details = {
-            "agent_votes": {m.role: {"signal": m.signal, "confidence": m.confidence} for m in messages},
-            "regime": regime,
-        }
-        
-        return {
-            "signal": final_signal,
-            "confidence": confidence,
-            "reasoning": "Ensemble: " + " | ".join(reasons) if reasons else f"Trader: {base_signal} ({base_confidence:.0%})",
-            "details": details,
-            "risk_level": "high" if vol_regime == "high_vol" else "medium",
-            "regime": regime,
-        }
 
     def _calculate_dynamic_position_size(
         self, context: AnalysisContext, final_msg: AgentMessage, df: pl.DataFrame
