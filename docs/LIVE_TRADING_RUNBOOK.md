@@ -19,8 +19,14 @@ operational checklist below.
   confirmed protective stop, because the exit hands that reservation over with
   Binance cancel-replace. Other locked balances remain unavailable.
 - A process lock prevents two runners from sharing one state file. Unfinished
-  client order IDs are reconciled before new orders; unknown, open or partial
-  states stop the whole batch.
+  client order IDs are reconciled before new orders. Direct lookup falls back
+  to bounded open/closed-order and trade history; unknown, open or partial
+  states stop the whole batch after the reconciliation deadline.
+- The signed ledger records `reserved`, `submitted`, `acknowledged`,
+  `reconciling` and `manual_intervention` transitions plus the exchange's raw
+  status, cumulative base fill, quote cost, trade IDs and fees by currency.
+  None of those cumulative values may move backwards. An exchange status the
+  runner does not recognize is never treated as `open`.
 - Every eligible managed Spot position receives a Binance-native `STOP_LOSS`
   market order immediately after an entry fill. The stop remains at the
   exchange if the hourly strategy process or host dies. Later runs may tighten
@@ -61,7 +67,8 @@ operational checklist below.
   mismatched or missing state blocks mainnet execution.
 - Durable run/order/reconciliation events are appended to
   `data/execution/binance_live_audit.jsonl`. Alert on `run_failed`,
-  `order_unknown` and `reconciliation_blocked` from a separate supervisor.
+  `order_submission_unknown`, `reconciliation_blocked` and any ledger entry in
+  `manual_intervention` from a separate supervisor.
 
 ## Required Binance setup
 
@@ -106,6 +113,7 @@ $env:TRADING_MODE = "testnet"
 $env:LIVE_SAFETY_HMAC_KEY = "<load-from-secret-manager>"
 $env:LIVE_MAX_ORDER_USD = "25"
 $env:LIVE_MAX_DUST_USD = "5"
+$env:LIVE_ORDER_RECONCILE_TIMEOUT_SECONDS = "20"
 python scripts/live_enhanced_ma_binance.py --testnet --profile testnet --execute
 ```
 
@@ -133,6 +141,13 @@ about unknown protection is an incident: disable new entries, inspect both
 client order IDs and reconcile balances/order history before resuming. A
 market stop can fill below its trigger during a gap; this is intentional and
 preferred to leaving a stop-limit order unfilled.
+
+An order ledger entry in `manual_intervention` is also an incident. Keep the
+entry kill switch enabled, locate the client ID in Binance open/closed orders
+and trade history, compare cumulative quantity, quote cost and each fee asset
+with the signed ledger, then compare account balances and protective coverage.
+Do not edit or delete the ledger to clear the condition; retain the audit trail
+and resume only after the next runner reconciliation reaches a terminal state.
 
 ## Stage 3 — mainnet canary
 
