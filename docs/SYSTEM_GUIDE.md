@@ -63,7 +63,7 @@ Hệ thống **multi-agent AI crypto trading** kết hợp:
 ```bash
 cd <repo-root>
 make install          # poetry install
-make test             # chạy 176+ tests
+make test             # chạy 450+ tests
 make info             # kiểm tra cấu hình hệ thống
 ```
 
@@ -179,9 +179,9 @@ python -m trading_agent.cli llm stats         # cache & cost LLM
 |---|---|---|---|---|
 | **Backtest** | ảo (lịch sử) | không | Kiểm chứng ý tưởng, tối ưu tham số | `make backtest` |
 | **Paper Exchange nội bộ** | ảo ($100k) | không | Test full cycle agents→execution | `make trade` |
-| **Live Alpaca Paper** | ảo (Alpaca paper $100k) | không | Chạy như live thật, broker API thật | `scripts/live_cron_runner.py --execute` |
-| **Binance Testnet** | ảo (testnet) | không | Test khớp lệnh sàn Binance thật | `live_enhanced_ma_binance.py --testnet` |
-| **Binance Live Spot** | thật | có | Chỉ sau testnet, dry-run và checklist vận hành | `live_enhanced_ma_binance.py --execute --confirm-live ...` |
+| **Live Alpaca Paper** | ảo (Alpaca paper $100k) | không | Chạy như live thật, broker API thật | `python scripts/live_cron_runner.py --execute` |
+| **Binance Testnet** | ảo (testnet) | không | Test khớp lệnh sàn Binance thật | `python scripts/live_enhanced_ma_binance.py --testnet` |
+| **Binance Live Spot** | thật | có | Chỉ sau testnet, dry-run và checklist vận hành | `python scripts/live_enhanced_ma_binance.py --execute --confirm-live ...` |
 | **Binance Futures** | thật | có | Đòn bẩy, cả long/short | CLI `live` + cấu hình futures |
 | **Options (US)** | thật | có | Covered call, CSP, vol selling... | `options` (cần broker options) |
 
