@@ -12,12 +12,12 @@ gates in this document and an explicit operator approval.
 - Local starting commit: `0c62522` (`harden real-money Binance execution`).
   Its tree contains the PR #2 hardening changes; the sandbox could not fetch the
   newer merge ref because outbound Git access is blocked.
-- Remote repair PR #4 is merged; its CI and Phase 6 workflow runs completed
-  successfully and restored the exact Git-normalized P0.1 tree.
+- Remote repair PR #4 and protective-stop PR #5 are merged; their CI and Phase
+  6 workflow runs completed successfully.
 - Python: 3.12.13.
-- Full test suite after the latest P0.1 hardening: **284 passed, 3 skipped**.
-- Critical live-path suite after the latest P0.1 hardening: **46 passed**.
-- `trading_agent.execution.live_safety` coverage: **78.51%** (gate: 75%).
+- Full test suite after P0.5 canary-profile hardening: **296 passed, 3 skipped**.
+- Critical live-path suite after P0.5 canary-profile hardening: **58 passed**.
+- `trading_agent.execution.live_safety` coverage: **80.76%** (gate: 75%).
 - Ruff: passed.
 - GitHub workflow YAML parse: passed.
 - `pip check`: no broken requirements.
@@ -32,12 +32,12 @@ gates in this document and an explicit operator approval.
 | --- | --- | --- | --- | --- |
 | Next-bar signal timing | Implemented | Implemented by hourly runner | Not accepted | Preserve timing parity tests |
 | Fee/spread/slippage model | Implemented | Pre-trade market-quality gates | Not calibrated | Compare predicted and actual fills |
-| Intrabar protective stop | Simulated | Not continuously protected | **Blocked** | P0.1 exchange-native protection |
+| Intrabar protective stop | Simulated | Implemented; acceptance pending | Not soaked | P0.1 testnet acceptance |
 | Order idempotency | Implemented in live ledger | Covered by tests | Not soaked | P0.2 lifecycle soak |
 | Partial/unknown fill handling | Fail-closed | Covered by tests | Not soaked | P0.2 active reconciliation |
 | Precision/minimum notional | Implemented | Covered by tests | Not soaked | Testnet exchange-filter matrix |
 | Market-data freshness | Candle checks implemented | Order-book timestamp is incomplete | **Blocked** | P0.3 timestamp/sequence hardening |
-| Risk-reducing sell | Not applicable | Notional-based validation | **Blocked** | P0.4 quantity/free-balance validation |
+| Risk-reducing sell | Not applicable | Free/locked quantity tests pass | Not soaked | Testnet exit matrix |
 | State integrity | Signed local state | Implemented | Single-host only | P1.1 durable leader and snapshots |
 | Monitoring/alerting | Modules exist | Not wired to the Binance runner | **Blocked** | P1.3 independent paging |
 | Deployment/restore | CI artifacts exist | Not acceptance-tested | **Blocked** | P1.4/P1.5 drills and topology |
@@ -55,10 +55,10 @@ gates in this document and an explicit operator approval.
 - [x] Recreate a missing stop without creating duplicates.
 - [x] Replace a tightened stop safely and never widen a trailing stop.
 - [x] Keep risk-reducing exits available while the entry kill switch is active.
-- [ ] Handle partial fills, dust, exchange precision and minimum notional.
+- [x] Handle partial fills, dust, exchange precision and minimum notional.
   - [x] Reprotect the refreshed remainder before stopping on a partial fill.
   - [x] Fail closed and audit when exchange filters reject protective quantity.
-  - [ ] Define and enforce the controlled dust policy in P0.4.
+  - [x] Define and enforce the controlled dust policy in P0.4.
 - [x] Audit create, acknowledge, replace, cancel, fill and recovery events.
 - [x] Add unit, integration, restart and timeout-after-accept regression tests.
 - [ ] Add an opt-in Binance Spot Testnet acceptance test; never run it in unit CI.
@@ -87,26 +87,36 @@ does not remove protection already held by the exchange.
 
 ### P0.4 Quantity-based risk-reducing sells
 
-- [ ] Validate sell quantity against free base-asset balance after precision.
-- [ ] Account for locked quantity and protective-order reservations.
-- [ ] Permit valid risk-reducing sells while entry limits are locked.
-- [ ] Define a controlled dust/minimum-notional policy.
+- [x] Validate sell quantity against free base-asset balance after precision.
+- [x] Account for locked quantity and protective-order reservations.
+- [x] Permit valid risk-reducing sells while entry limits are locked.
+- [x] Define a controlled dust/minimum-notional policy: only deterministic
+  minimum-filter remainders up to `LIVE_MAX_DUST_USD` (default USD 5, hard cap
+  USD 10) are signed and audited; all other failures remain fail-closed.
 
 ### P0.5 Canary profiles
 
-- [ ] Add explicit `testnet`, `mainnet-canary` and `mainnet-normal` profiles.
-- [ ] Canary maximum order: `min(USD 25, 0.25% equity)`.
-- [ ] Canary maximum symbol exposure: 5%; gross exposure: 10%.
-- [ ] Canary minimum cash reserve: 80%.
-- [ ] Canary daily-loss lock: 0.5%; account-drawdown lock: 2%.
-- [ ] Prevent automatic risk-limit escalation and audit every limit change.
+- [x] Add explicit `testnet`, `mainnet-canary` and `mainnet-normal` profiles.
+- [x] Canary maximum order: `min(USD 25, 0.25% equity)`.
+- [x] Canary maximum symbol exposure: 5%; gross exposure: 10%.
+- [x] Canary minimum cash reserve: 80%.
+- [x] Canary daily-loss lock: 0.5%; account-drawdown lock: 2%.
+- [x] Prevent automatic risk-limit escalation and audit every limit change.
 
 ### P0.6 Repository and supply-chain gates
 
 - [ ] Require PRs and successful CI checks before merging to `master`.
-- [ ] Add CODEOWNERS for live runner, risk state, exchange adapter and workflows.
+- [x] Add CODEOWNERS for live runner, risk state, exchange adapter and workflows.
 - [ ] Require production-environment approval and disable practical bypasses.
 - [ ] Pin base/service container images by digest and validate Compose in CI.
+  - [x] Require the application image by digest, verify its embedded commit and
+    use the resolved digest in staging/production CD.
+  - [x] Validate production and Oracle Compose merges in CI; remove incompatible
+    `container_name`/replica and host-network/network combinations.
+  - [ ] Pin Dockerfile base images and every infrastructure service by digest.
+- [x] Add weekly dependency update PRs for Python, npm, Docker and Actions.
+- [ ] Apply and verify the server-side branch ruleset and production reviewers
+  documented in `.github/BRANCH_PROTECTION.md`.
 
 ## P1 - production operations
 
@@ -118,6 +128,9 @@ does not remove protection already held by the exchange.
 - [ ] P1.4: out-of-band kill switch and documented incident/credential drills.
 - [ ] P1.5: one execution leader, separate scheduler/monitoring, tested health and
   rollback behavior, and no deployment-triggered mainnet enablement.
+  - [ ] Reconcile the production workflow's expected blue/green services with
+    the actual Compose topology; the current fail-closed validation intentionally
+    blocks the inconsistent deployment.
 - [ ] P1.6: dedicated spot subaccount, withdrawal disabled, IP allowlist and
   separate read-only monitoring credentials.
 
