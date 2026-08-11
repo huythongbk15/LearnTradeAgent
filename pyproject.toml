@@ -118,3 +118,10 @@ select = ["E4", "E7", "E9", "F"]
 # F841 (unused variable) is harmless noise; cleaned incrementally.
 # E402 is intentional in scripts/ (sys.path setup) and several modules (lazy imports).
 ignore = ["F841", "E402"]
+
+# Safety-critical modules: enforce F841 and E402 (no ignore)
+[tool.ruff.lint.per-file-ignores]
+"src/trading_agent/execution/**" = []
+"src/trading_agent/exchanges/**" = []
+"src/trading_agent/risk/**" = []
+"scripts/live_*.py" = []
