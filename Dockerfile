@@ -16,7 +16,7 @@ RUN npm run build
 # =============================================================================
 # STAGE 1: Builder — Install Python dependencies
 # =============================================================================
-FROM python:3.12-slim AS builder
+FROM python:3.14-slim AS builder
 
 # System deps for building wheels (cryptography, etc.)
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -47,7 +47,7 @@ RUN pip install --no-cache-dir -r requirements-web.txt
 # =============================================================================
 # STAGE 2: Runtime — Minimal, non-root, read-only
 # =============================================================================
-FROM python:3.12-slim AS runtime
+FROM python:3.14-slim AS runtime
 
 # System runtime deps (libpq for psycopg2, ca-certificates for TLS)
 RUN apt-get update && apt-get install -y --no-install-recommends \
