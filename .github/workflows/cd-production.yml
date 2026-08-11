@@ -10,24 +10,21 @@ on:
         description: 'Git SHA to deploy (sha-<sha> tag from CI)'
         required: true
         type: string
-      environment:
-        description: 'Target environment'
-        required: true
-        type: choice
-        options: [production]
-        default: production
-
 permissions:
   contents: read
   packages: read
   id-token: write
   attestations: read
 
+concurrency:
+  group: production-deployment
+  cancel-in-progress: false
+
 jobs:
   deploy-production:
     name: Deploy to Production (Blue-Green)
     runs-on: ubuntu-latest
-    environment: ${{ github.event.inputs.environment }}
+    environment: production
     env:
       REGISTRY: ghcr.io
       IMAGE_NAME: ${{ github.repository }}
@@ -70,9 +67,22 @@ jobs:
             exit 1
           fi
           REPOSITORY="${GITHUB_REPOSITORY,,}"
-          IMAGE="${{ env.REGISTRY }}/$REPOSITORY:${{ github.event.inputs.sha }}"
-          echo "image=$IMAGE" >> $GITHUB_OUTPUT
-          echo "Using image: $IMAGE"
+          IMAGE_TAG="${{ env.REGISTRY }}/$REPOSITORY:${{ github.event.inputs.sha }}"
+          docker pull "$IMAGE_TAG"
+          REQUESTED_REVISION="${{ github.event.inputs.sha }}"
+          REQUESTED_REVISION="${REQUESTED_REVISION#sha-}"
+          REVISION="$(docker image inspect --format='{{index .Config.Labels "org.opencontainers.image.revision"}}' "$IMAGE_TAG")"
+          if [ "$REVISION" != "$REQUESTED_REVISION" ]; then
+            echo "Image revision label does not match the requested commit" >&2
+            exit 1
+          fi
+          DIGEST_IMAGE="$(docker image inspect --format='{{index .RepoDigests 0}}' "$IMAGE_TAG")"
+          case "$DIGEST_IMAGE" in
+            *@sha256:*) ;;
+            *) echo "Registry did not return an immutable digest" >&2; exit 1 ;;
+          esac
+          echo "image=$DIGEST_IMAGE" >> "$GITHUB_OUTPUT"
+          echo "Using immutable image: $DIGEST_IMAGE"
 
       - name: Verify cosign signature
         id: verify-signature
@@ -145,9 +155,9 @@ jobs:
             echo \"Active: \$ACTIVE, Inactive: \$INACTIVE\"
 
             # Update inactive service with new image
-            echo \"IMAGE_TAG=${{ github.event.inputs.sha }}\" > .env.\$INACTIVE
-            docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile \$INACTIVE pull
-            docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile \$INACTIVE up -d
+            echo \"TRADING_AGENT_IMAGE=${{ steps.image-tag.outputs.image }}\" > .env.\$INACTIVE
+            docker compose --env-file .env.\$INACTIVE -f docker-compose.yml -f docker-compose.prod.yml --profile \$INACTIVE pull
+            docker compose --env-file .env.\$INACTIVE -f docker-compose.yml -f docker-compose.prod.yml --profile \$INACTIVE up -d
 
             # Wait for health checks
             echo \"Waiting for health checks on \$INACTIVE...\"
