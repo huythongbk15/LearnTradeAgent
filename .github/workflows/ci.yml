@@ -43,6 +43,7 @@ jobs:
       - name: Critical live-trading coverage gate
         run: |
           pytest tests/test_live_safety.py tests/test_binance_live_runner.py tests/test_ccxt_order_filters.py \
+            tests/test_live_broker_balances.py \
             --cov=trading_agent.execution.live_safety \
             --cov-report=term-missing \
             --cov-fail-under=75
@@ -50,6 +51,20 @@ jobs:
       - name: Validate YAML workflows
         run: |
           python3 -c "import pathlib, yaml; [yaml.safe_load(p.read_text()) for p in pathlib.Path('.github/workflows').glob('*.yml')]" && echo "All YAML valid"
+
+      - name: Validate Docker Compose manifests
+        shell: bash
+        env:
+          TRADING_AGENT_IMAGE: ghcr.io/example/trading-agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+          WEBUI_API_KEY: ci-placeholder
+          CADDY_PASSWORD_HASH: ci-placeholder
+          LETSENCRYPT_EMAIL: ci@example.invalid
+          DOMAIN_NAME: example.invalid
+        run: |
+          touch .env.local
+          trap 'rm -f .env.local' EXIT
+          docker compose --profile '*' -f docker-compose.yml -f docker-compose.prod.yml config --quiet
+          docker compose -f docker-compose.oracle.yml config --quiet
 
   build-and-scan:
     name: Build, Test & Security Scan
@@ -87,6 +102,9 @@ jobs:
           context: .
           push: false
           tags: ${{ steps.image.outputs.name }}:sha-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
           load: true
           pull: true
           cache-from: type=gha

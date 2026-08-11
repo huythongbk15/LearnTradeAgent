@@ -15,13 +15,14 @@ import os
 import socket
 import tempfile
 from statistics import median
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Mapping
 
 
 LIVE_CONFIRMATION = "LIVE_TRADING_WITH_REAL_MONEY"
+RISK_INCREASE_CONFIRMATION = "APPROVE_LIVE_RISK_INCREASE"
 STATE_VERSION = 1
 
 
@@ -130,6 +131,7 @@ class LiveRiskLimits:
     """Hard limits evaluated immediately before every real order."""
 
     max_order_notional_usd: float = 100.0
+    max_order_equity_pct: float = 1.0
     max_symbol_exposure_pct: float = 0.25
     max_gross_exposure_pct: float = 0.50
     min_cash_reserve_pct: float = 0.25
@@ -140,12 +142,16 @@ class LiveRiskLimits:
     max_spread_pct: float = 0.002
     max_book_slippage_pct: float = 0.003
     min_book_depth_multiple: float = 1.25
+    max_dust_notional_usd: float = 5.0
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> "LiveRiskLimits":
         source = os.environ if env is None else env
         limits = cls(
             max_order_notional_usd=_read_float(source, "LIVE_MAX_ORDER_USD", 100.0),
+            max_order_equity_pct=_read_float(
+                source, "LIVE_MAX_ORDER_EQUITY_PCT", 1.0
+            ),
             max_symbol_exposure_pct=_read_float(source, "LIVE_MAX_SYMBOL_PCT", 0.25),
             max_gross_exposure_pct=_read_float(source, "LIVE_MAX_GROSS_EXPOSURE_PCT", 0.50),
             min_cash_reserve_pct=_read_float(source, "LIVE_MIN_CASH_RESERVE_PCT", 0.25),
@@ -160,13 +166,50 @@ class LiveRiskLimits:
             min_book_depth_multiple=_read_float(
                 source, "LIVE_MIN_BOOK_DEPTH_MULTIPLE", 1.25
             ),
+            max_dust_notional_usd=_read_float(
+                source, "LIVE_MAX_DUST_USD", 5.0
+            ),
         )
         limits.validate()
         return limits
 
+    @classmethod
+    def for_profile(
+        cls,
+        profile: str,
+        env: Mapping[str, str] | None = None,
+    ) -> "LiveRiskLimits":
+        """Build hard limits for an explicit deployment profile."""
+
+        normalized = profile.strip().lower()
+        if normalized not in {"testnet", "mainnet-canary", "mainnet-normal"}:
+            raise LiveSafetyError(f"unsupported live trading profile: {profile}")
+        configured = cls.from_env(env)
+        if normalized != "mainnet-canary":
+            return configured
+        canary = replace(
+            configured,
+            max_order_notional_usd=min(configured.max_order_notional_usd, 25.0),
+            max_order_equity_pct=min(configured.max_order_equity_pct, 0.0025),
+            max_symbol_exposure_pct=min(configured.max_symbol_exposure_pct, 0.05),
+            max_gross_exposure_pct=min(configured.max_gross_exposure_pct, 0.10),
+            min_cash_reserve_pct=max(configured.min_cash_reserve_pct, 0.80),
+            max_daily_loss_pct=min(configured.max_daily_loss_pct, 0.005),
+            max_drawdown_pct=min(configured.max_drawdown_pct, 0.02),
+        )
+        canary.validate()
+        return canary
+
+    def effective_max_order_notional(self, equity: float) -> float:
+        if not math.isfinite(equity) or equity <= 0:
+            raise LiveSafetyError("account equity must be finite and positive")
+        return min(self.max_order_notional_usd, equity * self.max_order_equity_pct)
+
     def validate(self) -> None:
         if self.max_order_notional_usd <= 0:
             raise LiveSafetyError("LIVE_MAX_ORDER_USD must be positive")
+        if not 0 < self.max_order_equity_pct <= 1:
+            raise LiveSafetyError("LIVE_MAX_ORDER_EQUITY_PCT must be between 0 and 1")
         for name in (
             "max_symbol_exposure_pct",
             "max_gross_exposure_pct",
@@ -186,6 +229,13 @@ class LiveRiskLimits:
             raise LiveSafetyError("LIVE_MAX_QUOTE_AGE_SECONDS must be positive")
         if not 1 <= self.min_book_depth_multiple <= 10:
             raise LiveSafetyError("LIVE_MIN_BOOK_DEPTH_MULTIPLE must be between 1 and 10")
+        if not 0 <= self.max_dust_notional_usd <= min(
+            self.max_order_notional_usd,
+            10.0,
+        ):
+            raise LiveSafetyError(
+                "LIVE_MAX_DUST_USD must be between 0 and min(LIVE_MAX_ORDER_USD, 10)"
+            )
 
 
 @dataclass(frozen=True)
@@ -579,6 +629,8 @@ class LiveRiskState:
     account_fingerprint: str = ""
     strategy_fingerprint: str = ""
     managed_symbols: list[str] = field(default_factory=list)
+    risk_profile: str = ""
+    risk_limits: dict[str, float] = field(default_factory=dict)
     integrity: str = ""
     updated_at: str = ""
 
@@ -625,6 +677,20 @@ class LiveRiskStateStore:
             raise LiveSafetyError(f"invalid position_risk in live risk state: {self.path}")
         if not isinstance(state.managed_symbols, list):
             raise LiveSafetyError(f"invalid managed_symbols in live risk state: {self.path}")
+        if not isinstance(state.risk_limits, dict):
+            raise LiveSafetyError(f"invalid risk_limits in live risk state: {self.path}")
+        allowed_profiles = {"", "testnet", "mainnet-canary", "mainnet-normal"}
+        if state.risk_profile not in allowed_profiles:
+            raise LiveSafetyError(f"invalid risk_profile in live risk state: {self.path}")
+        if bool(state.risk_profile) != bool(state.risk_limits):
+            raise LiveSafetyError(f"incomplete risk profile in live risk state: {self.path}")
+        if state.risk_limits:
+            try:
+                LiveRiskLimits(**state.risk_limits).validate()
+            except (TypeError, LiveSafetyError) as exc:
+                raise LiveSafetyError(
+                    f"invalid risk limits in live risk state: {self.path}"
+                ) from exc
         return state
 
     def bind_context(
@@ -651,6 +717,73 @@ class LiveRiskStateStore:
         self.state.strategy_fingerprint = strategy
         self.state.managed_symbols = normalized_symbols
         self.save()
+
+    def bind_risk_limits(
+        self,
+        *,
+        profile: str,
+        limits: LiveRiskLimits,
+        approve_increase: bool = False,
+    ) -> dict[str, object] | None:
+        """Persist limits and block any silent increase in allowed risk."""
+
+        normalized_profile = profile.strip().lower()
+        if normalized_profile not in {"testnet", "mainnet-canary", "mainnet-normal"}:
+            raise LiveSafetyError(f"unsupported live trading profile: {profile}")
+        limits.validate()
+        requested = {
+            key: float(value)
+            for key, value in asdict(limits).items()
+        }
+        previous = self.state.risk_limits
+        previous_profile = self.state.risk_profile
+        if previous and set(previous) != set(requested):
+            raise LiveSafetyError("stored live risk limits use an unsupported schema")
+        if previous_profile == normalized_profile and previous == requested:
+            return None
+
+        increases: list[str] = []
+        if previous:
+            greater_is_riskier = {
+                "max_order_notional_usd",
+                "max_order_equity_pct",
+                "max_symbol_exposure_pct",
+                "max_gross_exposure_pct",
+                "max_daily_loss_pct",
+                "max_drawdown_pct",
+                "max_quote_age_seconds",
+                "max_price_deviation_pct",
+                "max_spread_pct",
+                "max_book_slippage_pct",
+                "max_dust_notional_usd",
+            }
+            lower_is_riskier = {
+                "min_cash_reserve_pct",
+                "min_book_depth_multiple",
+            }
+            for name in greater_is_riskier:
+                if requested[name] > float(previous[name]) + 1e-12:
+                    increases.append(name)
+            for name in lower_is_riskier:
+                if requested[name] < float(previous[name]) - 1e-12:
+                    increases.append(name)
+        if increases and not approve_increase:
+            raise LiveSafetyError(
+                "risk-limit increase requires explicit confirmation: "
+                + ", ".join(sorted(increases))
+            )
+
+        change: dict[str, object] = {
+            "previous_profile": previous_profile,
+            "profile": normalized_profile,
+            "previous_limits": dict(previous),
+            "limits": requested,
+            "risk_increases": sorted(increases),
+        }
+        self.state.risk_profile = normalized_profile
+        self.state.risk_limits = requested
+        self.save()
+        return change
 
     def observe_equity(
         self,
@@ -839,21 +972,89 @@ class LiveRiskStateStore:
         return peak, trailing_stop
 
     def protective_order_state(self, symbol: str) -> dict[str, object]:
-        """Return a copy of active/pending exchange-native protection state."""
+        """Return a copy of active/pending protection and controlled dust state."""
 
         record = self.state.position_risk.get(symbol)
         if not isinstance(record, dict):
-            return {"revision": 0, "active": None, "pending": None}
+            return {"revision": 0, "active": None, "pending": None, "dust": None}
         protection = record.get("protective_order")
         if not isinstance(protection, dict):
-            return {"revision": 0, "active": None, "pending": None}
+            return {"revision": 0, "active": None, "pending": None, "dust": None}
         active = protection.get("active")
         pending = protection.get("pending")
+        dust = protection.get("dust")
         return {
             "revision": int(protection.get("revision", 0)),
             "active": dict(active) if isinstance(active, dict) else None,
             "pending": dict(pending) if isinstance(pending, dict) else None,
+            "dust": dict(dust) if isinstance(dust, dict) else None,
         }
+
+    def mark_position_dust(
+        self,
+        symbol: str,
+        *,
+        quantity: float,
+        estimated_notional: float,
+        reason: str,
+        now: datetime | None = None,
+    ) -> dict[str, object]:
+        """Persist a signed marker for a deterministic, bounded dust position."""
+
+        if not math.isfinite(quantity) or quantity <= 0:
+            raise LiveSafetyError("dust quantity must be finite and positive")
+        if not math.isfinite(estimated_notional) or estimated_notional < 0:
+            raise LiveSafetyError("dust notional must be finite and non-negative")
+        if not reason.strip():
+            raise LiveSafetyError("dust reason is required")
+        record = self.state.position_risk.get(symbol)
+        if not isinstance(record, dict):
+            raise LiveSafetyError(f"position risk is not initialized for {symbol}")
+        protection = record.get("protective_order")
+        if not isinstance(protection, dict):
+            protection = {
+                "revision": 0,
+                "active": None,
+                "pending": None,
+                "dust": None,
+            }
+        if isinstance(protection.get("pending"), dict):
+            raise LiveSafetyError(
+                f"cannot classify dust while protection is pending for {symbol}"
+            )
+        current = now or datetime.now(UTC)
+        existing = protection.get("dust")
+        first_observed_at = (
+            existing.get("first_observed_at")
+            if isinstance(existing, dict)
+            else current.astimezone(UTC).isoformat()
+        )
+        dust: dict[str, object] = {
+            "status": "controlled_dust",
+            "quantity": quantity,
+            "estimated_notional": estimated_notional,
+            "reason": reason.strip(),
+            "first_observed_at": first_observed_at,
+            "updated_at": current.astimezone(UTC).isoformat(),
+        }
+        protection["dust"] = dust
+        record["protective_order"] = protection
+        self.save(now=current)
+        return dict(dust)
+
+    def clear_position_dust(
+        self,
+        symbol: str,
+        *,
+        now: datetime | None = None,
+    ) -> None:
+        record = self.state.position_risk.get(symbol)
+        if not isinstance(record, dict):
+            return
+        protection = record.get("protective_order")
+        if isinstance(protection, dict) and protection.get("dust") is not None:
+            protection["dust"] = None
+            self.save(now=now)
 
     def reserve_protective_order(
         self,
@@ -876,7 +1077,12 @@ class LiveRiskStateStore:
         current = now or datetime.now(UTC)
         protection = record.get("protective_order")
         if not isinstance(protection, dict):
-            protection = {"revision": 0, "active": None, "pending": None}
+            protection = {
+                "revision": 0,
+                "active": None,
+                "pending": None,
+                "dust": None,
+            }
         if isinstance(protection.get("pending"), dict):
             raise LiveSafetyError(f"protective order submission is already pending for {symbol}")
         revision = int(protection.get("revision", 0)) + 1
@@ -970,6 +1176,7 @@ class LiveRiskStateStore:
         raw_protection = record["protective_order"]
         raw_protection["active"] = pending
         raw_protection["pending"] = None
+        raw_protection["dust"] = None
         self.save(now=current)
         return dict(pending)
 
@@ -1178,10 +1385,11 @@ def validate_order_risk(
 
     if locked_reason:
         raise LiveSafetyError(f"risk circuit breaker is locked: {locked_reason}")
-    if notional_usd > limits.max_order_notional_usd:
+    effective_order_limit = limits.effective_max_order_notional(equity)
+    if notional_usd > effective_order_limit:
         raise LiveSafetyError(
             f"order notional ${notional_usd:,.2f} exceeds "
-            f"${limits.max_order_notional_usd:,.2f}"
+            f"${effective_order_limit:,.2f}"
         )
     if current_symbol_notional + notional_usd > equity * limits.max_symbol_exposure_pct:
         raise LiveSafetyError("post-trade symbol exposure exceeds limit")

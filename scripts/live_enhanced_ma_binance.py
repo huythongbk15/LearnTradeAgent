@@ -26,6 +26,7 @@ from dotenv import load_dotenv
 from live_config import ATR_SL_MULT, ATR_SL_WINDOW, LOOKBACK, STRATEGY_PARAMS
 from trading_agent.execution.live_safety import (
     LIVE_CONFIRMATION,
+    RISK_INCREASE_CONFIRMATION,
     LiveExecutionLock,
     LiveRiskLimits,
     LiveRiskStateStore,
@@ -50,6 +51,7 @@ from trading_agent.exchanges.models import (
     AssetClass,
     MarketType,
     Order,
+    OrderConstraintError,
     OrderSide,
     OrderType,
     Symbol,
@@ -69,9 +71,23 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--execute", action="store_true", help="Submit orders (default: dry-run)")
     parser.add_argument("--testnet", action="store_true", help="Use Binance Spot Testnet")
     parser.add_argument(
+        "--profile",
+        choices=("testnet", "mainnet-canary", "mainnet-normal"),
+        default=None,
+        help="Risk profile; defaults to testnet or mainnet-canary based on mode",
+    )
+    parser.add_argument(
         "--confirm-live",
         default=None,
         help=f"Mainnet only: must equal {LIVE_CONFIRMATION}",
+    )
+    parser.add_argument(
+        "--confirm-risk-increase",
+        default=None,
+        help=(
+            "Required when persisted risk limits would become less restrictive; "
+            f"must equal {RISK_INCREASE_CONFIRMATION}"
+        ),
     )
     parser.add_argument(
         "--symbols",
@@ -80,7 +96,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--weights",
-        default="20,15,15",
+        default="4,3,3",
         help="Percent of equity per symbol; values are not normalized",
     )
     parser.add_argument("--state-file", default=None, help="Override persistent live-risk state path")
@@ -95,6 +111,28 @@ def build_parser() -> argparse.ArgumentParser:
         help="Durable local JSONL execution and heartbeat audit log",
     )
     return parser
+
+
+def resolve_trading_profile(
+    args: argparse.Namespace,
+    env: dict[str, str] | None = None,
+) -> str:
+    source = os.environ if env is None else env
+    cli_profile = str(getattr(args, "profile", None) or "").strip().lower()
+    env_profile = str(source.get("LIVE_TRADING_PROFILE") or "").strip().lower()
+    if cli_profile and env_profile and cli_profile != env_profile:
+        raise LiveSafetyError("CLI and environment live trading profiles do not match")
+    profile = cli_profile or env_profile or (
+        "testnet" if args.testnet else "mainnet-canary"
+    )
+    allowed = {"testnet", "mainnet-canary", "mainnet-normal"}
+    if profile not in allowed:
+        raise LiveSafetyError(f"unsupported live trading profile: {profile}")
+    if args.testnet and profile != "testnet":
+        raise LiveSafetyError("Binance Testnet requires the testnet risk profile")
+    if not args.testnet and profile == "testnet":
+        raise LiveSafetyError("Binance mainnet cannot use the testnet risk profile")
+    return profile
 
 
 def parse_allocations(
@@ -403,6 +441,7 @@ def ensure_protective_stop(
     current_price: float,
     broker: LiveBroker,
     store: LiveRiskStateStore,
+    limits: LiveRiskLimits | None = None,
     audit_log_path: str | None = None,
 ) -> dict:
     """Create or tighten one exchange-native stop for an existing position."""
@@ -418,17 +457,32 @@ def ensure_protective_stop(
             f"{desired_stop:.8f} >= {current_price:.8f}"
         )
     symbol = exchange_symbol(pair)
-    normalized_quantity = broker.normalize_order_amount(
-        symbol,
-        quantity,
-        reference_price=desired_stop,
-    )
     active = reconcile_protective_stop(
         pair=pair,
         broker=broker,
         store=store,
         audit_log_path=audit_log_path,
     )
+    try:
+        normalized_quantity = broker.normalize_order_amount(
+            symbol,
+            quantity,
+            reference_price=desired_stop,
+        )
+    except OrderConstraintError as exc:
+        dust = classify_controlled_dust(
+            pair=pair,
+            quantity=quantity,
+            reference_price=current_price,
+            error=exc,
+            store=store,
+            limits=limits,
+            context="protective_stop",
+            audit_log_path=audit_log_path,
+        )
+        if dust is not None:
+            return dust
+        raise
     if isinstance(active, dict):
         active_stop = float(active.get("stop_price") or 0.0)
         active_quantity = float(active.get("quantity") or 0.0)
@@ -438,6 +492,7 @@ def ensure_protective_stop(
             normalized_quantity * 1e-8,
         )
         if stop_is_tight_enough and quantity_matches:
+            store.clear_position_dust(pair)
             return active
         desired_stop = max(desired_stop, active_stop)
 
@@ -526,6 +581,7 @@ def ensure_protective_stops(
     positions: list[dict],
     broker: LiveBroker,
     store: LiveRiskStateStore,
+    limits: LiveRiskLimits | None = None,
     skip_symbols: set[str] | None = None,
     audit_log_path: str | None = None,
 ) -> None:
@@ -547,6 +603,7 @@ def ensure_protective_stops(
             current_price=float(state["price"]),
             broker=broker,
             store=store,
+            limits=limits,
             audit_log_path=audit_log_path,
         )
 
@@ -705,6 +762,7 @@ def build_decisions(
     equity: float,
     locked_reason: str | None,
     entries_locked_reason: str | None = None,
+    limits: LiveRiskLimits | None = None,
 ) -> list[dict]:
     position_map = {position["symbol"]: position for position in positions}
     decisions: list[dict] = []
@@ -733,7 +791,16 @@ def build_decisions(
         elif desired_long and delta > deadband and entries_locked_reason:
             continue
         elif desired_long and delta > deadband:
-            action, qty, reason = "BUY", delta / state["price"], "REBALANCE"
+            buy_notional = delta
+            if limits is not None:
+                safe_order_budget = limits.effective_max_order_notional(equity) / (
+                    1 + limits.max_price_deviation_pct
+                )
+                buy_notional = min(
+                    buy_notional,
+                    safe_order_budget,
+                )
+            action, qty, reason = "BUY", buy_notional / state["price"], "REBALANCE"
         elif desired_long and delta < -deadband:
             action, qty, reason = "SELL", min(abs(delta) / state["price"], current_qty), "REBALANCE"
         elif not desired_long and current_qty > 0:
@@ -763,6 +830,119 @@ def position_snapshot(positions: list[dict]) -> tuple[dict[str, dict], float]:
     if not math.isfinite(gross) or gross < 0:
         raise LiveSafetyError("invalid gross exposure")
     return by_symbol, gross
+
+
+CONTROLLED_DUST_CONSTRAINTS = frozenset({
+    "amount_zero",
+    "minimum_amount",
+    "minimum_notional",
+})
+
+
+def classify_controlled_dust(
+    *,
+    pair: str,
+    quantity: float,
+    reference_price: float,
+    error: OrderConstraintError,
+    store: LiveRiskStateStore,
+    limits: LiveRiskLimits | None,
+    context: str,
+    audit_log_path: str | None = None,
+) -> dict[str, object] | None:
+    """Persist only deterministic, locally bounded exchange-filter dust."""
+
+    if limits is None or error.constraint not in CONTROLLED_DUST_CONSTRAINTS:
+        return None
+    if (
+        not math.isfinite(quantity)
+        or quantity <= 0
+        or not math.isfinite(reference_price)
+        or reference_price <= 0
+    ):
+        return None
+    estimated_notional = quantity * reference_price
+    if (
+        not math.isfinite(estimated_notional)
+        or estimated_notional < 0
+        or estimated_notional > limits.max_dust_notional_usd + 1e-12
+    ):
+        return None
+    dust = store.mark_position_dust(
+        pair,
+        quantity=quantity,
+        estimated_notional=estimated_notional,
+        reason=error.constraint,
+    )
+    if audit_log_path:
+        append_live_audit_event(
+            audit_log_path,
+            "position_dust_classified",
+            {
+                "symbol": pair,
+                "quantity": quantity,
+                "estimated_notional": estimated_notional,
+                "constraint": error.constraint,
+                "context": context,
+            },
+        )
+    return dust
+
+
+def sellable_position_quantity(
+    position: dict,
+    active_protective: dict[str, object] | None,
+) -> float:
+    """Return free quantity plus the balance reserved by our active stop."""
+
+    try:
+        total = float(position.get("qty") or 0.0)
+        free = float(position.get("free_qty", total))
+        locked = float(position.get("locked_qty", max(0.0, total - free)))
+    except (TypeError, ValueError) as exc:
+        raise LiveSafetyError("spot position quantities must be numeric") from exc
+    if any(not math.isfinite(value) or value < 0 for value in (total, free, locked)):
+        raise LiveSafetyError("spot position quantities must be finite and non-negative")
+    tolerance = max(1e-12, total * 1e-8)
+    if (
+        free > total + tolerance
+        or locked > total + tolerance
+        or free + locked > total + tolerance
+    ):
+        raise LiveSafetyError("spot free or locked quantity exceeds total position")
+
+    protective_reserved = 0.0
+    if isinstance(active_protective, dict):
+        status = str(active_protective.get("status") or "").lower()
+        if status in {"open", "partial"}:
+            try:
+                protected_quantity = float(active_protective.get("quantity") or 0.0)
+            except (TypeError, ValueError) as exc:
+                raise LiveSafetyError("active protective quantity must be numeric") from exc
+            if not math.isfinite(protected_quantity) or protected_quantity <= 0:
+                raise LiveSafetyError("active protective quantity must be finite and positive")
+            protective_reserved = min(locked, protected_quantity)
+    return min(total, free + protective_reserved)
+
+
+def validate_sell_quantity_capacity(
+    *,
+    pair: str,
+    requested_quantity: float,
+    position: dict | None,
+    active_protective: dict[str, object] | None,
+) -> None:
+    if position is None:
+        raise LiveSafetyError(f"cannot sell {pair}: no current spot position")
+    if not math.isfinite(requested_quantity) or requested_quantity <= 0:
+        raise LiveSafetyError(f"invalid sell quantity for {pair}")
+    capacity = sellable_position_quantity(position, active_protective)
+    tolerance = max(1e-12, requested_quantity * 1e-8)
+    if requested_quantity > capacity + tolerance:
+        raise LiveSafetyError(
+            f"sell quantity exceeds available balance for {pair}: "
+            f"requested {requested_quantity:.12g}, safely available {capacity:.12g}"
+        )
 
 
 def protected_execution_quote(
@@ -832,6 +1012,8 @@ def prepare_orders(
     positions: list[dict],
     limits: LiveRiskLimits,
     locked_reason: str | None,
+    store: LiveRiskStateStore,
+    audit_log_path: str | None = None,
 ) -> list[dict]:
     """Preflight the complete batch before any order can be submitted."""
 
@@ -843,16 +1025,45 @@ def prepare_orders(
     for decision in decisions:
         pair = decision["market_symbol"]
         symbol = exchange_symbol(pair)
-        quantity, quote_price = protected_execution_quote(
-            broker=broker,
-            symbol=symbol,
-            side=decision["action"],
-            requested_quantity=float(decision["qty"]),
-            signal_price=decision["signal_price"],
-            limits=limits,
-        )
-
         existing = simulated_positions.get(pair)
+        active_protective = None
+        if decision["action"] == "SELL":
+            active = store.protective_order_state(pair).get("active")
+            active_protective = active if isinstance(active, dict) else None
+        try:
+            quantity, quote_price = protected_execution_quote(
+                broker=broker,
+                symbol=symbol,
+                side=decision["action"],
+                requested_quantity=float(decision["qty"]),
+                signal_price=decision["signal_price"],
+                limits=limits,
+            )
+        except OrderConstraintError as exc:
+            dust = None
+            if decision["action"] == "SELL":
+                dust = classify_controlled_dust(
+                    pair=pair,
+                    quantity=float(decision["qty"]),
+                    reference_price=float(decision["signal_price"]),
+                    error=exc,
+                    store=store,
+                    limits=limits,
+                    context="preflight_exit",
+                    audit_log_path=audit_log_path,
+                )
+            if dust is not None:
+                continue
+            raise
+        if decision["action"] == "SELL":
+            validate_sell_quantity_capacity(
+                pair=pair,
+                requested_quantity=quantity,
+                position=existing,
+                active_protective=active_protective,
+            )
+            store.clear_position_dust(pair)
+
         current_notional = float(existing["market_value"]) if existing else 0.0
         notional = quantity * float(quote_price)
         validate_order_risk(
@@ -873,7 +1084,15 @@ def prepare_orders(
         else:
             simulated_cash += notional
             simulated_gross = max(0.0, simulated_gross - notional)
-            simulated_positions[pair] = {"market_value": max(0.0, current_notional - notional)}
+            simulated_positions[pair] = {
+                **(existing or {}),
+                "qty": max(0.0, float(existing["qty"]) - quantity),
+                "free_qty": max(
+                    0.0,
+                    float(existing.get("free_qty", existing["qty"])) - quantity,
+                ),
+                "market_value": max(0.0, current_notional - notional),
+            }
         prepared.append({
             **decision,
             "qty": quantity,
@@ -889,6 +1108,7 @@ def protect_remaining_position(
     result: dict,
     broker: LiveBroker,
     store: LiveRiskStateStore,
+    limits: LiveRiskLimits | None = None,
     audit_log_path: str | None = None,
 ) -> float:
     """Protect any position left after a filled or partially filled order."""
@@ -937,6 +1157,7 @@ def protect_remaining_position(
             current_price=float(planned["signal_price"]),
             broker=broker,
             store=store,
+            limits=limits,
             audit_log_path=audit_log_path,
         )
     except Exception as exc:
@@ -976,15 +1197,48 @@ def execute_orders(
         position_map, gross = position_snapshot(positions)
         pair = planned["market_symbol"]
         symbol = exchange_symbol(pair)
-        quantity, quote_price = protected_execution_quote(
-            broker=broker,
-            symbol=symbol,
-            side=planned["action"],
-            requested_quantity=float(planned["qty"]),
-            signal_price=planned["signal_price"],
-            limits=limits,
-        )
         current = position_map.get(pair)
+        active_protective = None
+        if planned["action"] == "SELL":
+            active_protective = reconcile_protective_stop(
+                pair=pair,
+                broker=broker,
+                store=store,
+                audit_log_path=audit_log_path,
+            )
+        try:
+            quantity, quote_price = protected_execution_quote(
+                broker=broker,
+                symbol=symbol,
+                side=planned["action"],
+                requested_quantity=float(planned["qty"]),
+                signal_price=planned["signal_price"],
+                limits=limits,
+            )
+        except OrderConstraintError as exc:
+            dust = None
+            if planned["action"] == "SELL":
+                dust = classify_controlled_dust(
+                    pair=pair,
+                    quantity=float(planned["qty"]),
+                    reference_price=float(planned["signal_price"]),
+                    error=exc,
+                    store=store,
+                    limits=limits,
+                    context="execution_exit",
+                    audit_log_path=audit_log_path,
+                )
+            if dust is not None:
+                continue
+            raise
+        if planned["action"] == "SELL":
+            validate_sell_quantity_capacity(
+                pair=pair,
+                requested_quantity=quantity,
+                position=current,
+                active_protective=active_protective,
+            )
+            store.clear_position_dust(pair)
         current_notional = float(current["market_value"]) if current else 0.0
         notional = quantity * float(quote_price)
         validate_order_risk(
@@ -997,15 +1251,6 @@ def execute_orders(
             limits=limits,
             locked_reason=locked_reason or store.state.locked_reason,
         )
-
-        active_protective = None
-        if planned["action"] == "SELL":
-            active_protective = reconcile_protective_stop(
-                pair=pair,
-                broker=broker,
-                store=store,
-                audit_log_path=audit_log_path,
-            )
 
         order_key = make_order_key(
             symbol=pair,
@@ -1094,6 +1339,7 @@ def execute_orders(
                         result=reconciled,
                         broker=broker,
                         store=store,
+                        limits=limits,
                         audit_log_path=audit_log_path,
                     )
                 raise LiveSafetyError(
@@ -1133,6 +1379,7 @@ def execute_orders(
             result=result,
             broker=broker,
             store=store,
+            limits=limits,
             audit_log_path=audit_log_path,
         )
         if result.get("status") != "filled":
@@ -1244,6 +1491,7 @@ def run_locked(
     limits: LiveRiskLimits,
     allocations: list[tuple[str, float]],
     state_path: str,
+    profile: str,
 ) -> int:
     key_name = "BINANCE_TESTNET_API_KEY" if args.testnet else "BINANCE_API_KEY"
     secret_name = "BINANCE_TESTNET_API_SECRET" if args.testnet else "BINANCE_API_SECRET"
@@ -1274,6 +1522,33 @@ def run_locked(
         ),
         symbols=list(allocation_map),
     )
+    try:
+        limit_change = store.bind_risk_limits(
+            profile=profile,
+            limits=limits,
+            approve_increase=(
+                getattr(args, "confirm_risk_increase", None)
+                == RISK_INCREASE_CONFIRMATION
+            ),
+        )
+    except LiveSafetyError as exc:
+        if args.audit_log:
+            append_live_audit_event(
+                args.audit_log,
+                "risk_limits_change_blocked",
+                {"requested_profile": profile, "error": str(exc)[:500]},
+            )
+        raise
+    if limit_change is not None and args.audit_log:
+        append_live_audit_event(
+            args.audit_log,
+            (
+                "risk_limits_initialized"
+                if not limit_change["previous_limits"]
+                else "risk_limits_changed"
+            ),
+            limit_change,
+        )
     if args.execute and not args.testnet:
         build_sha = validate_build_sha(os.getenv("TRADING_BUILD_SHA"))
         validate_strategy_evidence(
@@ -1289,7 +1564,8 @@ def run_locked(
     mode = "DRY-RUN" if not args.execute else "TESTNET EXECUTION" if args.testnet else "MAINNET EXECUTION"
     print(f"BINANCE SPOT — Enhanced MA — {mode}")
     print(
-        f"Limits: order ${limits.max_order_notional_usd:,.2f}, "
+        f"Profile {profile}; limits: order min(${limits.max_order_notional_usd:,.2f}, "
+        f"{limits.max_order_equity_pct:.2%} equity), "
         f"symbol {limits.max_symbol_exposure_pct:.0%}, gross {limits.max_gross_exposure_pct:.0%}, "
         f"cash reserve {limits.min_cash_reserve_pct:.0%}"
     )
@@ -1387,6 +1663,7 @@ def run_locked(
             equity=equity,
             locked_reason=risk_locked_reason,
             entries_locked_reason=entries_locked_reason,
+            limits=limits,
         )
         if args.execute:
             ensure_protective_stops(
@@ -1394,6 +1671,7 @@ def run_locked(
                 positions=positions,
                 broker=broker,
                 store=store,
+                limits=limits,
                 skip_symbols={
                     decision["market_symbol"]
                     for decision in decisions
@@ -1412,6 +1690,8 @@ def run_locked(
             positions=positions,
             limits=limits,
             locked_reason=locked_reason,
+            store=store,
+            audit_log_path=args.audit_log,
         )
         print("\nEXECUTION PLAN")
         for planned in prepared:
@@ -1444,7 +1724,8 @@ def run_locked(
 
 
 def run(args: argparse.Namespace) -> int:
-    limits = LiveRiskLimits.from_env()
+    profile = resolve_trading_profile(args)
+    limits = LiveRiskLimits.for_profile(profile)
     allocations = parse_allocations(args.symbols, args.weights, limits)
     require_execution_authorization(
         execute=args.execute,
@@ -1462,6 +1743,7 @@ def run(args: argparse.Namespace) -> int:
             limits=limits,
             allocations=allocations,
             state_path=state_path,
+            profile=profile,
         )
 
 

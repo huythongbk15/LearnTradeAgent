@@ -14,6 +14,10 @@ operational checklist below.
 - Every order is checked against order, symbol, gross-exposure and cash-reserve
   limits immediately before submission. Exchange precision, minimum notional,
   current spread, executable book depth and expected slippage are rechecked.
+- Spot cash and sell capacity use exchange-reported `free` balances. A sell may
+  additionally use only the locked base quantity reserved by this runner's
+  confirmed protective stop, because the exit hands that reservation over with
+  Binance cancel-replace. Other locked balances remain unavailable.
 - A process lock prevents two runners from sharing one state file. Unfinished
   client order IDs are reconciled before new orders; unknown, open or partial
   states stop the whole batch.
@@ -26,12 +30,22 @@ operational checklist below.
   order IDs before allowing another order. A risk-reducing market exit uses
   Binance cancel-replace to hand off the locked stop quantity to the exit.
 - A partial entry or exit stops the batch, but only after the refreshed
-  remaining position has received an acknowledged exchange-native stop. If
-  exchange precision or minimum-notional filters make that impossible, the
-  runner emits `position_protection_failed` and fails closed for operator
-  reconciliation; it never silently treats an unprotected remainder as safe.
+  remaining position has received an acknowledged exchange-native stop. The
+  sole exception is a deterministic `amount_zero`, minimum-amount or
+  minimum-notional filter remainder no larger than `LIVE_MAX_DUST_USD` (default
+  USD 5, hard cap USD 10). That remainder is signed in risk state and audited as
+  `position_dust_classified`. Larger remainders and network, price, maximum or
+  unknown errors still emit `position_protection_failed` and fail closed.
 - Mainnet requires environment authorization and the same explicit phrase on
   the command line. `TRADING_KILL_SWITCH=true` overrides all other gates.
+- The runner binds one of `testnet`, `mainnet-canary` or `mainnet-normal` to the
+  signed state. Canary hard-caps orders at `min(USD 25, 0.25% equity)`, symbol
+  exposure at 5%, gross exposure at 10%, cash reserve at 80%, daily loss at
+  0.5% and drawdown at 2%. Environment values may tighten but cannot loosen
+  those caps.
+- Every profile/limit change is audited. Any less restrictive value is blocked
+  unless the operator supplies `--confirm-risk-increase
+  APPROVE_LIVE_RISK_INCREASE`; deployment or restart alone cannot raise risk.
 - `TRADING_ENTRY_KILL_SWITCH=true` blocks new buys without trapping an existing
   position: strategy exits, ATR risk exits and circuit-breaker sells remain
   available after the normal quote, balance and exchange checks pass.
@@ -91,7 +105,8 @@ $env:TRADING_EXECUTION_ENABLED = "true"
 $env:TRADING_MODE = "testnet"
 $env:LIVE_SAFETY_HMAC_KEY = "<load-from-secret-manager>"
 $env:LIVE_MAX_ORDER_USD = "25"
-python scripts/live_enhanced_ma_binance.py --testnet --execute
+$env:LIVE_MAX_DUST_USD = "5"
+python scripts/live_enhanced_ma_binance.py --testnet --profile testnet --execute
 ```
 
 Run for at least 30 calendar days and cover entries, exits, exchange rejection,
@@ -106,6 +121,10 @@ For each managed position, verify in the Binance Spot Testnet UI/API that:
   it;
 - a tighter ATR trail produces one replacement and the old stop is terminal;
 - a strategy exit replaces/cancels the stop before selling the locked balance;
+- an unrelated locked balance cannot be sold, while the quantity reserved by
+  the runner's confirmed protective stop can be handed to a market exit;
+- a sub-threshold minimum-filter remainder is signed and audited as controlled
+  dust, while the same case above the configured cap blocks the run;
 - timeout-after-accept recovery blocks the batch unless either the old or new
   protective client ID is confirmed.
 
@@ -143,7 +162,7 @@ exact immutable 40-character commit that will execute:
 ```powershell
 $env:TRADING_BUILD_SHA = (git rev-parse HEAD)
 $env:LIVE_SAFETY_HMAC_KEY = "<load-from-secret-manager>"
-python scripts/generate_live_strategy_evidence.py --build-sha $env:TRADING_BUILD_SHA
+python scripts/generate_live_strategy_evidence.py --weights 4,3,3 --build-sha $env:TRADING_BUILD_SHA
 ```
 
 Then use the smallest practical canary and both confirmations:
@@ -157,8 +176,13 @@ $env:TRADING_LIVE_CONFIRMATION = "LIVE_TRADING_WITH_REAL_MONEY"
 $env:TRADING_BUILD_SHA = "<the-signed-evidence-commit-sha>"
 $env:LIVE_SAFETY_HMAC_KEY = "<load-from-secret-manager>"
 $env:LIVE_MAX_ORDER_USD = "25"
-python scripts/live_enhanced_ma_binance.py --execute --confirm-live LIVE_TRADING_WITH_REAL_MONEY
+python scripts/live_enhanced_ma_binance.py --profile mainnet-canary --weights 4,3,3 --execute --confirm-live LIVE_TRADING_WITH_REAL_MONEY
 ```
+
+Moving a persisted account from canary to `mainnet-normal`, or loosening any
+individual limit, is a separate reviewed action. Use the risk-increase phrase
+only after the testnet soak and release gates pass; the change appears as
+`risk_limits_changed` in the audit log.
 
 Set `TRADING_KILL_SWITCH=true` only when every subsequent order submission must
 stop, including exits. Prefer `TRADING_ENTRY_KILL_SWITCH=true` when the operator
@@ -170,7 +194,18 @@ incident review first.
 
 For GitHub deployments, configure `STAGING_KNOWN_HOSTS` and
 `PRODUCTION_KNOWN_HOSTS` with the pinned SSH host-key lines. CD rejects images
-that were not signed and SBOM-attested by `ci.yml` on `master`.
+that were not signed and SBOM-attested by `ci.yml` on `master`. The deployment
+resolves the SHA tag to an immutable digest and verifies the image's embedded
+commit label before use. Apply the branch ruleset and production-environment
+review settings in `.github/BRANCH_PROTECTION.md`; CODEOWNERS alone does not
+enforce approval.
+
+The current production workflow still expects `trading-agent-blue` and
+`trading-agent-green`, while the checked-in Compose topology does not define
+those services. Its validation therefore blocks deployment by design. Treat
+this as a P1.5 release blocker; do not remove the check or claim blue-green
+support until the topology, health target, traffic switch and rollback drill
+are implemented and acceptance-tested together.
 
 ## Go/no-go rule
 

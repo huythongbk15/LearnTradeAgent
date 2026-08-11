@@ -10,7 +10,7 @@
   "generated_at": "2026-08-10T00:00:00+00:00",
   "data_end": "2026-08-09T23:00:00+00:00",
   "allocations": {
-    "BTC/USDT": 0.20
+    "BTC/USDT": 0.04
   },
   "costs": {
     "commission_bps": 10,
@@ -19,7 +19,7 @@
   },
   "symbols": {
     "BTC/USDT": {
-      "allocation": 0.20,
+      "allocation": 0.04,
       "folds": [
         {
           "start": "2025-11-11T00:00:00+00:00",

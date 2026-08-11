@@ -69,6 +69,14 @@ class TimeInForce(str, Enum):
     GTD = "gtd"  # Good Till Date
 
 
+class OrderConstraintError(ValueError):
+    """Deterministic local exchange-filter rejection for an order amount."""
+
+    def __init__(self, message: str, *, constraint: str):
+        super().__init__(message)
+        self.constraint = constraint
+
+
 @dataclass(frozen=True, slots=True)
 class Symbol:
     """
