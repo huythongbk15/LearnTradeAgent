@@ -8,14 +8,15 @@ from pathlib import Path
 import polars as pl
 import pytest
 
-# Redirect storage BEFORE importing the module under test
+# Redirect storage for the module under test. IMPORTANT: the redirect is
+# applied via an autouse fixture with monkeypatch (auto-restored after each
+# test) — never assign at module level, because pytest imports all test
+# modules during collection and a module-level assignment would permanently
+# rewrite the shared config object, breaking later tests that read real data
+# (e.g. orchestrator analyze() -> load_ohlcv).
 _TEMP = Path(tempfile.mkdtemp())
 
 import trading_agent.data.storage as storage_mod  # noqa: E402
-
-# Override the config object in storage module with a patched version
-original_config = storage_mod.config
-original_config.storage_path = str(_TEMP)
 
 from trading_agent.data.storage import (  # noqa: E402
     get_date_range,
@@ -23,6 +24,12 @@ from trading_agent.data.storage import (  # noqa: E402
     load_ohlcv,
     save_ohlcv,
 )
+
+
+@pytest.fixture(autouse=True)
+def _redirect_storage(monkeypatch):
+    """Point storage at the temp dir for this test, then restore."""
+    monkeypatch.setattr(storage_mod.config, "storage_path", str(_TEMP))
 
 
 def _fake_candle(ts: str) -> dict:

@@ -14,6 +14,7 @@ from __future__ import annotations
 import numpy as np
 from dataclasses import dataclass
 from typing import Any, Literal
+from uuid import uuid4
 
 import polars as pl
 from rich.console import Console
@@ -256,6 +257,7 @@ def _log_agent_decision(
     agent_name: str,
     msg: AgentMessage,
     price: float | None = None,
+    trace_id: str = "",
 ):
     """Save agent decision to SQLite."""
     try:
@@ -269,7 +271,10 @@ def _log_agent_decision(
             reasoning=msg.reasoning or "",
             price=price,
             timeframe=timeframe,
-            metadata={k: str(v) for k, v in (msg.details or {}).items() if v is not None},
+            metadata={
+                **({k: str(v) for k, v in (msg.details or {}).items() if v is not None}),
+                **({"trace_id": trace_id} if trace_id else {}),
+            },
         )
     except Exception as e:
         logger.warning("Failed to log agent decision: %s", e)
@@ -287,6 +292,7 @@ class AgentAnalysisReport:
     final_decision: AgentMessage
     indicators: dict[str, Any]
     data_timestamp: Any | None = None
+    trace_id: str = ""  # decision-chain trace id (data → agents → risk → size → final)
 
 
 class Orchestrator:
@@ -343,14 +349,17 @@ class Orchestrator:
         """
 
         # 1. Load data
+        trace_id = uuid4().hex[:12]
         if df is None:
             df = load_ohlcv(config.default_exchange, symbol, timeframe).sort("timestamp")
         else:
             df = df.sort("timestamp")
         self._last_df = df  # cache for downstream (e.g. execution)
+        logger.info("TRACE[%s] stage=data loaded rows=%d", trace_id, len(df))
 
         # 2. Compute indicators (using existing strategies)
         df = self._compute_indicators(df)
+        logger.info("TRACE[%s] stage=indicators computed", trace_id)
 
         # 3. Build context
         current_price = float(df["close"].tail(1).item())
@@ -365,7 +374,8 @@ class Orchestrator:
         # Technical Analyst (always runs - base agent)
         logger.info("Running Technical Analyst...")
         tech_msg = self.technical.analyze(context)
-        _log_agent_decision(symbol, timeframe, "technical_analyst", tech_msg, current_price)
+        _log_agent_decision(symbol, timeframe, "technical_analyst", tech_msg, current_price, trace_id)
+        logger.info("TRACE[%s] stage=agent technical signal=%s conf=%.2f", trace_id, tech_msg.signal, tech_msg.confidence)
         messages.append(tech_msg)
 
         # Sentiment Analyst (conditional on ablation)
@@ -373,7 +383,8 @@ class Orchestrator:
             context.agent_messages = messages
             logger.info("Running Sentiment Analyst...")
             sent_msg = self.sentiment.analyze(context)
-            _log_agent_decision(symbol, timeframe, "sentiment_analyst", sent_msg, current_price)
+            _log_agent_decision(symbol, timeframe, "sentiment_analyst", sent_msg, current_price, trace_id)
+            logger.info("TRACE[%s] stage=agent sentiment signal=%s conf=%.2f", trace_id, sent_msg.signal, sent_msg.confidence)
             messages.append(sent_msg)
         else:
             logger.info("Sentiment Analyst SKIPPED (ablation)")
@@ -383,7 +394,8 @@ class Orchestrator:
             context.agent_messages = messages
             logger.info("Running Risk Manager...")
             risk_msg = self.risk.analyze(context)
-            _log_agent_decision(symbol, timeframe, "risk_manager", risk_msg, current_price)
+            _log_agent_decision(symbol, timeframe, "risk_manager", risk_msg, current_price, trace_id)
+            logger.info("TRACE[%s] stage=agent risk level=%s", trace_id, risk_msg.risk_level)
             messages.append(risk_msg)
         else:
             logger.info("Risk Manager SKIPPED (ablation)")
@@ -413,6 +425,7 @@ class Orchestrator:
                 risk_level=risk_msg.risk_level,
                 warnings=[*trader_decision.warnings, *risk_msg.warnings],
             )
+            logger.info("TRACE[%s] stage=risk_gate triggered level=%s", trace_id, risk_msg.risk_level)
 
         # 5. Apply correlation-based diversification discount to weights
         self.correlation_tracker.update(messages)
@@ -454,7 +467,12 @@ class Orchestrator:
             warnings=trader_decision.warnings,
         )
         messages.append(final)
-        _log_agent_decision(symbol, timeframe, "trader", final, current_price)
+        _log_agent_decision(symbol, timeframe, "trader", final, current_price, trace_id)
+        logger.info(
+            "TRACE[%s] stage=final signal=%s conf=%.2f size=%.2f%% discount=%.2f",
+            trace_id, final.signal, final.confidence,
+            position_size_pct * 100, diversification_discount,
+        )
 
         # 9. Build report
         return AgentAnalysisReport(
@@ -465,6 +483,7 @@ class Orchestrator:
             final_decision=final,
             indicators=self._extract_indicators(df),
             data_timestamp=df["timestamp"].tail(1).item(),
+            trace_id=trace_id,
         )
 
     def _calculate_dynamic_position_size(
