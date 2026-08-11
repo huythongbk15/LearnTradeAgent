@@ -44,7 +44,6 @@ COPY pyproject.toml requirements-web.txt ./
 
 # Install production dependencies into /opt/venv
 RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir poetry-core \
     && pip install --no-cache-dir ".[web,ml,research,portfolio]" \
     && python -c "import rich, pandas, ccxt; print('pip deps OK:', rich.__file__)"
 
@@ -120,8 +119,7 @@ RUN groupadd -g $GID appgroup 2>/dev/null || true && \
 COPY --chown=appuser:appgroup . .
 
 # Install dev dependencies
-RUN pip install --no-cache-dir poetry-core \
-    && pip install --no-cache-dir -e ".[dev,web,infra,ml,research,portfolio]"
+RUN pip install --no-cache-dir -e ".[dev,web,infra,ml,research,portfolio]"
 
 ENV PYTHONPATH="/app/src:$PYTHONPATH"
 

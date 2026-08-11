@@ -80,15 +80,16 @@ all = [
 ]
 
 
-[tool.poetry]
-packages = [{include = "trading_agent", from = "src"}]
-
 [project.scripts]
 trading-agent = "trading_agent.cli:main"
 
 [build-system]
-requires = ["poetry-core>=2.0.0,<3.0.0"]
-build-backend = "poetry.core.masonry.api"
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["trading_agent*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
