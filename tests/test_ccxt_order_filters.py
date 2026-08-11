@@ -9,6 +9,7 @@ from trading_agent.exchanges.models import (
     AssetClass,
     MarketType,
     Order,
+    OrderConstraintError,
     OrderSide,
     OrderType,
     Symbol,
@@ -59,12 +60,13 @@ def test_amount_is_truncated_to_exchange_precision():
 
 
 def test_minimum_notional_filter_is_enforced():
-    with pytest.raises(Exception, match="notional is below"):
+    with pytest.raises(OrderConstraintError, match="notional is below") as exc_info:
         adapter_with_filters().normalize_order_amount(
             btc_symbol(),
             Decimal("0.001"),
             reference_price=Decimal("100"),
         )
+    assert exc_info.value.constraint == "minimum_notional"
 
 
 def test_spot_stop_maps_to_ccxt_market_stop_loss_price():
