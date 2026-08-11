@@ -175,7 +175,11 @@ class EnhancedMaCrossover(Strategy):
         #    flat until price recovers `dd_recovery_pct` from the trip close
         #    (price-based reset — equity of a flat book never moves, so a
         #    "DD recovered" test would never fire).
-        if self.max_dd_pct > 0 or self.trailing_atr_mult > 0:
+        # NOTE: needs OHLC columns; bare signal-frame unit tests (no close/high)
+        # skip this block so pure crossover logic stays testable.
+        if (self.max_dd_pct > 0 or self.trailing_atr_mult > 0) and all(
+            c in df.columns for c in ("close", "high")
+        ):
             sig = df.select(final_signal.alias("signal")).to_series().to_numpy().copy()
             close = df["close"].to_numpy()
             high = df["high"].to_numpy()
