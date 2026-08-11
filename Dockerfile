@@ -5,7 +5,7 @@
 # =============================================================================
 # STAGE 0: Frontend — deterministic React/Vite production bundle
 # =============================================================================
-FROM node:22-alpine AS frontend
+FROM node:26-alpine AS frontend
 
 WORKDIR /frontend
 COPY webui/frontend/package.json webui/frontend/package-lock.json ./
