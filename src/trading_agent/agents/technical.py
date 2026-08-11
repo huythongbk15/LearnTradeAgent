@@ -63,7 +63,7 @@ class TechnicalAnalyst(BaseAgent):
 
         # Try LLM first
         try:
-            result = ask_agent(SYSTEM_PROMPT, prompt)
+            result = ask_agent(SYSTEM_PROMPT, prompt, schema="technical")
             details = result.get("details", {})
             # Parse key levels (ensure floats)
             key_levels = details.get("key_levels", {})

@@ -131,6 +131,91 @@ def _json_fallback(system_prompt: str, user_prompt: str) -> dict[str, Any]:
     }
 
 
+# ─── Structured output enforcement ────────────────────────────────────────
+# Phase 5: pin the JSON contract each agent must return.  Without this, a
+# hallucinated key name ("action" vs "signal") silently breaks downstream
+# logic; with it, invalid payloads normalize or fall back deterministically.
+
+AGENT_SCHEMAS: dict[str, dict] = {
+    "technical": {
+        "required": ["signal", "confidence"],
+        "signal_enum": ["BUY", "SELL", "HOLD"],
+        "confidence_min": 0.0,
+        "confidence_max": 1.0,
+    },
+    "sentiment": {
+        "required": ["signal", "confidence"],
+        "signal_enum": ["BUY", "SELL", "HOLD"],
+        "confidence_min": 0.0,
+        "confidence_max": 1.0,
+    },
+    "risk": {
+        "required": ["signal", "confidence", "details"],
+        "signal_enum": ["BUY", "SELL", "HOLD"],
+        "confidence_min": 0.0,
+        "confidence_max": 1.0,
+    },
+    "trader": {
+        "required": ["signal", "confidence"],
+        "signal_enum": ["BUY", "SELL", "HOLD"],
+        "confidence_min": 0.0,
+        "confidence_max": 1.0,
+    },
+}
+
+_VALID_SIGNALS = ("BUY", "SELL", "HOLD")
+
+
+def validate_agent_output(payload: Any, schema_name: str) -> dict[str, Any]:
+    """Validate and normalize an agent payload against its JSON schema.
+
+    Returns a normalized dict on success; raises ``ValueError`` when the
+    payload is unusable (missing required keys or bad signal).  Numeric
+    fields are coerced and clamped so a stray "0.7abc" cannot crash the
+    position sizer downstream.
+    """
+    schema = AGENT_SCHEMAS.get(schema_name)
+    if schema is None:
+        raise ValueError(f"unknown agent schema: {schema_name!r}")
+    if not isinstance(payload, dict):
+        raise ValueError(f"{schema_name} agent returned non-object JSON")
+    for key in schema["required"]:
+        if key not in payload or payload[key] is None:
+            raise ValueError(f"{schema_name} agent missing required key {key!r}")
+
+    signal = str(payload["signal"]).strip().upper()
+    if signal not in _VALID_SIGNALS:
+        raise ValueError(
+            f"{schema_name} agent invalid signal {payload['signal']!r} "
+            f"(expected one of {_VALID_SIGNALS})"
+        )
+
+    confidence = payload["confidence"]
+    try:
+        confidence = float(confidence)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"{schema_name} agent non-numeric confidence {payload['confidence']!r}"
+        ) from exc
+    confidence = max(
+        float(schema.get("confidence_min", 0.0)),
+        min(float(schema.get("confidence_max", 1.0)), confidence),
+    )
+
+    normalized: dict[str, Any] = {
+        "signal": signal,
+        "confidence": confidence,
+    }
+    if "reasoning" in payload:
+        normalized["reasoning"] = str(payload["reasoning"])
+    if "details" in payload:
+        normalized["details"] = payload["details"] if isinstance(payload["details"], dict) else {}
+    for key, value in payload.items():
+        if key not in normalized:
+            normalized[key] = value
+    return normalized
+
+
 # Fast skip for local testing
 def llm_enabled() -> bool:
     """True nếu pipeline LLM bật (USE_LLM != 'false')."""
@@ -475,11 +560,17 @@ Rules:
     def ask_agent(
         system_prompt: str,
         user_prompt: str,
+        *,
+        schema: str | None = None,
         **kwargs,
     ) -> dict[str, Any]:
         """Send role-specific prompt, parse JSON response.
 
-        Returns parsed dict. Falls back to rule-based if LLM unavailable.
+        With ``schema`` set (e.g. "technical"), the parsed payload is
+        validated/normalized against ``AGENT_SCHEMAS``; invalid payloads
+        fall back to the rule-based fallback instead of propagating a
+        malformed signal.  Returns parsed dict; falls back to rule-based
+        if LLM unavailable.
         """
         messages = [
             {"role": "system", "content": system_prompt},
@@ -502,6 +593,15 @@ Rules:
                 text = text[start:end + 1]
 
             parsed = json.loads(text)
+            if schema is not None:
+                try:
+                    return validate_agent_output(parsed, schema)
+                except ValueError as exc:
+                    logger.warning(
+                        f"LLM {schema} output failed schema validation ({exc}); "
+                        "returning fallback"
+                    )
+                    return _json_fallback(system_prompt, user_prompt)
             return parsed
         except (json.JSONDecodeError, LLMError) as e:
             logger.warning(f"LLM parsing failed ({e}), returning fallback")
@@ -596,11 +696,13 @@ def backtest_chat(
 def backtest_ask_agent(
     system_prompt: str,
     user_prompt: str,
+    *,
+    schema: str | None = None,
     **kwargs,
 ) -> dict[str, Any]:
     """Structured output in deterministic backtest mode."""
     if not _BACKTEST_MODE:
-        return ask_agent(system_prompt, user_prompt, **kwargs)
+        return ask_agent(system_prompt, user_prompt, schema=schema, **kwargs)
     
     messages = [
         {"role": "system", "content": system_prompt},
@@ -618,7 +720,17 @@ def backtest_ask_agent(
         end = text.rfind("}")
         if start >= 0 and end > start:
             text = text[start:end + 1]
-        return json.loads(text)
+        parsed = json.loads(text)
+        if schema is not None:
+            try:
+                return validate_agent_output(parsed, schema)
+            except ValueError as exc:
+                logger.warning(
+                    f"Backtest LLM {schema} output failed schema validation ({exc}); "
+                    "returning fallback"
+                )
+                return _json_fallback(system_prompt, user_prompt)
+        return parsed
     except (json.JSONDecodeError, LLMError) as e:
         logger.warning(f"Backtest LLM parsing failed ({e}), returning fallback")
         return _json_fallback(system_prompt, user_prompt)

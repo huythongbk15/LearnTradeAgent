@@ -97,7 +97,7 @@ class SentimentAnalyst(BaseAgent):
         prompt = "\n".join(prompt_lines)
 
         try:
-            result = ask_agent(SYSTEM_PROMPT, prompt)
+            result = ask_agent(SYSTEM_PROMPT, prompt, schema="sentiment")
             msg = AgentMessage(
                 role="sentiment_analyst",
                 signal=result.get("signal", "HOLD"),

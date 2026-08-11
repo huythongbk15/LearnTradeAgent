@@ -89,7 +89,7 @@ class RiskManager(BaseAgent):
         prompt = "\n".join(prompt_lines)
 
         try:
-            result = ask_agent(SYSTEM_PROMPT, prompt)
+            result = ask_agent(SYSTEM_PROMPT, prompt, schema="risk")
             details = result.get("details", {})
             max_pos = details.get("max_position_size_pct")
             if max_pos is not None:
