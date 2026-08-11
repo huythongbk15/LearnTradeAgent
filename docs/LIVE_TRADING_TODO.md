@@ -61,7 +61,11 @@ gates in this document and an explicit operator approval.
   - [x] Define and enforce the controlled dust policy in P0.4.
 - [x] Audit create, acknowledge, replace, cancel, fill and recovery events.
 - [x] Add unit, integration, restart and timeout-after-accept regression tests.
-- [ ] Add an opt-in Binance Spot Testnet acceptance test; never run it in unit CI.
+- [x] Add an opt-in Binance Spot Testnet acceptance test; never run it in unit CI.
+      (`tests/test_binance_testnet_acceptance.py`; opt-in via
+      `LIVE_TESTNET_ACCEPTANCE=1` + testnet keys; verified 3 passed on
+      testnet.binance.vision 2026-08-11. Also fixed `CCXTAdapter.fetch_open_orders`
+      which passed the CCXT symbol string where a market dict was expected.)
 - [x] Document exchange-held protection and operator reconciliation procedure.
 
 Acceptance: every protectable position has exactly one valid protective order;
@@ -117,7 +121,13 @@ does not remove protection already held by the exchange.
     use the resolved digest in staging/production CD.
   - [x] Validate production and Oracle Compose merges in CI; remove incompatible
     `container_name`/replica and host-network/network combinations.
-  - [ ] Pin Dockerfile base images and every infrastructure service by digest.
+  - [x] Pin Dockerfile base images and every infrastructure service by digest.
+    (Dockerfile already pinned node/python; `scripts/pin_image_digests.py`
+    resolved and pinned all 18 infra services across the three Compose files.
+    `bitnami/etcd:3.5` no longer exists on Docker Hub → switched to
+    `quay.io/coreos/etcd:v3.5.33`; `ghcr.io/timescaledb/*` not anonymously
+    pullable → `timescale/timescaledb`; `prometheus/node-exporter` moved →
+    `prom/node-exporter`; short tags bumped to real patches e.g. v2.53.5.)
 - [x] Add weekly dependency update PRs for Python, npm, Docker and Actions.
 - [ ] Apply and verify the server-side branch ruleset and production reviewers
   documented in `.github/BRANCH_PROTECTION.md`.
@@ -127,6 +137,15 @@ does not remove protection already held by the exchange.
 - [ ] P1.1: distributed leader lease with fencing, schema migrations, encrypted
   versioned snapshots and automated restore tests.
 - [ ] P1.2: correlation IDs and off-host append-only audit retention.
+  - [x] Correlation IDs: `trading_agent/execution/correlation.py` (contextvar)
+    tags every audit event with a per-run `run_id` via
+    `append_live_audit_event`; the Binance runner binds one run ID per
+    invocation (`Run ID: <hex>` banner). 8 tests in
+    `tests/test_audit_correlation.py`.
+  - [x] Local append-only retention: `scripts/audit_retention.py` (archive →
+    gzip + SHA-256 manifest, prune by age, verify JSONL integrity + 0600).
+  - [ ] Off-host retention: ship archives to an independent audit host /
+    object store (deployment step; requires VPS/credentials).
 - [ ] P1.3: Prometheus metrics plus independently supervised paging and synthetic
   alert-delivery tests.
 - [ ] P1.4: out-of-band kill switch and documented incident/credential drills.
@@ -143,7 +162,11 @@ does not remove protection already held by the exchange.
 
 ## P2 - statistical and execution quality
 
-- [ ] Freeze a 6-12 month final holdout and publish an immutable research manifest.
+- [x] Freeze a 6-12 month final holdout and publish an immutable research manifest.
+      (`data/research_manifest.json`: 2026-02-06 → 2026-08-05, 71 datasets
+      fingerprinted; `scripts/generate_holdout_manifest.py`;
+      `trading_agent/alpha_research/holdout.py` guard + 6 tests;
+      `docs/RESEARCH_HOLDOUT.md` policy.)
 - [ ] Add per-fold trade minimums, regime breakdowns, block-bootstrap confidence
   intervals and Deflated/Probabilistic Sharpe.
 - [ ] Stress fees, spread and slippage at 1x/2x/3x plus gaps, latency, missing data,

@@ -1,0 +1,380 @@
+{
+  "datasets": {
+    "ADA_USDT/15m": {
+      "path": "data/raw/binance/ADA_USDT/15m.parquet",
+      "sha256": "3e389ec45f5b67aaa62e9d432afce8b7ebf0500e5abf342f02f780269dd83cee",
+      "size_bytes": 1664524
+    },
+    "ADA_USDT/1d": {
+      "path": "data/raw/binance/ADA_USDT/1d.parquet",
+      "sha256": "969da043bf27ab16065987b7c83399d78aa996ff2959eb4dfe9b56864e7af317",
+      "size_bytes": 45691
+    },
+    "ADA_USDT/1h": {
+      "path": "data/raw/binance/ADA_USDT/1h.parquet",
+      "sha256": "ec9f309171448a6746b81475ba281d80dc26a73e434ee0b05426702f8da0873c",
+      "size_bytes": 692154
+    },
+    "ADA_USDT/1m": {
+      "path": "data/raw/binance/ADA_USDT/1m.parquet",
+      "sha256": "418009c947fcc6222a89637ffd7df67056cbae9cd9233d2e6bb9c916e8aab021",
+      "size_bytes": 19975867
+    },
+    "ADA_USDT/30m": {
+      "path": "data/raw/binance/ADA_USDT/30m.parquet",
+      "sha256": "579131dff9eee61a09f0b330397d16dd281354283a57d8af52c7abd7a60fbe96",
+      "size_bytes": 894308
+    },
+    "ADA_USDT/4h": {
+      "path": "data/raw/binance/ADA_USDT/4h.parquet",
+      "sha256": "657778902129f31df55946254da381b15f9fb5f71e42e4ed27a0e0c853bd8a40",
+      "size_bytes": 198429
+    },
+    "ADA_USDT/5m": {
+      "path": "data/raw/binance/ADA_USDT/5m.parquet",
+      "sha256": "dcf4f8f570126a48eb6766b39ca33b10b090e05da7629fc55d372de9418f53cf",
+      "size_bytes": 4499922
+    },
+    "AVAX_USDT/15m": {
+      "path": "data/raw/binance/AVAX_USDT/15m.parquet",
+      "sha256": "ca344cb351e2876f0758bc25f2995e24c48124ff684377f412cff0bd33bff5a1",
+      "size_bytes": 1580414
+    },
+    "AVAX_USDT/1d": {
+      "path": "data/raw/binance/AVAX_USDT/1d.parquet",
+      "sha256": "12a6ad63b4368f16d78918d4ac3d7599ea0303af7f2dc5ef68b45ec59b121bd7",
+      "size_bytes": 38295
+    },
+    "AVAX_USDT/1h": {
+      "path": "data/raw/binance/AVAX_USDT/1h.parquet",
+      "sha256": "0d5d2a53984823f319d881cf6bef943a179cbe132cc704372ea25f479a7719ba",
+      "size_bytes": 634611
+    },
+    "AVAX_USDT/1m": {
+      "path": "data/raw/binance/AVAX_USDT/1m.parquet",
+      "sha256": "d1d5018bf39c0109e01a73802d2a82722fc1ae29c596eb37d0b4ead21868d62b",
+      "size_bytes": 18189784
+    },
+    "AVAX_USDT/30m": {
+      "path": "data/raw/binance/AVAX_USDT/30m.parquet",
+      "sha256": "e266152ddeab95ffb3548a80e49c848b4ae55a271f06fbaa53291ff99e640c6a",
+      "size_bytes": 845708
+    },
+    "AVAX_USDT/4h": {
+      "path": "data/raw/binance/AVAX_USDT/4h.parquet",
+      "sha256": "fe323a1d9011accbeba872cf7bb8ecd57d6c88381529a8c64377c7bf5f3b131a",
+      "size_bytes": 178080
+    },
+    "AVAX_USDT/5m": {
+      "path": "data/raw/binance/AVAX_USDT/5m.parquet",
+      "sha256": "ec7c09444515c320376a568ece36e30c9f77d2e94b3a7c1cecbf2aa58ffecf30",
+      "size_bytes": 4265605
+    },
+    "BNB_USDT/15m": {
+      "path": "data/raw/binance/BNB_USDT/15m.parquet",
+      "sha256": "2acc0b6d58f28b9f9f060b140460448f80e113f489a96922f8daab92099ab9f1",
+      "size_bytes": 1832341
+    },
+    "BNB_USDT/1d": {
+      "path": "data/raw/binance/BNB_USDT/1d.parquet",
+      "sha256": "438d043eaa53fd5db0b9083b0acf5418fb0d02599f73957180d6c035a5578390",
+      "size_bytes": 37360
+    },
+    "BNB_USDT/1h": {
+      "path": "data/raw/binance/BNB_USDT/1h.parquet",
+      "sha256": "6f5fb6adb1bb7e47463943ed9175f41f52291c26b6f81856604823ea3ec4537c",
+      "size_bytes": 678854
+    },
+    "BNB_USDT/1m": {
+      "path": "data/raw/binance/BNB_USDT/1m.parquet",
+      "sha256": "4dc00155b8d31ffaad0b9118e21e83f6c28b5d7ed6a3a01a411ca0f0727dd389",
+      "size_bytes": 22659788
+    },
+    "BNB_USDT/30m": {
+      "path": "data/raw/binance/BNB_USDT/30m.parquet",
+      "sha256": "4bf8d0773bfd619da030ba0e7ab8a256efa3946d6249054b3f4cdbfaea350678",
+      "size_bytes": 944614
+    },
+    "BNB_USDT/4h": {
+      "path": "data/raw/binance/BNB_USDT/4h.parquet",
+      "sha256": "004e8669faba5a2b42c557c478f01706b96db727116f2c0d39891d6879fee78b",
+      "size_bytes": 180896
+    },
+    "BNB_USDT/5m": {
+      "path": "data/raw/binance/BNB_USDT/5m.parquet",
+      "sha256": "927fef073e12645b347f90e6979b2c08f229718d007f84746c2f3cdf73483432",
+      "size_bytes": 5061838
+    },
+    "BTC_USDT/15m": {
+      "path": "data/raw/binance/BTC_USDT/15m.parquet",
+      "sha256": "5f9ac067c2c6721f2070f01aa899a031bf480126f897fcd799c22bf501013437",
+      "size_bytes": 2400225
+    },
+    "BTC_USDT/1d": {
+      "path": "data/raw/binance/BTC_USDT/1d.parquet",
+      "sha256": "f6a240293dbe79aae9c714d2e9812882eaacc84cfd86854ecedb7dce723e6cb4",
+      "size_bytes": 47197
+    },
+    "BTC_USDT/1h": {
+      "path": "data/raw/binance/BTC_USDT/1h.parquet",
+      "sha256": "9620c4b881d00d010cdcab1f140928a53c7e038789fe8b5e8b4fe25418716cfb",
+      "size_bytes": 884236
+    },
+    "BTC_USDT/1m": {
+      "path": "data/raw/binance/BTC_USDT/1m.parquet",
+      "sha256": "b94ab311a63a9860bea10220ff1a1cff4692d08c480b163e163827b33a283029",
+      "size_bytes": 33176815
+    },
+    "BTC_USDT/30m": {
+      "path": "data/raw/binance/BTC_USDT/30m.parquet",
+      "sha256": "57ecdde5bbf5ad9f45e26c9c3f50bd47c87935b37b3a34e25f2a69d6451730fa",
+      "size_bytes": 1870208
+    },
+    "BTC_USDT/4h": {
+      "path": "data/raw/binance/BTC_USDT/4h.parquet",
+      "sha256": "dbee1027bca56f92d71b2882f405fd8eaebcc7653c37d38eb49afda622675690",
+      "size_bytes": 239087
+    },
+    "BTC_USDT/5m": {
+      "path": "data/raw/binance/BTC_USDT/5m.parquet",
+      "sha256": "12e3d76c2ef5a7f76df7a2373e158e29106867179200966053462ee3b52ce3bf",
+      "size_bytes": 6843059
+    },
+    "DOGE_USDT/15m": {
+      "path": "data/raw/binance/DOGE_USDT/15m.parquet",
+      "sha256": "a316463397a2dac205b4108ea18472efbd5d817d43141f4febd60fa2da7aa0e5",
+      "size_bytes": 2032463
+    },
+    "DOGE_USDT/1d": {
+      "path": "data/raw/binance/DOGE_USDT/1d.parquet",
+      "sha256": "0536dcb3b239d8c391c9cf05af4ff8cd08982cce939f15f24922ad793e16178c",
+      "size_bytes": 56383
+    },
+    "DOGE_USDT/1h": {
+      "path": "data/raw/binance/DOGE_USDT/1h.parquet",
+      "sha256": "d00837f976d21bd7e50c50bfeec228dea3d1231588fe545ecb07d2d255c42c5d",
+      "size_bytes": 792162
+    },
+    "DOGE_USDT/1m": {
+      "path": "data/raw/binance/DOGE_USDT/1m.parquet",
+      "sha256": "cab8d7f19f34081ba1572f22df90d63cc6aee896eb78cf906e1f945f2649ab7e",
+      "size_bytes": 23429460
+    },
+    "DOGE_USDT/30m": {
+      "path": "data/raw/binance/DOGE_USDT/30m.parquet",
+      "sha256": "2c52a555a8af7a134950b10124bac4d07c99623aad3141d3d3d347f50c2e2962",
+      "size_bytes": 1104833
+    },
+    "DOGE_USDT/4h": {
+      "path": "data/raw/binance/DOGE_USDT/4h.parquet",
+      "sha256": "51ca2c0965cffa6e1983317692e28e38c7b6a0890200ee1e9ccb560f0dc4dced",
+      "size_bytes": 261974
+    },
+    "DOGE_USDT/5m": {
+      "path": "data/raw/binance/DOGE_USDT/5m.parquet",
+      "sha256": "35c01157821628462c16749fad13b0f0f643286b30806ef0bcd16a2ca5c19a91",
+      "size_bytes": 5454717
+    },
+    "DOT_USDT/15m": {
+      "path": "data/raw/binance/DOT_USDT/15m.parquet",
+      "sha256": "3623aef03889c1cad641c16e13c307a6f46a43c568ce41a712a28d8c0a4833cd",
+      "size_bytes": 1626597
+    },
+    "DOT_USDT/1d": {
+      "path": "data/raw/binance/DOT_USDT/1d.parquet",
+      "sha256": "061b94e27209b2c313a2f3b2e9da8a590b343b57edcbedfc9e1b65e4fb5bf4a2",
+      "size_bytes": 41081
+    },
+    "DOT_USDT/1h": {
+      "path": "data/raw/binance/DOT_USDT/1h.parquet",
+      "sha256": "b4e9fc43160206eda589127e580b9c33a1505bf5420cb7ce0195f1a95a4ee9a8",
+      "size_bytes": 674430
+    },
+    "DOT_USDT/1m": {
+      "path": "data/raw/binance/DOT_USDT/1m.parquet",
+      "sha256": "852891ab8cb6b72d385093aa18c784c9b7e540ed4db7c9d8061fdaf7497286cd",
+      "size_bytes": 19489301
+    },
+    "DOT_USDT/30m": {
+      "path": "data/raw/binance/DOT_USDT/30m.parquet",
+      "sha256": "9101b68d41d260dfb09f9ee52936830cb4c22d6fb5b8a4f5ee8a40ddb1d9018f",
+      "size_bytes": 868679
+    },
+    "DOT_USDT/4h": {
+      "path": "data/raw/binance/DOT_USDT/4h.parquet",
+      "sha256": "0e14ab517b2cdff82965beacd15594d793bcdb23fd7bf4df2c1b2d00b3d9b2d0",
+      "size_bytes": 190006
+    },
+    "DOT_USDT/5m": {
+      "path": "data/raw/binance/DOT_USDT/5m.parquet",
+      "sha256": "b2d1f498e245e5753b5d31a7b3b1982f11eff6f4c6547bd222b085f10576937e",
+      "size_bytes": 4462265
+    },
+    "ETH_USDT/15m": {
+      "path": "data/raw/binance/ETH_USDT/15m.parquet",
+      "sha256": "e09260af39eb3575fef156efe40e34c26f16727df7bf79c88031c12c1a67de25",
+      "size_bytes": 2192492
+    },
+    "ETH_USDT/1d": {
+      "path": "data/raw/binance/ETH_USDT/1d.parquet",
+      "sha256": "2b63ad50403ec315da6da1499cea9da62784ea2acc1a01ec1b46c42880130c4d",
+      "size_bytes": 42941
+    },
+    "ETH_USDT/1h": {
+      "path": "data/raw/binance/ETH_USDT/1h.parquet",
+      "sha256": "13e30d195c0a5f9fd02ba2445ccebf777a9e564dc52feb0dd92b8c3a634588c6",
+      "size_bytes": 808083
+    },
+    "ETH_USDT/1m": {
+      "path": "data/raw/binance/ETH_USDT/1m.parquet",
+      "sha256": "8411396b06aa75e2512f1eb4f6b014fc2d97db907c38fc75c70557d7c20ac486",
+      "size_bytes": 28899157
+    },
+    "ETH_USDT/30m": {
+      "path": "data/raw/binance/ETH_USDT/30m.parquet",
+      "sha256": "a40be8499b62a7512833498fab552b5214b1ee286545600d76b21903d6e1216e",
+      "size_bytes": 1109112
+    },
+    "ETH_USDT/4h": {
+      "path": "data/raw/binance/ETH_USDT/4h.parquet",
+      "sha256": "6f8e4b00969fc15fe9ae88b849356f14d7ad57fab4da12e316e1184f42da2743",
+      "size_bytes": 214176
+    },
+    "ETH_USDT/5m": {
+      "path": "data/raw/binance/ETH_USDT/5m.parquet",
+      "sha256": "6d768ea03cfc09ecbab6c917b32cb271c3c32e77e3ad093280f39c50e06d4fdb",
+      "size_bytes": 6233180
+    },
+    "LINK_USDT/15m": {
+      "path": "data/raw/binance/LINK_USDT/15m.parquet",
+      "sha256": "d3695d1e7b3aa899b10be8616c675fe7026fa4f3cd9e15d087111624795872ec",
+      "size_bytes": 1637746
+    },
+    "LINK_USDT/1d": {
+      "path": "data/raw/binance/LINK_USDT/1d.parquet",
+      "sha256": "7962163b8aaba90f1b59abbe43333de6ba1f62027eeb176410dc0cc4bf19708c",
+      "size_bytes": 40350
+    },
+    "LINK_USDT/1h": {
+      "path": "data/raw/binance/LINK_USDT/1h.parquet",
+      "sha256": "91b4290947510dada97d6c6e30713c72376a82c4c918167efe69bc988c6acd94",
+      "size_bytes": 675468
+    },
+    "LINK_USDT/1m": {
+      "path": "data/raw/binance/LINK_USDT/1m.parquet",
+      "sha256": "5b89a116e5392976108173af2938afba1c25738a48b7a32e1429db9969d48529",
+      "size_bytes": 19162327
+    },
+    "LINK_USDT/30m": {
+      "path": "data/raw/binance/LINK_USDT/30m.parquet",
+      "sha256": "93e3c8810a73f8b7128c6aaa8654514098de71875ec71e3071604e1a2c98b291",
+      "size_bytes": 875306
+    },
+    "LINK_USDT/4h": {
+      "path": "data/raw/binance/LINK_USDT/4h.parquet",
+      "sha256": "198e2242b34d5468e27fa9458d3548d22541d2ca9f9c8cdd91740edfcd148864",
+      "size_bytes": 189203
+    },
+    "LINK_USDT/5m": {
+      "path": "data/raw/binance/LINK_USDT/5m.parquet",
+      "sha256": "562d7d9a638404be6923ddb20c1fd953550bbfe1bef17d7cab3bbf6d290537c7",
+      "size_bytes": 4423946
+    },
+    "SLP_USDT/1h": {
+      "path": "data/raw/binance/SLP_USDT/1h.parquet",
+      "sha256": "05b2604c3135814fc4f61b12252e345f4388324882be3dae18493a532b1edfca",
+      "size_bytes": 3931
+    },
+    "SOL_USDT/15m": {
+      "path": "data/raw/binance/SOL_USDT/15m.parquet",
+      "sha256": "4871543dc21ed8f3ad31019e7e4b3bb62ea7396bdfb695370945204a7b4604e5",
+      "size_bytes": 1891543
+    },
+    "SOL_USDT/1d": {
+      "path": "data/raw/binance/SOL_USDT/1d.parquet",
+      "sha256": "27f6038c5b1bbc874c1e8bfd1af16e9cdf2afbe34f4968580ae4139bb7a48f51",
+      "size_bytes": 39149
+    },
+    "SOL_USDT/1h": {
+      "path": "data/raw/binance/SOL_USDT/1h.parquet",
+      "sha256": "4c03b175b684eda4c56f70029591213a968de81c8de52df9236e94b1dadc863c",
+      "size_bytes": 715439
+    },
+    "SOL_USDT/1m": {
+      "path": "data/raw/binance/SOL_USDT/1m.parquet",
+      "sha256": "472c3be5fdf0eaf2e1bde41923bb8c42eb6befc6d558df28272a686710ce2f20",
+      "size_bytes": 23040322
+    },
+    "SOL_USDT/30m": {
+      "path": "data/raw/binance/SOL_USDT/30m.parquet",
+      "sha256": "ec30a92de0d5bf5a1a0e9e18caa1337f09bd1c06d05e1d47b52df773cdb9c627",
+      "size_bytes": 984052
+    },
+    "SOL_USDT/4h": {
+      "path": "data/raw/binance/SOL_USDT/4h.parquet",
+      "sha256": "e5b280032cbecfb18122fd31b563ff5a9635cf40aca555e15ed34ab8d77b0fed",
+      "size_bytes": 194071
+    },
+    "SOL_USDT/5m": {
+      "path": "data/raw/binance/SOL_USDT/5m.parquet",
+      "sha256": "42e3484cc817582d0741859cc317bc329ca9a580cc2d886572a52f6b5bab3f43",
+      "size_bytes": 5195932
+    },
+    "XRP_USDT/15m": {
+      "path": "data/raw/binance/XRP_USDT/15m.parquet",
+      "sha256": "2bed1bb9ac759b278ed38deeb9f851b5663ed7a931e4e4d5bc81460f3ffb0be3",
+      "size_bytes": 1808077
+    },
+    "XRP_USDT/1d": {
+      "path": "data/raw/binance/XRP_USDT/1d.parquet",
+      "sha256": "455d3b34d6fe8ef64f6fec49da4df4cf98a7d3e711caa7939fd52c4d6b140697",
+      "size_bytes": 47398
+    },
+    "XRP_USDT/1h": {
+      "path": "data/raw/binance/XRP_USDT/1h.parquet",
+      "sha256": "ab04d9eccbdfce04b2c01e0c2e8c523df473162b938662f1ac1b3088da8b8016",
+      "size_bytes": 730567
+    },
+    "XRP_USDT/1m": {
+      "path": "data/raw/binance/XRP_USDT/1m.parquet",
+      "sha256": "76399a56acf9ad89528940388b789cf5b3be50b33c433d70b3961f7f19c5c93e",
+      "size_bytes": 21670099
+    },
+    "XRP_USDT/30m": {
+      "path": "data/raw/binance/XRP_USDT/30m.parquet",
+      "sha256": "e9faf366f7fc3f2d8e806292708989bbd33c8226218653e75e966e922c676a0f",
+      "size_bytes": 948072
+    },
+    "XRP_USDT/4h": {
+      "path": "data/raw/binance/XRP_USDT/4h.parquet",
+      "sha256": "2a90d075a544be20a2471d9382b56719706355032a8e603d86451b6e85903c1b",
+      "size_bytes": 212571
+    },
+    "XRP_USDT/5m": {
+      "path": "data/raw/binance/XRP_USDT/5m.parquet",
+      "sha256": "836b5c345fe53eb399539665ef0848ba6fe853b95798974f9d74e874e0be9dfd",
+      "size_bytes": 4852928
+    }
+  },
+  "freeze_date": "2026-08-11T15:40:25.450711+00:00",
+  "generator_commit": "fbdb0d10d4168834f7aa5cab7257fac13b643d07",
+  "holdout_months": 6,
+  "integrity": "e12bc30ec9294874ce0822d726dbb786b2885cab21594f0ca45ebcb767722059",
+  "rules": {
+    "forbidden_uses": [
+      "parameter selection / optimization",
+      "feature engineering",
+      "model training or validation",
+      "strategy ranking or ensemble weighting",
+      "any decision that changes a config shipped to live"
+    ],
+    "holdout_purpose": "The final holdout is scored exactly once, after the freeze date, to produce the release-gate evidence. It must not influence any earlier research decision.",
+    "immutability": "Do not edit data/research_manifest.json. To extend the holdout, publish a new manifest with a later freeze date; the old manifest remains the record for its window."
+  },
+  "schema_version": 1,
+  "timeframe": "1h",
+  "window": {
+    "end_utc": "2026-08-05T15:00:00",
+    "start_utc": "2026-02-06T15:00:00"
+  }
+}

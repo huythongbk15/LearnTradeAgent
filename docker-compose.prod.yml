@@ -77,7 +77,7 @@ services:
   # INFRASTRUCTURE — TimescaleDB (Patroni HA), Redis (Sentinel), Monitoring
   # ===========================================================================
   timescaledb:
-    image: ghcr.io/timescaledb/timescaledb:latest-pg16
+    image: timescale/timescaledb:latest-pg16@sha256:55c35227094ec8995ea835241572a1810f619214f1a4216e8dc74243c11f8565
     deploy:
       replicas: 3
       restart_policy:
@@ -112,7 +112,7 @@ services:
       - trading-internal
 
   etcd:
-    image: bitnami/etcd:3.5
+    image: quay.io/coreos/etcd:v3.5.33@sha256:d367cba7801b29d2f7481bb56802894658ec8a647834509118c81f77f721381b
     deploy:
       replicas: 3
       restart_policy:
@@ -125,12 +125,12 @@ services:
       - ETCD_LISTEN_CLIENT_URLS=http://0.0.0.0:2379
       - ETCD_LISTEN_PEER_URLS=http://0.0.0.0:2380
     volumes:
-      - etcd-data:/bitnami/etcd:rw
+      - etcd-data:/var/lib/etcd:rw
     networks:
       - trading-internal
 
   redis:
-    image: redis:7-alpine
+    image: redis:7-alpine@sha256:9702d01c1f10c3ea9f48211b4362e44f154ff02d063e6f7268eba804059f53bf
     deploy:
       replicas: 3
       restart_policy:
@@ -157,7 +157,7 @@ services:
   # MONITORING — Prometheus, Grafana, Loki, Promtail
   # ===========================================================================
   prometheus:
-    image: prom/prometheus:v2.53
+    image: prom/prometheus:v2.53.5@sha256:28b75420506f7bb453a633fb5a6c0490bec4e2639d6a576759150eebc644d170
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
@@ -174,7 +174,7 @@ services:
       - monitoring
 
   grafana:
-    image: grafana/grafana:11.0
+    image: grafana/grafana:11.0.11@sha256:4877d95324fe0896243647a0971e165f188b713c81ac3b65a4f3ecc2a33fa006
     environment:
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD_FILE=/run/secrets/grafana_password
@@ -196,7 +196,7 @@ services:
       - loki
 
   loki:
-    image: grafana/loki:2.9
+    image: grafana/loki:2.9.17@sha256:62ca46512f854d49ae1c568c01f8619196aac9ee078ba87673e10ab578728246
     command: -config.file=/etc/loki/local-config.yaml
     volumes:
       - ./monitoring/loki/config.yml:/etc/loki/local-config.yaml:ro
@@ -207,7 +207,7 @@ services:
       - monitoring
 
   promtail:
-    image: grafana/promtail:2.9
+    image: grafana/promtail:2.9.17@sha256:4cec6dc26b49924d2e285ebe11f5bd692dc1ae41a752afc9f61cf7b928401904
     volumes:
       - ./monitoring/promtail/config.yml:/etc/promtail/config.yml:ro
       - trading-logs:/var/log/trading:ro
@@ -222,7 +222,7 @@ services:
   # REVERSE PROXY — Nginx + Let's Encrypt (via certbot companion)
   # ===========================================================================
   nginx:
-    image: nginx:alpine
+    image: nginx:alpine@sha256:1d40e3eb3bf4f138de1d67193f2aa5309fcaf343eb5ffadbf5e9439de1eb1ebb
     ports:
       - "80:80"
       - "443:443"
@@ -239,7 +239,7 @@ services:
       - trading-agent
 
   certbot:
-    image: certbot/certbot:latest
+    image: certbot/certbot:latest@sha256:d07bd043d61d6bee1114235ac12c2e9a5c54b6931b3ccf5e1174d6c8c4afaa95
     volumes:
       - certbot-webroot:/var/www/certbot:rw
       - certbot-certs:/etc/letsencrypt:rw
@@ -253,7 +253,7 @@ services:
   # EXPORTERS — Node, Postgres, Redis, cAdvisor
   # ===========================================================================
   node-exporter:
-    image: prometheus/node-exporter:v1.8
+    image: prom/node-exporter:v1.8.2@sha256:065914c03336590ebed517e7df38520f0efb44465fde4123c3f6b7328f5a9396
     command:
       - '--path.rootfs=/host'
     pid: host
@@ -262,7 +262,7 @@ services:
       - '/:/host:ro,rslave'
 
   postgres-exporter:
-    image: prometheuscommunity/postgres-exporter:v0.15
+    image: prometheuscommunity/postgres-exporter:v0.15.0@sha256:31bdf410910646a05c7edde8d95ab771c9d78fbfbc26b50a52548707496c284d
     environment:
       - DATA_SOURCE_NAME=postgresql://trading:$$POSTGRES_PASSWORD@timescaledb:5432/trading?sslmode=disable
     secrets:
@@ -272,7 +272,7 @@ services:
       - monitoring
 
   redis-exporter:
-    image: oliver006/redis_exporter:v1.61
+    image: oliver006/redis_exporter:v1.61.0@sha256:fb71d26e67778152d2db89fdffc32e4b2245e969268c4f292d0e04b7edc44fb1
     environment:
       - REDIS_ADDR=redis://:$$REDIS_PASSWORD@redis:6379
     secrets:
@@ -282,7 +282,7 @@ services:
       - monitoring
 
   cadvisor:
-    image: gcr.io/cadvisor/cadvisor:v0.49
+    image: gcr.io/cadvisor/cadvisor:v0.49.1@sha256:3cde6faf0791ebf7b41d6f8ae7145466fed712ea6f252c935294d2608b1af388
     volumes:
       - /:/rootfs:ro
       - /var/run:/var/run:ro

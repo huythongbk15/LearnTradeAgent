@@ -657,7 +657,25 @@ class CCXTAdapter(ExchangeAdapter):
 
         try:
             orders = await self._maybe_await(self.exchange.fetch_open_orders(ex_symbol))
-            return [self._parse_order(o, self._ccxt_to_unified_symbol(o['symbol'])) for o in orders]
+            parsed = []
+            for order in orders:
+                unified = self.get_unified_symbol(order['symbol'])
+                if unified is None:
+                    base, sep, quote = order['symbol'].partition('/')
+                    if not sep:
+                        logger.warning(
+                            f"fetch_open_orders: cannot map market {order['symbol']}"
+                        )
+                        continue
+                    unified = Symbol(
+                        base=base,
+                        quote=quote,
+                        asset_class=AssetClass.CRYPTO,
+                        market_type=MarketType.SPOT,
+                        exchange=self.config.id,
+                    )
+                parsed.append(self._parse_order(order, unified))
+            return parsed
         except Exception as e:
             logger.error(f"fetch_open_orders failed: {e}")
             raise

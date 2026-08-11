@@ -14,11 +14,13 @@ import math
 import os
 import socket
 import tempfile
-from statistics import median
 from dataclasses import asdict, dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
+from statistics import median
 from typing import Mapping
+
+from trading_agent.execution.correlation import get_correlation_id
 
 
 LIVE_CONFIRMATION = "LIVE_TRADING_WITH_REAL_MONEY"
@@ -376,12 +378,17 @@ def append_live_audit_event(
     if not event.strip():
         raise LiveSafetyError("audit event name cannot be empty")
     current = now or datetime.now(UTC)
-    payload = {
+    payload: dict[str, object] = {
         "timestamp": current.astimezone(UTC).isoformat(),
         "event": event,
         "pid": os.getpid(),
         "details": dict(details or {}),
     }
+    # P1.2: tag every audit event with the active run correlation ID so all
+    # events from one runner invocation can be traced end-to-end.
+    correlation_id = get_correlation_id()
+    if correlation_id:
+        payload["correlation_id"] = correlation_id
     audit_path = Path(path)
     audit_path.parent.mkdir(parents=True, exist_ok=True)
     fd = os.open(audit_path, os.O_APPEND | os.O_CREAT | os.O_WRONLY, 0o600)

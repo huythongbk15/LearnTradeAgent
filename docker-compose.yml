@@ -24,7 +24,7 @@ services:
 
   # ── TimescaleDB (time-series database for market data) ────────────────
   timescaledb:
-    image: timescale/timescaledb:latest-pg16
+    image: timescale/timescaledb:latest-pg16@sha256:55c35227094ec8995ea835241572a1810f619214f1a4216e8dc74243c11f8565
     environment:
       POSTGRES_USER: trading
       POSTGRES_PASSWORD: ${TSDB_PASSWORD:-trading_secret}
@@ -44,7 +44,7 @@ services:
 
   # ── Redis (caching, rate limiting, pub/sub) ───────────────────────────
   redis:
-    image: redis:7-alpine
+    image: redis:7-alpine@sha256:9702d01c1f10c3ea9f48211b4362e44f154ff02d063e6f7268eba804059f53bf
     ports:
       - "6379:6379"
     volumes:
@@ -56,7 +56,7 @@ services:
 
   # ── Grafana (dashboard + alerting) ──────────────────────────────────
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana:latest@sha256:e27e68cfd5795c1bea54950766078a02e84dfa3bafe0a4d0e5382f713dfd8e4e
     ports:
       - "3000:3000"
     volumes:
@@ -72,7 +72,7 @@ services:
 
   # ── Prometheus (metrics collection) ────────────────────────────────
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:latest@sha256:1147c92841726a6fef55fe6124491d6f85480f8de204f7d420304ca5bbd0a8f7
     ports:
       - "9090:9090"
     volumes:

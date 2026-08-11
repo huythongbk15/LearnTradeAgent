@@ -32,6 +32,7 @@ from live_config import (
     LOOKBACK,
     STRATEGY_PARAMS,
 )
+from trading_agent.execution.correlation import bind_run_correlation
 from trading_agent.execution.data_trust import (
     BINANCE_MAINNET_TIME_URL,
     BINANCE_TESTNET_TIME_URL,
@@ -1898,6 +1899,7 @@ def run_locked(
     print("=" * 80)
     mode = "DRY-RUN" if not args.execute else "TESTNET EXECUTION" if args.testnet else "MAINNET EXECUTION"
     print(f"BINANCE SPOT — Enhanced MA — {mode}")
+    print(f"Run ID: {run_id}")
     print(
         f"Profile {profile}; limits: order min(${limits.max_order_notional_usd:,.2f}, "
         f"{limits.max_order_equity_pct:.2%} equity), "
@@ -2087,6 +2089,9 @@ def run_locked(
 
 
 def run(args: argparse.Namespace) -> int:
+    # P1.2: one correlation ID per runner invocation; every audit event and
+    # error raised inside the run is tagged with it.
+    run_id = bind_run_correlation()
     profile = resolve_trading_profile(args)
     limits = LiveRiskLimits.for_profile(profile)
     allocations = parse_allocations(args.symbols, args.weights, limits)
