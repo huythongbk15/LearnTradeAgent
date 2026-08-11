@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 from decimal import Decimal, ROUND_DOWN
+from types import SimpleNamespace
 
+import ccxt
 import pytest
 
 from trading_agent.exchanges.ccxt_adapter import CCXTAdapter
@@ -11,6 +14,7 @@ from trading_agent.exchanges.models import (
     Order,
     OrderConstraintError,
     OrderSide,
+    OrderStatus,
     OrderType,
     Symbol,
 )
@@ -110,3 +114,138 @@ def test_ccxt_stop_loss_response_is_parsed_as_protective_stop():
     )
     assert parsed.type == OrderType.STOP
     assert parsed.stop_price == Decimal("90")
+
+
+def test_unknown_order_status_and_all_fill_evidence_are_preserved():
+    parsed = adapter_with_filters()._parse_order(
+        {
+            "id": "order-1",
+            "clientOrderId": "client-1",
+            "status": "pending_new_variant",
+            "symbol": "BTC/USDT",
+            "side": "buy",
+            "type": "market",
+            "amount": 0.1,
+            "filled": 0.04,
+            "average": 100,
+            "cost": 4,
+            "price": None,
+            "stopPrice": None,
+            "fees": [
+                {"cost": 0.004, "currency": "USDT"},
+                {"cost": 0.0001, "currency": "BNB"},
+            ],
+            "trades": [{"id": "trade-1"}, {"id": "trade-2"}],
+            "timeInForce": None,
+            "timestamp": None,
+            "lastTradeTimestamp": None,
+        },
+        btc_symbol(),
+    )
+    assert parsed.status == OrderStatus.UNKNOWN
+    assert parsed.raw_status == "pending_new_variant"
+    assert parsed.quote_cost == Decimal("4")
+    assert parsed.fee_breakdown == {
+        "USDT": Decimal("0.004"),
+        "BNB": Decimal("0.0001"),
+    }
+    assert parsed.trade_ids == ("trade-1", "trade-2")
+
+
+def test_client_order_lookup_falls_back_to_trade_history():
+    class NoopRateLimiter:
+        async def acquire(self, exchange_id, weight=1):
+            return None
+
+    class HistoryExchange:
+        def fetch_order(self, order_id, symbol, params):
+            raise ccxt.OrderNotFound("not found")
+
+        def fetch_open_orders(self, symbol, since, limit):
+            return []
+
+        def fetch_closed_orders(self, symbol, since, limit):
+            return []
+
+        def fetch_my_trades(self, symbol, since, limit):
+            return [
+                {
+                    "id": "trade-1",
+                    "order": "exchange-1",
+                    "timestamp": 1_786_339_200_000,
+                    "symbol": symbol,
+                    "side": "buy",
+                    "amount": 0.04,
+                    "price": 100,
+                    "cost": 4,
+                    "fee": {"cost": 0.0001, "currency": "BNB"},
+                    "info": {"clientOrderId": "client-1"},
+                }
+            ]
+
+    adapter = object.__new__(CCXTAdapter)
+    adapter.exchange = HistoryExchange()
+    adapter.config = SimpleNamespace(id="binance")
+    adapter._rate_limiter = NoopRateLimiter()
+    adapter._reverse_symbol_map = {}
+    parsed = asyncio.run(
+        adapter.fetch_order_by_client_id("client-1", btc_symbol())
+    )
+    assert parsed is not None
+    assert parsed.status == OrderStatus.UNKNOWN
+    assert parsed.raw_status == "trade_history_only"
+    assert parsed.exchange_order_id is None
+    assert parsed.id == "exchange-1"
+    assert parsed.filled_size == Decimal("0.04")
+    assert parsed.quote_cost == Decimal("4")
+    assert parsed.trade_ids == ("trade-1",)
+    assert parsed.fee_breakdown == {"BNB": Decimal("0.0001")}
+
+
+def test_client_order_lookup_falls_back_to_closed_order_history():
+    class NoopRateLimiter:
+        async def acquire(self, exchange_id, weight=1):
+            return None
+
+    class HistoryExchange:
+        def fetch_order(self, order_id, symbol, params):
+            raise ccxt.OrderNotFound("not found")
+
+        def fetch_open_orders(self, symbol, since, limit):
+            return []
+
+        def fetch_closed_orders(self, symbol, since, limit):
+            return [{
+                "id": "exchange-1",
+                "clientOrderId": "client-1",
+                "status": "closed",
+                "symbol": symbol,
+                "side": "buy",
+                "type": "market",
+                "amount": 0.1,
+                "filled": 0.1,
+                "average": 100,
+                "cost": 10,
+                "price": None,
+                "fee": {"cost": 0.01, "currency": "USDT"},
+                "timeInForce": None,
+                "timestamp": None,
+                "lastTradeTimestamp": None,
+            }]
+
+        def fetch_my_trades(self, symbol, since, limit):
+            raise ccxt.NotSupported("trade history unavailable")
+
+    adapter = object.__new__(CCXTAdapter)
+    adapter.exchange = HistoryExchange()
+    adapter.config = SimpleNamespace(id="binance")
+    adapter._rate_limiter = NoopRateLimiter()
+    adapter._reverse_symbol_map = {}
+    parsed = asyncio.run(
+        adapter.fetch_order_by_client_id("client-1", btc_symbol())
+    )
+    assert parsed is not None
+    assert parsed.status == OrderStatus.FILLED
+    assert parsed.raw_status == "closed"
+    assert parsed.quote_cost == Decimal("10")
+    assert parsed.fee_breakdown == {"USDT": Decimal("0.01")}

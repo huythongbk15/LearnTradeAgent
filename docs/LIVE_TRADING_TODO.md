@@ -15,9 +15,9 @@ gates in this document and an explicit operator approval.
 - Remote repair PR #4 and protective-stop PR #5 are merged; their CI and Phase
   6 workflow runs completed successfully.
 - Python: 3.12.13.
-- Full test suite after P0.5 canary-profile hardening: **296 passed, 3 skipped**.
-- Critical live-path suite after P0.5 canary-profile hardening: **58 passed**.
-- `trading_agent.execution.live_safety` coverage: **80.76%** (gate: 75%).
+- Full test suite after P0.2 order-lifecycle hardening: **304 passed, 3 skipped**.
+- Critical live-path suite after P0.2 order-lifecycle hardening: **66 passed**.
+- `trading_agent.execution.live_safety` coverage: **81.11%** (gate: 75%).
 - Ruff: passed.
 - GitHub workflow YAML parse: passed.
 - `pip check`: no broken requirements.
@@ -70,12 +70,12 @@ does not remove protection already held by the exchange.
 
 ### P0.2 Order lifecycle and fill accounting
 
-- [ ] Add explicit submitted/acknowledged/reconciling/manual-intervention states.
-- [ ] Poll non-terminal orders with a bounded deadline and jitter.
-- [ ] Fall back to order history and trade history by client order ID.
-- [ ] Persist cumulative fills, quote cost, trade IDs and all fee currencies.
-- [ ] Reconcile ledger, trades and balances before any new order batch.
-- [ ] Preserve and audit raw exchange statuses instead of silently normalizing
+- [x] Add explicit submitted/acknowledged/reconciling/manual-intervention states.
+- [x] Poll non-terminal orders with a bounded deadline and jitter.
+- [x] Fall back to order history and trade history by client order ID.
+- [x] Persist cumulative fills, quote cost, trade IDs and all fee currencies.
+- [x] Reconcile ledger, trades and balances before any new order batch.
+- [x] Preserve and audit raw exchange statuses instead of silently normalizing
   unknown values to `open`.
 
 ### P0.3 Trusted time and market data

@@ -45,6 +45,17 @@ def test_risk_profile_is_bound_to_exchange_mode():
         )
 
 
+def test_order_reconciliation_timeout_is_bounded():
+    assert runner.order_reconciliation_timeout_seconds({}) == 20.0
+    assert runner.order_reconciliation_timeout_seconds({
+        "LIVE_ORDER_RECONCILE_TIMEOUT_SECONDS": "5",
+    }) == 5.0
+    with pytest.raises(LiveSafetyError, match="between 1 and 120"):
+        runner.order_reconciliation_timeout_seconds({
+            "LIVE_ORDER_RECONCILE_TIMEOUT_SECONDS": "0",
+        })
+
+
 def test_canary_buy_decision_is_sliced_to_dynamic_order_cap():
     limits = LiveRiskLimits.for_profile("mainnet-canary")
     decisions = runner.build_decisions(
@@ -287,8 +298,12 @@ def test_partial_fill_stops_batch_and_is_persisted(tmp_path):
             limits=LiveRiskLimits(),
         )
     record = next(iter(store.state.order_ledger.values()))
-    assert record["status"] == "partial"
+    assert record["status"] == "manual_intervention"
     assert record["filled_quantity"] == pytest.approx(0.04)
+    assert [event["status"] for event in record["status_history"]] == [
+        "reserved", "submitted", "acknowledged", "partial", "reconciling",
+        "manual_intervention",
+    ]
 
 
 def test_timeout_after_accept_is_reconciled_and_stops_batch(tmp_path):
@@ -323,7 +338,73 @@ def test_unfinished_order_blocks_new_batch_when_exchange_cannot_find_it(tmp_path
             broker=ExecutionBroker(reconciled=None),
             store=store,
         )
-    assert store.state.order_ledger["old-intent"]["status"] == "unknown"
+    assert store.state.order_ledger["old-intent"]["status"] == "manual_intervention"
+
+
+def test_non_terminal_order_polling_is_bounded_and_reaches_fill():
+    responses = [
+        order_result("open", filled_qty=0.0),
+        order_result("partial", filled_qty=0.04),
+        order_result("filled", filled_qty=0.1),
+    ]
+
+    class PollBroker:
+        def get_order_by_client_id(self, client_order_id, symbol):
+            return responses.pop(0)
+
+    class FakeClock:
+        def __init__(self):
+            self.now = 0.0
+            self.sleeps = []
+
+        def monotonic(self):
+            return self.now
+
+        def sleep(self, seconds):
+            self.sleeps.append(seconds)
+            self.now += seconds
+
+    clock = FakeClock()
+    result, error = runner.poll_order_by_client_id(
+        broker=PollBroker(),
+        order_key="order-1",
+        symbol=runner.exchange_symbol("BTC/USDT"),
+        timeout_seconds=5.0,
+        initial_delay_seconds=0.1,
+        max_delay_seconds=0.2,
+        sleep_fn=clock.sleep,
+        monotonic_fn=clock.monotonic,
+    )
+    assert result["status"] == "filled"
+    assert error == ""
+    assert len(clock.sleeps) == 2
+    assert all(0 < delay <= 0.2 for delay in clock.sleeps)
+
+
+def test_unknown_exchange_status_is_preserved_and_requires_intervention(tmp_path):
+    store = LiveRiskStateStore(tmp_path / "state.json")
+    store.reserve_order("order-1", symbol="BTC/USDT", quantity=0.1)
+    store.update_order("order-1", status="submitted")
+    runner.persist_order_result(
+        store,
+        "order-1",
+        {
+            **order_result("unknown", filled_qty=0.04),
+            "exchange_status": "pending_new_variant",
+            "quote_cost": 4.0,
+            "fees": {"USDT": 0.004, "BNB": 0.0001},
+            "trade_ids": ["trade-1"],
+        },
+    )
+    record = store.state.order_ledger["order-1"]
+    assert record["status"] == "manual_intervention"
+    assert record["exchange_status"] == "pending_new_variant"
+    assert record["quote_cost"] == pytest.approx(4.0)
+    assert record["fees"] == {"USDT": 0.004, "BNB": 0.0001}
+    assert record["trade_ids"] == ["trade-1"]
+    assert [event["status"] for event in record["status_history"]][-2:] == [
+        "acknowledged", "manual_intervention",
+    ]
 
 
 def test_atr_trail_forces_exit_and_persists_peak(tmp_path):
@@ -723,7 +804,7 @@ def test_partial_buy_is_protected_before_the_batch_stops(tmp_path):
     assert protection["active"]["status"] == "open"
     assert protection["active"]["quantity"] == pytest.approx(0.04)
     record = next(iter(store.unfinished_orders().values()))
-    assert record["status"] == "partial"
+    assert record["status"] == "manual_intervention"
     assert record["filled_quantity"] == pytest.approx(0.04)
 
 

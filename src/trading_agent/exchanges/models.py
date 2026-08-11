@@ -54,6 +54,7 @@ class OrderType(str, Enum):
 
 
 class OrderStatus(str, Enum):
+    UNKNOWN = "unknown"
     OPEN = "open"
     PARTIAL = "partial"
     FILLED = "filled"
@@ -299,7 +300,12 @@ class Order:
     status: OrderStatus = OrderStatus.OPEN
     filled_size: Decimal = Decimal(0)
     avg_fill_price: Decimal = Decimal(0)
+    quote_cost: Decimal = Decimal(0)
     fee: Decimal = Decimal(0)
+    fee_currency: str = ""
+    fee_breakdown: dict[str, Decimal] = field(default_factory=dict)
+    trade_ids: tuple[str, ...] = ()
+    raw_status: str = ""
     time_in_force: TimeInForce = TimeInForce.GTC
     reduce_only: bool = False
     post_only: bool = False

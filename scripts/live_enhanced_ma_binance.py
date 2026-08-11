@@ -12,7 +12,9 @@ import argparse
 import asyncio
 import math
 import os
+import random
 import sys
+import time
 from contextlib import suppress
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -64,6 +66,79 @@ load_dotenv(".env")
 
 HOUR_MS = 3_600_000
 MAX_CLOSED_CANDLE_LAG_SECONDS = 5_400
+ORDER_TERMINAL_STATUSES = frozenset({
+    "filled", "cancelled", "rejected", "expired",
+})
+ORDER_ACCEPTED_STATUSES = frozenset({"open", "partial", "filled"})
+DEFAULT_ORDER_RECONCILIATION_TIMEOUT_SECONDS = 20.0
+
+
+def order_reconciliation_timeout_seconds(
+    env: dict[str, str] | None = None,
+) -> float:
+    source = os.environ if env is None else env
+    raw = str(source.get("LIVE_ORDER_RECONCILE_TIMEOUT_SECONDS") or "20").strip()
+    try:
+        value = float(raw)
+    except ValueError as exc:
+        raise LiveSafetyError(
+            "LIVE_ORDER_RECONCILE_TIMEOUT_SECONDS must be a number"
+        ) from exc
+    if not math.isfinite(value) or not 1 <= value <= 120:
+        raise LiveSafetyError(
+            "LIVE_ORDER_RECONCILE_TIMEOUT_SECONDS must be between 1 and 120"
+        )
+    return value
+
+
+def poll_order_by_client_id(
+    *,
+    broker: LiveBroker,
+    order_key: str,
+    symbol: Symbol,
+    timeout_seconds: float,
+    initial_delay_seconds: float = 0.25,
+    max_delay_seconds: float = 2.0,
+    sleep_fn=time.sleep,
+    monotonic_fn=time.monotonic,
+) -> tuple[dict | None, str]:
+    """Poll to a terminal exchange state without an unbounded runner hang."""
+
+    numeric = (timeout_seconds, initial_delay_seconds, max_delay_seconds)
+    if any(not math.isfinite(value) or value < 0 for value in numeric):
+        raise LiveSafetyError("order reconciliation timing must be finite and non-negative")
+    if timeout_seconds > 0 and initial_delay_seconds == 0:
+        raise LiveSafetyError("positive reconciliation timeout requires a polling delay")
+    if max_delay_seconds < initial_delay_seconds:
+        raise LiveSafetyError("maximum reconciliation delay cannot be below initial delay")
+
+    deadline = monotonic_fn() + timeout_seconds
+    attempt = 0
+    last_result: dict | None = None
+    last_error = ""
+    while True:
+        try:
+            current = broker.get_order_by_client_id(order_key, symbol)
+        except Exception as exc:
+            last_error = str(exc)
+        else:
+            if current is not None:
+                last_result = current
+                status = str(current.get("status") or "unknown").strip().lower()
+                if status in ORDER_TERMINAL_STATUSES:
+                    return current, last_error
+
+        remaining = deadline - monotonic_fn()
+        if remaining <= 0:
+            return last_result, last_error
+        base_delay = min(
+            max_delay_seconds,
+            initial_delay_seconds * (2 ** min(attempt, 8)),
+        )
+        jitter = random.Random(f"{order_key}:{attempt}").uniform(0.85, 1.15)
+        delay = min(max_delay_seconds, base_delay * jitter, remaining)
+        sleep_fn(delay)
+        attempt += 1
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -1190,6 +1265,9 @@ def execute_orders(
     limits: LiveRiskLimits,
     locked_reason: str | None = None,
     audit_log_path: str | None = None,
+    reconciliation_timeout_seconds: float = 0.0,
+    sleep_fn=time.sleep,
+    monotonic_fn=time.monotonic,
 ) -> None:
     for planned in orders:
         account = broker.get_account()
@@ -1264,6 +1342,7 @@ def execute_orders(
             quantity=quantity,
             signal_timestamp=planned["candle_timestamp"],
         )
+        store.update_order(order_key, status="submitted")
         order = Order(
             id="",
             client_order_id=order_key,
@@ -1298,22 +1377,29 @@ def execute_orders(
             else:
                 result = broker.place_order(order)
         except Exception as exc:
-            store.update_order(order_key, status="unknown", error=str(exc))
+            store.update_order(order_key, status="reconciling", error=str(exc))
             if audit_log_path:
                 append_live_audit_event(
                     audit_log_path,
                     "order_submission_unknown",
                     {"order_key": order_key, "symbol": pair, "error": str(exc)[:500]},
                 )
-            try:
-                reconciled = broker.get_order_by_client_id(order_key, symbol)
-            except Exception as reconcile_exc:
-                raise LiveSafetyError(
-                    f"order submission outcome is unknown for {order_key}; "
-                    f"reconciliation failed: {reconcile_exc}"
-                ) from exc
+            reconciled, reconcile_error = poll_order_by_client_id(
+                broker=broker,
+                order_key=order_key,
+                symbol=symbol,
+                timeout_seconds=reconciliation_timeout_seconds,
+                sleep_fn=sleep_fn,
+                monotonic_fn=monotonic_fn,
+            )
             if reconciled is not None:
                 persist_order_result(store, order_key, reconciled)
+                audit_order_result(
+                    audit_log_path,
+                    "order_reconciled_after_submission_error",
+                    order_key,
+                    reconciled,
+                )
                 if isinstance(active_protective, dict):
                     reconciled_status = str(
                         reconciled.get("status") or "unknown"
@@ -1342,10 +1428,30 @@ def execute_orders(
                         limits=limits,
                         audit_log_path=audit_log_path,
                     )
+                reconciled_status = str(
+                    reconciled.get("status") or "unknown"
+                ).lower()
+                if reconciled_status not in ORDER_TERMINAL_STATUSES:
+                    store.update_order(
+                        order_key,
+                        status="manual_intervention",
+                        error=(
+                            "reconciliation deadline expired with exchange status "
+                            f"{reconciled_status}"
+                        ),
+                    )
                 raise LiveSafetyError(
                     f"order submission raised but exchange reports "
                     f"{reconciled['status']} for {order_key}; batch stopped"
                 ) from exc
+            store.update_order(
+                order_key,
+                status="manual_intervention",
+                error=(
+                    "client order ID not found before reconciliation deadline"
+                    + (f"; last error: {reconcile_error}" if reconcile_error else "")
+                ),
+            )
             if isinstance(active_protective, dict):
                 try:
                     old_stop = broker.get_order_by_client_id(
@@ -1368,11 +1474,17 @@ def execute_orders(
                 store.clear_active_protective_order(pair)
             raise LiveSafetyError(
                 f"order submission outcome is unknown for {order_key}; "
-                "exchange did not find the client order ID"
+                "exchange did not find the client order ID before the deadline"
             ) from exc
 
         persist_order_result(store, order_key, result)
-        if result.get("error") or result.get("status") not in {"open", "partial", "filled"}:
+        audit_order_result(
+            audit_log_path,
+            "order_acknowledged",
+            order_key,
+            result,
+        )
+        if result.get("error") or result.get("status") not in ORDER_ACCEPTED_STATUSES:
             raise LiveSafetyError(f"order rejected or failed: {result}")
         protect_remaining_position(
             planned=planned,
@@ -1382,6 +1494,43 @@ def execute_orders(
             limits=limits,
             audit_log_path=audit_log_path,
         )
+        if result.get("status") in {"open", "partial"}:
+            store.update_order(order_key, status="reconciling")
+            reconciled, reconcile_error = poll_order_by_client_id(
+                broker=broker,
+                order_key=order_key,
+                symbol=symbol,
+                timeout_seconds=reconciliation_timeout_seconds,
+                sleep_fn=sleep_fn,
+                monotonic_fn=monotonic_fn,
+            )
+            if reconciled is not None:
+                persist_order_result(store, order_key, reconciled)
+                result = reconciled
+                audit_order_result(
+                    audit_log_path,
+                    "order_polled",
+                    order_key,
+                    result,
+                )
+                if result.get("status") in ORDER_ACCEPTED_STATUSES:
+                    protect_remaining_position(
+                        planned=planned,
+                        result=result,
+                        broker=broker,
+                        store=store,
+                        limits=limits,
+                        audit_log_path=audit_log_path,
+                    )
+            if reconciled is None or result.get("status") not in ORDER_TERMINAL_STATUSES:
+                store.update_order(
+                    order_key,
+                    status="manual_intervention",
+                    error=(
+                        "reconciliation deadline expired"
+                        + (f"; last error: {reconcile_error}" if reconcile_error else "")
+                    ),
+                )
         if result.get("status") != "filled":
             if audit_log_path:
                 append_live_audit_event(
@@ -1409,6 +1558,10 @@ def execute_orders(
                     "side": planned["action"],
                     "filled_qty": float(result.get("filled_qty") or 0.0),
                     "average_fill_price": float(result.get("avg_fill_price") or 0.0),
+                    "quote_cost": float(result.get("quote_cost") or 0.0),
+                    "exchange_status": str(result.get("exchange_status") or ""),
+                    "trade_ids": list(result.get("trade_ids") or []),
+                    "fees": dict(result.get("fees") or {}),
                 },
             )
         print(
@@ -1417,19 +1570,77 @@ def execute_orders(
         )
 
 
+def audit_order_result(
+    audit_log_path: str | None,
+    event: str,
+    order_key: str,
+    result: dict,
+) -> None:
+    if not audit_log_path:
+        return
+    append_live_audit_event(
+        audit_log_path,
+        event,
+        {
+            "order_key": order_key,
+            "exchange_order_id": str(result.get("id") or ""),
+            "status": str(result.get("status") or "unknown"),
+            "exchange_status": str(result.get("exchange_status") or ""),
+            "filled_qty": float(result.get("filled_qty") or 0.0),
+            "average_fill_price": float(result.get("avg_fill_price") or 0.0),
+            "quote_cost": float(result.get("quote_cost") or 0.0),
+            "trade_ids": list(result.get("trade_ids") or []),
+            "fees": dict(result.get("fees") or {}),
+            "error": str(result.get("error") or "")[:500],
+        },
+    )
+
+
 def persist_order_result(
     store: LiveRiskStateStore,
     order_key: str,
     result: dict,
 ) -> None:
-    store.update_order(
-        order_key,
-        status=str(result.get("status") or "unknown"),
-        exchange_order_id=str(result.get("id") or ""),
-        filled_quantity=float(result.get("filled_qty") or 0.0),
-        average_fill_price=float(result.get("avg_fill_price") or 0.0),
-        error=str(result.get("error") or ""),
-    )
+    raw_status = str(result.get("status") or "unknown").strip().lower()
+    target_status = {
+        "open": "open",
+        "partial": "partial",
+        "filled": "filled",
+        "closed": "filled",
+        "cancelled": "cancelled",
+        "canceled": "cancelled",
+        "rejected": "rejected",
+        "expired": "expired",
+    }.get(raw_status, "manual_intervention")
+    fees = result.get("fees")
+    trade_ids = result.get("trade_ids")
+    evidence = {
+        "exchange_order_id": str(result.get("id") or ""),
+        "filled_quantity": float(result.get("filled_qty") or 0.0),
+        "average_fill_price": float(result.get("avg_fill_price") or 0.0),
+        "quote_cost": (
+            float(result["quote_cost"])
+            if result.get("quote_cost") is not None
+            else None
+        ),
+        "fees": fees if isinstance(fees, dict) else None,
+        "trade_ids": trade_ids if isinstance(trade_ids, (list, tuple)) else None,
+        "exchange_status": str(result.get("exchange_status") or ""),
+        "error": str(result.get("error") or ""),
+    }
+    record = store.state.order_ledger.get(order_key)
+    if not isinstance(record, dict):
+        raise LiveSafetyError(f"order intent is not present in ledger: {order_key}")
+    current_status = str(record.get("status") or "reserved").strip().lower()
+    if current_status == "reserved":
+        store.update_order(order_key, status="submitted")
+        current_status = "submitted"
+    if current_status in {"manual_intervention", "unknown"}:
+        store.update_order(order_key, status="reconciling")
+        current_status = "reconciling"
+    if current_status in {"submitted", "reconciling"}:
+        store.update_order(order_key, status="acknowledged", **evidence)
+    store.update_order(order_key, status=target_status, **evidence)
 
 
 def reconcile_unfinished_orders(
@@ -1437,29 +1648,51 @@ def reconcile_unfinished_orders(
     broker: LiveBroker,
     store: LiveRiskStateStore,
     audit_log_path: str | None = None,
+    timeout_seconds: float = 0.0,
+    sleep_fn=time.sleep,
+    monotonic_fn=time.monotonic,
 ) -> None:
     """Reconcile every non-terminal intent before a new batch can be planned."""
 
     unresolved: list[str] = []
+    reconciled_any = False
     for order_key, record in store.unfinished_orders().items():
         pair = str(record.get("symbol") or "")
         if not pair:
+            store.update_order(
+                order_key,
+                status="manual_intervention",
+                error="order ledger is missing symbol metadata",
+            )
             unresolved.append(f"{order_key}: missing symbol metadata")
             continue
-        try:
-            result = broker.get_order_by_client_id(order_key, exchange_symbol(pair))
-        except Exception as exc:
-            unresolved.append(f"{order_key}: reconciliation error: {exc}")
-            continue
+        current_status = str(record.get("status") or "reserved").lower()
+        if current_status != "reconciling":
+            store.update_order(order_key, status="reconciling")
+        result, reconcile_error = poll_order_by_client_id(
+            broker=broker,
+            order_key=order_key,
+            symbol=exchange_symbol(pair),
+            timeout_seconds=timeout_seconds,
+            sleep_fn=sleep_fn,
+            monotonic_fn=monotonic_fn,
+        )
         if result is None:
             store.update_order(
                 order_key,
-                status="unknown",
-                error="client order ID not found during reconciliation",
+                status="manual_intervention",
+                error=(
+                    "client order ID not found before reconciliation deadline"
+                    + (f"; last error: {reconcile_error}" if reconcile_error else "")
+                ),
             )
             unresolved.append(f"{order_key}: client order ID not found")
             continue
+        reconciled_any = True
         persist_order_result(store, order_key, result)
+        ledger_status = str(
+            store.state.order_ledger[order_key].get("status") or ""
+        ).lower()
         if audit_log_path:
             append_live_audit_event(
                 audit_log_path,
@@ -1467,12 +1700,49 @@ def reconcile_unfinished_orders(
                 {
                     "order_key": order_key,
                     "symbol": pair,
-                    "status": str(result.get("status")),
+                    "status": ledger_status,
+                    "exchange_status": str(result.get("exchange_status") or ""),
                     "filled_qty": float(result.get("filled_qty") or 0.0),
+                    "quote_cost": float(result.get("quote_cost") or 0.0),
+                    "trade_ids": list(result.get("trade_ids") or []),
+                    "fees": dict(result.get("fees") or {}),
                 },
             )
-        if result.get("status") != "filled":
+        if ledger_status not in ORDER_TERMINAL_STATUSES:
+            if ledger_status != "manual_intervention":
+                store.update_order(
+                    order_key,
+                    status="manual_intervention",
+                    error=(
+                        "reconciliation deadline expired with exchange status "
+                        f"{result.get('status')}"
+                    ),
+                )
             unresolved.append(f"{order_key}: exchange status {result.get('status')}")
+
+    if reconciled_any:
+        try:
+            account = broker.get_account()
+            positions = broker.get_positions()
+            equity = float(account["equity"])
+            cash = float(account["cash"])
+            if not math.isfinite(equity) or not math.isfinite(cash):
+                raise LiveSafetyError("account reconciliation returned non-finite balances")
+            if not isinstance(positions, list):
+                raise LiveSafetyError("position reconciliation did not return a list")
+        except Exception as exc:
+            unresolved.append(f"balance reconciliation failed: {exc}")
+        else:
+            if audit_log_path:
+                append_live_audit_event(
+                    audit_log_path,
+                    "order_balance_reconciled",
+                    {
+                        "equity": equity,
+                        "cash": cash,
+                        "position_count": len(positions),
+                    },
+                )
     if unresolved:
         if audit_log_path:
             append_live_audit_event(
@@ -1493,6 +1763,7 @@ def run_locked(
     state_path: str,
     profile: str,
 ) -> int:
+    reconciliation_timeout = order_reconciliation_timeout_seconds()
     key_name = "BINANCE_TESTNET_API_KEY" if args.testnet else "BINANCE_API_KEY"
     secret_name = "BINANCE_TESTNET_API_SECRET" if args.testnet else "BINANCE_API_SECRET"
     api_key = os.getenv(key_name, "")
@@ -1597,6 +1868,7 @@ def run_locked(
             broker=broker,
             store=store,
             audit_log_path=args.audit_log,
+            timeout_seconds=reconciliation_timeout,
         )
         account = broker.get_account()
         positions = broker.get_positions()
@@ -1710,6 +1982,7 @@ def run_locked(
             limits=limits,
             locked_reason=locked_reason,
             audit_log_path=args.audit_log,
+            reconciliation_timeout_seconds=reconciliation_timeout,
         )
         final_account = broker.get_account()
         final_positions = broker.get_positions()

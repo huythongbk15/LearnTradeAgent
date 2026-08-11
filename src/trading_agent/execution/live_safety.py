@@ -25,6 +25,45 @@ LIVE_CONFIRMATION = "LIVE_TRADING_WITH_REAL_MONEY"
 RISK_INCREASE_CONFIRMATION = "APPROVE_LIVE_RISK_INCREASE"
 STATE_VERSION = 1
 
+ORDER_LEDGER_STATUSES = frozenset({
+    "reserved", "submitted", "acknowledged", "open", "partial", "filled",
+    "cancelled", "rejected", "expired", "reconciling",
+    "manual_intervention", "unknown",
+})
+ORDER_LEDGER_TERMINAL_STATUSES = frozenset({
+    "filled", "cancelled", "rejected", "expired",
+})
+ORDER_LEDGER_TRANSITIONS = {
+    "reserved": {
+        "submitted", "reconciling", "manual_intervention",
+    },
+    "submitted": {
+        "acknowledged", "reconciling", "manual_intervention",
+    },
+    "acknowledged": {
+        "open", "partial", "filled", "cancelled", "rejected", "expired",
+        "reconciling", "manual_intervention",
+    },
+    "open": {
+        "partial", "filled", "cancelled", "rejected", "expired",
+        "reconciling", "manual_intervention",
+    },
+    "partial": {
+        "filled", "cancelled", "expired", "reconciling",
+        "manual_intervention",
+    },
+    "reconciling": {
+        "acknowledged", "manual_intervention",
+    },
+    "manual_intervention": {"reconciling"},
+    # Kept only to migrate signed state written by older releases.
+    "unknown": {"reconciling", "manual_intervention"},
+    "filled": set(),
+    "cancelled": set(),
+    "rejected": set(),
+    "expired": set(),
+}
+
 
 class LiveSafetyError(RuntimeError):
     """Raised when a live execution safety check fails."""
@@ -866,19 +905,41 @@ class LiveRiskStateStore:
             "quantity": quantity,
             "filled_quantity": 0.0,
             "average_fill_price": 0.0,
+            "quote_cost": 0.0,
+            "fees": {},
+            "trade_ids": [],
+            "exchange_status": "",
             "signal_timestamp": (
                 signal_timestamp.astimezone(UTC).isoformat()
                 if signal_timestamp is not None
                 else ""
             ),
             "status": "reserved",
+            "status_history": [{
+                "status": "reserved",
+                "exchange_status": "",
+                "filled_quantity": 0.0,
+                "quote_cost": 0.0,
+                "at": timestamp,
+            }],
             "error": "",
             "created_at": timestamp,
             "updated_at": timestamp,
         }
         if len(self.state.reserved_orders) > 1000:
-            oldest = sorted(self.state.reserved_orders.items(), key=lambda item: item[1])[:-1000]
-            for key, _ in oldest:
+            excess = len(self.state.reserved_orders) - 1000
+            terminal = [
+                item
+                for item in sorted(
+                    self.state.reserved_orders.items(),
+                    key=lambda item: item[1],
+                )
+                if str(
+                    (self.state.order_ledger.get(item[0]) or {}).get("status") or ""
+                ).lower() in ORDER_LEDGER_TERMINAL_STATUSES
+            ]
+            # Never prune an uncertain intent just to enforce a storage target.
+            for key, _ in terminal[:excess]:
                 self.state.reserved_orders.pop(key, None)
                 self.state.order_ledger.pop(key, None)
         self.save(now=current)
@@ -889,39 +950,140 @@ class LiveRiskStateStore:
         *,
         status: str,
         exchange_order_id: str = "",
-        filled_quantity: float = 0.0,
-        average_fill_price: float = 0.0,
+        filled_quantity: float | None = None,
+        average_fill_price: float | None = None,
+        quote_cost: float | None = None,
+        fees: Mapping[str, float] | None = None,
+        trade_ids: list[str] | tuple[str, ...] | None = None,
+        exchange_status: str = "",
         error: str = "",
         now: datetime | None = None,
     ) -> None:
-        """Persist the latest broker acknowledgement for a reserved intent."""
+        """Persist monotonic cumulative fill evidence and lifecycle history."""
 
         record = self.state.order_ledger.get(order_key)
         if not isinstance(record, dict):
             raise LiveSafetyError(f"order intent is not present in ledger: {order_key}")
         normalized = status.strip().lower()
-        allowed = {
-            "reserved", "submitted", "open", "partial", "filled",
-            "cancelled", "rejected", "expired", "unknown",
-        }
-        if normalized not in allowed:
+        if normalized not in ORDER_LEDGER_STATUSES:
             raise LiveSafetyError(f"unsupported order ledger status: {status}")
-        numeric = (filled_quantity, average_fill_price)
+        previous_status = str(record.get("status") or "reserved").strip().lower()
+        if previous_status not in ORDER_LEDGER_STATUSES:
+            raise LiveSafetyError(
+                f"corrupt order ledger status for {order_key}: {previous_status}"
+            )
+        if (
+            normalized != previous_status
+            and normalized not in ORDER_LEDGER_TRANSITIONS[previous_status]
+        ):
+            raise LiveSafetyError(
+                f"invalid order status transition for {order_key}: "
+                f"{previous_status} -> {normalized}"
+            )
+
+        previous_filled = float(record.get("filled_quantity") or 0.0)
+        previous_average = float(record.get("average_fill_price") or 0.0)
+        previous_quote_cost = float(record.get("quote_cost") or 0.0)
+        next_filled = previous_filled if filled_quantity is None else filled_quantity
+        next_average = previous_average if average_fill_price is None else average_fill_price
+        next_quote_cost = previous_quote_cost if quote_cost is None else quote_cost
+        numeric = (next_filled, next_average, next_quote_cost)
         if any(not math.isfinite(value) or value < 0 for value in numeric):
-            raise LiveSafetyError("order fill values must be finite and non-negative")
+            raise LiveSafetyError("order fill accounting must be finite and non-negative")
+        if next_filled + 1e-12 < previous_filled:
+            raise LiveSafetyError("cumulative filled quantity cannot decrease")
+        if next_quote_cost + 1e-9 < previous_quote_cost:
+            raise LiveSafetyError("cumulative quote cost cannot decrease")
+        try:
+            intended_quantity = float(record.get("quantity") or 0.0)
+        except (TypeError, ValueError) as exc:
+            raise LiveSafetyError("order ledger contains an invalid quantity") from exc
+        if intended_quantity > 0 and next_filled > intended_quantity + 1e-12:
+            raise LiveSafetyError("cumulative filled quantity exceeds intended quantity")
+
+        previous_fees = record.get("fees")
+        if not isinstance(previous_fees, dict):
+            previous_fees = {}
+        next_fees = dict(previous_fees)
+        if fees is not None:
+            normalized_fees: dict[str, float] = {}
+            for raw_currency, raw_cost in fees.items():
+                currency = str(raw_currency).strip().upper()
+                if not currency:
+                    raise LiveSafetyError("fee currency cannot be empty")
+                try:
+                    cost = float(raw_cost)
+                except (TypeError, ValueError) as exc:
+                    raise LiveSafetyError("fees must be numeric") from exc
+                if not math.isfinite(cost) or cost < 0:
+                    raise LiveSafetyError("fees must be finite and non-negative")
+                normalized_fees[currency] = cost
+            for currency, previous_cost in previous_fees.items():
+                if currency not in normalized_fees:
+                    raise LiveSafetyError(
+                        f"cumulative fee snapshot omitted currency {currency}"
+                    )
+                if normalized_fees[currency] + 1e-12 < float(previous_cost):
+                    raise LiveSafetyError(
+                        f"cumulative fee for {currency} cannot decrease"
+                    )
+            next_fees = normalized_fees
+
+        previous_trade_ids = record.get("trade_ids")
+        if not isinstance(previous_trade_ids, list):
+            previous_trade_ids = []
+        next_trade_ids = list(dict.fromkeys(str(value) for value in previous_trade_ids))
+        if trade_ids is not None:
+            for raw_trade_id in trade_ids:
+                trade_id = str(raw_trade_id).strip()
+                if not trade_id:
+                    raise LiveSafetyError("trade IDs cannot be empty")
+                if trade_id not in next_trade_ids:
+                    next_trade_ids.append(trade_id)
+
         current = now or datetime.now(UTC)
+        timestamp = current.astimezone(UTC).isoformat()
+        raw_exchange_status = exchange_status.strip().lower()
+        previous_exchange_status = str(record.get("exchange_status") or "")
+        changed = any((
+            normalized != previous_status,
+            raw_exchange_status and raw_exchange_status != previous_exchange_status,
+            next_filled != previous_filled,
+            next_quote_cost != previous_quote_cost,
+            next_fees != previous_fees,
+            next_trade_ids != previous_trade_ids,
+        ))
         record.update({
             "status": normalized,
             "exchange_order_id": exchange_order_id or record.get("exchange_order_id", ""),
-            "filled_quantity": filled_quantity,
-            "average_fill_price": average_fill_price,
+            "exchange_status": raw_exchange_status or previous_exchange_status,
+            "filled_quantity": next_filled,
+            "average_fill_price": next_average,
+            "quote_cost": next_quote_cost,
+            "fees": next_fees,
+            "trade_ids": next_trade_ids,
             "error": error,
-            "updated_at": current.astimezone(UTC).isoformat(),
+            "updated_at": timestamp,
         })
+        if changed:
+            history = record.get("status_history")
+            if not isinstance(history, list):
+                history = []
+            history.append({
+                "status": normalized,
+                "exchange_status": raw_exchange_status or previous_exchange_status,
+                "filled_quantity": next_filled,
+                "quote_cost": next_quote_cost,
+                "at": timestamp,
+            })
+            record["status_history"] = history[-100:]
         self.save(now=current)
 
     def unfinished_orders(self) -> dict[str, dict[str, object]]:
-        unfinished = {"reserved", "submitted", "open", "partial", "unknown"}
+        unfinished = {
+            "reserved", "submitted", "acknowledged", "open", "partial",
+            "reconciling", "manual_intervention", "unknown",
+        }
         return {
             key: dict(record)
             for key, record in self.state.order_ledger.items()
