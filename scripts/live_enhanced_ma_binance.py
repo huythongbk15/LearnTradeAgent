@@ -284,8 +284,14 @@ def prepare_orders(
     simulated_cash = float(account["cash"])
     equity = float(account["equity"])
     simulated_positions, simulated_gross = position_snapshot(positions)
+    # Testnet tickers update slowly (thin liquidity), so relax quote freshness
+    # for testnet only — mainnet keeps strict 15s / 1% limits.
     quote_limits = (
-        replace(limits, max_price_deviation_pct=max(limits.max_price_deviation_pct, 0.25))
+        replace(
+            limits,
+            max_price_deviation_pct=max(limits.max_price_deviation_pct, 0.25),
+            max_quote_age_seconds=max(limits.max_quote_age_seconds, 60.0),
+        )
         if testnet
         else limits
     )
@@ -341,8 +347,14 @@ def execute_orders(
     limits: LiveRiskLimits,
     testnet: bool,
 ) -> None:
+    # Testnet tickers update slowly (thin liquidity), so relax quote freshness
+    # for testnet only — mainnet keeps strict 15s / 1% limits.
     quote_limits = (
-        replace(limits, max_price_deviation_pct=max(limits.max_price_deviation_pct, 0.25))
+        replace(
+            limits,
+            max_price_deviation_pct=max(limits.max_price_deviation_pct, 0.25),
+            max_quote_age_seconds=max(limits.max_quote_age_seconds, 60.0),
+        )
         if testnet
         else limits
     )
