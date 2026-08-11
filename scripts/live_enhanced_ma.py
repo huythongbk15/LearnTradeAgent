@@ -340,6 +340,20 @@ def main():
             cash_now = float(acct_now["cash"]) if "acct_now" in dir() else 0.0
 
         qty = float(d["qty"])
+        
+        # For SELL: use EXACT broker position qty to avoid rounding mismatch
+        if d["action"] == "SELL":
+            try:
+                positions_now = broker.get_positions()
+                pos = next((p for p in positions_now if p["symbol"] == f"{d['alpaca_symbol']}/USD"), None)
+                if pos:
+                    qty = float(pos["qty"])
+                else:
+                    print(f"  ⏭️  SKIP — no position found for {d['alpaca_symbol']}")
+                    continue
+            except Exception as e:
+                print(f"  ⚠️  Could not fetch exact position qty: {e}, using calculated")
+        
         if round(qty, 6) <= 0:
             print(f"  ⏭️  SKIP — {d['action']} qty {qty:.6f} ≈ 0 (dust position, không đáng lệnh)")
             continue
@@ -365,7 +379,7 @@ def main():
                 symbol=symbol,
                 side=OrderSide.BUY if d["action"] == "BUY" else OrderSide.SELL,
                 type=OrderType.MARKET,
-                size=Decimal(str(round(qty, 6))),
+                size=Decimal(str(qty)),  # use exact qty (already floored for SELL)
                 time_in_force=TimeInForce.GTC,
             )
             result = broker.place_order(order)

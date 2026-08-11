@@ -10,13 +10,23 @@ Cấu hình dùng chung cho các live runner (P1.4 — tránh config rải rác 
 from __future__ import annotations
 
 # ── Chiến lược ──────────────────────────────────────────────────────────
-# Champion đã verify: fast_period=20, slow_period=80, adx_threshold=40
+# Champion mới (sweep 2026-08-11, ~9.000 combos): MA crossover + ADX + ATR
+# trailing stop + DD circuit breaker (cooldown 0 → price-recovery reset) +
+# price confirmation (chỉ long khi close > slow MA).
+#   - BTC: median Sharpe 0.24 (vẫn < gate 0.5 — downtrend folds 2025-05→11)
+#   - AVAX: PASS (1.236 / 3.48% / DD 8.05% / 29 trades)
+#   - SOL:  gần pass (-0.125 với close_above; 0.94 với slow=100 trail=1.0)
+# Trailing + breaker là strategy-level → backtest & live replay cùng signals.
 TIMEFRAME = "1h"
 LOOKBACK = 1000
 STRATEGY_PARAMS = {
-    "fast_period": 20,
-    "slow_period": 80,
+    "fast_period": 10,
+    "slow_period": 60,
     "adx_threshold": 40,
+    "max_dd_pct": 0.12,
+    "trailing_atr_mult": 2.0,
+    "dd_recovery_pct": 0.03,
+    "require_close_above_slow": True,
 }
 
 # ── Danh mục Alpaca (paper) — full-capital 100% deployed ───────────────

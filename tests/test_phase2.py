@@ -299,7 +299,7 @@ try:
     check("returns AgentAnalysisReport", report is not None)
     check("has final_decision", bool(report.final_decision))
     check("final signal valid", report.final_decision.signal in ("BUY", "SELL", "HOLD"))
-    check("has 3 agent messages (tech + sentiment + risk)", len(report.agent_messages) == 3)
+    check("has 4 agent messages (tech + sentiment + risk + trader)", len(report.agent_messages) == 4)
 
     print(f"\n  🎯 Final: {report.final_decision.signal} (conf={report.final_decision.confidence:.0%})")
     print(f"  ⏱ {t_orch:.2f}s")
