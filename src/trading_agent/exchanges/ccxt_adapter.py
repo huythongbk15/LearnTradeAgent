@@ -345,6 +345,46 @@ class CCXTAdapter(ExchangeAdapter):
         faucet coins that have no tradeable market)."""
         return self.exchange is not None and ex_symbol in self.exchange.markets
 
+    def normalize_order_amount(
+        self,
+        symbol: Symbol,
+        amount: Decimal,
+        *,
+        reference_price: Decimal | None = None,
+    ) -> Decimal:
+        """Apply exchange precision and hard amount/notional market filters."""
+
+        if self.exchange is None:
+            raise RuntimeError("exchange is not connected")
+        ex_symbol = self._unified_to_ccxt_symbol(symbol)
+        market = self.exchange.market(ex_symbol)
+        if not market or not market.get("active", True):
+            raise InvalidOrder(f"market is unavailable or inactive: {ex_symbol}")
+        normalized = Decimal(str(self.exchange.amount_to_precision(ex_symbol, float(amount))))
+        if normalized <= 0:
+            raise InvalidOrder(f"amount rounds to zero for {ex_symbol}")
+
+        limits = market.get("limits") or {}
+        amount_limits = limits.get("amount") or {}
+        cost_limits = limits.get("cost") or {}
+        minimum_amount = amount_limits.get("min")
+        maximum_amount = amount_limits.get("max")
+        if minimum_amount is not None and normalized < Decimal(str(minimum_amount)):
+            raise InvalidOrder(f"amount is below market minimum for {ex_symbol}")
+        if maximum_amount is not None and normalized > Decimal(str(maximum_amount)):
+            raise InvalidOrder(f"amount exceeds market maximum for {ex_symbol}")
+        if reference_price is not None:
+            if reference_price <= 0:
+                raise InvalidOrder("reference price must be positive")
+            cost = normalized * reference_price
+            minimum_cost = cost_limits.get("min")
+            maximum_cost = cost_limits.get("max")
+            if minimum_cost is not None and cost < Decimal(str(minimum_cost)):
+                raise InvalidOrder(f"order notional is below market minimum for {ex_symbol}")
+            if maximum_cost is not None and cost > Decimal(str(maximum_cost)):
+                raise InvalidOrder(f"order notional exceeds market maximum for {ex_symbol}")
+        return normalized
+
     # --- Market Data ---
 
     @staticmethod
@@ -457,6 +497,28 @@ class CCXTAdapter(ExchangeAdapter):
             logger.error(f"fetch_order failed: {e}")
             raise
 
+    async def fetch_order_by_client_id(
+        self,
+        client_order_id: str,
+        symbol: Symbol,
+    ) -> Order | None:
+        """Fetch a Binance-style order by the deterministic client order ID."""
+
+        ex_symbol = self._unified_to_ccxt_symbol(symbol)
+        await self._rate_limiter.acquire(self.config.id, weight=1)
+        try:
+            order = await self._maybe_await(self.exchange.fetch_order(
+                None,
+                ex_symbol,
+                {"origClientOrderId": client_order_id},
+            ))
+            return self._parse_order(order, symbol)
+        except Exception as exc:
+            if ccxt is not None and isinstance(exc, ccxt.OrderNotFound):
+                return None
+            logger.error(f"fetch_order_by_client_id failed: {exc}")
+            raise
+
     async def fetch_open_orders(self, symbol: Symbol | None = None) -> list[Order]:
         """Fetch all open orders"""
         ex_symbol = self._unified_to_ccxt_symbol(symbol) if symbol else None
@@ -566,15 +628,19 @@ class CCXTAdapter(ExchangeAdapter):
             'rejected': OrderStatus.REJECTED,
             'expired': OrderStatus.EXPIRED,
         }
+        filled_size = Decimal(str(order.get('filled') or 0))
+        parsed_status = status_map.get(order['status'], OrderStatus.OPEN)
+        if parsed_status == OrderStatus.OPEN and filled_size > 0:
+            parsed_status = OrderStatus.PARTIAL
         return Order(
             id=order['id'],
             client_order_id=order.get('clientOrderId'),
             symbol=symbol,
             side=OrderSide(str(order['side']).lower()),
             type=OrderType(str(order['type']).lower()),
-            status=status_map.get(order['status'], OrderStatus.OPEN),
+            status=parsed_status,
             size=Decimal(str(order.get('amount') or 0)),
-            filled_size=Decimal(str(order.get('filled') or 0)),
+            filled_size=filled_size,
             avg_fill_price=Decimal(str(order.get('average') or 0)),
             price=Decimal(str(order['price'])) if order.get('price') is not None else None,
             fee=Decimal(str(order['fee']['cost'])) if order.get('fee') else Decimal(0),

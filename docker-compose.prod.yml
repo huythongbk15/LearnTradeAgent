@@ -6,7 +6,7 @@ services:
   # APPLICATION — Trading Agent (3 replicas behind load balancer)
   # ===========================================================================
   trading-agent:
-    image: ghcr.io/${GHCR_OWNER:-your-org}/trading-agent:${IMAGE_TAG:-latest}
+    image: ${TRADING_AGENT_IMAGE:-ghcr.io/your-org/trading-agent:latest}
     build:
       context: .
       dockerfile: Dockerfile
@@ -73,7 +73,7 @@ services:
   # SCHEDULER — Cron jobs (leader elected via Redis)
   # ===========================================================================
   trading-scheduler:
-    image: ghcr.io/${GHCR_OWNER:-your-org}/trading-agent:${IMAGE_TAG:-latest}
+    image: ${TRADING_AGENT_IMAGE:-ghcr.io/your-org/trading-agent:latest}
     build:
       context: .
       dockerfile: Dockerfile

@@ -36,22 +36,41 @@ jobs:
       BLUE_GREEN_ENABLED: ${{ secrets.BLUE_GREEN_ENABLED || 'true' }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
-      - name: Install cosign & syft
+      - name: Validate declared blue-green topology
+        shell: bash
         run: |
-          curl -sSfL https://github.com/sigstore/cosign/releases/latest/download/cosign-linux-amd64 -o /usr/local/bin/cosign
-          chmod +x /usr/local/bin/cosign
-          curl -sSfL https://github.com/anchore/syft/releases/latest/download/syft-linux-amd64 -o /usr/local/bin/syft
-          chmod +x /usr/local/bin/syft
+          for service in trading-agent-blue trading-agent-green; do
+            if ! grep -Eq "^[[:space:]]{2}${service}:" docker-compose.prod.yml; then
+              echo "Production deployment is blocked: missing Compose service ${service}" >&2
+              exit 1
+            fi
+          done
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@f713795cb21599bc4e5c4b58cbad1da852d7eeb9 # v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       # =========================================================================
       # STEP 6: VERIFY IMAGE SIGNATURE & SBOM BEFORE PRODUCTION DEPLOY
       # =========================================================================
       - name: Determine image tag
         id: image-tag
+        shell: bash
         run: |
-          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.event.inputs.sha }}"
+          if [[ ! "${{ github.event.inputs.sha }}" =~ ^sha-[0-9a-f]{40}$ ]]; then
+            echo "Input must be sha- followed by the full 40-character commit SHA" >&2
+            exit 1
+          fi
+          REPOSITORY="${GITHUB_REPOSITORY,,}"
+          IMAGE="${{ env.REGISTRY }}/$REPOSITORY:${{ github.event.inputs.sha }}"
           echo "image=$IMAGE" >> $GITHUB_OUTPUT
           echo "Using image: $IMAGE"
 
@@ -62,7 +81,9 @@ jobs:
         run: |
           IMAGE="${{ steps.image-tag.outputs.image }}"
           echo "Verifying signature for $IMAGE"
-          if cosign verify "$IMAGE" --certificate-identity-regexp=".*" --certificate-oidc-issuer-regexp=".*"; then
+          if cosign verify "$IMAGE" \
+            --certificate-identity="https://github.com/huythongbk15/LearnTradeAgent/.github/workflows/ci.yml@refs/heads/master" \
+            --certificate-oidc-issuer="https://token.actions.githubusercontent.com"; then
             echo "✅ Signature verified"
             echo "verified=true" >> $GITHUB_OUTPUT
           else
@@ -71,12 +92,15 @@ jobs:
             exit 1
           fi
 
-      - name: Verify SBOM
+      - name: Verify signed SBOM attestation
         id: verify-sbom
         run: |
           IMAGE="${{ steps.image-tag.outputs.image }}"
           echo "Verifying SBOM for $IMAGE"
-          if syft "$IMAGE" -o json > /dev/null 2>&1; then
+          if cosign verify-attestation "$IMAGE" --type=spdxjson \
+            --certificate-identity="https://github.com/huythongbk15/LearnTradeAgent/.github/workflows/ci.yml@refs/heads/master" \
+            --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
+            > verified-sbom-attestation.json; then
             echo "✅ SBOM verified"
             echo "verified=true" >> $GITHUB_OUTPUT
           else
@@ -85,32 +109,27 @@ jobs:
             exit 1
           fi
 
-      - name: Show image attestation
-        env:
-          COSIGN_EXPERIMENTAL: 1
-        run: |
-          IMAGE="${{ steps.image-tag.outputs.image }}"
-          echo "=== Attestation for $IMAGE ==="
-          cosign verify-attestation "$IMAGE" --type=spdxjson --certificate-identity-regexp=".*" --certificate-oidc-issuer-regexp=".*" || true
-          echo ""
-          echo "=== SBOM packages ==="
-          syft "$IMAGE" -o json 2>/dev/null | jq '.artifacts | length' | xargs -I{} echo "Total packages: {}"
-
       # =========================================================================
       # BLUE-GREEN DEPLOY TO PRODUCTION
       # =========================================================================
       - name: Set up SSH
-        uses: webfactory/ssh-agent@v0.9.0
+        uses: webfactory/ssh-agent@dc588b651fe13675774614f8e6a936a468676387 # v0.9.0
         with:
           ssh-private-key: ${{ secrets.PRODUCTION_SSH_KEY }}
+
+      - name: Configure SSH host verification
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "${{ secrets.PRODUCTION_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
 
       - name: Deploy to production (Blue-Green)
         env:
           IMAGE: ${{ steps.image-tag.outputs.image }}
           BLUE_GREEN: ${{ env.BLUE_GREEN_ENABLED }}
         run: |
-          ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-            ${{ env.PRODUCTION_USER }}@${{ env.PRODUCTION_HOST }} "
+          ssh ${{ env.PRODUCTION_USER }}@${{ env.PRODUCTION_HOST }} "
             set -e
             cd /opt/trading-agent-prod
 
@@ -160,7 +179,7 @@ jobs:
 
       - name: Notify on success
         if: success()
-        uses: appleboy/telegram-action@master
+        uses: appleboy/telegram-action@221e6b684967abe813051ee4a37dd61770a83ad3 # v1.0.1
         with:
           to: ${{ secrets.TELEGRAM_CHAT_ID }}
           token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -175,7 +194,7 @@ jobs:
 
       - name: Notify on failure
         if: failure()
-        uses: appleboy/telegram-action@master
+        uses: appleboy/telegram-action@221e6b684967abe813051ee4a37dd61770a83ad3 # v1.0.1
         with:
           to: ${{ secrets.TELEGRAM_CHAT_ID }}
           token: ${{ secrets.TELEGRAM_BOT_TOKEN }}

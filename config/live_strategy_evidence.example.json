@@ -1,6 +1,7 @@
 {
   "version": 1,
   "strategy": "enhanced_ma",
+  "build_sha": "0123456789abcdef0123456789abcdef01234567",
   "strategy_params": {
     "fast_period": 20,
     "slow_period": 80,
@@ -8,15 +9,42 @@
   },
   "generated_at": "2026-08-10T00:00:00+00:00",
   "data_end": "2026-08-09T23:00:00+00:00",
+  "allocations": {
+    "BTC/USDT": 0.20
+  },
   "costs": {
     "commission_bps": 10,
-    "slippage_bps": 5
+    "slippage_bps": 5,
+    "spread_bps": 2
   },
   "symbols": {
     "BTC/USDT": {
+      "allocation": 0.20,
       "folds": [
-        {"sharpe": 0.0, "return_pct": 0.0, "max_drawdown_pct": 0.0, "trades": 0}
+        {
+          "start": "2025-11-11T00:00:00+00:00",
+          "end": "2026-02-09T00:00:00+00:00",
+          "bars": 2160,
+          "sharpe": 0.0,
+          "return_pct": 0.0,
+          "max_drawdown_pct": 0.0,
+          "trades": 0
+        }
       ]
     }
-  }
+  },
+  "portfolio": {
+    "folds": [
+      {
+        "start": "2025-11-11T00:00:00+00:00",
+        "end": "2026-02-09T00:00:00+00:00",
+        "bars": 2160,
+        "sharpe": 0.0,
+        "return_pct": 0.0,
+        "max_drawdown_pct": 0.0,
+        "trades": 0
+      }
+    ]
+  },
+  "integrity": "hmac-sha256:generated-by-generate-live-strategy-evidence"
 }

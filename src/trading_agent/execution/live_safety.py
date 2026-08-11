@@ -12,6 +12,7 @@ import hmac
 import json
 import math
 import os
+import socket
 import tempfile
 from statistics import median
 from dataclasses import asdict, dataclass, field
@@ -30,6 +31,81 @@ class LiveSafetyError(RuntimeError):
 
 class DuplicateOrderError(LiveSafetyError):
     """Raised when an execution cycle tries to submit the same intent twice."""
+
+
+class LiveExecutionLock:
+    """Hold a non-blocking OS lock for the complete live execution cycle.
+
+    Atomic state-file replacement prevents torn JSON, but it cannot prevent two
+    schedulers from loading the same old state and both submitting orders.  This
+    lock deliberately lives beside (not inside) the state file so the state can
+    continue to be replaced atomically while the lock handle remains stable.
+    """
+
+    def __init__(self, path: str | Path):
+        self.path = Path(path)
+        self._fd: int | None = None
+
+    def acquire(self) -> None:
+        if self._fd is not None:
+            raise LiveSafetyError(f"live execution lock is already held: {self.path}")
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        fd = os.open(self.path, os.O_RDWR | os.O_CREAT, 0o600)
+        try:
+            os.chmod(self.path, 0o600)
+            if os.name == "nt":
+                import msvcrt
+
+                if os.fstat(fd).st_size == 0:
+                    os.write(fd, b"\0")
+                os.lseek(fd, 0, os.SEEK_SET)
+                msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as exc:
+            os.close(fd)
+            raise LiveSafetyError(
+                f"another live runner already holds the execution lock: {self.path}"
+            ) from exc
+
+        self._fd = fd
+        metadata = {
+            "pid": os.getpid(),
+            "host": socket.gethostname(),
+            "acquired_at": datetime.now(UTC).isoformat(),
+        }
+        encoded = (json.dumps(metadata, sort_keys=True) + "\n").encode("utf-8")
+        os.lseek(fd, 0, os.SEEK_SET)
+        os.ftruncate(fd, 0)
+        os.write(fd, encoded)
+        os.fsync(fd)
+
+    def release(self) -> None:
+        fd = self._fd
+        if fd is None:
+            return
+        try:
+            if os.name == "nt":
+                import msvcrt
+
+                os.lseek(fd, 0, os.SEEK_SET)
+                msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(fd, fcntl.LOCK_UN)
+        finally:
+            os.close(fd)
+            self._fd = None
+
+    def __enter__(self) -> "LiveExecutionLock":
+        self.acquire()
+        return self
+
+    def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
+        self.release()
 
 
 def _is_true(value: str | None) -> bool:
@@ -61,6 +137,9 @@ class LiveRiskLimits:
     max_drawdown_pct: float = 0.05
     max_quote_age_seconds: float = 15.0
     max_price_deviation_pct: float = 0.01
+    max_spread_pct: float = 0.002
+    max_book_slippage_pct: float = 0.003
+    min_book_depth_multiple: float = 1.25
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> "LiveRiskLimits":
@@ -74,6 +153,13 @@ class LiveRiskLimits:
             max_drawdown_pct=_read_float(source, "LIVE_MAX_DRAWDOWN_PCT", 0.05),
             max_quote_age_seconds=_read_float(source, "LIVE_MAX_QUOTE_AGE_SECONDS", 15.0),
             max_price_deviation_pct=_read_float(source, "LIVE_MAX_PRICE_DEVIATION_PCT", 0.01),
+            max_spread_pct=_read_float(source, "LIVE_MAX_SPREAD_PCT", 0.002),
+            max_book_slippage_pct=_read_float(
+                source, "LIVE_MAX_BOOK_SLIPPAGE_PCT", 0.003
+            ),
+            min_book_depth_multiple=_read_float(
+                source, "LIVE_MIN_BOOK_DEPTH_MULTIPLE", 1.25
+            ),
         )
         limits.validate()
         return limits
@@ -88,6 +174,8 @@ class LiveRiskLimits:
             "max_daily_loss_pct",
             "max_drawdown_pct",
             "max_price_deviation_pct",
+            "max_spread_pct",
+            "max_book_slippage_pct",
         ):
             value = getattr(self, name)
             if not 0 < value < 1:
@@ -96,6 +184,8 @@ class LiveRiskLimits:
             raise LiveSafetyError("symbol exposure cannot exceed gross exposure")
         if self.max_quote_age_seconds <= 0:
             raise LiveSafetyError("LIVE_MAX_QUOTE_AGE_SECONDS must be positive")
+        if not 1 <= self.min_book_depth_multiple <= 10:
+            raise LiveSafetyError("LIVE_MIN_BOOK_DEPTH_MULTIPLE must be between 1 and 10")
 
 
 @dataclass(frozen=True)
@@ -110,7 +200,10 @@ class StrategyEvidencePolicy:
     min_total_oos_trades: int = 20
     min_commission_bps: float = 10.0
     min_slippage_bps: float = 5.0
-    max_age_days: int = 31
+    min_spread_bps: float = 2.0
+    min_fold_days: int = 90
+    max_generated_age_hours: float = 24.0
+    max_data_age_hours: float = 6.0
 
 
 def _parse_utc_datetime(value: object, field_name: str) -> datetime:
@@ -125,11 +218,103 @@ def _parse_utc_datetime(value: object, field_name: str) -> datetime:
     return parsed.astimezone(UTC)
 
 
+def _payload_hmac(payload: Mapping[str, object], key: str) -> str:
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    digest = hmac.new(key.encode("utf-8"), canonical.encode("utf-8"), hashlib.sha256).hexdigest()
+    return f"hmac-sha256:{digest}"
+
+
+def validate_integrity_key(key: str | None) -> str:
+    normalized = key or ""
+    lowered = normalized.lower()
+    if len(normalized) < 32 or any(
+        marker in lowered for marker in ("replace-with", "changeme", "placeholder")
+    ):
+        raise LiveSafetyError(
+            "LIVE_SAFETY_HMAC_KEY must be a non-placeholder value of at least 32 characters"
+        )
+    return normalized
+
+
+def sign_strategy_evidence(payload: Mapping[str, object], key: str) -> dict[str, object]:
+    key = validate_integrity_key(key)
+    signed = dict(payload)
+    signed.pop("integrity", None)
+    signed["integrity"] = _payload_hmac(signed, key)
+    return signed
+
+
+def account_fingerprint(*, exchange: str, api_key: str) -> str:
+    if not api_key:
+        raise LiveSafetyError("cannot fingerprint an empty API key")
+    digest = hashlib.sha256(f"{exchange}|{api_key}".encode("utf-8")).hexdigest()
+    return digest[:24]
+
+
+def strategy_fingerprint(
+    *,
+    strategy: str,
+    params: Mapping[str, object],
+    allocations: Mapping[str, float],
+) -> str:
+    payload = {
+        "strategy": strategy,
+        "params": dict(params),
+        "allocations": dict(sorted(allocations.items())),
+    }
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:24]
+
+
+def validate_build_sha(value: str | None) -> str:
+    normalized = (value or "").strip().lower()
+    if not 7 <= len(normalized) <= 64 or any(
+        character not in "0123456789abcdef" for character in normalized
+    ):
+        raise LiveSafetyError("TRADING_BUILD_SHA must be a 7-64 character hexadecimal commit SHA")
+    return normalized
+
+
+def append_live_audit_event(
+    path: str | Path,
+    event: str,
+    details: Mapping[str, object] | None = None,
+    *,
+    now: datetime | None = None,
+) -> None:
+    """Append a durable local JSONL event without including credentials."""
+
+    if not event.strip():
+        raise LiveSafetyError("audit event name cannot be empty")
+    current = now or datetime.now(UTC)
+    payload = {
+        "timestamp": current.astimezone(UTC).isoformat(),
+        "event": event,
+        "pid": os.getpid(),
+        "details": dict(details or {}),
+    }
+    audit_path = Path(path)
+    audit_path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(audit_path, os.O_APPEND | os.O_CREAT | os.O_WRONLY, 0o600)
+    try:
+        os.chmod(audit_path, 0o600)
+        os.write(
+            fd,
+            (json.dumps(payload, sort_keys=True, ensure_ascii=False) + "\n").encode("utf-8"),
+        )
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
 def validate_strategy_evidence(
     path: str | Path,
     *,
     expected_symbols: list[str],
     expected_params: Mapping[str, object],
+    expected_allocations: Mapping[str, float] | None = None,
+    expected_build_sha: str | None = None,
+    integrity_key: str | None = None,
     policy: StrategyEvidencePolicy | None = None,
     now: datetime | None = None,
 ) -> dict[str, dict[str, float]]:
@@ -144,10 +329,22 @@ def validate_strategy_evidence(
         raise LiveSafetyError(f"mainnet strategy evidence is corrupt: {evidence_path}") from exc
     if not isinstance(raw, dict):
         raise LiveSafetyError(f"mainnet strategy evidence is corrupt: {evidence_path}")
+    if integrity_key is not None:
+        supplied_integrity = raw.get("integrity")
+        unsigned = dict(raw)
+        unsigned.pop("integrity", None)
+        expected_integrity = _payload_hmac(unsigned, integrity_key)
+        if not isinstance(supplied_integrity, str) or not hmac.compare_digest(
+            supplied_integrity,
+            expected_integrity,
+        ):
+            raise LiveSafetyError("strategy evidence integrity check failed")
     if raw.get("version") != 1 or raw.get("strategy") != "enhanced_ma":
         raise LiveSafetyError("strategy evidence schema or strategy does not match")
     if raw.get("strategy_params") != dict(expected_params):
         raise LiveSafetyError("strategy evidence parameters do not match the live strategy")
+    if expected_build_sha is not None and raw.get("build_sha") != expected_build_sha:
+        raise LiveSafetyError("strategy evidence build SHA does not match the live build")
 
     selected_policy = policy or StrategyEvidencePolicy()
     current = now or datetime.now(UTC)
@@ -155,13 +352,17 @@ def validate_strategy_evidence(
         current = current.replace(tzinfo=UTC)
     generated_at = _parse_utc_datetime(raw.get("generated_at"), "generated_at")
     data_end = _parse_utc_datetime(raw.get("data_end"), "data_end")
+    age_limits = {
+        "generated_at": selected_policy.max_generated_age_hours,
+        "data_end": selected_policy.max_data_age_hours,
+    }
     for field_name, timestamp in (("generated_at", generated_at), ("data_end", data_end)):
-        age_days = (current.astimezone(UTC) - timestamp).total_seconds() / 86_400
-        if age_days < -1:
+        age_hours = (current.astimezone(UTC) - timestamp).total_seconds() / 3_600
+        if age_hours < -1:
             raise LiveSafetyError(f"strategy evidence {field_name} is future-dated")
-        if age_days > selected_policy.max_age_days:
+        if age_hours > age_limits[field_name]:
             raise LiveSafetyError(
-                f"strategy evidence {field_name} is stale: {age_days:.1f} days"
+                f"strategy evidence {field_name} is stale: {age_hours:.1f} hours"
             )
 
     costs = raw.get("costs")
@@ -170,17 +371,38 @@ def validate_strategy_evidence(
     try:
         commission_bps = float(costs.get("commission_bps", 0))
         slippage_bps = float(costs.get("slippage_bps", 0))
+        spread_bps = float(costs.get("spread_bps", 0))
     except (TypeError, ValueError) as exc:
         raise LiveSafetyError("strategy evidence costs are invalid") from exc
     if commission_bps < selected_policy.min_commission_bps:
         raise LiveSafetyError("strategy evidence commission assumption is too low")
     if slippage_bps < selected_policy.min_slippage_bps:
         raise LiveSafetyError("strategy evidence slippage assumption is too low")
+    if spread_bps < selected_policy.min_spread_bps:
+        raise LiveSafetyError("strategy evidence spread assumption is too low")
+
+    normalized_allocations: dict[str, float] | None = None
+    if expected_allocations is not None:
+        allocations = raw.get("allocations")
+        if not isinstance(allocations, dict):
+            raise LiveSafetyError("strategy evidence allocations are missing")
+        normalized_allocations = {}
+        if set(allocations) != set(expected_allocations):
+            raise LiveSafetyError("strategy evidence allocation symbols do not match")
+        for symbol, expected in expected_allocations.items():
+            try:
+                actual = float(allocations[symbol])
+            except (TypeError, ValueError) as exc:
+                raise LiveSafetyError("strategy evidence allocations are invalid") from exc
+            if not math.isfinite(actual) or not math.isclose(actual, expected, abs_tol=1e-12):
+                raise LiveSafetyError(f"strategy evidence allocation does not match for {symbol}")
+            normalized_allocations[symbol] = actual
 
     evidence_symbols = raw.get("symbols")
     if not isinstance(evidence_symbols, dict):
         raise LiveSafetyError("strategy evidence symbols are missing")
     summaries: dict[str, dict[str, float]] = {}
+    reference_layout: list[tuple[object, object, object]] | None = None
     for symbol in expected_symbols:
         item = evidence_symbols.get(symbol)
         folds = item.get("folds") if isinstance(item, dict) else None
@@ -188,40 +410,113 @@ def validate_strategy_evidence(
             raise LiveSafetyError(
                 f"strategy evidence for {symbol} needs at least {selected_policy.min_folds} folds"
             )
-        try:
-            sharpes = [float(fold["sharpe"]) for fold in folds]
-            returns = [float(fold["return_pct"]) for fold in folds]
-            drawdowns = [abs(float(fold["max_drawdown_pct"])) for fold in folds]
-            trades = [int(fold["trades"]) for fold in folds]
-        except (KeyError, TypeError, ValueError) as exc:
-            raise LiveSafetyError(f"strategy evidence metrics are invalid for {symbol}") from exc
-        all_metrics = [*sharpes, *returns, *drawdowns, *trades]
-        if any(not math.isfinite(value) for value in all_metrics):
-            raise LiveSafetyError(f"strategy evidence contains non-finite metrics for {symbol}")
+        layout = [
+            (
+                fold.get("start") if isinstance(fold, dict) else None,
+                fold.get("end") if isinstance(fold, dict) else None,
+                fold.get("bars") if isinstance(fold, dict) else None,
+            )
+            for fold in folds
+        ]
+        if reference_layout is None:
+            reference_layout = layout
+        elif layout != reference_layout:
+            raise LiveSafetyError("strategy evidence symbol folds do not align")
+        if normalized_allocations is not None:
+            try:
+                item_allocation = float(item.get("allocation"))
+            except (TypeError, ValueError) as exc:
+                raise LiveSafetyError(f"strategy evidence allocation is invalid for {symbol}") from exc
+            if not math.isclose(
+                item_allocation,
+                normalized_allocations[symbol],
+                abs_tol=1e-12,
+            ):
+                raise LiveSafetyError(f"strategy evidence allocation does not match for {symbol}")
+        summaries[symbol] = _validate_evidence_folds(symbol, folds, selected_policy)
 
-        median_sharpe = median(sharpes)
-        median_return = median(returns)
-        positive_ratio = sum(value > 0 for value in returns) / len(returns)
-        worst_drawdown = max(drawdowns)
-        total_trades = sum(trades)
-        if median_sharpe < selected_policy.min_median_oos_sharpe:
-            raise LiveSafetyError(f"{symbol} median OOS Sharpe does not pass")
-        if median_return <= selected_policy.min_median_oos_return_pct:
-            raise LiveSafetyError(f"{symbol} median OOS return does not pass")
-        if positive_ratio < selected_policy.min_positive_fold_ratio:
-            raise LiveSafetyError(f"{symbol} positive-fold ratio does not pass")
-        if worst_drawdown > selected_policy.max_worst_oos_drawdown_pct:
-            raise LiveSafetyError(f"{symbol} worst OOS drawdown does not pass")
-        if total_trades < selected_policy.min_total_oos_trades:
-            raise LiveSafetyError(f"{symbol} OOS trade count does not pass")
-        summaries[symbol] = {
-            "median_sharpe": median_sharpe,
-            "median_return_pct": median_return,
-            "positive_fold_ratio": positive_ratio,
-            "worst_drawdown_pct": worst_drawdown,
-            "total_trades": float(total_trades),
-        }
+    if normalized_allocations is not None:
+        portfolio = raw.get("portfolio")
+        portfolio_folds = portfolio.get("folds") if isinstance(portfolio, dict) else None
+        if not isinstance(portfolio_folds, list):
+            raise LiveSafetyError("portfolio OOS evidence is missing")
+        portfolio_layout = [
+            (
+                fold.get("start") if isinstance(fold, dict) else None,
+                fold.get("end") if isinstance(fold, dict) else None,
+                fold.get("bars") if isinstance(fold, dict) else None,
+            )
+            for fold in portfolio_folds
+        ]
+        if portfolio_layout != reference_layout:
+            raise LiveSafetyError("portfolio OOS folds do not align with symbols")
+        summaries["__portfolio__"] = _validate_evidence_folds(
+            "portfolio",
+            portfolio_folds,
+            selected_policy,
+        )
     return summaries
+
+
+def _validate_evidence_folds(
+    label: str,
+    folds: list[object],
+    policy: StrategyEvidencePolicy,
+) -> dict[str, float]:
+    if len(folds) < policy.min_folds:
+        raise LiveSafetyError(f"strategy evidence for {label} needs at least {policy.min_folds} folds")
+    sharpes: list[float] = []
+    returns: list[float] = []
+    drawdowns: list[float] = []
+    trades: list[int] = []
+    previous_end: datetime | None = None
+    for fold in folds:
+        if not isinstance(fold, dict):
+            raise LiveSafetyError(f"strategy evidence metrics are invalid for {label}")
+        try:
+            start = _parse_utc_datetime(fold["start"], f"{label}.fold.start")
+            end = _parse_utc_datetime(fold["end"], f"{label}.fold.end")
+            bars = int(fold["bars"])
+            sharpes.append(float(fold["sharpe"]))
+            returns.append(float(fold["return_pct"]))
+            drawdowns.append(abs(float(fold["max_drawdown_pct"])))
+            trades.append(int(fold["trades"]))
+        except (KeyError, TypeError, ValueError) as exc:
+            raise LiveSafetyError(f"strategy evidence metrics are invalid for {label}") from exc
+        duration_hours = (end - start).total_seconds() / 3_600
+        if duration_hours < policy.min_fold_days * 24:
+            raise LiveSafetyError(f"strategy evidence fold is too short for {label}")
+        if bars != int(duration_hours):
+            raise LiveSafetyError(f"strategy evidence fold contains hourly gaps for {label}")
+        if previous_end is not None and start != previous_end:
+            raise LiveSafetyError(f"strategy evidence folds are not contiguous for {label}")
+        previous_end = end
+    all_metrics = [*sharpes, *returns, *drawdowns, *trades]
+    if any(not math.isfinite(value) for value in all_metrics) or any(value < 0 for value in trades):
+        raise LiveSafetyError(f"strategy evidence contains invalid metrics for {label}")
+
+    median_sharpe = median(sharpes)
+    median_return = median(returns)
+    positive_ratio = sum(value > 0 for value in returns) / len(returns)
+    worst_drawdown = max(drawdowns)
+    total_trades = sum(trades)
+    if median_sharpe < policy.min_median_oos_sharpe:
+        raise LiveSafetyError(f"{label} median OOS Sharpe does not pass")
+    if median_return <= policy.min_median_oos_return_pct:
+        raise LiveSafetyError(f"{label} median OOS return does not pass")
+    if positive_ratio < policy.min_positive_fold_ratio:
+        raise LiveSafetyError(f"{label} positive-fold ratio does not pass")
+    if worst_drawdown > policy.max_worst_oos_drawdown_pct:
+        raise LiveSafetyError(f"{label} worst OOS drawdown does not pass")
+    if total_trades < policy.min_total_oos_trades:
+        raise LiveSafetyError(f"{label} OOS trade count does not pass")
+    return {
+        "median_sharpe": median_sharpe,
+        "median_return_pct": median_return,
+        "positive_fold_ratio": positive_ratio,
+        "worst_drawdown_pct": worst_drawdown,
+        "total_trades": float(total_trades),
+    }
 
 
 def require_execution_authorization(
@@ -263,14 +558,23 @@ class LiveRiskState:
     trading_day: str = ""
     locked_reason: str | None = None
     reserved_orders: dict[str, str] = field(default_factory=dict)
+    order_ledger: dict[str, dict[str, object]] = field(default_factory=dict)
+    position_risk: dict[str, dict[str, object]] = field(default_factory=dict)
+    account_fingerprint: str = ""
+    strategy_fingerprint: str = ""
+    managed_symbols: list[str] = field(default_factory=list)
+    integrity: str = ""
     updated_at: str = ""
 
 
 class LiveRiskStateStore:
     """Atomic persistent state for loss limits and order idempotency."""
 
-    def __init__(self, path: str | Path):
+    def __init__(self, path: str | Path, *, integrity_key: str | None = None):
         self.path = Path(path)
+        self.integrity_key = (
+            validate_integrity_key(integrity_key) if integrity_key is not None else None
+        )
         self.existed = self.path.exists()
         self.state = self._load()
 
@@ -279,6 +583,16 @@ class LiveRiskStateStore:
             return LiveRiskState()
         try:
             raw = json.loads(self.path.read_text(encoding="utf-8"))
+            if self.integrity_key is not None:
+                supplied_integrity = raw.get("integrity")
+                unsigned = dict(raw)
+                unsigned.pop("integrity", None)
+                expected_integrity = _payload_hmac(unsigned, self.integrity_key)
+                if not isinstance(supplied_integrity, str) or not hmac.compare_digest(
+                    supplied_integrity,
+                    expected_integrity,
+                ):
+                    raise LiveSafetyError(f"live risk state integrity check failed: {self.path}")
             state = LiveRiskState(**raw)
         except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
             raise LiveSafetyError(f"corrupt live risk state: {self.path}") from exc
@@ -289,7 +603,38 @@ class LiveRiskStateStore:
             raise LiveSafetyError(f"invalid equity values in live risk state: {self.path}")
         if not isinstance(state.reserved_orders, dict):
             raise LiveSafetyError(f"invalid reserved_orders in live risk state: {self.path}")
+        if not isinstance(state.order_ledger, dict):
+            raise LiveSafetyError(f"invalid order_ledger in live risk state: {self.path}")
+        if not isinstance(state.position_risk, dict):
+            raise LiveSafetyError(f"invalid position_risk in live risk state: {self.path}")
+        if not isinstance(state.managed_symbols, list):
+            raise LiveSafetyError(f"invalid managed_symbols in live risk state: {self.path}")
         return state
+
+    def bind_context(
+        self,
+        *,
+        account: str,
+        strategy: str,
+        symbols: list[str],
+    ) -> None:
+        """Bind a state file to one account and one immutable strategy context."""
+
+        normalized_symbols = sorted(symbols)
+        existing = (
+            self.state.account_fingerprint,
+            self.state.strategy_fingerprint,
+            sorted(self.state.managed_symbols),
+        )
+        requested = (account, strategy, normalized_symbols)
+        if any(existing) and existing != requested:
+            raise LiveSafetyError(
+                "live risk state belongs to a different account, strategy or symbol set"
+            )
+        self.state.account_fingerprint = account
+        self.state.strategy_fingerprint = strategy
+        self.state.managed_symbols = normalized_symbols
+        self.save()
 
     def observe_equity(
         self,
@@ -347,7 +692,16 @@ class LiveRiskStateStore:
             "locked_reason": self.state.locked_reason,
         }
 
-    def reserve_order(self, order_key: str, *, now: datetime | None = None) -> None:
+    def reserve_order(
+        self,
+        order_key: str,
+        *,
+        symbol: str = "",
+        side: str = "",
+        quantity: float = 0.0,
+        signal_timestamp: datetime | None = None,
+        now: datetime | None = None,
+    ) -> None:
         """Persist an intent before submission so crashes cannot duplicate an order."""
 
         if order_key in self.state.reserved_orders:
@@ -355,24 +709,142 @@ class LiveRiskStateStore:
         current = now or datetime.now(UTC)
         timestamp = current.astimezone(UTC).isoformat()
         self.state.reserved_orders[order_key] = timestamp
+        self.state.order_ledger[order_key] = {
+            "client_order_id": order_key,
+            "exchange_order_id": "",
+            "symbol": symbol,
+            "side": side.upper(),
+            "quantity": quantity,
+            "filled_quantity": 0.0,
+            "average_fill_price": 0.0,
+            "signal_timestamp": (
+                signal_timestamp.astimezone(UTC).isoformat()
+                if signal_timestamp is not None
+                else ""
+            ),
+            "status": "reserved",
+            "error": "",
+            "created_at": timestamp,
+            "updated_at": timestamp,
+        }
         if len(self.state.reserved_orders) > 1000:
             oldest = sorted(self.state.reserved_orders.items(), key=lambda item: item[1])[:-1000]
             for key, _ in oldest:
                 self.state.reserved_orders.pop(key, None)
+                self.state.order_ledger.pop(key, None)
         self.save(now=current)
+
+    def update_order(
+        self,
+        order_key: str,
+        *,
+        status: str,
+        exchange_order_id: str = "",
+        filled_quantity: float = 0.0,
+        average_fill_price: float = 0.0,
+        error: str = "",
+        now: datetime | None = None,
+    ) -> None:
+        """Persist the latest broker acknowledgement for a reserved intent."""
+
+        record = self.state.order_ledger.get(order_key)
+        if not isinstance(record, dict):
+            raise LiveSafetyError(f"order intent is not present in ledger: {order_key}")
+        normalized = status.strip().lower()
+        allowed = {
+            "reserved", "submitted", "open", "partial", "filled",
+            "cancelled", "rejected", "expired", "unknown",
+        }
+        if normalized not in allowed:
+            raise LiveSafetyError(f"unsupported order ledger status: {status}")
+        numeric = (filled_quantity, average_fill_price)
+        if any(not math.isfinite(value) or value < 0 for value in numeric):
+            raise LiveSafetyError("order fill values must be finite and non-negative")
+        current = now or datetime.now(UTC)
+        record.update({
+            "status": normalized,
+            "exchange_order_id": exchange_order_id or record.get("exchange_order_id", ""),
+            "filled_quantity": filled_quantity,
+            "average_fill_price": average_fill_price,
+            "error": error,
+            "updated_at": current.astimezone(UTC).isoformat(),
+        })
+        self.save(now=current)
+
+    def unfinished_orders(self) -> dict[str, dict[str, object]]:
+        unfinished = {"reserved", "submitted", "open", "partial", "unknown"}
+        return {
+            key: dict(record)
+            for key, record in self.state.order_ledger.items()
+            if isinstance(record, dict) and str(record.get("status", "")).lower() in unfinished
+        }
+
+    def observe_position_risk(
+        self,
+        symbol: str,
+        *,
+        quantity: float,
+        observed_high: float,
+        atr: float,
+        atr_multiplier: float,
+        now: datetime | None = None,
+    ) -> tuple[float, float]:
+        """Persist a peak and a trailing stop that can tighten but never widen."""
+
+        if not math.isfinite(quantity) or quantity <= 0:
+            raise LiveSafetyError("position quantity must be finite and positive")
+        if not math.isfinite(observed_high) or observed_high <= 0:
+            raise LiveSafetyError("observed position high must be finite and positive")
+        if not math.isfinite(atr) or atr <= 0:
+            raise LiveSafetyError("position ATR must be finite and positive")
+        if not math.isfinite(atr_multiplier) or atr_multiplier <= 0:
+            raise LiveSafetyError("ATR multiplier must be finite and positive")
+        current = now or datetime.now(UTC)
+        record = self.state.position_risk.get(symbol)
+        previous_peak = 0.0
+        previous_stop = 0.0
+        if isinstance(record, dict):
+            try:
+                previous_peak = float(record.get("peak_price", 0.0))
+                previous_stop = float(record.get("trailing_stop", 0.0))
+            except (TypeError, ValueError) as exc:
+                raise LiveSafetyError(f"invalid position risk state for {symbol}") from exc
+        peak = max(previous_peak, observed_high)
+        trailing_stop = max(previous_stop, peak - atr_multiplier * atr)
+        self.state.position_risk[symbol] = {
+            "quantity": quantity,
+            "peak_price": peak,
+            "trailing_stop": trailing_stop,
+            "updated_at": current.astimezone(UTC).isoformat(),
+        }
+        self.save(now=current)
+        return peak, trailing_stop
+
+    def clear_position_risk(self, symbol: str, *, now: datetime | None = None) -> None:
+        if symbol in self.state.position_risk:
+            self.state.position_risk.pop(symbol, None)
+            self.save(now=now)
 
     def save(self, *, now: datetime | None = None) -> None:
         current = now or datetime.now(UTC)
         self.state.updated_at = current.astimezone(UTC).isoformat()
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        payload = asdict(self.state)
+        payload.pop("integrity", None)
+        if self.integrity_key is not None:
+            self.state.integrity = _payload_hmac(payload, self.integrity_key)
+        elif self.state.integrity:
+            raise LiveSafetyError("cannot modify a signed live risk state without its integrity key")
+        payload["integrity"] = self.state.integrity
         fd, temp_name = tempfile.mkstemp(
             prefix=f".{self.path.name}.", suffix=".tmp", dir=self.path.parent
         )
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                json.dump(asdict(self.state), handle, indent=2, sort_keys=True)
+                json.dump(payload, handle, indent=2, sort_keys=True)
                 handle.flush()
                 os.fsync(handle.fileno())
+            os.chmod(temp_name, 0o600)
             os.replace(temp_name, self.path)
         finally:
             Path(temp_name).unlink(missing_ok=True)
@@ -413,6 +885,87 @@ def validate_fresh_quote(
             f"quote deviation too large: {deviation:.2%} > "
             f"{limits.max_price_deviation_pct:.2%}"
         )
+
+
+def validate_spread(*, bid: float, ask: float, limits: LiveRiskLimits) -> None:
+    if any(not math.isfinite(value) or value <= 0 for value in (bid, ask)):
+        raise LiveSafetyError("bid and ask must be finite and positive")
+    if ask < bid:
+        raise LiveSafetyError("crossed market quote is invalid")
+    midpoint = (bid + ask) / 2
+    spread = (ask - bid) / midpoint
+    if spread > limits.max_spread_pct:
+        raise LiveSafetyError(
+            f"spread is too wide: {spread:.2%} > {limits.max_spread_pct:.2%}"
+        )
+
+
+def validate_order_book_depth(
+    *,
+    side: str,
+    quantity: float,
+    bids: list[tuple[float, float]],
+    asks: list[tuple[float, float]],
+    book_timestamp: datetime,
+    limits: LiveRiskLimits,
+    now: datetime | None = None,
+) -> float:
+    """Return expected VWAP after rejecting stale, thin or high-impact books."""
+
+    if not math.isfinite(quantity) or quantity <= 0:
+        raise LiveSafetyError("order-book quantity must be finite and positive")
+    current = now or datetime.now(UTC)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=UTC)
+    timestamp = book_timestamp
+    if timestamp.tzinfo is None:
+        timestamp = timestamp.replace(tzinfo=UTC)
+    age = (current.astimezone(UTC) - timestamp.astimezone(UTC)).total_seconds()
+    if age < -5 or age > limits.max_quote_age_seconds:
+        raise LiveSafetyError(f"order book timestamp is invalid or stale: {age:.1f}s")
+
+    normalized_side = side.upper()
+    if normalized_side not in {"BUY", "SELL"}:
+        raise LiveSafetyError(f"unsupported order-book side: {side}")
+    levels = asks if normalized_side == "BUY" else bids
+    if not levels:
+        raise LiveSafetyError("executable order book is empty")
+    cleaned: list[tuple[float, float]] = []
+    for price, size in levels:
+        if any(not math.isfinite(value) or value <= 0 for value in (price, size)):
+            raise LiveSafetyError("order book contains invalid levels")
+        cleaned.append((price, size))
+    prices = [price for price, _ in cleaned]
+    if normalized_side == "BUY" and prices != sorted(prices):
+        raise LiveSafetyError("ask levels are not sorted")
+    if normalized_side == "SELL" and prices != sorted(prices, reverse=True):
+        raise LiveSafetyError("bid levels are not sorted")
+
+    required_depth = quantity * limits.min_book_depth_multiple
+    total_depth = sum(size for _, size in cleaned)
+    if total_depth + 1e-12 < required_depth:
+        raise LiveSafetyError(
+            f"order-book depth is insufficient: {total_depth:.8f} < {required_depth:.8f}"
+        )
+    remaining = quantity
+    notional = 0.0
+    for price, size in cleaned:
+        filled = min(remaining, size)
+        notional += filled * price
+        remaining -= filled
+        if remaining <= 1e-12:
+            break
+    if remaining > 1e-12:
+        raise LiveSafetyError("order book cannot fill the requested quantity")
+    expected_vwap = notional / quantity
+    best = cleaned[0][0]
+    impact = abs(expected_vwap - best) / best
+    if impact > limits.max_book_slippage_pct:
+        raise LiveSafetyError(
+            f"expected book slippage is too high: "
+            f"{impact:.2%} > {limits.max_book_slippage_pct:.2%}"
+        )
+    return expected_vwap
 
 
 def validate_order_risk(
