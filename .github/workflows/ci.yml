@@ -223,8 +223,8 @@ jobs:
             }
           }
           EOF
-          # Use same pattern as SBOM attestation (which works) - upload to transparency log
-          cosign attest --yes --predicate provenance.json --type slsaprovenance "$IMAGE"
+          # Use bundle format for SLSA provenance (required for this attestation type in cosign v3)
+          cosign attest --yes --bundle provenance.bundle --predicate provenance.json --type slsaprovenance "$IMAGE"
 
       - name: Upload SBOM artifact
         if: github.event_name == 'push' && github.ref == 'refs/heads/master'
