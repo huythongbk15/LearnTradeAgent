@@ -23,7 +23,7 @@ RUN npm run build
 # =============================================================================
 # STAGE 1: Builder — Install Python dependencies into a virtualenv
 # =============================================================================
-FROM python:3.12-slim@sha256:d657ab0ade19f404a6ccc883ab399540de667aff751748ce23c07330c5a89e64 AS builder
+FROM python:3.14-slim@sha256:a7fb1e634c4a578f9e0bd6327f11a3cde11b7a9395f48e24360c0988bcc5c2bc AS builder
 
 # System deps for building wheels (cryptography, etc.)
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -56,7 +56,7 @@ RUN pip install --no-cache-dir --upgrade pip \
 # =============================================================================
 # STAGE 2: Runtime — Minimal, non-root, read-only
 # =============================================================================
-FROM python:3.12-slim@sha256:d657ab0ade19f404a6ccc883ab399540de667aff751748ce23c07330c5a89e64 AS runtime
+FROM python:3.14-slim@sha256:a7fb1e634c4a578f9e0bd6327f11a3cde11b7a9395f48e24360c0988bcc5c2bc AS runtime
 
 # System runtime deps (libpq for psycopg2, ca-certificates for TLS)
 RUN apt-get update && apt-get install -y --no-install-recommends \
