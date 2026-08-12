@@ -37,7 +37,7 @@ Hệ thống giao dịch tự động theo hướng nghiên cứu (research-orie
 | --- | --- |
 | Research / backtest | Hoạt động, nhiều strategy + WFO — xem [`docs/RESEARCH_EVIDENCE.md`](docs/RESEARCH_EVIDENCE.md) |
 | Paper trading | Hoạt động (Alpaca paper validated) |
-| Testnet (Binance) | Partial — P0.3 execute đã chạy, acceptance chưa xong |
+| Testnet (Binance) | P0.1–P0.3 acceptance pass (opt-in, testnet.binance.vision) — chờ P3 soak 30 ngày |
 | Mainnet (vốn thật) | **NO-GO** — xem [`docs/LIVE_TRADING_TODO.md`](docs/LIVE_TRADING_TODO.md) |
 | CI/CD | Xem GitHub Actions badge — không claim "xanh" cố định trong docs |
 | Production validated | Chưa — xem [`docs/CAPABILITY_MATRIX.md`](docs/CAPABILITY_MATRIX.md) |
@@ -87,7 +87,7 @@ Chi tiết: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 | [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) | Hướng dẫn phát triển, test, lint |
 | [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) | Deploy topology, fail-closed, rollback |
 | [`docs/SECURITY.md`](docs/SECURITY.md) | Supply chain, credentials, hardening |
-| [`docs/LIVE_RUNBOOK.md`](docs/LIVE_RUNBOOK.md) · [`docs/RUNBOOK.md`](docs/RUNBOOK.md) | Vận hành |
+| [`docs/LIVE_TRADING_RUNBOOK.md`](docs/LIVE_TRADING_RUNBOOK.md) · [`docs/RUNBOOK.md`](docs/RUNBOOK.md) | Vận hành |
 
 ## Stack
 
@@ -99,7 +99,7 @@ Chi tiết: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 | AI Agents | DeepSeek V4 Flash (primary) → OpenAI → DeepSeek → Ollama (fallback) |
 | Exchanges | CCXT (8 CEX) · Web3.py (DEX) · Alpaca (stocks) · OANDA (forex) |
 | Portfolio | Risk parity · HRP · Black-Litterman · Kelly |
-| Infra | Docker · GitHub Actions · K8s (multi-region) · OpenTelemetry |
+| Infra | Docker · GitHub Actions · K8s (multi-region) |
 
 ---
 

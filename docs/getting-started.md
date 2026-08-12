@@ -112,7 +112,7 @@ make shell                # Python shell
 
 | File | Nội dung |
 |------|---------|
-| [🏛 Kiến trúc](architecture.md) | Sơ đồ tổng quan, các layer |
+| [🏛 Kiến trúc](ARCHITECTURE.md) | Sơ đồ tổng quan, các layer |
 | [🧠 Suy luận](reasoning.md) | Cách agent ra quyết định |
 | [🎮 Demo](demo.md) | Hướng dẫn từng bước chi tiết |
 | [📁 Cấu trúc](project-structure.md) | Mỗi module làm gì |

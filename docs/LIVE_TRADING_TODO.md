@@ -36,7 +36,7 @@ gates in this document and an explicit operator approval.
 | Order idempotency | Implemented in live ledger | Covered by tests | Not soaked | P0.2 lifecycle soak |
 | Partial/unknown fill handling | Fail-closed | Covered by tests | Not soaked | P0.2 active reconciliation |
 | Precision/minimum notional | Implemented | Covered by tests | Not soaked | Testnet exchange-filter matrix |
-| Market-data freshness | Candle checks implemented | Order-book timestamp is incomplete | **Blocked** | P0.3 timestamp/sequence hardening |
+| Market-data freshness | Candle checks implemented | Verified on testnet (P0.3) | Not accepted | P0.3 hardening done — P3 soak covers freshness |
 | Risk-reducing sell | Not applicable | Free/locked quantity tests pass | Not soaked | Testnet exit matrix |
 | State integrity | Signed local state | Implemented | Single-host only | P1.1 durable leader and snapshots |
 | Monitoring/alerting | Modules exist | Not wired to the Binance runner | **Blocked** | P1.3 independent paging |

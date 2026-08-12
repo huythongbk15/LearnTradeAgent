@@ -60,7 +60,6 @@ src/trading_agent/
   ml/                        — regime detection (HMM/GMM), online learning, meta-learning
   infrastructure/            — multi_region, chaos, kubernetes helpers
   monitoring/                — metrics server, health checks
-  observability/             — logging, tracing
   scheduler/                 — (KHÔNG tồn tại — service scheduler đã bị xóa khỏi prod compose)
 ```
 

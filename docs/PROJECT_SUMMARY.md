@@ -41,7 +41,7 @@
 |-----------|---------|
 | **Event sourcing** | Domain events + projections |
 | **Messaging** | Redis Streams / NATS |
-| **Observability** | OpenTelemetry tracing + metrics server |
+| **Observability** | Metrics server + Telegram alerts (`monitoring/`) |
 | **Multi-region** | K8s manifests (US/SG/EU), chaos engineering |
 | **Messaging bus** | Inter-service communication |
 
@@ -118,4 +118,4 @@
 
 ---
 
-> 📖 Tài liệu kỹ thuật: [`docs/README.md`](README.md) · Kiến trúc: [`docs/architecture.md`](architecture.md) · Runbook: [`docs/RUNBOOK.md`](RUNBOOK.md)
+> 📖 Tài liệu kỹ thuật: [`docs/README.md`](README.md) · Kiến trúc: [`docs/ARCHITECTURE.md`](ARCHITECTURE.md) · Runbook: [`docs/RUNBOOK.md`](RUNBOOK.md)

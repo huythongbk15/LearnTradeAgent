@@ -81,7 +81,7 @@ cấp portfolio, strategy marketplace plugin, và advanced ML adaptive.
 | Multi-Region Deploy | K8s kustomize overlays (SG + US + EU) | ✅ |
 | Message Queue | NATS JetStream / Redis Streams | ✅ |
 | Event Sourcing | Event store, audit trail, projections | ✅ |
-| Distributed Tracing | OpenTelemetry + Tempo | ✅ |
+| Distributed Tracing | Removed — `observability/` gỡ khỏi codebase (dead code) | ❌ |
 | Chaos Engineering | Pod kill, latency, CPU, memory, DNS, time skew | ✅ |
 
 ---
@@ -98,7 +98,7 @@ cấp portfolio, strategy marketplace plugin, và advanced ML adaptive.
 | Plugin | pluggy, importlib.metadata |
 | Sandbox | gVisor (runsc), nsjail |
 | Messaging | NATS JetStream / Redis Streams |
-| Observability | OpenTelemetry + Tempo + Pyroscope |
+| Observability | Metrics + alerts qua `monitoring/` (OpenTelemetry removed — dead code) |
 | K8s | Kustomize overlays, ArgoCD |
 | Chaos | Litmus Chaos, Chaos Mesh |
 

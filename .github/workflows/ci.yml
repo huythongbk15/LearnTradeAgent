@@ -36,6 +36,10 @@ jobs:
         run: |
           python scripts/generate_project_map.py --check
 
+      - name: Check markdown links (local)
+        run: |
+          python scripts/check_md_links.py --check
+
       - name: Import smoke test
         run: |
           python -c "import trading_agent; from trading_agent.exchanges import WebSocketManager, HealthMonitor; from trading_agent.data import DataPipeline, DataPipeline; print('Imports OK')"

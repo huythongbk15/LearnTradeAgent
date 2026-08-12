@@ -75,5 +75,5 @@ Execution:   Paper exchange (simulated) · LiveBroker (Alpaca paper) · Binance 
 Exchanges:   CCXT (8 CEX) · Web3.py (DEX) · Alpaca (stocks) · OANDA (forex)
 Portfolio:   Risk parity · HRP · Black-Litterman · Kelly
 ML:          HMM/GMM regime · online learning · meta-learning
-Infra:       Docker · GitHub Actions · K8s kustomize · OpenTelemetry · Chaos
+Infra:       Docker · GitHub Actions · K8s kustomize · Chaos
 ```

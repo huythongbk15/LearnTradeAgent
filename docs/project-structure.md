@@ -115,11 +115,6 @@ trading-agent/
 │   │   ├── nats_bus.py         #   NATS
 │   │   └── redis_streams.py    #   Redis Streams
 │   │
-│   ├── observability/          # 📊 Observability
-│   │   ├── logging.py          #   Structured logging
-│   │   ├── metrics.py          #   Metrics
-│   │   └── tracing.py          #   OpenTelemetry tracing
-│   │
 │   ├── monitoring/             # 🖥 Monitoring (Phase 4/5)
 │   │   ├── metrics.py          #   Metrics engine
 │   │   ├── metrics_server.py   #   Metrics HTTP server
@@ -206,7 +201,6 @@ graph TD
     MON --> TELEGRAM
     DASH[dashboard/app.py] --> SQLITE
 
-    OBS[observability/*] --> OTLP[OpenTelemetry]
     MSG[messaging/*] --> NATS[Redis/NATS]
 ```
 
