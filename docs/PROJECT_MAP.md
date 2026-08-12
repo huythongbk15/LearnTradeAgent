@@ -240,6 +240,14 @@
 │       │   ├── order_router.py
 │       │   └── websocket_manager.py
 │       ├── execution
+│       │   ├── algorithms
+│       │   │   ├── __init__.py
+│       │   │   ├── adverse_selection.py
+│       │   │   ├── base.py
+│       │   │   ├── driver.py
+│       │   │   ├── liquidity_aware_twap.py
+│       │   │   ├── mpc.py
+│       │   │   └── pov.py
 │       │   ├── lifecycle
 │       │   │   ├── __init__.py
 │       │   │   ├── events.py
@@ -385,6 +393,7 @@
 │   ├── test_data_trust.py
 │   ├── test_decision_trace.py
 │   ├── test_enhanced_ma_exit_safety.py
+│   ├── test_execution_algorithms.py
 │   ├── test_execution_lifecycle.py
 │   ├── test_execution_simulator.py
 │   ├── test_execution_simulator_property.py
@@ -408,6 +417,7 @@
 │   ├── test_phase3_audit.py
 │   ├── test_phase6.py
 │   ├── test_phase6_integration.py
+│   ├── test_post_trade_impact.py
 │   ├── test_realtime_data.py
 │   ├── test_research_governance.py
 │   ├── test_research_stats.py

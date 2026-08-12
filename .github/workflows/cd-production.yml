@@ -113,6 +113,45 @@ jobs:
             exit 1
           fi
 
+      - name: Verify SLSA provenance attestation
+        id: verify-provenance
+        run: |
+          IMAGE="${{ steps.image-tag.outputs.image }}"
+          echo "Verifying SLSA provenance for $IMAGE"
+          if cosign verify-attestation "$IMAGE" --type=slsaprovenance \
+            --certificate-identity="https://github.com/huythongbk15/LearnTradeAgent/.github/workflows/ci.yml@refs/heads/master" \
+            --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
+            > verified-provenance-attestation.json; then
+            echo "✅ SLSA provenance verified"
+            echo "verified=true" >> $GITHUB_OUTPUT
+          else
+            echo "❌ Provenance verification FAILED"
+            echo "verified=false" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+      - name: Verify target commit is on master history (branch/ref binding)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          SHA="${{ github.event.inputs.sha }}"
+          SHA="${SHA#sha-}"
+          COMPARE="https://api.github.com/repos/${{ github.repository }}/compare/master...$SHA"
+          BODY="$(curl -sf -H "Authorization: Bearer $GH_TOKEN" "$COMPARE")" \
+            || { echo "❌ commit $SHA not comparable with master (wrong repository?)" >&2; exit 1; }
+          python3 - "$SHA" "$BODY" <<'PY'
+          import json, sys
+          sha, body = sys.argv[1], json.loads(sys.argv[2])
+          merge_base = (body.get("merge_base_commit") or {}).get("sha", "")
+          status = body.get("status", "")
+          if sha == merge_base:
+              print(f"✅ commit {sha} is on master history (merge-base = target)")
+          else:
+              print(f"❌ commit {sha} is NOT on master history (merge-base {merge_base}, status {status})")
+              sys.exit(1)
+          PY
+
       # =========================================================================
       # DEPLOY SINGLE EXECUTION LEADER (manual, digest-pinned)
       # =========================================================================

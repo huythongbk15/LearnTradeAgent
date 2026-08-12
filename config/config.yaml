@@ -2,6 +2,21 @@
 # Trading Agent System — Global Configuration
 # =============================================================================
 
+# Config schema version — loader refuses unknown versions (fail-closed).
+schema_version: 1
+
+# --- Deployment (safety-critical, fail-closed) ---
+# mode: paper | testnet | mainnet-canary | mainnet-normal
+# Non-paper modes REQUIRE explicit position_limit_pct, max_slippage_pct,
+# stale_data_max_age_s, and Telegram alerting — loader raises otherwise.
+deployment:
+  mode: "paper"                 # paper | testnet | mainnet-canary | mainnet-normal
+  execution_algorithm: "market" # market | twap | pov
+  position_limit_pct: 0.25      # max % of portfolio per position (0, 1]
+  max_slippage_pct: 0.005       # max acceptable slippage (0, 1)
+  stale_data_max_age_s: 30.0    # quote/feed age beyond which data is rejected
+  alerting_required: true       # non-paper modes demand Telegram alerting
+
 # --- Exchanges ---
 exchanges:
   binance:

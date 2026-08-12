@@ -20,6 +20,9 @@ class ConfigError(Exception):
 _VALID_TIMEFRAMES = {"1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w"}
 _VALID_STORAGE = {"parquet", "csv", "duckdb"}
 _VALID_LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+_VALID_DEPLOY_MODES = {"paper", "testnet", "mainnet-canary", "mainnet-normal"}
+_VALID_EXECUTION_ALGORITHMS = {"market", "twap", "pov"}
+CONFIG_SCHEMA_VERSION = 1
 
 
 def _check_type(
@@ -45,6 +48,16 @@ def _check_in(value: Any, name: str, valid_set: set) -> None:
 
 def _validate(raw: dict) -> None:
     """Validate config structure, raise ConfigError on issues."""
+
+    # Schema version — fail closed on unknown future schema.
+    version = raw.get("schema_version", 1)
+    _check_type(version, "schema_version", int)
+    if version != CONFIG_SCHEMA_VERSION:
+        raise ConfigError(
+            f"config 'schema_version' = {version}, expected {CONFIG_SCHEMA_VERSION}. "
+            "Refusing to load an unknown config schema (fail-closed)."
+        )
+
     # Exchanges
     exchanges = raw.get("exchanges", {})
     _check_type(exchanges, "exchanges", dict)
@@ -94,6 +107,42 @@ def _validate(raw: dict) -> None:
             if not 0 <= bt[field] < 1:
                 raise ConfigError(f"'backtest.{field}' must be in [0, 1)")
 
+    # Deployment — safety-critical, fail closed.
+    dep = raw.get("deployment", {})
+    _check_type(dep, "deployment", dict)
+    mode = dep.get("mode", "paper")
+    _check_in(mode, "deployment.mode", _VALID_DEPLOY_MODES)
+    if "execution_algorithm" in dep:
+        _check_in(dep["execution_algorithm"], "deployment.execution_algorithm", _VALID_EXECUTION_ALGORITHMS)
+    if "position_limit_pct" in dep:
+        _check_type(dep["position_limit_pct"], "deployment.position_limit_pct", (int, float))
+        if not 0 < dep["position_limit_pct"] <= 1:
+            raise ConfigError("'deployment.position_limit_pct' must be in (0, 1]")
+    if "max_slippage_pct" in dep:
+        _check_type(dep["max_slippage_pct"], "deployment.max_slippage_pct", (int, float))
+        if not 0 <= dep["max_slippage_pct"] < 1:
+            raise ConfigError("'deployment.max_slippage_pct' must be in [0, 1)")
+    if "stale_data_max_age_s" in dep:
+        _check_type(dep["stale_data_max_age_s"], "deployment.stale_data_max_age_s", (int, float))
+        if dep["stale_data_max_age_s"] <= 0:
+            raise ConfigError("'deployment.stale_data_max_age_s' must be positive")
+
+    # Fail-closed: a non-paper deployment REQUIRES explicit risk fields.
+    if mode in {"testnet", "mainnet-canary", "mainnet-normal"}:
+        missing = []
+        for field in ("position_limit_pct", "max_slippage_pct", "stale_data_max_age_s"):
+            if field not in dep:
+                missing.append(field)
+        if dep.get("alerting_required", True):
+            alerts = raw.get("alerts", {})
+            telegram = alerts.get("telegram", {}) if isinstance(alerts, dict) else {}
+            if not (telegram.get("enabled") and telegram.get("bot_token")):
+                missing.append("alerts.telegram.{enabled,bot_token}")
+        if missing:
+            raise ConfigError(
+                f"deployment.mode={mode!r} requires fail-closed settings, missing: {missing}"
+            )
+
     # Logging
     log = raw.get("logging", {})
     _check_type(log, "logging", dict)
@@ -130,15 +179,34 @@ class Config:
         _validate(raw)
 
         self._raw = raw
+        self._load_schema(raw)
         self._load_exchanges(raw)
         self._load_data(raw)
         self._load_symbols(raw)
         self._load_backtest(raw)
         self._load_llm(raw)
         self._load_monitoring(raw)
+        self._load_deployment(raw)
         self._load_logging(raw)
 
     # ── helpers ──────────────────────────────────────────────────────────
+
+    def _load_schema(self, raw: dict) -> None:
+        self.schema_version: int = raw.get("schema_version", 1)
+
+    def _load_deployment(self, raw: dict) -> None:
+        d = raw.get("deployment", {})
+        self.deploy_mode: str = d.get("mode", "paper")
+        self.execution_algorithm: str = d.get("execution_algorithm", "market")
+        self.position_limit_pct: float = d.get("position_limit_pct", 0.25)
+        self.max_slippage_pct: float = d.get("max_slippage_pct", 0.005)
+        self.stale_data_max_age_s: float = d.get("stale_data_max_age_s", 30.0)
+        self.alerting_required: bool = d.get("alerting_required", True)
+
+    @property
+    def live_trading_enabled(self) -> bool:
+        """True only when the deployment mode authorizes live/real orders."""
+        return self.deploy_mode in {"mainnet-canary", "mainnet-normal"}
 
     def _load_exchanges(self, raw: dict) -> None:
         self.exchanges: dict[str, dict] = raw.get("exchanges", {})
