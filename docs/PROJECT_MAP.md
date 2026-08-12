@@ -10,7 +10,8 @@
 │   │   ├── cd-production.yml
 │   │   ├── cd-staging.yml
 │   │   ├── ci.yml
-│   │   └── phase6-ci.yml
+│   │   ├── phase6-ci.yml
+│   │   └── provenance-gate.yml
 │   ├── BRANCH_PROTECTION.md
 │   ├── CODEOWNERS
 │   └── dependabot.yml
@@ -56,6 +57,7 @@
 │   ├── LIVE_TRADING_TODO.md
 │   ├── OPERATIONAL_DRILLS.md
 │   ├── PHASE6_P3_REPORT.md
+│   ├── PRODUCTION_POLICY.md
 │   ├── PROJECT_MAP.md
 │   ├── PROJECT_SUMMARY.md
 │   ├── README.md
@@ -172,9 +174,11 @@
 │   ├── trade_local.py
 │   ├── trading-bot.env.example
 │   ├── trading-bot.service
+│   ├── update_deps.sh
 │   ├── verify_account_hardening.py
 │   ├── verify_github_controls.py
 │   ├── verify_image.sh
+│   ├── verify_provenance.py
 │   ├── walk_forward_optimize.py
 │   ├── watchdog.sh
 │   ├── webui.sh
@@ -206,6 +210,20 @@
 │       ├── backtest
 │       │   ├── __init__.py
 │       │   └── engine.py
+│       ├── cli
+│       │   ├── commands
+│       │   │   ├── __init__.py
+│       │   │   ├── agents.py
+│       │   │   ├── backtest.py
+│       │   │   ├── data.py
+│       │   │   ├── deployment.py
+│       │   │   ├── live.py
+│       │   │   ├── research.py
+│       │   │   └── system.py
+│       │   ├── __init__.py
+│       │   ├── __main__.py
+│       │   ├── _common.py
+│       │   └── app.py
 │       ├── config
 │       │   ├── __init__.py
 │       │   └── loader.py
@@ -366,7 +384,6 @@
 │       │   ├── rsi.py
 │       │   └── sandbox.py
 │       ├── __init__.py
-│       ├── cli.py
 │       ├── log_config.py
 │       └── regime.py
 ├── tests
@@ -430,6 +447,7 @@
 │   ├── test_tier3_live.py
 │   ├── test_verify_account_hardening.py
 │   ├── test_verify_github_controls.py
+│   ├── test_verify_provenance.py
 │   └── test_web_security.py
 ├── webui
 │   ├── backend
@@ -477,6 +495,8 @@
 ├── docker-compose.prod.yml
 ├── docker-compose.yml
 ├── pyproject.toml
-└── requirements-web.txt
+├── requirements-web.txt
+├── requirements.lock
+└── uv.lock
 ```
 
