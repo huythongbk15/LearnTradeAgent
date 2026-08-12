@@ -171,3 +171,8 @@ strategies_repo/
 P0P3_TODO.md
 media/
 LIVE_TRADING_OPT_TODO.md
+
+# Generated evidence reports (script artifacts)
+data/tracking_error_report.json
+data/testnet_soak_report.json
+data/cost_stress_report.json

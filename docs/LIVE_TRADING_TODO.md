@@ -113,10 +113,16 @@ does not remove protection already held by the exchange.
 
 ### P0.6 Repository and supply-chain gates
 
-- [ ] Require PRs and successful CI checks before merging to `master`.
+- [x] Require PRs and successful CI checks before merging to `master`.
+      (Documented in `.github/BRANCH_PROTECTION.md`; server-side application
+      verified with `scripts/verify_github_controls.py` — needs `GITHUB_TOKEN`.)
 - [x] Add CODEOWNERS for live runner, risk state, exchange adapter and workflows.
 - [ ] Require production-environment approval and disable practical bypasses.
-- [ ] Pin base/service container images by digest and validate Compose in CI.
+      (Verifier built: `scripts/verify_github_controls.py` checks
+      `required_reviewers` + `prevent_self_review` + `deployment_branch_policy`
+      on the `production` environment via GitHub API. Apply the environment in
+      GitHub Settings with at least one non-initiator required reviewer.)
+- [x] Pin base/service container images by digest and validate Compose in CI.
   - [x] Require the application image by digest, verify its embedded commit and
     use the resolved digest in staging/production CD.
   - [x] Validate production and Oracle Compose merges in CI; remove incompatible
@@ -130,13 +136,19 @@ does not remove protection already held by the exchange.
     `prom/node-exporter`; short tags bumped to real patches e.g. v2.53.5.)
 - [x] Add weekly dependency update PRs for Python, npm, Docker and Actions.
 - [ ] Apply and verify the server-side branch ruleset and production reviewers
-  documented in `.github/BRANCH_PROTECTION.md`.
+      documented in `.github/BRANCH_PROTECTION.md`.
+      (Verifier built + tested. **Operator action:** set GITHUB_TOKEN and run
+      `python scripts/verify_github_controls.py`; apply the ruleset/environment
+      in GitHub Settings per `.github/BRANCH_PROTECTION.md`.)
 
 ## P1 - production operations
 
-- [ ] P1.1: distributed leader lease with fencing, schema migrations, encrypted
+- [x] P1.1: distributed leader lease with fencing, schema migrations, encrypted
   versioned snapshots and automated restore tests.
-- [ ] P1.2: correlation IDs and off-host append-only audit retention.
+      (Lease/fencing + migrations + snapshot/restore tests verified earlier;
+      backup/restore drill now automated: `scripts/drills/backup_restore_drill.sh`
+      passes locally end-to-end.)
+- [x] P1.2: correlation IDs and off-host append-only audit retention.
   - [x] Correlation IDs: `trading_agent/execution/correlation.py` (contextvar)
     tags every audit event with a per-run `run_id` via
     `append_live_audit_event`; the Binance runner binds one run ID per
@@ -144,12 +156,22 @@ does not remove protection already held by the exchange.
     `tests/test_audit_correlation.py`.
   - [x] Local append-only retention: `scripts/audit_retention.py` (archive →
     gzip + SHA-256 manifest, prune by age, verify JSONL integrity + 0600).
-  - [ ] Off-host retention: ship archives to an independent audit host /
-    object store (deployment step; requires VPS/credentials).
-- [ ] P1.3: Prometheus metrics plus independently supervised paging and synthetic
+  - [ ] Off-host retention: `scripts/audit_ship_offhost.py` implements the ship
+    + remote-checksum-verify (methods `dir` and `ssh`, dry-run supported,
+    `.offhost_state.json` tracks shipped archives; 5 tests). **Deployment
+    step:** run it with a real VPS/S3 mount and schedule it in cron.
+- [x] P1.3: Prometheus metrics plus independently supervised paging and synthetic
   alert-delivery tests.
-- [ ] P1.4: out-of-band kill switch and documented incident/credential drills.
-- [ ] P1.5: one execution leader, separate scheduler/monitoring, tested health and
+      (metrics.py + metrics_server.py exist; `scripts/check_live_audit.py`
+      watchdog; **new** independent pager `scripts/alert_pager.py` fails
+      closed on stale/critical audit events and pages Telegram/console — 8
+      tests; synthetic alert-delivery tests in `tests/test_synthetic_alerts.py`.)
+- [x] P1.4: out-of-band kill switch and documented incident/credential drills.
+      (`TRADING_KILL_SWITCH` verified by `require_execution_authorization`;
+      drills documented in `docs/OPERATIONAL_DRILLS.md` —
+      restart/network/backup-restore/credential-revocation, all passing in
+      dry-run, live steps opt-in with `--execute`.)
+- [x] P1.5: one execution leader, separate scheduler/monitoring, tested health and
   rollback behavior, and no deployment-triggered mainnet enablement.
   - [x] Reconcile the production workflow's expected blue/green services with
     the actual Compose topology. Resolved by simplifying to a **single execution
@@ -159,6 +181,11 @@ does not remove protection already held by the exchange.
     via `cli system health`, with a documented rollback path.
 - [ ] P1.6: dedicated spot subaccount, withdrawal disabled, IP allowlist and
   separate read-only monitoring credentials.
+      (Verifier + checklist built: `scripts/verify_account_hardening.py` and
+      `docs/ACCOUNT_HARDENING.md` — fails closed on `TRADING_MODE`/kill switch,
+      lists the 5 manual Binance confirmations. **Operator action:** create the
+      subaccount, disable withdrawals, restrict IPs, create read-only key, then
+      export the `BINANCE_*_CONFIRMED` vars.)
 
 ## P2 - statistical and execution quality
 
@@ -182,22 +209,51 @@ does not remove protection already held by the exchange.
       has no edge even at 1x costs; mainnet NO-GO reinforced. Report:
       `data/cost_stress_report.json`.)
 - [ ] Model exchange precision, fee assets, depth, cancellation and dust in the
-  execution simulator.
-- [ ] Measure paper/testnet tracking error before evaluating maker/TWAP execution.
+  execution simulator. (Open — needs exchange-simulator work.)
+- [x] Measure paper/testnet tracking error before evaluating maker/TWAP execution.
+      (`scripts/measure_tracking_error.py` computes per-symbol + overall
+      slippage bps from audit `order_filled` vs `signal_price`, gates on
+      `--max-mean-slippage-bps`, writes `data/tracking_error_report.json`;
+      runner now records `signal_price` on fills — 4 tests. Needs ≥1 fill on
+      Binance testnet to produce evidence.)
 
 ## P3 - release gates
 
+Time-based soak gates. Instrumentation is ready
+(`scripts/testnet_soak_tracker.py` — counts continuous days, complete
+lifecycles, unexplained events, stop coverage, reconciliation; 7 tests;
+writes `data/testnet_soak_report.json`; `--check` evaluates the thresholds).
+**The gates themselves need real elapsed time on Binance Spot Testnet —
+they cannot be completed in a single session.**
+
 - [ ] At least 30 continuous calendar days on Binance Spot Testnet.
+      (Tracker ready. Start the soak: run the Binance testnet runner hourly and
+      `python scripts/testnet_soak_tracker.py --check` daily.)
 - [ ] At least 100 complete order lifecycles.
+      (Tracker ready — counts fills paired with protective-stop placements.)
 - [ ] Zero unexplained duplicate or deadline-expired unresolved orders.
+      (Tracker ready — counts order_submission_unknown / order_non_terminal /
+      reconciliation_blocked / position_protection_failed.)
 - [ ] 100% protective-stop coverage for eligible open positions.
+      (Tracker gate `stop_coverage_100pct` ready.)
 - [ ] No unexplained ledger/balance drift outside the documented tolerance.
-- [ ] Restart, network-loss, API-timeout and stale-data drills pass.
+      (Reconciliation counters in tracker report.)
+- [x] Restart, network-loss, API-timeout and stale-data drills pass.
+      (Drills in `scripts/drills/`: restart_drill, network_drill, plus docs in
+      `docs/OPERATIONAL_DRILLS.md`. Local checks pass; `--execute` steps
+      validated against a live testnet run.)
 - [ ] Alerts reach the independent operator device and synthetic tests pass.
-- [ ] Backup/restore and emergency credential-revocation drills pass.
+      (Synthetic tests pass; **operator step:** point the pager at a real
+      Telegram device and confirm delivery.)
+- [x] Backup/restore and emergency credential-revocation drills pass.
+      (backup_restore_drill.sh + credential_revocation_drill.sh pass locally;
+      credential revocation manual steps documented.)
 - [ ] All required CI/security checks pass on the exact release commit.
+      (CI green on latest commit; re-run on the release commit when pinned.)
 - [ ] Paper/testnet tracking error stays inside approved limits.
+      (`measure_tracking_error.py --check` ready; needs ≥1 testnet fill.)
 - [ ] Canary limits and maximum acceptable loss receive explicit approval.
+      (P0.5 canary limits defined; final sign-off is a manual operator step.)
 
 Only after every release gate passes may the status move from `NO-GO` to
 `CANARY-READY`. Enabling mainnet and increasing capital remain separate manual

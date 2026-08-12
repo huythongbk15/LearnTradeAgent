@@ -1623,6 +1623,7 @@ def execute_orders(
                     "side": planned["action"],
                     "filled_qty": float(result.get("filled_qty") or 0.0),
                     "average_fill_price": float(result.get("avg_fill_price") or 0.0),
+                    "signal_price": float(planned["signal_price"]),
                     "quote_cost": float(result.get("quote_cost") or 0.0),
                     "exchange_status": str(result.get("exchange_status") or ""),
                     "trade_ids": list(result.get("trade_ids") or []),
