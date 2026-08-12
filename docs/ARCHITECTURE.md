@@ -59,6 +59,11 @@ src/trading_agent/
   risk/                      — risk controller, sizing, circuit breaker
   execution/                 — paper exchange, live broker, live_safety (P0.x),
                                order lifecycle, reconciliation, protective orders
+  execution/lifecycle/       — Wave C: event-sourced execution lifecycle
+                               (14 events, SQLite append-only store, deterministic
+                               replay, idempotency, seq validation, snapshot/restore)
+  execution/chaos_invariants.py — 9 trading invariants + 16 fault injections
+  execution/shadow.py        — Shadow Mainnet Mode (real data, NO order submission)
   execution/simulator/       — Execution Simulator V2: order book, fill/impact/fee
                                models, ledger, metrics, P&L attribution, reality gap
   research/                  — StrategyArtifact, promotion lifecycle, uncertainty

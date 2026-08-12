@@ -21,6 +21,9 @@
 | --- | --- | --- | --- | --- |
 | Binance Spot (CCXT) | yes | yes | testnet partial (P0.3 execute filled) | **NO** |
 | Execution Simulator V2 (event-driven, P&L attribution, Reality Gap) | yes | yes | research only | **NO** |
+| Event-sourced execution lifecycle (14 events, SQLite append-only, replay, snapshot/restore checksum) | yes | yes | dry-run | **NO** |
+| Trading invariant chaos tests (9 invariants × 16 fault injections) | yes | yes | dry-run | **NO** |
+| Shadow Mainnet Mode (real data/config/rules, NO order submission, hard guards) | yes | yes | dry-run | **NO** |
 | Research governance (StrategyArtifact, promotion lifecycle, uncertainty gate, abstention, drift, trials) | yes | yes | research only | **NO** |
 | Binance Spot — protective stop (P0.1) | yes | yes | acceptance pending | **NO** |
 | Binance Spot — order lifecycle (P0.2) | yes | yes | testnet partial | **NO** |
