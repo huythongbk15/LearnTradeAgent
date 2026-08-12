@@ -176,3 +176,8 @@ LIVE_TRADING_OPT_TODO.md
 data/tracking_error_report.json
 data/testnet_soak_report.json
 data/cost_stress_report.json
+
+# Binance testnet risk state v2 (runtime state from cron runner)
+data/binance_testnet_risk_state_v2.json
+data/binance_testnet_risk_state_v2.json.lock
+data/binance_testnet_risk_state.json.lock
