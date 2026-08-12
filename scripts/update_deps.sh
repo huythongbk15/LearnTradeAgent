@@ -24,7 +24,7 @@ else
     uv lock
 fi
 
-echo ">> uv export -> requirements.lock (hashed, no dev, no editable)"
-uv export --format requirements-txt --no-dev --no-editable -o requirements.lock
+echo ">> uv export -> requirements.lock (hashed, all extras, no dev, no editable, no project)"
+uv export --format requirements-txt --all-extras --no-dev --no-editable --no-emit-project -o requirements.lock
 
 echo ">> Done. Review and commit: uv.lock + requirements.lock"

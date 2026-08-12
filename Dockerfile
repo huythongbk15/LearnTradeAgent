@@ -50,7 +50,8 @@ COPY src/ ./src/
 # because its dependencies are already pinned in requirements.lock.
 RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir --no-deps -r requirements.lock \
-    && python -c "import rich, pandas, ccxt; print('locked deps OK:', rich.__file__)"
+    && pip install --no-cache-dir --no-deps . \
+    && python -c "import rich, pandas, ccxt, trading_agent; print('locked deps OK:', rich.__file__)"
 
 # =============================================================================
 # STAGE 2: Runtime — Minimal, non-root, read-only

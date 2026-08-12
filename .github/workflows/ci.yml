@@ -33,7 +33,7 @@ jobs:
         run: |
           python -m pip install uv
           uv lock --check
-          uv export --format requirements-txt --no-dev --no-editable -o /tmp/requirements.lock
+          uv export --format requirements-txt --all-extras --no-dev --no-editable --no-emit-project -o /tmp/requirements.lock
           # Compare content (strip the 2-line generation header, which embeds
           # the output path and legitimately differs between CI and repo).
           diff -u <(tail -n +3 requirements.lock) <(tail -n +3 /tmp/requirements.lock)
