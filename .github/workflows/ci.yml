@@ -167,7 +167,11 @@ jobs:
 
       - name: Install cosign
         if: github.event_name == 'push' && github.ref == 'refs/heads/master'
-        uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
+        uses: sigstore/cosign-installer@v3.6.0
+
+      - name: Check cosign version
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        run: cosign version
 
       - name: Generate SPDX SBOM
         if: github.event_name == 'push' && github.ref == 'refs/heads/master'
@@ -219,7 +223,7 @@ jobs:
             }
           }
           EOF
-          # cosign v3 uses bundle format by default; upload to transparency log for public images
+          # Use same pattern as SBOM attestation (which works) - upload to transparency log
           cosign attest --yes --predicate provenance.json --type slsaprovenance "$IMAGE"
 
       - name: Upload SBOM artifact
