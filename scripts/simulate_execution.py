@@ -18,8 +18,6 @@ import argparse
 import json
 from pathlib import Path
 
-import polars as pl
-
 from trading_agent.config.loader import config
 from trading_agent.data.storage import load_ohlcv
 from trading_agent.strategies.base import get_strategy

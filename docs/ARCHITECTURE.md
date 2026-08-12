@@ -11,6 +11,9 @@
 │   Data → Features → Strategies → Backtest → Statistical Validation →   │
 │   Research Evidence                                                     │
 │   (src/trading_agent/data, strategies, backtest, ml, research)         │
+│   Research Governance: StrategyArtifact, promotion lifecycle,          │
+│   uncertainty gate, abstention codes, drift detection, trials          │
+│   (src/trading_agent/research)                                         │
 ├───────────────────────────────────────────────────────────────────────┤
 │ DECISION PLANE                                                          │
 │   Strategies / Agents → Portfolio → Risk → Order Intent                 │
@@ -20,6 +23,8 @@
 │   Order Planner → Broker Adapter → Order Lifecycle → Fill Ledger →      │
 │   Reconciliation → Protective Orders                                    │
 │   (src/trading_agent/execution, exchanges, live_safety)                 │
+│   Execution Simulator V2 (event-driven, P&L attribution,               │
+│   RealityGapReport) — src/trading_agent/execution/simulator            │
 ├───────────────────────────────────────────────────────────────────────┤
 │ CONTROL PLANE                                                           │
 │   Configuration → Release Gates → Kill Switch → Leader/Fencing → Audit  │
@@ -54,6 +59,10 @@ src/trading_agent/
   risk/                      — risk controller, sizing, circuit breaker
   execution/                 — paper exchange, live broker, live_safety (P0.x),
                                order lifecycle, reconciliation, protective orders
+  execution/simulator/       — Execution Simulator V2: order book, fill/impact/fee
+                               models, ledger, metrics, P&L attribution, reality gap
+  research/                  — StrategyArtifact, promotion lifecycle, uncertainty
+                               gate, abstention codes, drift detection, trials
   exchanges/                 — CCXT adapters, order router, WebSocket manager,
                                health monitor, DEX (uniswap/jupiter/pancake),
                                alpaca, oanda, futures/options

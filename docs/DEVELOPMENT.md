@@ -12,7 +12,14 @@
 ```bash
 python -m pytest tests/ -q          # full suite
 python -m pytest tests/test_live_safety.py -v   # critical live-path
+python -m pytest tests/test_execution_simulator.py tests/test_execution_simulator_property.py   # simulator + property-based
+python -m pytest tests/test_research_governance.py   # research governance (Wave B)
 ```
+
+- Test pyramid: unit, integration, property-based (hypothesis: fills, rounding,
+  fees, partial fills, replay determinism), state-machine, critical live-path.
+  **Property-based tests bắt buộc cho order lifecycle/fee/rounding/replay**
+  (prompt §27) — không chỉ happy path.
 
 - Coverage gate (CI): critical live-path modules ≥ 75% (`--cov-fail-under=75`).
 - Test phân loại: unit, integration, critical live-path, dry-run. **Dry-run test không phải

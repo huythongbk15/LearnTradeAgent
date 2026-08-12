@@ -20,6 +20,8 @@
 | Capability | Implemented | Tests | External Validation | Production |
 | --- | --- | --- | --- | --- |
 | Binance Spot (CCXT) | yes | yes | testnet partial (P0.3 execute filled) | **NO** |
+| Execution Simulator V2 (event-driven, P&L attribution, Reality Gap) | yes | yes | research only | **NO** |
+| Research governance (StrategyArtifact, promotion lifecycle, uncertainty gate, abstention, drift, trials) | yes | yes | research only | **NO** |
 | Binance Spot — protective stop (P0.1) | yes | yes | acceptance pending | **NO** |
 | Binance Spot — order lifecycle (P0.2) | yes | yes | testnet partial | **NO** |
 | Trusted time & market data (P0.3) | yes | yes | testnet partial | **NO** |

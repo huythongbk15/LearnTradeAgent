@@ -45,6 +45,7 @@
 │   │   ├── research
 │   │   │   └── BACKTEST_SUMMARY_2026-08-06.md
 │   │   └── architecture_2026-08.md
+│   ├── ACCOUNT_HARDENING.md
 │   ├── ARCHITECTURE.md
 │   ├── CAPABILITY_MATRIX.md
 │   ├── DEPLOYMENT.md
@@ -53,6 +54,7 @@
 │   ├── LIVE_TRADING_OPTIMIZATION_PLAN.md
 │   ├── LIVE_TRADING_RUNBOOK.md
 │   ├── LIVE_TRADING_TODO.md
+│   ├── OPERATIONAL_DRILLS.md
 │   ├── PHASE6_P3_REPORT.md
 │   ├── PROJECT_MAP.md
 │   ├── PROJECT_SUMMARY.md
@@ -106,6 +108,12 @@
 ├── notebooks
 │   └── .gitkeep
 ├── scripts
+│   ├── drills
+│   │   ├── backup_restore_drill.sh
+│   │   ├── credential_revocation_drill.sh
+│   │   ├── drill_lib.sh
+│   │   ├── network_drill.sh
+│   │   └── restart_drill.sh
 │   ├── qwenpaw_control
 │   │   ├── Makefile
 │   │   ├── cleanup_cron.py
@@ -114,7 +122,9 @@
 │   │   ├── process_registry.py
 │   │   └── tracked_subagent.py
 │   ├── _probe_config.py
+│   ├── alert_pager.py
 │   ├── audit_retention.py
+│   ├── audit_ship_offhost.py
 │   ├── backtest_local.py
 │   ├── backup.sh
 │   ├── backup_local.py
@@ -142,21 +152,26 @@
 │   ├── live_status_report.py
 │   ├── llm_pool_cli.py
 │   ├── load_test_phase6.py
+│   ├── measure_tracking_error.py
 │   ├── monthly_wfo.py
 │   ├── multi_symbol_bench.py
 │   ├── optimize_local.py
 │   ├── pin_image_digests.py
 │   ├── restore.sh
 │   ├── sign_and_verify.sh
+│   ├── simulate_execution.py
 │   ├── stress_evidence_costs.py
 │   ├── sweep_evidence_params.py
 │   ├── sweep_evidence_params_risk.py
 │   ├── sweep_momentum_quick.py
 │   ├── sweep_slow_quick.py
 │   ├── test_fetch_api.py
+│   ├── testnet_soak_tracker.py
 │   ├── trade_local.py
 │   ├── trading-bot.env.example
 │   ├── trading-bot.service
+│   ├── verify_account_hardening.py
+│   ├── verify_github_controls.py
 │   ├── verify_image.sh
 │   ├── walk_forward_optimize.py
 │   ├── watchdog.sh
@@ -223,6 +238,18 @@
 │       │   ├── order_router.py
 │       │   └── websocket_manager.py
 │       ├── execution
+│       │   ├── simulator
+│       │   │   ├── __init__.py
+│       │   │   ├── engine.py
+│       │   │   ├── fee_model.py
+│       │   │   ├── fill_model.py
+│       │   │   ├── impact_model.py
+│       │   │   ├── ledger.py
+│       │   │   ├── metrics.py
+│       │   │   ├── models.py
+│       │   │   ├── orderbook.py
+│       │   │   ├── reality_gap.py
+│       │   │   └── versions.py
 │       │   ├── __init__.py
 │       │   ├── correlation.py
 │       │   ├── data_trust.py
@@ -324,9 +351,11 @@
 │   ├── test_agent_correlation.py
 │   ├── test_agent_interop.py
 │   ├── test_agent_safety.py
+│   ├── test_alert_pager.py
 │   ├── test_alpaca_safety.py
 │   ├── test_atr_improvements.py
 │   ├── test_audit_correlation.py
+│   ├── test_audit_ship_offhost.py
 │   ├── test_backtest_accounting.py
 │   ├── test_binance_live_runner.py
 │   ├── test_binance_testnet_acceptance.py
@@ -339,6 +368,8 @@
 │   ├── test_data_trust.py
 │   ├── test_decision_trace.py
 │   ├── test_enhanced_ma_exit_safety.py
+│   ├── test_execution_simulator.py
+│   ├── test_execution_simulator_property.py
 │   ├── test_holdout_manifest.py
 │   ├── test_live_audit_watchdog.py
 │   ├── test_live_broker_balances.py
@@ -352,6 +383,7 @@
 │   ├── test_llm_comparison_lite.py
 │   ├── test_llm_pool.py
 │   ├── test_llm_schema.py
+│   ├── test_measure_tracking_error.py
 │   ├── test_p4_p7.py
 │   ├── test_paper_exchange_accounting.py
 │   ├── test_phase2.py
@@ -363,8 +395,11 @@
 │   ├── test_storage.py
 │   ├── test_strategy_security.py
 │   ├── test_synthetic_alerts.py
+│   ├── test_testnet_soak_tracker.py
 │   ├── test_tier1_3_tier2.py
 │   ├── test_tier3_live.py
+│   ├── test_verify_account_hardening.py
+│   ├── test_verify_github_controls.py
 │   └── test_web_security.py
 ├── webui
 │   ├── backend

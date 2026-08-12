@@ -26,6 +26,13 @@ Hệ thống giao dịch tự động theo hướng nghiên cứu (research-orie
 
 - **Data pipeline**: CCXT → Polars → Parquet, fetch/validate/incremental update
 - **Backtest engine**: vectorized + event-driven, walk-forward, OOS, parameter sweep
+- **Execution Simulator V2**: event-driven execution simulator (order book, spread/depth,
+  partial fills, latency, impact + decay, maker/taker fee, precision rules) với P&L
+  attribution tách alpha khỏi execution cost + RealityGapReport
+  (`trading_agent.execution.simulator`, `scripts/simulate_execution.py`)
+- **Research governance**: immutable StrategyArtifact, promotion lifecycle, uncertainty
+  gate (uncertainty → chỉ giảm risk/abstain), 9 abstention reason codes, drift detection
+  + StrategyHealthState, multiple-testing trials tracking (`trading_agent.research`)
 - **AI agents**: Technical · Sentiment · Risk · Trader (LLM weighted voting, fallback chain)
 - **Execution**: paper exchange, risk controller, circuit breaker, kill switch, live broker
   facade (Alpaca paper, Binance testnet), trusted-time market-data checks, protective orders

@@ -208,8 +208,11 @@ does not remove protection already held by the exchange.
       2026-08-11 result: med Sharpe -0.60 / -1.54 / -2.44 at 1x/2x/3x → strategy
       has no edge even at 1x costs; mainnet NO-GO reinforced. Report:
       `data/cost_stress_report.json`.)
-- [ ] Model exchange precision, fee assets, depth, cancellation and dust in the
-  execution simulator. (Open — needs exchange-simulator work.)
+- [x] Model exchange precision, fee assets, depth, cancellation and dust in the
+  execution simulator. (Execution Simulator V2: `execution/simulator/` — order
+  book depth, tick/step/min-qty/min-notional precision, maker/taker fee asset,
+  partial fills, cancellation latency, insufficient liquidity, stale quote,
+  adverse selection, impact + decay — 35 unit/property tests.)
 - [x] Measure paper/testnet tracking error before evaluating maker/TWAP execution.
       (`scripts/measure_tracking_error.py` computes per-symbol + overall
       slippage bps from audit `order_filled` vs `signal_price`, gates on
