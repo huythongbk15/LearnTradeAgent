@@ -59,13 +59,18 @@ def slsa_payload(*, repo: str = REPO, commit: str = COMMIT) -> str:
     statement = {
         "_type": "https://in-toto.io/Statement/v0.1",
         "subject": [
-            {"name": f"ghcr.io/{repo.lower()}", "digest": {"sha256": commit}},
+            {"name": f"ghcr.io/{repo.lower()}@sha256:{'b' * 64}", "digest": {"sha256": "b" * 64}},
         ],
         "predicateType": "https://slsa.dev/provenance/v0.2",
         "predicate": {
             "builder": {"id": f"https://github.com/{repo}/.github/workflows/ci.yml@refs/heads/master"},
-            "metadata": {"completeness": {"sha256": commit}},
-            "invocation": {},
+            "metadata": {"completeness": {"parameters": False, "environment": False, "materials": True}},
+            "invocation": {
+                "configSource": {
+                    "uri": f"git+https://github.com/{repo}@{commit}",
+                    "digest": {"sha1": commit},
+                }
+            },
         },
     }
     payload = base64.b64encode(json.dumps(statement).encode()).decode()
@@ -151,7 +156,7 @@ class TestVerifyProvenance:
         assert not report.all_ok
         assert report.checks["provenance"] is False
 
-    def test_provenance_subject_mismatch_rejected(self):
+    def test_provenance_commit_mismatch_rejected(self):
         report = verify_provenance(
             image=IMAGE, repo=REPO, commit=COMMIT,
             workflow=".github/workflows/ci.yml", ref="refs/heads/master",

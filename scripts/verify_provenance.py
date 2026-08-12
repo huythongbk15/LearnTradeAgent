@@ -165,17 +165,21 @@ def verify_provenance(
             subject = decoded.get("subject", [])
             subject_match = any(
                 repo.lower() in (s.get("name", "") or "").lower()
-                and commit in (s.get("digest", {}).get("sha256", "") or "")
                 for s in subject
             )
             pred = decoded.get("predicate", {})
-            sha = pred.get("metadata", {}).get("completeness", {}).get("sha256", "")
             builder = pred.get("builder", {}).get("id", "")
+            cfg = pred.get("invocation", {}).get("configSource", {})
+            # SLSA v0.2: commit id lives in invocation.configSource.digest.sha1
+            # (github.sha is a 40-char SHA-1), image digest in subject digest.
+            commit_match = any(
+                commit == (d.get("sha1") or "") for d in [cfg.get("digest", {})]
+            )
             prov_detail = (
                 f"slsaprovenance; subject_match={subject_match}; "
-                f"builder={builder or '<missing>'}; completeness_sha256={sha or '<missing>'}"
+                f"commit_match={commit_match}; builder={builder or '<missing>'}"
             )
-            prov_ok = prov_ok and subject_match
+            prov_ok = prov_ok and subject_match and commit_match
         except (json.JSONDecodeError, KeyError, IndexError, AttributeError):
             prov_detail = "slsaprovenance present but predicate unparseable"
             prov_ok = False

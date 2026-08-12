@@ -195,19 +195,25 @@ jobs:
           # repo / commit / workflow / branch that produced it.  The deploy
           # gate (scripts/verify_provenance.py) rejects any artifact whose
           # predicate does not match the expected values.
+          # NOTE: github.sha is a 40-char SHA-1 commit id, so it goes into
+          # configSource.digest.sha1 (not sha256). completeness is a boolean
+          # map per SLSA v0.2; we mark materials/environment as complete.
           cat > provenance.json <<EOF
           {
             "_type": "https://in-toto.io/Statement/v0.1",
-            "subject": [{ "name": "${{ steps.image.outputs.name }}@${{ steps.publish.outputs.digest }}" }],
+            "subject": [{ "name": "${{ steps.image.outputs.name }}@${{ steps.publish.outputs.digest }}", "digest": { "sha256": "${{ steps.publish.outputs.digest }}" } }],
             "predicateType": "https://slsa.dev/provenance/v0.2",
             "predicate": {
               "builder": { "id": "https://github.com/${{ github.repository }}/.github/workflows/ci.yml@refs/heads/master" },
               "buildType": "https://github.com/${{ github.repository }}/ci-build@v1",
-              "metadata": { "completeness": { "sha256": "${{ github.sha }}" }, "reproducible": false },
+              "metadata": {
+                "completeness": { "parameters": false, "environment": false, "materials": true },
+                "reproducible": false
+              },
               "invocation": {
                 "configSource": {
                   "uri": "git+https://github.com/${{ github.repository }}@${{ github.sha }}",
-                  "digest": { "sha256": "${{ github.sha }}" }
+                  "digest": { "sha1": "${{ github.sha }}" }
                 }
               }
             }
