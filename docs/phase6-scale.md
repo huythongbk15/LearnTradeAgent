@@ -107,7 +107,7 @@ cấp portfolio, strategy marketplace plugin, và advanced ML adaptive.
 ## ✅ Checklist tổng
 
 - **P0** (multi-exchange, data model, risk budgeting, plugin) — ✅ 100%
-- **P1** (Alpaca, OANDA, order router, rebalancer, optimizer, registry, regime, messaging, tracing) — ✅ 100%
+- **P1** (Alpaca, OANDA, order router, rebalancer, optimizer, registry, regime, messaging) — ✅ 100%
 - **P2** (DEX, futures/options, capital allocation, attribution, sandbox, versioning, LLM features, swarm, multi-region, event sourcing, chaos) — ✅ 100%
 - **P3** (52 integration tests, dry-run modes, benchmarks, CI/CD) — ✅ 100%
 

@@ -27,7 +27,7 @@
 ├───────────────────────────────────────────────────────────────────────┤
 │ OBSERVABILITY PLANE                                                     │
 │   Logs → Metrics → Alerts → Incident Response                           │
-│   (src/trading_agent/monitoring, observability, webui, Telegram)        │
+│   (src/trading_agent/monitoring, webui, Telegram)                       │
 └───────────────────────────────────────────────────────────────────────┘
 ```
 

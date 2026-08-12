@@ -32,7 +32,7 @@ gates in this document and an explicit operator approval.
 | --- | --- | --- | --- | --- |
 | Next-bar signal timing | Implemented | Implemented by hourly runner | Not accepted | Preserve timing parity tests |
 | Fee/spread/slippage model | Implemented | Pre-trade market-quality gates | Not calibrated | Compare predicted and actual fills |
-| Intrabar protective stop | Simulated | Implemented; acceptance pending | Not soaked | P0.1 testnet acceptance |
+| Intrabar protective stop | Simulated | Acceptance passed (P0.1, 3/3 on testnet.binance.vision) | Not soaked | P0.1 done — P3 soak covers stops |
 | Order idempotency | Implemented in live ledger | Covered by tests | Not soaked | P0.2 lifecycle soak |
 | Partial/unknown fill handling | Fail-closed | Covered by tests | Not soaked | P0.2 active reconciliation |
 | Precision/minimum notional | Implemented | Covered by tests | Not soaked | Testnet exchange-filter matrix |
@@ -41,7 +41,7 @@ gates in this document and an explicit operator approval.
 | State integrity | Signed local state | Implemented | Single-host only | P1.1 durable leader and snapshots |
 | Monitoring/alerting | Modules exist | Not wired to the Binance runner | **Blocked** | P1.3 independent paging |
 | Deployment/restore | CI artifacts exist | Not acceptance-tested | **Blocked** | P1.4/P1.5 drills and topology |
-| Strategy evidence | Six contiguous OOS folds | Evidence gate implemented | Holdout incomplete | P2 statistical hardening |
+| Strategy evidence | Six contiguous OOS folds | Evidence gate implemented | Holdout frozen (2026-02-06 → 2026-08-05, 71 datasets) | P2 done — P3 soak confirms |
 
 ## P0 - capital protection and execution correctness
 

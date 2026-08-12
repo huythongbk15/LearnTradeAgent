@@ -34,7 +34,7 @@
 | Multi-region (K8s) | yes | dry-run | no real cluster validation | **NO** |
 | Chaos engineering | yes | dry-run | no production validation | **NO** |
 | Event sourcing + messaging | yes | yes | dry-run | **NO** |
-| Observability (metrics/logs/tracing) | yes | partial | not wired to live runner (P1.3) | **NO** |
+| Monitoring (metrics server, alerts) | yes | partial | not wired to live runner (P1.3) | **NO** |
 | CI/CD + supply chain (Trivy/SBOM/sign) | yes | CI runs | artifacts on master | **NO** (mainnet) |
 | Docker image (runtime) | yes | CI build + smoke | not soak-tested | **NO** |
 

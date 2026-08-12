@@ -19,7 +19,7 @@
 │  data/pipeline ─→ backtest/engine ─→ agents ─→ execution    │
 │   (654 dòng)       (370 dòng)       (4 agents)   (paper)    │
 ├─────────────────────────────────────────────────────────────┤
-│  PHASE 4-5 (ops): observability · events · infra · CI/CD    │
+│  PHASE 4-5 (ops): monitoring · events · infra · CI/CD    │
 ├─────────────────────────────────────────────────────────────┤
 │  PHASE 6 (scale): exchanges/ (8 sàn + DEX + stocks + forex) │
 │                   portfolio/ (7 module) · ml/ · strategies/ │
