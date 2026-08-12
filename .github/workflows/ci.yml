@@ -219,7 +219,8 @@ jobs:
             }
           }
           EOF
-          cosign attest --yes --predicate provenance.json --type slsaprovenance "$IMAGE"
+          # cosign >=2.0 requires --new-bundle-format when not uploading to transparency log
+          cosign attest --yes --new-bundle-format --bundle provenance.bundle --predicate provenance.json --type slsaprovenance "$IMAGE"
 
       - name: Upload SBOM artifact
         if: github.event_name == 'push' && github.ref == 'refs/heads/master'
