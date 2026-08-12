@@ -139,6 +139,8 @@
 │   ├── debug_signals.py
 │   ├── debug_trades.py
 │   ├── deep_dive_binance.py
+│   ├── demo_wave_ab_compare.py
+│   ├── demo_wave_c.py
 │   ├── download_intraday.py
 │   ├── full_system_backtest.py
 │   ├── generate_holdout_manifest.py
@@ -238,6 +240,11 @@
 │       │   ├── order_router.py
 │       │   └── websocket_manager.py
 │       ├── execution
+│       │   ├── lifecycle
+│       │   │   ├── __init__.py
+│       │   │   ├── events.py
+│       │   │   ├── lifecycle.py
+│       │   │   └── store.py
 │       │   ├── simulator
 │       │   │   ├── __init__.py
 │       │   │   ├── engine.py
@@ -251,6 +258,7 @@
 │       │   │   ├── reality_gap.py
 │       │   │   └── versions.py
 │       │   ├── __init__.py
+│       │   ├── chaos_invariants.py
 │       │   ├── correlation.py
 │       │   ├── data_trust.py
 │       │   ├── engine.py
@@ -259,6 +267,7 @@
 │       │   ├── monitoring.py
 │       │   ├── paper_exchange.py
 │       │   ├── risk_controller.py
+│       │   ├── shadow.py
 │       │   ├── smart_router.py
 │       │   └── types.py
 │       ├── features
@@ -315,6 +324,13 @@
 │       │   ├── auto_rebalancer.py
 │       │   ├── portfolio_optimizer.py
 │       │   └── risk_budgeting.py
+│       ├── research
+│       │   ├── __init__.py
+│       │   ├── artifact.py
+│       │   ├── drift.py
+│       │   ├── lifecycle.py
+│       │   ├── trials.py
+│       │   └── uncertainty.py
 │       ├── risk
 │       │   ├── __init__.py
 │       │   ├── portfolio_risk.py
@@ -363,11 +379,13 @@
 │   ├── test_ccxt_contract.py
 │   ├── test_ccxt_order_filters.py
 │   ├── test_ccxt_property.py
+│   ├── test_chaos_invariants.py
 │   ├── test_cli_execution_safety.py
 │   ├── test_config.py
 │   ├── test_data_trust.py
 │   ├── test_decision_trace.py
 │   ├── test_enhanced_ma_exit_safety.py
+│   ├── test_execution_lifecycle.py
 │   ├── test_execution_simulator.py
 │   ├── test_execution_simulator_property.py
 │   ├── test_holdout_manifest.py
@@ -391,7 +409,9 @@
 │   ├── test_phase6.py
 │   ├── test_phase6_integration.py
 │   ├── test_realtime_data.py
+│   ├── test_research_governance.py
 │   ├── test_research_stats.py
+│   ├── test_shadow_mainnet.py
 │   ├── test_storage.py
 │   ├── test_strategy_security.py
 │   ├── test_synthetic_alerts.py

@@ -12,6 +12,8 @@ EXECUTION_MODEL_VERSION = "2.0.0"
 FILL_MODEL_VERSION = "1.0.0"
 IMPACT_MODEL_VERSION = "1.0.0"
 FEE_MODEL_VERSION = "1.0.0"
+# Wave D — slice-selection algorithms (liquidity-aware TWAP / POV / MPC layer).
+ALGORITHMS_VERSION = "1.0.0"
 
 
 def model_versions() -> dict[str, str]:
@@ -21,4 +23,11 @@ def model_versions() -> dict[str, str]:
         "fill_model_version": FILL_MODEL_VERSION,
         "impact_model_version": IMPACT_MODEL_VERSION,
         "fee_model_version": FEE_MODEL_VERSION,
+    }
+
+
+def algorithms_versions() -> dict[str, str]:
+    """Snapshot of execution-algorithm versions (Wave D)."""
+    return {
+        "algorithms_version": ALGORITHMS_VERSION,
     }

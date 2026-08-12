@@ -183,6 +183,37 @@ class MarketReplayEngine:
             return 20.0
         return max((hi - lo) / prev_close * 10_000.0, 1.0)
 
+    # Public accessors for execution algorithms (Wave D).  These are the only
+    # market-observation channels a slice-selection algorithm should use.
+
+    def bar_volume(self, bar_index: int) -> float:
+        """Observed volume of a bar (clamped to the valid range)."""
+        if bar_index < 0:
+            bar_index = 0
+        if bar_index >= len(self._volumes):
+            bar_index = len(self._volumes) - 1
+        return float(self._volumes[bar_index])
+
+    def volatility_bps(self, bar_index: int) -> float:
+        """Realized volatility estimate for a bar (public alias)."""
+        return self._volatility_bps(bar_index)
+
+    def market_snapshot(self, bar_index: int):
+        """Current book-derived market snapshot for algorithm decisions."""
+        from trading_agent.execution.algorithms.base import MarketSnapshot
+
+        book = self.current_book
+        if book is None:
+            raise RuntimeError("no current book (engine not started)")
+        return MarketSnapshot(
+            mid=book.mid,
+            spread_bps=book.spread_bps(),
+            bid_depth=book.total_bid_size(),
+            ask_depth=book.total_ask_size(),
+            recent_volume=self.bar_volume(bar_index),
+            volatility_bps=self.volatility_bps(bar_index),
+        )
+
     # ── Main loop ───────────────────────────────────────────────────────
 
     def run(
