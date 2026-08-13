@@ -489,6 +489,7 @@
 ├── .trivyignore
 ├── Caddyfile.oracle
 ├── Dockerfile
+├── HARDEN_OUTPUT.md
 ├── IMPROVEMENT_ROADMAP.md
 ├── LIVE_TEST_GUIDE.md
 ├── Makefile
