@@ -30,7 +30,10 @@ class AgentMessage:
     details: dict[str, Any] = field(default_factory=dict)
 
     # Risk-specific (only for risk_manager)
-    max_position_size_pct: float | None = None  # 0.0 to 1.0
+    max_position_size_pct: float | None = None  # 0.0 to 1.0 (legacy)
+    target_exposure_pct: float | None = None
+    max_new_exposure_pct: float | None = None
+    reduce_only: bool | None = None
     risk_level: str | None = None  # "LOW" | "MEDIUM" | "HIGH" | "EXTREME"
     warnings: list[str] = field(default_factory=list)
 
@@ -77,6 +80,24 @@ class AgentMessage:
                 self.warnings.append("Invalid position size; forced to 0")
                 self.max_position_size_pct = 0.0
 
+        for name in ("target_exposure_pct", "max_new_exposure_pct"):
+            val = getattr(self, name)
+            if val is None:
+                continue
+            try:
+                val = float(val)
+                if not math.isfinite(val):
+                    raise ValueError("non-finite")
+                setattr(self, name, max(0.0, min(1.0, val)))
+            except (TypeError, ValueError):
+                self.warnings.append(f"Invalid {name}; forced to 0")
+                setattr(self, name, 0.0)
+
+        if self.reduce_only is None:
+            self.reduce_only = False
+        else:
+            self.reduce_only = bool(self.reduce_only)
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "role": self.role,
@@ -85,6 +106,9 @@ class AgentMessage:
             "reasoning": self.reasoning,
             "details": self.details,
             "max_position_size_pct": self.max_position_size_pct,
+            "target_exposure_pct": self.target_exposure_pct,
+            "max_new_exposure_pct": self.max_new_exposure_pct,
+            "reduce_only": self.reduce_only,
             "risk_level": self.risk_level,
             "warnings": self.warnings,
         }
@@ -98,6 +122,9 @@ class AgentMessage:
             reasoning=d.get("reasoning", ""),
             details=d.get("details", {}),
             max_position_size_pct=d.get("max_position_size_pct"),
+            target_exposure_pct=d.get("target_exposure_pct"),
+            max_new_exposure_pct=d.get("max_new_exposure_pct"),
+            reduce_only=d.get("reduce_only"),
             risk_level=d.get("risk_level"),
             warnings=d.get("warnings", []),
         )
@@ -207,6 +234,9 @@ def message_to_signal(
         metadata={
             "role": msg.role,
             "risk_level": msg.risk_level,
+            "target_exposure_pct": msg.target_exposure_pct,
+            "max_new_exposure_pct": msg.max_new_exposure_pct,
+            "reduce_only": msg.reduce_only,
             "warnings": list(msg.warnings),
             "details": dict(msg.details or {}),
         },
@@ -219,13 +249,19 @@ def signal_to_message(
     role: str = "agent",
 ) -> AgentMessage:
     """Convert a swarm ``AgentSignal`` into a core ``AgentMessage``."""
+    meta = dict(sig.metadata or {})
     return AgentMessage(
         role=role,
         signal=str(sig.action).upper(),
         confidence=sig.confidence,
         reasoning=sig.reasoning or "",
-        details=dict(sig.metadata or {}),
+        details=meta.pop("details", {}),
         max_position_size_pct=sig.size_pct,
+        target_exposure_pct=meta.pop("target_exposure_pct", None),
+        max_new_exposure_pct=meta.pop("max_new_exposure_pct", None),
+        reduce_only=meta.pop("reduce_only", None),
+        risk_level=meta.pop("risk_level", None),
+        warnings=meta.pop("warnings", []),
     )
 
 

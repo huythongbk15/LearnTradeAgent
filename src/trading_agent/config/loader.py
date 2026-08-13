@@ -49,6 +49,9 @@ def _check_in(value: Any, name: str, valid_set: set) -> None:
 def _validate(raw: dict) -> None:
     """Validate config structure, raise ConfigError on issues."""
 
+    # Allow ENV-supplied Telegram secrets to satisfy alerting requirements.
+    raw = _merge_env_secrets(raw)
+
     # Schema version — fail closed on unknown future schema.
     version = raw.get("schema_version", 1)
     _check_type(version, "schema_version", int)
@@ -160,6 +163,23 @@ def _validate(raw: dict) -> None:
     _check_type(log, "logging", dict)
     if "level" in log:
         _check_in(log["level"].upper(), "logging.level", _VALID_LOG_LEVELS)
+
+
+def _merge_env_secrets(raw: dict) -> dict:
+    """Merge Telegram secrets from environment into alerts.telegram.
+
+    Never logs secrets. Returns a new dict (does not mutate input).
+    """
+    merged = dict(raw)
+    alerts = dict(merged.get("alerts", {}))
+    telegram = dict(alerts.get("telegram", {}))
+    bot_token = os.getenv("TELEGRAM_BOT_TOKEN") or telegram.get("bot_token", "")
+    chat_id = os.getenv("TELEGRAM_CHAT_ID") or telegram.get("chat_id", "")
+    telegram["bot_token"] = bot_token
+    telegram["chat_id"] = chat_id
+    alerts["telegram"] = telegram
+    merged["alerts"] = alerts
+    return merged
 
 
 # ── Project root detection ────────────────────────────────────────────────
@@ -293,6 +313,28 @@ class Config:
     @classmethod
     def default_path(cls) -> Path:
         return _DEFAULT_CONFIG_PATH
+
+
+class EffectiveConfig:
+    """Config with environment-supplied secrets merged in.
+
+    This wrapper preserves the original ``Config`` validation rules while
+    allowing secrets to come from the environment instead of tracked YAML.
+    """
+
+    def __init__(self, config: Config) -> None:
+        self._config = config
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._config, name)
+
+    @property
+    def alert_telegram_bot_token(self) -> str:
+        return os.getenv("TELEGRAM_BOT_TOKEN") or self._config.alert_telegram_bot_token
+
+    @property
+    def alert_telegram_chat_id(self) -> str:
+        return os.getenv("TELEGRAM_CHAT_ID") or self._config.alert_telegram_chat_id
 
 
 # Singleton — fail with ConfigError instead of terminating the importing process.

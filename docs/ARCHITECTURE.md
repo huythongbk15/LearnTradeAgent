@@ -85,4 +85,25 @@ src/trading_agent/
 4. Kill switch chặn entry mới nhưng **cho phép** risk-reducing exits.
 5. Deploy thành công ≠ mainnet enabled.
 
+## Risk decision semantics
+
+- `RiskDecision` tách `max_position_size_pct` thành:
+  - `target_exposure_pct`: mục tiêu exposure tổng thể.
+  - `max_new_exposure_pct`: tối đa exposure mới được tạo bởi lệnh này.
+  - `reduce_only`: bắt buộc exit khi rủi ro cao.
+- HIGH/EXTREME risk → `max_new_exposure_pct=0`, `reduce_only=true`.
+- Risk manager vẫn trả về `AgentMessage` nhưng có thêm các trường mới để order gate sử dụng.
+
+## Config secrets
+
+- `EffectiveConfig` merge `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID` từ ENV trước validation.
+- Paper mode có thể bỏ Telegram nếu policy cho phép.
+- Non-paper mode thiếu Telegram credentials → fail-closed.
+
+## Unified order permission
+
+- `evaluate_order_permission()` là single gate cho mọi order path.
+- Output: `ALLOW`, `REDUCE_ONLY`, hoặc `BLOCK` + reason codes.
+- Kiểm tra: kill switch, stale price, manual block, protection gap, reconciliation, inventory, unknown broker state.
+
 Chi tiết gates: [`LIVE_TRADING_TODO.md`](LIVE_TRADING_TODO.md) · Maturity: [`CAPABILITY_MATRIX.md`](CAPABILITY_MATRIX.md)

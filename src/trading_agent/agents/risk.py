@@ -11,6 +11,7 @@ import numpy as np
 
 from trading_agent.agents.base import AgentMessage, AnalysisContext, BaseAgent
 from trading_agent.agents.llm import ask_agent, llm_enabled
+from trading_agent.agents.risk_decision import RiskDecision, RiskLevel
 
 logger = logging.getLogger(__name__)
 
@@ -23,11 +24,11 @@ Output JSON:
   "signal": "BUY" | "SELL" | "HOLD",
   "confidence": 0.0-1.0,
   "reasoning": "1-2 sentence explanation",
-  "details": {
-    "risk_level": "LOW"|"MEDIUM"|"HIGH"|"EXTREME",
-    "max_position_size_pct": 0.0-1.0,
-    "key_risks": ["risk1", "risk2"]
-  }
+  "risk_level": "LOW"|"MEDIUM"|"HIGH"|"EXTREME",
+  "target_exposure_pct": 0.0-1.0,
+  "max_new_exposure_pct": 0.0-1.0,
+  "reduce_only": boolean,
+  "key_risks": ["risk1", "risk2"]
 }
 
 Guidelines:
@@ -35,8 +36,10 @@ Guidelines:
 - Strong trend = can increase size
 - Low volume breakouts = reduce size
 - Never suggest >50% position in high volatility
-- Default to HOLD and 0% if risk is extreme
-- Keep it conservative — preserve capital first"""
+- Default to HOLD and 0% new exposure if risk is extreme
+- Keep it conservative — preserve capital first
+- HIGH/EXTREME risk must set reduce_only=true and max_new_exposure_pct=0
+"""
 
 
 class RiskManager(BaseAgent):
@@ -49,7 +52,8 @@ class RiskManager(BaseAgent):
 
         # LLM disabled → rule-based ngay, không build prompt
         if not llm_enabled():
-            return self._rule_based(ind, context)
+            decision = self._rule_based(ind, context)
+            return self._decision_to_message(decision, context)
 
         prompt_lines = [
             f"Symbol: {context.symbol} ({context.timeframe})",
@@ -98,33 +102,56 @@ class RiskManager(BaseAgent):
 
         try:
             result = ask_agent(SYSTEM_PROMPT, prompt, schema="risk")
-            details = result.get("details", {})
-            max_pos = details.get("max_position_size_pct")
-            if max_pos is not None:
-                try:
-                    max_pos = float(max_pos)
-                except (ValueError, TypeError):
-                    max_pos = None
-
-            msg = AgentMessage(
-                role="risk_manager",
-                signal=result.get("signal", "HOLD"),
-                confidence=float(result.get("confidence", 0.5)),
-                reasoning=result.get("reasoning", ""),
-                details={
-                    "risk_level": details.get("risk_level", "MEDIUM"),
-                    "max_position_size_pct": max_pos,
-                    "key_risks": details.get("key_risks", []),
-                },
-                max_position_size_pct=max_pos,
-                risk_level=details.get("risk_level", "MEDIUM"),
-                warnings=details.get("key_risks", []),
+            decision = RiskDecision(
+                risk_level=RiskLevel(result.get("risk_level", "MEDIUM")),
+                target_exposure_pct=float(result.get("target_exposure_pct", 0.0)),
+                max_new_exposure_pct=float(result.get("max_new_exposure_pct", 0.0)),
+                reduce_only=bool(result.get("reduce_only", False)),
+                warnings=tuple(result.get("key_risks", [])),
+            )
+            msg = self._decision_to_message(
+                decision, context, result.get("reasoning", "")
             )
         except Exception as e:
             logger.warning(f"Risk LLM failed ({e}), using rule-based")
-            msg = self._rule_based(ind, context)
+            decision = self._rule_based(ind, context)
+            msg = self._decision_to_message(decision, context)
 
         return msg
+
+    def _decision_to_message(
+        self,
+        decision: RiskDecision,
+        context: AnalysisContext,
+        reasoning: str = "",
+    ) -> AgentMessage:
+        """Convert a RiskDecision into the legacy AgentMessage protocol."""
+        in_position = (context.current_position_pct or 0.0) > 0.001
+        if decision.risk_level == RiskLevel.HIGH:
+            signal = "SELL" if in_position else "HOLD"
+        elif decision.risk_level == RiskLevel.EXTREME:
+            signal = "SELL" if in_position else "HOLD"
+        elif decision.risk_level == RiskLevel.LOW:
+            signal = "BUY"
+        else:
+            signal = "HOLD"
+        return AgentMessage(
+            role="risk_manager",
+            signal=signal,
+            confidence=0.5,
+            reasoning=reasoning
+            or f"risk={decision.risk_level.value} reduce_only={decision.reduce_only}",
+            details={
+                "risk_level": decision.risk_level.value,
+                "target_exposure_pct": decision.target_exposure_pct,
+                "max_new_exposure_pct": decision.max_new_exposure_pct,
+                "reduce_only": decision.reduce_only,
+                "key_risks": list(decision.warnings),
+            },
+            max_position_size_pct=decision.target_exposure_pct,
+            risk_level=decision.risk_level.value,
+            warnings=list(decision.warnings),
+        )
 
     def _compute_volatility(self, context: AnalysisContext) -> float:
         """Compute realized volatility from raw OHLCV (no dependency on pre-computed context)."""
@@ -158,7 +185,7 @@ class RiskManager(BaseAgent):
             raise ValueError(f"Unsupported timeframe: {timeframe!r}")
         return amount * units[tf[-1]]
 
-    def _rule_based(self, ind: dict, context: AnalysisContext) -> AgentMessage:
+    def _rule_based(self, ind: dict, context: AnalysisContext) -> RiskDecision:
         """Rule-based risk assessment with volatility-scaled position sizing."""
         extra = ind.get("_extra", {})
         vol = self._compute_volatility(context)
@@ -178,26 +205,26 @@ class RiskManager(BaseAgent):
             vol_cap = 0.40 * min(1.0, 1.5 / vol)
             max_pos = max(0.05, min(risk_based, vol_cap))
             if vol > 3.0:
-                risk = "HIGH"
-                max_pos = 0.0  # HIGH risk: symmetric — reduce to 0 both entry AND exit
+                risk = RiskLevel.HIGH
+                max_pos = 0.0
                 reason = f"High volatility ({vol:.1f}%) — position size REDUCED TO 0%"
             elif vol > 1.5:
-                risk = "MEDIUM"
+                risk = RiskLevel.MEDIUM
                 reason = f"Moderate volatility ({vol:.1f}%) — size {max_pos * 100:.0f}% of equity"
             else:
-                risk = "LOW"
+                risk = RiskLevel.LOW
                 reason = (
                     f"Low volatility ({vol:.1f}%) — size {max_pos * 100:.0f}% of equity"
                 )
         else:
-            risk = "MEDIUM"
+            risk = RiskLevel.MEDIUM
             max_pos = 0.25
             reason = "No volatility data — using conservative sizing"
 
         # Adjust for volume
         if vol_ratio < 0.5:
-            risk = "HIGH" if risk == "MEDIUM" else risk
-            max_pos = 0.0 if risk == "HIGH" else max_pos * 0.5
+            risk = RiskLevel.HIGH if risk == RiskLevel.MEDIUM else risk
+            max_pos = 0.0 if risk == RiskLevel.HIGH else max_pos * 0.5
             reason += "; low volume — reduce further"
 
         # Risk agent chỉ vote hướng khi rõ ràng:
@@ -205,26 +232,14 @@ class RiskManager(BaseAgent):
         #   MEDIUM → HOLD (trung lập, không bias weighted vote)
         #   HIGH → SELL nếu đang giữ vị thế (thoát), HOLD nếu đang đứng ngoài
         #          + risk_level HIGH (trader override vẫn chặn lệnh mua mới)
-        in_position = (context.current_position_pct or 0.0) > 0.001
-        signal = "HOLD"
-        if risk == "LOW":
-            signal = "BUY"
-        elif risk == "HIGH":
-            signal = "SELL" if in_position else "HOLD"
-
-        return AgentMessage(
-            role="risk_manager",
-            signal=signal,
-            confidence=0.5,
-            reasoning=reason,
-            details={
-                "risk_level": risk,
-                "max_position_size_pct": max_pos,
-                "key_risks": [
-                    f"Volatility at {vol:.1f}%" if vol else "Unknown volatility"
-                ],
-            },
-            max_position_size_pct=max_pos,
+        reduce_only = risk in (RiskLevel.HIGH, RiskLevel.EXTREME)
+        return RiskDecision(
             risk_level=risk,
-            warnings=[f"Position size capped at {max_pos * 100:.0f}%"],
+            target_exposure_pct=0.0 if reduce_only else max_pos,
+            max_new_exposure_pct=0.0 if reduce_only else max_pos,
+            reduce_only=reduce_only,
+            warnings=(
+                f"Position size capped at {max_pos * 100:.0f}%",
+                f"Volatility at {vol:.1f}%" if vol else "Unknown volatility",
+            ),
         )

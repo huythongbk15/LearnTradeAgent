@@ -39,7 +39,7 @@ def test_message_to_signal_roundtrip():
     assert back.signal == "BUY"
     assert back.confidence == 0.8
     assert back.max_position_size_pct == 0.25
-    assert back.details["role"] == "technical_analyst"
+    assert back.role == "technical_analyst"
 
 
 def test_signal_to_message_roundtrip():
@@ -57,7 +57,7 @@ def test_signal_to_message_roundtrip():
     assert msg.signal == "HOLD"
     assert msg.confidence == 0.55
     assert msg.reasoning == "chờ breakout"
-    assert msg.details["role"] == "sentiment"
+    assert msg.role == "sentiment_analyst"
 
     # Full circle preserves the action.
     sig2 = message_to_signal(msg, symbol="ETH/USDT", signal_id="sig-2")

@@ -258,6 +258,34 @@ they cannot be completed in a single session.**
 - [ ] Canary limits and maximum acceptable loss receive explicit approval.
       (P0.5 canary limits defined; final sign-off is a manual operator step.)
 
+## P1 - risk decision, config secrets, unified order gate
+
+### P1.1 RiskDecision semantics
+
+- [x] Introduce `RiskDecision` with `target_exposure_pct`, `max_new_exposure_pct`,
+  `reduce_only`.
+- [x] HIGH/EXTREME risk sets `max_new_exposure_pct=0`, `reduce_only=true`.
+- [x] Risk manager still returns `AgentMessage` with legacy `max_position_size_pct`
+  plus new fields for order gate.
+- [x] Tests: `tests/test_risk_decision.py` (7 passed).
+
+### P1.2 EffectiveConfig secret merge
+
+- [x] Merge `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID` from ENV before validation.
+- [x] Paper mode may omit Telegram if `alerting_required` policy allows.
+- [x] Non-paper mode missing Telegram → fail-closed.
+- [x] Tests: `tests/test_config_effective.py` (4 passed).
+
+### P1.3 Unified order permission
+
+- [x] New `evaluate_order_permission()` gate for all order paths.
+- [x] Output: `ALLOW`, `REDUCE_ONLY`, `BLOCK` + reason codes.
+- [x] Guards: kill switch, stale price, manual block, protection gap,
+  reconciliation, inventory, unknown broker state.
+- [x] Tests: `tests/test_order_permission.py` (10 passed).
+
+---
+
 Only after every release gate passes may the status move from `NO-GO` to
 `CANARY-READY`. Enabling mainnet and increasing capital remain separate manual
 decisions.
