@@ -143,6 +143,7 @@
 │   ├── deep_dive_binance.py
 │   ├── demo_wave_ab_compare.py
 │   ├── demo_wave_c.py
+│   ├── demo_wave_ef.py
 │   ├── download_intraday.py
 │   ├── full_system_backtest.py
 │   ├── generate_holdout_manifest.py
@@ -162,6 +163,7 @@
 │   ├── optimize_local.py
 │   ├── pin_image_digests.py
 │   ├── restore.sh
+│   ├── review_wave_ef.py
 │   ├── sign_and_verify.sh
 │   ├── simulate_execution.py
 │   ├── stress_evidence_costs.py
@@ -273,6 +275,7 @@
 │       │   │   └── store.py
 │       │   ├── simulator
 │       │   │   ├── __init__.py
+│       │   │   ├── calibration.py
 │       │   │   ├── engine.py
 │       │   │   ├── fee_model.py
 │       │   │   ├── fill_model.py
@@ -400,6 +403,7 @@
 │   ├── test_backtest_accounting.py
 │   ├── test_binance_live_runner.py
 │   ├── test_binance_testnet_acceptance.py
+│   ├── test_calibrated_decision.py
 │   ├── test_calibration.py
 │   ├── test_ccxt_contract.py
 │   ├── test_ccxt_order_filters.py
@@ -439,6 +443,7 @@
 │   ├── test_research_governance.py
 │   ├── test_research_stats.py
 │   ├── test_shadow_mainnet.py
+│   ├── test_simulator_calibration.py
 │   ├── test_storage.py
 │   ├── test_strategy_security.py
 │   ├── test_synthetic_alerts.py
