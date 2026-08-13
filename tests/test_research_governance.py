@@ -17,15 +17,20 @@ from trading_agent.research import (
     ArtifactStore,
     DriftLevel,
     DriftMonitor,
+    PersistentArtifactStore,
     PromotionError,
+    PromotionEvidence,
+    PromotionPolicy,
     PromotionState,
     StrategyHealthState,
     TrialsRegistry,
     UncertaintySignal,
     UncertaintyState,
     build_strategy_artifact,
+    drift_check_evidence,
     param_hash,
     psi,
+    reality_gap_evidence,
     search_space_hash,
     should_abstain,
 )
@@ -88,6 +93,107 @@ class TestArtifact:
     def test_hash_file_missing_raises(self):
         with pytest.raises(FileNotFoundError):
             build_strategy_artifact(strategy_name="x", code_path=Path("/nonexistent.py"), df=make_df(), params={}, execution_model_version="1", framework_version="0")
+
+
+class TestPersistentArtifactStore:
+    def test_persist_and_retrieve(self, tmp_path: Path):
+        db = tmp_path / "artifacts.db"
+        store = PersistentArtifactStore(db)
+        code = Path(__file__)
+        a0 = build_strategy_artifact(strategy_name="ma", code_path=code, df=make_df(), params={"fast": 5}, execution_model_version="1", framework_version="0")
+        a1 = build_strategy_artifact(strategy_name="ma", code_path=code, df=make_df(), params={"fast": 7}, execution_model_version="1", framework_version="0", prev_artifact_id=a0.artifact_id)
+        store.add(a0)
+        store.add(a1)
+
+        # Retrieve
+        got0 = store.get(a0.artifact_id)
+        got1 = store.get(a1.artifact_id)
+        assert got0.artifact_id == a0.artifact_id
+        assert got1.artifact_id == a1.artifact_id
+        assert got1.prev_artifact_id == a0.artifact_id
+
+    def test_immutable_duplicate_rejected(self, tmp_path: Path):
+        db = tmp_path / "artifacts.db"
+        store = PersistentArtifactStore(db)
+        code = Path(__file__)
+        a0 = build_strategy_artifact(strategy_name="ma", code_path=code, df=make_df(), params={"fast": 5}, execution_model_version="1", framework_version="0")
+        store.add(a0)
+        with pytest.raises(ValueError):
+            store.add(a0)
+
+    def test_lineage_order(self, tmp_path: Path):
+        db = tmp_path / "artifacts.db"
+        store = PersistentArtifactStore(db)
+        code = Path(__file__)
+        a0 = build_strategy_artifact(strategy_name="ma", code_path=code, df=make_df(), params={"fast": 5}, execution_model_version="1", framework_version="0")
+        a1 = build_strategy_artifact(strategy_name="ma", code_path=code, df=make_df(), params={"fast": 7}, execution_model_version="1", framework_version="0", prev_artifact_id=a0.artifact_id)
+        a2 = build_strategy_artifact(strategy_name="ma", code_path=code, df=make_df(), params={"fast": 9}, execution_model_version="1", framework_version="0", prev_artifact_id=a1.artifact_id)
+        store.add(a0)
+        store.add(a1)
+        store.add(a2)
+
+        chain = store.lineage(a2.artifact_id)
+        assert [c.artifact_id for c in chain] == [a2.artifact_id, a1.artifact_id, a0.artifact_id]
+
+    def test_verify_chain_ok(self, tmp_path: Path):
+        db = tmp_path / "artifacts.db"
+        store = PersistentArtifactStore(db)
+        code = Path(__file__)
+        a0 = build_strategy_artifact(strategy_name="ma", code_path=code, df=make_df(), params={"fast": 5}, execution_model_version="1", framework_version="0")
+        a1 = build_strategy_artifact(strategy_name="ma", code_path=code, df=make_df(), params={"fast": 7}, execution_model_version="1", framework_version="0", prev_artifact_id=a0.artifact_id)
+        store.add(a0)
+        store.add(a1)
+
+        ok, err = store.verify_chain()
+        assert ok
+        assert err is None
+
+    def test_verify_chain_detects_tamper(self, tmp_path: Path):
+        db = tmp_path / "artifacts.db"
+        store = PersistentArtifactStore(db)
+        code = Path(__file__)
+        a0 = build_strategy_artifact(strategy_name="ma", code_path=code, df=make_df(), params={"fast": 5}, execution_model_version="1", framework_version="0")
+        store.add(a0)
+
+        # Tamper: directly modify the DB row
+        import sqlite3
+        conn = sqlite3.connect(db)
+        conn.execute("UPDATE artifacts SET code_sha = 'tampered' WHERE artifact_id = ?", (a0.artifact_id,))
+        conn.commit()
+        conn.close()
+
+        ok, err = store.verify_chain()
+        assert not ok
+        assert "integrity chain broken" in err
+
+    def test_verify_integrity(self, tmp_path: Path):
+        db = tmp_path / "artifacts.db"
+        store = PersistentArtifactStore(db)
+        code = Path(__file__)
+        a0 = build_strategy_artifact(strategy_name="ma", code_path=code, df=make_df(), params={"fast": 5}, execution_model_version="1", framework_version="0")
+        store.add(a0)
+        assert store.verify_integrity(a0.artifact_id)
+        assert not store.verify_integrity("nonexistent")
+
+    def test_migration_from_memory(self, tmp_path: Path):
+        db = tmp_path / "artifacts.db"
+        persistent = PersistentArtifactStore(db)
+        memory = ArtifactStore()
+        code = Path(__file__)
+        a0 = build_strategy_artifact(strategy_name="ma", code_path=code, df=make_df(), params={"fast": 5}, execution_model_version="1", framework_version="0")
+        a1 = build_strategy_artifact(strategy_name="ma", code_path=code, df=make_df(), params={"fast": 7}, execution_model_version="1", framework_version="0", prev_artifact_id=a0.artifact_id)
+        a2 = build_strategy_artifact(strategy_name="rsi", code_path=code, df=make_df(), params={"period": 14}, execution_model_version="1", framework_version="0")
+        memory.add(a0)
+        memory.add(a1)
+        memory.add(a2)
+
+        count = persistent.migrate_from_memory(memory)
+        assert count == 3
+        assert persistent.get(a0.artifact_id) is not None
+        assert persistent.get(a1.artifact_id) is not None
+        assert persistent.get(a2.artifact_id) is not None
+        ok, _ = persistent.verify_chain()
+        assert ok
 
 
 class TestLifecycle:

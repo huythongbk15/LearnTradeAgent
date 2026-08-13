@@ -10,6 +10,11 @@ The score never hides the cause — raw metrics are always preserved.
 
 Promotion is fail-closed: if any configured threshold is breached, the
 environment cannot be promoted to the next stage.
+
+Missing metrics are handled fail-closed:
+- Metric missing from BOTH observed AND reference → hard breach (cannot compare)
+- Metric missing from only one side → warning recorded, excluded from score
+- ``required_metrics`` parameter enforces mandatory metrics that must be present
 """
 
 from __future__ import annotations
@@ -35,6 +40,18 @@ REALITY_GAP_METRICS = [
     "partial_fill_rate",
 ]
 
+# Metrics that MUST be present for a valid promotion gate (fail-closed default).
+# Only the absolutely critical execution quality metrics are required by default.
+# Other metrics (sharpe, drawdown, etc.) are optional — missing from both is a warning.
+DEFAULT_REQUIRED_METRICS = frozenset([
+    "fill_ratio",
+    "slippage_bps",
+    "implementation_shortfall_bps",
+    "rejected_order_rate",
+    "partial_fill_rate",
+    "trade_count",
+])
+
 
 @dataclass
 class RealityGapReport:
@@ -42,6 +59,8 @@ class RealityGapReport:
 
     ``metrics`` always carries the raw values; ``score`` is derived.
     ``breaches`` lists every threshold violation with metric + observed value.
+    ``missing_in_both`` — metrics absent from BOTH observed & reference (hard breach).
+    ``missing_in_one`` — metrics present in only one side (warning, excluded from score).
     """
 
     environment: str
@@ -50,10 +69,14 @@ class RealityGapReport:
     score: float = 0.0
     breaches: list[str] = field(default_factory=list)
     thresholds: dict[str, float] = field(default_factory=dict)
+    missing_in_both: list[str] = field(default_factory=list)
+    missing_in_one: list[str] = field(default_factory=list)
     raw: dict[str, Any] = field(default_factory=dict)
 
     @property
     def pass_gate(self) -> bool:
+        """Gate passes if no breaches AND no REQUIRED metrics missing from both.
+        Optional metrics missing from both are warnings, not gate failures."""
         return not self.breaches
 
     def to_dict(self) -> dict[str, Any]:
@@ -64,6 +87,8 @@ class RealityGapReport:
             "score": round(self.score, 6),
             "breaches": self.breaches,
             "thresholds": self.thresholds,
+            "missing_in_both": self.missing_in_both,
+            "missing_in_one": self.missing_in_one,
             "gate_passed": self.pass_gate,
         }
 
@@ -103,20 +128,56 @@ def compute_reality_gap(
     observed: dict[str, float],
     reference: dict[str, float],
     thresholds: dict[str, float] | None = None,
+    required_metrics: frozenset[str] | None = None,
 ) -> RealityGapReport:
     """Build a RealityGapReport comparing ``observed`` vs ``reference``.
 
     * ``score`` is the mean relative deviation over the metrics present in
       both dicts (0 = identical, >0 = gap) — raw metrics are kept separately.
     * ``breaches`` collects every threshold violation.
+    * Missing metrics handling (fail-closed):
+      - Metric in REQUIRED_METRICS but missing from BOTH → hard breach (gate fails)
+      - Metric in REQUIRED_METRICS but missing from ONE side → warning (excluded from score)
+      - Optional metrics missing from both → warning only
     """
     thresholds = {**DEFAULT_REALITY_GAP_THRESHOLDS, **(thresholds or {})}
+    required = required_metrics if required_metrics is not None else DEFAULT_REQUIRED_METRICS
     deviations: list[float] = []
     breaches: list[str] = []
+    missing_in_both: list[str] = []
+    missing_in_one: list[str] = []
+
     for metric in REALITY_GAP_METRICS:
-        # Only metrics present in both environments are comparable.
-        if metric not in observed or metric not in reference:
+        in_obs = metric in observed
+        in_ref = metric in reference
+        is_required = metric in required
+
+        if not in_obs and not in_ref:
+            # Missing from both
+            if is_required:
+                missing_in_both.append(metric)
+                breaches.append(
+                    f"{metric}: REQUIRED but missing from BOTH observed and reference"
+                )
+            else:
+                missing_in_both.append(metric)
             continue
+
+        if not in_obs or not in_ref:
+            # Missing from only one side
+            side = "observed" if not in_obs else "reference"
+            if is_required:
+                missing_in_one.append(metric)
+                breaches.append(
+                    f"{metric}: REQUIRED but missing from {side} "
+                    f"(obs={'present' if in_obs else 'missing'}, "
+                    f"ref={'present' if in_ref else 'missing'})"
+                )
+            else:
+                missing_in_one.append(metric)
+            continue
+
+        # Both present — compute deviation
         obs, ref = float(observed[metric]), float(reference[metric])
         dev = _rel_deviation(obs, ref)
         deviations.append(dev)
@@ -125,6 +186,7 @@ def compute_reality_gap(
                 f"{metric}: observed={obs:.6g} ref={ref:.6g} "
                 f"dev={dev:.3f} > threshold={thresholds[metric]:.3f}"
             )
+
     score = sum(deviations) / len(deviations) if deviations else 0.0
     return RealityGapReport(
         environment=environment,
@@ -133,6 +195,8 @@ def compute_reality_gap(
         score=score,
         breaches=breaches,
         thresholds=thresholds,
+        missing_in_both=missing_in_both,
+        missing_in_one=missing_in_one,
     )
 
 
@@ -183,6 +247,7 @@ def reality_gap_between(
     thresholds: dict[str, float] | None = None,
     observed_metrics: dict[str, float] | None = None,
     reference_metrics: dict[str, float] | None = None,
+    required_metrics: frozenset[str] | None = None,
 ) -> RealityGapReport:
     """One-call helper: build a report from two result objects (or metric dicts)."""
     obs = observed_metrics if observed_metrics is not None else environment_metrics_from_result(observed_result)
@@ -193,4 +258,5 @@ def reality_gap_between(
         observed=obs,
         reference=ref,
         thresholds=thresholds,
+        required_metrics=required_metrics,
     )

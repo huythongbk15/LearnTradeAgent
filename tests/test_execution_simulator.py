@@ -360,7 +360,14 @@ class TestStrategyBridge:
 
 class TestRealityGap:
     def test_identical_reference_score_zero(self):
-        ref = {"fill_ratio": 1.0, "slippage_bps": 0.0, "trade_count": 10}
+        ref = {
+            "fill_ratio": 1.0,
+            "slippage_bps": 0.0,
+            "implementation_shortfall_bps": 0.0,
+            "trade_count": 10,
+            "rejected_order_rate": 0.0,
+            "partial_fill_rate": 0.0,
+        }
         report = compute_reality_gap(
             environment="simulator", reference_environment="backtest",
             observed=ref, reference=ref,
@@ -369,8 +376,22 @@ class TestRealityGap:
         assert report.pass_gate
 
     def test_large_gap_breaches(self):
-        ref = {"fill_ratio": 1.0, "slippage_bps": 1.0, "trade_count": 10}
-        obs = {"fill_ratio": 0.5, "slippage_bps": 100.0, "trade_count": 2}
+        ref = {
+            "fill_ratio": 1.0,
+            "slippage_bps": 1.0,
+            "implementation_shortfall_bps": 2.0,
+            "trade_count": 10,
+            "rejected_order_rate": 0.0,
+            "partial_fill_rate": 0.0,
+        }
+        obs = {
+            "fill_ratio": 0.5,
+            "slippage_bps": 100.0,
+            "implementation_shortfall_bps": 50.0,
+            "trade_count": 2,
+            "rejected_order_rate": 0.1,
+            "partial_fill_rate": 0.2,
+        }
         report = compute_reality_gap(
             environment="simulator", reference_environment="backtest",
             observed=obs, reference=ref,
@@ -380,13 +401,70 @@ class TestRealityGap:
         assert report.breaches
 
     def test_promotion_fail_closed(self):
-        ref = {"fill_ratio": 1.0}
+        ref = {
+            "fill_ratio": 1.0,
+            "slippage_bps": 0.0,
+            "implementation_shortfall_bps": 0.0,
+            "trade_count": 10,
+            "rejected_order_rate": 0.0,
+            "partial_fill_rate": 0.0,
+        }
         ok = compute_reality_gap(environment="a", reference_environment="b", observed=ref, reference=ref)
-        bad = compute_reality_gap(environment="a", reference_environment="b", observed={"fill_ratio": 0.1}, reference=ref)
+        bad = compute_reality_gap(environment="a", reference_environment="b", observed={"fill_ratio": 0.1, "slippage_bps": 0.0, "implementation_shortfall_bps": 0.0, "trade_count": 10, "rejected_order_rate": 0.0, "partial_fill_rate": 0.0}, reference=ref)
         assert promotion_check(ok)
         assert not promotion_check(bad)
 
     def test_raw_metrics_preserved(self):
-        obs = {"fill_ratio": 0.5, "slippage_bps": 12.3}
-        report = compute_reality_gap(environment="a", reference_environment="b", observed=obs, reference={"fill_ratio": 1.0})
+        obs = {
+            "fill_ratio": 0.5,
+            "slippage_bps": 12.3,
+            "implementation_shortfall_bps": 15.0,
+            "trade_count": 5,
+            "rejected_order_rate": 0.0,
+            "partial_fill_rate": 0.0,
+        }
+        ref = {
+            "fill_ratio": 1.0,
+            "slippage_bps": 0.0,
+            "implementation_shortfall_bps": 0.0,
+            "trade_count": 10,
+            "rejected_order_rate": 0.0,
+            "partial_fill_rate": 0.0,
+        }
+        report = compute_reality_gap(environment="a", reference_environment="b", observed=obs, reference=ref)
         assert report.metrics["slippage_bps"] == 12.3
+
+    def test_missing_required_in_both_fails_gate(self):
+        """Required metric missing from BOTH → hard breach (fail-closed)."""
+        ref = {"fill_ratio": 1.0, "slippage_bps": 0.0}
+        obs = {"fill_ratio": 0.9, "slippage_bps": 1.0}
+        report = compute_reality_gap(
+            environment="a", reference_environment="b",
+            observed=obs, reference=ref,
+            required_metrics=frozenset(["fill_ratio", "slippage_bps", "trade_count"])
+        )
+        assert "trade_count" in report.missing_in_both
+        assert "trade_count: REQUIRED but missing from BOTH" in " ".join(report.breaches)
+        assert not report.pass_gate
+
+    def test_missing_required_in_one_warns(self):
+        """Required metric missing from ONE side → warning, excluded from score."""
+        ref = {"fill_ratio": 1.0, "slippage_bps": 0.0, "trade_count": 10}
+        obs = {"fill_ratio": 0.9, "slippage_bps": 1.0}  # missing trade_count
+        report = compute_reality_gap(
+            environment="a", reference_environment="b",
+            observed=obs, reference=ref,
+            required_metrics=frozenset(["fill_ratio", "slippage_bps", "trade_count"])
+        )
+        assert "trade_count" in report.missing_in_one
+        assert "trade_count: REQUIRED but missing from" in " ".join(report.breaches)
+        assert not report.pass_gate
+
+    def test_optional_missing_in_both_warns_only(self):
+        """Optional metric missing from BOTH → warning only, gate still passes if others ok."""
+        ref = {"fill_ratio": 1.0, "slippage_bps": 0.0, "trade_count": 10, "rejected_order_rate": 0.0, "partial_fill_rate": 0.0, "implementation_shortfall_bps": 0.0}
+        obs = {"fill_ratio": 1.0, "slippage_bps": 0.0, "trade_count": 10, "rejected_order_rate": 0.0, "partial_fill_rate": 0.0, "implementation_shortfall_bps": 0.0}
+        # tracking_error_bps is optional and missing from both
+        report = compute_reality_gap(environment="a", reference_environment="b", observed=obs, reference=ref)
+        assert "tracking_error_bps" in report.missing_in_both
+        assert report.pass_gate  # optional missing doesn't fail gate
