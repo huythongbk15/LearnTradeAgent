@@ -23,17 +23,19 @@ class _Tracer(logging.Handler):
 def _fake_market_frame(rows: int = 50) -> pl.DataFrame:
     """Create a synthetic OHLCV frame for testing."""
     prices = [100.0 + i * 0.1 for i in range(rows)]
-    return pl.DataFrame({
-        "timestamp": [
-            datetime(2025, 1, 1, tzinfo=UTC) + timedelta(hours=i)
-            for i in range(rows)
-        ],
-        "open": prices,
-        "high": [p + 0.5 for p in prices],
-        "low": [p - 0.5 for p in prices],
-        "close": prices,
-        "volume": [1.0] * rows,
-    })
+    return pl.DataFrame(
+        {
+            "timestamp": [
+                datetime(2025, 1, 1, tzinfo=UTC) + timedelta(hours=i)
+                for i in range(rows)
+            ],
+            "open": prices,
+            "high": [p + 0.5 for p in prices],
+            "low": [p - 0.5 for p in prices],
+            "close": prices,
+            "volume": [1.0] * rows,
+        }
+    )
 
 
 def test_analyze_report_carries_trace_id() -> None:
@@ -55,7 +57,9 @@ def test_trace_logs_cover_all_stages() -> None:
     finally:
         root.removeHandler(handler)
 
-    trace_lines = [line for line in handler.lines if line.startswith(f"TRACE[{report.trace_id}]")]
+    trace_lines = [
+        line for line in handler.lines if line.startswith(f"TRACE[{report.trace_id}]")
+    ]
     assert len(trace_lines) >= 5
     stages = [line.split("stage=")[1].split(" ")[0] for line in trace_lines]
     for expected in ("data", "indicators", "agent", "final"):

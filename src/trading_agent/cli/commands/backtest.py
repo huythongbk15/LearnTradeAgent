@@ -19,6 +19,7 @@ def backtest():
 def list_strategies_cmd():
     """List all registered strategies."""
     from trading_agent.strategies.base import list_strategies
+
     strategies = list_strategies()
     if not strategies:
         console.print("[yellow]No strategies registered[/yellow]")
@@ -35,24 +36,53 @@ def list_strategies_cmd():
 @click.option("--symbol", "-s", default="BTC/USDT", help="Symbol")
 @click.option("--timeframe", "-t", default="1h", help="Timeframe")
 @click.option(
-    "--param", "-p", "params", multiple=True,
+    "--param",
+    "-p",
+    "params",
+    multiple=True,
     help="Strategy params: key=value (e.g. -p fast_period=10 -p slow_period=30)",
 )
 @click.option("--capital", default=None, type=float, help="Initial capital")
 @click.option(
     "--position-sizing",
-    type=click.Choice(["fixed", "kelly", "half_kelly", "quarter_kelly", "vol_target", "optimal_f"]),
+    type=click.Choice(
+        ["fixed", "kelly", "half_kelly", "quarter_kelly", "vol_target", "optimal_f"]
+    ),
     default="fixed",
     help="Position sizing method",
 )
-@click.option("--fixed-pct", default=0.1, type=float, help="Fixed position % (for fixed method)")
-@click.option("--kelly-fraction", default=0.5, type=float, help="Kelly fraction (0.5=half, 0.25=quarter)")
-@click.option("--commission", default=None, type=float, help="Commission rate (default from config)")
-@click.option("--slippage", default=None, type=float, help="Slippage rate (default from config)")
+@click.option(
+    "--fixed-pct", default=0.1, type=float, help="Fixed position % (for fixed method)"
+)
+@click.option(
+    "--kelly-fraction",
+    default=0.5,
+    type=float,
+    help="Kelly fraction (0.5=half, 0.25=quarter)",
+)
+@click.option(
+    "--commission",
+    default=None,
+    type=float,
+    help="Commission rate (default from config)",
+)
+@click.option(
+    "--slippage", default=None, type=float, help="Slippage rate (default from config)"
+)
 @click.option("--long-only/--long-short", default=True, help="Long-only mode")
-@click.option("--llm/--no-llm", default=False, help="Enable LLM agents in backtest (deterministic mode)")
-@click.option("--llm-provider", default="opencode", help="LLM provider for backtest (opencode, deepseek, openai, ollama)")
-@click.option("--llm-model", default="deepseek-v4-flash-free", help="LLM model for backtest")
+@click.option(
+    "--llm/--no-llm",
+    default=False,
+    help="Enable LLM agents in backtest (deterministic mode)",
+)
+@click.option(
+    "--llm-provider",
+    default="opencode",
+    help="LLM provider for backtest (opencode, deepseek, openai, ollama)",
+)
+@click.option(
+    "--llm-model", default="deepseek-v4-flash-free", help="LLM model for backtest"
+)
 def run_backtest_cmd(
     strategy_name: str,
     symbol: str,
@@ -71,6 +101,7 @@ def run_backtest_cmd(
 ):
     """Run a backtest for a strategy on a symbol."""
     from trading_agent.backtest.engine import run_backtest
+
     # Parse params
     param_dict = {}
     for p in params:
@@ -108,8 +139,7 @@ def run_backtest_cmd(
     engine_kwargs["long_only"] = long_only
 
     console.print(
-        f"Running [bold]{strategy_name}[/bold] on "
-        f"[bold]{symbol}[/bold] {timeframe}…"
+        f"Running [bold]{strategy_name}[/bold] on [bold]{symbol}[/bold] {timeframe}…"
     )
 
     try:
@@ -135,6 +165,7 @@ def run_backtest_cmd(
     if result.trades:
         console.print("\n[bold]Recent Trades:[/bold]")
         from rich.table import Table as RichTable
+
         t_table = RichTable("Entry", "Exit", "P&L%", "Bars")
         for trade in result.trades[-5:]:
             icon = "🟢" if trade.pnl_pct > 0 else "🔴"
@@ -157,7 +188,12 @@ def _print_backtest_result(result):
     # Metrics table
     t = RichTable.grid(padding=(0, 2))
     t.add_row()
-    t.add_row("Return",  f"[green]{result.total_return_pct:>+8.2f}%[/green]" if result.total_return_pct >= 0 else f"[red]{result.total_return_pct:>+8.2f}%[/red]")
+    t.add_row(
+        "Return",
+        f"[green]{result.total_return_pct:>+8.2f}%[/green]"
+        if result.total_return_pct >= 0
+        else f"[red]{result.total_return_pct:>+8.2f}%[/red]",
+    )
     t.add_row("Ann. Return", f"{result.annualized_return_pct:>+8.2f}%")
     t.add_row("Sharpe", f"{result.sharpe_ratio:>8.2f}")
     t.add_row("Sortino", f"{result.sortino_ratio:>8.2f}")
@@ -168,5 +204,3 @@ def _print_backtest_result(result):
     t.add_row("Avg Hold", f"{result.avg_hold_bars:>8.1f} bars")
 
     console.print(Panel(t, title=header, border_style="cyan"))
-
-

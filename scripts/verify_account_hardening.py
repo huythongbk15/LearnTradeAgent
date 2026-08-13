@@ -82,7 +82,11 @@ def main() -> int:
     if pending and args.require_operator_confirmation:
         print("ACCOUNT HARDENING PENDING OPERATOR CONFIRMATION", file=sys.stderr)
         return 1
-    print("ACCOUNT HARDENING OK" if not pending else "ACCOUNT HARDENING OK (manual items pending)")
+    print(
+        "ACCOUNT HARDENING OK"
+        if not pending
+        else "ACCOUNT HARDENING OK (manual items pending)"
+    )
     return 0
 
 

@@ -15,20 +15,21 @@ _NUMERIC_RE = re.compile(r"^[+-]?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?$")
 
 class EventType(str, Enum):
     """Event type enumeration."""
+
     # Trade events
     TRADE_EXECUTED = "trade.executed"
     TRADE_FILLED = "trade.filled"
     TRADE_REJECTED = "trade.rejected"
-    
+
     # Signal events
     SIGNAL_GENERATED = "signal.generated"
     SIGNAL_CANCELLED = "signal.cancelled"
-    
+
     # Risk events
     RISK_CHECK_PASSED = "risk.check_passed"
     RISK_CHECK_FAILED = "risk.check_failed"
     RISK_LIMIT_BREACH = "risk.limit_breach"
-    
+
     # Order events
     ORDER_CREATED = "order.created"
     ORDER_SUBMITTED = "order.submitted"
@@ -36,18 +37,18 @@ class EventType(str, Enum):
     ORDER_PARTIAL = "order.partial"
     ORDER_CANCELLED = "order.cancelled"
     ORDER_REJECTED = "order.rejected"
-    
+
     # Position events
     POSITION_OPENED = "position.opened"
     POSITION_UPDATED = "position.updated"
     POSITION_CLOSED = "position.closed"
     POSITION_LIQUIDATED = "position.liquidated"
-    
+
     # Portfolio events
     PORTFOLIO_REBALANCED = "portfolio.rebalanced"
     PORTFOLIO_SNAPSHOT = "portfolio.snapshot"
     PORTFOLIO_DRAWDOWN = "portfolio.drawdown"
-    
+
     # System events
     SYSTEM_STARTED = "system.started"
     SYSTEM_STOPPED = "system.stopped"
@@ -57,20 +58,21 @@ class EventType(str, Enum):
 @dataclass
 class Event:
     """Base event class."""
+
     event_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     event_type: EventType = EventType.SYSTEM_ERROR
     timestamp: datetime = field(default_factory=datetime.utcnow)
     correlation_id: Optional[str] = None
     causation_id: Optional[str] = None
     metadata: dict = field(default_factory=dict)
-    
+
     def to_dict(self) -> dict:
         data = asdict(self)
         data["event_type"] = self.event_type.value
         data["timestamp"] = self.timestamp.isoformat()
         # Convert Decimal to string
         return self._serialize_decimals(data)
-    
+
     def _serialize_decimals(self, obj: Any) -> Any:
         if isinstance(obj, Decimal):
             return str(obj)
@@ -79,7 +81,7 @@ class Event:
         elif isinstance(obj, list):
             return [self._serialize_decimals(v) for v in obj]
         return obj
-    
+
     @classmethod
     def from_dict(cls, data: dict) -> "Event":
         data = data.copy()
@@ -93,7 +95,7 @@ class Event:
         field_names = {f.name for f in fields(target_cls)}
         kwargs = {k: v for k, v in data.items() if k in field_names}
         return target_cls(**kwargs)
-    
+
     @classmethod
     def _deserialize_decimals(cls, obj: Any) -> Any:
         if isinstance(obj, dict):
@@ -115,6 +117,7 @@ class Event:
 @dataclass
 class TradeEvent(Event):
     """Trade execution event."""
+
     event_type: EventType = EventType.TRADE_EXECUTED
     symbol: str = ""
     side: str = ""  # buy/sell
@@ -131,6 +134,7 @@ class TradeEvent(Event):
 @dataclass
 class SignalEvent(Event):
     """Signal generation event."""
+
     event_type: EventType = EventType.SIGNAL_GENERATED
     symbol: str = ""
     signal_type: str = ""  # buy/sell/hold/close
@@ -144,6 +148,7 @@ class SignalEvent(Event):
 @dataclass
 class RiskEvent(Event):
     """Risk check event."""
+
     event_type: EventType = EventType.RISK_CHECK_PASSED
     check_type: str = ""
     passed: bool = True
@@ -158,6 +163,7 @@ class RiskEvent(Event):
 @dataclass
 class OrderEvent(Event):
     """Order lifecycle event."""
+
     event_type: EventType = EventType.ORDER_CREATED
     order_id: str = ""
     symbol: str = ""
@@ -176,6 +182,7 @@ class OrderEvent(Event):
 @dataclass
 class PositionEvent(Event):
     """Position update event."""
+
     event_type: EventType = EventType.POSITION_UPDATED
     symbol: str = ""
     size: Decimal = Decimal(0)
@@ -190,6 +197,7 @@ class PositionEvent(Event):
 @dataclass
 class PortfolioEvent(Event):
     """Portfolio snapshot event."""
+
     event_type: EventType = EventType.PORTFOLIO_SNAPSHOT
     portfolio_id: str = ""
     total_value: Decimal = Decimal(0)
@@ -228,12 +236,12 @@ _EVENT_CLASS_REGISTRY: dict[EventType, type] = {
 # Projection system
 class Projection(ABC):
     """Base class for event projections (read models)."""
-    
+
     @abstractmethod
     async def project(self, event: Event) -> None:
         """Process an event and update projection."""
         pass
-    
+
     @abstractmethod
     async def get_state(self) -> dict:
         """Get current projection state."""
@@ -242,24 +250,32 @@ class Projection(ABC):
 
 class TradeProjection(Projection):
     """Projection for trade history and P&L."""
-    
+
     def __init__(self):
         self.trades: list[TradeEvent] = []
         self.pnl_by_symbol: dict[str, Decimal] = {}
         self.pnl_by_strategy: dict[str, Decimal] = {}
         self.total_fees: Decimal = Decimal(0)
-    
+
     async def project(self, event: Event) -> None:
         if isinstance(event, TradeEvent):
             self.trades.append(event)
-            
-            pnl = (event.price * event.size) if event.side == "sell" else -(event.price * event.size)
+
+            pnl = (
+                (event.price * event.size)
+                if event.side == "sell"
+                else -(event.price * event.size)
+            )
             pnl -= event.fee
-            
-            self.pnl_by_symbol[event.symbol] = self.pnl_by_symbol.get(event.symbol, Decimal(0)) + pnl
-            self.pnl_by_strategy[event.strategy_id] = self.pnl_by_strategy.get(event.strategy_id, Decimal(0)) + pnl
+
+            self.pnl_by_symbol[event.symbol] = (
+                self.pnl_by_symbol.get(event.symbol, Decimal(0)) + pnl
+            )
+            self.pnl_by_strategy[event.strategy_id] = (
+                self.pnl_by_strategy.get(event.strategy_id, Decimal(0)) + pnl
+            )
             self.total_fees += event.fee
-    
+
     async def get_state(self) -> dict:
         return {
             "total_trades": len(self.trades),
@@ -271,10 +287,10 @@ class TradeProjection(Projection):
 
 class PositionProjection(Projection):
     """Projection for current positions."""
-    
+
     def __init__(self):
         self.positions: dict[str, PositionEvent] = {}
-    
+
     async def project(self, event: Event) -> None:
         if isinstance(event, PositionEvent):
             key = f"{event.symbol}:{event.strategy_id}"
@@ -282,7 +298,7 @@ class PositionProjection(Projection):
                 self.positions.pop(key, None)
             else:
                 self.positions[key] = event
-    
+
     async def get_state(self) -> dict:
         return {
             "positions": {
@@ -302,16 +318,16 @@ class PositionProjection(Projection):
 
 class PortfolioProjection(Projection):
     """Projection for portfolio state."""
-    
+
     def __init__(self):
         self.snapshots: list[PortfolioEvent] = []
         self.current: Optional[PortfolioEvent] = None
-    
+
     async def project(self, event: Event) -> None:
         if isinstance(event, PortfolioEvent):
             self.snapshots.append(event)
             self.current = event
-    
+
     async def get_state(self) -> dict:
         if not self.current:
             return {}
@@ -321,26 +337,28 @@ class PortfolioProjection(Projection):
             "cash": str(self.current.cash),
             "positions_value": str(self.current.positions_value),
             "drawdown_pct": str(self.current.drawdown_pct),
-            "strategy_weights": {k: str(v) for k, v in self.current.strategy_weights.items()},
+            "strategy_weights": {
+                k: str(v) for k, v in self.current.strategy_weights.items()
+            },
             "snapshots_count": len(self.snapshots),
         }
 
 
 class RiskProjection(Projection):
     """Projection for risk monitoring."""
-    
+
     def __init__(self):
         self.checks: list[RiskEvent] = []
         self.breaches: list[RiskEvent] = []
         self.current_metrics: dict[str, Decimal] = {}
-    
+
     async def project(self, event: Event) -> None:
         if isinstance(event, RiskEvent):
             self.checks.append(event)
             self.current_metrics[event.metric] = event.value
             if not event.passed or event.event_type == EventType.RISK_LIMIT_BREACH:
                 self.breaches.append(event)
-    
+
     async def get_state(self) -> dict:
         return {
             "total_checks": len(self.checks),

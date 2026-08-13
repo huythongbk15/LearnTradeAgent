@@ -38,19 +38,21 @@ def create_sample_ohlcv(n_bars: int = 500) -> pl.DataFrame:
     opens[0] = base_price
     volumes = np.random.uniform(10, 100, n_bars)
 
-    return pl.DataFrame({
-        "timestamp": pl.datetime_range(
-            start=pl.datetime(2024, 1, 1),
-            end=pl.datetime(2024, 1, 1) + pl.duration(days=n_bars),
-            interval="1h",
-            eager=True,
-        )[:n_bars],
-        "open": opens,
-        "high": highs,
-        "low": lows,
-        "close": prices,
-        "volume": volumes,
-    })
+    return pl.DataFrame(
+        {
+            "timestamp": pl.datetime_range(
+                start=pl.datetime(2024, 1, 1),
+                end=pl.datetime(2024, 1, 1) + pl.duration(days=n_bars),
+                interval="1h",
+                eager=True,
+            )[:n_bars],
+            "open": opens,
+            "high": highs,
+            "low": lows,
+            "close": prices,
+            "volume": volumes,
+        }
+    )
 
 
 def test_atr_indicators():
@@ -132,13 +134,15 @@ def test_execution_with_atr():
     print("\n--- Simulating price updates with ATR trailing stop ---")
     for i in range(150, 250):
         price = float(df["close"][i])
-        ohlcv_slice = df.slice(0, i+1)
+        ohlcv_slice = df.slice(0, i + 1)
         engine.update_with_atr("BTC/USDT", ohlcv_slice)
 
         pos = engine.exchange.get_position("BTC/USDT")
         if pos and pos.is_active:
             if i % 20 == 0:
-                print(f"  Bar {i}: Price=${price:.2f}, SL=${pos.stop_loss:.2f}, TP=${pos.take_profit:.2f}, PnL={pos.unrealized_pnl_pct:+.2f}%")
+                print(
+                    f"  Bar {i}: Price=${price:.2f}, SL=${pos.stop_loss:.2f}, TP=${pos.take_profit:.2f}, PnL={pos.unrealized_pnl_pct:+.2f}%"
+                )
         elif pos and not pos.is_active:
             print(f"  Position closed at bar {i} (price=${price:.2f})")
             break
@@ -152,7 +156,9 @@ def test_execution_with_atr():
     trades = engine.get_trade_history(10)
     print(f"\nTrades: {len(trades)}")
     for t in trades:
-        print(f"  {t['symbol']} {t['side']} PnL=${t['pnl']:.2f} ({t['pnl_pct']:+.2f}%) reason={t['reason']}")
+        print(
+            f"  {t['symbol']} {t['side']} PnL=${t['pnl']:.2f} ({t['pnl_pct']:+.2f}%) reason={t['reason']}"
+        )
 
     print()
 
@@ -172,7 +178,9 @@ def test_comparison_fixed_vs_atr():
     entry_atr = float(df["atr"][150])
 
     # Test 1: Fixed percentage stop (old way)
-    engine_fixed = ExecutionEngine(initial_capital=10000.0, exchange_name="binance_fixed")
+    engine_fixed = ExecutionEngine(
+        initial_capital=10000.0, exchange_name="binance_fixed"
+    )
     signal = AgentMessage(
         role="trader",
         signal="BUY",
@@ -210,7 +218,7 @@ def test_comparison_fixed_vs_atr():
     # Run both
     for i in range(150, 350):
         price = float(df["close"][i])
-        ohlcv_slice = df.slice(0, i+1)
+        ohlcv_slice = df.slice(0, i + 1)
 
         # Fixed engine (no ATR data passed)
         engine_fixed.update_prices({"BTC/USDT": price})
@@ -228,16 +236,24 @@ def test_comparison_fixed_vs_atr():
     summary_f = engine_fixed.get_summary()
     summary_a = engine_atr.get_summary()
 
-    print(f"Fixed Stop:   Equity=${summary_f['equity']:.2f}, Return={summary_f['return_pct']:+.2f}%, Trades={summary_f['total_trades']}")
-    print(f"ATR Trailing: Equity=${summary_a['equity']:.2f}, Return={summary_a['return_pct']:+.2f}%, Trades={summary_a['total_trades']}")
+    print(
+        f"Fixed Stop:   Equity=${summary_f['equity']:.2f}, Return={summary_f['return_pct']:+.2f}%, Trades={summary_f['total_trades']}"
+    )
+    print(
+        f"ATR Trailing: Equity=${summary_a['equity']:.2f}, Return={summary_a['return_pct']:+.2f}%, Trades={summary_a['total_trades']}"
+    )
 
     trades_f = engine_fixed.get_trade_history(5)
     trades_a = engine_atr.get_trade_history(5)
     print(f"Fixed trades: {len(trades_f)}, ATR trades: {len(trades_a)}")
     if trades_f:
-        print(f"  Fixed last: PnL=${trades_f[0]['pnl']:.2f} ({trades_f[0]['pnl_pct']:+.2f}%) reason={trades_f[0]['reason']}")
+        print(
+            f"  Fixed last: PnL=${trades_f[0]['pnl']:.2f} ({trades_f[0]['pnl_pct']:+.2f}%) reason={trades_f[0]['reason']}"
+        )
     if trades_a:
-        print(f"  ATR last: PnL=${trades_a[0]['pnl']:.2f} ({trades_a[0]['pnl_pct']:+.2f}%) reason={trades_a[0]['reason']}")
+        print(
+            f"  ATR last: PnL=${trades_a[0]['pnl']:.2f} ({trades_a[0]['pnl_pct']:+.2f}%) reason={trades_a[0]['reason']}"
+        )
 
     print()
 
@@ -260,12 +276,16 @@ def test_position_sizing():
     atr = 1000.0  # 2% ATR
 
     # ATR-based sizing
-    size_atr = compute_atr_position_size(equity, atr, current_price, risk_pct=0.02, atr_multiplier=2.0)
-    print(f"ATR-based (2% risk, 2x ATR): {size_atr:.6f} BTC (${size_atr * current_price:,.2f})")
+    size_atr = compute_atr_position_size(
+        equity, atr, current_price, risk_pct=0.02, atr_multiplier=2.0
+    )
+    print(
+        f"ATR-based (2% risk, 2x ATR): {size_atr:.6f} BTC (${size_atr * current_price:,.2f})"
+    )
 
     # Kelly fraction
     kelly = compute_kelly_fraction(win_rate=0.55, avg_win=0.04, avg_loss=0.02)
-    print(f"Kelly fraction (55% WR, 2:1 R:R): {kelly:.4f} ({kelly*100:.1f}%)")
+    print(f"Kelly fraction (55% WR, 2:1 R:R): {kelly:.4f} ({kelly * 100:.1f}%)")
 
     # Volatility targeting
     vol_size = compute_volatility_target_size(equity, 0.15, 0.50, max_leverage=1.0)

@@ -1,4 +1,5 @@
 """Query Alpaca paper: orders gần nhất + equity + positions."""
+
 import os
 import sys
 
@@ -11,12 +12,16 @@ from alpaca.trading.client import TradingClient  # noqa: E402
 from alpaca.trading.enums import QueryOrderStatus  # noqa: E402
 from alpaca.trading.requests import GetOrdersRequest  # noqa: E402
 
-c = TradingClient(os.environ["ALPACA_API_KEY"], os.environ["ALPACA_API_SECRET"], paper=True)
+c = TradingClient(
+    os.environ["ALPACA_API_KEY"], os.environ["ALPACA_API_SECRET"], paper=True
+)
 orders = c.get_orders(filter=GetOrdersRequest(status=QueryOrderStatus.ALL, limit=6))
 print("== 6 lệnh gần nhất ==")
 for o in orders:
     filled = o.filled_qty or 0
-    print(f"  {o.symbol:10s} {o.side.value:4s} qty={o.qty} filled={filled} status={o.status.value}")
+    print(
+        f"  {o.symbol:10s} {o.side.value:4s} qty={o.qty} filled={filled} status={o.status.value}"
+    )
 
 acct = c.get_account()
 print("\nEquity:", round(float(acct.equity), 2), "| Cash:", round(float(acct.cash), 2))

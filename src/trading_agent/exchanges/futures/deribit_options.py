@@ -6,8 +6,16 @@ from decimal import Decimal
 from typing import Optional, List
 
 from trading_agent.exchanges.models import (
-    Symbol, AssetClass, MarketType, Order, OrderSide, OrderType, 
-    OrderStatus, Ticker, OrderBook, Balance
+    Symbol,
+    AssetClass,
+    MarketType,
+    Order,
+    OrderSide,
+    OrderType,
+    OrderStatus,
+    Ticker,
+    OrderBook,
+    Balance,
 )
 from trading_agent.exchanges.ccxt_adapter import CCXTAdapter
 
@@ -30,16 +38,18 @@ class DeribitOptionsAdapter(CCXTAdapter):
 
     async def _init_exchange(self) -> None:
         """Initialize Deribit exchange."""
-        self._exchange = ccxt.deribit({
-            "apiKey": self.api_key,
-            "secret": self.secret,
-            "password": self.password,
-            "enableRateLimit": True,
-            "options": {
-                "defaultType": "option",
-            },
-        })
-        
+        self._exchange = ccxt.deribit(
+            {
+                "apiKey": self.api_key,
+                "secret": self.secret,
+                "password": self.password,
+                "enableRateLimit": True,
+                "options": {
+                    "defaultType": "option",
+                },
+            }
+        )
+
         if self.testnet:
             self._exchange.set_sandbox_mode(True)
 
@@ -64,10 +74,11 @@ class DeribitOptionsAdapter(CCXTAdapter):
             # Convert expiry: 29MAR24 -> 2024-03-29
             try:
                 from datetime import datetime
+
                 expiry = datetime.strptime(expiry_str, "%d%b%y").strftime("%Y-%m-%d")
             except Exception:
                 expiry = expiry_str
-            
+
             return Symbol(
                 base=base,
                 quote="USDC",  # Deribit quotes in USDC
@@ -89,7 +100,7 @@ class DeribitOptionsAdapter(CCXTAdapter):
     async def create_order(self, order: Order) -> Order:
         """Create options order."""
         ccxt_symbol = self._convert_symbol(order.symbol)
-        
+
         params = {}
         if order.reduce_only:
             params["reduceOnly"] = True
@@ -104,7 +115,7 @@ class DeribitOptionsAdapter(CCXTAdapter):
             price=float(order.price) if order.price else None,
             params=params,
         )
-        
+
         return self._parse_order(ccxt_order, order.symbol)
 
     async def cancel_order(self, order_id: str, symbol: Symbol) -> Order:
@@ -123,7 +134,12 @@ class DeribitOptionsAdapter(CCXTAdapter):
         """Fetch open orders."""
         ccxt_symbol = self._convert_symbol(symbol) if symbol else None
         orders = await self._exchange.fetch_open_orders(ccxt_symbol)
-        return [self._parse_order(o, self._parse_symbol({"symbol": o["symbol"], "id": o["symbol"]})) for o in orders]
+        return [
+            self._parse_order(
+                o, self._parse_symbol({"symbol": o["symbol"], "id": o["symbol"]})
+            )
+            for o in orders
+        ]
 
     def _parse_order(self, ccxt_order: dict, symbol: Symbol) -> Order:
         """Parse CCXT order to unified Order."""
@@ -134,7 +150,7 @@ class DeribitOptionsAdapter(CCXTAdapter):
             "rejected": OrderStatus.REJECTED,
             "expired": OrderStatus.EXPIRED,
         }
-        
+
         return Order(
             id=ccxt_order["id"],
             symbol=symbol,
@@ -143,9 +159,15 @@ class DeribitOptionsAdapter(CCXTAdapter):
             size=Decimal(str(ccxt_order["amount"])),
             price=Decimal(str(ccxt_order["price"])) if ccxt_order["price"] else None,
             status=status_map.get(ccxt_order["status"], OrderStatus.OPEN),
-            filled_size=Decimal(str(ccxt_order["filled"])) if ccxt_order["filled"] else Decimal(0),
-            avg_fill_price=Decimal(str(ccxt_order["average"])) if ccxt_order["average"] else Decimal(0),
-            fee=Decimal(str(ccxt_order["fee"]["cost"])) if ccxt_order.get("fee") else Decimal(0),
+            filled_size=Decimal(str(ccxt_order["filled"]))
+            if ccxt_order["filled"]
+            else Decimal(0),
+            avg_fill_price=Decimal(str(ccxt_order["average"]))
+            if ccxt_order["average"]
+            else Decimal(0),
+            fee=Decimal(str(ccxt_order["fee"]["cost"]))
+            if ccxt_order.get("fee")
+            else Decimal(0),
             time_in_force=ccxt_order.get("timeInForce", "GTC"),
             reduce_only=ccxt_order.get("reduceOnly", False),
             post_only=ccxt_order.get("postOnly", False),
@@ -157,7 +179,7 @@ class DeribitOptionsAdapter(CCXTAdapter):
         """Fetch ticker for option."""
         ccxt_symbol = self._convert_symbol(symbol)
         ticker = await self._exchange.fetch_ticker(ccxt_symbol)
-        
+
         return Ticker(
             symbol=symbol,
             timestamp=ticker["timestamp"],
@@ -168,26 +190,36 @@ class DeribitOptionsAdapter(CCXTAdapter):
             low=Decimal(str(ticker["low"])) if ticker["low"] else None,
             open=Decimal(str(ticker["open"])) if ticker["open"] else None,
             close=Decimal(str(ticker["close"])) if ticker["close"] else None,
-            base_volume=Decimal(str(ticker["baseVolume"])) if ticker["baseVolume"] else None,
-            quote_volume=Decimal(str(ticker["quoteVolume"])) if ticker["quoteVolume"] else None,
+            base_volume=Decimal(str(ticker["baseVolume"]))
+            if ticker["baseVolume"]
+            else None,
+            quote_volume=Decimal(str(ticker["quoteVolume"]))
+            if ticker["quoteVolume"]
+            else None,
         )
 
     async def fetch_order_book(self, symbol: Symbol, limit: int = 20) -> OrderBook:
         """Fetch order book for option."""
         ccxt_symbol = self._convert_symbol(symbol)
         ob = await self._exchange.fetch_order_book(ccxt_symbol, limit)
-        
+
         return OrderBook(
             symbol=symbol,
             timestamp=ob["timestamp"],
-            bids=[{"price": Decimal(str(b[0])), "size": Decimal(str(b[1]))} for b in ob["bids"]],
-            asks=[{"price": Decimal(str(a[0])), "size": Decimal(str(a[1]))} for a in ob["asks"]],
+            bids=[
+                {"price": Decimal(str(b[0])), "size": Decimal(str(b[1]))}
+                for b in ob["bids"]
+            ],
+            asks=[
+                {"price": Decimal(str(a[0])), "size": Decimal(str(a[1]))}
+                for a in ob["asks"]
+            ],
         )
 
     async def fetch_balance(self) -> Balance:
         """Fetch options account balance."""
         balance = await self._exchange.fetch_balance()
-        
+
         assets = {}
         for currency, amounts in balance.items():
             if currency in ("info", "free", "used", "total"):
@@ -197,7 +229,7 @@ class DeribitOptionsAdapter(CCXTAdapter):
                 "used": Decimal(str(amounts["used"])),
                 "total": Decimal(str(amounts["total"])),
             }
-        
+
         return Balance(
             asset_class=self._asset_class,
             assets=assets,

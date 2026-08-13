@@ -62,11 +62,11 @@ class MpcObjectives:
 class MpcConstraints:
     """Constraints every feasible slice must satisfy (fail closed)."""
 
-    max_participation: float        # 0..1 — cap as fraction of observed volume
-    slippage_budget_bps: float      # hard cap on accumulated slippage
-    deadline_bars: int              # parent deadline in bars
+    max_participation: float  # 0..1 — cap as fraction of observed volume
+    slippage_budget_bps: float  # hard cap on accumulated slippage
+    deadline_bars: int  # parent deadline in bars
     risk_limit_qty: float = math.inf  # max quantity per slice from risk limits
-    min_liquidity: float = 0.0      # min required depth (same side) for a slice
+    min_liquidity: float = 0.0  # min required depth (same side) for a slice
 
     def validate(self) -> None:
         if not 0 < self.max_participation <= 1:
@@ -122,7 +122,7 @@ class MpcResult:
 
     feasible: bool
     slice_qty: float
-    reason: str                       # "ok" | "done" | "INFEASIBLE_*"
+    reason: str  # "ok" | "done" | "INFEASIBLE_*"
     costs: ObjectiveCosts = ObjectiveCosts()
 
     @property

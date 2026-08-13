@@ -18,7 +18,9 @@ def test_child_failure_is_propagated(monkeypatch):
     monkeypatch.setattr(
         live_cron_runner.subprocess,
         "run",
-        lambda *args, **kwargs: SimpleNamespace(returncode=7, stdout="failed", stderr=""),
+        lambda *args, **kwargs: SimpleNamespace(
+            returncode=7, stdout="failed", stderr=""
+        ),
     )
     monkeypatch.setattr(live_cron_runner, "send_telegram", lambda text: True)
     assert live_cron_runner.main() == 7

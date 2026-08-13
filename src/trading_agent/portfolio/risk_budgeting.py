@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 
 class RiskBudgetMethod(str, Enum):
     """Risk budgeting method"""
+
     EQUAL_RISK_CONTRIBUTION = "erc"  # Equal Risk Contribution
     RISK_PARITY = "risk_parity"  # Classic risk parity
     MAX_DIVERSIFICATION = "max_div"  # Maximum Diversification
@@ -40,6 +41,7 @@ class RiskBudgetMethod(str, Enum):
 
 class CorrelationMethod(str, Enum):
     """Correlation calculation method"""
+
     PEARSON = "pearson"
     SPEARMAN = "spearman"
     KENDALL = "kendall"
@@ -50,6 +52,7 @@ class CorrelationMethod(str, Enum):
 @dataclass
 class RiskBudgetResult:
     """Result of risk budgeting optimization"""
+
     weights: dict[Symbol, Decimal]
     risk_contributions: dict[Symbol, Decimal]
     portfolio_vol: Decimal
@@ -63,6 +66,7 @@ class RiskBudgetResult:
 @dataclass
 class CorrelationMatrix:
     """Rolling correlation matrix with metadata"""
+
     symbols: list[Symbol]
     matrix: np.ndarray
     method: CorrelationMethod
@@ -89,8 +93,8 @@ class CorrelationMatrix:
         corr_matrix = np.abs(self.matrix).copy()
         np.fill_diagonal(corr_matrix, 1.0)
         dist = squareform(1 - corr_matrix)
-        link = linkage(dist, method='ward')
-        labels = fcluster(link, n_clusters, criterion='maxclust')
+        link = linkage(dist, method="ward")
+        labels = fcluster(link, n_clusters, criterion="maxclust")
 
         clusters = {}
         for idx, label in enumerate(labels):
@@ -156,7 +160,12 @@ class RiskBudgeter:
         marginal_risk = cov @ weights / port_vol
         return weights * marginal_risk
 
-    def _objective_erc(self, weights: np.ndarray, cov: np.ndarray, target_risk: np.ndarray | None = None) -> float:
+    def _objective_erc(
+        self,
+        weights: np.ndarray,
+        cov: np.ndarray,
+        target_risk: np.ndarray | None = None,
+    ) -> float:
         """ERC objective: minimize sum of squared risk contribution differences"""
         rc = self._risk_contribution(weights, cov)
         if target_risk is None:
@@ -176,9 +185,14 @@ class RiskBudgeter:
         """Minimize portfolio variance"""
         return weights @ cov @ weights
 
-    def optimize(self, returns: pd.DataFrame, target_risk: np.ndarray | None = None) -> RiskBudgetResult:
+    def optimize(
+        self, returns: pd.DataFrame, target_risk: np.ndarray | None = None
+    ) -> RiskBudgetResult:
         """Run risk budgeting optimization"""
-        symbols = [Symbol(s, "USD", AssetClass.CRYPTO, MarketType.SPOT, "test") for s in returns.columns]  # Simplified
+        symbols = [
+            Symbol(s, "USD", AssetClass.CRYPTO, MarketType.SPOT, "test")
+            for s in returns.columns
+        ]  # Simplified
         n = len(symbols)
 
         # Estimate covariance
@@ -191,7 +205,7 @@ class RiskBudgeter:
         bounds = [(self.min_weight, self.max_weight)] * n
 
         # Constraints: sum to 1
-        constraints = [{'type': 'eq', 'fun': lambda x: np.sum(x) - 1}]
+        constraints = [{"type": "eq", "fun": lambda x: np.sum(x) - 1}]
 
         # Long only constraint
         if self.long_only:
@@ -199,12 +213,15 @@ class RiskBudgeter:
 
         # Select objective
         if self.method == RiskBudgetMethod.EQUAL_RISK_CONTRIBUTION:
+
             def objective(x):
                 return self._objective_erc(x, cov, target_risk)
         elif self.method == RiskBudgetMethod.MAX_DIVERSIFICATION:
+
             def objective(x):
                 return self._objective_max_div(x, cov)
         elif self.method == RiskBudgetMethod.MIN_VARIANCE:
+
             def objective(x):
                 return self._objective_min_var(x, cov)
         elif self.method == RiskBudgetMethod.INVERSE_VOL:
@@ -223,10 +240,10 @@ class RiskBudgeter:
         result = minimize(
             objective,
             x0,
-            method='SLSQP',
+            method="SLSQP",
             bounds=bounds,
             constraints=constraints,
-            options={'maxiter': 1000, 'ftol': 1e-10}
+            options={"maxiter": 1000, "ftol": 1e-10},
         )
 
         if not result.success:
@@ -238,7 +255,7 @@ class RiskBudgeter:
                 diversification_ratio=Decimal(0),
                 method=self.method,
                 success=False,
-                message=result.message
+                message=result.message,
             )
 
         weights = np.maximum(result.x, 0)
@@ -246,7 +263,9 @@ class RiskBudgeter:
 
         return self._create_result(weights, cov, symbols)
 
-    def _create_result(self, weights: np.ndarray, cov: np.ndarray, symbols: list[Symbol]) -> RiskBudgetResult:
+    def _create_result(
+        self, weights: np.ndarray, cov: np.ndarray, symbols: list[Symbol]
+    ) -> RiskBudgetResult:
         """Create result object from weights"""
         weight_dict = {s: Decimal(str(w)) for s, w in zip(symbols, weights)}
 
@@ -259,7 +278,9 @@ class RiskBudgeter:
 
         # Diversification ratio
         avg_vol = np.sum(weights * np.sqrt(np.diag(cov)))
-        div_ratio = Decimal(str(avg_vol / float(port_vol))) if port_vol > 0 else Decimal(0)
+        div_ratio = (
+            Decimal(str(avg_vol / float(port_vol))) if port_vol > 0 else Decimal(0)
+        )
 
         return RiskBudgetResult(
             weights=weight_dict,
@@ -267,10 +288,12 @@ class RiskBudgeter:
             portfolio_vol=port_vol,
             diversification_ratio=div_ratio,
             method=self.method,
-            success=True
+            success=True,
         )
 
-    def _hrp_optimize(self, returns: pd.DataFrame, cov: np.ndarray, symbols: list[Symbol]) -> RiskBudgetResult:
+    def _hrp_optimize(
+        self, returns: pd.DataFrame, cov: np.ndarray, symbols: list[Symbol]
+    ) -> RiskBudgetResult:
         """Hierarchical Risk Parity optimization"""
         from scipy.cluster.hierarchy import linkage
         from scipy.spatial.distance import squareform
@@ -278,7 +301,7 @@ class RiskBudgeter:
         # Correlation matrix
         corr = returns.corr().values
         dist = squareform(1 - np.abs(corr))
-        link = linkage(dist, method='ward')
+        link = linkage(dist, method="ward")
 
         # Recursive bisection
         def get_quasi_diag(link):
@@ -369,18 +392,27 @@ class CorrelationMonitor:
     def update(self, returns: pd.DataFrame) -> CorrelationMatrix:
         """Update correlation matrix with new returns"""
         if len(returns) < self.min_periods:
-            logger.warning(f"Insufficient data for correlation: {len(returns)} < {self.min_periods}")
+            logger.warning(
+                f"Insufficient data for correlation: {len(returns)} < {self.min_periods}"
+            )
             return self._current_correlation
 
         # Calculate correlation
         if self.method == CorrelationMethod.EWMA:
             corr_matrix = self._ewma_correlation(returns)
         else:
-            corr_matrix = returns.rolling(self.window, min_periods=self.min_periods).corr().iloc[-len(returns.columns):]
+            corr_matrix = (
+                returns.rolling(self.window, min_periods=self.min_periods)
+                .corr()
+                .iloc[-len(returns.columns) :]
+            )
 
         # Get latest correlation matrix
-        symbols = [Symbol(s, "USD", AssetClass.CRYPTO, MarketType.SPOT, "test") for s in returns.columns]  # Simplified
-        latest_corr = corr_matrix.iloc[-len(symbols):].values
+        symbols = [
+            Symbol(s, "USD", AssetClass.CRYPTO, MarketType.SPOT, "test")
+            for s in returns.columns
+        ]  # Simplified
+        latest_corr = corr_matrix.iloc[-len(symbols) :].values
 
         # Create correlation matrix object
         corr_obj = CorrelationMatrix(
@@ -413,7 +445,11 @@ class CorrelationMonitor:
         weights = weights / weights.sum()
 
         weighted_returns = returns.values * np.sqrt(weights[:, np.newaxis])
-        return pd.DataFrame(np.corrcoef(weighted_returns, rowvar=False), index=returns.columns, columns=returns.columns)
+        return pd.DataFrame(
+            np.corrcoef(weighted_returns, rowvar=False),
+            index=returns.columns,
+            columns=returns.columns,
+        )
 
     def _detect_regime(self, corr_matrix: np.ndarray) -> int:
         """Detect correlation regime using GMM"""
@@ -431,9 +467,7 @@ class CorrelationMonitor:
             if len(hist_features) >= self.n_regimes:
                 hist_features = np.array(hist_features)
                 self._regime_model = GaussianMixture(
-                    n_components=self.n_regimes,
-                    random_state=42,
-                    covariance_type='full'
+                    n_components=self.n_regimes, random_state=42, covariance_type="full"
                 )
                 self._regime_model.fit(hist_features)
 
@@ -455,7 +489,9 @@ class CorrelationMonitor:
         max_change = np.max(diff)
 
         if max_change > self.alert_threshold:
-            logger.warning(f"Correlation regime change detected: max change = {max_change:.3f}")
+            logger.warning(
+                f"Correlation regime change detected: max change = {max_change:.3f}"
+            )
 
     def get_correlation(self, s1: Symbol, s2: Symbol) -> float:
         """Get current correlation between two symbols"""
@@ -519,7 +555,11 @@ class DrawdownController:
             self._peak_equity = equity
             self._current_dd_pct = Decimal(0)
         else:
-            self._current_dd_pct = (self._peak_equity - equity) / self._peak_equity if self._peak_equity > 0 else Decimal(0)
+            self._current_dd_pct = (
+                (self._peak_equity - equity) / self._peak_equity
+                if self._peak_equity > 0
+                else Decimal(0)
+            )
 
         self._max_dd_pct = max(self._max_dd_pct, self._current_dd_pct)
 
@@ -545,9 +585,15 @@ class DrawdownController:
         elif dd >= self.reduce_threshold:
             self._is_trading_allowed = True
             # Linear reduction from reduce_threshold to stop_threshold
-            reduction = (dd - self.reduce_threshold) / (self.stop_threshold - self.reduce_threshold)
-            self._position_multiplier = Decimal(1 - reduction * 0.8)  # Reduce to 20% max
-            logger.warning(f"DRAWDOWN REDUCE: {dd:.2%}, multiplier = {self._position_multiplier:.2f}")
+            reduction = (dd - self.reduce_threshold) / (
+                self.stop_threshold - self.reduce_threshold
+            )
+            self._position_multiplier = Decimal(
+                1 - reduction * 0.8
+            )  # Reduce to 20% max
+            logger.warning(
+                f"DRAWDOWN REDUCE: {dd:.2%}, multiplier = {self._position_multiplier:.2f}"
+            )
         elif dd >= self.warning_threshold:
             self._is_trading_allowed = True
             self._position_multiplier = Decimal(0.8)
@@ -558,7 +604,8 @@ class DrawdownController:
             if self._position_multiplier < 1:
                 self._position_multiplier = min(
                     Decimal(1),
-                    self._position_multiplier + Decimal(str(self.recovery_factor * 0.1))
+                    self._position_multiplier
+                    + Decimal(str(self.recovery_factor * 0.1)),
                 )
 
     def get_position_multiplier(self) -> Decimal:
@@ -580,17 +627,17 @@ class DrawdownController:
     def get_status(self) -> dict:
         """Get full status"""
         return {
-            'current_equity': float(self._current_equity),
-            'peak_equity': float(self._peak_equity),
-            'current_drawdown_pct': float(self._current_dd_pct),
-            'max_drawdown_pct': float(self._max_dd_pct),
-            'position_multiplier': float(self._position_multiplier),
-            'trading_allowed': self._is_trading_allowed,
-            'thresholds': {
-                'warning': self.warning_threshold,
-                'reduce': self.reduce_threshold,
-                'stop': self.stop_threshold,
-            }
+            "current_equity": float(self._current_equity),
+            "peak_equity": float(self._peak_equity),
+            "current_drawdown_pct": float(self._current_dd_pct),
+            "max_drawdown_pct": float(self._max_dd_pct),
+            "position_multiplier": float(self._position_multiplier),
+            "trading_allowed": self._is_trading_allowed,
+            "thresholds": {
+                "warning": self.warning_threshold,
+                "reduce": self.reduce_threshold,
+                "stop": self.stop_threshold,
+            },
         }
 
     def reset(self, equity: Decimal | None = None) -> None:

@@ -151,7 +151,9 @@ class ExecutionEngine:
             return orders
 
         # Determine position size
-        symbol = signal.details.get("symbol", "BTC/USDT") if signal.details else "BTC/USDT"
+        symbol = (
+            signal.details.get("symbol", "BTC/USDT") if signal.details else "BTC/USDT"
+        )
         max_pos_pct = signal.max_position_size_pct or 0.25
         confidence = signal.confidence or 0.5
 
@@ -170,6 +172,7 @@ class ExecutionEngine:
             # Try to load pre-computed ATR from storage first
             try:
                 from trading_agent.data.storage import load_ohlcv
+
                 df = load_ohlcv(self.exchange_name, symbol, "1h")
                 if not df.is_empty() and "atr" in df.columns:
                     atr = float(df["atr"].tail(1).item())
@@ -177,7 +180,11 @@ class ExecutionEngine:
                     # Fallback: compute ATR on-demand
                     atr_expr = compute_atr(df, period=14)
                     atr_series = df.select(atr_expr).to_series()
-                    atr = float(atr_series.tail(1).item()) if not atr_series.is_empty() else None
+                    atr = (
+                        float(atr_series.tail(1).item())
+                        if not atr_series.is_empty()
+                        else None
+                    )
             except Exception as e:
                 logger.warning(f"ATR load failed for {symbol}: {e}")
 
@@ -192,7 +199,11 @@ class ExecutionEngine:
                 if atr and atr > 0:
                     # ATR-based position sizing: risk 2% per trade
                     risk_pct = 0.02 * confidence  # Scale risk by confidence
-                    atr_mult = signal.details.get("trailing_atr_mult", 2.0) if signal.details else 2.0
+                    atr_mult = (
+                        signal.details.get("trailing_atr_mult", 2.0)
+                        if signal.details
+                        else 2.0
+                    )
                     amount = compute_atr_position_size(
                         equity=equity,
                         atr=atr,
@@ -217,7 +228,8 @@ class ExecutionEngine:
                     f"Signal: BUY {amount} {symbol} "
                     f"(${amount * current_price:,.2f}, "
                     f"{max_pos_pct * 100:.0f}% of ${equity:,.2f}) "
-                    f"[sizing: {sizing_method}, ATR={atr:.2f}]" if atr
+                    f"[sizing: {sizing_method}, ATR={atr:.2f}]"
+                    if atr
                     else f"Signal: BUY {amount} {symbol} "
                     f"(${amount * current_price:,.2f}, "
                     f"{max_pos_pct * 100:.0f}% of ${equity:,.2f}) "
@@ -240,20 +252,34 @@ class ExecutionEngine:
 
                         # ATR-based trailing stop
                         if atr and atr > 0:
-                            trailing_mult = signal.details.get("trailing_atr_mult", 2.0) if signal.details else 2.0
-                            pos.trailing_stop_pct = trailing_mult  # repurpose field as ATR multiplier
+                            trailing_mult = (
+                                signal.details.get("trailing_atr_mult", 2.0)
+                                if signal.details
+                                else 2.0
+                            )
+                            pos.trailing_stop_pct = (
+                                trailing_mult  # repurpose field as ATR multiplier
+                            )
                             pos.stop_loss = current_price - (atr * trailing_mult)
                             pos.metadata["trailing_stop_type"] = "atr"
-                            logger.info(f"ATR trailing stop set: {symbol} @ {pos.stop_loss:.2f} (ATR={atr:.2f}, mult={trailing_mult})")
+                            logger.info(
+                                f"ATR trailing stop set: {symbol} @ {pos.stop_loss:.2f} (ATR={atr:.2f}, mult={trailing_mult})"
+                            )
                         else:
                             # Fixed percentage fallback
                             stop_pct = 0.05
                             pos.stop_loss = current_price * (1 - stop_pct)
                             pos.metadata["trailing_stop_type"] = "fixed_pct"
-                            logger.info(f"Fixed stop-loss set: {symbol} @ {pos.stop_loss:.2f} ({stop_pct*100:.1f}%)")
+                            logger.info(
+                                f"Fixed stop-loss set: {symbol} @ {pos.stop_loss:.2f} ({stop_pct * 100:.1f}%)"
+                            )
 
                         # Active take-profit: R:R based (default 2:1)
-                        risk_reward = signal.details.get("risk_reward", 2.0) if signal.details else 2.0
+                        risk_reward = (
+                            signal.details.get("risk_reward", 2.0)
+                            if signal.details
+                            else 2.0
+                        )
                         if atr and atr > 0:
                             take_profit_dist = atr * trailing_mult * risk_reward
                             pos.take_profit = current_price + take_profit_dist
@@ -262,13 +288,17 @@ class ExecutionEngine:
                             stop_dist = current_price - pos.stop_loss
                             pos.take_profit = current_price + (stop_dist * risk_reward)
                         pos.metadata["risk_reward"] = risk_reward
-                        logger.info(f"Take-profit set: {symbol} @ {pos.take_profit:.2f} (R:R={risk_reward})")
+                        logger.info(
+                            f"Take-profit set: {symbol} @ {pos.take_profit:.2f} (R:R={risk_reward})"
+                        )
 
                         # Persist position metadata (sizing_method, trailing_stop_type, risk_reward)
                         self.exchange._save_state()
 
             else:
-                logger.info(f"BUY signal but already in position: {existing_pos.quantity} {symbol}")
+                logger.info(
+                    f"BUY signal but already in position: {existing_pos.quantity} {symbol}"
+                )
 
         elif signal_str == "SELL":
             if existing_pos and existing_pos.is_active:
@@ -299,8 +329,10 @@ class ExecutionEngine:
         pos = self.exchange.get_position(symbol)
         if pos and pos.is_active:
             pos.stop_loss = pos.entry_price * (1 - stop_pct)
-            logger.info(f"Stop-loss set: {symbol} @ {pos.stop_loss:.2f} "
-                        f"({stop_pct * 100:.1f}% below entry)")
+            logger.info(
+                f"Stop-loss set: {symbol} @ {pos.stop_loss:.2f} "
+                f"({stop_pct * 100:.1f}% below entry)"
+            )
 
     # ── Price feed ─────────────────────────────────────────────────────
 
@@ -420,9 +452,7 @@ class ExecutionEngine:
             "cash": round(cash, 2),
             "positions_value": round(pos_value, 2),
             "unrealized_pnl": round(total_pnl, 2),
-            "return_pct": round(
-                ((total_equity / config.initial_capital) - 1) * 100, 2
-            ),
+            "return_pct": round(((total_equity / config.initial_capital) - 1) * 100, 2),
             "open_positions": len(positions),
             "open_orders": len(open_orders),
             "total_trades": len(self.exchange.trades),
@@ -432,17 +462,19 @@ class ExecutionEngine:
         """Get detailed position info."""
         result = []
         for pos in self.exchange.get_all_positions():
-            result.append({
-                "symbol": pos.symbol,
-                "quantity": pos.quantity,
-                "entry_price": pos.entry_price,
-                "current_price": pos.current_price,
-                "pnl": round(pos.unrealized_pnl, 2),
-                "pnl_pct": round(pos.unrealized_pnl_pct, 2),
-                "value": round(pos.market_value, 2),
-                "stop_loss": pos.stop_loss,
-                "take_profit": pos.take_profit,
-            })
+            result.append(
+                {
+                    "symbol": pos.symbol,
+                    "quantity": pos.quantity,
+                    "entry_price": pos.entry_price,
+                    "current_price": pos.current_price,
+                    "pnl": round(pos.unrealized_pnl, 2),
+                    "pnl_pct": round(pos.unrealized_pnl_pct, 2),
+                    "value": round(pos.market_value, 2),
+                    "stop_loss": pos.stop_loss,
+                    "take_profit": pos.take_profit,
+                }
+            )
         return result
 
     def get_trade_history(self, limit: int = 10) -> list[dict[str, Any]]:

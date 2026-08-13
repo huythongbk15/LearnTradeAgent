@@ -27,6 +27,7 @@ from dataclasses import dataclass
 
 # ── Execution Quality Monitor ─────────────────────────────────
 
+
 @dataclass
 class FillRecord:
     order_id: str
@@ -37,7 +38,7 @@ class FillRecord:
     qty: float
     slippage_bps: float
     fill_time_ms: float
-    status: str          # "filled", "partial", "rejected", "cancelled"
+    status: str  # "filled", "partial", "rejected", "cancelled"
     exchange: str = ""
     timestamp: float = 0.0
 
@@ -48,26 +49,48 @@ class ExecutionQualityMonitor:
     def __init__(self, max_history: int = 10_000):
         self._fills: deque[FillRecord] = deque(maxlen=max_history)
 
-    def record_fill(self, order_id: str, symbol: str, side: str,
-                    expected_price: float, fill_price: float, qty: float,
-                    fill_time_ms: float = 0, status: str = "filled", exchange: str = "") -> FillRecord:
-        slippage_bps = ((fill_price - expected_price) / expected_price * 10_000
-                        if expected_price > 0 and status == "filled" else 0)
+    def record_fill(
+        self,
+        order_id: str,
+        symbol: str,
+        side: str,
+        expected_price: float,
+        fill_price: float,
+        qty: float,
+        fill_time_ms: float = 0,
+        status: str = "filled",
+        exchange: str = "",
+    ) -> FillRecord:
+        slippage_bps = (
+            (fill_price - expected_price) / expected_price * 10_000
+            if expected_price > 0 and status == "filled"
+            else 0
+        )
         if side == "sell":
             slippage_bps = -slippage_bps  # positive slippage is bad for both sides
         rec = FillRecord(
-            order_id=order_id, symbol=symbol, side=side,
-            expected_price=expected_price, fill_price=fill_price, qty=qty,
-            slippage_bps=slippage_bps, fill_time_ms=fill_time_ms,
-            status=status, exchange=exchange, timestamp=time.time(),
+            order_id=order_id,
+            symbol=symbol,
+            side=side,
+            expected_price=expected_price,
+            fill_price=fill_price,
+            qty=qty,
+            slippage_bps=slippage_bps,
+            fill_time_ms=fill_time_ms,
+            status=status,
+            exchange=exchange,
+            timestamp=time.time(),
         )
         self._fills.append(rec)
         return rec
 
     def get_report(self, symbol: str = "", lookback_s: float = 86400) -> dict:
         cutoff = time.time() - lookback_s
-        fills = [f for f in self._fills
-                 if f.timestamp > cutoff and (not symbol or f.symbol == symbol)]
+        fills = [
+            f
+            for f in self._fills
+            if f.timestamp > cutoff and (not symbol or f.symbol == symbol)
+        ]
         if not fills:
             return {"symbol": symbol, "n_fills": 0}
 
@@ -83,15 +106,23 @@ class ExecutionQualityMonitor:
             "n_partial": sum(1 for f in fills if f.status == "partial"),
             "fill_rate": sum(1 for f in fills if f.status == "filled") / len(fills),
             "avg_slippage_bps": sum(slippages) / len(slippages) if slippages else 0,
-            "median_slippage_bps": sorted(slippages)[len(slippages) // 2] if slippages else 0,
+            "median_slippage_bps": sorted(slippages)[len(slippages) // 2]
+            if slippages
+            else 0,
             "max_slippage_bps": max(slippages) if slippages else 0,
             "total_volume_usd": total_vol,
             "avg_fill_time_ms": sum(fill_times) / len(fill_times) if fill_times else 0,
-            "p95_fill_time_ms": sorted(fill_times)[int(len(fill_times) * 0.95)] if fill_times else 0,
+            "p95_fill_time_ms": sorted(fill_times)[int(len(fill_times) * 0.95)]
+            if fill_times
+            else 0,
         }
 
     def get_slippage_distribution(self, symbol: str = "", n_buckets: int = 20) -> dict:
-        fills = [f for f in self._fills if f.status == "filled" and (not symbol or f.symbol == symbol)]
+        fills = [
+            f
+            for f in self._fills
+            if f.status == "filled" and (not symbol or f.symbol == symbol)
+        ]
         if not fills:
             return {"buckets": [], "counts": []}
         slippages = [f.slippage_bps for f in fills]
@@ -108,6 +139,7 @@ class ExecutionQualityMonitor:
 
 
 # ── Latency Profiler ─────────────────────────────────────────
+
 
 class LatencyProfiler:
     """Tracks latency of various operations (order submit, fill, API call)."""
@@ -144,6 +176,7 @@ class LatencyProfiler:
 
 # ── Order Book Depth Monitor ─────────────────────────────────
 
+
 @dataclass
 class OrderBookSnapshot:
     symbol: str
@@ -163,9 +196,13 @@ class OrderBookDepthMonitor:
         self.depth_levels = depth_levels
         self._snapshots: dict[str, list[OrderBookSnapshot]] = {}
 
-    def update(self, symbol: str, bids: list[tuple], asks: list[tuple]) -> OrderBookSnapshot:
-        bids_sorted = sorted(bids, key=lambda x: x[0], reverse=True)[:self.depth_levels]
-        asks_sorted = sorted(asks, key=lambda x: x[0])[:self.depth_levels]
+    def update(
+        self, symbol: str, bids: list[tuple], asks: list[tuple]
+    ) -> OrderBookSnapshot:
+        bids_sorted = sorted(bids, key=lambda x: x[0], reverse=True)[
+            : self.depth_levels
+        ]
+        asks_sorted = sorted(asks, key=lambda x: x[0])[: self.depth_levels]
 
         best_bid = bids_sorted[0][0] if bids_sorted else 0
         best_ask = asks_sorted[0][0] if asks_sorted else 0
@@ -178,9 +215,13 @@ class OrderBookDepthMonitor:
         imbalance = bid_depth / total if total > 0 else 0.5
 
         snap = OrderBookSnapshot(
-            symbol=symbol, bids=bids_sorted, asks=asks_sorted,
-            timestamp=time.time(), spread_bps=spread_bps,
-            bid_depth_usd=bid_depth, ask_depth_usd=ask_depth,
+            symbol=symbol,
+            bids=bids_sorted,
+            asks=asks_sorted,
+            timestamp=time.time(),
+            spread_bps=spread_bps,
+            bid_depth_usd=bid_depth,
+            ask_depth_usd=ask_depth,
             imbalance=imbalance,
         )
         if symbol not in self._snapshots:
@@ -190,28 +231,44 @@ class OrderBookDepthMonitor:
             self._snapshots[symbol] = self._snapshots[symbol][-1000:]
         return snap
 
-    def get_alerts(self, symbol: str, spread_threshold_bps: float = 20,
-                   imbalance_threshold: float = 0.7) -> list[dict]:
+    def get_alerts(
+        self,
+        symbol: str,
+        spread_threshold_bps: float = 20,
+        imbalance_threshold: float = 0.7,
+    ) -> list[dict]:
         snaps = self._snapshots.get(symbol, [])
         if not snaps:
             return []
         latest = snaps[-1]
         alerts = []
         if latest.spread_bps > spread_threshold_bps:
-            alerts.append({
-                "type": "wide_spread", "symbol": symbol,
-                "value": latest.spread_bps, "threshold": spread_threshold_bps,
-            })
+            alerts.append(
+                {
+                    "type": "wide_spread",
+                    "symbol": symbol,
+                    "value": latest.spread_bps,
+                    "threshold": spread_threshold_bps,
+                }
+            )
         if latest.imbalance > imbalance_threshold:
-            alerts.append({
-                "type": "bid_heavy", "symbol": symbol,
-                "value": latest.imbalance, "threshold": imbalance_threshold,
-            })
+            alerts.append(
+                {
+                    "type": "bid_heavy",
+                    "symbol": symbol,
+                    "value": latest.imbalance,
+                    "threshold": imbalance_threshold,
+                }
+            )
         elif latest.imbalance < (1 - imbalance_threshold):
-            alerts.append({
-                "type": "ask_heavy", "symbol": symbol,
-                "value": latest.imbalance, "threshold": 1 - imbalance_threshold,
-            })
+            alerts.append(
+                {
+                    "type": "ask_heavy",
+                    "symbol": symbol,
+                    "value": latest.imbalance,
+                    "threshold": 1 - imbalance_threshold,
+                }
+            )
         return alerts
 
     def get_depth_summary(self, symbol: str) -> dict:
@@ -233,6 +290,7 @@ class OrderBookDepthMonitor:
 
 # ── Real-Time Slippage Tracker ───────────────────────────────
 
+
 class RealTimeSlippageTracker:
     """Per-symbol slippage statistics with rolling windows."""
 
@@ -253,7 +311,8 @@ class RealTimeSlippageTracker:
             "symbol": symbol,
             "n": len(vals),
             "mean_bps": sum(vals) / len(vals),
-            "std_bps": (sum((x - sum(vals) / len(vals)) ** 2 for x in vals) / len(vals)) ** 0.5,
+            "std_bps": (sum((x - sum(vals) / len(vals)) ** 2 for x in vals) / len(vals))
+            ** 0.5,
             "min_bps": min(vals),
             "max_bps": max(vals),
             "current_bps": vals[-1],
@@ -272,6 +331,7 @@ class RealTimeSlippageTracker:
 
 if __name__ == "__main__":
     import random
+
     print("=" * 60)
     print("EXECUTION QUALITY & OPERATIONS — DEMO")
     print("=" * 60)
@@ -280,15 +340,21 @@ if __name__ == "__main__":
     eqm = ExecutionQualityMonitor()
     for i in range(100):
         eqm.record_fill(
-            order_id=f"ORD-{i}", symbol="BTC/USDT", side=random.choice(["buy", "sell"]),
+            order_id=f"ORD-{i}",
+            symbol="BTC/USDT",
+            side=random.choice(["buy", "sell"]),
             expected_price=100_000 + random.uniform(-500, 500),
             fill_price=100_000 + random.uniform(-500, 500),
             qty=random.uniform(0.01, 1.0),
             fill_time_ms=random.uniform(5, 200),
-            status=random.choices(["filled", "rejected", "partial"], weights=[90, 5, 5])[0],
+            status=random.choices(
+                ["filled", "rejected", "partial"], weights=[90, 5, 5]
+            )[0],
         )
     report = eqm.get_report("BTC/USDT")
-    print(f"\nExecution Quality: {report['n_fills']} fills, fill rate={report['fill_rate']:.1%}")
+    print(
+        f"\nExecution Quality: {report['n_fills']} fills, fill rate={report['fill_rate']:.1%}"
+    )
     print(f"  Avg slippage: {report['avg_slippage_bps']:.2f} bps")
     print(f"  Median fill time: {report['median_slippage_bps']:.1f} ms")
 
@@ -300,14 +366,18 @@ if __name__ == "__main__":
         lp.record("api_call", random.uniform(10, 100))
     print("\nLatency Profile:")
     for op, stats in lp.get_all_stats().items():
-        print(f"  {op:20s}: mean={stats['mean_ms']:.1f}ms p95={stats['p95_ms']:.1f}ms p99={stats['p99_ms']:.1f}ms")
+        print(
+            f"  {op:20s}: mean={stats['mean_ms']:.1f}ms p95={stats['p95_ms']:.1f}ms p99={stats['p99_ms']:.1f}ms"
+        )
 
     # Order Book
     obm = OrderBookDepthMonitor(depth_levels=10)
     bids = [(100000 - i * 10, random.uniform(0.1, 5)) for i in range(10)]
     asks = [(100005 + i * 10, random.uniform(0.1, 5)) for i in range(10)]
     snap = obm.update("BTC/USDT", bids, asks)
-    print(f"\nOrder Book: spread={snap.spread_bps:.1f}bps, imbalance={snap.imbalance:.3f}")
+    print(
+        f"\nOrder Book: spread={snap.spread_bps:.1f}bps, imbalance={snap.imbalance:.3f}"
+    )
     alerts = obm.get_alerts("BTC/USDT")
     print(f"  Alerts: {len(alerts)}")
 

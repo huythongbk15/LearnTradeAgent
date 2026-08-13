@@ -60,7 +60,10 @@ def _write_cache(key: str, data: dict) -> None:
 # CoinGecko (public, no key required for basic endpoints)
 # ---------------------------------------------------------------------------
 
-def fetch_coin_gecko_coin_market(symbol: str = "bitcoin", vs_currency: str = "usd") -> dict:
+
+def fetch_coin_gecko_coin_market(
+    symbol: str = "bitcoin", vs_currency: str = "usd"
+) -> dict:
     """Fetch current market data for an asset (market cap, volumes, 24h change)."""
     import urllib.request
 
@@ -103,6 +106,7 @@ def fetch_coin_gecko_coin_market(symbol: str = "bitcoin", vs_currency: str = "us
 # Binance Futures Funding / OI (public REST)
 # ---------------------------------------------------------------------------
 
+
 def fetch_funding_rate(symbol: str = "BTCUSDT", limit: int = 100) -> pl.DataFrame:
     """Fetch historical funding rates for a perpetual symbol."""
     import urllib.request
@@ -117,14 +121,18 @@ def fetch_funding_rate(symbol: str = "BTCUSDT", limit: int = 100) -> pl.DataFram
     df = pl.DataFrame(rows)
     if df.is_empty():
         return df
-    df = df.with_columns([
-        pl.col("fundingTime").cast(pl.Int64).alias("_t"),
-        pl.col("fundingRate").cast(pl.Float64).alias("funding_rate"),
-    ])
-    # Binance fundingTime is ms
     df = df.with_columns(
-        pl.from_epoch(pl.col("_t"), time_unit="ms").alias("timestamp")
-    ).select(["timestamp", "funding_rate"]).sort("timestamp")
+        [
+            pl.col("fundingTime").cast(pl.Int64).alias("_t"),
+            pl.col("fundingRate").cast(pl.Float64).alias("funding_rate"),
+        ]
+    )
+    # Binance fundingTime is ms
+    df = (
+        df.with_columns(pl.from_epoch(pl.col("_t"), time_unit="ms").alias("timestamp"))
+        .select(["timestamp", "funding_rate"])
+        .sort("timestamp")
+    )
     return df
 
 
@@ -170,6 +178,7 @@ def fetch_recent_trades_pressure(symbol: str = "BTCUSDT", limit: int = 1000) -> 
 # Convenience aggregate: "Fusion Signal"
 # ---------------------------------------------------------------------------
 
+
 def compute_risk_off_score(
     funding_rate: float,
     buy_pressure: float,
@@ -183,7 +192,11 @@ def compute_risk_off_score(
     funding_component = min(max(funding_rate / 0.001, -1), 1)  # ±0.1% normalized
     buy_pressure_component = 1.0 - buy_pressure  # high buy pressure lowers score
 
-    score = 0.4 * (0.5 - funding_component) + 0.3 * buy_pressure_component + 0.3 * equity_momentum_risk
+    score = (
+        0.4 * (0.5 - funding_component)
+        + 0.3 * buy_pressure_component
+        + 0.3 * equity_momentum_risk
+    )
     return float(np.clip(score, 0.0, 1.0))
 
 
@@ -197,8 +210,12 @@ def get_altsnapshot() -> dict:
     """Fetch a snapshot of alternative data for the leading perps."""
     result = {}
     symbols = {
-        "BTC": "BTCUSDT", "ETH": "ETHUSDT", "SOL": "SOLUSDT",
-        "BNB": "BNBUSDT", "XRP": "XRPUSDT", "DOGE": "DOGEUSDT",
+        "BTC": "BTCUSDT",
+        "ETH": "ETHUSDT",
+        "SOL": "SOLUSDT",
+        "BNB": "BNBUSDT",
+        "XRP": "XRPUSDT",
+        "DOGE": "DOGEUSDT",
     }
     for base, perp in symbols.items():
         result[base] = {
@@ -210,7 +227,9 @@ def get_altsnapshot() -> dict:
 
 
 # Lightweight helpers without heavy imports at module load
-async def fetch_funding_rate_async(symbol: str = "BTCUSDT", limit: int = 10) -> pl.DataFrame:
+async def fetch_funding_rate_async(
+    symbol: str = "BTCUSDT", limit: int = 10
+) -> pl.DataFrame:
     """Async wrapper (returns polars DF)."""
     return fetch_funding_rate(symbol, limit)
 
@@ -218,8 +237,12 @@ async def fetch_funding_rate_async(symbol: str = "BTCUSDT", limit: int = 10) -> 
 if __name__ == "__main__":
     print("On-chain / alt-data test:")
     import json as _json
+
     mc = fetch_coin_gecko_coin_market("bitcoin")
-    print("  CoinGecko:", _json.dumps({k: v for k, v in mc.items() if k != "error"}, default=str)[:300])
+    print(
+        "  CoinGecko:",
+        _json.dumps({k: v for k, v in mc.items() if k != "error"}, default=str)[:300],
+    )
     fr = fetch_funding_rate("BTCUSDT", 5)
     print("  Funding:", fr.tail(2).to_dicts() if not fr.is_empty() else "empty")
     oi = fetch_open_interest("BTCUSDT")

@@ -13,14 +13,26 @@ from typing import Optional
 
 from trading_agent.exchanges.models import OrderSide, Position
 from trading_agent.ml.online.indicators import (
-    OnlineATR, OnlineVWAP,
-    OnlineStandardDeviation, OnlineCorrelation,
+    OnlineATR,
+    OnlineVWAP,
+    OnlineStandardDeviation,
+    OnlineCorrelation,
 )
 from trading_agent.ml.online.adaptive import (
-    AdaptiveConfig, AdaptiveEMA, AdaptiveRSI, 
-    AdaptiveBollingerBands, AdaptiveMACD,
+    AdaptiveConfig,
+    AdaptiveEMA,
+    AdaptiveRSI,
+    AdaptiveBollingerBands,
+    AdaptiveMACD,
 )
-from trading_agent.strategies.plugins import BaseStrategy, Signal, StrategyContext, StrategyMetadata, StrategyType, RiskProfile
+from trading_agent.strategies.plugins import (
+    BaseStrategy,
+    Signal,
+    StrategyContext,
+    StrategyMetadata,
+    StrategyType,
+    RiskProfile,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +40,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class OnlineLearningConfig:
     """Configuration for online learning strategy."""
+
     # Base periods (will be adapted)
     ema_fast_period: int = 12
     ema_slow_period: int = 26
@@ -38,20 +51,20 @@ class OnlineLearningConfig:
     macd_slow: int = 26
     macd_signal: int = 9
     atr_period: int = 14
-    
+
     # Adaptive settings
     min_period: int = 5
     max_period: int = 50
     adaptation_rate: float = 0.1
     performance_window: int = 100
     min_samples: int = 50
-    
+
     # Signal thresholds
     rsi_oversold: float = 30
     rsi_overbought: float = 70
     macd_threshold: float = 0.0
     bb_position_threshold: float = 0.8  # Position within bands (0-1)
-    
+
     # Risk
     position_size: float = 0.1
     stop_loss_atr_mult: float = 2.0
@@ -61,14 +74,14 @@ class OnlineLearningConfig:
 class OnlineLearningStrategy(BaseStrategy):
     """
     Strategy using online learning indicators that adapt to market conditions.
-    
+
     Features:
     - Streaming indicators (no lookback window needed)
     - Adaptive parameter adjustment based on performance
     - Regime detection via indicator correlation
     - Real-time learning from each bar
     """
-    
+
     metadata = StrategyMetadata(
         name="OnlineLearningStrategy",
         version="1.0.0",
@@ -79,26 +92,66 @@ class OnlineLearningStrategy(BaseStrategy):
         asset_classes=["crypto", "stocks", "forex", "futures"],
         timeframes=["1m", "5m", "15m", "1h", "4h", "1d"],
         parameters={
-            'ema_fast_period': {'type': 'integer', 'min': 5, 'max': 50, 'default': 12, 'required': True},
-            'ema_slow_period': {'type': 'integer', 'min': 10, 'max': 100, 'default': 26, 'required': True},
-            'rsi_period': {'type': 'integer', 'min': 7, 'max': 30, 'default': 14, 'required': True},
-            'bb_period': {'type': 'integer', 'min': 10, 'max': 50, 'default': 20, 'required': True},
-            'bb_std': {'type': 'number', 'min': 1.0, 'max': 4.0, 'default': 2.0, 'required': True},
-            'position_size': {'type': 'number', 'min': 0.01, 'max': 1.0, 'default': 0.1, 'required': True},
-            'adaptation_enabled': {'type': 'boolean', 'default': True, 'required': False},
+            "ema_fast_period": {
+                "type": "integer",
+                "min": 5,
+                "max": 50,
+                "default": 12,
+                "required": True,
+            },
+            "ema_slow_period": {
+                "type": "integer",
+                "min": 10,
+                "max": 100,
+                "default": 26,
+                "required": True,
+            },
+            "rsi_period": {
+                "type": "integer",
+                "min": 7,
+                "max": 30,
+                "default": 14,
+                "required": True,
+            },
+            "bb_period": {
+                "type": "integer",
+                "min": 10,
+                "max": 50,
+                "default": 20,
+                "required": True,
+            },
+            "bb_std": {
+                "type": "number",
+                "min": 1.0,
+                "max": 4.0,
+                "default": 2.0,
+                "required": True,
+            },
+            "position_size": {
+                "type": "number",
+                "min": 0.01,
+                "max": 1.0,
+                "default": 0.1,
+                "required": True,
+            },
+            "adaptation_enabled": {
+                "type": "boolean",
+                "default": True,
+                "required": False,
+            },
         },
     )
-    
+
     def __init__(self, config: dict | None = None):
         super().__init__(config)
         self.config_obj = OnlineLearningConfig()
-        
+
         # Apply config overrides
         if config:
             for key, value in config.items():
                 if hasattr(self.config_obj, key):
                     setattr(self.config_obj, key, value)
-        
+
         # Initialize adaptive indicators
         adaptive_config = AdaptiveConfig(
             min_period=self.config_obj.min_period,
@@ -107,7 +160,7 @@ class OnlineLearningStrategy(BaseStrategy):
             performance_window=self.config_obj.performance_window,
             min_samples=self.config_obj.min_samples,
         )
-        
+
         self.ema_fast = AdaptiveEMA(adaptive_config)
         self.ema_slow = AdaptiveEMA(adaptive_config)
         self.rsi = AdaptiveRSI(adaptive_config)
@@ -117,7 +170,7 @@ class OnlineLearningStrategy(BaseStrategy):
         self.vwap = OnlineVWAP()
         self.volatility = OnlineStandardDeviation(20)
         self.trend_correlation = OnlineCorrelation(20)
-        
+
         # State
         self.position: Optional[Position] = None
         self.entry_price: Decimal = Decimal("0")
@@ -125,23 +178,23 @@ class OnlineLearningStrategy(BaseStrategy):
         self.current_performance: float = 0.0
         self.trade_history: list[dict] = []
         self.signal_history: list[dict] = []
-        
+
         # Regime tracking
         self.current_regime: str = "unknown"
         self.regime_confidence: float = 0.0
-    
+
     def on_start(self, context: StrategyContext) -> None:
         """Initialize strategy state."""
         logger.info(f"Starting OnlineLearningStrategy for {context.symbol}")
-        
+
         # Warm up indicators with initial data if available
         # In practice, would load historical data here
-        
+
         self.position = context.position
         if self.position and self.position.size > 0:
             self.entry_price = self.position.entry_price
             self.entry_time = context.current_time
-    
+
     def on_bar(self, context: StrategyContext) -> list[Signal]:
         """Process new bar and generate signals."""
         bar = context.bar
@@ -149,93 +202,122 @@ class OnlineLearningStrategy(BaseStrategy):
         high = float(bar.high)
         low = float(bar.low)
         volume = float(bar.volume)
-        
+
         # Update all indicators
         ema_fast_val = self.ema_fast.update(close, self.current_performance)
         ema_slow_val = self.ema_slow.update(close, self.current_performance)
         rsi_val = self.rsi.update(close, self.current_performance)
         bb_mid, bb_up, bb_low = self.bb.update(close, self.current_performance)
-        macd_val, macd_sig, macd_hist = self.macd.update(close, self.current_performance)
+        macd_val, macd_sig, macd_hist = self.macd.update(
+            close, self.current_performance
+        )
         atr_val = self.atr.update(high, low, close)
         vwap_val = self.vwap.update(close, volume)
         vol = self.volatility.update(close)
         trend_corr = self.trend_correlation.update(close, ema_slow_val)
-        
+
         # Detect regime
         self._detect_regime(close, ema_fast_val, ema_slow_val, rsi_val, vol, trend_corr)
-        
+
         # Calculate performance if in position
         self._update_performance(close)
-        
+
         # Generate signal
         signal = self._generate_signal(
-            close, high, low,
-            ema_fast_val, ema_slow_val,
-            rsi_val, bb_mid, bb_up, bb_low,
-            macd_val, macd_sig, macd_hist,
-            atr_val, vwap_val, vol, trend_corr
+            close,
+            high,
+            low,
+            ema_fast_val,
+            ema_slow_val,
+            rsi_val,
+            bb_mid,
+            bb_up,
+            bb_low,
+            macd_val,
+            macd_sig,
+            macd_hist,
+            atr_val,
+            vwap_val,
+            vol,
+            trend_corr,
         )
-        
+
         # Record signal for analysis
-        self.signal_history.append({
-            "timestamp": bar.timestamp,
-            "close": close,
-            "signal": signal,
-            "regime": self.current_regime,
-            "ema_fast": ema_fast_val,
-            "ema_slow": ema_slow_val,
-            "rsi": rsi_val,
-            "bb_position": (close - bb_low) / (bb_up - bb_low) if bb_up != bb_low else 0.5,
-            "macd_hist": macd_hist,
-            "atr": atr_val,
-        })
-        
+        self.signal_history.append(
+            {
+                "timestamp": bar.timestamp,
+                "close": close,
+                "signal": signal,
+                "regime": self.current_regime,
+                "ema_fast": ema_fast_val,
+                "ema_slow": ema_slow_val,
+                "rsi": rsi_val,
+                "bb_position": (close - bb_low) / (bb_up - bb_low)
+                if bb_up != bb_low
+                else 0.5,
+                "macd_hist": macd_hist,
+                "atr": atr_val,
+            }
+        )
+
         # Keep history bounded
         if len(self.signal_history) > 1000:
             self.signal_history = self.signal_history[-1000:]
-        
+
         signals = []
         if signal != 0:
             side = OrderSide.BUY if signal > 0 else OrderSide.SELL
             strength = min(abs(signal), 1.0)
-            
+
             # Calculate stop loss and take profit
             stop_loss = None
             take_profit = None
             if atr_val > 0:
                 if signal > 0:  # Long
-                    stop_loss = Decimal(str(close - atr_val * self.config_obj.stop_loss_atr_mult))
-                    take_profit = Decimal(str(close + atr_val * self.config_obj.take_profit_atr_mult))
+                    stop_loss = Decimal(
+                        str(close - atr_val * self.config_obj.stop_loss_atr_mult)
+                    )
+                    take_profit = Decimal(
+                        str(close + atr_val * self.config_obj.take_profit_atr_mult)
+                    )
                 else:  # Short
-                    stop_loss = Decimal(str(close + atr_val * self.config_obj.stop_loss_atr_mult))
-                    take_profit = Decimal(str(close - atr_val * self.config_obj.take_profit_atr_mult))
-            
-            signals.append(Signal(
-                symbol=context.symbol,
-                side=side,
-                strength=Decimal(str(strength)),
-                price=Decimal(str(close)),
-                stop_loss=stop_loss,
-                take_profit=take_profit,
-                metadata={
-                    "regime": self.current_regime,
-                    "regime_confidence": self.regime_confidence,
-                    "ema_fast": ema_fast_val,
-                    "ema_slow": ema_slow_val,
-                    "rsi": rsi_val,
-                    "macd_hist": macd_hist,
-                    "bb_position": (close - bb_low) / (bb_up - bb_low) if bb_up != bb_low else 0.5,
-                    "atr": atr_val,
-                },
-                strategy_name=self.get_metadata().name,
-            ))
-        
+                    stop_loss = Decimal(
+                        str(close + atr_val * self.config_obj.stop_loss_atr_mult)
+                    )
+                    take_profit = Decimal(
+                        str(close - atr_val * self.config_obj.take_profit_atr_mult)
+                    )
+
+            signals.append(
+                Signal(
+                    symbol=context.symbol,
+                    side=side,
+                    strength=Decimal(str(strength)),
+                    price=Decimal(str(close)),
+                    stop_loss=stop_loss,
+                    take_profit=take_profit,
+                    metadata={
+                        "regime": self.current_regime,
+                        "regime_confidence": self.regime_confidence,
+                        "ema_fast": ema_fast_val,
+                        "ema_slow": ema_slow_val,
+                        "rsi": rsi_val,
+                        "macd_hist": macd_hist,
+                        "bb_position": (close - bb_low) / (bb_up - bb_low)
+                        if bb_up != bb_low
+                        else 0.5,
+                        "atr": atr_val,
+                    },
+                    strategy_name=self.get_metadata().name,
+                )
+            )
+
         return signals
-    
+
     def _detect_regime(
-        self, 
-        close: float, 
-        ema_fast: float, 
+        self,
+        close: float,
+        ema_fast: float,
         ema_slow: float,
         rsi: float,
         volatility: float,
@@ -245,16 +327,24 @@ class OnlineLearningStrategy(BaseStrategy):
         # Trend direction
         trend_up = ema_fast > ema_slow
         trend_strength = abs(ema_fast - ema_slow) / ema_slow if ema_slow > 0 else 0
-        
+
         # Volatility regime
-        high_vol = volatility > self.volatility.value * 1.5 if self.volatility.value > 0 else False
-        low_vol = volatility < self.volatility.value * 0.5 if self.volatility.value > 0 else False
-        
+        high_vol = (
+            volatility > self.volatility.value * 1.5
+            if self.volatility.value > 0
+            else False
+        )
+        low_vol = (
+            volatility < self.volatility.value * 0.5
+            if self.volatility.value > 0
+            else False
+        )
+
         # RSI regime
         oversold = rsi < 30
         overbought = rsi > 70
         neutral_rsi = 30 <= rsi <= 70
-        
+
         # Determine regime
         if trend_up and trend_strength > 0.02:
             if high_vol:
@@ -284,68 +374,87 @@ class OnlineLearningStrategy(BaseStrategy):
         else:
             self.current_regime = "choppy"
             self.regime_confidence = 0.3
-    
+
     def _update_performance(self, close: float) -> None:
         """Update current position performance."""
         if self.position and self.position.size != 0:
             if self.position.size > 0:  # Long
-                self.current_performance = float((close - self.entry_price) / self.entry_price)
+                self.current_performance = float(
+                    (close - self.entry_price) / self.entry_price
+                )
             else:  # Short
-                self.current_performance = float((self.entry_price - close) / self.entry_price)
+                self.current_performance = float(
+                    (self.entry_price - close) / self.entry_price
+                )
         else:
             self.current_performance = 0.0
-    
+
     def _generate_signal(
         self,
-        close: float, high: float, low: float,
-        ema_fast: float, ema_slow: float,
-        rsi: float, bb_mid: float, bb_up: float, bb_low: float,
-        macd: float, macd_sig: float, macd_hist: float,
-        atr: float, vwap: float, volatility: float, trend_corr: float,
+        close: float,
+        high: float,
+        low: float,
+        ema_fast: float,
+        ema_slow: float,
+        rsi: float,
+        bb_mid: float,
+        bb_up: float,
+        bb_low: float,
+        macd: float,
+        macd_sig: float,
+        macd_hist: float,
+        atr: float,
+        vwap: float,
+        volatility: float,
+        trend_corr: float,
     ) -> int:
         """Generate trading signal: 1=buy, -1=sell, 0=hold."""
-        
+
         # Position within Bollinger Bands (0 = lower band, 1 = upper band)
         bb_position = (close - bb_low) / (bb_up - bb_low) if bb_up != bb_low else 0.5
-        
+
         # Trend signals
         trend_up = ema_fast > ema_slow
         trend_down = ema_fast < ema_slow
         trend_strength = abs(ema_fast - ema_slow) / ema_slow if ema_slow > 0 else 0
-        
+
         # Momentum signals
         macd_bullish = macd > macd_sig and macd_hist > 0
         macd_bearish = macd < macd_sig and macd_hist < 0
-        
+
         # Mean reversion signals
         oversold = rsi < self.config_obj.rsi_oversold and bb_position < 0.2
         overbought = rsi > self.config_obj.rsi_overbought and bb_position > 0.8
-        
+
         # VWAP signals
         above_vwap = close > vwap
         below_vwap = close < vwap
-        
+
         # Regime-specific logic
         if self.current_regime.startswith("trending_up"):
             # Trend following in uptrend
             if not self.position or self.position.size <= 0:
                 # Look for pullback entries
-                if (macd_bullish or (trend_up and rsi < 50 and bb_position < 0.5)) and above_vwap:
+                if (
+                    macd_bullish or (trend_up and rsi < 50 and bb_position < 0.5)
+                ) and above_vwap:
                     return 1
             elif self.position.size > 0:
                 # Exit on trend reversal or overbought
                 if trend_down or (overbought and macd_bearish):
                     return -1
-        
+
         elif self.current_regime.startswith("trending_down"):
             # Trend following in downtrend
             if not self.position or self.position.size >= 0:
-                if (macd_bearish or (trend_down and rsi > 50 and bb_position > 0.5)) and below_vwap:
+                if (
+                    macd_bearish or (trend_down and rsi > 50 and bb_position > 0.5)
+                ) and below_vwap:
                     return -1
             elif self.position.size < 0:
                 if trend_up or (oversold and macd_bullish):
                     return 1
-        
+
         elif self.current_regime in ("oversold", "mean_reverting"):
             # Mean reversion
             if not self.position or self.position.size <= 0:
@@ -354,7 +463,7 @@ class OnlineLearningStrategy(BaseStrategy):
             elif self.position.size > 0:
                 if bb_position > 0.8 or rsi > 60:
                     return -1
-        
+
         elif self.current_regime in ("overbought",):
             # Mean reversion short
             if not self.position or self.position.size >= 0:
@@ -363,7 +472,7 @@ class OnlineLearningStrategy(BaseStrategy):
             elif self.position.size < 0:
                 if bb_position < 0.2 or rsi < 40:
                     return 1
-        
+
         else:  # choppy
             # Stay flat or very small positions
             if not self.position:
@@ -373,26 +482,34 @@ class OnlineLearningStrategy(BaseStrategy):
                 return -1
             elif self.position.size < 0 and (bb_position < 0.3 or rsi < 35):
                 return 1
-        
+
         # Risk management exits
         if self.position:
             if self.position.size > 0:
                 # Stop loss
-                if close <= float(self.entry_price) * (1 - self.config_obj.stop_loss_atr_mult * atr / close):
+                if close <= float(self.entry_price) * (
+                    1 - self.config_obj.stop_loss_atr_mult * atr / close
+                ):
                     return -1
                 # Take profit
-                if close >= float(self.entry_price) * (1 + self.config_obj.take_profit_atr_mult * atr / close):
+                if close >= float(self.entry_price) * (
+                    1 + self.config_obj.take_profit_atr_mult * atr / close
+                ):
                     return -1
             elif self.position.size < 0:
                 # Stop loss
-                if close >= float(self.entry_price) * (1 + self.config_obj.stop_loss_atr_mult * atr / close):
+                if close >= float(self.entry_price) * (
+                    1 + self.config_obj.stop_loss_atr_mult * atr / close
+                ):
                     return 1
                 # Take profit
-                if close <= float(self.entry_price) * (1 - self.config_obj.take_profit_atr_mult * atr / close):
+                if close <= float(self.entry_price) * (
+                    1 - self.config_obj.take_profit_atr_mult * atr / close
+                ):
                     return 1
-        
+
         return 0
-    
+
     def on_fill(self, order, fill_price: Decimal, fill_size: Decimal) -> None:
         """Handle order fill."""
         if fill_size > 0:
@@ -407,33 +524,41 @@ class OnlineLearningStrategy(BaseStrategy):
             logger.info(f"Position opened: {self.position.size} @ {fill_price}")
         else:
             # Position closed
-            pnl = float((fill_price - self.entry_price) * self.position.size) if self.position else 0
-            self.trade_history.append({
-                "entry_price": float(self.entry_price),
-                "exit_price": float(fill_price),
-                "size": float(self.position.size) if self.position else 0,
-                "pnl": pnl,
-                "pnl_pct": pnl / float(self.entry_price) if self.entry_price else 0,
-                "entry_time": self.entry_time,
-                "exit_time": datetime.utcnow(),
-                "regime": self.current_regime,
-            })
+            pnl = (
+                float((fill_price - self.entry_price) * self.position.size)
+                if self.position
+                else 0
+            )
+            self.trade_history.append(
+                {
+                    "entry_price": float(self.entry_price),
+                    "exit_price": float(fill_price),
+                    "size": float(self.position.size) if self.position else 0,
+                    "pnl": pnl,
+                    "pnl_pct": pnl / float(self.entry_price) if self.entry_price else 0,
+                    "entry_time": self.entry_time,
+                    "exit_time": datetime.utcnow(),
+                    "regime": self.current_regime,
+                }
+            )
             self.position = None
             self.entry_price = Decimal("0")
             self.entry_time = None
             logger.info(f"Position closed: PnL = {pnl:.2f}")
-    
+
     def on_stop(self) -> None:
         """Cleanup on strategy stop."""
-        logger.info(f"Stopping OnlineLearningStrategy. Trades: {len(self.trade_history)}")
-        
+        logger.info(
+            f"Stopping OnlineLearningStrategy. Trades: {len(self.trade_history)}"
+        )
+
         # Log adaptive indicator final states
         logger.info(f"Final EMA Fast period: {self.ema_fast.current_period}")
         logger.info(f"Final EMA Slow period: {self.ema_slow.current_period}")
         logger.info(f"Final RSI period: {self.rsi.current_period}")
         logger.info(f"Final BB period: {self.bb.current_period}")
         logger.info(f"Final MACD period: {self.macd.current_period}")
-    
+
     def get_state(self) -> dict:
         """Get persistent state for serialization."""
         return {
@@ -449,7 +574,7 @@ class OnlineLearningStrategy(BaseStrategy):
             "bb_period": self.bb.current_period,
             "macd_period": self.macd.current_period,
         }
-    
+
     def set_state(self, state: dict) -> None:
         """Restore persistent state."""
         if state.get("position_size", 0) != 0:
@@ -458,10 +583,14 @@ class OnlineLearningStrategy(BaseStrategy):
         self.trade_history = state.get("trade_history", [])
         self.current_regime = state.get("current_regime", "unknown")
         self.regime_confidence = state.get("regime_confidence", 0.0)
-        
+
         # Restore adaptive periods
-        self.ema_fast.current_period = state.get("ema_fast_period", self.config_obj.ema_fast_period)
-        self.ema_slow.current_period = state.get("ema_slow_period", self.config_obj.ema_slow_period)
+        self.ema_fast.current_period = state.get(
+            "ema_fast_period", self.config_obj.ema_fast_period
+        )
+        self.ema_slow.current_period = state.get(
+            "ema_slow_period", self.config_obj.ema_slow_period
+        )
         self.rsi.current_period = state.get("rsi_period", self.config_obj.rsi_period)
         self.bb.current_period = state.get("bb_period", self.config_obj.bb_period)
         self.macd.current_period = state.get("macd_period", self.config_obj.macd_fast)

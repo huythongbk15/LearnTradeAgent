@@ -23,13 +23,14 @@ import pandas as pd
 from sklearn.mixture import GaussianMixture
 from hmmlearn import hmm
 
-warnings.filterwarnings('ignore', category=DeprecationWarning)
+warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 logger = logging.getLogger(__name__)
 
 
 class MarketRegime(str, Enum):
     """Market regime labels"""
+
     BULL_TREND = "bull_trend"
     BEAR_TREND = "bear_trend"
     SIDEWAYS = "sideways"
@@ -42,6 +43,7 @@ class MarketRegime(str, Enum):
 
 class RegimeMethod(str, Enum):
     """Regime detection method"""
+
     HMM = "hmm"  # Hidden Markov Model
     GMM = "gmm"  # Gaussian Mixture Model
     RULE_BASED = "rule_based"  # Simple rule-based
@@ -51,6 +53,7 @@ class RegimeMethod(str, Enum):
 @dataclass
 class RegimeState:
     """Current regime state"""
+
     regime: MarketRegime
     confidence: float
     probability: dict[MarketRegime, float]
@@ -62,6 +65,7 @@ class RegimeState:
 @dataclass
 class RegimeTransition:
     """Regime transition event"""
+
     from_regime: MarketRegime
     to_regime: MarketRegime
     timestamp: datetime
@@ -80,7 +84,7 @@ class HMMStrategy:
         self,
         n_regimes: int = 4,
         n_iter: int = 100,
-        covariance_type: str = 'full',
+        covariance_type: str = "full",
         random_state: int = 42,
         lookback: int = 252,
     ):
@@ -95,7 +99,9 @@ class HMMStrategy:
         self._fitted = False
         self._history: list[RegimeState] = []
 
-    def _prepare_features(self, prices: pd.Series, volume: pd.Series | None = None) -> np.ndarray:
+    def _prepare_features(
+        self, prices: pd.Series, volume: pd.Series | None = None
+    ) -> np.ndarray:
         """Prepare observation features for HMM"""
         # Log returns
         returns = np.log(prices / prices.shift(1)).dropna()
@@ -123,10 +129,11 @@ class HMMStrategy:
 
         # Standardize
         from sklearn.preprocessing import StandardScaler
+
         scaler = StandardScaler()
         return scaler.fit_transform(features)
 
-    def fit(self, prices: pd.Series, volume: pd.Series | None = None) -> 'HMMStrategy':
+    def fit(self, prices: pd.Series, volume: pd.Series | None = None) -> "HMMStrategy":
         """Fit HMM to historical data"""
         features = self._prepare_features(prices, volume)
 
@@ -174,7 +181,9 @@ class HMMStrategy:
 
         self._regime_names = names
 
-    def predict(self, prices: pd.Series, volume: pd.Series | None = None) -> RegimeState:
+    def predict(
+        self, prices: pd.Series, volume: pd.Series | None = None
+    ) -> RegimeState:
         """Predict current regime"""
         if not self._fitted:
             raise ValueError("Model not fitted. Call fit() first.")
@@ -192,11 +201,18 @@ class HMMStrategy:
         regime = self._regime_names[regime_idx]
         confidence = float(current_probs[regime_idx])
 
-        prob_dict = {self._regime_names[i]: float(current_probs[i]) for i in range(self.n_regimes)}
+        prob_dict = {
+            self._regime_names[i]: float(current_probs[i])
+            for i in range(self.n_regimes)
+        }
 
         # Expected duration (from transition matrix)
         transmat = self.model.transmat_
-        expected_dur = int(1 / (1 - transmat[regime_idx, regime_idx])) if transmat[regime_idx, regime_idx] < 1 else None
+        expected_dur = (
+            int(1 / (1 - transmat[regime_idx, regime_idx]))
+            if transmat[regime_idx, regime_idx] < 1
+            else None
+        )
 
         state = RegimeState(
             regime=regime,
@@ -229,7 +245,7 @@ class GMMStrategy:
     def __init__(
         self,
         n_regimes: int = 4,
-        covariance_type: str = 'full',
+        covariance_type: str = "full",
         random_state: int = 42,
     ):
         self.n_regimes = n_regimes
@@ -247,19 +263,22 @@ class GMMStrategy:
         roll_kurt = returns.rolling(60).kurt()
 
         # Combine
-        df = pd.DataFrame({
-            'return': returns,
-            'vol': roll_vol,
-            'skew': roll_skew,
-            'kurt': roll_kurt,
-        }).dropna()
+        df = pd.DataFrame(
+            {
+                "return": returns,
+                "vol": roll_vol,
+                "skew": roll_skew,
+                "kurt": roll_kurt,
+            }
+        ).dropna()
 
         # Standardize
         from sklearn.preprocessing import StandardScaler
+
         scaler = StandardScaler()
         return scaler.fit_transform(df)
 
-    def fit(self, returns: pd.Series) -> 'GMMStrategy':
+    def fit(self, returns: pd.Series) -> "GMMStrategy":
         """Fit GMM to returns"""
         features = self._prepare_features(returns)
 
@@ -309,7 +328,9 @@ class GMMStrategy:
         regime = self._regime_names[regime_idx]
         confidence = float(probs[regime_idx])
 
-        prob_dict = {self._regime_names[i]: float(probs[i]) for i in range(self.n_regimes)}
+        prob_dict = {
+            self._regime_names[i]: float(probs[i]) for i in range(self.n_regimes)
+        }
 
         return RegimeState(
             regime=regime,
@@ -354,7 +375,11 @@ class RuleBasedStrategy:
         vol = returns.rolling(self.vol_window).std().iloc[-1] * np.sqrt(252)
 
         # Momentum
-        momentum = (prices.iloc[-1] / prices.iloc[-self.fast_ma] - 1) if len(prices) >= self.fast_ma else 0
+        momentum = (
+            (prices.iloc[-1] / prices.iloc[-self.fast_ma] - 1)
+            if len(prices) >= self.fast_ma
+            else 0
+        )
 
         # Determine regime
         probs = {r: 0.0 for r in MarketRegime}
@@ -380,7 +405,12 @@ class RuleBasedStrategy:
             confidence=probs[regime],
             probability=probs,
             timestamp=datetime.now(),
-            features={'fast_ma': float(fast), 'slow_ma': float(slow), 'vol': float(vol), 'momentum': float(momentum)},
+            features={
+                "fast_ma": float(fast),
+                "slow_ma": float(slow),
+                "vol": float(vol),
+                "momentum": float(momentum),
+            },
         )
 
 
@@ -499,7 +529,9 @@ class AdaptivePositionSizer:
             MarketRegime.UNKNOWN: 0.5,
         }
 
-    def calculate_kelly(self, win_rate: float, avg_win: float, avg_loss: float) -> float:
+    def calculate_kelly(
+        self, win_rate: float, avg_win: float, avg_loss: float
+    ) -> float:
         """Calculate Kelly fraction"""
         if avg_loss == 0:
             return 0
@@ -545,7 +577,9 @@ class AdaptivePositionSizer:
         regime_scalar = self.regime_scalers.get(regime, 1.0)
 
         # Combined
-        position = signal_strength * vol_scalar * kelly * regime_scalar * correlation_penalty
+        position = (
+            signal_strength * vol_scalar * kelly * regime_scalar * correlation_penalty
+        )
 
         # Clamp
         position = max(self.min_position, min(position, self.max_position))
@@ -579,7 +613,9 @@ class AdaptivePositionSizer:
         if correlation_matrix is not None:
             # Simple correlation penalty: reduce size if highly correlated
             for i, sym in enumerate(symbols):
-                avg_corr = np.mean([abs(correlation_matrix[i, j]) for j in range(n) if i != j])
+                avg_corr = np.mean(
+                    [abs(correlation_matrix[i, j]) for j in range(n) if i != j]
+                )
                 penalty = 1 - avg_corr * 0.5  # Reduce up to 50%
                 base_sizes[sym] *= Decimal(str(max(0.3, penalty)))
 
@@ -615,13 +651,19 @@ class OnlineLearner:
         is_win = pnl > 0
 
         # Update win rate (exponential moving average)
-        self._win_rate = (1 - self.learning_rate) * self._win_rate + self.learning_rate * (1 if is_win else 0)
+        self._win_rate = (
+            1 - self.learning_rate
+        ) * self._win_rate + self.learning_rate * (1 if is_win else 0)
 
         # Update avg win/loss
         if is_win:
-            self._avg_win = (1 - self.learning_rate) * self._avg_win + self.learning_rate * abs(pnl / entry_price)
+            self._avg_win = (
+                1 - self.learning_rate
+            ) * self._avg_win + self.learning_rate * abs(pnl / entry_price)
         else:
-            self._avg_loss = (1 - self.learning_rate) * self._avg_loss + self.learning_rate * abs(pnl / entry_price)
+            self._avg_loss = (
+                1 - self.learning_rate
+            ) * self._avg_loss + self.learning_rate * abs(pnl / entry_price)
 
         self._n_trades += 1
 
@@ -629,15 +671,17 @@ class OnlineLearner:
         """Update volatility forecast"""
         if len(returns) > 20:
             recent_vol = returns.iloc[-20:].std() * np.sqrt(252)
-            self._vol_forecast = (1 - self.learning_rate) * self._vol_forecast + self.learning_rate * recent_vol
+            self._vol_forecast = (
+                1 - self.learning_rate
+            ) * self._vol_forecast + self.learning_rate * recent_vol
 
     def get_params(self) -> dict:
         return {
-            'win_rate': self._win_rate,
-            'avg_win': self._avg_win,
-            'avg_loss': self._avg_loss,
-            'vol_forecast': self._vol_forecast,
-            'n_trades': self._n_trades,
+            "win_rate": self._win_rate,
+            "avg_win": self._avg_win,
+            "avg_loss": self._avg_loss,
+            "vol_forecast": self._vol_forecast,
+            "n_trades": self._n_trades,
         }
 
 

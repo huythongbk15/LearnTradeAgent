@@ -3,6 +3,7 @@
 REST API + WebSocket push, tái sử dụng business logic của trading_agent.
 Chạy: uvicorn webui.backend.app:app --reload --port 8000
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -16,7 +17,14 @@ import time
 import uuid
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import (
+    Depends,
+    FastAPI,
+    Header,
+    HTTPException,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -116,15 +124,17 @@ def _fetch_live_snapshot() -> dict:
             entry = float(p.entry_price)
             qty = float(p.size)
             pnl = (mark - entry) * qty if p.is_long else (entry - mark) * qty
-            snap["positions"].append({
-                "symbol": p.symbol.pair,
-                "qty": qty,
-                "avg_price": entry,
-                "current_price": mark,
-                "market_value": float(p.notional),
-                "unrealized_pnl": pnl,
-                "pnl_pct": ((mark - entry) / entry * 100) if entry else 0.0,
-            })
+            snap["positions"].append(
+                {
+                    "symbol": p.symbol.pair,
+                    "qty": qty,
+                    "avg_price": entry,
+                    "current_price": mark,
+                    "market_value": float(p.notional),
+                    "unrealized_pnl": pnl,
+                    "pnl_pct": ((mark - entry) / entry * 100) if entry else 0.0,
+                }
+            )
         except (TypeError, ValueError, KeyError, AttributeError):
             continue
     return snap
@@ -139,13 +149,22 @@ def _live_snapshot(ttl: float = 20.0) -> dict:
     if _snapshot_cache["data"] and (now - _snapshot_cache["ts"]) < ttl:
         return _snapshot_cache["data"]
 
-    snap = {"source": "alpaca_paper", "equity": 0.0, "cash": 0.0,
-            "positions": [], "peak": 0.0, "dd": 0.0, "trading_allowed": True,
-            "note": ""}
+    snap = {
+        "source": "alpaca_paper",
+        "equity": 0.0,
+        "cash": 0.0,
+        "positions": [],
+        "peak": 0.0,
+        "dd": 0.0,
+        "trading_allowed": True,
+        "note": "",
+    }
     try:
         import os
 
-        if not os.environ.get("ALPACA_API_KEY") or not os.environ.get("ALPACA_API_SECRET"):
+        if not os.environ.get("ALPACA_API_KEY") or not os.environ.get(
+            "ALPACA_API_SECRET"
+        ):
             snap["note"] = "ALPACA_API_KEY/SECRET not set in .env"
             _snapshot_cache.update(data=snap, ts=now)
             return snap
@@ -156,7 +175,9 @@ def _live_snapshot(ttl: float = 20.0) -> dict:
         peak = snap["equity"]
         if peak_file.exists():
             try:
-                peak = float(json.loads(peak_file.read_text()).get("peak", snap["equity"]))
+                peak = float(
+                    json.loads(peak_file.read_text()).get("peak", snap["equity"])
+                )
             except (ValueError, OSError):
                 pass
         peak = max(peak, snap["equity"])
@@ -175,11 +196,13 @@ async def _alpaca():
     from trading_agent.exchanges.alpaca_adapter import AlpacaAdapter, AlpacaConfig
 
     if "alpaca" not in _services:
-        adapter = AlpacaAdapter(AlpacaConfig(
-            api_key=os.environ["ALPACA_API_KEY"],
-            secret_key=os.environ["ALPACA_API_SECRET"],
-            paper=True,
-        ))
+        adapter = AlpacaAdapter(
+            AlpacaConfig(
+                api_key=os.environ["ALPACA_API_KEY"],
+                secret_key=os.environ["ALPACA_API_SECRET"],
+                paper=True,
+            )
+        )
         await adapter.connect()
         _services["alpaca"] = adapter
     return _services["alpaca"]
@@ -198,7 +221,8 @@ def _cleanup_jobs() -> None:
     cutoff = time.time() - JOB_TTL_SECONDS
     with JOBS_LOCK:
         expired = [
-            job_id for job_id, job in JOBS.items()
+            job_id
+            for job_id, job in JOBS.items()
             if job.get("created_at", 0) < cutoff and job.get("status") != "running"
         ]
         for job_id in expired:
@@ -209,7 +233,10 @@ def _set_progress(job_id: str, pct: int, stage: str) -> None:
     """Cập nhật tiến độ job (thread-safe qua dict)."""
     try:
         with JOBS_LOCK:
-            JOBS[job_id]["progress"] = {"pct": max(0, min(100, int(pct))), "stage": stage[:120]}
+            JOBS[job_id]["progress"] = {
+                "pct": max(0, min(100, int(pct))),
+                "stage": stage[:120],
+            }
     except KeyError:
         pass
 
@@ -236,22 +263,34 @@ def _spawn_job(job_id: str, fn, **kwargs) -> None:
                 JOBS[job_id]["progress"] = {"pct": 0, "stage": "bắt đầu"}
             result = fn(**kwargs)
             with JOBS_LOCK:
-                JOBS[job_id] = {"status": "done", "result": result, "error": None,
-                                "progress": {"pct": 100, "stage": "hoàn tất"},
-                                "lines": JOBS.get(job_id, {}).get("lines") or [],
-                                "created_at": JOBS.get(job_id, {}).get("created_at", time.time())}
+                JOBS[job_id] = {
+                    "status": "done",
+                    "result": result,
+                    "error": None,
+                    "progress": {"pct": 100, "stage": "hoàn tất"},
+                    "lines": JOBS.get(job_id, {}).get("lines") or [],
+                    "created_at": JOBS.get(job_id, {}).get("created_at", time.time()),
+                }
         except Exception as exc:  # noqa: BLE001
             with JOBS_LOCK:
-                JOBS[job_id] = {"status": "error", "result": None, "error": str(exc),
-                                "progress": {"pct": 100, "stage": "lỗi"},
-                                "lines": JOBS.get(job_id, {}).get("lines") or [],
-                                "created_at": JOBS.get(job_id, {}).get("created_at", time.time())}
+                JOBS[job_id] = {
+                    "status": "error",
+                    "result": None,
+                    "error": str(exc),
+                    "progress": {"pct": 100, "stage": "lỗi"},
+                    "lines": JOBS.get(job_id, {}).get("lines") or [],
+                    "created_at": JOBS.get(job_id, {}).get("created_at", time.time()),
+                }
 
     _cleanup_jobs()
     with JOBS_LOCK:
-        JOBS[job_id] = {"status": "running", "result": None, "error": None,
-                        "progress": {"pct": 0, "stage": "khởi động"},
-                        "created_at": time.time()}
+        JOBS[job_id] = {
+            "status": "running",
+            "result": None,
+            "error": None,
+            "progress": {"pct": 0, "stage": "khởi động"},
+            "created_at": time.time(),
+        }
     threading.Thread(target=worker, daemon=True).start()
 
 
@@ -293,9 +332,16 @@ def api_system() -> dict:
         "version": "1.0.0",
         "strategy_count": 10,
         "strategies": [
-            "ma_crossover", "rsi", "bbands", "enhanced_ma", "ma_adx",
-            "ma_vol_target", "ensemble_ma_adx", "ma_adx_regime",
-            "regime_switching", "agent_ensemble",
+            "ma_crossover",
+            "rsi",
+            "bbands",
+            "enhanced_ma",
+            "ma_adx",
+            "ma_vol_target",
+            "ensemble_ma_adx",
+            "ma_adx_regime",
+            "regime_switching",
+            "agent_ensemble",
         ],
         "symbols": (cfg.get("symbols", {}).get("binance") or [])[:12],
         "llm": {
@@ -358,7 +404,9 @@ def api_backtest(req: BacktestRequest) -> dict:
         if hasattr(res, "metrics"):
             m = res.metrics
             return {
-                "strategy": strategy, "symbol": symbol, "timeframe": timeframe,
+                "strategy": strategy,
+                "symbol": symbol,
+                "timeframe": timeframe,
                 "total_return": float(m.get("total_return", 0)),
                 "sharpe": float(m.get("sharpe", 0)),
                 "profit_factor": float(m.get("profit_factor", 0)),
@@ -368,7 +416,9 @@ def api_backtest(req: BacktestRequest) -> dict:
             }
         return {"strategy": strategy, "raw": str(res)[:500]}
 
-    _spawn_job(job_id, run, strategy=req.strategy, symbol=req.symbol, timeframe=req.timeframe)
+    _spawn_job(
+        job_id, run, strategy=req.strategy, symbol=req.symbol, timeframe=req.timeframe
+    )
     return {"job_id": job_id}
 
 
@@ -384,7 +434,9 @@ def api_backtest_status(job_id: str) -> dict:
 @app.post("/api/positions/close", dependencies=[Depends(_require_admin)])
 async def api_close(req: CloseRequest) -> dict:
     if req.confirm != "CLOSE_ALL_PAPER_POSITIONS":
-        raise HTTPException(status_code=400, detail="Explicit close-all confirmation required")
+        raise HTTPException(
+            status_code=400, detail="Explicit close-all confirmation required"
+        )
     try:
         adapter = await _alpaca()
         detail = await adapter.close_all_positions(cancel_orders=True)
@@ -395,7 +447,9 @@ async def api_close(req: CloseRequest) -> dict:
             "remaining": [position.symbol.pair for position in remaining],
         }
     except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=502, detail=f"Paper close-all failed: {exc}") from exc
+        raise HTTPException(
+            status_code=502, detail=f"Paper close-all failed: {exc}"
+        ) from exc
 
 
 @app.post("/api/live/run", dependencies=[Depends(_require_admin)])
@@ -404,9 +458,13 @@ def api_live_run(req: LiveRunRequest) -> dict:
     if req.live:
         raise HTTPException(status_code=400, detail="Live-money mode is not supported")
     if req.confirm != "RUN_PAPER_CYCLE":
-        raise HTTPException(status_code=400, detail="Explicit paper-cycle confirmation required")
+        raise HTTPException(
+            status_code=400, detail="Explicit paper-cycle confirmation required"
+        )
     if not LIVE_JOB_LOCK.acquire(blocking=False):
-        raise HTTPException(status_code=409, detail="Another paper trading cycle is running")
+        raise HTTPException(
+            status_code=409, detail="Another paper trading cycle is running"
+        )
     job_id = uuid.uuid4().hex[:8]
 
     def run() -> dict:
@@ -458,7 +516,9 @@ def _run_cli(args: list[str], timeout: int = 300, cwd: Path | None = None) -> di
 
     proc = subprocess.run(
         [sys.executable, "-m", "trading_agent.cli", *args],
-        capture_output=True, text=True, timeout=timeout,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
         cwd=str(cwd or PROJECT_ROOT),
     )
     return {
@@ -474,8 +534,11 @@ def _run_cli_stream(run_job_id: str, args: list[str], timeout: int = 300) -> dic
 
     proc = subprocess.Popen(
         [sys.executable, "-m", "trading_agent.cli", *args],
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-        text=True, bufsize=1, cwd=str(PROJECT_ROOT),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+        cwd=str(PROJECT_ROOT),
     )
     assert proc.stdout is not None
     lines: list[str] = []
@@ -557,26 +620,36 @@ def api_agents_analyze(req: AnalyzeRequest) -> dict:
             t.join(timeout=1.5)
             delta = count_decisions(symbol, timeframe) - before
             if delta > 0:
-                _set_progress(job_id, min(92, delta * 22), f"agent {min(delta, 4)}/4 đã xong")
+                _set_progress(
+                    job_id, min(92, delta * 22), f"agent {min(delta, 4)}/4 đã xong"
+                )
         if "error" in holder:
             raise holder["error"]  # type: ignore[misc]
 
         report = holder["report"]  # type: ignore[assignment]
         agents = []
         for m in report.agent_messages:
-            agents.append({
-                "name": getattr(m, "agent_name", None) or m.role or "agent",
-                "signal": m.signal,
-                "confidence": float(m.confidence) if m.confidence is not None else None,
-                "reasoning": m.reasoning,
-                "details": {str(k): str(v)[:200] for k, v in (m.details or {}).items()},
-            })
+            agents.append(
+                {
+                    "name": getattr(m, "agent_name", None) or m.role or "agent",
+                    "signal": m.signal,
+                    "confidence": float(m.confidence)
+                    if m.confidence is not None
+                    else None,
+                    "reasoning": m.reasoning,
+                    "details": {
+                        str(k): str(v)[:200] for k, v in (m.details or {}).items()
+                    },
+                }
+            )
         d = report.final_decision
         return {
-            "symbol": symbol, "timeframe": timeframe,
+            "symbol": symbol,
+            "timeframe": timeframe,
             "current_price": float(report.current_price),
             "decision": {
-                "signal": d.signal, "confidence": float(d.confidence or 0),
+                "signal": d.signal,
+                "confidence": float(d.confidence or 0),
                 "reasoning": d.reasoning,
             },
             "agents": agents,
@@ -616,8 +689,15 @@ def api_data_fetch(req: FetchRequest) -> dict:
 @app.post("/api/portfolio/optimize")
 def api_portfolio_optimize(req: OptimizeRequest) -> dict:
     job_id = uuid.uuid4().hex[:8]
-    args = ["portfolio", "optimize", *req.symbols, "-m", req.method,
-            "--lookback", str(req.lookback)]
+    args = [
+        "portfolio",
+        "optimize",
+        *req.symbols,
+        "-m",
+        req.method,
+        "--lookback",
+        str(req.lookback),
+    ]
     _spawn_job(job_id, _run_cli, args=args, timeout=600)
     return {"job_id": job_id}
 
@@ -638,7 +718,7 @@ def api_logs_tail(lines: int = 300, source: str = "trading") -> dict:
             size = f.tell()
             f.seek(max(0, size - 200 * 8192))
             data = f.read().decode("utf-8", "replace")
-        out = data.splitlines()[-max(20, min(lines, 1000)):]
+        out = data.splitlines()[-max(20, min(lines, 1000)) :]
     except OSError as exc:
         return {"lines": [], "source": source, "path": str(path), "error": str(exc)}
     return {"lines": out, "source": source, "path": str(path)}
@@ -668,7 +748,9 @@ def api_meta_regimes() -> dict:
 @app.post("/api/execution/reset", dependencies=[Depends(_require_admin)])
 def api_execution_reset(req: ResetRequest) -> dict:
     if req.confirm != "RESET_LOCAL_PAPER_STATE":
-        raise HTTPException(status_code=400, detail="Explicit reset confirmation required")
+        raise HTTPException(
+            status_code=400, detail="Explicit reset confirmation required"
+        )
     return _run_cli(["execution", "reset", "--yes"], timeout=120)
 
 
@@ -695,28 +777,45 @@ def api_backtest_compare(req: BacktestCompareRequest) -> dict:
         rows = []
         errors = {}
         for i, name in enumerate(strategies):
-            _set_progress(job_id, int(i / max(1, len(strategies)) * 88), f"backtest: {name} ({i + 1}/{len(strategies)})")
+            _set_progress(
+                job_id,
+                int(i / max(1, len(strategies)) * 88),
+                f"backtest: {name} ({i + 1}/{len(strategies)})",
+            )
             try:
                 r = run_backtest(name, symbol=symbol, timeframe=timeframe)
-                rows.append({
-                    "strategy": r.strategy_name,
-                    "params": {str(k): str(v) for k, v in (r.params or {}).items()},
-                    "total_return_pct": round(r.total_return_pct, 2),
-                    "annualized_return_pct": round(r.annualized_return_pct, 2),
-                    "sharpe_ratio": round(r.sharpe_ratio, 2),
-                    "sortino_ratio": round(r.sortino_ratio, 2),
-                    "max_drawdown_pct": round(r.max_drawdown_pct, 2),
-                    "win_rate": round(r.win_rate, 3),
-                    "profit_factor": round(r.profit_factor, 2),
-                    "total_trades": r.total_trades,
-                    "calmar_ratio": round(r.calmar_ratio, 2),
-                    "avg_hold_bars": round(r.avg_hold_bars, 1),
-                })
+                rows.append(
+                    {
+                        "strategy": r.strategy_name,
+                        "params": {str(k): str(v) for k, v in (r.params or {}).items()},
+                        "total_return_pct": round(r.total_return_pct, 2),
+                        "annualized_return_pct": round(r.annualized_return_pct, 2),
+                        "sharpe_ratio": round(r.sharpe_ratio, 2),
+                        "sortino_ratio": round(r.sortino_ratio, 2),
+                        "max_drawdown_pct": round(r.max_drawdown_pct, 2),
+                        "win_rate": round(r.win_rate, 3),
+                        "profit_factor": round(r.profit_factor, 2),
+                        "total_trades": r.total_trades,
+                        "calmar_ratio": round(r.calmar_ratio, 2),
+                        "avg_hold_bars": round(r.avg_hold_bars, 1),
+                    }
+                )
             except Exception as exc:  # noqa: BLE001
                 errors[name] = str(exc)[:200]
-        return {"rows": rows, "errors": errors, "symbol": symbol, "timeframe": timeframe}
+        return {
+            "rows": rows,
+            "errors": errors,
+            "symbol": symbol,
+            "timeframe": timeframe,
+        }
 
-    _spawn_job(job_id, run, strategies=req.strategies, symbol=req.symbol, timeframe=req.timeframe)
+    _spawn_job(
+        job_id,
+        run,
+        strategies=req.strategies,
+        symbol=req.symbol,
+        timeframe=req.timeframe,
+    )
     return {"job_id": job_id}
 
 
@@ -739,19 +838,27 @@ def api_portfolio_weights(req: PortfolioWeightsRequest) -> dict:
 
         returns_data, symbol_objs = {}, []
         for i, sym_str in enumerate(symbols):
-            _set_progress(job_id, int(i / max(1, len(symbols)) * 60), f"tải dữ liệu {sym_str} ({i + 1}/{len(symbols)})")
+            _set_progress(
+                job_id,
+                int(i / max(1, len(symbols)) * 60),
+                f"tải dữ liệu {sym_str} ({i + 1}/{len(symbols)})",
+            )
             df = load_ohlcv(config.default_exchange, sym_str, "1d")
             close = pd.Series(df["close"].to_numpy())
             returns_data[sym_str] = close.pct_change().dropna()
             base, quote = sym_str.split("/") if "/" in sym_str else (sym_str, "USDT")
-            symbol_objs.append(Symbol(base, quote, AssetClass.CRYPTO, MarketType.SPOT, "binance"))
+            symbol_objs.append(
+                Symbol(base, quote, AssetClass.CRYPTO, MarketType.SPOT, "binance")
+            )
 
         _set_progress(job_id, 68, "xây dựng covariance & universe")
         returns_df = pd.DataFrame(returns_data).dropna()
         current_weights = {s: 1.0 / len(symbol_objs) for s in symbol_objs}
         constraints = OptimizationConstraints(current_weights=current_weights)
         optimizer = PortfolioOptimizer(
-            method=OptimizerMethod(method), constraints=constraints, lookback=lookback,
+            method=OptimizerMethod(method),
+            constraints=constraints,
+            lookback=lookback,
         ).set_universe(symbol_objs, returns_df, current_weights)
 
         _set_progress(job_id, 85, f"tối ưu {method}…")
@@ -775,7 +882,9 @@ def api_portfolio_weights(req: PortfolioWeightsRequest) -> dict:
             "cvar_95": round(float(result.cvar_95), 4),
         }
 
-    _spawn_job(job_id, run, symbols=req.symbols, method=req.method, lookback=req.lookback)
+    _spawn_job(
+        job_id, run, symbols=req.symbols, method=req.method, lookback=req.lookback
+    )
     return {"job_id": job_id}
 
 

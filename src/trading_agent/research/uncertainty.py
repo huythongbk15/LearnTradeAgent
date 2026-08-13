@@ -42,8 +42,8 @@ class UncertaintySignal:
     expected_return: float
     prediction_interval_lower: float
     prediction_interval_upper: float
-    calibration_score: float      # 0..1, 1 = perfectly calibrated
-    ood_score: float              # 0..1, higher = more out-of-distribution
+    calibration_score: float  # 0..1, 1 = perfectly calibrated
+    ood_score: float  # 0..1, higher = more out-of-distribution
     horizon: str = "1h"
 
     @property
@@ -92,7 +92,9 @@ class Abstention:
             "reason": self.reason.value,
             "symbol": self.symbol,
             "strategy": self.strategy,
-            "uncertainty_state": self.uncertainty_state.value if self.uncertainty_state else None,
+            "uncertainty_state": self.uncertainty_state.value
+            if self.uncertainty_state
+            else None,
             "detail": self.detail,
         }
 
@@ -185,7 +187,9 @@ class CalibratedDecision:
 
     def to_dict(self) -> dict:
         return {
-            "action_probabilities": {k.value: v for k, v in self.action_probabilities.items()},
+            "action_probabilities": {
+                k.value: v for k, v in self.action_probabilities.items()
+            },
             "expected_return": self.expected_return,
             "prediction_interval_lower": self.prediction_interval_lower,
             "prediction_interval_upper": self.prediction_interval_upper,
@@ -226,7 +230,10 @@ class DecisionPolicy:
         allowed.add(Action.ABSTAIN)
 
         # REDUCE allowed if uncertainty is not LOW
-        if p[Action.REDUCE] > 0.15 or decision.uncertainty_state != UncertaintyState.LOW:
+        if (
+            p[Action.REDUCE] > 0.15
+            or decision.uncertainty_state != UncertaintyState.LOW
+        ):
             allowed.add(Action.REDUCE)
 
         # HOLD always allowed as neutral
@@ -278,6 +285,7 @@ def temperature_scale(logits: list[float], temperature: float) -> list[float]:
     if temperature <= 0:
         raise ValueError("temperature must be > 0")
     import math
+
     scaled = [x / temperature for x in logits]
     max_logit = max(scaled)
     exps = [math.exp(x - max_logit) for x in scaled]
@@ -305,13 +313,33 @@ def uncertainty_signal_to_decision(
 
     # Heuristic: map expected return to action probs
     if expected > width:
-        base = {Action.INCREASE: 0.6, Action.HOLD: 0.25, Action.REDUCE: 0.1, Action.ABSTAIN: 0.05}
+        base = {
+            Action.INCREASE: 0.6,
+            Action.HOLD: 0.25,
+            Action.REDUCE: 0.1,
+            Action.ABSTAIN: 0.05,
+        }
     elif expected > 0:
-        base = {Action.INCREASE: 0.35, Action.HOLD: 0.45, Action.REDUCE: 0.1, Action.ABSTAIN: 0.1}
+        base = {
+            Action.INCREASE: 0.35,
+            Action.HOLD: 0.45,
+            Action.REDUCE: 0.1,
+            Action.ABSTAIN: 0.1,
+        }
     elif expected > -width:
-        base = {Action.INCREASE: 0.1, Action.HOLD: 0.5, Action.REDUCE: 0.25, Action.ABSTAIN: 0.15}
+        base = {
+            Action.INCREASE: 0.1,
+            Action.HOLD: 0.5,
+            Action.REDUCE: 0.25,
+            Action.ABSTAIN: 0.15,
+        }
     else:
-        base = {Action.INCREASE: 0.05, Action.HOLD: 0.25, Action.REDUCE: 0.4, Action.ABSTAIN: 0.3}
+        base = {
+            Action.INCREASE: 0.05,
+            Action.HOLD: 0.25,
+            Action.REDUCE: 0.4,
+            Action.ABSTAIN: 0.3,
+        }
 
     # Adjust for calibration and OOD
     if cal < 0.7 or ood > 0.4:

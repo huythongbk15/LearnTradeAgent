@@ -10,6 +10,7 @@ import uuid
 
 class MessagePriority(Enum):
     """Message priority levels."""
+
     LOW = 0
     NORMAL = 50
     HIGH = 100
@@ -19,6 +20,7 @@ class MessagePriority(Enum):
 @dataclass
 class Message:
     """Universal message envelope."""
+
     topic: str
     payload: dict[str, Any]
     message_id: str = field(default_factory=lambda: str(uuid.uuid4()))
@@ -46,8 +48,12 @@ class Message:
             message_id=data.get("message_id", str(uuid.uuid4())),
             topic=data["topic"],
             payload=data["payload"],
-            timestamp=datetime.fromisoformat(data["timestamp"]) if "timestamp" in data else datetime.utcnow(),
-            priority=MessagePriority(data.get("priority", MessagePriority.NORMAL.value)),
+            timestamp=datetime.fromisoformat(data["timestamp"])
+            if "timestamp" in data
+            else datetime.utcnow(),
+            priority=MessagePriority(
+                data.get("priority", MessagePriority.NORMAL.value)
+            ),
             headers=data.get("headers", {}),
             correlation_id=data.get("correlation_id"),
             reply_to=data.get("reply_to"),
@@ -86,6 +92,8 @@ class MessageBus(ABC):
         pass
 
     @abstractmethod
-    async def request(self, topic: str, payload: dict[str, Any], timeout: float = 30.0) -> Message | None:
+    async def request(
+        self, topic: str, payload: dict[str, Any], timeout: float = 30.0
+    ) -> Message | None:
         """Request-response pattern."""
         pass

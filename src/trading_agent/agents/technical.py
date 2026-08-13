@@ -102,9 +102,7 @@ class TechnicalAnalyst(BaseAgent):
 
         return msg
 
-    def _compute_extra_indicators(
-        self, df: pl.DataFrame, existing: dict
-    ) -> dict:
+    def _compute_extra_indicators(self, df: pl.DataFrame, existing: dict) -> dict:
         """Compute additional technical indicators beyond basic ones."""
         extra = {}
 
@@ -120,6 +118,7 @@ class TechnicalAnalyst(BaseAgent):
         # Volatility (20-bar)
         if len(closes) > 20:
             import numpy as np
+
             returns_20 = np.diff(closes[-21:]) / closes[-21:-1]
             extra["volatility_20"] = float(np.std(returns_20) * 100)
 
@@ -150,7 +149,9 @@ class TechnicalAnalyst(BaseAgent):
                 extra["trend_dir"] = last["trend_dir"].item()
                 extra["atr"] = float(last["atr"].item()) if last["atr"].item() else None
                 extra["adx"] = float(last["adx"].item()) if last["adx"].item() else None
-                extra["atr_pctl"] = float(last["atr_pctl"].item()) if last["atr_pctl"].item() else None
+                extra["atr_pctl"] = (
+                    float(last["atr_pctl"].item()) if last["atr_pctl"].item() else None
+                )
             except Exception as e:
                 logger.warning(f"Regime detection failed: {e}")
 
@@ -199,8 +200,10 @@ class TechnicalAnalyst(BaseAgent):
                 lines.append(f"Volume ratio (5/20): {extra['volume_ratio_5_20']:.2f}x")
 
         lines.append("")
-        lines.append("Put yourself in the role of a seasoned technical analyst at a prop trading firm. "
-                      "What is your recommendation based on this data?")
+        lines.append(
+            "Put yourself in the role of a seasoned technical analyst at a prop trading firm. "
+            "What is your recommendation based on this data?"
+        )
 
         return "\n".join(lines)
 
@@ -263,14 +266,25 @@ class TechnicalAnalyst(BaseAgent):
         # In trending regime: favor trend-following, discount mean-reversion
         if trend_regime == "trending" and adx and adx > 25:
             # Boost MA trend signal weight
-            if ma_fast and ma_slow and ((ma_fast > ma_slow and trend_dir == "up") or (ma_fast < ma_slow and trend_dir == "down")):
+            if (
+                ma_fast
+                and ma_slow
+                and (
+                    (ma_fast > ma_slow and trend_dir == "up")
+                    or (ma_fast < ma_slow and trend_dir == "down")
+                )
+            ):
                 score += 0.5
-                reasons.append(f"Strong trend (ADX {adx:.1f}, dir={trend_dir}) — trend signal boosted")
+                reasons.append(
+                    f"Strong trend (ADX {adx:.1f}, dir={trend_dir}) — trend signal boosted"
+                )
             # Reduce mean-reversion (RSI/BB) weight
             if isinstance(rsi, (int, float)):
                 if rsi < 30 and trend_dir == "down":
                     score -= 0.5
-                    reasons.append("Oversold RSI in downtrend — mean reversion discounted")
+                    reasons.append(
+                        "Oversold RSI in downtrend — mean reversion discounted"
+                    )
                 elif rsi > 70 and trend_dir == "up":
                     score += 0.5
                     reasons.append("Overbought RSI in uptrend — continuation likely")
@@ -283,23 +297,39 @@ class TechnicalAnalyst(BaseAgent):
                     reasons.append("Ranging market — RSI mean reversion favored")
             # MA crossover less reliable (whipsaws)
             if ma_fast and ma_slow:
-                reasons.append("Ranging market — MA crossover discounted (whipsaw risk)")
+                reasons.append(
+                    "Ranging market — MA crossover discounted (whipsaw risk)"
+                )
 
         # Volatility regime adjustments
         if vol_regime == "high_vol":
             # Wider stops needed, reduce position conviction
             score *= 0.7
-            reasons.append(f"High vol regime (ATR pctl {atr_pctl:.0%}) — conviction reduced" if atr_pctl else "High vol regime — conviction reduced")
+            reasons.append(
+                f"High vol regime (ATR pctl {atr_pctl:.0%}) — conviction reduced"
+                if atr_pctl
+                else "High vol regime — conviction reduced"
+            )
         elif vol_regime == "low_vol":
             # Tighter stops, potential breakout
-            reasons.append(f"Low vol regime (ATR pctl {atr_pctl:.0%}) — breakout watch" if atr_pctl else "Low vol regime — breakout watch")
+            reasons.append(
+                f"Low vol regime (ATR pctl {atr_pctl:.0%}) — breakout watch"
+                if atr_pctl
+                else "Low vol regime — breakout watch"
+            )
 
         # Trend gate: KHÔNG BUY khi MA20 < MA50 (downtrend) — tránh bắt dao rơi.
         # Mean-reversion (RSI/BB) không được lấn át trend đã đảo chiều.
-        trend_down = isinstance(ma_fast, (int, float)) and isinstance(ma_slow, (int, float)) and ma_fast < ma_slow
+        trend_down = (
+            isinstance(ma_fast, (int, float))
+            and isinstance(ma_slow, (int, float))
+            and ma_fast < ma_slow
+        )
         if trend_down and score >= 1:
             score = 0
-            reasons.append("Downtrend (MA20<MA50) — contrarian BUY blocked by trend filter")
+            reasons.append(
+                "Downtrend (MA20<MA50) — contrarian BUY blocked by trend filter"
+            )
 
         if score >= 1:
             signal = "BUY"
@@ -322,7 +352,11 @@ class TechnicalAnalyst(BaseAgent):
             reasoning=" | ".join(reasons) if reasons else "No indicator data",
             details={
                 "trend": trend,
-                "momentum": "bullish" if score > 0 else "bearish" if score < 0 else "neutral",
+                "momentum": "bullish"
+                if score > 0
+                else "bearish"
+                if score < 0
+                else "neutral",
                 "regime": {
                     "vol_regime": vol_regime,
                     "trend_regime": trend_regime,

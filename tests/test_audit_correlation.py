@@ -1,4 +1,5 @@
 """P1.2: correlation IDs and append-only audit retention."""
+
 from __future__ import annotations
 
 import gzip

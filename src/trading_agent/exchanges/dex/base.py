@@ -34,7 +34,9 @@ class BaseDEXAdapter(ABC):
         pass
 
     @abstractmethod
-    async def get_pool_info(self, token0: Symbol, token1: Symbol, fee_tier: int) -> PoolInfo:
+    async def get_pool_info(
+        self, token0: Symbol, token1: Symbol, fee_tier: int
+    ) -> PoolInfo:
         """Get liquidity pool information."""
         pass
 
@@ -59,7 +61,9 @@ class BaseDEXAdapter(ABC):
         pass
 
     @abstractmethod
-    async def get_token_balance(self, token: Symbol, address: Optional[str] = None) -> Decimal:
+    async def get_token_balance(
+        self, token: Symbol, address: Optional[str] = None
+    ) -> Decimal:
         """Get token balance for an address."""
         pass
 

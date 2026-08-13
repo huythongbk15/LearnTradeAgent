@@ -7,7 +7,12 @@ import json
 import logging
 from typing import Any
 
-from trading_agent.messaging.base import Message, MessageBus, MessageHandler, MessagePriority
+from trading_agent.messaging.base import (
+    Message,
+    MessageBus,
+    MessageHandler,
+    MessagePriority,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -15,6 +20,7 @@ logger = logging.getLogger(__name__)
 # stays importable even when redis is not installed.
 try:
     import redis.asyncio as redis
+
     REDIS_AVAILABLE = True
 except ImportError:  # pragma: no cover - depends on environment
     redis = None  # type: ignore
@@ -23,7 +29,7 @@ except ImportError:  # pragma: no cover - depends on environment
 
 class RedisStreamsBus(MessageBus):
     """Redis Streams based message bus.
-    
+
     Features:
     - Consumer groups for horizontal scaling
     - Message acknowledgment
@@ -64,15 +70,15 @@ class RedisStreamsBus(MessageBus):
     async def disconnect(self) -> None:
         """Disconnect from Redis."""
         self._running = False
-        
+
         # Cancel all subscription tasks
         for task in self._subscriptions.values():
             task.cancel()
-        
+
         # Wait for tasks to complete
         if self._subscriptions:
             await asyncio.gather(*self._subscriptions.values(), return_exceptions=True)
-        
+
         if self._client:
             await self._client.close()
         logger.info("Disconnected from Redis Streams")
@@ -80,28 +86,25 @@ class RedisStreamsBus(MessageBus):
     async def _ensure_consumer_group(self, stream: str) -> None:
         """Ensure consumer group exists for stream."""
         try:
-            await self._client.xgroup_create(stream, self.consumer_group, id="0", mkstream=True)
+            await self._client.xgroup_create(
+                stream, self.consumer_group, id="0", mkstream=True
+            )
         except redis.ResponseError as e:
             if "BUSYGROUP" not in str(e):
                 raise
 
     async def publish(
-        self, 
-        topic: str, 
-        payload: dict[str, Any], 
+        self,
+        topic: str,
+        payload: dict[str, Any],
         priority: MessagePriority = MessagePriority.NORMAL,
-        **kwargs
+        **kwargs,
     ) -> None:
         """Publish message to Redis stream."""
         if not self._client:
             raise RuntimeError("Not connected")
 
-        message = Message(
-            topic=topic,
-            payload=payload,
-            priority=priority,
-            **kwargs
-        )
+        message = Message(topic=topic, payload=payload, priority=priority, **kwargs)
 
         # Use priority-based stream naming for priority queuing
         stream_name = f"trading:{topic}"
@@ -117,17 +120,17 @@ class RedisStreamsBus(MessageBus):
             stream_name,
             {"data": json.dumps(message.to_dict())},
             maxlen=self.max_stream_length,
-            approximate=True
+            approximate=True,
         )
 
         logger.debug(f"Published to {stream_name}: {message.message_id}")
 
     async def subscribe(
-        self, 
-        topic: str, 
-        handler: MessageHandler, 
+        self,
+        topic: str,
+        handler: MessageHandler,
         priority: MessagePriority = MessagePriority.NORMAL,
-        **kwargs
+        **kwargs,
     ) -> str:
         """Subscribe to a topic with a handler."""
         if not self._client:
@@ -150,7 +153,9 @@ class RedisStreamsBus(MessageBus):
         logger.info(f"Subscribed to {stream_name} as {self.consumer_name}")
         return subscription_id
 
-    async def _consume(self, stream_name: str, subscription_id: str, handler: MessageHandler) -> None:
+    async def _consume(
+        self, stream_name: str, subscription_id: str, handler: MessageHandler
+    ) -> None:
         """Consume messages from stream."""
         while self._running:
             try:
@@ -160,7 +165,7 @@ class RedisStreamsBus(MessageBus):
                     self.consumer_name,
                     {stream_name: ">"},
                     count=10,
-                    block=5000  # 5 second block
+                    block=5000,  # 5 second block
                 )
 
                 for stream, entries in messages:
@@ -169,14 +174,16 @@ class RedisStreamsBus(MessageBus):
                             message_data = json.loads(data["data"])
                             message = Message.from_dict(message_data)
                             await handler(message)
-                            
+
                             # Acknowledge message
-                            await self._client.xack(stream_name, self.consumer_group, msg_id)
-                            
+                            await self._client.xack(
+                                stream_name, self.consumer_group, msg_id
+                            )
+
                         except Exception as e:
                             logger.error(f"Error processing message {msg_id}: {e}")
                             # Don't ack - will be redelivered
-                            
+
             except asyncio.CancelledError:
                 break
             except Exception as e:
@@ -192,48 +199,43 @@ class RedisStreamsBus(MessageBus):
                 await task
             except asyncio.CancelledError:
                 pass
-        
+
         self._handlers.pop(subscription_id, None)
         logger.info(f"Unsubscribed {subscription_id}")
 
     async def request(
-        self, 
-        topic: str, 
-        payload: dict[str, Any], 
-        timeout: float = 30.0
+        self, topic: str, payload: dict[str, Any], timeout: float = 30.0
     ) -> Message | None:
         """Request-response pattern using temporary reply stream."""
         if not self._client:
             raise RuntimeError("Not connected")
 
         import uuid
+
         correlation_id = str(uuid.uuid4())
         reply_stream = f"trading:reply:{correlation_id}"
-        
+
         # Create future for response
         response_future: asyncio.Future = asyncio.get_event_loop().create_future()
-        
+
         async def reply_handler(msg: Message) -> None:
             if not response_future.done():
                 response_future.set_result(msg)
-        
+
         # Subscribe to reply stream
         await self._ensure_consumer_group(reply_stream)
         reply_sub_id = await self.subscribe(reply_stream, reply_handler)
-        
+
         try:
             # Send request with reply_to
             await self.publish(
-                topic,
-                payload,
-                correlation_id=correlation_id,
-                reply_to=reply_stream
+                topic, payload, correlation_id=correlation_id, reply_to=reply_stream
             )
-            
+
             # Wait for response
             response = await asyncio.wait_for(response_future, timeout=timeout)
             return response
-            
+
         except asyncio.TimeoutError:
             logger.warning(f"Request to {topic} timed out")
             return None

@@ -35,7 +35,7 @@ def tick_to_sqrt_price_x96(tick: int) -> int:
 
 def sqrt_price_x96_to_tick(sqrt_price_x96: int) -> int:
     """Convert sqrt price * 2^96 to tick."""
-    return int(math.floor(math.log((sqrt_price_x96 / Q96)**2) / math.log(1.0001)))
+    return int(math.floor(math.log((sqrt_price_x96 / Q96) ** 2) / math.log(1.0001)))
 
 
 def price_to_tick(price: float, token0_decimals: int, token1_decimals: int) -> int:
@@ -49,7 +49,9 @@ def tick_to_price(tick: int, token0_decimals: int, token1_decimals: int) -> floa
     return (1.0001**tick) * (10**token1_decimals) / (10**token0_decimals)
 
 
-def sqrt_price_x96_to_price(sqrt_price_x96: int, token0_decimals: int, token1_decimals: int) -> float:
+def sqrt_price_x96_to_price(
+    sqrt_price_x96: int, token0_decimals: int, token1_decimals: int
+) -> float:
     """Convert sqrt price to human price."""
     price_x192 = (sqrt_price_x96 / Q96) ** 2
     return price_x192 * (10**token1_decimals) / (10**token0_decimals)
@@ -57,16 +59,18 @@ def sqrt_price_x96_to_price(sqrt_price_x96: int, token0_decimals: int, token1_de
 
 def get_tick_at_sqrt_ratio(sqrt_ratio_x96: int) -> int:
     """Get tick from sqrt ratio (Solidity-style)."""
-    return int(math.floor(math.log((sqrt_ratio_x96 / Q96)**2) / math.log(1.0001)))
+    return int(math.floor(math.log((sqrt_ratio_x96 / Q96) ** 2) / math.log(1.0001)))
 
 
 # ══════════════════════════════════════════════════════════════════════════
 # Pool State & Position
 # ══════════════════════════════════════════════════════════════════════════
 
+
 @dataclass
 class UniswapV3Pool:
     """Uniswap V3 Pool state."""
+
     address: str
     token0: str
     token1: str
@@ -80,7 +84,9 @@ class UniswapV3Pool:
 
     @property
     def price(self) -> float:
-        return sqrt_price_x96_to_price(self.sqrt_price_x96, self.token0_decimals, self.token1_decimals)
+        return sqrt_price_x96_to_price(
+            self.sqrt_price_x96, self.token0_decimals, self.token1_decimals
+        )
 
     @property
     def tick_lower(self) -> int:
@@ -94,6 +100,7 @@ class UniswapV3Pool:
 @dataclass
 class UniswapV3Position:
     """Concentrated liquidity position."""
+
     pool: UniswapV3Pool
     tick_lower: int
     tick_upper: int
@@ -118,11 +125,15 @@ class UniswapV3Position:
 
         if sqrt_price_x96 <= sqrt_lower:
             # All token0
-            amount0 = (self.liquidity * Q96 * (sqrt_upper - sqrt_lower)) // (sqrt_lower * sqrt_upper)
+            amount0 = (self.liquidity * Q96 * (sqrt_upper - sqrt_lower)) // (
+                sqrt_lower * sqrt_upper
+            )
             amount1 = 0
         elif sqrt_price_x96 < sqrt_upper:
             # Mixed
-            amount0 = (self.liquidity * Q96 * (sqrt_upper - sqrt_price_x96)) // (sqrt_price_x96 * sqrt_upper)
+            amount0 = (self.liquidity * Q96 * (sqrt_upper - sqrt_price_x96)) // (
+                sqrt_price_x96 * sqrt_upper
+            )
             amount1 = (self.liquidity * (sqrt_price_x96 - sqrt_lower)) // Q96
         else:
             # All token1
@@ -131,7 +142,9 @@ class UniswapV3Position:
 
         return amount0, amount1
 
-    def get_amounts_human(self, sqrt_price_x96: int | None = None) -> tuple[float, float]:
+    def get_amounts_human(
+        self, sqrt_price_x96: int | None = None
+    ) -> tuple[float, float]:
         a0, a1 = self.get_amounts(sqrt_price_x96)
         return (a0 / 10**self.pool.token0_decimals, a1 / 10**self.pool.token1_decimals)
 
@@ -148,7 +161,13 @@ class UniswapV3Position:
             sqrt_price_x96 = self.pool.sqrt_price_x96
 
         a0, a1 = self.get_amounts(sqrt_price_x96)
-        value_lp = a0 * sqrt_price_x96_to_price(sqrt_price_x96, self.pool.token0_decimals, self.pool.token1_decimals) + a1
+        value_lp = (
+            a0
+            * sqrt_price_x96_to_price(
+                sqrt_price_x96, self.pool.token0_decimals, self.pool.token1_decimals
+            )
+            + a1
+        )
 
         # Value if held
         a0_init, a1_init = self.get_amounts(self.pool.sqrt_price_x96)
@@ -160,17 +179,20 @@ class UniswapV3Position:
 
 
 def compute_liquidity_from_amounts(
-    amount0: int, amount1: int,
-    sqrt_price_x96: int, tick_lower: int, tick_upper: int
+    amount0: int, amount1: int, sqrt_price_x96: int, tick_lower: int, tick_upper: int
 ) -> int:
     """Compute liquidity from token amounts (for minting)."""
     sqrt_lower = tick_to_sqrt_price_x96(tick_lower)
     sqrt_upper = tick_to_sqrt_price_x96(tick_upper)
 
     if sqrt_price_x96 <= sqrt_lower:
-        liquidity = (amount0 * sqrt_lower * sqrt_upper) // (Q96 * (sqrt_upper - sqrt_lower))
+        liquidity = (amount0 * sqrt_lower * sqrt_upper) // (
+            Q96 * (sqrt_upper - sqrt_lower)
+        )
     elif sqrt_price_x96 < sqrt_upper:
-        liquidity0 = (amount0 * sqrt_price_x96 * sqrt_upper) // (Q96 * (sqrt_upper - sqrt_price_x96))
+        liquidity0 = (amount0 * sqrt_price_x96 * sqrt_upper) // (
+            Q96 * (sqrt_upper - sqrt_price_x96)
+        )
         liquidity1 = (amount1 * Q96) // (sqrt_price_x96 - sqrt_lower)
         liquidity = min(liquidity0, liquidity1)
     else:
@@ -183,7 +205,14 @@ def compute_liquidity_from_amounts(
 # Swap Math
 # ══════════════════════════════════════════════════════════════════════════
 
-def swap_math(amount_in: int, sqrt_price_x96: int, liquidity: int, zero_for_one: bool, fee_bps: int) -> tuple[int, int]:
+
+def swap_math(
+    amount_in: int,
+    sqrt_price_x96: int,
+    liquidity: int,
+    zero_for_one: bool,
+    fee_bps: int,
+) -> tuple[int, int]:
     """
     Simulate Uniswap V3 swap.
     Returns (amount_out, new_sqrt_price_x96).
@@ -193,7 +222,9 @@ def swap_math(amount_in: int, sqrt_price_x96: int, liquidity: int, zero_for_one:
 
     if zero_for_one:
         # token0 -> token1
-        new_sqrt = (sqrt_price_x96 * liquidity * Q96) // (liquidity * Q96 + amount_in_after_fee * sqrt_price_x96)
+        new_sqrt = (sqrt_price_x96 * liquidity * Q96) // (
+            liquidity * Q96 + amount_in_after_fee * sqrt_price_x96
+        )
         amount_out = (liquidity * (sqrt_price_x96 - new_sqrt)) // Q96
     else:
         # token1 -> token0
@@ -206,6 +237,7 @@ def swap_math(amount_in: int, sqrt_price_x96: int, liquidity: int, zero_for_one:
 # ══════════════════════════════════════════════════════════════════════════
 # Delta-Neutral LP Strategy
 # ══════════════════════════════════════════════════════════════════════════
+
 
 class DeltaNeutralLP:
     """
@@ -268,7 +300,17 @@ class DeltaNeutralLP:
     def total_pnl(self, current_price: float, perp_price: float) -> dict:
         """Compute total P&L including IL, fees, and hedge."""
         # LP value
-        sqrt_price = int(math.sqrt(current_price * 10**(self.position.pool.token0_decimals - self.position.pool.token1_decimals)) * Q96)
+        sqrt_price = int(
+            math.sqrt(
+                current_price
+                * 10
+                ** (
+                    self.position.pool.token0_decimals
+                    - self.position.pool.token1_decimals
+                )
+            )
+            * Q96
+        )
         a0, a1 = self.position.get_amounts(sqrt_price)
         lp_value = a0 * current_price + a1
 
@@ -301,16 +343,18 @@ class DeltaNeutralLP:
 # Curve Pool Support
 # ══════════════════════════════════════════════════════════════════════════
 
+
 class CurvePoolType(Enum):
-    STABLE = "stable"      # 3pool, etc.
-    CRYPTO = "crypto"      # tricrypto, etc.
-    FACTORY = "factory"    # factory pools
-    LENDING = "lending"    # aave, compound pools
+    STABLE = "stable"  # 3pool, etc.
+    CRYPTO = "crypto"  # tricrypto, etc.
+    FACTORY = "factory"  # factory pools
+    LENDING = "lending"  # aave, compound pools
 
 
 @dataclass
 class CurvePool:
     """Curve pool abstraction."""
+
     address: str
     name: str
     pool_type: CurvePoolType
@@ -341,9 +385,11 @@ class CurvePool:
 # Yield Strategies
 # ══════════════════════════════════════════════════════════════════════════
 
+
 @dataclass
 class DeFiYieldStrategy:
     """Base DeFi yield strategy."""
+
     name: str
     protocol: str
     apy: float
@@ -354,6 +400,7 @@ class DeFiYieldStrategy:
 
 class DeltaNeutralLPYield(DeFiYieldStrategy):
     """Delta-neutral LP yield farming."""
+
     def __init__(self, pool: UniswapV3Position, perp_funding_rate: float = 0.0):
         lp_fee_apy = self._estimate_fee_apy(pool)
         total_apy = lp_fee_apy + perp_funding_rate
@@ -377,6 +424,7 @@ class DeltaNeutralLPYield(DeFiYieldStrategy):
 
 class StakingYield(DeFiYieldStrategy):
     """Native staking yield (ETH, SOL, etc.)."""
+
     def __init__(self, token: str, apy: float, tvl: float):
         super().__init__(
             name=f"Staking_{token}",
@@ -390,7 +438,15 @@ class StakingYield(DeFiYieldStrategy):
 
 class LendingYield(DeFiYieldStrategy):
     """Lending protocol yield (Aave, Compound)."""
-    def __init__(self, protocol: str, token: str, supply_apy: float, borrow_apy: float, tvl: float):
+
+    def __init__(
+        self,
+        protocol: str,
+        token: str,
+        supply_apy: float,
+        borrow_apy: float,
+        tvl: float,
+    ):
         net_apy = supply_apy  # Simplified
         super().__init__(
             name=f"Lending_{protocol}_{token}",
@@ -410,12 +466,15 @@ if __name__ == "__main__":
     # Uniswap V3 ETH/USDC 0.05% pool
     pool = UniswapV3Pool(
         address="0x88e6A0c2dDD26FEEb64F039a2c41296FcB3f5640",
-        token0="USDC", token1="ETH",
-        fee=500, tick_spacing=10,
+        token0="USDC",
+        token1="ETH",
+        fee=500,
+        tick_spacing=10,
         sqrt_price_x96=int(math.sqrt(3000) * Q96),  # ~3000 USDC/ETH
         tick=price_to_tick(3000, 6, 18),
         liquidity=1_000_000_000_000_000_000,
-        token0_decimals=6, token1_decimals=18,
+        token0_decimals=6,
+        token1_decimals=18,
     )
 
     # Position: ±10% range
@@ -426,23 +485,28 @@ if __name__ == "__main__":
 
     liquidity = compute_liquidity_from_amounts(
         amount0=10_000 * 10**6,  # 10k USDC
-        amount1=3 * 10**18,       # 3 ETH
+        amount1=3 * 10**18,  # 3 ETH
         sqrt_price_x96=pool.sqrt_price_x96,
         tick_lower=tick_lower,
         tick_upper=tick_upper,
     )
 
     position = UniswapV3Position(
-        pool=pool, tick_lower=tick_lower, tick_upper=tick_upper, liquidity=liquidity,
+        pool=pool,
+        tick_lower=tick_lower,
+        tick_upper=tick_upper,
+        liquidity=liquidity,
     )
 
     print(f"Pool: {pool.token0}/{pool.token1} @ ${pool.price:,.2f}")
-    print(f"Position range: ${tick_to_price(tick_lower, 6, 18):,.2f} - ${tick_to_price(tick_upper, 6, 18):,.2f}")
+    print(
+        f"Position range: ${tick_to_price(tick_lower, 6, 18):,.2f} - ${tick_to_price(tick_upper, 6, 18):,.2f}"
+    )
     print(f"Liquidity: {liquidity}")
     print(f"Amounts: {position.get_amounts_human()}")
     print(f"In range: {position.in_range()}")
-    print(f"IL at 2500: {position.impermanent_loss(int(math.sqrt(2500)*Q96)):.2%}")
-    print(f"IL at 3500: {position.impermanent_loss(int(math.sqrt(3500)*Q96)):.2%}")
+    print(f"IL at 2500: {position.impermanent_loss(int(math.sqrt(2500) * Q96)):.2%}")
+    print(f"IL at 3500: {position.impermanent_loss(int(math.sqrt(3500) * Q96)):.2%}")
 
     # Delta-neutral LP
     dn_lp = DeltaNeutralLP(position, hedge_ratio=1.0)

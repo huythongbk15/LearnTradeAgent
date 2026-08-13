@@ -26,22 +26,23 @@ import numpy as np
 @dataclass
 class TraderProfile:
     """Extracted behavioral profile of a trader."""
+
     name: str = ""
     total_trades: int = 0
     win_rate: float = 0.0
     avg_hold_time_hours: float = 0.0
-    avg_position_size_pct: float = 0.0     # % of portfolio
+    avg_position_size_pct: float = 0.0  # % of portfolio
     avg_profit_per_trade: float = 0.0
     avg_loss_per_trade: float = 0.0
     profit_factor: float = 0.0
     max_drawdown: float = 0.0
     sharpe_ratio: float = 0.0
     preferred_assets: list[str] = field(default_factory=list)
-    preferred_timeframe: str = ""          # "intraday", "swing", "position"
-    risk_tolerance: str = ""               # "conservative", "moderate", "aggressive"
+    preferred_timeframe: str = ""  # "intraday", "swing", "position"
+    risk_tolerance: str = ""  # "conservative", "moderate", "aggressive"
     entry_patterns: list[dict] = field(default_factory=list)
     exit_patterns: list[dict] = field(default_factory=list)
-    sizing_model: str = ""                 # "fixed", "kelly", "volatility_target"
+    sizing_model: str = ""  # "fixed", "kelly", "volatility_target"
 
 
 class TradeCloner:
@@ -115,7 +116,9 @@ class TradeCloner:
         for t in trades:
             a = t.get("asset", "unknown")
             asset_counts[a] = asset_counts.get(a, 0) + 1
-        preferred = sorted(asset_counts.keys(), key=lambda x: asset_counts[x], reverse=True)[:5]
+        preferred = sorted(
+            asset_counts.keys(), key=lambda x: asset_counts[x], reverse=True
+        )[:5]
 
         # Sizing model detection
         size_std = np.std(sizes) if sizes else 0
@@ -131,7 +134,8 @@ class TradeCloner:
         exit_patterns = self._extract_exit_patterns(trades)
 
         return TraderProfile(
-            name=name, total_trades=len(trades),
+            name=name,
+            total_trades=len(trades),
             win_rate=len(wins) / len(trades) if trades else 0,
             avg_hold_time_hours=float(avg_hold),
             avg_position_size_pct=float(np.mean(sizes)) if sizes else 0,
@@ -156,14 +160,19 @@ class TradeCloner:
         for t in trades:
             sig = t.get("entry_signal", "unknown")
             signal_counts[sig] = signal_counts.get(sig, 0) + 1
-        for sig, count in sorted(signal_counts.items(), key=lambda x: x[1], reverse=True):
+        for sig, count in sorted(
+            signal_counts.items(), key=lambda x: x[1], reverse=True
+        ):
             sig_trades = [t for t in trades if t.get("entry_signal") == sig]
             pnls = [t.get("pnl_pct", 0) for t in sig_trades]
-            patterns.append({
-                "signal": sig, "count": count,
-                "win_rate": sum(1 for p in pnls if p > 0) / max(len(pnls), 1),
-                "avg_pnl": float(np.mean(pnls)) if pnls else 0,
-            })
+            patterns.append(
+                {
+                    "signal": sig,
+                    "count": count,
+                    "win_rate": sum(1 for p in pnls if p > 0) / max(len(pnls), 1),
+                    "avg_pnl": float(np.mean(pnls)) if pnls else 0,
+                }
+            )
         return patterns[:5]
 
     def _extract_exit_patterns(self, trades: list[dict]) -> list[dict]:
@@ -172,14 +181,19 @@ class TradeCloner:
         for t in trades:
             sig = t.get("exit_signal", "unknown")
             signal_counts[sig] = signal_counts.get(sig, 0) + 1
-        for sig, count in sorted(signal_counts.items(), key=lambda x: x[1], reverse=True):
+        for sig, count in sorted(
+            signal_counts.items(), key=lambda x: x[1], reverse=True
+        ):
             sig_trades = [t for t in trades if t.get("exit_signal") == sig]
             pnls = [t.get("pnl_pct", 0) for t in sig_trades]
-            patterns.append({
-                "signal": sig, "count": count,
-                "win_rate": sum(1 for p in pnls if p > 0) / max(len(pnls), 1),
-                "avg_pnl": float(np.mean(pnls)) if pnls else 0,
-            })
+            patterns.append(
+                {
+                    "signal": sig,
+                    "count": count,
+                    "win_rate": sum(1 for p in pnls if p > 0) / max(len(pnls), 1),
+                    "avg_pnl": float(np.mean(pnls)) if pnls else 0,
+                }
+            )
         return patterns[:5]
 
 
@@ -192,7 +206,8 @@ class StrategyCloner:
             "position_sizing": {
                 "model": profile.sizing_model,
                 "max_position_pct": min(profile.avg_position_size_pct * 1.5, 20),
-                "kelly_fraction": profile.win_rate - (1 - profile.win_rate) / max(profile.profit_factor, 0.1),
+                "kelly_fraction": profile.win_rate
+                - (1 - profile.win_rate) / max(profile.profit_factor, 0.1),
             },
             "risk_management": {
                 "max_drawdown_pct": profile.max_drawdown * 1.2,
@@ -203,7 +218,11 @@ class StrategyCloner:
             "entry_rules": {
                 "preferred_assets": profile.preferred_assets,
                 "timeframe": profile.preferred_timeframe,
-                "signals": [p["signal"] for p in profile.entry_patterns[:3] if p["win_rate"] > 0.5],
+                "signals": [
+                    p["signal"]
+                    for p in profile.entry_patterns[:3]
+                    if p["win_rate"] > 0.5
+                ],
             },
             "exit_rules": {
                 "signals": [p["signal"] for p in profile.exit_patterns[:3]],
@@ -214,7 +233,9 @@ class StrategyCloner:
 
     def estimate_performance(self, profile: TraderProfile) -> dict:
         """Estimate expected performance of cloned strategy."""
-        kelly = profile.win_rate - (1 - profile.win_rate) / max(profile.profit_factor, 0.1)
+        kelly = profile.win_rate - (1 - profile.win_rate) / max(
+            profile.profit_factor, 0.1
+        )
         kelly_half = kelly / 2  # half-Kelly for safety
 
         return {
@@ -225,12 +246,17 @@ class StrategyCloner:
             "kelly_half": kelly_half,
             "recommended_sizing": f"{kelly_half * 100:.1f}% per trade",
             "expected_max_drawdown": profile.max_drawdown * 1.3,
-            "confidence": "high" if profile.total_trades > 100 else "medium" if profile.total_trades > 30 else "low",
+            "confidence": "high"
+            if profile.total_trades > 100
+            else "medium"
+            if profile.total_trades > 30
+            else "low",
         }
 
 
 if __name__ == "__main__":
     import random
+
     print("=" * 60)
     print("STRATEGY CLONER — DEMO")
     print("=" * 60)
@@ -240,17 +266,25 @@ if __name__ == "__main__":
     for i in range(200):
         side = random.choice(["long", "short"])
         asset = random.choice(["BTC", "ETH", "SOL"])
-        signal = random.choice(["ma_cross", "rsi_oversold", "breakout", "mean_reversion"])
+        signal = random.choice(
+            ["ma_cross", "rsi_oversold", "breakout", "mean_reversion"]
+        )
         entry = random.uniform(90000, 110000)
         pnl = random.gauss(0.5, 3)  # slight edge
-        trades.append({
-            "entry_time": time.time() - random.uniform(0, 86400 * 30),
-            "exit_time": time.time() - random.uniform(0, 86400 * 30),
-            "entry_price": entry, "exit_price": entry * (1 + pnl / 100),
-            "side": side, "size_pct": random.uniform(1, 5),
-            "asset": asset, "pnl_pct": pnl,
-            "entry_signal": signal, "exit_signal": random.choice(["tp", "sl", "time", signal]),
-        })
+        trades.append(
+            {
+                "entry_time": time.time() - random.uniform(0, 86400 * 30),
+                "exit_time": time.time() - random.uniform(0, 86400 * 30),
+                "entry_price": entry,
+                "exit_price": entry * (1 + pnl / 100),
+                "side": side,
+                "size_pct": random.uniform(1, 5),
+                "asset": asset,
+                "pnl_pct": pnl,
+                "entry_signal": signal,
+                "exit_signal": random.choice(["tp", "sl", "time", signal]),
+            }
+        )
 
     cloner = TradeCloner()
     profile = cloner.analyze_trades(trades, name="whale_trader")
@@ -260,7 +294,9 @@ if __name__ == "__main__":
     print(f"  Profit factor: {profile.profit_factor:.2f}")
     print(f"  Sharpe: {profile.sharpe_ratio:.2f}")
     print(f"  Max DD: {profile.max_drawdown:.2f}%")
-    print(f"  Avg hold: {profile.avg_hold_time_hours:.1f}h ({profile.preferred_timeframe})")
+    print(
+        f"  Avg hold: {profile.avg_hold_time_hours:.1f}h ({profile.preferred_timeframe})"
+    )
     print(f"  Risk: {profile.risk_tolerance}")
     print(f"  Assets: {profile.preferred_assets}")
     print(f"  Sizing: {profile.sizing_model}")

@@ -28,8 +28,8 @@ import numpy as np
 class FundingRate:
     exchange: str
     symbol: str
-    rate: float          # 8h funding rate (e.g. 0.0001 = 0.01%)
-    annualized: float    # rate * 3 * 365
+    rate: float  # 8h funding rate (e.g. 0.0001 = 0.01%)
+    annualized: float  # rate * 3 * 365
     next_funding_ts: float
     mark_price: float = 0.0
     index_price: float = 0.0
@@ -39,14 +39,16 @@ class FundingRate:
 @dataclass
 class FundingSignal:
     symbol: str
-    current_rate: float       # weighted average across exchanges
+    current_rate: float  # weighted average across exchanges
     avg_7d: float
     avg_30d: float
-    z_score: float            # vs 30d history
-    percentile: float         # 0-100
+    z_score: float  # vs 30d history
+    percentile: float  # 0-100
     annualized_yield: float
-    basis_spread_bps: float   # (perp - spot) / spot * 10000
-    signal: str               # "strong_positive", "positive", "neutral", "negative", "strong_negative"
+    basis_spread_bps: float  # (perp - spot) / spot * 10000
+    signal: (
+        str  # "strong_positive", "positive", "neutral", "negative", "strong_negative"
+    )
     exchanges: list[dict] = field(default_factory=list)
 
 
@@ -60,7 +62,12 @@ class FundingRateMonitor:
 
     FUNDING_INTERVAL_S = 8 * 3600  # 8 hours
 
-    def __init__(self, exchanges: list[str] | None = None, dry_run: bool = True, config: dict | None = None):
+    def __init__(
+        self,
+        exchanges: list[str] | None = None,
+        dry_run: bool = True,
+        config: dict | None = None,
+    ):
         self.exchanges = exchanges or ["binance", "okx", "bybit"]
         self.dry_run = dry_run
         self.config = config or {}
@@ -76,9 +83,17 @@ class FundingRateMonitor:
         """Compute funding rate signal with z-score and percentile."""
         rates = self.get_rates(symbol, spot_price)
         if not rates:
-            return FundingSignal(symbol=symbol, current_rate=0, avg_7d=0, avg_30d=0,
-                                 z_score=0, percentile=50, annualized_yield=0,
-                                 basis_spread_bps=0, signal="neutral")
+            return FundingSignal(
+                symbol=symbol,
+                current_rate=0,
+                avg_7d=0,
+                avg_30d=0,
+                z_score=0,
+                percentile=50,
+                annualized_yield=0,
+                basis_spread_bps=0,
+                signal="neutral",
+            )
 
         current = np.mean([r.rate for r in rates])
 
@@ -90,7 +105,9 @@ class FundingRateMonitor:
 
         hist = np.array(self._history[symbol])
         avg_7d = float(np.mean(hist[-21:])) if len(hist) >= 21 else float(np.mean(hist))
-        avg_30d = float(np.mean(hist[-90:])) if len(hist) >= 90 else float(np.mean(hist))
+        avg_30d = (
+            float(np.mean(hist[-90:])) if len(hist) >= 90 else float(np.mean(hist))
+        )
 
         # Z-score vs 30d
         if len(hist) >= 90:
@@ -112,11 +129,11 @@ class FundingRateMonitor:
 
         # Signal classification
         if z_score > 2:
-            signal = "strong_positive"   # longs paying shorts heavily → overcrowded long
+            signal = "strong_positive"  # longs paying shorts heavily → overcrowded long
         elif z_score > 0.5:
             signal = "positive"
         elif z_score < -2:
-            signal = "strong_negative"   # shorts paying longs → overcrowded short
+            signal = "strong_negative"  # shorts paying longs → overcrowded short
         elif z_score < -0.5:
             signal = "negative"
         else:
@@ -132,7 +149,10 @@ class FundingRateMonitor:
             annualized_yield=current * 3 * 365 * 100,
             basis_spread_bps=basis_bps,
             signal=signal,
-            exchanges=[{"exchange": r.exchange, "rate": r.rate, "annualized": r.annualized} for r in rates],
+            exchanges=[
+                {"exchange": r.exchange, "rate": r.rate, "annualized": r.annualized}
+                for r in rates
+            ],
         )
 
     def funding_arbitrage(self, symbol: str) -> dict:
@@ -173,6 +193,7 @@ class FundingRateMonitor:
 
     def _synthetic_rates(self, symbol: str, spot_price: float) -> list[FundingRate]:
         import random
+
         now = time.time()
         rates = []
         base_rate = random.uniform(-0.0005, 0.0005)
@@ -181,22 +202,29 @@ class FundingRateMonitor:
             rate = base_rate + noise
             annualized = rate * 3 * 365
             mark = spot_price * (1 + rate * 10) if spot_price > 0 else 0
-            rates.append(FundingRate(
-                exchange=ex, symbol=symbol, rate=rate, annualized=annualized,
-                next_funding_ts=now + random.randint(3600, 28800),
-                mark_price=mark, index_price=spot_price,
-                timestamp=now,
-            ))
+            rates.append(
+                FundingRate(
+                    exchange=ex,
+                    symbol=symbol,
+                    rate=rate,
+                    annualized=annualized,
+                    next_funding_ts=now + random.randint(3600, 28800),
+                    mark_price=mark,
+                    index_price=spot_price,
+                    timestamp=now,
+                )
+            )
         return rates
 
 
 # ── Liquidation Feed ─────────────────────────────────────────
 
+
 @dataclass
 class LiquidationEvent:
     exchange: str
     symbol: str
-    side: str              # "long" or "short"
+    side: str  # "long" or "short"
     price: float
     qty: float
     value_usd: float
@@ -217,19 +245,27 @@ class LiquidationFeed:
         self._events: list[LiquidationEvent] = []
         self._stats: dict[str, dict] = {}
 
-    def get_recent(self, symbol: str = "", lookback_s: float = 3600) -> list[LiquidationEvent]:
+    def get_recent(
+        self, symbol: str = "", lookback_s: float = 3600
+    ) -> list[LiquidationEvent]:
         """Get recent liquidation events."""
         if self.dry_run:
             return self._synthetic_events(symbol)
-        return [e for e in self._events
-                if (not symbol or e.symbol == symbol)
-                and time.time() - e.timestamp < lookback_s]
+        return [
+            e
+            for e in self._events
+            if (not symbol or e.symbol == symbol)
+            and time.time() - e.timestamp < lookback_s
+        ]
 
     def get_stats(self, symbol: str, lookback_s: float = 86400) -> dict:
         """Liquidation stats: total longs vs shorts, largest, total value."""
-        events = [e for e in self._events
-                  if (not symbol or e.symbol == symbol)
-                  and time.time() - e.timestamp < lookback_s]
+        events = [
+            e
+            for e in self._events
+            if (not symbol or e.symbol == symbol)
+            and time.time() - e.timestamp < lookback_s
+        ]
         longs = [e for e in events if e.side == "long"]
         shorts = [e for e in events if e.side == "short"]
         return {
@@ -238,11 +274,14 @@ class LiquidationFeed:
             "short_liquidations": len(shorts),
             "total_long_value_usd": sum(e.value_usd for e in longs),
             "total_short_value_usd": sum(e.value_usd for e in shorts),
-            "largest": max(events, key=lambda e: e.value_usd).__dict__ if events else None,
+            "largest": max(events, key=lambda e: e.value_usd).__dict__
+            if events
+            else None,
         }
 
     def _synthetic_events(self, symbol: str) -> list[LiquidationEvent]:
         import random
+
         if not symbol:
             symbol = "BTC/USDT"
         events = []
@@ -250,15 +289,22 @@ class LiquidationFeed:
             side = random.choice(["long", "short"])
             price = random.uniform(95000, 105000)
             qty = random.uniform(0.01, 5.0)
-            events.append(LiquidationEvent(
-                exchange=random.choice(self.exchanges), symbol=symbol, side=side,
-                price=price, qty=qty, value_usd=price * qty,
-                timestamp=time.time() - random.uniform(0, 3600),
-            ))
+            events.append(
+                LiquidationEvent(
+                    exchange=random.choice(self.exchanges),
+                    symbol=symbol,
+                    side=side,
+                    price=price,
+                    qty=qty,
+                    value_usd=price * qty,
+                    timestamp=time.time() - random.uniform(0, 3600),
+                )
+            )
         return events
 
 
 # ── Cross-Exchange Arbitrage Detector ─────────────────────────
+
 
 @dataclass
 class ArbitrageOpportunity:
@@ -281,17 +327,23 @@ class ArbitrageDetector:
     Accounts for fees and transfer time.
     """
 
-    def __init__(self, fee_bps: float = 10.0, transfer_time_s: float = 60, dry_run: bool = True):
+    def __init__(
+        self, fee_bps: float = 10.0, transfer_time_s: float = 60, dry_run: bool = True
+    ):
         self.fee_bps = fee_bps
         self.transfer_time_s = transfer_time_s
         self.dry_run = dry_run
-        self._prices: dict[str, dict[str, dict]] = {}  # symbol → exchange → {bid, ask, mid}
+        self._prices: dict[
+            str, dict[str, dict]
+        ] = {}  # symbol → exchange → {bid, ask, mid}
 
     def update_prices(self, symbol: str, exchange: str, bid: float, ask: float):
         if symbol not in self._prices:
             self._prices[symbol] = {}
         self._prices[symbol][exchange] = {
-            "bid": bid, "ask": ask, "mid": (bid + ask) / 2,
+            "bid": bid,
+            "ask": ask,
+            "mid": (bid + ask) / 2,
             "timestamp": time.time(),
         }
 
@@ -308,24 +360,38 @@ class ArbitrageDetector:
                         continue
                     ex_buy = exchanges[i]
                     ex_sell = exchanges[j]
-                    buy_ask = ex_data[ex_buy]["ask"]   # we buy at ask
-                    sell_bid = ex_data[ex_sell]["bid"]   # we sell at bid
+                    buy_ask = ex_data[ex_buy]["ask"]  # we buy at ask
+                    sell_bid = ex_data[ex_sell]["bid"]  # we sell at bid
                     if buy_ask <= 0:
                         continue
                     spread_bps = (sell_bid - buy_ask) / buy_ask * 10_000
                     net_bps = spread_bps - 2 * self.fee_bps  # round-trip fees
                     if net_bps >= min_spread_bps:
-                        confidence = "high" if net_bps > 30 else "medium" if net_bps > 15 else "low"
-                        opps.append(ArbitrageOpportunity(
-                            symbol=symbol, buy_exchange=ex_buy, sell_exchange=ex_sell,
-                            spread_bps=net_bps, buy_price=buy_ask, sell_price=sell_bid,
-                            estimated_profit_pct=net_bps / 100,
-                            confidence=confidence, timestamp=time.time(),
-                        ))
+                        confidence = (
+                            "high"
+                            if net_bps > 30
+                            else "medium"
+                            if net_bps > 15
+                            else "low"
+                        )
+                        opps.append(
+                            ArbitrageOpportunity(
+                                symbol=symbol,
+                                buy_exchange=ex_buy,
+                                sell_exchange=ex_sell,
+                                spread_bps=net_bps,
+                                buy_price=buy_ask,
+                                sell_price=sell_bid,
+                                estimated_profit_pct=net_bps / 100,
+                                confidence=confidence,
+                                timestamp=time.time(),
+                            )
+                        )
         return sorted(opps, key=lambda o: o.spread_bps, reverse=True)
 
     def _synthetic_scan(self) -> list[ArbitrageOpportunity]:
         import random
+
         pairs = ["BTC/USDT", "ETH/USDT", "SOL/USDT"]
         exchanges = ["binance", "okx", "bybit", "gate"]
         opps = []
@@ -334,18 +400,29 @@ class ArbitrageDetector:
                 for j in range(i + 1, len(exchanges)):
                     if random.random() > 0.3:  # 70% chance of arb
                         spread = random.uniform(5, 50)
-                        base = {"BTC/USDT": 100000, "ETH/USDT": 3500, "SOL/USDT": 180}.get(sym, 100)
-                        opps.append(ArbitrageOpportunity(
-                            symbol=sym, buy_exchange=exchanges[i], sell_exchange=exchanges[j],
-                            spread_bps=spread, buy_price=base, sell_price=base * (1 + spread / 10000),
-                            estimated_profit_pct=spread / 100,
-                            confidence="high" if spread > 30 else "medium",
-                            timestamp=time.time(),
-                        ))
+                        base = {
+                            "BTC/USDT": 100000,
+                            "ETH/USDT": 3500,
+                            "SOL/USDT": 180,
+                        }.get(sym, 100)
+                        opps.append(
+                            ArbitrageOpportunity(
+                                symbol=sym,
+                                buy_exchange=exchanges[i],
+                                sell_exchange=exchanges[j],
+                                spread_bps=spread,
+                                buy_price=base,
+                                sell_price=base * (1 + spread / 10000),
+                                estimated_profit_pct=spread / 100,
+                                confidence="high" if spread > 30 else "medium",
+                                timestamp=time.time(),
+                            )
+                        )
         return opps
 
 
 # ── On-Chain Whale Tracker ───────────────────────────────────
+
 
 @dataclass
 class WhaleTransfer:
@@ -356,7 +433,7 @@ class WhaleTransfer:
     token: str
     amount: float
     value_usd: float
-    label: str = ""          # "exchange_deposit", "exchange_withdrawal", "unknown"
+    label: str = ""  # "exchange_deposit", "exchange_withdrawal", "unknown"
     timestamp: float = 0.0
 
 
@@ -380,13 +457,19 @@ class WhaleTracker:
     def get_transfers(self, token: str = "", min_usd: float = 0) -> list[WhaleTransfer]:
         if self.dry_run:
             return self._synthetic_transfers()
-        return [t for t in self._transfers
-                if (not token or t.token == token)
-                and t.value_usd >= (min_usd or self.threshold_usd)]
+        return [
+            t
+            for t in self._transfers
+            if (not token or t.token == token)
+            and t.value_usd >= (min_usd or self.threshold_usd)
+        ]
 
     def get_summary(self, token: str = "", hours: float = 24) -> dict:
-        transfers = [t for t in self.get_transfers(token)
-                     if time.time() - t.timestamp < hours * 3600]
+        transfers = [
+            t
+            for t in self.get_transfers(token)
+            if time.time() - t.timestamp < hours * 3600
+        ]
         inflows = [t for t in transfers if t.label == "exchange_deposit"]
         outflows = [t for t in transfers if t.label == "exchange_withdrawal"]
         return {
@@ -396,31 +479,47 @@ class WhaleTracker:
             "exchange_inflow_usd": sum(t.value_usd for t in inflows),
             "exchange_outflows": len(outflows),
             "exchange_outflow_usd": sum(t.value_usd for t in outflows),
-            "net_flow_usd": sum(t.value_usd for t in outflows) - sum(t.value_usd for t in inflows),
-            "signal": "bearish" if sum(t.value_usd for t in inflows) > sum(t.value_usd for t in outflows) * 1.5
-                      else "bullish" if sum(t.value_usd for t in outflows) > sum(t.value_usd for t in inflows) * 1.5
-                      else "neutral",
+            "net_flow_usd": sum(t.value_usd for t in outflows)
+            - sum(t.value_usd for t in inflows),
+            "signal": "bearish"
+            if sum(t.value_usd for t in inflows)
+            > sum(t.value_usd for t in outflows) * 1.5
+            else "bullish"
+            if sum(t.value_usd for t in outflows)
+            > sum(t.value_usd for t in inflows) * 1.5
+            else "neutral",
         }
 
     def _synthetic_transfers(self) -> list[WhaleTransfer]:
         import random
+
         tokens = ["BTC", "ETH", "SOL"]
         chains = ["ethereum", "bitcoin", "solana"]
         transfers = []
         for _ in range(random.randint(3, 8)):
             token = random.choice(tokens)
             chain = chains[tokens.index(token)]
-            amount = random.uniform(10, 500) if token == "BTC" else random.uniform(100, 5000)
+            amount = (
+                random.uniform(10, 500) if token == "BTC" else random.uniform(100, 5000)
+            )
             price = {"BTC": 100000, "ETH": 3500, "SOL": 180}.get(token, 100)
             value = amount * price
-            label = random.choice(["exchange_deposit", "exchange_withdrawal", "unknown"])
-            transfers.append(WhaleTransfer(
-                chain=chain, tx_hash=f"0x{random.randint(0, 2**64):016x}",
-                from_address=f"0x{random.randint(0, 2**160):040x}",
-                to_address=f"0x{random.randint(0, 2**160):04x}",
-                token=token, amount=round(amount, 4), value_usd=round(value, 2),
-                label=label, timestamp=time.time() - random.uniform(0, 86400),
-            ))
+            label = random.choice(
+                ["exchange_deposit", "exchange_withdrawal", "unknown"]
+            )
+            transfers.append(
+                WhaleTransfer(
+                    chain=chain,
+                    tx_hash=f"0x{random.randint(0, 2**64):016x}",
+                    from_address=f"0x{random.randint(0, 2**160):040x}",
+                    to_address=f"0x{random.randint(0, 2**160):04x}",
+                    token=token,
+                    amount=round(amount, 4),
+                    value_usd=round(value, 2),
+                    label=label,
+                    timestamp=time.time() - random.uniform(0, 86400),
+                )
+            )
         return transfers
 
 
@@ -433,7 +532,9 @@ if __name__ == "__main__":
     print("\n── Funding Rate Monitor ──")
     monitor = FundingRateMonitor(dry_run=True)
     signal = monitor.get_signal("BTC", spot_price=100_000)
-    print(f"BTC Funding: rate={signal.current_rate:.6f} ({signal.annualized_yield:.2f}%/yr)")
+    print(
+        f"BTC Funding: rate={signal.current_rate:.6f} ({signal.annualized_yield:.2f}%/yr)"
+    )
     print(f"  Z-score: {signal.z_score:.2f}, Signal: {signal.signal}")
     print(f"  Basis: {signal.basis_spread_bps:.1f} bps")
     for ex in signal.exchanges:
@@ -448,7 +549,9 @@ if __name__ == "__main__":
     events = liq.get_recent("BTC/USDT")
     print(f"Recent liquidations: {len(events)}")
     for e in events[:3]:
-        print(f"  {e.side:5s} {e.qty:.4f} @ ${e.price:,.0f} (${e.value_usd:,.0f}) on {e.exchange}")
+        print(
+            f"  {e.side:5s} {e.qty:.4f} @ ${e.price:,.0f} (${e.value_usd:,.0f}) on {e.exchange}"
+        )
 
     # 3. Arbitrage Detector
     print("\n── Arbitrage Detector ──")
@@ -456,12 +559,18 @@ if __name__ == "__main__":
     opps = arb_det._synthetic_scan()
     print(f"Opportunities: {len(opps)}")
     for o in opps[:5]:
-        print(f"  {o.symbol:12s} {o.buy_exchange}→{o.sell_exchange}: {o.spread_bps:.1f} bps ({o.confidence})")
+        print(
+            f"  {o.symbol:12s} {o.buy_exchange}→{o.sell_exchange}: {o.spread_bps:.1f} bps ({o.confidence})"
+        )
 
     # 4. Whale Tracker
     print("\n── Whale Tracker ──")
     whale = WhaleTracker(dry_run=True)
     summary = whale.get_summary()
-    print(f"Transfers: {summary['total_transfers']}, Total: ${summary['total_value_usd']:,.0f}")
-    print(f"  Inflows: ${summary['exchange_inflow_usd']:,.0f}, Outflows: ${summary['exchange_outflow_usd']:,.0f}")
+    print(
+        f"Transfers: {summary['total_transfers']}, Total: ${summary['total_value_usd']:,.0f}"
+    )
+    print(
+        f"  Inflows: ${summary['exchange_inflow_usd']:,.0f}, Outflows: ${summary['exchange_outflow_usd']:,.0f}"
+    )
     print(f"  Net flow: ${summary['net_flow_usd']:,.0f} ({summary['signal']})")

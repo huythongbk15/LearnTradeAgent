@@ -75,7 +75,7 @@ def init_alerts(config: dict | None = None) -> None:
 
 
 def send_trade_alert(
-    action: str,          # BUY / SELL / STOP_LOSS
+    action: str,  # BUY / SELL / STOP_LOSS
     symbol: str,
     price: float,
     amount: float,
@@ -84,11 +84,7 @@ def send_trade_alert(
 ) -> None:
     """Send a trade execution alert."""
     emoji = {"BUY": "🟢", "SELL": "🔴", "STOP_LOSS": "🛑"}.get(action, "🔵")
-    msg = (
-        f"{emoji} *{action}* {symbol}\n"
-        f"Price: `${price:.2f}`\n"
-        f"Amount: `{amount:.6f}`"
-    )
+    msg = f"{emoji} *{action}* {symbol}\nPrice: `${price:.2f}`\nAmount: `{amount:.6f}`"
     if pnl is not None:
         pnl_emoji = "📈" if pnl > 0 else "📉"
         msg += f"\nP&L: {pnl_emoji} `${pnl:.2f}`"
@@ -98,7 +94,7 @@ def send_trade_alert(
 
 
 def send_risk_alert(
-    alert_type: str,      # max_drawdown / daily_loss / circuit_breaker
+    alert_type: str,  # max_drawdown / daily_loss / circuit_breaker
     message: str,
     value: float | None = None,
     limit: float | None = None,
@@ -160,11 +156,13 @@ def _send_telegram(message: str) -> None:
         return
 
     url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-    payload = json.dumps({
-        "chat_id": chat_id,
-        "text": message,
-        "parse_mode": "Markdown",
-    }).encode("utf-8")
+    payload = json.dumps(
+        {
+            "chat_id": chat_id,
+            "text": message,
+            "parse_mode": "Markdown",
+        }
+    ).encode("utf-8")
 
     try:
         req = urllib.request.Request(

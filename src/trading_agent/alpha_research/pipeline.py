@@ -56,6 +56,7 @@ class FeatureStore:
         if path.exists():
             try:
                 import pandas as pd
+
                 df = pd.read_parquet(path)
                 self._cache[key] = df
                 return df
@@ -117,21 +118,26 @@ class AlphaLibrary:
             fn._alpha_category = category
             self._registry[name] = fn
             return fn
+
         return decorator
 
     def compute(self, name: str, df, **params):
         if name not in self._registry:
-            raise KeyError(f"Alpha '{name}' not found. Available: {list(self._registry.keys())}")
+            raise KeyError(
+                f"Alpha '{name}' not found. Available: {list(self._registry.keys())}"
+            )
         return self._registry[name](df, **params)
 
     def list_alphas(self, category: str = "") -> list[dict]:
         result = []
         for name, fn in self._registry.items():
             if not category or getattr(fn, "_alpha_category", "") == category:
-                result.append({
-                    "name": name,
-                    "category": getattr(fn, "_alpha_category", ""),
-                })
+                result.append(
+                    {
+                        "name": name,
+                        "category": getattr(fn, "_alpha_category", ""),
+                    }
+                )
         return result
 
     @property
@@ -209,7 +215,11 @@ def _make_library() -> AlphaLibrary:
     @lib.register("parkinson_vol", "volatility")
     def parkinson_vol(df, **kw):
         hl_ratio = np.log(df["high"] / df["low"])
-        return np.sqrt(hl_ratio.rolling(20).apply(lambda x: np.mean(x**2) / (4 * math.log(2)), raw=True))
+        return np.sqrt(
+            hl_ratio.rolling(20).apply(
+                lambda x: np.mean(x**2) / (4 * math.log(2)), raw=True
+            )
+        )
 
     @lib.register("garman_klass_vol", "volatility")
     def garman_klass_vol(df, **kw):
@@ -255,7 +265,8 @@ def _make_library() -> AlphaLibrary:
         direction = np.sign(df["close"].diff())
         obv = (direction * df["volume"]).cumsum()
         return obv.rolling(10).apply(
-            lambda x: np.polyfit(range(len(x)), x, 1)[0] if len(x) == 10 else 0, raw=True
+            lambda x: np.polyfit(range(len(x)), x, 1)[0] if len(x) == 10 else 0,
+            raw=True,
         )
 
     @lib.register("volume_price_trend", "volume")
@@ -265,7 +276,9 @@ def _make_library() -> AlphaLibrary:
 
     @lib.register("volume_weighted_momentum", "volume")
     def volume_weighted_momentum(df, **kw):
-        vwap = (df["close"] * df["volume"]).rolling(10).sum() / df["volume"].rolling(10).sum()
+        vwap = (df["close"] * df["volume"]).rolling(10).sum() / df["volume"].rolling(
+            10
+        ).sum()
         return df["close"] / vwap - 1
 
     @lib.register("volume_divergence", "volume")
@@ -276,7 +289,9 @@ def _make_library() -> AlphaLibrary:
 
     @lib.register("accumulation_distribution", "volume")
     def accumulation_distribution(df, **kw):
-        mfm = ((df["close"] - df["low"]) - (df["high"] - df["close"])) / (df["high"] - df["low"] + 1e-9)
+        mfm = ((df["close"] - df["low"]) - (df["high"] - df["close"])) / (
+            df["high"] - df["low"] + 1e-9
+        )
         ad = (mfm * df["volume"]).cumsum()
         return ad.pct_change(10)
 
@@ -321,9 +336,13 @@ def _make_library() -> AlphaLibrary:
         minus_dm = -df["low"].diff()
         plus_dm = plus_dm.where((plus_dm > minus_dm) & (plus_dm > 0), 0)
         minus_dm = minus_dm.where((minus_dm > plus_dm) & (minus_dm > 0), 0)
-        tr = np.maximum(df["high"] - df["low"],
-                        np.maximum(abs(df["high"] - df["close"].shift()),
-                                   abs(df["low"] - df["close"].shift())))
+        tr = np.maximum(
+            df["high"] - df["low"],
+            np.maximum(
+                abs(df["high"] - df["close"].shift()),
+                abs(df["low"] - df["close"].shift()),
+            ),
+        )
         atr14 = tr.rolling(14).mean()
         plus_di = 100 * plus_dm.rolling(14).mean() / (atr14 + 1e-9)
         minus_di = 100 * minus_dm.rolling(14).mean() / (atr14 + 1e-9)
@@ -376,8 +395,12 @@ def _make_library() -> AlphaLibrary:
         sign_vol = np.sign(df["close"].diff()) * df["volume"]
         ret = df["close"].pct_change()
         return ret.rolling(20).apply(
-            lambda x: np.polyfit(sign_vol.iloc[-20:].values, x.values, 1)[0]
-            if len(x) == 20 else 0, raw=True
+            lambda x: (
+                np.polyfit(sign_vol.iloc[-20:].values, x.values, 1)[0]
+                if len(x) == 20
+                else 0
+            ),
+            raw=True,
         )
 
     @lib.register("spread_estimate", "microstructure")
@@ -432,16 +455,17 @@ def _make_library() -> AlphaLibrary:
 @dataclass
 class AlphaReport:
     """Report for a single alpha factor."""
+
     name: str
     category: str
     ic_mean: float = 0.0
-    ic_ir: float = 0.0            # IC / std(IC)
+    ic_ir: float = 0.0  # IC / std(IC)
     sharpe: float = 0.0
-    turnover: float = 0.0         # daily avg position changes
-    decay_halflife: int = 0       # periods until IC halves
-    monotonicity: float = 0.0     # 1.0 = perfectly monotonic
+    turnover: float = 0.0  # daily avg position changes
+    decay_halflife: int = 0  # periods until IC halves
+    monotonicity: float = 0.0  # 1.0 = perfectly monotonic
     correlation_with_others: dict = field(default_factory=dict)
-    grade: str = ""               # A/B/C/D/F
+    grade: str = ""  # A/B/C/D/F
     details: dict = field(default_factory=dict)
 
 
@@ -458,7 +482,13 @@ class AlphaEvaluator:
     def __init__(self, forward_periods: int = 5):
         self.forward_periods = forward_periods
 
-    def evaluate(self, alpha_values: np.ndarray, forward_returns: np.ndarray, name: str = "", category: str = "") -> AlphaReport:
+    def evaluate(
+        self,
+        alpha_values: np.ndarray,
+        forward_returns: np.ndarray,
+        name: str = "",
+        category: str = "",
+    ) -> AlphaReport:
         report = AlphaReport(name=name, category=category)
 
         valid = ~(np.isnan(alpha_values) | np.isnan(forward_returns))
@@ -471,6 +501,7 @@ class AlphaEvaluator:
 
         # Rank IC (Spearman)
         from scipy import stats as sp_stats
+
         ic, _ = sp_stats.spearmanr(a, f)
         report.ic_mean = float(ic) if not np.isnan(ic) else 0.0
 
@@ -481,7 +512,7 @@ class AlphaEvaluator:
             rolling_ic = []
             for i in range(0, len(a) - window, window):
                 with np.errstate(invalid="ignore", divide="ignore"):
-                    ic_win = sp_stats.spearmanr(a[i:i + window], f[i:i + window])[0]
+                    ic_win = sp_stats.spearmanr(a[i : i + window], f[i : i + window])[0]
                 rolling_ic.append(ic_win)
             rolling_ic = [x for x in rolling_ic if not np.isnan(x)]
             if rolling_ic:
@@ -494,7 +525,9 @@ class AlphaEvaluator:
             q_rets = [f[labels == qi].mean() for qi in range(q)]
             ls_ret = q_rets[-1] - q_rets[0]
             ls_std = np.std([q_rets[-1], q_rets[0]])
-            report.sharpe = ls_ret / (ls_std + 1e-9) * math.sqrt(252 / self.forward_periods)
+            report.sharpe = (
+                ls_ret / (ls_std + 1e-9) * math.sqrt(252 / self.forward_periods)
+            )
 
         # Turnover
         alpha_sorted = np.argsort(a)
@@ -513,8 +546,13 @@ class AlphaEvaluator:
         # Grade
         # Sharpe can be extreme for quintile returns; clamp to [-5, 5]
         clamped_sharpe = max(-5, min(5, report.sharpe))
-        score = (abs(report.ic_mean) * 10 + abs(report.ic_ir) * 2 +
-                 abs(clamped_sharpe) + report.monotonicity - report.turnover * 5)
+        score = (
+            abs(report.ic_mean) * 10
+            + abs(report.ic_ir) * 2
+            + abs(clamped_sharpe)
+            + report.monotonicity
+            - report.turnover * 5
+        )
         if score > 2:
             report.grade = "A"
         elif score > 1:
@@ -540,6 +578,7 @@ class AlphaEvaluator:
     def _estimate_decay(self, alpha: np.ndarray, forward_returns: np.ndarray) -> int:
         """Estimate IC halflife by checking IC at increasing lags."""
         from scipy import stats as sp_stats
+
         max_lag = min(20, len(alpha) // 5)
         base_ic = sp_stats.spearmanr(alpha, forward_returns)[0]
         if np.isnan(base_ic) or abs(base_ic) < 0.01:
@@ -553,7 +592,9 @@ class AlphaEvaluator:
                 return lag
         return max_lag
 
-    def correlation_matrix(self, alpha_values: dict[str, np.ndarray]) -> dict[str, dict[str, float]]:
+    def correlation_matrix(
+        self, alpha_values: dict[str, np.ndarray]
+    ) -> dict[str, dict[str, float]]:
         """Pairwise IC correlation between alphas."""
         names = list(alpha_values.keys())
         corr = {}
@@ -563,7 +604,10 @@ class AlphaEvaluator:
                 valid = ~(np.isnan(alpha_values[n1]) | np.isnan(alpha_values[n2]))
                 if valid.sum() > 10:
                     from scipy import stats as sp_stats
-                    c, _ = sp_stats.spearmanr(alpha_values[n1][valid], alpha_values[n2][valid])
+
+                    c, _ = sp_stats.spearmanr(
+                        alpha_values[n1][valid], alpha_values[n2][valid]
+                    )
                     corr[n1][n2] = round(float(c), 3) if not np.isnan(c) else 0.0
                 else:
                     corr[n1][n2] = 0.0
@@ -599,7 +643,9 @@ class AutoMLPipeline:
         """
 
         Path(report_path).mkdir(parents=True, exist_ok=True)
-        forward_ret = df[target_col].pct_change(forward_periods).shift(-forward_periods).values
+        forward_ret = (
+            df[target_col].pct_change(forward_periods).shift(-forward_periods).values
+        )
 
         results = []
         alpha_values = {}
@@ -631,7 +677,9 @@ class AutoMLPipeline:
         ]
 
         # Best composite (equal weight of top 5 uncorrelated)
-        best_combo = self._find_best_combo(results, alpha_values, forward_ret, corr_matrix)
+        best_combo = self._find_best_combo(
+            results, alpha_values, forward_ret, corr_matrix
+        )
 
         # Save report
         report_data = {
@@ -640,11 +688,13 @@ class AutoMLPipeline:
             "top_10": top_10,
             "best_combo": best_combo,
             "grade_distribution": {
-                g: sum(1 for r in results if r.grade == g)
-                for g in "ABCDF"
+                g: sum(1 for r in results if r.grade == g) for g in "ABCDF"
             },
         }
-        report_file = os.path.join(report_path, f"alpha_scan_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M')}.json")
+        report_file = os.path.join(
+            report_path,
+            f"alpha_scan_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M')}.json",
+        )
         with open(report_file, "w") as f:
             json.dump(report_data, f, indent=2, default=str)
 
@@ -676,10 +726,11 @@ class AutoMLPipeline:
                 if r.name in selected:
                     continue
                 # Score = IC - max_corr_with_selected
-                max_corr = max(
-                    abs(corr_matrix.get(r.name, {}).get(s, 0))
-                    for s in selected
-                ) if selected else 0
+                max_corr = (
+                    max(abs(corr_matrix.get(r.name, {}).get(s, 0)) for s in selected)
+                    if selected
+                    else 0
+                )
                 score = abs(r.ic_mean) * 10 - max_corr
                 if score > best_score:
                     best_score = score
@@ -696,7 +747,11 @@ class AutoMLPipeline:
         if combo_values.size == 0 or not np.all(np.isfinite(combo_values)):
             # Không đủ dữ liệu alpha hợp lệ → trả 0 thay vì NaN
             return {"names": selected, "composite_ic": 0, "n_alphas": len(selected)}
-        ic = sp_stats.spearmanr(combo_values, forward_ret)[0] if len(combo_values) > 10 else 0
+        ic = (
+            sp_stats.spearmanr(combo_values, forward_ret)[0]
+            if len(combo_values) > 10
+            else 0
+        )
 
         return {
             "names": selected,
@@ -720,13 +775,16 @@ if __name__ == "__main__":
     n = 500
     dates = pd.date_range("2024-01-01", periods=n, freq="1h")
     close = 50000 + np.cumsum(np.random.randn(n) * 100)
-    df = pd.DataFrame({
-        "open": close + np.random.randn(n) * 50,
-        "high": close + abs(np.random.randn(n) * 100),
-        "low": close - abs(np.random.randn(n) * 100),
-        "close": close,
-        "volume": np.random.exponential(100, n) * 1000,
-    }, index=dates)
+    df = pd.DataFrame(
+        {
+            "open": close + np.random.randn(n) * 50,
+            "high": close + abs(np.random.randn(n) * 100),
+            "low": close - abs(np.random.randn(n) * 100),
+            "close": close,
+            "volume": np.random.exponential(100, n) * 1000,
+        },
+        index=dates,
+    )
 
     # 1. Create library
     lib = _make_library()
@@ -753,6 +811,8 @@ if __name__ == "__main__":
     print(f"Grade distribution: {report['grade_distribution']}")
     print("\nTop 10:")
     for a in report["top_10"][:10]:
-        print(f"  {a['name']:30s} | {a['category']:15s} | IC={a['ic_mean']:+.4f} | IR={a['ic_ir']:.2f} | Grade={a['grade']}")
+        print(
+            f"  {a['name']:30s} | {a['category']:15s} | IC={a['ic_mean']:+.4f} | IR={a['ic_ir']:.2f} | Grade={a['grade']}"
+        )
     print(f"\nBest combo: {report['best_combo']}")
     print("\nDone!")

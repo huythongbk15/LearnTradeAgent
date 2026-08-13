@@ -83,9 +83,14 @@ load_dotenv(".env")
 
 HOUR_MS = 3_600_000
 MAX_CLOSED_CANDLE_LAG_SECONDS = 5_400
-ORDER_TERMINAL_STATUSES = frozenset({
-    "filled", "cancelled", "rejected", "expired",
-})
+ORDER_TERMINAL_STATUSES = frozenset(
+    {
+        "filled",
+        "cancelled",
+        "rejected",
+        "expired",
+    }
+)
 ORDER_ACCEPTED_STATUSES = frozenset({"open", "partial", "filled"})
 DEFAULT_ORDER_RECONCILIATION_TIMEOUT_SECONDS = 20.0
 
@@ -123,11 +128,17 @@ def poll_order_by_client_id(
 
     numeric = (timeout_seconds, initial_delay_seconds, max_delay_seconds)
     if any(not math.isfinite(value) or value < 0 for value in numeric):
-        raise LiveSafetyError("order reconciliation timing must be finite and non-negative")
+        raise LiveSafetyError(
+            "order reconciliation timing must be finite and non-negative"
+        )
     if timeout_seconds > 0 and initial_delay_seconds == 0:
-        raise LiveSafetyError("positive reconciliation timeout requires a polling delay")
+        raise LiveSafetyError(
+            "positive reconciliation timeout requires a polling delay"
+        )
     if max_delay_seconds < initial_delay_seconds:
-        raise LiveSafetyError("maximum reconciliation delay cannot be below initial delay")
+        raise LiveSafetyError(
+            "maximum reconciliation delay cannot be below initial delay"
+        )
 
     deadline = monotonic_fn() + timeout_seconds
     attempt = 0
@@ -160,8 +171,12 @@ def poll_order_by_client_id(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--execute", action="store_true", help="Submit orders (default: dry-run)")
-    parser.add_argument("--testnet", action="store_true", help="Use Binance Spot Testnet")
+    parser.add_argument(
+        "--execute", action="store_true", help="Submit orders (default: dry-run)"
+    )
+    parser.add_argument(
+        "--testnet", action="store_true", help="Use Binance Spot Testnet"
+    )
     parser.add_argument(
         "--profile",
         choices=("testnet", "mainnet-canary", "mainnet-normal"),
@@ -191,7 +206,9 @@ def build_parser() -> argparse.ArgumentParser:
         default="4,3,3",
         help="Percent of equity per symbol; values are not normalized",
     )
-    parser.add_argument("--state-file", default=None, help="Override persistent live-risk state path")
+    parser.add_argument(
+        "--state-file", default=None, help="Override persistent live-risk state path"
+    )
     parser.add_argument(
         "--evidence-file",
         default="data/live_strategy_evidence.json",
@@ -214,8 +231,8 @@ def resolve_trading_profile(
     env_profile = str(source.get("LIVE_TRADING_PROFILE") or "").strip().lower()
     if cli_profile and env_profile and cli_profile != env_profile:
         raise LiveSafetyError("CLI and environment live trading profiles do not match")
-    profile = cli_profile or env_profile or (
-        "testnet" if args.testnet else "mainnet-canary"
+    profile = (
+        cli_profile or env_profile or ("testnet" if args.testnet else "mainnet-canary")
     )
     allowed = {"testnet", "mainnet-canary", "mainnet-normal"}
     if profile not in allowed:
@@ -232,10 +249,14 @@ def parse_allocations(
     weights_raw: str,
     limits: LiveRiskLimits,
 ) -> list[tuple[str, float]]:
-    symbols = [value.strip().upper() for value in symbols_raw.split(",") if value.strip()]
+    symbols = [
+        value.strip().upper() for value in symbols_raw.split(",") if value.strip()
+    ]
     weight_parts = [value.strip() for value in weights_raw.split(",") if value.strip()]
     if not symbols or len(symbols) != len(weight_parts):
-        raise LiveSafetyError("--symbols and --weights must contain the same non-zero count")
+        raise LiveSafetyError(
+            "--symbols and --weights must contain the same non-zero count"
+        )
     if len(set(symbols)) != len(symbols):
         raise LiveSafetyError("duplicate symbols are not allowed")
 
@@ -243,13 +264,19 @@ def parse_allocations(
     for symbol, raw_weight in zip(symbols, weight_parts, strict=True):
         parts = symbol.split("/")
         if len(parts) != 2 or not all(parts) or parts[1] != "USDT":
-            raise LiveSafetyError(f"only BASE/USDT spot symbols are supported: {symbol}")
+            raise LiveSafetyError(
+                f"only BASE/USDT spot symbols are supported: {symbol}"
+            )
         try:
             allocation = float(raw_weight) / 100
         except ValueError as exc:
-            raise LiveSafetyError(f"invalid allocation for {symbol}: {raw_weight}") from exc
+            raise LiveSafetyError(
+                f"invalid allocation for {symbol}: {raw_weight}"
+            ) from exc
         if not math.isfinite(allocation) or allocation <= 0:
-            raise LiveSafetyError(f"allocation for {symbol} must be positive and finite")
+            raise LiveSafetyError(
+                f"allocation for {symbol} must be positive and finite"
+            )
         if allocation > limits.max_symbol_exposure_pct:
             raise LiveSafetyError(
                 f"allocation for {symbol} ({allocation:.1%}) exceeds symbol limit "
@@ -604,7 +631,9 @@ def ensure_protective_stop(
         if isinstance(active, dict):
             exchange_order_id = str(active.get("exchange_order_id") or "")
             if not exchange_order_id:
-                raise LiveSafetyError(f"active protective order ID is missing for {pair}")
+                raise LiveSafetyError(
+                    f"active protective order ID is missing for {pair}"
+                )
             result = broker.replace_order(exchange_order_id, order)
             operation = "protective_stop_replaced"
         else:
@@ -621,10 +650,8 @@ def ensure_protective_stop(
             store=store,
             audit_log_path=audit_log_path,
         )
-        if (
-            recovered is not None
-            and str(recovered.get("client_order_id"))
-            == str(pending.get("client_order_id"))
+        if recovered is not None and str(recovered.get("client_order_id")) == str(
+            pending.get("client_order_id")
         ):
             return recovered
         raise LiveSafetyError(
@@ -655,9 +682,7 @@ def ensure_protective_stop(
         exchange_order_id=result_exchange_id,
         status="open",
         quantity=float(result.get("qty") or pending.get("quantity") or 0.0),
-        stop_price=float(
-            result.get("stop_price") or pending.get("stop_price") or 0.0
-        ),
+        stop_price=float(result.get("stop_price") or pending.get("stop_price") or 0.0),
     )
     _audit_protective_event(
         audit_log_path,
@@ -683,7 +708,11 @@ def ensure_protective_stops(
     position_map = {position["symbol"]: position for position in positions}
     for pair, state in states.items():
         position = position_map.get(pair)
-        if position is None or float(position.get("qty") or 0.0) <= 0 or pair in skipped:
+        if (
+            position is None
+            or float(position.get("qty") or 0.0) <= 0
+            or pair in skipped
+        ):
             continue
         stop = state.get("atr_stop")
         if stop is None:
@@ -775,7 +804,9 @@ def validate_live_hourly_bars(
             timestamp = int(bar[0])
             values = tuple(float(value) for value in bar[1:6])
         except (TypeError, ValueError, OverflowError) as exc:
-            raise LiveSafetyError(f"non-numeric OHLCV bar {index} for {symbol}") from exc
+            raise LiveSafetyError(
+                f"non-numeric OHLCV bar {index} for {symbol}"
+            ) from exc
         if timestamp + HOUR_MS > now_ms:
             continue
         open_price, high, low, close, volume = values
@@ -785,17 +816,22 @@ def validate_live_hourly_bars(
         if not math.isfinite(volume) or volume < 0:
             raise LiveSafetyError(f"invalid volume in bar {index} for {symbol}")
         if high < max(open_price, low, close) or low > min(open_price, high, close):
-            raise LiveSafetyError(f"inconsistent OHLC range in bar {index} for {symbol}")
+            raise LiveSafetyError(
+                f"inconsistent OHLC range in bar {index} for {symbol}"
+            )
         closed.append((timestamp, *values))
 
     timestamps = [bar[0] for bar in closed]
     if timestamps != sorted(timestamps) or len(timestamps) != len(set(timestamps)):
         raise LiveSafetyError(f"duplicate or unordered hourly candles for {symbol}")
-    if any(current_ts - previous_ts != HOUR_MS for previous_ts, current_ts in zip(
-        timestamps,
-        timestamps[1:],
-        strict=False,
-    )):
+    if any(
+        current_ts - previous_ts != HOUR_MS
+        for previous_ts, current_ts in zip(
+            timestamps,
+            timestamps[1:],
+            strict=False,
+        )
+    ):
         raise LiveSafetyError(f"hourly candle gap detected for {symbol}")
     if closed:
         lag_seconds = (now_ms - (closed[-1][0] + HOUR_MS)) / 1_000
@@ -834,7 +870,9 @@ def get_recent_df(
         )
     return pl.DataFrame(
         {
-            "timestamp": [datetime.fromtimestamp(bar[0] / 1000, tz=UTC) for bar in closed],
+            "timestamp": [
+                datetime.fromtimestamp(bar[0] / 1000, tz=UTC) for bar in closed
+            ],
             "open": [bar[1] for bar in closed],
             "high": [bar[2] for bar in closed],
             "low": [bar[3] for bar in closed],
@@ -844,14 +882,16 @@ def get_recent_df(
     ).sort("timestamp")
 
 
-def require_dedicated_account(adapter: CCXTAdapter, allocations: list[tuple[str, float]]) -> None:
+def require_dedicated_account(
+    adapter: CCXTAdapter, allocations: list[tuple[str, float]]
+) -> None:
     """Refuse mainnet accounts containing assets outside the managed universe."""
 
     balances = asyncio.run(adapter.fetch_balance())
     crypto = balances.get(AssetClass.CRYPTO)
     allowed = {"USDT", *(symbol.split("/")[0] for symbol, _ in allocations)}
     unmanaged = []
-    for asset, amounts in (crypto.assets.items() if crypto else []):
+    for asset, amounts in crypto.assets.items() if crypto else []:
         if asset not in allowed and float(amounts.get("total", 0)) > 0:
             unmanaged.append(asset)
     if unmanaged:
@@ -909,7 +949,11 @@ def build_decisions(
                 )
             action, qty, reason = "BUY", buy_notional / state["price"], "REBALANCE"
         elif desired_long and delta < -deadband:
-            action, qty, reason = "SELL", min(abs(delta) / state["price"], current_qty), "REBALANCE"
+            action, qty, reason = (
+                "SELL",
+                min(abs(delta) / state["price"], current_qty),
+                "REBALANCE",
+            )
         elif not desired_long and current_qty > 0:
             action, qty, reason = "SELL", current_qty, "STRATEGY_FLAT"
         else:
@@ -939,11 +983,13 @@ def position_snapshot(positions: list[dict]) -> tuple[dict[str, dict], float]:
     return by_symbol, gross
 
 
-CONTROLLED_DUST_CONSTRAINTS = frozenset({
-    "amount_zero",
-    "minimum_amount",
-    "minimum_notional",
-})
+CONTROLLED_DUST_CONSTRAINTS = frozenset(
+    {
+        "amount_zero",
+        "minimum_amount",
+        "minimum_notional",
+    }
+)
 
 
 def classify_controlled_dust(
@@ -1009,7 +1055,9 @@ def sellable_position_quantity(
     except (TypeError, ValueError) as exc:
         raise LiveSafetyError("spot position quantities must be numeric") from exc
     if any(not math.isfinite(value) or value < 0 for value in (total, free, locked)):
-        raise LiveSafetyError("spot position quantities must be finite and non-negative")
+        raise LiveSafetyError(
+            "spot position quantities must be finite and non-negative"
+        )
     tolerance = max(1e-12, total * 1e-8)
     if (
         free > total + tolerance
@@ -1025,9 +1073,13 @@ def sellable_position_quantity(
             try:
                 protected_quantity = float(active_protective.get("quantity") or 0.0)
             except (TypeError, ValueError) as exc:
-                raise LiveSafetyError("active protective quantity must be numeric") from exc
+                raise LiveSafetyError(
+                    "active protective quantity must be numeric"
+                ) from exc
             if not math.isfinite(protected_quantity) or protected_quantity <= 0:
-                raise LiveSafetyError("active protective quantity must be finite and positive")
+                raise LiveSafetyError(
+                    "active protective quantity must be finite and positive"
+                )
             protective_reserved = min(locked, protected_quantity)
     return min(total, free + protective_reserved)
 
@@ -1068,7 +1120,9 @@ def protected_execution_quote(
     bid = ticker.get("bid")
     ask = ticker.get("ask")
     if bid is None or ask is None:
-        raise LiveSafetyError(f"two-sided executable quote is missing for {symbol.pair}")
+        raise LiveSafetyError(
+            f"two-sided executable quote is missing for {symbol.pair}"
+        )
     ticker_started = ticker.get("request_started_at")
     ticker_received = ticker.get("received_at")
     if ticker_started is not None and ticker_received is not None:
@@ -1231,12 +1285,14 @@ def prepare_orders(
                 ),
                 "market_value": max(0.0, current_notional - notional),
             }
-        prepared.append({
-            **decision,
-            "qty": quantity,
-            "quote_price": float(quote_price),
-            "notional": notional,
-        })
+        prepared.append(
+            {
+                **decision,
+                "qty": quantity,
+                "quote_price": float(quote_price),
+                "notional": notional,
+            }
+        )
     return prepared
 
 
@@ -1479,11 +1535,15 @@ def execute_orders(
                         else "missing"
                     )
                     if old_status != "open" or reconciled_status in {
-                        "open", "partial", "filled",
+                        "open",
+                        "partial",
+                        "filled",
                     }:
                         store.clear_active_protective_order(pair)
                 if str(reconciled.get("status") or "unknown").lower() in {
-                    "open", "partial", "filled",
+                    "open",
+                    "partial",
+                    "filled",
                 }:
                     protect_remaining_position(
                         planned=planned,
@@ -1493,9 +1553,7 @@ def execute_orders(
                         limits=limits,
                         audit_log_path=audit_log_path,
                     )
-                reconciled_status = str(
-                    reconciled.get("status") or "unknown"
-                ).lower()
+                reconciled_status = str(reconciled.get("status") or "unknown").lower()
                 if reconciled_status not in ORDER_TERMINAL_STATUSES:
                     store.update_order(
                         order_key,
@@ -1587,13 +1645,20 @@ def execute_orders(
                         limits=limits,
                         audit_log_path=audit_log_path,
                     )
-            if reconciled is None or result.get("status") not in ORDER_TERMINAL_STATUSES:
+            if (
+                reconciled is None
+                or result.get("status") not in ORDER_TERMINAL_STATUSES
+            ):
                 store.update_order(
                     order_key,
                     status="manual_intervention",
                     error=(
                         "reconciliation deadline expired"
-                        + (f"; last error: {reconcile_error}" if reconcile_error else "")
+                        + (
+                            f"; last error: {reconcile_error}"
+                            if reconcile_error
+                            else ""
+                        )
                     ),
                 )
         if result.get("status") != "filled":
@@ -1793,7 +1858,9 @@ def reconcile_unfinished_orders(
             equity = float(account["equity"])
             cash = float(account["cash"])
             if not math.isfinite(equity) or not math.isfinite(cash):
-                raise LiveSafetyError("account reconciliation returned non-finite balances")
+                raise LiveSafetyError(
+                    "account reconciliation returned non-finite balances"
+                )
             if not isinstance(positions, list):
                 raise LiveSafetyError("position reconciliation did not return a list")
         except Exception as exc:
@@ -1817,7 +1884,8 @@ def reconcile_unfinished_orders(
                 {"reasons": unresolved},
             )
         raise LiveSafetyError(
-            "unfinished order reconciliation blocked the batch: " + "; ".join(unresolved)
+            "unfinished order reconciliation blocked the batch: "
+            + "; ".join(unresolved)
         )
 
 
@@ -1846,7 +1914,9 @@ def run_locked(
         integrity_key=integrity_key,
     )
     if args.execute and not args.testnet and not store.existed:
-        raise LiveSafetyError("run a successful mainnet dry-run first to initialize risk state")
+        raise LiveSafetyError(
+            "run a successful mainnet dry-run first to initialize risk state"
+        )
     allocation_map = dict(allocations)
     store.bind_context(
         account=account_fingerprint(
@@ -1899,7 +1969,13 @@ def run_locked(
         )
 
     print("=" * 80)
-    mode = "DRY-RUN" if not args.execute else "TESTNET EXECUTION" if args.testnet else "MAINNET EXECUTION"
+    mode = (
+        "DRY-RUN"
+        if not args.execute
+        else "TESTNET EXECUTION"
+        if args.testnet
+        else "MAINNET EXECUTION"
+    )
     print(f"BINANCE SPOT — Enhanced MA — {mode}")
     print(f"Run ID: {run_id}")
     print(
@@ -1923,8 +1999,7 @@ def run_locked(
     except DataTrustError as exc:
         raise LiveSafetyError(f"clock sync failed: {exc}") from exc
     print(
-        f"Clock sync: exchange offset {skew:+.3f}s "
-        f"(tolerance {clock.tolerance_s:.1f}s)"
+        f"Clock sync: exchange offset {skew:+.3f}s (tolerance {clock.tolerance_s:.1f}s)"
     )
 
     adapter = CCXTAdapter(
@@ -2006,7 +2081,10 @@ def run_locked(
             except Exception as exc:
                 data_errors.append(f"{pair}: {exc}")
         if data_errors:
-            raise LiveSafetyError("market-data batch failed; no orders submitted: " + "; ".join(data_errors))
+            raise LiveSafetyError(
+                "market-data batch failed; no orders submitted: "
+                + "; ".join(data_errors)
+            )
         trust_metrics = monitor.metrics()
         print(
             f"Data trust: max data age {trust_metrics['max_quote_age_s']:.1f}s "
@@ -2044,7 +2122,9 @@ def run_locked(
                 audit_log_path=args.audit_log,
             )
         if not decisions:
-            print("No trades to execute — positions already match the permitted targets")
+            print(
+                "No trades to execute — positions already match the permitted targets"
+            )
             return 0
 
         prepared = prepare_orders(

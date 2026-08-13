@@ -16,7 +16,9 @@ from trading_agent.alpha_research.stats import (
 )
 
 
-def _normal_returns(n: int = 2000, mean: float = 0.0, std: float = 1.0, seed: int = 7) -> np.ndarray:
+def _normal_returns(
+    n: int = 2000, mean: float = 0.0, std: float = 1.0, seed: int = 7
+) -> np.ndarray:
     rng = np.random.default_rng(seed)
     return rng.normal(mean, std, size=n)
 
@@ -118,17 +120,23 @@ class TestDSR:
         assert many < one
 
     def test_decent_sharpe_survives_few_trials(self) -> None:
-        dsr = deflated_sharpe_ratio(0.5, n=200, trials=20, skew=0.0, excess_kurtosis=0.0)
+        dsr = deflated_sharpe_ratio(
+            0.5, n=200, trials=20, skew=0.0, excess_kurtosis=0.0
+        )
         assert dsr > 0.9
 
     def test_strong_sharpe_deflated_by_many_trials(self) -> None:
         # After ~8000 parameter combos, a modest SR with small n deflates hard.
-        dsr = deflated_sharpe_ratio(0.2, n=100, trials=8000, skew=0.0, excess_kurtosis=0.0)
+        dsr = deflated_sharpe_ratio(
+            0.2, n=100, trials=8000, skew=0.0, excess_kurtosis=0.0
+        )
         assert dsr < 0.5
 
     def test_zero_sharpe_below_expected_max(self) -> None:
         # SR=0 is below the expected max of 100 trials, so DSR < 0.5.
-        dsr = deflated_sharpe_ratio(0.0, n=100, trials=100, skew=0.0, excess_kurtosis=0.0)
+        dsr = deflated_sharpe_ratio(
+            0.0, n=100, trials=100, skew=0.0, excess_kurtosis=0.0
+        )
         assert dsr < 0.5
 
 

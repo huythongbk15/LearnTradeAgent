@@ -65,10 +65,12 @@ def test_console_alert_logs_message(caplog):
 
 
 def test_telegram_send_message_payload(monkeypatch):
-    init_alerts({
-        "telegram": {"enabled": True, "bot_token": "tok123", "chat_id": "c42"},
-        "console": {"enabled": False},
-    })
+    init_alerts(
+        {
+            "telegram": {"enabled": True, "bot_token": "tok123", "chat_id": "c42"},
+            "console": {"enabled": False},
+        }
+    )
     calls = _capture_telegram(monkeypatch, {"ok": True})
     send_status_report("equity 100000.00 positions 3")
     assert len(calls) == 1
@@ -86,10 +88,12 @@ def test_telegram_missing_credentials_never_sends(monkeypatch):
 
 
 def test_telegram_api_error_is_swallowed(caplog, monkeypatch):
-    init_alerts({
-        "telegram": {"enabled": True, "bot_token": "tok", "chat_id": "c"},
-        "console": {"enabled": False},
-    })
+    init_alerts(
+        {
+            "telegram": {"enabled": True, "bot_token": "tok", "chat_id": "c"},
+            "console": {"enabled": False},
+        }
+    )
     _capture_telegram(monkeypatch, {"ok": False, "description": "chat not found"})
     with caplog.at_level(logging.WARNING):
         send_daily_summary({"total_pnl": 100.0, "win_rate": 0.5})
@@ -97,10 +101,12 @@ def test_telegram_api_error_is_swallowed(caplog, monkeypatch):
 
 
 def test_telegram_network_error_never_raises(caplog, monkeypatch):
-    init_alerts({
-        "telegram": {"enabled": True, "bot_token": "tok", "chat_id": "c"},
-        "console": {"enabled": False},
-    })
+    init_alerts(
+        {
+            "telegram": {"enabled": True, "bot_token": "tok", "chat_id": "c"},
+            "console": {"enabled": False},
+        }
+    )
 
     def boom(req, timeout=5):
         raise OSError("connection refused")
@@ -108,7 +114,9 @@ def test_telegram_network_error_never_raises(caplog, monkeypatch):
     monkeypatch.setattr(alerter.urllib.request, "urlopen", boom)
     with caplog.at_level(logging.WARNING):
         send_risk_alert("max_drawdown", "DD breach", value=0.06, limit=0.05)
-    assert any("Failed to send Telegram" in record.getMessage() for record in caplog.records)
+    assert any(
+        "Failed to send Telegram" in record.getMessage() for record in caplog.records
+    )
 
 
 def test_risk_alert_includes_emoji_and_values():

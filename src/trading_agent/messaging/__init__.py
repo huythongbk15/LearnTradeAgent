@@ -1,6 +1,11 @@
 """Trading messaging layer - NATS and Redis Streams support."""
 
-from trading_agent.messaging.base import Message, MessageHandler, MessageBus, MessagePriority
+from trading_agent.messaging.base import (
+    Message,
+    MessageHandler,
+    MessageBus,
+    MessagePriority,
+)
 
 # Bus implementations depend on optional third-party packages (nats-py, redis).
 # They are imported lazily inside connect(), so these imports are safe, but

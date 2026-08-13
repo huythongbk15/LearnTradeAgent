@@ -47,7 +47,11 @@ def load_fills(audit_path: Path) -> list[dict]:
             details = payload.get("details") or {}
             fill_price = details.get("average_fill_price")
             signal_price = next(
-                (details.get(key) for key in _REFERENCE_KEYS if details.get(key) is not None),
+                (
+                    details.get(key)
+                    for key in _REFERENCE_KEYS
+                    if details.get(key) is not None
+                ),
                 None,
             )
             if fill_price is None or signal_price is None:
@@ -67,7 +71,9 @@ def load_fills(audit_path: Path) -> list[dict]:
                     "filled_qty": details.get("filled_qty", 0.0),
                     "average_fill_price": fill_price_f,
                     "signal_price": signal_price_f,
-                    "slippage_bps": _slippage_bps(fill_price_f, signal_price_f, details.get("side")),
+                    "slippage_bps": _slippage_bps(
+                        fill_price_f, signal_price_f, details.get("side")
+                    ),
                 }
             )
     return fills
@@ -113,9 +119,13 @@ def _percentile(values: list[float], percentile: float) -> float:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--audit-log", default="data/execution/binance_live_audit.jsonl")
+    parser.add_argument(
+        "--audit-log", default="data/execution/binance_live_audit.jsonl"
+    )
     parser.add_argument("--report", default="data/tracking_error_report.json")
-    parser.add_argument("--check", action="store_true", help="exit 1 when mean exceeds limit")
+    parser.add_argument(
+        "--check", action="store_true", help="exit 1 when mean exceeds limit"
+    )
     parser.add_argument("--max-mean-slippage-bps", type=float, default=5.0)
     return parser
 
@@ -125,13 +135,23 @@ def main() -> int:
     fills = load_fills(Path(args.audit_log))
     report = summarize(fills)
     report["max_mean_slippage_bps"] = args.max_mean_slippage_bps
-    report["gate"] = "PASS" if report["fills"] == 0 or report["mean_slippage_bps"] is None or report["mean_slippage_bps"] <= args.max_mean_slippage_bps else "FAIL"
+    report["gate"] = (
+        "PASS"
+        if report["fills"] == 0
+        or report["mean_slippage_bps"] is None
+        or report["mean_slippage_bps"] <= args.max_mean_slippage_bps
+        else "FAIL"
+    )
     out = Path(args.report)
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    out.write_text(
+        json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
 
     if report["fills"] == 0:
-        print(f"no measurable fills in {args.audit_log} (need signal_price + avg_fill_price)")
+        print(
+            f"no measurable fills in {args.audit_log} (need signal_price + avg_fill_price)"
+        )
         return 0 if not args.check else 2
     print(
         f"tracking error: {report['fills']} fills, mean {report['mean_slippage_bps']:.2f} bps, "
@@ -143,7 +163,9 @@ def main() -> int:
             f"median {stat['median_slippage_bps']:.2f} bps"
         )
     if args.check and report["gate"] == "FAIL":
-        print(f"GATE FAIL: mean slippage {report['mean_slippage_bps']:.2f} bps > {args.max_mean_slippage_bps} bps")
+        print(
+            f"GATE FAIL: mean slippage {report['mean_slippage_bps']:.2f} bps > {args.max_mean_slippage_bps} bps"
+        )
         return 1
     return 0
 

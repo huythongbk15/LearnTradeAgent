@@ -50,9 +50,15 @@ def benchmark_event_store():
         await store.connect(backend="file")
         events = [
             store.create_trade_event(
-                symbol="BTC/USDT", side="buy", size=Decimal("0.5"),
-                price=Decimal("50000"), fee=Decimal("2.5"), fee_currency="USDT",
-                exchange="binance", order_id=f"o{i}", strategy_id="s1",
+                symbol="BTC/USDT",
+                side="buy",
+                size=Decimal("0.5"),
+                price=Decimal("50000"),
+                fee=Decimal("2.5"),
+                fee_currency="USDT",
+                exchange="binance",
+                order_id=f"o{i}",
+                strategy_id="s1",
             )
             for i in range(10000)
         ]
@@ -79,12 +85,16 @@ def benchmark_online_learning():
     np.random.seed(1)
     prices = 100 * np.exp(np.cumsum(np.random.normal(0.001, 0.01, 10000)))
 
-    strat = AdaptiveStrategy(AdaptiveConfig(min_period=5, max_period=30, min_samples=30))
+    strat = AdaptiveStrategy(
+        AdaptiveConfig(min_period=5, max_period=30, min_samples=30)
+    )
     t0 = time.perf_counter()
     for i in range(1, len(prices)):
         strat.update(
-            high=float(prices[i] * 1.002), low=float(prices[i] * 0.998),
-            close=float(prices[i]), volume=1000.0,
+            high=float(prices[i] * 1.002),
+            low=float(prices[i] * 0.998),
+            close=float(prices[i]),
+            volume=1000.0,
         )
     t1 = time.perf_counter()
     elapsed = t1 - t0
@@ -102,7 +112,10 @@ def benchmark_meta_learning():
         data = 100 * np.exp(np.cumsum(np.random.normal(0.0005 * i, 0.01, 500)))
         tasks.append(StrategyParameterTask(data.reshape(-1, 1)))
 
-    learner = Reptile(MetaLearningConfig(reptile_steps=5, inner_lr=0.1), {"ema_fast": 12.0, "ema_slow": 26.0})
+    learner = Reptile(
+        MetaLearningConfig(reptile_steps=5, inner_lr=0.1),
+        {"ema_fast": 12.0, "ema_slow": 26.0},
+    )
     t0 = time.perf_counter()
     learner.meta_train(tasks, steps=3)
     t1 = time.perf_counter()
@@ -111,7 +124,10 @@ def benchmark_meta_learning():
 
 def benchmark_portfolio_optimizer():
     print("\n[Portfolio Optimizer]")
-    from trading_agent.portfolio.portfolio_optimizer import PortfolioOptimizer, OptimizerMethod
+    from trading_agent.portfolio.portfolio_optimizer import (
+        PortfolioOptimizer,
+        OptimizerMethod,
+    )
     from trading_agent.exchanges.models import Symbol, AssetClass, MarketType
 
     np.random.seed(3)
@@ -132,7 +148,9 @@ def benchmark_portfolio_optimizer():
         t0 = time.perf_counter()
         result = optimizer.optimize()
         t1 = time.perf_counter()
-        print(f"  {'optimize ' + method:<45} {(t1 - t0) * 1000:>10.2f} ms (success={result.success})")
+        print(
+            f"  {'optimize ' + method:<45} {(t1 - t0) * 1000:>10.2f} ms (success={result.success})"
+        )
 
 
 def benchmark_attribution():
@@ -143,8 +161,14 @@ def benchmark_attribution():
     dates = pd.date_range("2026-01-01", periods=500, freq="D")
     port_returns = pd.Series(np.random.normal(0.0008, 0.01, 500), index=dates)
     bench_returns = pd.Series(np.random.normal(0.0004, 0.008, 500), index=dates)
-    weights = pd.DataFrame(np.random.dirichlet(np.ones(5), size=500), index=dates, columns=[f"A{i}" for i in range(5)])
-    bench_w = pd.DataFrame(np.ones((500, 5)) / 5, index=dates, columns=[f"A{i}" for i in range(5)])
+    weights = pd.DataFrame(
+        np.random.dirichlet(np.ones(5), size=500),
+        index=dates,
+        columns=[f"A{i}" for i in range(5)],
+    )
+    bench_w = pd.DataFrame(
+        np.ones((500, 5)) / 5, index=dates, columns=[f"A{i}" for i in range(5)]
+    )
 
     analyzer = AttributionAnalyzer(benchmark_returns=bench_returns, risk_free_rate=0.02)
     t0 = time.perf_counter()
@@ -174,12 +198,24 @@ class TestStrategy:
 
 def benchmark_rebalancer():
     print("\n[Auto-Rebalancer]")
-    from trading_agent.portfolio.auto_rebalancer import AutoRebalancer, RebalanceConfig, RebalanceTrigger
+    from trading_agent.portfolio.auto_rebalancer import (
+        AutoRebalancer,
+        RebalanceConfig,
+        RebalanceTrigger,
+    )
     from trading_agent.exchanges.models import Position, Symbol, AssetClass, MarketType
 
-    symbols = [Symbol(f"SYM{i}", "USDT", AssetClass.CRYPTO, MarketType.SPOT, "binance") for i in range(5)]
+    symbols = [
+        Symbol(f"SYM{i}", "USDT", AssetClass.CRYPTO, MarketType.SPOT, "binance")
+        for i in range(5)
+    ]
     positions = {
-        s: Position(symbol=s, size=Decimal("1"), entry_price=Decimal("100"), mark_price=Decimal("100"))
+        s: Position(
+            symbol=s,
+            size=Decimal("1"),
+            entry_price=Decimal("100"),
+            mark_price=Decimal("100"),
+        )
         for s in symbols
     }
     prices = {s: Decimal("100") for s in symbols}
@@ -187,7 +223,9 @@ def benchmark_rebalancer():
     rebalancer = AutoRebalancer(RebalanceConfig())
     t0 = time.perf_counter()
     for _ in range(100):
-        event = run_async(rebalancer.force_rebalance(positions, prices, RebalanceTrigger.MANUAL))
+        event = run_async(
+            rebalancer.force_rebalance(positions, prices, RebalanceTrigger.MANUAL)
+        )
     t1 = time.perf_counter()
     assert event.success
     print(f"  {'100 force rebalances (5 assets)':<45} {(t1 - t0) * 1000:>10.2f} ms")

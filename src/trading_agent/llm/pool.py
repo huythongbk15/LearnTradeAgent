@@ -124,8 +124,8 @@ DEFAULT_PROVIDERS = [
 
 # HTTP status → hành vi
 RETRYABLE_STATUS = {429, 500, 502, 503, 504}
-COOLDOWN_SECONDS = 60          # sau 429
-FAIL_COOLDOWN_SECONDS = 300    # sau lỗi liên tiếp
+COOLDOWN_SECONDS = 60  # sau 429
+FAIL_COOLDOWN_SECONDS = 300  # sau lỗi liên tiếp
 MAX_CONSECUTIVE_FAILURES = 3
 # Thinking-mode (e.g. DeepSeek V4 Flash) yêu cầu MỌI assistant message trong
 # history phải kèm reasoning_content. Nếu thiếu → API trả 400.
@@ -135,6 +135,7 @@ MAX_REASONING_RETRIES = 3
 @dataclass
 class PoolProvider:
     """Cấu hình một provider trong pool."""
+
     name: str
     base_url: str
     model: str
@@ -166,7 +167,9 @@ class QuotaTracker:
     def __init__(self, path: Optional[str] = None):
         if path is None:
             # Mặc định: data/llm_quota.json (tương đối với project root)
-            project_root = Path(__file__).resolve().parents[2]  # trading/llm/pool.py → project
+            project_root = (
+                Path(__file__).resolve().parents[2]
+            )  # trading/llm/pool.py → project
             path = str(project_root / "data" / "llm_quota.json")
         self.path = Path(path)
         self._data: dict = {}
@@ -194,7 +197,9 @@ class QuotaTracker:
     def record(self, provider: str, success: bool = True) -> None:
         day = self._today()
         days = self._data.setdefault("days", {})
-        entry = days.setdefault(day, {}).setdefault(provider, {"requests": 0, "errors": 0})
+        entry = days.setdefault(day, {}).setdefault(
+            provider, {"requests": 0, "errors": 0}
+        )
         entry["requests"] += 1
         if not success:
             entry["errors"] += 1
@@ -276,15 +281,23 @@ class LLMPool:
         provider.consecutive_failures += 1
         if status == 429:
             provider.cooldown_until = time.time() + COOLDOWN_SECONDS
-            logger.warning("[llm] %s rate-limited (429), cooldown %ds", provider.name, COOLDOWN_SECONDS)
+            logger.warning(
+                "[llm] %s rate-limited (429), cooldown %ds",
+                provider.name,
+                COOLDOWN_SECONDS,
+            )
         elif provider.consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
             provider.cooldown_until = time.time() + FAIL_COOLDOWN_SECONDS
             logger.warning(
                 "[llm] %s failed %dx, cooldown %ds",
-                provider.name, provider.consecutive_failures, FAIL_COOLDOWN_SECONDS,
+                provider.name,
+                provider.consecutive_failures,
+                FAIL_COOLDOWN_SECONDS,
             )
         else:
-            provider.cooldown_until = time.time() + min(COOLDOWN_SECONDS, 2 ** provider.consecutive_failures * 5)
+            provider.cooldown_until = time.time() + min(
+                COOLDOWN_SECONDS, 2**provider.consecutive_failures * 5
+            )
 
     def mark_success(self, provider: PoolProvider) -> None:
         provider.consecutive_failures = 0
@@ -310,7 +323,9 @@ class LLMPool:
         errors: list[str] = []
         for provider in candidates:
             try:
-                text = await self._chat_provider(provider, messages, temperature, max_tokens)
+                text = await self._chat_provider(
+                    provider, messages, temperature, max_tokens
+                )
                 self.mark_success(provider)
                 self.quota.record(provider.name, success=True)
                 self.last_provider = provider.name
@@ -381,14 +396,18 @@ class LLMPool:
             async with session.post(url, json=payload, headers=headers) as resp:
                 if resp.status == 429:
                     text = await resp.text()
-                    raise PoolRateLimitError(f"{provider.name}: HTTP 429 — {text[:200]}")
+                    raise PoolRateLimitError(
+                        f"{provider.name}: HTTP 429 — {text[:200]}"
+                    )
                 if resp.status == 400 and "reasoning_content" in (
                     text := await resp.text()
                 ):
                     if attempt < MAX_REASONING_RETRIES:
                         logger.warning(
                             "[llm] %s needs reasoning_content (400) — injecting & retry %d/%d",
-                            provider.name, attempt, MAX_REASONING_RETRIES,
+                            provider.name,
+                            attempt,
+                            MAX_REASONING_RETRIES,
                         )
                         messages_work = _inject_reasoning_content(messages_work)
                         continue
@@ -397,13 +416,17 @@ class LLMPool:
                     )
                 if resp.status != 200:
                     text = await resp.text()
-                    raise PoolError(f"{provider.name}: HTTP {resp.status} — {text[:200]}")
+                    raise PoolError(
+                        f"{provider.name}: HTTP {resp.status} — {text[:200]}"
+                    )
                 data = await resp.json()
                 content = data["choices"][0]["message"].get("content") or ""
                 if not content.strip():
                     # Free tier hay trả 200 kèm content rỗng (reasoning consume hết token,
                     # hoặc rate limit mềm). Coi như fail để pool failover provider khác.
-                    raise PoolError(f"{provider.name}: empty content — {str(data)[:200]}")
+                    raise PoolError(
+                        f"{provider.name}: empty content — {str(data)[:200]}"
+                    )
                 return content
 
         raise PoolError(f"{provider.name}: unexpected reasoning retry exhaustion")
@@ -414,14 +437,16 @@ class LLMPool:
         today = self._data_today()
         out = {"today": today, "providers": []}
         for p in self.providers:
-            out["providers"].append({
-                "name": p.name,
-                "enabled": p.enabled,
-                "requires_key": p.requires_key,
-                "quota_remaining": self.quota.remaining(p),
-                "in_cooldown": p.in_cooldown(),
-                "last_error": p.last_error,
-            })
+            out["providers"].append(
+                {
+                    "name": p.name,
+                    "enabled": p.enabled,
+                    "requires_key": p.requires_key,
+                    "quota_remaining": self.quota.remaining(p),
+                    "in_cooldown": p.in_cooldown(),
+                    "last_error": p.last_error,
+                }
+            )
         return out
 
     async def health(self) -> dict:
@@ -491,15 +516,17 @@ def build_default_providers() -> list[PoolProvider]:
         enabled = spec.get("enabled", True)
         if spec["name"] == "ollama":
             enabled = os.getenv("LLM_POOL_OLLAMA", "0") == "1"
-        providers.append(PoolProvider(
-            name=spec["name"],
-            base_url=spec["base_url"],
-            model=spec["model"],
-            api_key_env=spec.get("api_key_env"),
-            priority=spec["priority"],
-            daily_limit=spec["daily_limit"],
-            enabled=enabled,
-        ))
+        providers.append(
+            PoolProvider(
+                name=spec["name"],
+                base_url=spec["base_url"],
+                model=spec["model"],
+                api_key_env=spec.get("api_key_env"),
+                priority=spec["priority"],
+                daily_limit=spec["daily_limit"],
+                enabled=enabled,
+            )
+        )
     return providers
 
 

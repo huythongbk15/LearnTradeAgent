@@ -13,16 +13,28 @@ Hiểu **ngôn ngữ chung** mà mọi module (data, backtest, agents, execution
 ## 1. Enums — các "trạng thái" chuẩn hóa
 
 ```python
-class AssetClass(str, Enum):   # loại tài sản
+class AssetClass(str, Enum):  # loại tài sản
     CRYPTO, STOCK, FOREX, FUTURES, OPTIONS, ETF, BOND, COMMODITY, INDEX
 
-class MarketType(str, Enum):   # kiểu thị trường
+
+class MarketType(str, Enum):  # kiểu thị trường
     SPOT, MARGIN, FUTURES, OPTIONS, PERPETUAL, SPOT_MARGIN
 
-class OrderSide(str, Enum):    BUY / SELL
-class OrderType(str, Enum):    MARKET, LIMIT, STOP, STOP_LIMIT, TRAILING_STOP, POST_ONLY, FOK, IOC
-class OrderStatus(str, Enum):  OPEN, PARTIAL, FILLED, CANCELLED, REJECTED, EXPIRED
-class TimeInForce(str, Enum):  GTC, IOC, FOK, GTD
+
+class OrderSide(str, Enum):
+    BUY / SELL
+
+
+class OrderType(str, Enum):
+    MARKET, LIMIT, STOP, STOP_LIMIT, TRAILING_STOP, POST_ONLY, FOK, IOC
+
+
+class OrderStatus(str, Enum):
+    OPEN, PARTIAL, FILLED, CANCELLED, REJECTED, EXPIRED
+
+
+class TimeInForce(str, Enum):
+    GTC, IOC, FOK, GTD
 ```
 
 💡 **Vì sao dùng `str, Enum`?** — Vừa có tên rõ nghĩa (`OrderStatus.FILLED`) vừa serializable ra string (`"filled"`) để lưu database / gửi qua JSON.
@@ -32,13 +44,13 @@ class TimeInForce(str, Enum):  GTC, IOC, FOK, GTD
 ```python
 @dataclass(frozen=True, slots=True)
 class Symbol:
-    base: str                      # "BTC"
-    quote: str                     # "USDT"
+    base: str  # "BTC"
+    quote: str  # "USDT"
     asset_class: AssetClass
     market_type: MarketType
-    exchange: str                  # "binance" / "alpaca" / "oanda"
-    expiry: Optional[str] = None   # futures/options: "2026-09-25"
-    strike: Optional[Decimal] = None   # options
+    exchange: str  # "binance" / "alpaca" / "oanda"
+    expiry: Optional[str] = None  # futures/options: "2026-09-25"
+    strike: Optional[Decimal] = None  # options
     option_type: Optional[str] = None  # "call" / "put"
 ```
 
@@ -51,12 +63,12 @@ class Symbol:
 **Các thuộc tính tiện ích:**
 
 ```python
-pair            # "BTC/USDT"           — ký hiệu chuẩn
-ccxt_symbol     # "BTC/USDT:USDT"      — định dạng CCXT (futures có ":settle")
-alpaca_symbol   # "AAPL"               — định dạng Alpaca (stock chỉ cần ticker)
-oanda_instrument# "EUR_USD"            — định dạng OANDA
-unified_id      # "binance:crypto:spot:BTC:USDT" — danh tính DUY NHẤT xuyên sàn
-hash            # md5(unified_id)[:12] — khóa ngắn cho database
+pair  # "BTC/USDT"           — ký hiệu chuẩn
+ccxt_symbol  # "BTC/USDT:USDT"      — định dạng CCXT (futures có ":settle")
+alpaca_symbol  # "AAPL"               — định dạng Alpaca (stock chỉ cần ticker)
+oanda_instrument  # "EUR_USD"            — định dạng OANDA
+unified_id  # "binance:crypto:spot:BTC:USDT" — danh tính DUY NHẤT xuyên sàn
+hash  # md5(unified_id)[:12] — khóa ngắn cho database
 ```
 
 💡 **Vì sao cần `unified_id`?** — Cùng "BTC" nhưng `binance:crypto:spot:BTC:USDT` ≠ `deribit:options:BTC:USDT:2026-09-25:60000:C`. Hai tài sản khác nhau hoàn toàn. `unified_id` chống nhầm lẫn khi hệ thống chạy 8 sàn + 5 asset class.
@@ -84,9 +96,9 @@ class Bar:
 ## 4. `OrderBook` — sổ lệnh
 
 ```python
-bids: list[OrderBookLevel]   # giá mua, giảm dần
-asks: list[OrderBookLevel]   # giá bán, tăng dần
-sequence: Optional[int]      # số thứ tự snapshot (chống out-of-order)
+bids: list[OrderBookLevel]  # giá mua, giảm dần
+asks: list[OrderBookLevel]  # giá bán, tăng dần
+sequence: Optional[int]  # số thứ tự snapshot (chống out-of-order)
 
 # Thuộc tính: best_bid, best_ask, spread, spread_pct, mid_price
 ```
@@ -112,14 +124,14 @@ sequence: Optional[int]      # số thứ tự snapshot (chống out-of-order)
 
 ```python
 crypto_symbol("BTC", "USDT", exchange="binance")
-stock_symbol("AAPL")                     # → Symbol("AAPL","USD",STOCK,SPOT,"alpaca")
-forex_symbol("EUR", "USD")               # → OANDA forex
+stock_symbol("AAPL")  # → Symbol("AAPL","USD",STOCK,SPOT,"alpaca")
+forex_symbol("EUR", "USD")  # → OANDA forex
 futures_symbol("BTC", "USDT", expiry="2026-09-25")
 option_symbol("BTC", "USDT", "2026-09-25", Decimal("60000"), "C")
 
-COMMON_CRYPTO   # {"BTC/USDT": ..., "BTC/USDT:USDT": ...}
-COMMON_STOCKS   # AAPL, MSFT, GOOGL, TSLA, NVDA, SPY, QQQ
-COMMON_FOREX    # EUR/USD, GBP/USD, USD/JPY, USD/CHF, AUD/USD, USD/CAD
+COMMON_CRYPTO  # {"BTC/USDT": ..., "BTC/USDT:USDT": ...}
+COMMON_STOCKS  # AAPL, MSFT, GOOGL, TSLA, NVDA, SPY, QQQ
+COMMON_FOREX  # EUR/USD, GBP/USD, USD/JPY, USD/CHF, AUD/USD, USD/CAD
 ```
 
 → Khỏi nhớ thứ tự 8 tham số — gọi hàm có tên rõ ràng.

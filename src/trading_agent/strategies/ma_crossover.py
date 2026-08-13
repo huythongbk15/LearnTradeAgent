@@ -18,6 +18,7 @@ class MaCrossover(Strategy):
     fast_period : int  (default 20)
     slow_period : int  (default 50)
     """
+
     name = "ma_crossover"
 
     def __init__(self, params: dict | None = None) -> None:
@@ -26,14 +27,16 @@ class MaCrossover(Strategy):
         self.slow = int(self.params.get("slow_period", 50))
 
     def compute_indicators(self, df: pl.DataFrame) -> pl.DataFrame:
-        return df.with_columns([
-            pl.col("close")
-            .rolling_mean(window_size=self.fast)
-            .alias(f"ma_{self.fast}"),
-            pl.col("close")
-            .rolling_mean(window_size=self.slow)
-            .alias(f"ma_{self.slow}"),
-        ])
+        return df.with_columns(
+            [
+                pl.col("close")
+                .rolling_mean(window_size=self.fast)
+                .alias(f"ma_{self.fast}"),
+                pl.col("close")
+                .rolling_mean(window_size=self.slow)
+                .alias(f"ma_{self.slow}"),
+            ]
+        )
 
     def generate_signals(self, df: pl.DataFrame) -> pl.Series:
         fast_col = f"ma_{self.fast}"
@@ -55,10 +58,7 @@ class MaCrossover(Strategy):
         return (
             df.with_columns(signal, prev)
             .select(
-                pl.when(
-                    (pl.col("_raw") != pl.col("_prev"))
-                    & (pl.col("_raw") != 0)
-                )
+                pl.when((pl.col("_raw") != pl.col("_prev")) & (pl.col("_raw") != 0))
                 .then(pl.col("_raw"))
                 .otherwise(0)
                 .alias("signal")

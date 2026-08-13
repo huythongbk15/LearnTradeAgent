@@ -3,6 +3,7 @@
 Chạy: python scripts/download_intraday.py [--since 2023-08-10] [--workers 3]
 Kết quả lưu vào data/raw/binance/<SYMBOL>/<tf>.parquet (append + merge unique).
 """
+
 from __future__ import annotations
 
 import argparse
@@ -15,8 +16,16 @@ from trading_agent.data.collector import Collector
 from trading_agent.data.storage import save_ohlcv
 
 SYMBOLS = [
-    "BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT", "DOGE/USDT",
-    "ADA/USDT", "XRP/USDT", "DOT/USDT", "AVAX/USDT", "LINK/USDT",
+    "BTC/USDT",
+    "ETH/USDT",
+    "SOL/USDT",
+    "BNB/USDT",
+    "DOGE/USDT",
+    "ADA/USDT",
+    "XRP/USDT",
+    "DOT/USDT",
+    "AVAX/USDT",
+    "LINK/USDT",
 ]
 TIMEFRAMES = ["1m", "5m", "15m", "30m"]
 
@@ -37,7 +46,9 @@ def download_one(symbol: str, tf: str, since: str) -> dict:
         path = save_ohlcv(df, "binance", symbol, tf)
         rows = df.height
         dt = time.time() - t_start
-        log(f"OK   {symbol:10s} {tf:3s} → {rows:>8,} rows trong {dt/60:.1f} phút | {path.name}")
+        log(
+            f"OK   {symbol:10s} {tf:3s} → {rows:>8,} rows trong {dt / 60:.1f} phút | {path.name}"
+        )
         return {"symbol": symbol, "tf": tf, "rows": rows, "ok": True}
     except Exception as exc:  # noqa: BLE001
         log(f"FAIL {symbol:10s} {tf:3s} → {exc}")
@@ -46,11 +57,15 @@ def download_one(symbol: str, tf: str, since: str) -> dict:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--since", default=(date.today() - timedelta(days=365 * 3)).isoformat())
+    parser.add_argument(
+        "--since", default=(date.today() - timedelta(days=365 * 3)).isoformat()
+    )
     parser.add_argument("--workers", type=int, default=3)
     args = parser.parse_args()
 
-    log(f"Download {len(SYMBOLS)} symbols × {len(TIMEFRAMES)} tf, since={args.since}, workers={args.workers}")
+    log(
+        f"Download {len(SYMBOLS)} symbols × {len(TIMEFRAMES)} tf, since={args.since}, workers={args.workers}"
+    )
     tasks = [(s, tf, args.since) for s in SYMBOLS for tf in TIMEFRAMES]
     results: list[dict] = []
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
@@ -64,7 +79,9 @@ def main() -> int:
     ok = [r for r in results if r.get("ok")]
     fail = [r for r in results if not r.get("ok")]
     total_rows = sum(r["rows"] for r in ok)
-    log(f"DONE {len(ok)}/{len(results)} OK, {len(fail)} FAIL | tổng {total_rows:,} rows | {time.time()-T0:.0f}s")
+    log(
+        f"DONE {len(ok)}/{len(results)} OK, {len(fail)} FAIL | tổng {total_rows:,} rows | {time.time() - T0:.0f}s"
+    )
     for r in fail:
         log(f"  FAIL: {r['symbol']} {r['tf']} → {r.get('error')}")
     return 0 if not fail else 1

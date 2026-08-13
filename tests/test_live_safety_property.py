@@ -80,9 +80,7 @@ def test_canary_is_never_looser_than_configured(env: dict) -> None:
     equity=st.floats(
         min_value=1e-3, max_value=1e9, allow_nan=False, allow_infinity=False
     ),
-    cap=st.floats(
-        min_value=1e-3, max_value=1e6, allow_nan=False, allow_infinity=False
-    ),
+    cap=st.floats(min_value=1e-3, max_value=1e6, allow_nan=False, allow_infinity=False),
     equity_pct=st.floats(
         min_value=1e-6, max_value=1.0, allow_nan=False, allow_infinity=False
     ),

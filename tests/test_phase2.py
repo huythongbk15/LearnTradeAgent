@@ -26,10 +26,17 @@ import pytest
 # Thiếu data local → skip cả module.
 _DATA_FILE = (
     Path(__file__).resolve().parents[1]
-    / "data" / "raw" / "binance" / "BTC_USDT" / "1h.parquet"
+    / "data"
+    / "raw"
+    / "binance"
+    / "BTC_USDT"
+    / "1h.parquet"
 )
 if not _DATA_FILE.exists():
-    pytest.skip(f"Bỏ qua integration test: thiếu data local {_DATA_FILE}", allow_module_level=True)
+    pytest.skip(
+        f"Bỏ qua integration test: thiếu data local {_DATA_FILE}",
+        allow_module_level=True,
+    )
 
 # ── Imports ──────────────────────────────────────────────────────────────
 
@@ -48,9 +55,9 @@ fail_count = 0
 
 
 def heading(text):
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"  {text}")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
 
 
 def check(name, condition, detail=""):
@@ -118,31 +125,43 @@ timestamps = [start_ts]
 for i in range(1, n):
     timestamps.append(timestamps[-1] + timedelta(hours=1))
 
-df = pl.DataFrame({
-    "timestamp": timestamps,
-    "open": opens,
-    "high": highs,
-    "low": lows,
-    "close": closes,
-    "volume": volumes,
-})
+df = pl.DataFrame(
+    {
+        "timestamp": timestamps,
+        "open": opens,
+        "high": highs,
+        "low": lows,
+        "close": closes,
+        "volume": volumes,
+    }
+)
 
 # Compute basic indicators
-df = df.with_columns([
-    pl.col("close").rolling_mean(window_size=5).alias("ma_5"),
-    pl.col("close").rolling_mean(window_size=10).alias("ma_10"),
-    pl.col("close").rolling_mean(window_size=20).alias("ma_20"),
-])
+df = df.with_columns(
+    [
+        pl.col("close").rolling_mean(window_size=5).alias("ma_5"),
+        pl.col("close").rolling_mean(window_size=10).alias("ma_10"),
+        pl.col("close").rolling_mean(window_size=20).alias("ma_20"),
+    ]
+)
 # Fake RSI
 rsi_vals = 50 + np.cumsum(np.random.randn(n) * 5)
 rsi_vals = np.clip(rsi_vals, 0, 100)
 df = df.with_columns(pl.Series("rsi", rsi_vals))
 # Fake BBands
-df = df.with_columns([
-    (pl.col("close").rolling_mean(window_size=20) + 2 * pl.col("close").rolling_std(window_size=20)).alias("bb_upper"),
-    (pl.col("close").rolling_mean(window_size=20) - 2 * pl.col("close").rolling_std(window_size=20)).alias("bb_lower"),
-    pl.col("close").rolling_mean(window_size=20).alias("bb_mid"),
-])
+df = df.with_columns(
+    [
+        (
+            pl.col("close").rolling_mean(window_size=20)
+            + 2 * pl.col("close").rolling_std(window_size=20)
+        ).alias("bb_upper"),
+        (
+            pl.col("close").rolling_mean(window_size=20)
+            - 2 * pl.col("close").rolling_std(window_size=20)
+        ).alias("bb_lower"),
+        pl.col("close").rolling_mean(window_size=20).alias("bb_mid"),
+    ]
+)
 
 current_price = float(df["close"].tail(1).item())
 
@@ -162,7 +181,9 @@ extra = {
     "change_5": float((closes[-1] / closes[-5] - 1) * 100),
     "change_20": float((closes[-1] / closes[-21] - 1) * 100),
     "volatility_20": float(np.std(returns_20) * 100),
-    "volume_ratio_5_20": float(volumes[-5:].mean() / volumes[-20:].mean()) if volumes[-20:].mean() > 0 else 1.0,
+    "volume_ratio_5_20": float(volumes[-5:].mean() / volumes[-20:].mean())
+    if volumes[-20:].mean() > 0
+    else 1.0,
 }
 indicators["_extra"] = extra
 
@@ -174,8 +195,12 @@ ctx = AnalysisContext(
     indicators=indicators,
     current_position_pct=0.0,
     portfolio_value=10000.0,
-    price_change_1d=float((closes[-1] / closes[-25] - 1) * 100) if len(closes) > 25 else 0,
-    price_change_1w=float((closes[-1] / closes[-169] - 1) * 100) if len(closes) > 169 else 0,
+    price_change_1d=float((closes[-1] / closes[-25] - 1) * 100)
+    if len(closes) > 25
+    else 0,
+    price_change_1w=float((closes[-1] / closes[-169] - 1) * 100)
+    if len(closes) > 169
+    else 0,
     price_change_1m=None,
 )
 
@@ -202,7 +227,9 @@ check("has reasoning", len(tech_msg.reasoning) > 5)
 check("has details", bool(tech_msg.details))
 print(f"  Signal: {tech_msg.signal} (conf={tech_msg.confidence:.0%})")
 print(f"  Reason: {tech_msg.reasoning}")
-print(f"  Details: trend={tech_msg.details.get('trend')}, momentum={tech_msg.details.get('momentum')}")
+print(
+    f"  Details: trend={tech_msg.details.get('trend')}, momentum={tech_msg.details.get('momentum')}"
+)
 print(f"  ⏱ {t_tech:.2f}s")
 
 
@@ -241,7 +268,10 @@ t_risk = time.time() - t0
 check("returns AgentMessage", isinstance(risk_msg, AgentMessage))
 check("signal valid", risk_msg.signal in ("BUY", "SELL", "HOLD"))
 check("risk_level defined", risk_msg.risk_level in ("LOW", "MEDIUM", "HIGH", "EXTREME"))
-check("max_position_size_pct is 0-1", risk_msg.max_position_size_pct is None or 0 <= risk_msg.max_position_size_pct <= 1)
+check(
+    "max_position_size_pct is 0-1",
+    risk_msg.max_position_size_pct is None or 0 <= risk_msg.max_position_size_pct <= 1,
+)
 print(f"  Signal: {risk_msg.signal} (conf={risk_msg.confidence:.0%})")
 print(f"  Risk: {risk_msg.risk_level}")
 print(f"  Max Position: {risk_msg.max_position_size_pct}")
@@ -260,8 +290,10 @@ all_msgs = [tech_msg, sent_msg, risk_msg]
 ctx.agent_messages = all_msgs
 
 for m in all_msgs:
-    print(f"  Input: [{m.role}] {m.signal} (conf={m.confidence:.0%})"
-          + (f" risk={m.risk_level}" if m.risk_level else ""))
+    print(
+        f"  Input: [{m.role}] {m.signal} (conf={m.confidence:.0%})"
+        + (f" risk={m.risk_level}" if m.risk_level else "")
+    )
 
 t0 = time.time()
 final = trader.analyze(ctx)
@@ -272,7 +304,9 @@ check("signal valid", final.signal in ("BUY", "SELL", "HOLD"))
 check("confidence valid", 0 <= final.confidence <= 1.0)
 check("has reasoning", len(final.reasoning) > 5)
 check("details contains agent_signals", "agent_signals" in final.details)
-print(f"  Final Signal: {final.signal} (conf={final.confidence:.0%}, risk={final.risk_level})")
+print(
+    f"  Final Signal: {final.signal} (conf={final.confidence:.0%}, risk={final.risk_level})"
+)
 print(f"  Weighted score: {final.details.get('weighted_score')}")
 print(f"  Reason: {final.reasoning}")
 print(f"  ⏱ {t_trader:.2f}s")
@@ -299,9 +333,14 @@ try:
     check("returns AgentAnalysisReport", report is not None)
     check("has final_decision", bool(report.final_decision))
     check("final signal valid", report.final_decision.signal in ("BUY", "SELL", "HOLD"))
-    check("has 4 agent messages (tech + sentiment + risk + trader)", len(report.agent_messages) == 4)
+    check(
+        "has 4 agent messages (tech + sentiment + risk + trader)",
+        len(report.agent_messages) == 4,
+    )
 
-    print(f"\n  🎯 Final: {report.final_decision.signal} (conf={report.final_decision.confidence:.0%})")
+    print(
+        f"\n  🎯 Final: {report.final_decision.signal} (conf={report.final_decision.confidence:.0%})"
+    )
     print(f"  ⏱ {t_orch:.2f}s")
     for msg in report.agent_messages:
         print(f"    [{msg.role:20s}] {msg.signal:4s}  conf={msg.confidence:.0%}")
@@ -314,6 +353,7 @@ except Exception as e:
     t_orch = time.time() - t0
     check("Orchestrator runs without error", False, str(e))
     import traceback
+
     traceback.print_exc()
 
 
@@ -324,7 +364,7 @@ heading("SUMMARY")
 print(f"  ✅ Passed: {pass_count}")
 print(f"  ❌ Failed: {fail_count}")
 print(f"  ⏱  Total: {time.time() - t_start:.1f}s" if fail_count == 0 else "")
-print(f"\n{'='*60}")
+print(f"\n{'=' * 60}")
 
 if USE_LLM:
     print(f"  Mode: FULL LLM (using {config.llm_provider}/{config.llm_model})")

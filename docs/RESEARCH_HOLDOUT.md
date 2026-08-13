@@ -26,6 +26,7 @@ Window được căn theo **end chung sớm nhất** trên toàn bộ symbol c�
 4. Tool nào vi phạm sẽ fail-closed qua `guard_training_window()`:
    ```python
    from trading_agent.alpha_research.holdout import guard_training_window
+
    guard_training_window(start=..., end=...)  # raises HoldoutError nếu overlap
    ```
 

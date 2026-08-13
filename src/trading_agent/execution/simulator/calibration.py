@@ -33,15 +33,15 @@ class CalibrationSample:
     """One observed fill from L2 or testnet for calibration."""
 
     bar_index: int
-    side: str                  # "buy" | "sell"
+    side: str  # "buy" | "sell"
     quantity: float
     arrival_mid: float
     fill_vwap: float
     spread_bps: float
     latency_ms: float
-    is_maker: bool             # True = passive limit, False = aggressive market
-    timestamp: str             # ISO format
-    aggressor: str             # "market" | "limit_passive"
+    is_maker: bool  # True = passive limit, False = aggressive market
+    timestamp: str  # ISO format
+    aggressor: str  # "market" | "limit_passive"
     fee_bps: float = 0.0
 
     @property
@@ -146,8 +146,16 @@ class SimulatorCalibrator:
           latency_ms, is_maker, timestamp, aggressor, fee_bps (optional)
         """
         required = {
-            "bar_index", "side", "quantity", "arrival_mid", "fill_vwap",
-            "spread_bps", "latency_ms", "is_maker", "timestamp", "aggressor"
+            "bar_index",
+            "side",
+            "quantity",
+            "arrival_mid",
+            "fill_vwap",
+            "spread_bps",
+            "latency_ms",
+            "is_maker",
+            "timestamp",
+            "aggressor",
         }
         missing = required - set(df.columns)
         if missing:
@@ -203,7 +211,9 @@ class SimulatorCalibrator:
             prob = max(0.05, min(0.8, 0.5 * (10.0 / max(avg_spread, 1.0))))
             bar_rates.append(prob)
 
-        calibrated_prob = statistics.median(bar_rates) if bar_rates else self.config.passive_fill_prob
+        calibrated_prob = (
+            statistics.median(bar_rates) if bar_rates else self.config.passive_fill_prob
+        )
 
         return FillModelParams(
             passive_fill_prob=calibrated_prob,
@@ -274,7 +284,9 @@ class SimulatorCalibrator:
             # Adverse = post-fill mid move after aggressive fill
             # We don't have true post-fill mid, so use slippage as proxy
             # (overestimate since slippage includes spread + impact + adverse)
-            adverse_estimates = [s.slippage_bps - s.spread_bps / 2.0 for s in aggressive]
+            adverse_estimates = [
+                s.slippage_bps - s.spread_bps / 2.0 for s in aggressive
+            ]
             # Filter outliers
             if adverse_estimates:
                 median_a = statistics.median(adverse_estimates)
@@ -356,20 +368,27 @@ def collect_testnet_fills(
                 continue
             intent = order_result.intent
             book = engine.current_book
-            arrival_mid = order_result.arrival_price or (book.mid if book else fill.price)
-            samples.append(CalibrationSample(
-                bar_index=fill.bar_index,
-                side=intent.side.value,
-                quantity=fill.quantity,
-                arrival_mid=arrival_mid,
-                fill_vwap=fill.price,
-                spread_bps=book.spread_bps() if book else engine.config.spread_bps,
-                latency_ms=engine.config.submit_latency_ms + engine.config.network_latency_ms,
-                is_maker=fill.aggressor == "limit_passive",
-                timestamp=fill.timestamp.isoformat(),
-                aggressor=fill.aggressor,
-                fee_bps=fill.fee / fill.notional * 10_000.0 if fill.notional > 0 else 0.0,
-            ))
+            arrival_mid = order_result.arrival_price or (
+                book.mid if book else fill.price
+            )
+            samples.append(
+                CalibrationSample(
+                    bar_index=fill.bar_index,
+                    side=intent.side.value,
+                    quantity=fill.quantity,
+                    arrival_mid=arrival_mid,
+                    fill_vwap=fill.price,
+                    spread_bps=book.spread_bps() if book else engine.config.spread_bps,
+                    latency_ms=engine.config.submit_latency_ms
+                    + engine.config.network_latency_ms,
+                    is_maker=fill.aggressor == "limit_passive",
+                    timestamp=fill.timestamp.isoformat(),
+                    aggressor=fill.aggressor,
+                    fee_bps=fill.fee / fill.notional * 10_000.0
+                    if fill.notional > 0
+                    else 0.0,
+                )
+            )
         return result
 
     engine.run = wrapped_run  # type: ignore

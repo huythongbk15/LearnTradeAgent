@@ -5,6 +5,7 @@ Backup: TimescaleDB (pg_dump), Redis (rdb), config folder.
 Lưu tại: ./backups/YYYYMMDD_HHMMSS/
 Giữ: 7 bản gần nhất.
 """
+
 import subprocess
 import sys
 from pathlib import Path
@@ -13,13 +14,16 @@ import shutil
 
 # === CONFIG (sửa cho máy bạn) ===
 BACKUP_ROOT = Path("./backups")
-DB_CONTAINER = "trading-timescaledb"      # tên container TimescaleDB (docker-compose container_name)
-REDIS_CONTAINER = "trading-redis"         # tên container Redis
+DB_CONTAINER = (
+    "trading-timescaledb"  # tên container TimescaleDB (docker-compose container_name)
+)
+REDIS_CONTAINER = "trading-redis"  # tên container Redis
 DB_USER = "trading"
 DB_NAME = "trading_market_data"
-CONFIG_DIR = Path("./config")               # thư mục config local
+CONFIG_DIR = Path("./config")  # thư mục config local
 KEEP_LAST = 7
 # =================================
+
 
 def run(cmd, check=True):
     print(f"  $ {cmd}")
@@ -30,6 +34,7 @@ def run(cmd, check=True):
     if result.stdout:
         print(f"  {result.stdout.strip()}")
     return result
+
 
 def main():
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -66,12 +71,15 @@ def main():
 
     # 5. Retention
     print(f"\n5. Keeping last {KEEP_LAST} backups...")
-    all_backups = sorted(BACKUP_ROOT.glob("*"), key=lambda p: p.stat().st_mtime, reverse=True)
+    all_backups = sorted(
+        BACKUP_ROOT.glob("*"), key=lambda p: p.stat().st_mtime, reverse=True
+    )
     for old in all_backups[KEEP_LAST:]:
         print(f"  Removing {old.name}")
         shutil.rmtree(old)
 
     print(f"\n✅ Done! Backup saved to: {backup_dir}")
+
 
 if __name__ == "__main__":
     main()

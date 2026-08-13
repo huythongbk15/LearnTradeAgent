@@ -18,7 +18,11 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 
-from trading_agent.data.options_provider import OptionChainProvider, OptionChain, OptionContract
+from trading_agent.data.options_provider import (
+    OptionChainProvider,
+    OptionChain,
+    OptionContract,
+)
 
 
 class OptionStrategyType(Enum):
@@ -35,6 +39,7 @@ class OptionStrategyType(Enum):
 @dataclass
 class Position:
     """Option position with greeks."""
+
     contract: OptionContract
     qty: int  # positive = long, negative = short
     entry_price: float
@@ -64,6 +69,7 @@ class Position:
 @dataclass
 class OptionsStrategy:
     """Base options strategy."""
+
     name: str
     underlying: str
     provider: OptionChainProvider
@@ -114,14 +120,19 @@ class OptionsStrategy:
                 pos.contract = current
             new_positions.append(pos)
         self.positions = new_positions
-        return {"unrealized_pnl": pnl, "total_delta": self.total_delta(),
-                "total_gamma": self.total_gamma(), "total_theta": self.total_theta(),
-                "total_vega": self.total_vega()}
+        return {
+            "unrealized_pnl": pnl,
+            "total_delta": self.total_delta(),
+            "total_gamma": self.total_gamma(),
+            "total_theta": self.total_theta(),
+            "total_vega": self.total_vega(),
+        }
 
 
 # ══════════════════════════════════════════════════════════════════════════
 # 1. Covered Call / Cash-Secured Put
 # ══════════════════════════════════════════════════════════════════════════
+
 
 class CoveredCallStrategy(OptionsStrategy):
     """
@@ -134,7 +145,13 @@ class CoveredCallStrategy(OptionsStrategy):
         - roll_threshold: 0.02 (moneyness from strike)
     """
 
-    def __init__(self, underlying: str, provider: OptionChainProvider, config: dict | None = None, spot: float = 0):
+    def __init__(
+        self,
+        underlying: str,
+        provider: OptionChainProvider,
+        config: dict | None = None,
+        spot: float = 0,
+    ):
         super().__init__("CoveredCall", underlying, provider, spot, config=config)
         self.cash = self.config.get("initial_capital", 100_000)
         self.shares = self.config.get("initial_shares", 0)
@@ -155,15 +172,19 @@ class CoveredCallStrategy(OptionsStrategy):
                 if mid > 0.01:
                     premium_yield = mid / chain.spot * (365 / dte)
                     if premium_yield >= self.config.get("min_annual_yield", 0.05):
-                        signals.append({
-                            "action": "SELL_CALL",
-                            "contract": call,
-                            "price": call.bid,
-                            "shares_needed": 100,
-                            "premium_yield_annual": premium_yield,
-                            "delta": delta,
-                        })
-        return sorted(signals, key=lambda x: x["premium_yield_annual"], reverse=True)[:3]
+                        signals.append(
+                            {
+                                "action": "SELL_CALL",
+                                "contract": call,
+                                "price": call.bid,
+                                "shares_needed": 100,
+                                "premium_yield_annual": premium_yield,
+                                "delta": delta,
+                            }
+                        )
+        return sorted(signals, key=lambda x: x["premium_yield_annual"], reverse=True)[
+            :3
+        ]
 
     def roll_call(self, chain: OptionChain, current_strike: float) -> dict | None:
         """Roll short call to higher strike if ITM risk."""
@@ -194,7 +215,13 @@ class CashSecuredPutStrategy(OptionsStrategy):
     Collect premium, assigned shares if ITM at expiry.
     """
 
-    def __init__(self, underlying: str, provider: OptionChainProvider, config: dict | None = None, spot: float = 0):
+    def __init__(
+        self,
+        underlying: str,
+        provider: OptionChainProvider,
+        config: dict | None = None,
+        spot: float = 0,
+    ):
         super().__init__("CashSecuredPut", underlying, provider, spot, config=config)
         self.cash = self.config.get("initial_capital", 100_000)
 
@@ -214,15 +241,19 @@ class CashSecuredPutStrategy(OptionsStrategy):
                     cash_secured = put.strike * 100
                     premium_yield = mid * 100 / cash_secured * (365 / dte)
                     if premium_yield >= self.config.get("min_annual_yield", 0.05):
-                        signals.append({
-                            "action": "SELL_PUT",
-                            "contract": put,
-                            "price": put.bid,
-                            "cash_required": cash_secured,
-                            "premium_yield_annual": premium_yield,
-                            "delta": delta,
-                        })
-        return sorted(signals, key=lambda x: x["premium_yield_annual"], reverse=True)[:3]
+                        signals.append(
+                            {
+                                "action": "SELL_PUT",
+                                "contract": put,
+                                "price": put.bid,
+                                "cash_required": cash_secured,
+                                "premium_yield_annual": premium_yield,
+                                "delta": delta,
+                            }
+                        )
+        return sorted(signals, key=lambda x: x["premium_yield_annual"], reverse=True)[
+            :3
+        ]
 
     def _dte(self, expiry: str) -> int:
         try:
@@ -236,10 +267,17 @@ class CashSecuredPutStrategy(OptionsStrategy):
 # 2. Short Straddle / Strangle / Iron Condor
 # ══════════════════════════════════════════════════════════════════════════
 
+
 class ShortStraddleStrategy(OptionsStrategy):
     """Short Straddle: Sell ATM Call + ATM Put (same strike)."""
 
-    def __init__(self, underlying: str, provider: OptionChainProvider, config: dict | None = None, spot: float = 0):
+    def __init__(
+        self,
+        underlying: str,
+        provider: OptionChainProvider,
+        config: dict | None = None,
+        spot: float = 0,
+    ):
         super().__init__("ShortStraddle", underlying, provider, spot, config=config)
 
     def generate_signals(self, chain: OptionChain) -> list[dict]:
@@ -256,16 +294,20 @@ class ShortStraddleStrategy(OptionsStrategy):
             put_mid = (atm_put.bid + atm_put.ask) / 2
             total_premium = (call_mid + put_mid) * 100
 
-            signals.append({
-                "action": "SELL_STRADDLE",
-                "call": atm_call, "put": atm_put,
-                "call_price": atm_call.bid, "put_price": atm_put.bid,
-                "total_premium": total_premium,
-                "max_profit": total_premium,
-                "breakeven_up": atm_call.strike + call_mid + put_mid,
-                "breakeven_dn": atm_call.strike - call_mid - put_mid,
-                "dte": dte,
-            })
+            signals.append(
+                {
+                    "action": "SELL_STRADDLE",
+                    "call": atm_call,
+                    "put": atm_put,
+                    "call_price": atm_call.bid,
+                    "put_price": atm_put.bid,
+                    "total_premium": total_premium,
+                    "max_profit": total_premium,
+                    "breakeven_up": atm_call.strike + call_mid + put_mid,
+                    "breakeven_dn": atm_call.strike - call_mid - put_mid,
+                    "dte": dte,
+                }
+            )
         return signals
 
     def _dte(self, expiry: str) -> int:
@@ -279,7 +321,13 @@ class ShortStraddleStrategy(OptionsStrategy):
 class ShortStrangleStrategy(OptionsStrategy):
     """Short Strangle: Sell OTM Call + OTM Put (different strikes)."""
 
-    def __init__(self, underlying: str, provider: OptionChainProvider, config: dict | None = None, spot: float = 0):
+    def __init__(
+        self,
+        underlying: str,
+        provider: OptionChainProvider,
+        config: dict | None = None,
+        spot: float = 0,
+    ):
         super().__init__("ShortStrangle", underlying, provider, spot, config=config)
 
     def generate_signals(self, chain: OptionChain) -> list[dict]:
@@ -290,8 +338,18 @@ class ShortStrangleStrategy(OptionsStrategy):
 
         delta_target = self.config.get("delta_target", 0.15)
 
-        otm_calls = [c for c in chain.calls if c.strike > chain.spot and 0.05 < abs(c.greeks.get("delta", 0)) < delta_target]
-        otm_puts = [p for p in chain.puts if p.strike < chain.spot and 0.05 < abs(p.greeks.get("delta", 0)) < delta_target]
+        otm_calls = [
+            c
+            for c in chain.calls
+            if c.strike > chain.spot
+            and 0.05 < abs(c.greeks.get("delta", 0)) < delta_target
+        ]
+        otm_puts = [
+            p
+            for p in chain.puts
+            if p.strike < chain.spot
+            and 0.05 < abs(p.greeks.get("delta", 0)) < delta_target
+        ]
 
         for call in otm_calls[:3]:
             for put in otm_puts[:3]:
@@ -301,17 +359,21 @@ class ShortStrangleStrategy(OptionsStrategy):
                 breakeven_up = call.strike + call_mid + put_mid
                 breakeven_dn = put.strike - call_mid - put_mid
 
-                signals.append({
-                    "action": "SELL_STRANGLE",
-                    "call": call, "put": put,
-                    "call_price": call.bid, "put_price": put.bid,
-                    "total_premium": total_premium,
-                    "max_profit": total_premium,
-                    "breakeven_up": breakeven_up,
-                    "breakeven_dn": breakeven_dn,
-                    "width_pct": (call.strike - put.strike) / chain.spot,
-                    "dte": dte,
-                })
+                signals.append(
+                    {
+                        "action": "SELL_STRANGLE",
+                        "call": call,
+                        "put": put,
+                        "call_price": call.bid,
+                        "put_price": put.bid,
+                        "total_premium": total_premium,
+                        "max_profit": total_premium,
+                        "breakeven_up": breakeven_up,
+                        "breakeven_dn": breakeven_dn,
+                        "width_pct": (call.strike - put.strike) / chain.spot,
+                        "dte": dte,
+                    }
+                )
         return sorted(signals, key=lambda x: x["total_premium"], reverse=True)[:5]
 
     def _dte(self, expiry: str) -> int:
@@ -325,13 +387,21 @@ class ShortStrangleStrategy(OptionsStrategy):
 class IronCondorStrategy(OptionsStrategy):
     """Iron Condor: Short Strangle + Long Wings (defined risk)."""
 
-    def __init__(self, underlying: str, provider: OptionChainProvider, config: dict | None = None, spot: float = 0):
+    def __init__(
+        self,
+        underlying: str,
+        provider: OptionChainProvider,
+        config: dict | None = None,
+        spot: float = 0,
+    ):
         super().__init__("IronCondor", underlying, provider, spot, config=config)
 
     def generate_signals(self, chain: OptionChain) -> list[dict]:
         signals = []
         dte = self._dte(chain.expiry)
-        if not (self.config.get("dte_min", 14) <= dte <= self.config.get("dte_max", 60)):
+        if not (
+            self.config.get("dte_min", 14) <= dte <= self.config.get("dte_max", 60)
+        ):
             return signals
 
         delta_short = self.config.get("delta_short", 0.15)
@@ -340,13 +410,27 @@ class IronCondorStrategy(OptionsStrategy):
         otm_calls = [c for c in chain.calls if c.strike > chain.spot]
         otm_puts = [p for p in chain.puts if p.strike < chain.spot]
 
-        short_calls = [c for c in otm_calls if 0.05 < abs(c.greeks.get("delta", 0)) < delta_short]
-        short_puts = [p for p in otm_puts if 0.05 < abs(p.greeks.get("delta", 0)) < delta_short]
+        short_calls = [
+            c for c in otm_calls if 0.05 < abs(c.greeks.get("delta", 0)) < delta_short
+        ]
+        short_puts = [
+            p for p in otm_puts if 0.05 < abs(p.greeks.get("delta", 0)) < delta_short
+        ]
 
         for sc in short_calls[:3]:
             for sp in short_puts[:3]:
-                long_calls = [c for c in otm_calls if c.strike > sc.strike and abs(c.greeks.get("delta", 0)) < delta_long]
-                long_puts = [p for p in otm_puts if p.strike < sp.strike and abs(p.greeks.get("delta", 0)) < delta_long]
+                long_calls = [
+                    c
+                    for c in otm_calls
+                    if c.strike > sc.strike
+                    and abs(c.greeks.get("delta", 0)) < delta_long
+                ]
+                long_puts = [
+                    p
+                    for p in otm_puts
+                    if p.strike < sp.strike
+                    and abs(p.greeks.get("delta", 0)) < delta_long
+                ]
 
                 for lc in long_calls[:2]:
                     for lp in long_puts[:2]:
@@ -357,20 +441,27 @@ class IronCondorStrategy(OptionsStrategy):
 
                         credit = (sc_mid + sp_mid - lc_mid - lp_mid) * 100
                         max_loss = (lc.strike - sc.strike) * 100 - credit
-                        prob_profit = 1 - (abs(sc.greeks.get("delta", 0)) + abs(sp.greeks.get("delta", 0)))
+                        prob_profit = 1 - (
+                            abs(sc.greeks.get("delta", 0))
+                            + abs(sp.greeks.get("delta", 0))
+                        )
 
                         if credit > 0 and max_loss > 0 and prob_profit > 0.5:
-                            signals.append({
-                                "action": "SELL_IRON_CONDOR",
-                                "short_call": sc, "short_put": sp,
-                                "long_call": lc, "long_put": lp,
-                                "credit": credit,
-                                "max_loss": max_loss,
-                                "max_profit": credit,
-                                "prob_profit": prob_profit,
-                                "risk_reward": credit / max_loss,
-                                "dte": dte,
-                            })
+                            signals.append(
+                                {
+                                    "action": "SELL_IRON_CONDOR",
+                                    "short_call": sc,
+                                    "short_put": sp,
+                                    "long_call": lc,
+                                    "long_put": lp,
+                                    "credit": credit,
+                                    "max_loss": max_loss,
+                                    "max_profit": credit,
+                                    "prob_profit": prob_profit,
+                                    "risk_reward": credit / max_loss,
+                                    "dte": dte,
+                                }
+                            )
         return sorted(signals, key=lambda x: x["risk_reward"], reverse=True)[:5]
 
     def _dte(self, expiry: str) -> int:
@@ -385,6 +476,7 @@ class IronCondorStrategy(OptionsStrategy):
 # 3. Gamma Scalping — Dynamic Delta Hedging
 # ══════════════════════════════════════════════════════════════════════════
 
+
 class GammaScalpStrategy(OptionsStrategy):
     """
     Gamma Scalping: Buy ATM Straddle + Dynamic Delta Hedge.
@@ -392,7 +484,13 @@ class GammaScalpStrategy(OptionsStrategy):
     P&L ≈ 0.5 * Γ * (ΔS)² - θ * Δt per rebalance.
     """
 
-    def __init__(self, underlying: str, provider: OptionChainProvider, config: dict | None = None, spot: float = 0):
+    def __init__(
+        self,
+        underlying: str,
+        provider: OptionChainProvider,
+        config: dict | None = None,
+        spot: float = 0,
+    ):
         super().__init__("GammaScalp", underlying, provider, spot, config=config)
         self.hedge_qty = 0.0
         self.last_spot = self.spot
@@ -450,7 +548,7 @@ class GammaScalpStrategy(OptionsStrategy):
     def estimate_daily_pnl(self, realized_vol: float, implied_vol: float) -> float:
         gamma = self.total_gamma()
         dt = 1 / 252
-        pnl = 0.5 * gamma * self.spot ** 2 * (realized_vol ** 2 - implied_vol ** 2) * dt
+        pnl = 0.5 * gamma * self.spot**2 * (realized_vol**2 - implied_vol**2) * dt
         return pnl
 
     def exit_straddle(self, chain: OptionChain) -> dict:
@@ -480,16 +578,27 @@ class GammaScalpStrategy(OptionsStrategy):
 # 4. Calendar Spread (Term Structure Arb)
 # ══════════════════════════════════════════════════════════════════════════
 
+
 class CalendarSpreadStrategy(OptionsStrategy):
     """Calendar Spread: Sell near-term, Buy longer-term (same strike)."""
 
-    def __init__(self, underlying: str, provider: OptionChainProvider, config: dict | None = None, spot: float = 0):
+    def __init__(
+        self,
+        underlying: str,
+        provider: OptionChainProvider,
+        config: dict | None = None,
+        spot: float = 0,
+    ):
         super().__init__("CalendarSpread", underlying, provider, spot, config=config)
 
     def generate_signals(self, spot: float) -> list[dict]:
         signals = []
-        chain_near = self.provider.get_chain(self.underlying, expiry="2026-09-25", spot=spot)
-        chain_far = self.provider.get_chain(self.underlying, expiry="2026-12-25", spot=spot)
+        chain_near = self.provider.get_chain(
+            self.underlying, expiry="2026-09-25", spot=spot
+        )
+        chain_far = self.provider.get_chain(
+            self.underlying, expiry="2026-12-25", spot=spot
+        )
 
         near_strikes = {c.strike for c in chain_near.calls + chain_near.puts}
         far_strikes = {c.strike for c in chain_far.calls + chain_far.puts}
@@ -507,16 +616,21 @@ class CalendarSpreadStrategy(OptionsStrategy):
                 theta_near = near_call.greeks.get("theta", 0)
                 theta_far = far_call.greeks.get("theta", 0)
 
-                signals.append({
-                    "action": "BUY_CALENDAR_CALL",
-                    "strike": k,
-                    "near_expiry": "2026-09-25", "far_expiry": "2026-12-25",
-                    "near_price": near_mid, "far_price": far_mid,
-                    "net_debit": cost,
-                    "theta_carry": theta_near - theta_far,
-                    "iv_near": near_call.iv, "iv_far": far_call.iv,
-                    "term_structure": far_call.iv - near_call.iv,
-                })
+                signals.append(
+                    {
+                        "action": "BUY_CALENDAR_CALL",
+                        "strike": k,
+                        "near_expiry": "2026-09-25",
+                        "far_expiry": "2026-12-25",
+                        "near_price": near_mid,
+                        "far_price": far_mid,
+                        "net_debit": cost,
+                        "theta_carry": theta_near - theta_far,
+                        "iv_near": near_call.iv,
+                        "iv_far": far_call.iv,
+                        "term_structure": far_call.iv - near_call.iv,
+                    }
+                )
 
             near_put = next(p for p in chain_near.puts if p.strike == k)
             far_put = next(p for p in chain_far.puts if p.strike == k)
@@ -529,16 +643,21 @@ class CalendarSpreadStrategy(OptionsStrategy):
                 theta_near = near_put.greeks.get("theta", 0)
                 theta_far = far_put.greeks.get("theta", 0)
 
-                signals.append({
-                    "action": "BUY_CALENDAR_PUT",
-                    "strike": k,
-                    "near_expiry": "2026-09-25", "far_expiry": "2026-12-25",
-                    "near_price": near_mid, "far_price": far_mid,
-                    "net_debit": cost,
-                    "theta_carry": theta_near - theta_far,
-                    "iv_near": near_put.iv, "iv_far": far_put.iv,
-                    "term_structure": far_put.iv - near_put.iv,
-                })
+                signals.append(
+                    {
+                        "action": "BUY_CALENDAR_PUT",
+                        "strike": k,
+                        "near_expiry": "2026-09-25",
+                        "far_expiry": "2026-12-25",
+                        "near_price": near_mid,
+                        "far_price": far_mid,
+                        "net_debit": cost,
+                        "theta_carry": theta_near - theta_far,
+                        "iv_near": near_put.iv,
+                        "iv_far": far_put.iv,
+                        "term_structure": far_put.iv - near_put.iv,
+                    }
+                )
 
         return sorted(signals, key=lambda x: x.get("theta_carry", 0), reverse=True)[:10]
 
@@ -554,20 +673,28 @@ class CalendarSpreadStrategy(OptionsStrategy):
 # 5. Dispersion Trading (Index vs Components)
 # ══════════════════════════════════════════════════════════════════════════
 
+
 class DispersionStrategy(OptionsStrategy):
     """
     Dispersion Trading: Sell index vol, Buy single-stock vol.
     Index vol typically cheaper due to correlation < 1.
     """
 
-    def __init__(self, index_underlying: str, component_underlyings: list[str],
-                 provider: OptionChainProvider, config: dict | None = None):
+    def __init__(
+        self,
+        index_underlying: str,
+        component_underlyings: list[str],
+        provider: OptionChainProvider,
+        config: dict | None = None,
+    ):
         super().__init__("Dispersion", index_underlying, provider, config=config)
         self.components = component_underlyings
         self.index_spot = 0
         self.component_spots = {}
 
-    def generate_signals(self, index_spot: float, component_spots: dict[str, float]) -> list[dict]:
+    def generate_signals(
+        self, index_spot: float, component_spots: dict[str, float]
+    ) -> list[dict]:
         self.index_spot = index_spot
         self.component_spots = component_spots
 
@@ -595,13 +722,18 @@ class DispersionStrategy(OptionsStrategy):
             dispersion = avg_comp_iv - idx_iv
 
             if dispersion > 0.05:  # 5% vol spread
-                signals.append({
-                    "action": "SELL_INDEX_BUY_COMPONENTS",
-                    "index_iv": idx_iv,
-                    "avg_component_iv": avg_comp_iv,
-                    "dispersion_spread": dispersion,
-                    "implied_correlation": (idx_iv**2) / (sum(iv**2 for iv in comp_ivs) / len(comp_ivs)) if comp_ivs else 0,
-                })
+                signals.append(
+                    {
+                        "action": "SELL_INDEX_BUY_COMPONENTS",
+                        "index_iv": idx_iv,
+                        "avg_component_iv": avg_comp_iv,
+                        "dispersion_spread": dispersion,
+                        "implied_correlation": (idx_iv**2)
+                        / (sum(iv**2 for iv in comp_ivs) / len(comp_ivs))
+                        if comp_ivs
+                        else 0,
+                    }
+                )
 
         return signals
 

@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 
 class RebalanceTrigger(str, Enum):
     """What triggered the rebalance"""
+
     CALENDAR = "calendar"
     THRESHOLD = "threshold"
     MANUAL = "manual"
@@ -36,6 +37,7 @@ class RebalanceTrigger(str, Enum):
 @dataclass
 class RebalanceConfig:
     """Configuration for rebalancing"""
+
     # Calendar settings
     calendar_enabled: bool = True
     calendar_frequency: str = "monthly"  # daily, weekly, monthly, quarterly
@@ -57,7 +59,7 @@ class RebalanceConfig:
     risk_budget_frequency: str = "monthly"
 
     # Execution settings
-    min_trade_size: Decimal = Decimal('10')  # Minimum trade in quote currency
+    min_trade_size: Decimal = Decimal("10")  # Minimum trade in quote currency
     max_turnover_pct: float = 0.5  # Max 50% portfolio turnover per rebalance
     transaction_cost_bps: float = 10.0  # 10 bps per trade
     allow_fractional: bool = True
@@ -70,6 +72,7 @@ class RebalanceConfig:
 @dataclass
 class RebalanceEvent:
     """Record of a rebalance event"""
+
     timestamp: datetime
     trigger: RebalanceTrigger
     target_weights: dict[Symbol, Decimal]
@@ -122,7 +125,7 @@ class CalendarRebalanceStrategy(RebalanceStrategy):
         n = len(current_positions)
         if n == 0:
             return {}
-        weight = Decimal('1') / n
+        weight = Decimal("1") / n
         return {sym: weight for sym in current_positions.keys()}
 
     def should_rebalance(
@@ -150,7 +153,9 @@ class CalendarRebalanceStrategy(RebalanceStrategy):
                 return now.day >= config.calendar_day, RebalanceTrigger.CALENDAR
             return False, RebalanceTrigger.CALENDAR
         elif freq == "quarterly":
-            if (now.month - 1) // 3 != (last_rebalance.month - 1) // 3 or now.year != last_rebalance.year:
+            if (now.month - 1) // 3 != (
+                last_rebalance.month - 1
+            ) // 3 or now.year != last_rebalance.year:
                 return now.day >= config.calendar_day, RebalanceTrigger.CALENDAR
             return False, RebalanceTrigger.CALENDAR
 
@@ -176,7 +181,7 @@ class ThresholdRebalanceStrategy(RebalanceStrategy):
         n = len(current_positions)
         if n == 0:
             return {}
-        weight = Decimal('1') / n
+        weight = Decimal("1") / n
         return {sym: weight for sym in current_positions.keys()}
 
     def should_rebalance(
@@ -190,26 +195,31 @@ class ThresholdRebalanceStrategy(RebalanceStrategy):
             return False, RebalanceTrigger.THRESHOLD
 
         now = datetime.now()
-        if self._last_check and (now - self._last_check) < config.threshold_check_interval:
+        if (
+            self._last_check
+            and (now - self._last_check) < config.threshold_check_interval
+        ):
             return False, RebalanceTrigger.THRESHOLD
         self._last_check = now
 
         # Check max drift
-        max_drift = Decimal('0')
+        max_drift = Decimal("0")
         for symbol, target in target_weights.items():
-            current = current_weights.get(symbol, Decimal('0'))
+            current = current_weights.get(symbol, Decimal("0"))
             drift = abs(current - target)
             max_drift = max(max_drift, drift)
 
-        return max_drift >= Decimal(str(config.threshold_band_pct)), RebalanceTrigger.THRESHOLD
+        return max_drift >= Decimal(
+            str(config.threshold_band_pct)
+        ), RebalanceTrigger.THRESHOLD
 
 
 class CPPIRebalanceStrategy(RebalanceStrategy):
     """Constant Proportion Portfolio Insurance"""
 
     def __init__(self):
-        self._peak_value: Decimal = Decimal('0')
-        self._floor_value: Decimal = Decimal('0')
+        self._peak_value: Decimal = Decimal("0")
+        self._floor_value: Decimal = Decimal("0")
 
     async def calculate_target_weights(
         self,
@@ -231,7 +241,7 @@ class CPPIRebalanceStrategy(RebalanceStrategy):
 
         # Risky allocation
         risky_allocation = cushion * Decimal(str(config.cppi_multiplier))
-        risky_weight = min(risky_allocation / portfolio_value, Decimal('1'))
+        risky_weight = min(risky_allocation / portfolio_value, Decimal("1"))
 
         # Distribute among risky assets (equal weight for now)
         n = len(current_positions)
@@ -276,7 +286,7 @@ class RiskBudgetRebalanceStrategy(RebalanceStrategy):
         n = len(current_positions)
         if n == 0:
             return {}
-        weight = Decimal('1') / n
+        weight = Decimal("1") / n
         return {sym: weight for sym in current_positions.keys()}
 
     def should_rebalance(
@@ -295,9 +305,14 @@ class RiskBudgetRebalanceStrategy(RebalanceStrategy):
 
         freq = config.risk_budget_frequency
         if freq == "monthly":
-            return now.month != last_rebalance.month or now.year != last_rebalance.year, RebalanceTrigger.RISK_BUDGET
+            return (
+                now.month != last_rebalance.month or now.year != last_rebalance.year,
+                RebalanceTrigger.RISK_BUDGET,
+            )
         elif freq == "quarterly":
-            return (now.month - 1) // 3 != (last_rebalance.month - 1) // 3 or now.year != last_rebalance.year, RebalanceTrigger.RISK_BUDGET
+            return (now.month - 1) // 3 != (
+                last_rebalance.month - 1
+            ) // 3 or now.year != last_rebalance.year, RebalanceTrigger.RISK_BUDGET
 
         return False, RebalanceTrigger.RISK_BUDGET
 
@@ -398,7 +413,9 @@ class AutoRebalancer:
         trigger: RebalanceTrigger,
     ) -> RebalanceEvent:
         """Execute the rebalance"""
-        strategy = self._strategies.get(trigger, self._strategies[RebalanceTrigger.CALENDAR])
+        strategy = self._strategies.get(
+            trigger, self._strategies[RebalanceTrigger.CALENDAR]
+        )
         target_weights = await strategy.calculate_target_weights(
             positions, prices, portfolio_value, self.config
         )
@@ -418,8 +435,8 @@ class AutoRebalancer:
                 target_weights=target_weights,
                 current_weights=current_weights,
                 trades=[],
-                turnover=Decimal('0'),
-                estimated_cost=Decimal('0'),
+                turnover=Decimal("0"),
+                estimated_cost=Decimal("0"),
                 success=True,
             )
 
@@ -438,8 +455,10 @@ class AutoRebalancer:
                 logger.error(f"Rebalance execution failed: {e}")
 
         # Calculate metrics
-        turnover = sum(abs(t['size'] * t['price']) for t in trades)
-        estimated_cost = turnover * Decimal(str(self.config.transaction_cost_bps / 10000))
+        turnover = sum(abs(t["size"] * t["price"]) for t in trades)
+        estimated_cost = turnover * Decimal(
+            str(self.config.transaction_cost_bps / 10000)
+        )
 
         event = RebalanceEvent(
             timestamp=datetime.now(),
@@ -456,8 +475,10 @@ class AutoRebalancer:
         self._last_rebalance = event.timestamp
         self._rebalance_history.append(event)
 
-        logger.info(f"Rebalance executed: trigger={trigger.value}, trades={len(trades)}, "
-                    f"turnover={turnover:.2f}, cost={estimated_cost:.2f}, success={success}")
+        logger.info(
+            f"Rebalance executed: trigger={trigger.value}, trades={len(trades)}, "
+            f"turnover={turnover:.2f}, cost={estimated_cost:.2f}, success={success}"
+        )
 
         return event
 
@@ -470,7 +491,11 @@ class AutoRebalancer:
         weights = {}
         for symbol, pos in positions.items():
             price = prices.get(symbol, pos.mark_price)
-            weights[symbol] = (pos.size * price) / portfolio_value if portfolio_value > 0 else Decimal('0')
+            weights[symbol] = (
+                (pos.size * price) / portfolio_value
+                if portfolio_value > 0
+                else Decimal("0")
+            )
         return weights
 
     def _generate_trades(
@@ -485,16 +510,25 @@ class AutoRebalancer:
         all_symbols = set(current_weights.keys()) | set(target_weights.keys())
 
         for symbol in all_symbols:
-            current_w = current_weights.get(symbol, Decimal('0'))
-            target_w = target_weights.get(symbol, Decimal('0'))
+            current_w = current_weights.get(symbol, Decimal("0"))
+            target_w = target_weights.get(symbol, Decimal("0"))
             diff = target_w - current_w
 
-            if abs(diff) < Decimal('0.001'):  # 0.1% threshold
+            if abs(diff) < Decimal("0.001"):  # 0.1% threshold
                 continue
 
-            price = prices.get(symbol, positions.get(symbol, Position(
-                symbol=symbol, size=Decimal(0), entry_price=Decimal(0), mark_price=Decimal(0)
-            )).mark_price)
+            price = prices.get(
+                symbol,
+                positions.get(
+                    symbol,
+                    Position(
+                        symbol=symbol,
+                        size=Decimal(0),
+                        entry_price=Decimal(0),
+                        mark_price=Decimal(0),
+                    ),
+                ).mark_price,
+            )
 
             if price == 0:
                 continue
@@ -508,43 +542,49 @@ class AutoRebalancer:
                 continue
 
             side = OrderSide.BUY if trade_size > 0 else OrderSide.SELL
-            trades.append({
-                'symbol': symbol,
-                'side': side,
-                'size': abs(trade_size),
-                'price': price,
-                'value': abs(trade_value),
-                'weight_diff': float(diff),
-            })
+            trades.append(
+                {
+                    "symbol": symbol,
+                    "side": side,
+                    "size": abs(trade_size),
+                    "price": price,
+                    "value": abs(trade_value),
+                    "weight_diff": float(diff),
+                }
+            )
 
         return trades
 
-    def _apply_constraints(self, trades: list[dict], portfolio_value: Decimal) -> list[dict]:
+    def _apply_constraints(
+        self, trades: list[dict], portfolio_value: Decimal
+    ) -> list[dict]:
         # Max turnover
-        total_turnover = sum(t['value'] for t in trades)
+        total_turnover = sum(t["value"] for t in trades)
         max_turnover = portfolio_value * Decimal(str(self.config.max_turnover_pct))
 
         if total_turnover > max_turnover:
             # Scale down proportionally
             scale = max_turnover / total_turnover
             for t in trades:
-                t['size'] *= scale
-                t['value'] *= scale
+                t["size"] *= scale
+                t["value"] *= scale
 
         # Max position size check would go here
         # (need to simulate post-trade weights)
 
         return trades
 
-    def _create_orders(self, trades: list[dict], prices: dict[Symbol, Decimal]) -> list[Order]:
+    def _create_orders(
+        self, trades: list[dict], prices: dict[Symbol, Decimal]
+    ) -> list[Order]:
         orders = []
         for t in trades:
             order = Order(
                 id=f"rebal_{t['symbol'].base}_{datetime.now().timestamp()}",
-                symbol=t['symbol'],
-                side=t['side'],
+                symbol=t["symbol"],
+                side=t["side"],
                 type=OrderType.MARKET,  # Could use LIMIT with slippage buffer
-                size=t['size'],
+                size=t["size"],
             )
             orders.append(order)
         return orders
@@ -557,15 +597,17 @@ class AutoRebalancer:
 
     def get_status(self) -> dict:
         return {
-            'enabled': self._enabled,
-            'last_rebalance': self._last_rebalance.isoformat() if self._last_rebalance else None,
-            'total_rebalances': len(self._rebalance_history),
-            'config': {
-                'calendar': self.config.calendar_enabled,
-                'threshold': self.config.threshold_enabled,
-                'cppi': self.config.cppi_enabled,
-                'risk_budget': self.config.risk_budget_enabled,
-            }
+            "enabled": self._enabled,
+            "last_rebalance": self._last_rebalance.isoformat()
+            if self._last_rebalance
+            else None,
+            "total_rebalances": len(self._rebalance_history),
+            "config": {
+                "calendar": self.config.calendar_enabled,
+                "threshold": self.config.threshold_enabled,
+                "cppi": self.config.cppi_enabled,
+                "risk_budget": self.config.risk_budget_enabled,
+            },
         }
 
 

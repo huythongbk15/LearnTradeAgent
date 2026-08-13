@@ -21,10 +21,16 @@ from trading_agent.infrastructure.chaos.chaos_experiments import ChaosExperiment
 async def main():
     suite = ChaosExperimentSuite(namespace="trading-agent", dry_run=True)
     suite.add_pod_kill("pod-kill-1", {"app": "trading-agent"}, duration=5)
-    suite.add_network_latency("latency-1", {"app": "trading-agent"}, duration=5, latency_ms=100)
-    suite.add_exchange_api_failure("api-failure-1", {"app": "trading-agent"}, duration=5)
+    suite.add_network_latency(
+        "latency-1", {"app": "trading-agent"}, duration=5, latency_ms=100
+    )
+    suite.add_exchange_api_failure(
+        "api-failure-1", {"app": "trading-agent"}, duration=5
+    )
     suite.add_database_failure("db-failure-1", {"app": "trading-agent"}, duration=5)
-    suite.add_cpu_stress("cpu-stress-1", {"app": "trading-agent"}, duration=5, cpu_percent=80)
+    suite.add_cpu_stress(
+        "cpu-stress-1", {"app": "trading-agent"}, duration=5, cpu_percent=80
+    )
 
     results = await suite.run_all()
     print(f"\nRan {len(results)} experiments in dry-run mode")

@@ -40,8 +40,10 @@ class FakeRunner:
     def _docker(self, cmd):
         labels = self.behaviors.get(
             "labels",
-            {"org.opencontainers.image.source": f"https://github.com/{REPO}",
-             "org.opencontainers.image.revision": COMMIT},
+            {
+                "org.opencontainers.image.source": f"https://github.com/{REPO}",
+                "org.opencontainers.image.revision": COMMIT,
+            },
         )
         out = "{}" if labels is None else json.dumps(labels)
         return subprocess.CompletedProcess(cmd, 0, out, "")
@@ -59,12 +61,23 @@ def slsa_payload(*, repo: str = REPO, commit: str = COMMIT) -> str:
     statement = {
         "_type": "https://in-toto.io/Statement/v0.1",
         "subject": [
-            {"name": f"ghcr.io/{repo.lower()}@sha256:{'b' * 64}", "digest": {"sha256": "b" * 64}},
+            {
+                "name": f"ghcr.io/{repo.lower()}@sha256:{'b' * 64}",
+                "digest": {"sha256": "b" * 64},
+            },
         ],
         "predicateType": "https://slsa.dev/provenance/v0.2",
         "predicate": {
-            "builder": {"id": f"https://github.com/{repo}/.github/workflows/ci.yml@refs/heads/master"},
-            "metadata": {"completeness": {"parameters": False, "environment": False, "materials": True}},
+            "builder": {
+                "id": f"https://github.com/{repo}/.github/workflows/ci.yml@refs/heads/master"
+            },
+            "metadata": {
+                "completeness": {
+                    "parameters": False,
+                    "environment": False,
+                    "materials": True,
+                }
+            },
             "invocation": {
                 "configSource": {
                     "uri": f"git+https://github.com/{repo}@{commit}",
@@ -94,8 +107,11 @@ def ok_behaviors(**overrides) -> dict:
 class TestVerifyProvenance:
     def test_all_criteria_pass(self):
         report = verify_provenance(
-            image=IMAGE, repo=REPO, commit=COMMIT,
-            workflow=".github/workflows/ci.yml", ref="refs/heads/master",
+            image=IMAGE,
+            repo=REPO,
+            commit=COMMIT,
+            workflow=".github/workflows/ci.yml",
+            ref="refs/heads/master",
             runner=FakeRunner(**ok_behaviors()),
         )
         assert report.all_ok
@@ -107,8 +123,11 @@ class TestVerifyProvenance:
             "org.opencontainers.image.revision": "f" * 40,
         }
         report = verify_provenance(
-            image=IMAGE, repo=REPO, commit=COMMIT,
-            workflow=".github/workflows/ci.yml", ref="refs/heads/master",
+            image=IMAGE,
+            repo=REPO,
+            commit=COMMIT,
+            workflow=".github/workflows/ci.yml",
+            ref="refs/heads/master",
             runner=FakeRunner(**ok_behaviors(labels=labels)),
         )
         assert not report.all_ok
@@ -120,8 +139,11 @@ class TestVerifyProvenance:
             "org.opencontainers.image.revision": COMMIT,
         }
         report = verify_provenance(
-            image=IMAGE, repo=REPO, commit=COMMIT,
-            workflow=".github/workflows/ci.yml", ref="refs/heads/master",
+            image=IMAGE,
+            repo=REPO,
+            commit=COMMIT,
+            workflow=".github/workflows/ci.yml",
+            ref="refs/heads/master",
             runner=FakeRunner(**ok_behaviors(labels=labels)),
         )
         assert not report.all_ok
@@ -129,8 +151,11 @@ class TestVerifyProvenance:
 
     def test_invalid_signature_rejected(self):
         report = verify_provenance(
-            image=IMAGE, repo=REPO, commit=COMMIT,
-            workflow=".github/workflows/ci.yml", ref="refs/heads/master",
+            image=IMAGE,
+            repo=REPO,
+            commit=COMMIT,
+            workflow=".github/workflows/ci.yml",
+            ref="refs/heads/master",
             runner=FakeRunner(**ok_behaviors(verify=_fail("no matching signatures"))),
         )
         assert not report.all_ok
@@ -140,35 +165,55 @@ class TestVerifyProvenance:
 
     def test_missing_sbom_rejected(self):
         report = verify_provenance(
-            image=IMAGE, repo=REPO, commit=COMMIT,
-            workflow=".github/workflows/ci.yml", ref="refs/heads/master",
-            runner=FakeRunner(**ok_behaviors(**{"attest:spdxjson": _fail("no attestation")})),
+            image=IMAGE,
+            repo=REPO,
+            commit=COMMIT,
+            workflow=".github/workflows/ci.yml",
+            ref="refs/heads/master",
+            runner=FakeRunner(
+                **ok_behaviors(**{"attest:spdxjson": _fail("no attestation")})
+            ),
         )
         assert not report.all_ok
         assert report.checks["sbom"] is False
 
     def test_missing_provenance_rejected(self):
         report = verify_provenance(
-            image=IMAGE, repo=REPO, commit=COMMIT,
-            workflow=".github/workflows/ci.yml", ref="refs/heads/master",
-            runner=FakeRunner(**ok_behaviors(**{"attest:slsaprovenance": _fail("no attestation")})),
+            image=IMAGE,
+            repo=REPO,
+            commit=COMMIT,
+            workflow=".github/workflows/ci.yml",
+            ref="refs/heads/master",
+            runner=FakeRunner(
+                **ok_behaviors(**{"attest:slsaprovenance": _fail("no attestation")})
+            ),
         )
         assert not report.all_ok
         assert report.checks["provenance"] is False
 
     def test_provenance_commit_mismatch_rejected(self):
         report = verify_provenance(
-            image=IMAGE, repo=REPO, commit=COMMIT,
-            workflow=".github/workflows/ci.yml", ref="refs/heads/master",
-            runner=FakeRunner(**ok_behaviors(**{"attest:slsaprovenance": _ok(slsa_payload(commit="c" * 40))})),
+            image=IMAGE,
+            repo=REPO,
+            commit=COMMIT,
+            workflow=".github/workflows/ci.yml",
+            ref="refs/heads/master",
+            runner=FakeRunner(
+                **ok_behaviors(
+                    **{"attest:slsaprovenance": _ok(slsa_payload(commit="c" * 40))}
+                )
+            ),
         )
         assert not report.all_ok
         assert report.checks["provenance"] is False
 
     def test_summary_renders(self):
         report = verify_provenance(
-            image=IMAGE, repo=REPO, commit=COMMIT,
-            workflow=".github/workflows/ci.yml", ref="refs/heads/master",
+            image=IMAGE,
+            repo=REPO,
+            commit=COMMIT,
+            workflow=".github/workflows/ci.yml",
+            ref="refs/heads/master",
             runner=FakeRunner(**ok_behaviors()),
         )
         summary = report.summary()

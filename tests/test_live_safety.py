@@ -128,7 +128,10 @@ def test_order_ledger_persists_terminal_and_unfinished_states(tmp_path):
     assert record["trade_ids"] == ["trade-1", "trade-2"]
     assert record["exchange_status"] == "closed"
     assert [event["status"] for event in record["status_history"]] == [
-        "reserved", "submitted", "acknowledged", "filled",
+        "reserved",
+        "submitted",
+        "acknowledged",
+        "filled",
     ]
 
 
@@ -246,7 +249,9 @@ def test_controlled_dust_is_signed_and_cleared_by_confirmed_protection(tmp_path)
 
 
 def test_dust_limit_is_hard_capped():
-    assert LiveRiskLimits.from_env({"LIVE_MAX_DUST_USD": "5"}).max_dust_notional_usd == 5
+    assert (
+        LiveRiskLimits.from_env({"LIVE_MAX_DUST_USD": "5"}).max_dust_notional_usd == 5
+    )
     with pytest.raises(LiveSafetyError, match="LIVE_MAX_DUST_USD"):
         LiveRiskLimits.from_env({"LIVE_MAX_DUST_USD": "11"})
 
@@ -454,15 +459,17 @@ def _strategy_evidence(now: datetime) -> dict:
     for index in range(6):
         start = first_start + timedelta(days=index * 90)
         end = start + timedelta(days=90)
-        folds.append({
-            "start": start.isoformat(),
-            "end": end.isoformat(),
-            "bars": 90 * 24,
-            "sharpe": 0.7,
-            "return_pct": 1.0,
-            "max_drawdown_pct": 5.0,
-            "trades": 4,
-        })
+        folds.append(
+            {
+                "start": start.isoformat(),
+                "end": end.isoformat(),
+                "bars": 90 * 24,
+                "sharpe": 0.7,
+                "return_pct": 1.0,
+                "max_drawdown_pct": 5.0,
+                "trades": 4,
+            }
+        )
     return {
         "version": 1,
         "strategy": "enhanced_ma",

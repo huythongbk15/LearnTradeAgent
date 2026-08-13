@@ -3,6 +3,7 @@ Unified Data Model for Multi-Asset Trading System
 
 Core types: Symbol, AssetClass, MarketType, Bar, OrderBook, Trade, Position, Order
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -15,6 +16,7 @@ import hashlib
 
 class AssetClass(str, Enum):
     """Asset classification"""
+
     CRYPTO = "crypto"
     STOCK = "stock"
     FOREX = "forex"
@@ -29,6 +31,7 @@ class AssetClass(str, Enum):
 
 class MarketType(str, Enum):
     """Market type"""
+
     SPOT = "spot"
     MARGIN = "margin"
     FUTURES = "futures"
@@ -89,6 +92,7 @@ class Symbol:
         - Forex: Symbol("EUR", "USD", AssetClass.FOREX, MarketType.SPOT, "oanda")
         - Futures: Symbol("BTC", "USDT", AssetClass.FUTURES, MarketType.FUTURES, "binance", "2024-12-27")
     """
+
     base: str
     quote: str
     asset_class: AssetClass
@@ -99,9 +103,9 @@ class Symbol:
     option_type: Optional[str] = None  # "call" or "put"
 
     def __post_init__(self):
-        object.__setattr__(self, 'base', self.base.upper())
-        object.__setattr__(self, 'quote', self.quote.upper())
-        object.__setattr__(self, 'exchange', self.exchange.lower())
+        object.__setattr__(self, "base", self.base.upper())
+        object.__setattr__(self, "quote", self.quote.upper())
+        object.__setattr__(self, "exchange", self.exchange.lower())
 
     @property
     def pair(self) -> str:
@@ -133,7 +137,13 @@ class Symbol:
     @property
     def unified_id(self) -> str:
         """Unique identifier across all exchanges"""
-        parts = [self.exchange, self.asset_class.value, self.market_type.value, self.base, self.quote]
+        parts = [
+            self.exchange,
+            self.asset_class.value,
+            self.market_type.value,
+            self.base,
+            self.quote,
+        ]
         if self.expiry:
             parts.append(self.expiry)
         if self.strike:
@@ -159,6 +169,7 @@ class Symbol:
 @dataclass(slots=True)
 class Bar:
     """OHLCV bar / candlestick"""
+
     symbol: Symbol
     timestamp: datetime
     open: Decimal
@@ -196,6 +207,7 @@ class Bar:
 @dataclass(slots=True)
 class OrderBookLevel:
     """Single level in order book"""
+
     price: Decimal
     size: Decimal
     orders: int = 1
@@ -204,6 +216,7 @@ class OrderBookLevel:
 @dataclass(slots=True)
 class OrderBook:
     """Order book snapshot"""
+
     symbol: Symbol
     timestamp: datetime
     bids: list[OrderBookLevel] = field(default_factory=list)
@@ -243,6 +256,7 @@ class OrderBook:
 @dataclass(slots=True)
 class Trade:
     """Individual trade / fill"""
+
     symbol: Symbol
     timestamp: datetime
     side: OrderSide
@@ -258,6 +272,7 @@ class Trade:
 @dataclass(slots=True)
 class Position:
     """Current position"""
+
     symbol: Symbol
     size: Decimal  # Positive = long, Negative = short
     entry_price: Decimal
@@ -293,6 +308,7 @@ class Position:
 @dataclass(slots=True)
 class Order:
     """Order request / tracking"""
+
     id: str
     symbol: Symbol
     side: OrderSide
@@ -328,12 +344,18 @@ class Order:
 
     @property
     def is_done(self) -> bool:
-        return self.status in (OrderStatus.FILLED, OrderStatus.CANCELLED, OrderStatus.REJECTED, OrderStatus.EXPIRED)
+        return self.status in (
+            OrderStatus.FILLED,
+            OrderStatus.CANCELLED,
+            OrderStatus.REJECTED,
+            OrderStatus.EXPIRED,
+        )
 
 
 @dataclass(slots=True)
 class AccountBalance:
     """Account balance per asset"""
+
     asset: str
     free: Decimal
     locked: Decimal
@@ -350,6 +372,7 @@ class AccountBalance:
 @dataclass(slots=True)
 class Ticker:
     """Market ticker snapshot"""
+
     symbol: Symbol
     timestamp: datetime
     bid: Optional[Decimal] = None
@@ -390,21 +413,28 @@ class Ticker:
 @dataclass(slots=True)
 class Balance:
     """Account balance by asset class"""
+
     asset_class: AssetClass
-    assets: dict[str, dict] = field(default_factory=dict)  # currency -> {free, used, total}
+    assets: dict[str, dict] = field(
+        default_factory=dict
+    )  # currency -> {free, used, total}
 
     def get_total_usd(self, prices: dict[str, Decimal]) -> Decimal:
         """Calculate total value in USD"""
         total = Decimal(0)
         for currency, amounts in self.assets.items():
-            price = prices.get(currency, Decimal(1) if currency in ('USDT', 'USDC', 'USD') else Decimal(0))
-            total += Decimal(amounts['total']) * price
+            price = prices.get(
+                currency,
+                Decimal(1) if currency in ("USDT", "USDC", "USD") else Decimal(0),
+            )
+            total += Decimal(amounts["total"]) * price
         return total
 
 
 @dataclass(slots=True)
 class Candle:
     """OHLCV candle"""
+
     symbol: Symbol
     timestamp: datetime
     timeframe: str
@@ -427,6 +457,7 @@ class Candle:
 @dataclass(slots=True)
 class PoolInfo:
     """Liquidity pool information."""
+
     pool_address: str
     token0: Symbol
     token1: Symbol
@@ -439,6 +470,7 @@ class PoolInfo:
 @dataclass(slots=True)
 class SwapQuote:
     """Quote for a swap."""
+
     token_in: Symbol
     token_out: Symbol
     amount_in: Decimal
@@ -451,8 +483,12 @@ class SwapQuote:
 
 
 # Factory functions for common symbols
-def crypto_symbol(base: str, quote: str = "USDT", exchange: str = "binance",
-                  market_type: MarketType = MarketType.SPOT) -> Symbol:
+def crypto_symbol(
+    base: str,
+    quote: str = "USDT",
+    exchange: str = "binance",
+    market_type: MarketType = MarketType.SPOT,
+) -> Symbol:
     return Symbol(base, quote, AssetClass.CRYPTO, market_type, exchange)
 
 
@@ -464,14 +500,32 @@ def forex_symbol(base: str, quote: str, exchange: str = "oanda") -> Symbol:
     return Symbol(base, quote, AssetClass.FOREX, MarketType.SPOT, exchange)
 
 
-def futures_symbol(base: str, quote: str, expiry: str, exchange: str = "binance") -> Symbol:
-    return Symbol(base, quote, AssetClass.FUTURES, MarketType.FUTURES, exchange, expiry=expiry)
+def futures_symbol(
+    base: str, quote: str, expiry: str, exchange: str = "binance"
+) -> Symbol:
+    return Symbol(
+        base, quote, AssetClass.FUTURES, MarketType.FUTURES, exchange, expiry=expiry
+    )
 
 
-def option_symbol(base: str, quote: str, expiry: str, strike: Decimal, option_type: str,
-                  exchange: str = "deribit") -> Symbol:
-    return Symbol(base, quote, AssetClass.OPTIONS, MarketType.OPTIONS, exchange,
-                  expiry=expiry, strike=strike, option_type=option_type)
+def option_symbol(
+    base: str,
+    quote: str,
+    expiry: str,
+    strike: Decimal,
+    option_type: str,
+    exchange: str = "deribit",
+) -> Symbol:
+    return Symbol(
+        base,
+        quote,
+        AssetClass.OPTIONS,
+        MarketType.OPTIONS,
+        exchange,
+        expiry=expiry,
+        strike=strike,
+        option_type=option_type,
+    )
 
 
 # Common symbol registry

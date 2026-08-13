@@ -29,17 +29,18 @@ def candles(
 ) -> pl.DataFrame:
     closes = closes or opens
     timestamps = [
-        datetime(2025, 1, 1, tzinfo=UTC) + timedelta(days=i)
-        for i in range(len(opens))
+        datetime(2025, 1, 1, tzinfo=UTC) + timedelta(days=i) for i in range(len(opens))
     ]
-    return pl.DataFrame({
-        "timestamp": timestamps,
-        "open": opens,
-        "high": [max(open_, close) for open_, close in zip(opens, closes)],
-        "low": [min(open_, close) for open_, close in zip(opens, closes)],
-        "close": closes,
-        "volume": [1.0] * len(opens),
-    })
+    return pl.DataFrame(
+        {
+            "timestamp": timestamps,
+            "open": opens,
+            "high": [max(open_, close) for open_, close in zip(opens, closes)],
+            "low": [min(open_, close) for open_, close in zip(opens, closes)],
+            "close": closes,
+            "volume": [1.0] * len(opens),
+        }
+    )
 
 
 def test_round_trip_does_not_double_count_holding_return() -> None:

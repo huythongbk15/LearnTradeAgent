@@ -21,8 +21,18 @@ class TestValidateAgentOutput:
         assert out["reasoning"] == "ok"
 
     def test_clamps_confidence(self) -> None:
-        assert validate_agent_output({"signal": "BUY", "confidence": 1.7}, "trader")["confidence"] == 1.0
-        assert validate_agent_output({"signal": "BUY", "confidence": -0.3}, "trader")["confidence"] == 0.0
+        assert (
+            validate_agent_output({"signal": "BUY", "confidence": 1.7}, "trader")[
+                "confidence"
+            ]
+            == 1.0
+        )
+        assert (
+            validate_agent_output({"signal": "BUY", "confidence": -0.3}, "trader")[
+                "confidence"
+            ]
+            == 0.0
+        )
 
     def test_missing_required_key_raises(self) -> None:
         with pytest.raises(ValueError, match="confidence"):
@@ -57,7 +67,12 @@ class TestValidateAgentOutput:
 
     def test_extra_keys_preserved(self) -> None:
         out = validate_agent_output(
-            {"signal": "SELL", "confidence": 0.8, "details": {}, "max_position_size_pct": 0.1},
+            {
+                "signal": "SELL",
+                "confidence": 0.8,
+                "details": {},
+                "max_position_size_pct": 0.1,
+            },
             "risk",
         )
         assert out["max_position_size_pct"] == 0.1
@@ -73,6 +88,8 @@ class TestSchemas:
     def test_schema_roundtrip(self) -> None:
         """Every valid minimal payload for every schema passes validation."""
         for name, schema in AGENT_SCHEMAS.items():
-            payload = {key: ("BUY" if key == "signal" else 0.5) for key in schema["required"]}
+            payload = {
+                key: ("BUY" if key == "signal" else 0.5) for key in schema["required"]
+            }
             out = validate_agent_output(payload, name)
             assert out["signal"] == "BUY"

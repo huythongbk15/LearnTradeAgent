@@ -119,7 +119,9 @@ class MarketReplayEngine:
         self.fill_model = FillModel(config)
         self.impact_model = ImpactModel(config)
         self.fee_model = FeeModel(config)
-        self.ledger = ExecutionLedger(symbol=self.symbol, initial_cash_quote=initial_cash)
+        self.ledger = ExecutionLedger(
+            symbol=self.symbol, initial_cash_quote=initial_cash
+        )
 
         # Runtime state.
         self.current_book: OrderBookState | None = None
@@ -138,9 +140,11 @@ class MarketReplayEngine:
 
         if not self.config.market_data_manifest:
             self.config = SimulationConfig(
-                **{**self.config.fingerprint_dict(),
-                   "market_data_manifest": self._compute_manifest(),
-                   "random_seed": self.config.random_seed}
+                **{
+                    **self.config.fingerprint_dict(),
+                    "market_data_manifest": self._compute_manifest(),
+                    "random_seed": self.config.random_seed,
+                }
             )
         self.data_manifest = self.config.market_data_manifest
 
@@ -234,7 +238,9 @@ class MarketReplayEngine:
                 previous_volume=self._volumes[i - 1] if i > 0 else self._volumes[i],
                 config=self.config,
                 sequence=i,
-                timestamp=ts if isinstance(ts, datetime) else datetime.fromisoformat(str(ts)).replace(tzinfo=UTC),
+                timestamp=ts
+                if isinstance(ts, datetime)
+                else datetime.fromisoformat(str(ts)).replace(tzinfo=UTC),
             )
             self.current_book = book
 
@@ -284,7 +290,9 @@ class MarketReplayEngine:
     def _submit(self, intent: OrderIntent, bar_index: int) -> None:
         """Accept an order intent; apply latency; queue for execution."""
         if intent.order_id in self._order_ids:
-            raise ValueError(f"duplicate order id {intent.order_id!r} (idempotency guard)")
+            raise ValueError(
+                f"duplicate order id {intent.order_id!r} (idempotency guard)"
+            )
         self._order_ids.add(intent.order_id)
 
         qty = quantize_qty(intent.quantity, self.config.step_size)
@@ -350,7 +358,9 @@ class MarketReplayEngine:
             # Balance/inventory pre-checks (fail closed).
             if intent.side == SimSide.BUY:
                 est_fee = intent.quantity * book.mid * self.config.taker_fee
-                if not self.ledger.can_afford(SimSide.BUY, intent.quantity, book.mid, est_fee):
+                if not self.ledger.can_afford(
+                    SimSide.BUY, intent.quantity, book.mid, est_fee
+                ):
                     self._reject(intent, RejectReason.INSUFFICIENT_CASH, bar_index)
                     continue
             else:
@@ -367,7 +377,13 @@ class MarketReplayEngine:
             )
             self._current_impact_bps = impact
 
-            outcome = self.fill_model.fill_market(intent, book, bar_index, submit_ts + timedelta(seconds=ack_s), impact_bps=impact)
+            outcome = self.fill_model.fill_market(
+                intent,
+                book,
+                bar_index,
+                submit_ts + timedelta(seconds=ack_s),
+                impact_bps=impact,
+            )
             self._apply_outcome(intent, outcome, bar_index, is_maker=False)
 
     def _process_resting_limits(self, bar_index: int) -> None:
@@ -377,7 +393,9 @@ class MarketReplayEngine:
             return
         for order_id, intent in list(self._resting_limits.items()):
             result = self.ledger.order_results[order_id]
-            outcome = self.fill_model.fill_limit(intent, book, bar_index, self._bar_ts(bar_index))
+            outcome = self.fill_model.fill_limit(
+                intent, book, bar_index, self._bar_ts(bar_index)
+            )
             if outcome.status == SimOrderStatus.FILLED:
                 del self._resting_limits[order_id]
                 self._apply_outcome(intent, outcome, bar_index, is_maker=True)
@@ -407,7 +425,9 @@ class MarketReplayEngine:
             fee = self.fee_model.compute_fee(fill, is_maker=is_maker)
             fill.fee = fee
             # Adverse selection: post-fill mid windows.
-            adverse = self.impact_model.adverse_selection_bps(fill, aggressor_aggressive=not is_maker)
+            adverse = self.impact_model.adverse_selection_bps(
+                fill, aggressor_aggressive=not is_maker
+            )
             windows = self.impact_model.post_fill_mid_windows(
                 fill,
                 self._highs[bar_index],
@@ -428,10 +448,14 @@ class MarketReplayEngine:
             result.submit_price = result.arrival_price
         self.ledger.record_order(result)
 
-    def _reject(self, intent: OrderIntent, reason: RejectReason, bar_index: int) -> None:
+    def _reject(
+        self, intent: OrderIntent, reason: RejectReason, bar_index: int
+    ) -> None:
         result = self.ledger.order_results.get(intent.order_id)
         if result is None:
-            result = OrderResult(order_id=intent.order_id, intent=intent, status=SimOrderStatus.REJECTED)
+            result = OrderResult(
+                order_id=intent.order_id, intent=intent, status=SimOrderStatus.REJECTED
+            )
             self.ledger.order_results[intent.order_id] = result
         result.status = SimOrderStatus.REJECTED
         result.reject_reason = reason
@@ -519,7 +543,9 @@ def run_strategy_through_simulator(
     atr_series = df["atr"].to_numpy() if "atr" in df.columns else None
     n = len(df)
 
-    engine = MarketReplayEngine(df, config=config, symbol=symbol or strategy.name, initial_cash=initial_cash)
+    engine = MarketReplayEngine(
+        df, config=config, symbol=symbol or strategy.name, initial_cash=initial_cash
+    )
 
     def _atr(i: int) -> float | None:
         if atr_series is None:
@@ -542,27 +568,29 @@ def run_strategy_through_simulator(
         open_qty = eng.ledger.inventory_base
         if prev_signal == 1 and open_qty <= 0:
             equity = eng.ledger.equity_at_mid(prev_close)
-            qty = _engine_fixed_size(
-                equity, mid, _atr(i), fraction=fixed_position_pct
-            )
+            qty = _engine_fixed_size(equity, mid, _atr(i), fraction=fixed_position_pct)
             affordable = eng.ledger.cash_quote / mid if mid > 0 else 0.0
             qty = min(qty, affordable)
             if qty > 0:
-                intents.append(OrderIntent(
-                    order_id=eng._next_order_id(),
-                    side=SimSide.BUY,
-                    order_type=SimOrderType.MARKET,
-                    quantity=qty,
-                    metadata={"signal": float(prev_signal), "bar": i},
-                ))
+                intents.append(
+                    OrderIntent(
+                        order_id=eng._next_order_id(),
+                        side=SimSide.BUY,
+                        order_type=SimOrderType.MARKET,
+                        quantity=qty,
+                        metadata={"signal": float(prev_signal), "bar": i},
+                    )
+                )
         elif prev_signal == -1 and open_qty > 0:
-            intents.append(OrderIntent(
-                order_id=eng._next_order_id(),
-                side=SimSide.SELL,
-                order_type=SimOrderType.MARKET,
-                quantity=open_qty,
-                metadata={"signal": float(prev_signal), "bar": i},
-            ))
+            intents.append(
+                OrderIntent(
+                    order_id=eng._next_order_id(),
+                    side=SimSide.SELL,
+                    order_type=SimOrderType.MARKET,
+                    quantity=open_qty,
+                    metadata={"signal": float(prev_signal), "bar": i},
+                )
+            )
         return intents
 
     result = engine.run(provider, bars_per_year=bars_per_year)
@@ -585,7 +613,9 @@ def run_strategy_through_simulator(
         elif prev_signal == 1 and theoretical_pos <= 0:
             prev_close = float(closes[i - 1])
             equity = theoretical_cash + theoretical_pos * prev_close
-            qty = _engine_fixed_size(equity, open_mid, _atr(i), fraction=fixed_position_pct)
+            qty = _engine_fixed_size(
+                equity, open_mid, _atr(i), fraction=fixed_position_pct
+            )
             affordable = theoretical_cash / open_mid
             qty = min(qty, affordable)
             theoretical_pos += qty

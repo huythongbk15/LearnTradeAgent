@@ -44,13 +44,14 @@ class OrderSide(Enum):
 @dataclass
 class OrderSlice:
     """Single child slice of a larger execution."""
+
     slice_id: int
     symbol: str
     side: str
     qty: float
-    limit_price: Optional[float] = None    # None = market
-    scheduled_time_s: float = 0.0          # seconds from start
-    status: str = "pending"                 # pending → sent → filled → failed
+    limit_price: Optional[float] = None  # None = market
+    scheduled_time_s: float = 0.0  # seconds from start
+    status: str = "pending"  # pending → sent → filled → failed
     fill_price: Optional[float] = None
     fill_qty: float = 0.0
     sent_at: Optional[float] = None
@@ -61,6 +62,7 @@ class OrderSlice:
 @dataclass
 class SmartOrder:
     """Top-level order controlling many slices."""
+
     order_id: str
     symbol: str
     side: str
@@ -70,8 +72,8 @@ class SmartOrder:
     start_time: Optional[float] = None
     end_time: Optional[float] = None
     status: str = "created"
-    slippage_budget_bps: float = 10.0      # acceptable slippage
-    participation_rate: float = 0.1        # max 10% of book depth
+    slippage_budget_bps: float = 10.0  # acceptable slippage
+    participation_rate: float = 0.1  # max 10% of book depth
 
 
 class SlippageModel:
@@ -144,7 +146,12 @@ class SmartExecutionEngine:
     config : dict with keys like `min_slice_interval_s`, `max_slice_pct_adv`, `slippage_budget_bps`
     """
 
-    def __init__(self, exchange=None, slippage_model: SlippageModel | None = None, config: dict | None = None):
+    def __init__(
+        self,
+        exchange=None,
+        slippage_model: SlippageModel | None = None,
+        config: dict | None = None,
+    ):
         self.exchange = exchange
         self.slippage = slippage_model or SlippageModel()
         self.config = config or {}
@@ -163,7 +170,9 @@ class SmartExecutionEngine:
     ) -> SmartOrder:
         """Create TWAP order with equal-sized slices."""
         if n_slices <= 0:
-            n_slices = max(1, min(self.max_slices, int(duration_s / self.min_slice_interval_s)))
+            n_slices = max(
+                1, min(self.max_slices, int(duration_s / self.min_slice_interval_s))
+            )
         interval_s = duration_s / n_slices
         slice_qty = total_qty / n_slices
 
@@ -256,7 +265,9 @@ class SmartExecutionEngine:
                 slice_id=i,
                 symbol=symbol,
                 side=side,
-                qty=round(display_qty, 8) if i < n_slices - 1 else round(total_qty - display_qty * (n_slices - 1), 8),
+                qty=round(display_qty, 8)
+                if i < n_slices - 1
+                else round(total_qty - display_qty * (n_slices - 1), 8),
                 scheduled_time_s=i * 1.0,  # 1s apart
             )
             for i in range(n_slices)
@@ -291,13 +302,16 @@ class SmartExecutionEngine:
             if dry_run or self.exchange is None:
                 # Simulate fill at limit price or random around midpoint
                 import random
+
                 price = slc.limit_price or (50000 + random.uniform(-50, 50))
                 slc.fill_price = price
                 slc.fill_qty = slc.qty
             else:
                 try:
                     resp = await self.exchange.create_order(
-                        slc.symbol, slc.side, slc.qty,
+                        slc.symbol,
+                        slc.side,
+                        slc.qty,
                         order_type="limit" if slc.limit_price else "market",
                         limit_price=slc.limit_price,
                     )
@@ -310,8 +324,11 @@ class SmartExecutionEngine:
 
             slc.status = "filled"
             slc.filled_at = time.time()
-            slc.slippage_bps = ((slc.fill_price - slc.limit_price) / slc.limit_price * 10_000
-                                if slc.limit_price else None)
+            slc.slippage_bps = (
+                (slc.fill_price - slc.limit_price) / slc.limit_price * 10_000
+                if slc.limit_price
+                else None
+            )
             total_filled += slc.fill_qty
             total_cost += slc.fill_qty * slc.fill_price
 
@@ -346,7 +363,7 @@ class SmartExecutionEngine:
         chunk = max(1, len(hourly_volumes) // n_slices)
         profile = []
         for i in range(0, len(hourly_volumes), chunk):
-            profile.append(sum(hourly_volumes[i:i + chunk]))
+            profile.append(sum(hourly_volumes[i : i + chunk]))
         # Pad or trim to n_slices
         while len(profile) < n_slices:
             profile.append(profile[-1] if profile else 1.0)
@@ -375,14 +392,18 @@ if __name__ == "__main__":
         engine = SmartExecutionEngine()
 
         # TWAP: 0.5 BTC over 5 minutes, 10 slices
-        twap = engine.create_twap_order("BTC/USDT", "buy", 0.5, duration_s=300, n_slices=10)
+        twap = engine.create_twap_order(
+            "BTC/USDT", "buy", 0.5, duration_s=300, n_slices=10
+        )
         res = await engine.execute(twap, dry_run=True)
         print("TWAP:", res)
 
         # VWAP: volume-weighted
         hourly = [100, 120, 80, 150, 200, 180, 90, 110, 140, 160, 130, 100]
         profile = engine.generate_vwap_volume_profile(hourly, n_slices=8)
-        vwap = engine.create_vwap_order("ETH/USDT", "sell", 5.0, profile, duration_s=240)
+        vwap = engine.create_vwap_order(
+            "ETH/USDT", "sell", 5.0, profile, duration_s=240
+        )
         res2 = await engine.execute(vwap, dry_run=True)
         print("VWAP:", res2)
 
@@ -393,7 +414,9 @@ if __name__ == "__main__":
 
         # Slippage model
         sm = SlippageModel()
-        est = sm.estimate_slippage_bps(qty=0.5, adv=500_000, volatility=0.02, book_depth_usd=100_000)
+        est = sm.estimate_slippage_bps(
+            qty=0.5, adv=500_000, volatility=0.02, book_depth_usd=100_000
+        )
         print(f"Estimated slippage: {est:.1f} bps")
 
         print("Orders:", engine.summary())

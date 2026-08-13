@@ -45,19 +45,21 @@ def generate_idempotency_key(
 ) -> str:
     """
     Generate a deterministic idempotency key for order deduplication.
-    
+
     Key format: hash(symbol|side|type|amount|price|timestamp_minute|nonce)
     This ensures the same order submitted twice within the same minute
     gets the same key (if nonce is not provided).
-    
+
     For true idempotency, caller should provide a unique nonce per order attempt.
     """
     side_str = side.value if isinstance(side, OrderSide) else str(side)
-    type_str = order_type.value if isinstance(order_type, OrderType) else str(order_type)
+    type_str = (
+        order_type.value if isinstance(order_type, OrderType) else str(order_type)
+    )
     price_str = f"{price:.8f}" if price is not None else "market"
     ts_minute = str(int(time.time() // 60))  # Minute-level timestamp
     nonce_str = nonce or ""
-    
+
     data = f"{symbol}|{side_str}|{type_str}|{amount:.8f}|{price_str}|{ts_minute}|{nonce_str}"
     return hashlib.sha256(data.encode()).hexdigest()[:32]
 
@@ -70,13 +72,13 @@ class Order:
     symbol: str
     side: OrderSide
     type: OrderType
-    amount: float          # base currency (e.g. BTC in BTC/USDT)
-    price: float | None = None    # None for MARKET orders
+    amount: float  # base currency (e.g. BTC in BTC/USDT)
+    price: float | None = None  # None for MARKET orders
     stop_price: float | None = None  # for stop-loss orders
     status: OrderStatus = OrderStatus.PENDING
     filled_amount: float = 0.0
     avg_fill_price: float | None = None
-    cost: float = 0.0      # total cost (quote currency)
+    cost: float = 0.0  # total cost (quote currency)
     fee: float = 0.0
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
@@ -88,11 +90,20 @@ class Order:
 
     @property
     def is_open(self) -> bool:
-        return self.status in (OrderStatus.PENDING, OrderStatus.OPEN, OrderStatus.PARTIALLY_FILLED)
+        return self.status in (
+            OrderStatus.PENDING,
+            OrderStatus.OPEN,
+            OrderStatus.PARTIALLY_FILLED,
+        )
 
     @property
     def is_closed(self) -> bool:
-        return self.status in (OrderStatus.FILLED, OrderStatus.CANCELED, OrderStatus.REJECTED, OrderStatus.EXPIRED)
+        return self.status in (
+            OrderStatus.FILLED,
+            OrderStatus.CANCELED,
+            OrderStatus.REJECTED,
+            OrderStatus.EXPIRED,
+        )
 
     @property
     def remaining_amount(self) -> float:
@@ -148,14 +159,14 @@ class Trade:
 
     id: str
     symbol: str
-    side: OrderSide   # initial side (entry)
+    side: OrderSide  # initial side (entry)
     entry_price: float
     exit_price: float | None = None
     entry_time: datetime | None = None
     exit_time: datetime | None = None
     quantity: float = 0.0
-    pnl: float = 0.0           # in quote currency
-    pnl_pct: float = 0.0       # percentage return
+    pnl: float = 0.0  # in quote currency
+    pnl_pct: float = 0.0  # percentage return
     entry_fee: float = 0.0
     exit_fee: float = 0.0
     entry_order_id: str | None = None
@@ -207,8 +218,12 @@ class Trade:
             entry_fee=d.get("entry_fee", 0.0),
             exit_fee=d.get("exit_fee", 0.0),
             reason=d.get("reason"),
-            entry_time=datetime.fromisoformat(d["entry_time"]) if d.get("entry_time") else None,
-            exit_time=datetime.fromisoformat(d["exit_time"]) if d.get("exit_time") else None,
+            entry_time=datetime.fromisoformat(d["entry_time"])
+            if d.get("entry_time")
+            else None,
+            exit_time=datetime.fromisoformat(d["exit_time"])
+            if d.get("exit_time")
+            else None,
             entry_order_id=d.get("entry_order_id"),
             exit_order_id=d.get("exit_order_id"),
             metadata=d.get("metadata", {}),
@@ -220,9 +235,9 @@ class Position:
     """An open position."""
 
     symbol: str
-    side: OrderSide           # long only for now
-    quantity: float           # base currency
-    entry_price: float        # average entry
+    side: OrderSide  # long only for now
+    quantity: float  # base currency
+    entry_price: float  # average entry
     current_price: float = 0.0
     unrealized_pnl: float = 0.0
     unrealized_pnl_pct: float = 0.0
@@ -231,7 +246,9 @@ class Position:
     updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     stop_loss: float | None = None
     take_profit: float | None = None
-    trailing_stop_pct: float | None = None   # ratchet SL as price moves in our favour (None = off)
+    trailing_stop_pct: float | None = (
+        None  # ratchet SL as price moves in our favour (None = off)
+    )
     metadata: dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -277,8 +294,12 @@ class Position:
             unrealized_pnl=d.get("unrealized_pnl", 0.0),
             unrealized_pnl_pct=d.get("unrealized_pnl_pct", 0.0),
             realized_pnl=d.get("realized_pnl", 0.0),
-            opened_at=datetime.fromisoformat(d["opened_at"]) if d.get("opened_at") else datetime.now(UTC),
-            updated_at=datetime.fromisoformat(d["updated_at"]) if d.get("updated_at") else datetime.now(UTC),
+            opened_at=datetime.fromisoformat(d["opened_at"])
+            if d.get("opened_at")
+            else datetime.now(UTC),
+            updated_at=datetime.fromisoformat(d["updated_at"])
+            if d.get("updated_at")
+            else datetime.now(UTC),
             stop_loss=d.get("stop_loss"),
             take_profit=d.get("take_profit"),
             trailing_stop_pct=d.get("trailing_stop_pct"),

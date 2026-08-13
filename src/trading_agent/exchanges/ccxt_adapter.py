@@ -21,10 +21,7 @@ from collections import defaultdict
 try:
     import ccxt
     import ccxt.pro as ccxtpro
-    from ccxt.base.errors import (
-        AuthenticationError,
-        InsufficientFunds, InvalidOrder
-    )
+    from ccxt.base.errors import AuthenticationError, InsufficientFunds, InvalidOrder
 except ImportError:
     # Optional SDK — adapter stays importable without ccxt (e.g. light env/CI).
     # Runtime methods raise a clear error via CCXTAdapter.__init__.
@@ -35,9 +32,21 @@ except ImportError:
     InvalidOrder = None  # type: ignore[assignment,misc]
 
 from trading_agent.exchanges.models import (
-    Symbol, AssetClass, MarketType, OrderSide, OrderType,
-    OrderStatus, TimeInForce, Order, Position, Balance,
-    Ticker, OrderBook, OrderBookLevel, Candle, OrderConstraintError
+    Symbol,
+    AssetClass,
+    MarketType,
+    OrderSide,
+    OrderType,
+    OrderStatus,
+    TimeInForce,
+    Order,
+    Position,
+    Balance,
+    Ticker,
+    OrderBook,
+    OrderBookLevel,
+    Candle,
+    OrderConstraintError,
 )
 
 logger = logging.getLogger(__name__)
@@ -53,6 +62,7 @@ class ExchangeStatus(Enum):
 @dataclass
 class ExchangeConfig:
     """Configuration for a single exchange"""
+
     id: str  # ccxt exchange id
     name: str  # human readable name
     api_key: str = ""
@@ -69,22 +79,23 @@ class ExchangeConfig:
 
     def to_ccxt_config(self) -> dict:
         config = {
-            'apiKey': self.api_key,
-            'secret': self.secret,
-            'password': self.password,
-            'enableRateLimit': self.enable_rate_limit,
-            'rateLimit': self.rate_limit,
-            'timeout': self.timeout,
-            'options': self.options,
+            "apiKey": self.api_key,
+            "secret": self.secret,
+            "password": self.password,
+            "enableRateLimit": self.enable_rate_limit,
+            "rateLimit": self.rate_limit,
+            "timeout": self.timeout,
+            "options": self.options,
         }
         if self.sandbox:
-            config['options']['defaultType'] = 'spot'
+            config["options"]["defaultType"] = "spot"
         return config
 
 
 @dataclass
 class RateLimitState:
     """Track rate limit state per exchange"""
+
     exchange_id: str
     remaining: int = 100
     reset_time: float = 0
@@ -122,7 +133,9 @@ class RateLimitManager:
 
             # Wait if needed
             while state.remaining < weight:
-                wait_time = max(0.1, (state.reset_time - now) if state.reset_time else 0.1)
+                wait_time = max(
+                    0.1, (state.reset_time - now) if state.reset_time else 0.1
+                )
                 await asyncio.sleep(wait_time)
                 now = asyncio.get_event_loop().time()
                 if state.reset_time and now > state.reset_time:
@@ -137,10 +150,10 @@ class RateLimitManager:
         """Update rate limit state from response headers"""
         state = self.get_state(exchange_id)
         # CCXT handles this internally but we track for monitoring
-        if 'x-ratelimit-remaining' in headers:
-            state.remaining = int(headers['x-ratelimit-remaining'])
-        if 'x-ratelimit-reset' in headers:
-            state.reset_time = float(headers['x-ratelimit-reset']) / 1000
+        if "x-ratelimit-remaining" in headers:
+            state.remaining = int(headers["x-ratelimit-remaining"])
+        if "x-ratelimit-reset" in headers:
+            state.reset_time = float(headers["x-ratelimit-reset"]) / 1000
 
 
 class ExchangeAdapter(ABC):
@@ -175,10 +188,14 @@ class ExchangeAdapter(ABC):
     async def fetch_order(self, order_id: str, symbol: Symbol) -> Order: ...
 
     @abstractmethod
-    async def fetch_open_orders(self, symbol: Optional[Symbol] = None) -> list[Order]: ...
+    async def fetch_open_orders(
+        self, symbol: Optional[Symbol] = None
+    ) -> list[Order]: ...
 
     @abstractmethod
-    async def fetch_positions(self, symbol: Optional[Symbol] = None) -> list[Position]: ...
+    async def fetch_positions(
+        self, symbol: Optional[Symbol] = None
+    ) -> list[Position]: ...
 
     @abstractmethod
     def get_status(self) -> ExchangeStatus: ...
@@ -255,26 +272,26 @@ class CCXTAdapter(ExchangeAdapter):
         self._reverse_symbol_map.clear()
 
         for market in self._markets.values():
-            if not market.get('active', True):
+            if not market.get("active", True):
                 continue
 
             unified = self._ccxt_to_unified_symbol(market)
             if unified:
-                exchange_symbol = market['symbol']
+                exchange_symbol = market["symbol"]
                 self._symbol_map[exchange_symbol] = unified
                 self._reverse_symbol_map[unified] = exchange_symbol
 
     def _ccxt_to_unified_symbol(self, market: dict) -> Symbol | None:
         """Convert CCXT market to unified Symbol"""
         try:
-            base = market['base']
-            quote = market['quote']
+            base = market["base"]
+            quote = market["quote"]
 
             # Determine asset class
-            if market.get('type') == 'spot':
-                if quote in ('USDT', 'USDC', 'BUSD', 'DAI', 'FDUSD', 'TUSD'):
+            if market.get("type") == "spot":
+                if quote in ("USDT", "USDC", "BUSD", "DAI", "FDUSD", "TUSD"):
                     asset_class = AssetClass.CRYPTO
-                elif quote in ('USD', 'EUR', 'GBP', 'JPY'):
+                elif quote in ("USD", "EUR", "GBP", "JPY"):
                     asset_class = AssetClass.CRYPTO  # crypto/fiat pairs
                 else:
                     asset_class = AssetClass.CRYPTO
@@ -283,11 +300,11 @@ class CCXTAdapter(ExchangeAdapter):
 
             # Determine market type
             market_type = MarketType.SPOT
-            if market.get('future'):
+            if market.get("future"):
                 market_type = MarketType.FUTURES
-            elif market.get('option'):
+            elif market.get("option"):
                 market_type = MarketType.OPTIONS
-            elif market.get('swap') or market.get('perpetual'):
+            elif market.get("swap") or market.get("perpetual"):
                 market_type = MarketType.PERPETUAL
 
             return Symbol(
@@ -295,7 +312,7 @@ class CCXTAdapter(ExchangeAdapter):
                 quote=quote,
                 asset_class=asset_class,
                 market_type=market_type,
-                exchange=self.config.id
+                exchange=self.config.id,
             )
         except Exception as e:
             logger.debug(f"Failed to parse market {market.get('symbol')}: {e}")
@@ -316,7 +333,7 @@ class CCXTAdapter(ExchangeAdapter):
             raw = await self._maybe_await(self.exchange.fetch_tickers(ex_symbols))
             prices: dict[str, float] = {}
             for ex_sym, ticker in raw.items():
-                last = ticker.get('last') or ticker.get('close')
+                last = ticker.get("last") or ticker.get("close")
                 if last is None:
                     continue
                 market = self.exchange.markets.get(ex_sym)
@@ -365,7 +382,9 @@ class CCXTAdapter(ExchangeAdapter):
                 f"market is unavailable or inactive: {ex_symbol}",
                 constraint="market_unavailable",
             )
-        normalized = Decimal(str(self.exchange.amount_to_precision(ex_symbol, float(amount))))
+        normalized = Decimal(
+            str(self.exchange.amount_to_precision(ex_symbol, float(amount)))
+        )
         if normalized <= 0:
             raise OrderConstraintError(
                 f"amount rounds to zero for {ex_symbol}",
@@ -442,7 +461,9 @@ class CCXTAdapter(ExchangeAdapter):
 
         try:
             request_started_at = time.monotonic()
-            ob = await self._maybe_await(self.exchange.fetch_order_book(ex_symbol, limit))
+            ob = await self._maybe_await(
+                self.exchange.fetch_order_book(ex_symbol, limit)
+            )
             return self._parse_order_book(
                 ob,
                 symbol,
@@ -453,14 +474,17 @@ class CCXTAdapter(ExchangeAdapter):
             logger.error(f"fetch_order_book failed for {symbol}: {e}")
             raise
 
-    async def fetch_ohlcv(self, symbol: Symbol, timeframe: str,
-                          since: int | None = None, limit: int = 100) -> list[Candle]:
+    async def fetch_ohlcv(
+        self, symbol: Symbol, timeframe: str, since: int | None = None, limit: int = 100
+    ) -> list[Candle]:
         """Fetch OHLCV candles"""
         ex_symbol = self.get_exchange_symbol(symbol)
         await self._rate_limiter.acquire(self.config.id, weight=1)
 
         try:
-            ohlcv = await self._maybe_await(self.exchange.fetch_ohlcv(ex_symbol, timeframe, since, limit))
+            ohlcv = await self._maybe_await(
+                self.exchange.fetch_ohlcv(ex_symbol, timeframe, since, limit)
+            )
             return [self._parse_candle(c, symbol, timeframe) for c in ohlcv]
         except Exception as e:
             logger.error(f"fetch_ohlcv failed for {symbol}: {e}")
@@ -489,14 +513,16 @@ class CCXTAdapter(ExchangeAdapter):
         try:
             # Convert order to CCXT params
             params = self._order_to_ccxt_params(order)
-            result = await self._maybe_await(self.exchange.create_order(
-                ex_symbol,
-                self._ccxt_order_type(order),
-                order.side.value.lower(),
-                float(order.size),
-                float(order.price) if order.price else None,
-                params
-            ))
+            result = await self._maybe_await(
+                self.exchange.create_order(
+                    ex_symbol,
+                    self._ccxt_order_type(order),
+                    order.side.value.lower(),
+                    float(order.size),
+                    float(order.price) if order.price else None,
+                    params,
+                )
+            )
             return self._parse_order(result, order.symbol)
         except InsufficientFunds:
             logger.error(f"Insufficient funds for order {order}")
@@ -518,15 +544,17 @@ class CCXTAdapter(ExchangeAdapter):
         ex_symbol = self.get_exchange_symbol(order.symbol)
         await self._rate_limiter.acquire(self.config.id, weight=1)
         try:
-            result = await self._maybe_await(self.exchange.edit_order(
-                order_id,
-                ex_symbol,
-                self._ccxt_order_type(order),
-                order.side.value.lower(),
-                float(order.size),
-                float(order.price) if order.price else None,
-                self._order_to_ccxt_params(order),
-            ))
+            result = await self._maybe_await(
+                self.exchange.edit_order(
+                    order_id,
+                    ex_symbol,
+                    self._ccxt_order_type(order),
+                    order.side.value.lower(),
+                    float(order.size),
+                    float(order.price) if order.price else None,
+                    self._order_to_ccxt_params(order),
+                )
+            )
             return self._parse_order(result, order.symbol)
         except Exception as exc:
             logger.error(f"replace_order failed: {exc}")
@@ -550,7 +578,9 @@ class CCXTAdapter(ExchangeAdapter):
         await self._rate_limiter.acquire(self.config.id, weight=1)
 
         try:
-            order = await self._maybe_await(self.exchange.fetch_order(order_id, ex_symbol))
+            order = await self._maybe_await(
+                self.exchange.fetch_order(order_id, ex_symbol)
+            )
             return self._parse_order(order, symbol)
         except Exception as e:
             logger.error(f"fetch_order failed: {e}")
@@ -574,11 +604,13 @@ class CCXTAdapter(ExchangeAdapter):
         order_payload: dict | None = None
         await self._rate_limiter.acquire(self.config.id, weight=1)
         try:
-            order_payload = await self._maybe_await(self.exchange.fetch_order(
-                None,
-                ex_symbol,
-                {"origClientOrderId": client_order_id},
-            ))
+            order_payload = await self._maybe_await(
+                self.exchange.fetch_order(
+                    None,
+                    ex_symbol,
+                    {"origClientOrderId": client_order_id},
+                )
+            )
         except Exception as exc:
             lookup_miss = ccxt is not None and isinstance(
                 exc,
@@ -595,9 +627,7 @@ class CCXTAdapter(ExchangeAdapter):
                     continue
                 await self._rate_limiter.acquire(self.config.id, weight=1)
                 try:
-                    candidates = await self._maybe_await(
-                        method(ex_symbol, None, 100)
-                    )
+                    candidates = await self._maybe_await(method(ex_symbol, None, 100))
                 except Exception as exc:
                     unsupported = ccxt is not None and isinstance(
                         exc,
@@ -607,10 +637,14 @@ class CCXTAdapter(ExchangeAdapter):
                         continue
                     logger.error(f"{method_name} client-ID fallback failed: {exc}")
                     raise
-                order_payload = next((
-                    candidate for candidate in candidates or []
-                    if self._payload_client_order_id(candidate) == client_order_id
-                ), None)
+                order_payload = next(
+                    (
+                        candidate
+                        for candidate in candidates or []
+                        if self._payload_client_order_id(candidate) == client_order_id
+                    ),
+                    None,
+                )
                 if order_payload is not None:
                     break
 
@@ -623,17 +657,20 @@ class CCXTAdapter(ExchangeAdapter):
         except Exception as exc:
             unsupported = ccxt is not None and isinstance(exc, ccxt.NotSupported)
             if unsupported:
-                return self._parse_order(order_payload, symbol) if order_payload else None
+                return (
+                    self._parse_order(order_payload, symbol) if order_payload else None
+                )
             logger.error(f"fetch_my_trades client-ID fallback failed: {exc}")
             raise
-        exchange_order_id = str(order_payload.get('id') or '') if order_payload else ""
+        exchange_order_id = str(order_payload.get("id") or "") if order_payload else ""
         matched = [
-            trade for trade in trades or []
+            trade
+            for trade in trades or []
             if (
                 self._payload_client_order_id(trade) == client_order_id
                 or (
                     exchange_order_id
-                    and str(trade.get('order') or '') == exchange_order_id
+                    and str(trade.get("order") or "") == exchange_order_id
                 )
             )
         ]
@@ -660,9 +697,9 @@ class CCXTAdapter(ExchangeAdapter):
             orders = await self._maybe_await(self.exchange.fetch_open_orders(ex_symbol))
             parsed = []
             for order in orders:
-                unified = self.get_unified_symbol(order['symbol'])
+                unified = self.get_unified_symbol(order["symbol"])
                 if unified is None:
-                    base, sep, quote = order['symbol'].partition('/')
+                    base, sep, quote = order["symbol"].partition("/")
                     if not sep:
                         logger.warning(
                             f"fetch_open_orders: cannot map market {order['symbol']}"
@@ -686,10 +723,16 @@ class CCXTAdapter(ExchangeAdapter):
         await self._rate_limiter.acquire(self.config.id, weight=1)
 
         try:
-            positions = await self._maybe_await(self.exchange.fetch_positions(
-                [self._unified_to_ccxt_symbol(symbol)] if symbol else None
-            ))
-            return [self._parse_position(p) for p in positions if float(p.get('contracts', 0)) != 0]
+            positions = await self._maybe_await(
+                self.exchange.fetch_positions(
+                    [self._unified_to_ccxt_symbol(symbol)] if symbol else None
+                )
+            )
+            return [
+                self._parse_position(p)
+                for p in positions
+                if float(p.get("contracts", 0)) != 0
+            ]
         except Exception as e:
             logger.error(f"fetch_positions failed: {e}")
             raise
@@ -704,24 +747,24 @@ class CCXTAdapter(ExchangeAdapter):
         request_started_at: Optional[float] = None,
         received_at: Optional[float] = None,
     ) -> Ticker:
-        timestamp_ms = ticker.get('timestamp')
+        timestamp_ms = ticker.get("timestamp")
         if timestamp_ms is None:
             raise ValueError(f"Ticker for {symbol.pair} has no timestamp")
         return Ticker(
             symbol=symbol,
             timestamp=datetime.fromtimestamp(timestamp_ms / 1000, tz=UTC),
-            bid=ticker['bid'],
-            ask=ticker['ask'],
-            last=ticker['last'],
-            high=ticker['high'],
-            low=ticker['low'],
-            open=ticker['open'],
-            close=ticker['close'],
-            base_volume=ticker['baseVolume'],
-            quote_volume=ticker['quoteVolume'],
-            change=ticker['change'],
-            percentage=ticker['percentage'],
-            info=ticker.get('info', {}),
+            bid=ticker["bid"],
+            ask=ticker["ask"],
+            last=ticker["last"],
+            high=ticker["high"],
+            low=ticker["low"],
+            open=ticker["open"],
+            close=ticker["close"],
+            base_volume=ticker["baseVolume"],
+            quote_volume=ticker["quoteVolume"],
+            change=ticker["change"],
+            percentage=ticker["percentage"],
+            info=ticker.get("info", {}),
             request_started_at=request_started_at,
             received_at=received_at,
         )
@@ -736,10 +779,16 @@ class CCXTAdapter(ExchangeAdapter):
     ) -> OrderBook:
         return OrderBook(
             symbol=symbol,
-            timestamp=datetime.fromtimestamp(ob['timestamp'] / 1000, tz=UTC) if ob['timestamp'] else datetime.now(UTC),
-            bids=[OrderBookLevel(price=float(b[0]), size=float(b[1])) for b in ob['bids']],
-            asks=[OrderBookLevel(price=float(a[0]), size=float(a[1])) for a in ob['asks']],
-            sequence=ob.get('nonce') or ob.get('lastUpdateId'),
+            timestamp=datetime.fromtimestamp(ob["timestamp"] / 1000, tz=UTC)
+            if ob["timestamp"]
+            else datetime.now(UTC),
+            bids=[
+                OrderBookLevel(price=float(b[0]), size=float(b[1])) for b in ob["bids"]
+            ],
+            asks=[
+                OrderBookLevel(price=float(a[0]), size=float(a[1])) for a in ob["asks"]
+            ],
+            sequence=ob.get("nonce") or ob.get("lastUpdateId"),
             request_started_at=request_started_at,
             received_at=received_at,
         )
@@ -759,20 +808,26 @@ class CCXTAdapter(ExchangeAdapter):
     def _parse_balance(self, balance: dict) -> dict[AssetClass, Balance]:
         result = {}
         for currency, amounts in balance.items():
-            if currency in ('info', 'free', 'used', 'total', 'timestamp', 'datetime'):
+            if currency in ("info", "free", "used", "total", "timestamp", "datetime"):
                 continue
             if not isinstance(amounts, dict):
                 continue
-            free = float(amounts.get('free', 0))
-            used = float(amounts.get('used', 0))
-            total = float(amounts.get('total', 0))
+            free = float(amounts.get("free", 0))
+            used = float(amounts.get("used", 0))
+            total = float(amounts.get("total", 0))
             if total > 0:
                 # Determine asset class from currency
-                asset_class = AssetClass.CRYPTO if currency not in ('USD', 'EUR', 'GBP', 'JPY') else AssetClass.FOREX
+                asset_class = (
+                    AssetClass.CRYPTO
+                    if currency not in ("USD", "EUR", "GBP", "JPY")
+                    else AssetClass.FOREX
+                )
                 if asset_class not in result:
                     result[asset_class] = Balance(asset_class=asset_class)
                 result[asset_class].assets[currency] = {
-                    'free': free, 'used': used, 'total': total
+                    "free": free,
+                    "used": used,
+                    "total": total,
                 }
         return result
 
@@ -790,37 +845,45 @@ class CCXTAdapter(ExchangeAdapter):
         params = {}
         # Binance chỉ chấp nhận timeInForce cho limit orders; market orders
         # sẽ bị reject (-1106) nếu gửi kèm.
-        if order.time_in_force and order.type in {OrderType.LIMIT, OrderType.STOP_LIMIT}:
-            params['timeInForce'] = order.time_in_force.value
+        if order.time_in_force and order.type in {
+            OrderType.LIMIT,
+            OrderType.STOP_LIMIT,
+        }:
+            params["timeInForce"] = order.time_in_force.value
         if order.type in {OrderType.STOP, OrderType.STOP_LIMIT}:
             if order.stop_price is None or order.stop_price <= 0:
-                raise InvalidOrder("protective stop orders require a positive stop price")
+                raise InvalidOrder(
+                    "protective stop orders require a positive stop price"
+                )
             if order.type == OrderType.STOP_LIMIT and (
                 order.price is None or order.price <= 0
             ):
                 raise InvalidOrder("stop-limit orders require a positive limit price")
-            params['stopLossPrice'] = float(order.stop_price)
+            params["stopLossPrice"] = float(order.stop_price)
         if order.reduce_only:
-            params['reduceOnly'] = True
+            params["reduceOnly"] = True
         if order.post_only:
-            params['postOnly'] = True
+            params["postOnly"] = True
         if order.client_order_id:
-            params['clientOrderId'] = order.client_order_id
+            params["clientOrderId"] = order.client_order_id
         return params
 
     @staticmethod
     def _payload_client_order_id(payload: dict) -> str:
         """Extract common unified/raw client-order ID fields without guessing."""
 
-        direct = payload.get('clientOrderId') or payload.get('client_order_id')
+        direct = payload.get("clientOrderId") or payload.get("client_order_id")
         if direct:
             return str(direct)
-        info = payload.get('info')
+        info = payload.get("info")
         if not isinstance(info, dict):
             return ""
         for name in (
-            'clientOrderId', 'origClientOrderId', 'newClientOrderId',
-            'clientOid', 'clOrdId',
+            "clientOrderId",
+            "origClientOrderId",
+            "newClientOrderId",
+            "clientOid",
+            "clOrdId",
         ):
             value = info.get(name)
             if value:
@@ -832,29 +895,29 @@ class CCXTAdapter(ExchangeAdapter):
         """Return cumulative fee amounts grouped by their original currency."""
 
         entries: list[dict] = []
-        raw_fees = order.get('fees')
+        raw_fees = order.get("fees")
         if isinstance(raw_fees, list) and raw_fees:
             entries.extend(item for item in raw_fees if isinstance(item, dict))
-        elif isinstance(order.get('fee'), dict):
-            entries.append(order['fee'])
+        elif isinstance(order.get("fee"), dict):
+            entries.append(order["fee"])
         else:
-            for trade in order.get('trades') or []:
+            for trade in order.get("trades") or []:
                 if not isinstance(trade, dict):
                     continue
-                trade_fees = trade.get('fees')
+                trade_fees = trade.get("fees")
                 if isinstance(trade_fees, list) and trade_fees:
                     entries.extend(
                         item for item in trade_fees if isinstance(item, dict)
                     )
-                elif isinstance(trade.get('fee'), dict):
-                    entries.append(trade['fee'])
+                elif isinstance(trade.get("fee"), dict):
+                    entries.append(trade["fee"])
 
         totals: dict[str, Decimal] = {}
         for entry in entries:
-            cost = Decimal(str(entry.get('cost') or 0))
+            cost = Decimal(str(entry.get("cost") or 0))
             if cost < 0:
                 raise ValueError("exchange returned a negative order fee")
-            currency = str(entry.get('currency') or 'UNKNOWN').upper()
+            currency = str(entry.get("currency") or "UNKNOWN").upper()
             totals[currency] = totals.get(currency, Decimal(0)) + cost
         return totals
 
@@ -868,20 +931,20 @@ class CCXTAdapter(ExchangeAdapter):
         """Attach authoritative per-fill IDs and currencies to an order snapshot."""
 
         merged = dict(order)
-        merged['clientOrderId'] = (
+        merged["clientOrderId"] = (
             CCXTAdapter._payload_client_order_id(order) or client_order_id
         )
-        merged['trades'] = trades
+        merged["trades"] = trades
         trade_fees: list[dict] = []
         for trade in trades:
-            fees = trade.get('fees')
+            fees = trade.get("fees")
             if isinstance(fees, list) and fees:
                 trade_fees.extend(item for item in fees if isinstance(item, dict))
-            elif isinstance(trade.get('fee'), dict):
-                trade_fees.append(trade['fee'])
+            elif isinstance(trade.get("fee"), dict):
+                trade_fees.append(trade["fee"])
         if trade_fees:
-            merged['fees'] = trade_fees
-            merged['fee'] = None
+            merged["fees"] = trade_fees
+            merged["fee"] = None
         return merged
 
     def _order_from_trade_history(
@@ -893,127 +956,143 @@ class CCXTAdapter(ExchangeAdapter):
     ) -> Order | None:
         if not trades:
             return None
-        side = str(trades[0].get('side') or '').lower()
+        side = str(trades[0].get("side") or "").lower()
         if side not in {OrderSide.BUY.value, OrderSide.SELL.value}:
             return None
-        filled = sum(Decimal(str(trade.get('amount') or 0)) for trade in trades)
+        filled = sum(Decimal(str(trade.get("amount") or 0)) for trade in trades)
         quote_cost = sum(
-            Decimal(str(trade.get('cost') or 0))
-            if trade.get('cost') is not None
-            else Decimal(str(trade.get('amount') or 0))
-            * Decimal(str(trade.get('price') or 0))
+            Decimal(str(trade.get("cost") or 0))
+            if trade.get("cost") is not None
+            else Decimal(str(trade.get("amount") or 0))
+            * Decimal(str(trade.get("price") or 0))
             for trade in trades
         )
         average = quote_cost / filled if filled > 0 else Decimal(0)
         timestamps = [
-            int(trade['timestamp']) for trade in trades if trade.get('timestamp')
+            int(trade["timestamp"]) for trade in trades if trade.get("timestamp")
         ]
-        order_ids = [str(trade.get('order') or '') for trade in trades]
+        order_ids = [str(trade.get("order") or "") for trade in trades]
         exchange_order_id = next((value for value in order_ids if value), "")
         synthetic = {
-            'id': exchange_order_id or f"trade-history:{client_order_id}",
-            'clientOrderId': client_order_id,
-            'status': 'trade_history_only',
-            'symbol': symbol.ccxt_symbol,
-            'side': side,
-            'type': str(trades[0].get('type') or 'market').lower(),
-            'amount': filled,
-            'filled': filled,
-            'average': average,
-            'cost': quote_cost,
-            'price': None,
-            'stopPrice': None,
-            'fees': [],
-            'fee': None,
-            'trades': trades,
-            'timeInForce': None,
-            'timestamp': min(timestamps) if timestamps else None,
-            'lastTradeTimestamp': max(timestamps) if timestamps else None,
+            "id": exchange_order_id or f"trade-history:{client_order_id}",
+            "clientOrderId": client_order_id,
+            "status": "trade_history_only",
+            "symbol": symbol.ccxt_symbol,
+            "side": side,
+            "type": str(trades[0].get("type") or "market").lower(),
+            "amount": filled,
+            "filled": filled,
+            "average": average,
+            "cost": quote_cost,
+            "price": None,
+            "stopPrice": None,
+            "fees": [],
+            "fee": None,
+            "trades": trades,
+            "timeInForce": None,
+            "timestamp": min(timestamps) if timestamps else None,
+            "lastTradeTimestamp": max(timestamps) if timestamps else None,
         }
         return self._parse_order(synthetic, symbol)
 
     def _parse_order(self, order: dict, symbol: Symbol) -> Order:
         status_map = {
-            'open': OrderStatus.OPEN,
-            'closed': OrderStatus.FILLED,
-            'canceled': OrderStatus.CANCELLED,
-            'cancelled': OrderStatus.CANCELLED,
-            'rejected': OrderStatus.REJECTED,
-            'expired': OrderStatus.EXPIRED,
+            "open": OrderStatus.OPEN,
+            "closed": OrderStatus.FILLED,
+            "canceled": OrderStatus.CANCELLED,
+            "cancelled": OrderStatus.CANCELLED,
+            "rejected": OrderStatus.REJECTED,
+            "expired": OrderStatus.EXPIRED,
         }
-        filled_size = Decimal(str(order.get('filled') or 0))
-        raw_status = str(order.get('status') or '').strip().lower()
+        filled_size = Decimal(str(order.get("filled") or 0))
+        raw_status = str(order.get("status") or "").strip().lower()
         parsed_status = status_map.get(raw_status, OrderStatus.UNKNOWN)
         if parsed_status == OrderStatus.OPEN and filled_size > 0:
             parsed_status = OrderStatus.PARTIAL
-        raw_type = str(order['type']).lower()
+        raw_type = str(order["type"]).lower()
         parsed_type = {
-            'stop': OrderType.STOP,
-            'stop_loss': OrderType.STOP,
-            'stop_market': OrderType.STOP,
-            'stop_limit': OrderType.STOP_LIMIT,
-            'stop_loss_limit': OrderType.STOP_LIMIT,
+            "stop": OrderType.STOP,
+            "stop_loss": OrderType.STOP,
+            "stop_market": OrderType.STOP,
+            "stop_limit": OrderType.STOP_LIMIT,
+            "stop_loss_limit": OrderType.STOP_LIMIT,
         }.get(raw_type)
         if parsed_type is None:
             parsed_type = OrderType(raw_type)
-        stop_price = order.get('stopPrice')
+        stop_price = order.get("stopPrice")
         if stop_price is None:
-            stop_price = order.get('triggerPrice')
-        trades = [trade for trade in order.get('trades') or [] if isinstance(trade, dict)]
+            stop_price = order.get("triggerPrice")
+        trades = [
+            trade for trade in order.get("trades") or [] if isinstance(trade, dict)
+        ]
         trade_ids = tuple(
-            dict.fromkeys(
-                str(trade.get('id')) for trade in trades if trade.get('id')
-            )
+            dict.fromkeys(str(trade.get("id")) for trade in trades if trade.get("id"))
         )
         fee_breakdown = self._fee_breakdown(order)
-        quote_cost = Decimal(str(order.get('cost') or 0))
+        quote_cost = Decimal(str(order.get("cost") or 0))
         if quote_cost == 0 and filled_size > 0:
             quote_cost = sum(
-                Decimal(str(trade.get('cost') or 0))
-                if trade.get('cost') is not None
-                else Decimal(str(trade.get('amount') or 0))
-                * Decimal(str(trade.get('price') or 0))
+                Decimal(str(trade.get("cost") or 0))
+                if trade.get("cost") is not None
+                else Decimal(str(trade.get("amount") or 0))
+                * Decimal(str(trade.get("price") or 0))
                 for trade in trades
             )
-        if quote_cost == 0 and filled_size > 0 and order.get('average') is not None:
-            quote_cost = filled_size * Decimal(str(order.get('average') or 0))
+        if quote_cost == 0 and filled_size > 0 and order.get("average") is not None:
+            quote_cost = filled_size * Decimal(str(order.get("average") or 0))
         return Order(
-            id=order['id'],
-            client_order_id=order.get('clientOrderId'),
+            id=order["id"],
+            client_order_id=order.get("clientOrderId"),
             symbol=symbol,
-            side=OrderSide(str(order['side']).lower()),
+            side=OrderSide(str(order["side"]).lower()),
             type=parsed_type,
             status=parsed_status,
-            size=Decimal(str(order.get('amount') or 0)),
+            size=Decimal(str(order.get("amount") or 0)),
             filled_size=filled_size,
-            avg_fill_price=Decimal(str(order.get('average') or 0)),
+            avg_fill_price=Decimal(str(order.get("average") or 0)),
             quote_cost=quote_cost,
-            price=Decimal(str(order['price'])) if order.get('price') is not None else None,
+            price=Decimal(str(order["price"]))
+            if order.get("price") is not None
+            else None,
             stop_price=Decimal(str(stop_price)) if stop_price is not None else None,
             fee=sum(fee_breakdown.values(), Decimal(0)),
             fee_currency=next(iter(fee_breakdown)) if len(fee_breakdown) == 1 else "",
             fee_breakdown=fee_breakdown,
             trade_ids=trade_ids,
             raw_status=raw_status,
-            time_in_force=TimeInForce(str(order['timeInForce']).lower()) if order.get('timeInForce') else TimeInForce.GTC,
-            reduce_only=order.get('reduceOnly', False),
-            post_only=order.get('postOnly', False),
-            created_at=datetime.fromtimestamp(order['timestamp'] / 1000, tz=UTC) if order.get('timestamp') else datetime.now(UTC),
-            updated_at=datetime.fromtimestamp(order['lastTradeTimestamp'] / 1000, tz=UTC) if order.get('lastTradeTimestamp') else None,
+            time_in_force=TimeInForce(str(order["timeInForce"]).lower())
+            if order.get("timeInForce")
+            else TimeInForce.GTC,
+            reduce_only=order.get("reduceOnly", False),
+            post_only=order.get("postOnly", False),
+            created_at=datetime.fromtimestamp(order["timestamp"] / 1000, tz=UTC)
+            if order.get("timestamp")
+            else datetime.now(UTC),
+            updated_at=datetime.fromtimestamp(
+                order["lastTradeTimestamp"] / 1000, tz=UTC
+            )
+            if order.get("lastTradeTimestamp")
+            else None,
         )
 
     def _parse_position(self, pos: dict) -> Position:
-        symbol = self.get_unified_symbol(pos['symbol'])
+        symbol = self.get_unified_symbol(pos["symbol"])
         return Position(
             symbol=symbol,
-            size=Decimal(str(pos['contracts'])),
-            entry_price=Decimal(str(pos['entryPrice'])),
-            mark_price=Decimal(str(pos['markPrice'])),
-            unrealized_pnl=Decimal(str(pos.get('unrealizedPnl', 0))),
-            realized_pnl=Decimal(str(pos.get('realizedPnl', 0))),
-            leverage=Decimal(str(pos['leverage'])) if pos.get('leverage') else Decimal(1),
-            liquidation_price=Decimal(str(pos['liquidationPrice'])) if pos.get('liquidationPrice') else None,
-            updated_at=datetime.fromtimestamp(pos['timestamp'] / 1000, tz=UTC) if pos.get('timestamp') else datetime.now(UTC),
+            size=Decimal(str(pos["contracts"])),
+            entry_price=Decimal(str(pos["entryPrice"])),
+            mark_price=Decimal(str(pos["markPrice"])),
+            unrealized_pnl=Decimal(str(pos.get("unrealizedPnl", 0))),
+            realized_pnl=Decimal(str(pos.get("realizedPnl", 0))),
+            leverage=Decimal(str(pos["leverage"]))
+            if pos.get("leverage")
+            else Decimal(1),
+            liquidation_price=Decimal(str(pos["liquidationPrice"]))
+            if pos.get("liquidationPrice")
+            else None,
+            updated_at=datetime.fromtimestamp(pos["timestamp"] / 1000, tz=UTC)
+            if pos.get("timestamp")
+            else datetime.now(UTC),
         )
 
     def get_status(self) -> ExchangeStatus:
@@ -1042,7 +1121,11 @@ class MultiExchangeManager:
         return self.exchanges.get(exchange_id)
 
     def get_primary(self) -> CCXTAdapter | None:
-        return self.exchanges.get(self._primary_exchange) if self._primary_exchange else None
+        return (
+            self.exchanges.get(self._primary_exchange)
+            if self._primary_exchange
+            else None
+        )
 
     def set_primary(self, exchange_id: str) -> None:
         if exchange_id in self.exchanges:
@@ -1083,77 +1166,85 @@ class MultiExchangeManager:
                 logger.debug(f"fetch_ticker failed on {exchange_id}: {e}")
         return results
 
-    async def fetch_best_bid_ask(self, symbol: Symbol) -> tuple[Ticker | None, Ticker | None]:
+    async def fetch_best_bid_ask(
+        self, symbol: Symbol
+    ) -> tuple[Ticker | None, Ticker | None]:
         """Get best bid/ask across all exchanges"""
         tickers = await self.fetch_ticker_all(symbol)
         if not tickers:
             return None, None
 
         best_bid = max(tickers.values(), key=lambda t: t.bid or 0)
-        best_ask = min(tickers.values(), key=lambda t: t.ask or float('inf'))
+        best_ask = min(tickers.values(), key=lambda t: t.ask or float("inf"))
         return best_bid, best_ask
 
 
 # --- Predefined exchange configs ---
 
+
 def get_default_exchange_configs() -> list[ExchangeConfig]:
     """Get default configurations for major exchanges"""
     return [
         ExchangeConfig(
-            id='binance',
-            name='Binance',
+            id="binance",
+            name="Binance",
             sandbox=False,
             rate_limit=1200,
             markets=[MarketType.SPOT, MarketType.FUTURES, MarketType.PERPETUAL],
-            options={'defaultType': 'spot'},
+            options={"defaultType": "spot"},
         ),
         ExchangeConfig(
-            id='bybit',
-            name='Bybit',
+            id="bybit",
+            name="Bybit",
             sandbox=False,
             rate_limit=1000,
             markets=[MarketType.SPOT, MarketType.FUTURES, MarketType.PERPETUAL],
-            options={'defaultType': 'spot'},
+            options={"defaultType": "spot"},
         ),
         ExchangeConfig(
-            id='okx',
-            name='OKX',
+            id="okx",
+            name="OKX",
             sandbox=False,
             rate_limit=1000,
-            markets=[MarketType.SPOT, MarketType.FUTURES, MarketType.PERPETUAL, MarketType.OPTIONS],
-            options={'defaultType': 'spot'},
+            markets=[
+                MarketType.SPOT,
+                MarketType.FUTURES,
+                MarketType.PERPETUAL,
+                MarketType.OPTIONS,
+            ],
+            options={"defaultType": "spot"},
         ),
         ExchangeConfig(
-            id='coinbase',
-            name='Coinbase',
+            id="coinbase",
+            name="Coinbase",
             sandbox=False,
             rate_limit=1000,
             markets=[MarketType.SPOT],
         ),
         ExchangeConfig(
-            id='kraken',
-            name='Kraken',
+            id="kraken",
+            name="Kraken",
             sandbox=False,
             rate_limit=1000,
             markets=[MarketType.SPOT, MarketType.FUTURES],
         ),
         ExchangeConfig(
-            id='gateio',
-            name='Gate.io',
+            id="gateio",
+            name="Gate.io",
             sandbox=False,
             rate_limit=1000,
             markets=[MarketType.SPOT, MarketType.FUTURES, MarketType.PERPETUAL],
         ),
         ExchangeConfig(
-            id='kucoin',
-            name='KuCoin',
+            id="kucoin",
+            name="KuCoin",
             sandbox=False,
             rate_limit=1000,
             markets=[MarketType.SPOT, MarketType.FUTURES, MarketType.PERPETUAL],
         ),
         ExchangeConfig(
-            id='htx',
-            name='HTX (Huobi)',
+            id="htx",
+            name="HTX (Huobi)",
             sandbox=False,
             rate_limit=1000,
             markets=[MarketType.SPOT, MarketType.FUTURES, MarketType.PERPETUAL],
@@ -1161,7 +1252,9 @@ def get_default_exchange_configs() -> list[ExchangeConfig]:
     ]
 
 
-async def create_multi_exchange_manager(configs: list[ExchangeConfig] | None = None) -> MultiExchangeManager:
+async def create_multi_exchange_manager(
+    configs: list[ExchangeConfig] | None = None,
+) -> MultiExchangeManager:
     """Create and connect multi-exchange manager"""
     manager = MultiExchangeManager()
 

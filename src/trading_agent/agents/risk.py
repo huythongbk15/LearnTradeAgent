@@ -63,16 +63,20 @@ class RiskManager(BaseAgent):
         if extra.get("volatility_20"):
             prompt_lines.append(f"20-bar volatility: {extra['volatility_20']:.2f}%")
         if extra.get("volume_ratio_5_20"):
-            prompt_lines.append(f"Volume ratio (5/20): {extra['volume_ratio_5_20']:.2f}x")
+            prompt_lines.append(
+                f"Volume ratio (5/20): {extra['volume_ratio_5_20']:.2f}x"
+            )
 
         if "rsi" in ind:
             rsi = ind["rsi"]
             prompt_lines.append(f"RSI(14): {rsi:.1f}")
 
         # Price changes
-        for label, key in [("1d", "price_change_1d"),
-                           ("1w", "price_change_1w"),
-                           ("1m", "price_change_1m")]:
+        for label, key in [
+            ("1d", "price_change_1d"),
+            ("1w", "price_change_1w"),
+            ("1m", "price_change_1m"),
+        ]:
             val = getattr(context, key, None)
             if val is not None:
                 prompt_lines.append(f"Change {label}: {val:+.2f}%")
@@ -80,11 +84,15 @@ class RiskManager(BaseAgent):
         prompt_lines.append("")
 
         if context.current_position_pct == 0:
-            prompt_lines.append("Assess the risk level for opening a new long position "
-                                "and suggest a safe position size.")
+            prompt_lines.append(
+                "Assess the risk level for opening a new long position "
+                "and suggest a safe position size."
+            )
         else:
-            prompt_lines.append("Assess the risk level for holding the current position "
-                                "and advise on position size adjustment.")
+            prompt_lines.append(
+                "Assess the risk level for holding the current position "
+                "and advise on position size adjustment."
+            )
 
         prompt = "\n".join(prompt_lines)
 
@@ -123,11 +131,11 @@ class RiskManager(BaseAgent):
         df = context.ohlcv
         if df is None or len(df) < 20:
             return 5.0  # Default moderate volatility
-        
+
         closes = df["close"].to_numpy()
         if len(closes) < 20:
             return 5.0
-        
+
         # Normalize per-bar volatility to a 24-hour volatility so thresholds
         # remain comparable across 15m/1h/4h/daily inputs.
         returns = np.diff(closes[-21:]) / closes[-21:-1]
@@ -178,7 +186,9 @@ class RiskManager(BaseAgent):
                 reason = f"Moderate volatility ({vol:.1f}%) — size {max_pos * 100:.0f}% of equity"
             else:
                 risk = "LOW"
-                reason = f"Low volatility ({vol:.1f}%) — size {max_pos * 100:.0f}% of equity"
+                reason = (
+                    f"Low volatility ({vol:.1f}%) — size {max_pos * 100:.0f}% of equity"
+                )
         else:
             risk = "MEDIUM"
             max_pos = 0.25
@@ -210,7 +220,9 @@ class RiskManager(BaseAgent):
             details={
                 "risk_level": risk,
                 "max_position_size_pct": max_pos,
-                "key_risks": [f"Volatility at {vol:.1f}%" if vol else "Unknown volatility"],
+                "key_risks": [
+                    f"Volatility at {vol:.1f}%" if vol else "Unknown volatility"
+                ],
             },
             max_position_size_pct=max_pos,
             risk_level=risk,

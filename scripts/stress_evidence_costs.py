@@ -47,7 +47,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _as_utc(value) :
+def _as_utc(value):
     from datetime import UTC
 
     if value.tzinfo is None:
@@ -107,7 +107,9 @@ def run(args: argparse.Namespace) -> int:
             )
             symbol_results[symbol] = {"allocation": allocations[symbol], "folds": folds}
         portfolio_folds, _ = build_portfolio_folds(symbol_results, curves)
-        med_sharpe = sorted(f["sharpe"] for f in portfolio_folds)[len(portfolio_folds) // 2]
+        med_sharpe = sorted(f["sharpe"] for f in portfolio_folds)[
+            len(portfolio_folds) // 2
+        ]
         worst_dd = max(abs(f["max_drawdown_pct"]) for f in portfolio_folds)
         total_return = sum(
             (1 + f["return_pct"] / 100.0 for f in portfolio_folds),

@@ -27,10 +27,18 @@ from trading_agent.execution.simulator import (
 )
 
 st_seed = st.integers(min_value=0, max_value=10_000)
-st_qty = st.floats(min_value=1e-4, max_value=10_000.0, allow_nan=False, allow_infinity=False)
-st_price = st.floats(min_value=1e-3, max_value=1e6, allow_nan=False, allow_infinity=False)
-st_tick = st.floats(min_value=1e-6, max_value=1.0, allow_nan=False, allow_infinity=False)
-st_step = st.floats(min_value=1e-8, max_value=1.0, allow_nan=False, allow_infinity=False)
+st_qty = st.floats(
+    min_value=1e-4, max_value=10_000.0, allow_nan=False, allow_infinity=False
+)
+st_price = st.floats(
+    min_value=1e-3, max_value=1e6, allow_nan=False, allow_infinity=False
+)
+st_tick = st.floats(
+    min_value=1e-6, max_value=1.0, allow_nan=False, allow_infinity=False
+)
+st_step = st.floats(
+    min_value=1e-8, max_value=1.0, allow_nan=False, allow_infinity=False
+)
 
 
 def make_df(n: int, base: float) -> pl.DataFrame:
@@ -41,7 +49,8 @@ def make_df(n: int, base: float) -> pl.DataFrame:
         o = base + i * 0.1
         rows.append(
             {
-                "timestamp": dt.datetime(2026, 1, 1, tzinfo=dt.UTC) + dt.timedelta(hours=i),
+                "timestamp": dt.datetime(2026, 1, 1, tzinfo=dt.UTC)
+                + dt.timedelta(hours=i),
                 "open": o,
                 "high": o + 0.5,
                 "low": o - 0.5,
@@ -83,7 +92,9 @@ class TestLedgerInvariants:
     def test_no_negative_cash_or_inventory(self, seed, orders):
         df = make_df(30, base=100.0)
         cfg = SimulationConfig(random_seed=seed, depth_volume_share=0.5, spread_bps=5.0)
-        engine = MarketReplayEngine(df, config=cfg, symbol="T", initial_cash=1_000_000.0)
+        engine = MarketReplayEngine(
+            df, config=cfg, symbol="T", initial_cash=1_000_000.0
+        )
 
         def provider(i, eng):
             # Inject orders at a handful of bars.
@@ -94,14 +105,25 @@ class TestLedgerInvariants:
             qty = quantize_qty(qty, cfg.step_size)
             if qty <= 0:
                 return []
-            return [OrderIntent(order_id=f"o{i}", side=side, order_type=SimOrderType.MARKET, quantity=qty)]
+            return [
+                OrderIntent(
+                    order_id=f"o{i}",
+                    side=side,
+                    order_type=SimOrderType.MARKET,
+                    quantity=qty,
+                )
+            ]
 
         result = engine.run(provider)
         ledger = result.ledger
         assert ledger.cash_quote >= -1e-6, f"cash went negative: {ledger.cash_quote}"
-        assert ledger.inventory_base >= -1e-6, f"inventory went negative: {ledger.inventory_base}"
+        assert ledger.inventory_base >= -1e-6, (
+            f"inventory went negative: {ledger.inventory_base}"
+        )
         # Total fees equal the sum of per-fill fees (float tolerance).
-        assert ledger.total_fees() == pytest.approx(sum(f.fee for f in ledger.fills), abs=1e-9)
+        assert ledger.total_fees() == pytest.approx(
+            sum(f.fee for f in ledger.fills), abs=1e-9
+        )
         # Fill quantities never exceed intended quantities.
         for o in result.order_results:
             assert o.filled_quantity <= o.intent.quantity + 1e-9
@@ -114,7 +136,14 @@ class TestLedgerInvariants:
         def provider(i, e):
             if i in (4, 9, 14, 19):
                 side = SimSide.BUY if i % 3 == 0 else SimSide.SELL
-                return [OrderIntent(order_id=f"o{i}", side=side, order_type=SimOrderType.MARKET, quantity=1.0)]
+                return [
+                    OrderIntent(
+                        order_id=f"o{i}",
+                        side=side,
+                        order_type=SimOrderType.MARKET,
+                        quantity=1.0,
+                    )
+                ]
             return []
 
         r1 = MarketReplayEngine(df, config=cfg, symbol="T").run(provider)
@@ -127,7 +156,18 @@ class TestLedgerInvariants:
         cfg = SimulationConfig(random_seed=seed)
         engine = MarketReplayEngine(df, config=cfg, symbol="T", initial_cash=10_000.0)
         result = engine.run(
-            lambda i, e: [OrderIntent(order_id=f"o{i}", side=SimSide.BUY, order_type=SimOrderType.MARKET, quantity=5.0)] if i == 5 else []
+            lambda i, e: (
+                [
+                    OrderIntent(
+                        order_id=f"o{i}",
+                        side=SimSide.BUY,
+                        order_type=SimOrderType.MARKET,
+                        quantity=5.0,
+                    )
+                ]
+                if i == 5
+                else []
+            )
         )
         for f in result.fills:
             assert f.price > 0

@@ -18,9 +18,7 @@ pytest_importorskip = __import__("pytest").importorskip("ccxt")
 def make_adapter() -> CCXTAdapter:
     from trading_agent.exchanges.ccxt_adapter import ExchangeConfig
 
-    return CCXTAdapter(
-        ExchangeConfig(id="binance", name="Binance", rate_limit=0)
-    )
+    return CCXTAdapter(ExchangeConfig(id="binance", name="Binance", rate_limit=0))
 
 
 BASE = st.from_regex(r"^[A-Z0-9]{2,8}$", fullmatch=True)
@@ -48,7 +46,9 @@ def test_unified_symbol_roundtrip(base: str, quote: str) -> None:
     market_type=st.sampled_from([MarketType.FUTURES, MarketType.PERPETUAL]),
 )
 @settings(max_examples=200, deadline=None)
-def test_futures_symbol_uses_settle_suffix(base: str, quote: str, market_type: MarketType) -> None:
+def test_futures_symbol_uses_settle_suffix(
+    base: str, quote: str, market_type: MarketType
+) -> None:
     """Futures symbols carry the :SETTLE suffix in ccxt format."""
     adapter = make_adapter()
     symbol = Symbol(
@@ -64,8 +64,12 @@ def test_futures_symbol_uses_settle_suffix(base: str, quote: str, market_type: M
 
 @given(
     ts=st.integers(min_value=0, max_value=4_000_000_000_000),
-    price=st.floats(min_value=1e-8, max_value=1e8, allow_nan=False, allow_infinity=False),
-    volume=st.floats(min_value=0.0, max_value=1e12, allow_nan=False, allow_infinity=False),
+    price=st.floats(
+        min_value=1e-8, max_value=1e8, allow_nan=False, allow_infinity=False
+    ),
+    volume=st.floats(
+        min_value=0.0, max_value=1e12, allow_nan=False, allow_infinity=False
+    ),
 )
 @settings(max_examples=200, deadline=None)
 def test_candle_parse_preserves_values(ts: int, price: float, volume: float) -> None:

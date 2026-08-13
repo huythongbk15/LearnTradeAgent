@@ -65,7 +65,9 @@ def evaluate_symbol(frame: pl.DataFrame, params: dict, symbol: str, risk) -> lis
     latest = ordered["timestamp"].max()
     results: list[dict] = []
     for start, end in fold_ranges(latest):
-        fold = ordered.filter((pl.col("timestamp") >= start) & (pl.col("timestamp") < end))
+        fold = ordered.filter(
+            (pl.col("timestamp") >= start) & (pl.col("timestamp") < end)
+        )
         if len(fold) < FOLD_DAYS * 12:
             return []
         engine = BacktestEngine(
@@ -96,7 +98,10 @@ def fold_ranges(latest_candle) -> list[tuple]:
     end = latest_candle + timedelta(hours=1)
     start = end - timedelta(days=FOLDS * FOLD_DAYS)
     return [
-        (start + timedelta(days=i * FOLD_DAYS), start + timedelta(days=(i + 1) * FOLD_DAYS))
+        (
+            start + timedelta(days=i * FOLD_DAYS),
+            start + timedelta(days=(i + 1) * FOLD_DAYS),
+        )
         for i in range(FOLDS)
     ]
 
@@ -111,8 +116,12 @@ def check_policy(folds: list[dict], policy: StrategyEvidencePolicy) -> dict:
     n = len(sharpes)
     s_sorted = sorted(sharpes)
     r_sorted = sorted(returns)
-    median_sharpe = s_sorted[n // 2] if n % 2 else (s_sorted[n // 2 - 1] + s_sorted[n // 2]) / 2
-    median_return = r_sorted[n // 2] if n % 2 else (r_sorted[n // 2 - 1] + r_sorted[n // 2]) / 2
+    median_sharpe = (
+        s_sorted[n // 2] if n % 2 else (s_sorted[n // 2 - 1] + s_sorted[n // 2]) / 2
+    )
+    median_return = (
+        r_sorted[n // 2] if n % 2 else (r_sorted[n // 2 - 1] + r_sorted[n // 2]) / 2
+    )
     positive_ratio = sum(v > 0 for v in returns) / n
     worst_dd = max(drawdowns)
     total_trades = sum(trades)
@@ -137,8 +146,11 @@ def main() -> int:
     policy = StrategyEvidencePolicy()
     data = {s: load_ohlcv("binance", s, "1h") for s in SYMBOLS}
     combos = load_combos()
-    print(f"Testing {len(combos)} top param combos x {len(RISK_CONFIGS)} risk configs "
-          f"x {len(SYMBOLS)} symbols x {FOLDS} folds", flush=True)
+    print(
+        f"Testing {len(combos)} top param combos x {len(RISK_CONFIGS)} risk configs "
+        f"x {len(SYMBOLS)} symbols x {FOLDS} folds",
+        flush=True,
+    )
 
     passed: list[dict] = []
     started = time.time()
@@ -156,10 +168,17 @@ def main() -> int:
             if symbol_summaries is None:
                 continue
             all_ok = all(s["ok"] for s in symbol_summaries.values())
-            total_sharpe = sum(s["median_sharpe"] for s in symbol_summaries.values()) / len(SYMBOLS)
+            total_sharpe = sum(
+                s["median_sharpe"] for s in symbol_summaries.values()
+            ) / len(SYMBOLS)
             record = {
                 "params": params,
-                "risk": {"atr_sl": risk[0], "atr_tp": risk[1], "trail": risk[2], "label": risk[3]},
+                "risk": {
+                    "atr_sl": risk[0],
+                    "atr_tp": risk[1],
+                    "trail": risk[2],
+                    "label": risk[3],
+                },
                 "score": round(total_sharpe, 3),
                 "summaries": symbol_summaries,
                 "pass": all_ok,
@@ -167,24 +186,37 @@ def main() -> int:
             if all_ok:
                 passed.append(record)
             if n_run % 500 == 0:
-                print(f"  {n_run} backtests done ({time.time()-started:.0f}s), passes: {len(passed)}", flush=True)
+                print(
+                    f"  {n_run} backtests done ({time.time() - started:.0f}s), passes: {len(passed)}",
+                    flush=True,
+                )
 
     out = {
         "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "policy": {k: getattr(policy, k) for k in
-                   ("min_median_oos_sharpe", "min_positive_fold_ratio",
-                    "max_worst_oos_drawdown_pct", "min_total_oos_trades")},
+        "policy": {
+            k: getattr(policy, k)
+            for k in (
+                "min_median_oos_sharpe",
+                "min_positive_fold_ratio",
+                "max_worst_oos_drawdown_pct",
+                "min_total_oos_trades",
+            )
+        },
         "n_passed": len(passed),
         "passed": passed,
     }
     Path("data/param_sweep_risk_results.json").write_text(json.dumps(out, indent=2))
 
-    print(f"\n=== DONE: {n_run} backtests, {len(passed)} ALL-SYMBOL PASSES ({time.time()-started:.0f}s) ===")
+    print(
+        f"\n=== DONE: {n_run} backtests, {len(passed)} ALL-SYMBOL PASSES ({time.time() - started:.0f}s) ==="
+    )
     for p in passed[:10]:
         print(f"PASS {p['params']} risk={p['risk']['label']} score={p['score']}")
         for s, sm in p["summaries"].items():
-            print(f"   {s}: sharpe {sm['median_sharpe']}, ret {sm['median_return_pct']}%, "
-                  f"pos {sm['positive_ratio']}, dd {sm['worst_dd_pct']}%, trades {sm['trades']}")
+            print(
+                f"   {s}: sharpe {sm['median_sharpe']}, ret {sm['median_return_pct']}%, "
+                f"pos {sm['positive_ratio']}, dd {sm['worst_dd_pct']}%, trades {sm['trades']}"
+            )
     if not passed:
         ranked = []
         print("\nTop 10 overall (still below gate):")

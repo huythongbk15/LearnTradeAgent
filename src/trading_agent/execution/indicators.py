@@ -37,11 +37,13 @@ def compute_atr(
     # True Range = max(H-L, |H-C_prev|, |L-C_prev|)
     prev_close = pl.col(close_col).shift(1)
 
-    tr = pl.max_horizontal([
-        pl.col(high_col) - pl.col(low_col),
-        (pl.col(high_col) - prev_close).abs(),
-        (pl.col(low_col) - prev_close).abs(),
-    ])
+    tr = pl.max_horizontal(
+        [
+            pl.col(high_col) - pl.col(low_col),
+            (pl.col(high_col) - prev_close).abs(),
+            (pl.col(low_col) - prev_close).abs(),
+        ]
+    )
 
     atr = tr.rolling_mean(window_size=period)
     return atr.alias("atr")

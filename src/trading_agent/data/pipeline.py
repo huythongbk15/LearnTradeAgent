@@ -44,6 +44,7 @@ DEFAULT_DB_PATH = os.path.join(
 # Sources
 # ---------------------------------------------------------------------------
 
+
 class DataSource(ABC):
     """Fetches OHLCV candles for a symbol from a venue."""
 
@@ -81,8 +82,18 @@ class DataSource(ABC):
         elif isinstance(raw, dict):
             ts = raw.get("timestamp") or raw.get("time")
             if isinstance(ts, (int, float)):
-                ts = datetime.fromtimestamp(ts / 1000.0, tz=timezone.utc) if ts > 1e11 else datetime.fromtimestamp(ts, tz=timezone.utc)
-            o, h, low, c, v = raw["open"], raw["high"], raw["low"], raw["close"], raw.get("volume", 0)
+                ts = (
+                    datetime.fromtimestamp(ts / 1000.0, tz=timezone.utc)
+                    if ts > 1e11
+                    else datetime.fromtimestamp(ts, tz=timezone.utc)
+                )
+            o, h, low, c, v = (
+                raw["open"],
+                raw["high"],
+                raw["low"],
+                raw["close"],
+                raw.get("volume", 0),
+            )
         else:
             raise TypeError(f"Unsupported raw candle format: {type(raw)}")
 
@@ -117,21 +128,30 @@ class CCXTSource(DataSource):
         if self._adapter is not None:
             return self._adapter.exchange
         import ccxt
+
         klass = getattr(ccxt, self.exchange_id)
         return klass({"enableRateLimit": True})
 
-    async def _fetch(self, symbol: Symbol, timeframe: str, since_ms: int | None, limit: int) -> list[Candle]:
+    async def _fetch(
+        self, symbol: Symbol, timeframe: str, since_ms: int | None, limit: int
+    ) -> list[Candle]:
         return await asyncio.to_thread(
             self._fetch_sync, symbol, timeframe, since_ms, limit
         )
 
-    def _fetch_sync(self, symbol: Symbol, timeframe: str, since_ms: int | None, limit: int) -> list[Candle]:
+    def _fetch_sync(
+        self, symbol: Symbol, timeframe: str, since_ms: int | None, limit: int
+    ) -> list[Candle]:
         ex = self._get_exchange()
         ccxt_symbol = symbol.ccxt_symbol
-        raw = ex.fetch_ohlcv(ccxt_symbol, timeframe=timeframe, since=since_ms, limit=limit)
+        raw = ex.fetch_ohlcv(
+            ccxt_symbol, timeframe=timeframe, since=since_ms, limit=limit
+        )
         return [self.normalize(symbol, timeframe, row) for row in raw]
 
-    async def fetch_candles(self, symbol: Symbol, timeframe: str, start: datetime, end: datetime) -> list[Candle]:
+    async def fetch_candles(
+        self, symbol: Symbol, timeframe: str, start: datetime, end: datetime
+    ) -> list[Candle]:
         since_ms = int(start.timestamp() * 1000)
         end_ms = int(end.timestamp() * 1000)
         out: list[Candle] = []
@@ -147,11 +167,15 @@ class CCXTSource(DataSource):
             cursor = int(last_ts) + 1
         return [c for c in out if c.timestamp.timestamp() * 1000 < end_ms]
 
-    async def fetch_recent(self, symbol: Symbol, timeframe: str, limit: int = 200) -> list[Candle]:
+    async def fetch_recent(
+        self, symbol: Symbol, timeframe: str, limit: int = 200
+    ) -> list[Candle]:
         candles = await self._fetch(symbol, timeframe, None, limit)
         now = datetime.now(timezone.utc).timestamp()
         duration = self._timeframe_seconds(timeframe)
-        return [c for c in candles if c.timestamp.timestamp() + duration <= now][-limit:]
+        return [c for c in candles if c.timestamp.timestamp() + duration <= now][
+            -limit:
+        ]
 
     @staticmethod
     def _timeframe_seconds(timeframe: str) -> int:
@@ -180,32 +204,47 @@ class AlpacaSource(DataSource):
         if self._adapter is not None:
             return self._adapter
         from trading_agent.exchanges.alpaca_adapter import create_alpaca_adapter
+
         return create_alpaca_adapter()
 
-    async def fetch_candles(self, symbol: Symbol, timeframe: str, start: datetime, end: datetime) -> list[Candle]:
+    async def fetch_candles(
+        self, symbol: Symbol, timeframe: str, start: datetime, end: datetime
+    ) -> list[Candle]:
         client = self._get_client()
-        return await asyncio.to_thread(self._fetch_sync, client, symbol, timeframe, start, end)
+        return await asyncio.to_thread(
+            self._fetch_sync, client, symbol, timeframe, start, end
+        )
 
-    def _fetch_sync(self, client, symbol: Symbol, timeframe: str, start: datetime, end: datetime) -> list[Candle]:
-        raw = client.get_bars(symbol.alpaca_symbol, timeframe=timeframe, start=start, end=end)
+    def _fetch_sync(
+        self, client, symbol: Symbol, timeframe: str, start: datetime, end: datetime
+    ) -> list[Candle]:
+        raw = client.get_bars(
+            symbol.alpaca_symbol, timeframe=timeframe, start=start, end=end
+        )
         out = []
         for bar in raw:
-            out.append(Candle(
-                symbol=symbol,
-                timestamp=bar.timestamp,
-                timeframe=timeframe,
-                open=Decimal(str(bar.open)),
-                high=Decimal(str(bar.high)),
-                low=Decimal(str(bar.low)),
-                close=Decimal(str(bar.close)),
-                volume=Decimal(str(bar.volume)),
-            ))
+            out.append(
+                Candle(
+                    symbol=symbol,
+                    timestamp=bar.timestamp,
+                    timeframe=timeframe,
+                    open=Decimal(str(bar.open)),
+                    high=Decimal(str(bar.high)),
+                    low=Decimal(str(bar.low)),
+                    close=Decimal(str(bar.close)),
+                    volume=Decimal(str(bar.volume)),
+                )
+            )
         return out
 
-    async def fetch_recent(self, symbol: Symbol, timeframe: str, limit: int = 200) -> list[Candle]:
+    async def fetch_recent(
+        self, symbol: Symbol, timeframe: str, limit: int = 200
+    ) -> list[Candle]:
         end = datetime.now(timezone.utc)
         # rough window: estimate bars per day
-        per_day = {"1m": 390, "5m": 78, "15m": 26, "30m": 13, "1h": 6.5, "1d": 1}.get(timeframe, 24)
+        per_day = {"1m": 390, "5m": 78, "15m": 26, "30m": 13, "1h": 6.5, "1d": 1}.get(
+            timeframe, 24
+        )
         days = max(1, int(limit / per_day) + 1)
         start = end - __import__("datetime").timedelta(days=days)
         candles = await self.fetch_candles(symbol, timeframe, start, end)
@@ -220,11 +259,19 @@ class OANDASource(DataSource):
     def __init__(self, adapter=None):
         self._adapter = adapter
 
-    async def fetch_candles(self, symbol: Symbol, timeframe: str, start: datetime, end: datetime) -> list[Candle]:
-        raise NotImplementedError("OANDA candle API requires the oandapyV20 client; wire in via adapter subclass")
+    async def fetch_candles(
+        self, symbol: Symbol, timeframe: str, start: datetime, end: datetime
+    ) -> list[Candle]:
+        raise NotImplementedError(
+            "OANDA candle API requires the oandapyV20 client; wire in via adapter subclass"
+        )
 
-    async def fetch_recent(self, symbol: Symbol, timeframe: str, limit: int = 200) -> list[Candle]:
-        raise NotImplementedError("OANDA candle API requires the oandapyV20 client; wire in via adapter subclass")
+    async def fetch_recent(
+        self, symbol: Symbol, timeframe: str, limit: int = 200
+    ) -> list[Candle]:
+        raise NotImplementedError(
+            "OANDA candle API requires the oandapyV20 client; wire in via adapter subclass"
+        )
 
 
 class MockSource(DataSource):
@@ -236,9 +283,18 @@ class MockSource(DataSource):
         self.price = seed
         self.volatility = volatility
 
-    async def fetch_candles(self, symbol: Symbol, timeframe: str, start: datetime, end: datetime) -> list[Candle]:
+    async def fetch_candles(
+        self, symbol: Symbol, timeframe: str, start: datetime, end: datetime
+    ) -> list[Candle]:
         out = []
-        step = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600, "4h": 14400, "1d": 86400}.get(timeframe, 3600)
+        step = {
+            "1m": 60,
+            "5m": 300,
+            "15m": 900,
+            "1h": 3600,
+            "4h": 14400,
+            "1d": 86400,
+        }.get(timeframe, 3600)
         cursor = start
         while cursor < end:
             out.append(self._candle(symbol, timeframe, cursor))
@@ -246,14 +302,24 @@ class MockSource(DataSource):
             cursor = datetime.fromtimestamp(cursor, tz=timezone.utc)
         return out
 
-    async def fetch_recent(self, symbol: Symbol, timeframe: str, limit: int = 200) -> list[Candle]:
+    async def fetch_recent(
+        self, symbol: Symbol, timeframe: str, limit: int = 200
+    ) -> list[Candle]:
         end = datetime.now(timezone.utc)
-        step = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600, "4h": 14400, "1d": 86400}.get(timeframe, 3600)
+        step = {
+            "1m": 60,
+            "5m": 300,
+            "15m": 900,
+            "1h": 3600,
+            "4h": 14400,
+            "1d": 86400,
+        }.get(timeframe, 3600)
         start = datetime.fromtimestamp(end.timestamp() - step * limit, tz=timezone.utc)
         return await self.fetch_candles(symbol, timeframe, start, end)
 
     def _candle(self, symbol: Symbol, timeframe: str, ts: datetime) -> Candle:
         import random
+
         o = self.price if isinstance(self.price, Decimal) else Decimal(str(self.price))
         o_f = float(o)
         delta = o_f * self.volatility * (random.random() - 0.5)
@@ -266,8 +332,13 @@ class MockSource(DataSource):
         low = min(o, c) * lower_scale
         self.price = c
         return Candle(
-            symbol=symbol, timestamp=ts, timeframe=timeframe,
-            open=o, high=h, low=low, close=c,
+            symbol=symbol,
+            timestamp=ts,
+            timeframe=timeframe,
+            open=o,
+            high=h,
+            low=low,
+            close=c,
             volume=Decimal(str(round(random.random() * 1000, 4))),
         )
 
@@ -275,6 +346,7 @@ class MockSource(DataSource):
 # ---------------------------------------------------------------------------
 # Stores
 # ---------------------------------------------------------------------------
+
 
 class CandleStore(ABC):
     """Persistent store for normalized candles."""
@@ -284,7 +356,9 @@ class CandleStore(ABC):
         """Insert candles (idempotent by key). Returns rows written."""
 
     @abstractmethod
-    async def read(self, symbol: Symbol, timeframe: str, start: datetime, end: datetime) -> list[Candle]:
+    async def read(
+        self, symbol: Symbol, timeframe: str, start: datetime, end: datetime
+    ) -> list[Candle]:
         """Read candles in [start, end)."""
 
     @abstractmethod
@@ -321,7 +395,9 @@ class SQLiteCandleStore(CandleStore):
             )
             """
         )
-        self._conn.execute("CREATE INDEX IF NOT EXISTS idx_candles_lookup ON candles(exchange, symbol, timeframe, ts)")
+        self._conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_candles_lookup ON candles(exchange, symbol, timeframe, ts)"
+        )
         self._conn.commit()
 
     def _key(self, symbol: Symbol) -> str:
@@ -330,11 +406,20 @@ class SQLiteCandleStore(CandleStore):
     def _write_sync(self, candles: list[Candle]) -> int:
         rows = []
         for c in candles:
-            rows.append((
-                c.symbol.exchange, self._key(c.symbol), c.symbol.asset_class.value,
-                c.timeframe, int(c.timestamp.timestamp() * 1000),
-                str(c.open), str(c.high), str(c.low), str(c.close), str(c.volume),
-            ))
+            rows.append(
+                (
+                    c.symbol.exchange,
+                    self._key(c.symbol),
+                    c.symbol.asset_class.value,
+                    c.timeframe,
+                    int(c.timestamp.timestamp() * 1000),
+                    str(c.open),
+                    str(c.high),
+                    str(c.low),
+                    str(c.close),
+                    str(c.volume),
+                )
+            )
         with self._lock:
             self._conn.executemany(
                 """
@@ -352,7 +437,9 @@ class SQLiteCandleStore(CandleStore):
             return 0
         return await asyncio.to_thread(self._write_sync, candles)
 
-    def _read_sync(self, symbol: Symbol, timeframe: str, start: datetime, end: datetime) -> list[Candle]:
+    def _read_sync(
+        self, symbol: Symbol, timeframe: str, start: datetime, end: datetime
+    ) -> list[Candle]:
         with self._lock:
             cur = self._conn.execute(
                 """
@@ -362,26 +449,40 @@ class SQLiteCandleStore(CandleStore):
                 ORDER BY ts ASC
                 """,
                 (
-                    symbol.exchange, self._key(symbol), timeframe,
-                    int(start.timestamp() * 1000), int(end.timestamp() * 1000),
+                    symbol.exchange,
+                    self._key(symbol),
+                    timeframe,
+                    int(start.timestamp() * 1000),
+                    int(end.timestamp() * 1000),
                 ),
             )
             out = []
             for row in cur.fetchall():
-                out.append(Candle(
-                    symbol=Symbol(
-                        base=row[1].split("/")[0], quote=row[1].split("/")[1],
-                        asset_class=AssetClass(row[2]),
-                        market_type=symbol.market_type, exchange=row[0],
-                    ),
-                    timestamp=datetime.fromtimestamp(row[4] / 1000.0, tz=timezone.utc),
-                    timeframe=row[3],
-                    open=Decimal(row[5]), high=Decimal(row[6]),
-                    low=Decimal(row[7]), close=Decimal(row[8]), volume=Decimal(row[9]),
-                ))
+                out.append(
+                    Candle(
+                        symbol=Symbol(
+                            base=row[1].split("/")[0],
+                            quote=row[1].split("/")[1],
+                            asset_class=AssetClass(row[2]),
+                            market_type=symbol.market_type,
+                            exchange=row[0],
+                        ),
+                        timestamp=datetime.fromtimestamp(
+                            row[4] / 1000.0, tz=timezone.utc
+                        ),
+                        timeframe=row[3],
+                        open=Decimal(row[5]),
+                        high=Decimal(row[6]),
+                        low=Decimal(row[7]),
+                        close=Decimal(row[8]),
+                        volume=Decimal(row[9]),
+                    )
+                )
             return out
 
-    async def read(self, symbol: Symbol, timeframe: str, start: datetime, end: datetime) -> list[Candle]:
+    async def read(
+        self, symbol: Symbol, timeframe: str, start: datetime, end: datetime
+    ) -> list[Candle]:
         return await asyncio.to_thread(self._read_sync, symbol, timeframe, start, end)
 
     def _count_sync(self, symbol: Symbol, timeframe: str) -> int:
@@ -410,13 +511,19 @@ class SQLiteCandleStore(CandleStore):
             return None
         return Candle(
             symbol=Symbol(
-                base=row[1].split("/")[0], quote=row[1].split("/")[1],
-                asset_class=AssetClass(row[2]), market_type=symbol.market_type, exchange=row[0],
+                base=row[1].split("/")[0],
+                quote=row[1].split("/")[1],
+                asset_class=AssetClass(row[2]),
+                market_type=symbol.market_type,
+                exchange=row[0],
             ),
             timestamp=datetime.fromtimestamp(row[4] / 1000.0, tz=timezone.utc),
             timeframe=row[3],
-            open=Decimal(row[5]), high=Decimal(row[6]),
-            low=Decimal(row[7]), close=Decimal(row[8]), volume=Decimal(row[9]),
+            open=Decimal(row[5]),
+            high=Decimal(row[6]),
+            low=Decimal(row[7]),
+            close=Decimal(row[8]),
+            volume=Decimal(row[9]),
         )
 
     async def latest(self, symbol: Symbol, timeframe: str) -> Optional[Candle]:
@@ -439,7 +546,9 @@ class TimescaleDBCandleStore(CandleStore):
         try:
             import psycopg
         except ImportError as e:
-            raise ImportError("TimescaleDBCandleStore requires `pip install psycopg[binary]`") from e
+            raise ImportError(
+                "TimescaleDBCandleStore requires `pip install psycopg[binary]`"
+            ) from e
         self._psycopg = psycopg
         self._conn = psycopg.connect(dsn, autocommit=True)
         self._ensure_schema()
@@ -472,9 +581,16 @@ class TimescaleDBCandleStore(CandleStore):
             return 0
         rows = [
             (
-                c.symbol.exchange, f"{c.symbol.base}/{c.symbol.quote}", c.symbol.asset_class.value,
-                c.timeframe, c.timestamp, float(c.open), float(c.high),
-                float(c.low), float(c.close), float(c.volume),
+                c.symbol.exchange,
+                f"{c.symbol.base}/{c.symbol.quote}",
+                c.symbol.asset_class.value,
+                c.timeframe,
+                c.timestamp,
+                float(c.open),
+                float(c.high),
+                float(c.low),
+                float(c.close),
+                float(c.volume),
             )
             for c in candles
         ]
@@ -492,7 +608,9 @@ class TimescaleDBCandleStore(CandleStore):
             )
         return len(rows)
 
-    async def read(self, symbol: Symbol, timeframe: str, start: datetime, end: datetime) -> list[Candle]:
+    async def read(
+        self, symbol: Symbol, timeframe: str, start: datetime, end: datetime
+    ) -> list[Candle]:
         with self._conn.cursor() as cur:
             cur.execute(
                 f"""
@@ -501,7 +619,13 @@ class TimescaleDBCandleStore(CandleStore):
                 WHERE exchange=%s AND symbol=%s AND timeframe=%s AND ts>=%s AND ts<=%s
                 ORDER BY ts ASC
                 """,
-                (symbol.exchange, f"{symbol.base}/{symbol.quote}", timeframe, start, end),
+                (
+                    symbol.exchange,
+                    f"{symbol.base}/{symbol.quote}",
+                    timeframe,
+                    start,
+                    end,
+                ),
             )
             return [self._row_to_candle(symbol, r) for r in cur.fetchall()]
 
@@ -530,12 +654,20 @@ class TimescaleDBCandleStore(CandleStore):
     @staticmethod
     def _row_to_candle(symbol: Symbol, r) -> Candle:
         return Candle(
-            symbol=Symbol(base=r[1].split("/")[0], quote=r[1].split("/")[1],
-                          asset_class=AssetClass(r[2]), market_type=symbol.market_type,
-                          exchange=r[0]),
-            timestamp=r[4], timeframe=r[3],
-            open=Decimal(str(r[5])), high=Decimal(str(r[6])),
-            low=Decimal(str(r[7])), close=Decimal(str(r[8])), volume=Decimal(str(r[9])),
+            symbol=Symbol(
+                base=r[1].split("/")[0],
+                quote=r[1].split("/")[1],
+                asset_class=AssetClass(r[2]),
+                market_type=symbol.market_type,
+                exchange=r[0],
+            ),
+            timestamp=r[4],
+            timeframe=r[3],
+            open=Decimal(str(r[5])),
+            high=Decimal(str(r[6])),
+            low=Decimal(str(r[7])),
+            close=Decimal(str(r[8])),
+            volume=Decimal(str(r[9])),
         )
 
     def close(self) -> None:
@@ -546,13 +678,15 @@ class TimescaleDBCandleStore(CandleStore):
 # Pipeline
 # ---------------------------------------------------------------------------
 
+
 @dataclass(slots=True)
 class IngestReport:
     """Result of one ingest run."""
+
     total_written: int = 0
     total_read: int = 0
-    symbols: dict[str, int] = field(default_factory=dict)   # key -> candles written
-    errors: dict[str, str] = field(default_factory=dict)    # key -> error message
+    symbols: dict[str, int] = field(default_factory=dict)  # key -> candles written
+    errors: dict[str, str] = field(default_factory=dict)  # key -> error message
     started_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     finished_at: Optional[datetime] = None
     elapsed_seconds: float = 0.0
@@ -572,7 +706,9 @@ class IngestReport:
 class DataPipeline:
     """Orchestrates multi-asset candle ingestion."""
 
-    def __init__(self, store: CandleStore, sources: Optional[dict[str, DataSource]] = None):
+    def __init__(
+        self, store: CandleStore, sources: Optional[dict[str, DataSource]] = None
+    ):
         self.store = store
         self.sources: dict[str, DataSource] = sources or {}
 
@@ -591,7 +727,9 @@ class DataPipeline:
         name = by_asset.get(symbol.asset_class, symbol.exchange)
         source = self.sources.get(name) or self.sources.get(symbol.exchange)
         if source is None:
-            raise ValueError(f"No source registered for {symbol.asset_class.value}/{symbol.exchange}")
+            raise ValueError(
+                f"No source registered for {symbol.asset_class.value}/{symbol.exchange}"
+            )
         return source
 
     async def ingest(
@@ -621,7 +759,9 @@ class DataPipeline:
         report.elapsed_seconds = time.monotonic() - begin
         return report
 
-    async def incremental(self, symbols: list[Symbol], timeframe: str, limit: int = 200) -> IngestReport:
+    async def incremental(
+        self, symbols: list[Symbol], timeframe: str, limit: int = 200
+    ) -> IngestReport:
         """Ingest the most recent `limit` candles per symbol."""
         report = IngestReport()
         begin = time.monotonic()
@@ -657,6 +797,7 @@ if __name__ == "__main__":
         pipeline = DataPipeline(store=store, sources={"mock": MockSource(seed=50000)})
 
         from trading_agent.exchanges.models import crypto_symbol
+
         btc = crypto_symbol("BTC", "USDT", exchange="mock")
 
         start = datetime(2026, 7, 1, tzinfo=timezone.utc)

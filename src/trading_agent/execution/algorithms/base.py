@@ -18,12 +18,12 @@ from trading_agent.execution.simulator.versions import ALGORITHMS_VERSION
 class MarketSnapshot:
     """What the algorithm observes about the market at a decision point."""
 
-    mid: float                       # current mid price
-    spread_bps: float                # current bid-ask spread in bps
-    bid_depth: float                 # total resting size on the bid side
-    ask_depth: float                 # total resting size on the ask side
-    recent_volume: float             # observed (recent bar) traded volume
-    volatility_bps: float            # realized volatility estimate in bps
+    mid: float  # current mid price
+    spread_bps: float  # current bid-ask spread in bps
+    bid_depth: float  # total resting size on the bid side
+    ask_depth: float  # total resting size on the ask side
+    recent_volume: float  # observed (recent bar) traded volume
+    volatility_bps: float  # realized volatility estimate in bps
 
     def depth_for_side(self, is_buy: bool) -> float:
         return self.ask_depth if is_buy else self.bid_depth
@@ -46,13 +46,13 @@ class SliceContext:
     """Parent-order state at a decision point."""
 
     snapshot: MarketSnapshot
-    remaining_qty: float             # quantity still to work
-    elapsed_bars: int                # bars since the parent order started
-    total_bars: int                  # deadline in bars
-    filled_qty: float                # quantity filled so far
-    slippage_paid_bps: float         # accumulated slippage vs arrival mid
-    slippage_budget_bps: float       # hard cap on slippage (fail closed)
-    max_participation: float         # 0..1 — cap as fraction of observed volume
+    remaining_qty: float  # quantity still to work
+    elapsed_bars: int  # bars since the parent order started
+    total_bars: int  # deadline in bars
+    filled_qty: float  # quantity filled so far
+    slippage_paid_bps: float  # accumulated slippage vs arrival mid
+    slippage_budget_bps: float  # hard cap on slippage (fail closed)
+    max_participation: float  # 0..1 — cap as fraction of observed volume
     is_buy: bool = True
 
     @property
@@ -91,8 +91,8 @@ class SliceContext:
 class SliceResult:
     """Outcome of asking an algorithm for the next slice."""
 
-    quantity: float                  # 0 → no slice this bar
-    reason: str = "ok"               # e.g. "done", "budget_exhausted", "deadline"
+    quantity: float  # 0 → no slice this bar
+    reason: str = "ok"  # e.g. "done", "budget_exhausted", "deadline"
 
     @property
     def has_slice(self) -> bool:
@@ -103,7 +103,9 @@ class SliceResult:
 class ExecutionAlgorithm(Protocol):
     """Any deterministic slice-selection algorithm."""
 
-    def next_slice(self, ctx: SliceContext) -> SliceResult:  # pragma: no cover - protocol
+    def next_slice(
+        self, ctx: SliceContext
+    ) -> SliceResult:  # pragma: no cover - protocol
         ...
 
 

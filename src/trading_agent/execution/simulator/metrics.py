@@ -112,7 +112,9 @@ class ExecutionMetrics:
             "fill_ratio": round(self.fill_ratio, 6),
             "slippage_bps": round(self.slippage_bps, 4),
             "implementation_shortfall_bps": round(self.implementation_shortfall_bps, 4),
-            "implementation_shortfall_quote": round(self.implementation_shortfall_quote, 8),
+            "implementation_shortfall_quote": round(
+                self.implementation_shortfall_quote, 8
+            ),
             "spread_cost_quote": round(self.spread_cost_quote, 8),
             "impact_cost_quote": round(self.impact_cost_quote, 8),
             "delay_cost_quote": round(self.delay_cost_quote, 8),
@@ -184,15 +186,21 @@ def compute_execution_metrics(
             delay_num += direction * (o.submit_price - o.arrival_price) * qty
             delay_denom += o.arrival_price * qty
         if o.submit_time and o.first_fill_time:
-            latencies_ms.append((o.first_fill_time - o.submit_time).total_seconds() * 1000.0)
+            latencies_ms.append(
+                (o.first_fill_time - o.submit_time).total_seconds() * 1000.0
+            )
 
     is_bps_total = (
         is_quote / max(is_notional, 1e-12) * 10_000.0 if is_notional > 0 else 0.0
     )
     slippage_bps = (
-        slippage_num / max(slippage_denom, 1e-12) * 10_000.0 if slippage_denom > 0 else 0.0
+        slippage_num / max(slippage_denom, 1e-12) * 10_000.0
+        if slippage_denom > 0
+        else 0.0
     )
-    delay_bps = delay_num / max(delay_denom, 1e-12) * 10_000.0 if delay_denom > 0 else 0.0
+    delay_bps = (
+        delay_num / max(delay_denom, 1e-12) * 10_000.0 if delay_denom > 0 else 0.0
+    )
 
     # ── Spread / impact split (from per-fill book prices) ───────────────
     # Cost convention: for a buy, paying above mid is a cost; for a sell,
@@ -216,7 +224,9 @@ def compute_execution_metrics(
     # filled, measured at arrival price.  Reported as an absolute magnitude
     # (for buys it is capital that earned nothing; for sells it is forgone
     # proceeds) — conservative and auditable.
-    opportunity_cost_abs = sum(o.remaining_quantity * (o.arrival_price or 0.0) for o in orders)
+    opportunity_cost_abs = sum(
+        o.remaining_quantity * (o.arrival_price or 0.0) for o in orders
+    )
 
     fees_quote = ledger.total_fees()
 
@@ -252,7 +262,11 @@ def compute_execution_metrics(
                 max_dd = min(max_dd, (v - peak) / peak)
         total_return_pct = (final_equity / ledger.initial_cash_quote - 1.0) * 100
     else:
-        final_equity = ledger.equity_at_mid(ledger.arrival_price or 0.0) if ledger.arrival_price else ledger.cash_quote
+        final_equity = (
+            ledger.equity_at_mid(ledger.arrival_price or 0.0)
+            if ledger.arrival_price
+            else ledger.cash_quote
+        )
         total_return_pct = 0.0
         sharpe = 0.0
         max_dd = 0.0
@@ -296,7 +310,9 @@ def compute_execution_metrics(
     return metrics
 
 
-def attribution_report(metrics: ExecutionMetrics, theoretical_alpha_pnl: float) -> Attribution:
+def attribution_report(
+    metrics: ExecutionMetrics, theoretical_alpha_pnl: float
+) -> Attribution:
     """Finalize attribution with the theoretical alpha PnL.
 
     ``theoretical_alpha_pnl`` is the PnL the strategy would have captured at
@@ -310,7 +326,11 @@ def attribution_report(metrics: ExecutionMetrics, theoretical_alpha_pnl: float) 
     attr = metrics.attribution
     attr.theoretical_alpha_pnl = theoretical_alpha_pnl
     attr.execution_cost = (
-        attr.spread_cost + attr.impact_cost + attr.delay_cost + attr.fees + attr.opportunity_cost
+        attr.spread_cost
+        + attr.impact_cost
+        + attr.delay_cost
+        + attr.fees
+        + attr.opportunity_cost
     )
     attr.realized_pnl = theoretical_alpha_pnl - attr.execution_cost
     attr.market_pnl_pre_fee = metrics.attribution.realized_pnl

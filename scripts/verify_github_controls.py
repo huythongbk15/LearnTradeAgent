@@ -37,13 +37,15 @@ def default_repo() -> str:
     try:
         remote = subprocess.run(
             ["git", "remote", "get-url", "origin"],
-            capture_output=True, text=True, check=True,
+            capture_output=True,
+            text=True,
+            check=True,
         ).stdout.strip()
     except subprocess.CalledProcessError:
         return ""
     for prefix in ("https://github.com/", "git@github.com:"):
         if remote.startswith(prefix):
-            return remote[len(prefix):].removesuffix(".git")
+            return remote[len(prefix) :].removesuffix(".git")
     return ""
 
 
@@ -55,7 +57,9 @@ def _get_json(url: str, token: str) -> dict:
         return json.loads(response.read().decode("utf-8"))
 
 
-def check_branch_protection(repo: str, branch: str, token: str) -> tuple[dict, list[str]]:
+def check_branch_protection(
+    repo: str, branch: str, token: str
+) -> tuple[dict, list[str]]:
     url = f"https://api.github.com/repos/{repo}/branches/{branch}/protection"
     try:
         data = _get_json(url, token)
@@ -66,14 +70,17 @@ def check_branch_protection(repo: str, branch: str, token: str) -> tuple[dict, l
     findings: dict[str, bool] = {
         "require_pull_request": bool(data.get("required_pull_request_reviews")),
         "require_last_push_approval": bool(
-            (data.get("required_pull_request_reviews") or {}).get("require_last_push_approval")
+            (data.get("required_pull_request_reviews") or {}).get(
+                "require_last_push_approval"
+            )
         ),
         "enforce_admins": bool(data.get("enforce_admins", {}).get("enabled")),
         "require_ci": bool(
             (data.get("required_status_checks") or {}).get("contexts")
             or (data.get("required_status_checks") or {}).get("checks")
         ),
-        "block_force_push": bool((data.get("allow_force_pushes") or {}).get("enabled")) is False,
+        "block_force_push": bool((data.get("allow_force_pushes") or {}).get("enabled"))
+        is False,
     }
     missing = [name for name, ok in findings.items() if not ok]
     return findings, missing
@@ -115,7 +122,9 @@ def main() -> int:
         print("cannot verify: GITHUB_TOKEN not set", file=sys.stderr)
         return 2
     if not repo:
-        print("cannot verify: no --repo and could not parse git remote", file=sys.stderr)
+        print(
+            "cannot verify: no --repo and could not parse git remote", file=sys.stderr
+        )
         return 2
 
     code = 0

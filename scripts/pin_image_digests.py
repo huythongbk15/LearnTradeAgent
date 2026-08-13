@@ -7,6 +7,7 @@ Local build images (trading-agent, learntradeagent) are left untouched.
 
 Usage: python scripts/pin_image_digests.py [--write]
 """
+
 from __future__ import annotations
 
 import argparse
@@ -57,10 +58,7 @@ def hub_digest(repo: str, tag: str) -> str:
 
 def _hub_latest_matching(repo: str, tag: str) -> dict:
     """Return the tag payload for the newest version matching a prefix."""
-    url = (
-        f"https://hub.docker.com/v2/repositories/{repo}/tags"
-        f"?page_size=100&name={tag}"
-    )
+    url = f"https://hub.docker.com/v2/repositories/{repo}/tags?page_size=100&name={tag}"
     with urllib.request.urlopen(url, timeout=30) as resp:
         data = json.load(resp)
     results = data.get("results") or []
@@ -79,7 +77,9 @@ def registry_digest(image: str) -> str:
     namespace, _, repo = rest.rpartition("/")
     name = f"{namespace}/{repo}"
     if registry == "quay.io":
-        token_url = f"https://quay.io/v2/auth?service=quay.io&scope=repository:{name}:pull"
+        token_url = (
+            f"https://quay.io/v2/auth?service=quay.io&scope=repository:{name}:pull"
+        )
     else:
         token_url = (
             f"https://{registry}/token?scope=repository:{name}:pull&service="

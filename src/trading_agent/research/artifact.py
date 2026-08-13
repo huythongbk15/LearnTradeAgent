@@ -48,10 +48,7 @@ def canonical_params(params: dict[str, Any]) -> str:
 def data_manifest_hash(df) -> str:
     """sha256 of a market-data frame's rows (values only, stable order)."""
     payload = json.dumps(
-        [
-            [str(v) for v in row]
-            for row in df.sort("timestamp").iter_rows()
-        ],
+        [[str(v) for v in row] for row in df.sort("timestamp").iter_rows()],
         separators=(",", ":"),
     )
     return sha256_hex(payload)
@@ -83,7 +80,9 @@ class StrategyArtifact:
             "framework_version": self.framework_version,
             "metadata": json.dumps(self.metadata, sort_keys=True, default=str),
         }
-        return sha256_hex(json.dumps(payload, sort_keys=True, separators=(",", ":")))[:24]
+        return sha256_hex(json.dumps(payload, sort_keys=True, separators=(",", ":")))[
+            :24
+        ]
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -136,7 +135,9 @@ class ArtifactStore:
 
     def add(self, artifact: StrategyArtifact) -> None:
         if artifact.artifact_id in self._artifacts:
-            raise ValueError(f"artifact {artifact.artifact_id} already exists (immutable store)")
+            raise ValueError(
+                f"artifact {artifact.artifact_id} already exists (immutable store)"
+            )
         self._artifacts[artifact.artifact_id] = artifact
 
     def get(self, artifact_id: str) -> StrategyArtifact | None:
@@ -153,7 +154,11 @@ class ArtifactStore:
         while cur is not None and cur.artifact_id not in seen:
             seen.add(cur.artifact_id)
             chain.append(cur)
-            cur = self._artifacts.get(cur.prev_artifact_id) if cur.prev_artifact_id else None
+            cur = (
+                self._artifacts.get(cur.prev_artifact_id)
+                if cur.prev_artifact_id
+                else None
+            )
         return chain
 
     def unique_strategies(self) -> set[str]:
@@ -202,18 +207,22 @@ def _row_integrity_payload(row: dict[str, Any]) -> str:
     """Stable serialization of row fields for integrity hashing."""
     # Match the insertion format exactly: None -> ""
     prev_id = row["prev_artifact_id"] or ""
-    return json.dumps({
-        "artifact_id": row["artifact_id"],
-        "strategy_name": row["strategy_name"],
-        "code_sha": row["code_sha"],
-        "data_manifest_sha": row["data_manifest_sha"],
-        "parameter_hash": row["parameter_hash"],
-        "execution_model_version": row["execution_model_version"],
-        "framework_version": row["framework_version"],
-        "created_at": row["created_at"],
-        "prev_artifact_id": prev_id,
-        "metadata": row["metadata"],
-    }, sort_keys=True, separators=(",", ":"))
+    return json.dumps(
+        {
+            "artifact_id": row["artifact_id"],
+            "strategy_name": row["strategy_name"],
+            "code_sha": row["code_sha"],
+            "data_manifest_sha": row["data_manifest_sha"],
+            "parameter_hash": row["parameter_hash"],
+            "execution_model_version": row["execution_model_version"],
+            "framework_version": row["framework_version"],
+            "created_at": row["created_at"],
+            "prev_artifact_id": prev_id,
+            "metadata": row["metadata"],
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
 
 
 class PersistentArtifactStore:
@@ -248,6 +257,7 @@ class PersistentArtifactStore:
             # Copy current DB to temp if it exists
             if self.db_path.exists():
                 import shutil
+
                 shutil.copy2(self.db_path, temp_path)
             else:
                 # Fresh DB - temp file will be created by sqlite3.connect
@@ -283,11 +293,12 @@ class PersistentArtifactStore:
         with self._connect() as conn:
             # Check for duplicate
             cur = conn.execute(
-                "SELECT 1 FROM artifacts WHERE artifact_id = ?",
-                (artifact.artifact_id,)
+                "SELECT 1 FROM artifacts WHERE artifact_id = ?", (artifact.artifact_id,)
             )
             if cur.fetchone():
-                raise ValueError(f"artifact {artifact.artifact_id} already exists (immutable store)")
+                raise ValueError(
+                    f"artifact {artifact.artifact_id} already exists (immutable store)"
+                )
 
             # Compute integrity hash: chain from previous global row
             prev_hash = self._get_latest_integrity_hash(conn)
@@ -305,26 +316,28 @@ class PersistentArtifactStore:
             }
             integrity_hash = sha256_hex(prev_hash + _row_integrity_payload(row_dict))
 
-            conn.execute(_INSERT_SQL, (
-                artifact.artifact_id,
-                artifact.strategy_name,
-                artifact.code_sha,
-                artifact.data_manifest_sha,
-                artifact.parameter_hash,
-                artifact.execution_model_version,
-                artifact.framework_version,
-                artifact.created_at.isoformat(),
-                artifact.prev_artifact_id,
-                json.dumps(artifact.metadata, sort_keys=True, default=str),
-                integrity_hash,
-            ))
+            conn.execute(
+                _INSERT_SQL,
+                (
+                    artifact.artifact_id,
+                    artifact.strategy_name,
+                    artifact.code_sha,
+                    artifact.data_manifest_sha,
+                    artifact.parameter_hash,
+                    artifact.execution_model_version,
+                    artifact.framework_version,
+                    artifact.created_at.isoformat(),
+                    artifact.prev_artifact_id,
+                    json.dumps(artifact.metadata, sort_keys=True, default=str),
+                    integrity_hash,
+                ),
+            )
 
     def get(self, artifact_id: str) -> StrategyArtifact | None:
         """Retrieve an artifact by ID."""
         with self._connect() as conn:
             cur = conn.execute(
-                "SELECT * FROM artifacts WHERE artifact_id = ?",
-                (artifact_id,)
+                "SELECT * FROM artifacts WHERE artifact_id = ?", (artifact_id,)
             )
             row = cur.fetchone()
             if not row:
@@ -336,7 +349,7 @@ class PersistentArtifactStore:
         with self._connect() as conn:
             cur = conn.execute(
                 "SELECT * FROM artifacts WHERE strategy_name = ? ORDER BY rowid ASC",
-                (strategy_name,)
+                (strategy_name,),
             )
             return [self._row_to_artifact(dict(r)) for r in cur.fetchall()]
 
@@ -378,19 +391,28 @@ class PersistentArtifactStore:
             # 1. Verify integrity_hash chain
             expected_hash = sha256_hex(prev_hash + _row_integrity_payload(row))
             if row["integrity_hash"] != expected_hash:
-                return False, f"integrity chain broken at rowid {i+1} (artifact {row['artifact_id']}): expected {expected_hash}, got {row['integrity_hash']}"
+                return (
+                    False,
+                    f"integrity chain broken at rowid {i + 1} (artifact {row['artifact_id']}): expected {expected_hash}, got {row['integrity_hash']}",
+                )
             prev_hash = row["integrity_hash"]
 
             # 2. Verify artifact_id content hash
             art = self._row_to_artifact(row)
             if art.artifact_id != row["artifact_id"]:
-                return False, f"artifact_id mismatch for {row['artifact_id']}: recomputed {art.artifact_id}"
+                return (
+                    False,
+                    f"artifact_id mismatch for {row['artifact_id']}: recomputed {art.artifact_id}",
+                )
 
             # 3. Verify prev_artifact_id link (if present)
             if row["prev_artifact_id"]:
                 prev_art = self.get(row["prev_artifact_id"])
                 if prev_art is None:
-                    return False, f"prev_artifact_id {row['prev_artifact_id']} not found for {row['artifact_id']}"
+                    return (
+                        False,
+                        f"prev_artifact_id {row['prev_artifact_id']} not found for {row['artifact_id']}",
+                    )
 
         return True, None
 

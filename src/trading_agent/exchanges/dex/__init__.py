@@ -6,6 +6,6 @@ from trading_agent.exchanges.dex.pancakeswap import PancakeSwapAdapter
 
 __all__ = [
     "UniswapV3Adapter",
-    "JupiterAdapter", 
+    "JupiterAdapter",
     "PancakeSwapAdapter",
 ]

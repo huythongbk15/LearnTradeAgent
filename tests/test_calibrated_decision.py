@@ -84,18 +84,34 @@ class TestCalibratedDecision:
     def test_uncertainty_state_derivation(self):
         # HIGH uncertainty
         high = CalibratedDecision(
-            action_probabilities={Action.INCREASE: 0.1, Action.HOLD: 0.2, Action.REDUCE: 0.3, Action.ABSTAIN: 0.4},
-            expected_return=0.5, prediction_interval_lower=-2.0, prediction_interval_upper=3.0,
-            calibration_score=0.4, ood_score=0.8,
+            action_probabilities={
+                Action.INCREASE: 0.1,
+                Action.HOLD: 0.2,
+                Action.REDUCE: 0.3,
+                Action.ABSTAIN: 0.4,
+            },
+            expected_return=0.5,
+            prediction_interval_lower=-2.0,
+            prediction_interval_upper=3.0,
+            calibration_score=0.4,
+            ood_score=0.8,
         )
         assert high.uncertainty_state == UncertaintyState.HIGH
         assert not high.can_increase_exposure
 
         # LOW uncertainty
         low = CalibratedDecision(
-            action_probabilities={Action.INCREASE: 0.5, Action.HOLD: 0.3, Action.REDUCE: 0.1, Action.ABSTAIN: 0.1},
-            expected_return=0.5, prediction_interval_lower=-0.2, prediction_interval_upper=1.2,
-            calibration_score=0.95, ood_score=0.05,
+            action_probabilities={
+                Action.INCREASE: 0.5,
+                Action.HOLD: 0.3,
+                Action.REDUCE: 0.1,
+                Action.ABSTAIN: 0.1,
+            },
+            expected_return=0.5,
+            prediction_interval_lower=-0.2,
+            prediction_interval_upper=1.2,
+            calibration_score=0.95,
+            ood_score=0.05,
         )
         assert low.uncertainty_state == UncertaintyState.LOW
         assert low.can_increase_exposure
@@ -127,9 +143,17 @@ class TestDecisionPolicy:
     def test_aggressive_allows_increase_at_lower_threshold(self):
         policy = DecisionPolicy("aggressive")
         decision = CalibratedDecision(
-            action_probabilities={Action.INCREASE: 0.4, Action.HOLD: 0.3, Action.REDUCE: 0.15, Action.ABSTAIN: 0.15},
-            expected_return=0.5, prediction_interval_lower=-0.2, prediction_interval_upper=1.2,
-            calibration_score=0.9, ood_score=0.1,
+            action_probabilities={
+                Action.INCREASE: 0.4,
+                Action.HOLD: 0.3,
+                Action.REDUCE: 0.15,
+                Action.ABSTAIN: 0.15,
+            },
+            expected_return=0.5,
+            prediction_interval_lower=-0.2,
+            prediction_interval_upper=1.2,
+            calibration_score=0.9,
+            ood_score=0.1,
         )
         allowed = policy.allowed_actions(decision)
         assert Action.INCREASE in allowed
@@ -137,17 +161,33 @@ class TestDecisionPolicy:
     def test_moderate_requires_higher_increase_prob(self):
         policy = DecisionPolicy("moderate")
         decision = CalibratedDecision(
-            action_probabilities={Action.INCREASE: 0.4, Action.HOLD: 0.3, Action.REDUCE: 0.15, Action.ABSTAIN: 0.15},
-            expected_return=0.5, prediction_interval_lower=-0.2, prediction_interval_upper=1.2,
-            calibration_score=0.9, ood_score=0.1,
+            action_probabilities={
+                Action.INCREASE: 0.4,
+                Action.HOLD: 0.3,
+                Action.REDUCE: 0.15,
+                Action.ABSTAIN: 0.15,
+            },
+            expected_return=0.5,
+            prediction_interval_lower=-0.2,
+            prediction_interval_upper=1.2,
+            calibration_score=0.9,
+            ood_score=0.1,
         )
         allowed = policy.allowed_actions(decision)
         assert Action.INCREASE not in allowed  # 0.4 < 0.50
 
         decision2 = CalibratedDecision(
-            action_probabilities={Action.INCREASE: 0.55, Action.HOLD: 0.25, Action.REDUCE: 0.1, Action.ABSTAIN: 0.1},
-            expected_return=0.5, prediction_interval_lower=-0.2, prediction_interval_upper=1.2,
-            calibration_score=0.9, ood_score=0.1,
+            action_probabilities={
+                Action.INCREASE: 0.55,
+                Action.HOLD: 0.25,
+                Action.REDUCE: 0.1,
+                Action.ABSTAIN: 0.1,
+            },
+            expected_return=0.5,
+            prediction_interval_lower=-0.2,
+            prediction_interval_upper=1.2,
+            calibration_score=0.9,
+            ood_score=0.1,
         )
         allowed = policy.allowed_actions(decision2)
         assert Action.INCREASE in allowed
@@ -155,17 +195,33 @@ class TestDecisionPolicy:
     def test_conservative_strict_thresholds(self):
         policy = DecisionPolicy("conservative")
         decision = CalibratedDecision(
-            action_probabilities={Action.INCREASE: 0.6, Action.HOLD: 0.2, Action.REDUCE: 0.1, Action.ABSTAIN: 0.1},
-            expected_return=0.5, prediction_interval_lower=-0.2, prediction_interval_upper=1.2,
-            calibration_score=0.9, ood_score=0.1,
+            action_probabilities={
+                Action.INCREASE: 0.6,
+                Action.HOLD: 0.2,
+                Action.REDUCE: 0.1,
+                Action.ABSTAIN: 0.1,
+            },
+            expected_return=0.5,
+            prediction_interval_lower=-0.2,
+            prediction_interval_upper=1.2,
+            calibration_score=0.9,
+            ood_score=0.1,
         )
         allowed = policy.allowed_actions(decision)
         assert Action.INCREASE not in allowed  # 0.6 < 0.65
 
         decision2 = CalibratedDecision(
-            action_probabilities={Action.INCREASE: 0.7, Action.HOLD: 0.15, Action.REDUCE: 0.05, Action.ABSTAIN: 0.1},
-            expected_return=0.5, prediction_interval_lower=-0.2, prediction_interval_upper=1.2,
-            calibration_score=0.9, ood_score=0.1,
+            action_probabilities={
+                Action.INCREASE: 0.7,
+                Action.HOLD: 0.15,
+                Action.REDUCE: 0.05,
+                Action.ABSTAIN: 0.1,
+            },
+            expected_return=0.5,
+            prediction_interval_lower=-0.2,
+            prediction_interval_upper=1.2,
+            calibration_score=0.9,
+            ood_score=0.1,
         )
         allowed = policy.allowed_actions(decision2)
         assert Action.INCREASE in allowed
@@ -174,9 +230,17 @@ class TestDecisionPolicy:
         for appetite in ("aggressive", "moderate", "conservative"):
             policy = DecisionPolicy(appetite)
             decision = CalibratedDecision(
-                action_probabilities={Action.INCREASE: 0.05, Action.HOLD: 0.1, Action.REDUCE: 0.15, Action.ABSTAIN: 0.7},
-                expected_return=0.5, prediction_interval_lower=-0.2, prediction_interval_upper=1.2,
-                calibration_score=0.9, ood_score=0.1,
+                action_probabilities={
+                    Action.INCREASE: 0.05,
+                    Action.HOLD: 0.1,
+                    Action.REDUCE: 0.15,
+                    Action.ABSTAIN: 0.7,
+                },
+                expected_return=0.5,
+                prediction_interval_lower=-0.2,
+                prediction_interval_upper=1.2,
+                calibration_score=0.9,
+                ood_score=0.1,
             )
             allowed = policy.allowed_actions(decision)
             assert Action.ABSTAIN in allowed
@@ -184,9 +248,17 @@ class TestDecisionPolicy:
     def test_reduce_allowed_on_high_uncertainty(self):
         policy = DecisionPolicy("moderate")
         decision = CalibratedDecision(
-            action_probabilities={Action.INCREASE: 0.1, Action.HOLD: 0.2, Action.REDUCE: 0.3, Action.ABSTAIN: 0.4},
-            expected_return=0.5, prediction_interval_lower=-2.0, prediction_interval_upper=3.0,
-            calibration_score=0.4, ood_score=0.8,  # HIGH uncertainty
+            action_probabilities={
+                Action.INCREASE: 0.1,
+                Action.HOLD: 0.2,
+                Action.REDUCE: 0.3,
+                Action.ABSTAIN: 0.4,
+            },
+            expected_return=0.5,
+            prediction_interval_lower=-2.0,
+            prediction_interval_upper=3.0,
+            calibration_score=0.4,
+            ood_score=0.8,  # HIGH uncertainty
         )
         allowed = policy.allowed_actions(decision)
         assert Action.REDUCE in allowed
@@ -195,17 +267,33 @@ class TestDecisionPolicy:
     def test_recommended_action_picks_highest_allowed(self):
         policy = DecisionPolicy("moderate")
         decision = CalibratedDecision(
-            action_probabilities={Action.INCREASE: 0.55, Action.HOLD: 0.25, Action.REDUCE: 0.1, Action.ABSTAIN: 0.1},
-            expected_return=0.5, prediction_interval_lower=-0.2, prediction_interval_upper=1.2,
-            calibration_score=0.9, ood_score=0.1,
+            action_probabilities={
+                Action.INCREASE: 0.55,
+                Action.HOLD: 0.25,
+                Action.REDUCE: 0.1,
+                Action.ABSTAIN: 0.1,
+            },
+            expected_return=0.5,
+            prediction_interval_lower=-0.2,
+            prediction_interval_upper=1.2,
+            calibration_score=0.9,
+            ood_score=0.1,
         )
         rec = policy.recommended_action(decision)
         assert rec == Action.INCREASE
 
         decision2 = CalibratedDecision(
-            action_probabilities={Action.INCREASE: 0.3, Action.HOLD: 0.5, Action.REDUCE: 0.1, Action.ABSTAIN: 0.1},
-            expected_return=0.5, prediction_interval_lower=-0.2, prediction_interval_upper=1.2,
-            calibration_score=0.9, ood_score=0.1,
+            action_probabilities={
+                Action.INCREASE: 0.3,
+                Action.HOLD: 0.5,
+                Action.REDUCE: 0.1,
+                Action.ABSTAIN: 0.1,
+            },
+            expected_return=0.5,
+            prediction_interval_lower=-0.2,
+            prediction_interval_upper=1.2,
+            calibration_score=0.9,
+            ood_score=0.1,
         )
         rec = policy.recommended_action(decision2)
         assert rec == Action.HOLD  # INCREASE not allowed, HOLD highest
@@ -222,6 +310,7 @@ class TestTemperatureScale:
 
     def test_temperature_1_is_softmax(self):
         import math
+
         logits = [2.0, 1.0, 0.0, -1.0]
         p = temperature_scale(logits, 1.0)
         expected = [math.exp(x) for x in logits]
@@ -264,7 +353,10 @@ class TestUncertaintySignalToDecision:
             ood_score=0.1,
         )
         decision = uncertainty_signal_to_decision(signal)
-        assert decision.action_probabilities[Action.INCREASE] > decision.action_probabilities[Action.REDUCE]
+        assert (
+            decision.action_probabilities[Action.INCREASE]
+            > decision.action_probabilities[Action.REDUCE]
+        )
         assert decision.uncertainty_state == UncertaintyState.LOW
 
     def test_negative_expected_return_maps_to_reduce(self):
@@ -276,7 +368,10 @@ class TestUncertaintySignalToDecision:
             ood_score=0.1,
         )
         decision = uncertainty_signal_to_decision(signal)
-        assert decision.action_probabilities[Action.REDUCE] > decision.action_probabilities[Action.INCREASE]
+        assert (
+            decision.action_probabilities[Action.REDUCE]
+            > decision.action_probabilities[Action.INCREASE]
+        )
 
     def test_low_calibration_shifts_to_abstain(self):
         signal = UncertaintySignal(
@@ -303,7 +398,9 @@ class TestUncertaintySignalToDecision:
         decision1 = uncertainty_signal_to_decision(signal, temperature=0.5)
         decision2 = uncertainty_signal_to_decision(signal, temperature=2.0)
         # Higher temperature should make distribution more uniform
-        assert max(decision2.action_probabilities.values()) < max(decision1.action_probabilities.values())
+        assert max(decision2.action_probabilities.values()) < max(
+            decision1.action_probabilities.values()
+        )
 
 
 class TestThresholdDecisionPolicy:
@@ -329,7 +426,9 @@ class TestThresholdDecisionPolicy:
             calibration_score=0.9,
             ood_score=0.1,
         )
-        assert policy.can_increase(signal) == (Action.INCREASE in policy.allowed_actions(signal))
+        assert policy.can_increase(signal) == (
+            Action.INCREASE in policy.allowed_actions(signal)
+        )
 
     def test_invalid_appetite_raises(self):
         with pytest.raises(ValueError):

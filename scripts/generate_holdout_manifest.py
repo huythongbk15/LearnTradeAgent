@@ -15,6 +15,7 @@ Usage:
   python scripts/generate_holdout_manifest.py --months 6
   python scripts/generate_holdout_manifest.py --months 12 --data-dir data/raw/binance
 """
+
 from __future__ import annotations
 
 import argparse

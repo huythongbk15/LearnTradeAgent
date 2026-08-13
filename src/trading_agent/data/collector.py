@@ -48,10 +48,12 @@ def get_exchange(name: str) -> ccxt.Exchange:
         if exchange_class is None:
             raise ValueError(f"Unknown exchange: {name}")
 
-        ex: ccxt.Exchange = exchange_class({
-            "enableRateLimit": True,
-            "options": {"defaultType": exch_config.get("type", "spot")},
-        })
+        ex: ccxt.Exchange = exchange_class(
+            {
+                "enableRateLimit": True,
+                "options": {"defaultType": exch_config.get("type", "spot")},
+            }
+        )
         _EXCHANGE_CACHE[name] = ex
     return _EXCHANGE_CACHE[name]
 
@@ -149,9 +151,7 @@ class Collector:
             return self.fetch_ohlcv(symbol, timeframe, progress=progress)
 
         # Fetch only new data
-        new_df = self.fetch_ohlcv(
-            symbol, timeframe, since=start_ms, progress=progress
-        )
+        new_df = self.fetch_ohlcv(symbol, timeframe, since=start_ms, progress=progress)
         if new_df.is_empty():
             return new_df
 
@@ -227,12 +227,14 @@ class Collector:
             gap_indices = (diffs > tf_ms * 1.5).nonzero()[0]
             gap_samples = []
             for idx in gap_indices[:10]:  # max 10 examples
-                gap_samples.append({
-                    "from": str(df["timestamp"][idx]),
-                    "to": str(df["timestamp"][idx + 1]),
-                    "gap_ms": int(diffs[idx]),
-                    "gap_candles": max(0, int(diffs[idx] / tf_ms) - 1),
-                })
+                gap_samples.append(
+                    {
+                        "from": str(df["timestamp"][idx]),
+                        "to": str(df["timestamp"][idx + 1]),
+                        "gap_ms": int(diffs[idx]),
+                        "gap_candles": max(0, int(diffs[idx] / tf_ms) - 1),
+                    }
+                )
             missing_counts = np.maximum(
                 (diffs[diffs > tf_ms * 1.5] // tf_ms) - 1,
                 0,
@@ -512,14 +514,18 @@ def download_all_symbols(
                 n = len(df)
                 total_candles += n
                 if n > 0:
-                    console.print(f"  [green]✓[/green] {tf:>4}  {n:>6,} candles ({label})")
+                    console.print(
+                        f"  [green]✓[/green] {tf:>4}  {n:>6,} candles ({label})"
+                    )
                 else:
                     console.print(f"  [yellow]–[/yellow] {tf:>4}  up to date")
             except Exception as e:
                 _error_console.print(f"  [red]✗[/red] {tf:>4}  {e}")
 
     if total_candles > 0:
-        console.print(f"\n[bold green]✅ Total: {total_candles:,} new candles[/bold green]")
+        console.print(
+            f"\n[bold green]✅ Total: {total_candles:,} new candles[/bold green]"
+        )
     else:
         console.print("\n[bold]✅ All up to date[/bold]")
 
@@ -531,11 +537,7 @@ def validate_all_symbols(exchange_name: str | None = None) -> list[dict]:
 
     from trading_agent.data.storage import list_datasets
 
-    datasets = [
-        d
-        for d in list_datasets()
-        if d["exchange"] == exchange_name
-    ]
+    datasets = [d for d in list_datasets() if d["exchange"] == exchange_name]
 
     if not datasets:
         _error_console.print("[red]No datasets to validate[/red]")
@@ -545,7 +547,15 @@ def validate_all_symbols(exchange_name: str | None = None) -> list[dict]:
     for ds in datasets:
         report = collector.validate_data(ds["symbol"], ds["timeframe"])
         reports.append(report)
-        status_icon = "✅" if report["status"] == "OK" else "⚠️" if report["status"] == "ISSUES_FOUND" else "❌"
-        console.print(f"  {status_icon} {ds['symbol']:12s} {ds['timeframe']:4s}  {report['status']}")
+        status_icon = (
+            "✅"
+            if report["status"] == "OK"
+            else "⚠️"
+            if report["status"] == "ISSUES_FOUND"
+            else "❌"
+        )
+        console.print(
+            f"  {status_icon} {ds['symbol']:12s} {ds['timeframe']:4s}  {report['status']}"
+        )
 
     return reports

@@ -76,7 +76,9 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def fold_ranges(latest_candle: datetime, count: int, fold_days: int) -> list[tuple[datetime, datetime]]:
+def fold_ranges(
+    latest_candle: datetime, count: int, fold_days: int
+) -> list[tuple[datetime, datetime]]:
     if count < 6:
         raise LiveSafetyError("at least 6 folds are required")
     if fold_days < 90:
@@ -113,8 +115,14 @@ def validate_hourly_fold(
             f"{symbol} fold {index} contains hourly gaps: "
             f"{len(timestamps)} != {expected_bars} bars"
         )
-    if not timestamps or timestamps[0] != start or timestamps[-1] != end - timedelta(hours=1):
-        raise LiveSafetyError(f"{symbol} fold {index} does not cover its complete time range")
+    if (
+        not timestamps
+        or timestamps[0] != start
+        or timestamps[-1] != end - timedelta(hours=1)
+    ):
+        raise LiveSafetyError(
+            f"{symbol} fold {index} does not cover its complete time range"
+        )
     if any(
         current - previous != timedelta(hours=1)
         for previous, current in zip(timestamps, timestamps[1:], strict=False)
@@ -142,10 +150,12 @@ def evaluate_symbol(
     if ordered.is_empty():
         raise LiveSafetyError(f"{symbol} data is empty")
     numeric_columns = ["open", "high", "low", "close", "volume"]
-    invalid = ordered.select([
-        (~pl.col(column).cast(pl.Float64).is_finite()).any().alias(column)
-        for column in numeric_columns
-    ]).row(0)
+    invalid = ordered.select(
+        [
+            (~pl.col(column).cast(pl.Float64).is_finite()).any().alias(column)
+            for column in numeric_columns
+        ]
+    ).row(0)
     if any(invalid):
         raise LiveSafetyError(f"{symbol} data contains non-finite OHLCV values")
     if ordered.filter(pl.col("volume") < 0).height:
@@ -219,7 +229,9 @@ def build_portfolio_folds(
         for symbol in symbols:
             curve = equity_curves[symbol][index]
             if curve["timestamp"].to_list() != timestamps:
-                raise LiveSafetyError(f"portfolio fold {index + 1} timestamps do not align")
+                raise LiveSafetyError(
+                    f"portfolio fold {index + 1} timestamps do not align"
+                )
             equity = curve["equity"].to_numpy().astype(np.float64)
             combined_return += equity / INITIAL_CAPITAL - 1.0
             trades += int(symbol_results[symbol]["folds"][index]["trades"])
@@ -229,7 +241,9 @@ def build_portfolio_folds(
         hourly_returns = portfolio_equity[1:] / portfolio_equity[:-1] - 1.0
         if len(hourly_returns):
             all_hourly_returns.append(hourly_returns.astype(np.float64))
-        volatility = float(np.std(hourly_returns, ddof=1)) if len(hourly_returns) > 1 else 0.0
+        volatility = (
+            float(np.std(hourly_returns, ddof=1)) if len(hourly_returns) > 1 else 0.0
+        )
         sharpe = (
             float(np.mean(hourly_returns) / volatility * math.sqrt(365 * 24))
             if volatility > 0
@@ -238,15 +252,19 @@ def build_portfolio_folds(
         peaks = np.maximum.accumulate(portfolio_equity)
         drawdown = (peaks - portfolio_equity) / peaks
         source = symbol_results[symbols[0]]["folds"][index]
-        portfolio.append({
-            "start": source["start"],
-            "end": source["end"],
-            "bars": source["bars"],
-            "sharpe": sharpe,
-            "return_pct": float((portfolio_equity[-1] / INITIAL_CAPITAL - 1.0) * 100),
-            "max_drawdown_pct": float(np.max(drawdown) * 100),
-            "trades": trades,
-        })
+        portfolio.append(
+            {
+                "start": source["start"],
+                "end": source["end"],
+                "bars": source["bars"],
+                "sharpe": sharpe,
+                "return_pct": float(
+                    (portfolio_equity[-1] / INITIAL_CAPITAL - 1.0) * 100
+                ),
+                "max_drawdown_pct": float(np.max(drawdown) * 100),
+                "trades": trades,
+            }
+        )
     if not all_hourly_returns:
         raise LiveSafetyError("no hourly returns produced for portfolio")
     return portfolio, np.concatenate(all_hourly_returns)
@@ -260,7 +278,9 @@ def utc_iso(value: datetime) -> str:
 
 def write_json_atomic(path: Path, payload: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    fd, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    fd, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
+    )
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             json.dump(payload, handle, indent=2, sort_keys=True)
@@ -272,7 +292,9 @@ def write_json_atomic(path: Path, payload: dict) -> None:
 
 
 def run(args: argparse.Namespace) -> int:
-    symbols = [value.strip().upper() for value in args.symbols.split(",") if value.strip()]
+    symbols = [
+        value.strip().upper() for value in args.symbols.split(",") if value.strip()
+    ]
     if not symbols or len(set(symbols)) != len(symbols):
         raise LiveSafetyError("--symbols must be a unique, non-empty list")
     weight_parts = [value.strip() for value in args.weights.split(",") if value.strip()]

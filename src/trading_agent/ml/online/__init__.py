@@ -21,7 +21,7 @@ from trading_agent.ml.online.adaptive import (
 
 __all__ = [
     "OnlineEMA",
-    "OnlineRSI", 
+    "OnlineRSI",
     "OnlineBollingerBands",
     "OnlineMACD",
     "OnlineATR",

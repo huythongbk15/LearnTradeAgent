@@ -31,7 +31,11 @@ import numpy as np
 import polars as pl
 
 from trading_agent.agents.base import AnalysisContext
-from trading_agent.agents.llm import enable_backtest_mode, disable_backtest_mode, is_backtest_mode
+from trading_agent.agents.llm import (
+    enable_backtest_mode,
+    disable_backtest_mode,
+    is_backtest_mode,
+)
 from trading_agent.regime import add_regime_indicators
 from trading_agent.agents.risk import RiskManager
 from trading_agent.agents.sentiment import SentimentAnalyst
@@ -65,18 +69,18 @@ class AgentStrategy(Strategy):
         self.threshold_exit = float(params.get("threshold_exit", 0.0))
         self.lookback = int(params.get("lookback", 100))
         self.max_hold_bars = int(params.get("max_hold_bars", 48))
-        
+
         # LLM mode for backtest
         self.use_llm = bool(params.get("use_llm", False))
         self.llm_provider = params.get("llm_provider", "opencode")
         self.llm_model = params.get("llm_model", "deepseek-v4-flash-free")
-        
+
         # Initialize agents
         self.technical = TechnicalAnalyst()
         self.sentiment = SentimentAnalyst()
         self.risk = RiskManager()
         self.trader = Trader()
-        
+
         # Enable backtest LLM mode if requested
         if self.use_llm:
             enable_backtest_mode(
@@ -123,23 +127,36 @@ class AgentStrategy(Strategy):
         vols = df["volume"].to_numpy() if "volume" in df.columns else np.ones(n) * 1000
 
         # Pre-compute indicators once (vectorized)
-        df_i = df.with_columns([
-            pl.Series("ma_5", _sma(closes, 5)),
-            pl.Series("ma_10", _sma(closes, 10)),
-            pl.Series("ma_20", _sma(closes, 20)),
-            pl.Series("ma_50", _sma(closes, 50)),
-            pl.Series("rsi", _rsi(closes, 14)),
-        ])
+        df_i = df.with_columns(
+            [
+                pl.Series("ma_5", _sma(closes, 5)),
+                pl.Series("ma_10", _sma(closes, 10)),
+                pl.Series("ma_20", _sma(closes, 20)),
+                pl.Series("ma_50", _sma(closes, 50)),
+                pl.Series("rsi", _rsi(closes, 14)),
+            ]
+        )
         sma20 = _sma(closes, 20)
         std20 = _rolling_std(closes, 20)
-        df_i = df_i.with_columns([
-            pl.Series("bb_upper", sma20 + 2 * std20),
-            pl.Series("bb_lower", sma20 - 2 * std20),
-            pl.Series("bb_mid", sma20),
-        ])
+        df_i = df_i.with_columns(
+            [
+                pl.Series("bb_upper", sma20 + 2 * std20),
+                pl.Series("bb_lower", sma20 - 2 * std20),
+                pl.Series("bb_mid", sma20),
+            ]
+        )
 
         # Pre-extract indicator columns to numpy once — tránh polars .item() mỗi bar
-        _IND_COLS = ["ma_5", "ma_10", "ma_20", "ma_50", "rsi", "bb_upper", "bb_lower", "bb_mid"]
+        _IND_COLS = [
+            "ma_5",
+            "ma_10",
+            "ma_20",
+            "ma_50",
+            "rsi",
+            "bb_upper",
+            "bb_lower",
+            "bb_mid",
+        ]
         _arr = {c: df_i[c].to_numpy() for c in _IND_COLS}
 
         # Precomputed regime indicators (vectorized in compute_indicators).
@@ -147,7 +164,14 @@ class AgentStrategy(Strategy):
         # adx / trend_regime / trend_dir carry the real rolling values.
         _regime = {
             c: df_i[c].to_numpy()
-            for c in ("atr", "atr_pctl", "vol_regime", "adx", "trend_regime", "trend_dir")
+            for c in (
+                "atr",
+                "atr_pctl",
+                "vol_regime",
+                "adx",
+                "trend_regime",
+                "trend_dir",
+            )
         }
 
         # Position state
@@ -170,10 +194,12 @@ class AgentStrategy(Strategy):
             if i >= 20:
                 extra["change_20"] = float((closes[i] / closes[i - 21] - 1) * 100)
             if i >= 21:
-                extra["volatility_20"] = float(np.std(np.diff(closes[i - 20:i + 1]) / closes[i - 20:i]) * 100)
+                extra["volatility_20"] = float(
+                    np.std(np.diff(closes[i - 20 : i + 1]) / closes[i - 20 : i]) * 100
+                )
             if i >= 20:
-                v5 = float(vols[i - 4:i + 1].mean())
-                v20 = float(vols[i - 19:i + 1].mean())
+                v5 = float(vols[i - 4 : i + 1].mean())
+                v20 = float(vols[i - 19 : i + 1].mean())
                 extra["volume_ratio_5_20"] = v5 / v20 if v20 > 0 else 1.0
             # Regime values with the old `if v else None` convention (0 -> None)
             extra["_regime"] = {
@@ -187,8 +213,10 @@ class AgentStrategy(Strategy):
             ind["_extra"] = extra
 
             ctx = AnalysisContext(
-                symbol="BACKTEST", timeframe="1h",
-                current_price=float(closes[i]), ohlcv=window,
+                symbol="BACKTEST",
+                timeframe="1h",
+                current_price=float(closes[i]),
+                ohlcv=window,
                 indicators=ind,
                 current_position_pct=1.0 if in_position else 0.0,
             )
@@ -212,7 +240,10 @@ class AgentStrategy(Strategy):
 
             if not in_position:
                 # Flat → check entry
-                if weighted > self.threshold_buy and risk_level not in ("HIGH", "EXTREME"):
+                if weighted > self.threshold_buy and risk_level not in (
+                    "HIGH",
+                    "EXTREME",
+                ):
                     signals[i] = 1.0
                     in_position = True
                     bars_in_position = 0
@@ -245,14 +276,16 @@ def _sma(values: np.ndarray, period: int) -> np.ndarray:
     if len(values) < period:
         return out
     cum = np.cumsum(values)
-    out[period - 1:] = (cum[period - 1:] - np.concatenate([[0], cum[:-period]])) / period
+    out[period - 1 :] = (
+        cum[period - 1 :] - np.concatenate([[0], cum[:-period]])
+    ) / period
     return out
 
 
 def _rolling_std(values: np.ndarray, period: int) -> np.ndarray:
     out = np.full_like(values, np.nan)
     for i in range(period - 1, len(values)):
-        out[i] = float(np.std(values[i - period + 1:i + 1]))
+        out[i] = float(np.std(values[i - period + 1 : i + 1]))
     return out
 
 

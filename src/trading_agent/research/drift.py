@@ -84,7 +84,9 @@ def psi(reference: np.ndarray, current: np.ndarray, bins: int = 10) -> float:
     return out
 
 
-def _level(value: float, threshold: float, yellow: float = 0.1, red: float = 0.25) -> DriftLevel:
+def _level(
+    value: float, threshold: float, yellow: float = 0.1, red: float = 0.25
+) -> DriftLevel:
     """Map a deviation to OK/YELLOW/RED via absolute thresholds."""
     if value > red:
         return DriftLevel.RED
@@ -137,31 +139,94 @@ class DriftMonitor:
 
         if features_ref is not None and features_current is not None:
             p = psi(features_ref, features_current)
-            results.append(DriftResult("feature_psi", p, 0.0, _level(p, 0, self.psi_yellow, self.psi_red), self.psi_yellow, self.psi_red))
+            results.append(
+                DriftResult(
+                    "feature_psi",
+                    p,
+                    0.0,
+                    _level(p, 0, self.psi_yellow, self.psi_red),
+                    self.psi_yellow,
+                    self.psi_red,
+                )
+            )
 
         if returns_ref is not None and returns_current is not None:
             p = psi(returns_ref, returns_current)
-            results.append(DriftResult("return_psi", p, 0.0, _level(p, 0, self.psi_yellow, self.psi_red), self.psi_yellow, self.psi_red))
+            results.append(
+                DriftResult(
+                    "return_psi",
+                    p,
+                    0.0,
+                    _level(p, 0, self.psi_yellow, self.psi_red),
+                    self.psi_yellow,
+                    self.psi_red,
+                )
+            )
 
         if vol_ref is not None and vol_current is not None:
             d = self._rel(vol_current, vol_ref)
-            results.append(DriftResult("volatility", vol_current, vol_ref, _level(d, 0, self.rel_yellow, self.rel_red), self.rel_yellow, self.rel_red))
+            results.append(
+                DriftResult(
+                    "volatility",
+                    vol_current,
+                    vol_ref,
+                    _level(d, 0, self.rel_yellow, self.rel_red),
+                    self.rel_yellow,
+                    self.rel_red,
+                )
+            )
 
         if corr_ref is not None and corr_current is not None:
             d = self._rel(corr_current, corr_ref)
-            results.append(DriftResult("correlation", corr_current, corr_ref, _level(d, 0, self.rel_yellow, self.rel_red), self.rel_yellow, self.rel_red))
+            results.append(
+                DriftResult(
+                    "correlation",
+                    corr_current,
+                    corr_ref,
+                    _level(d, 0, self.rel_yellow, self.rel_red),
+                    self.rel_yellow,
+                    self.rel_red,
+                )
+            )
 
         if spread_ref is not None and spread_current is not None:
             d = self._rel(spread_current, spread_ref)
-            results.append(DriftResult("spread", spread_current, spread_ref, _level(d, 0, self.rel_yellow, self.rel_red), self.rel_yellow, self.rel_red))
+            results.append(
+                DriftResult(
+                    "spread",
+                    spread_current,
+                    spread_ref,
+                    _level(d, 0, self.rel_yellow, self.rel_red),
+                    self.rel_yellow,
+                    self.rel_red,
+                )
+            )
 
         if fill_rate_ref is not None and fill_rate_current is not None:
             d = self._rel(fill_rate_current, fill_rate_ref)
-            results.append(DriftResult("fill_rate", fill_rate_current, fill_rate_ref, _level(d, 0, self.rel_yellow, self.rel_red), self.rel_yellow, self.rel_red))
+            results.append(
+                DriftResult(
+                    "fill_rate",
+                    fill_rate_current,
+                    fill_rate_ref,
+                    _level(d, 0, self.rel_yellow, self.rel_red),
+                    self.rel_yellow,
+                    self.rel_red,
+                )
+            )
 
         if calibration_ref is not None and calibration_current is not None:
             d = self._rel(calibration_current, calibration_ref)
-            results.append(DriftResult("calibration", calibration_current, calibration_ref, _level(d, 0, self.rel_yellow, self.rel_red), self.rel_yellow, self.rel_red))
+            results.append(
+                DriftResult(
+                    "calibration",
+                    calibration_current,
+                    calibration_ref,
+                    _level(d, 0, self.rel_yellow, self.rel_red),
+                    self.rel_yellow,
+                    self.rel_red,
+                )
+            )
 
         return results
 
@@ -170,8 +235,16 @@ class DriftMonitor:
         levels = {r.level for r in results}
         if DriftLevel.RED in levels:
             return StrategyHealthState.SUSPENDED
-        if any(r.detector.startswith(("feature_", "return_")) and r.level == DriftLevel.YELLOW for r in results):
-            return StrategyHealthState.OOD if DriftLevel.YELLOW in levels else StrategyHealthState.HEALTHY
+        if any(
+            r.detector.startswith(("feature_", "return_"))
+            and r.level == DriftLevel.YELLOW
+            for r in results
+        ):
+            return (
+                StrategyHealthState.OOD
+                if DriftLevel.YELLOW in levels
+                else StrategyHealthState.HEALTHY
+            )
         if DriftLevel.YELLOW in levels:
             return StrategyHealthState.DEGRADED
         return StrategyHealthState.HEALTHY

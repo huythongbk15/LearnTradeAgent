@@ -24,8 +24,16 @@ def _make_archive(archive_dir: Path, name: str, content: bytes) -> str:
         handle.write(content)
     sha = hashlib.sha256(path.read_bytes()).hexdigest()
     manifest_path = archive_dir / "manifest.json"
-    manifest = json.loads(manifest_path.read_text()) if manifest_path.exists() else {"archives": {}}
-    manifest["archives"][name] = {"sha256": sha, "lines": 2, "created_at": "2026-08-12T00:00:00+00:00"}
+    manifest = (
+        json.loads(manifest_path.read_text())
+        if manifest_path.exists()
+        else {"archives": {}}
+    )
+    manifest["archives"][name] = {
+        "sha256": sha,
+        "lines": 2,
+        "created_at": "2026-08-12T00:00:00+00:00",
+    }
     manifest_path.write_text(json.dumps(manifest, sort_keys=True), encoding="utf-8")
     return sha
 
@@ -44,7 +52,10 @@ def test_plan_ships_unsent_archive(tmp_path):
 def test_plan_skips_already_shipped(tmp_path):
     archive_dir = tmp_path / "archive"
     _make_archive(archive_dir, "audit-20260812.jsonl.gz", b'{"a":1}\n')
-    save_state(archive_dir, {"version": 1, "shipped": {"audit-20260812.jsonl.gz": {"sha256": "x"}}})
+    save_state(
+        archive_dir,
+        {"version": 1, "shipped": {"audit-20260812.jsonl.gz": {"sha256": "x"}}},
+    )
     assert plan_ship(archive_dir, force=False) == []
     planned = plan_ship(archive_dir, force=True)
     assert len(planned) == 1
@@ -67,9 +78,12 @@ def test_ship_dir_copies_and_verifies(tmp_path):
     ship_dir(planned, archive_dir, remote_dir)
     assert (remote_dir / "audit-20260812.jsonl.gz").exists()
     manifest = load_manifest(archive_dir)
-    assert manifest["archives"]["audit-20260812.jsonl.gz"]["sha256"] == hashlib.sha256(
-        (remote_dir / "audit-20260812.jsonl.gz").read_bytes()
-    ).hexdigest()
+    assert (
+        manifest["archives"]["audit-20260812.jsonl.gz"]["sha256"]
+        == hashlib.sha256(
+            (remote_dir / "audit-20260812.jsonl.gz").read_bytes()
+        ).hexdigest()
+    )
 
 
 def test_ship_dir_detects_corrupt_remote(tmp_path, monkeypatch):

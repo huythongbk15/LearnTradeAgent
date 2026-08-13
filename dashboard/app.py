@@ -49,12 +49,16 @@ st.caption("Real-time monitoring for multi-agent crypto trading system")
 
 st.sidebar.header("⚙️ Controls")
 refresh_interval = st.sidebar.selectbox(
-    "Auto-refresh (s)", [0, 5, 10, 30, 60], index=0, format_func=lambda x: f"{x}s" if x > 0 else "Manual"
+    "Auto-refresh (s)",
+    [0, 5, 10, 30, 60],
+    index=0,
+    format_func=lambda x: f"{x}s" if x > 0 else "Manual",
 )
 
 if refresh_interval > 0:
     st.sidebar.info(f"Auto-refresh every {refresh_interval}s")
     from streamlit_autorefresh import st_autorefresh
+
     st_autorefresh(interval=refresh_interval * 1000, key="data_refresh")
 else:
     if st.sidebar.button("🔄 Refresh Now"):
@@ -63,6 +67,7 @@ else:
 
 
 # ── Load Data ────────────────────────────────────────────────────────────
+
 
 @st.cache_data(ttl=5, show_spinner=False)
 def load_live_summary():
@@ -94,9 +99,7 @@ stats, trades, eq_data, decisions, metrics, rolling = load_db_data()
 
 # ── Tabs ─────────────────────────────────────────────────────────────────
 
-tab1, tab2, tab3, tab4 = st.tabs(
-    ["📈 Overview", "📋 Trades", "🤖 Agents", "⚠️ Risk"]
-)
+tab1, tab2, tab3, tab4 = st.tabs(["📈 Overview", "📋 Trades", "🤖 Agents", "⚠️ Risk"])
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -111,15 +114,18 @@ with tab1:
         initial = app_config.initial_capital
         return_pct = ((equity / initial) - 1) * 100 if initial > 0 else 0
 
-        col1.metric("💰 Equity", f"${equity:,.2f}",
-                     f"{return_pct:+.2f}%")
+        col1.metric("💰 Equity", f"${equity:,.2f}", f"{return_pct:+.2f}%")
         col2.metric("💵 Cash", f"${summary.get('cash', 0):,.2f}")
-        col3.metric("📈 Positions",
-                     f"{summary.get('open_positions', 0)} open",
-                     f"${summary.get('positions_value', 0):,.0f}")
-        col4.metric("🔄 Trades",
-                     f"{summary.get('total_trades', 0)} total",
-                     f"{summary.get('open_orders', 0)} pending")
+        col3.metric(
+            "📈 Positions",
+            f"{summary.get('open_positions', 0)} open",
+            f"${summary.get('positions_value', 0):,.0f}",
+        )
+        col4.metric(
+            "🔄 Trades",
+            f"{summary.get('total_trades', 0)} total",
+            f"{summary.get('open_orders', 0)} pending",
+        )
     else:
         col1.error(f"⚠️ {summary.get('error', 'Unknown error')}")
 
@@ -144,8 +150,10 @@ with tab1:
     st.subheader("📈 Equity Curve")
     if eq_data:
         eq_df = pl.DataFrame(
-            [{"timestamp": e["timestamp"], "equity": e["equity"]}
-             for e in reversed(eq_data)]
+            [
+                {"timestamp": e["timestamp"], "equity": e["equity"]}
+                for e in reversed(eq_data)
+            ]
         )
         st.line_chart(eq_df, x="timestamp", y="equity", height=300)
     else:
@@ -185,22 +193,32 @@ with tab2:
             pnl_color = "🟢" if (pnl or 0) > 0 else "🔴" if (pnl or 0) < 0 else "⚪"
             pnl_pct = t.get("pnl_pct")
             pct_str = f"{pnl_pct:+.2%}" if pnl_pct else "—"
-            trade_rows.append({
-                "ID": t["trade_id"][:16],
-                "Symbol": t["symbol"],
-                "Side": t["side"],
-                "Entry $": f"${t.get('entry_price', 0):,.0f}" if t.get("entry_price") else "—",
-                "Exit $": f"${t.get('exit_price', 0):,.0f}" if t.get("exit_price") else "—",
-                f"{pnl_color} P&L": pnl_str,
-                "P&L %": pct_str,
-                "Reason": t.get("reason", "") or "",
-                "Exit Time": str(t.get("exit_time", ""))[:16] if t.get("exit_time") else "",
-            })
+            trade_rows.append(
+                {
+                    "ID": t["trade_id"][:16],
+                    "Symbol": t["symbol"],
+                    "Side": t["side"],
+                    "Entry $": f"${t.get('entry_price', 0):,.0f}"
+                    if t.get("entry_price")
+                    else "—",
+                    "Exit $": f"${t.get('exit_price', 0):,.0f}"
+                    if t.get("exit_price")
+                    else "—",
+                    f"{pnl_color} P&L": pnl_str,
+                    "P&L %": pct_str,
+                    "Reason": t.get("reason", "") or "",
+                    "Exit Time": str(t.get("exit_time", ""))[:16]
+                    if t.get("exit_time")
+                    else "",
+                }
+            )
 
         tdf = pl.DataFrame(trade_rows)
         st.dataframe(tdf.to_pandas(), use_container_width=True, hide_index=True)
     else:
-        st.info("No trades recorded yet. Run `trading-agent execution run BTC/USDT` to start.")
+        st.info(
+            "No trades recorded yet. Run `trading-agent execution run BTC/USDT` to start."
+        )
 
     # Win/Loss distribution
     if trades:
@@ -226,9 +244,11 @@ with tab3:
                     "Agent": d["agent_name"],
                     "Symbol": d["symbol"],
                     "Signal": d["signal"],
-                    "Confidence": f"{d.get('confidence', 0)*100:.0f}%",
+                    "Confidence": f"{d.get('confidence', 0) * 100:.0f}%",
                     "Price": f"${d.get('price', 0):,.0f}" if d.get("price") else "—",
-                    "Reasoning": (d.get("reasoning") or "")[:120] + "…" if d.get("reasoning") and len(d["reasoning"]) > 120 else (d.get("reasoning") or ""),
+                    "Reasoning": (d.get("reasoning") or "")[:120] + "…"
+                    if d.get("reasoning") and len(d["reasoning"]) > 120
+                    else (d.get("reasoning") or ""),
                 }
                 for d in decisions
             ]
@@ -243,13 +263,15 @@ with tab3:
         if not signals.is_empty():
             counts = signals.group_by(["agent", "signal"]).len().sort("agent")
             st.bar_chart(
-                counts.to_pandas().pivot(
-                    index="agent", columns="signal", values="len"
-                ).fillna(0),
+                counts.to_pandas()
+                .pivot(index="agent", columns="signal", values="len")
+                .fillna(0),
                 height=250,
             )
     else:
-        st.info("No agent decisions yet. Run `trading-agent agents analyze BTC/USDT` to see decisions here.")
+        st.info(
+            "No agent decisions yet. Run `trading-agent agents analyze BTC/USDT` to see decisions here."
+        )
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -274,12 +296,26 @@ with tab4:
         dl_limit = status.get("daily_loss_limit_pct", 8)
         cooldown = "⏳ Yes" if status.get("cooldown_active") else "✅ No"
         risk_items = [
-            ("🔒 Circuit Breaker", cb, "✅" if not status.get("circuit_breaker_active") else "❌"),
-            ("📉 Drawdown", f"{dd_current:.2f}% / {dd_limit:.0f}%",
-             "✅" if dd_current < dd_limit else "❌"),
-            ("⚠️ Daily Loss", f"{dl_current:.2f}% / {dl_limit:.0f}%",
-             "✅" if dl_current < dl_limit else "❌"),
-            ("⏳ Cooldown", cooldown, "✅" if not status.get("cooldown_active") else "⏳"),
+            (
+                "🔒 Circuit Breaker",
+                cb,
+                "✅" if not status.get("circuit_breaker_active") else "❌",
+            ),
+            (
+                "📉 Drawdown",
+                f"{dd_current:.2f}% / {dd_limit:.0f}%",
+                "✅" if dd_current < dd_limit else "❌",
+            ),
+            (
+                "⚠️ Daily Loss",
+                f"{dl_current:.2f}% / {dl_limit:.0f}%",
+                "✅" if dl_current < dl_limit else "❌",
+            ),
+            (
+                "⏳ Cooldown",
+                cooldown,
+                "✅" if not status.get("cooldown_active") else "⏳",
+            ),
         ]
         for i, (label, value, icon) in enumerate(risk_items):
             risk_cols[i].metric(label, value, icon)
@@ -295,10 +331,12 @@ with tab4:
                     peak = v
                 dd = (peak - v) / peak * 100 if peak > 0 else 0
                 dd_values.append(dd)
-            dd_df = pl.DataFrame({
-                "timestamp": [e["timestamp"] for e in reversed(eq_data)],
-                "drawdown_pct": dd_values,
-            })
+            dd_df = pl.DataFrame(
+                {
+                    "timestamp": [e["timestamp"] for e in reversed(eq_data)],
+                    "drawdown_pct": dd_values,
+                }
+            )
             st.area_chart(dd_df, x="timestamp", y="drawdown_pct", height=200)
         else:
             st.info("No equity data for drawdown chart.")
@@ -326,7 +364,9 @@ with tab4:
     if acols[1].button("📋 View Execution Status"):
         st.code(json.dumps(summary, indent=2, default=str), language="json")
     if acols[2].button("🛑 Close All Positions"):
-        st.warning("⚠️ This would close all positions. Confirm via CLI: `trading-agent execution close --all`")
+        st.warning(
+            "⚠️ This would close all positions. Confirm via CLI: `trading-agent execution close --all`"
+        )
 
 
 # ── Footer ───────────────────────────────────────────────────────────────

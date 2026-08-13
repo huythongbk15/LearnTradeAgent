@@ -22,13 +22,14 @@ import scipy.stats as stats
 @dataclass
 class DrawdownConfig:
     """Drawdown-based risk control tiers."""
+
     # [drawdown_level, position_scale_factor]
     tiers: list[tuple[float, float]] = field(
         default_factory=lambda: [
-            (0.05, 0.75),   # -5%  dd → scale to 75%
-            (0.10, 0.50),   # -10% dd → scale to 50%
-            (0.15, 0.25),   # -15% dd → scale to 25%
-            (0.20, 0.00),   # -20% dd → halt
+            (0.05, 0.75),  # -5%  dd → scale to 75%
+            (0.10, 0.50),  # -10% dd → scale to 50%
+            (0.15, 0.25),  # -15% dd → scale to 25%
+            (0.20, 0.00),  # -20% dd → halt
         ]
     )
 
@@ -36,10 +37,11 @@ class DrawdownConfig:
 @dataclass
 class RiskMetrics:
     """Output of VaR/CVaR computation."""
+
     method: str
     confidence: float
-    var: float          # positive number = loss
-    cvar: float         # expected shortfall (loss beyond VaR)
+    var: float  # positive number = loss
+    cvar: float  # expected shortfall (loss beyond VaR)
     max_loss: float
     n: int
 
@@ -58,12 +60,15 @@ class HistoricalVaR:
         arr = np.sort(arr)[::-1]  # descending
         # VaR at confidence: quantile of losses
         q = 1 - self.confidence
-        var = np.quantile(arr, q)          # negative value
+        var = np.quantile(arr, q)  # negative value
         cvar = arr[arr <= var].mean() if (arr <= var).any() else var
         return RiskMetrics(
-            "historical", self.confidence,
-            var=-var, cvar=-cvar,
-            max_loss=-arr.min(), n=len(arr),
+            "historical",
+            self.confidence,
+            var=-var,
+            cvar=-cvar,
+            max_loss=-arr.min(),
+            n=len(arr),
         )
 
 
@@ -77,7 +82,9 @@ class ParametricVaR:
 
     def compute(self, returns: Sequence[float]) -> RiskMetrics:
         if len(returns) < 3:
-            return RiskMetrics("parametric", self.confidence, 0.0, 0.0, 0.0, len(returns))
+            return RiskMetrics(
+                "parametric", self.confidence, 0.0, 0.0, 0.0, len(returns)
+            )
         arr = np.asarray(returns, dtype=float)
         mu, sigma = arr.mean(), arr.std(ddof=1)
         if sigma <= 0:
@@ -88,9 +95,12 @@ class ParametricVaR:
         phi = stats.norm.pdf(self.z)
         cvar = mu - sigma * phi / (1 - self.confidence)
         return RiskMetrics(
-            "parametric", self.confidence,
-            var=max(var, 0.0), cvar=max(-cvar, 0.0),
-            max_loss=-arr.min(), n=len(arr),
+            "parametric",
+            self.confidence,
+            var=max(var, 0.0),
+            cvar=max(-cvar, 0.0),
+            max_loss=-arr.min(),
+            n=len(arr),
         )
 
 
@@ -120,7 +130,9 @@ class PortfolioRiskManager:
         """Push equity, update peak & current drawdown. Returns current DD."""
         self.equity_curve.append(equity)
         self.peak_equity = max(self.peak_equity, equity)
-        self.current_dd = (self.peak_equity - equity) / self.peak_equity if self.peak_equity else 0.0
+        self.current_dd = (
+            (self.peak_equity - equity) / self.peak_equity if self.peak_equity else 0.0
+        )
         return self.current_dd
 
     def position_scale_factor(self) -> float:
@@ -135,14 +147,20 @@ class PortfolioRiskManager:
         return self.current_dd >= self.config.tiers[-1][0]
 
     # -- VaR --------------------------------------------------------------
-    def portfolio_var(self, returns: Sequence[float], method: str = "historical") -> RiskMetrics:
+    def portfolio_var(
+        self, returns: Sequence[float], method: str = "historical"
+    ) -> RiskMetrics:
         if method == "parametric":
             return ParametricVaR(self.var_confidence).compute(returns)
-        return HistoricalVaR(confidence=self.var_confidence, window=len(returns)).compute(returns)
+        return HistoricalVaR(
+            confidence=self.var_confidence, window=len(returns)
+        ).compute(returns)
 
     # -- correlation ------------------------------------------------------
     @staticmethod
-    def correlation_breach(pairs_corr: dict[str, float], threshold: float = 0.8) -> list[str]:
+    def correlation_breach(
+        pairs_corr: dict[str, float], threshold: float = 0.8
+    ) -> list[str]:
         """Return list of crossing pair labels exceeding correlation threshold."""
         return [k for k, v in pairs_corr.items() if v > threshold]
 
@@ -158,7 +176,6 @@ class PortfolioRiskManager:
             "halted": self.is_trading_halted(),
             "n_equity_points": len(self.equity_curve),
         }
-
 
     # -- risk budget helpers ----------------------------------------------
     def risk_budget_cvar(
@@ -223,22 +240,27 @@ from dataclasses import field
 
 if __name__ == "__main__":
     import random
+
     pm = PortfolioRiskManager()
     eq = 10000
     rng = random.Random(42)
     for i in range(300):
         ret = rng.gauss(0.001, 0.02)
-        eq *= (1 + ret)
+        eq *= 1 + ret
         pm.update_equity(eq)
 
     print("Portfolio report:", pm.report())
     returns = [rng.gauss(0.001, 0.02) for _ in range(252)]
     hv = HistoricalVaR(0.95).compute(returns)
-    print(f"Historical VaR(95%) = {hv.var:.2%}, CVaR = {hv.cvar:.2%}, max loss {hv.max_loss:.2%}")
+    print(
+        f"Historical VaR(95%) = {hv.var:.2%}, CVaR = {hv.cvar:.2%}, max loss {hv.max_loss:.2%}"
+    )
     pv = ParametricVaR(0.95).compute(returns)
     print(f"Parametric  VaR(95%) = {pv.var:.2%}, CVaR = {pv.cvar:.2%}")
     print("Position scale:", pm.position_scale_factor())
     # risk budget test
     M = np.random.RandomState(1).randn(3, 500) * np.array([[0.02], [0.03], [0.04]])
     rb = pm.risk_budget_cvar(M, np.array([0.4, 0.3, 0.3]))
-    print("Risk budget CVaR:", rb["portfolio_cvar"] if hasattr(rb, "__getitem__") else rb)
+    print(
+        "Risk budget CVaR:", rb["portfolio_cvar"] if hasattr(rb, "__getitem__") else rb
+    )

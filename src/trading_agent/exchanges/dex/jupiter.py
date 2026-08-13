@@ -7,7 +7,13 @@ from typing import Optional
 import aiohttp
 
 from trading_agent.exchanges.dex.base import BaseDEXAdapter, SwapQuote
-from trading_agent.exchanges.models import Symbol, Order, OrderSide, OrderType, OrderStatus
+from trading_agent.exchanges.models import (
+    Symbol,
+    Order,
+    OrderSide,
+    OrderType,
+    OrderStatus,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +27,7 @@ class JupiterAdapter(BaseDEXAdapter):
         private_key: Optional[str] = None,
     ):
         super().__init__("jupiter", 0, rpc_url, private_key)  # chain_id 0 for Solana
-        
+
         self.base_url = "https://quote-api.jup.ag/v6"
         self._session: Optional[aiohttp.ClientSession] = None
         self._token_map: dict[str, str] = {}  # symbol -> mint address
@@ -30,18 +36,20 @@ class JupiterAdapter(BaseDEXAdapter):
         """Connect to Jupiter API."""
         try:
             self._session = aiohttp.ClientSession()
-            
+
             # Fetch token list
             async with self._session.get(f"{self.base_url}/tokens") as resp:
                 if resp.status == 200:
                     tokens = await resp.json()
-                    self._token_map = {t["symbol"].upper(): t["address"] for t in tokens}
+                    self._token_map = {
+                        t["symbol"].upper(): t["address"] for t in tokens
+                    }
                     logger.info(f"Loaded {len(self._token_map)} tokens from Jupiter")
-            
+
             self._connected = True
             logger.info("Connected to Jupiter Aggregator")
             return True
-            
+
         except Exception as e:
             logger.error(f"Failed to connect to Jupiter: {e}")
             return False
@@ -63,7 +71,9 @@ class JupiterAdapter(BaseDEXAdapter):
             return self._token_map[sym]
         raise ValueError(f"Unknown token: {symbol.base}")
 
-    async def get_pool_info(self, token0: Symbol, token1: Symbol, fee_tier: int) -> None:
+    async def get_pool_info(
+        self, token0: Symbol, token1: Symbol, fee_tier: int
+    ) -> None:
         """Jupiter doesn't expose pool info directly."""
         raise NotImplementedError("Jupiter doesn't expose individual pool info")
 
@@ -80,7 +90,7 @@ class JupiterAdapter(BaseDEXAdapter):
 
         input_mint = self._get_mint(token_in)
         output_mint = self._get_mint(token_out)
-        
+
         # Convert amount to lamports (assuming 9 decimals for most tokens)
         amount_in_lamports = int(amount_in * Decimal(10**9))
 
@@ -96,12 +106,16 @@ class JupiterAdapter(BaseDEXAdapter):
         async with self._session.get(f"{self.base_url}/quote", params=params) as resp:
             if resp.status != 200:
                 raise ValueError(f"Quote failed: {await resp.text()}")
-            
+
             data = await resp.json()
 
         amount_out = Decimal(data["outAmount"]) / Decimal(10**9)
-        amount_out_min = Decimal(data["outAmount"]) / Decimal(10**9) * (Decimal(1) - slippage_pct / Decimal(100))
-        
+        amount_out_min = (
+            Decimal(data["outAmount"])
+            / Decimal(10**9)
+            * (Decimal(1) - slippage_pct / Decimal(100))
+        )
+
         # Calculate price impact
         in_amount = Decimal(data["inAmount"]) / Decimal(10**9)
         price_impact = Decimal(data.get("priceImpactPct", "0"))
@@ -145,7 +159,7 @@ class JupiterAdapter(BaseDEXAdapter):
         async with self._session.post(f"{self.base_url}/swap", json=swap_data) as resp:
             if resp.status != 200:
                 raise ValueError(f"Swap failed: {await resp.text()}")
-            
+
             swap_result = await resp.json()
 
         # The transaction would need to be signed and sent via Solana RPC
@@ -163,7 +177,9 @@ class JupiterAdapter(BaseDEXAdapter):
             avg_fill_price=quote.amount_out / quote.amount_in,
         )
 
-    async def get_token_balance(self, token: Symbol, address: Optional[str] = None) -> Decimal:
+    async def get_token_balance(
+        self, token: Symbol, address: Optional[str] = None
+    ) -> Decimal:
         """Get token balance via RPC."""
         if not self._connected:
             raise RuntimeError("Not connected")

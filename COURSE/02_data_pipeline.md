@@ -39,7 +39,8 @@ def normalize(self, symbol, timeframe, raw) -> Candle:
         ts_ms, o, h, low, c = raw[0], raw[1], raw[2], raw[3], raw[4]
         ts = datetime.fromtimestamp(ts_ms / 1000.0, tz=timezone.utc)
     ...
-    def dec(x):   # chuyển an toàn sang Decimal
+
+    def dec(x):  # chuyển an toàn sang Decimal
         try:
             return Decimal(str(x))
         except (InvalidOperation, TypeError, ValueError):
@@ -55,11 +56,13 @@ async def fetch_candles(self, symbol, timeframe, start, end):
     cursor = since_ms
     while cursor < end_ms:
         batch = await self._fetch(symbol, timeframe, cursor, limit=1000)  # 1000 nến/lần
-        if not batch: break
+        if not batch:
+            break
         out.extend(batch)
         last_ts = batch[-1].timestamp.timestamp() * 1000
-        if last_ts <= cursor: break          # chống infinite loop
-        cursor = int(last_ts) + 1            # trang kế tiếp: sau nến cuối
+        if last_ts <= cursor:
+            break  # chống infinite loop
+        cursor = int(last_ts) + 1  # trang kế tiếp: sau nến cuối
     return [c for c in out if c.timestamp.timestamp() * 1000 <= end_ms]
 ```
 
@@ -90,6 +93,7 @@ async def ingest(self, symbols, timeframe, start, end):
     """BACKFILL — kéo toàn bộ lịch sử từ start đến end."""
     # dùng khi: lần đầu, hoặc sửa dữ liệu lịch sử
 
+
 async def incremental(self, symbols, timeframe, limit=200):
     """INCREMENTAL — chỉ kéo `limit` nến gần nhất."""
     # dùng khi: chạy định kỳ mỗi giờ — 95-99% ít dữ liệu hơn backfill
@@ -102,7 +106,7 @@ for symbol in symbols:
         candles = await source.fetch_candles(...)
         ...
     except Exception as e:
-        report.errors[key] = str(e)   # 1 symbol lỗi → KHÔNG chặn symbol khác
+        report.errors[key] = str(e)  # 1 symbol lỗi → KHÔNG chặn symbol khác
 ```
 
 → `IngestReport` trả về: `total_written`, `symbols` (mỗi cặp ghi bao nhiêu), `errors` (symbol nào lỗi), `elapsed_seconds`.

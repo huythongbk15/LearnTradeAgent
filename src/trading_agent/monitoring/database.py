@@ -237,9 +237,7 @@ def get_trade_stats(
     else:
         stats["win_rate"] = 0.0
     if stats.get("avg_loss", 0) != 0 and stats.get("avg_win", 0) != 0:
-        stats["profit_factor"] = round(
-            abs(stats["avg_win"] / stats["avg_loss"]), 2
-        )
+        stats["profit_factor"] = round(abs(stats["avg_win"] / stats["avg_loss"]), 2)
     else:
         stats["profit_factor"] = 0.0
     return stats

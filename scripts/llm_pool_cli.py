@@ -34,7 +34,9 @@ from trading_agent.llm.pool import create_llm_pool  # noqa: E402
 def print_status(pool) -> None:
     st = pool.status()
     print(f"=== LLMPool status ({st['today']}) ===")
-    print(f"{'provider':<15} {'enabled':<8} {'needs-key':<10} {'quota-left':<12} {'cooldown':<9} error")
+    print(
+        f"{'provider':<15} {'enabled':<8} {'needs-key':<10} {'quota-left':<12} {'cooldown':<9} error"
+    )
     for p in st["providers"]:
         cooldown = "yes" if p["in_cooldown"] else "no"
         print(

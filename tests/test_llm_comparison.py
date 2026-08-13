@@ -15,10 +15,17 @@ import pytest
 # Thiếu data local → skip cả module.
 _DATA_FILE = (
     Path(__file__).resolve().parents[1]
-    / "data" / "raw" / "binance" / "BTC_USDT" / "1h.parquet"
+    / "data"
+    / "raw"
+    / "binance"
+    / "BTC_USDT"
+    / "1h.parquet"
 )
 if not _DATA_FILE.exists():
-    pytest.skip(f"Bỏ qua integration test: thiếu data local {_DATA_FILE}", allow_module_level=True)
+    pytest.skip(
+        f"Bỏ qua integration test: thiếu data local {_DATA_FILE}",
+        allow_module_level=True,
+    )
 
 import polars as pl
 
@@ -30,23 +37,29 @@ from trading_agent.agents.trader import Trader
 from trading_agent.agents.base import AnalysisContext
 
 
-def run_agents_with_llm(use_llm: bool, symbol: str = "BTC/USDT", timeframe: str = "1h", days: int = 30):
+def run_agents_with_llm(
+    use_llm: bool, symbol: str = "BTC/USDT", timeframe: str = "1h", days: int = 30
+):
     """Run the multi-agent system with or without LLM."""
     os.environ["USE_LLM"] = "true" if use_llm else "false"
 
     # Reload modules to pick up USE_LLM change
     import importlib
     import trading_agent.agents.llm as llm_module
+
     importlib.reload(llm_module)
     import trading_agent.agents.technical as tech_module
+
     importlib.reload(tech_module)
     import trading_agent.agents.sentiment as sent_module
+
     importlib.reload(sent_module)
     import trading_agent.agents.risk as risk_module
+
     importlib.reload(risk_module)
     import trading_agent.agents.trader as trader_module
-    importlib.reload(trader_module)
 
+    importlib.reload(trader_module)
 
     # Load data
     df = load_ohlcv("binance", symbol, timeframe)
@@ -57,6 +70,7 @@ def run_agents_with_llm(use_llm: bool, symbol: str = "BTC/USDT", timeframe: str 
     # Get last N days
     cutoff = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
     from datetime import timedelta
+
     cutoff = cutoff - timedelta(days=days)
     df = df.filter(pl.col("timestamp") >= cutoff)
 
@@ -84,7 +98,7 @@ def run_agents_with_llm(use_llm: bool, symbol: str = "BTC/USDT", timeframe: str 
 
     # Run agents on each bar (simulate real-time)
     for i in range(50, len(df)):
-        window = df.slice(0, i+1)
+        window = df.slice(0, i + 1)
         current_price = float(window["close"][-1])
         current_time = window["timestamp"][-1]
 
@@ -113,32 +127,34 @@ def run_agents_with_llm(use_llm: bool, symbol: str = "BTC/USDT", timeframe: str 
         trader_msg = trader.analyze(context)
 
         # Record
-        results["signals"].append({
-            "bar": i,
-            "timestamp": str(current_time),
-            "price": current_price,
-            "technical": {
-                "signal": tech_msg.signal,
-                "confidence": tech_msg.confidence,
-                "reasoning": tech_msg.reasoning,
-            },
-            "sentiment": {
-                "signal": sent_msg.signal,
-                "confidence": sent_msg.confidence,
-                "reasoning": sent_msg.reasoning,
-            },
-            "risk": {
-                "signal": risk_msg.signal,
-                "confidence": risk_msg.confidence,
-                "reasoning": risk_msg.reasoning,
-                "max_pos_pct": risk_msg.max_position_size_pct,
-            },
-            "trader": {
-                "signal": trader_msg.signal,
-                "confidence": trader_msg.confidence,
-                "reasoning": trader_msg.reasoning,
-            },
-        })
+        results["signals"].append(
+            {
+                "bar": i,
+                "timestamp": str(current_time),
+                "price": current_price,
+                "technical": {
+                    "signal": tech_msg.signal,
+                    "confidence": tech_msg.confidence,
+                    "reasoning": tech_msg.reasoning,
+                },
+                "sentiment": {
+                    "signal": sent_msg.signal,
+                    "confidence": sent_msg.confidence,
+                    "reasoning": sent_msg.reasoning,
+                },
+                "risk": {
+                    "signal": risk_msg.signal,
+                    "confidence": risk_msg.confidence,
+                    "reasoning": risk_msg.reasoning,
+                    "max_pos_pct": risk_msg.max_position_size_pct,
+                },
+                "trader": {
+                    "signal": trader_msg.signal,
+                    "confidence": trader_msg.confidence,
+                    "reasoning": trader_msg.reasoning,
+                },
+            }
+        )
 
     return results
 
@@ -182,25 +198,39 @@ def compare_llm_modes():
             buy = signals.count("BUY")
             sell = signals.count("SELL")
             hold = signals.count("HOLD")
-            print(f"{label}: BUY={buy} ({buy/len(signals)*100:.1f}%), SELL={sell} ({sell/len(signals)*100:.1f}%), HOLD={hold} ({hold/len(signals)*100:.1f}%)")
+            print(
+                f"{label}: BUY={buy} ({buy / len(signals) * 100:.1f}%), SELL={sell} ({sell / len(signals) * 100:.1f}%), HOLD={hold} ({hold / len(signals) * 100:.1f}%)"
+            )
 
         # Agreement
-        agreements = sum(1 for left, right in zip(llm_signals, rule_signals) if left == right)
-        print(f"\nSignal agreement: {agreements}/{len(llm_signals)} ({agreements/len(llm_signals)*100:.1f}%)")
+        agreements = sum(
+            1 for left, right in zip(llm_signals, rule_signals) if left == right
+        )
+        print(
+            f"\nSignal agreement: {agreements}/{len(llm_signals)} ({agreements / len(llm_signals) * 100:.1f}%)"
+        )
 
         # Confidence comparison
         llm_conf = [s["trader"]["confidence"] for s in results_llm["signals"]]
         rule_conf = [s["trader"]["confidence"] for s in results_rule["signals"]]
-        print(f"Avg confidence - LLM: {sum(llm_conf)/len(llm_conf):.3f}, Rule: {sum(rule_conf)/len(rule_conf):.3f}")
+        print(
+            f"Avg confidence - LLM: {sum(llm_conf) / len(llm_conf):.3f}, Rule: {sum(rule_conf) / len(rule_conf):.3f}"
+        )
 
         # Sample first 10 signals
         print("\nFirst 10 bars comparison:")
-        print(f"{'Bar':>4} {'Price':>10} {'LLM Signal':>10} {'LLM Conf':>8} {'Rule Signal':>10} {'Rule Conf':>8} {'Match'}")
+        print(
+            f"{'Bar':>4} {'Price':>10} {'LLM Signal':>10} {'LLM Conf':>8} {'Rule Signal':>10} {'Rule Conf':>8} {'Match'}"
+        )
         for i in range(min(10, len(results_llm["signals"]))):
             s_llm = results_llm["signals"][i]
             s_rule = results_rule["signals"][i]
-            match = "✓" if s_llm["trader"]["signal"] == s_rule["trader"]["signal"] else "✗"
-            print(f"{i:>4} {s_llm['price']:>10.2f} {s_llm['trader']['signal']:>10} {s_llm['trader']['confidence']:>8.2f} {s_rule['trader']['signal']:>10} {s_rule['trader']['confidence']:>8.2f}   {match}")
+            match = (
+                "✓" if s_llm["trader"]["signal"] == s_rule["trader"]["signal"] else "✗"
+            )
+            print(
+                f"{i:>4} {s_llm['price']:>10.2f} {s_llm['trader']['signal']:>10} {s_llm['trader']['confidence']:>8.2f} {s_rule['trader']['signal']:>10} {s_rule['trader']['confidence']:>8.2f}   {match}"
+            )
 
     else:
         print("One or both modes failed to produce results")

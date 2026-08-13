@@ -53,7 +53,9 @@ class LiquidityAwareTwap:
         if volume_ref is not None and volume_ref <= 0:
             raise ValueError(f"volume_ref must be > 0, got {volume_ref}")
         if not 0 < depth_ref_share <= 1:
-            raise ValueError(f"depth_ref_share must be in (0, 1], got {depth_ref_share}")
+            raise ValueError(
+                f"depth_ref_share must be in (0, 1], got {depth_ref_share}"
+            )
         if not 0 < spread_floor <= spread_cap:
             raise ValueError("spread adjustment must satisfy 0 < floor <= cap")
         if not 0 < vol_floor <= vol_cap:
@@ -156,7 +158,9 @@ class LiquidityAwareTwap:
                 return SliceResult(0.0, reason="budget_exhausted")
             mid = ctx.snapshot.mid
             if mid > 0:
-                est_cost_bps = ctx.snapshot.spread_bps / 2.0 + 1.0  # +1 bps impact proxy
+                est_cost_bps = (
+                    ctx.snapshot.spread_bps / 2.0 + 1.0
+                )  # +1 bps impact proxy
                 if est_cost_bps > 0:
                     budget_qty = remaining_bps_units / est_cost_bps
                     slice_qty = min(slice_qty, budget_qty)

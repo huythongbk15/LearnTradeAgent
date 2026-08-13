@@ -41,10 +41,15 @@ def load_test_event_store(n_events=100_000, n_writers=4):
     async def writer(wid, count):
         for i in range(count):
             ev = store.create_trade_event(
-                symbol=random.choice(symbols), side=random.choice(sides),
-                size=Decimal("0.5"), price=Decimal(str(random.uniform(100, 50000))),
-                fee=Decimal("2.5"), fee_currency="USDT",
-                exchange="binance", order_id=f"w{wid}-{i}", strategy_id=f"s{wid}",
+                symbol=random.choice(symbols),
+                side=random.choice(sides),
+                size=Decimal("0.5"),
+                price=Decimal(str(random.uniform(100, 50000))),
+                fee=Decimal("2.5"),
+                fee_currency="USDT",
+                exchange="binance",
+                order_id=f"w{wid}-{i}",
+                strategy_id=f"s{wid}",
             )
             await store.append(ev)
 
@@ -55,13 +60,17 @@ def load_test_event_store(n_events=100_000, n_writers=4):
         await asyncio.gather(*[writer(i, per_writer) for i in range(n_writers)])
         t1 = time.perf_counter()
         elapsed = t1 - t0
-        print(f"  wrote {n_events} events in {elapsed:.2f}s -> {n_events / elapsed:,.0f} ev/s")
+        print(
+            f"  wrote {n_events} events in {elapsed:.2f}s -> {n_events / elapsed:,.0f} ev/s"
+        )
 
         t0 = time.perf_counter()
         all_events = await store.read_all(count=n_events)
         t1 = time.perf_counter()
         elapsed = t1 - t0
-        print(f"  read {len(all_events)} events in {elapsed:.2f}s -> {n_events / elapsed:,.0f} ev/s")
+        print(
+            f"  read {len(all_events)} events in {elapsed:.2f}s -> {n_events / elapsed:,.0f} ev/s"
+        )
         await store.disconnect()
 
     run_async(scenario())
@@ -78,8 +87,11 @@ def load_test_concurrent_readers(n_events=20_000, n_readers=8):
         await store.connect(backend="file")
         events = [
             store.create_signal_event(
-                symbol="BTC/USDT", signal_type="buy" if i % 2 == 0 else "sell",
-                strength=0.5, strategy_id="s1", timeframe="1h",
+                symbol="BTC/USDT",
+                signal_type="buy" if i % 2 == 0 else "sell",
+                strength=0.5,
+                strategy_id="s1",
+                timeframe="1h",
             )
             for i in range(n_events)
         ]
@@ -111,22 +123,31 @@ def load_test_online_learning(n_bars=200_000):
     np.random.seed(1)
     prices = 100 * np.exp(np.cumsum(np.random.normal(0.001, 0.01, n_bars)))
 
-    strat = AdaptiveStrategy(AdaptiveConfig(min_period=5, max_period=30, min_samples=30))
+    strat = AdaptiveStrategy(
+        AdaptiveConfig(min_period=5, max_period=30, min_samples=30)
+    )
     t0 = time.perf_counter()
     for i in range(1, len(prices)):
         strat.update(
-            high=float(prices[i] * 1.002), low=float(prices[i] * 0.998),
-            close=float(prices[i]), volume=1000.0,
+            high=float(prices[i] * 1.002),
+            low=float(prices[i] * 0.998),
+            close=float(prices[i]),
+            volume=1000.0,
         )
     t1 = time.perf_counter()
     elapsed = t1 - t0
-    print(f"  processed {n_bars} bars in {elapsed:.2f}s -> {n_bars / elapsed:,.0f} bars/s")
+    print(
+        f"  processed {n_bars} bars in {elapsed:.2f}s -> {n_bars / elapsed:,.0f} bars/s"
+    )
 
 
 def load_test_portfolio_large_universe(n_assets=100, n_periods=500):
     print(f"\n[Portfolio Optimizer Large Universe] {n_assets} assets")
     import pandas as pd
-    from trading_agent.portfolio.portfolio_optimizer import PortfolioOptimizer, OptimizerMethod
+    from trading_agent.portfolio.portfolio_optimizer import (
+        PortfolioOptimizer,
+        OptimizerMethod,
+    )
     from trading_agent.exchanges.models import Symbol, AssetClass, MarketType
 
     np.random.seed(2)
@@ -146,7 +167,9 @@ def load_test_portfolio_large_universe(n_assets=100, n_periods=500):
         result = optimizer.optimize()
         t1 = time.perf_counter()
         elapsed = t1 - t0
-        print(f"  {method} with {n_assets} assets: {elapsed * 1000:.1f} ms (success={result.success})")
+        print(
+            f"  {method} with {n_assets} assets: {elapsed * 1000:.1f} ms (success={result.success})"
+        )
 
 
 def main():

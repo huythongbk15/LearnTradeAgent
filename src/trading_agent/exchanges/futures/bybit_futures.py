@@ -6,8 +6,17 @@ from decimal import Decimal
 from typing import Optional, List
 
 from trading_agent.exchanges.models import (
-    Symbol, AssetClass, MarketType, Order, OrderSide, OrderType, 
-    OrderStatus, Ticker, OrderBook, Balance, Position
+    Symbol,
+    AssetClass,
+    MarketType,
+    Order,
+    OrderSide,
+    OrderType,
+    OrderStatus,
+    Ticker,
+    OrderBook,
+    Balance,
+    Position,
 )
 from trading_agent.exchanges.ccxt_adapter import CCXTAdapter
 
@@ -32,36 +41,38 @@ class BybitFuturesAdapter(CCXTAdapter):
             password=password,
             testnet=testnet,
         )
-        
+
         self._market_type = market_type
         self._exchange: Optional[ccxt.Exchange] = None
 
     async def connect(self) -> bool:
         """Connect to Bybit Futures."""
         try:
-            self._exchange = ccxt.bybit({
-                "apiKey": self.api_key,
-                "secret": self.secret,
-                "password": self.password,
-                "enableRateLimit": True,
-                "options": {
-                    "defaultType": "swap",  # perpetual
-                    "defaultSubType": self._market_type,  # linear or inverse
-                },
-            })
-            
+            self._exchange = ccxt.bybit(
+                {
+                    "apiKey": self.api_key,
+                    "secret": self.secret,
+                    "password": self.password,
+                    "enableRateLimit": True,
+                    "options": {
+                        "defaultType": "swap",  # perpetual
+                        "defaultSubType": self._market_type,  # linear or inverse
+                    },
+                }
+            )
+
             if self.testnet:
                 self._exchange.set_sandbox_mode(True)
-            
+
             await self._exchange.load_markets()
-            
+
             if self.api_key:
                 await self._exchange.fetch_balance()
-            
+
             self._connected = True
             logger.info(f"Connected to Bybit {self._market_type} futures")
             return True
-            
+
         except Exception as e:
             logger.error(f"Failed to connect to Bybit Futures: {e}")
             return False
@@ -79,7 +90,7 @@ class BybitFuturesAdapter(CCXTAdapter):
         info = market.get("info", {})
         base = market["base"]
         quote = market["quote"]
-        
+
         return Symbol(
             base=base,
             quote=quote,
@@ -92,7 +103,7 @@ class BybitFuturesAdapter(CCXTAdapter):
         """Fetch ticker for futures."""
         ccxt_symbol = self._convert_symbol(symbol)
         ticker = await self._exchange.fetch_ticker(ccxt_symbol)
-        
+
         return Ticker(
             symbol=symbol,
             timestamp=self._parse_timestamp(ticker["timestamp"]),
@@ -103,30 +114,44 @@ class BybitFuturesAdapter(CCXTAdapter):
             low=Decimal(str(ticker["low"])) if ticker["low"] else None,
             open=Decimal(str(ticker["open"])) if ticker["open"] else None,
             close=Decimal(str(ticker["close"])) if ticker["close"] else None,
-            base_volume=Decimal(str(ticker["baseVolume"])) if ticker["baseVolume"] else None,
-            quote_volume=Decimal(str(ticker["quoteVolume"])) if ticker["quoteVolume"] else None,
+            base_volume=Decimal(str(ticker["baseVolume"]))
+            if ticker["baseVolume"]
+            else None,
+            quote_volume=Decimal(str(ticker["quoteVolume"]))
+            if ticker["quoteVolume"]
+            else None,
             change=Decimal(str(ticker["change"])) if ticker["change"] else None,
-            percentage=Decimal(str(ticker["percentage"])) if ticker["percentage"] else None,
+            percentage=Decimal(str(ticker["percentage"]))
+            if ticker["percentage"]
+            else None,
         )
 
     async def fetch_order_book(self, symbol: Symbol, limit: int = 20) -> OrderBook:
         """Fetch order book."""
         ccxt_symbol = self._convert_symbol(symbol)
         ob = await self._exchange.fetch_order_book(ccxt_symbol, limit)
-        
+
         from trading_agent.exchanges.models import OrderBookLevel
-        
+
         return OrderBook(
             symbol=symbol,
             timestamp=self._parse_timestamp(ob["timestamp"]),
-            bids=[OrderBookLevel(Decimal(str(b[0])), Decimal(str(b[1]))) for b in ob["bids"]],
-            asks=[OrderBookLevel(Decimal(str(a[0])), Decimal(str(a[1]))) for a in ob["asks"]],
+            bids=[
+                OrderBookLevel(Decimal(str(b[0])), Decimal(str(b[1])))
+                for b in ob["bids"]
+            ],
+            asks=[
+                OrderBookLevel(Decimal(str(a[0])), Decimal(str(a[1])))
+                for a in ob["asks"]
+            ],
         )
 
     async def fetch_balance(self) -> List[Balance]:
         """Fetch futures account balance."""
-        bal = await self._exchange.fetch_balance({"type": "swap", "subType": self._market_type})
-        
+        bal = await self._exchange.fetch_balance(
+            {"type": "swap", "subType": self._market_type}
+        )
+
         balances = {}
         for currency, amounts in bal.items():
             if currency in ("info", "free", "used", "total"):
@@ -137,49 +162,73 @@ class BybitFuturesAdapter(CCXTAdapter):
                     "used": Decimal(str(amounts.get("used", 0))),
                     "total": Decimal(str(amounts.get("total", 0))),
                 }
-        
-        return [Balance(
-            asset_class=AssetClass.FUTURES,
-            assets=balances,
-        )]
 
-    async def fetch_positions(self, symbols: Optional[List[Symbol]] = None) -> List[Position]:
+        return [
+            Balance(
+                asset_class=AssetClass.FUTURES,
+                assets=balances,
+            )
+        ]
+
+    async def fetch_positions(
+        self, symbols: Optional[List[Symbol]] = None
+    ) -> List[Position]:
         """Fetch open positions."""
         params = {"type": "swap", "subType": self._market_type}
         if symbols:
             params["symbols"] = [self._convert_symbol(s) for s in symbols]
-        
+
         positions = await self._exchange.fetch_positions(**params)
-        
+
         result = []
         for p in positions:
             if p["contracts"] and float(p["contracts"]) != 0:
-                sym = self._parse_symbol({"symbol": p["symbol"], "base": "", "quote": ""})
+                sym = self._parse_symbol(
+                    {"symbol": p["symbol"], "base": "", "quote": ""}
+                )
                 # Parse symbol from Bybit format
                 if self._market_type == "linear":
                     base, quote = p["symbol"][:-4], p["symbol"][-4:]
                 else:
                     base, quote = p["symbol"][:-3], p["symbol"][-3:]
-                sym = Symbol(base, quote, AssetClass.FUTURES, MarketType.PERPETUAL, "bybit")
-                
-                result.append(Position(
-                    symbol=sym,
-                    size=Decimal(str(p["contracts"])),
-                    entry_price=Decimal(str(p["entryPrice"])) if p["entryPrice"] else Decimal(0),
-                    mark_price=Decimal(str(p["markPrice"])) if p["markPrice"] else Decimal(0),
-                    unrealized_pnl=Decimal(str(p["unrealizedPnl"])) if p["unrealizedPnl"] else Decimal(0),
-                    realized_pnl=Decimal(str(p["realizedPnl"])) if p["realizedPnl"] else Decimal(0),
-                    leverage=Decimal(str(p["leverage"])) if p.get("leverage") else Decimal(1),
-                    margin_used=Decimal(str(p["initialMargin"])) if p["initialMargin"] else Decimal(0),
-                    liquidation_price=Decimal(str(p["liquidationPrice"])) if p.get("liquidationPrice") else None,
-                ))
-        
+                sym = Symbol(
+                    base, quote, AssetClass.FUTURES, MarketType.PERPETUAL, "bybit"
+                )
+
+                result.append(
+                    Position(
+                        symbol=sym,
+                        size=Decimal(str(p["contracts"])),
+                        entry_price=Decimal(str(p["entryPrice"]))
+                        if p["entryPrice"]
+                        else Decimal(0),
+                        mark_price=Decimal(str(p["markPrice"]))
+                        if p["markPrice"]
+                        else Decimal(0),
+                        unrealized_pnl=Decimal(str(p["unrealizedPnl"]))
+                        if p["unrealizedPnl"]
+                        else Decimal(0),
+                        realized_pnl=Decimal(str(p["realizedPnl"]))
+                        if p["realizedPnl"]
+                        else Decimal(0),
+                        leverage=Decimal(str(p["leverage"]))
+                        if p.get("leverage")
+                        else Decimal(1),
+                        margin_used=Decimal(str(p["initialMargin"]))
+                        if p["initialMargin"]
+                        else Decimal(0),
+                        liquidation_price=Decimal(str(p["liquidationPrice"]))
+                        if p.get("liquidationPrice")
+                        else None,
+                    )
+                )
+
         return result
 
     async def create_order(self, order: Order) -> Order:
         """Create futures order."""
         ccxt_symbol = self._convert_symbol(order.symbol)
-        
+
         params = {"type": "swap", "subType": self._market_type}
         if order.reduce_only:
             params["reduceOnly"] = True
@@ -194,21 +243,25 @@ class BybitFuturesAdapter(CCXTAdapter):
             price=float(order.price) if order.price else None,
             params=params,
         )
-        
+
         return self._parse_order(ccxt_order, order.symbol)
 
     async def cancel_order(self, order_id: str, symbol: Symbol) -> Order:
         """Cancel futures order."""
         ccxt_symbol = self._convert_symbol(symbol)
         params = {"type": "swap", "subType": self._market_type}
-        ccxt_order = await self._exchange.cancel_order(order_id, ccxt_symbol, params=params)
+        ccxt_order = await self._exchange.cancel_order(
+            order_id, ccxt_symbol, params=params
+        )
         return self._parse_order(ccxt_order, symbol)
 
     async def fetch_order(self, order_id: str, symbol: Symbol) -> Order:
         """Fetch order status."""
         ccxt_symbol = self._convert_symbol(symbol)
         params = {"type": "swap", "subType": self._market_type}
-        ccxt_order = await self._exchange.fetch_order(order_id, ccxt_symbol, params=params)
+        ccxt_order = await self._exchange.fetch_order(
+            order_id, ccxt_symbol, params=params
+        )
         return self._parse_order(ccxt_order, symbol)
 
     async def fetch_open_orders(self, symbol: Optional[Symbol] = None) -> List[Order]:
@@ -216,7 +269,10 @@ class BybitFuturesAdapter(CCXTAdapter):
         ccxt_symbol = self._convert_symbol(symbol) if symbol else None
         params = {"type": "swap", "subType": self._market_type}
         orders = await self._exchange.fetch_open_orders(ccxt_symbol, params=params)
-        return [self._parse_order(o, self._parse_symbol({"symbol": o["symbol"]})) for o in orders]
+        return [
+            self._parse_order(o, self._parse_symbol({"symbol": o["symbol"]}))
+            for o in orders
+        ]
 
     async def set_leverage(self, symbol: Symbol, leverage: int) -> None:
         """Set leverage for a symbol."""
@@ -233,7 +289,7 @@ class BybitFuturesAdapter(CCXTAdapter):
             "rejected": OrderStatus.REJECTED,
             "expired": OrderStatus.EXPIRED,
         }
-        
+
         return Order(
             id=ccxt_order["id"],
             symbol=symbol,
@@ -242,9 +298,15 @@ class BybitFuturesAdapter(CCXTAdapter):
             size=Decimal(str(ccxt_order["amount"])),
             price=Decimal(str(ccxt_order["price"])) if ccxt_order["price"] else None,
             status=status_map.get(ccxt_order["status"], OrderStatus.OPEN),
-            filled_size=Decimal(str(ccxt_order["filled"])) if ccxt_order["filled"] else Decimal(0),
-            avg_fill_price=Decimal(str(ccxt_order["average"])) if ccxt_order["average"] else Decimal(0),
-            fee=Decimal(str(ccxt_order["fee"]["cost"])) if ccxt_order.get("fee") else Decimal(0),
+            filled_size=Decimal(str(ccxt_order["filled"]))
+            if ccxt_order["filled"]
+            else Decimal(0),
+            avg_fill_price=Decimal(str(ccxt_order["average"]))
+            if ccxt_order["average"]
+            else Decimal(0),
+            fee=Decimal(str(ccxt_order["fee"]["cost"]))
+            if ccxt_order.get("fee")
+            else Decimal(0),
             time_in_force=ccxt_order.get("timeInForce", "GTC"),
             reduce_only=ccxt_order.get("reduceOnly", False),
             post_only=ccxt_order.get("postOnly", False),

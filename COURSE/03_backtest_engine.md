@@ -47,15 +47,15 @@ Nhìn vào `BacktestEngine.run()` — `src/trading_agent/backtest/engine.py:96-1
 
 ```python
 def run(self, df, symbol=None, timeframe=None):
-    df = df.sort("timestamp")                              # 0. Sắp xếp
-    df = self.strategy.compute_indicators(df)              # 1. Indicators
-    signals = self.strategy.generate_signals(df)           # 2. Signals ±1/0
+    df = df.sort("timestamp")  # 0. Sắp xếp
+    df = self.strategy.compute_indicators(df)  # 1. Indicators
+    signals = self.strategy.generate_signals(df)  # 2. Signals ±1/0
     df = df.with_columns(signals.alias("signal"))
-    df = self._compute_positions(df)                       # 3. Position
-    df = self._compute_returns(df)                         # 4. Returns
-    df = self._build_equity_curve(df)                      # 5. Equity curve
-    trades = self._extract_trades(df)                      # 6. Trades
-    self._compute_metrics(result, df, trades)              # 7. Metrics
+    df = self._compute_positions(df)  # 3. Position
+    df = self._compute_returns(df)  # 4. Returns
+    df = self._build_equity_curve(df)  # 5. Equity curve
+    trades = self._extract_trades(df)  # 6. Trades
+    self._compute_metrics(result, df, trades)  # 7. Metrics
 ```
 
 Đọc theo chiều: **dữ liệu → tín hiệu → vị thế → lời/lỗ từng bar → tài sản
@@ -108,9 +108,9 @@ net_return = strategy_return - trade_cost
 `src/trading_agent/backtest/engine.py:178-203`:
 
 ```python
-equity = (1 + net_return).cum_prod() * initial_capital   # lãi kép
-peak   = equity.cum_max()                                 # đỉnh cao nhất
-dd     = equity / peak - 1                                # drawdown
+equity = (1 + net_return).cum_prod() * initial_capital  # lãi kép
+peak = equity.cum_max()  # đỉnh cao nhất
+dd = equity / peak - 1  # drawdown
 ```
 
 - `cum_prod` = nhân dồn → mỗi bar lời/lỗ đè lên tài sản hiện tại (đúng với
@@ -154,8 +154,8 @@ lệnh ghi: entry/exit date + price, `pnl_pct`, `bars_held`.
 `BacktestEngine.__init__` — `src/trading_agent/backtest/engine.py:91-94`:
 
 ```python
-commission: float = 0.001,    # phí sàn 0.1%
-slippage:   float = 0.0005,   # trượt giá 0.05%
+commission: float = (0.001,)  # phí sàn 0.1%
+slippage: float = (0.0005,)  # trượt giá 0.05%
 ```
 
 - **Commission**: phí sàn thật (Binance spot ~0.1%).
@@ -201,8 +201,18 @@ nhận. Đây là bài học thiết kế: **số tiền → Decimal, tỷ lệ/
 ### 5.3 Hash để xác thực backtest — `verify_backtest_hash()` (engine.py:321-355)
 
 ```python
-data = {strategy, symbol, timeframe, params, total_return_pct,
-        sharpe_ratio, max_drawdown_pct, win_rate, total_trades, trades[...]}
+data = {
+    strategy,
+    symbol,
+    timeframe,
+    params,
+    total_return_pct,
+    sharpe_ratio,
+    max_drawdown_pct,
+    win_rate,
+    total_trades,
+    trades[...],
+}
 hash = sha256(json.dumps(data, sort_keys=True))[:16]
 ```
 

@@ -42,7 +42,9 @@ STATE_NAME = ".offhost_state.json"
 def load_manifest(archive_dir: Path) -> dict:
     path = archive_dir / MANIFEST_NAME
     if not path.exists():
-        raise SystemExit(f"no manifest at {path} — run audit_retention.py archive first")
+        raise SystemExit(
+            f"no manifest at {path} — run audit_retention.py archive first"
+        )
     return json.loads(path.read_text(encoding="utf-8"))
 
 
@@ -55,7 +57,9 @@ def load_state(archive_dir: Path) -> dict:
 
 def save_state(archive_dir: Path, state: dict) -> None:
     path = archive_dir / STATE_NAME
-    path.write_text(json.dumps(state, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+    path.write_text(
+        json.dumps(state, sort_keys=True, indent=2) + "\n", encoding="utf-8"
+    )
 
 
 def plan_ship(archive_dir: Path, *, force: bool) -> list[tuple[str, str, str, int]]:
@@ -85,7 +89,9 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def ship_dir(archives: list[tuple[str, str, str, int]], archive_dir: Path, remote_dir: Path) -> None:
+def ship_dir(
+    archives: list[tuple[str, str, str, int]], archive_dir: Path, remote_dir: Path
+) -> None:
     remote_dir.mkdir(parents=True, exist_ok=True)
     for name, _remote_sha, _local_sha, _lines in archives:
         src = archive_dir / name
@@ -97,18 +103,25 @@ def ship_dir(archives: list[tuple[str, str, str, int]], archive_dir: Path, remot
         print(f"shipped+verified {name} -> {dst}")
 
 
-def ship_ssh(archives: list[tuple[str, str, str, int]], archive_dir: Path, ssh_host: str, remote_dir: str) -> None:
+def ship_ssh(
+    archives: list[tuple[str, str, str, int]],
+    archive_dir: Path,
+    ssh_host: str,
+    remote_dir: str,
+) -> None:
     for name, _remote_sha, _local_sha, _lines in archives:
         src = archive_dir / name
         run = subprocess.run(
             ["scp", "-q", str(src), f"{ssh_host}:{remote_dir}/{name}"],
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
         if run.returncode != 0:
             raise SystemExit(f"scp {name} failed: {run.stderr.strip()}")
         check = subprocess.run(
             ["ssh", ssh_host, "sha256sum", f"{remote_dir}/{name}"],
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
         if check.returncode != 0:
             raise SystemExit(f"ssh checksum {name} failed: {check.stderr.strip()}")
@@ -124,7 +137,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--method", choices=["dir", "ssh"], required=True)
     parser.add_argument("--remote-dir", required=True)
     parser.add_argument("--ssh-host", default="")
-    parser.add_argument("--force", action="store_true", help="re-ship already shipped archives")
+    parser.add_argument(
+        "--force", action="store_true", help="re-ship already shipped archives"
+    )
     parser.add_argument("--dry-run", action="store_true", help="print plan only")
     return parser
 

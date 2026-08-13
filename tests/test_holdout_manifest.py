@@ -1,4 +1,5 @@
 """P2: frozen final-holdout manifest and training-window guard."""
+
 from __future__ import annotations
 
 import json

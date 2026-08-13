@@ -39,7 +39,7 @@ class ExecutionLedger:
     initial_cash_quote: float
     cash_quote: float = 0.0
     inventory_base: float = 0.0
-    avg_cost_base: float = 0.0     # weighted-average cost of CURRENT inventory
+    avg_cost_base: float = 0.0  # weighted-average cost of CURRENT inventory
     realized_pnl: float = 0.0
     total_fees_paid: float = 0.0
     fills: list[Fill] = field(default_factory=list)
@@ -56,12 +56,16 @@ class ExecutionLedger:
 
     def __post_init__(self) -> None:
         if self.initial_cash_quote <= 0:
-            raise ValueError(f"initial_cash_quote must be positive, got {self.initial_cash_quote}")
+            raise ValueError(
+                f"initial_cash_quote must be positive, got {self.initial_cash_quote}"
+            )
         self.cash_quote = self.initial_cash_quote
 
     # ── Validation ──────────────────────────────────────────────────────
 
-    def can_afford(self, side: SimSide, quantity: float, price: float, fee: float) -> bool:
+    def can_afford(
+        self, side: SimSide, quantity: float, price: float, fee: float
+    ) -> bool:
         if side == SimSide.SELL:
             return True  # inventory check happens separately
         return self.cash_quote >= quantity * price + fee
@@ -95,7 +99,8 @@ class ExecutionLedger:
             new_inv = self.inventory_base + fill.quantity
             if new_inv > 1e-12:
                 self.avg_cost_base = (
-                    self.avg_cost_base * self.inventory_base + fill.price * fill.quantity
+                    self.avg_cost_base * self.inventory_base
+                    + fill.price * fill.quantity
                 ) / new_inv
             self.inventory_base = new_inv
         else:  # SELL

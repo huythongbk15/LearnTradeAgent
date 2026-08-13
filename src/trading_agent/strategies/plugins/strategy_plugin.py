@@ -29,13 +29,21 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Optional
 
-from trading_agent.exchanges.models import Symbol, Order, OrderSide, OrderType, Bar, Position
+from trading_agent.exchanges.models import (
+    Symbol,
+    Order,
+    OrderSide,
+    OrderType,
+    Bar,
+    Position,
+)
 
 logger = logging.getLogger(__name__)
 
 
 class StrategyType(str, Enum):
     """Strategy classification"""
+
     TREND_FOLLOWING = "trend_following"
     MEAN_REVERSION = "mean_reversion"
     BREAKOUT = "breakout"
@@ -50,6 +58,7 @@ class StrategyType(str, Enum):
 
 class RiskProfile(str, Enum):
     """Risk profile classification"""
+
     CONSERVATIVE = "conservative"
     MODERATE = "moderate"
     AGGRESSIVE = "aggressive"
@@ -58,6 +67,7 @@ class RiskProfile(str, Enum):
 
 class StrategyStatus(str, Enum):
     """Strategy lifecycle status"""
+
     REGISTERED = "registered"
     VALIDATING = "validating"
     VALIDATED = "validated"
@@ -70,6 +80,7 @@ class StrategyStatus(str, Enum):
 @dataclass
 class StrategyMetadata:
     """Strategy metadata for registry"""
+
     name: str
     version: str
     author: str
@@ -87,45 +98,50 @@ class StrategyMetadata:
 
     def to_dict(self) -> dict:
         return {
-            'name': self.name,
-            'version': self.version,
-            'author': self.author,
-            'description': self.description,
-            'strategy_type': self.strategy_type.value,
-            'risk_profile': self.risk_profile.value,
-            'asset_classes': self.asset_classes,
-            'timeframes': self.timeframes,
-            'parameters': self.parameters,
-            'required_data': self.required_data,
-            'backtest_hash': self.backtest_hash,
-            'created_at': self.created_at.isoformat(),
-            'updated_at': self.updated_at.isoformat(),
-            'tags': self.tags,
+            "name": self.name,
+            "version": self.version,
+            "author": self.author,
+            "description": self.description,
+            "strategy_type": self.strategy_type.value,
+            "risk_profile": self.risk_profile.value,
+            "asset_classes": self.asset_classes,
+            "timeframes": self.timeframes,
+            "parameters": self.parameters,
+            "required_data": self.required_data,
+            "backtest_hash": self.backtest_hash,
+            "created_at": self.created_at.isoformat(),
+            "updated_at": self.updated_at.isoformat(),
+            "tags": self.tags,
         }
 
     @classmethod
     def from_dict(cls, data: dict) -> StrategyMetadata:
         return cls(
-            name=data['name'],
-            version=data['version'],
-            author=data['author'],
-            description=data['description'],
-            strategy_type=StrategyType(data['strategy_type']),
-            risk_profile=RiskProfile(data['risk_profile']),
-            asset_classes=data['asset_classes'],
-            timeframes=data['timeframes'],
-            parameters=data.get('parameters', {}),
-            required_data=data.get('required_data', []),
-            backtest_hash=data.get('backtest_hash', ''),
-            created_at=datetime.fromisoformat(data['created_at']) if 'created_at' in data else datetime.now(),
-            updated_at=datetime.fromisoformat(data['updated_at']) if 'updated_at' in data else datetime.now(),
-            tags=data.get('tags', []),
+            name=data["name"],
+            version=data["version"],
+            author=data["author"],
+            description=data["description"],
+            strategy_type=StrategyType(data["strategy_type"]),
+            risk_profile=RiskProfile(data["risk_profile"]),
+            asset_classes=data["asset_classes"],
+            timeframes=data["timeframes"],
+            parameters=data.get("parameters", {}),
+            required_data=data.get("required_data", []),
+            backtest_hash=data.get("backtest_hash", ""),
+            created_at=datetime.fromisoformat(data["created_at"])
+            if "created_at" in data
+            else datetime.now(),
+            updated_at=datetime.fromisoformat(data["updated_at"])
+            if "updated_at" in data
+            else datetime.now(),
+            tags=data.get("tags", []),
         )
 
 
 @dataclass
 class Signal:
     """Trading signal from strategy"""
+
     symbol: Symbol
     side: OrderSide
     strength: Decimal
@@ -136,7 +152,9 @@ class Signal:
     timestamp: datetime = field(default_factory=datetime.now)
     strategy_name: str = ""
 
-    def to_order(self, size: Decimal, order_type: OrderType = OrderType.MARKET) -> Order:
+    def to_order(
+        self, size: Decimal, order_type: OrderType = OrderType.MARKET
+    ) -> Order:
         """Convert signal to order"""
         return Order(
             id=str(uuid.uuid4())[:8],
@@ -153,6 +171,7 @@ class Signal:
 @dataclass
 class StrategyContext:
     """Context passed to strategy on each bar"""
+
     symbol: Symbol
     bar: Bar
     position: Optional[Position]
@@ -249,18 +268,20 @@ class BaseStrategy(ABC):
 
         for key, spec in schema.items():
             if key not in params:
-                if spec.get('required', False):
+                if spec.get("required", False):
                     return False, f"Missing required parameter: {key}"
             else:
                 val = params[key]
-                expected_type = spec.get('type')
-                if expected_type == 'number' and not isinstance(val, (int, float, Decimal)):
+                expected_type = spec.get("type")
+                if expected_type == "number" and not isinstance(
+                    val, (int, float, Decimal)
+                ):
                     return False, f"Parameter {key} must be a number"
-                if expected_type == 'integer' and not isinstance(val, int):
+                if expected_type == "integer" and not isinstance(val, int):
                     return False, f"Parameter {key} must be an integer"
-                if 'min' in spec and val < spec['min']:
+                if "min" in spec and val < spec["min"]:
                     return False, f"Parameter {key} below minimum {spec['min']}"
-                if 'max' in spec and val > spec['max']:
+                if "max" in spec and val > spec["max"]:
                     return False, f"Parameter {key} above maximum {spec['max']}"
 
         return True, "Valid"
@@ -297,14 +318,14 @@ class StrategySandbox:
 
         Returns: (success, result, error_message)
         """
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
             f.write(self._wrap_strategy(strategy_code))
             strategy_file = f.name
 
         try:
             cmd = [
                 sys.executable,
-                '-c',
+                "-c",
                 f"""
 import sys
 sys.path.insert(0, '{Path(strategy_file).parent}')
@@ -314,7 +335,7 @@ from {Path(strategy_file).stem} import Strategy
 strategy = Strategy()
 result = strategy.{method}(*{json.dumps(args)}, **{json.dumps(kwargs)})
 print(json.dumps(result, default=str))
-"""
+""",
             ]
 
             result = subprocess.run(
@@ -391,10 +412,11 @@ class StrategyRegistry:
     def _load_from_disk(self) -> int:
         """Load strategy metadata from disk"""
         count = 0
-        for meta_file in self.registry_path.glob('*@*.json'):
+        for meta_file in self.registry_path.glob("*@*.json"):
             try:
                 import json
-                with open(meta_file, 'r') as f:
+
+                with open(meta_file, "r") as f:
                     data = json.load(f)
                 meta = StrategyMetadata.from_dict(data)
                 key = f"{meta.name}@{meta.version}"
@@ -428,10 +450,11 @@ class StrategyRegistry:
         if file_path.exists():
             try:
                 import json
-                with open(file_path, 'r') as f:
+
+                with open(file_path, "r") as f:
                     existing = json.load(f)
-                if existing.get('backtest_hash'):
-                    meta.backtest_hash = existing['backtest_hash']
+                if existing.get("backtest_hash"):
+                    meta.backtest_hash = existing["backtest_hash"]
             except Exception:
                 pass
 
@@ -440,9 +463,11 @@ class StrategyRegistry:
         logger.info(f"Registered strategy: {key}")
         return meta
 
-    def _validate_strategy(self, strategy_class: type[BaseStrategy]) -> tuple[bool, str]:
+    def _validate_strategy(
+        self, strategy_class: type[BaseStrategy]
+    ) -> tuple[bool, str]:
         """Validate strategy implementation"""
-        required = ['on_start', 'on_bar', 'on_stop']
+        required = ["on_start", "on_bar", "on_stop"]
         for method in required:
             if not hasattr(strategy_class, method):
                 return False, f"Missing required method: {method}"
@@ -452,8 +477,16 @@ class StrategyRegistry:
         # Test instantiation with proper context
         try:
             instance = strategy_class()
-            from trading_agent.exchanges.models import Symbol, AssetClass, MarketType, Bar
-            dummy_symbol = Symbol("BTC", "USDT", AssetClass.CRYPTO, MarketType.SPOT, "test")
+            from trading_agent.exchanges.models import (
+                Symbol,
+                AssetClass,
+                MarketType,
+                Bar,
+            )
+
+            dummy_symbol = Symbol(
+                "BTC", "USDT", AssetClass.CRYPTO, MarketType.SPOT, "test"
+            )
             dummy_bar = Bar(
                 symbol=dummy_symbol,
                 timestamp=datetime.now(),
@@ -462,16 +495,18 @@ class StrategyRegistry:
                 high=Decimal("51000"),
                 low=Decimal("49000"),
                 close=Decimal("50500"),
-                volume=Decimal("100")
+                volume=Decimal("100"),
             )
-            instance.on_start(StrategyContext(
-                symbol=dummy_symbol,
-                bar=dummy_bar,
-                position=None,
-                portfolio_value=Decimal("10000"),
-                available_balance=Decimal("10000"),
-                current_time=datetime.now(),
-            ))
+            instance.on_start(
+                StrategyContext(
+                    symbol=dummy_symbol,
+                    bar=dummy_bar,
+                    position=None,
+                    portfolio_value=Decimal("10000"),
+                    available_balance=Decimal("10000"),
+                    current_time=datetime.now(),
+                )
+            )
             instance.on_stop()
         except Exception as e:
             return False, f"Instantiation failed: {e}"
@@ -482,7 +517,7 @@ class StrategyRegistry:
         """Save metadata to disk"""
         self.registry_path.mkdir(parents=True, exist_ok=True)
         meta_file = self.registry_path / f"{meta.name}@{meta.version}.json"
-        with open(meta_file, 'w') as f:
+        with open(meta_file, "w") as f:
             json.dump(meta.to_dict(), f, indent=2)
 
     def reload(self) -> int:
@@ -494,7 +529,9 @@ class StrategyRegistry:
         """Load strategies from installed packages via entry points"""
         count = 0
         try:
-            for entry_point in importlib.metadata.entry_points(group='trading.strategies'):
+            for entry_point in importlib.metadata.entry_points(
+                group="trading.strategies"
+            ):
                 try:
                     strategy_class = entry_point.load()
                     if issubclass(strategy_class, BaseStrategy):
@@ -509,8 +546,8 @@ class StrategyRegistry:
     def load_from_directory(self, path: Path) -> int:
         """Load strategies from a directory"""
         count = 0
-        for py_file in path.glob('*.py'):
-            if py_file.name.startswith('_'):
+        for py_file in path.glob("*.py"):
+            if py_file.name.startswith("_"):
                 continue
             try:
                 spec = importlib.util.spec_from_file_location(py_file.stem, py_file)
@@ -518,7 +555,11 @@ class StrategyRegistry:
                 spec.loader.exec_module(module)
 
                 for name, obj in inspect.getmembers(module):
-                    if inspect.isclass(obj) and issubclass(obj, BaseStrategy) and obj != BaseStrategy:
+                    if (
+                        inspect.isclass(obj)
+                        and issubclass(obj, BaseStrategy)
+                        and obj != BaseStrategy
+                    ):
                         self.register(obj)
                         count += 1
             except Exception as e:
@@ -533,10 +574,12 @@ class StrategyRegistry:
         versions = [k for k in self._strategies if k.startswith(f"{name}@")]
         if not versions:
             return None
-        latest = max(versions, key=lambda v: v.split('@')[1])
+        latest = max(versions, key=lambda v: v.split("@")[1])
         return self._strategies[latest]
 
-    def get_metadata(self, name: str, version: str | None = None) -> StrategyMetadata | None:
+    def get_metadata(
+        self, name: str, version: str | None = None
+    ) -> StrategyMetadata | None:
         """Get strategy metadata"""
         if version:
             key = f"{name}@{version}"
@@ -544,14 +587,16 @@ class StrategyRegistry:
         versions = [k for k in self._metadata if k.startswith(f"{name}@")]
         if not versions:
             return None
-        latest = max(versions, key=lambda v: v.split('@')[1])
+        latest = max(versions, key=lambda v: v.split("@")[1])
         return self._metadata[latest]
 
     def list_strategies(self) -> list[StrategyMetadata]:
         """List all registered strategies"""
         return list(self._metadata.values())
 
-    def create_instance(self, name: str, version: str | None = None, config: dict | None = None) -> BaseStrategy | None:
+    def create_instance(
+        self, name: str, version: str | None = None, config: dict | None = None
+    ) -> BaseStrategy | None:
         """Create strategy instance"""
         strategy_class = self.get(name, version)
         if not strategy_class:
@@ -570,7 +615,7 @@ class StrategyRegistry:
             versions = [k for k in self._strategies if k.startswith(f"{name}@")]
             if not versions:
                 return StrategyStatus.ERROR
-            key = max(versions, key=lambda v: v.split('@')[1])
+            key = max(versions, key=lambda v: v.split("@")[1])
         return self._status.get(key, StrategyStatus.ERROR)
 
     def set_status(self, name: str, version: str, status: StrategyStatus) -> None:
@@ -578,7 +623,9 @@ class StrategyRegistry:
         key = f"{name}@{version}"
         self._status[key] = status
 
-    def validate_backtest(self, name: str, version: str, backtest_result: dict) -> tuple[bool, str]:
+    def validate_backtest(
+        self, name: str, version: str, backtest_result: dict
+    ) -> tuple[bool, str]:
         """Validate backtest result matches expected hash"""
         meta = self.get_metadata(name, version)
         if not meta or not meta.backtest_hash:
@@ -588,7 +635,10 @@ class StrategyRegistry:
         actual_hash = hashlib.sha256(result_str.encode()).hexdigest()[:16]
 
         if actual_hash != meta.backtest_hash:
-            return False, f"Backtest hash mismatch: expected {meta.backtest_hash}, got {actual_hash}"
+            return (
+                False,
+                f"Backtest hash mismatch: expected {meta.backtest_hash}, got {actual_hash}",
+            )
 
         return True, "Valid"
 
@@ -619,17 +669,35 @@ class ExampleMAStrategy(BaseStrategy):
         asset_classes=["crypto", "stocks"],
         timeframes=["1h", "4h", "1d"],
         parameters={
-            'fast_period': {'type': 'integer', 'min': 5, 'max': 50, 'default': 10, 'required': True},
-            'slow_period': {'type': 'integer', 'min': 20, 'max': 200, 'default': 30, 'required': True},
-            'position_size': {'type': 'number', 'min': 0.01, 'max': 1.0, 'default': 0.1, 'required': True},
+            "fast_period": {
+                "type": "integer",
+                "min": 5,
+                "max": 50,
+                "default": 10,
+                "required": True,
+            },
+            "slow_period": {
+                "type": "integer",
+                "min": 20,
+                "max": 200,
+                "default": 30,
+                "required": True,
+            },
+            "position_size": {
+                "type": "number",
+                "min": 0.01,
+                "max": 1.0,
+                "default": 0.1,
+                "required": True,
+            },
         },
     )
 
     def __init__(self, config: dict | None = None):
         super().__init__(config)
-        self.fast_period = self.config.get('fast_period', 10)
-        self.slow_period = self.config.get('slow_period', 30)
-        self.position_size = self.config.get('position_size', 0.1)
+        self.fast_period = self.config.get("fast_period", 10)
+        self.slow_period = self.config.get("slow_period", 30)
+        self.position_size = self.config.get("position_size", 0.1)
         self.fast_ma: list[Decimal] = []
         self.slow_ma: list[Decimal] = []
 
@@ -658,19 +726,23 @@ class ExampleMAStrategy(BaseStrategy):
         position = context.position
 
         if fast_val > slow_val and (position is None or position.size <= 0):
-            signals.append(Signal(
-                symbol=context.symbol,
-                side=OrderSide.BUY,
-                strength=Decimal('0.7'),
-                strategy_name=self.get_metadata().name,
-            ))
+            signals.append(
+                Signal(
+                    symbol=context.symbol,
+                    side=OrderSide.BUY,
+                    strength=Decimal("0.7"),
+                    strategy_name=self.get_metadata().name,
+                )
+            )
         elif fast_val < slow_val and position and position.size > 0:
-            signals.append(Signal(
-                symbol=context.symbol,
-                side=OrderSide.SELL,
-                strength=Decimal('0.7'),
-                strategy_name=self.get_metadata().name,
-            ))
+            signals.append(
+                Signal(
+                    symbol=context.symbol,
+                    side=OrderSide.SELL,
+                    strength=Decimal("0.7"),
+                    strategy_name=self.get_metadata().name,
+                )
+            )
 
         return signals
 
@@ -691,19 +763,43 @@ class ExampleRSIStrategy(BaseStrategy):
         asset_classes=["crypto", "stocks", "forex"],
         timeframes=["15m", "1h", "4h"],
         parameters={
-            'period': {'type': 'integer', 'min': 5, 'max': 30, 'default': 14, 'required': True},
-            'oversold': {'type': 'integer', 'min': 10, 'max': 40, 'default': 30, 'required': True},
-            'overbought': {'type': 'integer', 'min': 60, 'max': 90, 'default': 70, 'required': True},
-            'position_size': {'type': 'number', 'min': 0.01, 'max': 1.0, 'default': 0.1, 'required': True},
+            "period": {
+                "type": "integer",
+                "min": 5,
+                "max": 30,
+                "default": 14,
+                "required": True,
+            },
+            "oversold": {
+                "type": "integer",
+                "min": 10,
+                "max": 40,
+                "default": 30,
+                "required": True,
+            },
+            "overbought": {
+                "type": "integer",
+                "min": 60,
+                "max": 90,
+                "default": 70,
+                "required": True,
+            },
+            "position_size": {
+                "type": "number",
+                "min": 0.01,
+                "max": 1.0,
+                "default": 0.1,
+                "required": True,
+            },
         },
     )
 
     def __init__(self, config: dict | None = None):
         super().__init__(config)
-        self.period = self.config.get('period', 14)
-        self.oversold = self.config.get('oversold', 30)
-        self.overbought = self.config.get('overbought', 70)
-        self.position_size = self.config.get('position_size', 0.1)
+        self.period = self.config.get("period", 14)
+        self.oversold = self.config.get("oversold", 30)
+        self.overbought = self.config.get("overbought", 70)
+        self.position_size = self.config.get("position_size", 0.1)
         self.closes: list[Decimal] = []
         self.rsi_values: list[float] = []
 
@@ -725,7 +821,7 @@ class ExampleRSIStrategy(BaseStrategy):
         gains = []
         losses = []
         for i in range(1, len(self.closes)):
-            diff = float(self.closes[i] - self.closes[i-1])
+            diff = float(self.closes[i] - self.closes[i - 1])
             if diff > 0:
                 gains.append(diff)
             else:
@@ -746,19 +842,23 @@ class ExampleRSIStrategy(BaseStrategy):
         position = context.position
 
         if rsi < self.oversold and (position is None or position.size <= 0):
-            signals.append(Signal(
-                symbol=context.symbol,
-                side=OrderSide.BUY,
-                strength=Decimal('0.8'),
-                strategy_name=self.get_metadata().name,
-            ))
+            signals.append(
+                Signal(
+                    symbol=context.symbol,
+                    side=OrderSide.BUY,
+                    strength=Decimal("0.8"),
+                    strategy_name=self.get_metadata().name,
+                )
+            )
         elif rsi > self.overbought and position and position.size > 0:
-            signals.append(Signal(
-                symbol=context.symbol,
-                side=OrderSide.SELL,
-                strength=Decimal('0.8'),
-                strategy_name=self.get_metadata().name,
-            ))
+            signals.append(
+                Signal(
+                    symbol=context.symbol,
+                    side=OrderSide.SELL,
+                    strength=Decimal("0.8"),
+                    strategy_name=self.get_metadata().name,
+                )
+            )
 
         return signals
 

@@ -150,7 +150,8 @@ class PortfolioManager:
             leftover = budget - clamped_total
             # Redistribute to non-clamped positions proportionally
             unclamped = [
-                (i, a) for i, a in enumerate(raw_allocations)
+                (i, a)
+                for i, a in enumerate(raw_allocations)
                 if a[1] < MAX_SINGLE_POSITION
             ]
             if unclamped:
@@ -184,7 +185,9 @@ class PortfolioManager:
         if cash_pct < 0:
             warnings.append("Total allocation exceeds 100% — reduce positions")
         if cash_pct > 0.5:
-            warnings.append(f"Large cash position ({cash_pct:.0%}) — consider more deployment")
+            warnings.append(
+                f"Large cash position ({cash_pct:.0%}) — consider more deployment"
+            )
         if total_risk in ("HIGH", "EXTREME"):
             warnings.append(f"Elevated portfolio risk ({total_risk})")
 

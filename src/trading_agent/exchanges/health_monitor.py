@@ -37,16 +37,17 @@ class HealthStatus(str, Enum):
 
 
 # thresholds: latency seconds
-DEFAULT_LATENCY_GOOD = 0.5      # below -> healthy
+DEFAULT_LATENCY_GOOD = 0.5  # below -> healthy
 DEFAULT_LATENCY_DEGRADED = 2.0  # below -> degraded, above -> down-ish
-DEFAULT_ERROR_RATE_MAX = 0.2    # error ratio above -> degraded
-DEFAULT_FAILURES_TO_DOWN = 3    # consecutive failures -> down
+DEFAULT_ERROR_RATE_MAX = 0.2  # error ratio above -> degraded
+DEFAULT_FAILURES_TO_DOWN = 3  # consecutive failures -> down
 DEFAULT_RECOVERIES_TO_HEALTHY = 2
 
 
 @dataclass(slots=True)
 class ExchangeHealth:
     """Health state for a single exchange."""
+
     name: str
     status: HealthStatus = HealthStatus.UNKNOWN
     latency_ms: float = 0.0
@@ -73,7 +74,9 @@ class ExchangeHealth:
             "consecutive_successes": self.consecutive_successes,
             "total_checks": self.total_checks,
             "last_check": self.last_check.isoformat() if self.last_check else None,
-            "last_success": self.last_success.isoformat() if self.last_success else None,
+            "last_success": self.last_success.isoformat()
+            if self.last_success
+            else None,
             "last_error": self.last_error,
             "down_since": self.down_since.isoformat() if self.down_since else None,
         }
@@ -109,8 +112,12 @@ class HealthMonitor:
         self._health: dict[str, ExchangeHealth] = {}
         self._running = False
         self._task: Optional[asyncio.Task] = None
-        self._failover_callback: Optional[Callable[[str], Awaitable[None] | None]] = None
-        self._status_callback: Optional[Callable[[ExchangeHealth], Awaitable[None] | None]] = None
+        self._failover_callback: Optional[Callable[[str], Awaitable[None] | None]] = (
+            None
+        )
+        self._status_callback: Optional[
+            Callable[[ExchangeHealth], Awaitable[None] | None]
+        ] = None
 
     # --- registration ----------------------------------------------------
     def register_exchange(self, name: str, checker: Checker) -> None:
@@ -132,7 +139,9 @@ class HealthMonitor:
         """Called when an exchange transitions to DOWN (auto-failover hook)."""
         self._failover_callback = callback
 
-    def on_status_change(self, callback: Callable[[ExchangeHealth], Awaitable[None] | None]) -> None:
+    def on_status_change(
+        self, callback: Callable[[ExchangeHealth], Awaitable[None] | None]
+    ) -> None:
         """Called whenever an exchange's health status changes."""
         self._status_callback = callback
 
@@ -209,7 +218,12 @@ class HealthMonitor:
             health.last_error = str(e)[:300]
             # accumulate error rate (1 recent sample)
             health.error_rate = min(1.0, health.error_rate * 0.8 + 0.2)
-            self._set_status(health, HealthStatus.DOWN if health.consecutive_failures >= self.failures_to_down else HealthStatus.DEGRADED)
+            self._set_status(
+                health,
+                HealthStatus.DOWN
+                if health.consecutive_failures >= self.failures_to_down
+                else HealthStatus.DEGRADED,
+            )
 
     def _update_status_from_latency(self, health: ExchangeHealth) -> None:
         if health.avg_latency_ms / 1000.0 > self.latency_degraded:
@@ -220,7 +234,11 @@ class HealthMonitor:
             if health.consecutive_successes >= self.recoveries_to_healthy:
                 new_status = HealthStatus.HEALTHY
             else:
-                new_status = HealthStatus.DEGRADED if health.status == HealthStatus.UNKNOWN else health.status
+                new_status = (
+                    HealthStatus.DEGRADED
+                    if health.status == HealthStatus.UNKNOWN
+                    else health.status
+                )
         self._set_status(health, new_status)
 
     def _set_status(self, health: ExchangeHealth, new_status: HealthStatus) -> None:
@@ -269,14 +287,20 @@ class HealthMonitor:
         return [n for n in self.exchanges if self.is_healthy(n)]
 
     def get_unhealthy(self) -> list[str]:
-        return [n for n, h in self._health.items() if h.status in (HealthStatus.DEGRADED, HealthStatus.DOWN)]
+        return [
+            n
+            for n, h in self._health.items()
+            if h.status in (HealthStatus.DEGRADED, HealthStatus.DOWN)
+        ]
 
     def get_primary_candidates(self) -> list[str]:
         """Exchanges suitable as primary venue (healthy first, then degraded)."""
         healthy = self.get_healthy_exchanges()
         if healthy:
             return healthy
-        degraded = [n for n, h in self._health.items() if h.status == HealthStatus.DEGRADED]
+        degraded = [
+            n for n, h in self._health.items() if h.status == HealthStatus.DEGRADED
+        ]
         return degraded
 
 
@@ -295,7 +319,9 @@ if __name__ == "__main__":
 
         monitor.register_exchange("binance", good_checker)
         monitor.register_exchange("bybit", bad_checker)
-        monitor.on_failover(lambda name: print(f"  [FAILOVER] switching away from {name}"))
+        monitor.on_failover(
+            lambda name: print(f"  [FAILOVER] switching away from {name}")
+        )
 
         await monitor.start()
         await asyncio.sleep(4)

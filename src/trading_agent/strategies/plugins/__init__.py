@@ -8,6 +8,7 @@ Exports:
 - StrategyRegistry: Plugin registry
 - StrategySandbox: Sandboxed execution
 """
+
 from trading_agent.strategies.plugins.strategy_plugin import (
     BaseStrategy,
     StrategyMetadata,
@@ -25,14 +26,14 @@ from trading_agent.strategies.plugins.strategy_plugin import (
 import trading_agent.strategies.plugins.adapters  # noqa: F401
 
 __all__ = [
-    'BaseStrategy',
-    'StrategyMetadata',
-    'Signal',
-    'StrategyContext',
-    'StrategyRegistry',
-    'StrategySandbox',
-    'StrategyType',
-    'RiskProfile',
-    'StrategyStatus',
-    'get_registry',
+    "BaseStrategy",
+    "StrategyMetadata",
+    "Signal",
+    "StrategyContext",
+    "StrategyRegistry",
+    "StrategySandbox",
+    "StrategyType",
+    "RiskProfile",
+    "StrategyStatus",
+    "get_registry",
 ]

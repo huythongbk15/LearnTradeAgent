@@ -19,6 +19,7 @@ Usage:
   python scripts/audit_retention.py prune --archive-dir data/execution/archive --days 90
   python scripts/audit_retention.py verify data/execution/binance_live_audit.jsonl
 """
+
 from __future__ import annotations
 
 import argparse
@@ -151,9 +152,7 @@ def verify_trail(audit_path: Path) -> int:
             try:
                 json.loads(line)
             except json.JSONDecodeError as exc:
-                raise SystemExit(
-                    f"corrupt audit line {lineno} in {audit_path}: {exc}"
-                )
+                raise SystemExit(f"corrupt audit line {lineno} in {audit_path}: {exc}")
             count += 1
     print(f"verified {count} line(s) in {audit_path}")
     return count

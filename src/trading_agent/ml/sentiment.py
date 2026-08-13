@@ -25,27 +25,83 @@ from dataclasses import dataclass
 # ── Keyword-based Sentiment (no external NLP dependency) ──────
 
 BULLISH_WORDS = {
-    "surges", "rally", "rallies", "bullish", "breakout", "soars", "soaring",
-    "jumps", "jumps", "pumps", "moon", "mooning", "ath", "all-time-high",
-    "adoption", "institutional", "buy", "buying", "accumulation", "upgrade",
-    "approval", "etf", "partnership", "growth", "records", "milestone",
-    "outperform", "recovery", "rebound", "demand", "inflow", "positive",
+    "surges",
+    "rally",
+    "rallies",
+    "bullish",
+    "breakout",
+    "soars",
+    "soaring",
+    "jumps",
+    "jumps",
+    "pumps",
+    "moon",
+    "mooning",
+    "ath",
+    "all-time-high",
+    "adoption",
+    "institutional",
+    "buy",
+    "buying",
+    "accumulation",
+    "upgrade",
+    "approval",
+    "etf",
+    "partnership",
+    "growth",
+    "records",
+    "milestone",
+    "outperform",
+    "recovery",
+    "rebound",
+    "demand",
+    "inflow",
+    "positive",
 }
 
 BEARISH_WORDS = {
-    "crashes", "crash", "plunges", "tumbles", "bearish", "sell-off", "selloff",
-    "dumps", "dump", "fear", "panic", "ban", "banned", "regulation", "lawsuit",
-    "hack", "hacked", "exploit", "rug", "rugpull", "fraud", "scam",
-    "outflow", "liquidation", "default", "bankruptcy", "collapse",
-    "decline", "drops", "falling", "negative", "warning", "risk", "vulnerability",
+    "crashes",
+    "crash",
+    "plunges",
+    "tumbles",
+    "bearish",
+    "sell-off",
+    "selloff",
+    "dumps",
+    "dump",
+    "fear",
+    "panic",
+    "ban",
+    "banned",
+    "regulation",
+    "lawsuit",
+    "hack",
+    "hacked",
+    "exploit",
+    "rug",
+    "rugpull",
+    "fraud",
+    "scam",
+    "outflow",
+    "liquidation",
+    "default",
+    "bankruptcy",
+    "collapse",
+    "decline",
+    "drops",
+    "falling",
+    "negative",
+    "warning",
+    "risk",
+    "vulnerability",
 }
 
 
 @dataclass
 class SentimentResult:
     text: str
-    score: float          # -1.0 (bearish) to +1.0 (bullish)
-    confidence: float     # 0.0 to 1.0
+    score: float  # -1.0 (bearish) to +1.0 (bullish)
+    confidence: float  # 0.0 to 1.0
     bullish_words: list[str]
     bearish_words: list[str]
     source: str = ""
@@ -58,11 +114,19 @@ class SentimentAnalyzer:
     No external NLP model required — works with word matching + intensity modifiers.
     """
 
-    INTENSIFIERS = {"very", "extremely", "massive", "huge", "unprecedented", "record", "historic"}
+    INTENSIFIERS = {
+        "very",
+        "extremely",
+        "massive",
+        "huge",
+        "unprecedented",
+        "record",
+        "historic",
+    }
     NEGATORS = {"not", "no", "never", "neither", "nor", "barely", "hardly"}
 
     def analyze(self, text: str, source: str = "") -> SentimentResult:
-        words = set(re.findall(r'\b\w+\b', text.lower()))
+        words = set(re.findall(r"\b\w+\b", text.lower()))
         bullish = words & BULLISH_WORDS
         bearish = words & BEARISH_WORDS
 
@@ -79,16 +143,23 @@ class SentimentAnalyzer:
         confidence = min(1.0, (len(bullish) + len(bearish)) / 5)
 
         return SentimentResult(
-            text=text[:200], score=score, confidence=confidence,
-            bullish_words=sorted(bullish), bearish_words=sorted(bearish),
-            source=source, timestamp=time.time(),
+            text=text[:200],
+            score=score,
+            confidence=confidence,
+            bullish_words=sorted(bullish),
+            bearish_words=sorted(bearish),
+            source=source,
+            timestamp=time.time(),
         )
 
-    def analyze_batch(self, texts: list[str], source: str = "") -> list[SentimentResult]:
+    def analyze_batch(
+        self, texts: list[str], source: str = ""
+    ) -> list[SentimentResult]:
         return [self.analyze(t, source) for t in texts]
 
 
 # ── News Aggregator ──────────────────────────────────────────
+
 
 @dataclass
 class NewsItem:
@@ -121,8 +192,12 @@ class NewsAggregator:
 
     def _synthetic_news(self, symbol: str, limit: int) -> list[NewsItem]:
         import random
+
         templates = [
-            ("{} surges past key resistance as institutional buying accelerates", "bullish"),
+            (
+                "{} surges past key resistance as institutional buying accelerates",
+                "bullish",
+            ),
             ("{} crashes 15% amid regulatory concerns and market sell-off", "bearish"),
             ("{} shows signs of recovery after flash crash", "neutral"),
             ("Major ETF approval expected for {} — analysts bullish", "bullish"),
@@ -138,20 +213,26 @@ class NewsAggregator:
             tmpl, sentiment = random.choice(templates)
             title = tmpl.format(symbol)
             result = self.analyzer.analyze(title, source="synthetic")
-            items.append(NewsItem(
-                title=title, summary=title, source="synthetic",
-                url=f"https://example.com/{symbol.lower()}",
-                published_at=time.time() - random.uniform(0, 86400),
-                sentiment=result.score, relevance=random.uniform(0.5, 1.0),
-            ))
+            items.append(
+                NewsItem(
+                    title=title,
+                    summary=title,
+                    source="synthetic",
+                    url=f"https://example.com/{symbol.lower()}",
+                    published_at=time.time() - random.uniform(0, 86400),
+                    sentiment=result.score,
+                    relevance=random.uniform(0.5, 1.0),
+                )
+            )
         return items
 
 
 # ── Social Media Monitor ────────────────────────────────────
 
+
 @dataclass
 class SocialPost:
-    platform: str        # "twitter", "reddit"
+    platform: str  # "twitter", "reddit"
     text: str
     author: str
     likes: int = 0
@@ -192,6 +273,7 @@ class SocialMediaMonitor:
 
     def _synthetic_posts(self, symbol: str, limit: int) -> list[SocialPost]:
         import random
+
         texts = [
             f"{symbol} to the moon! 🚀🚀🚀",
             f"Sold all my {symbol}, this pump won't last",
@@ -206,18 +288,22 @@ class SocialMediaMonitor:
         for _ in range(min(limit, len(texts) * 3)):
             text = random.choice(texts)
             result = self.analyzer.analyze(text)
-            posts.append(SocialPost(
-                platform=random.choice(["twitter", "reddit"]),
-                text=text, author=f"user_{random.randint(1000, 9999)}",
-                likes=random.randint(0, 1000),
-                retweets=random.randint(0, 500),
-                sentiment=result.score,
-                timestamp=time.time() - random.uniform(0, 43200),
-            ))
+            posts.append(
+                SocialPost(
+                    platform=random.choice(["twitter", "reddit"]),
+                    text=text,
+                    author=f"user_{random.randint(1000, 9999)}",
+                    likes=random.randint(0, 1000),
+                    retweets=random.randint(0, 500),
+                    sentiment=result.score,
+                    timestamp=time.time() - random.uniform(0, 43200),
+                )
+            )
         return posts
 
 
 # ── Composite Sentiment ─────────────────────────────────────
+
 
 class SentimentComposite:
     """
@@ -241,8 +327,9 @@ class SentimentComposite:
         social = self.social.get_sentiment_score(symbol)
 
         # Weighted composite
-        composite = (self.news_weight * news_avg +
-                     self.social_weight * social.get("avg_sentiment", 0))
+        composite = self.news_weight * news_avg + self.social_weight * social.get(
+            "avg_sentiment", 0
+        )
 
         # Signal
         if composite > 0.3:

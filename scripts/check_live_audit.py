@@ -31,7 +31,9 @@ def _timestamp(value: object, *, line_number: int) -> datetime:
     try:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError as exc:
-        raise AuditHealthError(f"audit line {line_number} has an invalid timestamp") from exc
+        raise AuditHealthError(
+            f"audit line {line_number} has an invalid timestamp"
+        ) from exc
     if parsed.tzinfo is None:
         raise AuditHealthError(f"audit line {line_number} timestamp has no timezone")
     return parsed.astimezone(UTC)
@@ -48,8 +50,12 @@ def load_events(path: str | Path) -> list[dict[str, object]]:
                 if not line.strip():
                     continue
                 payload = json.loads(line)
-                if not isinstance(payload, dict) or not isinstance(payload.get("event"), str):
-                    raise AuditHealthError(f"audit line {line_number} is not an event object")
+                if not isinstance(payload, dict) or not isinstance(
+                    payload.get("event"), str
+                ):
+                    raise AuditHealthError(
+                        f"audit line {line_number} is not an event object"
+                    )
                 payload["_timestamp"] = _timestamp(
                     payload.get("timestamp"), line_number=line_number
                 )

@@ -71,7 +71,9 @@ class SentimentAnalyst(BaseAgent):
             prompt_lines.append(f"RSI(14): {ind['rsi']:.1f}")
 
         if extra.get("volume_ratio_5_20"):
-            prompt_lines.append(f"Volume Ratio (5/20): {extra['volume_ratio_5_20']:.2f}x")
+            prompt_lines.append(
+                f"Volume Ratio (5/20): {extra['volume_ratio_5_20']:.2f}x"
+            )
 
         if extra.get("change_5"):
             prompt_lines.append(f"5-bar change: {extra['change_5']:+.2f}%")
@@ -82,17 +84,23 @@ class SentimentAnalyst(BaseAgent):
 
         # ── Alt-data for LLM ───────────────────────────────────────────
         if extra.get("funding_rate") is not None:
-            prompt_lines.append(f"Funding Rate: {extra['funding_rate']:.6f} ({extra['funding_rate']*100:.4f}%)")
+            prompt_lines.append(
+                f"Funding Rate: {extra['funding_rate']:.6f} ({extra['funding_rate'] * 100:.4f}%)"
+            )
         if extra.get("open_interest") is not None:
             prompt_lines.append(f"Open Interest: {extra['open_interest']:,.0f}")
         if extra.get("buy_pressure") is not None:
-            prompt_lines.append(f"Buy Pressure: {extra['buy_pressure']:.2%} | Sell Pressure: {extra.get('sell_pressure', 0):.2%}")
+            prompt_lines.append(
+                f"Buy Pressure: {extra['buy_pressure']:.2%} | Sell Pressure: {extra.get('sell_pressure', 0):.2%}"
+            )
         if extra.get("cvd_short_window") is not None:
             prompt_lines.append(f"CVD (short): {extra['cvd_short_window']:.2f}")
 
         prompt_lines.append("")
-        prompt_lines.append("What is the market sentiment based on this data? "
-                            "Is fear or greed dominating right now?")
+        prompt_lines.append(
+            "What is the market sentiment based on this data? "
+            "Is fear or greed dominating right now?"
+        )
 
         prompt = "\n".join(prompt_lines)
 
@@ -105,8 +113,12 @@ class SentimentAnalyst(BaseAgent):
                 reasoning=result.get("reasoning", ""),
                 details={
                     "sentiment": result.get("details", {}).get("sentiment", "neutral"),
-                    "momentum_strength": result.get("details", {}).get("momentum_strength", "weak"),
-                    "volume_insight": result.get("details", {}).get("volume_insight", ""),
+                    "momentum_strength": result.get("details", {}).get(
+                        "momentum_strength", "weak"
+                    ),
+                    "volume_insight": result.get("details", {}).get(
+                        "volume_insight", ""
+                    ),
                     "funding_rate": extra.get("funding_rate"),
                     "buy_pressure": extra.get("buy_pressure"),
                     "cvd": extra.get("cvd_short_window"),
@@ -135,8 +147,16 @@ class SentimentAnalyst(BaseAgent):
         # (theo trend để hỗ trợ thoát lệnh), ngược lại contrarian ở vùng cực đoan.
         ma_fast = ind.get("ma_20")
         ma_slow = ind.get("ma_50")
-        downtrend = isinstance(ma_fast, (int, float)) and isinstance(ma_slow, (int, float)) and ma_fast < ma_slow
-        uptrend = isinstance(ma_fast, (int, float)) and isinstance(ma_slow, (int, float)) and ma_fast > ma_slow
+        downtrend = (
+            isinstance(ma_fast, (int, float))
+            and isinstance(ma_slow, (int, float))
+            and ma_fast < ma_slow
+        )
+        uptrend = (
+            isinstance(ma_fast, (int, float))
+            and isinstance(ma_slow, (int, float))
+            and ma_fast > ma_slow
+        )
 
         if not isinstance(rsi, (int, float)):
             sentiment = "neutral"
@@ -153,7 +173,9 @@ class SentimentAnalyst(BaseAgent):
                 sentiment = "fear"
                 signal = "SELL"
                 confidence = 0.30
-                reasoning = f"Downtrend + oversold (RSI {rsi:.0f}) — capitulation, stay out"
+                reasoning = (
+                    f"Downtrend + oversold (RSI {rsi:.0f}) — capitulation, stay out"
+                )
         elif uptrend:
             if rsi < 70:
                 sentiment = "bullish"
@@ -185,7 +207,9 @@ class SentimentAnalyst(BaseAgent):
                 sentiment = "greedy"
                 signal = "SELL"
                 confidence = 0.35
-                reasoning = f"Moderate bullish sentiment (RSI {rsi:.0f}) — slight caution"
+                reasoning = (
+                    f"Moderate bullish sentiment (RSI {rsi:.0f}) — slight caution"
+                )
             else:
                 sentiment = "fearful"
                 signal = "BUY"
@@ -194,7 +218,7 @@ class SentimentAnalyst(BaseAgent):
 
         # ── Adjust confidence/signal based on alt-data ───────────────────
         alt_notes = []
-        
+
         # Funding rate interpretation
         if abs(funding_rate) > 0.0005:  # > 0.05%
             if funding_rate > 0:

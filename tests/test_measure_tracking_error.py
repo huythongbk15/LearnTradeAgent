@@ -37,9 +37,15 @@ def test_load_fills_extracts_slippage(tmp_path):
     path = _write(
         tmp_path,
         [
-            _fill_event("BTC/USDT", "BUY", 100.10, 100.00),   # +10 bps
-            _fill_event("BTC/USDT", "SELL", 99.90, 100.00),  # sell below signal = +10 bps
-            {"timestamp": "2026-08-12T10:00:00+00:00", "event": "run_completed", "details": {}},
+            _fill_event("BTC/USDT", "BUY", 100.10, 100.00),  # +10 bps
+            _fill_event(
+                "BTC/USDT", "SELL", 99.90, 100.00
+            ),  # sell below signal = +10 bps
+            {
+                "timestamp": "2026-08-12T10:00:00+00:00",
+                "event": "run_completed",
+                "details": {},
+            },
         ],
     )
     fills = load_fills(path)
@@ -55,7 +61,11 @@ def test_skips_fills_without_reference(tmp_path):
             {
                 "timestamp": "2026-08-12T10:00:00+00:00",
                 "event": "order_filled",
-                "details": {"symbol": "BTC/USDT", "side": "BUY", "average_fill_price": 100.0},
+                "details": {
+                    "symbol": "BTC/USDT",
+                    "side": "BUY",
+                    "average_fill_price": 100.0,
+                },
             }
         ],
     )
@@ -66,9 +76,9 @@ def test_summarize_mean_and_per_symbol(tmp_path):
     path = _write(
         tmp_path,
         [
-            _fill_event("BTC/USDT", "BUY", 100.00, 100.00),   # 0 bps
-            _fill_event("BTC/USDT", "BUY", 100.05, 100.00),   # 5 bps
-            _fill_event("SOL/USDT", "BUY", 20.02, 20.00),     # 10 bps
+            _fill_event("BTC/USDT", "BUY", 100.00, 100.00),  # 0 bps
+            _fill_event("BTC/USDT", "BUY", 100.05, 100.00),  # 5 bps
+            _fill_event("SOL/USDT", "BUY", 20.02, 20.00),  # 10 bps
         ],
     )
     report = summarize(load_fills(path))

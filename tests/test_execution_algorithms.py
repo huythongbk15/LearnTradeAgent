@@ -122,8 +122,14 @@ class TestLiquidityAwareTwap:
         # Average slippage already at the budget with half still to trade:
         # spent = 60 bps × 500 filled = 30 000 bps-units ≥ 30×1000 allowed.
         res = alg.next_slice(
-            ctx(remaining=500.0, total=10, filled=500.0, paid=60.0,
-                budget=30.0, recent_volume=1_000_000.0)
+            ctx(
+                remaining=500.0,
+                total=10,
+                filled=500.0,
+                paid=60.0,
+                budget=30.0,
+                recent_volume=1_000_000.0,
+            )
         )
         assert not res.has_slice
         assert res.reason == "budget_exhausted"
@@ -167,12 +173,16 @@ class TestLiquidityAwareTwap:
 class TestPovExecution:
     def test_slice_is_participation_cap(self):
         alg = PovExecution()
-        res = alg.next_slice(ctx(remaining=1000.0, participation=0.05, recent_volume=2000.0))
+        res = alg.next_slice(
+            ctx(remaining=1000.0, participation=0.05, recent_volume=2000.0)
+        )
         assert res.quantity == pytest.approx(100.0)
 
     def test_slice_capped_by_remaining(self):
         alg = PovExecution()
-        res = alg.next_slice(ctx(remaining=30.0, participation=0.1, recent_volume=2000.0))
+        res = alg.next_slice(
+            ctx(remaining=30.0, participation=0.1, recent_volume=2000.0)
+        )
         assert res.quantity == pytest.approx(30.0)
 
     def test_never_exceeds_cap_property(self):
@@ -188,8 +198,13 @@ class TestPovExecution:
         @settings(max_examples=50, deadline=None)
         def _check(remaining, part, volume, elapsed, total):
             res = alg.next_slice(
-                ctx(remaining=remaining, elapsed=elapsed, total=total,
-                    participation=part, recent_volume=volume)
+                ctx(
+                    remaining=remaining,
+                    elapsed=elapsed,
+                    total=total,
+                    participation=part,
+                    recent_volume=volume,
+                )
             )
             assert res.quantity <= part * volume + 1e-9
             assert res.quantity <= remaining + 1e-9
@@ -229,7 +244,7 @@ class TestMpcFeasibilityLayer:
         assert res.feasible
         assert res.has_slice
         assert res.slice_qty <= 0.1 * 10_000.0  # participation cap
-        assert res.slice_qty <= 1000.0          # remaining
+        assert res.slice_qty <= 1000.0  # remaining
 
     def test_infeasible_deadline(self):
         res = self.make(participation=0.001)  # tiny cap → cannot finish in 10 bars
@@ -262,7 +277,9 @@ class TestMpcFeasibilityLayer:
         layer = MpcFeasibilityLayer()
         res = layer.plan(
             ctx(remaining=0.0),
-            MpcConstraints(max_participation=0.1, slippage_budget_bps=30.0, deadline_bars=10),
+            MpcConstraints(
+                max_participation=0.1, slippage_budget_bps=30.0, deadline_bars=10
+            ),
         )
         assert res.feasible
         assert res.slice_qty == 0.0
@@ -291,8 +308,11 @@ class TestMpcFeasibilityLayer:
         assert costs.opportunity_cost_bps > 0
         assert costs.inventory_risk_bps > 0
         assert costs.total == pytest.approx(
-            costs.spread_cost_bps + costs.impact_cost_bps + costs.delay_cost_bps
-            + costs.opportunity_cost_bps + costs.inventory_risk_bps
+            costs.spread_cost_bps
+            + costs.impact_cost_bps
+            + costs.delay_cost_bps
+            + costs.opportunity_cost_bps
+            + costs.inventory_risk_bps
         )
 
     def test_zero_slice_has_no_spread_or_impact(self):
@@ -345,14 +365,17 @@ def make_df(n: int = 60, volume: float = 2000.0) -> pl.DataFrame:
     rows = []
     for i in range(n):
         o = 100.0 + i * 0.05
-        rows.append({
-            "timestamp": dt.datetime(2026, 1, 1, tzinfo=dt.UTC) + dt.timedelta(hours=i),
-            "open": o,
-            "high": o + 0.1,
-            "low": o - 0.1,
-            "close": o + 0.05,
-            "volume": volume + i * 2.0,
-        })
+        rows.append(
+            {
+                "timestamp": dt.datetime(2026, 1, 1, tzinfo=dt.UTC)
+                + dt.timedelta(hours=i),
+                "open": o,
+                "high": o + 0.1,
+                "low": o - 0.1,
+                "close": o + 0.05,
+                "volume": volume + i * 2.0,
+            }
+        )
     return pl.DataFrame(rows)
 
 
@@ -363,11 +386,17 @@ class TestParentOrderExecutor:
         from trading_agent.execution.simulator import SimulationConfig
 
         parent = ParentOrder(
-            order_id="P1", side=SimSide.BUY, quantity=500.0, deadline_bars=20,
-            max_participation=0.1, slippage_budget_bps=50.0,
+            order_id="P1",
+            side=SimSide.BUY,
+            quantity=500.0,
+            deadline_bars=20,
+            max_participation=0.1,
+            slippage_budget_bps=50.0,
         )
         engine, res = run_parent_through_engine(
-            make_df(), parent, LiquidityAwareTwap(),
+            make_df(),
+            parent,
+            LiquidityAwareTwap(),
             config=SimulationConfig(random_seed=42, spread_bps=4.0),
         )
         assert res.status == "filled"
@@ -378,8 +407,12 @@ class TestParentOrderExecutor:
 
     def test_pov_respects_participation_cap(self):
         parent = ParentOrder(
-            order_id="P2", side=SimSide.BUY, quantity=5000.0, deadline_bars=10,
-            max_participation=0.05, slippage_budget_bps=200.0,
+            order_id="P2",
+            side=SimSide.BUY,
+            quantity=5000.0,
+            deadline_bars=10,
+            max_participation=0.05,
+            slippage_budget_bps=200.0,
         )
         engine, res = run_parent_through_engine(make_df(), parent, PovExecution())
         for rec in res.slices:
@@ -387,8 +420,12 @@ class TestParentOrderExecutor:
 
     def test_pov_leaves_residual_when_cap_too_tight(self):
         parent = ParentOrder(
-            order_id="P3", side=SimSide.BUY, quantity=5000.0, deadline_bars=10,
-            max_participation=0.05, slippage_budget_bps=200.0,
+            order_id="P3",
+            side=SimSide.BUY,
+            quantity=5000.0,
+            deadline_bars=10,
+            max_participation=0.05,
+            slippage_budget_bps=200.0,
         )
         engine, res = run_parent_through_engine(make_df(), parent, PovExecution())
         assert res.status == "partial"
@@ -396,8 +433,12 @@ class TestParentOrderExecutor:
 
     def test_deterministic_run(self):
         parent = ParentOrder(
-            order_id="P4", side=SimSide.BUY, quantity=500.0, deadline_bars=20,
-            max_participation=0.1, slippage_budget_bps=50.0,
+            order_id="P4",
+            side=SimSide.BUY,
+            quantity=500.0,
+            deadline_bars=20,
+            max_participation=0.1,
+            slippage_budget_bps=50.0,
         )
         _, r1 = run_parent_through_engine(make_df(), parent, LiquidityAwareTwap())
         _, r2 = run_parent_through_engine(make_df(), parent, LiquidityAwareTwap())
@@ -407,8 +448,12 @@ class TestParentOrderExecutor:
         # Buy first so we have inventory to sell, then sell with POV.
         df = make_df()
         parent_buy = ParentOrder(
-            order_id="B1", side=SimSide.BUY, quantity=300.0, deadline_bars=5,
-            max_participation=0.2, slippage_budget_bps=50.0,
+            order_id="B1",
+            side=SimSide.BUY,
+            quantity=300.0,
+            deadline_bars=5,
+            max_participation=0.2,
+            slippage_budget_bps=50.0,
         )
         engine, res_buy = run_parent_through_engine(df, parent_buy, PovExecution())
         assert res_buy.status == "filled"
@@ -416,12 +461,16 @@ class TestParentOrderExecutor:
     def test_invalid_parent_fails_closed(self):
         engine, _ = run_parent_through_engine(
             make_df(),
-            ParentOrder(order_id="X", side=SimSide.BUY, quantity=100.0, deadline_bars=10),
+            ParentOrder(
+                order_id="X", side=SimSide.BUY, quantity=100.0, deadline_bars=10
+            ),
             PovExecution(),
         )
         from trading_agent.execution.algorithms.driver import ParentOrderExecutor
 
         with pytest.raises(ValueError):
             ParentOrderExecutor(engine, PovExecution()).run(
-                ParentOrder(order_id="", side=SimSide.BUY, quantity=100.0, deadline_bars=5)
+                ParentOrder(
+                    order_id="", side=SimSide.BUY, quantity=100.0, deadline_bars=5
+                )
             )

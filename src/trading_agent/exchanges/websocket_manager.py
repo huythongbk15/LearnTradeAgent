@@ -38,6 +38,7 @@ logger = logging.getLogger(__name__)
 
 class WSChannel(str, Enum):
     """Supported real-time data channels."""
+
     TICKER = "ticker"
     ORDERBOOK = "orderbook"
     TRADES = "trades"
@@ -45,6 +46,7 @@ class WSChannel(str, Enum):
 
 class WSMessageType(str, Enum):
     """Message envelope types."""
+
     TICKER = "ticker"
     ORDERBOOK = "orderbook"
     TRADES = "trades"
@@ -55,6 +57,7 @@ class WSMessageType(str, Enum):
 @dataclass(slots=True)
 class WSMessage:
     """Normalized message delivered to handlers."""
+
     exchange: str
     channel: WSChannel
     symbol: Symbol
@@ -157,7 +160,9 @@ class WebSocketManager:
         self.reconnect_initial_delay = reconnect_initial_delay
         self.reconnect_max_delay = reconnect_max_delay
         self.reconnect_factor = reconnect_factor
-        self.min_message_interval = min_message_interval  # seconds between messages per provider
+        self.min_message_interval = (
+            min_message_interval  # seconds between messages per provider
+        )
 
         self._providers: dict[str, StreamProvider] = {}
         self._handlers: dict[str, list[tuple[Symbol, WSChannel, Handler]]] = {}
@@ -194,7 +199,9 @@ class WebSocketManager:
         If ``exchange`` is None, the first registered provider is used.
         Returns a subscription id usable with ``unsubscribe``.
         """
-        exchange = exchange or (next(iter(self._providers)) if self._providers else None)
+        exchange = exchange or (
+            next(iter(self._providers)) if self._providers else None
+        )
         if exchange is None:
             raise ValueError("No providers registered")
         provider = self._providers.get(exchange)
@@ -210,7 +217,9 @@ class WebSocketManager:
         if (symbol.pair, channel) not in provider._subscriptions:
             await provider.subscribe(symbol, channel)
 
-        logger.debug(f"Subscribed {sub_id} -> {symbol.pair}/{channel.value} on {exchange}")
+        logger.debug(
+            f"Subscribed {sub_id} -> {symbol.pair}/{channel.value} on {exchange}"
+        )
         return sub_id
 
     async def unsubscribe(self, sub_id: str) -> None:
@@ -240,7 +249,9 @@ class WebSocketManager:
                 await provider.connect()
                 provider._connected = True
             except Exception as e:
-                logger.error(f"Provider {provider.exchange} initial connect failed: {e}")
+                logger.error(
+                    f"Provider {provider.exchange} initial connect failed: {e}"
+                )
                 asyncio.create_task(self._reconnect_loop(provider))
         self._tasks.append(asyncio.create_task(self._watchdog_loop()))
         logger.info(f"WebSocket manager started with {len(self._providers)} providers")
@@ -296,7 +307,9 @@ class WebSocketManager:
                 logger.info(f"Reconnected provider {provider.exchange}")
                 # Re-establish transport subscriptions
                 for pair, channel in list(provider._subscriptions):
-                    await provider._on_subscribe(self._symbol_for(pair, provider.exchange), channel)
+                    await provider._on_subscribe(
+                        self._symbol_for(pair, provider.exchange), channel
+                    )
                 delay = self.reconnect_initial_delay
             except Exception as e:
                 logger.warning(f"Reconnect failed for {provider.exchange}: {e}")
@@ -312,7 +325,10 @@ class WebSocketManager:
             for provider in self._providers.values():
                 if not provider.is_connected:
                     continue
-                if provider._subscriptions and now - provider.last_message_at > self.heartbeat_timeout:
+                if (
+                    provider._subscriptions
+                    and now - provider.last_message_at > self.heartbeat_timeout
+                ):
                     logger.warning(
                         f"Provider {provider.exchange} stale "
                         f"({now - provider.last_message_at:.0f}s no messages) — reconnecting"
@@ -324,6 +340,7 @@ class WebSocketManager:
     def _symbol_for(pair: str, exchange: str) -> Symbol:
         base, _, quote = pair.partition("/")
         from trading_agent.exchanges.models import crypto_symbol
+
         return crypto_symbol(base, quote, exchange=exchange)
 
     # --- status ----------------------------------------------------------
@@ -346,6 +363,7 @@ class WebSocketManager:
 # ---------------------------------------------------------------------------
 # Mock provider (also used as a demo / for tests)
 # ---------------------------------------------------------------------------
+
 
 class MockStreamProvider(StreamProvider):
     """In-memory provider that can push synthetic messages."""
@@ -477,7 +495,9 @@ class BinanceDepthProvider(StreamProvider):
 
     # --- subscriptions ---------------------------------------------------
     def _stream_name(self, symbol: Symbol) -> str:
-        return self.DEPTH_STREAM_TEMPLATE.format(pair_lower=symbol.pair.lower().replace("/", ""))
+        return self.DEPTH_STREAM_TEMPLATE.format(
+            pair_lower=symbol.pair.lower().replace("/", "")
+        )
 
     async def _on_subscribe(self, symbol: Symbol, channel: WSChannel) -> None:
         if channel is not WSChannel.ORDERBOOK:
@@ -486,21 +506,29 @@ class BinanceDepthProvider(StreamProvider):
             self._books[symbol.pair] = DiffStreamState(symbol.pair)
             self._local[symbol.pair] = {"bids": {}, "asks": {}}
         if self._ws is not None:
-            await self._ws.send(json.dumps({
-                "method": "SUBSCRIBE",
-                "params": [self._stream_name(symbol)],
-                "id": self._next_id,
-            }))
+            await self._ws.send(
+                json.dumps(
+                    {
+                        "method": "SUBSCRIBE",
+                        "params": [self._stream_name(symbol)],
+                        "id": self._next_id,
+                    }
+                )
+            )
             self._next_id += 1
 
     async def _on_unsubscribe(self, symbol: Symbol, channel: WSChannel) -> None:
         if channel is not WSChannel.ORDERBOOK or self._ws is None:
             return
-        await self._ws.send(json.dumps({
-            "method": "UNSUBSCRIBE",
-            "params": [self._stream_name(symbol)],
-            "id": self._next_id,
-        }))
+        await self._ws.send(
+            json.dumps(
+                {
+                    "method": "UNSUBSCRIBE",
+                    "params": [self._stream_name(symbol)],
+                    "id": self._next_id,
+                }
+            )
+        )
         self._next_id += 1
 
     # --- message pump ----------------------------------------------------
@@ -552,19 +580,21 @@ class BinanceDepthProvider(StreamProvider):
         except SequenceGapError:
             await self._resync(symbol, state, book)
             return
-        await self._deliver(WSMessage(
-            exchange=self.exchange,
-            channel=WSChannel.ORDERBOOK,
-            symbol=symbol,
-            data={
-                "bids": self._top(book["bids"]),
-                "asks": self._top(book["asks"]),
-                "sequence": state.last_u,
-                "first_update_id": payload.get("U"),
-                "final_update_id": payload.get("u"),
-                "previous_update_id": payload.get("pu"),
-            },
-        ))
+        await self._deliver(
+            WSMessage(
+                exchange=self.exchange,
+                channel=WSChannel.ORDERBOOK,
+                symbol=symbol,
+                data={
+                    "bids": self._top(book["bids"]),
+                    "asks": self._top(book["asks"]),
+                    "sequence": state.last_u,
+                    "first_update_id": payload.get("U"),
+                    "final_update_id": payload.get("u"),
+                    "previous_update_id": payload.get("pu"),
+                },
+            )
+        )
 
     async def _resync(
         self,
@@ -579,13 +609,17 @@ class BinanceDepthProvider(StreamProvider):
         try:
             snapshot = await self._fetch_snapshot(symbol)
         except Exception as exc:
-            logger.error(f"{self.exchange} depth resync failed for {symbol.pair}: {exc}")
-            await self._deliver(WSMessage(
-                exchange=self.exchange,
-                channel=WSChannel.STATUS,
-                symbol=symbol,
-                data={"event": "orderbook_resync_failed", "error": str(exc)[:300]},
-            ))
+            logger.error(
+                f"{self.exchange} depth resync failed for {symbol.pair}: {exc}"
+            )
+            await self._deliver(
+                WSMessage(
+                    exchange=self.exchange,
+                    channel=WSChannel.STATUS,
+                    symbol=symbol,
+                    data={"event": "orderbook_resync_failed", "error": str(exc)[:300]},
+                )
+            )
             return
         state.initialize(int(snapshot["lastUpdateId"]))
         for price, size in snapshot.get("bids", []):
@@ -596,12 +630,14 @@ class BinanceDepthProvider(StreamProvider):
         # pump because apply_diff sees needs_resync=True; the first valid
         # straddling diff re-opens the stream (last_u is set) — exactly the
         # Binance protocol.
-        await self._deliver(WSMessage(
-            exchange=self.exchange,
-            channel=WSChannel.STATUS,
-            symbol=symbol,
-            data={"event": "orderbook_resynced", "sequence": state.last_update_id},
-        ))
+        await self._deliver(
+            WSMessage(
+                exchange=self.exchange,
+                channel=WSChannel.STATUS,
+                symbol=symbol,
+                data={"event": "orderbook_resynced", "sequence": state.last_update_id},
+            )
+        )
 
     async def _fetch_snapshot(self, symbol: Symbol) -> dict:
         import urllib.request
@@ -610,7 +646,9 @@ class BinanceDepthProvider(StreamProvider):
             f"{self.rest_depth_url}?symbol="
             f"{symbol.pair.replace('/', '')}&limit={self.snapshot_limit}"
         )
-        request = urllib.request.Request(url, headers={"User-Agent": "trading-agent/1.0"})
+        request = urllib.request.Request(
+            url, headers={"User-Agent": "trading-agent/1.0"}
+        )
         with urllib.request.urlopen(request, timeout=self.timeout_s) as response:  # noqa: S310
             return json.loads(response.read().decode("utf-8"))
 
@@ -637,10 +675,14 @@ if __name__ == "__main__":
         sub_id = await manager.subscribe(btc, WSChannel.TICKER, on_ticker)
         await manager.start()
 
-        await provider.push(WSMessage(
-            exchange="mock", channel=WSChannel.TICKER, symbol=btc,
-            data={"last": "65000.0"},
-        ))
+        await provider.push(
+            WSMessage(
+                exchange="mock",
+                channel=WSChannel.TICKER,
+                symbol=btc,
+                data={"last": "65000.0"},
+            )
+        )
         await asyncio.sleep(0.2)
         print("status:", manager.get_status())
         await manager.unsubscribe(sub_id)

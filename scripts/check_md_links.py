@@ -28,8 +28,17 @@ LINK_RE = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
 REF_DEF_RE = re.compile(r"^\[([^\]]+)\]:\s*(\S+)")
 
 IGNORE_DIRS = {
-    ".git", ".pytest_cache", ".venv", "node_modules", "__pycache__",
-    ".mypy_cache", ".ruff_cache", ".tox", ".idea", ".vscode", "media",
+    ".git",
+    ".pytest_cache",
+    ".venv",
+    "node_modules",
+    "__pycache__",
+    ".mypy_cache",
+    ".ruff_cache",
+    ".tox",
+    ".idea",
+    ".vscode",
+    "media",
 }
 IGNORED_SUBSTRINGS = ("docs/archive/", "docs/wsl-guide/")
 
@@ -40,7 +49,10 @@ def iter_markdown_files(root: pathlib.Path, pattern: str) -> list[pathlib.Path]:
         try:
             r = subprocess.run(
                 ["git", "-C", str(root), "ls-files"],
-                capture_output=True, text=True, check=True, timeout=30,
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=30,
             )
             tracked = {str((root / p).resolve()) for p in r.stdout.splitlines()}
         except Exception:
@@ -56,10 +68,14 @@ def iter_markdown_files(root: pathlib.Path, pattern: str) -> list[pathlib.Path]:
     return sorted(files)
 
 
-def resolve_target(target: str, md_file: pathlib.Path, root: pathlib.Path) -> str | None:
+def resolve_target(
+    target: str, md_file: pathlib.Path, root: pathlib.Path
+) -> str | None:
     """Return resolved local path for a link target, or None if external."""
     t = target.strip()
-    if not t or t.startswith(("#", "http://", "https://", "mailto:", "tel:", "ftp://", "www.")):
+    if not t or t.startswith(
+        ("#", "http://", "https://", "mailto:", "tel:", "ftp://", "www.")
+    ):
         return None
     path_part = t.split("#", 1)[0]  # strip anchor suffix
     path_part = path_part.split(" ", 1)[0]  # strip optional title
@@ -127,9 +143,13 @@ def check_file(md_file: pathlib.Path, root: pathlib.Path) -> list[str]:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--root", default=".", type=pathlib.Path, help="Repo root (default: cwd)")
+    ap.add_argument(
+        "--root", default=".", type=pathlib.Path, help="Repo root (default: cwd)"
+    )
     ap.add_argument("--glob", default="*.md", help="Glob pattern (default: *.md)")
-    ap.add_argument("--check", action="store_true", help="CI mode: exit 1 on broken links")
+    ap.add_argument(
+        "--check", action="store_true", help="CI mode: exit 1 on broken links"
+    )
     args = ap.parse_args()
 
     root = args.root.resolve()

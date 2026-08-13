@@ -60,13 +60,13 @@ class ParentOrderResult:
     """Outcome of working a parent order through the engine."""
 
     parent: ParentOrder
-    status: str                      # "filled" | "partial" | "rejected"
+    status: str  # "filled" | "partial" | "rejected"
     filled_qty: float
     residual_qty: float
     fill_vwap: float
     arrival_mid: float
-    slippage_bps: float              # avg execution slippage vs arrival mid
-    slices: list[dict[str, Any]]     # per-bar record (bar, qty, price, participation)
+    slippage_bps: float  # avg execution slippage vs arrival mid
+    slices: list[dict[str, Any]]  # per-bar record (bar, qty, price, participation)
     reason: str = "ok"
     algorithms_version: str = ""
 
@@ -113,9 +113,7 @@ class ParentOrderExecutor:
     def _child_ids(self, parent: ParentOrder) -> list[str]:
         prefix = f"{parent.order_id}:"
         return [
-            oid
-            for oid in self.engine.ledger.order_results
-            if oid.startswith(prefix)
+            oid for oid in self.engine.ledger.order_results if oid.startswith(prefix)
         ]
 
     def _filled(self, parent: ParentOrder) -> float:
@@ -153,7 +151,7 @@ class ParentOrderExecutor:
         parent.validate()
         engine = self.engine
         deadline_end = parent.start_bar + parent.deadline_bars
-        submitted: dict[int, str] = {}   # bar -> child order id
+        submitted: dict[int, str] = {}  # bar -> child order id
         slices: list[dict[str, Any]] = []
 
         def provider(i: int, eng: MarketReplayEngine) -> list:
@@ -204,7 +202,9 @@ class ParentOrderExecutor:
                     "requested_qty": qty,
                     "recent_volume": snapshot.recent_volume,
                     "participation": (
-                        qty / snapshot.recent_volume if snapshot.recent_volume > 0 else None
+                        qty / snapshot.recent_volume
+                        if snapshot.recent_volume > 0
+                        else None
                     ),
                     "spread_bps": snapshot.spread_bps,
                     "volatility_bps": snapshot.volatility_bps,
@@ -233,9 +233,7 @@ class ParentOrderExecutor:
             res = engine.ledger.order_results[oid]
             fill_prices.extend((f.quantity, f.price) for f in res.fills)
         total_f = sum(q for q, _ in fill_prices)
-        vwap = (
-            sum(q * p for q, p in fill_prices) / total_f if total_f > 0 else 0.0
-        )
+        vwap = sum(q * p for q, p in fill_prices) / total_f if total_f > 0 else 0.0
 
         arrival_mid = None
         for oid in self._child_ids(parent):

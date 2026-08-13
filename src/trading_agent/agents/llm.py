@@ -30,7 +30,11 @@ logger = logging.getLogger(__name__)
 _CACHE_DIR = Path(
     os.getenv(
         "TRADING_AGENT_LLM_CACHE_DIR",
-        str(Path(os.getenv("XDG_CACHE_HOME", Path.home() / ".cache")) / "trading_agent" / "llm"),
+        str(
+            Path(os.getenv("XDG_CACHE_HOME", Path.home() / ".cache"))
+            / "trading_agent"
+            / "llm"
+        ),
     )
 )
 _CACHE_TTL_SECONDS = 3600  # 1 hour default
@@ -115,7 +119,9 @@ def _cache_prune() -> None:
             files.sort(key=lambda f: f.stat().st_mtime)
             for f in files[: len(files) // 2]:
                 f.unlink()
-            logger.info(f"Pruned LLM cache: {total_size / 1024 / 1024:.1f}MB → under limit")
+            logger.info(
+                f"Pruned LLM cache: {total_size / 1024 / 1024:.1f}MB → under limit"
+            )
     except Exception as e:
         logger.warning(f"LLM cache prune failed: {e}")
 
@@ -209,7 +215,9 @@ def validate_agent_output(payload: Any, schema_name: str) -> dict[str, Any]:
     if "reasoning" in payload:
         normalized["reasoning"] = str(payload["reasoning"])
     if "details" in payload:
-        normalized["details"] = payload["details"] if isinstance(payload["details"], dict) else {}
+        normalized["details"] = (
+            payload["details"] if isinstance(payload["details"], dict) else {}
+        )
     for key, value in payload.items():
         if key not in normalized:
             normalized[key] = value
@@ -223,6 +231,7 @@ def llm_enabled() -> bool:
 
 
 if os.getenv("USE_LLM", "true").lower() == "false":
+
     class LLMError(Exception):
         """Raised when all LLM providers fail."""
 
@@ -234,6 +243,7 @@ if os.getenv("USE_LLM", "true").lower() == "false":
         return _json_fallback(args[0] if args else "", args[1] if len(args) > 1 else "")
 
 else:
+
     @dataclass
     class LLMResponse:
         content: str
@@ -242,13 +252,10 @@ else:
         tokens_used: int = 0
         error: str | None = None
 
-
     class LLMError(Exception):
         """Raised when all LLM providers fail."""
 
-
     # ── Provider configs ─────────────────────────────────────────────────────
-
 
     PROVIDER_CONFIGS: dict[str, dict[str, Any]] = {
         "openai": {
@@ -293,13 +300,13 @@ else:
         },
     }
 
-
     def _get_provider_url(provider: str, base_url_override: str | None = None) -> str:
         """Get base URL for provider, respecting overrides from config."""
         if base_url_override:
             return base_url_override
-        return PROVIDER_CONFIGS.get(provider, {}).get("base_url", "http://localhost:11434/v1")
-
+        return PROVIDER_CONFIGS.get(provider, {}).get(
+            "base_url", "http://localhost:11434/v1"
+        )
 
     def _get_api_key(provider: str) -> str | None:
         cfg = PROVIDER_CONFIGS.get(provider, {})
@@ -308,9 +315,7 @@ else:
             return os.environ.get(env_key)
         return None
 
-
     # ── Chat completion ──────────────────────────────────────────────────────
-
 
     def chat(
         messages: list[dict[str, str]],
@@ -346,7 +351,7 @@ else:
         timeout = timeout if timeout is not None else config.llm_timeout
 
         # Get model_fallback for the primary provider (if any)
-        model_fallback = getattr(config, 'llm_model_fallback', [])
+        model_fallback = getattr(config, "llm_model_fallback", [])
 
         # Build provider chain: primary + fallbacks
         providers_to_try = [(provider, model, None)]
@@ -360,8 +365,12 @@ else:
             )
 
         # Check cache first (only for primary provider/model)
-        cache_kwargs = {"provider": provider, "model": model,
-                        "temperature": temperature, "max_tokens": max_tokens}
+        cache_kwargs = {
+            "provider": provider,
+            "model": model,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
         cache_key = _cache_key(messages, **cache_kwargs) if use_cache else None
 
         if use_cache and cache_key:
@@ -380,18 +389,25 @@ else:
             # Try primary model
             try:
                 response = _try_provider(
-                    prov, mdl, messages,
-                    temperature, max_tokens, timeout,
+                    prov,
+                    mdl,
+                    messages,
+                    temperature,
+                    max_tokens,
+                    timeout,
                     base_url_override=base_url_override,
                 )
                 # Cache successful response (primary provider only)
                 if use_cache and cache_key and prov == provider and mdl == model:
-                    _cache_set(cache_key, {
-                        "content": response.content,
-                        "provider": response.provider,
-                        "model": response.model,
-                        "tokens_used": response.tokens_used,
-                    })
+                    _cache_set(
+                        cache_key,
+                        {
+                            "content": response.content,
+                            "provider": response.provider,
+                            "model": response.model,
+                            "tokens_used": response.tokens_used,
+                        },
+                    )
                     _cache_prune()
                 return response
             except Exception as e:
@@ -400,26 +416,37 @@ else:
 
                 # If this is the primary provider and has model_fallback, try those
                 if prov == provider and model_fallback:
-                    logger.info(f"Trying {len(model_fallback)} model fallback(s) for {prov}...")
+                    logger.info(
+                        f"Trying {len(model_fallback)} model fallback(s) for {prov}..."
+                    )
                     for fallback_model in model_fallback:
                         try:
                             logger.info(f"Trying model fallback: {fallback_model}")
                             response = _try_provider(
-                                prov, fallback_model, messages,
-                                temperature, max_tokens, timeout,
+                                prov,
+                                fallback_model,
+                                messages,
+                                temperature,
+                                max_tokens,
+                                timeout,
                                 base_url_override=base_url_override,
                             )
                             if use_cache and cache_key:
-                                _cache_set(cache_key, {
-                                    "content": response.content,
-                                    "provider": response.provider,
-                                    "model": response.model,
-                                    "tokens_used": response.tokens_used,
-                                })
+                                _cache_set(
+                                    cache_key,
+                                    {
+                                        "content": response.content,
+                                        "provider": response.provider,
+                                        "model": response.model,
+                                        "tokens_used": response.tokens_used,
+                                    },
+                                )
                                 _cache_prune()
                             return response
                         except Exception as e2:
-                            logger.warning(f"Model fallback {prov}/{fallback_model} failed: {e2}")
+                            logger.warning(
+                                f"Model fallback {prov}/{fallback_model} failed: {e2}"
+                            )
                             last_error = e2
                             continue
 
@@ -428,7 +455,6 @@ else:
         # All providers failed → raise error
         logger.error(f"All LLM providers failed. Last error: {last_error}")
         raise LLMError(f"All LLM providers failed. Last error: {last_error}")
-
 
     def _ensure_reasoning_content(
         messages: list[dict[str, str]],
@@ -452,7 +478,6 @@ else:
                 new["reasoning_content"] = " "
             out.append(new)
         return out
-
 
     def _try_provider(
         provider: str,
@@ -507,19 +532,23 @@ else:
                 if attempt < 3:
                     logger.warning(
                         "[llm] %s needs reasoning_content (400) — injecting & retry %d/3",
-                        model, attempt,
+                        model,
+                        attempt,
                     )
                     work_messages = _ensure_reasoning_content(work_messages)
                     last_exc = None
                     continue
                 raise httpx.HTTPStatusError(
                     f"{model} still missing reasoning_content after retries",
-                    request=resp.request, response=resp,
+                    request=resp.request,
+                    response=resp,
                 )
 
             if resp.status_code != 200:
                 raise httpx.HTTPStatusError(
-                    f"LLM {model} HTTP {resp.status_code}", request=resp.request, response=resp,
+                    f"LLM {model} HTTP {resp.status_code}",
+                    request=resp.request,
+                    response=resp,
                 )
 
             data = resp.json()
@@ -539,11 +568,11 @@ else:
                 tokens_used=tokens,
             )
 
-        raise LLMError(f"LLM provider {provider}/{model} failed after reasoning retries: {last_exc}")
-
+        raise LLMError(
+            f"LLM provider {provider}/{model} failed after reasoning retries: {last_exc}"
+        )
 
     # ── Structured output helpers ────────────────────────────────────────────
-
 
     SYSTEM_PROMPT_BASE = """You are a professional trading analyst in a multi-agent system.
 
@@ -555,7 +584,6 @@ Rules:
 - confidence: 0.0 to 1.0
 - reasoning: short explanation (1-2 sentences)
 - details: dict with any additional data relevant to your role"""
-
 
     def ask_agent(
         system_prompt: str,
@@ -590,7 +618,7 @@ Rules:
             start = text.find("{")
             end = text.rfind("}")
             if start >= 0 and end > start:
-                text = text[start:end + 1]
+                text = text[start : end + 1]
 
             parsed = json.loads(text)
             if schema is not None:
@@ -626,14 +654,14 @@ def enable_backtest_mode(
 ) -> None:
     """
     Enable deterministic LLM mode for backtesting.
-    
+
     This forces:
     - Fixed provider/model (no fallback chain)
     - Temperature = 0 (deterministic)
     - Fixed seed (if supported by provider)
     - No caching (to ensure reproducibility)
     - Single attempt per call
-    
+
     Args:
         provider: LLM provider to use (default: opencode for free tier)
         model: Model name
@@ -653,7 +681,9 @@ def enable_backtest_mode(
         "use_cache": use_cache,
         "timeout": 30,
     }
-    logger.info(f"LLM backtest mode enabled: {provider}/{model}, temp={temperature}, seed={seed}")
+    logger.info(
+        f"LLM backtest mode enabled: {provider}/{model}, temp={temperature}, seed={seed}"
+    )
 
 
 def disable_backtest_mode() -> None:
@@ -674,12 +704,12 @@ def backtest_chat(
 ) -> LLMResponse:
     """
     Chat completion in deterministic backtest mode.
-    
+
     Ignores fallback chain, uses fixed provider/model, temperature=0, no cache.
     """
     if not _BACKTEST_MODE:
         return chat(messages, **kwargs)
-    
+
     cfg = _BACKTEST_CONFIG.copy()
     cfg.update(kwargs)  # Allow override of some params
     return chat(
@@ -703,12 +733,12 @@ def backtest_ask_agent(
     """Structured output in deterministic backtest mode."""
     if not _BACKTEST_MODE:
         return ask_agent(system_prompt, user_prompt, schema=schema, **kwargs)
-    
+
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_prompt},
     ]
-    
+
     try:
         response = backtest_chat(messages, **kwargs)
         text = response.content.strip()
@@ -719,7 +749,7 @@ def backtest_ask_agent(
         start = text.find("{")
         end = text.rfind("}")
         if start >= 0 and end > start:
-            text = text[start:end + 1]
+            text = text[start : end + 1]
         parsed = json.loads(text)
         if schema is not None:
             try:

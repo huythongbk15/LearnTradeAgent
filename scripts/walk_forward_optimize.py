@@ -31,6 +31,7 @@ from trading_agent.data.storage import load_ohlcv
 
 # ── Parameter Space ────────────────────────────────────────────────────────
 
+
 def get_param_space(fast: bool = False) -> dict:
     if fast:
         return {
@@ -51,20 +52,34 @@ def get_param_space(fast: bool = False) -> dict:
 
 # ── Vectorized indicators ──────────────────────────────────────────────────
 
-def compute_indicators(df: pl.DataFrame, fast: int, slow: int, rsi_p: int) -> pl.DataFrame:
+
+def compute_indicators(
+    df: pl.DataFrame, fast: int, slow: int, rsi_p: int
+) -> pl.DataFrame:
     """Compute MA + RSI + crossover columns once per (fast, slow, rsi_p)."""
     close = pl.col("close")
-    return df.with_columns([
-        close.rolling_mean(fast).alias("fast_ma"),
-        close.rolling_mean(slow).alias("slow_ma"),
-        (close.rolling_mean(fast) > close.rolling_mean(slow)).alias("bullish"),
-        (100 - 100 / (1 + (close.diff().clip(lower_bound=0).rolling_mean(rsi_p)
-                            / (-close.diff().clip(upper_bound=0)).rolling_mean(rsi_p))))
-        .alias("rsi"),
-    ])
+    return df.with_columns(
+        [
+            close.rolling_mean(fast).alias("fast_ma"),
+            close.rolling_mean(slow).alias("slow_ma"),
+            (close.rolling_mean(fast) > close.rolling_mean(slow)).alias("bullish"),
+            (
+                100
+                - 100
+                / (
+                    1
+                    + (
+                        close.diff().clip(lower_bound=0).rolling_mean(rsi_p)
+                        / (-close.diff().clip(upper_bound=0)).rolling_mean(rsi_p)
+                    )
+                )
+            ).alias("rsi"),
+        ]
+    )
 
 
 # ── Vectorized backtest (no per-bar loop) ─────────────────────────────────
+
 
 def backtest_vectorized(
     df: pl.DataFrame,
@@ -152,6 +167,7 @@ def backtest_vectorized(
 
 # ── Grid evaluation for one window ─────────────────────────────────────────
 
+
 def evaluate_window(train_df: pl.DataFrame, space: dict) -> list[dict]:
     """Evaluate all param combos on train data. Returns sorted list (best Sharpe first)."""
     results = []
@@ -168,8 +184,11 @@ def evaluate_window(train_df: pl.DataFrame, space: dict) -> list[dict]:
                         res = backtest_vectorized(df_ind, rsi_b, rsi_s)
                         if res["valid"]:
                             res["params"] = {
-                                "fast_ma": fast, "slow_ma": slow,
-                                "rsi_period": rsi_p, "rsi_buy": rsi_b, "rsi_sell": rsi_s,
+                                "fast_ma": fast,
+                                "slow_ma": slow,
+                                "rsi_period": rsi_p,
+                                "rsi_buy": rsi_b,
+                                "rsi_sell": rsi_s,
                             }
                             results.append(res)
     results.sort(key=lambda x: x["sharpe"], reverse=True)
@@ -177,6 +196,7 @@ def evaluate_window(train_df: pl.DataFrame, space: dict) -> list[dict]:
 
 
 # ── Walk-forward driver ────────────────────────────────────────────────────
+
 
 def walk_forward_optimize(
     symbol: str,
@@ -196,9 +216,14 @@ def walk_forward_optimize(
 
     space = get_param_space(fast)
     combos = sum(
-        1 for f in space["fast_ma"] for s in space["slow_ma"] if f < s
+        1
+        for f in space["fast_ma"]
+        for s in space["slow_ma"]
+        if f < s
         for _p in space["rsi_period"]
-        for b in space["rsi_buy"] for s2 in space["rsi_sell"] if b < s2
+        for b in space["rsi_buy"]
+        for s2 in space["rsi_sell"]
+        if b < s2
     )
     print(f"Param combos per window: {combos}")
 
@@ -213,8 +238,12 @@ def walk_forward_optimize(
             break
 
         window_num += 1
-        train_df = df.filter((pl.col("timestamp") >= current) & (pl.col("timestamp") < train_end))
-        test_df = df.filter((pl.col("timestamp") >= train_end) & (pl.col("timestamp") < test_end))
+        train_df = df.filter(
+            (pl.col("timestamp") >= current) & (pl.col("timestamp") < train_end)
+        )
+        test_df = df.filter(
+            (pl.col("timestamp") >= train_end) & (pl.col("timestamp") < test_end)
+        )
 
         if len(train_df) < 300 or len(test_df) < 80:
             print(f"[W{window_num}] insufficient data, stop.")
@@ -231,8 +260,15 @@ def walk_forward_optimize(
         top = train_results[:top_n]
         test_metrics = []
         for r in top:
-            df_ind = compute_indicators(test_df, r["params"]["fast_ma"], r["params"]["slow_ma"], r["params"]["rsi_period"])
-            tr = backtest_vectorized(df_ind, r["params"]["rsi_buy"], r["params"]["rsi_sell"])
+            df_ind = compute_indicators(
+                test_df,
+                r["params"]["fast_ma"],
+                r["params"]["slow_ma"],
+                r["params"]["rsi_period"],
+            )
+            tr = backtest_vectorized(
+                df_ind, r["params"]["rsi_buy"], r["params"]["rsi_sell"]
+            )
             if tr["valid"]:
                 tr["params"] = r["params"]
                 test_metrics.append(tr)
@@ -241,30 +277,41 @@ def walk_forward_optimize(
             avg_sharpe = float(np.mean([m["sharpe"] for m in test_metrics]))
             avg_ret = float(np.mean([m["total_return_pct"] for m in test_metrics]))
             avg_dd = float(np.mean([m["max_dd_pct"] for m in test_metrics]))
-            results.append({
-                "window": window_num,
-                "train_start": str(current.date()),
-                "train_end": str(train_end.date()),
-                "test_start": str(train_end.date()),
-                "test_end": str(test_end.date()),
-                "train_bars": int(len(train_df)),
-                "test_bars": int(len(test_df)),
-                "top_params": [r["params"] for r in top],
-                "test_metrics": [{"sharpe": m["sharpe"], "return": m["total_return_pct"],
-                                  "dd": m["max_dd_pct"], "trades": m["num_trades"],
-                                  "win_rate": m["win_rate_pct"]} for m in test_metrics],
-                "avg_oos_sharpe": avg_sharpe,
-                "avg_oos_return": avg_ret,
-                "avg_oos_dd": avg_dd,
-            })
-            print(f"[W{window_num}] {current.date()}→{test_end.date()} "
-                  f"train={len(train_df)} test={len(test_df)} "
-                  f"OOS Sharpe={avg_sharpe:.2f} Ret={avg_ret:.1f}% DD={avg_dd:.1f}% "
-                  f"({time.time()-w_t0:.1f}s)")
+            results.append(
+                {
+                    "window": window_num,
+                    "train_start": str(current.date()),
+                    "train_end": str(train_end.date()),
+                    "test_start": str(train_end.date()),
+                    "test_end": str(test_end.date()),
+                    "train_bars": int(len(train_df)),
+                    "test_bars": int(len(test_df)),
+                    "top_params": [r["params"] for r in top],
+                    "test_metrics": [
+                        {
+                            "sharpe": m["sharpe"],
+                            "return": m["total_return_pct"],
+                            "dd": m["max_dd_pct"],
+                            "trades": m["num_trades"],
+                            "win_rate": m["win_rate_pct"],
+                        }
+                        for m in test_metrics
+                    ],
+                    "avg_oos_sharpe": avg_sharpe,
+                    "avg_oos_return": avg_ret,
+                    "avg_oos_dd": avg_dd,
+                }
+            )
+            print(
+                f"[W{window_num}] {current.date()}→{test_end.date()} "
+                f"train={len(train_df)} test={len(test_df)} "
+                f"OOS Sharpe={avg_sharpe:.2f} Ret={avg_ret:.1f}% DD={avg_dd:.1f}% "
+                f"({time.time() - w_t0:.1f}s)"
+            )
 
         current += timedelta(days=step_months * 30)
 
-    print(f"\nTotal: {len(results)} windows in {time.time()-t0:.1f}s")
+    print(f"\nTotal: {len(results)} windows in {time.time() - t0:.1f}s")
     return results
 
 
@@ -279,8 +326,12 @@ def print_summary(results: list[dict]):
     r = [r["avg_oos_return"] for r in results]
     d = [r["avg_oos_dd"] for r in results]
     print(f"Windows: {len(results)}")
-    print(f"OOS Sharpe: mean={np.mean(s):.2f}  min={np.min(s):.2f}  max={np.max(s):.2f}")
-    print(f"OOS Return: mean={np.mean(r):.1f}%  min={np.min(r):.1f}%  max={np.max(r):.1f}%")
+    print(
+        f"OOS Sharpe: mean={np.mean(s):.2f}  min={np.min(s):.2f}  max={np.max(s):.2f}"
+    )
+    print(
+        f"OOS Return: mean={np.mean(r):.1f}%  min={np.min(r):.1f}%  max={np.max(r):.1f}%"
+    )
     print(f"OOS MaxDD:  mean={np.mean(d):.1f}%  max={np.max(d):.1f}%")
 
     # Parameter stability across top-N
@@ -294,13 +345,17 @@ def print_summary(results: list[dict]):
         print(f"  {c}x  {k}")
 
     print("\nPer-window:")
-    print(f"{'W':>2} {'Train':>22} {'Test':>22} {'Sharpe':>7} {'Ret%':>7} {'DD%':>6} {'Trades':>6}")
+    print(
+        f"{'W':>2} {'Train':>22} {'Test':>22} {'Sharpe':>7} {'Ret%':>7} {'DD%':>6} {'Trades':>6}"
+    )
     for w in results:
         tr = np.mean([m["trades"] for m in w["test_metrics"]])
-        print(f"{w['window']:>2} {w['train_start']}→{w['train_end']} "
-              f"{w['test_start']}→{w['test_end']} "
-              f"{w['avg_oos_sharpe']:>7.2f} {w['avg_oos_return']:>6.1f} "
-              f"{w['avg_oos_dd']:>6.1f} {tr:>6.0f}")
+        print(
+            f"{w['window']:>2} {w['train_start']}→{w['train_end']} "
+            f"{w['test_start']}→{w['test_end']} "
+            f"{w['avg_oos_sharpe']:>7.2f} {w['avg_oos_return']:>6.1f} "
+            f"{w['avg_oos_dd']:>6.1f} {tr:>6.0f}"
+        )
 
 
 if __name__ == "__main__":
@@ -311,7 +366,9 @@ if __name__ == "__main__":
     parser.add_argument("--test-months", type=int, default=2)
     parser.add_argument("--step-months", type=int, default=3)
     parser.add_argument("--top-n", type=int, default=3)
-    parser.add_argument("--fast", action="store_true", help="Fast mode: coarse grid, fewer windows")
+    parser.add_argument(
+        "--fast", action="store_true", help="Fast mode: coarse grid, fewer windows"
+    )
     parser.add_argument("--output", default="data/wfo_results.json")
     args = parser.parse_args()
 
@@ -319,9 +376,13 @@ if __name__ == "__main__":
         args.train_months, args.test_months, args.step_months = 3, 1, 3
 
     results = walk_forward_optimize(
-        args.symbol, args.timeframe,
-        args.train_months, args.test_months, args.step_months,
-        args.top_n, args.fast,
+        args.symbol,
+        args.timeframe,
+        args.train_months,
+        args.test_months,
+        args.step_months,
+        args.top_n,
+        args.fast,
     )
     print_summary(results)
 

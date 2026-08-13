@@ -43,6 +43,7 @@ load_dotenv(Path.home() / ".env")  # ~/.env
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
+
 # ── Local imports (lazy to speed up startup) ─────────────────────────────
 def _import_modules():
     """Lazy import heavy modules after path setup."""
@@ -52,12 +53,15 @@ def _import_modules():
     from trading_agent.execution.engine import ExecutionEngine
     from trading_agent.execution.risk_controller import RiskController
     from trading_agent.log_config import get_logger
+
     return config, Collector, Orchestrator, ExecutionEngine, RiskController, get_logger
 
 
 # ── Config from env ──────────────────────────────────────────────────────
 EXCHANGE = os.getenv("EXCHANGE", "binance")
-SYMBOLS = [s.strip() for s in os.getenv("SYMBOLS", "BTC/USDT,ETH/USDT,SOL/USDT").split(",")]
+SYMBOLS = [
+    s.strip() for s in os.getenv("SYMBOLS", "BTC/USDT,ETH/USDT,SOL/USDT").split(",")
+]
 TIMEFRAME = os.getenv("TIMEFRAME", "1h")
 INITIAL_CAPITAL = float(os.getenv("INITIAL_CAPITAL", "10000"))
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
@@ -106,7 +110,9 @@ def send_telegram(text: str) -> bool:
         return False
 
 
-def notify_trade(symbol: str, side: str, qty: float, price: float, pnl: float | None = None):
+def notify_trade(
+    symbol: str, side: str, qty: float, price: float, pnl: float | None = None
+):
     """Format and send trade notification."""
     emoji = "🟢" if side == "BUY" else "🔴"
     pnl_str = f" | PnL: {pnl:+.2f}" if pnl is not None else ""
@@ -143,7 +149,9 @@ def notify_circuit_breaker(reason: str):
     send_telegram(text)
 
 
-def fetch_and_update_data(collector: Any, symbols: list[str], timeframe: str) -> dict[str, Any]:
+def fetch_and_update_data(
+    collector: Any, symbols: list[str], timeframe: str
+) -> dict[str, Any]:
     """Fetch latest data for all symbols. Returns dict of symbol -> latest_price."""
     prices = {}
     for symbol in symbols:
@@ -157,6 +165,7 @@ def fetch_and_update_data(collector: Any, symbols: list[str], timeframe: str) ->
             else:
                 # No new data, get last known price from storage
                 from trading_agent.data.storage import load_ohlcv
+
                 stored = load_ohlcv(EXCHANGE, symbol, timeframe)
                 if not stored.is_empty():
                     prices[symbol] = float(stored["close"].tail(1).item())
@@ -165,7 +174,9 @@ def fetch_and_update_data(collector: Any, symbols: list[str], timeframe: str) ->
     return prices
 
 
-def run_agent_analysis(orchestrator: Any, symbol: str, timeframe: str, equity: float) -> Any:
+def run_agent_analysis(
+    orchestrator: Any, symbol: str, timeframe: str, equity: float
+) -> Any:
     """Run multi-agent analysis for a symbol."""
     try:
         report = orchestrator.analyze(
@@ -180,7 +191,9 @@ def run_agent_analysis(orchestrator: Any, symbol: str, timeframe: str, equity: f
         return None
 
 
-def process_signals(engine: Any, risk_ctl: Any, signals: dict[str, Any], prices: dict[str, float]):
+def process_signals(
+    engine: Any, risk_ctl: Any, signals: dict[str, Any], prices: dict[str, float]
+):
     """Process agent signals and execute trades."""
     for symbol, report in signals.items():
         if not report:
@@ -195,6 +208,7 @@ def process_signals(engine: Any, risk_ctl: Any, signals: dict[str, Any], prices:
 
         # Create AgentMessage for engine
         from trading_agent.agents.base import AgentMessage
+
         msg = AgentMessage(
             role="trader",
             signal=signal,
@@ -217,7 +231,9 @@ def process_signals(engine: Any, risk_ctl: Any, signals: dict[str, Any], prices:
                 # Calculate PnL for sell
                 pos = engine.exchange.get_position(symbol)
                 pnl = pos.unrealized_pnl if pos else None
-                notify_trade(symbol, "SELL", order.filled_amount or order.amount, price, pnl)
+                notify_trade(
+                    symbol, "SELL", order.filled_amount or order.amount, price, pnl
+                )
 
 
 def main_loop():
@@ -225,7 +241,9 @@ def main_loop():
     global last_data_update, last_pnl_notify, shutdown
 
     # Import heavy modules
-    config, Collector, Orchestrator, ExecutionEngine, RiskController, get_logger = _import_modules()
+    config, Collector, Orchestrator, ExecutionEngine, RiskController, get_logger = (
+        _import_modules()
+    )
     logger = get_logger("trade_local")
 
     # Initialize components
@@ -288,6 +306,7 @@ def main_loop():
                 prices = {}
                 for symbol in SYMBOLS:
                     from trading_agent.data.storage import load_ohlcv
+
                     try:
                         df = load_ohlcv(EXCHANGE, symbol, TIMEFRAME)
                         if not df.is_empty():
@@ -369,8 +388,12 @@ if __name__ == "__main__":
     signal.signal(signal.SIGTERM, signal_handler)
 
     parser = argparse.ArgumentParser(description="Local Trading Runner")
-    parser.add_argument("--once", action="store_true", help="Run one iteration and exit")
-    parser.add_argument("--test-notify", action="store_true", help="Send test Telegram message")
+    parser.add_argument(
+        "--once", action="store_true", help="Run one iteration and exit"
+    )
+    parser.add_argument(
+        "--test-notify", action="store_true", help="Send test Telegram message"
+    )
     args = parser.parse_args()
 
     if args.test_notify:

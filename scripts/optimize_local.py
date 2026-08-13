@@ -3,6 +3,7 @@
 Local parameter optimization — chạy trên máy bạn.
 Chạy param_sweep.py trong container, lưu kết quả local.
 """
+
 import subprocess
 import sys
 from datetime import datetime
@@ -19,6 +20,7 @@ TEST_DAYS = 365
 OUTPUT_DIR = Path("./data/param_sweep")
 # ==============
 
+
 def run(cmd, check=True):
     print(f"  $ {cmd}")
     result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
@@ -26,9 +28,10 @@ def run(cmd, check=True):
         print(f"  ✗ FAILED: {result.stderr}")
         return False
     if result.stdout:
-        for line in result.stdout.strip().split('\n'):
+        for line in result.stdout.strip().split("\n"):
             print(f"  {line}")
     return True
+
 
 def main():
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -76,6 +79,7 @@ def main():
     else:
         print("\n❌ Failed — check logs above")
         sys.exit(1)
+
 
 if __name__ == "__main__":
     main()

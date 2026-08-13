@@ -27,6 +27,7 @@ from dataclasses import dataclass, field
 
 # ── Auth Manager ─────────────────────────────────────────────
 
+
 @dataclass
 class APIKey:
     key_id: str
@@ -45,7 +46,9 @@ class AuthManager:
     def __init__(self):
         self._keys: dict[str, APIKey] = {}  # key_hash → APIKey
 
-    def create_key(self, tenant_id: str, permissions: list[str] | None = None) -> tuple[str, APIKey]:
+    def create_key(
+        self, tenant_id: str, permissions: list[str] | None = None
+    ) -> tuple[str, APIKey]:
         """Create new API key, returns (plaintext_key, APIKey)."""
         raw_key = f"tak_{secrets.token_hex(24)}"
         key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
@@ -82,6 +85,7 @@ class AuthManager:
 
 # ── Rate Limiter ─────────────────────────────────────────────
 
+
 class RateLimiter:
     """Token bucket rate limiter per tenant."""
 
@@ -111,11 +115,12 @@ class RateLimiter:
 
 # ── Multi-Tenant Manager ────────────────────────────────────
 
+
 @dataclass
 class Tenant:
     tenant_id: str
     name: str
-    plan: str = "free"           # free, pro, enterprise
+    plan: str = "free"  # free, pro, enterprise
     max_symbols: int = 5
     max_strategies: int = 3
     max_orders_per_day: int = 100
@@ -130,13 +135,34 @@ class TenantManager:
     """Multi-tenant management with plan-based quotas."""
 
     PLANS = {
-        "free": {"max_symbols": 5, "max_strategies": 3, "max_orders_per_day": 100,
-                 "rpm": 30, "features": ["backtest", "paper_trading"]},
-        "pro": {"max_symbols": 50, "max_strategies": 20, "max_orders_per_day": 10000,
-                "rpm": 300, "features": ["backtest", "paper_trading", "live_trading", "alerts"]},
-        "enterprise": {"max_symbols": -1, "max_strategies": -1, "max_orders_per_day": -1,
-                       "rpm": 3000, "features": ["backtest", "paper_trading", "live_trading",
-                                                  "alerts", "api", "white_label"]},
+        "free": {
+            "max_symbols": 5,
+            "max_strategies": 3,
+            "max_orders_per_day": 100,
+            "rpm": 30,
+            "features": ["backtest", "paper_trading"],
+        },
+        "pro": {
+            "max_symbols": 50,
+            "max_strategies": 20,
+            "max_orders_per_day": 10000,
+            "rpm": 300,
+            "features": ["backtest", "paper_trading", "live_trading", "alerts"],
+        },
+        "enterprise": {
+            "max_symbols": -1,
+            "max_strategies": -1,
+            "max_orders_per_day": -1,
+            "rpm": 3000,
+            "features": [
+                "backtest",
+                "paper_trading",
+                "live_trading",
+                "alerts",
+                "api",
+                "white_label",
+            ],
+        },
     }
 
     def __init__(self):
@@ -146,7 +172,9 @@ class TenantManager:
         tenant_id = f"t_{secrets.token_hex(6)}"
         plan_config = self.PLANS.get(plan, self.PLANS["free"])
         tenant = Tenant(
-            tenant_id=tenant_id, name=name, plan=plan,
+            tenant_id=tenant_id,
+            name=name,
+            plan=plan,
             max_symbols=plan_config["max_symbols"],
             max_strategies=plan_config["max_strategies"],
             max_orders_per_day=plan_config["max_orders_per_day"],
@@ -190,6 +218,7 @@ class TenantManager:
 
 # ── Audit Log ────────────────────────────────────────────────
 
+
 @dataclass
 class AuditEntry:
     timestamp: float
@@ -206,16 +235,27 @@ class AuditLog:
     def __init__(self, max_entries: int = 100_000):
         self._entries: deque[AuditEntry] = deque(maxlen=max_entries)
 
-    def log(self, tenant_id: str, action: str, resource: str,
-            details: dict | None = None, ip: str = ""):
+    def log(
+        self,
+        tenant_id: str,
+        action: str,
+        resource: str,
+        details: dict | None = None,
+        ip: str = "",
+    ):
         entry = AuditEntry(
-            timestamp=time.time(), tenant_id=tenant_id,
-            action=action, resource=resource,
-            details=details or {}, ip_address=ip,
+            timestamp=time.time(),
+            tenant_id=tenant_id,
+            action=action,
+            resource=resource,
+            details=details or {},
+            ip_address=ip,
         )
         self._entries.append(entry)
 
-    def query(self, tenant_id: str = "", action: str = "", limit: int = 100) -> list[AuditEntry]:
+    def query(
+        self, tenant_id: str = "", action: str = "", limit: int = 100
+    ) -> list[AuditEntry]:
         results = list(self._entries)
         if tenant_id:
             results = [e for e in results if e.tenant_id == tenant_id]
@@ -225,14 +265,26 @@ class AuditLog:
 
     def export_json(self, filepath: str):
         with open(filepath, "w") as f:
-            json.dump([{
-                "timestamp": e.timestamp, "tenant_id": e.tenant_id,
-                "action": e.action, "resource": e.resource,
-                "details": e.details, "ip": e.ip_address,
-            } for e in self._entries], f, indent=2, default=str)
+            json.dump(
+                [
+                    {
+                        "timestamp": e.timestamp,
+                        "tenant_id": e.tenant_id,
+                        "action": e.action,
+                        "resource": e.resource,
+                        "details": e.details,
+                        "ip": e.ip_address,
+                    }
+                    for e in self._entries
+                ],
+                f,
+                indent=2,
+                default=str,
+            )
 
 
 # ── REST API (lightweight, no FastAPI dependency) ────────────
+
 
 class TradingAPI:
     """
@@ -242,8 +294,13 @@ class TradingAPI:
     Handles: /strategies, /portfolio, /orders, /backtest, /health.
     """
 
-    def __init__(self, auth: AuthManager | None = None, tenant_mgr: TenantManager | None = None,
-                 rate_limiter: RateLimiter | None = None, audit: AuditLog | None = None):
+    def __init__(
+        self,
+        auth: AuthManager | None = None,
+        tenant_mgr: TenantManager | None = None,
+        rate_limiter: RateLimiter | None = None,
+        audit: AuditLog | None = None,
+    ):
         self.auth = auth or AuthManager()
         self.tenants = tenant_mgr or TenantManager()
         self.rate_limiter = rate_limiter or RateLimiter()
@@ -258,8 +315,14 @@ class TradingAPI:
         self._handlers["GET /api/v1/portfolio"] = self._get_portfolio
         self._handlers["POST /api/v1/backtest"] = self._run_backtest
 
-    def handle(self, method: str, path: str, body: dict | None = None,
-               api_key: str = "", ip: str = "") -> dict:
+    def handle(
+        self,
+        method: str,
+        path: str,
+        body: dict | None = None,
+        api_key: str = "",
+        ip: str = "",
+    ) -> dict:
         """Route a request through auth → rate limit → handler."""
         route = f"{method} {path}"
         handler = self._handlers.get(route)
@@ -286,36 +349,67 @@ class TradingAPI:
         return {"status": 200, "healthy": True, "version": "1.0.0"}
 
     def _list_strategies(self, body: dict) -> dict:
-        return {"status": 200, "strategies": ["ma_crossover", "rsi", "bbands", "agent_ensemble"]}
+        return {
+            "status": 200,
+            "strategies": ["ma_crossover", "rsi", "bbands", "agent_ensemble"],
+        }
 
     def _place_order(self, body: dict) -> dict:
         symbol = body.get("symbol", "")
         side = body.get("side", "")
         qty = body.get("qty", 0)
         if not symbol or not side or qty <= 0:
-            return {"status": 400, "error": "Missing required fields: symbol, side, qty > 0"}
+            return {
+                "status": 400,
+                "error": "Missing required fields: symbol, side, qty > 0",
+            }
         order_id = f"ord_{secrets.token_hex(8)}"
-        return {"status": 201, "order_id": order_id, "symbol": symbol,
-                "side": side, "qty": qty, "order_status": "pending"}
+        return {
+            "status": 201,
+            "order_id": order_id,
+            "symbol": symbol,
+            "side": side,
+            "qty": qty,
+            "order_status": "pending",
+        }
 
     def _get_portfolio(self, body: dict) -> dict:
-        return {"status": 200, "portfolio": {
-            "total_value_usd": 100_000,
-            "positions": [
-                {"symbol": "BTC/USDT", "qty": 0.5, "value_usd": 50_000, "pnl_pct": 5.2},
-                {"symbol": "ETH/USDT", "qty": 5.0, "value_usd": 17_500, "pnl_pct": 3.1},
-            ],
-            "cash_usd": 32_500,
-        }}
+        return {
+            "status": 200,
+            "portfolio": {
+                "total_value_usd": 100_000,
+                "positions": [
+                    {
+                        "symbol": "BTC/USDT",
+                        "qty": 0.5,
+                        "value_usd": 50_000,
+                        "pnl_pct": 5.2,
+                    },
+                    {
+                        "symbol": "ETH/USDT",
+                        "qty": 5.0,
+                        "value_usd": 17_500,
+                        "pnl_pct": 3.1,
+                    },
+                ],
+                "cash_usd": 32_500,
+            },
+        }
 
     def _run_backtest(self, body: dict) -> dict:
         strategy = body.get("strategy", "ma_crossover")
         symbol = body.get("symbol", "BTC/USDT")
-        return {"status": 200, "backtest": {
-            "strategy": strategy, "symbol": symbol,
-            "total_return_pct": 12.5, "sharpe": 1.2,
-            "max_drawdown_pct": 8.3, "trades": 45,
-        }}
+        return {
+            "status": 200,
+            "backtest": {
+                "strategy": strategy,
+                "symbol": symbol,
+                "total_return_pct": 12.5,
+                "sharpe": 1.2,
+                "max_drawdown_pct": 8.3,
+                "trades": 45,
+            },
+        }
 
 
 if __name__ == "__main__":
@@ -328,8 +422,12 @@ if __name__ == "__main__":
     t1 = tm.create_tenant("Quant Fund Alpha", "pro")
     t2 = tm.create_tenant("Retail Trader", "free")
     print(f"\nTenants: {len(tm.list_tenants())}")
-    print(f"  {t1.name} ({t1.plan}): symbols={t1.max_symbols}, rpm={t1.max_api_calls_per_minute}")
-    print(f"  {t2.name} ({t2.plan}): symbols={t2.max_symbols}, rpm={t2.max_api_calls_per_minute}")
+    print(
+        f"  {t1.name} ({t1.plan}): symbols={t1.max_symbols}, rpm={t1.max_api_calls_per_minute}"
+    )
+    print(
+        f"  {t2.name} ({t2.plan}): symbols={t2.max_symbols}, rpm={t2.max_api_calls_per_minute}"
+    )
 
     # Auth
     auth = AuthManager()
@@ -341,18 +439,32 @@ if __name__ == "__main__":
     rl = RateLimiter(requests_per_minute=5)
     for i in range(7):
         allowed, info = rl.check(t2.tenant_id)
-        print(f"  Request {i+1}: {'✓' if allowed else '✗'} (remaining: {info['remaining']})")
+        print(
+            f"  Request {i + 1}: {'✓' if allowed else '✗'} (remaining: {info['remaining']})"
+        )
 
     # API
     api = TradingAPI(auth=auth, tenant_mgr=tm, rate_limiter=rl)
     responses = [
         api.handle("GET", "/health"),
         api.handle("GET", "/api/v1/strategies", api_key=key1),
-        api.handle("POST", "/api/v1/orders", {"symbol": "BTC/USDT", "side": "buy", "qty": 0.1}, api_key=key1),
+        api.handle(
+            "POST",
+            "/api/v1/orders",
+            {"symbol": "BTC/USDT", "side": "buy", "qty": 0.1},
+            api_key=key1,
+        ),
         api.handle("GET", "/api/v1/portfolio", api_key=key1),
-        api.handle("POST", "/api/v1/backtest", {"strategy": "rsi", "symbol": "ETH/USDT"}, api_key=key1),
+        api.handle(
+            "POST",
+            "/api/v1/backtest",
+            {"strategy": "rsi", "symbol": "ETH/USDT"},
+            api_key=key1,
+        ),
         api.handle("GET", "/api/v1/strategies", api_key="invalid_key"),
     ]
     print("\nAPI Responses:")
     for r in responses:
-        print(f"  status={r['status']} {'✓' if r['status'] == 200 else r.get('error', '')}")
+        print(
+            f"  status={r['status']} {'✓' if r['status'] == 200 else r.get('error', '')}"
+        )

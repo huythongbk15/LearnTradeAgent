@@ -14,6 +14,7 @@ Usage::
     with run_correlation(new_correlation_id()):
         ...  # append_live_audit_event() now tags every event with run_id
 """
+
 from __future__ import annotations
 
 import contextlib

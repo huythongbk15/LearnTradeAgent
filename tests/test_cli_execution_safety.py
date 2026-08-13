@@ -21,7 +21,9 @@ def test_execution_gate_requires_all_paper_invariants(monkeypatch):
 
     monkeypatch.setenv("TRADING_MODE", "paper")
     assert "restricted" in _paper_execution_error("oanda", facade(paper=True))
-    assert "not a verified Paper" in _paper_execution_error("alpaca", facade(paper=False))
+    assert "not a verified Paper" in _paper_execution_error(
+        "alpaca", facade(paper=False)
+    )
     assert _paper_execution_error("alpaca", facade(paper=True)) is None
 
 

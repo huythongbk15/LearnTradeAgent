@@ -43,13 +43,32 @@ class PromotionState(Enum):
 
 
 _VALID_TRANSITIONS: dict[PromotionState, set[PromotionState]] = {
-    PromotionState.EXPLORATORY: {PromotionState.REVIEWED, PromotionState.REJECTED, PromotionState.SUSPENDED},
-    PromotionState.REVIEWED: {PromotionState.CANARY_ELIGIBLE, PromotionState.REJECTED, PromotionState.SUSPENDED},
-    PromotionState.CANARY_ELIGIBLE: {PromotionState.CANARY_PROMOTED, PromotionState.REJECTED, PromotionState.SUSPENDED},
-    PromotionState.CANARY_PROMOTED: {PromotionState.CANARY_LIVE, PromotionState.SUSPENDED},
+    PromotionState.EXPLORATORY: {
+        PromotionState.REVIEWED,
+        PromotionState.REJECTED,
+        PromotionState.SUSPENDED,
+    },
+    PromotionState.REVIEWED: {
+        PromotionState.CANARY_ELIGIBLE,
+        PromotionState.REJECTED,
+        PromotionState.SUSPENDED,
+    },
+    PromotionState.CANARY_ELIGIBLE: {
+        PromotionState.CANARY_PROMOTED,
+        PromotionState.REJECTED,
+        PromotionState.SUSPENDED,
+    },
+    PromotionState.CANARY_PROMOTED: {
+        PromotionState.CANARY_LIVE,
+        PromotionState.SUSPENDED,
+    },
     PromotionState.CANARY_LIVE: {PromotionState.SUSPENDED},
     PromotionState.REJECTED: set(),
-    PromotionState.SUSPENDED: {PromotionState.REVIEWED, PromotionState.CANARY_ELIGIBLE, PromotionState.CANARY_LIVE},
+    PromotionState.SUSPENDED: {
+        PromotionState.REVIEWED,
+        PromotionState.CANARY_ELIGIBLE,
+        PromotionState.CANARY_LIVE,
+    },
 }
 
 
@@ -132,6 +151,7 @@ class ArtifactLifecycle:
 
 # ── PromotionPolicy: evidence-enforced transitions ──────────────────────
 
+
 @dataclass(frozen=True)
 class PromotionEvidence:
     """Evidence artifact required for a promotion transition."""
@@ -153,9 +173,19 @@ class PromotionEvidence:
 # Required evidence per transition
 _REQUIRED_EVIDENCE: dict[tuple[PromotionState, PromotionState], list[str]] = {
     (PromotionState.EXPLORATORY, PromotionState.REVIEWED): ["manual_review"],
-    (PromotionState.REVIEWED, PromotionState.CANARY_ELIGIBLE): ["reality_gap", "drift_check"],
-    (PromotionState.CANARY_ELIGIBLE, PromotionState.CANARY_PROMOTED): ["reality_gap", "drift_check", "calibration"],
-    (PromotionState.CANARY_PROMOTED, PromotionState.CANARY_LIVE): ["soak_test", "drift_check"],
+    (PromotionState.REVIEWED, PromotionState.CANARY_ELIGIBLE): [
+        "reality_gap",
+        "drift_check",
+    ],
+    (PromotionState.CANARY_ELIGIBLE, PromotionState.CANARY_PROMOTED): [
+        "reality_gap",
+        "drift_check",
+        "calibration",
+    ],
+    (PromotionState.CANARY_PROMOTED, PromotionState.CANARY_LIVE): [
+        "soak_test",
+        "drift_check",
+    ],
 }
 
 
@@ -181,11 +211,14 @@ class PromotionPolicy:
         self.drift_monitor = drift_monitor
         self.min_calibration_score = min_calibration_score
         # lazy import to avoid circular
-        if drift_monitor is not None and not hasattr(drift_monitor, 'health_state'):
+        if drift_monitor is not None and not hasattr(drift_monitor, "health_state"):
             from trading_agent.research.drift import DriftMonitor
+
             if not isinstance(drift_monitor, DriftMonitor):
                 raise TypeError("drift_monitor must be a DriftMonitor instance")
-        self._evidence_store: dict[str, list[PromotionEvidence]] = {}  # artifact_id -> evidence list
+        self._evidence_store: dict[
+            str, list[PromotionEvidence]
+        ] = {}  # artifact_id -> evidence list
 
     def validate_evidence(
         self,
@@ -281,7 +314,9 @@ class PromotionPolicy:
         """Retrieve all evidence stored for an artifact."""
         return list(self._evidence_store.get(artifact_id, []))
 
-    def required_evidence_for(self, from_state: PromotionState, to_state: PromotionState) -> list[str]:
+    def required_evidence_for(
+        self, from_state: PromotionState, to_state: PromotionState
+    ) -> list[str]:
         """Return the list of required evidence kinds for a transition."""
         return list(_REQUIRED_EVIDENCE.get((from_state, to_state), []))
 
@@ -294,26 +329,44 @@ def reality_gap_evidence(report) -> PromotionEvidence:
         payload=report.to_dict(),
     )
 
-def drift_check_evidence(health_state: str, details: dict[str, Any] | None = None) -> PromotionEvidence:
+
+def drift_check_evidence(
+    health_state: str, details: dict[str, Any] | None = None
+) -> PromotionEvidence:
     """Create PromotionEvidence from a drift check result."""
     return PromotionEvidence(
         kind="drift_check",
         payload={"health_state": health_state, "details": details or {}},
     )
 
-def calibration_evidence(calibration_score: float, details: dict[str, Any] | None = None) -> PromotionEvidence:
+
+def calibration_evidence(
+    calibration_score: float, details: dict[str, Any] | None = None
+) -> PromotionEvidence:
     """Create PromotionEvidence from a calibration result."""
     return PromotionEvidence(
         kind="calibration",
         payload={"calibration_score": calibration_score, "details": details or {}},
     )
 
-def soak_test_evidence(days: int, lifecycles: int, gates_passed: bool, details: dict[str, Any] | None = None) -> PromotionEvidence:
+
+def soak_test_evidence(
+    days: int,
+    lifecycles: int,
+    gates_passed: bool,
+    details: dict[str, Any] | None = None,
+) -> PromotionEvidence:
     """Create PromotionEvidence from a soak test result."""
     return PromotionEvidence(
         kind="soak_test",
-        payload={"days": days, "lifecycles": lifecycles, "gates_passed": gates_passed, "details": details or {}},
+        payload={
+            "days": days,
+            "lifecycles": lifecycles,
+            "gates_passed": gates_passed,
+            "details": details or {},
+        },
     )
+
 
 def manual_review_evidence(note: str, actor: str = "human") -> PromotionEvidence:
     """Create PromotionEvidence from a manual review."""

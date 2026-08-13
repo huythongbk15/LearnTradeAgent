@@ -34,6 +34,7 @@ def make_fetch(exchange_ms: float | None, latency_s: float) -> TimeStampedFetch:
 
 # ── three timestamps / latency ─────────────────────────────────────────
 
+
 def test_fetch_latency_uses_received_minus_started():
     fetch = make_fetch(time.time() * 1000, latency_s=0.25)
     assert fetch.latency_s == pytest.approx(0.25, abs=1e-3)
@@ -84,6 +85,7 @@ def test_reject_stale_accepts_fresh_quote():
 
 # ── clock skew ─────────────────────────────────────────────────────────
 
+
 def test_server_clock_needs_sync_before_check():
     clock = ServerClock(tolerance_s=2.0)
     with pytest.raises(ClockSkewError, match="never been synced"):
@@ -118,6 +120,7 @@ def test_server_clock_rejects_invalid_sample():
 
 
 # ── order book sequence tracker ────────────────────────────────────────
+
 
 def test_sequence_tracker_monotonic_flow():
     tracker = OrderBookSequenceTracker()
@@ -183,12 +186,16 @@ def test_rest_snapshot_rejects_duplicate_id():
 
 # ── Binance diff stream protocol (snapshot + diff) ─────────────────────
 
+
 def test_diff_stream_first_diff_straddles_snapshot():
     state = DiffStreamState("BTC/USDT")
     state.initialize(1000)
     status = state.apply_diff(
-        first_update_id=999, final_update_id=1002,
-        previous_update_id=None, bids=[], asks=[],
+        first_update_id=999,
+        final_update_id=1002,
+        previous_update_id=None,
+        bids=[],
+        asks=[],
     )
     assert status == "ready_first"
     assert state.last_u == 1002
@@ -199,12 +206,18 @@ def test_diff_stream_continuation_requires_matching_pu():
     state = DiffStreamState("BTC/USDT")
     state.initialize(100)
     state.apply_diff(
-        first_update_id=99, final_update_id=105, previous_update_id=None,
-        bids=[], asks=[],
+        first_update_id=99,
+        final_update_id=105,
+        previous_update_id=None,
+        bids=[],
+        asks=[],
     )
     status = state.apply_diff(
-        first_update_id=106, final_update_id=110, previous_update_id=105,
-        bids=[], asks=[],
+        first_update_id=106,
+        final_update_id=110,
+        previous_update_id=105,
+        bids=[],
+        asks=[],
     )
     assert status == "ok"
     assert state.last_u == 110
@@ -214,19 +227,28 @@ def test_diff_stream_gap_triggers_resync():
     state = DiffStreamState("BTC/USDT")
     state.initialize(100)
     state.apply_diff(
-        first_update_id=99, final_update_id=105, previous_update_id=None,
-        bids=[], asks=[],
+        first_update_id=99,
+        final_update_id=105,
+        previous_update_id=None,
+        bids=[],
+        asks=[],
     )
     status = state.apply_diff(
-        first_update_id=106, final_update_id=200, previous_update_id=105,
-        bids=[], asks=[],
+        first_update_id=106,
+        final_update_id=200,
+        previous_update_id=105,
+        bids=[],
+        asks=[],
     )
     assert status == "ok"
     assert state.last_u == 200
     # Next diff claims pu=205 but our last_u is 200 → real gap → resync.
     status2 = state.apply_diff(
-        first_update_id=206, final_update_id=210, previous_update_id=205,
-        bids=[], asks=[],
+        first_update_id=206,
+        final_update_id=210,
+        previous_update_id=205,
+        bids=[],
+        asks=[],
     )
     assert status2 == "gap"
     assert state.needs_resync
@@ -237,12 +259,18 @@ def test_diff_stream_stale_duplicate_skipped():
     state = DiffStreamState("BTC/USDT")
     state.initialize(100)
     state.apply_diff(
-        first_update_id=99, final_update_id=105, previous_update_id=None,
-        bids=[], asks=[],
+        first_update_id=99,
+        final_update_id=105,
+        previous_update_id=None,
+        bids=[],
+        asks=[],
     )
     status = state.apply_diff(
-        first_update_id=100, final_update_id=104, previous_update_id=99,
-        bids=[], asks=[],
+        first_update_id=100,
+        final_update_id=104,
+        previous_update_id=99,
+        bids=[],
+        asks=[],
     )
     assert status == "stale"
     assert state.stale_count == 1
@@ -253,21 +281,31 @@ def test_diff_stream_rejects_invalid_id_order():
     state.initialize(100)
     with pytest.raises(DataTrustError):
         state.apply_diff(
-            first_update_id=500, final_update_id=400, previous_update_id=None,
-            bids=[], asks=[],
+            first_update_id=500,
+            final_update_id=400,
+            previous_update_id=None,
+            bids=[],
+            asks=[],
         )
 
 
 def test_diff_stream_unsynced_returns_gap():
     state = DiffStreamState("BTC/USDT")
     assert state.needs_resync
-    assert state.apply_diff(
-        first_update_id=1, final_update_id=2, previous_update_id=None,
-        bids=[], asks=[],
-    ) == "gap"
+    assert (
+        state.apply_diff(
+            first_update_id=1,
+            final_update_id=2,
+            previous_update_id=None,
+            bids=[],
+            asks=[],
+        )
+        == "gap"
+    )
 
 
 # ── monitor metrics export ─────────────────────────────────────────────
+
 
 def test_monitor_metrics_exports_p03_dashboard():
     monitor = DataTrustMonitor()

@@ -40,15 +40,21 @@ def test_kill_switch_requires_key_and_explicit_confirmation(monkeypatch):
     monkeypatch.setenv("WEBUI_API_KEY", "test-secret")
     client = TestClient(backend.app)
 
-    assert client.post(
-        "/api/positions/close",
-        json={"confirm": "CLOSE_ALL_PAPER_POSITIONS"},
-    ).status_code == 401
-    assert client.post(
-        "/api/positions/close",
-        headers={"X-API-Key": "test-secret"},
-        json={"confirm": ""},
-    ).status_code == 400
+    assert (
+        client.post(
+            "/api/positions/close",
+            json={"confirm": "CLOSE_ALL_PAPER_POSITIONS"},
+        ).status_code
+        == 401
+    )
+    assert (
+        client.post(
+            "/api/positions/close",
+            headers={"X-API-Key": "test-secret"},
+            json={"confirm": ""},
+        ).status_code
+        == 400
+    )
 
 
 def test_kill_switch_uses_shared_paper_adapter_and_verifies_empty(monkeypatch):

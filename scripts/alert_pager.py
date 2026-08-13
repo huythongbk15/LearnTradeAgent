@@ -73,7 +73,9 @@ def load_events(path: str | Path) -> list[dict[str, object]]:
                 if not line.strip():
                     continue
                 payload = json.loads(line)
-                if not isinstance(payload, dict) or not isinstance(payload.get("event"), str):
+                if not isinstance(payload, dict) or not isinstance(
+                    payload.get("event"), str
+                ):
                     raise PagerError(f"audit line {line_number} is not an event object")
                 payload["_timestamp"] = _parse_time(
                     payload.get("timestamp"), line_number=line_number
@@ -111,7 +113,9 @@ def validate(
     if age < -60:
         raise PagerError(f"latest audit event is {-age:.0f}s in the future")
     if age > max_age_seconds:
-        raise PagerError(f"latest audit event is stale: {age:.0f}s > {max_age_seconds:.0f}s")
+        raise PagerError(
+            f"latest audit event is stale: {age:.0f}s > {max_age_seconds:.0f}s"
+        )
 
     cutoff = current - timedelta(seconds=lookback_seconds)
     critical = [
@@ -120,7 +124,9 @@ def validate(
         if cutoff <= item["_timestamp"] <= current and item["event"] in CRITICAL_EVENTS
     ]
     if critical:
-        raise PagerError("critical live audit events: " + ", ".join(sorted(set(critical))))
+        raise PagerError(
+            "critical live audit events: " + ", ".join(sorted(set(critical)))
+        )
 
     open_run: datetime | None = None
     for item in ordered:
@@ -145,12 +151,16 @@ def validate(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--audit-log", default="data/execution/binance_live_audit.jsonl")
+    parser.add_argument(
+        "--audit-log", default="data/execution/binance_live_audit.jsonl"
+    )
     parser.add_argument("--max-age-seconds", type=float, default=4_500)
     parser.add_argument("--lookback-seconds", type=float, default=4_500)
     parser.add_argument("--max-run-seconds", type=float, default=900)
     mode = parser.add_mutually_exclusive_group()
-    mode.add_argument("--page", action="store_true", help="send operator page on failure")
+    mode.add_argument(
+        "--page", action="store_true", help="send operator page on failure"
+    )
     mode.add_argument("--dry-run", action="store_true", help="page to console only")
     return parser
 

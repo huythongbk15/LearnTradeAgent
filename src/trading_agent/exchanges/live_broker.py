@@ -15,7 +15,10 @@ from decimal import Decimal
 from typing import Mapping
 
 from trading_agent.exchanges.models import (
-    Symbol, AssetClass, MarketType, Order,
+    Symbol,
+    AssetClass,
+    MarketType,
+    Order,
 )
 
 
@@ -41,18 +44,24 @@ class LiveBroker:
         self.pricing_symbols = pricing_symbols
         self.strict_pricing = strict_pricing
 
-    def _require_prices(self, coins: list[str], prices: dict[str, float], quote: str) -> None:
+    def _require_prices(
+        self, coins: list[str], prices: dict[str, float], quote: str
+    ) -> None:
         if not self.strict_pricing:
             return
         missing = [coin for coin in coins if not prices.get(f"{coin}/{quote}")]
         if missing:
-            raise RuntimeError(f"Missing prices for account assets: {', '.join(missing)}")
+            raise RuntimeError(
+                f"Missing prices for account assets: {', '.join(missing)}"
+            )
 
     def _need_coins(self, base_total: dict, main_quote: str) -> list[str]:
         """Coins cần fetch giá: whitelist nếu có, ngược lại top 20 theo total."""
         candidates = [
-            coin for coin, amt in base_total.items()
-            if coin != main_quote and amt > 0
+            coin
+            for coin, amt in base_total.items()
+            if coin != main_quote
+            and amt > 0
             and self.adapter.has_market(f"{coin}/{main_quote}")
         ]
         if self.pricing_symbols:
@@ -77,7 +86,9 @@ class LiveBroker:
         values = [total]
         values.extend(value for value in (free, locked) if value is not None)
         if any(not math.isfinite(value) or value < 0 for value in values):
-            raise RuntimeError("spot balance quantities must be finite and non-negative")
+            raise RuntimeError(
+                "spot balance quantities must be finite and non-negative"
+            )
         if free is None and locked is None:
             free, locked = total, 0.0
         elif free is None:
@@ -90,7 +101,9 @@ class LiveBroker:
             or locked > total + tolerance
             or abs((free + locked) - total) > tolerance
         ):
-            raise RuntimeError("spot free and locked quantities are inconsistent with total")
+            raise RuntimeError(
+                "spot free and locked quantities are inconsistent with total"
+            )
         return total, min(free, total), min(locked, total)
 
     # ── account ────────────────────────────────────────────────────────────
@@ -124,7 +137,7 @@ class LiveBroker:
             main_quote = "USDT" if self.broker == "binance" else "USDT"
             base_total = {}
             quote_total = 0.0
-            for pair, amounts in (assets.assets.items() if assets else {}):
+            for pair, amounts in assets.assets.items() if assets else {}:
                 total, free, _ = self._spot_balance_quantities(amounts)
                 base_total[pair] = total
                 if pair == main_quote:
@@ -135,11 +148,20 @@ class LiveBroker:
             prices = {}
             if need:
                 try:
-                    prices = _run(self.adapter.fetch_tickers([
-                        Symbol(base=c, quote=main_quote, asset_class=AssetClass.CRYPTO,
-                               market_type=MarketType.SPOT, exchange=self.adapter.config.id)
-                        for c in need
-                    ]))
+                    prices = _run(
+                        self.adapter.fetch_tickers(
+                            [
+                                Symbol(
+                                    base=c,
+                                    quote=main_quote,
+                                    asset_class=AssetClass.CRYPTO,
+                                    market_type=MarketType.SPOT,
+                                    exchange=self.adapter.config.id,
+                                )
+                                for c in need
+                            ]
+                        )
+                    )
                 except Exception:
                     prices = {}
             self._require_prices(need, prices, main_quote)
@@ -195,15 +217,27 @@ class LiveBroker:
             out = []
             if not assets:
                 return out
-            need = self._need_coins({c: float(a.get("total", 0)) for c, a in assets.assets.items()}, main_quote)
+            need = self._need_coins(
+                {c: float(a.get("total", 0)) for c, a in assets.assets.items()},
+                main_quote,
+            )
             prices = {}
             if need:
                 try:
-                    prices = _run(self.adapter.fetch_tickers([
-                        Symbol(base=c, quote=main_quote, asset_class=AssetClass.CRYPTO,
-                               market_type=MarketType.SPOT, exchange=self.adapter.config.id)
-                        for c in need
-                    ]))
+                    prices = _run(
+                        self.adapter.fetch_tickers(
+                            [
+                                Symbol(
+                                    base=c,
+                                    quote=main_quote,
+                                    asset_class=AssetClass.CRYPTO,
+                                    market_type=MarketType.SPOT,
+                                    exchange=self.adapter.config.id,
+                                )
+                                for c in need
+                            ]
+                        )
+                    )
                 except Exception:
                     prices = {}
             self._require_prices(need, prices, main_quote)
@@ -214,18 +248,20 @@ class LiveBroker:
                 price = prices.get(f"{coin}/{main_quote}")
                 if not price:
                     continue  # cặp rác — không gọi ticker
-                out.append({
-                    "symbol": f"{coin}/{main_quote}",
-                    "side": "long",
-                    "qty": total,
-                    "free_qty": free,
-                    "locked_qty": locked,
-                    "avg_entry_price": price,  # không có cost basis — dùng mark
-                    "current_price": price,
-                    "unrealized_pl": 0.0,
-                    "unrealized_plpc": 0.0,
-                    "market_value": total * price,
-                })
+                out.append(
+                    {
+                        "symbol": f"{coin}/{main_quote}",
+                        "side": "long",
+                        "qty": total,
+                        "free_qty": free,
+                        "locked_qty": locked,
+                        "avg_entry_price": price,  # không có cost basis — dùng mark
+                        "current_price": price,
+                        "unrealized_pl": 0.0,
+                        "unrealized_plpc": 0.0,
+                        "market_value": total * price,
+                    }
+                )
             return out
 
         positions = _run(self.adapter.fetch_positions())
@@ -236,16 +272,18 @@ class LiveBroker:
             qty = float(p.size)
             pnl = (mark - entry) * qty if p.is_long else (entry - mark) * qty
             pnl_pct = (mark - entry) / entry * 100 if entry else 0.0
-            out.append({
-                "symbol": p.symbol.pair,
-                "side": "long" if p.is_long else "short",
-                "qty": qty,
-                "avg_entry_price": entry,
-                "current_price": mark,
-                "unrealized_pl": pnl,
-                "unrealized_plpc": pnl_pct / 100,
-                "market_value": float(p.notional),
-            })
+            out.append(
+                {
+                    "symbol": p.symbol.pair,
+                    "side": "long" if p.is_long else "short",
+                    "qty": qty,
+                    "avg_entry_price": entry,
+                    "current_price": mark,
+                    "unrealized_pl": pnl,
+                    "unrealized_plpc": pnl_pct / 100,
+                    "market_value": float(p.notional),
+                }
+            )
         return out
 
     # ── orders ─────────────────────────────────────────────────────────────
@@ -304,8 +342,7 @@ class LiveBroker:
             "avg_fill_price": float(order.avg_fill_price),
             "quote_cost": float(order.quote_cost),
             "fees": {
-                currency: float(cost)
-                for currency, cost in order.fee_breakdown.items()
+                currency: float(cost) for currency, cost in order.fee_breakdown.items()
             },
             "trade_ids": list(order.trade_ids),
             "stop_price": (
@@ -319,10 +356,14 @@ class LiveBroker:
         if status == "open":
             orders = _run(self.adapter.fetch_open_orders())
         else:
-            orders = _run(self.adapter.fetch_open_orders())  # closed fetch not in async surface
+            orders = _run(
+                self.adapter.fetch_open_orders()
+            )  # closed fetch not in async surface
         return [self._order_result(order) for order in orders[:limit]]
 
-    def get_order_by_client_id(self, client_order_id: str, symbol: Symbol) -> dict | None:
+    def get_order_by_client_id(
+        self, client_order_id: str, symbol: Symbol
+    ) -> dict | None:
         """Return a normalized order used to reconcile an uncertain submission."""
 
         result = _run(self.adapter.fetch_order_by_client_id(client_order_id, symbol))
@@ -333,6 +374,7 @@ class LiveBroker:
     def place_order(self, order: Order) -> dict:
         if not order.client_order_id:
             import uuid
+
             order.client_order_id = f"cli-{uuid.uuid4().hex[:16]}"
         result = _run(self.adapter.create_order(order))
         return self._order_result(result)

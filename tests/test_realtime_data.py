@@ -3,19 +3,26 @@
 - Exchange Health Monitor (trading/exchanges/health_monitor.py)
 - Unified Data Pipeline (trading/data/pipeline.py)
 """
+
 import asyncio
 import os
 
 
 from trading_agent.exchanges.models import crypto_symbol
 from trading_agent.exchanges.websocket_manager import (
-    WebSocketManager, MockStreamProvider, WSChannel, WSMessage,
+    WebSocketManager,
+    MockStreamProvider,
+    WSChannel,
+    WSMessage,
 )
 from trading_agent.exchanges.health_monitor import (
-    HealthMonitor, HealthStatus,
+    HealthMonitor,
+    HealthStatus,
 )
 from trading_agent.data.pipeline import (
-    DataPipeline, SQLiteCandleStore, MockSource,
+    DataPipeline,
+    SQLiteCandleStore,
+    MockSource,
 )
 
 
@@ -28,8 +35,8 @@ def run_async(coro):
 # WebSocket Manager
 # ---------------------------------------------------------------------------
 
-class TestWebSocketManager:
 
+class TestWebSocketManager:
     def test_subscribe_dispatch(self):
         async def scenario():
             manager = WebSocketManager()
@@ -45,10 +52,14 @@ class TestWebSocketManager:
             sub_id = await manager.subscribe(btc, WSChannel.TICKER, handler)
             await manager.start()
 
-            await provider.push(WSMessage(
-                exchange="mock", channel=WSChannel.TICKER, symbol=btc,
-                data={"last": "65000.0"},
-            ))
+            await provider.push(
+                WSMessage(
+                    exchange="mock",
+                    channel=WSChannel.TICKER,
+                    symbol=btc,
+                    data={"last": "65000.0"},
+                )
+            )
             await asyncio.sleep(0.1)
 
             assert len(received) == 1
@@ -56,9 +67,14 @@ class TestWebSocketManager:
             assert received[0].symbol.pair == "BTC/USDT"
 
             await manager.unsubscribe(sub_id)
-            await provider.push(WSMessage(
-                exchange="mock", channel=WSChannel.TICKER, symbol=btc, data={"last": "1"},
-            ))
+            await provider.push(
+                WSMessage(
+                    exchange="mock",
+                    channel=WSChannel.TICKER,
+                    symbol=btc,
+                    data={"last": "1"},
+                )
+            )
             await asyncio.sleep(0.1)
             assert len(received) == 1  # no more deliveries after unsubscribe
             await manager.stop()
@@ -75,12 +91,24 @@ class TestWebSocketManager:
             ticker_msgs = []
             trade_msgs = []
 
-            await manager.subscribe(btc, WSChannel.TICKER, lambda m: ticker_msgs.append(m))
-            await manager.subscribe(btc, WSChannel.TRADES, lambda m: trade_msgs.append(m))
+            await manager.subscribe(
+                btc, WSChannel.TICKER, lambda m: ticker_msgs.append(m)
+            )
+            await manager.subscribe(
+                btc, WSChannel.TRADES, lambda m: trade_msgs.append(m)
+            )
             await manager.start()
 
-            await provider.push(WSMessage(exchange="mock", channel=WSChannel.TICKER, symbol=btc, data={}))
-            await provider.push(WSMessage(exchange="mock", channel=WSChannel.TRADES, symbol=btc, data={}))
+            await provider.push(
+                WSMessage(
+                    exchange="mock", channel=WSChannel.TICKER, symbol=btc, data={}
+                )
+            )
+            await provider.push(
+                WSMessage(
+                    exchange="mock", channel=WSChannel.TRADES, symbol=btc, data={}
+                )
+            )
             await asyncio.sleep(0.1)
 
             assert len(ticker_msgs) == 1
@@ -120,8 +148,8 @@ class TestWebSocketManager:
 # Exchange Health Monitor
 # ---------------------------------------------------------------------------
 
-class TestHealthMonitor:
 
+class TestHealthMonitor:
     def test_healthy_and_down(self):
         async def scenario():
             monitor = HealthMonitor(interval_seconds=1.0, failures_to_down=2)
@@ -146,7 +174,10 @@ class TestHealthMonitor:
             # Drive bad_ex to DOWN
             await monitor.check_exchange("bad_ex")
             await monitor.check_exchange("bad_ex")
-            assert monitor.get_exchange_status("bad_ex")["status"] == HealthStatus.DOWN.value
+            assert (
+                monitor.get_exchange_status("bad_ex")["status"]
+                == HealthStatus.DOWN.value
+            )
 
         run_async(scenario())
 
@@ -171,7 +202,9 @@ class TestHealthMonitor:
 
     def test_recovers(self):
         async def scenario():
-            monitor = HealthMonitor(interval_seconds=1.0, failures_to_down=1, recoveries_to_healthy=2)
+            monitor = HealthMonitor(
+                interval_seconds=1.0, failures_to_down=1, recoveries_to_healthy=2
+            )
             state = {"ok": False}
 
             async def flaky(name: str) -> float:
@@ -182,11 +215,17 @@ class TestHealthMonitor:
             monitor.register_exchange("flaky", flaky)
 
             await monitor.check_exchange("flaky")
-            assert monitor.get_exchange_status("flaky")["status"] == HealthStatus.DOWN.value
+            assert (
+                monitor.get_exchange_status("flaky")["status"]
+                == HealthStatus.DOWN.value
+            )
 
             state["ok"] = True
             await monitor.check_exchange("flaky")  # 1st success -> still recovering
-            assert monitor.get_exchange_status("flaky")["status"] != HealthStatus.HEALTHY.value
+            assert (
+                monitor.get_exchange_status("flaky")["status"]
+                != HealthStatus.HEALTHY.value
+            )
             await monitor.check_exchange("flaky")  # 2nd success -> healthy
             assert monitor.is_healthy("flaky")
 
@@ -197,15 +236,17 @@ class TestHealthMonitor:
 # Unified Data Pipeline
 # ---------------------------------------------------------------------------
 
-class TestDataPipeline:
 
+class TestDataPipeline:
     def test_ingest_and_read(self, tmp_path):
         from datetime import datetime, timezone
 
         async def scenario():
             db_path = os.path.join(tmp_path, "market_test.db")
             store = SQLiteCandleStore(db_path=db_path)
-            pipeline = DataPipeline(store=store, sources={"mock": MockSource(seed=50000)})
+            pipeline = DataPipeline(
+                store=store, sources={"mock": MockSource(seed=50000)}
+            )
 
             btc = crypto_symbol("BTC", "USDT", exchange="mock")
             start = datetime(2026, 7, 1, tzinfo=timezone.utc)
@@ -254,7 +295,8 @@ class TestDataPipeline:
 
             btc = crypto_symbol("BTC", "USDT", exchange="mock")
             report = await pipeline.ingest(
-                [btc], "1h",
+                [btc],
+                "1h",
                 datetime(2026, 7, 1, tzinfo=timezone.utc),
                 datetime(2026, 7, 2, tzinfo=timezone.utc),
             )
@@ -267,7 +309,9 @@ class TestDataPipeline:
     def test_source_normalize_ccxt_tuple(self):
         source = MockSource()
         btc = crypto_symbol("BTC", "USDT", exchange="binance")
-        candle = source.normalize(btc, "1h", (1750000000000, "60000", "61000", "59000", "60500", "123.5"))
+        candle = source.normalize(
+            btc, "1h", (1750000000000, "60000", "61000", "59000", "60500", "123.5")
+        )
         assert candle.symbol.pair == "BTC/USDT"
         assert str(candle.close) == "60500"
         assert candle.timeframe == "1h"

@@ -49,8 +49,12 @@ def compute_static_metrics(
     if equity:
         eq_values = [e["equity"] for e in equity]
         metrics["final_equity"] = eq_values[0] if eq_values else 0.0
-        metrics["initial_equity"] = eq_values[-1] if len(eq_values) > 1 else eq_values[0]
-        metrics["return_pct"] = _compute_return(metrics.get("initial_equity", 0), metrics.get("final_equity", 0))
+        metrics["initial_equity"] = (
+            eq_values[-1] if len(eq_values) > 1 else eq_values[0]
+        )
+        metrics["return_pct"] = _compute_return(
+            metrics.get("initial_equity", 0), metrics.get("final_equity", 0)
+        )
         metrics["max_drawdown_pct"] = _compute_max_drawdown(eq_values)
         metrics["sharpe_ratio"] = _compute_sharpe(eq_values)
         metrics["sortino_ratio"] = _compute_sortino(eq_values)
@@ -91,8 +95,12 @@ def rolling_metrics(
         "rolling_win_rate": round(wins / len(closed), 4) if closed else 0,
         "rolling_wins": wins,
         "rolling_losses": losses,
-        "rolling_sharpe": round(_annualized_sharpe(avg_pnl, std_pnl), 2) if std_pnl > 0 else 0,
-        "rolling_sortino": round(_annualized_sharpe(avg_pnl, downside), 2) if downside > 0 else 0,
+        "rolling_sharpe": round(_annualized_sharpe(avg_pnl, std_pnl), 2)
+        if std_pnl > 0
+        else 0,
+        "rolling_sortino": round(_annualized_sharpe(avg_pnl, downside), 2)
+        if downside > 0
+        else 0,
     }
 
 
@@ -122,8 +130,11 @@ def _compute_sharpe(values: list[float]) -> float:
     """Daily Sharpe ratio from equity values (assumes frequent samples)."""
     if len(values) < 2:
         return 0.0
-    returns = [(values[i] - values[i + 1]) / values[i + 1]
-               for i in range(len(values) - 1) if values[i + 1] > 0]
+    returns = [
+        (values[i] - values[i + 1]) / values[i + 1]
+        for i in range(len(values) - 1)
+        if values[i + 1] > 0
+    ]
     if not returns:
         return 0.0
     avg_ret = sum(returns) / len(returns)
@@ -137,8 +148,11 @@ def _compute_sortino(values: list[float]) -> float:
     """Sortino ratio (only downside deviation)."""
     if len(values) < 2:
         return 0.0
-    returns = [(values[i] - values[i + 1]) / values[i + 1]
-               for i in range(len(values) - 1) if values[i + 1] > 0]
+    returns = [
+        (values[i] - values[i + 1]) / values[i + 1]
+        for i in range(len(values) - 1)
+        if values[i + 1] > 0
+    ]
     if not returns:
         return 0.0
     avg_ret = sum(returns) / len(returns)

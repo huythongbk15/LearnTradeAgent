@@ -14,15 +14,18 @@ import pytest
 # P4: Data & Analytics
 # ════════════════════════════════════════════════════════════════
 
+
 class TestOptionsProvider:
     def test_black_scholes_call(self):
         from src.trading_agent.data.options_provider import bs_price
+
         price = bs_price(100, 100, 0.25, 0.05, 0.3, "call")
         assert 0 < price < 100
         print(f"  BS Call(100,100,0.25,0.05,0.3) = {price:.2f}")
 
     def test_black_scholes_put_call_parity(self):
         from src.trading_agent.data.options_provider import bs_price
+
         call = bs_price(100, 100, 0.25, 0.05, 0.3, "call")
         put = bs_price(100, 100, 0.25, 0.05, 0.3, "put")
         # C - P = S - K*exp(-rT)
@@ -33,14 +36,18 @@ class TestOptionsProvider:
 
     def test_greeks(self):
         from src.trading_agent.data.options_provider import bs_greeks
+
         g = bs_greeks(100, 100, 0.25, 0.05, 0.3, "call")
         assert 0 < g["delta"] < 1
         assert g["gamma"] > 0
         assert g["vega"] > 0
-        print(f"  Greeks: delta={g['delta']:.4f}, gamma={g['gamma']:.6f}, vega={g['vega']:.4f}")
+        print(
+            f"  Greeks: delta={g['delta']:.4f}, gamma={g['gamma']:.6f}, vega={g['vega']:.4f}"
+        )
 
     def test_implied_vol(self):
         from src.trading_agent.data.options_provider import bs_price, implied_vol
+
         market_price = bs_price(100, 100, 0.25, 0.05, 0.3, "call")
         iv = implied_vol(market_price, 100, 100, 0.25, 0.05, "call")
         assert abs(iv - 0.3) < 0.01
@@ -48,22 +55,29 @@ class TestOptionsProvider:
 
     def test_synthetic_chain(self):
         from src.trading_agent.data.options_provider import OptionChainProvider
+
         provider = OptionChainProvider(dry_run=True)
         chain = provider.get_chain("BTC", expiry="2026-09-25")
         assert len(chain.calls) > 0
         assert len(chain.puts) > 0
         assert chain.spot > 0
-        print(f"  Chain: {len(chain.calls)} calls, {len(chain.puts)} puts, spot={chain.spot:.0f}")
+        print(
+            f"  Chain: {len(chain.calls)} calls, {len(chain.puts)} puts, spot={chain.spot:.0f}"
+        )
 
     def test_options_flow(self):
         from src.trading_agent.data.options_provider import OptionChainProvider
+
         provider = OptionChainProvider(dry_run=True)
         flow = provider.analyze_flow("BTC")
         assert flow.total_call_volume > 0 or flow.total_put_volume > 0
-        print(f"  Flow: calls={flow.total_call_volume}, puts={flow.total_put_volume}, P/C={flow.put_call_ratio:.2f}")
+        print(
+            f"  Flow: calls={flow.total_call_volume}, puts={flow.total_put_volume}, P/C={flow.put_call_ratio:.2f}"
+        )
 
     def test_vol_surface(self):
         from src.trading_agent.data.options_provider import OptionChainProvider
+
         provider = OptionChainProvider(dry_run=True)
         surface = provider.get_vol_surface("BTC")
         assert len(surface) > 0
@@ -73,6 +87,7 @@ class TestOptionsProvider:
 class TestFundingRateMonitor:
     def test_get_rates(self):
         from src.trading_agent.data.market_data import FundingRateMonitor
+
         monitor = FundingRateMonitor(dry_run=True)
         rates = monitor.get_rates("BTC", spot_price=100_000)
         assert len(rates) == 3
@@ -81,14 +96,24 @@ class TestFundingRateMonitor:
 
     def test_signal(self):
         from src.trading_agent.data.market_data import FundingRateMonitor
+
         monitor = FundingRateMonitor(dry_run=True)
         signal = monitor.get_signal("BTC", spot_price=100_000)
         assert signal.symbol == "BTC"
-        assert signal.signal in ("strong_positive", "positive", "neutral", "negative", "strong_negative")
-        print(f"  Signal: {signal.signal}, z={signal.z_score:.2f}, annual={signal.annualized_yield:.2f}%")
+        assert signal.signal in (
+            "strong_positive",
+            "positive",
+            "neutral",
+            "negative",
+            "strong_negative",
+        )
+        print(
+            f"  Signal: {signal.signal}, z={signal.z_score:.2f}, annual={signal.annualized_yield:.2f}%"
+        )
 
     def test_funding_arbitrage(self):
         from src.trading_agent.data.market_data import FundingRateMonitor
+
         monitor = FundingRateMonitor(dry_run=True)
         arb = monitor.funding_arbitrage("BTC")
         assert "opportunity" in arb
@@ -99,6 +124,7 @@ class TestFundingRateMonitor:
 class TestLiquidationFeed:
     def test_get_recent(self):
         from src.trading_agent.data.market_data import LiquidationFeed
+
         feed = LiquidationFeed(dry_run=True)
         events = feed.get_recent("BTC/USDT")
         assert len(events) > 0
@@ -106,6 +132,7 @@ class TestLiquidationFeed:
 
     def test_stats(self):
         from src.trading_agent.data.market_data import LiquidationFeed
+
         feed = LiquidationFeed(dry_run=True)
         feed.get_recent("BTC/USDT")  # generate synthetic data
         stats = feed.get_stats("BTC/USDT")
@@ -118,6 +145,7 @@ class TestLiquidationFeed:
 class TestArbitrageDetector:
     def test_scan(self):
         from src.trading_agent.data.market_data import ArbitrageDetector
+
         det = ArbitrageDetector(dry_run=True)
         opps = det._synthetic_scan()
         assert len(opps) > 0
@@ -127,6 +155,7 @@ class TestArbitrageDetector:
 class TestWhaleTracker:
     def test_transfers(self):
         from src.trading_agent.data.market_data import WhaleTracker
+
         tracker = WhaleTracker(dry_run=True)
         transfers = tracker.get_transfers()
         assert len(transfers) > 0
@@ -134,19 +163,24 @@ class TestWhaleTracker:
 
     def test_summary(self):
         from src.trading_agent.data.market_data import WhaleTracker
+
         tracker = WhaleTracker(dry_run=True)
         summary = tracker.get_summary()
         assert summary["total_transfers"] > 0
-        print(f"  Summary: {summary['total_transfers']} tx, ${summary['total_value_usd']:,.0f}, signal={summary['signal']}")
+        print(
+            f"  Summary: {summary['total_transfers']} tx, ${summary['total_value_usd']:,.0f}, signal={summary['signal']}"
+        )
 
 
 # ════════════════════════════════════════════════════════════════
 # P5: Execution & Operations
 # ════════════════════════════════════════════════════════════════
 
+
 class TestExecutionMonitor:
     def test_fill_recording(self):
         from src.trading_agent.execution.monitoring import ExecutionQualityMonitor
+
         mon = ExecutionQualityMonitor()
         rec = mon.record_fill("ORD-1", "BTC/USDT", "buy", 100000, 100005, 0.1)
         assert rec.slippage_bps > 0
@@ -154,10 +188,18 @@ class TestExecutionMonitor:
 
     def test_report(self):
         from src.trading_agent.execution.monitoring import ExecutionQualityMonitor
+
         mon = ExecutionQualityMonitor()
         for i in range(50):
-            mon.record_fill(f"O{i}", "BTC/USDT", "buy", 100000, 100000 + np.random.randn() * 5, 0.1,
-                            fill_time_ms=np.random.uniform(5, 100))
+            mon.record_fill(
+                f"O{i}",
+                "BTC/USDT",
+                "buy",
+                100000,
+                100000 + np.random.randn() * 5,
+                0.1,
+                fill_time_ms=np.random.uniform(5, 100),
+            )
         report = mon.get_report("BTC/USDT")
         assert report["n_fills"] == 50
         assert 0 < report["fill_rate"] <= 1
@@ -167,6 +209,7 @@ class TestExecutionMonitor:
 class TestLatencyProfiler:
     def test_stats(self):
         from src.trading_agent.execution.monitoring import LatencyProfiler
+
         lp = LatencyProfiler()
         for _ in range(100):
             lp.record("order_submit", np.random.uniform(5, 50))
@@ -179,36 +222,43 @@ class TestLatencyProfiler:
 class TestOrderBookMonitor:
     def test_update_and_alerts(self):
         from src.trading_agent.execution.monitoring import OrderBookDepthMonitor
+
         obm = OrderBookDepthMonitor()
         bids = [(100000 - i * 10, 1.0) for i in range(10)]
         asks = [(100010 + i * 10, 1.0) for i in range(10)]
         snap = obm.update("BTC/USDT", bids, asks)
         assert snap.spread_bps > 0
         alerts = obm.get_alerts("BTC/USDT")
-        print(f"  Spread: {snap.spread_bps:.1f}bps, imbalance: {snap.imbalance:.3f}, alerts: {len(alerts)}")
+        print(
+            f"  Spread: {snap.spread_bps:.1f}bps, imbalance: {snap.imbalance:.3f}, alerts: {len(alerts)}"
+        )
 
 
 # ════════════════════════════════════════════════════════════════
 # P6: Intelligence & Learning
 # ════════════════════════════════════════════════════════════════
 
+
 @pytest.fixture
 def synthetic_df():
     np.random.seed(42)
     n = 500
     close = 100 + np.cumsum(np.random.randn(n) * 0.5)
-    return pd.DataFrame({
-        "open": close + np.random.randn(n) * 0.1,
-        "high": close + abs(np.random.randn(n) * 0.3),
-        "low": close - abs(np.random.randn(n) * 0.3),
-        "close": close,
-        "volume": np.random.exponential(1000, n),
-    })
+    return pd.DataFrame(
+        {
+            "open": close + np.random.randn(n) * 0.1,
+            "high": close + abs(np.random.randn(n) * 0.3),
+            "low": close - abs(np.random.randn(n) * 0.3),
+            "close": close,
+            "volume": np.random.exponential(1000, n),
+        }
+    )
 
 
 class TestRLAgent:
     def test_environment(self, synthetic_df):
         from src.trading_agent.ml.rl_agent import TradingEnvironment
+
         env = TradingEnvironment(synthetic_df, window=30)
         state = env.reset()
         assert state.shape == (env.state_dim,)
@@ -218,6 +268,7 @@ class TestRLAgent:
 
     def test_dqn_agent(self, synthetic_df):
         from src.trading_agent.ml.rl_agent import TradingEnvironment, DQNAgent
+
         env = TradingEnvironment(synthetic_df, window=30)
         agent = DQNAgent(state_dim=env.state_dim, action_dim=env.action_dim)
         state = env.reset()
@@ -235,6 +286,7 @@ class TestRLAgent:
 
     def test_ppo_agent(self, synthetic_df):
         from src.trading_agent.ml.rl_agent import TradingEnvironment, PPOAgent
+
         env = TradingEnvironment(synthetic_df, window=30)
         agent = PPOAgent(state_dim=env.state_dim, action_dim=env.action_dim)
         state = env.reset()
@@ -254,6 +306,7 @@ class TestRLAgent:
 class TestSentiment:
     def test_analyzer(self):
         from src.trading_agent.ml.sentiment import SentimentAnalyzer
+
         a = SentimentAnalyzer()
         r = a.analyze("BTC surges past all-time high amid massive institutional buying")
         assert r.score > 0
@@ -266,25 +319,33 @@ class TestSentiment:
 
     def test_composite_signal(self):
         from src.trading_agent.ml.sentiment import SentimentComposite
+
         comp = SentimentComposite()
         signal = comp.get_signal("BTC")
         assert "composite_score" in signal
         assert "signal" in signal
-        print(f"  Composite: score={signal['composite_score']:.3f}, signal={signal['signal']}")
+        print(
+            f"  Composite: score={signal['composite_score']:.3f}, signal={signal['signal']}"
+        )
 
 
 class TestAutoAlpha:
     def test_feature_importance(self, synthetic_df):
         from src.trading_agent.ml.auto_alpha import FeatureImportance
         from src.trading_agent.alpha_research.pipeline import _make_library
+
         lib = _make_library()
-        target = np.diff(synthetic_df["close"].values) / synthetic_df["close"].values[:-1]
+        target = (
+            np.diff(synthetic_df["close"].values) / synthetic_df["close"].values[:-1]
+        )
         target = np.concatenate([[0], target])
         alpha_values = {}
         for info in lib.list_alphas()[:10]:
             try:
                 vals = lib.compute(info["name"], synthetic_df)
-                alpha_values[info["name"]] = vals.values if hasattr(vals, "values") else np.array(vals)
+                alpha_values[info["name"]] = (
+                    vals.values if hasattr(vals, "values") else np.array(vals)
+                )
             except Exception:
                 continue
         fi = FeatureImportance()
@@ -295,31 +356,44 @@ class TestAutoAlpha:
 
     def test_auto_alpha_generator(self, synthetic_df):
         from src.trading_agent.ml.auto_alpha import AutoAlphaGenerator
-        data = {col: synthetic_df[col].values for col in ["open", "high", "low", "close", "volume"]}
-        target = np.diff(synthetic_df["close"].values) / synthetic_df["close"].values[:-1]
+
+        data = {
+            col: synthetic_df[col].values
+            for col in ["open", "high", "low", "close", "volume"]
+        }
+        target = (
+            np.diff(synthetic_df["close"].values) / synthetic_df["close"].values[:-1]
+        )
         target = np.concatenate([[0], target])
         gen = AutoAlphaGenerator(max_depth=3)
         results = gen.evolve(data, target, population_size=15, n_generations=5)
         assert len(results) > 0
-        print(f"  Auto-alpha: discovered {len(results)} alphas, best IC={results[0]['ic']:.4f}")
+        print(
+            f"  Auto-alpha: discovered {len(results)} alphas, best IC={results[0]['ic']:.4f}"
+        )
 
 
 class TestStrategyCloner:
     def test_analyze_and_clone(self):
         from src.trading_agent.ml.strategy_cloner import TradeCloner, StrategyCloner
         import random
+
         trades = []
         for i in range(100):
-            trades.append({
-                "entry_time": time.time() - random.uniform(0, 86400 * 30),
-                "exit_time": time.time() - random.uniform(0, 86400 * 30),
-                "entry_price": 100000, "exit_price": 100000 * (1 + random.gauss(0.5, 3) / 100),
-                "side": "long", "size_pct": random.uniform(1, 5),
-                "asset": random.choice(["BTC", "ETH"]),
-                "pnl_pct": random.gauss(0.5, 3),
-                "entry_signal": random.choice(["ma_cross", "rsi", "breakout"]),
-                "exit_signal": random.choice(["tp", "sl", "time"]),
-            })
+            trades.append(
+                {
+                    "entry_time": time.time() - random.uniform(0, 86400 * 30),
+                    "exit_time": time.time() - random.uniform(0, 86400 * 30),
+                    "entry_price": 100000,
+                    "exit_price": 100000 * (1 + random.gauss(0.5, 3) / 100),
+                    "side": "long",
+                    "size_pct": random.uniform(1, 5),
+                    "asset": random.choice(["BTC", "ETH"]),
+                    "pnl_pct": random.gauss(0.5, 3),
+                    "entry_signal": random.choice(["ma_cross", "rsi", "breakout"]),
+                    "exit_signal": random.choice(["tp", "sl", "time"]),
+                }
+            )
         cloner = TradeCloner()
         profile = cloner.analyze_trades(trades, "test_trader")
         assert profile.total_trades == 100
@@ -330,17 +404,23 @@ class TestStrategyCloner:
         assert "risk_management" in rules
         perf = sc.estimate_performance(profile)
         assert "expected_win_rate" in perf
-        print(f"  Profile: trades={profile.total_trades}, win={profile.win_rate:.1%}, sharpe={profile.sharpe_ratio:.2f}")
-        print(f"  Rules: sizing={rules['position_sizing']['model']}, risk={rules['risk_management']['risk_tolerance']}")
+        print(
+            f"  Profile: trades={profile.total_trades}, win={profile.win_rate:.1%}, sharpe={profile.sharpe_ratio:.2f}"
+        )
+        print(
+            f"  Rules: sizing={rules['position_sizing']['model']}, risk={rules['risk_management']['risk_tolerance']}"
+        )
 
 
 # ════════════════════════════════════════════════════════════════
 # P7: Enterprise
 # ════════════════════════════════════════════════════════════════
 
+
 class TestAuth:
     def test_create_and_validate(self):
         from src.trading_agent.enterprise.api import AuthManager
+
         auth = AuthManager()
         key, api_key = auth.create_key("tenant_1")
         assert auth.validate(key) is not None
@@ -349,6 +429,7 @@ class TestAuth:
 
     def test_revoke(self):
         from src.trading_agent.enterprise.api import AuthManager
+
         auth = AuthManager()
         key, api_key = auth.create_key("tenant_1")
         assert auth.revoke(api_key.key_hash)
@@ -359,6 +440,7 @@ class TestAuth:
 class TestRateLimiter:
     def test_rate_limit(self):
         from src.trading_agent.enterprise.api import RateLimiter
+
         rl = RateLimiter(requests_per_minute=3)
         for i in range(3):
             allowed, _ = rl.check("tenant_1")
@@ -371,6 +453,7 @@ class TestRateLimiter:
 class TestTenantManager:
     def test_create_tenant(self):
         from src.trading_agent.enterprise.api import TenantManager
+
         tm = TenantManager()
         t = tm.create_tenant("Fund Alpha", "pro")
         assert t.plan == "pro"
@@ -379,6 +462,7 @@ class TestTenantManager:
 
     def test_upgrade(self):
         from src.trading_agent.enterprise.api import TenantManager
+
         tm = TenantManager()
         t = tm.create_tenant("Fund Alpha", "free")
         assert t.max_symbols == 5
@@ -390,6 +474,7 @@ class TestTenantManager:
 class TestTradingAPI:
     def test_health(self):
         from src.trading_agent.enterprise.api import TradingAPI
+
         api = TradingAPI()
         r = api.handle("GET", "/health")
         assert r["status"] == 200
@@ -397,6 +482,7 @@ class TestTradingAPI:
 
     def test_auth_required(self):
         from src.trading_agent.enterprise.api import TradingAPI
+
         api = TradingAPI()
         r = api.handle("GET", "/api/v1/strategies", api_key="bad")
         assert r["status"] == 401
@@ -404,12 +490,17 @@ class TestTradingAPI:
 
     def test_full_flow(self):
         from src.trading_agent.enterprise.api import TradingAPI, TenantManager
+
         tm = TenantManager()
         t = tm.create_tenant("Test Fund", "pro")
         api = TradingAPI(tenant_mgr=tm)
         key, _ = api.auth.create_key(t.tenant_id)
-        r = api.handle("POST", "/api/v1/orders",
-                        {"symbol": "BTC/USDT", "side": "buy", "qty": 0.1}, api_key=key)
+        r = api.handle(
+            "POST",
+            "/api/v1/orders",
+            {"symbol": "BTC/USDT", "side": "buy", "qty": 0.1},
+            api_key=key,
+        )
         assert r["status"] == 201
         print(f"  Order placed: {r['order_id']}")
 
@@ -417,6 +508,7 @@ class TestTradingAPI:
 class TestAuditLog:
     def test_log_and_query(self):
         from src.trading_agent.enterprise.api import AuditLog
+
         log = AuditLog()
         log.log("t_1", "POST", "/api/v1/orders", {"symbol": "BTC"})
         log.log("t_1", "GET", "/api/v1/portfolio")

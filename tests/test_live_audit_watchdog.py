@@ -37,7 +37,12 @@ def test_recent_completed_run_is_healthy():
 
 @pytest.mark.parametrize(
     "name",
-    ["order_submission_unknown", "order_non_terminal", "reconciliation_blocked", "run_failed"],
+    [
+        "order_submission_unknown",
+        "order_non_terminal",
+        "reconciliation_blocked",
+        "run_failed",
+    ],
 )
 def test_recent_critical_event_fails(name):
     with pytest.raises(AuditHealthError, match="critical live audit events"):

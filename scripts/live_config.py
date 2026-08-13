@@ -7,6 +7,7 @@ Cấu hình dùng chung cho các live runner (P1.4 — tránh config rải rác 
   - scripts/live_enhanced_ma_binance.py  (Binance/testnet)
   - scripts/live_cron_runner.py          (wrapper cron)
 """
+
 from __future__ import annotations
 
 # ── Chiến lược ──────────────────────────────────────────────────────────
@@ -33,15 +34,15 @@ STRATEGY_PARAMS = {
 # NOTE: Alpaca không hỗ trợ BNB — dùng ETH thay thế nếu cần.
 # (market_symbol, alpaca_symbol, allocation)
 SYMBOLS_ALPACA = [
-    ("BTC/USDT", "BTCUSD", 0.40),   # 40% capital
-    ("SOL/USDT", "SOLUSD", 0.30),   # 30%
-    ("AVAX/USDT", "AVAXUSD", 0.30), # 30%
+    ("BTC/USDT", "BTCUSD", 0.40),  # 40% capital
+    ("SOL/USDT", "SOLUSD", 0.30),  # 30%
+    ("AVAX/USDT", "AVAXUSD", 0.30),  # 30%
 ]
 
 # ── Risk guard (P0) ────────────────────────────────────────────────────
 # ATR trailing stop: đóng lệnh khi giá phá stop = max(initial, peak - k*ATR)
-ATR_SL_MULT = 2.0          # k — khớp default enhanced_ma
-ATR_SL_WINDOW = 48         # trailing window (48h trên TF 1h)
+ATR_SL_MULT = 2.0  # k — khớp default enhanced_ma
+ATR_SL_WINDOW = 48  # trailing window (48h trên TF 1h)
 
 # ── Trusted time (P0.3) ────────────────────────────────────────────────
 # Clock skew tối đa giữa máy local và Binance server trước khi refuse run.
@@ -49,8 +50,8 @@ ATR_SL_WINDOW = 48         # trailing window (48h trên TF 1h)
 DEFAULT_CLOCK_SKEW_S = 2.0
 # Drawdown tiers: giảm dần vị thế, stop hoàn toàn ở mốc cuối
 DRAWDOWN_TIERS = [
-    (0.05, 0.75),   # -5%  → còn 75% vị thế
-    (0.10, 0.50),   # -10% → 50%
-    (0.15, 0.25),   # -15% → 25%
-    (0.20, 0.00),   # -20% → HALT (đóng hết)
+    (0.05, 0.75),  # -5%  → còn 75% vị thế
+    (0.10, 0.50),  # -10% → 50%
+    (0.15, 0.25),  # -15% → 25%
+    (0.20, 0.00),  # -20% → HALT (đóng hết)
 ]

@@ -44,11 +44,14 @@ def _collect_metrics() -> dict[str, Any]:
     # Also collect from RiskController if available
     try:
         from trading_agent.execution.risk_controller import RiskController
+
         rc = RiskController(engine)
         status = rc.get_status()
         metrics["drawdown_pct"] = status.get("drawdown_pct", 0)
         metrics["daily_loss_pct"] = status.get("daily_loss_pct", 0)
-        metrics["circuit_breaker_active"] = 1 if status.get("circuit_breaker_active") else 0
+        metrics["circuit_breaker_active"] = (
+            1 if status.get("circuit_breaker_active") else 0
+        )
     except Exception:
         metrics["drawdown_pct"] = 0
         metrics["daily_loss_pct"] = 0
@@ -62,39 +65,39 @@ def _format_prometheus(metrics: dict) -> str:
     lines = [
         "# HELP trading_equity Current portfolio equity",
         "# TYPE trading_equity gauge",
-        f'trading_equity{_labels("total")} {metrics.get("equity", 0)}',
+        f"trading_equity{_labels('total')} {metrics.get('equity', 0)}",
         "",
         "# HELP trading_cash Current available cash",
         "# TYPE trading_cash gauge",
-        f'trading_cash{_labels()} {metrics.get("cash", 0)}',
+        f"trading_cash{_labels()} {metrics.get('cash', 0)}",
         "",
         "# HELP trading_positions_value Value of open positions",
         "# TYPE trading_positions_value gauge",
-        f'trading_positions_value{_labels()} {metrics.get("positions_value", 0)}',
+        f"trading_positions_value{_labels()} {metrics.get('positions_value', 0)}",
         "",
         "# HELP trading_return_pct Total return percentage",
         "# TYPE trading_return_pct gauge",
-        f'trading_return_pct{_labels()} {metrics.get("return_pct", 0)}',
+        f"trading_return_pct{_labels()} {metrics.get('return_pct', 0)}",
         "",
         "# HELP trading_trades_total Total number of trades",
         "# TYPE trading_trades_total counter",
-        f'trading_trades_total{_labels()} {metrics.get("total_trades", 0)}',
+        f"trading_trades_total{_labels()} {metrics.get('total_trades', 0)}",
         "",
         "# HELP trading_open_positions Number of open positions",
         "# TYPE trading_open_positions gauge",
-        f'trading_open_positions{_labels()} {metrics.get("open_positions", 0)}',
+        f"trading_open_positions{_labels()} {metrics.get('open_positions', 0)}",
         "",
         "# HELP trading_unrealized_pnl Unrealized P&L",
         "# TYPE trading_unrealized_pnl gauge",
-        f'trading_unrealized_pnl{_labels()} {metrics.get("unrealized_pnl", 0)}',
+        f"trading_unrealized_pnl{_labels()} {metrics.get('unrealized_pnl', 0)}",
         "",
         "# HELP trading_drawdown_pct Current drawdown percentage",
         "# TYPE trading_drawdown_pct gauge",
-        f'trading_drawdown_pct{_labels()} {metrics.get("drawdown_pct", 0)}',
+        f"trading_drawdown_pct{_labels()} {metrics.get('drawdown_pct', 0)}",
         "",
         "# HELP trading_daily_pnl Daily P&L",
         "# TYPE trading_daily_pnl gauge",
-        f'trading_daily_pnl{_labels()} {metrics.get("daily_pnl", 0)}',
+        f"trading_daily_pnl{_labels()} {metrics.get('daily_pnl', 0)}",
         "",
     ]
     return "\n".join(lines)

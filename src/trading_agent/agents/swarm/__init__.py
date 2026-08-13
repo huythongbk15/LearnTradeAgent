@@ -1,6 +1,11 @@
 """Agent Swarm - multiple specialized agents with coordinator."""
 
-from trading_agent.agents.swarm.coordinator import CoordinatorAgent, SwarmConfig, SwarmMode, SwarmSignal
+from trading_agent.agents.swarm.coordinator import (
+    CoordinatorAgent,
+    SwarmConfig,
+    SwarmMode,
+    SwarmSignal,
+)
 from trading_agent.agents.swarm.specialized import (
     TechnicalAgent,
     FundamentalAgent,

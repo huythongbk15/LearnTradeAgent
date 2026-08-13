@@ -52,32 +52,63 @@ class TestArtifact:
         code = tmp_path / "strat.py"
         code.write_text("def run(): pass")
         a1 = build_strategy_artifact(
-            strategy_name="ma", code_path=code, df=make_df(), params={"fast": 5, "slow": 20},
-            execution_model_version="2.0.0", framework_version="0.1.0",
+            strategy_name="ma",
+            code_path=code,
+            df=make_df(),
+            params={"fast": 5, "slow": 20},
+            execution_model_version="2.0.0",
+            framework_version="0.1.0",
         )
         a2 = build_strategy_artifact(
-            strategy_name="ma", code_path=code, df=make_df(), params={"fast": 5, "slow": 20},
-            execution_model_version="2.0.0", framework_version="0.1.0",
+            strategy_name="ma",
+            code_path=code,
+            df=make_df(),
+            params={"fast": 5, "slow": 20},
+            execution_model_version="2.0.0",
+            framework_version="0.1.0",
         )
         assert a1.artifact_id == a2.artifact_id
         # Changing any substantive field changes the id.
         a3 = build_strategy_artifact(
-            strategy_name="ma", code_path=code, df=make_df(), params={"fast": 7, "slow": 20},
-            execution_model_version="2.0.0", framework_version="0.1.0",
+            strategy_name="ma",
+            code_path=code,
+            df=make_df(),
+            params={"fast": 7, "slow": 20},
+            execution_model_version="2.0.0",
+            framework_version="0.1.0",
         )
         assert a1.artifact_id != a3.artifact_id
         # Data change changes the id.
         a4 = build_strategy_artifact(
-            strategy_name="ma", code_path=code, df=make_df(60), params={"fast": 5, "slow": 20},
-            execution_model_version="2.0.0", framework_version="0.1.0",
+            strategy_name="ma",
+            code_path=code,
+            df=make_df(60),
+            params={"fast": 5, "slow": 20},
+            execution_model_version="2.0.0",
+            framework_version="0.1.0",
         )
         assert a1.artifact_id != a4.artifact_id
 
     def test_store_immutable_and_lineage(self):
         store = ArtifactStore()
         code = Path(__file__)
-        a0 = build_strategy_artifact(strategy_name="ma", code_path=code, df=make_df(), params={"fast": 5}, execution_model_version="1", framework_version="0")
-        a1 = build_strategy_artifact(strategy_name="ma", code_path=code, df=make_df(), params={"fast": 7}, execution_model_version="1", framework_version="0", prev_artifact_id=a0.artifact_id)
+        a0 = build_strategy_artifact(
+            strategy_name="ma",
+            code_path=code,
+            df=make_df(),
+            params={"fast": 5},
+            execution_model_version="1",
+            framework_version="0",
+        )
+        a1 = build_strategy_artifact(
+            strategy_name="ma",
+            code_path=code,
+            df=make_df(),
+            params={"fast": 7},
+            execution_model_version="1",
+            framework_version="0",
+            prev_artifact_id=a0.artifact_id,
+        )
         store.add(a0)
         store.add(a1)
         with pytest.raises(ValueError):
@@ -88,7 +119,14 @@ class TestArtifact:
 
     def test_hash_file_missing_raises(self):
         with pytest.raises(FileNotFoundError):
-            build_strategy_artifact(strategy_name="x", code_path=Path("/nonexistent.py"), df=make_df(), params={}, execution_model_version="1", framework_version="0")
+            build_strategy_artifact(
+                strategy_name="x",
+                code_path=Path("/nonexistent.py"),
+                df=make_df(),
+                params={},
+                execution_model_version="1",
+                framework_version="0",
+            )
 
 
 class TestPersistentArtifactStore:
@@ -96,8 +134,23 @@ class TestPersistentArtifactStore:
         db = tmp_path / "artifacts.db"
         store = PersistentArtifactStore(db)
         code = Path(__file__)
-        a0 = build_strategy_artifact(strategy_name="ma", code_path=code, df=make_df(), params={"fast": 5}, execution_model_version="1", framework_version="0")
-        a1 = build_strategy_artifact(strategy_name="ma", code_path=code, df=make_df(), params={"fast": 7}, execution_model_version="1", framework_version="0", prev_artifact_id=a0.artifact_id)
+        a0 = build_strategy_artifact(
+            strategy_name="ma",
+            code_path=code,
+            df=make_df(),
+            params={"fast": 5},
+            execution_model_version="1",
+            framework_version="0",
+        )
+        a1 = build_strategy_artifact(
+            strategy_name="ma",
+            code_path=code,
+            df=make_df(),
+            params={"fast": 7},
+            execution_model_version="1",
+            framework_version="0",
+            prev_artifact_id=a0.artifact_id,
+        )
         store.add(a0)
         store.add(a1)
 
@@ -112,7 +165,14 @@ class TestPersistentArtifactStore:
         db = tmp_path / "artifacts.db"
         store = PersistentArtifactStore(db)
         code = Path(__file__)
-        a0 = build_strategy_artifact(strategy_name="ma", code_path=code, df=make_df(), params={"fast": 5}, execution_model_version="1", framework_version="0")
+        a0 = build_strategy_artifact(
+            strategy_name="ma",
+            code_path=code,
+            df=make_df(),
+            params={"fast": 5},
+            execution_model_version="1",
+            framework_version="0",
+        )
         store.add(a0)
         with pytest.raises(ValueError):
             store.add(a0)
@@ -121,22 +181,64 @@ class TestPersistentArtifactStore:
         db = tmp_path / "artifacts.db"
         store = PersistentArtifactStore(db)
         code = Path(__file__)
-        a0 = build_strategy_artifact(strategy_name="ma", code_path=code, df=make_df(), params={"fast": 5}, execution_model_version="1", framework_version="0")
-        a1 = build_strategy_artifact(strategy_name="ma", code_path=code, df=make_df(), params={"fast": 7}, execution_model_version="1", framework_version="0", prev_artifact_id=a0.artifact_id)
-        a2 = build_strategy_artifact(strategy_name="ma", code_path=code, df=make_df(), params={"fast": 9}, execution_model_version="1", framework_version="0", prev_artifact_id=a1.artifact_id)
+        a0 = build_strategy_artifact(
+            strategy_name="ma",
+            code_path=code,
+            df=make_df(),
+            params={"fast": 5},
+            execution_model_version="1",
+            framework_version="0",
+        )
+        a1 = build_strategy_artifact(
+            strategy_name="ma",
+            code_path=code,
+            df=make_df(),
+            params={"fast": 7},
+            execution_model_version="1",
+            framework_version="0",
+            prev_artifact_id=a0.artifact_id,
+        )
+        a2 = build_strategy_artifact(
+            strategy_name="ma",
+            code_path=code,
+            df=make_df(),
+            params={"fast": 9},
+            execution_model_version="1",
+            framework_version="0",
+            prev_artifact_id=a1.artifact_id,
+        )
         store.add(a0)
         store.add(a1)
         store.add(a2)
 
         chain = store.lineage(a2.artifact_id)
-        assert [c.artifact_id for c in chain] == [a2.artifact_id, a1.artifact_id, a0.artifact_id]
+        assert [c.artifact_id for c in chain] == [
+            a2.artifact_id,
+            a1.artifact_id,
+            a0.artifact_id,
+        ]
 
     def test_verify_chain_ok(self, tmp_path: Path):
         db = tmp_path / "artifacts.db"
         store = PersistentArtifactStore(db)
         code = Path(__file__)
-        a0 = build_strategy_artifact(strategy_name="ma", code_path=code, df=make_df(), params={"fast": 5}, execution_model_version="1", framework_version="0")
-        a1 = build_strategy_artifact(strategy_name="ma", code_path=code, df=make_df(), params={"fast": 7}, execution_model_version="1", framework_version="0", prev_artifact_id=a0.artifact_id)
+        a0 = build_strategy_artifact(
+            strategy_name="ma",
+            code_path=code,
+            df=make_df(),
+            params={"fast": 5},
+            execution_model_version="1",
+            framework_version="0",
+        )
+        a1 = build_strategy_artifact(
+            strategy_name="ma",
+            code_path=code,
+            df=make_df(),
+            params={"fast": 7},
+            execution_model_version="1",
+            framework_version="0",
+            prev_artifact_id=a0.artifact_id,
+        )
         store.add(a0)
         store.add(a1)
 
@@ -148,13 +250,24 @@ class TestPersistentArtifactStore:
         db = tmp_path / "artifacts.db"
         store = PersistentArtifactStore(db)
         code = Path(__file__)
-        a0 = build_strategy_artifact(strategy_name="ma", code_path=code, df=make_df(), params={"fast": 5}, execution_model_version="1", framework_version="0")
+        a0 = build_strategy_artifact(
+            strategy_name="ma",
+            code_path=code,
+            df=make_df(),
+            params={"fast": 5},
+            execution_model_version="1",
+            framework_version="0",
+        )
         store.add(a0)
 
         # Tamper: directly modify the DB row
         import sqlite3
+
         conn = sqlite3.connect(db)
-        conn.execute("UPDATE artifacts SET code_sha = 'tampered' WHERE artifact_id = ?", (a0.artifact_id,))
+        conn.execute(
+            "UPDATE artifacts SET code_sha = 'tampered' WHERE artifact_id = ?",
+            (a0.artifact_id,),
+        )
         conn.commit()
         conn.close()
 
@@ -166,7 +279,14 @@ class TestPersistentArtifactStore:
         db = tmp_path / "artifacts.db"
         store = PersistentArtifactStore(db)
         code = Path(__file__)
-        a0 = build_strategy_artifact(strategy_name="ma", code_path=code, df=make_df(), params={"fast": 5}, execution_model_version="1", framework_version="0")
+        a0 = build_strategy_artifact(
+            strategy_name="ma",
+            code_path=code,
+            df=make_df(),
+            params={"fast": 5},
+            execution_model_version="1",
+            framework_version="0",
+        )
         store.add(a0)
         assert store.verify_integrity(a0.artifact_id)
         assert not store.verify_integrity("nonexistent")
@@ -176,9 +296,31 @@ class TestPersistentArtifactStore:
         persistent = PersistentArtifactStore(db)
         memory = ArtifactStore()
         code = Path(__file__)
-        a0 = build_strategy_artifact(strategy_name="ma", code_path=code, df=make_df(), params={"fast": 5}, execution_model_version="1", framework_version="0")
-        a1 = build_strategy_artifact(strategy_name="ma", code_path=code, df=make_df(), params={"fast": 7}, execution_model_version="1", framework_version="0", prev_artifact_id=a0.artifact_id)
-        a2 = build_strategy_artifact(strategy_name="rsi", code_path=code, df=make_df(), params={"period": 14}, execution_model_version="1", framework_version="0")
+        a0 = build_strategy_artifact(
+            strategy_name="ma",
+            code_path=code,
+            df=make_df(),
+            params={"fast": 5},
+            execution_model_version="1",
+            framework_version="0",
+        )
+        a1 = build_strategy_artifact(
+            strategy_name="ma",
+            code_path=code,
+            df=make_df(),
+            params={"fast": 7},
+            execution_model_version="1",
+            framework_version="0",
+            prev_artifact_id=a0.artifact_id,
+        )
+        a2 = build_strategy_artifact(
+            strategy_name="rsi",
+            code_path=code,
+            df=make_df(),
+            params={"period": 14},
+            execution_model_version="1",
+            framework_version="0",
+        )
         memory.add(a0)
         memory.add(a1)
         memory.add(a2)
@@ -221,17 +363,35 @@ class TestLifecycle:
 
 class TestUncertainty:
     def test_low_only_increases_exposure(self):
-        low = UncertaintySignal(expected_return=0.5, prediction_interval_lower=-0.2, prediction_interval_upper=1.2, calibration_score=0.95, ood_score=0.05)
+        low = UncertaintySignal(
+            expected_return=0.5,
+            prediction_interval_lower=-0.2,
+            prediction_interval_upper=1.2,
+            calibration_score=0.95,
+            ood_score=0.05,
+        )
         assert low.uncertainty_state == UncertaintyState.LOW
         assert low.can_increase_exposure
 
     def test_high_uncertainty_blocks(self):
-        high = UncertaintySignal(expected_return=0.5, prediction_interval_lower=-2.0, prediction_interval_upper=3.0, calibration_score=0.4, ood_score=0.8)
+        high = UncertaintySignal(
+            expected_return=0.5,
+            prediction_interval_lower=-2.0,
+            prediction_interval_upper=3.0,
+            calibration_score=0.4,
+            ood_score=0.8,
+        )
         assert high.uncertainty_state == UncertaintyState.HIGH
         assert not high.can_increase_exposure
 
     def test_medium_calibration(self):
-        med = UncertaintySignal(expected_return=0.1, prediction_interval_lower=-0.5, prediction_interval_upper=0.7, calibration_score=0.6, ood_score=0.2)
+        med = UncertaintySignal(
+            expected_return=0.1,
+            prediction_interval_lower=-0.5,
+            prediction_interval_upper=0.7,
+            calibration_score=0.6,
+            ood_score=0.2,
+        )
         assert med.uncertainty_state == UncertaintyState.MEDIUM
         assert not med.can_increase_exposure
 
@@ -241,7 +401,12 @@ class TestAbstention:
         assert len(AbstentionReason) == 9
 
     def test_recorded_abstention(self):
-        a = should_abstain(symbol="BTC/USDT", strategy="ma", reason=AbstentionReason.HIGH_UNCERTAINTY, detail="interval width 8x")
+        a = should_abstain(
+            symbol="BTC/USDT",
+            strategy="ma",
+            reason=AbstentionReason.HIGH_UNCERTAINTY,
+            detail="interval width 8x",
+        )
         assert a.reason == AbstentionReason.HIGH_UNCERTAINTY
         assert a.to_dict()["symbol"] == "BTC/USDT"
 
@@ -263,17 +428,24 @@ class TestDrift:
     def test_health_states(self):
         m = DriftMonitor()
         results = m.check_all(
-            features_ref=np.array([1.0] * 100), features_current=np.array([1.0] * 100),
-            returns_ref=np.array([0.0] * 100), returns_current=np.array([0.0] * 100),
-            vol_ref=0.01, vol_current=0.011,
-            spread_ref=5.0, spread_current=5.2,
-            fill_rate_ref=1.0, fill_rate_current=0.99,
+            features_ref=np.array([1.0] * 100),
+            features_current=np.array([1.0] * 100),
+            returns_ref=np.array([0.0] * 100),
+            returns_current=np.array([0.0] * 100),
+            vol_ref=0.01,
+            vol_current=0.011,
+            spread_ref=5.0,
+            spread_current=5.2,
+            fill_rate_ref=1.0,
+            fill_rate_current=0.99,
         )
         assert m.health_state(results) == StrategyHealthState.HEALTHY
 
         bad = m.check_all(
-            features_ref=np.array([1.0] * 100), features_current=np.array([5.0] * 100),  # big shift
-            returns_ref=np.array([0.0] * 100), returns_current=np.array([0.0] * 100),
+            features_ref=np.array([1.0] * 100),
+            features_current=np.array([5.0] * 100),  # big shift
+            returns_ref=np.array([0.0] * 100),
+            returns_current=np.array([0.0] * 100),
         )
         assert any(r.level == DriftLevel.RED for r in bad)
         assert m.health_state(bad) == StrategyHealthState.SUSPENDED
@@ -288,9 +460,19 @@ class TestDrift:
 class TestTrials:
     def test_rename_does_not_reset_history(self):
         reg = TrialsRegistry()
-        t1 = reg.record(strategy_name="ma", params={"fast": 5}, search_space={"fast": [3, 5, 7]}, metric_value=10.0)
+        t1 = reg.record(
+            strategy_name="ma",
+            params={"fast": 5},
+            search_space={"fast": [3, 5, 7]},
+            metric_value=10.0,
+        )
         # Same content under a different display name → same trial id.
-        t2 = reg.record(strategy_name="ma_v2", params={"fast": 5}, search_space={"fast": [3, 5, 7]}, metric_value=12.0)
+        t2 = reg.record(
+            strategy_name="ma_v2",
+            params={"fast": 5},
+            search_space={"fast": [3, 5, 7]},
+            metric_value=12.0,
+        )
         # param_hash is the same, so this is the SAME experiment content.
         assert param_hash({"fast": 5}) == t1.param_hash == t2.param_hash
         assert t1.trial_id == t2.trial_id
@@ -300,18 +482,40 @@ class TestTrials:
 
     def test_search_space_hash_grouping(self):
         reg = TrialsRegistry()
-        reg.record(strategy_name="ma", params={"fast": 5}, search_space={"fast": [3, 5, 7]}, metric_value=1.0)
-        reg.record(strategy_name="ma", params={"fast": 7}, search_space={"fast": [3, 5, 7]}, metric_value=2.0)
-        reg.record(strategy_name="ma", params={"fast": 9}, search_space={"fast": [3, 5, 9]}, metric_value=3.0)
+        reg.record(
+            strategy_name="ma",
+            params={"fast": 5},
+            search_space={"fast": [3, 5, 7]},
+            metric_value=1.0,
+        )
+        reg.record(
+            strategy_name="ma",
+            params={"fast": 7},
+            search_space={"fast": [3, 5, 7]},
+            metric_value=2.0,
+        )
+        reg.record(
+            strategy_name="ma",
+            params={"fast": 9},
+            search_space={"fast": [3, 5, 9]},
+            metric_value=3.0,
+        )
         trials = reg.trials_for_strategy("ma")
         assert len(trials) == 3
         assert search_space_hash({"fast": [3, 5, 7]}) == trials[0].search_space_hash
         # Two of the three share the same search space.
-        assert sum(1 for t in trials if t.search_space_hash == trials[0].search_space_hash) == 2
+        assert (
+            sum(1 for t in trials if t.search_space_hash == trials[0].search_space_hash)
+            == 2
+        )
 
     def test_best_trial(self):
         reg = TrialsRegistry()
-        reg.record(strategy_name="ma", params={"fast": 5}, search_space={}, metric_value=10.0)
-        reg.record(strategy_name="ma", params={"fast": 7}, search_space={}, metric_value=22.0)
+        reg.record(
+            strategy_name="ma", params={"fast": 5}, search_space={}, metric_value=10.0
+        )
+        reg.record(
+            strategy_name="ma", params={"fast": 7}, search_space={}, metric_value=22.0
+        )
         best = reg.best_trial("ma")
         assert best.metric_value == 22.0

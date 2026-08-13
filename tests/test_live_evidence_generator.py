@@ -55,10 +55,7 @@ def test_hourly_fold_rejects_a_single_gap():
 
 
 def test_portfolio_fold_combines_weighted_component_pnl():
-    timestamps = [
-        datetime(2026, 1, 1, hour, tzinfo=UTC)
-        for hour in range(3)
-    ]
+    timestamps = [datetime(2026, 1, 1, hour, tzinfo=UTC) for hour in range(3)]
     source_fold = {
         "start": timestamps[0].isoformat(),
         "end": (timestamps[-1] + timedelta(hours=1)).isoformat(),
@@ -70,8 +67,12 @@ def test_portfolio_fold_combines_weighted_component_pnl():
         "SOL/USDT": {"folds": [dict(source_fold)]},
     }
     curves = {
-        "BTC/USDT": [pl.DataFrame({"timestamp": timestamps, "equity": [10_000, 10_100, 10_200]})],
-        "SOL/USDT": [pl.DataFrame({"timestamp": timestamps, "equity": [10_000, 9_900, 10_000]})],
+        "BTC/USDT": [
+            pl.DataFrame({"timestamp": timestamps, "equity": [10_000, 10_100, 10_200]})
+        ],
+        "SOL/USDT": [
+            pl.DataFrame({"timestamp": timestamps, "equity": [10_000, 9_900, 10_000]})
+        ],
     }
     portfolio, hourly_returns = build_portfolio_folds(symbol_results, curves)
     assert portfolio[0]["return_pct"] == pytest.approx(2.0)

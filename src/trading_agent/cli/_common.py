@@ -13,6 +13,7 @@ class _LazyConfig:
     def __getattr__(self, name):
         if self._cached is None:
             from trading_agent.config.loader import config as _cfg
+
             self.__class__._cached = _cfg
         return getattr(self._cached, name)
 

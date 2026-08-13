@@ -28,6 +28,7 @@ import numpy as np
 
 # ── Trading Environment ───────────────────────────────────────
 
+
 class TradingEnvironment:
     """
     Gym-compatible trading environment.
@@ -37,8 +38,13 @@ class TradingEnvironment:
     Reward: PnL-based with risk penalty
     """
 
-    def __init__(self, df, window: int = 60, reward_scaling: float = 100,
-                 transaction_cost_bps: float = 10):
+    def __init__(
+        self,
+        df,
+        window: int = 60,
+        reward_scaling: float = 100,
+        transaction_cost_bps: float = 10,
+    ):
         self.window = window
         self.reward_scaling = reward_scaling
         self.txn_cost = transaction_cost_bps / 10_000
@@ -62,13 +68,13 @@ class TradingEnvironment:
             out = np.zeros_like(arr)
             for i in range(len(arr)):
                 start = max(0, i - w + 1)
-                out[i] = np.mean(arr[start:i + 1])
+                out[i] = np.mean(arr[start : i + 1])
             return out
 
         vol_ma = rolling(vol, 20) / (rolling(vol, 5) + 1e-9)
         ret_ma5 = rolling(rets, 5)
         ret_ma20 = rolling(rets, 20)
-        realized_vol = rolling(rets ** 2, 20) ** 0.5
+        realized_vol = rolling(rets**2, 20) ** 0.5
 
         features = np.column_stack([rets, vol_ma, ret_ma5, ret_ma20, realized_vol])
         # Normalize
@@ -80,14 +86,14 @@ class TradingEnvironment:
 
     def reset(self):
         self.step_idx = 0
-        self.position = 0    # 0=flat, 1=long, -1=short
+        self.position = 0  # 0=flat, 1=long, -1=short
         self.entry_price = 0
         self.total_pnl = 0
         self.trades = []
         return self._get_state()
 
     def _get_state(self) -> np.ndarray:
-        return self.features[self.step_idx:self.step_idx + self.window].flatten()
+        return self.features[self.step_idx : self.step_idx + self.window].flatten()
 
     def step(self, action: int) -> tuple:
         """Execute action, return (state, reward, done, info)."""
@@ -100,13 +106,17 @@ class TradingEnvironment:
         if action == 1 and self.position == 0:  # buy
             self.position = 1
             self.entry_price = current_price * (1 + self.txn_cost)
-            self.trades.append({"type": "buy", "price": self.entry_price, "step": self.step_idx})
+            self.trades.append(
+                {"type": "buy", "price": self.entry_price, "step": self.step_idx}
+            )
             info["trade"] = "buy"
 
         elif action == 2 and self.position == 0:  # sell (short)
             self.position = -1
             self.entry_price = current_price * (1 - self.txn_cost)
-            self.trades.append({"type": "sell", "price": self.entry_price, "step": self.step_idx})
+            self.trades.append(
+                {"type": "sell", "price": self.entry_price, "step": self.step_idx}
+            )
             info["trade"] = "short"
 
         elif action == 1 and self.position == -1:  # close short
@@ -146,6 +156,7 @@ class TradingEnvironment:
 
 # ── DQN Agent ────────────────────────────────────────────────
 
+
 class DQNAgent:
     """
     Deep Q-Network agent for discrete actions.
@@ -153,10 +164,17 @@ class DQNAgent:
     Uses linear approximation for simplicity; swap for neural net in production.
     """
 
-    def __init__(self, state_dim: int, action_dim: int = 3,
-                 lr: float = 0.001, gamma: float = 0.99,
-                 epsilon_start: float = 1.0, epsilon_end: float = 0.01,
-                 epsilon_decay: int = 500, memory_size: int = 10_000):
+    def __init__(
+        self,
+        state_dim: int,
+        action_dim: int = 3,
+        lr: float = 0.001,
+        gamma: float = 0.99,
+        epsilon_start: float = 1.0,
+        epsilon_end: float = 0.01,
+        epsilon_decay: int = 500,
+        memory_size: int = 10_000,
+    ):
         self.state_dim = state_dim
         self.action_dim = action_dim
         self.lr = lr
@@ -205,11 +223,12 @@ class DQNAgent:
             grad = np.outer(state, error)
             self.W += self.lr * grad
             self.b += self.lr * error
-            losses.append(np.mean(error ** 2))
+            losses.append(np.mean(error**2))
 
         self.steps += 1
-        self.epsilon = max(self.epsilon_end,
-                           self.epsilon * math.exp(-1 / self.epsilon_decay))
+        self.epsilon = max(
+            self.epsilon_end, self.epsilon * math.exp(-1 / self.epsilon_decay)
+        )
         return np.mean(losses)
 
     def save(self, path: str):
@@ -223,15 +242,21 @@ class DQNAgent:
 
 # ── PPO Agent (simplified) ──────────────────────────────────
 
+
 class PPOAgent:
     """
     Simplified PPO agent for continuous action space.
     Uses linear policy with clipped objective.
     """
 
-    def __init__(self, state_dim: int, action_dim: int = 3,
-                 lr: float = 0.001, gamma: float = 0.99,
-                 clip_epsilon: float = 0.2):
+    def __init__(
+        self,
+        state_dim: int,
+        action_dim: int = 3,
+        lr: float = 0.001,
+        gamma: float = 0.99,
+        clip_epsilon: float = 0.2,
+    ):
         self.state_dim = state_dim
         self.action_dim = action_dim
         self.lr = lr
@@ -291,10 +316,14 @@ class PPOAgent:
             error = returns[i] - pred
             self.W_value += self.lr * error * s.reshape(-1, 1)
 
-        return {"mean_return": float(np.mean(rewards)), "mean_advantage": float(np.mean(advantages))}
+        return {
+            "mean_return": float(np.mean(rewards)),
+            "mean_advantage": float(np.mean(advantages)),
+        }
 
 
 # ── RL Metrics ───────────────────────────────────────────────
+
 
 @dataclass
 class RLMetrics:
@@ -306,8 +335,14 @@ class RLMetrics:
     total_trades: int = 0
     best_reward: float = float("-inf")
 
-    def record_episode(self, reward: float, length: int, loss: float = 0,
-                       epsilon: float = 0, trades: int = 0):
+    def record_episode(
+        self,
+        reward: float,
+        length: int,
+        loss: float = 0,
+        epsilon: float = 0,
+        trades: int = 0,
+    ):
         self.episode_rewards.append(reward)
         self.episode_lengths.append(length)
         self.losses.append(loss)
@@ -345,13 +380,16 @@ if __name__ == "__main__":
     n = 2000
     close = 100 + np.cumsum(np.random.randn(n) * 0.5)
     import pandas as pd
-    df = pd.DataFrame({
-        "open": close + np.random.randn(n) * 0.1,
-        "high": close + abs(np.random.randn(n) * 0.3),
-        "low": close - abs(np.random.randn(n) * 0.3),
-        "close": close,
-        "volume": np.random.exponential(1000, n),
-    })
+
+    df = pd.DataFrame(
+        {
+            "open": close + np.random.randn(n) * 0.1,
+            "high": close + abs(np.random.randn(n) * 0.3),
+            "low": close - abs(np.random.randn(n) * 0.3),
+            "close": close,
+            "volume": np.random.exponential(1000, n),
+        }
+    )
 
     env = TradingEnvironment(df, window=30)
     agent = DQNAgent(state_dim=env.state_dim, action_dim=env.action_dim)
@@ -372,7 +410,9 @@ if __name__ == "__main__":
             if done:
                 break
         loss = agent.train(batch_size=32)
-        metrics.record_episode(total_reward, steps, loss, agent.epsilon, len(env.trades))
+        metrics.record_episode(
+            total_reward, steps, loss, agent.epsilon, len(env.trades)
+        )
 
     print("\nTraining Complete:")
     s = metrics.summary()
@@ -390,4 +430,6 @@ if __name__ == "__main__":
         if done:
             break
     print(f"\nTest: {len(actions_taken)} steps, PnL={env.total_pnl:.4f}")
-    print(f"Actions: buy={actions_taken.count(1)}, sell={actions_taken.count(2)}, hold={actions_taken.count(0)}")
+    print(
+        f"Actions: buy={actions_taken.count(1)}, sell={actions_taken.count(2)}, hold={actions_taken.count(0)}"
+    )

@@ -14,7 +14,9 @@ from trading_agent.execution.types import OrderSide, OrderStatus
 @pytest.fixture(autouse=True)
 def no_database_logging(monkeypatch):
     monkeypatch.setattr(paper_module, "_log_trade_to_db", lambda *args, **kwargs: None)
-    monkeypatch.setattr(paper_module, "_log_equity_snapshot", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        paper_module, "_log_equity_snapshot", lambda *args, **kwargs: None
+    )
 
 
 def test_roundtrip_reconciles_cash_pnl_and_both_fees(tmp_path):
@@ -38,7 +40,9 @@ def test_roundtrip_reconciles_cash_pnl_and_both_fees(tmp_path):
     assert trade.exit_order_id == exit_order.id
     assert exchange.get_balance() - 10_000 == pytest.approx(trade.pnl)
 
-    reloaded = PaperExchange(exchange_name="test", initial_balance=10_000, state_dir=tmp_path)
+    reloaded = PaperExchange(
+        exchange_name="test", initial_balance=10_000, state_dir=tmp_path
+    )
     restored = reloaded.trades[-1]
     assert restored.entry_order_id == entry.id
     assert restored.exit_order_id == exit_order.id

@@ -122,6 +122,7 @@ class TrustedPrice:
         age = (now - self.received_at).total_seconds()
         return age <= max_age_seconds
 
+
 # ── Violations ─────────────────────────────────────────────────────────
 
 
@@ -381,15 +382,16 @@ class ExecutionLifecycle:
                 else:
                     order.status = IntentStatus.PARTIALLY_FILLED
                 # Track protection state for buy fills
-                if (
-                    self.require_protective_order
-                    and order.side == "buy"
-                ):
+                if self.require_protective_order and order.side == "buy":
                     protective_trigger = payload.get("protective_trigger")
                     if protective_trigger is not None:
-                        state.protection_state[event.aggregate_id] = ProtectionState.PROTECTED
+                        state.protection_state[event.aggregate_id] = (
+                            ProtectionState.PROTECTED
+                        )
                     else:
-                        state.protection_state[event.aggregate_id] = ProtectionState.PROTECTION_REQUIRED
+                        state.protection_state[event.aggregate_id] = (
+                            ProtectionState.PROTECTION_REQUIRED
+                        )
         elif etype == ExecutionEventType.FEE_BOOKED:
             order = state.orders.get(event.aggregate_id)
             if order is not None:
@@ -592,7 +594,9 @@ class ExecutionLifecycle:
             )
         # Invariant 5: kill switch with exposure effect.
         if self._kill_switch():
-            effect = self._determine_exposure_effect(order.side, order.size, order.symbol)
+            effect = self._determine_exposure_effect(
+                order.side, order.size, order.symbol
+            )
             if effect in (ExposureEffect.INCREASE, ExposureEffect.NEUTRAL):
                 raise InvariantViolation(
                     "no_increased_exposure_while_kill_switch_blocks_entry",
@@ -900,7 +904,9 @@ class ExecutionLifecycle:
             },
             "reconciliation": self.state.reconciliation.value,
             "execution_health": self.state.execution_health.value,
-            "protection_state": {k: v.value for k, v in self.state.protection_state.items()},
+            "protection_state": {
+                k: v.value for k, v in self.state.protection_state.items()
+            },
             "manual_blocked": self.state.manual_blocked,
             "unresolved_manual_intents": sorted(self.state.unresolved_manual_intents),
         }

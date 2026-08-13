@@ -122,11 +122,18 @@ def count_lifecycles(events: list[dict]) -> tuple[int, dict[str, int]]:
     complete = 0
     for symbol in set(fills_by_symbol) | set(stops_by_symbol):
         complete += min(fills_by_symbol.get(symbol, 0), stops_by_symbol.get(symbol, 0))
-    return complete, {"fills": sum(fills_by_symbol.values()), "stops": sum(stops_by_symbol.values())}
+    return complete, {
+        "fills": sum(fills_by_symbol.values()),
+        "stops": sum(stops_by_symbol.values()),
+    }
 
 
-def count_critical(events: list[dict], *, lookback_days: int | None = None) -> dict[str, int]:
-    cutoff = datetime.now(UTC) - timedelta(days=lookback_days) if lookback_days else None
+def count_critical(
+    events: list[dict], *, lookback_days: int | None = None
+) -> dict[str, int]:
+    cutoff = (
+        datetime.now(UTC) - timedelta(days=lookback_days) if lookback_days else None
+    )
     counts: dict[str, int] = {}
     for event in events:
         if event.get("event") not in CRITICAL_EVENTS:
@@ -175,7 +182,9 @@ def build_report(events: list[dict], *, max_gap_hours: float) -> dict:
     return report
 
 
-def evaluate_gates(report: dict, *, min_days: int, min_lifecycles: int) -> dict[str, bool]:
+def evaluate_gates(
+    report: dict, *, min_days: int, min_lifecycles: int
+) -> dict[str, bool]:
     tracking = report["tracking"]
     lifecycles = report["order_lifecycles"]
     critical = report["unexplained_events"]
@@ -186,7 +195,8 @@ def evaluate_gates(report: dict, *, min_days: int, min_lifecycles: int) -> dict[
         "stop_coverage_100pct": (
             lifecycles["protective_stops_placed"] >= lifecycles["fills"]
             and lifecycles["fills"] > 0
-        ) or lifecycles["fills"] == 0,
+        )
+        or lifecycles["fills"] == 0,
     }
     report["gates"] = gates
     return gates
@@ -194,7 +204,9 @@ def evaluate_gates(report: dict, *, min_days: int, min_lifecycles: int) -> dict[
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--audit-log", default="data/execution/binance_live_audit.jsonl")
+    parser.add_argument(
+        "--audit-log", default="data/execution/binance_live_audit.jsonl"
+    )
     parser.add_argument("--report", default="data/testnet_soak_report.json")
     parser.add_argument("--max-gap-hours", type=float, default=36.0)
     parser.add_argument("--check", action="store_true")
@@ -219,7 +231,9 @@ def main() -> int:
     )
     out = Path(args.report)
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    out.write_text(
+        json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
 
     tracking = report["tracking"]
     lifecycles = report["order_lifecycles"]
@@ -233,7 +247,9 @@ def main() -> int:
         failed = [name for name, ok in gates.items() if not ok]
         print(f"gates: {gates}")
         if failed:
-            print(f"GATES NOT MET: {', '.join(failed)} (still soaking — expected until thresholds pass)")
+            print(
+                f"GATES NOT MET: {', '.join(failed)} (still soaking — expected until thresholds pass)"
+            )
             return 1
         print("ALL GATES MET")
     return 0

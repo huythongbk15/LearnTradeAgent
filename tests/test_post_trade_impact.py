@@ -165,7 +165,9 @@ class TestReport:
             )
         for _ in range(4):
             report.add_record(
-                record_from_fill(make_fill(aggressor="limit_passive", mid_after=100.005))
+                record_from_fill(
+                    make_fill(aggressor="limit_passive", mid_after=100.005)
+                )
             )
         det = report.detect()
         assert det.too_aggressive
@@ -173,9 +175,13 @@ class TestReport:
     def test_not_too_aggressive_when_gap_small(self):
         report = PostTradeImpactReport(aggressive_gap_bps=10.0)
         for _ in range(4):
-            report.add_record(record_from_fill(make_fill(aggressor="market", mid_after=100.05)))
+            report.add_record(
+                record_from_fill(make_fill(aggressor="market", mid_after=100.05))
+            )
         for _ in range(4):
-            report.add_record(record_from_fill(make_fill(aggressor="limit_passive", mid_after=100.05)))
+            report.add_record(
+                record_from_fill(make_fill(aggressor="limit_passive", mid_after=100.05))
+            )
         assert not report.detect().too_aggressive
 
     def test_predictable_adverse_move(self):

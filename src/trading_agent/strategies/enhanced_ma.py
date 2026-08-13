@@ -132,20 +132,22 @@ class EnhancedMaCrossover(Strategy):
 
         # Only take signal on crossover
         prev_raw = raw.shift(1)
-        crossover = (
-            pl.when((raw != prev_raw) & (raw != 0)).then(raw).otherwise(0)
-        )
-        
+        crossover = pl.when((raw != prev_raw) & (raw != 0)).then(raw).otherwise(0)
+
         # ADX and direction are entry filters. A bearish crossover must remain
         # actionable even when ADX is weak; otherwise a long can become stuck
         # because the one-bar crossover event will not be emitted again.
-        final_signal = pl.when(
-            (crossover == 1)
-            & (pl.col("adx") > self.adx_threshold)
-            & pl.col("trend_up")
-        ).then(1).when(
-            crossover == -1
-        ).then(-1).otherwise(0)
+        final_signal = (
+            pl.when(
+                (crossover == 1)
+                & (pl.col("adx") > self.adx_threshold)
+                & pl.col("trend_up")
+            )
+            .then(1)
+            .when(crossover == -1)
+            .then(-1)
+            .otherwise(0)
+        )
 
         # Optional price confirmation: only long when close is above the slow
         # MA.  In a long-only regime this avoids dead-cat-bounce entries in a

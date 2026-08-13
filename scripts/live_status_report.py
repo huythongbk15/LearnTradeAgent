@@ -6,15 +6,18 @@ equity, cash, positions + giá hiện tại, peak/drawdown, trạng thái risk.
 Cron gợi ý (báo cáo tối 20:00):
     0 20 * * * cd /home/huythong/.qwenpaw/workspaces/trading && python scripts/live_status_report.py >/dev/null 2>&1
 """
+
 import sys
 import os
 import asyncio
 import json
 from datetime import datetime
-sys.path.insert(0, 'src')
+
+sys.path.insert(0, "src")
 
 from dotenv import load_dotenv
-load_dotenv('.env')
+
+load_dotenv(".env")
 
 import ccxt
 
@@ -37,11 +40,13 @@ def load_peak() -> dict:
 def main() -> int:
     init_alerts()
 
-    adapter = AlpacaAdapter(AlpacaConfig(
-        api_key=os.environ["ALPACA_API_KEY"],
-        secret_key=os.environ["ALPACA_API_SECRET"],
-        paper=True,
-    ))
+    adapter = AlpacaAdapter(
+        AlpacaConfig(
+            api_key=os.environ["ALPACA_API_KEY"],
+            secret_key=os.environ["ALPACA_API_SECRET"],
+            paper=True,
+        )
+    )
     asyncio.run(adapter.connect())
     broker = LiveBroker("alpaca", adapter)
 
@@ -56,7 +61,9 @@ def main() -> int:
         prices = {}
         for market_symbol, _, _ in SYMBOLS_ALPACA:
             try:
-                prices[market_symbol.split("/")[0]] = float(ex.fetch_ticker(market_symbol)["last"])
+                prices[market_symbol.split("/")[0]] = float(
+                    ex.fetch_ticker(market_symbol)["last"]
+                )
             except Exception:
                 continue
     except Exception:
@@ -84,7 +91,9 @@ def main() -> int:
         cur = prices.get(sym)
         if cur:
             pnl = (cur - avg) * qty
-            lines.append(f"  • {sym}: {qty:,.4f} @ ${avg:,.2f} → ${cur:,.2f} ({pnl:+,.0f}$)")
+            lines.append(
+                f"  • {sym}: {qty:,.4f} @ ${avg:,.2f} → ${cur:,.2f} ({pnl:+,.0f}$)"
+            )
         else:
             lines.append(f"  • {sym}: {qty:,.4f} @ ${avg:,.2f}")
 

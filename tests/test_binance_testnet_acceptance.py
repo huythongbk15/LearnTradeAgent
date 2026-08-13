@@ -9,6 +9,7 @@ against the testnet account's *existing* positions.  The test never opens a
 new position: if the account holds no eligible position it is skipped with
 guidance.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -84,11 +85,7 @@ def testnet_broker():
 
 def _eligible_positions(broker: LiveBroker) -> list[dict]:
     positions = broker.get_positions()
-    return [
-        position
-        for position in positions
-        if float(position.get("qty") or 0.0) > 0
-    ]
+    return [position for position in positions if float(position.get("qty") or 0.0) > 0]
 
 
 def _cancel_acceptance_stops(broker: LiveBroker, pair: str) -> None:
@@ -193,9 +190,9 @@ def test_protective_stop_lifecycle_on_existing_positions(testnet_broker):
             )
             second_state = store.protective_order_state(pair)
             second_active = second_state.get("active") or {}
-            assert (
-                second_active.get("exchange_order_id") == first_exchange_id
-            ), f"protective stop for {pair} was duplicated on the exchange"
+            assert second_active.get("exchange_order_id") == first_exchange_id, (
+                f"protective stop for {pair} was duplicated on the exchange"
+            )
         finally:
             _cancel_acceptance_stops(broker, pair)
 

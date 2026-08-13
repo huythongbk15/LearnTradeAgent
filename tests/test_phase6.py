@@ -17,12 +17,19 @@ import sys
 from decimal import Decimal
 from datetime import datetime
 
+
 def smoke_unified_data_model():
     """Test unified data model"""
     print("Testing Unified Data Model...")
     from trading_agent.exchanges.models import (
-        AssetClass, MarketType, Bar, OrderBook, OrderBookLevel,
-        crypto_symbol, stock_symbol, forex_symbol
+        AssetClass,
+        MarketType,
+        Bar,
+        OrderBook,
+        OrderBookLevel,
+        crypto_symbol,
+        stock_symbol,
+        forex_symbol,
     )
 
     # Test crypto symbol
@@ -58,19 +65,29 @@ def smoke_unified_data_model():
         low=Decimal("49000"),
         close=Decimal("50500"),
         volume=Decimal("100"),
-        timeframe="1h"
+        timeframe="1h",
     )
-    print(f"  Bar: {bar.symbol} O={bar.open} H={bar.high} L={bar.low} C={bar.close} V={bar.volume}")
+    print(
+        f"  Bar: {bar.symbol} O={bar.open} H={bar.high} L={bar.low} C={bar.close} V={bar.volume}"
+    )
     print(f"  Typical Price: {bar.typical_price}, Range%: {bar.range_pct}")
 
     # Test OrderBook
     ob = OrderBook(
         symbol=btc,
         timestamp=datetime.now(),
-        bids=[OrderBookLevel(Decimal("50000"), Decimal("1.5")), OrderBookLevel(Decimal("49999"), Decimal("2.0"))],
-        asks=[OrderBookLevel(Decimal("50001"), Decimal("1.0")), OrderBookLevel(Decimal("50002"), Decimal("1.5"))]
+        bids=[
+            OrderBookLevel(Decimal("50000"), Decimal("1.5")),
+            OrderBookLevel(Decimal("49999"), Decimal("2.0")),
+        ],
+        asks=[
+            OrderBookLevel(Decimal("50001"), Decimal("1.0")),
+            OrderBookLevel(Decimal("50002"), Decimal("1.5")),
+        ],
     )
-    print(f"  OrderBook: bid={ob.best_bid} ask={ob.best_ask} spread={ob.spread} mid={ob.mid_price}")
+    print(
+        f"  OrderBook: bid={ob.best_bid} ask={ob.best_ask} spread={ob.spread} mid={ob.mid_price}"
+    )
 
     print("  ✓ Unified Data Model tests passed\n")
     return True
@@ -82,8 +99,11 @@ def smoke_risk_budgeting():
     import numpy as np
     import pandas as pd
     from trading_agent.portfolio.risk_budgeting import (
-        RiskBudgeter, RiskBudgetMethod, CorrelationMethod,
-        CorrelationMonitor, DrawdownController
+        RiskBudgeter,
+        RiskBudgetMethod,
+        CorrelationMethod,
+        CorrelationMonitor,
+        DrawdownController,
     )
 
     # Create synthetic returns data
@@ -110,7 +130,9 @@ def smoke_risk_budgeting():
     print(f"  ERC Weights: {[(k, float(v)) for k, v in result.weights.items()]}")
     print(f"  Portfolio Vol: {float(result.portfolio_vol):.4f}")
     print(f"  Diversification Ratio: {float(result.diversification_ratio):.4f}")
-    print(f"  Risk Contributions: {[(k, float(v)) for k, v in result.risk_contributions.items()]}")
+    print(
+        f"  Risk Contributions: {[(k, float(v)) for k, v in result.risk_contributions.items()]}"
+    )
     assert result.success
 
     # Test Max Diversification
@@ -146,7 +168,7 @@ def smoke_risk_budgeting():
         max_drawdown=0.15,
         warning_threshold=0.05,
         reduce_threshold=0.10,
-        stop_threshold=0.15
+        stop_threshold=0.15,
     )
 
     # Simulate equity curve
@@ -155,14 +177,18 @@ def smoke_risk_budgeting():
         equity = equity * Decimal("1.01")
         dd_ctrl.update_equity(equity)
 
-    print(f"  After gains: DD={float(dd_ctrl.get_drawdown_pct()):.2%}, mult={float(dd_ctrl.get_position_multiplier()):.2f}")
+    print(
+        f"  After gains: DD={float(dd_ctrl.get_drawdown_pct()):.2%}, mult={float(dd_ctrl.get_position_multiplier()):.2f}"
+    )
 
     # Simulate drawdown
     for i in range(5):
         equity = equity * Decimal("0.95")
         dd_ctrl.update_equity(equity)
 
-    print(f"  After losses: DD={float(dd_ctrl.get_drawdown_pct()):.2%}, mult={float(dd_ctrl.get_position_multiplier()):.2f}")
+    print(
+        f"  After losses: DD={float(dd_ctrl.get_drawdown_pct()):.2%}, mult={float(dd_ctrl.get_position_multiplier()):.2f}"
+    )
     print(f"  Trading allowed: {dd_ctrl.is_trading_allowed()}")
     print(f"  Status: {dd_ctrl.get_status()}")
 
@@ -174,7 +200,10 @@ def smoke_strategy_plugins():
     """Test strategy plugin architecture"""
     print("Testing Strategy Plugin Architecture...")
     from trading_agent.strategies.plugins.strategy_plugin import (
-        StrategyContext, ExampleMAStrategy, ExampleRSIStrategy, get_registry
+        StrategyContext,
+        ExampleMAStrategy,
+        ExampleRSIStrategy,
+        get_registry,
     )
     from trading_agent.exchanges.models import Symbol, AssetClass, MarketType, Bar
 
@@ -190,7 +219,9 @@ def smoke_strategy_plugins():
         print(f"    - {s.name}@{s.version}: {s.description}")
 
     # Create MA strategy instance
-    ma_strategy = registry.create_instance("MA_Crossover", config={"fast_period": 5, "slow_period": 20})
+    ma_strategy = registry.create_instance(
+        "MA_Crossover", config={"fast_period": 5, "slow_period": 20}
+    )
     assert ma_strategy is not None
 
     # Create context
@@ -203,7 +234,7 @@ def smoke_strategy_plugins():
         low=Decimal("49000"),
         close=Decimal("50500"),
         volume=Decimal("100"),
-        timeframe="1h"
+        timeframe="1h",
     )
 
     context = StrategyContext(
@@ -212,7 +243,7 @@ def smoke_strategy_plugins():
         position=None,
         portfolio_value=Decimal("100000"),
         available_balance=Decimal("100000"),
-        current_time=datetime.now()
+        current_time=datetime.now(),
     )
 
     # Start strategy
@@ -230,7 +261,7 @@ def smoke_strategy_plugins():
             low=price - 200,
             close=price,
             volume=Decimal("100"),
-            timeframe="1h"
+            timeframe="1h",
         )
         context.bar = bar
         signals = ma_strategy.on_bar(context)
@@ -243,7 +274,7 @@ def smoke_strategy_plugins():
     rsi_strategy.on_start(context)
 
     for i in range(20):
-        price = Decimal("50000") + Decimal(str(50 * (-1)**i))  # Oscillating
+        price = Decimal("50000") + Decimal(str(50 * (-1) ** i))  # Oscillating
         bar = Bar(
             symbol=symbol,
             timestamp=datetime.now(),
@@ -252,7 +283,7 @@ def smoke_strategy_plugins():
             low=price - 100,
             close=price,
             volume=Decimal("100"),
-            timeframe="1h"
+            timeframe="1h",
         )
         context.bar = bar
         signals = rsi_strategy.on_bar(context)
@@ -280,9 +311,12 @@ def smoke_regime_detection():
     import numpy as np
     import pandas as pd
     from trading_agent.ml.regime_detection import (
-        MarketRegime, RegimeMethod, HMMStrategy,
-        RuleBasedStrategy, HybridRegimeDetector,
-        AdaptivePositionSizer
+        MarketRegime,
+        RegimeMethod,
+        HMMStrategy,
+        RuleBasedStrategy,
+        HybridRegimeDetector,
+        AdaptivePositionSizer,
     )
 
     # Create synthetic price data with regime changes
@@ -298,7 +332,9 @@ def smoke_regime_detection():
     # Regime 4: High vol (400-500)
     highvol_returns = np.random.normal(0.0001, 0.03, 100)
 
-    all_returns = np.concatenate([bull_returns, sideways_returns, bear_returns, highvol_returns])
+    all_returns = np.concatenate(
+        [bull_returns, sideways_returns, bear_returns, highvol_returns]
+    )
     prices = 100 * np.exp(np.cumsum(all_returns))
     prices_series = pd.Series(prices)
 
@@ -313,16 +349,20 @@ def smoke_regime_detection():
     # Test Rule-based
     rule = RuleBasedStrategy(fast_ma=50, slow_ma=200)
     state_rule = rule.detect(prices_series)
-    print(f"  Rule-based: regime={state_rule.regime.value}, confidence={state_rule.confidence:.3f}")
+    print(
+        f"  Rule-based: regime={state_rule.regime.value}, confidence={state_rule.confidence:.3f}"
+    )
 
     # Test Hybrid
     hybrid = HybridRegimeDetector(
         methods=[RegimeMethod.HMM, RegimeMethod.RULE_BASED],
-        weights={RegimeMethod.HMM: 0.7, RegimeMethod.RULE_BASED: 0.3}
+        weights={RegimeMethod.HMM: 0.7, RegimeMethod.RULE_BASED: 0.3},
     )
     hybrid.initialize(prices_series)
     state_hybrid = hybrid.detect(prices_series)
-    print(f"  Hybrid: regime={state_hybrid.regime.value}, confidence={state_hybrid.confidence:.3f}")
+    print(
+        f"  Hybrid: regime={state_hybrid.regime.value}, confidence={state_hybrid.confidence:.3f}"
+    )
 
     # Test Adaptive Position Sizer
     sizer = AdaptivePositionSizer(target_vol=0.15, max_leverage=3.0)
@@ -363,7 +403,9 @@ def smoke_ccxt_adapter_structure():
     """Test CCXT adapter structure (without actual connections)"""
     print("Testing CCXT Adapter Structure...")
     from trading_agent.exchanges.ccxt_adapter import (
-        ExchangeConfig, RateLimitManager, get_default_exchange_configs
+        ExchangeConfig,
+        RateLimitManager,
+        get_default_exchange_configs,
     )
     from trading_agent.exchanges.models import MarketType
 
@@ -385,7 +427,7 @@ def smoke_ccxt_adapter_structure():
         api_key="test",
         secret="test",
         sandbox=True,
-        markets=[MarketType.SPOT, MarketType.FUTURES, MarketType.PERPETUAL]
+        markets=[MarketType.SPOT, MarketType.FUTURES, MarketType.PERPETUAL],
     )
     ccxt_config = config.to_ccxt_config()
     print(f"  CCXT config keys: {list(ccxt_config.keys())}")
@@ -424,6 +466,7 @@ async def main():
             failed += 1
             print(f"  ✗ {test.__name__} ERROR: {e}\n")
             import traceback
+
             traceback.print_exc()
 
     print("=" * 60)

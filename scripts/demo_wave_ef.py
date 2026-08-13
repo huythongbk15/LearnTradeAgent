@@ -60,14 +60,17 @@ def make_demo_df(n: int = 100) -> pl.DataFrame:
     for i in range(n):
         o = 100.0 + i * 0.1
         c = o + 0.05
-        rows.append({
-            "timestamp": dt.datetime(2026, 1, 1, tzinfo=dt.UTC) + dt.timedelta(hours=i),
-            "open": o,
-            "high": o + 0.2,
-            "low": o - 0.2,
-            "close": c,
-            "volume": 10.0 + i * 0.1,
-        })
+        rows.append(
+            {
+                "timestamp": dt.datetime(2026, 1, 1, tzinfo=dt.UTC)
+                + dt.timedelta(hours=i),
+                "open": o,
+                "high": o + 0.2,
+                "low": o - 0.2,
+                "close": c,
+                "volume": 10.0 + i * 0.1,
+            }
+        )
     return pl.DataFrame(rows)
 
 
@@ -121,7 +124,10 @@ def main():
 
         # Verify chain integrity
         ok, err = store.verify_chain()
-        print(f"    ✓ Chain verification: {'PASS' if ok else 'FAIL'}" + (f" ({err})" if not ok else ""))
+        print(
+            f"    ✓ Chain verification: {'PASS' if ok else 'FAIL'}"
+            + (f" ({err})" if not ok else "")
+        )
 
         # Lineage
         chain = store.lineage(artifact_v2.artifact_id)
@@ -136,13 +142,41 @@ def main():
     # Simulate some fills as "testnet data"
     def demo_provider(i, eng):
         if i == 10:
-            return [OrderIntent(order_id="buy1", side=SimSide.BUY, order_type=SimOrderType.MARKET, quantity=1.0)]
+            return [
+                OrderIntent(
+                    order_id="buy1",
+                    side=SimSide.BUY,
+                    order_type=SimOrderType.MARKET,
+                    quantity=1.0,
+                )
+            ]
         if i == 30:
-            return [OrderIntent(order_id="sell1", side=SimSide.SELL, order_type=SimOrderType.MARKET, quantity=eng.ledger.inventory_base)]
+            return [
+                OrderIntent(
+                    order_id="sell1",
+                    side=SimSide.SELL,
+                    order_type=SimOrderType.MARKET,
+                    quantity=eng.ledger.inventory_base,
+                )
+            ]
         if i == 50:
-            return [OrderIntent(order_id="buy2", side=SimSide.BUY, order_type=SimOrderType.MARKET, quantity=1.0)]
+            return [
+                OrderIntent(
+                    order_id="buy2",
+                    side=SimSide.BUY,
+                    order_type=SimOrderType.MARKET,
+                    quantity=1.0,
+                )
+            ]
         if i == 70:
-            return [OrderIntent(order_id="sell2", side=SimSide.SELL, order_type=SimOrderType.MARKET, quantity=eng.ledger.inventory_base)]
+            return [
+                OrderIntent(
+                    order_id="sell2",
+                    side=SimSide.SELL,
+                    order_type=SimOrderType.MARKET,
+                    quantity=eng.ledger.inventory_base,
+                )
+            ]
         return []
 
     testnet_samples = collect_testnet_fills(engine, demo_provider)
@@ -155,20 +189,34 @@ def main():
 
     # Add some maker samples too
     for i in range(10):
-        calibrator.add_sample(CalibrationSample(
-            bar_index=i, side="buy", quantity=1.0,
-            arrival_mid=100.0 + i * 0.1, fill_vwap=100.0 + i * 0.1 + 0.005,
-            spread_bps=5.0, latency_ms=30.0, is_maker=True,
-            timestamp=datetime.now(UTC).isoformat(), aggressor="limit_passive"
-        ))
+        calibrator.add_sample(
+            CalibrationSample(
+                bar_index=i,
+                side="buy",
+                quantity=1.0,
+                arrival_mid=100.0 + i * 0.1,
+                fill_vwap=100.0 + i * 0.1 + 0.005,
+                spread_bps=5.0,
+                latency_ms=30.0,
+                is_maker=True,
+                timestamp=datetime.now(UTC).isoformat(),
+                aggressor="limit_passive",
+            )
+        )
 
     cal_result = calibrator.calibrate()
     calibrated_config = calibrator.apply_to_config(cal_result)
 
-    print(f"    ✓ Calibrated passive_fill_prob: {cal_result.fill_model.passive_fill_prob:.3f}")
+    print(
+        f"    ✓ Calibrated passive_fill_prob: {cal_result.fill_model.passive_fill_prob:.3f}"
+    )
     print(f"    ✓ Calibrated impact_coeff: {cal_result.impact_model.impact_coeff:.3f}")
-    print(f"    ✓ Calibrated decay_half_life: {cal_result.impact_model.impact_decay_half_life_bars:.2f} bars")
-    print(f"    ✓ Calibrated adverse_selection: {cal_result.impact_model.adverse_selection_bps:.2f} bps")
+    print(
+        f"    ✓ Calibrated decay_half_life: {cal_result.impact_model.impact_decay_half_life_bars:.2f} bars"
+    )
+    print(
+        f"    ✓ Calibrated adverse_selection: {cal_result.impact_model.adverse_selection_bps:.2f} bps"
+    )
 
     # ─── 4. PROMOTE ARTIFACT WITH EVIDENCE GATES ───────────────────────
     print("\n[4/5] Promoting artifact through lifecycle with evidence gates...")
@@ -176,44 +224,76 @@ def main():
     # Reality Gap Report (simulator vs backtest)
     # Use very close numbers to pass default 0.5 threshold
     backtest_metrics = {
-        "fill_ratio": 0.95, "slippage_bps": 1.5, "implementation_shortfall_bps": 2.0,
-        "trade_count": 10, "rejected_order_rate": 0.02, "partial_fill_rate": 0.05,
-        "turnover": 10000.0, "avg_latency_ms": 30.0,
-        "spread_cost_quote": 5.0, "fees_quote": 5.0,
-        "sharpe": 2.0, "total_return_pct": 0.1, "max_drawdown_pct": 0.05,
+        "fill_ratio": 0.95,
+        "slippage_bps": 1.5,
+        "implementation_shortfall_bps": 2.0,
+        "trade_count": 10,
+        "rejected_order_rate": 0.02,
+        "partial_fill_rate": 0.05,
+        "turnover": 10000.0,
+        "avg_latency_ms": 30.0,
+        "spread_cost_quote": 5.0,
+        "fees_quote": 5.0,
+        "sharpe": 2.0,
+        "total_return_pct": 0.1,
+        "max_drawdown_pct": 0.05,
         "tracking_error_bps": 10.0,
     }
     sim_metrics = {
-        "fill_ratio": 0.94, "slippage_bps": 1.8, "implementation_shortfall_bps": 2.2,
-        "trade_count": 9, "rejected_order_rate": 0.022, "partial_fill_rate": 0.055,
-        "turnover": 9900.0, "avg_latency_ms": 33.0,
-        "spread_cost_quote": 5.3, "fees_quote": 5.0,
-        "sharpe": 1.95, "total_return_pct": 0.095, "max_drawdown_pct": 0.052,
+        "fill_ratio": 0.94,
+        "slippage_bps": 1.8,
+        "implementation_shortfall_bps": 2.2,
+        "trade_count": 9,
+        "rejected_order_rate": 0.022,
+        "partial_fill_rate": 0.055,
+        "turnover": 9900.0,
+        "avg_latency_ms": 33.0,
+        "spread_cost_quote": 5.3,
+        "fees_quote": 5.0,
+        "sharpe": 1.95,
+        "total_return_pct": 0.095,
+        "max_drawdown_pct": 0.052,
         "tracking_error_bps": 11.0,
     }
 
     # Custom lenient thresholds for demo
     demo_thresholds = {
-        "fill_ratio": 0.50, "slippage_bps": 0.50, "implementation_shortfall_bps": 0.50,
-        "trade_count": 0.50, "turnover": 0.50, "avg_latency_ms": 0.50,
-        "spread_cost_quote": 0.50, "fees_quote": 0.50,
-        "sharpe": 0.50, "total_return_pct": 0.50, "max_drawdown_pct": 0.50,
-        "tracking_error_bps": 0.50, "rejected_order_rate": 0.50, "partial_fill_rate": 0.50,
+        "fill_ratio": 0.50,
+        "slippage_bps": 0.50,
+        "implementation_shortfall_bps": 0.50,
+        "trade_count": 0.50,
+        "turnover": 0.50,
+        "avg_latency_ms": 0.50,
+        "spread_cost_quote": 0.50,
+        "fees_quote": 0.50,
+        "sharpe": 0.50,
+        "total_return_pct": 0.50,
+        "max_drawdown_pct": 0.50,
+        "tracking_error_bps": 0.50,
+        "rejected_order_rate": 0.50,
+        "partial_fill_rate": 0.50,
     }
 
     rg_report = compute_reality_gap(
-        environment="simulator", reference_environment="backtest",
-        observed=sim_metrics, reference=backtest_metrics,
+        environment="simulator",
+        reference_environment="backtest",
+        observed=sim_metrics,
+        reference=backtest_metrics,
         thresholds=demo_thresholds,
     )
-    print(f"    ✓ RealityGap score: {rg_report.score:.3f} (gate: {'PASS' if rg_report.pass_gate else 'FAIL'})")
+    print(
+        f"    ✓ RealityGap score: {rg_report.score:.3f} (gate: {'PASS' if rg_report.pass_gate else 'FAIL'})"
+    )
 
     # Drift Monitor
     drift = DriftMonitor()
     drift_results = drift.check_all(
-        vol_ref=0.01, vol_current=0.011,
-        spread_ref=5.0, spread_current=5.2,
-        fill_rate_ref=1.0, fill_rate_current=0.95,
+        vol_ref=0.01,
+        vol_current=0.011,
+        spread_ref=5.0,
+        spread_current=5.2,
+        fill_rate_ref=1.0,
+        fill_rate_current=0.95,
     )
     health = drift.health_state(drift_results)
     print(f"    ✓ Drift health: {health.value}")
@@ -229,48 +309,74 @@ def main():
 
     # EXPLORATORY → REVIEWED (needs manual_review)
     policy.validate_evidence(
-        artifact.artifact_id, PromotionState.EXPLORATORY, PromotionState.REVIEWED,
-        [manual_review_evidence("Strategy logic reviewed, no look-ahead bias", "analyst")]
+        artifact.artifact_id,
+        PromotionState.EXPLORATORY,
+        PromotionState.REVIEWED,
+        [
+            manual_review_evidence(
+                "Strategy logic reviewed, no look-ahead bias", "analyst"
+            )
+        ],
     )
     lifecycle.transition(PromotionState.REVIEWED, note="Manual review passed")
     print("    ✓ EXPLORATORY → REVIEWED")
 
     # REVIEWED → CANARY_ELIGIBLE (needs reality_gap + drift_check)
     policy.validate_evidence(
-        artifact.artifact_id, PromotionState.REVIEWED, PromotionState.CANARY_ELIGIBLE,
+        artifact.artifact_id,
+        PromotionState.REVIEWED,
+        PromotionState.CANARY_ELIGIBLE,
         [
             reality_gap_evidence(rg_report),
-            drift_check_evidence(health.value, {r.detector: r.to_dict() for r in drift_results}),
-        ]
+            drift_check_evidence(
+                health.value, {r.detector: r.to_dict() for r in drift_results}
+            ),
+        ],
     )
-    lifecycle.transition(PromotionState.CANARY_ELIGIBLE, note="Reality gap + drift checks passed")
+    lifecycle.transition(
+        PromotionState.CANARY_ELIGIBLE, note="Reality gap + drift checks passed"
+    )
     print("    ✓ REVIEWED → CANARY_ELIGIBLE")
 
     # CANARY_ELIGIBLE → CANARY_PROMOTED (needs calibration evidence too)
     policy.validate_evidence(
-        artifact.artifact_id, PromotionState.CANARY_ELIGIBLE, PromotionState.CANARY_PROMOTED,
+        artifact.artifact_id,
+        PromotionState.CANARY_ELIGIBLE,
+        PromotionState.CANARY_PROMOTED,
         [
             reality_gap_evidence(rg_report),
-            drift_check_evidence(health.value, {r.detector: r.to_dict() for r in drift_results}),
+            drift_check_evidence(
+                health.value, {r.detector: r.to_dict() for r in drift_results}
+            ),
             calibration_evidence(0.85, {"brier_score": 0.08, "ece": 0.02}),
-        ]
+        ],
     )
-    lifecycle.transition(PromotionState.CANARY_PROMOTED, note="Calibration evidence added")
+    lifecycle.transition(
+        PromotionState.CANARY_PROMOTED, note="Calibration evidence added"
+    )
     print("    ✓ CANARY_ELIGIBLE → CANARY_PROMOTED")
 
     # CANARY_PROMOTED → CANARY_LIVE (needs soak_test + drift_check)
     policy.validate_evidence(
-        artifact.artifact_id, PromotionState.CANARY_PROMOTED, PromotionState.CANARY_LIVE,
+        artifact.artifact_id,
+        PromotionState.CANARY_PROMOTED,
+        PromotionState.CANARY_LIVE,
         [
-            soak_test_evidence(days=30, lifecycles=100, gates_passed=True, details={"dup_orders": 0}),
-            drift_check_evidence(health.value, {r.detector: r.to_dict() for r in drift_results}),
-        ]
+            soak_test_evidence(
+                days=30, lifecycles=100, gates_passed=True, details={"dup_orders": 0}
+            ),
+            drift_check_evidence(
+                health.value, {r.detector: r.to_dict() for r in drift_results}
+            ),
+        ],
     )
     lifecycle.transition(PromotionState.CANARY_LIVE, note="30-day soak test passed")
     print("    ✓ CANARY_PROMOTED → CANARY_LIVE")
 
     print(f"    ✓ Final state: {lifecycle.state.value}")
-    print(f"    ✓ Evidence stored: {len(policy.get_evidence(artifact.artifact_id))} items")
+    print(
+        f"    ✓ Evidence stored: {len(policy.get_evidence(artifact.artifact_id))} items"
+    )
     print(f"    ✓ History: {len(lifecycle.events)} transitions")
 
     # ─── 5. CALIBRATED DECISIONS WITH RISK APPETITE ────────────────────
@@ -285,7 +391,9 @@ def main():
         ood_score=0.15,
         horizon="1h",
     )
-    print(f"    ✓ Model signal: E[return]={signal.expected_return:.3f}, calibration={signal.calibration_score:.2f}, OOD={signal.ood_score:.2f}")
+    print(
+        f"    ✓ Model signal: E[return]={signal.expected_return:.3f}, calibration={signal.calibration_score:.2f}, OOD={signal.ood_score:.2f}"
+    )
     print(f"    ✓ Legacy uncertainty_state: {signal.uncertainty_state.value}")
 
     # Convert to CalibratedDecision with isotonic calibration
@@ -300,7 +408,9 @@ def main():
         allowed = policy.allowed_actions(decision)
         recommended = policy.recommended_action(decision)
         allowed_str = "{" + ", ".join(sorted(a.value for a in allowed)) + "}"
-        print(f"    ✓ {appetite:12s} → allowed: {allowed_str:25s} recommended: {recommended.value}")
+        print(
+            f"    ✓ {appetite:12s} → allowed: {allowed_str:25s} recommended: {recommended.value}"
+        )
 
     # Backward compat adapter
     adapter = ThresholdDecisionPolicy("moderate")

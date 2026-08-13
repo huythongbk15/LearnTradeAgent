@@ -19,6 +19,7 @@ from trading_agent.llm.pool import (
 
 # ── Fixtures ──────────────────────────────────────────────────
 
+
 def make_provider(name: str, **kw) -> PoolProvider:
     base = dict(
         name=name,
@@ -63,6 +64,7 @@ class FakeResp:
 
 class FakeSession:
     """Ghi nhận các POST, trả response theo danh sách spec."""
+
     def __init__(self, specs):
         self.specs = list(specs)
         self.posts = []
@@ -71,7 +73,9 @@ class FakeSession:
         self.posts.append({"url": url, "json": json, "headers": headers})
         if self.specs:
             return FakeResp(self.specs.pop(0))
-        return FakeResp({"status": 200, "json": {"choices": [{"message": {"content": "default"}}]}})
+        return FakeResp(
+            {"status": 200, "json": {"choices": [{"message": {"content": "default"}}]}}
+        )
 
     @property
     def closed(self):
@@ -81,6 +85,7 @@ class FakeSession:
 @pytest.fixture
 def aiohttp_mock_factory(monkeypatch):
     """Thay LLMPool._get_session bằng FakeSession; trả về factory để inject specs."""
+
     def factory(specs):
         session = FakeSession(specs)
 
@@ -89,10 +94,12 @@ def aiohttp_mock_factory(monkeypatch):
 
         monkeypatch.setattr(LLMPool, "_get_session", fake_get_session)
         return session
+
     return factory
 
 
 # ── QuotaTracker ──────────────────────────────────────────────
+
 
 class TestQuotaTracker:
     def test_record_and_usage(self, quota_path):
@@ -122,6 +129,7 @@ class TestQuotaTracker:
 
 # ── Routing / candidates ──────────────────────────────────────
 
+
 class TestRouting:
     def test_priority_order(self, quota_path):
         pool = make_pool(
@@ -136,7 +144,9 @@ class TestRouting:
 
     def test_skips_missing_key(self, quota_path, monkeypatch):
         monkeypatch.delenv("GROQ_API_KEY", raising=False)
-        pool = make_pool([make_provider("groq", api_key_env="GROQ_API_KEY")], quota_path)
+        pool = make_pool(
+            [make_provider("groq", api_key_env="GROQ_API_KEY")], quota_path
+        )
         assert pool._candidates() == []
 
     def test_skips_disabled(self, quota_path):
@@ -158,6 +168,7 @@ class TestRouting:
 
 # ── Failover ──────────────────────────────────────────────────
 
+
 class TestFailover:
     async def test_failover_on_429(self, quota_path, aiohttp_mock_factory):
         pool = make_pool(
@@ -168,10 +179,15 @@ class TestFailover:
             quota_path,
         )
         # a trả 429, b trả 200
-        aiohttp_mock_factory([
-            {"status": 429, "json": {"error": "rate limited"}},
-            {"status": 200, "json": {"choices": [{"message": {"content": "from-b"}}]}},
-        ])
+        aiohttp_mock_factory(
+            [
+                {"status": 429, "json": {"error": "rate limited"}},
+                {
+                    "status": 200,
+                    "json": {"choices": [{"message": {"content": "from-b"}}]},
+                },
+            ]
+        )
         text = await pool.chat([{"role": "user", "content": "hi"}])
         assert text == "from-b"
         assert pool.last_provider == "b"
@@ -189,10 +205,12 @@ class TestFailover:
             ],
             quota_path,
         )
-        aiohttp_mock_factory([
-            {"status": 500, "json": {}},
-            {"status": 200, "json": {"choices": [{"message": {"content": "ok"}}]}},
-        ])
+        aiohttp_mock_factory(
+            [
+                {"status": 500, "json": {}},
+                {"status": 200, "json": {"choices": [{"message": {"content": "ok"}}]}},
+            ]
+        )
         text = await pool.chat([{"role": "user", "content": "hi"}])
         assert text == "ok"
 
@@ -204,10 +222,12 @@ class TestFailover:
             ],
             quota_path,
         )
-        aiohttp_mock_factory([
-            {"status": 429, "json": {}},
-            {"status": 429, "json": {}},
-        ])
+        aiohttp_mock_factory(
+            [
+                {"status": 429, "json": {}},
+                {"status": 429, "json": {}},
+            ]
+        )
         with pytest.raises(RuntimeError, match="all providers failed"):
             await pool.chat([{"role": "user", "content": "hi"}])
 
@@ -220,15 +240,22 @@ class TestFailover:
             ],
             quota_path,
         )
-        aiohttp_mock_factory([
-            {"status": 200, "json": {"choices": [{"message": {"content": ""}}]}},
-            {"status": 200, "json": {"choices": [{"message": {"content": "real answer"}}]}},
-        ])
+        aiohttp_mock_factory(
+            [
+                {"status": 200, "json": {"choices": [{"message": {"content": ""}}]}},
+                {
+                    "status": 200,
+                    "json": {"choices": [{"message": {"content": "real answer"}}]},
+                },
+            ]
+        )
         text = await pool.chat([{"role": "user", "content": "hi"}])
         assert text == "real answer"
         assert pool.last_provider == "b"
 
-    async def test_consecutive_failures_long_cooldown(self, quota_path, aiohttp_mock_factory):
+    async def test_consecutive_failures_long_cooldown(
+        self, quota_path, aiohttp_mock_factory
+    ):
         """3 lỗi liên tiếp → cooldown dài FAIL_COOLDOWN_SECONDS."""
         pool = make_pool(
             [make_provider("a", priority=10, base_url="http://a", daily_limit=10)],
@@ -251,36 +278,43 @@ class TestFailover:
 
 # ── Auth header ───────────────────────────────────────────────
 
+
 class TestAuth:
     async def test_bearer_header_sent(self, quota_path, aiohttp_mock_factory):
         import os
+
         pool = make_pool(
             [make_provider("keyed", api_key_env="MY_TEST_KEY", base_url="http://k")],
             quota_path,
         )
         os.environ["MY_TEST_KEY"] = "sk-test-123"
         try:
-            session = aiohttp_mock_factory([
-                {"status": 200, "json": {"choices": [{"message": {"content": "ok"}}]}}
-            ])
+            session = aiohttp_mock_factory(
+                [{"status": 200, "json": {"choices": [{"message": {"content": "ok"}}]}}]
+            )
             await pool.chat([{"role": "user", "content": "hi"}])
-            assert session.posts[0]["headers"].get("Authorization") == "Bearer sk-test-123"
+            assert (
+                session.posts[0]["headers"].get("Authorization") == "Bearer sk-test-123"
+            )
         finally:
             del os.environ["MY_TEST_KEY"]
 
-    async def test_no_key_provider_sends_no_auth(self, quota_path, aiohttp_mock_factory):
+    async def test_no_key_provider_sends_no_auth(
+        self, quota_path, aiohttp_mock_factory
+    ):
         pool = make_pool(
             [make_provider("anon", api_key_env=None, base_url="http://a")],
             quota_path,
         )
-        session = aiohttp_mock_factory([
-            {"status": 200, "json": {"choices": [{"message": {"content": "ok"}}]}}
-        ])
+        session = aiohttp_mock_factory(
+            [{"status": 200, "json": {"choices": [{"message": {"content": "ok"}}]}}]
+        )
         await pool.chat([{"role": "user", "content": "hi"}])
         assert "Authorization" not in session.posts[0]["headers"]
 
 
 # ── Default providers ─────────────────────────────────────────
+
 
 class TestDefaults:
     def test_build_defaults(self):

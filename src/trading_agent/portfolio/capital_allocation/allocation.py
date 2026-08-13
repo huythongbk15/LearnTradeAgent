@@ -14,6 +14,7 @@ from trading_agent.portfolio.risk_budgeting import RiskBudgeter, RiskBudgetMetho
 
 class AllocationMethod(Enum):
     """Capital allocation methods."""
+
     EQUAL_WEIGHT = "equal_weight"
     RISK_PARITY = "risk_parity"
     KELLY = "kelly"
@@ -29,9 +30,10 @@ class AllocationMethod(Enum):
 @dataclass
 class StrategyMetrics:
     """Strategy performance metrics for allocation."""
+
     strategy_id: str
     expected_return: Decimal  # Annualized
-    volatility: Decimal       # Annualized
+    volatility: Decimal  # Annualized
     sharpe_ratio: Decimal
     max_drawdown: Decimal
     win_rate: Decimal
@@ -44,6 +46,7 @@ class StrategyMetrics:
 @dataclass
 class AllocationResult:
     """Result of capital allocation."""
+
     weights: dict[str, Decimal]  # strategy_id -> weight
     total_capital: Decimal
     allocations: dict[str, Decimal]  # strategy_id -> capital
@@ -82,9 +85,7 @@ class CapitalAllocator:
         self._strategies.pop(strategy_id, None)
 
     def allocate(
-        self, 
-        method: AllocationMethod = AllocationMethod.RISK_PARITY,
-        **kwargs
+        self, method: AllocationMethod = AllocationMethod.RISK_PARITY, **kwargs
     ) -> AllocationResult:
         """Allocate capital across strategies."""
         if not self._strategies:
@@ -94,21 +95,23 @@ class CapitalAllocator:
         n = len(strategy_ids)
 
         # Build return and covariance matrices
-        returns = np.array([
-            float(self._strategies[sid].expected_return) 
-            for sid in strategy_ids
-        ])
-        
-        vols = np.array([
-            float(self._strategies[sid].volatility) 
-            for sid in strategy_ids
-        ])
+        returns = np.array(
+            [float(self._strategies[sid].expected_return) for sid in strategy_ids]
+        )
+
+        vols = np.array(
+            [float(self._strategies[sid].volatility) for sid in strategy_ids]
+        )
 
         # Build correlation matrix
-        if all(self._strategies[sid].correlation_matrix is not None for sid in strategy_ids):
-            corr = self._strategies[strategy_ids[0]].correlation_matrix.loc[
-                strategy_ids, strategy_ids
-            ].values
+        if all(
+            self._strategies[sid].correlation_matrix is not None for sid in strategy_ids
+        ):
+            corr = (
+                self._strategies[strategy_ids[0]]
+                .correlation_matrix.loc[strategy_ids, strategy_ids]
+                .values
+            )
         else:
             # Assume zero correlation if not provided
             corr = np.eye(n)
@@ -143,7 +146,7 @@ class CapitalAllocator:
 
         # Calculate allocations
         allocations = {
-            sid: Decimal(str(w)) * self.total_capital 
+            sid: Decimal(str(w)) * self.total_capital
             for sid, w in zip(strategy_ids, weights)
         }
 
@@ -189,10 +192,7 @@ class CapitalAllocator:
         return np.maximum(weights, 0)  # No shorting
 
     def _volatility_target(
-        self, 
-        returns: np.ndarray, 
-        cov: np.ndarray, 
-        target_vol: float
+        self, returns: np.ndarray, cov: np.ndarray, target_vol: float
     ) -> np.ndarray:
         """Volatility targeting."""
         # Start with max Sharpe
@@ -204,10 +204,7 @@ class CapitalAllocator:
         return weights
 
     def _max_sharpe(
-        self, 
-        returns: np.ndarray, 
-        cov: np.ndarray, 
-        risk_free: float = 0.02
+        self, returns: np.ndarray, cov: np.ndarray, risk_free: float = 0.02
     ) -> np.ndarray:
         """Maximum Sharpe ratio portfolio."""
         try:
@@ -239,23 +236,20 @@ class CapitalAllocator:
         return np.ones(len(strategy_ids)) / len(strategy_ids)
 
     def _black_litterman(
-        self, 
-        returns: np.ndarray, 
-        cov: np.ndarray, 
-        views: dict
+        self, returns: np.ndarray, cov: np.ndarray, views: dict
     ) -> np.ndarray:
         """Black-Litterman allocation."""
         # Simplified - use market equilibrium as prior
         tau = 0.05
         risk_free = 0.02
-        
+
         # Market implied returns
         market_weights = np.ones(len(returns)) / len(returns)
         pi = risk_free + cov @ market_weights / (market_weights @ cov @ market_weights)
-        
+
         if not views:
             return self._max_sharpe(pi, cov)
-        
+
         # Apply views (simplified)
         # Full implementation would require P, Q, Omega matrices
         return self._max_sharpe(pi, cov)
@@ -264,19 +258,19 @@ class CapitalAllocator:
         """Apply min/max allocation constraints."""
         min_w = float(self.min_allocation)
         max_w = float(self.max_allocation)
-        
+
         weights = np.clip(weights, min_w, max_w)
-        
+
         # Renormalize
         if weights.sum() > 0:
             weights = weights / weights.sum()
         else:
             weights = np.ones(len(weights)) / len(weights)
-        
+
         return weights
 
     def rebalance(
-        self, 
+        self,
         current_allocations: dict[str, Decimal],
         method: AllocationMethod = AllocationMethod.RISK_PARITY,
         threshold: Decimal = Decimal("0.05"),
@@ -284,13 +278,13 @@ class CapitalAllocator:
         """Calculate rebalance trades."""
         target = self.allocate(method)
         trades = {}
-        
+
         for sid, target_capital in target.allocations.items():
             current = current_allocations.get(sid, Decimal(0))
             diff = target_capital - current
-            
+
             # Only trade if difference exceeds threshold
             if abs(diff) > self.total_capital * threshold:
                 trades[sid] = diff
-        
+
         return trades

@@ -26,7 +26,12 @@ OUTPUT = REPO_ROOT / "docs" / "PROJECT_MAP.md"
 # Extra pruning on top of "tracked files only": directories/files that are
 # runtime data or generated and should never appear in the project map.
 EXCLUDED_DIRS = {
-    "data", "logs", "media", "backup", "backups", "node_modules",
+    "data",
+    "logs",
+    "media",
+    "backup",
+    "backups",
+    "node_modules",
 }
 EXCLUDED_FILES = {"poetry.lock", "package-lock.json", "tsconfig.tsbuildinfo"}
 
@@ -76,7 +81,9 @@ def render_tree(files: list[str]) -> list[str]:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--check", action="store_true", help="exit non-zero if output is stale")
+    parser.add_argument(
+        "--check", action="store_true", help="exit non-zero if output is stale"
+    )
     args = parser.parse_args()
 
     files = tracked_files(REPO_ROOT)
@@ -95,15 +102,19 @@ def main() -> int:
     old = OUTPUT.read_text() if OUTPUT.exists() else None
     if args.check:
         if old != content:
-            print(f"ERROR: {OUTPUT.relative_to(REPO_ROOT)} is stale — run "
-                  "`python scripts/generate_project_map.py` and commit the change.")
+            print(
+                f"ERROR: {OUTPUT.relative_to(REPO_ROOT)} is stale — run "
+                "`python scripts/generate_project_map.py` and commit the change."
+            )
             return 1
         print(f"OK: {OUTPUT.relative_to(REPO_ROOT)} is up to date.")
         return 0
 
     OUTPUT.write_text(content)
-    print(f"Wrote {OUTPUT.relative_to(REPO_ROOT)} ({len(files)} files, "
-          f"{len(render_tree(files))} visible entries)")
+    print(
+        f"Wrote {OUTPUT.relative_to(REPO_ROOT)} ({len(files)} files, "
+        f"{len(render_tree(files))} visible entries)"
+    )
     return 0
 
 

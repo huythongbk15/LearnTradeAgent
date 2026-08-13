@@ -124,14 +124,14 @@ Cũng cung cấp `print_report()` để in kết quả dạng rich tree.
 ```python
 @dataclass
 class AgentMessage:
-    role: str                    # "technical_analyst" | "sentiment_analyst" | "risk_manager" | "trader"
-    signal: str                  # "BUY" | "SELL" | "HOLD"
-    confidence: float            # 0.0 - 1.0
-    reasoning: str               # 1-2 câu giải thích
-    details: dict                # data phụ thuộc role
-    max_position_size_pct: float # (risk/trader only)
-    risk_level: str              # (risk/trader only)
-    warnings: list[str]          # (risk/trader only)
+    role: str  # "technical_analyst" | "sentiment_analyst" | "risk_manager" | "trader"
+    signal: str  # "BUY" | "SELL" | "HOLD"
+    confidence: float  # 0.0 - 1.0
+    reasoning: str  # 1-2 câu giải thích
+    details: dict  # data phụ thuộc role
+    max_position_size_pct: float  # (risk/trader only)
+    risk_level: str  # (risk/trader only)
+    warnings: list[str]  # (risk/trader only)
 ```
 
 ## LLM Provider (`llm.py`)

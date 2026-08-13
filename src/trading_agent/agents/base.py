@@ -72,9 +72,7 @@ class AgentMessage:
                 position_size = float(self.max_position_size_pct)
                 if not math.isfinite(position_size):
                     raise ValueError("non-finite position size")
-                self.max_position_size_pct = max(
-                    0.0, min(1.0, position_size)
-                )
+                self.max_position_size_pct = max(0.0, min(1.0, position_size))
             except (TypeError, ValueError):
                 self.warnings.append("Invalid position size; forced to 0")
                 self.max_position_size_pct = 0.0
@@ -108,6 +106,7 @@ class AgentMessage:
 @dataclass
 class AgentConfig:
     """Configuration for an agent (Phase 6 style)."""
+
     name: str
     role: str
     params: dict[str, Any] = field(default_factory=dict)
@@ -150,6 +149,7 @@ class BaseAgent(ABC):
 @dataclass
 class AgentSpec:
     """Specification for creating an agent."""
+
     name: str
     role: str
     symbols: list[str]
@@ -161,6 +161,7 @@ class AgentSpec:
 
 class AgentRole:
     """Agent roles in the swarm."""
+
     TECHNICAL = "technical"
     FUNDAMENTAL = "fundamental"
     SENTIMENT = "sentiment"
@@ -172,6 +173,7 @@ class AgentRole:
 @dataclass
 class AgentSignal:
     """Trading signal from an agent."""
+
     signal_id: str
     symbol: str
     action: str  # buy, sell, hold, close_long, close_short
@@ -185,6 +187,7 @@ class AgentSignal:
 # The core agents emit AgentMessage; the Phase 6 swarm consumes AgentSignal.
 # These converters bridge the two ecosystems losslessly so a swarm can run
 # core agents (or vice versa) without rewriting either side.
+
 
 def message_to_signal(
     msg: AgentMessage,

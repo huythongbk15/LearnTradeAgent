@@ -85,9 +85,9 @@ class TradingAgentStrategyAdapter(BaseStrategy):
     def on_start(self, context: StrategyContext) -> None:
         """Initialize strategy state"""
         self._state = {
-            'symbol': str(context.symbol),
-            'timeframe': context.bar.timeframe,
-            'initialized': True,
+            "symbol": str(context.symbol),
+            "timeframe": context.bar.timeframe,
+            "initialized": True,
         }
 
     def on_bar(self, context: StrategyContext) -> list[Signal]:
@@ -143,8 +143,20 @@ class MaCrossoverPluginStrategy(TradingAgentStrategyAdapter):
             asset_classes=["crypto", "stock", "forex"],
             timeframes=["1h", "4h", "1d"],
             parameters={
-                "fast_period": {"type": "int", "default": 20, "min": 5, "max": 100, "description": "Fast MA period"},
-                "slow_period": {"type": "int", "default": 50, "min": 10, "max": 200, "description": "Slow MA period"},
+                "fast_period": {
+                    "type": "int",
+                    "default": 20,
+                    "min": 5,
+                    "max": 100,
+                    "description": "Fast MA period",
+                },
+                "slow_period": {
+                    "type": "int",
+                    "default": 50,
+                    "min": 10,
+                    "max": 200,
+                    "description": "Slow MA period",
+                },
             },
         )
 
@@ -259,8 +271,13 @@ class BBandsPluginStrategy(TradingAgentStrategyAdapter):
 # Auto-register on import
 def _auto_register():
     from trading_agent.strategies.plugins import get_registry
+
     registry = get_registry()
-    for strategy_class in [MaCrossoverPluginStrategy, RsiPluginStrategy, BBandsPluginStrategy]:
+    for strategy_class in [
+        MaCrossoverPluginStrategy,
+        RsiPluginStrategy,
+        BBandsPluginStrategy,
+    ]:
         try:
             registry.register(strategy_class, persist=False)
         except Exception:

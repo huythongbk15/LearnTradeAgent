@@ -29,13 +29,18 @@ def validate_config(config_path: str | None):
         console.print(f"[green]✅ Config valid:[/green] {path}")
 
         table = Table("Section", "Check", "Status")
-        table.add_row("exchanges", f"{len(cfg.exchanges)} configured",
-                      "✅" if cfg.enabled_exchanges else "⚠️  none enabled")
-        table.add_row("data", f"tf={cfg.default_timeframe}, storage={cfg.data_storage}", "✅")
-        table.add_row("symbols",
-                      f"{sum(len(v) for v in cfg.symbols.values())} total", "✅")
-        table.add_row("backtest",
-                      f"capital=${cfg.initial_capital:,.0f}", "✅")
+        table.add_row(
+            "exchanges",
+            f"{len(cfg.exchanges)} configured",
+            "✅" if cfg.enabled_exchanges else "⚠️  none enabled",
+        )
+        table.add_row(
+            "data", f"tf={cfg.default_timeframe}, storage={cfg.data_storage}", "✅"
+        )
+        table.add_row(
+            "symbols", f"{sum(len(v) for v in cfg.symbols.values())} total", "✅"
+        )
+        table.add_row("backtest", f"capital=${cfg.initial_capital:,.0f}", "✅")
         console.print(table)
 
     except ConfigError as e:
@@ -60,26 +65,53 @@ def portfolio():
 @click.option(
     "--method",
     "-m",
-    type=click.Choice([
-        "max_sharpe", "min_variance", "mean_variance", "hrp",
-        "black_litterman", "risk_parity", "max_div", "equal_weight"
-    ]),
+    type=click.Choice(
+        [
+            "max_sharpe",
+            "min_variance",
+            "mean_variance",
+            "hrp",
+            "black_litterman",
+            "risk_parity",
+            "max_div",
+            "equal_weight",
+        ]
+    ),
     default="max_sharpe",
     help="Optimization method",
 )
 @click.option("--risk-free", default=0.02, type=float, help="Risk-free rate")
 @click.option("--lookback", default=252, type=int, help="Lookback period (days)")
-@click.option("--cov-method", default="ledoit_wolf",
-              type=click.Choice(["sample", "ledoit_wolf", "ewma"]),
-              help="Covariance estimation method")
+@click.option(
+    "--cov-method",
+    default="ledoit_wolf",
+    type=click.Choice(["sample", "ledoit_wolf", "ewma"]),
+    help="Covariance estimation method",
+)
 @click.option("--min-weight", default=0.0, type=float, help="Minimum weight per asset")
 @click.option("--max-weight", default=1.0, type=float, help="Maximum weight per asset")
-@click.option("--target-return", default=None, type=float,
-              help="Target return for mean-variance optimization")
-@click.option("--turnover", default=None, type=float,
-              help="Max turnover from current portfolio")
-@click.option("--view", "views", multiple=True, help="Black-Litterman view: SYMBOL=RETURN (e.g., BTC/USDT=0.15)")
-@click.option("--confidence", "confidences", multiple=True, type=float, help="Confidence for each view (0-1)")
+@click.option(
+    "--target-return",
+    default=None,
+    type=float,
+    help="Target return for mean-variance optimization",
+)
+@click.option(
+    "--turnover", default=None, type=float, help="Max turnover from current portfolio"
+)
+@click.option(
+    "--view",
+    "views",
+    multiple=True,
+    help="Black-Litterman view: SYMBOL=RETURN (e.g., BTC/USDT=0.15)",
+)
+@click.option(
+    "--confidence",
+    "confidences",
+    multiple=True,
+    type=float,
+    help="Confidence for each view (0-1)",
+)
 def portfolio_optimize(
     symbols: tuple[str],
     timeframe: str,
@@ -98,12 +130,16 @@ def portfolio_optimize(
     from rich.table import Table as RichTable
 
     from trading_agent.portfolio.portfolio_optimizer import (
-        PortfolioOptimizer, OptimizerMethod, OptimizationConstraints,
+        PortfolioOptimizer,
+        OptimizerMethod,
+        OptimizationConstraints,
     )
     from trading_agent.exchanges.models import Symbol, AssetClass, MarketType
     from trading_agent.data.storage import load_ohlcv
 
-    console.print(f"[bold]Optimizing portfolio with {len(symbols)} assets using {method}...[/bold]")
+    console.print(
+        f"[bold]Optimizing portfolio with {len(symbols)} assets using {method}...[/bold]"
+    )
 
     # Load data for all symbols
     returns_data = {}
@@ -116,14 +152,19 @@ def portfolio_optimize(
                 return
             # Polars DataFrame -> pandas Series for pct_change
             import pandas as pd
-            close_series = pd.Series(df['close'].to_numpy())
+
+            close_series = pd.Series(df["close"].to_numpy())
             returns = close_series.pct_change().dropna()
             returns_data[sym_str] = returns
             # Create Symbol object
-            base, quote = sym_str.split('/') if '/' in sym_str else (sym_str, 'USDT')
-            symbol_objs.append(Symbol(base, quote, AssetClass.CRYPTO, MarketType.SPOT, "binance"))
+            base, quote = sym_str.split("/") if "/" in sym_str else (sym_str, "USDT")
+            symbol_objs.append(
+                Symbol(base, quote, AssetClass.CRYPTO, MarketType.SPOT, "binance")
+            )
         except FileNotFoundError:
-            console.print(f"[red]Data not found for {sym_str}. Run `trading-agent data fetch {sym_str}` first.[/red]")
+            console.print(
+                f"[red]Data not found for {sym_str}. Run `trading-agent data fetch {sym_str}` first.[/red]"
+            )
             return
         except Exception as e:
             console.print(f"[red]Error loading {sym_str}: {e}[/red]")
@@ -160,6 +201,7 @@ def portfolio_optimize(
     bl_views = None
     if method == "black_litterman" and views:
         from trading_agent.portfolio.portfolio_optimizer import BlackLittermanViews
+
         absolute_views = {}
         confidence_dict = {}
         for i, view_str in enumerate(views):
@@ -167,8 +209,10 @@ def portfolio_optimize(
                 sym, ret = view_str.split("=", 1)
                 absolute_views[sym.strip()] = float(ret)
                 if i < len(confidences):
-                    confidence_dict[('absolute', sym.strip())] = confidences[i]
-        bl_views = BlackLittermanViews(absolute=absolute_views, confidence=confidence_dict)
+                    confidence_dict[("absolute", sym.strip())] = confidences[i]
+        bl_views = BlackLittermanViews(
+            absolute=absolute_views, confidence=confidence_dict
+        )
 
     # Run optimization
     result = optimizer.optimize(views=bl_views)
@@ -227,11 +271,16 @@ def portfolio_frontier(
     """Generate efficient frontier for visualization."""
     import plotext as plt
 
-    from trading_agent.portfolio.portfolio_optimizer import PortfolioOptimizer, OptimizerMethod
+    from trading_agent.portfolio.portfolio_optimizer import (
+        PortfolioOptimizer,
+        OptimizerMethod,
+    )
     from trading_agent.exchanges.models import Symbol, AssetClass, MarketType
     from trading_agent.data.storage import load_ohlcv
 
-    console.print(f"[bold]Generating efficient frontier for {len(symbols)} assets...[/bold]")
+    console.print(
+        f"[bold]Generating efficient frontier for {len(symbols)} assets...[/bold]"
+    )
 
     # Load data
     returns_data = {}
@@ -240,11 +289,14 @@ def portfolio_frontier(
         try:
             df = load_ohlcv(config.default_exchange, sym_str, timeframe)
             import pandas as pd
-            close_series = pd.Series(df['close'].to_numpy())
+
+            close_series = pd.Series(df["close"].to_numpy())
             returns = close_series.pct_change().dropna()
             returns_data[sym_str] = returns
-            base, quote = sym_str.split('/') if '/' in sym_str else (sym_str, 'USDT')
-            symbol_objs.append(Symbol(base, quote, AssetClass.CRYPTO, MarketType.SPOT, "binance"))
+            base, quote = sym_str.split("/") if "/" in sym_str else (sym_str, "USDT")
+            symbol_objs.append(
+                Symbol(base, quote, AssetClass.CRYPTO, MarketType.SPOT, "binance")
+            )
         except FileNotFoundError:
             console.print(f"[red]Data not found for {sym_str}[/red]")
             return
@@ -277,6 +329,7 @@ def portfolio_frontier(
 
     # Print table
     from rich.table import Table as RichTable
+
     t = RichTable("Return", "Volatility", "Sharpe")
     for r, v in zip(returns, vols):
         sharpe = (r - risk_free) / v if v > 0 else 0
@@ -287,8 +340,12 @@ def portfolio_frontier(
 @portfolio.command("monte-carlo")
 @click.argument("symbols", nargs=-1, required=True)
 @click.option("--timeframe", "-t", default="1h", help="Timeframe")
-@click.option("--method", "-m", default="max_sharpe", help="Optimization method for weights")
-@click.option("--simulations", "-n", default=200, type=int, help="Number of simulations")
+@click.option(
+    "--method", "-m", default="max_sharpe", help="Optimization method for weights"
+)
+@click.option(
+    "--simulations", "-n", default=200, type=int, help="Number of simulations"
+)
 @click.option("--horizon", "-h", default=252, type=int, help="Time horizon (days)")
 @click.option("--capital", "-c", default=100000, type=float, help="Initial capital")
 def portfolio_monte_carlo(
@@ -302,11 +359,16 @@ def portfolio_monte_carlo(
     """Run Monte Carlo portfolio simulation."""
     from rich.table import Table as RichTable
 
-    from trading_agent.portfolio.portfolio_optimizer import PortfolioOptimizer, OptimizerMethod
+    from trading_agent.portfolio.portfolio_optimizer import (
+        PortfolioOptimizer,
+        OptimizerMethod,
+    )
     from trading_agent.exchanges.models import Symbol, AssetClass, MarketType
     from trading_agent.data.storage import load_ohlcv
 
-    console.print(f"[bold]Running Monte Carlo simulation ({simulations} paths, {horizon} days)...[/bold]")
+    console.print(
+        f"[bold]Running Monte Carlo simulation ({simulations} paths, {horizon} days)...[/bold]"
+    )
 
     # Load data
     returns_data = {}
@@ -315,11 +377,14 @@ def portfolio_monte_carlo(
         try:
             df = load_ohlcv(config.default_exchange, sym_str, timeframe)
             import pandas as pd
-            close_series = pd.Series(df['close'].to_numpy())
+
+            close_series = pd.Series(df["close"].to_numpy())
             returns = close_series.pct_change().dropna()
             returns_data[sym_str] = returns
-            base, quote = sym_str.split('/') if '/' in sym_str else (sym_str, 'USDT')
-            symbol_objs.append(Symbol(base, quote, AssetClass.CRYPTO, MarketType.SPOT, "binance"))
+            base, quote = sym_str.split("/") if "/" in sym_str else (sym_str, "USDT")
+            symbol_objs.append(
+                Symbol(base, quote, AssetClass.CRYPTO, MarketType.SPOT, "binance")
+            )
         except FileNotFoundError:
             console.print(f"[red]Data not found for {sym_str}[/red]")
             return
@@ -388,17 +453,19 @@ def rebalancer_status(symbols: str | None, exchange: str | None):
     positions = engine.get_positions_summary()
 
     if symbols:
-        sym_list = [s.strip() for s in symbols.split(',')]
+        sym_list = [s.strip() for s in symbols.split(",")]
     else:
-        sym_list = [p['symbol'] for p in positions]
+        sym_list = [p["symbol"] for p in positions]
 
     console.print(f"[bold]Rebalancer Status for {len(sym_list)} symbols[/bold]")
 
     t = RichTable("Symbol", "Current %", "Target %", "Drift", "Trigger", "Status")
     for sym_str in sym_list:
         # Find position
-        pos = next((p for p in positions if p['symbol'] == sym_str), None)
-        current_pct = pos['value'] / engine.exchange.get_total_equity() * 100 if pos else 0
+        pos = next((p for p in positions if p["symbol"] == sym_str), None)
+        current_pct = (
+            pos["value"] / engine.exchange.get_total_equity() * 100 if pos else 0
+        )
         target_pct = 100 / len(sym_list)  # Equal weight target
         drift = current_pct - target_pct
 
@@ -420,11 +487,20 @@ def rebalancer_status(symbols: str | None, exchange: str | None):
 @rebalancer.command("run")
 @click.argument("symbols", nargs=-1, required=True)
 @click.option("--timeframe", "-t", default="1h", help="Timeframe")
-@click.option("--method", "-m",
-              type=click.Choice(["calendar", "threshold", "cppi", "risk_budget"]),
-              default="threshold",
-              help="Rebalancing method")
-@click.option("--threshold", "-d", default=0.05, type=float, help="Drift threshold for threshold method")
+@click.option(
+    "--method",
+    "-m",
+    type=click.Choice(["calendar", "threshold", "cppi", "risk_budget"]),
+    default="threshold",
+    help="Rebalancing method",
+)
+@click.option(
+    "--threshold",
+    "-d",
+    default=0.05,
+    type=float,
+    help="Drift threshold for threshold method",
+)
 @click.option("--frequency", "-f", default="1d", help="Frequency for calendar method")
 @click.option("--floor", default=0.8, type=float, help="Floor for CPPI")
 @click.option("--multiplier", default=3.0, type=float, help="Multiplier for CPPI")
@@ -453,7 +529,9 @@ def rebalancer_run(
     from decimal import Decimal
     import asyncio
 
-    console.print(f"[bold]Running {method} rebalancer for {len(symbols)} symbols...[/bold]")
+    console.print(
+        f"[bold]Running {method} rebalancer for {len(symbols)} symbols...[/bold]"
+    )
 
     engine = ExecutionEngine()
     positions = engine.get_positions_summary()
@@ -486,33 +564,47 @@ def rebalancer_run(
     rebalancer = AutoRebalancer(config)
 
     # Get target weights (equal weight for now)
-    target_weights = {Symbol(s.split('/')[0], s.split('/')[1] if '/' in s else 'USDT',
-                           AssetClass.CRYPTO, MarketType.SPOT, "binance"): 1.0/len(symbols)
-                      for s in symbols}
+    target_weights = {
+        Symbol(
+            s.split("/")[0],
+            s.split("/")[1] if "/" in s else "USDT",
+            AssetClass.CRYPTO,
+            MarketType.SPOT,
+            "binance",
+        ): 1.0 / len(symbols)
+        for s in symbols
+    }
 
     # Get current prices and create Position objects
     current_prices = {}
     positions_dict = {}
     for sym_str in symbols:
-        pos = next((p for p in positions if p['symbol'] == sym_str), None)
-        sym = Symbol(sym_str.split('/')[0], sym_str.split('/')[1] if '/' in sym_str else 'USDT',
-                      AssetClass.CRYPTO, MarketType.SPOT, "binance")
-        price = Decimal(str(pos['current_price'])) if pos else Decimal('0')
+        pos = next((p for p in positions if p["symbol"] == sym_str), None)
+        sym = Symbol(
+            sym_str.split("/")[0],
+            sym_str.split("/")[1] if "/" in sym_str else "USDT",
+            AssetClass.CRYPTO,
+            MarketType.SPOT,
+            "binance",
+        )
+        price = Decimal(str(pos["current_price"])) if pos else Decimal("0")
         current_prices[sym] = price
-        qty = Decimal(str(pos['quantity'])) if pos else Decimal('0')
+        qty = Decimal(str(pos["quantity"])) if pos else Decimal("0")
         # Position uses size (positive=long, negative=short), entry_price, mark_price
         positions_dict[sym] = Position(
             symbol=sym,
             size=qty,
-            entry_price=price if qty != 0 else Decimal('0'),
+            entry_price=price if qty != 0 else Decimal("0"),
             mark_price=price,
         )
 
     # Run rebalancer (async)
-    events = asyncio.run(rebalancer.check_and_rebalance(
-        positions=positions_dict,
-        prices=current_prices,
-    ))
+    events = asyncio.run(
+        rebalancer.check_and_rebalance(
+            positions=positions_dict,
+            prices=current_prices,
+        )
+    )
 
     if not events:
         console.print("[green]No rebalancing needed[/green]")
@@ -520,6 +612,7 @@ def rebalancer_run(
 
     console.print(f"\n[bold]Rebalancing Actions ({len(events)}):[/bold]")
     from rich.table import Table as RichTable
+
     t = RichTable("Symbol", "Side", "Size", "Price", "Reason", "Execute")
     for e in events:
         execute_str = "DRY RUN" if dry_run else "EXECUTE"
@@ -559,7 +652,9 @@ def strategy_list():
         console.print("[yellow]No strategies registered[/yellow]")
         return
 
-    t = RichTable("Name", "Version", "Type", "Risk", "Asset Classes", "Timeframes", "Status")
+    t = RichTable(
+        "Name", "Version", "Type", "Risk", "Asset Classes", "Timeframes", "Status"
+    )
     for meta in strategies:
         t.add_row(
             meta.name,
@@ -609,11 +704,11 @@ def strategy_info(name: str, version: str | None):
         for k, v in meta.parameters.items():
             t.add_row(
                 k,
-                v.get('type', 'any'),
-                str(v.get('default', '')),
-                str(v.get('min', '')),
-                str(v.get('max', '')),
-                "✅" if v.get('required', False) else "❌",
+                v.get("type", "any"),
+                str(v.get("default", "")),
+                str(v.get("min", "")),
+                str(v.get("max", "")),
+                "✅" if v.get("required", False) else "❌",
             )
         console.print(Panel(t, title="Parameters", border_style="green"))
 
@@ -670,20 +765,22 @@ def strategy_run(
         return
 
     # Run strategy on each bar
-    base, quote = symbol.split('/') if '/' in symbol else (symbol, 'USDT')
-    sym_obj = Symbol(base, quote, AssetClass.CRYPTO, MarketType.SPOT, config.default_exchange)
+    base, quote = symbol.split("/") if "/" in symbol else (symbol, "USDT")
+    sym_obj = Symbol(
+        base, quote, AssetClass.CRYPTO, MarketType.SPOT, config.default_exchange
+    )
 
     signals = []
     for row in df.iter_rows(named=True):
         bar = Bar(
             symbol=sym_obj,
-            timestamp=row['timestamp'],
+            timestamp=row["timestamp"],
             timeframe=timeframe,
-            open=Decimal(str(row['open'])),
-            high=Decimal(str(row['high'])),
-            low=Decimal(str(row['low'])),
-            close=Decimal(str(row['close'])),
-            volume=Decimal(str(row['volume'])),
+            open=Decimal(str(row["open"])),
+            high=Decimal(str(row["high"])),
+            low=Decimal(str(row["low"])),
+            close=Decimal(str(row["close"])),
+            volume=Decimal(str(row["volume"])),
         )
 
         context = StrategyContext(
@@ -692,17 +789,20 @@ def strategy_run(
             position=None,
             portfolio_value=Decimal(str(capital)),
             available_balance=Decimal(str(capital)),
-            current_time=row['timestamp'],
+            current_time=row["timestamp"],
         )
 
         bar_signals = strategy_instance.on_bar(context)
         for sig in bar_signals:
             signals.append(sig)
 
-    console.print(f"[bold]Generated {len(signals)} signals for {name} on {symbol}[/bold]")
+    console.print(
+        f"[bold]Generated {len(signals)} signals for {name} on {symbol}[/bold]"
+    )
 
     if signals:
         from rich.table import Table as RichTable
+
         t = RichTable("Time", "Side", "Strength", "Price")
         for sig in signals[-20:]:  # Show last 20
             t.add_row(
@@ -769,16 +869,16 @@ def strategy_validate(
 
     # Compute hash
     result_dict = {
-        'total_return_pct': result.total_return_pct,
-        'sharpe_ratio': result.sharpe_ratio,
-        'max_drawdown_pct': result.max_drawdown_pct,
-        'win_rate': result.win_rate,
-        'total_trades': result.total_trades,
-        'trades': [
+        "total_return_pct": result.total_return_pct,
+        "sharpe_ratio": result.sharpe_ratio,
+        "max_drawdown_pct": result.max_drawdown_pct,
+        "win_rate": result.win_rate,
+        "total_trades": result.total_trades,
+        "trades": [
             {
-                'entry_date': str(t.entry_date),
-                'exit_date': str(t.exit_date),
-                'pnl_pct': t.pnl_pct,
+                "entry_date": str(t.entry_date),
+                "exit_date": str(t.exit_date),
+                "pnl_pct": t.pnl_pct,
             }
             for t in result.trades
         ],
@@ -795,15 +895,16 @@ def strategy_validate(
         else:
             console.print("[red]❌ Hash mismatch - backtest not reproducible![/red]")
     else:
-        console.print("[yellow]⚠️  No reference hash set. Use --save-hash to store.[/yellow]")
+        console.print(
+            "[yellow]⚠️  No reference hash set. Use --save-hash to store.[/yellow]"
+        )
 
     # Save hash if requested
     if save_hash:
         from datetime import datetime
+
         meta.backtest_hash = actual_hash
         meta.updated_at = datetime.now()
         registry._save_metadata(meta)
         registry.reload()
         console.print(f"[green]✅ Saved hash: {actual_hash}[/green]")
-
-

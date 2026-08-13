@@ -8,15 +8,18 @@ Cách dùng:
 
 Telegram config: env TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID (hoặc .env)
 """
+
 import sys
 import os
 import subprocess
 import json
 from datetime import datetime
-sys.path.insert(0, 'src')
+
+sys.path.insert(0, "src")
 
 from dotenv import load_dotenv
-load_dotenv('.env')
+
+load_dotenv(".env")
 
 
 def send_telegram(text: str) -> bool:
@@ -27,15 +30,21 @@ def send_telegram(text: str) -> bool:
         print("  [telegram] SKIP — TELEGRAM_BOT_TOKEN/CHAT_ID chưa set trong .env")
         return False
     import urllib.request
-    payload = json.dumps({
-        "chat_id": chat,
-        "text": text,
-        "parse_mode": "Markdown",
-    }).encode()
+
+    payload = json.dumps(
+        {
+            "chat_id": chat,
+            "text": text,
+            "parse_mode": "Markdown",
+        }
+    ).encode()
     try:
         req = urllib.request.Request(
             f"https://api.telegram.org/bot{bot}/sendMessage",
-            data=payload, headers={"Content-Type": "application/json"}, method="POST")
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
         with urllib.request.urlopen(req, timeout=10) as r:
             ok = json.loads(r.read())["ok"]
         print(f"  [telegram] {'✅ sent' if ok else '❌ api error'}")
@@ -60,7 +69,9 @@ def main():
         cmd.append("--execute")
 
     ts = datetime.now().strftime("%Y-%m-%d %H:%M")
-    print(f"=== {ts} | live_enhanced_ma {'PAPER EXECUTE' if execute else 'DRY-RUN'} ===")
+    print(
+        f"=== {ts} | live_enhanced_ma {'PAPER EXECUTE' if execute else 'DRY-RUN'} ==="
+    )
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
     except subprocess.TimeoutExpired as exc:
@@ -125,7 +136,7 @@ def main():
         send_telegram(msg)
 
     if failed:
-        fails = "\n".join(f"• {t['header']} — {t.get('detail','')}" for t in failed)
+        fails = "\n".join(f"• {t['header']} — {t.get('detail', '')}" for t in failed)
         send_telegram(f"⚠️ *Live trading: {len(failed)} lệnh thất bại*\n{fails}")
 
     if not trades:
@@ -142,6 +153,7 @@ def main():
 
 def emoji(side: str) -> str:
     return "🟢" if "BUY" in side.upper() else "🔴" if "SELL" in side.upper() else "🔵"
+
 
 if __name__ == "__main__":
     raise SystemExit(main())

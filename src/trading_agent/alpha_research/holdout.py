@@ -10,6 +10,7 @@ immutable ``data/research_manifest.json`` and exposes helpers to:
 
 The manifest is created by ``scripts/generate_holdout_manifest.py``.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -91,7 +92,4 @@ def guard_training_window(
 
 def fingerprint_datasets(manifest: dict[str, Any]) -> dict[str, str]:
     """Return dataset key -> sha256 from the manifest."""
-    return {
-        key: meta["sha256"]
-        for key, meta in manifest.get("datasets", {}).items()
-    }
+    return {key: meta["sha256"] for key, meta in manifest.get("datasets", {}).items()}

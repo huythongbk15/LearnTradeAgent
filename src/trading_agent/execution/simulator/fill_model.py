@@ -85,24 +85,28 @@ class FillModel:
                 continue
             adjusted = lvl.price * (1.0 + impact_direction * impact_bps / 10_000.0)
             price = quantize_price(adjusted, self.config.tick_size)
-            fills.append(Fill(
-                order_id=intent.order_id,
-                bar_index=bar_index,
-                timestamp=timestamp,
-                side=intent.side,
-                quantity=fill_qty,
-                price=price,
-                fee=0.0,  # fee applied by FeeModel/ledger
-                fee_asset=self.config.fee_asset,
-                aggressor="market",
-                level_price=lvl.price,
-                impact_bps=impact_bps,
-                mid_before=book.mid,
-                is_partial=fill_qty < lvl.size or remaining > 0,
-            ))
+            fills.append(
+                Fill(
+                    order_id=intent.order_id,
+                    bar_index=bar_index,
+                    timestamp=timestamp,
+                    side=intent.side,
+                    quantity=fill_qty,
+                    price=price,
+                    fee=0.0,  # fee applied by FeeModel/ledger
+                    fee_asset=self.config.fee_asset,
+                    aggressor="market",
+                    level_price=lvl.price,
+                    impact_bps=impact_bps,
+                    mid_before=book.mid,
+                    is_partial=fill_qty < lvl.size or remaining > 0,
+                )
+            )
 
         if not fills:
-            return FillOutcome([], SimOrderStatus.REJECTED, RejectReason.INSUFFICIENT_LIQUIDITY)
+            return FillOutcome(
+                [], SimOrderStatus.REJECTED, RejectReason.INSUFFICIENT_LIQUIDITY
+            )
 
         if remaining > 0:
             status = SimOrderStatus.PARTIALLY_FILLED

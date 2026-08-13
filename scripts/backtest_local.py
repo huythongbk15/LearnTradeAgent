@@ -3,19 +3,21 @@
 Local backtest runner — chạy trên máy bạn.
 Không cần SSH, không cần GitHub Actions, không cần VPS.
 """
+
 import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
 
 # === CONFIG (sửa cho máy bạn) ===
-COMPOSE_FILE = "docker-compose.yml"           # hoặc docker-compose.local.yml
-CONFIG_PATH = "./config/credentials.yaml"     # config local
+COMPOSE_FILE = "docker-compose.yml"  # hoặc docker-compose.local.yml
+CONFIG_PATH = "./config/credentials.yaml"  # config local
 STRATEGIES = ["ma_crossover", "rsi_mean_reversion", "bbands_breakout"]
 SYMBOL = "BTC/USDT"
 TIMEFRAME = "1h"
 DAYS = 730
 # =================================
+
 
 def run(cmd, check=True):
     print(f"  $ {cmd}")
@@ -24,9 +26,10 @@ def run(cmd, check=True):
         print(f"  ✗ FAILED: {result.stderr}")
         return False
     if result.stdout:
-        for line in result.stdout.strip().split('\n'):
+        for line in result.stdout.strip().split("\n"):
             print(f"  {line}")
     return True
+
 
 def main():
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -60,7 +63,8 @@ def main():
 
     # Show metrics summary
     print("\n3. Extracting metrics...")
-    run(f"""
+    run(
+        f"""
         docker compose -f {COMPOSE_FILE} run --rm \
         -e TRADING_CONFIG_PATH=/app/config/credentials.yaml \
         trading-agent python3 -c "
@@ -76,9 +80,12 @@ cur.execute('''
 for row in cur.fetchall():
     print(f'{{row[0]}}: return={{row[1]:.2f}}%, sharpe={{row[2]:.2f}}')
 " 2>/dev/null || echo 'Metrics table not yet available'
-    """, check=False)
+    """,
+        check=False,
+    )
 
     print(f"\n{'✅ All done' if all_ok else '⚠ Some strategies failed'} — {timestamp}")
+
 
 if __name__ == "__main__":
     main()

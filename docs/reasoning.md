@@ -146,30 +146,34 @@ else:
 
 ```python
 agent_weights = {
-    "technical_analyst": 0.40,    # Nặng nhất
-    "sentiment_analyst": 0.25,    # Tâm lý thị trường
-    "risk_manager": 0.35,         # Rủi ro
+    "technical_analyst": 0.40,  # Nặng nhất
+    "sentiment_analyst": 0.25,  # Tâm lý thị trường
+    "risk_manager": 0.35,  # Rủi ro
 }
+
 
 def calculate_final_signal(agents):
     buy_score = 0.0
     sell_score = 0.0
-    
+
     for agent_name, signal in agents:
         weight = agent_weights[agent_name]
         conf = signal.confidence / 100.0
-        
+
         if signal.signal == "BUY":
             buy_score += weight * conf
         elif signal.signal == "SELL":
             sell_score += weight * conf
         # HOLD = 0 contribution to both
-    
+
     net_score = buy_score - sell_score
-    
-    if net_score > 0.2:      return "BUY", net_score
-    elif net_score < -0.2:   return "SELL", abs(net_score)
-    else:                    return "HOLD", abs(net_score)
+
+    if net_score > 0.2:
+        return "BUY", net_score
+    elif net_score < -0.2:
+        return "SELL", abs(net_score)
+    else:
+        return "HOLD", abs(net_score)
 ```
 
 **Ví dụ tính toán:**

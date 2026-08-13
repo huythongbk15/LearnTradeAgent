@@ -47,13 +47,20 @@ def test_risk_profile_is_bound_to_exchange_mode():
 
 def test_order_reconciliation_timeout_is_bounded():
     assert runner.order_reconciliation_timeout_seconds({}) == 20.0
-    assert runner.order_reconciliation_timeout_seconds({
-        "LIVE_ORDER_RECONCILE_TIMEOUT_SECONDS": "5",
-    }) == 5.0
+    assert (
+        runner.order_reconciliation_timeout_seconds(
+            {
+                "LIVE_ORDER_RECONCILE_TIMEOUT_SECONDS": "5",
+            }
+        )
+        == 5.0
+    )
     with pytest.raises(LiveSafetyError, match="between 1 and 120"):
-        runner.order_reconciliation_timeout_seconds({
-            "LIVE_ORDER_RECONCILE_TIMEOUT_SECONDS": "0",
-        })
+        runner.order_reconciliation_timeout_seconds(
+            {
+                "LIVE_ORDER_RECONCILE_TIMEOUT_SECONDS": "0",
+            }
+        )
 
 
 def test_canary_buy_decision_is_sliced_to_dynamic_order_cap():
@@ -92,8 +99,7 @@ def test_live_data_drops_forming_candle(monkeypatch):
     current_hour = now_ms // 3_600_000 * 3_600_000
     old_start = current_hour - 150 * 3_600_000
     bars = [
-        [old_start + index * 3_600_000, 100, 101, 99, 100, 1]
-        for index in range(150)
+        [old_start + index * 3_600_000, 100, 101, 99, 100, 1] for index in range(150)
     ]
     bars.append([now_ms - 1_000, 200, 201, 199, 200, 1])
 
@@ -138,7 +144,11 @@ def test_live_data_rejects_stale_and_inconsistent_ohlc():
 
 
 def test_market_data_failure_cancels_entire_batch(monkeypatch):
-    monkeypatch.setattr(runner, "get_recent_df", lambda symbol: (_ for _ in ()).throw(RuntimeError(symbol)))
+    monkeypatch.setattr(
+        runner,
+        "get_recent_df",
+        lambda symbol: (_ for _ in ()).throw(RuntimeError(symbol)),
+    )
     with pytest.raises(RuntimeError):
         runner.get_recent_df("BTC/USDT")
 
@@ -301,7 +311,11 @@ def test_partial_fill_stops_batch_and_is_persisted(tmp_path):
     assert record["status"] == "manual_intervention"
     assert record["filled_quantity"] == pytest.approx(0.04)
     assert [event["status"] for event in record["status_history"]] == [
-        "reserved", "submitted", "acknowledged", "partial", "reconciling",
+        "reserved",
+        "submitted",
+        "acknowledged",
+        "partial",
+        "reconciling",
         "manual_intervention",
     ]
 
@@ -403,7 +417,8 @@ def test_unknown_exchange_status_is_preserved_and_requires_intervention(tmp_path
     assert record["fees"] == {"USDT": 0.004, "BNB": 0.0001}
     assert record["trade_ids"] == ["trade-1"]
     assert [event["status"] for event in record["status_history"]][-2:] == [
-        "acknowledged", "manual_intervention",
+        "acknowledged",
+        "manual_intervention",
     ]
 
 
@@ -711,11 +726,13 @@ class FilledBuyBroker(ProtectiveBroker):
 
     def place_order(self, order):
         if order.type == runner.OrderType.MARKET:
-            self.positions = [{
-                "symbol": order.symbol.pair,
-                "qty": float(order.size),
-                "market_value": float(order.size) * 100.0,
-            }]
+            self.positions = [
+                {
+                    "symbol": order.symbol.pair,
+                    "qty": float(order.size),
+                    "market_value": float(order.size) * 100.0,
+                }
+            ]
             return {
                 "id": "entry-1",
                 "client_order_id": order.client_order_id,
@@ -737,11 +754,13 @@ class PartialBuyBroker(FilledBuyBroker):
         if order.type != runner.OrderType.MARKET:
             return super().place_order(order)
         filled = 0.04
-        self.positions = [{
-            "symbol": order.symbol.pair,
-            "qty": filled,
-            "market_value": filled * 100.0,
-        }]
+        self.positions = [
+            {
+                "symbol": order.symbol.pair,
+                "qty": filled,
+                "market_value": filled * 100.0,
+            }
+        ]
         return {
             "id": "entry-partial-1",
             "client_order_id": order.client_order_id,
@@ -822,7 +841,9 @@ def test_unprotectable_partial_fill_is_audited_and_fails_closed(tmp_path):
             audit_log_path=audit_path,
         )
     events = [json.loads(line) for line in audit_path.read_text().splitlines()]
-    failed = next(event for event in events if event["event"] == "position_protection_failed")
+    failed = next(
+        event for event in events if event["event"] == "position_protection_failed"
+    )
     assert failed["details"]["order_status"] == "partial"
     assert failed["details"]["remaining_quantity"] == pytest.approx(0.04)
     assert store.protective_order_state("BTC/USDT")["active"] is None
@@ -831,13 +852,15 @@ def test_unprotectable_partial_fill_is_audited_and_fails_closed(tmp_path):
 class FilledExitBroker(ProtectiveBroker):
     def __init__(self):
         super().__init__()
-        self.positions = [{
-            "symbol": "BTC/USDT",
-            "qty": 0.1,
-            "free_qty": 0.0,
-            "locked_qty": 0.1,
-            "market_value": 10.0,
-        }]
+        self.positions = [
+            {
+                "symbol": "BTC/USDT",
+                "qty": 0.1,
+                "free_qty": 0.0,
+                "locked_qty": 0.1,
+                "market_value": 10.0,
+            }
+        ]
         self.exit_replace_calls = 0
 
     def get_account(self):
@@ -892,11 +915,13 @@ class PartialExitBroker(FilledExitBroker):
         for existing in self.orders.values():
             if existing["id"] == order_id:
                 existing["status"] = "cancelled"
-        self.positions = [{
-            "symbol": "BTC/USDT",
-            "qty": 0.04,
-            "market_value": 4.0,
-        }]
+        self.positions = [
+            {
+                "symbol": "BTC/USDT",
+                "qty": 0.04,
+                "market_value": 4.0,
+            }
+        ]
         return {
             "id": "exit-partial-1",
             "client_order_id": order.client_order_id,

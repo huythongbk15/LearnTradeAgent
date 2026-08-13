@@ -30,14 +30,28 @@ SYMBOLS = ["BTC/USDT", "ETH/USDT", "BNB/USDT", "SOL/USDT", "XRP/USDT"]
 
 def backtest_strategy(df: pl.DataFrame, p: dict) -> dict:
     close = pl.col("close")
-    df = df.with_columns([
-        close.rolling_mean(p["fast_ma"]).alias("fast_ma"),
-        close.rolling_mean(p["slow_ma"]).alias("slow_ma"),
-        (close.rolling_mean(p["fast_ma"]) > close.rolling_mean(p["slow_ma"])).alias("bullish"),
-        (100 - 100 / (1 + (close.diff().clip(lower_bound=0).rolling_mean(p["rsi_period"])
-                            / -close.diff().clip(upper_bound=0).rolling_mean(p["rsi_period"]))))
-        .alias("rsi"),
-    ])
+    df = df.with_columns(
+        [
+            close.rolling_mean(p["fast_ma"]).alias("fast_ma"),
+            close.rolling_mean(p["slow_ma"]).alias("slow_ma"),
+            (close.rolling_mean(p["fast_ma"]) > close.rolling_mean(p["slow_ma"])).alias(
+                "bullish"
+            ),
+            (
+                100
+                - 100
+                / (
+                    1
+                    + (
+                        close.diff().clip(lower_bound=0).rolling_mean(p["rsi_period"])
+                        / -close.diff()
+                        .clip(upper_bound=0)
+                        .rolling_mean(p["rsi_period"])
+                    )
+                )
+            ).alias("rsi"),
+        ]
+    )
     close = df["close"].to_numpy()
     bullish = df["bullish"].to_numpy().astype(bool)
     rsi = np.nan_to_num(df["rsi"].to_numpy(), nan=50.0)
@@ -89,7 +103,9 @@ def backtest_strategy(df: pl.DataFrame, p: dict) -> dict:
 
 def main(timeframe: str):
     t0 = time.time()
-    print(f"{'Symbol':>10} {'Bars':>7} {'Strat%':>8} {'H&L%':>8} {'Sharpe':>7} {'DD%':>6} {'H&L_DD%':>7} {'Trades':>6} {'BeatH&L'}")
+    print(
+        f"{'Symbol':>10} {'Bars':>7} {'Strat%':>8} {'H&L%':>8} {'Sharpe':>7} {'DD%':>6} {'H&L_DD%':>7} {'Trades':>6} {'BeatH&L'}"
+    )
     print("-" * 78)
     rows = []
     for sym in SYMBOLS:
@@ -102,10 +118,12 @@ def main(timeframe: str):
             print(f"{sym:>10}  no data")
             continue
         r = backtest_strategy(df, PARAMS)
-        rows.append((sym.split('/')[0], r))
-        print(f"{sym.split('/')[0]:>10} {r['n']:>7} {r['strat_ret']:>7.1f} {r['bh_ret']:>7.1f} "
-              f"{r['sharpe']:>7.2f} {r['dd']:>5.1f} {r['bh_dd']:>7.1f} {r['trades']:>6} "
-              f"{'YES' if r['beat_bh'] else 'no':>6}")
+        rows.append((sym.split("/")[0], r))
+        print(
+            f"{sym.split('/')[0]:>10} {r['n']:>7} {r['strat_ret']:>7.1f} {r['bh_ret']:>7.1f} "
+            f"{r['sharpe']:>7.2f} {r['dd']:>5.1f} {r['bh_dd']:>7.1f} {r['trades']:>6} "
+            f"{'YES' if r['beat_bh'] else 'no':>6}"
+        )
 
     print("-" * 78)
     if rows:
@@ -116,7 +134,7 @@ def main(timeframe: str):
         print(f"Beat buy-and-hold: {n_beat}/{len(rows)} symbols")
         print(f"Avg strategy return: {avg_strat:.1f}%  vs  buy-and-hold: {avg_bh:.1f}%")
         print(f"Avg strategy Sharpe: {avg_sharpe:.2f}")
-    print(f"\nDone in {time.time()-t0:.1f}s")
+    print(f"\nDone in {time.time() - t0:.1f}s")
 
 
 if __name__ == "__main__":

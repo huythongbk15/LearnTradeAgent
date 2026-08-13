@@ -29,21 +29,28 @@ Chuyển từ **static imports** sang **lazy imports**:
 from trading_agent.data.collector import Collector
 from trading_agent.data.storage import load_ohlcv
 
+
 # ✅ Sau tối ưu (import trong function — chỉ load khi cần)
 class _LazyConfig:
     """Config loaded on first access."""
+
     _cached = None
+
     def __getattr__(self, name):
         if self._cached is None:
             from trading_agent.config.loader import config as _cfg
+
             self.__class__._cached = _cfg
         return getattr(self._cached, name)
 
+
 config = _LazyConfig()
+
 
 # Heavy modules được import bên trong từng hàm CLI
 def execution_status():
     from trading_agent.execution.engine import ExecutionEngine
+
     engine = ExecutionEngine()
     ...
 ```

@@ -18,6 +18,7 @@ class BBandsStrategy(Strategy):
     period : int       (default 20)
     std_dev : float    (default 2.0)
     """
+
     name = "bbands"
 
     def __init__(self, params: dict | None = None) -> None:
@@ -29,22 +30,21 @@ class BBandsStrategy(Strategy):
         sma = pl.col("close").rolling_mean(window_size=self.period)
         std = pl.col("close").rolling_std(window_size=self.period)
 
-        return df.with_columns([
-            sma.alias("bb_mid"),
-            (sma + self.std_dev * std).alias("bb_upper"),
-            (sma - self.std_dev * std).alias("bb_lower"),
-            pl.col("close").alias("bb_close"),
-        ])
+        return df.with_columns(
+            [
+                sma.alias("bb_mid"),
+                (sma + self.std_dev * std).alias("bb_upper"),
+                (sma - self.std_dev * std).alias("bb_lower"),
+                pl.col("close").alias("bb_close"),
+            ]
+        )
 
     def generate_signals(self, df: pl.DataFrame) -> pl.Series:
-        return (
-            df.select(
-                pl.when(pl.col("close") < pl.col("bb_lower"))
-                .then(1)
-                .when(pl.col("close") > pl.col("bb_upper"))
-                .then(-1)
-                .otherwise(0)
-                .alias("signal")
-            )
-            .to_series()
-        )
+        return df.select(
+            pl.when(pl.col("close") < pl.col("bb_lower"))
+            .then(1)
+            .when(pl.col("close") > pl.col("bb_upper"))
+            .then(-1)
+            .otherwise(0)
+            .alias("signal")
+        ).to_series()

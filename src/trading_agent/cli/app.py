@@ -9,6 +9,7 @@ import click
 from rich.table import Table
 from trading_agent.cli._common import config, console
 
+
 @click.group()
 @click.option(
     "--config",
@@ -42,8 +43,7 @@ def info():
     table.add_row("Data Storage", config.data_storage)
     table.add_row("Storage Path", str(config.storage_abs_path))
     table.add_row("Enabled Exchanges", ", ".join(config.enabled_exchanges))
-    table.add_row("Symbols Tracked",
-                  str(sum(len(v) for v in config.symbols.values())))
+    table.add_row("Symbols Tracked", str(sum(len(v) for v in config.symbols.values())))
     table.add_row("Timeframes", ", ".join(config.timeframes))
     table.add_row("LLM Provider", f"{config.llm_provider} / {config.llm_model}")
     table.add_row("Initial Capital", f"${config.initial_capital:,.2f}")
@@ -53,20 +53,22 @@ def info():
 
     # Data count
     from trading_agent.data.storage import list_datasets
+
     datasets = list_datasets()
     if datasets:
         total_rows = 0
         for ds in datasets:
             try:
                 from trading_agent.data.storage import get_date_range
+
                 rng = get_date_range(ds["exchange"], ds["symbol"], ds["timeframe"])
                 total_rows += rng["count"]
             except Exception:
                 pass
-        console.print(f"\n📊 [bold]{len(datasets)} datasets[/bold], "
-                      f"[bold]{total_rows:,}[/bold] total candles")
-
-
+        console.print(
+            f"\n📊 [bold]{len(datasets)} datasets[/bold], "
+            f"[bold]{total_rows:,}[/bold] total candles"
+        )
 
 
 # ── command groups (decomposed) ──────────────────────────────────────────
@@ -94,4 +96,3 @@ main.add_command(options)
 
 if __name__ == "__main__":
     main()
-

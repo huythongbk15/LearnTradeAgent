@@ -19,6 +19,7 @@ class RsiStrategy(Strategy):
     oversold : int    (default 30)
     overbought : int  (default 70)
     """
+
     name = "rsi"
 
     def __init__(self, params: dict | None = None) -> None:
@@ -43,14 +44,11 @@ class RsiStrategy(Strategy):
         return df.with_columns(rsi)
 
     def generate_signals(self, df: pl.DataFrame) -> pl.Series:
-        return (
-            df.select(
-                pl.when(pl.col("rsi") < self.oversold)
-                .then(1)
-                .when(pl.col("rsi") > self.overbought)
-                .then(-1)
-                .otherwise(0)
-                .alias("signal")
-            )
-            .to_series()
-        )
+        return df.select(
+            pl.when(pl.col("rsi") < self.oversold)
+            .then(1)
+            .when(pl.col("rsi") > self.overbought)
+            .then(-1)
+            .otherwise(0)
+            .alias("signal")
+        ).to_series()

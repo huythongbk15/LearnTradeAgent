@@ -16,13 +16,17 @@ def agents():
 @agents.command("analyze")
 @click.argument("symbol", default="BTC/USDT", required=False)
 @click.option("--timeframe", "-t", default="1h", help="Timeframe")
-@click.option("--position", "-p", default=0.0, type=float,
-              help="Current position % (0.0 = flat)")
-@click.option("--capital", "-c", default=10000.0, type=float,
-              help="Portfolio value")
+@click.option(
+    "--position", "-p", default=0.0, type=float, help="Current position % (0.0 = flat)"
+)
+@click.option("--capital", "-c", default=10000.0, type=float, help="Portfolio value")
 @click.option("--quiet", "-q", is_flag=True, help="Only print final signal")
-@click.option("--ablation", type=click.Choice(["A", "B", "C", "D"]), default="A",
-              help="Ablation preset: A=all agents, B=no sentiment, C=no risk override, D=technical only")
+@click.option(
+    "--ablation",
+    type=click.Choice(["A", "B", "C", "D"]),
+    default="A",
+    help="Ablation preset: A=all agents, B=no sentiment, C=no risk override, D=technical only",
+)
 def analyze_signal(
     symbol: str,
     timeframe: str,
@@ -32,7 +36,7 @@ def analyze_signal(
     ablation: str,
 ):
     """Run multi-agent AI analysis on a symbol with ablation support.
-    
+
     Ablation presets:
     - A: All agents (baseline)
     - B: Technical + Risk (no Sentiment)
@@ -59,10 +63,18 @@ def analyze_signal(
 
     if quiet:
         decision = report.final_decision
-        color = "green" if decision.signal == "BUY" else "red" if decision.signal == "SELL" else "yellow"
-        console.print(f"[{color}]{decision.signal}[/{color}]  "
-                      f"conf={decision.confidence:.0%}  price=${report.current_price:,.2f}  "
-                      f"risk={decision.risk_level}")
+        color = (
+            "green"
+            if decision.signal == "BUY"
+            else "red"
+            if decision.signal == "SELL"
+            else "yellow"
+        )
+        console.print(
+            f"[{color}]{decision.signal}[/{color}]  "
+            f"conf={decision.confidence:.0%}  price=${report.current_price:,.2f}  "
+            f"risk={decision.risk_level}"
+        )
     else:
         print_report(report)
 
@@ -84,5 +96,3 @@ def list_agents():
         t.add_row(name, desc, weight)
     console.print(t)
     console.print("\n[dim]Flow: Technical → Sentiment → Risk → Trader[/dim]")
-
-

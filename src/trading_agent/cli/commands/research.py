@@ -81,7 +81,9 @@ def llm_calibration(pairs):
     with open(pairs, encoding="utf-8") as fp:
         raw = json.load(fp)
     if not isinstance(raw, list):
-        raise click.ClickException("--pairs must be a JSON list of [confidence, correct]")
+        raise click.ClickException(
+            "--pairs must be a JSON list of [confidence, correct]"
+        )
 
     cal = ConfidenceCalibrator(bins=10)
     for item in raw:
@@ -113,7 +115,9 @@ def llm_calibration(pairs):
 
 
 @llm.command("cache-clear")
-@click.option("--all", "clear_all", is_flag=True, help="Clear all cache (including valid)")
+@click.option(
+    "--all", "clear_all", is_flag=True, help="Clear all cache (including valid)"
+)
 @click.confirmation_option(prompt="Clear LLM cache?")
 def llm_cache_clear(clear_all: bool):
     """Clear LLM cache."""
@@ -149,14 +153,38 @@ def llm_cost_estimate(daily_trades: int, calls_per_trade: int, tokens_per_call: 
     # Free tier estimates (rough)
     console.print("[bold]📊 Monthly LLM Cost Estimate[/bold]")
     t = Table("Provider (Free Tier)", "Monthly Calls", "Monthly Tokens", "Est. Cost")
-    t.add_row("OpenCode (deepseek-v4-flash-free)", f"{daily_calls * 30:,}", f"{monthly_tokens:,}", "$0.00")
-    t.add_row("DeepSeek API (free tier)", f"{daily_calls * 30:,}", f"{monthly_tokens:,}", "$0.00*")
-    t.add_row("NVIDIA NIM (free tier)", f"{daily_calls * 30:,}", f"{monthly_tokens:,}", "$0.00*")
-    t.add_row("Groq (free tier)", f"{daily_calls * 30:,}", f"{monthly_tokens:,}", "$0.00*")
-    t.add_row("OpenRouter (free models)", f"{daily_calls * 30:,}", f"{monthly_tokens:,}", "$0.00*")
+    t.add_row(
+        "OpenCode (deepseek-v4-flash-free)",
+        f"{daily_calls * 30:,}",
+        f"{monthly_tokens:,}",
+        "$0.00",
+    )
+    t.add_row(
+        "DeepSeek API (free tier)",
+        f"{daily_calls * 30:,}",
+        f"{monthly_tokens:,}",
+        "$0.00*",
+    )
+    t.add_row(
+        "NVIDIA NIM (free tier)",
+        f"{daily_calls * 30:,}",
+        f"{monthly_tokens:,}",
+        "$0.00*",
+    )
+    t.add_row(
+        "Groq (free tier)", f"{daily_calls * 30:,}", f"{monthly_tokens:,}", "$0.00*"
+    )
+    t.add_row(
+        "OpenRouter (free models)",
+        f"{daily_calls * 30:,}",
+        f"{monthly_tokens:,}",
+        "$0.00*",
+    )
     console.print(t)
 
-    console.print(f"\nWith cache (80% hit rate): {monthly_tokens * 0.2:,.0f} tokens → $0.00")
+    console.print(
+        f"\nWith cache (80% hit rate): {monthly_tokens * 0.2:,.0f} tokens → $0.00"
+    )
     console.print("[dim]* Free tier limits apply (rate limits, context window)[/dim]")
 
 
@@ -170,29 +198,44 @@ def meta():
 
 @meta.command("train")
 @click.argument("data_dir", type=click.Path(exists=True, file_okay=False))
-@click.option("--algorithm", "-a", type=click.Choice(["maml", "reptile", "metasgd", "anil"]), default="maml")
+@click.option(
+    "--algorithm",
+    "-a",
+    type=click.Choice(["maml", "reptile", "metasgd", "anil"]),
+    default="maml",
+)
 @click.option("--steps", "-s", default=100, help="Meta-training steps")
 @click.option("--meta-lr", default=0.01, help="Meta learning rate")
 @click.option("--inner-lr", default=0.1, help="Inner learning rate")
 @click.option("--inner-steps", default=5, help="Inner loop steps")
 @click.option("--batch-size", default=4, help="Meta batch size")
 @click.option("--output", "-o", type=click.Path(), help="Output JSON file")
-def meta_train(data_dir: str, algorithm: str, steps: int, meta_lr: float,
-               inner_lr: float, inner_steps: int, batch_size: int, output: str | None):
+def meta_train(
+    data_dir: str,
+    algorithm: str,
+    steps: int,
+    meta_lr: float,
+    inner_lr: float,
+    inner_steps: int,
+    batch_size: int,
+    output: str | None,
+):
     """Meta-train on multiple market regimes."""
     import asyncio
     from trading_agent.ml.meta_learning import train
-    
-    asyncio.run(train.callback(
-        data_dir=data_dir,
-        algorithm=algorithm,
-        steps=steps,
-        meta_lr=meta_lr,
-        inner_lr=inner_lr,
-        inner_steps=inner_steps,
-        batch_size=batch_size,
-        output=output,
-    ))
+
+    asyncio.run(
+        train.callback(
+            data_dir=data_dir,
+            algorithm=algorithm,
+            steps=steps,
+            meta_lr=meta_lr,
+            inner_lr=inner_lr,
+            inner_steps=inner_steps,
+            batch_size=batch_size,
+            output=output,
+        )
+    )
 
 
 @meta.command("adapt")
@@ -204,13 +247,15 @@ def meta_adapt(model_path: str, regime_data: str, n_samples: int, output: str | 
     """Adapt meta-learned strategy to new regime."""
     import asyncio
     from trading_agent.ml.meta_learning import adapt
-    
-    asyncio.run(adapt.callback(
-        model_path=model_path,
-        regime_data=regime_data,
-        n_samples=n_samples,
-        output=output,
-    ))
+
+    asyncio.run(
+        adapt.callback(
+            model_path=model_path,
+            regime_data=regime_data,
+            n_samples=n_samples,
+            output=output,
+        )
+    )
 
 
 @meta.command("backtest")
@@ -219,18 +264,22 @@ def meta_adapt(model_path: str, regime_data: str, n_samples: int, output: str | 
 @click.option("--capital", "-c", default=10000, help="Initial capital")
 @click.option("--commission", default=0.0004, help="Commission rate")
 @click.option("--slippage", default=0.0005, help="Slippage rate")
-def meta_backtest(adapted_params: str, data: str, capital: float, commission: float, slippage: float):
+def meta_backtest(
+    adapted_params: str, data: str, capital: float, commission: float, slippage: float
+):
     """Run backtest with meta-learned parameters."""
     import asyncio
     from trading_agent.ml.meta_learning import backtest
-    
-    asyncio.run(backtest.callback(
-        adapted_params=adapted_params,
-        data=data,
-        initial_capital=capital,
-        commission=commission,
-        slippage=slippage,
-    ))
+
+    asyncio.run(
+        backtest.callback(
+            adapted_params=adapted_params,
+            data=data,
+            initial_capital=capital,
+            commission=commission,
+            slippage=slippage,
+        )
+    )
 
 
 @meta.command("regimes")
@@ -254,16 +303,20 @@ def projection():
 @click.argument("event_store_path")
 @click.option("--from-position", default=0, help="Position to rebuild from")
 @click.option("--projection", "-p", help="Specific projection to rebuild")
-def projection_rebuild(event_store_path: str, from_position: int, projection: str | None):
+def projection_rebuild(
+    event_store_path: str, from_position: int, projection: str | None
+):
     """Rebuild projections from event store."""
     import asyncio
     from trading_agent.events.projection_manager import rebuild
-    
-    asyncio.run(rebuild.callback(
-        event_store_path=event_store_path,
-        from_position=from_position,
-        projection=projection,
-    ))
+
+    asyncio.run(
+        rebuild.callback(
+            event_store_path=event_store_path,
+            from_position=from_position,
+            projection=projection,
+        )
+    )
 
 
 @projection.command("status")
@@ -273,11 +326,13 @@ def projection_status(event_store_path: str, projection: str | None):
     """Show projection status."""
     import asyncio
     from trading_agent.events.projection_manager import status
-    
-    asyncio.run(status.callback(
-        event_store_path=event_store_path,
-        projection=projection,
-    ))
+
+    asyncio.run(
+        status.callback(
+            event_store_path=event_store_path,
+            projection=projection,
+        )
+    )
 
 
 @projection.command("query")
@@ -288,12 +343,14 @@ def projection_query(event_store_path: str, projection: str, key: str | None):
     """Query projection state."""
     import asyncio
     from trading_agent.events.projection_manager import query
-    
-    asyncio.run(query.callback(
-        event_store_path=event_store_path,
-        projection=projection,
-        key=key,
-    ))
+
+    asyncio.run(
+        query.callback(
+            event_store_path=event_store_path,
+            projection=projection,
+            key=key,
+        )
+    )
 
 
 # ── options strategies subcommands ───────────────────────────────────────
@@ -316,10 +373,14 @@ def options_chain(symbol: str, expiry: str | None, spot: float):
     provider = OptionChainProvider(dry_run=True)
     chain = provider.get_chain(symbol, expiry=expiry, spot=spot)
 
-    console.print(f"\n[bold]{symbol} Options Chain[/bold] — Spot: ${chain.spot:,.0f}, Expiry: {chain.expiry}")
+    console.print(
+        f"\n[bold]{symbol} Options Chain[/bold] — Spot: ${chain.spot:,.0f}, Expiry: {chain.expiry}"
+    )
 
     # Calls
-    t = RichTable("Strike", "IV", "Delta", "Gamma", "Theta", "Vega", "Volume", "OI", "Bid/Ask")
+    t = RichTable(
+        "Strike", "IV", "Delta", "Gamma", "Theta", "Vega", "Volume", "OI", "Bid/Ask"
+    )
     for c in sorted(chain.calls, key=lambda x: x.volume, reverse=True)[:10]:
         g = c.greeks
         t.add_row(
@@ -336,7 +397,9 @@ def options_chain(symbol: str, expiry: str | None, spot: float):
     console.print(Panel(t, title="Calls (Top 10 by Volume)", border_style="green"))
 
     # Puts
-    t = RichTable("Strike", "IV", "Delta", "Gamma", "Theta", "Vega", "Volume", "OI", "Bid/Ask")
+    t = RichTable(
+        "Strike", "IV", "Delta", "Gamma", "Theta", "Vega", "Volume", "OI", "Bid/Ask"
+    )
     for p in sorted(chain.puts, key=lambda x: x.volume, reverse=True)[:10]:
         g = p.greeks
         t.add_row(
@@ -377,18 +440,27 @@ def options_flow(symbol: str, hours: int):
         console.print("\n[bold]Unusual Trades:[/bold]")
         ut = Table("Strike", "Type", "Volume", "IV", "OI")
         for ut in flow.unusual_trades:
-            ut.add_row(f"${ut['strike']:,.0f}", ut['type'].upper(), f"{ut['volume']:,}",
-                       f"{ut['iv']:.1%}", f"{ut['oi']:,}")
+            ut.add_row(
+                f"${ut['strike']:,.0f}",
+                ut["type"].upper(),
+                f"{ut['volume']:,}",
+                f"{ut['iv']:.1%}",
+                f"{ut['oi']:,}",
+            )
         console.print(ut)
 
 
 @options.command("covered-call")
 @click.argument("symbol", default="BTC")
-@click.option("--delta", "-d", default=0.20, type=float, help="Target delta for short call")
+@click.option(
+    "--delta", "-d", default=0.20, type=float, help="Target delta for short call"
+)
 @click.option("--dte-min", default=7, type=int, help="Min DTE")
 @click.option("--dte-max", default=45, type=int, help="Max DTE")
 @click.option("--min-yield", default=0.05, type=float, help="Min annualized yield")
-def options_covered_call(symbol: str, delta: float, dte_min: int, dte_max: int, min_yield: float):
+def options_covered_call(
+    symbol: str, delta: float, dte_min: int, dte_max: int, min_yield: float
+):
     """Find covered call opportunities."""
     from rich.table import Table as RichTable
     from trading_agent.strategies.options_strategies import (
@@ -397,12 +469,16 @@ def options_covered_call(symbol: str, delta: float, dte_min: int, dte_max: int, 
     )
 
     provider = OptionChainProvider(dry_run=True)
-    strategy = CoveredCallStrategy(symbol, provider, config={
-        "delta_target": delta,
-        "dte_min": dte_min,
-        "dte_max": dte_max,
-        "min_annual_yield": min_yield,
-    })
+    strategy = CoveredCallStrategy(
+        symbol,
+        provider,
+        config={
+            "delta_target": delta,
+            "dte_min": dte_min,
+            "dte_max": dte_max,
+            "min_annual_yield": min_yield,
+        },
+    )
     chain = provider.get_chain(symbol)
     signals = strategy.generate_signals(chain)
 
@@ -410,7 +486,9 @@ def options_covered_call(symbol: str, delta: float, dte_min: int, dte_max: int, 
         console.print("[yellow]No covered call signals found[/yellow]")
         return
 
-    console.print(f"\n[bold]Covered Call Signals for {symbol}[/bold] (Spot: ${chain.spot:,.0f})")
+    console.print(
+        f"\n[bold]Covered Call Signals for {symbol}[/bold] (Spot: ${chain.spot:,.0f})"
+    )
     t = RichTable("Strike", "Delta", "Bid", "Annual Yield", "DTE")
     for s in signals:
         c = s["contract"]
@@ -426,11 +504,15 @@ def options_covered_call(symbol: str, delta: float, dte_min: int, dte_max: int, 
 
 @options.command("cash-secured-put")
 @click.argument("symbol", default="BTC")
-@click.option("--delta", "-d", default=0.20, type=float, help="Target delta for short put")
+@click.option(
+    "--delta", "-d", default=0.20, type=float, help="Target delta for short put"
+)
 @click.option("--dte-min", default=7, type=int, help="Min DTE")
 @click.option("--dte-max", default=45, type=int, help="Max DTE")
 @click.option("--min-yield", default=0.05, type=float, help="Min annualized yield")
-def options_cash_secured_put(symbol: str, delta: float, dte_min: int, dte_max: int, min_yield: float):
+def options_cash_secured_put(
+    symbol: str, delta: float, dte_min: int, dte_max: int, min_yield: float
+):
     """Find cash-secured put opportunities."""
     from rich.table import Table as RichTable
     from trading_agent.strategies.options_strategies import (
@@ -439,12 +521,16 @@ def options_cash_secured_put(symbol: str, delta: float, dte_min: int, dte_max: i
     )
 
     provider = OptionChainProvider(dry_run=True)
-    strategy = CashSecuredPutStrategy(symbol, provider, config={
-        "delta_target": delta,
-        "dte_min": dte_min,
-        "dte_max": dte_max,
-        "min_annual_yield": min_yield,
-    })
+    strategy = CashSecuredPutStrategy(
+        symbol,
+        provider,
+        config={
+            "delta_target": delta,
+            "dte_min": dte_min,
+            "dte_max": dte_max,
+            "min_annual_yield": min_yield,
+        },
+    )
     chain = provider.get_chain(symbol)
     signals = strategy.generate_signals(chain)
 
@@ -452,7 +538,9 @@ def options_cash_secured_put(symbol: str, delta: float, dte_min: int, dte_max: i
         console.print("[yellow]No cash-secured put signals found[/yellow]")
         return
 
-    console.print(f"\n[bold]Cash-Secured Put Signals for {symbol}[/bold] (Spot: ${chain.spot:,.0f})")
+    console.print(
+        f"\n[bold]Cash-Secured Put Signals for {symbol}[/bold] (Spot: ${chain.spot:,.0f})"
+    )
     t = RichTable("Strike", "Delta", "Bid", "Cash Required", "Annual Yield", "DTE")
     for s in signals:
         p = s["contract"]
@@ -473,7 +561,9 @@ def options_cash_secured_put(symbol: str, delta: float, dte_min: int, dte_max: i
 @click.option("--delta-long", default=0.05, type=float, help="Long wing delta")
 @click.option("--dte-min", default=14, type=int, help="Min DTE")
 @click.option("--dte-max", default=60, type=int, help="Max DTE")
-def options_iron_condor(symbol: str, delta_short: float, delta_long: float, dte_min: int, dte_max: int):
+def options_iron_condor(
+    symbol: str, delta_short: float, delta_long: float, dte_min: int, dte_max: int
+):
     """Find iron condor opportunities."""
     from rich.table import Table as RichTable
     from trading_agent.strategies.options_strategies import (
@@ -482,12 +572,16 @@ def options_iron_condor(symbol: str, delta_short: float, delta_long: float, dte_
     )
 
     provider = OptionChainProvider(dry_run=True)
-    strategy = IronCondorStrategy(symbol, provider, config={
-        "delta_short": delta_short,
-        "delta_long": delta_long,
-        "dte_min": dte_min,
-        "dte_max": dte_max,
-    })
+    strategy = IronCondorStrategy(
+        symbol,
+        provider,
+        config={
+            "delta_short": delta_short,
+            "delta_long": delta_long,
+            "dte_min": dte_min,
+            "dte_max": dte_max,
+        },
+    )
     chain = provider.get_chain(symbol)
     signals = strategy.generate_signals(chain)
 
@@ -495,8 +589,20 @@ def options_iron_condor(symbol: str, delta_short: float, delta_long: float, dte_
         console.print("[yellow]No iron condor signals found[/yellow]")
         return
 
-    console.print(f"\n[bold]Iron Condor Signals for {symbol}[/bold] (Spot: ${chain.spot:,.0f})")
-    t = RichTable("Short Call", "Short Put", "Long Call", "Long Put", "Credit", "Max Loss", "R/R", "Prob Profit", "DTE")
+    console.print(
+        f"\n[bold]Iron Condor Signals for {symbol}[/bold] (Spot: ${chain.spot:,.0f})"
+    )
+    t = RichTable(
+        "Short Call",
+        "Short Put",
+        "Long Call",
+        "Long Put",
+        "Credit",
+        "Max Loss",
+        "R/R",
+        "Prob Profit",
+        "DTE",
+    )
     for s in signals:
         t.add_row(
             f"${s['short_call'].strike:,.0f}",
@@ -514,9 +620,13 @@ def options_iron_condor(symbol: str, delta_short: float, delta_long: float, dte_
 
 @options.command("gamma-scalp")
 @click.argument("symbol", default="BTC")
-@click.option("--simulate", "-s", is_flag=True, help="Run simulation with random price path")
+@click.option(
+    "--simulate", "-s", is_flag=True, help="Run simulation with random price path"
+)
 @click.option("--steps", default=50, type=int, help="Simulation steps")
-@click.option("--vol", default=0.5, type=float, help="Realized volatility for simulation")
+@click.option(
+    "--vol", default=0.5, type=float, help="Realized volatility for simulation"
+)
 def options_gamma_scalp(symbol: str, simulate: bool, steps: int, vol: float):
     """Gamma scalping: buy straddle + dynamic delta hedge."""
     import random
@@ -549,7 +659,9 @@ def options_gamma_scalp(symbol: str, simulate: bool, steps: int, vol: float):
         for i in range(steps):
             # Random walk
             dt = 1 / (252 * 6.5)  # 1 hour steps
-            spot *= math.exp((vol**2 * -0.5) * dt + vol * math.sqrt(dt) * random.gauss(0, 1))
+            spot *= math.exp(
+                (vol**2 * -0.5) * dt + vol * math.sqrt(dt) * random.gauss(0, 1)
+            )
             new_chain = provider.get_chain(symbol, spot=spot)
             strategy.rebalance_delta(spot, new_chain)
 
@@ -583,7 +695,17 @@ def options_calendar(symbol: str, spot: float):
         return
 
     console.print(f"\n[bold]Calendar Spread Signals for {symbol}[/bold]")
-    t = RichTable("Type", "Strike", "Near Expiry", "Far Expiry", "Near IV", "Far IV", "Term Struct", "Theta Carry", "Net Debit")
+    t = RichTable(
+        "Type",
+        "Strike",
+        "Near Expiry",
+        "Far Expiry",
+        "Near IV",
+        "Far IV",
+        "Term Struct",
+        "Theta Carry",
+        "Net Debit",
+    )
     for s in signals:
         t.add_row(
             s["action"].replace("BUY_CALENDAR_", ""),
@@ -601,7 +723,12 @@ def options_calendar(symbol: str, spot: float):
 
 @options.command("dispersion")
 @click.argument("index_symbol", default="BTC")
-@click.option("--components", "-c", default="ETH,SOL,ADA", help="Component symbols (comma-separated)")
+@click.option(
+    "--components",
+    "-c",
+    default="ETH,SOL,ADA",
+    help="Component symbols (comma-separated)",
+)
 def options_dispersion(index_symbol: str, components: str):
     """Dispersion trading: index vs component vol."""
     from trading_agent.strategies.options_strategies import (
@@ -636,4 +763,3 @@ def options_dispersion(index_symbol: str, components: str):
         console.print(f"  Avg Component IV: {s['avg_component_iv']:.1%}")
         console.print(f"  Dispersion Spread: {s['dispersion_spread']:.4f}")
         console.print(f"  Implied Correlation: {s['implied_correlation']:.2%}")
-

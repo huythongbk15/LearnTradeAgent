@@ -33,8 +33,8 @@ class OrderBookState:
     """Snapshot of a limit order book."""
 
     symbol: str
-    bids: list[BookLevel] = field(default_factory=list)   # descending price
-    asks: list[BookLevel] = field(default_factory=list)   # ascending price
+    bids: list[BookLevel] = field(default_factory=list)  # descending price
+    asks: list[BookLevel] = field(default_factory=list)  # ascending price
     mid: float = 0.0
     timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
     sequence: int = 0

@@ -27,9 +27,9 @@ logger = logging.getLogger(__name__)
 
 # Default tolerances (seconds). These are intentionally strict: an order
 # placed on stale data or a skewed clock is worse than a skipped cycle.
-DEFAULT_MAX_LATENCY_S = 5.0        # wall-clock round trip for a REST fetch
-DEFAULT_MAX_CLOCK_SKEW_S = 2.0     # |server - local| before we refuse to run
-DEFAULT_MAX_QUOTE_AGE_S = 30.0     # quote age tolerated at decision time
+DEFAULT_MAX_LATENCY_S = 5.0  # wall-clock round trip for a REST fetch
+DEFAULT_MAX_CLOCK_SKEW_S = 2.0  # |server - local| before we refuse to run
+DEFAULT_MAX_QUOTE_AGE_S = 30.0  # quote age tolerated at decision time
 
 # Binance public REST /api/v3/time
 BINANCE_MAINNET_TIME_URL = "https://api.binance.com/api/v3/time"
@@ -95,7 +95,9 @@ def finish_fetch(started_at: float) -> TimeStampedFetch:
     )
 
 
-def quote_age_s(fetch: TimeStampedFetch, now_s: Optional[float] = None) -> Optional[float]:
+def quote_age_s(
+    fetch: TimeStampedFetch, now_s: Optional[float] = None
+) -> Optional[float]:
     """Age of a quote: wall-clock now minus the exchange event time.
 
     Falls back to receive-to-now when the exchange timestamp is missing.
@@ -157,13 +159,9 @@ def reject_stale_exchange_timestamp(
     wall_now = _wall_from_monotonic(fetch.received_at, now_s)
     age = wall_now - exchange_s
     if age < -5.0:
-        raise StaleQuoteError(
-            f"{context} timestamp is {abs(age):.1f}s in the future"
-        )
+        raise StaleQuoteError(f"{context} timestamp is {abs(age):.1f}s in the future")
     if age > max_age_s:
-        raise StaleQuoteError(
-            f"{context} is stale: age {age:.1f}s > {max_age_s:.1f}s"
-        )
+        raise StaleQuoteError(f"{context} is stale: age {age:.1f}s > {max_age_s:.1f}s")
 
 
 class ServerClock:
@@ -205,14 +203,16 @@ class ServerClock:
     def sync_count(self) -> int:
         return self._sync_count
 
-    def sample(self, server_time_ms: float, local_epoch_s: Optional[float] = None) -> float:
+    def sample(
+        self, server_time_ms: float, local_epoch_s: Optional[float] = None
+    ) -> float:
         """Record one server-time sample and return the offset in seconds."""
         if not math.isfinite(server_time_ms) or server_time_ms <= 0:
             raise DataTrustError(f"invalid server time sample: {server_time_ms}")
         local_s = local_epoch_s if local_epoch_s is not None else time.time()
         offset_s = server_time_ms / 1000.0 - local_s
         self._offsets.append(offset_s)
-        self._offsets = self._offsets[-self.max_samples:]
+        self._offsets = self._offsets[-self.max_samples :]
         if self._ema is None:
             self._ema = offset_s
         else:
@@ -347,7 +347,9 @@ class OrderBookSequenceTracker:
     def on_snapshot(self, symbol: str, sequence: Optional[int]) -> None:
         """(Re)initialize a symbol's sequence from a REST snapshot."""
         if sequence is not None and (not isinstance(sequence, int) or sequence <= 0):
-            raise SequenceGapError(f"invalid snapshot sequence for {symbol}: {sequence!r}")
+            raise SequenceGapError(
+                f"invalid snapshot sequence for {symbol}: {sequence!r}"
+            )
         self._last[symbol] = sequence
 
 
@@ -360,8 +362,8 @@ class DiffStreamState:
     """
 
     symbol: str
-    last_update_id: Optional[int] = None   # from REST snapshot
-    last_u: Optional[int] = None           # last processed u (diff stream)
+    last_update_id: Optional[int] = None  # from REST snapshot
+    last_u: Optional[int] = None  # last processed u (diff stream)
     buffered_first: bool = False
     needs_resync: bool = True
     gap_count: int = 0
@@ -394,7 +396,10 @@ class DiffStreamState:
         the local book unusable.
         """
         ids = (first_update_id, final_update_id, previous_update_id)
-        if any(value is not None and (not isinstance(value, int) or value <= 0) for value in ids):
+        if any(
+            value is not None and (not isinstance(value, int) or value <= 0)
+            for value in ids
+        ):
             raise SequenceGapError(f"invalid update IDs for {self.symbol}: {ids!r}")
         if final_update_id < first_update_id:
             raise SequenceGapError(
@@ -450,7 +455,9 @@ class DataTrustMonitor:
         max_latency_s: float = DEFAULT_MAX_LATENCY_S,
     ) -> None:
         self.clock = clock if clock is not None else ServerClock()
-        self.sequences = sequences if sequences is not None else OrderBookSequenceTracker()
+        self.sequences = (
+            sequences if sequences is not None else OrderBookSequenceTracker()
+        )
         self.max_age_s = max_age_s
         self.max_latency_s = max_latency_s
         self._last_fetch: dict[str, TimeStampedFetch] = {}
@@ -478,13 +485,15 @@ class DataTrustMonitor:
         if fetch.exchange_timestamp is not None:
             age = quote_age_s(fetch)
             self._age_samples.setdefault(symbol, []).append(age)
-            self._age_samples[symbol] = self._age_samples[symbol][-self._window:]
+            self._age_samples[symbol] = self._age_samples[symbol][-self._window :]
         self._latency_samples.setdefault(symbol, []).append(fetch.latency_s)
-        self._latency_samples[symbol] = self._latency_samples[symbol][-self._window:]
+        self._latency_samples[symbol] = self._latency_samples[symbol][-self._window :]
         self._last_fetch[symbol] = fetch
         if reject:
             try:
-                reject_high_latency(fetch, max_latency_s=self.max_latency_s, context=symbol)
+                reject_high_latency(
+                    fetch, max_latency_s=self.max_latency_s, context=symbol
+                )
                 if reject_stale:
                     reject_stale_exchange_timestamp(
                         fetch, max_age_s=self.max_age_s, context=symbol

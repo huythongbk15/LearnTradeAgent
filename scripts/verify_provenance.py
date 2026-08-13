@@ -69,19 +69,27 @@ class ProvenanceReport:
 
 
 def _docker_image_labels(image: str, runner: Runner) -> dict[str, str]:
-    result = runner(["docker", "image", "inspect", "--format", "{{json .Config.Labels}}", image])
+    result = runner(
+        ["docker", "image", "inspect", "--format", "{{json .Config.Labels}}", image]
+    )
     if result.returncode != 0:
         raise RuntimeError(f"docker inspect failed: {result.stderr.strip()}")
     return json.loads(result.stdout.strip() or "{}")
 
 
-def _cosign_verify(image: str, identity: str, issuer: str, runner: Runner) -> subprocess.CompletedProcess:
+def _cosign_verify(
+    image: str, identity: str, issuer: str, runner: Runner
+) -> subprocess.CompletedProcess:
     env = dict(os.environ, COSIGN_EXPERIMENTAL="1")
     return runner(
         [
-            "cosign", "verify", image,
-            "--certificate-identity", identity,
-            "--certificate-oidc-issuer", issuer,
+            "cosign",
+            "verify",
+            image,
+            "--certificate-identity",
+            identity,
+            "--certificate-oidc-issuer",
+            issuer,
         ],
         env=env,
     )
@@ -126,7 +134,11 @@ def verify_provenance(
             revision == commit,
             f"revision label: {revision or '<missing>'} (expected {commit})",
         )
-    except (RuntimeError, subprocess.CalledProcessError, ValueError) as exc:  # pragma: no cover
+    except (
+        RuntimeError,
+        subprocess.CalledProcessError,
+        ValueError,
+    ) as exc:  # pragma: no cover
         report.set("repository", False, str(exc))
         report.set("commit", False, str(exc))
 
@@ -149,7 +161,11 @@ def verify_provenance(
 
     # 5: SBOM attestation must exist and contain packages.
     sbom_ok, sbom_out = _cosign_attestations(image, "spdxjson", runner)
-    sbom_detail = "spdxjson attestation present" if sbom_ok else "missing/failed spdxjson attestation"
+    sbom_detail = (
+        "spdxjson attestation present"
+        if sbom_ok
+        else "missing/failed spdxjson attestation"
+    )
     report.set("sbom", sbom_ok, sbom_detail)
 
     # 7: provenance attestation must exist and match the expected build.
@@ -164,8 +180,7 @@ def verify_provenance(
             decoded = json.loads(base64.b64decode(predicate)) if predicate else {}
             subject = decoded.get("subject", [])
             subject_match = any(
-                repo.lower() in (s.get("name", "") or "").lower()
-                for s in subject
+                repo.lower() in (s.get("name", "") or "").lower() for s in subject
             )
             pred = decoded.get("predicate", {})
             builder = pred.get("builder", {}).get("id", "")
@@ -190,12 +205,22 @@ def verify_provenance(
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--image", required=True, help="immutable image ref (digest or sha-<sha> tag)")
-    parser.add_argument("--repo", required=True, help="owner/repo, e.g. huythongbk15/LearnTradeAgent")
+    parser.add_argument(
+        "--image", required=True, help="immutable image ref (digest or sha-<sha> tag)"
+    )
+    parser.add_argument(
+        "--repo", required=True, help="owner/repo, e.g. huythongbk15/LearnTradeAgent"
+    )
     parser.add_argument("--commit", required=True, help="expected 40-char commit SHA")
-    parser.add_argument("--workflow", default=".github/workflows/ci.yml", help="expected workflow path")
-    parser.add_argument("--ref", default="refs/heads/master", help="expected ref (branch)")
-    parser.add_argument("--issuer", default="https://token.actions.githubusercontent.com")
+    parser.add_argument(
+        "--workflow", default=".github/workflows/ci.yml", help="expected workflow path"
+    )
+    parser.add_argument(
+        "--ref", default="refs/heads/master", help="expected ref (branch)"
+    )
+    parser.add_argument(
+        "--issuer", default="https://token.actions.githubusercontent.com"
+    )
     args = parser.parse_args()
 
     try:
@@ -215,7 +240,10 @@ def main() -> int:
     if report.all_ok:
         print("\n✅ DEPLOY GATE PASSED — provenance fully verified.")
         return 0
-    print("\n❌ DEPLOY GATE BLOCKED — at least one provenance criterion failed.", file=sys.stderr)
+    print(
+        "\n❌ DEPLOY GATE BLOCKED — at least one provenance criterion failed.",
+        file=sys.stderr,
+    )
     return 1
 
 

@@ -38,6 +38,7 @@ from trading_agent.execution.simulator.versions import ALGORITHMS_VERSION
 
 # ── Window interpolation ──────────────────────────────────────────────────
 
+
 def mid_windows(mid_t0: float, mid_t30s: float) -> dict[str, float]:
     """Deterministic post-fill mid windows (linear interpolation).
 
@@ -68,6 +69,7 @@ def adverse_move_bps(mid_t0: float, mid_t30s: float, side: SimSide) -> float:
 
 # ── Record ────────────────────────────────────────────────────────────────
 
+
 @dataclass(frozen=True)
 class PostTradeFillRecord:
     """One fill plus its post-trade mid path and attribution attributes."""
@@ -76,11 +78,11 @@ class PostTradeFillRecord:
     side: SimSide
     quantity: float
     fill_price: float
-    aggressor: str                       # "market" | "limit_passive"
-    order_type: str                      # "market" | "limit"
+    aggressor: str  # "market" | "limit_passive"
+    order_type: str  # "market" | "limit"
     spread_bps: float
-    depth: float                         # resting size on the side we consumed
-    book_imbalance: float                # [-1, 1]
+    depth: float  # resting size on the side we consumed
+    book_imbalance: float  # [-1, 1]
     volatility_bps: float
     mid_t0: float
     mid_t100ms: float
@@ -191,6 +193,7 @@ def record_from_fill(
 
 # ── Group statistics ──────────────────────────────────────────────────────
 
+
 @dataclass(frozen=True)
 class GroupStats:
     """Adverse-move statistics for one attribution group."""
@@ -220,7 +223,9 @@ def _group_stats(records: list[PostTradeFillRecord]) -> GroupStats:
     mean = statistics.fmean(adverse)
     std = statistics.stdev(adverse) if len(adverse) > 1 else 0.0
     sorted_adverse = sorted(adverse)
-    p90 = sorted_adverse[min(len(sorted_adverse) - 1, int(math.ceil(0.9 * len(sorted_adverse))) - 1)]
+    p90 = sorted_adverse[
+        min(len(sorted_adverse) - 1, int(math.ceil(0.9 * len(sorted_adverse))) - 1)
+    ]
     windows_mean = {
         k: statistics.fmean(r.windows()[k] for r in records)
         for k in ("mid_t0", "mid_t+100ms", "mid_t+1s", "mid_t+5s", "mid_t+30s")
@@ -237,6 +242,7 @@ def _group_stats(records: list[PostTradeFillRecord]) -> GroupStats:
 
 # ── Detection ─────────────────────────────────────────────────────────────
 
+
 @dataclass(frozen=True)
 class DetectionResult:
     """Flags + evidence for the four adverse-selection failure modes."""
@@ -250,8 +256,12 @@ class DetectionResult:
     @property
     def any_flag(self) -> bool:
         return any(
-            (self.bad_timing, self.too_aggressive,
-             self.predictable_adverse_move, self.poor_liquidity_regime)
+            (
+                self.bad_timing,
+                self.too_aggressive,
+                self.predictable_adverse_move,
+                self.poor_liquidity_regime,
+            )
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -265,6 +275,7 @@ class DetectionResult:
 
 
 # ── Report ────────────────────────────────────────────────────────────────
+
 
 class PostTradeImpactReport:
     """Aggregates post-fill records, groups them, and flags failure modes.
@@ -281,7 +292,11 @@ class PostTradeImpactReport:
         predict_corr_threshold: float = 0.6,
         min_group_size: int = 3,
     ) -> None:
-        if bad_timing_threshold_bps < 0 or aggressive_gap_bps < 0 or liquidity_gap_bps < 0:
+        if (
+            bad_timing_threshold_bps < 0
+            or aggressive_gap_bps < 0
+            or liquidity_gap_bps < 0
+        ):
             raise ValueError("thresholds must be >= 0")
         if not 0 <= predict_corr_threshold <= 1:
             raise ValueError("predict_corr_threshold must be in [0, 1]")
@@ -335,16 +350,14 @@ class PostTradeImpactReport:
             "side": lambda r: r.side.value,
             "quantity": lambda r: r.quantity_bucket,
             "spread": lambda r: r.spread_bucket,
-            "depth": lambda r: r.spread_bucket,       # depth proxy via spread regime
+            "depth": lambda r: r.spread_bucket,  # depth proxy via spread regime
             "imbalance": lambda r: r.imbalance_bucket,
             "volatility": lambda r: r.volatility_bucket,
             "aggressiveness": lambda r: r.aggressiveness_bucket,
             "order_type": lambda r: r.order_type,
         }
         if key not in attr_map:
-            raise ValueError(
-                f"unknown group key {key!r}; valid: {sorted(attr_map)}"
-            )
+            raise ValueError(f"unknown group key {key!r}; valid: {sorted(attr_map)}")
         groups: dict[str, list[PostTradeFillRecord]] = {}
         for rec in self._records:
             groups.setdefault(attr_map[key](rec), []).append(rec)
@@ -360,9 +373,15 @@ class PostTradeImpactReport:
         overall = _group_stats(self._records)
         evidence["overall"] = overall.to_dict()
         evidence["groups"] = {
-            k: self.group_by(k) for k in (
-                "side", "quantity", "spread", "imbalance", "volatility",
-                "aggressiveness", "order_type",
+            k: self.group_by(k)
+            for k in (
+                "side",
+                "quantity",
+                "spread",
+                "imbalance",
+                "volatility",
+                "aggressiveness",
+                "order_type",
             )
         }
         evidence["groups"] = {
@@ -393,8 +412,12 @@ class PostTradeImpactReport:
         # Predictable adverse move: t+1s move predicts t+30s move.
         predictable = False
         if len(self._records) >= self.min_group_size:
-            early = [(r.mid_t1s - r.mid_t0) / r.mid_t0 * 10_000.0 for r in self._records]
-            late = [(r.mid_t30s - r.mid_t0) / r.mid_t0 * 10_000.0 for r in self._records]
+            early = [
+                (r.mid_t1s - r.mid_t0) / r.mid_t0 * 10_000.0 for r in self._records
+            ]
+            late = [
+                (r.mid_t30s - r.mid_t0) / r.mid_t0 * 10_000.0 for r in self._records
+            ]
             corr = _pearson(early, late)
             predictable = corr > self.predict_corr_threshold
             evidence["predictable_adverse_move"] = {
@@ -434,8 +457,13 @@ class PostTradeImpactReport:
             "groups": {
                 k: {g: s.to_dict() for g, s in self.group_by(k).items()}
                 for k in (
-                    "side", "quantity", "spread", "imbalance", "volatility",
-                    "aggressiveness", "order_type",
+                    "side",
+                    "quantity",
+                    "spread",
+                    "imbalance",
+                    "volatility",
+                    "aggressiveness",
+                    "order_type",
                 )
             },
         }

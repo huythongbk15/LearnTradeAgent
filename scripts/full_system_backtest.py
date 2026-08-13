@@ -86,27 +86,38 @@ class FullSystemSimulator:
         # Load data
         print(f"📥 Loading {SYMBOL} {TIMEFRAME} from {EXCHANGE}...")
         self.df = load_ohlcv(EXCHANGE, SYMBOL, TIMEFRAME).sort("timestamp")
-        print(f"   {self.df.height} bars: {self.df['timestamp'].min()} → {self.df['timestamp'].max()}")
+        print(
+            f"   {self.df.height} bars: {self.df['timestamp'].min()} → {self.df['timestamp'].max()}"
+        )
 
         # Initialize strategy
-        self.strategy = EnhancedMaCrossover({
-            "fast_period": FAST_MA,
-            "slow_period": SLOW_MA,
-            "adx_threshold": ADX_THRESHOLD,
-            "atr_sl_mult": ATR_SL_MULT,
-            "atr_tp_mult": ATR_TP_MULT,
-        })
-        
+        self.strategy = EnhancedMaCrossover(
+            {
+                "fast_period": FAST_MA,
+                "slow_period": SLOW_MA,
+                "adx_threshold": ADX_THRESHOLD,
+                "atr_sl_mult": ATR_SL_MULT,
+                "atr_tp_mult": ATR_TP_MULT,
+            }
+        )
+
         # Pre-compute indicators on full dataset
         print("🔧 Computing strategy indicators...")
         self.df = self.strategy.compute_indicators(self.df)
-        
+
         # Generate all signals upfront
         print("🔧 Generating signals...")
-        self.signals = self.df.with_columns(self.strategy.generate_signals(self.df)).select(pl.col("signal")).to_series().to_list()
+        self.signals = (
+            self.df.with_columns(self.strategy.generate_signals(self.df))
+            .select(pl.col("signal"))
+            .to_series()
+            .to_list()
+        )
 
         # Khởi tạo execution engine + risk controller
-        self.engine = ExecutionEngine(exchange_name=EXCHANGE, initial_capital=INITIAL_CAPITAL)
+        self.engine = ExecutionEngine(
+            exchange_name=EXCHANGE, initial_capital=INITIAL_CAPITAL
+        )
         self.risk = RiskController(
             self.engine,
             max_drawdown_pct=MAX_DRAWDOWN_PCT,
@@ -115,7 +126,7 @@ class FullSystemSimulator:
             default_stop_loss_pct=STOP_LOSS_PCT,
             cooldown_hours=COOLDOWN_HOURS,
         )
-        
+
         # Thay datetime.now(UTC) trong risk_controller bằng đồng hồ giả lập
         rc_module.datetime = _SimClock
 
@@ -138,7 +149,9 @@ class FullSystemSimulator:
         end = end if end is not None else self.df.height
         n = end - start
         print(f"🚀 Simulating bars {start}→{end} ({n} bars, decision mỗi {freq}h)")
-        print(f"   SL={STOP_LOSS_PCT:.0%} TP={TAKE_PROFIT_PCT:.0%} Trail={TRAILING_STOP_PCT:.0%} | Cooldown={COOLDOWN_HOURS:.0f}h\n")
+        print(
+            f"   SL={STOP_LOSS_PCT:.0%} TP={TAKE_PROFIT_PCT:.0%} Trail={TRAILING_STOP_PCT:.0%} | Cooldown={COOLDOWN_HOURS:.0f}h\n"
+        )
 
         for i in range(start, end):
             row = self.df.row(i, named=True)
@@ -157,22 +170,28 @@ class FullSystemSimulator:
             breaker_on = any("CIRCUIT BREAKER ACTIVE" in a for a in alerts)
             if breaker_on and not self._breaker_active:
                 self.circuit_breakers.append(f"{ts}: {alerts[0]}")
-                print(f"   🚨 CIRCUIT BREAKER ON @ {ts} — đóng toàn bộ vị thế, tạm dừng {COOLDOWN_HOURS:.0f}h")
+                print(
+                    f"   🚨 CIRCUIT BREAKER ON @ {ts} — đóng toàn bộ vị thế, tạm dừng {COOLDOWN_HOURS:.0f}h"
+                )
             elif not breaker_on and self._breaker_active:
                 print(f"   ✅ CIRCUIT BREAKER OFF @ {ts} — giao dịch trở lại")
             self._breaker_active = breaker_on
 
             # 3. Execute signal theo chu kỳ (chỉ khi chưa bị chặn)
-            if i % freq == 0 and not breaker_on and not any("Cooldown" in a for a in alerts):
+            if (
+                i % freq == 0
+                and not breaker_on
+                and not any("Cooldown" in a for a in alerts)
+            ):
                 equity = self.engine.exchange.get_total_equity()
                 pos_pct = self._position_pct(price)
-                
+
                 # Only act on crossover signals (non-zero)
                 if signal != 0:
                     # Calculate position size using risk controller dynamic sizing
                     # Get ATR for this bar
                     atr = float(row.get("atr", 0)) if row.get("atr") else None
-                    
+
                     # Get regime info
                     regime_info = {
                         "vol_regime": row.get("vol_regime"),
@@ -181,23 +200,25 @@ class FullSystemSimulator:
                         "adx": row.get("adx"),
                         "atr_pctl": row.get("atr_pctl"),
                     }
-                    
+
                     # Calculate position size
                     if signal == 1:  # BUY
                         # Check if we already have a long position
                         pos = self.engine.exchange.get_position(SYMBOL)
                         if pos and pos.is_active and pos.quantity > 0:
                             signal = 0  # Already long, skip
-                    
+
                     if signal != 0:
                         # Use risk controller for dynamic position sizing
                         pos_size = self.risk.calculate_position_size(
                             symbol=SYMBOL,
                             price=price,
                             atr=atr,
-                            regime_info=regime_info if any(v is not None for v in regime_info.values()) else None,
+                            regime_info=regime_info
+                            if any(v is not None for v in regime_info.values())
+                            else None,
                         )
-                        
+
                         if pos_size > 0:
                             msg = AgentMessage(
                                 role="trader",
@@ -208,29 +229,52 @@ class FullSystemSimulator:
                                 max_position_size_pct=pos_size * price / equity,
                                 risk_level="medium",
                             )
-                            
-                            self.signal_log.append({
-                                "timestamp": str(ts), "price": price, "position_pct": pos_pct,
-                                "signal": msg.signal, "confidence": msg.confidence,
-                                "risk": msg.risk_level, "max_pos": msg.max_position_size_pct,
-                            })
+
+                            self.signal_log.append(
+                                {
+                                    "timestamp": str(ts),
+                                    "price": price,
+                                    "position_pct": pos_pct,
+                                    "signal": msg.signal,
+                                    "confidence": msg.confidence,
+                                    "risk": msg.risk_level,
+                                    "max_pos": msg.max_position_size_pct,
+                                }
+                            )
 
                             # Execute
                             for order in self.engine.execute_signal(msg):
                                 pos = self.engine.exchange.get_position(SYMBOL)
-                                self.trade_log.append({
-                                    "timestamp": str(ts), "side": order.side.value,
-                                    "amount": float(order.filled_amount or order.amount),
-                                    "price": price,
-                                    "pnl": float(pos.unrealized_pnl) if pos else 0.0,
-                                    "equity": float(self.engine.exchange.get_total_equity()),
-                                })
-                                side = "🟢 BUY" if order.side.value == "buy" else "🔴 SELL"
-                                print(f"   {side} {order.filled_amount or order.amount:.4f} @ ${price:,.2f} @ {ts}")
+                                self.trade_log.append(
+                                    {
+                                        "timestamp": str(ts),
+                                        "side": order.side.value,
+                                        "amount": float(
+                                            order.filled_amount or order.amount
+                                        ),
+                                        "price": price,
+                                        "pnl": float(pos.unrealized_pnl)
+                                        if pos
+                                        else 0.0,
+                                        "equity": float(
+                                            self.engine.exchange.get_total_equity()
+                                        ),
+                                    }
+                                )
+                                side = (
+                                    "🟢 BUY" if order.side.value == "buy" else "🔴 SELL"
+                                )
+                                print(
+                                    f"   {side} {order.filled_amount or order.amount:.4f} @ ${price:,.2f} @ {ts}"
+                                )
                                 # Exit plan
                                 self.risk.set_stop_loss_on_all_positions(STOP_LOSS_PCT)
-                                self.risk.set_take_profit_on_all_positions(TAKE_PROFIT_PCT)
-                                self.risk.set_trailing_stop_on_all_positions(TRAILING_STOP_PCT)
+                                self.risk.set_take_profit_on_all_positions(
+                                    TAKE_PROFIT_PCT
+                                )
+                                self.risk.set_trailing_stop_on_all_positions(
+                                    TRAILING_STOP_PCT
+                                )
 
             # 4. Equity tracking
             self.equity_curve.append((ts, self.engine.exchange.get_total_equity()))
@@ -238,8 +282,10 @@ class FullSystemSimulator:
             # Progress
             if (i - start) % 2000 == 0 and i > start:
                 eq = self.equity_curve[-1][1]
-                print(f"   ... {i - start}/{n} bars — equity ${eq:,.2f} "
-                      f"({(eq/INITIAL_CAPITAL-1)*100:+.2f}%)")
+                print(
+                    f"   ... {i - start}/{n} bars — equity ${eq:,.2f} "
+                    f"({(eq / INITIAL_CAPITAL - 1) * 100:+.2f}%)"
+                )
 
         print("\n✅ Simulation complete")
         self._report()
@@ -255,7 +301,11 @@ class FullSystemSimulator:
         returns = returns[~np.isnan(returns)]
 
         total_return = (eq_values[-1] / eq_values[0] - 1) * 100
-        sharpe = (returns.mean() / returns.std() * np.sqrt(24 * 252)) if len(returns) > 1 and returns.std() > 0 else 0
+        sharpe = (
+            (returns.mean() / returns.std() * np.sqrt(24 * 252))
+            if len(returns) > 1 and returns.std() > 0
+            else 0
+        )
         max_dd = ((eq_values.max() - eq_values) / eq_values.max()).max() * 100
 
         wins = [t for t in self.trade_log if t.get("pnl", 0) > 0]
@@ -263,11 +313,15 @@ class FullSystemSimulator:
         win_rate = len(wins) / len(self.trade_log) * 100 if self.trade_log else 0
         avg_win = np.mean([t["pnl"] for t in wins]) if wins else 0
         avg_loss = abs(np.mean([t["pnl"] for t in losses])) if losses else 0
-        profit_factor = (sum(t["pnl"] for t in wins) / abs(sum(t["pnl"] for t in losses))) if losses and sum(t["pnl"] for t in losses) != 0 else (float('inf') if wins else 0)
+        profit_factor = (
+            (sum(t["pnl"] for t in wins) / abs(sum(t["pnl"] for t in losses)))
+            if losses and sum(t["pnl"] for t in losses) != 0
+            else (float("inf") if wins else 0)
+        )
 
-        print(f"\n{'='*55}")
+        print(f"\n{'=' * 55}")
         print(f"📊 KẾT QUẢ FULL SYSTEM — {SYMBOL} {TIMEFRAME} ({EXCHANGE})")
-        print(f"{'='*55}")
+        print(f"{'=' * 55}")
         print(f"   Vốn ban đầu:      ${INITIAL_CAPITAL:,.2f}")
         print(f"   Vốn cuối:         ${eq_values[-1]:,.2f}")
         print(f"   Tổng lợi nhuận:   {total_return:+.2f}%")
@@ -283,11 +337,12 @@ class FullSystemSimulator:
         # Phân bố theo năm
         print("\n📅 PHÂN BỐ THEO NĂM")
         from collections import defaultdict
+
         yearly = defaultdict(list)
         for ts, eq in self.equity_curve:
             year = datetime.fromisoformat(str(ts)).year
             yearly[year].append(eq)
-        
+
         for year in sorted(yearly.keys()):
             eqs = yearly[year]
             ret = (eqs[-1] / eqs[0] - 1) * 100
@@ -298,37 +353,51 @@ class FullSystemSimulator:
         for t in self.trade_log[-10:]:
             pnl = t.get("pnl", 0)
             side = "🟢" if pnl > 0 else "🔴"
-            print(f"   {side} {t['side']}  {t['amount']:.4f} @ ${t['price']:,.2f} pnl ${pnl:+.2f} ({pnl/t['price']/t['amount']*100:+.1f}%) [{t.get('exit_reason', 'signal')}] {t['timestamp'][:19]}")
+            print(
+                f"   {side} {t['side']}  {t['amount']:.4f} @ ${t['price']:,.2f} pnl ${pnl:+.2f} ({pnl / t['price'] / t['amount'] * 100:+.1f}%) [{t.get('exit_reason', 'signal')}] {t['timestamp'][:19]}"
+            )
 
         # Save
         out_path = ROOT / "data" / "full_system_backtest.json"
         out_path.parent.mkdir(exist_ok=True)
         with open(out_path, "w") as f:
-            json.dump({
-                "symbol": SYMBOL,
-                "timeframe": TIMEFRAME,
-                "exchange": EXCHANGE,
-                "initial_capital": INITIAL_CAPITAL,
-                "final_equity": float(eq_values[-1]),
-                "total_return_pct": total_return,
-                "sharpe": sharpe,
-                "max_drawdown_pct": max_dd,
-                "total_trades": len(self.trade_log),
-                "win_rate_pct": win_rate,
-                "profit_factor": profit_factor,
-                "circuit_breakers": len(self.circuit_breakers),
-                "equity_curve": [[str(ts), float(eq)] for ts, eq in self.equity_curve],
-                "trades": self.trade_log,
-            }, f, indent=2)
+            json.dump(
+                {
+                    "symbol": SYMBOL,
+                    "timeframe": TIMEFRAME,
+                    "exchange": EXCHANGE,
+                    "initial_capital": INITIAL_CAPITAL,
+                    "final_equity": float(eq_values[-1]),
+                    "total_return_pct": total_return,
+                    "sharpe": sharpe,
+                    "max_drawdown_pct": max_dd,
+                    "total_trades": len(self.trade_log),
+                    "win_rate_pct": win_rate,
+                    "profit_factor": profit_factor,
+                    "circuit_breakers": len(self.circuit_breakers),
+                    "equity_curve": [
+                        [str(ts), float(eq)] for ts, eq in self.equity_curve
+                    ],
+                    "trades": self.trade_log,
+                },
+                f,
+                indent=2,
+            )
         print(f"\n💾 Saved → {out_path}")
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--fresh", action="store_true", help="Reset paper state trước khi chạy")
+    parser.add_argument(
+        "--fresh", action="store_true", help="Reset paper state trước khi chạy"
+    )
     parser.add_argument("--start", type=int, default=0, help="Bar bắt đầu (mặc định 0)")
-    parser.add_argument("--end", type=int, default=None, help="Bar kết thúc (mặc định hết)")
-    parser.add_argument("--freq", type=int, default=1, help="Phân tích mỗi N bar (mặc định 1h)")
+    parser.add_argument(
+        "--end", type=int, default=None, help="Bar kết thúc (mặc định hết)"
+    )
+    parser.add_argument(
+        "--freq", type=int, default=1, help="Phân tích mỗi N bar (mặc định 1h)"
+    )
     args = parser.parse_args()
 
     sim = FullSystemSimulator(fresh=args.fresh)

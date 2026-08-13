@@ -19,7 +19,19 @@ from enum import Enum
 from typing import Any
 from collections import defaultdict
 
-from trading_agent.exchanges.models import Symbol, Order, OrderSide, OrderType, OrderStatus, TimeInForce, Ticker, OrderBook, AssetClass, Balance, Position
+from trading_agent.exchanges.models import (
+    Symbol,
+    Order,
+    OrderSide,
+    OrderType,
+    OrderStatus,
+    TimeInForce,
+    Ticker,
+    OrderBook,
+    AssetClass,
+    Balance,
+    Position,
+)
 from trading_agent.exchanges.ccxt_adapter import MultiExchangeManager
 from trading_agent.exchanges.alpaca_adapter import AlpacaAdapter
 from trading_agent.exchanges.oanda_adapter import OANDAAdapter
@@ -29,22 +41,26 @@ logger = logging.getLogger(__name__)
 
 class RoutingStrategy(str, Enum):
     """Order routing strategies"""
-    BEST_PRICE = "best_price"      # Route to best bid/ask
-    TWAP = "twap"                  # Time-weighted average price
-    VWAP = "vwap"                  # Volume-weighted average price
-    SPLIT = "split"                # Split across venues
-    MARKETABLE = "marketable"      # Take liquidity at best price
-    PASSIVE = "passive"            # Provide liquidity (post-only)
+
+    BEST_PRICE = "best_price"  # Route to best bid/ask
+    TWAP = "twap"  # Time-weighted average price
+    VWAP = "vwap"  # Volume-weighted average price
+    SPLIT = "split"  # Split across venues
+    MARKETABLE = "marketable"  # Take liquidity at best price
+    PASSIVE = "passive"  # Provide liquidity (post-only)
 
 
 @dataclass
 class ExecutionPlan:
     """Order execution plan"""
+
     symbol: Symbol
     side: OrderSide
     total_size: Decimal
     strategy: RoutingStrategy
-    child_orders: list[dict] = field(default_factory=list)  # exchange, size, price, type
+    child_orders: list[dict] = field(
+        default_factory=list
+    )  # exchange, size, price, type
     estimated_slippage: Decimal = Decimal(0)
     estimated_fees: Decimal = Decimal(0)
     time_horizon: timedelta = timedelta(minutes=5)
@@ -54,6 +70,7 @@ class ExecutionPlan:
 @dataclass
 class VenueQuote:
     """Quote from a single venue"""
+
     exchange_id: str
     adapter: Any  # ExchangeAdapter
     ticker: Ticker
@@ -99,7 +116,7 @@ class BestPriceRouter(ExecutionAlgorithm):
 
         # Find best price
         if side == OrderSide.BUY:
-            best = min(venues, key=lambda v: v.ticker.ask or float('inf'))
+            best = min(venues, key=lambda v: v.ticker.ask or float("inf"))
             price = best.ticker.ask
         else:
             best = max(venues, key=lambda v: v.ticker.bid or 0)
@@ -110,25 +127,27 @@ class BestPriceRouter(ExecutionAlgorithm):
         if side == OrderSide.BUY and ob.asks:
             available = sum(a.size for a in ob.asks[:5])
             if float(available) < float(size):
-                slippage = Decimal('0.001')  # 10 bps estimate
+                slippage = Decimal("0.001")  # 10 bps estimate
             else:
-                slippage = Decimal('0.0002')
+                slippage = Decimal("0.0002")
         else:
-            slippage = Decimal('0.0002')
+            slippage = Decimal("0.0002")
 
         return ExecutionPlan(
             symbol=symbol,
             side=side,
             total_size=size,
             strategy=RoutingStrategy.BEST_PRICE,
-            child_orders=[{
-                'exchange': best.exchange_id,
-                'adapter': best.adapter,
-                'size': size,
-                'price': price,
-                'type': OrderType.LIMIT,
-                'time_in_force': TimeInForce.IOC,
-            }],
+            child_orders=[
+                {
+                    "exchange": best.exchange_id,
+                    "adapter": best.adapter,
+                    "size": size,
+                    "price": price,
+                    "type": OrderType.LIMIT,
+                    "time_in_force": TimeInForce.IOC,
+                }
+            ],
             estimated_slippage=slippage,
             estimated_fees=size * price * best.fee_rate,
         )
@@ -140,13 +159,13 @@ class BestPriceRouter(ExecutionAlgorithm):
                 id=f"{plan.symbol.base}_{datetime.now().timestamp()}",
                 symbol=plan.symbol,
                 side=plan.side,
-                type=child['type'],
-                size=child['size'],
-                price=child['price'],
-                time_in_force=child['time_in_force'],
+                type=child["type"],
+                size=child["size"],
+                price=child["price"],
+                time_in_force=child["time_in_force"],
             )
             try:
-                executed = await child['adapter'].create_order(order)
+                executed = await child["adapter"].create_order(order)
                 results.append(executed)
             except Exception as e:
                 logger.error(f"BestPriceRouter execution failed: {e}")
@@ -177,20 +196,24 @@ class TWAPRouter(ExecutionAlgorithm):
         # Use best venue for TWAP
         best = venues[0]  # Could be enhanced to pick by liquidity
 
-        n_slices = max(1, int(time_horizon.total_seconds() / self.slice_interval.total_seconds()))
+        n_slices = max(
+            1, int(time_horizon.total_seconds() / self.slice_interval.total_seconds())
+        )
         slice_size = size / n_slices
 
         child_orders = []
         for i in range(n_slices):
-            child_orders.append({
-                'exchange': best.exchange_id,
-                'adapter': best.adapter,
-                'size': slice_size,
-                'price': None,  # Market orders for TWAP
-                'type': OrderType.MARKET,
-                'time_in_force': TimeInForce.IOC,
-                'delay': i * self.slice_interval,
-            })
+            child_orders.append(
+                {
+                    "exchange": best.exchange_id,
+                    "adapter": best.adapter,
+                    "size": slice_size,
+                    "price": None,  # Market orders for TWAP
+                    "type": OrderType.MARKET,
+                    "time_in_force": TimeInForce.IOC,
+                    "delay": i * self.slice_interval,
+                }
+            )
 
         return ExecutionPlan(
             symbol=symbol,
@@ -198,25 +221,29 @@ class TWAPRouter(ExecutionAlgorithm):
             total_size=size,
             strategy=RoutingStrategy.TWAP,
             child_orders=child_orders,
-            estimated_slippage=Decimal('0.0005') * n_slices,
-            estimated_fees=sum(slice_size * best.ticker.last * best.fee_rate for _ in range(n_slices)) if best.ticker.last else Decimal(0),
+            estimated_slippage=Decimal("0.0005") * n_slices,
+            estimated_fees=sum(
+                slice_size * best.ticker.last * best.fee_rate for _ in range(n_slices)
+            )
+            if best.ticker.last
+            else Decimal(0),
             time_horizon=time_horizon,
         )
 
     async def execute(self, plan: ExecutionPlan) -> list[Order]:
         results = []
         for child in plan.child_orders:
-            await asyncio.sleep(child['delay'].total_seconds())
+            await asyncio.sleep(child["delay"].total_seconds())
             order = Order(
                 id=f"{plan.symbol.base}_twap_{datetime.now().timestamp()}",
                 symbol=plan.symbol,
                 side=plan.side,
-                type=child['type'],
-                size=child['size'],
-                time_in_force=child['time_in_force'],
+                type=child["type"],
+                size=child["size"],
+                time_in_force=child["time_in_force"],
             )
             try:
-                executed = await child['adapter'].create_order(order)
+                executed = await child["adapter"].create_order(order)
                 results.append(executed)
             except Exception as e:
                 logger.error(f"TWAP execution failed: {e}")
@@ -251,16 +278,18 @@ class SplitRouter(ExecutionAlgorithm):
 
         for venue in venues:
             price = venue.ticker.ask if side == OrderSide.BUY else venue.ticker.bid
-            child_orders.append({
-                'exchange': venue.exchange_id,
-                'adapter': venue.adapter,
-                'size': per_venue,
-                'price': price,
-                'type': OrderType.LIMIT,
-                'time_in_force': TimeInForce.IOC,
-            })
+            child_orders.append(
+                {
+                    "exchange": venue.exchange_id,
+                    "adapter": venue.adapter,
+                    "size": per_venue,
+                    "price": price,
+                    "type": OrderType.LIMIT,
+                    "time_in_force": TimeInForce.IOC,
+                }
+            )
             total_fees += per_venue * (price or Decimal(0)) * venue.fee_rate
-            total_slippage += Decimal('0.0003')
+            total_slippage += Decimal("0.0003")
 
         return ExecutionPlan(
             symbol=symbol,
@@ -280,12 +309,12 @@ class SplitRouter(ExecutionAlgorithm):
                 id=f"{plan.symbol.base}_split_{datetime.now().timestamp()}",
                 symbol=plan.symbol,
                 side=plan.side,
-                type=child['type'],
-                size=child['size'],
-                price=child['price'],
-                time_in_force=child['time_in_force'],
+                type=child["type"],
+                size=child["size"],
+                price=child["price"],
+                time_in_force=child["time_in_force"],
             )
-            tasks.append(child['adapter'].create_order(order))
+            tasks.append(child["adapter"].create_order(order))
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
         executed_orders = []
@@ -296,8 +325,8 @@ class SplitRouter(ExecutionAlgorithm):
                     id=f"{plan.symbol.base}_split_{i}",
                     symbol=plan.symbol,
                     side=plan.side,
-                    type=plan.child_orders[i]['type'],
-                    size=plan.child_orders[i]['size'],
+                    type=plan.child_orders[i]["type"],
+                    size=plan.child_orders[i]["size"],
                     status=OrderStatus.REJECTED,
                     error=str(result),
                 )
@@ -321,7 +350,9 @@ class VWAPRouter(ExecutionAlgorithm):
     ) -> ExecutionPlan:
         # Simplified: delegate to TWAP for now
         twap = TWAPRouter()
-        return await twap.create_plan(symbol, side, size, venues, time_horizon, max_participation)
+        return await twap.create_plan(
+            symbol, side, size, venues, time_horizon, max_participation
+        )
 
     async def execute(self, plan: ExecutionPlan) -> list[Order]:
         twap = TWAPRouter()
@@ -373,46 +404,64 @@ class OrderRouter:
             try:
                 ticker = await adapter.fetch_ticker(symbol)
                 ob = await adapter.fetch_order_book(symbol, limit=10)
-                venues.append(VenueQuote(
-                    exchange_id=exchange_id,
-                    adapter=adapter,
-                    ticker=ticker,
-                    order_book=ob,
-                    latency_ms=50,  # Estimated
-                    fee_rate=Decimal('0.001'),  # 10 bps default
-                ))
+                venues.append(
+                    VenueQuote(
+                        exchange_id=exchange_id,
+                        adapter=adapter,
+                        ticker=ticker,
+                        order_book=ob,
+                        latency_ms=50,  # Estimated
+                        fee_rate=Decimal("0.001"),  # 10 bps default
+                    )
+                )
             except Exception as e:
                 logger.debug(f"Failed to get quote from {exchange_id}: {e}")
 
         # Alpaca (stocks)
-        if self.alpaca and self.alpaca.is_connected() and symbol.asset_class.value == 'stock':
+        if (
+            self.alpaca
+            and self.alpaca.is_connected()
+            and symbol.asset_class.value == "stock"
+        ):
             try:
                 ticker = await self.alpaca.fetch_ticker(symbol)
-                ob = await self.alpaca.fetch_order_book(symbol) if hasattr(self.alpaca, 'fetch_order_book') else OrderBook(symbol=symbol, timestamp=datetime.now())
-                venues.append(VenueQuote(
-                    exchange_id='alpaca',
-                    adapter=self.alpaca,
-                    ticker=ticker,
-                    order_book=ob,
-                    latency_ms=100,
-                    fee_rate=Decimal('0.0005'),  # 5 bps
-                ))
+                ob = (
+                    await self.alpaca.fetch_order_book(symbol)
+                    if hasattr(self.alpaca, "fetch_order_book")
+                    else OrderBook(symbol=symbol, timestamp=datetime.now())
+                )
+                venues.append(
+                    VenueQuote(
+                        exchange_id="alpaca",
+                        adapter=self.alpaca,
+                        ticker=ticker,
+                        order_book=ob,
+                        latency_ms=100,
+                        fee_rate=Decimal("0.0005"),  # 5 bps
+                    )
+                )
             except Exception as e:
                 logger.debug(f"Failed to get quote from alpaca: {e}")
 
         # OANDA (forex)
-        if self.oanda and self.oanda.is_connected() and symbol.asset_class.value == 'forex':
+        if (
+            self.oanda
+            and self.oanda.is_connected()
+            and symbol.asset_class.value == "forex"
+        ):
             try:
                 ticker = await self.oanda.fetch_ticker(symbol)
                 ob = await self.oanda.fetch_order_book(symbol)
-                venues.append(VenueQuote(
-                    exchange_id='oanda',
-                    adapter=self.oanda,
-                    ticker=ticker,
-                    order_book=ob,
-                    latency_ms=80,
-                    fee_rate=Decimal('0.0001'),  # 1 pip spread cost
-                ))
+                venues.append(
+                    VenueQuote(
+                        exchange_id="oanda",
+                        adapter=self.oanda,
+                        ticker=ticker,
+                        order_book=ob,
+                        latency_ms=80,
+                        fee_rate=Decimal("0.0001"),  # 1 pip spread cost
+                    )
+                )
             except Exception as e:
                 logger.debug(f"Failed to get quote from oanda: {e}")
 
@@ -435,7 +484,9 @@ class OrderRouter:
             raise ValueError(f"No liquid venues for {symbol}")
 
         algorithm = self.get_algorithm(strategy)
-        plan = await algorithm.create_plan(symbol, side, size, venues, time_horizon, max_participation)
+        plan = await algorithm.create_plan(
+            symbol, side, size, venues, time_horizon, max_participation
+        )
         return plan
 
     async def execute_plan(self, plan: ExecutionPlan) -> list[Order]:
@@ -444,13 +495,18 @@ class OrderRouter:
         orders = await algorithm.execute(plan)
 
         # Record execution
-        self._execution_history.append({
-            'plan': plan,
-            'orders': orders,
-            'timestamp': datetime.now(),
-            'filled_size': sum(o.filled_size for o in orders),
-            'avg_price': sum(o.avg_fill_price * o.filled_size for o in orders) / sum(o.filled_size for o in orders) if orders else Decimal(0),
-        })
+        self._execution_history.append(
+            {
+                "plan": plan,
+                "orders": orders,
+                "timestamp": datetime.now(),
+                "filled_size": sum(o.filled_size for o in orders),
+                "avg_price": sum(o.avg_fill_price * o.filled_size for o in orders)
+                / sum(o.filled_size for o in orders)
+                if orders
+                else Decimal(0),
+            }
+        )
 
         return orders
 
@@ -463,29 +519,33 @@ class OrderRouter:
         time_horizon: timedelta = timedelta(minutes=5),
     ) -> list[Order]:
         """One-shot smart order: plan + execute"""
-        plan = await self.create_execution_plan(symbol, side, size, strategy, time_horizon)
+        plan = await self.create_execution_plan(
+            symbol, side, size, strategy, time_horizon
+        )
         return await self.execute_plan(plan)
 
     def get_execution_quality(self, symbol: Symbol | None = None) -> dict:
         """Analyze execution quality"""
         history = self._execution_history
         if symbol:
-            history = [h for h in history if h['plan'].symbol == symbol]
+            history = [h for h in history if h["plan"].symbol == symbol]
 
         if not history:
             return {}
 
-        total_filled = sum(h['filled_size'] for h in history)
+        total_filled = sum(h["filled_size"] for h in history)
         total_slippage = sum(
-            (h['avg_price'] - h['plan'].child_orders[0].get('price', h['avg_price'])) / h['avg_price']
-            for h in history if h['avg_price'] > 0
+            (h["avg_price"] - h["plan"].child_orders[0].get("price", h["avg_price"]))
+            / h["avg_price"]
+            for h in history
+            if h["avg_price"] > 0
         ) / len(history)
 
         return {
-            'total_orders': len(history),
-            'total_filled': float(total_filled),
-            'avg_slippage_bps': float(total_slippage * 10000),
-            'fill_rate': sum(1 for h in history if h['filled_size'] > 0) / len(history),
+            "total_orders": len(history),
+            "total_filled": float(total_filled),
+            "avg_slippage_bps": float(total_slippage * 10000),
+            "fill_rate": sum(1 for h in history if h["filled_size"] > 0) / len(history),
         }
 
 
@@ -512,7 +572,11 @@ class AccountManager:
 
     async def fetch_total_balance(self) -> dict[AssetClass, Balance]:
         """Fetch and aggregate balances across all venues"""
-        all_balances: dict[AssetClass, dict[str, dict]] = defaultdict(lambda: defaultdict(lambda: {'free': Decimal(0), 'used': Decimal(0), 'total': Decimal(0)}))
+        all_balances: dict[AssetClass, dict[str, dict]] = defaultdict(
+            lambda: defaultdict(
+                lambda: {"free": Decimal(0), "used": Decimal(0), "total": Decimal(0)}
+            )
+        )
 
         # CCXT exchanges
         for exchange_id, adapter in self.multi_exchange.exchanges.items():
@@ -522,9 +586,15 @@ class AccountManager:
                 balances = await adapter.fetch_balance()
                 for asset_class, balance in balances.items():
                     for currency, amounts in balance.assets.items():
-                        all_balances[asset_class][currency]['free'] += Decimal(str(amounts['free']))
-                        all_balances[asset_class][currency]['used'] += Decimal(str(amounts['used']))
-                        all_balances[asset_class][currency]['total'] += Decimal(str(amounts['total']))
+                        all_balances[asset_class][currency]["free"] += Decimal(
+                            str(amounts["free"])
+                        )
+                        all_balances[asset_class][currency]["used"] += Decimal(
+                            str(amounts["used"])
+                        )
+                        all_balances[asset_class][currency]["total"] += Decimal(
+                            str(amounts["total"])
+                        )
             except Exception as e:
                 logger.debug(f"Failed to fetch balance from {exchange_id}: {e}")
 
@@ -534,9 +604,15 @@ class AccountManager:
                 balances = await self.alpaca.fetch_balance()
                 for asset_class, balance in balances.items():
                     for currency, amounts in balance.assets.items():
-                        all_balances[asset_class][currency]['free'] += Decimal(str(amounts['free']))
-                        all_balances[asset_class][currency]['used'] += Decimal(str(amounts['used']))
-                        all_balances[asset_class][currency]['total'] += Decimal(str(amounts['total']))
+                        all_balances[asset_class][currency]["free"] += Decimal(
+                            str(amounts["free"])
+                        )
+                        all_balances[asset_class][currency]["used"] += Decimal(
+                            str(amounts["used"])
+                        )
+                        all_balances[asset_class][currency]["total"] += Decimal(
+                            str(amounts["total"])
+                        )
             except Exception as e:
                 logger.debug(f"Failed to fetch balance from alpaca: {e}")
 
@@ -546,19 +622,32 @@ class AccountManager:
                 balances = await self.oanda.fetch_balance()
                 for asset_class, balance in balances.items():
                     for currency, amounts in balance.assets.items():
-                        all_balances[asset_class][currency]['free'] += Decimal(str(amounts['free']))
-                        all_balances[asset_class][currency]['used'] += Decimal(str(amounts['used']))
-                        all_balances[asset_class][currency]['total'] += Decimal(str(amounts['total']))
+                        all_balances[asset_class][currency]["free"] += Decimal(
+                            str(amounts["free"])
+                        )
+                        all_balances[asset_class][currency]["used"] += Decimal(
+                            str(amounts["used"])
+                        )
+                        all_balances[asset_class][currency]["total"] += Decimal(
+                            str(amounts["total"])
+                        )
             except Exception as e:
                 logger.debug(f"Failed to fetch balance from oanda: {e}")
 
         # Convert to Balance objects
         result = {}
         for asset_class, currencies in all_balances.items():
-            result[asset_class] = Balance(asset_class=asset_class, assets={
-                k: {'free': float(v['free']), 'used': float(v['used']), 'total': float(v['total'])}
-                for k, v in currencies.items()
-            })
+            result[asset_class] = Balance(
+                asset_class=asset_class,
+                assets={
+                    k: {
+                        "free": float(v["free"]),
+                        "used": float(v["used"]),
+                        "total": float(v["total"]),
+                    }
+                    for k, v in currencies.items()
+                },
+            )
         return result
 
     async def fetch_net_positions(self) -> dict[Symbol, Position]:
@@ -607,7 +696,9 @@ class AccountManager:
 
             # Current mark price (weighted)
             total_mark_notional = sum(p.size * p.mark_price for p in pos_list)
-            avg_mark = total_mark_notional / total_size if total_size != 0 else Decimal(0)
+            avg_mark = (
+                total_mark_notional / total_size if total_size != 0 else Decimal(0)
+            )
 
             netted[symbol] = Position(
                 symbol=symbol,
@@ -632,8 +723,8 @@ class AccountManager:
         # Add cash balances (assume USD stablecoins = $1)
         for asset_class, balance in balances.items():
             for currency, amounts in balance.assets.items():
-                if currency in ('USDT', 'USDC', 'BUSD', 'DAI', 'FDUSD', 'TUSD', 'USD'):
-                    total += Decimal(str(amounts['total']))
+                if currency in ("USDT", "USDC", "BUSD", "DAI", "FDUSD", "TUSD", "USD"):
+                    total += Decimal(str(amounts["total"]))
 
         # Add position values
         for symbol, pos in positions.items():
@@ -646,8 +737,8 @@ class AccountManager:
         # This would require fetching margin info from each venue
         # Simplified version
         return {
-            'healthy': True,
-            'total_margin_used': 0,
-            'total_margin_available': 0,
-            'margin_ratio': 0,
+            "healthy": True,
+            "total_margin_used": 0,
+            "total_margin_available": 0,
+            "margin_ratio": 0,
         }

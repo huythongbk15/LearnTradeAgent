@@ -84,7 +84,9 @@ class Trader(BaseAgent):
         in_position = (context.current_position_pct or 0.0) > 0.001
         if risk_override:
             final_signal = "SELL" if in_position else "HOLD"
-            final_conf = min(0.6, sum(confidences) / len(confidences) if confidences else 0.5)
+            final_conf = min(
+                0.6, sum(confidences) / len(confidences) if confidences else 0.5
+            )
             reasoning_parts = [
                 f"[RISK OVERRIDE] Risk level: {risk_level} "
                 f"{'(EXIT POSITION)' if in_position else '(NO NEW ENTRIES)'}",

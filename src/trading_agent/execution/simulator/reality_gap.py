@@ -43,14 +43,16 @@ REALITY_GAP_METRICS = [
 # Metrics that MUST be present for a valid promotion gate (fail-closed default).
 # Only the absolutely critical execution quality metrics are required by default.
 # Other metrics (sharpe, drawdown, etc.) are optional — missing from both is a warning.
-DEFAULT_REQUIRED_METRICS = frozenset([
-    "fill_ratio",
-    "slippage_bps",
-    "implementation_shortfall_bps",
-    "rejected_order_rate",
-    "partial_fill_rate",
-    "trade_count",
-])
+DEFAULT_REQUIRED_METRICS = frozenset(
+    [
+        "fill_ratio",
+        "slippage_bps",
+        "implementation_shortfall_bps",
+        "rejected_order_rate",
+        "partial_fill_rate",
+        "trade_count",
+    ]
+)
 
 
 @dataclass
@@ -141,7 +143,9 @@ def compute_reality_gap(
       - Optional metrics missing from both → warning only
     """
     thresholds = {**DEFAULT_REALITY_GAP_THRESHOLDS, **(thresholds or {})}
-    required = required_metrics if required_metrics is not None else DEFAULT_REQUIRED_METRICS
+    required = (
+        required_metrics if required_metrics is not None else DEFAULT_REQUIRED_METRICS
+    )
     deviations: list[float] = []
     breaches: list[str] = []
     missing_in_both: list[str] = []
@@ -250,8 +254,16 @@ def reality_gap_between(
     required_metrics: frozenset[str] | None = None,
 ) -> RealityGapReport:
     """One-call helper: build a report from two result objects (or metric dicts)."""
-    obs = observed_metrics if observed_metrics is not None else environment_metrics_from_result(observed_result)
-    ref = reference_metrics if reference_metrics is not None else environment_metrics_from_result(reference_result)
+    obs = (
+        observed_metrics
+        if observed_metrics is not None
+        else environment_metrics_from_result(observed_result)
+    )
+    ref = (
+        reference_metrics
+        if reference_metrics is not None
+        else environment_metrics_from_result(reference_result)
+    )
     return compute_reality_gap(
         environment=environment,
         reference_environment=reference_environment,

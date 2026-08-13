@@ -15,7 +15,15 @@ from trading_agent.data.pipeline import (
 )
 
 __all__ = [
-    'DataSource', 'CandleStore', 'SQLiteCandleStore', 'TimescaleDBCandleStore',
-    'CCXTSource', 'AlpacaSource', 'OANDASource', 'MockSource',
-    'DataPipeline', 'IngestReport', 'DEFAULT_DB_PATH',
+    "DataSource",
+    "CandleStore",
+    "SQLiteCandleStore",
+    "TimescaleDBCandleStore",
+    "CCXTSource",
+    "AlpacaSource",
+    "OANDASource",
+    "MockSource",
+    "DataPipeline",
+    "IngestReport",
+    "DEFAULT_DB_PATH",
 ]

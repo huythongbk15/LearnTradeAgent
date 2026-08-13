@@ -112,6 +112,7 @@ def fetch_ohlcv(
 def download_all(exchange: str | None):
     """Download all configured symbols & timeframes."""
     from trading_agent.data.collector import download_all_symbols
+
     download_all_symbols(exchange)
 
 
@@ -119,9 +120,12 @@ def download_all(exchange: str | None):
 def list_datasets_cmd():
     """List available datasets in local storage."""
     from trading_agent.data.storage import list_datasets
+
     datasets = list_datasets()
     if not datasets:
-        console.print("[yellow]No datasets found. Run `trading-agent data download-all` first.[/yellow]")
+        console.print(
+            "[yellow]No datasets found. Run `trading-agent data download-all` first.[/yellow]"
+        )
         return
 
     table = Table("Exchange", "Symbol", "Timeframe")
@@ -137,6 +141,7 @@ def list_datasets_cmd():
 def inspect_data(symbol: str, exchange: str | None, timeframe: str | None):
     """Inspect stored OHLCV data (row count, date range, head)."""
     from trading_agent.data.storage import load_ohlcv
+
     exchange = exchange or config.default_exchange
     timeframe = timeframe or config.default_timeframe
 
@@ -171,13 +176,12 @@ def update_ohlcv(
 ):
     """Incremental update — fetch only new candles since last stored."""
     from trading_agent.data.collector import Collector
+
     exchange = exchange or config.default_exchange
     timeframe = timeframe or config.default_timeframe
 
     collector = Collector(exchange)
-    console.print(
-        f"Updating [bold]{symbol}[/bold] {timeframe} on {exchange}…"
-    )
+    console.print(f"Updating [bold]{symbol}[/bold] {timeframe} on {exchange}…")
     df = collector.update_ohlcv(symbol, timeframe, since=since)
     if df.is_empty():
         console.print("[green]✓ Up to date[/green]")
@@ -201,6 +205,7 @@ def validate_data(
 ):
     """Check data quality: gaps, outliers, completeness."""
     from trading_agent.data.collector import Collector, validate_all_symbols
+
     exchange = exchange or config.default_exchange
 
     if symbol and timeframe:
@@ -226,11 +231,20 @@ def validate_data(
             gaps = r["checks"].get("gaps", {}).get("count", "-")
             outliers = r["checks"].get("price_outliers", {}).get("count", "-")
             rows = r["checks"].get("row_count", "-")
-            icon = "✅" if r["status"] == "OK" else "⚠️" if r["status"] == "ISSUES_FOUND" else "❌"
+            icon = (
+                "✅"
+                if r["status"] == "OK"
+                else "⚠️"
+                if r["status"] == "ISSUES_FOUND"
+                else "❌"
+            )
             table.add_row(
-                r["symbol"], r["timeframe"],
+                r["symbol"],
+                r["timeframe"],
                 f"{icon} {r['status']}",
-                str(rows), str(gaps), str(outliers),
+                str(rows),
+                str(gaps),
+                str(outliers),
             )
         console.print(table)
 
@@ -256,9 +270,7 @@ def _print_validation_report(exchange, symbol, tf, report):
 
     c = report["checks"]
     console.print(f"  Rows: {c['row_count']:,}")
-    console.print(
-        f"  Range: {c['date_range']['start']} → {c['date_range']['end']}"
-    )
+    console.print(f"  Range: {c['date_range']['start']} → {c['date_range']['end']}")
 
     # Gaps
     gaps = c.get("gaps", {})
@@ -312,6 +324,7 @@ def export_data(
 ):
     """Export stored data to CSV or JSON."""
     from trading_agent.data.storage import load_ohlcv
+
     exchange = exchange or config.default_exchange
     timeframe = timeframe or config.default_timeframe
 
@@ -325,7 +338,9 @@ def export_data(
     if not output:
         safe_sym = symbol.replace("/", "_").replace(":", "_")
         ext = format
-        output = str(config.project_root / "data" / "processed" / f"{safe_sym}_{timeframe}.{ext}")
+        output = str(
+            config.project_root / "data" / "processed" / f"{safe_sym}_{timeframe}.{ext}"
+        )
 
     output_path = Path(output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -335,7 +350,9 @@ def export_data(
     elif format == "json":
         df.write_json(output_path)
 
-    console.print(f"Exported [green]{len(df):,}[/green] rows → [blue]{output_path}[/blue]")
+    console.print(
+        f"Exported [green]{len(df):,}[/green] rows → [blue]{output_path}[/blue]"
+    )
 
 
 @data.command("enrich-at")
@@ -353,23 +370,27 @@ def enrich_atr_cmd(
 ):
     """Pre-compute and store ATR for stored OHLCV data."""
     from trading_agent.data.storage import enrich_with_atr, enrich_all_datasets
-    
+
     if enrich_all:
-        console.print(f"[cyan]Enriching all datasets with ATR (period={period})...[/cyan]")
+        console.print(
+            f"[cyan]Enriching all datasets with ATR (period={period})...[/cyan]"
+        )
         paths = enrich_all_datasets(period=period)
         console.print(f"[green]Enriched {len(paths)} datasets[/green]")
         return
-    
+
     if not symbol or not timeframe:
-        console.print("[red]--symbol and --timeframe required unless --all is used[/red]")
+        console.print(
+            "[red]--symbol and --timeframe required unless --all is used[/red]"
+        )
         return
-    
+
     exchange = exchange or config.default_exchange
-    
+
     try:
         path = enrich_with_atr(exchange, symbol, timeframe, period=period)
-        console.print(f"[green]Enriched {exchange} {symbol} {timeframe} → {path}[/green]")
+        console.print(
+            f"[green]Enriched {exchange} {symbol} {timeframe} → {path}[/green]"
+        )
     except FileNotFoundError as e:
         console.print(f"[red]{e}[/red]")
-
-

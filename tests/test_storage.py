@@ -55,6 +55,7 @@ class TestSaveLoad:
         path = self._table_path().parent
         if path.exists():
             import shutil
+
             shutil.rmtree(path)
 
     def test_save_and_load(self):

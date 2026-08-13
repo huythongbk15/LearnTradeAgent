@@ -49,6 +49,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class RegimeStrategyConfig:
     """Configuration for a sub-strategy within a regime."""
+
     strategy_name: str
     weight: float
     params: dict[str, Any]
@@ -57,34 +58,60 @@ class RegimeStrategyConfig:
 # Default regime → strategy mapping
 DEFAULT_REGIME_STRATEGIES: dict[MarketRegime, list[RegimeStrategyConfig]] = {
     MarketRegime.BULL_TREND: [
-        RegimeStrategyConfig("enhanced_ma", 0.6, {"fast": 10, "slow": 30, "adx_threshold": 20}),
-        RegimeStrategyConfig("ma_crossover", 0.4, {"fast_period": 8, "slow_period": 21}),
+        RegimeStrategyConfig(
+            "enhanced_ma", 0.6, {"fast": 10, "slow": 30, "adx_threshold": 20}
+        ),
+        RegimeStrategyConfig(
+            "ma_crossover", 0.4, {"fast_period": 8, "slow_period": 21}
+        ),
     ],
     MarketRegime.BEAR_TREND: [
-        RegimeStrategyConfig("enhanced_ma", 0.6, {"fast": 8, "slow": 25, "adx_threshold": 20}),
-        RegimeStrategyConfig("ma_crossover", 0.4, {"fast_period": 5, "slow_period": 15}),
+        RegimeStrategyConfig(
+            "enhanced_ma", 0.6, {"fast": 8, "slow": 25, "adx_threshold": 20}
+        ),
+        RegimeStrategyConfig(
+            "ma_crossover", 0.4, {"fast_period": 5, "slow_period": 15}
+        ),
     ],
     MarketRegime.SIDEWAYS: [
-        RegimeStrategyConfig("rsi", 0.5, {"period": 14, "oversold": 30, "overbought": 70}),
+        RegimeStrategyConfig(
+            "rsi", 0.5, {"period": 14, "oversold": 30, "overbought": 70}
+        ),
         RegimeStrategyConfig("bbands", 0.5, {"period": 20, "std_dev": 2.0}),
     ],
     MarketRegime.HIGH_VOLATILITY: [
-        RegimeStrategyConfig("rsi", 0.4, {"period": 14, "oversold": 25, "overbought": 75}),
+        RegimeStrategyConfig(
+            "rsi", 0.4, {"period": 14, "oversold": 25, "overbought": 75}
+        ),
         RegimeStrategyConfig("bbands", 0.4, {"period": 20, "std_dev": 2.5}),
-        RegimeStrategyConfig("enhanced_ma", 0.2, {"fast": 5, "slow": 15, "adx_threshold": 30}),
+        RegimeStrategyConfig(
+            "enhanced_ma", 0.2, {"fast": 5, "slow": 15, "adx_threshold": 30}
+        ),
     ],
     MarketRegime.LOW_VOLATILITY: [
         RegimeStrategyConfig("bbands", 0.5, {"period": 20, "std_dev": 1.5}),
-        RegimeStrategyConfig("ma_crossover", 0.3, {"fast_period": 3, "slow_period": 10}),
-        RegimeStrategyConfig("enhanced_ma", 0.2, {"fast": 5, "slow": 20, "adx_threshold": 15}),
+        RegimeStrategyConfig(
+            "ma_crossover", 0.3, {"fast_period": 3, "slow_period": 10}
+        ),
+        RegimeStrategyConfig(
+            "enhanced_ma", 0.2, {"fast": 5, "slow": 20, "adx_threshold": 15}
+        ),
     ],
     MarketRegime.CRISIS: [
-        RegimeStrategyConfig("rsi", 0.6, {"period": 14, "oversold": 20, "overbought": 80}),
-        RegimeStrategyConfig("enhanced_ma", 0.4, {"fast": 3, "slow": 10, "adx_threshold": 40}),
+        RegimeStrategyConfig(
+            "rsi", 0.6, {"period": 14, "oversold": 20, "overbought": 80}
+        ),
+        RegimeStrategyConfig(
+            "enhanced_ma", 0.4, {"fast": 3, "slow": 10, "adx_threshold": 40}
+        ),
     ],
     MarketRegime.RECOVERY: [
-        RegimeStrategyConfig("enhanced_ma", 0.5, {"fast": 10, "slow": 30, "adx_threshold": 20}),
-        RegimeStrategyConfig("ma_crossover", 0.3, {"fast_period": 8, "slow_period": 21}),
+        RegimeStrategyConfig(
+            "enhanced_ma", 0.5, {"fast": 10, "slow": 30, "adx_threshold": 20}
+        ),
+        RegimeStrategyConfig(
+            "ma_crossover", 0.3, {"fast_period": 8, "slow_period": 21}
+        ),
         RegimeStrategyConfig("bbands", 0.2, {"period": 20, "std_dev": 2.0}),
     ],
     MarketRegime.UNKNOWN: [
@@ -119,14 +146,22 @@ class RegimeSwitchingStrategy(Strategy):
         super().__init__(params)
 
         # Regime detection config
-        self.regime_method = params.get("regime_method", "hybrid")  # hmm, gmm, rule_based, hybrid
+        self.regime_method = params.get(
+            "regime_method", "hybrid"
+        )  # hmm, gmm, rule_based, hybrid
         self.lookback = int(params.get("lookback", 200))
         self.min_confidence = float(params.get("min_confidence", 0.55))
-        self.regime_smoothing = int(params.get("regime_smoothing", 3))  # bars to confirm regime change
-        self.refit_every = int(params.get("refit_every", 0))  # 0 = never refit, else refit every N bars
+        self.regime_smoothing = int(
+            params.get("regime_smoothing", 3)
+        )  # bars to confirm regime change
+        self.refit_every = int(
+            params.get("refit_every", 0)
+        )  # 0 = never refit, else refit every N bars
 
         # Custom regime-strategy mapping (overrides defaults)
-        self.custom_mapping: dict[str, list[dict]] | None = params.get("regime_strategies")
+        self.custom_mapping: dict[str, list[dict]] | None = params.get(
+            "regime_strategies"
+        )
 
         # Position sizing
         self.position_sizing = params.get("position_sizing", "fixed")
@@ -169,26 +204,32 @@ class RegimeSwitchingStrategy(Strategy):
 
         return self._detector
 
-    def _get_regime_strategies(self, regime: MarketRegime) -> list[RegimeStrategyConfig]:
+    def _get_regime_strategies(
+        self, regime: MarketRegime
+    ) -> list[RegimeStrategyConfig]:
         """Get strategy configs for a regime."""
         if self.custom_mapping and regime.value in self.custom_mapping:
             configs = []
             for cfg in self.custom_mapping[regime.value]:
-                configs.append(RegimeStrategyConfig(
-                    strategy_name=cfg["strategy_name"],
-                    weight=cfg.get("weight", 1.0),
-                    params=cfg.get("params", {}),
-                ))
+                configs.append(
+                    RegimeStrategyConfig(
+                        strategy_name=cfg["strategy_name"],
+                        weight=cfg.get("weight", 1.0),
+                        params=cfg.get("params", {}),
+                    )
+                )
             return configs
-        return DEFAULT_REGIME_STRATEGIES.get(regime, DEFAULT_REGIME_STRATEGIES[MarketRegime.UNKNOWN])
+        return DEFAULT_REGIME_STRATEGIES.get(
+            regime, DEFAULT_REGIME_STRATEGIES[MarketRegime.UNKNOWN]
+        )
 
     def _fit_detector(self, df: pl.DataFrame) -> None:
         """Fit detector ONCE on initial data (first lookback bars)."""
         if self._detector_fitted:
             return
 
-        prices = df["close"][:self.lookback]
-        volumes = df["volume"][:self.lookback] if "volume" in df.columns else None
+        prices = df["close"][: self.lookback]
+        volumes = df["volume"][: self.lookback] if "volume" in df.columns else None
 
         if len(prices) < 50:
             logger.warning(f"Not enough data to fit detector: {len(prices)} bars")
@@ -210,12 +251,16 @@ class RegimeSwitchingStrategy(Strategy):
 
             self._detector_fitted = True
             self._bars_since_refit = 0
-            logger.info(f"Regime detector ({self.regime_method}) fitted on {len(prices)} bars")
+            logger.info(
+                f"Regime detector ({self.regime_method}) fitted on {len(prices)} bars"
+            )
 
         except Exception as e:
             logger.warning(f"Failed to fit regime detector: {e}")
 
-    def _predict_regime(self, df: pl.DataFrame, bar_idx: int) -> tuple[MarketRegime, float]:
+    def _predict_regime(
+        self, df: pl.DataFrame, bar_idx: int
+    ) -> tuple[MarketRegime, float]:
         """Predict regime at bar_idx using already-fitted detector (fast, no re-fit)."""
         if not self._detector_fitted:
             self._fit_detector(df)
@@ -265,7 +310,11 @@ class RegimeSwitchingStrategy(Strategy):
             try:
                 detector = self._get_detector()
                 prices_pd = hist_df["close"].to_pandas()
-                volumes_pd = hist_df["volume"].to_pandas() if "volume" in hist_df.columns else None
+                volumes_pd = (
+                    hist_df["volume"].to_pandas()
+                    if "volume" in hist_df.columns
+                    else None
+                )
 
                 if isinstance(detector, HybridRegimeDetector):
                     detector.initialize(prices_pd, volumes_pd)
@@ -304,6 +353,7 @@ class RegimeSwitchingStrategy(Strategy):
         # Add regime indicators if using rule-based (adds ATR percentile, ADX, etc.)
         if self.regime_method in ("rule_based", "hybrid"):
             from trading_agent.regime import add_regime_indicators
+
             df = add_regime_indicators(df)
 
         # Pre-fit detector on initial data
@@ -343,7 +393,14 @@ class RegimeSwitchingStrategy(Strategy):
                 self._current_regime = regime
 
             # Only use regime if stable and confident
-            use_regime = self._current_regime if (self._regime_stable_count >= self.regime_smoothing and confidence >= self.min_confidence) else MarketRegime.UNKNOWN
+            use_regime = (
+                self._current_regime
+                if (
+                    self._regime_stable_count >= self.regime_smoothing
+                    and confidence >= self.min_confidence
+                )
+                else MarketRegime.UNKNOWN
+            )
 
             # Get strategies for current regime
             regime_strategies = self._get_regime_strategies(use_regime)
@@ -409,21 +466,25 @@ if __name__ == "__main__":
     np.random.seed(42)
     n = 1000
     # Synthetic data with regime changes
-    returns = np.concatenate([
-        np.random.normal(0.0008, 0.008, 250),   # bull
-        np.random.normal(0.0001, 0.004, 250),   # sideways
-        np.random.normal(-0.0009, 0.012, 250),  # bear
-        np.random.normal(0.0002, 0.025, 250),   # high vol
-    ])
+    returns = np.concatenate(
+        [
+            np.random.normal(0.0008, 0.008, 250),  # bull
+            np.random.normal(0.0001, 0.004, 250),  # sideways
+            np.random.normal(-0.0009, 0.012, 250),  # bear
+            np.random.normal(0.0002, 0.025, 250),  # high vol
+        ]
+    )
     prices = 100 * np.exp(np.cumsum(returns))
 
-    df = pl.DataFrame({
-        "open": prices + np.random.randn(n) * 0.5,
-        "high": prices + abs(np.random.randn(n) * 1.0),
-        "low": prices - abs(np.random.randn(n) * 1.0),
-        "close": prices,
-        "volume": np.random.exponential(1000, n),
-    })
+    df = pl.DataFrame(
+        {
+            "open": prices + np.random.randn(n) * 0.5,
+            "high": prices + abs(np.random.randn(n) * 1.0),
+            "low": prices - abs(np.random.randn(n) * 1.0),
+            "close": prices,
+            "volume": np.random.exponential(1000, n),
+        }
+    )
 
     result = run_regime_switching_backtest(df, params={"regime_method": "rule_based"})
     print("Regime Switching Backtest:")

@@ -1,6 +1,8 @@
 """Unit tests cho risk guard trong live runner (ATR trailing stop + drawdown halt)."""
+
 import sys
 import os
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
@@ -18,11 +20,13 @@ def make_df(closes, highs=None, atr=None, n=1000):
     closes = np.asarray(closes, dtype=float)
     highs = np.asarray(highs, dtype=float) if highs is not None else closes
     atr = np.full(n, atr if atr is not None else 1.0)
-    return pl.DataFrame({
-        "close": np.concatenate([np.full(n - len(closes), closes[0]), closes]),
-        "high": np.concatenate([np.full(n - len(highs), highs[0]), highs]),
-        "atr": atr,
-    })
+    return pl.DataFrame(
+        {
+            "close": np.concatenate([np.full(n - len(closes), closes[0]), closes]),
+            "high": np.concatenate([np.full(n - len(highs), highs[0]), highs]),
+            "atr": atr,
+        }
+    )
 
 
 class TestTrailingStopPrice:
@@ -56,16 +60,23 @@ class TestTrailingStopPrice:
 
 class TestDrawdownHalt:
     def test_scale_tiers(self):
-        pm = PortfolioRiskManager(DrawdownConfig(tiers=[
-            (0.05, 0.75), (0.10, 0.50), (0.15, 0.25), (0.20, 0.00),
-        ]))
+        pm = PortfolioRiskManager(
+            DrawdownConfig(
+                tiers=[
+                    (0.05, 0.75),
+                    (0.10, 0.50),
+                    (0.15, 0.25),
+                    (0.20, 0.00),
+                ]
+            )
+        )
         pm.update_equity(100_000)
         assert pm.position_scale_factor() == 1.0
-        pm.update_equity(93_000)   # DD 7%
+        pm.update_equity(93_000)  # DD 7%
         assert pm.position_scale_factor() == 0.75
-        pm.update_equity(85_000)   # DD 15%
+        pm.update_equity(85_000)  # DD 15%
         assert pm.position_scale_factor() == 0.25
-        pm.update_equity(79_000)   # DD 21% → halt
+        pm.update_equity(79_000)  # DD 21% → halt
         assert pm.is_trading_halted()
         assert pm.position_scale_factor() == 0.0
 

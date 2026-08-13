@@ -119,9 +119,15 @@ class TrialsRegistry:
         """Number of evaluation attempts (may exceed unique trials)."""
         return len(self._history)
 
-    def best_trial(self, strategy_name: str | None = None, metric_name: str = "total_return_pct") -> TrialRecord | None:
+    def best_trial(
+        self, strategy_name: str | None = None, metric_name: str = "total_return_pct"
+    ) -> TrialRecord | None:
         """Highest metric among trials (optionally for one strategy)."""
-        candidates = self._history if strategy_name is None else self.trials_for_strategy(strategy_name)
+        candidates = (
+            self._history
+            if strategy_name is None
+            else self.trials_for_strategy(strategy_name)
+        )
         candidates = [t for t in candidates if t.metric_name == metric_name]
         if not candidates:
             return None

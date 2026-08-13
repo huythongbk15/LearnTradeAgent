@@ -23,6 +23,7 @@ def system_serve(port: int):
     """Start Prometheus metrics server (blocking)."""
     from trading_agent.execution.engine import setup_graceful_shutdown
     from trading_agent.monitoring.metrics_server import serve_forever
+
     setup_graceful_shutdown()
     serve_forever(port=port)
 
@@ -37,7 +38,9 @@ def system_shutdown_test():
     )
 
     # Register a test handler
-    register_shutdown_handler(lambda: console.print("[green]✓ Shutdown handler executed[/green]"))
+    register_shutdown_handler(
+        lambda: console.print("[green]✓ Shutdown handler executed[/green]")
+    )
 
     # Install signal handlers
     setup_graceful_shutdown()
@@ -59,6 +62,7 @@ def system_shutdown_test():
 def system_daily(send_telegram: bool):
     """Generate and print daily performance summary."""
     from trading_agent.execution.engine import ExecutionEngine
+
     engine = ExecutionEngine()
     summary = engine.get_summary()
     positions = engine.get_positions_summary()
@@ -96,6 +100,7 @@ def system_daily(send_telegram: bool):
     # Send via Telegram if requested
     if send_telegram:
         from trading_agent.monitoring.alerter import send_daily_summary
+
         send_daily_summary(stats)
         console.print("[green]✅ Summary sent to Telegram[/green]")
 
@@ -119,7 +124,8 @@ def system_health():
         try:
             r = subprocess.run(
                 ["curl", "-sf", url],
-                timeout=timeout, capture_output=True,
+                timeout=timeout,
+                capture_output=True,
             )
             return r.returncode == 0
         except Exception:
@@ -128,13 +134,34 @@ def system_health():
     checks = [
         # Core infra — TCP port check (no extra CLI tools needed)
         ("TimescaleDB", lambda: _tcp_check("timescaledb", 5432)),
-        ("Redis",       lambda: _tcp_check("redis", 6379)),
+        ("Redis", lambda: _tcp_check("redis", 6379)),
         # HTTP services — curl-based
-        ("Grafana",     lambda: _http_check("http://grafana:3000/api/health", timeout=5)),
+        ("Grafana", lambda: _http_check("http://grafana:3000/api/health", timeout=5)),
         # Optional services — only checked if DNS resolves
-        ("Prometheus",  lambda: _http_check("http://prometheus:9090/-/healthy") if _tcp_check("prometheus", 9090) else ("skip", "not deployed")),
-        ("Loki",        lambda: _http_check("http://loki:3100/ready") if _tcp_check("loki", 3100) else ("skip", "not deployed")),
-        ("Nginx",       lambda: _http_check("http://nginx/healthz") if _tcp_check("nginx", 80) else ("skip", "not deployed")),
+        (
+            "Prometheus",
+            lambda: (
+                _http_check("http://prometheus:9090/-/healthy")
+                if _tcp_check("prometheus", 9090)
+                else ("skip", "not deployed")
+            ),
+        ),
+        (
+            "Loki",
+            lambda: (
+                _http_check("http://loki:3100/ready")
+                if _tcp_check("loki", 3100)
+                else ("skip", "not deployed")
+            ),
+        ),
+        (
+            "Nginx",
+            lambda: (
+                _http_check("http://nginx/healthz")
+                if _tcp_check("nginx", 80)
+                else ("skip", "not deployed")
+            ),
+        ),
     ]
 
     console.print("[bold]Running health checks...[/bold]\n")
@@ -156,13 +183,16 @@ def system_health():
 
     # Print results table
     from rich.table import Table as RichTable
+
     t = RichTable("Component", "Status", "Latency")
     for name, status, latency in results:
         t.add_row(name, status, latency)
     console.print(t)
 
     # Summary
-    failed = sum(1 for _, s, _ in results if "FAIL" in s or "TIMEOUT" in s or "ERROR" in s)
+    failed = sum(
+        1 for _, s, _ in results if "FAIL" in s or "TIMEOUT" in s or "ERROR" in s
+    )
     if failed:
         console.print(f"\n[red]❌ {failed} check(s) failed[/red]")
         raise SystemExit(1)
@@ -173,9 +203,13 @@ def system_health():
 @system.command("logs")
 @click.option("--lines", "-n", default=100, help="Number of lines")
 @click.option("--follow", "-f", is_flag=True, help="Follow logs")
-@click.option("--component", "-c", default=None,
-              type=click.Choice(["agent", "execution", "data", "risk", "all"]),
-              help="Filter by component")
+@click.option(
+    "--component",
+    "-c",
+    default=None,
+    type=click.Choice(["agent", "execution", "data", "risk", "all"]),
+    help="Filter by component",
+)
 def system_logs(lines: int, follow: bool, component: str | None):
     """View recent logs from trading agent container."""
 
@@ -248,6 +282,7 @@ def system_metrics():
         return
 
     from rich.table import Table as RichTable
+
     t = RichTable("Metric", "Value")
     for k, v in sorted(metrics.items()):
         if isinstance(v, float):
@@ -264,5 +299,3 @@ def system_metrics():
         else:
             t.add_row(k, str(v))
     console.print(t)
-
-

@@ -11,8 +11,13 @@ from typing import Any, Optional
 
 from trading_agent.events.store import EventStore
 from trading_agent.events.projections import (
-    Projection, TradeProjection, PositionProjection,
-    PortfolioProjection, RiskProjection, OrderProjection, SignalProjection,
+    Projection,
+    TradeProjection,
+    PositionProjection,
+    PortfolioProjection,
+    RiskProjection,
+    OrderProjection,
+    SignalProjection,
 )
 
 logger = logging.getLogger(__name__)
@@ -21,13 +26,13 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ProjectionManager:
     """Manages multiple event projections."""
-    
+
     event_store: EventStore
     projections: dict[str, Projection] = field(default_factory=dict)
     _running: bool = False
     _task: Optional[asyncio.Task] = None
     _last_position: dict[str, int] = field(default_factory=dict)
-    
+
     def __post_init__(self):
         # Register default projections
         self.register_projection("trades", TradeProjection())
@@ -36,22 +41,22 @@ class ProjectionManager:
         self.register_projection("risk", RiskProjection())
         self.register_projection("orders", OrderProjection())
         self.register_projection("signals", SignalProjection())
-    
+
     def register_projection(self, name: str, projection: Projection) -> None:
         """Register a projection."""
         self.projections[name] = projection
         self._last_position[name] = 0
         logger.info(f"Registered projection: {name}")
-    
+
     async def start(self) -> None:
         """Start projection processing."""
         if self._running:
             return
-        
+
         self._running = True
         self._task = asyncio.create_task(self._process_loop())
         logger.info("Projection manager started")
-    
+
     async def stop(self) -> None:
         """Stop projection processing."""
         self._running = False
@@ -62,7 +67,7 @@ class ProjectionManager:
             except asyncio.CancelledError:
                 pass
         logger.info("Projection manager stopped")
-    
+
     async def _process_loop(self) -> None:
         """Main processing loop."""
         while self._running:
@@ -70,35 +75,35 @@ class ProjectionManager:
                 # Process each projection
                 for name, projection in self.projections.items():
                     position = self._last_position.get(name, 0)
-                    
+
                     # Get new events
                     events = await self.event_store.get_events(
                         stream_name="all",
                         from_position=position,
                         max_count=100,
                     )
-                    
+
                     for event in events:
                         await projection.project(event)
                         position = event.position
-                    
+
                     self._last_position[name] = position
-                
+
                 await asyncio.sleep(1)  # Poll interval
-                
+
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 logger.error(f"Projection processing error: {e}")
                 await asyncio.sleep(5)
-    
+
     async def rebuild_all(self, from_position: int = 0) -> None:
         """Rebuild all projections from event store."""
         logger.info(f"Rebuilding all projections from position {from_position}")
-        
+
         for name, projection in self.projections.items():
             self._last_position[name] = from_position
-        
+
         # Process all events
         position = from_position
         while True:
@@ -107,37 +112,37 @@ class ProjectionManager:
                 from_position=position,
                 max_count=1000,
             )
-            
+
             if not events:
                 break
-            
+
             for event in events:
                 for projection in self.projections.values():
                     await projection.project(event)
                 position = event.position
-            
+
             if len(events) < 1000:
                 break
-        
+
         for name in self.projections:
             self._last_position[name] = position
-        
+
         logger.info(f"Rebuild complete, final position: {position}")
-    
+
     async def get_projection_state(self, name: str) -> dict[str, Any]:
         """Get state of a specific projection."""
         projection = self.projections.get(name)
         if not projection:
             raise ValueError(f"Projection not found: {name}")
         return await projection.get_state()
-    
+
     async def get_all_states(self) -> dict[str, dict[str, Any]]:
         """Get state of all projections."""
         return {
             name: await projection.get_state()
             for name, projection in self.projections.items()
         }
-    
+
     def get_projection(self, name: str) -> Optional[Projection]:
         """Get projection by name."""
         return self.projections.get(name)
@@ -156,27 +161,31 @@ app = typer.Typer(name="projection", help="Event sourcing projections")
 def rebuild(
     event_store_path: str = typer.Argument(..., help="Path to event store"),
     from_position: int = typer.Option(0, "--from", help="Position to rebuild from"),
-    projection: str = typer.Option(None, "--projection", "-p", help="Specific projection to rebuild"),
+    projection: str = typer.Option(
+        None, "--projection", "-p", help="Specific projection to rebuild"
+    ),
 ):
     """Rebuild projections from event store."""
     import asyncio
-    
+
     async def _rebuild():
         store = EventStore(event_store_path)
         await store.connect()
-        
+
         manager = ProjectionManager(store)
-        
+
         if projection:
             # Rebuild single projection
             proj = manager.get_projection(projection)
             if not proj:
                 console.print(f"[red]Projection not found: {projection}[/red]")
                 return
-            
+
             position = from_position
             while True:
-                events = await store.get_events("all", from_position=position, max_count=1000)
+                events = await store.get_events(
+                    "all", from_position=position, max_count=1000
+                )
                 if not events:
                     break
                 for event in events:
@@ -184,32 +193,34 @@ def rebuild(
                     position = event.position
                 if len(events) < 1000:
                     break
-            
+
             console.print(f"[green]Rebuilt {projection} to position {position}[/green]")
         else:
             # Rebuild all
             await manager.rebuild_all(from_position)
             console.print("[green]All projections rebuilt[/green]")
-        
+
         await store.disconnect()
-    
+
     asyncio.run(_rebuild())
 
 
 @app.command()
 def status(
     event_store_path: str = typer.Argument(..., help="Path to event store"),
-    projection: str = typer.Option(None, "--projection", "-p", help="Specific projection"),
+    projection: str = typer.Option(
+        None, "--projection", "-p", help="Specific projection"
+    ),
 ):
     """Show projection status."""
     import asyncio
-    
+
     async def _status():
         store = EventStore(event_store_path)
         await store.connect()
-        
+
         manager = ProjectionManager(store)
-        
+
         if projection:
             state = await manager.get_projection_state(projection)
             console.print(f"\n[bold]{projection} state:[/bold]")
@@ -219,14 +230,14 @@ def status(
             for name, state in states.items():
                 console.print(f"\n[bold]{name}:[/bold]")
                 _print_state(state)
-        
+
         await store.disconnect()
-    
+
     def _print_state(state: dict):
         if not state:
             console.print("  (empty)")
             return
-        
+
         table = Table("Key", "Value")
         for k, v in state.items():
             if isinstance(v, dict):
@@ -236,7 +247,7 @@ def status(
             else:
                 table.add_row(k, str(v))
         console.print(table)
-    
+
     asyncio.run(_status())
 
 
@@ -248,14 +259,14 @@ def query(
 ):
     """Query projection state."""
     import asyncio
-    
+
     async def _query():
         store = EventStore(event_store_path)
         await store.connect()
-        
+
         manager = ProjectionManager(store)
         state = await manager.get_projection_state(projection)
-        
+
         if key:
             # Navigate to key
             parts = key.split(".")
@@ -269,9 +280,9 @@ def query(
             console.print(f"{key}: {value}")
         else:
             _print_state(state)
-        
+
         await store.disconnect()
-    
+
     def _print_state(state: dict, indent: int = 0):
         prefix = "  " * indent
         for k, v in state.items():
@@ -284,7 +295,7 @@ def query(
                     console.print(f"{prefix}  First: {v[0]}")
             else:
                 console.print(f"{prefix}{k}: {v}")
-    
+
     asyncio.run(_query())
 
 

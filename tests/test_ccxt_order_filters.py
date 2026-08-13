@@ -188,9 +188,7 @@ def test_client_order_lookup_falls_back_to_trade_history():
     adapter.config = SimpleNamespace(id="binance")
     adapter._rate_limiter = NoopRateLimiter()
     adapter._reverse_symbol_map = {}
-    parsed = asyncio.run(
-        adapter.fetch_order_by_client_id("client-1", btc_symbol())
-    )
+    parsed = asyncio.run(adapter.fetch_order_by_client_id("client-1", btc_symbol()))
     assert parsed is not None
     assert parsed.status == OrderStatus.UNKNOWN
     assert parsed.raw_status == "trade_history_only"
@@ -215,23 +213,25 @@ def test_client_order_lookup_falls_back_to_closed_order_history():
             return []
 
         def fetch_closed_orders(self, symbol, since, limit):
-            return [{
-                "id": "exchange-1",
-                "clientOrderId": "client-1",
-                "status": "closed",
-                "symbol": symbol,
-                "side": "buy",
-                "type": "market",
-                "amount": 0.1,
-                "filled": 0.1,
-                "average": 100,
-                "cost": 10,
-                "price": None,
-                "fee": {"cost": 0.01, "currency": "USDT"},
-                "timeInForce": None,
-                "timestamp": None,
-                "lastTradeTimestamp": None,
-            }]
+            return [
+                {
+                    "id": "exchange-1",
+                    "clientOrderId": "client-1",
+                    "status": "closed",
+                    "symbol": symbol,
+                    "side": "buy",
+                    "type": "market",
+                    "amount": 0.1,
+                    "filled": 0.1,
+                    "average": 100,
+                    "cost": 10,
+                    "price": None,
+                    "fee": {"cost": 0.01, "currency": "USDT"},
+                    "timeInForce": None,
+                    "timestamp": None,
+                    "lastTradeTimestamp": None,
+                }
+            ]
 
         def fetch_my_trades(self, symbol, since, limit):
             raise ccxt.NotSupported("trade history unavailable")
@@ -241,9 +241,7 @@ def test_client_order_lookup_falls_back_to_closed_order_history():
     adapter.config = SimpleNamespace(id="binance")
     adapter._rate_limiter = NoopRateLimiter()
     adapter._reverse_symbol_map = {}
-    parsed = asyncio.run(
-        adapter.fetch_order_by_client_id("client-1", btc_symbol())
-    )
+    parsed = asyncio.run(adapter.fetch_order_by_client_id("client-1", btc_symbol()))
     assert parsed is not None
     assert parsed.status == OrderStatus.FILLED
     assert parsed.raw_status == "closed"

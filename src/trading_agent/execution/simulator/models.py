@@ -32,12 +32,12 @@ class SimOrderType(Enum):
 
 
 class SimOrderStatus(Enum):
-    PENDING = "pending"          # waiting for submission latency
-    SUBMITTED = "submitted"      # on the book / being worked
+    PENDING = "pending"  # waiting for submission latency
+    SUBMITTED = "submitted"  # on the book / being worked
     FILLED = "filled"
     PARTIALLY_FILLED = "partially_filled"
     CANCELED = "canceled"
-    REJECTED = "rejected"        # fail-closed: stale quote, sequence gap, min notional, insufficient funds
+    REJECTED = "rejected"  # fail-closed: stale quote, sequence gap, min notional, insufficient funds
 
 
 class RejectReason(Enum):
@@ -65,22 +65,22 @@ class SimulationConfig:
     fill_model_version: str = FILL_MODEL_VERSION
     impact_model_version: str = IMPACT_MODEL_VERSION
     fee_model_version: str = FEE_MODEL_VERSION
-    market_data_manifest: str = ""          # sha256 of the input market data
+    market_data_manifest: str = ""  # sha256 of the input market data
     random_seed: int = 42
 
     # ── Market structure (OHLCV-derived book, no L2 data required) ──────
-    spread_bps: float = 5.0                 # base spread (5 bps = 0.05%)
-    depth_levels: int = 5                   # levels per side
-    depth_volume_share: float = 0.25        # book size per side = share * previous-bar volume
-    tick_size: float = 0.01                 # price grid
-    step_size: float = 1e-6                 # quantity grid
-    min_qty: float = 0.0                    # min order quantity (base)
-    min_notional: float = 0.0               # min order notional (quote)
+    spread_bps: float = 5.0  # base spread (5 bps = 0.05%)
+    depth_levels: int = 5  # levels per side
+    depth_volume_share: float = 0.25  # book size per side = share * previous-bar volume
+    tick_size: float = 0.01  # price grid
+    step_size: float = 1e-6  # quantity grid
+    min_qty: float = 0.0  # min order quantity (base)
+    min_notional: float = 0.0  # min order notional (quote)
 
     # ── Fees ────────────────────────────────────────────────────────────
-    taker_fee: float = 0.0005               # 5 bps
-    maker_fee: float = 0.0002               # 2 bps
-    fee_asset: str = "quote"                # "quote" | "base"
+    taker_fee: float = 0.0005  # 5 bps
+    maker_fee: float = 0.0002  # 2 bps
+    fee_asset: str = "quote"  # "quote" | "base"
     min_fee: float = 0.0
 
     # ── Latency (milliseconds) ──────────────────────────────────────────
@@ -90,13 +90,15 @@ class SimulationConfig:
     network_latency_ms: float = 30.0
 
     # ── Fill model ──────────────────────────────────────────────────────
-    queue_position_base: float = 0.5        # deterministic fraction of level size ahead of us
-    passive_fill_prob: float = 0.30         # per-bar probability a resting limit fills (seeded)
+    queue_position_base: float = 0.5  # deterministic fraction of level size ahead of us
+    passive_fill_prob: float = (
+        0.30  # per-bar probability a resting limit fills (seeded)
+    )
 
     # ── Impact model ────────────────────────────────────────────────────
-    impact_coeff: float = 1.0               # multiplier on sqrt impact
+    impact_coeff: float = 1.0  # multiplier on sqrt impact
     impact_decay_half_life_bars: float = 3.0
-    adverse_selection_bps: float = 2.0      # base adverse mid move after aggressive fill
+    adverse_selection_bps: float = 2.0  # base adverse mid move after aggressive fill
 
     # ── Staleness / safety ──────────────────────────────────────────────
     max_book_age_seconds: float = 60.0
@@ -110,7 +112,9 @@ class SimulationConfig:
         if self.depth_levels < 1:
             raise ValueError(f"depth_levels must be >= 1, got {self.depth_levels}")
         if not 0 < self.depth_volume_share <= 1:
-            raise ValueError(f"depth_volume_share must be in (0, 1], got {self.depth_volume_share}")
+            raise ValueError(
+                f"depth_volume_share must be in (0, 1], got {self.depth_volume_share}"
+            )
         if self.tick_size <= 0:
             raise ValueError(f"tick_size must be > 0, got {self.tick_size}")
         if self.step_size <= 0:
@@ -124,25 +128,41 @@ class SimulationConfig:
         if not 0 <= self.maker_fee < 1:
             raise ValueError(f"maker_fee must be in [0, 1), got {self.maker_fee}")
         if self.fee_asset not in ("quote", "base"):
-            raise ValueError(f"fee_asset must be 'quote' or 'base', got {self.fee_asset!r}")
+            raise ValueError(
+                f"fee_asset must be 'quote' or 'base', got {self.fee_asset!r}"
+            )
         if self.min_fee < 0:
             raise ValueError(f"min_fee must be >= 0, got {self.min_fee}")
-        if self.submit_latency_ms < 0 or self.ack_latency_ms < 0 or self.cancel_latency_ms < 0:
+        if (
+            self.submit_latency_ms < 0
+            or self.ack_latency_ms < 0
+            or self.cancel_latency_ms < 0
+        ):
             raise ValueError("latencies must be >= 0")
         if self.network_latency_ms < 0:
             raise ValueError("network_latency_ms must be >= 0")
         if not 0 <= self.queue_position_base <= 1:
-            raise ValueError(f"queue_position_base must be in [0, 1], got {self.queue_position_base}")
+            raise ValueError(
+                f"queue_position_base must be in [0, 1], got {self.queue_position_base}"
+            )
         if not 0 <= self.passive_fill_prob <= 1:
-            raise ValueError(f"passive_fill_prob must be in [0, 1], got {self.passive_fill_prob}")
+            raise ValueError(
+                f"passive_fill_prob must be in [0, 1], got {self.passive_fill_prob}"
+            )
         if self.impact_coeff < 0:
             raise ValueError(f"impact_coeff must be >= 0, got {self.impact_coeff}")
         if self.impact_decay_half_life_bars <= 0:
-            raise ValueError(f"impact_decay_half_life_bars must be > 0, got {self.impact_decay_half_life_bars}")
+            raise ValueError(
+                f"impact_decay_half_life_bars must be > 0, got {self.impact_decay_half_life_bars}"
+            )
         if self.adverse_selection_bps < 0:
-            raise ValueError(f"adverse_selection_bps must be >= 0, got {self.adverse_selection_bps}")
+            raise ValueError(
+                f"adverse_selection_bps must be >= 0, got {self.adverse_selection_bps}"
+            )
         if self.max_book_age_seconds <= 0:
-            raise ValueError(f"max_book_age_seconds must be > 0, got {self.max_book_age_seconds}")
+            raise ValueError(
+                f"max_book_age_seconds must be > 0, got {self.max_book_age_seconds}"
+            )
 
     def fingerprint(self) -> str:
         """Stable hash of the versioned parameters (excludes bookkeeping)."""
@@ -244,7 +264,7 @@ class OrderIntent:
     side: SimSide
     order_type: SimOrderType
     quantity: float
-    limit_price: float | None = None      # required for LIMIT
+    limit_price: float | None = None  # required for LIMIT
     client_order_id: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
     submit_latency_override_ms: float | None = None
@@ -262,11 +282,11 @@ class Fill:
     price: float
     fee: float
     fee_asset: str
-    aggressor: str                      # "market" | "limit_passive"
-    level_price: float                  # book level price before impact adjustment
+    aggressor: str  # "market" | "limit_passive"
+    level_price: float  # book level price before impact adjustment
     impact_bps: float = 0.0
     mid_before: float = 0.0
-    mid_after: float = 0.0              # post-fill mid (adverse selection window start)
+    mid_after: float = 0.0  # post-fill mid (adverse selection window start)
     is_partial: bool = False
 
     @property
@@ -306,11 +326,11 @@ class OrderResult:
     cancel_time: datetime | None = None
     queue_approx: float | None = None
     # P&L attribution prices (Section 4)
-    decision_price: float | None = None     # strategy decision mid at signal bar
-    arrival_price: float | None = None      # mid at submission bar open
-    submit_price: float | None = None       # mid at actual submission time
+    decision_price: float | None = None  # strategy decision mid at signal bar
+    arrival_price: float | None = None  # mid at submission bar open
+    submit_price: float | None = None  # mid at actual submission time
     fill_vwap: float | None = None
-    post_fill_mid: float | None = None      # mid shortly after the last fill
+    post_fill_mid: float | None = None  # mid shortly after the last fill
 
     @property
     def filled_quantity(self) -> float:
@@ -322,7 +342,9 @@ class OrderResult:
 
     @property
     def fill_ratio(self) -> float:
-        return self.filled_quantity / self.intent.quantity if self.intent.quantity else 0.0
+        return (
+            self.filled_quantity / self.intent.quantity if self.intent.quantity else 0.0
+        )
 
     @property
     def total_fee(self) -> float:
@@ -342,7 +364,9 @@ class OrderResult:
             "reject_reason": self.reject_reason.value,
             "fills": [f.to_dict() for f in self.fills],
             "submit_time": self.submit_time.isoformat() if self.submit_time else None,
-            "first_fill_time": self.first_fill_time.isoformat() if self.first_fill_time else None,
+            "first_fill_time": self.first_fill_time.isoformat()
+            if self.first_fill_time
+            else None,
             "decision_price": self.decision_price,
             "arrival_price": self.arrival_price,
             "submit_price": self.submit_price,

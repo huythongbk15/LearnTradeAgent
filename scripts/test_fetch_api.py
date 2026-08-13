@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Test /api/data/fetch với nhiều symbol × timeframe qua API."""
+
 import json
 import sys
 import time
@@ -16,14 +17,17 @@ CASES = [
     ("BNB/USDT", "1h", "2026-08-09T00:00:00"),
     ("AVAX/USDT", "1h", "2026-08-09T00:00:00"),
     ("SOL/USDT", "1h", "2026-08-09T00:00:00"),
-    ("SLP/USDT", "1h", "2026-08-09T00:00:00"),   # altcoin nhỏ
-    ("BTC/USDT", "1h", None),                      # mặc định (không since)
+    ("SLP/USDT", "1h", "2026-08-09T00:00:00"),  # altcoin nhỏ
+    ("BTC/USDT", "1h", None),  # mặc định (không since)
 ]
 
 
 def post(url, payload):
-    req = urllib.request.Request(url, data=json.dumps(payload).encode(),
-                                 headers={"Content-Type": "application/json"})
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json"},
+    )
     with urllib.request.urlopen(req, timeout=15) as r:
         return json.loads(r.read())
 
@@ -45,7 +49,9 @@ def main() -> int:
         lines, status, err = [], "running", ""
         for _ in range(30):
             try:
-                with urllib.request.urlopen(f"{BASE}/api/backtest/{job}", timeout=10) as r:
+                with urllib.request.urlopen(
+                    f"{BASE}/api/backtest/{job}", timeout=10
+                ) as r:
                     d = json.loads(r.read())
             except Exception:
                 time.sleep(2)

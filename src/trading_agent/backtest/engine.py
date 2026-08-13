@@ -30,6 +30,7 @@ from trading_agent.strategies.base import Strategy
 @dataclass
 class Trade:
     """Một giao dịch hoàn chỉnh (entry → exit)."""
+
     entry_date: Any
     exit_date: Any | None
     entry_price: float
@@ -46,6 +47,7 @@ class Trade:
 @dataclass
 class BacktestResult:
     """Kết quả backtest đầy đủ."""
+
     strategy_name: str
     symbol: str
     timeframe: str
@@ -89,7 +91,7 @@ class BacktestResult:
 
 class BacktestEngine:
     """Vectorized backtest engine — nhanh, đơn giản, long-only.
-    
+
     FIXES applied:
     - No look-ahead: signal at t → position at t+1, fill at open[t+1]
     - Fee+slippage+spread on BOTH entry and exit
@@ -105,12 +107,12 @@ class BacktestEngine:
         initial_capital: float = 10_000.0,
         commission: float = 0.001,
         slippage: float = 0.0005,
-        spread_bps: float = 0.0,          # Spread in basis points (e.g., 5 = 0.05%)
+        spread_bps: float = 0.0,  # Spread in basis points (e.g., 5 = 0.05%)
         long_only: bool = True,
         # SL/TP/Trailing
-        atr_sl_mult: float = 0.0,         # 0 = disabled, else ATR multiplier for stop loss
-        atr_tp_mult: float = 0.0,         # 0 = disabled, else ATR multiplier for take profit
-        trailing_atr_mult: float = 0.0,   # 0 = disabled, else ATR multiplier for trailing
+        atr_sl_mult: float = 0.0,  # 0 = disabled, else ATR multiplier for stop loss
+        atr_tp_mult: float = 0.0,  # 0 = disabled, else ATR multiplier for take profit
+        trailing_atr_mult: float = 0.0,  # 0 = disabled, else ATR multiplier for trailing
         # Position sizing
         position_sizing_method: str = "fixed",
         fixed_position_pct: float = 0.1,
@@ -130,7 +132,9 @@ class BacktestEngine:
         if spread_bps < 0 or spread_bps >= 20_000:
             raise ValueError("spread_bps must be in [0, 20000)")
         if not long_only:
-            raise NotImplementedError("BacktestEngine currently supports long_only=True")
+            raise NotImplementedError(
+                "BacktestEngine currently supports long_only=True"
+            )
 
         self.strategy = strategy
         self.initial_capital = initial_capital
@@ -154,14 +158,16 @@ class BacktestEngine:
         self.timeframe = timeframe
 
         # Initialize position sizer
-        self.position_sizer = PositionSizer(PositionSizingParams(
-            method=position_sizing_method,
-            fixed_fraction=fixed_position_pct,
-            kelly_fraction=kelly_fraction,
-            target_annual_vol=target_annual_vol,
-            max_leverage=max_leverage,
-            max_position_pct=max_position_pct,
-        ))
+        self.position_sizer = PositionSizer(
+            PositionSizingParams(
+                method=position_sizing_method,
+                fixed_fraction=fixed_position_pct,
+                kelly_fraction=kelly_fraction,
+                target_annual_vol=target_annual_vol,
+                max_leverage=max_leverage,
+                max_position_pct=max_position_pct,
+            )
+        )
 
         # Trade history for Kelly estimation
         self._trade_history: list[dict] = []
@@ -221,7 +227,7 @@ class BacktestEngine:
     def _compute_positions_and_returns(self, df: pl.DataFrame) -> pl.DataFrame:
         """
         Compute positions and returns with NO look-ahead bias.
-        
+
         Timing:
         - signal at bar i is generated from data UP TO bar i (close[i] known)
         - position change takes effect at bar i+1
@@ -244,10 +250,12 @@ class BacktestEngine:
             "realized_pnl": np.zeros(n, dtype=np.float64),
         }
         if n == 0:
-            return df.with_columns([
-                pl.Series(name, values, dtype=pl.Float64)
-                for name, values in float_columns.items()
-            ])
+            return df.with_columns(
+                [
+                    pl.Series(name, values, dtype=pl.Float64)
+                    for name, values in float_columns.items()
+                ]
+            )
 
         open_prices = df["open"].to_numpy().astype(np.float64)
         high_prices = df["high"].to_numpy().astype(np.float64)
@@ -307,18 +315,22 @@ class BacktestEngine:
                 exit_price=exit_price,
                 size=position,
             )
-            self._ledger_trades.append(Trade(
-                entry_date=timestamps[entry_idx],
-                exit_date=timestamps[i],
-                entry_price=float(entry_price),
-                exit_price=float(exit_price),
-                direction=1,
-                pnl_pct=float(net_pnl / entry_notional * 100) if entry_notional else 0.0,
-                bars_held=max(i - entry_idx, 0),
-                pnl_abs=float(net_pnl),
-                fees=float(entry_fee + exit_fee),
-                exit_reason=reason,
-            ))
+            self._ledger_trades.append(
+                Trade(
+                    entry_date=timestamps[entry_idx],
+                    exit_date=timestamps[i],
+                    entry_price=float(entry_price),
+                    exit_price=float(exit_price),
+                    direction=1,
+                    pnl_pct=float(net_pnl / entry_notional * 100)
+                    if entry_notional
+                    else 0.0,
+                    bars_held=max(i - entry_idx, 0),
+                    pnl_abs=float(net_pnl),
+                    fees=float(entry_fee + exit_fee),
+                    exit_reason=reason,
+                )
+            )
 
             position = 0.0
             entry_price = 0.0
@@ -338,7 +350,9 @@ class BacktestEngine:
                 signal_atr = atr_values[i - 1] if atr_values is not None else None
                 signal_atr = (
                     float(signal_atr)
-                    if signal_atr is not None and np.isfinite(signal_atr) and signal_atr > 0
+                    if signal_atr is not None
+                    and np.isfinite(signal_atr)
+                    and signal_atr > 0
                     else None
                 )
                 buy_price = open_prices[i] * buy_factor
@@ -372,14 +386,22 @@ class BacktestEngine:
             # conservative stop-first assumption because tick order is unknown.
             if position > 0:
                 if current_sl > 0 and low_prices[i] <= current_sl:
-                    stop_reference = open_prices[i] if open_prices[i] <= current_sl else current_sl
+                    stop_reference = (
+                        open_prices[i] if open_prices[i] <= current_sl else current_sl
+                    )
                     close_position(i, stop_reference, "stop_loss")
                 elif current_tp > 0 and high_prices[i] >= current_tp:
-                    tp_reference = open_prices[i] if open_prices[i] >= current_tp else current_tp
+                    tp_reference = (
+                        open_prices[i] if open_prices[i] >= current_tp else current_tp
+                    )
                     close_position(i, tp_reference, "take_profit")
                 elif self.trailing_atr_mult > 0 and atr_values is not None:
                     known_atr = atr_values[i - 1] if i > 0 else None
-                    if known_atr is not None and np.isfinite(known_atr) and known_atr > 0:
+                    if (
+                        known_atr is not None
+                        and np.isfinite(known_atr)
+                        and known_atr > 0
+                    ):
                         trailing_high = max(trailing_high, high_prices[i])
                         current_sl = max(
                             current_sl,
@@ -402,24 +424,30 @@ class BacktestEngine:
             mark_price = close_prices[-1]
             unrealized_pnl = (mark_price - entry_price) * position - entry_fee
             entry_notional = entry_price * position
-            self._ledger_trades.append(Trade(
-                entry_date=timestamps[entry_idx],
-                exit_date=None,
-                entry_price=float(entry_price),
-                exit_price=float(mark_price),
-                direction=1,
-                pnl_pct=float(unrealized_pnl / entry_notional * 100) if entry_notional else 0.0,
-                bars_held=max(n - 1 - entry_idx, 0),
-                pnl_abs=float(unrealized_pnl),
-                fees=float(entry_fee),
-                exit_reason="open",
-                is_open=True,
-            ))
+            self._ledger_trades.append(
+                Trade(
+                    entry_date=timestamps[entry_idx],
+                    exit_date=None,
+                    entry_price=float(entry_price),
+                    exit_price=float(mark_price),
+                    direction=1,
+                    pnl_pct=float(unrealized_pnl / entry_notional * 100)
+                    if entry_notional
+                    else 0.0,
+                    bars_held=max(n - 1 - entry_idx, 0),
+                    pnl_abs=float(unrealized_pnl),
+                    fees=float(entry_fee),
+                    exit_reason="open",
+                    is_open=True,
+                )
+            )
 
-        return df.with_columns([
-            pl.Series(name, values, dtype=pl.Float64)
-            for name, values in float_columns.items()
-        ])
+        return df.with_columns(
+            [
+                pl.Series(name, values, dtype=pl.Float64)
+                for name, values in float_columns.items()
+            ]
+        )
 
     def _build_equity_curve(self, df: pl.DataFrame) -> pl.DataFrame:
         """Build equity directly from the reconciled cash/position ledger."""
@@ -431,11 +459,13 @@ class BacktestEngine:
         # Drawdown
         dd = (equity / peak - 1).alias("drawdown")
 
-        return df.with_columns([
-            equity,
-            peak,
-            dd,
-        ])
+        return df.with_columns(
+            [
+                equity,
+                peak,
+                dd,
+            ]
+        )
 
     def _extract_trades(self, df: pl.DataFrame) -> list[Trade]:
         """Return trades recorded by the reconciled execution ledger."""
@@ -460,16 +490,14 @@ class BacktestEngine:
 
         # Total return
         final_equity = float(df["equity"].tail(1).item())
-        result.total_return_pct = (
-            (final_equity / self.initial_capital - 1) * 100
-        )
+        result.total_return_pct = (final_equity / self.initial_capital - 1) * 100
 
         # Annualized return (using bars_per_year)
         years = n / bars_per_year
         if years > 0:
             result.annualized_return_pct = (
-                ((final_equity / self.initial_capital) ** (1 / years) - 1) * 100
-            )
+                (final_equity / self.initial_capital) ** (1 / years) - 1
+            ) * 100
 
         # Sharpe & Sortino (dùng net_return hàng bar)
         returns = df["net_return"].drop_nulls()
@@ -482,10 +510,10 @@ class BacktestEngine:
 
             # Sharpe: annualized = avg / std * sqrt(bars_per_year)
             result.sharpe_ratio = float(
-                (avg_ret / max(float(std_ret), 1e-9)) * (bars_per_year ** 0.5)
+                (avg_ret / max(float(std_ret), 1e-9)) * (bars_per_year**0.5)
             )
             result.sortino_ratio = float(
-                (avg_ret / max(float(neg_std), 1e-9)) * (bars_per_year ** 0.5)
+                (avg_ret / max(float(neg_std), 1e-9)) * (bars_per_year**0.5)
             )
 
         # Max drawdown
@@ -500,28 +528,26 @@ class BacktestEngine:
 
             gross_profit = sum(t.pnl_abs for t in winning)
             gross_loss = abs(sum(t.pnl_abs for t in closed_trades if t.pnl_abs <= 0))
-            result.profit_factor = (
-                gross_profit / max(gross_loss, 0.001)
-            )
+            result.profit_factor = gross_profit / max(gross_loss, 0.001)
             result.avg_hold_bars = float(
                 sum(t.bars_held for t in closed_trades) / len(closed_trades)
             )
 
         # Calmar = annualized return / |max dd|
-        result.calmar_ratio = (
-            result.annualized_return_pct / max(abs(result.max_drawdown_pct), 0.01)
+        result.calmar_ratio = result.annualized_return_pct / max(
+            abs(result.max_drawdown_pct), 0.01
         )
 
     def _timeframe_to_minutes(self, timeframe: str) -> int:
         """Convert timeframe string to minutes."""
         tf = timeframe.lower().strip()
-        if tf.endswith('m'):
+        if tf.endswith("m"):
             return int(tf[:-1])
-        elif tf.endswith('h'):
+        elif tf.endswith("h"):
             return int(tf[:-1]) * 60
-        elif tf.endswith('d'):
+        elif tf.endswith("d"):
             return int(tf[:-1]) * 24 * 60
-        elif tf.endswith('w'):
+        elif tf.endswith("w"):
             return int(tf[:-1]) * 7 * 24 * 60
         raise ValueError(f"Unsupported timeframe: {timeframe!r}")
 
@@ -539,6 +565,7 @@ def run_backtest(
     """Load data + run backtest — one function for CLI use."""
     from trading_agent.data.storage import load_ohlcv
     from trading_agent.strategies.base import get_strategy
+
     # Import strategies to register them
     import trading_agent.strategies  # noqa: F401
 

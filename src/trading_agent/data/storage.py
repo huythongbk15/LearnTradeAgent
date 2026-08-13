@@ -96,9 +96,11 @@ def save_ohlcv(
         if append and path.exists():
             existing = pl.read_parquet(path)
             had_atr = "atr" in existing.columns
-            df = pl.concat([existing, df], how="diagonal_relaxed").unique(
-                subset=["timestamp"], keep="last"
-            ).sort("timestamp")
+            df = (
+                pl.concat([existing, df], how="diagonal_relaxed")
+                .unique(subset=["timestamp"], keep="last")
+                .sort("timestamp")
+            )
             # ATR is derived data. Recompute it after an append instead of
             # leaving the newly appended rows as null/stale values.
             if had_atr:
@@ -184,11 +186,13 @@ def list_datasets() -> list[dict[str, str]]:
             if not symbol_dir.is_dir():
                 continue
             for parquet_file in sorted(symbol_dir.glob("*.parquet")):
-                datasets.append({
-                    "exchange": exchange_dir.name,
-                    "symbol": symbol_dir.name.replace("_", "/"),
-                    "timeframe": parquet_file.stem,
-                })
+                datasets.append(
+                    {
+                        "exchange": exchange_dir.name,
+                        "symbol": symbol_dir.name.replace("_", "/"),
+                        "timeframe": parquet_file.stem,
+                    }
+                )
     return datasets
 
 
@@ -208,7 +212,7 @@ def enrich_with_atr(
     This computes ATR using high/low/close of the SAME bar (t).
     If used for backtesting, position sizing at bar t would use ATR[t]
     which is ONLY known after bar t closes — LOOK-AHEAD BIAS.
-    
+
     For backtesting, DO NOT use pre-enriched ATR. Instead, compute ATR
     on-the-fly in the strategy/engine with shift(1) so ATR[t-1] is used
     for bar t's position sizing.

@@ -17,16 +17,18 @@ logger = logging.getLogger(__name__)
 
 class SandboxType(Enum):
     """Sandbox execution types."""
-    SUBPROCESS = "subprocess"      # Simple subprocess isolation
-    DOCKER = "docker"              # Docker container
-    GVISOR = "gvisor"              # gVisor (runsc)
-    FIRECRACKER = "firecracker"    # Firecracker microVM
-    NSJAIL = "nsjail"              # nsjail
+
+    SUBPROCESS = "subprocess"  # Simple subprocess isolation
+    DOCKER = "docker"  # Docker container
+    GVISOR = "gvisor"  # gVisor (runsc)
+    FIRECRACKER = "firecracker"  # Firecracker microVM
+    NSJAIL = "nsjail"  # nsjail
 
 
 @dataclass
 class SandboxConfig:
     """Sandbox configuration."""
+
     sandbox_type: SandboxType = SandboxType.SUBPROCESS
     memory_limit_mb: int = 512
     cpu_limit_percent: int = 50
@@ -40,6 +42,7 @@ class SandboxConfig:
 @dataclass
 class ExecutionResult:
     """Result of sandboxed execution."""
+
     success: bool
     output: Any = None
     error: Optional[str] = None
@@ -57,11 +60,7 @@ class StrategySandbox(ABC):
 
     @abstractmethod
     async def execute(
-        self, 
-        strategy_code: str, 
-        method: str, 
-        *args, 
-        **kwargs
+        self, strategy_code: str, method: str, *args, **kwargs
     ) -> ExecutionResult:
         """Execute a strategy method in sandbox."""
         pass
@@ -83,16 +82,21 @@ class SubprocessSandbox(StrategySandbox):
     def __init__(self, config: SandboxConfig):
         super().__init__(config)
         self._allowed_imports = config.allowed_imports or [
-            "numpy", "pandas", "decimal", "datetime", "math", "statistics",
-            "typing", "dataclasses", "enum", "collections", "itertools",
+            "numpy",
+            "pandas",
+            "decimal",
+            "datetime",
+            "math",
+            "statistics",
+            "typing",
+            "dataclasses",
+            "enum",
+            "collections",
+            "itertools",
         ]
 
     async def execute(
-        self, 
-        strategy_code: str, 
-        method: str, 
-        *args, 
-        **kwargs
+        self, strategy_code: str, method: str, *args, **kwargs
     ) -> ExecutionResult:
         """Execute strategy method in subprocess."""
         import json
@@ -106,16 +110,17 @@ class SubprocessSandbox(StrategySandbox):
 
         # Prepare execution script
         script = self._prepare_script(strategy_code, method, args, kwargs)
-        
+
         # Write to temp file
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
             f.write(script)
             script_path = f.name
 
         try:
             # Run subprocess with limits
             proc = await asyncio.create_subprocess_exec(
-                sys.executable, script_path,
+                sys.executable,
+                script_path,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=self.config.working_dir,
@@ -124,8 +129,7 @@ class SubprocessSandbox(StrategySandbox):
 
             try:
                 stdout, stderr = await asyncio.wait_for(
-                    proc.communicate(),
-                    timeout=self.config.timeout_seconds
+                    proc.communicate(), timeout=self.config.timeout_seconds
                 )
             except asyncio.TimeoutError:
                 proc.kill()
@@ -178,8 +182,19 @@ class SubprocessSandbox(StrategySandbox):
             )
 
         dangerous_calls = {
-            "breakpoint", "compile", "delattr", "eval", "exec", "getattr",
-            "globals", "input", "locals", "open", "setattr", "vars", "__import__",
+            "breakpoint",
+            "compile",
+            "delattr",
+            "eval",
+            "exec",
+            "getattr",
+            "globals",
+            "input",
+            "locals",
+            "open",
+            "setattr",
+            "vars",
+            "__import__",
         }
         allowed = set(self._allowed_imports)
         for node in ast.walk(tree):
@@ -187,25 +202,46 @@ class SubprocessSandbox(StrategySandbox):
                 for alias in node.names:
                     root = alias.name.split(".", 1)[0]
                     if root not in allowed:
-                        return ExecutionResult(success=False, error=f"Forbidden import: {root}")
+                        return ExecutionResult(
+                            success=False, error=f"Forbidden import: {root}"
+                        )
             elif isinstance(node, ast.ImportFrom):
                 root = (node.module or "").split(".", 1)[0]
                 if node.level or root not in allowed:
-                    return ExecutionResult(success=False, error=f"Forbidden import: {root or 'relative'}")
+                    return ExecutionResult(
+                        success=False, error=f"Forbidden import: {root or 'relative'}"
+                    )
             elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
                 if node.func.id in dangerous_calls:
-                    return ExecutionResult(success=False, error=f"Forbidden call: {node.func.id}")
+                    return ExecutionResult(
+                        success=False, error=f"Forbidden call: {node.func.id}"
+                    )
             elif isinstance(node, ast.Attribute) and node.attr.startswith("__"):
-                return ExecutionResult(success=False, error=f"Forbidden attribute: {node.attr}")
+                return ExecutionResult(
+                    success=False, error=f"Forbidden attribute: {node.attr}"
+                )
         return ExecutionResult(success=True)
 
     def _subprocess_environment(self) -> dict[str, str]:
         """Build a minimal environment without inheriting API keys or tokens."""
         safe_names = {
-            "COMSPEC", "LANG", "LC_ALL", "PATH", "PATHEXT", "SYSTEMDRIVE",
-            "SYSTEMROOT", "TEMP", "TMP", "TZ", "WINDIR",
+            "COMSPEC",
+            "LANG",
+            "LC_ALL",
+            "PATH",
+            "PATHEXT",
+            "SYSTEMDRIVE",
+            "SYSTEMROOT",
+            "TEMP",
+            "TMP",
+            "TZ",
+            "WINDIR",
         }
-        environment = {name: value for name, value in os.environ.items() if name.upper() in safe_names}
+        environment = {
+            name: value
+            for name, value in os.environ.items()
+            if name.upper() in safe_names
+        }
         environment["PYTHONIOENCODING"] = "utf-8"
         environment["PYTHONUNBUFFERED"] = "1"
         environment.update(self.config.environment_vars)
@@ -213,10 +249,10 @@ class SubprocessSandbox(StrategySandbox):
 
     def _prepare_script(self, strategy_code: str, method: str, args, kwargs) -> str:
         """Prepare execution script."""
-        args_json = __import__('json').dumps(args)
-        kwargs_json = __import__('json').dumps(kwargs)
-        
-        return f'''
+        args_json = __import__("json").dumps(args)
+        kwargs_json = __import__("json").dumps(kwargs)
+
+        return f"""
 import json
 import sys
 import traceback
@@ -261,7 +297,7 @@ def main():
 
 if __name__ == "__main__":
     main()
-'''
+"""
 
 
 class DockerSandbox(StrategySandbox):
@@ -272,29 +308,36 @@ class DockerSandbox(StrategySandbox):
         self.image = image
 
     async def execute(
-        self, 
-        strategy_code: str, 
-        method: str, 
-        *args, 
-        **kwargs
+        self, strategy_code: str, method: str, *args, **kwargs
     ) -> ExecutionResult:
         """Execute in Docker container."""
         import time
-        
+
         start_time = time.time()
-        
+
         # Create container with limits
         cmd = [
-            "docker", "run", "--rm",
-            "--memory", f"{self.config.memory_limit_mb}m",
-            "--cpus", str(self.config.cpu_limit_percent / 100),
-            "--network", "none" if not self.config.network_enabled else "bridge",
-            "--pids-limit", "50",
-            "--security-opt", "no-new-privileges",
-            "-v", f"{self.config.working_dir or tempfile.gettempdir()}:/workspace",
-            "-w", "/workspace",
+            "docker",
+            "run",
+            "--rm",
+            "--memory",
+            f"{self.config.memory_limit_mb}m",
+            "--cpus",
+            str(self.config.cpu_limit_percent / 100),
+            "--network",
+            "none" if not self.config.network_enabled else "bridge",
+            "--pids-limit",
+            "50",
+            "--security-opt",
+            "no-new-privileges",
+            "-v",
+            f"{self.config.working_dir or tempfile.gettempdir()}:/workspace",
+            "-w",
+            "/workspace",
             self.image,
-            "python3", "-c", strategy_code
+            "python3",
+            "-c",
+            strategy_code,
         ]
 
         try:
@@ -303,12 +346,11 @@ class DockerSandbox(StrategySandbox):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            
+
             stdout, stderr = await asyncio.wait_for(
-                proc.communicate(),
-                timeout=self.config.timeout_seconds
+                proc.communicate(), timeout=self.config.timeout_seconds
             )
-            
+
         except asyncio.TimeoutError:
             return ExecutionResult(
                 success=False,
@@ -345,27 +387,33 @@ class GVisorSandbox(DockerSandbox):
         self.runtime = "runsc"
 
     async def execute(
-        self, 
-        strategy_code: str, 
-        method: str, 
-        *args, 
-        **kwargs
+        self, strategy_code: str, method: str, *args, **kwargs
     ) -> ExecutionResult:
         # Override docker command to use runsc
         import time
-        
+
         start_time = time.time()
-        
+
         cmd = [
-            "docker", "run", "--rm",
-            "--runtime", self.runtime,
-            "--memory", f"{self.config.memory_limit_mb}m",
-            "--cpus", str(self.config.cpu_limit_percent / 100),
-            "--network", "none" if not self.config.network_enabled else "bridge",
-            "--pids-limit", "50",
-            "--security-opt", "no-new-privileges",
+            "docker",
+            "run",
+            "--rm",
+            "--runtime",
+            self.runtime,
+            "--memory",
+            f"{self.config.memory_limit_mb}m",
+            "--cpus",
+            str(self.config.cpu_limit_percent / 100),
+            "--network",
+            "none" if not self.config.network_enabled else "bridge",
+            "--pids-limit",
+            "50",
+            "--security-opt",
+            "no-new-privileges",
             self.image,
-            "python3", "-c", strategy_code
+            "python3",
+            "-c",
+            strategy_code,
         ]
 
         try:
@@ -374,12 +422,11 @@ class GVisorSandbox(DockerSandbox):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            
+
             stdout, stderr = await asyncio.wait_for(
-                proc.communicate(),
-                timeout=self.config.timeout_seconds
+                proc.communicate(), timeout=self.config.timeout_seconds
             )
-            
+
         except asyncio.TimeoutError:
             return ExecutionResult(
                 success=False,

@@ -27,6 +27,7 @@ try:
     import alpaca.data as data_module
     from alpaca.data import TimeFrame, TimeFrameUnit
     from alpaca.common.exceptions import APIError
+
     ALPACA_AVAILABLE = True
 except ImportError:
     # Optional SDK — adapter is importable without alpaca-py (e.g. in CI),
@@ -38,20 +39,32 @@ except ImportError:
     ALPACA_AVAILABLE = False
 
 from trading_agent.exchanges.models import (
-    Symbol, AssetClass, MarketType, OrderSide, OrderType,
-    OrderStatus, TimeInForce, Order, Position, Balance,
-    Ticker, Candle
+    Symbol,
+    AssetClass,
+    MarketType,
+    OrderSide,
+    OrderType,
+    OrderStatus,
+    TimeInForce,
+    Order,
+    Position,
+    Balance,
+    Ticker,
+    Candle,
 )
 
 logger = logging.getLogger(__name__)
 
 if not ALPACA_AVAILABLE:
-    logger.warning("alpaca-py not installed — AlpacaAdapter disabled (pip install alpaca-py)")
+    logger.warning(
+        "alpaca-py not installed — AlpacaAdapter disabled (pip install alpaca-py)"
+    )
 
 
 @dataclass
 class AlpacaConfig:
     """Alpaca API configuration"""
+
     api_key: str
     secret_key: str
     paper: bool = True
@@ -74,7 +87,9 @@ class AlpacaAdapter:
     async def connect(self) -> None:
         """Initialize Alpaca clients"""
         if not ALPACA_AVAILABLE:
-            raise RuntimeError("alpaca-py is not installed — run `pip install alpaca-py`")
+            raise RuntimeError(
+                "alpaca-py is not installed — run `pip install alpaca-py`"
+            )
         try:
             self._trading_client = trading_client.TradingClient(
                 api_key=self.config.api_key,
@@ -88,7 +103,9 @@ class AlpacaAdapter:
 
             # Test connection
             account = self._trading_client.get_account()
-            logger.info(f"Alpaca connected: {account.id}, paper={self.config.paper}, equity={account.equity}")
+            logger.info(
+                f"Alpaca connected: {account.id}, paper={self.config.paper}, equity={account.equity}"
+            )
             self._connected = True
 
         except APIError as e:
@@ -112,13 +129,15 @@ class AlpacaAdapter:
         try:
             account = self._trading_client.get_account()
             assets = {
-                'USD': {
-                    'free': float(account.cash),
-                    'used': float(account.initial_margin),
-                    'total': float(account.equity),
+                "USD": {
+                    "free": float(account.cash),
+                    "used": float(account.initial_margin),
+                    "total": float(account.equity),
                 }
             }
-            return {AssetClass.STOCK: Balance(asset_class=AssetClass.STOCK, assets=assets)}
+            return {
+                AssetClass.STOCK: Balance(asset_class=AssetClass.STOCK, assets=assets)
+            }
         except APIError as e:
             logger.error(f"fetch_balance failed: {e}")
             raise
@@ -132,16 +151,18 @@ class AlpacaAdapter:
                 sym = self._alpaca_to_unified_symbol(pos.symbol)
                 if symbol and sym != symbol:
                     continue
-                result.append(Position(
-                    symbol=sym,
-                    size=Decimal(str(pos.qty)),
-                    entry_price=Decimal(str(pos.avg_entry_price)),
-                    mark_price=Decimal(str(pos.current_price)),
-                    unrealized_pnl=Decimal(str(pos.unrealized_pl)),
-                    realized_pnl=Decimal(0),
-                    leverage=Decimal(1),
-                    updated_at=datetime.now(),
-                ))
+                result.append(
+                    Position(
+                        symbol=sym,
+                        size=Decimal(str(pos.qty)),
+                        entry_price=Decimal(str(pos.avg_entry_price)),
+                        mark_price=Decimal(str(pos.current_price)),
+                        unrealized_pnl=Decimal(str(pos.unrealized_pl)),
+                        realized_pnl=Decimal(0),
+                        leverage=Decimal(1),
+                        updated_at=datetime.now(),
+                    )
+                )
             return result
         except APIError as e:
             logger.error(f"fetch_positions failed: {e}")
@@ -176,7 +197,7 @@ class AlpacaAdapter:
         timeframe: str,
         start: datetime | None = None,
         end: datetime | None = None,
-        limit: int = 100
+        limit: int = 100,
     ) -> list[Candle]:
         """Fetch OHLCV bars"""
         try:
@@ -219,7 +240,9 @@ class AlpacaAdapter:
                 TimeInForce.IOC: trading_enums.TimeInForce.IOC,
                 TimeInForce.FOK: trading_enums.TimeInForce.FOK,
                 # GTD natively unsupported by alpaca-py — gracefully fall back to GTC
-                TimeInForce.GTD: getattr(trading_enums.TimeInForce, "GTD", trading_enums.TimeInForce.GTC),
+                TimeInForce.GTD: getattr(
+                    trading_enums.TimeInForce, "GTD", trading_enums.TimeInForce.GTC
+                ),
             }
 
             request_kwargs = {
@@ -276,10 +299,14 @@ class AlpacaAdapter:
             logger.error(f"cancel_order failed: {e}")
             return False
 
-    async def close_all_positions(self, *, cancel_orders: bool = True) -> dict[str, Any]:
+    async def close_all_positions(
+        self, *, cancel_orders: bool = True
+    ) -> dict[str, Any]:
         """Liquidate every Alpaca paper position and optionally cancel orders."""
         if not self.config.paper:
-            raise RuntimeError("close_all_positions is restricted to Alpaca paper accounts")
+            raise RuntimeError(
+                "close_all_positions is restricted to Alpaca paper accounts"
+            )
         if not self._connected or self._trading_client is None:
             raise RuntimeError("Alpaca adapter is not connected")
 
@@ -314,7 +341,10 @@ class AlpacaAdapter:
                     symbols=[symbol.base] if symbol else None,
                 )
             )
-            return [self._parse_order(o, self._alpaca_to_unified_symbol(o.symbol)) for o in orders]
+            return [
+                self._parse_order(o, self._alpaca_to_unified_symbol(o.symbol))
+                for o in orders
+            ]
         except APIError as e:
             logger.error(f"fetch_open_orders failed: {e}")
             raise
@@ -340,7 +370,10 @@ class AlpacaAdapter:
             trading_enums.OrderStatus.REJECTED: OrderStatus.REJECTED,
             trading_enums.OrderStatus.EXPIRED: OrderStatus.EXPIRED,
         }
-        side_map = {trading_enums.OrderSide.BUY: OrderSide.BUY, trading_enums.OrderSide.SELL: OrderSide.SELL}
+        side_map = {
+            trading_enums.OrderSide.BUY: OrderSide.BUY,
+            trading_enums.OrderSide.SELL: OrderSide.SELL,
+        }
         type_map = {
             trading_enums.OrderType.MARKET: OrderType.MARKET,
             trading_enums.OrderType.LIMIT: OrderType.LIMIT,
@@ -365,7 +398,9 @@ class AlpacaAdapter:
             filled_size=Decimal(str(order.filled_qty or 0)),
             avg_fill_price=Decimal(str(order.filled_avg_price or 0)),
             price=Decimal(str(order.limit_price or 0)) if order.limit_price else None,
-            stop_price=Decimal(str(order.stop_price or 0)) if order.stop_price else None,
+            stop_price=Decimal(str(order.stop_price or 0))
+            if order.stop_price
+            else None,
             time_in_force=tif_map.get(order.time_in_force, TimeInForce.GTC),
             created_at=order.submitted_at,
             updated_at=order.updated_at,
@@ -387,15 +422,15 @@ class AlpacaAdapter:
         """Get detailed account info"""
         account = self._trading_client.get_account()
         return {
-            'id': account.id,
-            'status': account.status,
-            'equity': float(account.equity),
-            'cash': float(account.cash),
-            'buying_power': float(account.buying_power),
-            'initial_margin': float(account.initial_margin),
-            'maintenance_margin': float(account.maintenance_margin),
-            'daytrade_count': account.daytrade_count,
-            'pattern_day_trader': account.pattern_day_trader,
+            "id": account.id,
+            "status": account.status,
+            "equity": float(account.equity),
+            "cash": float(account.cash),
+            "buying_power": float(account.buying_power),
+            "initial_margin": float(account.initial_margin),
+            "maintenance_margin": float(account.maintenance_margin),
+            "daytrade_count": account.daytrade_count,
+            "pattern_day_trader": account.pattern_day_trader,
         }
 
 

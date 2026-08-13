@@ -70,7 +70,9 @@ def _validate(raw: dict) -> None:
     data = raw.get("data", {})
     _check_type(data, "data", dict)
     if "default_timeframe" in data:
-        _check_in(data["default_timeframe"], "data.default_timeframe", _VALID_TIMEFRAMES)
+        _check_in(
+            data["default_timeframe"], "data.default_timeframe", _VALID_TIMEFRAMES
+        )
     if "storage" in data:
         _check_in(data["storage"], "data.storage", _VALID_STORAGE)
     if "timeframes" in data:
@@ -113,17 +115,27 @@ def _validate(raw: dict) -> None:
     mode = dep.get("mode", "paper")
     _check_in(mode, "deployment.mode", _VALID_DEPLOY_MODES)
     if "execution_algorithm" in dep:
-        _check_in(dep["execution_algorithm"], "deployment.execution_algorithm", _VALID_EXECUTION_ALGORITHMS)
+        _check_in(
+            dep["execution_algorithm"],
+            "deployment.execution_algorithm",
+            _VALID_EXECUTION_ALGORITHMS,
+        )
     if "position_limit_pct" in dep:
-        _check_type(dep["position_limit_pct"], "deployment.position_limit_pct", (int, float))
+        _check_type(
+            dep["position_limit_pct"], "deployment.position_limit_pct", (int, float)
+        )
         if not 0 < dep["position_limit_pct"] <= 1:
             raise ConfigError("'deployment.position_limit_pct' must be in (0, 1]")
     if "max_slippage_pct" in dep:
-        _check_type(dep["max_slippage_pct"], "deployment.max_slippage_pct", (int, float))
+        _check_type(
+            dep["max_slippage_pct"], "deployment.max_slippage_pct", (int, float)
+        )
         if not 0 <= dep["max_slippage_pct"] < 1:
             raise ConfigError("'deployment.max_slippage_pct' must be in [0, 1)")
     if "stale_data_max_age_s" in dep:
-        _check_type(dep["stale_data_max_age_s"], "deployment.stale_data_max_age_s", (int, float))
+        _check_type(
+            dep["stale_data_max_age_s"], "deployment.stale_data_max_age_s", (int, float)
+        )
         if dep["stale_data_max_age_s"] <= 0:
             raise ConfigError("'deployment.stale_data_max_age_s' must be positive")
 
@@ -174,7 +186,9 @@ class Config:
             raw: dict[str, Any] = yaml.safe_load(f)
 
         if not isinstance(raw, dict):
-            raise ConfigError(f"Config file must be a YAML dict, got {type(raw).__name__}")
+            raise ConfigError(
+                f"Config file must be a YAML dict, got {type(raw).__name__}"
+            )
 
         _validate(raw)
 
