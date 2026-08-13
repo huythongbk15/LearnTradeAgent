@@ -17,6 +17,8 @@ from trading_agent.execution.lifecycle.store import (
 )
 from trading_agent.execution.lifecycle.lifecycle import (
     ExecutionLifecycle,
+    ExposureEffect,
+    ExecutionHealth,
     IntentStatus,
     InvariantViolation,
     LifecycleError,
@@ -24,7 +26,9 @@ from trading_agent.execution.lifecycle.lifecycle import (
     LIVE_STATUSES,
     OrderState,
     ProtectiveOrderState,
+    ProtectionState,
     ReconciliationState,
+    TrustedPrice,
 )
 
 __all__ = [
@@ -34,6 +38,8 @@ __all__ = [
     "ExecutionEventType",
     "ExecutionEventStore",
     "ExecutionLifecycle",
+    "ExposureEffect",
+    "ExecutionHealth",
     "IntentStatus",
     "InvariantViolation",
     "LifecycleError",
@@ -41,10 +47,12 @@ __all__ = [
     "LIVE_STATUSES",
     "OrderState",
     "ProtectiveOrderState",
+    "ProtectionState",
     "ReconciliationState",
     "SequenceGapError",
     "Snapshot",
     "SnapshotIntegrityError",
+    "TrustedPrice",
     "make_event",
     "snapshot_checksum",
     "validate_event",

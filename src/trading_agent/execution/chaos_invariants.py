@@ -23,6 +23,7 @@ Invariants (spec §13):
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable
@@ -122,7 +123,7 @@ def check_invariants(
         for o in state.orders.values():
             if o.is_live:
                 price = fresh(o.symbol)
-                if price is None or price <= 0:
+                if price is None or not math.isfinite(price.price) or price.price <= 0:
                     violations.append("no_entry_when_market_data_stale")
                     break
 

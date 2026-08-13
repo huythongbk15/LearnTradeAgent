@@ -7,6 +7,8 @@ still holds.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import pytest
 
 from trading_agent.execution.chaos_invariants import (
@@ -18,6 +20,7 @@ from trading_agent.execution.lifecycle import (
     ExecutionEventStore,
     ExecutionLifecycle,
     IntentStatus,
+    TrustedPrice,
 )
 
 
@@ -25,7 +28,7 @@ from trading_agent.execution.lifecycle import (
 def healthy_lifecycle(tmp_path):
     """A lifecycle with fresh prices and no kill switch."""
     store = ExecutionEventStore(tmp_path / "chaos.db").connect()
-    return ExecutionLifecycle(store, price_source=lambda s: 100.0)
+    return ExecutionLifecycle(store, price_source=lambda s: TrustedPrice(price=100.0, exchange_timestamp=datetime.now(UTC), received_at=datetime.now(UTC)))
 
 
 @pytest.mark.parametrize("fault", list(FaultType))
@@ -33,7 +36,7 @@ def test_all_faults_preserve_invariants(tmp_path, fault):
     store = ExecutionEventStore(tmp_path / f"chaos_{fault.value}.db").connect()
     lc = ExecutionLifecycle(
         store,
-        price_source=lambda s: 100.0,
+        price_source=lambda s: TrustedPrice(price=100.0, exchange_timestamp=datetime.now(UTC), received_at=datetime.now(UTC)),
         inventory_source=lambda sym, side: 5.0,
     )
     result = run_chaos_scenario(lc, fault)
@@ -46,7 +49,7 @@ def test_all_faults_preserve_invariants(tmp_path, fault):
 
 def test_timeout_before_ack_never_silently_filled(tmp_path):
     store = ExecutionEventStore(tmp_path / "t.db").connect()
-    lc = ExecutionLifecycle(store, price_source=lambda s: 100.0)
+    lc = ExecutionLifecycle(store, price_source=lambda s: TrustedPrice(price=100.0, exchange_timestamp=datetime.now(UTC), received_at=datetime.now(UTC)))
     result = run_chaos_scenario(lc, FaultType.TIMEOUT_BEFORE_ACK)
     assert result.passed
     order = lc.order("intent_chaos")
@@ -56,7 +59,7 @@ def test_timeout_before_ack_never_silently_filled(tmp_path):
 
 def test_disagreement_fills_capped_by_remaining(tmp_path):
     store = ExecutionEventStore(tmp_path / "d.db").connect()
-    lc = ExecutionLifecycle(store, price_source=lambda s: 100.0)
+    lc = ExecutionLifecycle(store, price_source=lambda s: TrustedPrice(price=100.0, exchange_timestamp=datetime.now(UTC), received_at=datetime.now(UTC)))
     run_chaos_scenario(lc, FaultType.REST_WS_DISAGREEMENT)
     order = lc.order("intent_chaos")
     assert order.filled_size == 1.0  # never exceeds remaining
@@ -64,7 +67,7 @@ def test_disagreement_fills_capped_by_remaining(tmp_path):
 
 def test_sequence_gap_leaves_no_partial_state(tmp_path):
     store = ExecutionEventStore(tmp_path / "s.db").connect()
-    lc = ExecutionLifecycle(store, price_source=lambda s: 100.0)
+    lc = ExecutionLifecycle(store, price_source=lambda s: TrustedPrice(price=100.0, exchange_timestamp=datetime.now(UTC), received_at=datetime.now(UTC)))
     run_chaos_scenario(lc, FaultType.SEQUENCE_GAP)
     assert store.integrity_check()["ok"] is True
     assert [e.seq for e in store.read_events("intent_chaos")] == [1]
@@ -72,7 +75,7 @@ def test_sequence_gap_leaves_no_partial_state(tmp_path):
 
 def test_process_kill_between_submit_and_persist_no_phantom(tmp_path):
     store = ExecutionEventStore(tmp_path / "k.db").connect()
-    lc = ExecutionLifecycle(store, price_source=lambda s: 100.0)
+    lc = ExecutionLifecycle(store, price_source=lambda s: TrustedPrice(price=100.0, exchange_timestamp=datetime.now(UTC), received_at=datetime.now(UTC)))
     run_chaos_scenario(lc, FaultType.PROCESS_KILL_BETWEEN_SUBMIT_AND_PERSIST)
     order = lc.order("intent_chaos")
     assert order.status == IntentStatus.APPROVED  # no phantom SUBMITTED
@@ -80,7 +83,7 @@ def test_process_kill_between_submit_and_persist_no_phantom(tmp_path):
 
 def test_network_loss_cancel_not_falsely_confirmed(tmp_path):
     store = ExecutionEventStore(tmp_path / "n.db").connect()
-    lc = ExecutionLifecycle(store, price_source=lambda s: 100.0)
+    lc = ExecutionLifecycle(store, price_source=lambda s: TrustedPrice(price=100.0, exchange_timestamp=datetime.now(UTC), received_at=datetime.now(UTC)))
     run_chaos_scenario(lc, FaultType.NETWORK_LOSS)
     order = lc.order("intent_chaos")
     assert order.status == IntentStatus.CANCEL_REQUESTED  # never false-confirmed
@@ -100,7 +103,7 @@ def test_reconciliation_unresolved_blocks_new_entries(tmp_path):
     from trading_agent.execution.lifecycle import InvariantViolation
 
     store = ExecutionEventStore(tmp_path / "r.db").connect()
-    lc = ExecutionLifecycle(store, price_source=lambda s: 100.0)
+    lc = ExecutionLifecycle(store, price_source=lambda s: TrustedPrice(price=100.0, exchange_timestamp=datetime.now(UTC), received_at=datetime.now(UTC)))
     lc.start_reconciliation()
     # Intents may be drafted, but market entry (submit) is gated.
     lc.create_order_intent("blocked2", "BTC/USDT", "buy", 1.0)

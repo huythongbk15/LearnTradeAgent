@@ -195,13 +195,19 @@ class ExecutionEventStore:
         if not events:
             return []
         if expect_seq:
+            # Track expected seq locally per aggregate so batch seqs are
+            # validated against the pre-batch state, not intermediate inserts.
+            expected_by_aggregate: dict[str, int] = {}
             for event in events:
-                expected = self.max_seq(event.aggregate_id) + 1
-                if event.seq != expected:
+                agg = event.aggregate_id
+                if agg not in expected_by_aggregate:
+                    expected_by_aggregate[agg] = self.max_seq(agg) + 1
+                if event.seq != expected_by_aggregate[agg]:
                     raise SequenceGapError(
-                        f"aggregate {event.aggregate_id}: expected seq {expected}, "
+                        f"aggregate {agg}: expected seq {expected_by_aggregate[agg]}, "
                         f"got {event.seq}"
                     )
+                expected_by_aggregate[agg] += 1
         results: list[bool] = []
         try:
             with self.conn:

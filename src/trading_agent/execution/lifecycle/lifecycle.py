@@ -66,6 +66,34 @@ class ReconciliationState(str, Enum):
     RESOLVED = "resolved"
 
 
+class ExposureEffect(str, Enum):
+    """Effect of an order on total exposure."""
+
+    INCREASE = "increase"
+    REDUCE = "reduce"
+    NEUTRAL = "neutral"
+
+
+class ExecutionHealth(str, Enum):
+    """Global execution health state."""
+
+    NORMAL = "normal"
+    RECONCILING = "reconciling"
+    MANUAL_BLOCKED = "manual_blocked"
+    DATA_UNTRUSTED = "data_untrusted"
+    PROTECTION_GAP = "protection_gap"
+    REDUCE_ONLY = "reduce_only"
+
+
+class ProtectionState(str, Enum):
+    """Protection status for a position."""
+
+    NONE = "none"
+    PROTECTION_REQUIRED = "protection_required"
+    PROTECTIVE_SUBMITTING = "protective_submitting"
+    PROTECTED = "protected"
+
+
 LIVE_STATUSES = frozenset(
     {
         IntentStatus.SUBMITTED,
@@ -73,6 +101,26 @@ LIVE_STATUSES = frozenset(
         IntentStatus.PARTIALLY_FILLED,
     }
 )
+
+# ── Trusted market data ────────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class TrustedPrice:
+    """Typed market-data object with freshness and integrity guarantees."""
+
+    price: float
+    exchange_timestamp: datetime | None
+    received_at: datetime
+    sequence_id: int | None = None
+
+    def is_fresh(self, max_age_seconds: float) -> bool:
+        """Reject stale, future, or absurd timestamps."""
+        now = datetime.now(UTC)
+        if self.received_at > now:
+            return False  # future timestamp / clock skew
+        age = (now - self.received_at).total_seconds()
+        return age <= max_age_seconds
 
 # ── Violations ─────────────────────────────────────────────────────────
 
@@ -140,6 +188,10 @@ class LifecycleState:
     reconciliation: ReconciliationState = ReconciliationState.NONE
     last_event_ids: dict[str, str] = field(default_factory=dict)
     state_version: int = 0
+    execution_health: ExecutionHealth = ExecutionHealth.NORMAL
+    protection_state: dict[str, ProtectionState] = field(default_factory=dict)
+    manual_blocked: bool = False
+    unresolved_manual_intents: set[str] = field(default_factory=set)
 
     def order(self, intent_id: str) -> OrderState | None:
         return self.orders.get(intent_id)
@@ -151,12 +203,16 @@ class LifecycleState:
             reconciliation=self.reconciliation,
             last_event_ids=dict(self.last_event_ids),
             state_version=self.state_version,
+            execution_health=self.execution_health,
+            protection_state=dict(self.protection_state),
+            manual_blocked=self.manual_blocked,
+            unresolved_manual_intents=set(self.unresolved_manual_intents),
         )
 
 
 # ── Guards plumbing ────────────────────────────────────────────────────
 
-PriceSource = Callable[[str], float | None]  # symbol -> fresh price
+PriceSource = Callable[[str], TrustedPrice | None]  # symbol -> trusted price
 InventorySource = Callable[[str, str], float]  # symbol, side -> free inventory
 
 
@@ -211,6 +267,49 @@ class ExecutionLifecycle:
         self.max_price_age_seconds = max_price_age_seconds
         self.require_protective_order = require_protective_order
         self.state = LifecycleState()
+
+    # ── Helpers ──────────────────────────────────────────────────────────
+
+    def _determine_exposure_effect(
+        self,
+        side: str,
+        size: float,
+        symbol: str,
+    ) -> ExposureEffect:
+        """Determine effect on total exposure.
+
+        Spot-long only:
+        - BUY always increases exposure.
+        - SELL reduces exposure if size <= available inventory.
+        - SELL that exceeds inventory would create short → increase exposure.
+        """
+        if side == "buy":
+            return ExposureEffect.INCREASE
+        # SELL: check if we have inventory to sell
+        free_inventory = self._inventory_source(symbol, "sell")
+        if size <= free_inventory + 1e-9:
+            return ExposureEffect.REDUCE
+        return ExposureEffect.INCREASE
+
+    def _check_price(self, symbol: str) -> TrustedPrice:
+        """Validate and return trusted price. Raises if stale/invalid."""
+        price = self._price_source(symbol)
+        if price is None:
+            raise InvariantViolation(
+                "no_entry_when_market_data_stale",
+                f"no trusted price for {symbol}",
+            )
+        if not math.isfinite(price.price) or price.price <= 0:
+            raise InvariantViolation(
+                "no_entry_when_market_data_stale",
+                f"invalid price {price.price} for {symbol}",
+            )
+        if not price.is_fresh(self.max_price_age_seconds):
+            raise InvariantViolation(
+                "no_entry_when_market_data_stale",
+                f"stale price for {symbol}: age > {self.max_price_age_seconds}s",
+            )
+        return price
 
     # ── Deterministic replay ────────────────────────────────────────────
 
@@ -281,6 +380,16 @@ class ExecutionLifecycle:
                     order.status = IntentStatus.FILLED
                 else:
                     order.status = IntentStatus.PARTIALLY_FILLED
+                # Track protection state for buy fills
+                if (
+                    self.require_protective_order
+                    and order.side == "buy"
+                ):
+                    protective_trigger = payload.get("protective_trigger")
+                    if protective_trigger is not None:
+                        state.protection_state[event.aggregate_id] = ProtectionState.PROTECTED
+                    else:
+                        state.protection_state[event.aggregate_id] = ProtectionState.PROTECTION_REQUIRED
         elif etype == ExecutionEventType.FEE_BOOKED:
             order = state.orders.get(event.aggregate_id)
             if order is not None:
@@ -320,6 +429,33 @@ class ExecutionLifecycle:
                 reason = payload.get("reason", "manual intervention required")
                 if reason not in order.manual_reasons:
                     order.manual_reasons.append(reason)
+            state.manual_blocked = True
+            state.unresolved_manual_intents.add(event.aggregate_id)
+            # Preserve PROTECTION_GAP if already set; otherwise use MANUAL_BLOCKED.
+            if state.execution_health != ExecutionHealth.PROTECTION_GAP:
+                state.execution_health = ExecutionHealth.MANUAL_BLOCKED
+
+        elif etype == ExecutionEventType.RECONCILIATION_RESOLVED:
+            state.reconciliation = ReconciliationState.RESOLVED
+            # Clear manual block only if no unresolved manual issues remain
+            if not state.unresolved_manual_intents:
+                state.manual_blocked = False
+                if state.execution_health == ExecutionHealth.MANUAL_BLOCKED:
+                    state.execution_health = ExecutionHealth.NORMAL
+
+        elif etype == ExecutionEventType.PROTECTIVE_ORDER_CREATED:
+            state.protective_orders[event.aggregate_id] = ProtectiveOrderState(
+                order_id=event.aggregate_id,
+                symbol=payload["symbol"],
+                kind=payload.get("kind", "stop_loss"),
+                trigger_price=float(payload["trigger_price"]),
+            )
+            parent = payload.get("parent_intent_id")
+            if parent and parent in state.orders:
+                pid = event.aggregate_id
+                if pid not in state.orders[parent].protective_order_ids:
+                    state.orders[parent].protective_order_ids.append(pid)
+                state.protection_state[parent] = ProtectionState.PROTECTED
 
         state.last_event_ids[event.aggregate_id] = event.event_id
         state.state_version += 1
@@ -351,16 +487,33 @@ class ExecutionLifecycle:
         side: str,
         size: float,
     ) -> ExecutionEvent:
-        """Invariant 5: no new exposure while the entry kill switch is up."""
+        """Invariant 5: no increased exposure while kill switch blocks entry."""
         if side not in ("buy", "sell"):
             raise LifecycleError(f"side must be buy|sell, got {side!r}")
         if size <= 0:
             raise LifecycleError("size must be positive")
-        if self._kill_switch():
+        if self.state.manual_blocked:
             raise InvariantViolation(
-                "no_increased_exposure_while_kill_switch_blocks_entry",
-                f"kill switch active; refusing new intent {intent_id}",
+                "no_new_exposure_while_manual_blocked",
+                f"manual intervention unresolved; refusing new intent {intent_id}",
             )
+        if self.state.execution_health == ExecutionHealth.PROTECTION_GAP:
+            raise InvariantViolation(
+                "no_new_exposure_during_protection_gap",
+                f"protection gap active; refusing new intent {intent_id}",
+            )
+        if self._kill_switch():
+            effect = self._determine_exposure_effect(side, size, symbol)
+            if effect == ExposureEffect.INCREASE:
+                raise InvariantViolation(
+                    "no_increased_exposure_while_kill_switch_blocks_entry",
+                    f"kill switch active; refusing {effect.value} intent {intent_id}",
+                )
+            if effect == ExposureEffect.NEUTRAL:
+                raise InvariantViolation(
+                    "no_increased_exposure_while_kill_switch_blocks_entry",
+                    f"kill switch active; refusing neutral intent {intent_id}",
+                )
         if intent_id in self.state.orders:
             raise LifecycleError(f"intent {intent_id} already exists")
         return self._emit(
@@ -419,24 +572,32 @@ class ExecutionLifecycle:
                 f"(status={order.status.value})"
             )
         # Invariant 2: no entry on stale market data.
-        price = self._price_source(order.symbol)
-        if price is None or price <= 0:
-            raise InvariantViolation(
-                "no_entry_when_market_data_stale",
-                f"no fresh price for {order.symbol}",
-            )
+        self._check_price(order.symbol)
         # Invariant 3: no entry while reconciliation unresolved.
         if self.state.reconciliation == ReconciliationState.STARTED:
             raise InvariantViolation(
                 "no_entry_while_reconciliation_unresolved",
                 "reconciliation in progress",
             )
-        # Invariant 5: kill switch.
-        if self._kill_switch():
+        # Manual block / protection gap
+        if self.state.manual_blocked:
             raise InvariantViolation(
-                "no_increased_exposure_while_kill_switch_blocks_entry",
-                "kill switch active",
+                "no_new_exposure_while_manual_blocked",
+                "manual intervention unresolved",
             )
+        if self.state.execution_health == ExecutionHealth.PROTECTION_GAP:
+            raise InvariantViolation(
+                "no_new_exposure_during_protection_gap",
+                "protection gap active",
+            )
+        # Invariant 5: kill switch with exposure effect.
+        if self._kill_switch():
+            effect = self._determine_exposure_effect(order.side, order.size, order.symbol)
+            if effect in (ExposureEffect.INCREASE, ExposureEffect.NEUTRAL):
+                raise InvariantViolation(
+                    "no_increased_exposure_while_kill_switch_blocks_entry",
+                    f"kill switch active; {effect.value} intent {intent_id}",
+                )
         return self._emit(
             ExecutionEventType.ORDER_SUBMITTED,
             intent_id,
@@ -496,13 +657,13 @@ class ExecutionLifecycle:
                 "no_replay_creating_synthetic_extra_fill",
                 f"fill {size} exceeds remaining {remaining}",
             )
-        # Invariant 7: sell quantity <= free inventory.
-        if order.side == "sell" and order.filled_size == 0:
+        # Invariant 7: cumulative sell quantity <= free inventory.
+        if order.side == "sell":
             free = self._inventory_source(order.symbol, "sell")
-            if size > free + 1e-9:
+            if order.filled_size + size > free + 1e-9:
                 raise InvariantViolation(
                     "no_sell_quantity_above_available_free_inventory",
-                    f"sell {size} > free inventory {free} for {order.symbol}",
+                    f"cumulative sell {order.filled_size + size} > free inventory {free} for {order.symbol}",
                 )
         is_full = size >= remaining - 1e-9
         etype = (
@@ -510,10 +671,16 @@ class ExecutionLifecycle:
             if is_full
             else ExecutionEventType.PARTIAL_FILL_RECEIVED
         )
+        payload_with_trigger = {
+            "order_id": intent_id,
+            "size": size,
+            "price": price,
+            "protective_trigger": protective_trigger,
+        }
         event = self._emit(
             etype,
             intent_id,
-            {"order_id": intent_id, "size": size, "price": price},
+            payload_with_trigger,
         )
         # Invariant 4: buy fill must carry a protective order.
         if (
@@ -531,6 +698,7 @@ class ExecutionLifecycle:
             # Residual long position without any protective order — never
             # silently accepted: flag for manual review.
             if not order.protective_order_ids:
+                self.state.execution_health = ExecutionHealth.PROTECTION_GAP
                 self.require_manual_intervention(
                     intent_id,
                     reason="position created without protective order",
@@ -621,6 +789,11 @@ class ExecutionLifecycle:
     def resolve_reconciliation(self, outcome: str = "resolved") -> ExecutionEvent:
         if self.state.reconciliation != ReconciliationState.STARTED:
             raise LifecycleError("no reconciliation in progress")
+        if self.state.unresolved_manual_intents:
+            raise LifecycleError(
+                f"cannot resolve reconciliation with unresolved manual issues: "
+                f"{sorted(self.state.unresolved_manual_intents)}"
+            )
         return self._emit(
             ExecutionEventType.RECONCILIATION_RESOLVED,
             "reconciliation",
@@ -631,6 +804,11 @@ class ExecutionLifecycle:
         self, intent_id: str, reason: str
     ) -> ExecutionEvent:
         """Invariant 9: unknown broker state → MANUAL, never silent normalize."""
+        self.state.manual_blocked = True
+        self.state.unresolved_manual_intents.add(intent_id)
+        # Preserve PROTECTION_GAP if already set; otherwise use MANUAL_BLOCKED.
+        if self.state.execution_health != ExecutionHealth.PROTECTION_GAP:
+            self.state.execution_health = ExecutionHealth.MANUAL_BLOCKED
         return self._emit(
             ExecutionEventType.MANUAL_INTERVENTION_REQUIRED,
             intent_id,
@@ -677,6 +855,10 @@ class ExecutionLifecycle:
                 report["unknown"].append(intent_id)
                 continue
             report["synced"].append(intent_id)
+        if report["manual"]:
+            self.state.execution_health = ExecutionHealth.MANUAL_BLOCKED
+            # Do NOT auto-resolve when manual issues remain — operator must act.
+            return report
         self.resolve_reconciliation(outcome="audited")
         return report
 
@@ -717,6 +899,10 @@ class ExecutionLifecycle:
                 for k, v in self.state.protective_orders.items()
             },
             "reconciliation": self.state.reconciliation.value,
+            "execution_health": self.state.execution_health.value,
+            "protection_state": {k: v.value for k, v in self.state.protection_state.items()},
+            "manual_blocked": self.state.manual_blocked,
+            "unresolved_manual_intents": sorted(self.state.unresolved_manual_intents),
         }
 
     def last_seq(self) -> int:
@@ -728,10 +914,16 @@ __all__ = [
     "ExecutionLifecycle",
     "IntentStatus",
     "ReconciliationState",
+    "ExposureEffect",
+    "ExecutionHealth",
+    "ProtectionState",
+    "TrustedPrice",
     "OrderState",
     "ProtectiveOrderState",
     "LifecycleState",
     "InvariantViolation",
     "LifecycleError",
     "LIVE_STATUSES",
+    "PriceSource",
+    "InventorySource",
 ]
