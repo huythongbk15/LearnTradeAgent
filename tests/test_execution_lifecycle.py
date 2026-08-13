@@ -17,7 +17,6 @@ from trading_agent.execution.lifecycle import (
     ExecutionEventStore,
     ExecutionEventType,
     ExecutionLifecycle,
-    ExposureEffect,
     ExecutionHealth,
     IntentStatus,
     InvariantViolation,

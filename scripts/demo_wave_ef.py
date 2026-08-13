@@ -15,13 +15,11 @@ import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 
-import numpy as np
 import polars as pl
 
 from trading_agent.execution.simulator import (
     MarketReplayEngine,
     OrderIntent,
-    SimOrderStatus,
     SimOrderType,
     SimSide,
     SimulationConfig,
@@ -34,18 +32,13 @@ from trading_agent.execution.simulator.calibration import (
 from trading_agent.research import (
     Action,
     ArtifactLifecycle,
-    CalibratedDecision,
     DecisionPolicy,
     DriftMonitor,
     PersistentArtifactStore,
-    PromotionError,
     PromotionPolicy,
     PromotionState,
-    StrategyArtifact,
-    StrategyHealthState,
     ThresholdDecisionPolicy,
     UncertaintySignal,
-    UncertaintyState,
     build_strategy_artifact,
     calibration_evidence,
     drift_check_evidence,
@@ -56,7 +49,6 @@ from trading_agent.research import (
 )
 from trading_agent.execution.simulator.reality_gap import (
     compute_reality_gap,
-    promotion_check,
 )
 
 
@@ -241,7 +233,7 @@ def main():
         [manual_review_evidence("Strategy logic reviewed, no look-ahead bias", "analyst")]
     )
     lifecycle.transition(PromotionState.REVIEWED, note="Manual review passed")
-    print(f"    ✓ EXPLORATORY → REVIEWED")
+    print("    ✓ EXPLORATORY → REVIEWED")
 
     # REVIEWED → CANARY_ELIGIBLE (needs reality_gap + drift_check)
     policy.validate_evidence(
@@ -252,7 +244,7 @@ def main():
         ]
     )
     lifecycle.transition(PromotionState.CANARY_ELIGIBLE, note="Reality gap + drift checks passed")
-    print(f"    ✓ REVIEWED → CANARY_ELIGIBLE")
+    print("    ✓ REVIEWED → CANARY_ELIGIBLE")
 
     # CANARY_ELIGIBLE → CANARY_PROMOTED (needs calibration evidence too)
     policy.validate_evidence(
@@ -264,7 +256,7 @@ def main():
         ]
     )
     lifecycle.transition(PromotionState.CANARY_PROMOTED, note="Calibration evidence added")
-    print(f"    ✓ CANARY_ELIGIBLE → CANARY_PROMOTED")
+    print("    ✓ CANARY_ELIGIBLE → CANARY_PROMOTED")
 
     # CANARY_PROMOTED → CANARY_LIVE (needs soak_test + drift_check)
     policy.validate_evidence(
@@ -275,7 +267,7 @@ def main():
         ]
     )
     lifecycle.transition(PromotionState.CANARY_LIVE, note="30-day soak test passed")
-    print(f"    ✓ CANARY_PROMOTED → CANARY_LIVE")
+    print("    ✓ CANARY_PROMOTED → CANARY_LIVE")
 
     print(f"    ✓ Final state: {lifecycle.state.value}")
     print(f"    ✓ Evidence stored: {len(policy.get_evidence(artifact.artifact_id))} items")
@@ -298,7 +290,7 @@ def main():
 
     # Convert to CalibratedDecision with isotonic calibration
     decision = uncertainty_signal_to_decision(signal, temperature=1.0)
-    print(f"    ✓ CalibratedDecision probs:")
+    print("    ✓ CalibratedDecision probs:")
     for a in Action:
         print(f"        {a.value:8s}: {decision.action_probabilities[a]:.3f}")
 

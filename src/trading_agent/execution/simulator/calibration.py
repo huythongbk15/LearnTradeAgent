@@ -12,7 +12,6 @@ from __future__ import annotations
 import json
 import math
 import os
-import random
 import statistics
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
@@ -22,11 +21,6 @@ from typing import Any
 import polars as pl
 
 from trading_agent.execution.simulator.models import (
-    Fill,
-    OrderIntent,
-    RejectReason,
-    SimOrderStatus,
-    SimSide,
     SimulationConfig,
 )
 from trading_agent.execution.simulator.engine import MarketReplayEngine

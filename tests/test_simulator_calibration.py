@@ -12,22 +12,18 @@ import pytest
 from trading_agent.execution.simulator import (
     MarketReplayEngine,
     OrderIntent,
-    SimOrderStatus,
     SimOrderType,
     SimSide,
     SimulationConfig,
 )
 from trading_agent.execution.simulator.calibration import (
     CalibrationSample,
-    CalibrationResult,
     FillModelParams,
     ImpactModelParams,
     SimulatorCalibrator,
     collect_testnet_fills,
     validate_calibration,
 )
-from trading_agent.execution.simulator.fill_model import FillModel
-from trading_agent.execution.simulator.impact_model import ImpactModel
 
 
 def make_df(n: int = 50) -> pl.DataFrame:

@@ -9,7 +9,6 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
-import numpy as np
 import polars as pl
 
 from trading_agent.execution.simulator import SimulationConfig
@@ -18,23 +17,18 @@ from trading_agent.execution.simulator.reality_gap import compute_reality_gap
 from trading_agent.research import (
     Action,
     ArtifactLifecycle,
-    CalibratedDecision,
     DecisionPolicy,
     DriftMonitor,
     PersistentArtifactStore,
     PromotionError,
     PromotionPolicy,
     PromotionState,
-    StrategyArtifact,
     ThresholdDecisionPolicy,
     UncertaintySignal,
-    UncertaintyState,
     build_strategy_artifact,
-    calibration_evidence,
     drift_check_evidence,
     manual_review_evidence,
     reality_gap_evidence,
-    soak_test_evidence,
     uncertainty_signal_to_decision,
 )
 from trading_agent.research.artifact import ArtifactStore
@@ -88,14 +82,16 @@ def main():
     mem = ArtifactStore()
     a0 = build_strategy_artifact(strategy_name="ma", code_path=code, df=df, params={"fast": 5}, execution_model_version="1", framework_version="0")
     a1 = build_strategy_artifact(strategy_name="ma", code_path=code, df=df, params={"fast": 7}, execution_model_version="1", framework_version="0", prev_artifact_id=a0.artifact_id)
-    mem.add(a0); mem.add(a1)
+    mem.add(a0)
+    mem.add(a1)
     print(f"[CŨ]  in-memory: {len(mem.all_for('ma'))} artifacts, không persist, không chống sửa")
 
     # ── BẢN MỚI: SQLite + chain integrity hash ──
     with tempfile.TemporaryDirectory() as tmp:
         db = Path(tmp) / "art.db"
         store = PersistentArtifactStore(db)
-        store.add(a0); store.add(a1)
+        store.add(a0)
+        store.add(a1)
         ok, err = store.verify_chain()
         print(f"[MỚI] SQLite persist: {len(store.all_for('ma'))} artifacts, chain={ok}")
 
@@ -103,7 +99,8 @@ def main():
         import sqlite3
         conn = sqlite3.connect(db)
         conn.execute("UPDATE artifacts SET code_sha='TAMPERED' WHERE artifact_id=?", (a0.artifact_id,))
-        conn.commit(); conn.close()
+        conn.commit()
+        conn.close()
         ok2, err2 = store.verify_chain()
         print(f"[MỚI] sau khi sửa trái phép: chain={ok2}")
         print(f"     → phát hiện: {err2}")
