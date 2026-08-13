@@ -201,6 +201,7 @@
 │       │   ├── orchestrator.py
 │       │   ├── portfolio.py
 │       │   ├── risk.py
+│       │   ├── risk_decision.py
 │       │   ├── sentiment.py
 │       │   ├── technical.py
 │       │   └── trader.py
@@ -295,6 +296,7 @@
 │       │   ├── live_safety.py
 │       │   ├── monitoring.py
 │       │   ├── paper_exchange.py
+│       │   ├── permission.py
 │       │   ├── risk_controller.py
 │       │   ├── shadow.py
 │       │   ├── smart_router.py
@@ -411,6 +413,7 @@
 │   ├── test_chaos_invariants.py
 │   ├── test_cli_execution_safety.py
 │   ├── test_config.py
+│   ├── test_config_effective.py
 │   ├── test_data_trust.py
 │   ├── test_decision_trace.py
 │   ├── test_enhanced_ma_exit_safety.py
@@ -432,6 +435,7 @@
 │   ├── test_llm_pool.py
 │   ├── test_llm_schema.py
 │   ├── test_measure_tracking_error.py
+│   ├── test_order_permission.py
 │   ├── test_p4_p7.py
 │   ├── test_paper_exchange_accounting.py
 │   ├── test_phase2.py
@@ -442,6 +446,7 @@
 │   ├── test_realtime_data.py
 │   ├── test_research_governance.py
 │   ├── test_research_stats.py
+│   ├── test_risk_decision.py
 │   ├── test_shadow_mainnet.py
 │   ├── test_simulator_calibration.py
 │   ├── test_storage.py
