@@ -4,7 +4,7 @@
 > (implementation), production validation chưa đạt — xem [Capability Matrix](CAPABILITY_MATRIX.md)
 > và [Live Readiness](LIVE_TRADING_TODO.md)
 >
-> Cập nhật: 2026-08-11
+> Cập nhật: 2026-08-14
 
 ---
 

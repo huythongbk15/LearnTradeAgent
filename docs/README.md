@@ -1,6 +1,6 @@
 # 📘 Trading Agent System — Tài Liệu Kỹ Thuật
 
-> Cập nhật: 2026-08-11 · **Mainnet status: `NO-GO`** — xem [LIVE_TRADING_TODO.md](LIVE_TRADING_TODO.md)
+> Cập nhật: 2026-08-14 · **Mainnet status: `NO-GO`** — xem [LIVE_TRADING_TODO.md](LIVE_TRADING_TODO.md)
 
 ---
 

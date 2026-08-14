@@ -1,6 +1,6 @@
 # Live trading implementation TODO
 
-Last updated: 2026-08-11 (Asia/Saigon)
+Last updated: 2026-08-14 (Asia/Saigon)
 
 Mainnet status: **NO-GO**. Completion of an engineering checkbox is not
 authorization to submit real-money orders. Mainnet still requires the release
