@@ -35,7 +35,6 @@ from typing import Any
 from trading_agent.execution.simulator.models import Fill, SimSide
 from trading_agent.execution.simulator.versions import ALGORITHMS_VERSION
 
-
 # ── Window interpolation ──────────────────────────────────────────────────
 
 

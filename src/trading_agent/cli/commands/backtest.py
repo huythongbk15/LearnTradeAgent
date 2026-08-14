@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from rich.table import Table
-from rich.panel import Panel
 import click
+from rich.panel import Panel
+from rich.table import Table
+
 from trading_agent.cli._common import console
 
 # ── backtest subcommands ──────────────────────────────────────────────────

@@ -18,15 +18,15 @@ from decimal import Decimal
 from typing import Any, Optional
 
 try:
+    import alpaca.data as data_module
+    import alpaca.data.historical as data_historical
+    import alpaca.data.requests as data_requests
     import alpaca.trading.client as trading_client
     import alpaca.trading.enums as trading_enums
     import alpaca.trading.models as trading_models
     import alpaca.trading.requests as trading_requests
-    import alpaca.data.historical as data_historical
-    import alpaca.data.requests as data_requests
-    import alpaca.data as data_module
-    from alpaca.data import TimeFrame, TimeFrameUnit
     from alpaca.common.exceptions import APIError
+    from alpaca.data import TimeFrame, TimeFrameUnit
 
     ALPACA_AVAILABLE = True
 except ImportError:
@@ -39,18 +39,18 @@ except ImportError:
     ALPACA_AVAILABLE = False
 
 from trading_agent.exchanges.models import (
-    Symbol,
     AssetClass,
-    MarketType,
-    OrderSide,
-    OrderType,
-    OrderStatus,
-    TimeInForce,
-    Order,
-    Position,
     Balance,
-    Ticker,
     Candle,
+    MarketType,
+    Order,
+    OrderSide,
+    OrderStatus,
+    OrderType,
+    Position,
+    Symbol,
+    Ticker,
+    TimeInForce,
 )
 
 logger = logging.getLogger(__name__)

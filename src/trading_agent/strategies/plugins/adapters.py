@@ -12,13 +12,13 @@ from typing import Any
 from trading_agent.exchanges.models import Order
 from trading_agent.strategies.plugins.strategy_plugin import (
     BaseStrategy,
-    StrategyContext,
+    RiskProfile,
     Signal,
+    StrategyContext,
     StrategyMetadata,
     StrategyType,
-    RiskProfile,
+    get_registry,
 )
-from trading_agent.strategies import get_strategy
 
 
 class TradingAgentStrategyAdapter(BaseStrategy):
@@ -40,6 +40,7 @@ class TradingAgentStrategyAdapter(BaseStrategy):
         strategy_params: dict | None = None,
     ):
         # Create the wrapped strategy
+        from trading_agent.strategies import get_strategy
         self._wrapped = get_strategy(name)
         if self._wrapped is None:
             raise ValueError(f"Strategy '{name}' not found in trading_agent registry")
@@ -120,6 +121,7 @@ class TradingAgentStrategyAdapter(BaseStrategy):
     def set_parameters(self, params: dict) -> None:
         self._config = params
         # Recreate wrapped strategy with new params
+        from trading_agent.strategies import get_strategy
         self._wrapped = get_strategy(self._metadata.name)
         if self._wrapped and params:
             self._wrapped = self._wrapped.__class__(params)
@@ -270,8 +272,6 @@ class BBandsPluginStrategy(TradingAgentStrategyAdapter):
 
 # Auto-register on import
 def _auto_register():
-    from trading_agent.strategies.plugins import get_registry
-
     registry = get_registry()
     for strategy_class in [
         MaCrossoverPluginStrategy,

@@ -29,7 +29,7 @@ from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Optional
 
-from trading_agent.exchanges.models import Symbol, Candle, AssetClass
+from trading_agent.exchanges.models import AssetClass, Candle, Symbol
 
 logger = logging.getLogger(__name__)
 

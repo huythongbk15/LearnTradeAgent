@@ -24,8 +24,8 @@ import polars as pl
 from trading_agent.backtest.engine import BacktestEngine
 from trading_agent.data.storage import load_ohlcv
 from trading_agent.execution.live_safety import (
-    StrategyEvidencePolicy,
     LiveSafetyError,
+    StrategyEvidencePolicy,
 )
 from trading_agent.strategies.enhanced_ma import EnhancedMaCrossover
 

@@ -3,15 +3,16 @@
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
-from trading_agent.agents.base import BaseAgent as Agent, AgentSpec, AgentRole
+from trading_agent.agents.base import AgentRole, AgentSpec
+from trading_agent.agents.base import BaseAgent as Agent
 from trading_agent.agents.swarm.specialized import (
-    TechnicalAgent,
-    FundamentalAgent,
-    SentimentAgent,
-    RiskAgent,
     ExecutionAgent,
+    FundamentalAgent,
+    RiskAgent,
+    SentimentAgent,
+    TechnicalAgent,
 )
 from trading_agent.llm.client import LLMClient
 from trading_agent.llm.pool import LLMPool
@@ -197,11 +198,11 @@ class SwarmFactory:
     ) -> tuple["CoordinatorAgent", AgentRegistry]:
         """Create standard swarm with all agent types."""
         from trading_agent.agents.swarm.coordinator import (
+            CompetitiveSwarm,
+            ConsensusSwarm,
             CoordinatorAgent,
             SwarmConfig,
             SwarmMode,
-            ConsensusSwarm,
-            CompetitiveSwarm,
         )
 
         registry = AgentRegistry(llm_client)

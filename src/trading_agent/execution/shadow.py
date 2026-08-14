@@ -24,13 +24,13 @@ Hard guard (triple):
 
 from __future__ import annotations
 
+import math
+import os
+import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
 from typing import Any, Callable
-import math
-import os
-import uuid
 
 SHADOW_ENV_GUARD = "SHADOW_MAINNET"
 SHADOW_ENV_VALUE = "1"

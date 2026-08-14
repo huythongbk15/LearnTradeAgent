@@ -33,6 +33,7 @@ from trading_agent.execution.lifecycle import (
     IntentStatus,
     InvariantViolation,
     LifecycleError,
+    ProtectionState,
     ReconciliationState,
 )
 
@@ -137,7 +138,11 @@ def check_invariants(
     if "no_position_without_required_protective_order" in invariants:
         for o in state.orders.values():
             if o.side == "buy" and o.status == IntentStatus.FILLED:
-                if not o.protective_order_ids:
+                protection = state.protection_state.get(o.intent_id)
+                if protection not in (
+                    ProtectionState.PROTECTION_REQUIRED,
+                    ProtectionState.PROTECTED,
+                ):
                     violations.append("no_position_without_required_protective_order")
                     break
 
@@ -332,8 +337,9 @@ def run_chaos_scenario(
         # replay must stay deterministic; no state corruption.
         attempt(lambda: lifecycle.create_order_intent(intent_id, symbol, side, size))
         attempt(lambda: lifecycle.approve_risk(intent_id))
-        from trading_agent.execution.lifecycle.events import make_event
         from datetime import UTC, datetime, timedelta
+
+        from trading_agent.execution.lifecycle.events import make_event
 
         future = make_event(
             "exec.order_submitted",

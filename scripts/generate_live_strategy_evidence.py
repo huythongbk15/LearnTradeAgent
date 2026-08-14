@@ -19,10 +19,10 @@ from pathlib import Path
 
 sys.path.insert(0, "src")
 
-import polars as pl
 import numpy as np
-
+import polars as pl
 from live_config import ATR_SL_MULT, STRATEGY_PARAMS, TIMEFRAME
+
 from trading_agent.backtest.engine import BacktestEngine
 from trading_agent.data.storage import load_ohlcv
 from trading_agent.execution.live_safety import (
@@ -33,7 +33,6 @@ from trading_agent.execution.live_safety import (
     validate_strategy_evidence,
 )
 from trading_agent.strategies.enhanced_ma import EnhancedMaCrossover
-
 
 COMMISSION = 0.0010
 SLIPPAGE = 0.0005

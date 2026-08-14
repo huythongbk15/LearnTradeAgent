@@ -26,13 +26,13 @@ import math
 from dataclasses import dataclass, field
 from typing import Any
 
+from trading_agent.execution.simulator.ledger import ExecutionLedger
 from trading_agent.execution.simulator.models import (
     OrderResult,
     SimOrderStatus,
     SimSide,
     SimulationConfig,
 )
-from trading_agent.execution.simulator.ledger import ExecutionLedger
 
 
 @dataclass

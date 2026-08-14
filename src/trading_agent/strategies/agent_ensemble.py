@@ -32,15 +32,15 @@ import polars as pl
 
 from trading_agent.agents.base import AnalysisContext
 from trading_agent.agents.llm import (
-    enable_backtest_mode,
     disable_backtest_mode,
+    enable_backtest_mode,
     is_backtest_mode,
 )
-from trading_agent.regime import add_regime_indicators
 from trading_agent.agents.risk import RiskManager
 from trading_agent.agents.sentiment import SentimentAnalyst
 from trading_agent.agents.technical import TechnicalAnalyst
 from trading_agent.agents.trader import Trader
+from trading_agent.regime import add_regime_indicators
 from trading_agent.strategies.base import Strategy, register_strategy
 
 logger = logging.getLogger(__name__)

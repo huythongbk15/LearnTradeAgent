@@ -9,21 +9,20 @@ Exports:
 - StrategySandbox: Sandboxed execution
 """
 
-from trading_agent.strategies.plugins.strategy_plugin import (
-    BaseStrategy,
-    StrategyMetadata,
-    Signal,
-    StrategyContext,
-    StrategyRegistry,
-    StrategySandbox,
-    StrategyType,
-    RiskProfile,
-    StrategyStatus,
-    get_registry,
-)
-
 # Import adapters to trigger auto-registration
 import trading_agent.strategies.plugins.adapters  # noqa: F401
+from trading_agent.strategies.plugins.strategy_plugin import (
+    BaseStrategy,
+    RiskProfile,
+    Signal,
+    StrategyContext,
+    StrategyMetadata,
+    StrategyRegistry,
+    StrategySandbox,
+    StrategyStatus,
+    StrategyType,
+    get_registry,
+)
 
 __all__ = [
     "BaseStrategy",

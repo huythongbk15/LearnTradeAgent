@@ -33,12 +33,12 @@ sys.path.insert(0, str(ROOT))
 import numpy as np
 import polars as pl
 
-from trading_agent.data.storage import load_ohlcv
-from trading_agent.strategies.enhanced_ma import EnhancedMaCrossover
-from trading_agent.execution.engine import ExecutionEngine
-from trading_agent.execution import risk_controller as rc_module
-from trading_agent.execution.risk_controller import RiskController
 from trading_agent.agents.base import AgentMessage
+from trading_agent.data.storage import load_ohlcv
+from trading_agent.execution import risk_controller as rc_module
+from trading_agent.execution.engine import ExecutionEngine
+from trading_agent.execution.risk_controller import RiskController
+from trading_agent.strategies.enhanced_ma import EnhancedMaCrossover
 
 
 class _SimClock(datetime):

@@ -4,11 +4,12 @@ QwenPaw Agent: Health check & metrics endpoint.
 Can be called via HTTP (if server) or CLI for monitoring.
 """
 
-import sys
 import json
+import sys
 import time
-import psutil
 from pathlib import Path
+
+import psutil
 
 sys.path.insert(0, str(Path(__file__).parent))
 from process_registry import list_active, list_recent

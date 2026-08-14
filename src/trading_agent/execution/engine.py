@@ -17,16 +17,16 @@ from typing import Any
 
 from trading_agent.agents.base import AgentMessage
 from trading_agent.config.loader import config
+from trading_agent.execution.indicators import (
+    compute_atr,
+    compute_atr_position_size,
+)
 from trading_agent.execution.paper_exchange import PaperExchange
 from trading_agent.execution.types import (
     Order,
     OrderSide,
     OrderStatus,
     OrderType,
-)
-from trading_agent.execution.indicators import (
-    compute_atr,
-    compute_atr_position_size,
 )
 
 logger = logging.getLogger(__name__)

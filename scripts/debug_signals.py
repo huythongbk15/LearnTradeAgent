@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """Debug: kiểm tra tín hiệu agents tại các mốc thị trường khác nhau (đúng window)."""
 
-import sys
 import os
+import sys
 
 sys.path.insert(0, "/home/huythong/.qwenpaw/workspaces/trading")
 os.environ["USE_LLM"] = "false"
 
 import polars as pl
+
 from trading_agent.agents.orchestrator import Orchestrator
 from trading_agent.data.storage import load_ohlcv
 

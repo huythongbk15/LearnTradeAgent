@@ -9,20 +9,20 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
-from trading_agent.features.llm.news import (
-    NewsFeatureExtractor,
-    NewsFeatures,
-    NewsArticle,
-)
 from trading_agent.features.llm.earnings import (
+    EarningsData,
     EarningsFeatureExtractor,
     EarningsFeatures,
-    EarningsData,
+)
+from trading_agent.features.llm.news import (
+    NewsArticle,
+    NewsFeatureExtractor,
+    NewsFeatures,
 )
 from trading_agent.features.llm.social import (
-    SocialSentimentExtractor,
     SocialFeatures,
     SocialPost,
+    SocialSentimentExtractor,
 )
 from trading_agent.llm.client import LLMClient
 from trading_agent.llm.pool import LLMPool, create_llm_pool

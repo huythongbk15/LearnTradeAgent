@@ -14,8 +14,8 @@ Tests the core Phase 6 components:
 
 import asyncio
 import sys
-from decimal import Decimal
 from datetime import datetime
+from decimal import Decimal
 
 
 def smoke_unified_data_model():
@@ -23,13 +23,13 @@ def smoke_unified_data_model():
     print("Testing Unified Data Model...")
     from trading_agent.exchanges.models import (
         AssetClass,
-        MarketType,
         Bar,
+        MarketType,
         OrderBook,
         OrderBookLevel,
         crypto_symbol,
-        stock_symbol,
         forex_symbol,
+        stock_symbol,
     )
 
     # Test crypto symbol
@@ -98,12 +98,13 @@ def smoke_risk_budgeting():
     print("Testing Risk Budgeting & Correlation Monitor...")
     import numpy as np
     import pandas as pd
+
     from trading_agent.portfolio.risk_budgeting import (
-        RiskBudgeter,
-        RiskBudgetMethod,
         CorrelationMethod,
         CorrelationMonitor,
         DrawdownController,
+        RiskBudgeter,
+        RiskBudgetMethod,
     )
 
     # Create synthetic returns data
@@ -199,13 +200,13 @@ def smoke_risk_budgeting():
 def smoke_strategy_plugins():
     """Test strategy plugin architecture"""
     print("Testing Strategy Plugin Architecture...")
+    from trading_agent.exchanges.models import AssetClass, Bar, MarketType, Symbol
     from trading_agent.strategies.plugins.strategy_plugin import (
-        StrategyContext,
         ExampleMAStrategy,
         ExampleRSIStrategy,
+        StrategyContext,
         get_registry,
     )
-    from trading_agent.exchanges.models import Symbol, AssetClass, MarketType, Bar
 
     registry = get_registry()
 
@@ -310,13 +311,14 @@ def smoke_regime_detection():
     print("Testing Regime Detection...")
     import numpy as np
     import pandas as pd
+
     from trading_agent.ml.regime_detection import (
+        AdaptivePositionSizer,
+        HMMStrategy,
+        HybridRegimeDetector,
         MarketRegime,
         RegimeMethod,
-        HMMStrategy,
         RuleBasedStrategy,
-        HybridRegimeDetector,
-        AdaptivePositionSizer,
     )
 
     # Create synthetic price data with regime changes

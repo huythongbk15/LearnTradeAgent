@@ -19,6 +19,7 @@ Missing metrics are handled fail-closed:
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -73,13 +74,19 @@ class RealityGapReport:
     thresholds: dict[str, float] = field(default_factory=dict)
     missing_in_both: list[str] = field(default_factory=list)
     missing_in_one: list[str] = field(default_factory=list)
+    required_metrics: frozenset[str] = field(default_factory=frozenset)
+    critical_metrics: frozenset[str] = field(default_factory=frozenset)
+    minimum_required_coverage: float = 0.0
     raw: dict[str, Any] = field(default_factory=dict)
 
     @property
     def pass_gate(self) -> bool:
         """Gate passes if no breaches AND no REQUIRED metrics missing from both.
         Optional metrics missing from both are warnings, not gate failures."""
-        return not self.breaches
+        return not self.breaches and (
+            self.minimum_required_coverage <= 0
+            or not any(b.startswith("coverage") for b in self.breaches)
+        )
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -91,6 +98,9 @@ class RealityGapReport:
             "thresholds": self.thresholds,
             "missing_in_both": self.missing_in_both,
             "missing_in_one": self.missing_in_one,
+            "required_metrics": sorted(self.required_metrics),
+            "critical_metrics": sorted(self.critical_metrics),
+            "minimum_required_coverage": self.minimum_required_coverage,
             "gate_passed": self.pass_gate,
         }
 
@@ -131,6 +141,8 @@ def compute_reality_gap(
     reference: dict[str, float],
     thresholds: dict[str, float] | None = None,
     required_metrics: frozenset[str] | None = None,
+    critical_metrics: frozenset[str] | None = None,
+    minimum_required_coverage: float = 0.0,
 ) -> RealityGapReport:
     """Build a RealityGapReport comparing ``observed`` vs ``reference``.
 
@@ -151,10 +163,13 @@ def compute_reality_gap(
     missing_in_both: list[str] = []
     missing_in_one: list[str] = []
 
+    total_metrics = len(REALITY_GAP_METRICS)
+    covered = 0
     for metric in REALITY_GAP_METRICS:
         in_obs = metric in observed
         in_ref = metric in reference
         is_required = metric in required
+        is_critical = critical_metrics is not None and metric in critical_metrics
 
         if not in_obs and not in_ref:
             # Missing from both
@@ -181,8 +196,28 @@ def compute_reality_gap(
                 missing_in_one.append(metric)
             continue
 
-        # Both present — compute deviation
+        # Both present — validate finite and non-NaN
         obs, ref = float(observed[metric]), float(reference[metric])
+        if not math.isfinite(obs) or not math.isfinite(ref):
+            breaches.append(f"{metric}: non-finite value (obs={obs}, ref={ref})")
+            if is_critical:
+                # Critical metric non-finite is a hard breach; stop further scoring
+                return RealityGapReport(
+                    environment=environment,
+                    reference_environment=reference_environment,
+                    metrics=dict(observed),
+                    score=1.0,
+                    breaches=breaches,
+                    thresholds=thresholds,
+                    missing_in_both=missing_in_both,
+                    missing_in_one=missing_in_one,
+                    required_metrics=required,
+                    critical_metrics=critical_metrics or frozenset(),
+                    minimum_required_coverage=minimum_required_coverage,
+                )
+            continue
+
+        covered += 1
         dev = _rel_deviation(obs, ref)
         deviations.append(dev)
         if metric in thresholds and dev > thresholds[metric]:
@@ -192,6 +227,12 @@ def compute_reality_gap(
             )
 
     score = sum(deviations) / len(deviations) if deviations else 0.0
+    coverage = covered / total_metrics if total_metrics else 0.0
+    if minimum_required_coverage > 0 and coverage < minimum_required_coverage:
+        breaches.append(
+            f"coverage {coverage:.2%} below minimum_required_coverage "
+            f"{minimum_required_coverage:.2%}"
+        )
     return RealityGapReport(
         environment=environment,
         reference_environment=reference_environment,
@@ -201,6 +242,9 @@ def compute_reality_gap(
         thresholds=thresholds,
         missing_in_both=missing_in_both,
         missing_in_one=missing_in_one,
+        required_metrics=required,
+        critical_metrics=critical_metrics or frozenset(),
+        minimum_required_coverage=minimum_required_coverage,
     )
 
 

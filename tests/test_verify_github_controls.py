@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import urllib.error
 
-
 from scripts.verify_github_controls import (
     check_branch_protection,
     check_environment,

@@ -8,11 +8,11 @@ import aiohttp
 
 from trading_agent.exchanges.dex.base import BaseDEXAdapter, SwapQuote
 from trading_agent.exchanges.models import (
-    Symbol,
     Order,
     OrderSide,
-    OrderType,
     OrderStatus,
+    OrderType,
+    Symbol,
 )
 
 logger = logging.getLogger(__name__)

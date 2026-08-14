@@ -144,11 +144,12 @@ def load_test_online_learning(n_bars=200_000):
 def load_test_portfolio_large_universe(n_assets=100, n_periods=500):
     print(f"\n[Portfolio Optimizer Large Universe] {n_assets} assets")
     import pandas as pd
+
+    from trading_agent.exchanges.models import AssetClass, MarketType, Symbol
     from trading_agent.portfolio.portfolio_optimizer import (
-        PortfolioOptimizer,
         OptimizerMethod,
+        PortfolioOptimizer,
     )
-    from trading_agent.exchanges.models import Symbol, AssetClass, MarketType
 
     np.random.seed(2)
     returns = pd.DataFrame(

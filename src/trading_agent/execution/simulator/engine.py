@@ -43,8 +43,8 @@ from trading_agent.execution.simulator.models import (
     OrderResult,
     RejectReason,
     SimOrderStatus,
-    SimSide,
     SimOrderType,
+    SimSide,
     SimulationConfig,
     quantize_qty,
 )

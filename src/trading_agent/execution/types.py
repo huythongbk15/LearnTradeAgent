@@ -4,12 +4,12 @@ Data types for execution layer: Order, Trade, Position.
 
 from __future__ import annotations
 
+import hashlib
+import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
-import hashlib
-import time
 
 
 class OrderSide(Enum):

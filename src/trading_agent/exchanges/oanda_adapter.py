@@ -36,20 +36,20 @@ except ImportError:
     OANDA_AVAILABLE = False
 
 from trading_agent.exchanges.models import (
-    Symbol,
     AssetClass,
-    MarketType,
-    OrderSide,
-    OrderType,
-    OrderStatus,
-    TimeInForce,
-    Order,
-    Position,
     Balance,
-    Ticker,
+    Candle,
+    MarketType,
+    Order,
     OrderBook,
     OrderBookLevel,
-    Candle,
+    OrderSide,
+    OrderStatus,
+    OrderType,
+    Position,
+    Symbol,
+    Ticker,
+    TimeInForce,
 )
 
 logger = logging.getLogger(__name__)

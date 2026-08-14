@@ -6,8 +6,8 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Optional
 from pathlib import Path
+from typing import Optional
 
 from trading_agent.strategies.plugins import BaseStrategy as Strategy
 

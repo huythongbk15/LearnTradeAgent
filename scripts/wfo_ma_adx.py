@@ -3,19 +3,19 @@
 WFO for ADX-filtered MA Crossover
 """
 
-import polars as pl
-import numpy as np
-from datetime import datetime, timedelta
-from pathlib import Path
 import json
 import sys
+from datetime import datetime, timedelta
+from pathlib import Path
+
+import numpy as np
+import polars as pl
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
+from trading_agent.backtest.engine import BacktestEngine
 from trading_agent.data.storage import load_ohlcv
 from trading_agent.strategies.enhanced_ma import MaAdxCrossover
-from trading_agent.backtest.engine import BacktestEngine
-
 
 # ADX parameter grid
 ADX_PARAMS = {

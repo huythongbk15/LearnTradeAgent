@@ -17,13 +17,14 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum
+
 import numpy as np
 import pandas as pd
 from scipy.optimize import minimize
 from scipy.stats import norm
 
-from trading_agent.exchanges.models import Symbol, AssetClass
-from trading_agent.portfolio.risk_budgeting import RiskBudgetMethod, RiskBudgeter
+from trading_agent.exchanges.models import AssetClass, Symbol
+from trading_agent.portfolio.risk_budgeting import RiskBudgeter, RiskBudgetMethod
 
 logger = logging.getLogger(__name__)
 warnings.filterwarnings("ignore", category=RuntimeWarning)

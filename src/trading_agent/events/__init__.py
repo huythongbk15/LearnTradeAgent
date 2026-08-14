@@ -1,25 +1,25 @@
 """Event sourcing for trading system audit trail."""
 
-from trading_agent.events.store import EventStore, EventStoreConfig
 from trading_agent.events.models import (
     Event,
     EventType,
-    TradeEvent,
-    SignalEvent,
-    RiskEvent,
     OrderEvent,
-    PositionEvent,
     PortfolioEvent,
+    PositionEvent,
+    RiskEvent,
+    SignalEvent,
+    TradeEvent,
 )
 from trading_agent.events.projections import (
-    Projection,
-    TradeProjection,
-    PositionProjection,
-    PortfolioProjection,
-    RiskProjection,
     OrderProjection,
+    PortfolioProjection,
+    PositionProjection,
+    Projection,
+    RiskProjection,
     SignalProjection,
+    TradeProjection,
 )
+from trading_agent.events.store import EventStore, EventStoreConfig
 
 __all__ = [
     "EventStore",

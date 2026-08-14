@@ -17,7 +17,6 @@ import pytest
 _TEMP = Path(tempfile.mkdtemp())
 
 import trading_agent.data.storage as storage_mod  # noqa: E402
-
 from trading_agent.data.storage import (  # noqa: E402
     get_date_range,
     list_datasets,

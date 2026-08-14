@@ -16,7 +16,6 @@ from trading_agent.llm.pool import (
     create_llm_pool,
 )
 
-
 # ── Fixtures ──────────────────────────────────────────────────
 
 

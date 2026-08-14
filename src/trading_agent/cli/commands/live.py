@@ -5,9 +5,11 @@ from __future__ import annotations
 import os
 import time
 from typing import Any
-from rich.table import Table
-from rich.panel import Panel
+
 import click
+from rich.panel import Panel
+from rich.table import Table
+
 from trading_agent.cli._common import console
 
 # ── execution subcommands ────────────────────────────────────────────────
@@ -572,15 +574,16 @@ def live_connect(
         )
         return
     import asyncio
+
     from trading_agent.exchanges.alpaca_adapter import (
         AlpacaAdapter,
         AlpacaConfig,
     )
+    from trading_agent.exchanges.live_broker import LiveBroker
     from trading_agent.exchanges.oanda_adapter import (
         OANDAAdapter,
         OANDAConfig,
     )
-    from trading_agent.exchanges.live_broker import LiveBroker
 
     console.print(
         f"[bold]Connecting to {broker.upper()} ({'paper' if paper else 'live'})...[/bold]"
@@ -886,16 +889,17 @@ def live_order(
     dry_run: bool,
 ):
     """Place an order."""
-    from trading_agent.cli import _live_adapters
     from decimal import Decimal
+
+    from trading_agent.cli import _live_adapters
     from trading_agent.exchanges.models import (
+        Order,
         OrderSide,
         OrderType,
         TimeInForce,
-        Order,
         crypto_symbol,
-        stock_symbol,
         forex_symbol,
+        stock_symbol,
     )
 
     adapter = _live_adapters.get(broker)

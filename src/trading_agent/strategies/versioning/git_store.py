@@ -9,8 +9,8 @@ from pathlib import Path
 from typing import Optional
 
 from trading_agent.strategies.versioning.registry import (
-    StrategyVersion,
     StrategyRegistry,
+    StrategyVersion,
 )
 
 logger = logging.getLogger(__name__)
@@ -148,9 +148,9 @@ class GitVersionStore:
 
         # Reconstruct metadata
         from trading_agent.strategies.versioning.registry import (
-            StrategyMetadata,
-            RiskProfile,
             AssetClass,
+            RiskProfile,
+            StrategyMetadata,
         )
 
         metadata = StrategyMetadata(

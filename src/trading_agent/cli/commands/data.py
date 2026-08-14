@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from pathlib import Path
-from rich.table import Table
+
 import click
+from rich.table import Table
+
 from trading_agent.cli._common import config, console
 
 # ── data subcommands ──────────────────────────────────────────────────────
@@ -369,7 +371,7 @@ def enrich_atr_cmd(
     enrich_all: bool,
 ):
     """Pre-compute and store ATR for stored OHLCV data."""
-    from trading_agent.data.storage import enrich_with_atr, enrich_all_datasets
+    from trading_agent.data.storage import enrich_all_datasets, enrich_with_atr
 
     if enrich_all:
         console.print(

@@ -4,13 +4,11 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-
 SCRIPTS = os.path.join(os.path.dirname(__file__), "..", "scripts")
 if SCRIPTS not in sys.path:
     sys.path.insert(0, SCRIPTS)
 
 from check_live_audit import AuditHealthError, validate_audit_health
-
 
 NOW = datetime(2026, 8, 10, 12, tzinfo=UTC)
 

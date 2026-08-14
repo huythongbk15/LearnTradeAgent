@@ -7,22 +7,21 @@
 import asyncio
 import os
 
-
-from trading_agent.exchanges.models import crypto_symbol
-from trading_agent.exchanges.websocket_manager import (
-    WebSocketManager,
-    MockStreamProvider,
-    WSChannel,
-    WSMessage,
+from trading_agent.data.pipeline import (
+    DataPipeline,
+    MockSource,
+    SQLiteCandleStore,
 )
 from trading_agent.exchanges.health_monitor import (
     HealthMonitor,
     HealthStatus,
 )
-from trading_agent.data.pipeline import (
-    DataPipeline,
-    SQLiteCandleStore,
-    MockSource,
+from trading_agent.exchanges.models import crypto_symbol
+from trading_agent.exchanges.websocket_manager import (
+    MockStreamProvider,
+    WebSocketManager,
+    WSChannel,
+    WSMessage,
 )
 
 

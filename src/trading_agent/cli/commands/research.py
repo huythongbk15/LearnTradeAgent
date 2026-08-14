@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-import math
 import json
+import math
 import time
-from rich.table import Table
-from rich.panel import Panel
+
 import click
+from rich.panel import Panel
+from rich.table import Table
+
 from trading_agent.cli._common import console
 
 # ── llm subcommands ───────────────────────────────────────────────────────
@@ -222,6 +224,7 @@ def meta_train(
 ):
     """Meta-train on multiple market regimes."""
     import asyncio
+
     from trading_agent.ml.meta_learning import train
 
     asyncio.run(
@@ -246,6 +249,7 @@ def meta_train(
 def meta_adapt(model_path: str, regime_data: str, n_samples: int, output: str | None):
     """Adapt meta-learned strategy to new regime."""
     import asyncio
+
     from trading_agent.ml.meta_learning import adapt
 
     asyncio.run(
@@ -269,6 +273,7 @@ def meta_backtest(
 ):
     """Run backtest with meta-learned parameters."""
     import asyncio
+
     from trading_agent.ml.meta_learning import backtest
 
     asyncio.run(
@@ -308,6 +313,7 @@ def projection_rebuild(
 ):
     """Rebuild projections from event store."""
     import asyncio
+
     from trading_agent.events.projection_manager import rebuild
 
     asyncio.run(
@@ -325,6 +331,7 @@ def projection_rebuild(
 def projection_status(event_store_path: str, projection: str | None):
     """Show projection status."""
     import asyncio
+
     from trading_agent.events.projection_manager import status
 
     asyncio.run(
@@ -342,6 +349,7 @@ def projection_status(event_store_path: str, projection: str | None):
 def projection_query(event_store_path: str, projection: str, key: str | None):
     """Query projection state."""
     import asyncio
+
     from trading_agent.events.projection_manager import query
 
     asyncio.run(
@@ -368,6 +376,7 @@ def options():
 def options_chain(symbol: str, expiry: str | None, spot: float):
     """Display option chain for a symbol."""
     from rich.table import Table as RichTable
+
     from trading_agent.strategies.options_strategies import OptionChainProvider
 
     provider = OptionChainProvider(dry_run=True)
@@ -463,6 +472,7 @@ def options_covered_call(
 ):
     """Find covered call opportunities."""
     from rich.table import Table as RichTable
+
     from trading_agent.strategies.options_strategies import (
         CoveredCallStrategy,
         OptionChainProvider,
@@ -515,6 +525,7 @@ def options_cash_secured_put(
 ):
     """Find cash-secured put opportunities."""
     from rich.table import Table as RichTable
+
     from trading_agent.strategies.options_strategies import (
         CashSecuredPutStrategy,
         OptionChainProvider,
@@ -566,6 +577,7 @@ def options_iron_condor(
 ):
     """Find iron condor opportunities."""
     from rich.table import Table as RichTable
+
     from trading_agent.strategies.options_strategies import (
         IronCondorStrategy,
         OptionChainProvider,
@@ -681,6 +693,7 @@ def options_gamma_scalp(symbol: str, simulate: bool, steps: int, vol: float):
 def options_calendar(symbol: str, spot: float):
     """Find calendar spread opportunities."""
     from rich.table import Table as RichTable
+
     from trading_agent.strategies.options_strategies import (
         CalendarSpreadStrategy,
         OptionChainProvider,

@@ -47,9 +47,9 @@ sys.path.insert(0, str(ROOT))
 # ── Local imports (lazy to speed up startup) ─────────────────────────────
 def _import_modules():
     """Lazy import heavy modules after path setup."""
+    from trading_agent.agents.orchestrator import Orchestrator
     from trading_agent.config.loader import config
     from trading_agent.data.collector import Collector
-    from trading_agent.agents.orchestrator import Orchestrator
     from trading_agent.execution.engine import ExecutionEngine
     from trading_agent.execution.risk_controller import RiskController
     from trading_agent.log_config import get_logger

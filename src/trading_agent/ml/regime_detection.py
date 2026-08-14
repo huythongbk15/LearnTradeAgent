@@ -18,10 +18,11 @@ from datetime import datetime
 from decimal import Decimal
 from enum import Enum
 from typing import Optional
+
 import numpy as np
 import pandas as pd
-from sklearn.mixture import GaussianMixture
 from hmmlearn import hmm
+from sklearn.mixture import GaussianMixture
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 

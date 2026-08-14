@@ -25,6 +25,7 @@ if SCRIPTS not in sys.path:
     sys.path.insert(0, SCRIPTS)
 
 import live_enhanced_ma_binance as runner
+
 from trading_agent.exchanges.ccxt_adapter import CCXTAdapter, ExchangeConfig
 from trading_agent.exchanges.live_broker import LiveBroker
 from trading_agent.exchanges.models import MarketType

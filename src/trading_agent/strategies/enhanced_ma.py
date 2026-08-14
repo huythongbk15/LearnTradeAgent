@@ -11,8 +11,9 @@ Enhanced MA Crossover Strategy with:
 
 import numpy as np
 import polars as pl
-from trading_agent.strategies.base import Strategy, register_strategy
+
 from trading_agent.regime import add_regime_indicators
+from trading_agent.strategies.base import Strategy, register_strategy
 
 
 @register_strategy("enhanced_ma")

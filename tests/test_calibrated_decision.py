@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+
 from trading_agent.research.uncertainty import (
     Action,
     CalibratedDecision,

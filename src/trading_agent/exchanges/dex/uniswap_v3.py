@@ -11,11 +11,11 @@ from web3.contract import Contract
 
 from trading_agent.exchanges.dex.base import BaseDEXAdapter, PoolInfo, SwapQuote
 from trading_agent.exchanges.models import (
-    Symbol,
     Order,
     OrderSide,
-    OrderType,
     OrderStatus,
+    OrderType,
+    Symbol,
 )
 
 logger = logging.getLogger(__name__)

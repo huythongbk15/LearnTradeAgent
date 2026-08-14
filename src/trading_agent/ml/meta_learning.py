@@ -14,12 +14,12 @@ from rich.console import Console
 from rich.table import Table
 
 from trading_agent.ml.meta import (
-    MetaStrategyAdapter,
-    MetaLearningConfig,
-    MAML,
-    Reptile,
-    MetaSGD,
     ANIL,
+    MAML,
+    MetaLearningConfig,
+    MetaSGD,
+    MetaStrategyAdapter,
+    Reptile,
 )
 
 logger = logging.getLogger(__name__)
@@ -47,9 +47,10 @@ def train(
 ):
     """Meta-train on multiple market regimes."""
 
-    import pandas as pd
-    import numpy as np
     from pathlib import Path
+
+    import numpy as np
+    import pandas as pd
 
     data_path = Path(data_dir)
     if not data_path.exists():
@@ -147,8 +148,8 @@ def adapt(
 ):
     """Adapt meta-learned strategy to new market regime."""
 
-    import pandas as pd
     import numpy as np
+    import pandas as pd
 
     # Load model
     if not model_path.exists():
@@ -238,8 +239,8 @@ def backtest(
 ):
     """Run backtest with meta-learned parameters."""
 
-    import pandas as pd
     import numpy as np
+    import pandas as pd
 
     # Load adapted params
     if not adapted_params.exists():
@@ -455,9 +456,10 @@ def regimes(
 ):
     """Analyze available regimes in data directory."""
 
-    import pandas as pd
-    import numpy as np
     from pathlib import Path
+
+    import numpy as np
+    import pandas as pd
 
     data_path = Path(data_dir)
     if not data_path.exists():

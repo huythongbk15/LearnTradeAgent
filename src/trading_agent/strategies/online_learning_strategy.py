@@ -12,26 +12,26 @@ from decimal import Decimal
 from typing import Optional
 
 from trading_agent.exchanges.models import OrderSide, Position
-from trading_agent.ml.online.indicators import (
-    OnlineATR,
-    OnlineVWAP,
-    OnlineStandardDeviation,
-    OnlineCorrelation,
-)
 from trading_agent.ml.online.adaptive import (
+    AdaptiveBollingerBands,
     AdaptiveConfig,
     AdaptiveEMA,
-    AdaptiveRSI,
-    AdaptiveBollingerBands,
     AdaptiveMACD,
+    AdaptiveRSI,
+)
+from trading_agent.ml.online.indicators import (
+    OnlineATR,
+    OnlineCorrelation,
+    OnlineStandardDeviation,
+    OnlineVWAP,
 )
 from trading_agent.strategies.plugins import (
     BaseStrategy,
+    RiskProfile,
     Signal,
     StrategyContext,
     StrategyMetadata,
     StrategyType,
-    RiskProfile,
 )
 
 logger = logging.getLogger(__name__)

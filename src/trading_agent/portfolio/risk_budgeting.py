@@ -17,13 +17,14 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 from enum import Enum
 from typing import Optional
+
 import numpy as np
 import pandas as pd
 from scipy.optimize import minimize
 from sklearn.covariance import LedoitWolf
 from sklearn.mixture import GaussianMixture
 
-from trading_agent.exchanges.models import Symbol, AssetClass, MarketType
+from trading_agent.exchanges.models import AssetClass, MarketType, Symbol
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +86,7 @@ class CorrelationMatrix:
 
     def get_cluster(self, n_clusters: int = 3) -> dict[int, list[Symbol]]:
         """Cluster symbols by correlation"""
-        from scipy.cluster.hierarchy import linkage, fcluster
+        from scipy.cluster.hierarchy import fcluster, linkage
         from scipy.spatial.distance import squareform
 
         # Convert correlation to distance (1 - |corr|)

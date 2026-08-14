@@ -22,7 +22,6 @@ from typing import Mapping
 
 from trading_agent.execution.correlation import get_correlation_id
 
-
 LIVE_CONFIRMATION = "LIVE_TRADING_WITH_REAL_MONEY"
 RISK_INCREASE_CONFIRMATION = "APPROVE_LIVE_RISK_INCREASE"
 STATE_VERSION = 1

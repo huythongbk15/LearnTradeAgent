@@ -6,14 +6,14 @@ from trading_agent.agents.swarm.coordinator import (
     SwarmMode,
     SwarmSignal,
 )
-from trading_agent.agents.swarm.specialized import (
-    TechnicalAgent,
-    FundamentalAgent,
-    SentimentAgent,
-    RiskAgent,
-    ExecutionAgent,
-)
 from trading_agent.agents.swarm.registry import AgentRegistry, AgentSpec
+from trading_agent.agents.swarm.specialized import (
+    ExecutionAgent,
+    FundamentalAgent,
+    RiskAgent,
+    SentimentAgent,
+    TechnicalAgent,
+)
 
 __all__ = [
     "CoordinatorAgent",

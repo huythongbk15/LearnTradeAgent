@@ -69,7 +69,6 @@ jobs:
         id: verify-signature
         env:
           COSIGN_EXPERIMENTAL: 1
-        continue-on-error: true
         run: |
           IMAGE="${{ steps.image-tag.outputs.image }}"
           echo "Verifying signature for $IMAGE"
@@ -81,11 +80,11 @@ jobs:
           else
             echo "❌ Signature verification FAILED"
             echo "verified=false" >> $GITHUB_OUTPUT
+            exit 1
           fi
 
       - name: Verify signed SBOM attestation
         id: verify-sbom
-        continue-on-error: true
         run: |
           IMAGE="${{ steps.image-tag.outputs.image }}"
           echo "Verifying SBOM for $IMAGE"
@@ -98,6 +97,7 @@ jobs:
           else
             echo "❌ SBOM verification FAILED"
             echo "verified=false" >> $GITHUB_OUTPUT
+            exit 1
           fi
 
       - name: Download SBOM artifact (for record)

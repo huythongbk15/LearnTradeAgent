@@ -1,14 +1,15 @@
 """Specialized agents for the swarm."""
 
 import logging
+import uuid
 from abc import abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 from typing import Any, Optional
-import uuid
 
-from trading_agent.agents.base import BaseAgent as Agent, AgentSignal, AgentConfig
+from trading_agent.agents.base import AgentConfig, AgentSignal
+from trading_agent.agents.base import BaseAgent as Agent
 from trading_agent.llm.client import LLMClient
 from trading_agent.llm.pool import LLMPool
 

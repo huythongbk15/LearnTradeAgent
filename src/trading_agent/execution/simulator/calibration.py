@@ -20,12 +20,12 @@ from typing import Any
 
 import polars as pl
 
-from trading_agent.execution.simulator.models import (
-    SimulationConfig,
-)
 from trading_agent.execution.simulator.engine import MarketReplayEngine
 from trading_agent.execution.simulator.fill_model import FillModel
 from trading_agent.execution.simulator.impact_model import ImpactModel
+from trading_agent.execution.simulator.models import (
+    SimulationConfig,
+)
 
 
 @dataclass

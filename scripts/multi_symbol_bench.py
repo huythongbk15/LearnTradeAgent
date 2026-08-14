@@ -22,7 +22,6 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from trading_agent.data.storage import load_ohlcv
 
-
 # Strategy params (a mid-grid default — not optimized per symbol)
 PARAMS = {"fast_ma": 15, "slow_ma": 50, "rsi_period": 14, "rsi_buy": 35, "rsi_sell": 65}
 SYMBOLS = ["BTC/USDT", "ETH/USDT", "BNB/USDT", "SOL/USDT", "XRP/USDT"]

@@ -18,23 +18,22 @@ from typing import Optional
 import numpy as np
 import pytest
 
+from trading_agent.exchanges.ccxt_adapter import ExchangeAdapter, ExchangeStatus
 from trading_agent.exchanges.models import (
-    Symbol,
     AssetClass,
-    MarketType,
-    OrderSide,
-    OrderType,
-    OrderStatus,
-    Order,
-    Position,
     Balance,
-    Ticker,
+    MarketType,
+    Order,
     OrderBook,
     OrderBookLevel,
+    OrderSide,
+    OrderStatus,
+    OrderType,
+    Position,
+    Symbol,
+    Ticker,
     crypto_symbol,
 )
-from trading_agent.exchanges.ccxt_adapter import ExchangeAdapter, ExchangeStatus
-
 
 # ════════════════════════════════════════════════════════════════
 # Paper mock adapter (implements async ExchangeAdapter)
@@ -209,8 +208,8 @@ def router():
 
 def test_router_best_price_routes_to_cheapest_venue(router):
     r, binance, kraken = router
-    from trading_agent.exchanges.order_router import RoutingStrategy
     from trading_agent.exchanges.models import crypto_symbol
+    from trading_agent.exchanges.order_router import RoutingStrategy
 
     sym = crypto_symbol("BTC", "USDT", "binance")
     orders = _run(
@@ -226,8 +225,8 @@ def test_router_best_price_routes_to_cheapest_venue(router):
 
 
 def test_router_rejects_no_venues():
-    from trading_agent.exchanges.order_router import OrderRouter
     from trading_agent.exchanges.models import crypto_symbol
+    from trading_agent.exchanges.order_router import OrderRouter
 
     r = OrderRouter(multi_exchange=MockMultiExchange({}))
     sym = crypto_symbol("BTC", "USDT", "binance")
@@ -236,8 +235,8 @@ def test_router_rejects_no_venues():
 
 
 def test_router_twap_splits_into_slices(router):
-    from trading_agent.exchanges.order_router import RoutingStrategy
     from trading_agent.exchanges.models import crypto_symbol
+    from trading_agent.exchanges.order_router import RoutingStrategy
 
     r, _, _ = router
     sym = crypto_symbol("BTC", "USDT", "binance")
@@ -257,8 +256,8 @@ def test_router_twap_splits_into_slices(router):
 
 
 def test_router_execution_quality_tracks_fills(router):
-    from trading_agent.exchanges.order_router import RoutingStrategy
     from trading_agent.exchanges.models import crypto_symbol
+    from trading_agent.exchanges.order_router import RoutingStrategy
 
     r, _, _ = router
     sym = crypto_symbol("BTC", "USDT", "binance")
@@ -297,6 +296,7 @@ def test_account_manager_aggregates_balances():
 
 def test_regime_switching_backtest_runs_on_engine():
     import polars as pl
+
     from trading_agent.strategies.regime_switching import (
         run_regime_switching_backtest,
     )

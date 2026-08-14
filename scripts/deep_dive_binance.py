@@ -9,15 +9,16 @@ Cách dùng:
     python scripts/deep_dive_binance.py --symbols XRP/USDT,BTC/USDT,ETH/USDT,SOL/USDT,BNB/USDT
 """
 
-import sys
 import argparse
+import sys
 
 sys.path.insert(0, "src")
 
-import polars as pl
+from datetime import datetime
+
 import ccxt
 import numpy as np
-from datetime import datetime
+import polars as pl
 
 from trading_agent.strategies.enhanced_ma import EnhancedMaCrossover
 

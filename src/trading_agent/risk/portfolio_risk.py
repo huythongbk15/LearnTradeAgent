@@ -237,7 +237,6 @@ def max_drawdown(equity_curve: Sequence[float]) -> float:
 # Fix dataclass import for field default_factory
 from dataclasses import field
 
-
 if __name__ == "__main__":
     import random
 

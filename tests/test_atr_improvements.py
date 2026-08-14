@@ -5,13 +5,14 @@ Test script for ATR-based trailing stop, active take-profit, and volatility posi
 
 from __future__ import annotations
 
-import polars as pl
 import shutil
 from pathlib import Path
 
+import polars as pl
+
+from trading_agent.agents.base import AgentMessage
 from trading_agent.execution.engine import ExecutionEngine
 from trading_agent.execution.indicators import compute_atr
-from trading_agent.agents.base import AgentMessage
 
 
 def reset_paper_state():

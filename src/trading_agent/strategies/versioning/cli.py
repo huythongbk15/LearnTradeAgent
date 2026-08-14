@@ -8,18 +8,18 @@ from typing import Optional
 import pandas as pd
 import typer
 from rich.console import Console
-from rich.table import Table
 from rich.syntax import Syntax
+from rich.table import Table
 
+from trading_agent.strategies.plugins import BaseStrategy as Strategy
+from trading_agent.strategies.versioning.abi import ABIVerifier, StrategyABI
+from trading_agent.strategies.versioning.git_store import GitVersionStore
 from trading_agent.strategies.versioning.registry import (
-    StrategyRegistry,
-    StrategyMetadata,
     AssetClass,
     RiskProfile,
+    StrategyMetadata,
+    StrategyRegistry,
 )
-from trading_agent.strategies.versioning.git_store import GitVersionStore
-from trading_agent.strategies.versioning.abi import StrategyABI, ABIVerifier
-from trading_agent.strategies.plugins import BaseStrategy as Strategy
 
 logger = logging.getLogger(__name__)
 console = Console()
@@ -750,16 +750,19 @@ def run(
     live: bool = typer.Option(False, "--live", help="Run live (paper trading)"),
 ):
     """Run strategy on historical data or live (paper)."""
-    from trading_agent.strategies.versioning.registry import StrategyLoader
+    from datetime import datetime
+    from decimal import Decimal
+
+    from trading_agent.data.storage import load_ohlcv
+    from trading_agent.exchanges.models import (
+        AssetClass,
+        Bar,
+        MarketType,
+    )
     from trading_agent.exchanges.models import (
         Symbol as ExSymbol,
-        AssetClass,
-        MarketType,
-        Bar,
     )
-    from trading_agent.data.storage import load_ohlcv
-    from decimal import Decimal
-    from datetime import datetime
+    from trading_agent.strategies.versioning.registry import StrategyLoader
 
     # Parse params
     param_dict = {}
@@ -931,6 +934,7 @@ def backtest(
 ):
     """Run comprehensive backtest with metrics."""
     import hashlib
+
     from trading_agent.backtest.engine import run_backtest
     from trading_agent.strategies.plugins import get_registry
 
@@ -1074,6 +1078,7 @@ def validate(
 ):
     """Validate strategy meets minimum criteria."""
     import hashlib
+
     from trading_agent.backtest.engine import run_backtest
     from trading_agent.strategies.plugins import get_registry
 

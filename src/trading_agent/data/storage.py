@@ -6,8 +6,8 @@ Current backend: Parquet files (fast, columnar, queryable with DuckDB later).
 
 from __future__ import annotations
 
-import os
 import logging
+import os
 import tempfile
 import threading
 from contextlib import contextmanager

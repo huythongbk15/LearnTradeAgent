@@ -24,13 +24,25 @@ sys.path.insert(0, "src")
 import ccxt
 import polars as pl
 from dotenv import load_dotenv
-
 from live_config import (
     ATR_SL_MULT,
     ATR_SL_WINDOW,
     DEFAULT_CLOCK_SKEW_S,
     LOOKBACK,
     STRATEGY_PARAMS,
+)
+
+from trading_agent.exchanges.ccxt_adapter import CCXTAdapter, ExchangeConfig
+from trading_agent.exchanges.live_broker import LiveBroker
+from trading_agent.exchanges.models import (
+    AssetClass,
+    MarketType,
+    Order,
+    OrderConstraintError,
+    OrderSide,
+    OrderType,
+    Symbol,
+    TimeInForce,
 )
 from trading_agent.execution.correlation import bind_run_correlation
 from trading_agent.execution.data_trust import (
@@ -58,26 +70,13 @@ from trading_agent.execution.live_safety import (
     strategy_fingerprint,
     validate_build_sha,
     validate_fresh_quote,
+    validate_integrity_key,
     validate_order_book_depth,
     validate_order_risk,
     validate_spread,
     validate_strategy_evidence,
-    validate_integrity_key,
-)
-from trading_agent.exchanges.ccxt_adapter import CCXTAdapter, ExchangeConfig
-from trading_agent.exchanges.live_broker import LiveBroker
-from trading_agent.exchanges.models import (
-    AssetClass,
-    MarketType,
-    Order,
-    OrderConstraintError,
-    OrderSide,
-    OrderType,
-    Symbol,
-    TimeInForce,
 )
 from trading_agent.strategies.enhanced_ma import EnhancedMaCrossover
-
 
 load_dotenv(".env")
 

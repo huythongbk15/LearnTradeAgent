@@ -15,10 +15,10 @@ from decimal import Decimal
 from typing import Mapping
 
 from trading_agent.exchanges.models import (
-    Symbol,
     AssetClass,
     MarketType,
     Order,
+    Symbol,
 )
 
 

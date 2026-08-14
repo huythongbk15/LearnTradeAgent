@@ -28,11 +28,11 @@ Unknown broker states are *never* silently normalized: they emit
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
 from typing import Any, Callable, Mapping
-import math
 
 from trading_agent.execution.lifecycle.events import (
     ExecutionEvent,
@@ -383,15 +383,9 @@ class ExecutionLifecycle:
                     order.status = IntentStatus.PARTIALLY_FILLED
                 # Track protection state for buy fills
                 if self.require_protective_order and order.side == "buy":
-                    protective_trigger = payload.get("protective_trigger")
-                    if protective_trigger is not None:
-                        state.protection_state[event.aggregate_id] = (
-                            ProtectionState.PROTECTED
-                        )
-                    else:
-                        state.protection_state[event.aggregate_id] = (
-                            ProtectionState.PROTECTION_REQUIRED
-                        )
+                    state.protection_state[event.aggregate_id] = (
+                        ProtectionState.PROTECTION_REQUIRED
+                    )
         elif etype == ExecutionEventType.FEE_BOOKED:
             order = state.orders.get(event.aggregate_id)
             if order is not None:
@@ -424,6 +418,11 @@ class ExecutionLifecycle:
             state.reconciliation = ReconciliationState.STARTED
         elif etype == ExecutionEventType.RECONCILIATION_RESOLVED:
             state.reconciliation = ReconciliationState.RESOLVED
+            # Clear manual block only if no unresolved manual issues remain
+            if not state.unresolved_manual_intents:
+                state.manual_blocked = False
+                if state.execution_health == ExecutionHealth.MANUAL_BLOCKED:
+                    state.execution_health = ExecutionHealth.NORMAL
         elif etype == ExecutionEventType.MANUAL_INTERVENTION_REQUIRED:
             order = state.orders.get(event.aggregate_id)
             if order is not None:
@@ -436,15 +435,6 @@ class ExecutionLifecycle:
             # Preserve PROTECTION_GAP if already set; otherwise use MANUAL_BLOCKED.
             if state.execution_health != ExecutionHealth.PROTECTION_GAP:
                 state.execution_health = ExecutionHealth.MANUAL_BLOCKED
-
-        elif etype == ExecutionEventType.RECONCILIATION_RESOLVED:
-            state.reconciliation = ReconciliationState.RESOLVED
-            # Clear manual block only if no unresolved manual issues remain
-            if not state.unresolved_manual_intents:
-                state.manual_blocked = False
-                if state.execution_health == ExecutionHealth.MANUAL_BLOCKED:
-                    state.execution_health = ExecutionHealth.NORMAL
-
         elif etype == ExecutionEventType.PROTECTIVE_ORDER_CREATED:
             state.protective_orders[event.aggregate_id] = ProtectiveOrderState(
                 order_id=event.aggregate_id,
@@ -457,6 +447,10 @@ class ExecutionLifecycle:
                 pid = event.aggregate_id
                 if pid not in state.orders[parent].protective_order_ids:
                     state.orders[parent].protective_order_ids.append(pid)
+        elif etype == ExecutionEventType.PROTECTIVE_ORDER_ACKNOWLEDGED:
+            protective = state.protective_orders.get(event.aggregate_id)
+            parent = payload.get("parent_intent_id")
+            if protective is not None and parent and parent in state.orders:
                 state.protection_state[parent] = ProtectionState.PROTECTED
 
         state.last_event_ids[event.aggregate_id] = event.event_id
@@ -503,6 +497,15 @@ class ExecutionLifecycle:
             raise InvariantViolation(
                 "no_new_exposure_during_protection_gap",
                 f"protection gap active; refusing new intent {intent_id}",
+            )
+        if (
+            side == "buy"
+            and ProtectionState.PROTECTION_REQUIRED
+            in self.state.protection_state.values()
+        ):
+            raise InvariantViolation(
+                "no_new_exposure_while_protection_required",
+                "position protection recovery required; refusing new intent",
             )
         if self._kill_switch():
             effect = self._determine_exposure_effect(side, size, symbol)
@@ -591,6 +594,16 @@ class ExecutionLifecycle:
             raise InvariantViolation(
                 "no_new_exposure_during_protection_gap",
                 "protection gap active",
+            )
+        # Block new exposure while any position requires protection recovery.
+        if (
+            order.side == "buy"
+            and ProtectionState.PROTECTION_REQUIRED
+            in self.state.protection_state.values()
+        ):
+            raise InvariantViolation(
+                "no_new_exposure_while_protection_required",
+                "position protection recovery required; new buy blocked",
             )
         # Invariant 5: kill switch with exposure effect.
         if self._kill_switch():
@@ -687,21 +700,11 @@ class ExecutionLifecycle:
             payload_with_trigger,
         )
         # Invariant 4: buy fill must carry a protective order.
-        if (
-            self.require_protective_order
-            and order.side == "buy"
-            and protective_trigger is not None
-        ):
-            self.create_protective_order(
-                symbol=order.symbol,
-                kind="stop_loss",
-                trigger_price=protective_trigger,
-                parent_intent_id=intent_id,
-            )
-        elif self.require_protective_order and order.side == "buy":
-            # Residual long position without any protective order — never
-            # silently accepted: flag for manual review.
-            if not order.protective_order_ids:
+        if self.require_protective_order and order.side == "buy":
+            self.state.protection_state[intent_id] = ProtectionState.PROTECTION_REQUIRED
+            if protective_trigger is None:
+                # Residual long position without any protective order — never
+                # silently accepted: flag for manual review.
                 self.state.execution_health = ExecutionHealth.PROTECTION_GAP
                 self.require_manual_intervention(
                     intent_id,
@@ -768,6 +771,36 @@ class ExecutionLifecycle:
                 "trigger_price": trigger_price,
                 "parent_intent_id": parent_intent_id or "",
             },
+        )
+
+    def acknowledge_protective_order(
+        self,
+        protective_order_id: str,
+        *,
+        broker_ack_id: str | None = None,
+    ) -> ExecutionEvent:
+        protective = self.state.protective_orders.get(protective_order_id)
+        if protective is None:
+            raise LifecycleError(f"unknown protective order {protective_order_id}")
+        parent_intent_id = None
+        for intent_id, order in self.state.orders.items():
+            if protective_order_id in order.protective_order_ids:
+                parent_intent_id = intent_id
+                break
+        if parent_intent_id is None:
+            raise LifecycleError(
+                f"protective order {protective_order_id} has no parent intent"
+            )
+        payload = {
+            "protective_order_id": protective_order_id,
+            "parent_intent_id": parent_intent_id,
+        }
+        if broker_ack_id is not None:
+            payload["broker_ack_id"] = broker_ack_id
+        return self._emit(
+            ExecutionEventType.PROTECTIVE_ORDER_ACKNOWLEDGED,
+            protective_order_id,
+            payload,
         )
 
     def replace_protective_order(

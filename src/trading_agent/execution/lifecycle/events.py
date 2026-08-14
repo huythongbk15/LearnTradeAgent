@@ -17,11 +17,11 @@ The vocabulary follows the production spec:
 
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
-import uuid
 
 EVENT_SCHEMA_VERSION = 1
 
@@ -50,6 +50,7 @@ class ExecutionEventType(str, Enum):
     CANCEL_REQUESTED = "exec.cancel_requested"
     CANCEL_CONFIRMED = "exec.cancel_confirmed"
     PROTECTIVE_ORDER_CREATED = "exec.protective_order_created"
+    PROTECTIVE_ORDER_ACKNOWLEDGED = "exec.protective_order_acknowledged"
     PROTECTIVE_ORDER_REPLACED = "exec.protective_order_replaced"
     RECONCILIATION_STARTED = "exec.reconciliation_started"
     RECONCILIATION_RESOLVED = "exec.reconciliation_resolved"

@@ -7,7 +7,6 @@ from datetime import UTC, datetime, timedelta
 import polars as pl
 import pytest
 
-
 SCRIPTS = os.path.join(os.path.dirname(__file__), "..", "scripts")
 if SCRIPTS not in sys.path:
     sys.path.insert(0, SCRIPTS)
@@ -17,6 +16,7 @@ from generate_live_strategy_evidence import (
     fold_ranges,
     validate_hourly_fold,
 )
+
 from trading_agent.execution.live_safety import LiveSafetyError
 
 

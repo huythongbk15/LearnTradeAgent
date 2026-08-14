@@ -2,8 +2,8 @@
 
 from trading_agent.messaging.base import (
     Message,
-    MessageHandler,
     MessageBus,
+    MessageHandler,
     MessagePriority,
 )
 

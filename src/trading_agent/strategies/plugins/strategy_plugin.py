@@ -30,12 +30,12 @@ from pathlib import Path
 from typing import Any, Optional
 
 from trading_agent.exchanges.models import (
-    Symbol,
+    Bar,
     Order,
     OrderSide,
     OrderType,
-    Bar,
     Position,
+    Symbol,
 )
 
 logger = logging.getLogger(__name__)
@@ -478,10 +478,10 @@ class StrategyRegistry:
         try:
             instance = strategy_class()
             from trading_agent.exchanges.models import (
-                Symbol,
                 AssetClass,
-                MarketType,
                 Bar,
+                MarketType,
+                Symbol,
             )
 
             dummy_symbol = Symbol(

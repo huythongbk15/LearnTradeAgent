@@ -1,22 +1,22 @@
 """Event store implementation with multiple backends."""
 
+import asyncio
+import json
+import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import TYPE_CHECKING
-import asyncio
-import json
-import uuid
 
 from trading_agent.events.models import (
     Event,
     EventType,
-    TradeEvent,
-    SignalEvent,
-    RiskEvent,
     OrderEvent,
-    PositionEvent,
     PortfolioEvent,
+    PositionEvent,
+    RiskEvent,
+    SignalEvent,
+    TradeEvent,
 )
 
 if TYPE_CHECKING:

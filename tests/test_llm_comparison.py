@@ -29,12 +29,12 @@ if not _DATA_FILE.exists():
 
 import polars as pl
 
-from trading_agent.data.storage import load_ohlcv
-from trading_agent.agents.technical import TechnicalAnalyst
-from trading_agent.agents.sentiment import SentimentAnalyst
-from trading_agent.agents.risk import RiskManager
-from trading_agent.agents.trader import Trader
 from trading_agent.agents.base import AnalysisContext
+from trading_agent.agents.risk import RiskManager
+from trading_agent.agents.sentiment import SentimentAnalyst
+from trading_agent.agents.technical import TechnicalAnalyst
+from trading_agent.agents.trader import Trader
+from trading_agent.data.storage import load_ohlcv
 
 
 def run_agents_with_llm(
@@ -45,6 +45,7 @@ def run_agents_with_llm(
 
     # Reload modules to pick up USE_LLM change
     import importlib
+
     import trading_agent.agents.llm as llm_module
 
     importlib.reload(llm_module)

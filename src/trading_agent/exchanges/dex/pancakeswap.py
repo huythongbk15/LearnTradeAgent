@@ -8,14 +8,14 @@ from web3 import Web3
 from web3.contract import Contract
 
 from trading_agent.exchanges.dex.base import BaseDEXAdapter, PoolInfo, SwapQuote
+from trading_agent.exchanges.dex.uniswap_v3 import ERC20_ABI
 from trading_agent.exchanges.models import (
-    Symbol,
     Order,
     OrderSide,
-    OrderType,
     OrderStatus,
+    OrderType,
+    Symbol,
 )
-from trading_agent.exchanges.dex.uniswap_v3 import ERC20_ABI
 
 logger = logging.getLogger(__name__)
 

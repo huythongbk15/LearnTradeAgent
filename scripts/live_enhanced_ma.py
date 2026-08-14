@@ -10,10 +10,10 @@ then sync with Alpaca:
   - Desired state == current      → HOLD
 """
 
-import sys
-import os
 import asyncio
 import json
+import os
+import sys
 import tempfile
 from decimal import Decimal
 from pathlib import Path
@@ -24,32 +24,35 @@ from dotenv import load_dotenv
 
 load_dotenv(".env")
 
-import polars as pl
-import ccxt
-import numpy as np
 from datetime import UTC, datetime
 
-from trading_agent.strategies.enhanced_ma import EnhancedMaCrossover
+import ccxt
+import numpy as np
+import polars as pl
+from live_config import (
+    ATR_SL_MULT,
+    ATR_SL_WINDOW,
+    DRAWDOWN_TIERS,
+    LOOKBACK,
+    STRATEGY_PARAMS,
+)
+from live_config import (
+    SYMBOLS_ALPACA as SYMBOLS,
+)
+
+from trading_agent.exchanges.alpaca_adapter import AlpacaAdapter, AlpacaConfig
+from trading_agent.exchanges.live_broker import LiveBroker
 from trading_agent.exchanges.models import (
-    Symbol,
     AssetClass,
     MarketType,
     Order,
     OrderSide,
     OrderType,
+    Symbol,
     TimeInForce,
 )
-from trading_agent.exchanges.alpaca_adapter import AlpacaAdapter, AlpacaConfig
-from trading_agent.exchanges.live_broker import LiveBroker
-from trading_agent.risk.portfolio_risk import PortfolioRiskManager, DrawdownConfig
-from live_config import (
-    SYMBOLS_ALPACA as SYMBOLS,
-    STRATEGY_PARAMS,
-    LOOKBACK,
-    ATR_SL_MULT,
-    ATR_SL_WINDOW,
-    DRAWDOWN_TIERS,
-)
+from trading_agent.risk.portfolio_risk import DrawdownConfig, PortfolioRiskManager
+from trading_agent.strategies.enhanced_ma import EnhancedMaCrossover
 
 # ── Risk guard (P0) ────────────────────────────────────────────────────
 # (config: ATR_SL_MULT, ATR_SL_WINDOW, DRAWDOWN_TIERS ở live_config.py)

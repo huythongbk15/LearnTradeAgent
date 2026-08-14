@@ -1,18 +1,18 @@
 """Unit tests cho risk guard trong live runner (ATR trailing stop + drawdown halt)."""
 
-import sys
 import os
+import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-import polars as pl
-import numpy as np
-import pytest
-
 import live_enhanced_ma as live_script
-from live_enhanced_ma import trailing_stop_price, ATR_SL_MULT
-from trading_agent.risk.portfolio_risk import PortfolioRiskManager, DrawdownConfig
+import numpy as np
+import polars as pl
+import pytest
+from live_enhanced_ma import ATR_SL_MULT, trailing_stop_price
+
+from trading_agent.risk.portfolio_risk import DrawdownConfig, PortfolioRiskManager
 
 
 def make_df(closes, highs=None, atr=None, n=1000):

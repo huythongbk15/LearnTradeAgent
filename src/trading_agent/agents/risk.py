@@ -7,6 +7,7 @@ Không có vị thế thực (Phase 2) nên đánh giá rủi ro dựa trên vol
 from __future__ import annotations
 
 import logging
+
 import numpy as np
 
 from trading_agent.agents.base import AgentMessage, AnalysisContext, BaseAgent

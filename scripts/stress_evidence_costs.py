@@ -22,7 +22,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import polars as pl
-
 from generate_live_strategy_evidence import (
     COMMISSION,
     SLIPPAGE,
@@ -32,6 +31,7 @@ from generate_live_strategy_evidence import (
     fold_ranges,
 )
 from live_config import TIMEFRAME
+
 from trading_agent.data.storage import load_ohlcv
 from trading_agent.execution.live_safety import LiveSafetyError
 

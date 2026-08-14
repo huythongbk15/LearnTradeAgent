@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import click
 from rich.table import Table
+
 from trading_agent.cli._common import config, console
 
 
@@ -72,13 +73,13 @@ def info():
 
 
 # ── command groups (decomposed) ──────────────────────────────────────────
-from trading_agent.cli.commands.data import data
-from trading_agent.cli.commands.backtest import backtest
 from trading_agent.cli.commands.agents import agents
-from trading_agent.cli.commands.research import llm, meta, projection, options
-from trading_agent.cli.commands.system import system
+from trading_agent.cli.commands.backtest import backtest
+from trading_agent.cli.commands.data import data
 from trading_agent.cli.commands.deployment import config_group, portfolio
 from trading_agent.cli.commands.live import execution, live
+from trading_agent.cli.commands.research import llm, meta, options, projection
+from trading_agent.cli.commands.system import system
 
 main.add_command(data)
 main.add_command(backtest)

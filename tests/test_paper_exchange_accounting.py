@@ -6,8 +6,8 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from trading_agent.execution import paper_exchange as paper_module
-from trading_agent.execution.paper_exchange import PaperExchange
 from trading_agent.execution.engine import ExecutionEngine
+from trading_agent.execution.paper_exchange import PaperExchange
 from trading_agent.execution.types import OrderSide, OrderStatus
 
 

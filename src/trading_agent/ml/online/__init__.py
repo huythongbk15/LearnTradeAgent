@@ -1,22 +1,22 @@
 """Online learning module for adaptive trading."""
 
-from trading_agent.ml.online.indicators import (
-    OnlineEMA,
-    OnlineRSI,
-    OnlineBollingerBands,
-    OnlineMACD,
-    OnlineATR,
-    OnlineVWAP,
-    OnlineStandardDeviation,
-    OnlineCorrelation,
-)
 from trading_agent.ml.online.adaptive import (
+    AdaptiveBollingerBands,
     AdaptiveConfig,
     AdaptiveEMA,
-    AdaptiveRSI,
-    AdaptiveBollingerBands,
     AdaptiveMACD,
+    AdaptiveRSI,
     AdaptiveStrategy,
+)
+from trading_agent.ml.online.indicators import (
+    OnlineATR,
+    OnlineBollingerBands,
+    OnlineCorrelation,
+    OnlineEMA,
+    OnlineMACD,
+    OnlineRSI,
+    OnlineStandardDeviation,
+    OnlineVWAP,
 )
 
 __all__ = [

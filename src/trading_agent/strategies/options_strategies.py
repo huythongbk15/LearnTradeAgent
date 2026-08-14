@@ -19,8 +19,8 @@ from datetime import datetime, timezone
 from enum import Enum
 
 from trading_agent.data.options_provider import (
-    OptionChainProvider,
     OptionChain,
+    OptionChainProvider,
     OptionContract,
 )
 

@@ -12,28 +12,28 @@ Provides intelligent order execution across multiple exchanges:
 import asyncio
 import logging
 from abc import ABC, abstractmethod
+from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from decimal import Decimal
 from enum import Enum
 from typing import Any
-from collections import defaultdict
 
+from trading_agent.exchanges.alpaca_adapter import AlpacaAdapter
+from trading_agent.exchanges.ccxt_adapter import MultiExchangeManager
 from trading_agent.exchanges.models import (
-    Symbol,
-    Order,
-    OrderSide,
-    OrderType,
-    OrderStatus,
-    TimeInForce,
-    Ticker,
-    OrderBook,
     AssetClass,
     Balance,
+    Order,
+    OrderBook,
+    OrderSide,
+    OrderStatus,
+    OrderType,
     Position,
+    Symbol,
+    Ticker,
+    TimeInForce,
 )
-from trading_agent.exchanges.ccxt_adapter import MultiExchangeManager
-from trading_agent.exchanges.alpaca_adapter import AlpacaAdapter
 from trading_agent.exchanges.oanda_adapter import OANDAAdapter
 
 logger = logging.getLogger(__name__)

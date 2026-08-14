@@ -13,10 +13,10 @@ from __future__ import annotations
 import pytest
 
 from trading_agent.execution.shadow import (
-    ExchangeRules,
-    RealityGapReport,
     SHADOW_ENV_GUARD,
     SHADOW_ENV_VALUE,
+    ExchangeRules,
+    RealityGapReport,
     ShadowConfig,
     ShadowMainnetEngine,
     ShadowModeError,

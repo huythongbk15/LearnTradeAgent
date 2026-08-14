@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-
 from trading_agent.agents.risk_decision import RiskDecision, RiskLevel
 from trading_agent.execution.lifecycle.lifecycle import (
     ExecutionHealth,

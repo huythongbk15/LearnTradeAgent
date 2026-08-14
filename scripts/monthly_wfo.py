@@ -26,10 +26,9 @@ import polars as pl
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
+from trading_agent.backtest.engine import BacktestEngine
 from trading_agent.data.storage import load_ohlcv
 from trading_agent.strategies.enhanced_ma import MaAdxCrossover
-from trading_agent.backtest.engine import BacktestEngine
-
 
 # Default configuration
 DEFAULT_CONFIG = {

@@ -5,7 +5,6 @@ import subprocess
 import sys
 from types import SimpleNamespace
 
-
 SCRIPTS = os.path.join(os.path.dirname(__file__), "..", "scripts")
 if SCRIPTS not in sys.path:
     sys.path.insert(0, SCRIPTS)

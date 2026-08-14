@@ -1,13 +1,13 @@
 """Event model base classes and types."""
 
+import re
+import uuid
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field, asdict, fields
+from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum
 from typing import Any, Optional
-import re
-import uuid
 
 # Matches decimal numbers (including integers, floats, scientific notation)
 _NUMERIC_RE = re.compile(r"^[+-]?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?$")

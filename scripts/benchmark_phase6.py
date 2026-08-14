@@ -104,7 +104,7 @@ def benchmark_online_learning():
 
 def benchmark_meta_learning():
     print("\n[Meta-Learning]")
-    from trading_agent.ml.meta import Reptile, MetaLearningConfig, StrategyParameterTask
+    from trading_agent.ml.meta import MetaLearningConfig, Reptile, StrategyParameterTask
 
     np.random.seed(2)
     tasks = []
@@ -124,11 +124,11 @@ def benchmark_meta_learning():
 
 def benchmark_portfolio_optimizer():
     print("\n[Portfolio Optimizer]")
+    from trading_agent.exchanges.models import AssetClass, MarketType, Symbol
     from trading_agent.portfolio.portfolio_optimizer import (
-        PortfolioOptimizer,
         OptimizerMethod,
+        PortfolioOptimizer,
     )
-    from trading_agent.exchanges.models import Symbol, AssetClass, MarketType
 
     np.random.seed(3)
     n_assets = 10
@@ -179,7 +179,7 @@ def benchmark_attribution():
 
 def benchmark_sandbox():
     print("\n[Sandbox]")
-    from trading_agent.strategies.sandbox import SubprocessSandbox, SandboxConfig
+    from trading_agent.strategies.sandbox import SandboxConfig, SubprocessSandbox
 
     STRATEGY_CODE = """
 class TestStrategy:
@@ -198,12 +198,12 @@ class TestStrategy:
 
 def benchmark_rebalancer():
     print("\n[Auto-Rebalancer]")
+    from trading_agent.exchanges.models import AssetClass, MarketType, Position, Symbol
     from trading_agent.portfolio.auto_rebalancer import (
         AutoRebalancer,
         RebalanceConfig,
         RebalanceTrigger,
     )
-    from trading_agent.exchanges.models import Position, Symbol, AssetClass, MarketType
 
     symbols = [
         Symbol(f"SYM{i}", "USDT", AssetClass.CRYPTO, MarketType.SPOT, "binance")

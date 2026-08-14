@@ -4,21 +4,21 @@ Walk-Forward Optimization (WFO) for finding optimal strategy + parameters.
 Tests multiple strategies on 3+ years BTC 1h data with rolling windows.
 """
 
-import polars as pl
-import numpy as np
-from datetime import datetime, timedelta
-from pathlib import Path
 import json
 import sys
+from datetime import datetime, timedelta
+from pathlib import Path
+
+import numpy as np
+import polars as pl
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
+from trading_agent.backtest.engine import BacktestEngine
 from trading_agent.data.storage import load_ohlcv
+from trading_agent.strategies.bbands import BBandsStrategy
 from trading_agent.strategies.ma_crossover import MaCrossover
 from trading_agent.strategies.rsi import RsiStrategy
-from trading_agent.strategies.bbands import BBandsStrategy
-from trading_agent.backtest.engine import BacktestEngine
-
 
 # ── Strategy parameter grids ──────────────────────────────────────────────
 PARAM_GRIDS = {

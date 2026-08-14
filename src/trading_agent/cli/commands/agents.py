@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import click
+
 from trading_agent.cli._common import console
 
 # ── agents subcommands ─────────────────────────────────────────────────────

@@ -11,12 +11,12 @@ import asyncio
 import logging
 import time
 from abc import ABC, abstractmethod
+from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
 from enum import Enum
 from typing import Optional
-from collections import defaultdict
 
 try:
     import ccxt
@@ -32,21 +32,21 @@ except ImportError:
     InvalidOrder = None  # type: ignore[assignment,misc]
 
 from trading_agent.exchanges.models import (
-    Symbol,
     AssetClass,
-    MarketType,
-    OrderSide,
-    OrderType,
-    OrderStatus,
-    TimeInForce,
-    Order,
-    Position,
     Balance,
-    Ticker,
+    Candle,
+    MarketType,
+    Order,
     OrderBook,
     OrderBookLevel,
-    Candle,
     OrderConstraintError,
+    OrderSide,
+    OrderStatus,
+    OrderType,
+    Position,
+    Symbol,
+    Ticker,
+    TimeInForce,
 )
 
 logger = logging.getLogger(__name__)

@@ -6,12 +6,12 @@ Core types: Symbol, AssetClass, MarketType, Bar, OrderBook, Trade, Position, Ord
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum
 from typing import Optional
-import hashlib
 
 
 class AssetClass(str, Enum):

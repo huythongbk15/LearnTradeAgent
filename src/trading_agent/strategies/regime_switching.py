@@ -30,18 +30,18 @@ import numpy as np
 import polars as pl
 
 from trading_agent.ml.regime_detection import (
+    GMMStrategy,
+    HMMStrategy,
+    HybridRegimeDetector,
     MarketRegime,
     RegimeMethod,
-    HybridRegimeDetector,
     RuleBasedStrategy,
-    HMMStrategy,
-    GMMStrategy,
 )
 from trading_agent.strategies.base import Strategy, register_strategy
-from trading_agent.strategies.ma_crossover import MaCrossover
-from trading_agent.strategies.rsi import RsiStrategy
 from trading_agent.strategies.bbands import BBandsStrategy
 from trading_agent.strategies.enhanced_ma import EnhancedMaCrossover
+from trading_agent.strategies.ma_crossover import MaCrossover
+from trading_agent.strategies.rsi import RsiStrategy
 
 logger = logging.getLogger(__name__)
 

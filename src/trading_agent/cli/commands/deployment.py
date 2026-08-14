@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from rich.table import Table
-from rich.panel import Panel
+
 import click
+from rich.panel import Panel
+from rich.table import Table
+
 from trading_agent.cli._common import config, console
 
 # ── config subcommands ────────────────────────────────────────────────────
@@ -129,13 +131,13 @@ def portfolio_optimize(
     """Optimize portfolio weights using various methods."""
     from rich.table import Table as RichTable
 
-    from trading_agent.portfolio.portfolio_optimizer import (
-        PortfolioOptimizer,
-        OptimizerMethod,
-        OptimizationConstraints,
-    )
-    from trading_agent.exchanges.models import Symbol, AssetClass, MarketType
     from trading_agent.data.storage import load_ohlcv
+    from trading_agent.exchanges.models import AssetClass, MarketType, Symbol
+    from trading_agent.portfolio.portfolio_optimizer import (
+        OptimizationConstraints,
+        OptimizerMethod,
+        PortfolioOptimizer,
+    )
 
     console.print(
         f"[bold]Optimizing portfolio with {len(symbols)} assets using {method}...[/bold]"
@@ -271,12 +273,12 @@ def portfolio_frontier(
     """Generate efficient frontier for visualization."""
     import plotext as plt
 
-    from trading_agent.portfolio.portfolio_optimizer import (
-        PortfolioOptimizer,
-        OptimizerMethod,
-    )
-    from trading_agent.exchanges.models import Symbol, AssetClass, MarketType
     from trading_agent.data.storage import load_ohlcv
+    from trading_agent.exchanges.models import AssetClass, MarketType, Symbol
+    from trading_agent.portfolio.portfolio_optimizer import (
+        OptimizerMethod,
+        PortfolioOptimizer,
+    )
 
     console.print(
         f"[bold]Generating efficient frontier for {len(symbols)} assets...[/bold]"
@@ -359,12 +361,12 @@ def portfolio_monte_carlo(
     """Run Monte Carlo portfolio simulation."""
     from rich.table import Table as RichTable
 
-    from trading_agent.portfolio.portfolio_optimizer import (
-        PortfolioOptimizer,
-        OptimizerMethod,
-    )
-    from trading_agent.exchanges.models import Symbol, AssetClass, MarketType
     from trading_agent.data.storage import load_ohlcv
+    from trading_agent.exchanges.models import AssetClass, MarketType, Symbol
+    from trading_agent.portfolio.portfolio_optimizer import (
+        OptimizerMethod,
+        PortfolioOptimizer,
+    )
 
     console.print(
         f"[bold]Running Monte Carlo simulation ({simulations} paths, {horizon} days)...[/bold]"
@@ -516,18 +518,19 @@ def rebalancer_run(
     dry_run: bool,
 ):
     """Run rebalancing for specified symbols."""
+    import asyncio
+    from decimal import Decimal
+
+    from trading_agent.exchanges.models import AssetClass, MarketType, Position, Symbol
+    from trading_agent.execution.engine import ExecutionEngine
     from trading_agent.portfolio.auto_rebalancer import (
         AutoRebalancer,
         CalendarRebalanceStrategy,
-        ThresholdRebalanceStrategy,
         CPPIRebalanceStrategy,
-        RiskBudgetRebalanceStrategy,
         RebalanceConfig,
+        RiskBudgetRebalanceStrategy,
+        ThresholdRebalanceStrategy,
     )
-    from trading_agent.exchanges.models import Symbol, AssetClass, MarketType, Position
-    from trading_agent.execution.engine import ExecutionEngine
-    from decimal import Decimal
-    import asyncio
 
     console.print(
         f"[bold]Running {method} rebalancer for {len(symbols)} symbols...[/bold]"
@@ -729,10 +732,11 @@ def strategy_run(
     capital: float,
 ):
     """Run a strategy on a symbol (paper trading)."""
-    from trading_agent.strategies.plugins import get_registry, StrategyContext
-    from trading_agent.exchanges.models import Symbol, AssetClass, MarketType, Bar
-    from trading_agent.data.storage import load_ohlcv
     from decimal import Decimal
+
+    from trading_agent.data.storage import load_ohlcv
+    from trading_agent.exchanges.models import AssetClass, Bar, MarketType, Symbol
+    from trading_agent.strategies.plugins import StrategyContext, get_registry
 
     # Parse params
     param_dict = {}
@@ -832,8 +836,8 @@ def strategy_validate(
     """Validate strategy with backtest and verify hash."""
     import hashlib
 
-    from trading_agent.strategies.plugins import get_registry
     from trading_agent.backtest.engine import run_backtest
+    from trading_agent.strategies.plugins import get_registry
 
     # Parse params
     param_dict = {}

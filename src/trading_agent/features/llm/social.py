@@ -4,9 +4,9 @@ import asyncio
 import json
 import logging
 import re
+from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime
-from collections import Counter
 
 from trading_agent.llm.client import LLMClient
 from trading_agent.llm.pool import LLMPool

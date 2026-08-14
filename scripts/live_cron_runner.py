@@ -9,10 +9,10 @@ Cách dùng:
 Telegram config: env TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID (hoặc .env)
 """
 
-import sys
+import json
 import os
 import subprocess
-import json
+import sys
 from datetime import datetime
 
 sys.path.insert(0, "src")

@@ -30,8 +30,8 @@ from datetime import datetime
 from enum import Enum
 from typing import Awaitable, Callable, Optional
 
-from trading_agent.execution.data_trust import DiffStreamState, SequenceGapError
 from trading_agent.exchanges.models import Symbol
+from trading_agent.execution.data_trust import DiffStreamState, SequenceGapError
 
 logger = logging.getLogger(__name__)
 

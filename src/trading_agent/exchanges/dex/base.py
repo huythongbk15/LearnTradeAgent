@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from decimal import Decimal
 from typing import Optional
 
-from trading_agent.exchanges.models import Symbol, Order, PoolInfo, SwapQuote
+from trading_agent.exchanges.models import Order, PoolInfo, SwapQuote, Symbol
 
 
 class BaseDEXAdapter(ABC):

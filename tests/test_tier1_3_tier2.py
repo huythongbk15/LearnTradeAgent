@@ -2,10 +2,10 @@
 """Tests for Smart Execution Engine (Tier 1.3) and Alpha Research Pipeline (Tier 2)."""
 
 import asyncio
+
 import numpy as np
 import pandas as pd
 import pytest
-
 
 # ════════════════════════════════════════════════════════════════
 # Tier 1.3: Smart Execution Engine Tests
@@ -209,7 +209,7 @@ class TestAlphaLibrary:
                     vals = vals.values
                 assert len(vals) == len(sample_ohlcv)
                 computed += 1
-            except Exception as e:
+            except Exception:
                 failed += 1
         assert computed >= 35, f"Expected 35+ alphas to compute, got {computed}"
         print(f"  Computed: {computed}/{computed + failed}")
@@ -294,9 +294,9 @@ class TestFeatureStore:
 class TestAutoMLPipeline:
     def test_scan(self, sample_ohlcv, tmp_path):
         from src.trading_agent.alpha_research.pipeline import (
-            _make_library,
             AlphaEvaluator,
             AutoMLPipeline,
+            _make_library,
         )
 
         lib = _make_library()

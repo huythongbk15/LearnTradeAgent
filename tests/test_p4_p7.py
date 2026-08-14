@@ -5,10 +5,10 @@ Tests for P4 (Data & Analytics), P5 (Execution Monitoring), P6 (ML/Intelligence)
 
 import math
 import time
+
 import numpy as np
 import pandas as pd
 import pytest
-
 
 # ════════════════════════════════════════════════════════════════
 # P4: Data & Analytics
@@ -267,7 +267,7 @@ class TestRLAgent:
         print(f"  Env: state_dim={env.state_dim}, action_dim={env.action_dim}")
 
     def test_dqn_agent(self, synthetic_df):
-        from src.trading_agent.ml.rl_agent import TradingEnvironment, DQNAgent
+        from src.trading_agent.ml.rl_agent import DQNAgent, TradingEnvironment
 
         env = TradingEnvironment(synthetic_df, window=30)
         agent = DQNAgent(state_dim=env.state_dim, action_dim=env.action_dim)
@@ -285,7 +285,7 @@ class TestRLAgent:
         print(f"  DQN: action={action}, loss={loss:.6f}")
 
     def test_ppo_agent(self, synthetic_df):
-        from src.trading_agent.ml.rl_agent import TradingEnvironment, PPOAgent
+        from src.trading_agent.ml.rl_agent import PPOAgent, TradingEnvironment
 
         env = TradingEnvironment(synthetic_df, window=30)
         agent = PPOAgent(state_dim=env.state_dim, action_dim=env.action_dim)
@@ -331,8 +331,8 @@ class TestSentiment:
 
 class TestAutoAlpha:
     def test_feature_importance(self, synthetic_df):
-        from src.trading_agent.ml.auto_alpha import FeatureImportance
         from src.trading_agent.alpha_research.pipeline import _make_library
+        from src.trading_agent.ml.auto_alpha import FeatureImportance
 
         lib = _make_library()
         target = (
@@ -375,8 +375,9 @@ class TestAutoAlpha:
 
 class TestStrategyCloner:
     def test_analyze_and_clone(self):
-        from src.trading_agent.ml.strategy_cloner import TradeCloner, StrategyCloner
         import random
+
+        from src.trading_agent.ml.strategy_cloner import StrategyCloner, TradeCloner
 
         trades = []
         for i in range(100):
@@ -489,7 +490,7 @@ class TestTradingAPI:
         print(f"  Auth required: status={r['status']}")
 
     def test_full_flow(self):
-        from src.trading_agent.enterprise.api import TradingAPI, TenantManager
+        from src.trading_agent.enterprise.api import TenantManager, TradingAPI
 
         tm = TenantManager()
         t = tm.create_tenant("Test Fund", "pro")

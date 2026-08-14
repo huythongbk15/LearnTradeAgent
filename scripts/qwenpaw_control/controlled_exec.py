@@ -4,19 +4,19 @@ QwenPaw Agent: Controlled subprocess execution with timeout, heartbeat, structur
 Replaces raw execute_shell_command for long-running commands.
 """
 
-import subprocess
 import json
-import time
-import sys
 import os
+import subprocess
+import sys
 import threading
+import time
+from dataclasses import asdict, dataclass
 from pathlib import Path
-from dataclasses import dataclass, asdict
-from typing import Optional, List
+from typing import List, Optional
 
 # Import registry
 sys.path.insert(0, str(Path(__file__).parent))
-from process_registry import register, heartbeat, complete
+from process_registry import complete, heartbeat, register
 
 
 @dataclass

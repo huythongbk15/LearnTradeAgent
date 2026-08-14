@@ -29,6 +29,9 @@ from trading_agent.execution.simulator.calibration import (
     SimulatorCalibrator,
     collect_testnet_fills,
 )
+from trading_agent.execution.simulator.reality_gap import (
+    compute_reality_gap,
+)
 from trading_agent.research import (
     Action,
     ArtifactLifecycle,
@@ -46,9 +49,6 @@ from trading_agent.research import (
     reality_gap_evidence,
     soak_test_evidence,
     uncertainty_signal_to_decision,
-)
-from trading_agent.execution.simulator.reality_gap import (
-    compute_reality_gap,
 )
 
 

@@ -5,8 +5,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from trading_agent.agents.orchestrator import AgentCorrelationTracker
 from trading_agent.agents.base import AgentMessage
+from trading_agent.agents.orchestrator import AgentCorrelationTracker
 
 
 def _msg(role: str, signal: str, confidence: float) -> AgentMessage:

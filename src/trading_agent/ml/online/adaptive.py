@@ -2,15 +2,16 @@
 
 from dataclasses import dataclass
 from typing import Optional
+
 import numpy as np
 
 from trading_agent.ml.online.indicators import (
-    OnlineEMA,
-    OnlineRSI,
-    OnlineBollingerBands,
-    OnlineMACD,
     OnlineATR,
+    OnlineBollingerBands,
+    OnlineEMA,
     OnlineIndicator,
+    OnlineMACD,
+    OnlineRSI,
 )
 
 
@@ -351,6 +352,6 @@ class AdaptiveStrategy:
 
 # Import needed classes
 from trading_agent.ml.online.indicators import (
-    OnlineStandardDeviation,
     OnlineCorrelation,
+    OnlineStandardDeviation,
 )

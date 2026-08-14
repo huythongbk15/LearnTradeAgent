@@ -16,8 +16,8 @@ from trading_agent.execution.lifecycle import (
     EventValidationError,
     ExecutionEventStore,
     ExecutionEventType,
-    ExecutionLifecycle,
     ExecutionHealth,
+    ExecutionLifecycle,
     IntentStatus,
     InvariantViolation,
     LifecycleError,
@@ -119,6 +119,15 @@ def test_full_lifecycle_and_replay_determinism(tmp_path):
         lc.submit_order("i1", exchange_order_id="ex_1")
         lc.acknowledge_broker("i1", broker_order_id="br_1")
         lc.receive_fill("i1", 1.0, 99.5, protective_trigger=90.0)
+        order = lc.order("i1")
+        lc.create_protective_order(
+            symbol="BTC/USDT",
+            kind="stop_loss",
+            trigger_price=90.0,
+            parent_intent_id="i1",
+        )
+        protective_id = order.protective_order_ids[0]
+        lc.acknowledge_protective_order(protective_id, broker_ack_id="ack_1")
         lc.book_fee("i1", 0.1)
         first = lc.snapshot_state()
     # New connection, replay from disk — identical projection
@@ -131,6 +140,7 @@ def test_full_lifecycle_and_replay_determinism(tmp_path):
     assert order.status == IntentStatus.FILLED
     assert order.filled_size == 1.0
     assert order.protective_order_ids  # protective order created on fill
+    assert lc2.state.protection_state["i1"] == ProtectionState.PROTECTED
     assert lc2.state.reconciliation == ReconciliationState.NONE
 
 
@@ -617,3 +627,153 @@ def test_protection_gap_blocks_new_exposure(store):
     # New exposure blocked
     with pytest.raises(InvariantViolation):
         lc.create_order_intent("i2", "BTC/USDT", "buy", 1.0)
+
+
+def test_fill_with_trigger_requires_ack_for_protected(store):
+    lc = ExecutionLifecycle(
+        store,
+        price_source=lambda s: TrustedPrice(
+            price=100.0,
+            exchange_timestamp=datetime.now(UTC),
+            received_at=datetime.now(UTC),
+        ),
+        require_protective_order=True,
+    )
+    lc.create_order_intent("i1", "BTC/USDT", "buy", 1.0)
+    lc.approve_risk("i1")
+    lc.submit_order("i1", exchange_order_id="ex_1")
+    lc.acknowledge_broker("i1", broker_order_id="br_1")
+    lc.receive_fill("i1", 1.0, 99.5, protective_trigger=90.0)
+    order = lc.order("i1")
+    lc.create_protective_order(
+        symbol="BTC/USDT",
+        kind="stop_loss",
+        trigger_price=90.0,
+        parent_intent_id="i1",
+    )
+    assert order.protective_order_ids
+    assert lc.state.protection_state["i1"] == ProtectionState.PROTECTION_REQUIRED
+    # New BUY blocked while protection required
+    with pytest.raises(InvariantViolation):
+        lc.create_order_intent("i2", "BTC/USDT", "buy", 1.0)
+    # Reduce-only SELL allowed (inventory guard only)
+    inventory = {"BTC/USDT": 1.0}
+    lc2 = ExecutionLifecycle(
+        store,
+        price_source=lambda s: TrustedPrice(
+            price=100.0,
+            exchange_timestamp=datetime.now(UTC),
+            received_at=datetime.now(UTC),
+        ),
+        inventory_source=lambda sym, side: inventory.get(sym, 0.0),
+        require_protective_order=True,
+    )
+    lc2.create_order_intent("i3", "BTC/USDT", "sell", 1.0)
+    lc2.approve_risk("i3")
+    lc2.submit_order("i3", exchange_order_id="ex_3")
+    lc2.acknowledge_broker("i3", broker_order_id="br_3")
+    # Should not raise
+    lc2.receive_fill("i3", 1.0, 100.0)
+
+
+def test_acknowledge_protective_order_sets_protected(store):
+    lc = ExecutionLifecycle(
+        store,
+        price_source=lambda s: TrustedPrice(
+            price=100.0,
+            exchange_timestamp=datetime.now(UTC),
+            received_at=datetime.now(UTC),
+        ),
+        require_protective_order=True,
+    )
+    lc.create_order_intent("i1", "BTC/USDT", "buy", 1.0)
+    lc.approve_risk("i1")
+    lc.submit_order("i1", exchange_order_id="ex_1")
+    lc.acknowledge_broker("i1", broker_order_id="br_1")
+    lc.receive_fill("i1", 1.0, 99.5, protective_trigger=90.0)
+    order = lc.order("i1")
+    lc.create_protective_order(
+        symbol="BTC/USDT",
+        kind="stop_loss",
+        trigger_price=90.0,
+        parent_intent_id="i1",
+    )
+    protective_id = order.protective_order_ids[0]
+    assert lc.state.protection_state["i1"] == ProtectionState.PROTECTION_REQUIRED
+    lc.acknowledge_protective_order(protective_id, broker_ack_id="ack_1")
+    assert lc.state.protection_state["i1"] == ProtectionState.PROTECTED
+
+
+def test_crash_between_fill_and_protective_replay_requires_protection(tmp_path):
+    path = tmp_path / "crash_protection.db"
+    with ExecutionEventStore(path).connect() as store:
+        lc = ExecutionLifecycle(
+            store,
+            price_source=lambda s: TrustedPrice(
+                price=100.0,
+                exchange_timestamp=datetime.now(UTC),
+                received_at=datetime.now(UTC),
+            ),
+            require_protective_order=True,
+        )
+        lc.create_order_intent("i1", "BTC/USDT", "buy", 1.0)
+        lc.approve_risk("i1")
+        lc.submit_order("i1", exchange_order_id="ex_1")
+        lc.acknowledge_broker("i1", broker_order_id="br_1")
+        lc.receive_fill("i1", 1.0, 99.5, protective_trigger=90.0)
+        # Crash before protective order created/persisted.
+        # Protective order is created by an external recovery step, not by fill.
+    with ExecutionEventStore(path).connect() as store2:
+        lc2 = ExecutionLifecycle(store2)
+        lc2.load()
+        assert lc2.state.protection_state["i1"] == ProtectionState.PROTECTION_REQUIRED
+        assert lc2.order("i1").protective_order_ids == []
+
+
+def test_repeated_recovery_does_not_duplicate_protection(store):
+    lc = ExecutionLifecycle(
+        store,
+        price_source=lambda s: TrustedPrice(
+            price=100.0,
+            exchange_timestamp=datetime.now(UTC),
+            received_at=datetime.now(UTC),
+        ),
+        require_protective_order=True,
+    )
+    lc.create_order_intent("i1", "BTC/USDT", "buy", 1.0)
+    lc.approve_risk("i1")
+    lc.submit_order("i1", exchange_order_id="ex_1")
+    lc.acknowledge_broker("i1", broker_order_id="br_1")
+    lc.receive_fill("i1", 1.0, 99.5, protective_trigger=90.0)
+    order = lc.order("i1")
+    lc.create_protective_order(
+        symbol="BTC/USDT",
+        kind="stop_loss",
+        trigger_price=90.0,
+        parent_intent_id="i1",
+    )
+    protective_id = order.protective_order_ids[0]
+    lc.acknowledge_protective_order(protective_id, broker_ack_id="ack_1")
+    # Re-acknowledge same protective order idempotently
+    lc.acknowledge_protective_order(protective_id, broker_ack_id="ack_1")
+    assert lc.state.protection_state["i1"] == ProtectionState.PROTECTED
+    assert len(order.protective_order_ids) == 1
+
+
+def test_unknown_broker_state_fail_closed(store):
+    lc = ExecutionLifecycle(
+        store,
+        price_source=lambda s: TrustedPrice(
+            price=100.0,
+            exchange_timestamp=datetime.now(UTC),
+            received_at=datetime.now(UTC),
+        ),
+        require_protective_order=True,
+    )
+    lc.create_order_intent("i1", "BTC/USDT", "buy", 1.0)
+    lc.approve_risk("i1")
+    lc.submit_order("i1", exchange_order_id="ex_1")
+    lc.acknowledge_broker("i1", broker_order_id="br_1")
+    report = lc.reconcile_broker_state({"ex_1": "weird_state"})
+    assert "i1" in report["unknown"]
+    assert lc.state.execution_health == ExecutionHealth.MANUAL_BLOCKED

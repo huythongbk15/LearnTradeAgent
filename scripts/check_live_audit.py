@@ -10,7 +10,6 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Iterable
 
-
 CRITICAL_EVENTS = frozenset(
     {
         "order_submission_unknown",

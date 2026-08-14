@@ -5,8 +5,10 @@ from __future__ import annotations
 import os
 import subprocess
 import time
-from rich.table import Table
+
 import click
+from rich.table import Table
+
 from trading_agent.cli._common import console
 
 # ── system subcommands ────────────────────────────────────────────────────

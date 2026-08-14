@@ -1,11 +1,11 @@
 """News feature extraction using LLM."""
 
 import asyncio
+import hashlib
 import json
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-import hashlib
 
 from trading_agent.llm.client import LLMClient
 from trading_agent.llm.pool import LLMPool

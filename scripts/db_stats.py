@@ -1,10 +1,10 @@
 """Print database statistics — trades, decisions, equity curve."""
 
 from trading_agent.monitoring.database import (
-    init_db,
-    get_trade_stats,
     get_agent_decisions,
     get_equity_curve,
+    get_trade_stats,
+    init_db,
 )
 
 

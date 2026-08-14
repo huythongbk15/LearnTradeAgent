@@ -10,9 +10,9 @@ from datetime import datetime, timedelta
 
 import polars as pl
 
+from trading_agent.agents.base import AgentMessage, AnalysisContext
+from trading_agent.agents.llm import LLMError, chat
 from trading_agent.data.storage import load_ohlcv
-from trading_agent.agents.base import AnalysisContext, AgentMessage
-from trading_agent.agents.llm import chat, LLMError
 
 
 def _llm_chat(prompt: str, max_tokens: int = 50) -> str | None:

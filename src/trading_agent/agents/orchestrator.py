@@ -11,11 +11,11 @@ Flow:
 
 from __future__ import annotations
 
-import numpy as np
 from dataclasses import dataclass
 from typing import Any, Literal
 from uuid import uuid4
 
+import numpy as np
 import polars as pl
 from rich.console import Console
 from rich.panel import Panel
@@ -35,10 +35,10 @@ from trading_agent.data.onchain import (
 )
 from trading_agent.data.storage import load_ohlcv
 from trading_agent.log_config import get_logger
+from trading_agent.risk.position_sizer import PositionSizer, PositionSizingParams
 from trading_agent.strategies.bbands import BBandsStrategy
 from trading_agent.strategies.ma_crossover import MaCrossover
 from trading_agent.strategies.rsi import RsiStrategy
-from trading_agent.risk.position_sizer import PositionSizer, PositionSizingParams
 
 logger = get_logger(__name__)
 

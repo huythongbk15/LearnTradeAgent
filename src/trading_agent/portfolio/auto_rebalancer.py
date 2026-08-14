@@ -17,8 +17,7 @@ from decimal import Decimal
 from enum import Enum
 from typing import Any, Callable
 
-
-from trading_agent.exchanges.models import Symbol, Position, Order, OrderSide, OrderType
+from trading_agent.exchanges.models import Order, OrderSide, OrderType, Position, Symbol
 from trading_agent.portfolio.risk_budgeting import RiskBudgeter, RiskBudgetMethod
 
 logger = logging.getLogger(__name__)

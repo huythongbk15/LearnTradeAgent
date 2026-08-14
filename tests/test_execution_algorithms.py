@@ -10,7 +10,8 @@ import datetime as dt
 
 import polars as pl
 import pytest
-from hypothesis import given, settings, strategies as st
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from trading_agent.execution.algorithms import (
     LiquidityAwareTwap,
@@ -19,8 +20,8 @@ from trading_agent.execution.algorithms import (
     MpcObjectives,
     ParentOrder,
     PovExecution,
-    run_parent_through_engine,
     objective_cost,
+    run_parent_through_engine,
 )
 from trading_agent.execution.algorithms.base import (
     MarketSnapshot,

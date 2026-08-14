@@ -6,11 +6,11 @@ Lưu tại: ./backups/YYYYMMDD_HHMMSS/
 Giữ: 7 bản gần nhất.
 """
 
+import shutil
 import subprocess
 import sys
-from pathlib import Path
 from datetime import datetime
-import shutil
+from pathlib import Path
 
 # === CONFIG (sửa cho máy bạn) ===
 BACKUP_ROOT = Path("./backups")

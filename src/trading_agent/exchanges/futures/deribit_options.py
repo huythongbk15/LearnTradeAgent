@@ -1,23 +1,24 @@
 """Deribit Options adapter using CCXT."""
 
-import ccxt.async_support as ccxt
 import logging
 from decimal import Decimal
-from typing import Optional, List
+from typing import List, Optional
 
+import ccxt.async_support as ccxt
+
+from trading_agent.exchanges.ccxt_adapter import CCXTAdapter
 from trading_agent.exchanges.models import (
-    Symbol,
     AssetClass,
+    Balance,
     MarketType,
     Order,
-    OrderSide,
-    OrderType,
-    OrderStatus,
-    Ticker,
     OrderBook,
-    Balance,
+    OrderSide,
+    OrderStatus,
+    OrderType,
+    Symbol,
+    Ticker,
 )
-from trading_agent.exchanges.ccxt_adapter import CCXTAdapter
 
 logger = logging.getLogger(__name__)
 

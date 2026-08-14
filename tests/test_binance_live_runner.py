@@ -7,18 +7,18 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-
 SCRIPTS = os.path.join(os.path.dirname(__file__), "..", "scripts")
 if SCRIPTS not in sys.path:
     sys.path.insert(0, SCRIPTS)
 
 import live_enhanced_ma_binance as runner
+
+from trading_agent.exchanges.models import OrderConstraintError
 from trading_agent.execution.live_safety import (
     LiveRiskLimits,
     LiveRiskStateStore,
     LiveSafetyError,
 )
-from trading_agent.exchanges.models import OrderConstraintError
 
 
 def test_allocations_are_not_normalized():

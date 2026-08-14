@@ -3,9 +3,8 @@
 import hashlib
 import inspect
 import json
-from dataclasses import dataclass, asdict
-from typing import Any, get_type_hints
-from typing import Optional, get_origin, get_args
+from dataclasses import asdict, dataclass
+from typing import Any, Optional, get_args, get_origin, get_type_hints
 
 
 @dataclass

@@ -2,35 +2,33 @@
 Trading Portfolio Package - Risk Budgeting & Portfolio Management
 """
 
-from trading_agent.portfolio.risk_budgeting import (
-    RiskBudgetMethod,
-    CorrelationMethod,
-    RiskBudgetResult,
-    CorrelationMatrix,
-    RiskBudgeter,
-    CorrelationMonitor,
-    DrawdownController,
-)
-
 from trading_agent.portfolio.auto_rebalancer import (
-    RebalanceTrigger,
-    RebalanceConfig,
-    RebalanceEvent,
     AutoRebalancer,
     CalendarRebalanceStrategy,
-    ThresholdRebalanceStrategy,
     CPPIRebalanceStrategy,
+    RebalanceConfig,
+    RebalanceEvent,
+    RebalanceTrigger,
     RiskBudgetRebalanceStrategy,
+    ThresholdRebalanceStrategy,
     create_rebalancer,
 )
-
 from trading_agent.portfolio.portfolio_optimizer import (
-    OptimizerMethod,
     BlackLittermanViews,
     OptimizationConstraints,
     OptimizationResult,
+    OptimizerMethod,
     PortfolioOptimizer,
     create_optimizer,
+)
+from trading_agent.portfolio.risk_budgeting import (
+    CorrelationMatrix,
+    CorrelationMethod,
+    CorrelationMonitor,
+    DrawdownController,
+    RiskBudgeter,
+    RiskBudgetMethod,
+    RiskBudgetResult,
 )
 
 __all__ = [

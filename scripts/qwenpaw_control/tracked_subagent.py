@@ -5,14 +5,14 @@ Wraps spawn_subagent to auto-register, heartbeat, and capture results.
 """
 
 import json
-import time
 import sys
+import time
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional
 
 # Add parent to path for process_registry
 sys.path.insert(0, str(Path(__file__).parent))
-from process_registry import register, heartbeat, complete
+from process_registry import complete, heartbeat, register
 
 
 class TrackedSubagent:
@@ -119,7 +119,7 @@ class TrackedSubagent:
                             result_file=f"subagent_{task_id}.json",
                         )
                     return result
-            except Exception as e:
+            except Exception:
                 pass
 
             time.sleep(poll_interval)

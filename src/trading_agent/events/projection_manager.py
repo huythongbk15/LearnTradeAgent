@@ -9,16 +9,16 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from trading_agent.events.store import EventStore
 from trading_agent.events.projections import (
-    Projection,
-    TradeProjection,
-    PositionProjection,
-    PortfolioProjection,
-    RiskProjection,
     OrderProjection,
+    PortfolioProjection,
+    PositionProjection,
+    Projection,
+    RiskProjection,
     SignalProjection,
+    TradeProjection,
 )
+from trading_agent.events.store import EventStore
 
 logger = logging.getLogger(__name__)
 

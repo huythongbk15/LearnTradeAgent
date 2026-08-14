@@ -7,10 +7,10 @@ Cron gợi ý (báo cáo tối 20:00):
     0 20 * * * cd /home/huythong/.qwenpaw/workspaces/trading && python scripts/live_status_report.py >/dev/null 2>&1
 """
 
-import sys
-import os
 import asyncio
 import json
+import os
+import sys
 from datetime import datetime
 
 sys.path.insert(0, "src")
@@ -20,11 +20,11 @@ from dotenv import load_dotenv
 load_dotenv(".env")
 
 import ccxt
+from live_config import SYMBOLS_ALPACA
 
 from trading_agent.exchanges.alpaca_adapter import AlpacaAdapter, AlpacaConfig
 from trading_agent.exchanges.live_broker import LiveBroker
 from trading_agent.monitoring.alerter import init_alerts, send_status_report
-from live_config import SYMBOLS_ALPACA
 
 PEAK_STATE_FILE = "data/live_peak_equity.json"
 

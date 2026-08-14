@@ -285,7 +285,6 @@ class EarningsCalendarTracker:
 
 from datetime import timedelta
 
-
 __all__ = [
     "EarningsFeatureExtractor",
     "EarningsData",

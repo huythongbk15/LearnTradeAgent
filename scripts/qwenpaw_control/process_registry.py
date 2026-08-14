@@ -4,15 +4,15 @@ QwenPaw Agent: Process Registry - track all spawned subprocesses and subagents.
 SQLite-backed, survives restarts, CLI for inspection.
 """
 
-import sqlite3
 import json
-import time
 import os
 import signal
-from pathlib import Path
-from dataclasses import dataclass, asdict
-from typing import Optional, List, Dict
+import sqlite3
+import time
 from contextlib import contextmanager
+from dataclasses import asdict, dataclass
+from pathlib import Path
+from typing import Dict, List, Optional
 
 DB_PATH = Path(__file__).parent.parent.parent / "data" / "qwenpaw_process_registry.db"
 DB_PATH.parent.mkdir(exist_ok=True)

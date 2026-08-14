@@ -563,11 +563,10 @@ def run_backtest(
     **engine_kwargs,
 ) -> BacktestResult:
     """Load data + run backtest — one function for CLI use."""
-    from trading_agent.data.storage import load_ohlcv
-    from trading_agent.strategies.base import get_strategy
-
     # Import strategies to register them
     import trading_agent.strategies  # noqa: F401
+    from trading_agent.data.storage import load_ohlcv
+    from trading_agent.strategies.base import get_strategy
 
     df = load_ohlcv(config.default_exchange, symbol, timeframe)
     strategy_cls = get_strategy(strategy_name)

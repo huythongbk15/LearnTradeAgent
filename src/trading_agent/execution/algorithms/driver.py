@@ -279,7 +279,7 @@ def run_parent_through_engine(
     initial_cash: float = 1_000_000.0,
 ) -> tuple[MarketReplayEngine, ParentOrderResult]:
     """One-shot helper: build an engine, run a parent order, return both."""
-    from trading_agent.execution.simulator import SimulationConfig, MarketReplayEngine
+    from trading_agent.execution.simulator import MarketReplayEngine, SimulationConfig
 
     cfg = config or SimulationConfig(random_seed=42)
     engine = MarketReplayEngine(

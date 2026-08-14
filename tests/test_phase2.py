@@ -40,13 +40,13 @@ if not _DATA_FILE.exists():
 
 # ── Imports ──────────────────────────────────────────────────────────────
 
-from trading_agent.config.loader import config
-from trading_agent.agents.base import AnalysisContext, AgentMessage
-from trading_agent.agents.technical import TechnicalAnalyst
-from trading_agent.agents.sentiment import SentimentAnalyst
-from trading_agent.agents.risk import RiskManager
-from trading_agent.agents.trader import Trader
+from trading_agent.agents.base import AgentMessage, AnalysisContext
 from trading_agent.agents.orchestrator import Orchestrator, print_report
+from trading_agent.agents.risk import RiskManager
+from trading_agent.agents.sentiment import SentimentAnalyst
+from trading_agent.agents.technical import TechnicalAnalyst
+from trading_agent.agents.trader import Trader
+from trading_agent.config.loader import config
 
 USE_LLM = os.getenv("USE_LLM", "true").lower() != "false"
 
@@ -75,7 +75,7 @@ def check(name, condition, detail=""):
 # ══════════════════════════════════════════════════════════════════════════
 heading("1. LLM Client")
 
-from trading_agent.agents.llm import chat, ask_agent, LLMError
+from trading_agent.agents.llm import LLMError, ask_agent, chat
 
 if USE_LLM:
     try:
@@ -106,8 +106,8 @@ print(f"     → {result}")
 # ══════════════════════════════════════════════════════════════════════════
 heading("2. Build test context")
 
-import polars as pl
 import numpy as np
+import polars as pl
 
 # Create synthetic OHLCV data
 np.random.seed(42)

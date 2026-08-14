@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 try:
     import nats
     from nats.js import JetStreamContext
-    from nats.js.api import StreamConfig, ConsumerConfig, AckPolicy, RetentionPolicy
+    from nats.js.api import AckPolicy, ConsumerConfig, RetentionPolicy, StreamConfig
 
     NATS_AVAILABLE = True
 except ImportError:  # pragma: no cover - depends on environment

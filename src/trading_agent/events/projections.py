@@ -7,12 +7,12 @@ from typing import Optional
 from trading_agent.events.models import (
     Event,
     EventType,
-    TradeEvent,
-    SignalEvent,
-    RiskEvent,
     OrderEvent,
-    PositionEvent,
     PortfolioEvent,
+    PositionEvent,
+    RiskEvent,
+    SignalEvent,
+    TradeEvent,
 )
 
 

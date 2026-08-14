@@ -12,9 +12,10 @@ Invariants under randomized (but seeded) inputs:
 
 from __future__ import annotations
 
-from hypothesis import given, strategies as st
 import polars as pl
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
 
 from trading_agent.execution.simulator import (
     MarketReplayEngine,

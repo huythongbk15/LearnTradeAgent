@@ -317,7 +317,7 @@ class SmartExecutionEngine:
                     )
                     slc.fill_price = resp.get("price", slc.limit_price or 50000)
                     slc.fill_qty = resp.get("filled", slc.qty)
-                except Exception as e:
+                except Exception:
                     slc.status = "failed"
                     slc.fill_price = None
                     continue
