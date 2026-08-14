@@ -41,6 +41,7 @@ class TradingAgentStrategyAdapter(BaseStrategy):
     ):
         # Create the wrapped strategy
         from trading_agent.strategies import get_strategy
+
         self._wrapped = get_strategy(name)
         if self._wrapped is None:
             raise ValueError(f"Strategy '{name}' not found in trading_agent registry")
@@ -122,6 +123,7 @@ class TradingAgentStrategyAdapter(BaseStrategy):
         self._config = params
         # Recreate wrapped strategy with new params
         from trading_agent.strategies import get_strategy
+
         self._wrapped = get_strategy(self._metadata.name)
         if self._wrapped and params:
             self._wrapped = self._wrapped.__class__(params)
