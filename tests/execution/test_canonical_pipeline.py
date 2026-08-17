@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any, Mapping
+from typing import Any
 
 import pytest
 
@@ -13,11 +13,7 @@ from trading_agent.execution.canonical import (
     CapitalChangeResult,
     CausationChain,
     ContentHash,
-    DecisionKey,
     EnrichedMarketObservation,
-    IdempotencyKeys,
-    ObservationId,
-    OrderIntent,
     OrderPlanner,
     ProtectionPlan,
     ProtectionState,
@@ -33,12 +29,11 @@ from trading_agent.execution.canonical import (
     propagate_causation,
 )
 from trading_agent.execution.canonical.broker_gateway import BrokerGateway
-from trading_agent.execution.canonical.market_observation import BarState, EnrichedMarketObservation
+from trading_agent.execution.canonical.market_observation import BarState
 from trading_agent.execution.canonical.order_planner import (
     CurrentPortfolioState,
     InstrumentRules,
     MarketPrice,
-    OrderIntent,
     TargetExposure,
 )
 
