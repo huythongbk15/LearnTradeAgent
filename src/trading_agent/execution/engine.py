@@ -28,7 +28,6 @@ from trading_agent.execution.types import (
     Order,
     OrderSide,
     OrderStatus,
-    OrderType,
 )
 
 logger = logging.getLogger(__name__)
