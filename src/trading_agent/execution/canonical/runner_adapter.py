@@ -15,7 +15,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from trading_agent.execution.canonical.broker_gateway import AuthorizedOrder, BrokerGateway
+from trading_agent.execution.canonical.broker_gateway import (
+    AuthorizedOrder,
+    BrokerGateway,
+)
 from trading_agent.execution.canonical.events import compute_idempotency_key
 
 
@@ -62,11 +65,11 @@ class CanonicalBrokerAdapter:
                 order_id=order_id,
                 correlation_id=self._make_correlation_id(order),
             )
-        
+
         if cancel_result and cancel_result.success:
             # Submit the new order
             return self.place_order(order)
-        
+
         # Fallback to legacy broker if gateway cancel not available
         return self._broker.replace_order(order_id, order)
 
@@ -97,15 +100,15 @@ class CanonicalBrokerAdapter:
             side_value = str(order.side).upper()
             if side_value in ("SELL", "SHORT"):
                 side = "sell"
-        
+
         quantity = float(getattr(order, "size", 0) or 0)
         if quantity <= 0:
             quantity = 0.0
-        
+
         price_reference = 0.0
         if hasattr(order, "limit_price") and order.limit_price:
             price_reference = float(order.limit_price)
-        
+
         intent_id = getattr(order, "client_order_id", None) or f"runner-{id(order)}"
         idempotency_key = compute_idempotency_key(
             decision_id=intent_id,
@@ -113,7 +116,7 @@ class CanonicalBrokerAdapter:
             target_exposure=0.0,
             horizon=0,
         )
-        
+
         return AuthorizedOrder(
             intent_id=intent_id,
             symbol=str(symbol),

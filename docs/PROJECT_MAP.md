@@ -291,7 +291,8 @@
 │       │   │   ├── market_observation.py
 │       │   │   ├── order_planner.py
 │       │   │   ├── protection.py
-│       │   │   └── risk_decision.py
+│       │   │   ├── risk_decision.py
+│       │   │   └── runner_adapter.py
 │       │   ├── lifecycle
 │       │   │   ├── __init__.py
 │       │   │   ├── events.py

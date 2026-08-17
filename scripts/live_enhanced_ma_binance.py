@@ -2028,7 +2028,7 @@ def run_locked(
         )
         # Wrap with canonical broker gateway (P0 §12: runner canonical migration)
         broker = CanonicalBrokerAdapter(broker)
-        
+
         reconcile_unfinished_orders(
             broker=broker,
             store=store,
