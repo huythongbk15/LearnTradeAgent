@@ -27,7 +27,7 @@ FORBIDDEN_METHODS = {
 ALLOWED_FILES = {
     "broker_gateway.py",  # BrokerGateway itself
     "paper_exchange.py",  # Exchange adapter implementations
-    "smart_router.py",    # Smart execution router (adapter-like)
+    "smart_router.py",  # Smart execution router (adapter-like)
     "test_broker_gateway.py",  # Tests for BrokerGateway
 }
 
@@ -44,7 +44,7 @@ def _is_forbidden_call(node: ast.Call, file_path: Path) -> tuple[bool, str | Non
         method_name = node.func.attr
         if method_name not in FORBIDDEN_METHODS:
             return False, None
-        
+
         # Get the full attribute chain: self.exchange.place_order -> ["self", "exchange", "place_order"]
         attrs = []
         obj = node.func
@@ -54,7 +54,7 @@ def _is_forbidden_call(node: ast.Call, file_path: Path) -> tuple[bool, str | Non
         if isinstance(obj, ast.Name):
             attrs.append(obj.id)
         attrs.reverse()
-        
+
         # Allow patterns:
         # 1. self._adapter.* in broker_gateway.py
         # 2. adapter.* or exchange.* in adapter implementation files
@@ -67,12 +67,12 @@ def _is_forbidden_call(node: ast.Call, file_path: Path) -> tuple[bool, str | Non
                 # In adapter implementations, allow adapter.* or exchange.*
                 if attrs[0] in ("adapter", "exchange", "self"):
                     return False, None
-            
+
             # For any other file, check if the root is 'self' and the next is 'exchange'
             # This catches self.exchange.place_order in engine.py
             if attrs[0] == "self" and attrs[1] == "exchange":
                 return True, method_name
-        
+
         # Any other object calling a forbidden method is a violation
         return True, method_name
     return False, None
@@ -92,12 +92,14 @@ def _scan_file_for_forbidden_calls(file_path: Path) -> list[dict[str, Any]]:
         if isinstance(node, ast.Call):
             is_forbidden, method_name = _is_forbidden_call(node, file_path)
             if is_forbidden:
-                violations.append({
-                    "file": str(file_path),
-                    "line": node.lineno,
-                    "method": method_name,
-                })
-    
+                violations.append(
+                    {
+                        "file": str(file_path),
+                        "line": node.lineno,
+                        "method": method_name,
+                    }
+                )
+
     return violations
 
 
@@ -117,15 +119,15 @@ class TestDirectBrokerWriteGuard:
         """Ensure no direct broker calls outside canonical boundaries."""
         python_files = _get_python_files(SCAN_DIRS)
         all_violations = []
-        
+
         for file_path in python_files:
             # Skip test files and allowed files
             if file_path.name in ALLOWED_FILES or file_path.name.startswith("test_"):
                 continue
-            
+
             violations = _scan_file_for_forbidden_calls(file_path)
             all_violations.extend(violations)
-        
+
         if all_violations:
             violation_messages = []
             for v in all_violations:

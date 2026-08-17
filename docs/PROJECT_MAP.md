@@ -445,6 +445,7 @@
 │   ├── test_config_effective.py
 │   ├── test_data_trust.py
 │   ├── test_decision_trace.py
+│   ├── test_direct_broker_write_guard.py
 │   ├── test_enhanced_ma_exit_safety.py
 │   ├── test_execution_algorithms.py
 │   ├── test_execution_hardening.py

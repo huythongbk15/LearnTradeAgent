@@ -26,7 +26,6 @@ from trading_agent.execution.canonical import BrokerGateway, AuthorizedOrder
 
 from trading_agent.execution.types import (
     Order,
-    OrderSide,
     OrderStatus,
 )
 
@@ -243,14 +242,14 @@ class ExecutionEngine:
                 )
                 order = self.gateway.submit(
                     AuthorizedOrder(
-                        intent_id=f"engine-{symbol.replace("/", "-")}-{int(datetime.now(UTC).timestamp())}",
+                        intent_id=f"engine-{symbol.replace('/', '-')}-{int(datetime.now(UTC).timestamp())}",
                         symbol=symbol,
                         side="buy",
                         quantity=amount,
-                        idempotency_key=f"engine-{symbol.replace("/", "-")}-{int(datetime.now(UTC).timestamp())}",
+                        idempotency_key=f"engine-{symbol.replace('/', '-')}-{int(datetime.now(UTC).timestamp())}",
                         price_reference=current_price,
                     ),
-                    correlation_id=f"engine-{symbol.replace("/", "-")}-{int(datetime.now(UTC).timestamp())}",
+                    correlation_id=f"engine-{symbol.replace('/', '-')}-{int(datetime.now(UTC).timestamp())}",
                 )
                 orders.append(order)
 
@@ -317,14 +316,14 @@ class ExecutionEngine:
                 logger.info(f"Signal: SELL {amount} {symbol}")
                 order = self.gateway.submit(
                     AuthorizedOrder(
-                        intent_id=f"engine-{symbol.replace("/", "-")}-{int(datetime.now(UTC).timestamp())}",
+                        intent_id=f"engine-{symbol.replace('/', '-')}-{int(datetime.now(UTC).timestamp())}",
                         symbol=symbol,
                         side="sell",
                         quantity=amount,
-                        idempotency_key=f"engine-{symbol.replace("/", "-")}-{int(datetime.now(UTC).timestamp())}",
+                        idempotency_key=f"engine-{symbol.replace('/', '-')}-{int(datetime.now(UTC).timestamp())}",
                         price_reference=current_price,
                     ),
-                    correlation_id=f"engine-{symbol.replace("/", "-")}-{int(datetime.now(UTC).timestamp())}",
+                    correlation_id=f"engine-{symbol.replace('/', '-')}-{int(datetime.now(UTC).timestamp())}",
                 )
                 orders.append(order)
             else:
