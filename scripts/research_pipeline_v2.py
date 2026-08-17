@@ -3,13 +3,13 @@
 Comprehensive research pipeline v2 — addresses all prompt sections.
 Modular design for incremental execution.
 """
+
 from __future__ import annotations
 
 import hashlib
 import json
 import os
 import sys
-from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -24,15 +24,23 @@ sys.path.insert(0, str(ROOT / "src"))
 os.environ["USE_LLM"] = "false"
 
 from trading_agent.data.storage import load_ohlcv
-from trading_agent.strategies import get_strategy, list_strategies
+from trading_agent.strategies import get_strategy
 from trading_agent.backtest.engine import BacktestEngine
 
 console = Console()
 
 # ── Fixed universe ─────────────────────────────────────────────────────────
 SYMBOLS = [
-    "BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT", "BNB/USDT",
-    "ZEC/USDT", "DOGE/USDT", "TRX/USDT", "ADA/USDT", "NEAR/USDT",
+    "BTC/USDT",
+    "ETH/USDT",
+    "SOL/USDT",
+    "XRP/USDT",
+    "BNB/USDT",
+    "ZEC/USDT",
+    "DOGE/USDT",
+    "TRX/USDT",
+    "ADA/USDT",
+    "NEAR/USDT",
 ]
 TIMEFRAMES = ["1h", "4h", "1d"]
 EXCHANGE = "binance"
@@ -50,6 +58,7 @@ COST = {
     "slippage_bps": 5,
 }
 COST_STRESS = [0.5, 1.0, 1.5, 2.0, 3.0]
+
 
 # ── Helpers ────────────────────────────────────────────────────────────────
 def _sha256_file(path: Path) -> str:
@@ -77,18 +86,41 @@ def audit_data() -> list[dict[str, Any]]:
             try:
                 df = load_ohlcv(EXCHANGE, sym, tf).sort("timestamp")
             except Exception as e:
-                results.append({"symbol": sym, "timeframe": tf, "status": "FAIL", "error": str(e)})
+                results.append(
+                    {"symbol": sym, "timeframe": tf, "status": "FAIL", "error": str(e)}
+                )
                 continue
 
             n = len(df)
             if n == 0:
-                results.append({"symbol": sym, "timeframe": tf, "status": "FAIL", "error": "no data"})
+                results.append(
+                    {
+                        "symbol": sym,
+                        "timeframe": tf,
+                        "status": "FAIL",
+                        "error": "no data",
+                    }
+                )
                 continue
 
             expected = {"1h": 8760, "4h": 2190, "1d": 365}.get(tf, 0)
-            missing = sum(df.select([pl.col(c).null_count() for c in ["open", "high", "low", "close", "volume"]]).row(0))
+            missing = sum(
+                df.select(
+                    [
+                        pl.col(c).null_count()
+                        for c in ["open", "high", "low", "close", "volume"]
+                    ]
+                ).row(0)
+            )
             duplicates = int(df["timestamp"].is_duplicated().sum())
-            non_finite = sum(df.select([(~pl.col(c).is_finite()).sum() for c in ["open", "high", "low", "close", "volume"]]).row(0))
+            non_finite = sum(
+                df.select(
+                    [
+                        (~pl.col(c).is_finite()).sum()
+                        for c in ["open", "high", "low", "close", "volume"]
+                    ]
+                ).row(0)
+            )
             zero_neg_vol = int((df["volume"] <= 0).sum())
 
             consistency = (
@@ -107,10 +139,21 @@ def audit_data() -> list[dict[str, Any]]:
             consistency_pct = consistency_ok / n
 
             diffs = df["timestamp"].diff().cast(pl.Int64).drop_nulls()
-            expected_gap = {"1h": 3_600_000_000, "4h": 14_400_000_000, "1d": 86_400_000_000}[tf]
+            expected_gap = {
+                "1h": 3_600_000_000,
+                "4h": 14_400_000_000,
+                "1d": 86_400_000_000,
+            }[tf]
             gaps = int((diffs != expected_gap).sum()) if len(diffs) else 0
 
-            if n == 0 or missing or duplicates or non_finite or consistency_pct < 0.99 or zero_neg_vol > n * 0.001:
+            if (
+                n == 0
+                or missing
+                or duplicates
+                or non_finite
+                or consistency_pct < 0.99
+                or zero_neg_vol > n * 0.001
+            ):
                 quality = "FAIL"
             elif gaps > n * 0.01 or zero_neg_vol > 0:
                 quality = "DEGRADED"
@@ -118,18 +161,30 @@ def audit_data() -> list[dict[str, Any]]:
                 quality = "PASS"
 
             rec = {
-                "symbol": sym, "timeframe": tf,
-                "start": str(df["timestamp"].item(0)), "end": str(df["timestamp"].item(-1)),
-                "bars": n, "expected_bars": expected, "missing_bars": max(0, expected - n),
-                "duplicates": duplicates, "non_finite": non_finite,
-                "zero_negative_volume": zero_neg_vol, "consistency_pct": round(consistency_pct * 100, 2),
-                "gaps": gaps, "timezone": "UTC",
-                "data_sha256": _sha256_file(ROOT / f"data/raw/{EXCHANGE}/{sym.replace('/', '_')}/{tf}.parquet"),
-                "quality": quality, "status": "PASS" if quality == "PASS" else "FAIL",
+                "symbol": sym,
+                "timeframe": tf,
+                "start": str(df["timestamp"].item(0)),
+                "end": str(df["timestamp"].item(-1)),
+                "bars": n,
+                "expected_bars": expected,
+                "missing_bars": max(0, expected - n),
+                "duplicates": duplicates,
+                "non_finite": non_finite,
+                "zero_negative_volume": zero_neg_vol,
+                "consistency_pct": round(consistency_pct * 100, 2),
+                "gaps": gaps,
+                "timezone": "UTC",
+                "data_sha256": _sha256_file(
+                    ROOT / f"data/raw/{EXCHANGE}/{sym.replace('/', '_')}/{tf}.parquet"
+                ),
+                "quality": quality,
+                "status": "PASS" if quality == "PASS" else "FAIL",
             }
             results.append(rec)
             icon = "✅" if rec["status"] == "PASS" else "❌"
-            console.print(f"  {icon} {sym} {tf}: {quality} | bars={n} | gaps={gaps} | consistency={consistency_pct:.1%}")
+            console.print(
+                f"  {icon} {sym} {tf}: {quality} | bars={n} | gaps={gaps} | consistency={consistency_pct:.1%}"
+            )
 
     _save_json(results, "data_quality/audit.json")
     return results
@@ -144,11 +199,17 @@ def _run_backtest(df: pl.DataFrame, strategy, cost_mult: float = 1.0) -> dict[st
         commission=fee + COST["spread_bps"] / 10000,
         slippage=COST["slippage_bps"] / 10000,
         spread_bps=COST["spread_bps"],
-        atr_sl_mult=2.0, atr_tp_mult=3.0, trailing_atr_mult=1.5,
+        atr_sl_mult=2.0,
+        atr_tp_mult=3.0,
+        trailing_atr_mult=1.5,
     )
     result = engine.run(df)
     return {
-        "strategy": strategy.meta.name if hasattr(strategy, "meta") and strategy.meta else "buy_hold" if strategy is None else "unknown",
+        "strategy": strategy.meta.name
+        if hasattr(strategy, "meta") and strategy.meta
+        else "buy_hold"
+        if strategy is None
+        else "unknown",
         "return": result.total_return_pct,
         "sharpe": result.sharpe_ratio,
         "sortino": result.sortino_ratio,
@@ -179,9 +240,13 @@ def run_baselines(audit: list[dict]) -> list[dict]:
         for name, strategy in strategies.items():
             try:
                 res = _run_backtest(df, strategy)
-                res.update({"symbol": sym, "timeframe": tf, "data_quality": rec["quality"]})
+                res.update(
+                    {"symbol": sym, "timeframe": tf, "data_quality": rec["quality"]}
+                )
                 results.append(res)
-                rows.append((sym, tf, name, res["sharpe"], res["return"], res["max_dd"]))
+                rows.append(
+                    (sym, tf, name, res["sharpe"], res["return"], res["max_dd"])
+                )
             except Exception as e:
                 console.print(f"  [red]ERROR {sym} {tf} {name}: {e}[/red]")
 
@@ -214,12 +279,16 @@ def _make_folds(n: int, tf: str, min_folds: int = 6) -> list[dict]:
         test_end = test_start + test_bars
         if test_end > n:
             break
-        folds.append({
-            "fold": fold,
-            "train_start": start, "train_end": train_end,
-            "test_start": test_start, "test_end": test_end,
-            "embargo_bars": embargo,
-        })
+        folds.append(
+            {
+                "fold": fold,
+                "train_start": start,
+                "train_end": train_end,
+                "test_start": test_start,
+                "test_end": test_end,
+                "embargo_bars": embargo,
+            }
+        )
         fold += 1
         start += step_bars
         if fold >= min_folds and len(folds) >= 5:
@@ -237,14 +306,18 @@ def generate_walk_forward(audit: list[dict]) -> list[dict]:
         df = load_ohlcv(EXCHANGE, sym, tf).sort("timestamp")
         folds = _make_folds(len(df), tf)
         for f in folds:
-            all_folds.append({
-                "symbol": sym, "timeframe": tf, "fold": f["fold"],
-                "train_start_ts": str(df["timestamp"].item(f["train_start"])),
-                "train_end_ts": str(df["timestamp"].item(f["train_end"])),
-                "test_start_ts": str(df["timestamp"].item(f["test_start"])),
-                "test_end_ts": str(df["timestamp"].item(f["test_end"])),
-                "embargo_bars": f["embargo_bars"],
-            })
+            all_folds.append(
+                {
+                    "symbol": sym,
+                    "timeframe": tf,
+                    "fold": f["fold"],
+                    "train_start_ts": str(df["timestamp"].item(f["train_start"])),
+                    "train_end_ts": str(df["timestamp"].item(f["train_end"])),
+                    "test_start_ts": str(df["timestamp"].item(f["test_start"])),
+                    "test_end_ts": str(df["timestamp"].item(f["test_end"])),
+                    "embargo_bars": f["embargo_bars"],
+                }
+            )
         console.print(f"  {sym} {tf}: {len(folds)} folds")
     _save_json(all_folds, "folds/folds.json")
     return all_folds
@@ -264,7 +337,9 @@ def _dsr(sharpe: float, n: int) -> float:
 
 
 def evaluate_walk_forward(audit: list[dict], folds: list[dict]) -> list[dict]:
-    console.print("\n[bold cyan]═══ Section 25: Walk-Forward Evaluation ═══[/bold cyan]")
+    console.print(
+        "\n[bold cyan]═══ Section 25: Walk-Forward Evaluation ═══[/bold cyan]"
+    )
     strategies = {
         "ma_crossover": get_strategy("ma_crossover")(),
         "rsi": get_strategy("rsi")(),
@@ -298,11 +373,27 @@ def evaluate_walk_forward(audit: list[dict], folds: list[dict]) -> list[dict]:
             returns = [m["return"] for m in fold_metrics]
             oos_sharpe = float(np.mean(sharpes))
             net_return = float(np.mean(returns))
-            max_dd = float(np.min([m["max_dd"] for m in fold_metrics])) if fold_metrics else 0.0
+            max_dd = (
+                float(np.min([m["max_dd"] for m in fold_metrics]))
+                if fold_metrics
+                else 0.0
+            )
             trades = int(np.sum([m["trades"] for m in fold_metrics]))
-            win_rate = float(np.mean([m["win_rate"] for m in fold_metrics])) if fold_metrics else 0.0
-            profit_factor = float(np.mean([m["profit_factor"] for m in fold_metrics])) if fold_metrics else 0.0
-            avg_hold = float(np.mean([m["avg_hold_bars"] for m in fold_metrics])) if fold_metrics else 0.0
+            win_rate = (
+                float(np.mean([m["win_rate"] for m in fold_metrics]))
+                if fold_metrics
+                else 0.0
+            )
+            profit_factor = (
+                float(np.mean([m["profit_factor"] for m in fold_metrics]))
+                if fold_metrics
+                else 0.0
+            )
+            avg_hold = (
+                float(np.mean([m["avg_hold_bars"] for m in fold_metrics]))
+                if fold_metrics
+                else 0.0
+            )
             dsr_val = _dsr(oos_sharpe, len(sharpes))
             positive_folds = int(sum(1 for s in sharpes if s > 0))
 
@@ -331,16 +422,27 @@ def evaluate_walk_forward(audit: list[dict], folds: list[dict]) -> list[dict]:
                 status = "PAPER_ELIGIBLE"
                 reason = "POSITIVE_EDGE"
 
-            results.append({
-                "symbol": sym, "timeframe": tf, "strategy": name,
-                "folds": len(fold_metrics), "oos_sharpe": round(oos_sharpe, 4),
-                "net_return": round(net_return, 4), "max_dd": round(max_dd, 4),
-                "trades": trades, "win_rate": round(win_rate, 4),
-                "profit_factor": round(profit_factor, 4), "avg_hold_bars": round(avg_hold, 1),
-                "positive_folds": positive_folds, "dsr": round(dsr_val, 4),
-                "cost_2x_sharpe": round(cost_2x, 4), "cost_3x_sharpe": round(cost_3x, 4),
-                "status": status, "rejection_reason": reason,
-            })
+            results.append(
+                {
+                    "symbol": sym,
+                    "timeframe": tf,
+                    "strategy": name,
+                    "folds": len(fold_metrics),
+                    "oos_sharpe": round(oos_sharpe, 4),
+                    "net_return": round(net_return, 4),
+                    "max_dd": round(max_dd, 4),
+                    "trades": trades,
+                    "win_rate": round(win_rate, 4),
+                    "profit_factor": round(profit_factor, 4),
+                    "avg_hold_bars": round(avg_hold, 1),
+                    "positive_folds": positive_folds,
+                    "dsr": round(dsr_val, 4),
+                    "cost_2x_sharpe": round(cost_2x, 4),
+                    "cost_3x_sharpe": round(cost_3x, 4),
+                    "status": status,
+                    "rejection_reason": reason,
+                }
+            )
 
     _save_json(results, "walk_forward_results.json")
     console.print(f"  Evaluated {len(results)} strategy-streams")
@@ -363,58 +465,84 @@ def cross_pair_analysis(wfo: list[dict]) -> dict:
 
 # ── Portfolio (Section 48-50) ──────────────────────────────────────────────
 def portfolio_construction(wfo: list[dict]) -> dict:
-    console.print("\n[bold cyan]═══ Section 48-50: Portfolio Construction ═══[/bold cyan]")
+    console.print(
+        "\n[bold cyan]═══ Section 48-50: Portfolio Construction ═══[/bold cyan]"
+    )
     # Placeholder: equal-risk, inverse-vol, correlation matrix
     return {"status": "placeholder", "trials": len(wfo)}
 
 
 # ── Report Generator (Section 57-70) ───────────────────────────────────────
-def generate_final_report(audit: list[dict], wfo: list[dict], stats: dict, cross: dict, port: dict) -> Path:
+def generate_final_report(
+    audit: list[dict], wfo: list[dict], stats: dict, cross: dict, port: dict
+) -> Path:
     console.print("\n[bold cyan]═══ Section 57-70: Final Report ═══[/bold cyan]")
     lines = []
     lines.append("# FINAL RESEARCH REPORT")
-    lines.append(f"\n**Generated:** {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}")
+    lines.append(
+        f"\n**Generated:** {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}"
+    )
     lines.append(f"**Run ID:** {RUN_ID}")
     lines.append(f"**Git SHA:** {os.popen('git rev-parse HEAD').read().strip()}")
     lines.append("\n---\n")
 
     # Data Audit
     lines.append("## 1. DATA AUDIT (Section 3-5)")
-    lines.append("\n| Pair | TF | Start | End | Bars | Missing | Duplicates | Quality |")
+    lines.append(
+        "\n| Pair | TF | Start | End | Bars | Missing | Duplicates | Quality |"
+    )
     lines.append("|---|---|---|---|---|---|---|---|")
     for a in audit:
-        lines.append(f"| {a['symbol']} | {a['timeframe']} | {a.get('start','')} | {a.get('end','')} | {a.get('bars',0)} | {a.get('missing_bars',0)} | {a.get('duplicates',0)} | {a.get('quality','')} |")
+        lines.append(
+            f"| {a['symbol']} | {a['timeframe']} | {a.get('start', '')} | {a.get('end', '')} | {a.get('bars', 0)} | {a.get('missing_bars', 0)} | {a.get('duplicates', 0)} | {a.get('quality', '')} |"
+        )
     lines.append("")
 
     # 30-stream matrix
     lines.append("## 2. 30 PAIR-TIMEFRAME MATRIX (Section 45)")
-    lines.append("\n| Pair | TF | Best Strategy | OOS Sharpe | Net Return | Max DD | DSR | PBO | Status |")
+    lines.append(
+        "\n| Pair | TF | Best Strategy | OOS Sharpe | Net Return | Max DD | DSR | PBO | Status |"
+    )
     lines.append("|---|---|---|---|---|---|---|---|---|")
     for sym in SYMBOLS:
         for tf in TIMEFRAMES:
-            candidates = [r for r in wfo if r.get("symbol") == sym and r.get("timeframe") == tf]
+            candidates = [
+                r for r in wfo if r.get("symbol") == sym and r.get("timeframe") == tf
+            ]
             if not candidates:
-                lines.append(f"| {sym} | {tf} | N/A | N/A | N/A | N/A | N/A | N/A | FAIL |")
+                lines.append(
+                    f"| {sym} | {tf} | N/A | N/A | N/A | N/A | N/A | N/A | FAIL |"
+                )
                 continue
             best = max(candidates, key=lambda x: x.get("net_return", -9999))
-            lines.append(f"| {sym} | {tf} | {best.get('strategy','')} | {best.get('oos_sharpe',0):.2f} | {best.get('net_return',0):.2f}% | {best.get('max_dd',0):.2f}% | {best.get('dsr',0):.2f} | {best.get('pbo',1.0):.2f} | {best.get('status','')} |")
+            lines.append(
+                f"| {sym} | {tf} | {best.get('strategy', '')} | {best.get('oos_sharpe', 0):.2f} | {best.get('net_return', 0):.2f}% | {best.get('max_dd', 0):.2f}% | {best.get('dsr', 0):.2f} | {best.get('pbo', 1.0):.2f} | {best.get('status', '')} |"
+            )
     lines.append("")
 
     # Best per pair
     lines.append("## 3. BEST MODEL PER PAIR (Section 43)")
-    lines.append("\n| Pair | Best TF | Best Strategy | OOS Sharpe | Net Return | Max DD | Trades | Win Rate | Profit Factor | DSR | 2x Cost | 3x Cost | Status |")
+    lines.append(
+        "\n| Pair | Best TF | Best Strategy | OOS Sharpe | Net Return | Max DD | Trades | Win Rate | Profit Factor | DSR | 2x Cost | 3x Cost | Status |"
+    )
     lines.append("|---|---|---|---|---|---|---|---|---|---|---|---|---|")
     for sym in SYMBOLS:
         best = None
         for tf in TIMEFRAMES:
-            candidates = [r for r in wfo if r.get("symbol") == sym and r.get("timeframe") == tf]
+            candidates = [
+                r for r in wfo if r.get("symbol") == sym and r.get("timeframe") == tf
+            ]
             if not candidates:
                 continue
             cand = max(candidates, key=lambda x: x.get("net_return", -9999))
-            if best is None or cand.get("net_return", -9999) > best.get("net_return", -9999):
+            if best is None or cand.get("net_return", -9999) > best.get(
+                "net_return", -9999
+            ):
                 best = cand
         if best:
-            lines.append(f"| {sym} | {best.get('timeframe','')} | {best.get('strategy','')} | {best.get('oos_sharpe',0):.2f} | {best.get('net_return',0):.2f}% | {best.get('max_dd',0):.2f}% | {best.get('trades',0)} | {best.get('win_rate',0):.2%} | {best.get('profit_factor',0):.2f} | {best.get('dsr',0):.2f} | {best.get('cost_2x_sharpe',0):.2f} | {best.get('cost_3x_sharpe',0):.2f} | {best.get('status','')} |")
+            lines.append(
+                f"| {sym} | {best.get('timeframe', '')} | {best.get('strategy', '')} | {best.get('oos_sharpe', 0):.2f} | {best.get('net_return', 0):.2f}% | {best.get('max_dd', 0):.2f}% | {best.get('trades', 0)} | {best.get('win_rate', 0):.2%} | {best.get('profit_factor', 0):.2f} | {best.get('dsr', 0):.2f} | {best.get('cost_2x_sharpe', 0):.2f} | {best.get('cost_3x_sharpe', 0):.2f} | {best.get('status', '')} |"
+            )
     lines.append("")
 
     # Placeholders for deeper analysis
@@ -432,7 +560,9 @@ def generate_final_report(audit: list[dict], wfo: list[dict], stats: dict, cross
     lines.append("---\n")
     lines.append("## FINAL DECISION")
     lines.append("\n**MAINNET: NO-GO**\n")
-    lines.append("Research correctness > coverage. Only candidates with positive net OOS edge after realistic costs, DSR>0, and stable parameters should advance to paper/testnet.")
+    lines.append(
+        "Research correctness > coverage. Only candidates with positive net OOS edge after realistic costs, DSR>0, and stable parameters should advance to paper/testnet."
+    )
 
     out = RUN_DIR / "final_report.md"
     out.write_text("\n".join(lines))

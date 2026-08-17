@@ -2,15 +2,14 @@
 """
 Purged nested walk-forward for 10 pairs × 3 timeframes.
 """
+
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import numpy as np
-import polars as pl
 
 ROOT = Path(".")
 RUN_DIR = ROOT / "data" / "research_runs" / "latest"
@@ -77,6 +76,7 @@ def _make_folds(n: int, tf: str, min_folds: int = 6) -> list[Fold]:
 
 def generate_folds(symbol: str, timeframe: str) -> list[dict[str, Any]]:
     import sys
+
     sys.path.insert(0, str(ROOT / "src"))
     from trading_agent.data.storage import load_ohlcv
 
@@ -103,10 +103,19 @@ def generate_folds(symbol: str, timeframe: str) -> list[dict[str, Any]]:
 
 if __name__ == "__main__":
     import sys
+
     sys.path.insert(0, str(ROOT / "src"))
     SYMBOLS = [
-        "BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT", "BNB/USDT",
-        "ZEC/USDT", "DOGE/USDT", "TRX/USDT", "ADA/USDT", "NEAR/USDT",
+        "BTC/USDT",
+        "ETH/USDT",
+        "SOL/USDT",
+        "XRP/USDT",
+        "BNB/USDT",
+        "ZEC/USDT",
+        "DOGE/USDT",
+        "TRX/USDT",
+        "ADA/USDT",
+        "NEAR/USDT",
     ]
     TIMEFRAMES = ["1h", "4h", "1d"]
     all_folds = []

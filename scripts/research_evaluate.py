@@ -2,6 +2,7 @@
 """
 Evaluate baselines with walk-forward + cost stress + statistical validation.
 """
+
 from __future__ import annotations
 
 import json
@@ -17,8 +18,16 @@ RUN_DIR.mkdir(parents=True, exist_ok=True)
 
 # Reuse constants
 SYMBOLS = [
-    "BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT", "BNB/USDT",
-    "ZEC/USDT", "DOGE/USDT", "TRX/USDT", "ADA/USDT", "NEAR/USDT",
+    "BTC/USDT",
+    "ETH/USDT",
+    "SOL/USDT",
+    "XRP/USDT",
+    "BNB/USDT",
+    "ZEC/USDT",
+    "DOGE/USDT",
+    "TRX/USDT",
+    "ADA/USDT",
+    "NEAR/USDT",
 ]
 TIMEFRAMES = ["1h", "4h", "1d"]
 
@@ -41,6 +50,7 @@ def _load_folds(symbol: str, timeframe: str) -> list[dict[str, Any]]:
 
 def _run_backtest(df: pl.DataFrame, strategy, cost_mult: float = 1.0) -> dict[str, Any]:
     import sys
+
     sys.path.insert(0, str(ROOT / "src"))
     from trading_agent.backtest.engine import BacktestEngine
 
@@ -78,6 +88,7 @@ def _defensive_sharpe(sharpe: float, n: int) -> float:
 
 def evaluate() -> None:
     import sys
+
     sys.path.insert(0, str(ROOT / "src"))
     from trading_agent.strategies import get_strategy
     from trading_agent.data.storage import load_ohlcv
@@ -100,12 +111,26 @@ def evaluate() -> None:
                 fold_returns = []
                 fold_sharpes = []
                 for fold in folds:
-                    train_start = pl.lit(fold["train_start_ts"]).str.to_datetime("%Y-%m-%d %H:%M:%S")
-                    train_end = pl.lit(fold["train_end_ts"]).str.to_datetime("%Y-%m-%d %H:%M:%S")
-                    test_start = pl.lit(fold["test_start_ts"]).str.to_datetime("%Y-%m-%d %H:%M:%S")
-                    test_end = pl.lit(fold["test_end_ts"]).str.to_datetime("%Y-%m-%d %H:%M:%S")
-                    train = df_full.filter(pl.col("timestamp") >= train_start, pl.col("timestamp") < train_end)
-                    test = df_full.filter(pl.col("timestamp") >= test_start, pl.col("timestamp") < test_end)
+                    train_start = pl.lit(fold["train_start_ts"]).str.to_datetime(
+                        "%Y-%m-%d %H:%M:%S"
+                    )
+                    train_end = pl.lit(fold["train_end_ts"]).str.to_datetime(
+                        "%Y-%m-%d %H:%M:%S"
+                    )
+                    test_start = pl.lit(fold["test_start_ts"]).str.to_datetime(
+                        "%Y-%m-%d %H:%M:%S"
+                    )
+                    test_end = pl.lit(fold["test_end_ts"]).str.to_datetime(
+                        "%Y-%m-%d %H:%M:%S"
+                    )
+                    train = df_full.filter(
+                        pl.col("timestamp") >= train_start,
+                        pl.col("timestamp") < train_end,
+                    )
+                    test = df_full.filter(
+                        pl.col("timestamp") >= test_start,
+                        pl.col("timestamp") < test_end,
+                    )
                     if len(test) < 10:
                         continue
                     try:
@@ -130,8 +155,12 @@ def evaluate() -> None:
                 if folds:
                     last = folds[-1]
                     try:
-                        ts = pl.lit(last["test_start_ts"]).str.to_datetime("%Y-%m-%d %H:%M:%S")
-                        test_slice = df_full.filter(pl.col("timestamp") >= ts).head(2000)
+                        ts = pl.lit(last["test_start_ts"]).str.to_datetime(
+                            "%Y-%m-%d %H:%M:%S"
+                        )
+                        test_slice = df_full.filter(pl.col("timestamp") >= ts).head(
+                            2000
+                        )
                         res2 = _run_backtest(test_slice, strategy, cost_mult=2.0)
                         cost_2x = res2["sharpe"]
                         res3 = _run_backtest(test_slice, strategy, cost_mult=3.0)
@@ -160,7 +189,9 @@ def evaluate() -> None:
 
     with open(RUN_DIR / "walk_forward_results.json", "w") as f:
         json.dump(results, f, indent=2)
-    print(f"Saved {len(results)} walk-forward results to {RUN_DIR / 'walk_forward_results.json'}")
+    print(
+        f"Saved {len(results)} walk-forward results to {RUN_DIR / 'walk_forward_results.json'}"
+    )
 
 
 if __name__ == "__main__":

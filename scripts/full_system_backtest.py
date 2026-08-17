@@ -76,7 +76,12 @@ PAPER_STATE = ROOT / "data" / "execution" / f"paper_{EXCHANGE}.json"
 
 
 class FullSystemSimulator:
-    def __init__(self, fresh: bool = False, symbol: str | None = None, timeframe: str | None = None):
+    def __init__(
+        self,
+        fresh: bool = False,
+        symbol: str | None = None,
+        timeframe: str | None = None,
+    ):
         # Reset paper state nếu cần
         if fresh and PAPER_STATE.exists():
             backup = PAPER_STATE.with_suffix(".json.bak")
@@ -89,7 +94,9 @@ class FullSystemSimulator:
 
         # Load data
         print(f"📥 Loading {self.symbol} {self.timeframe} from {self.exchange}...")
-        self.df = load_ohlcv(self.exchange, self.symbol, self.timeframe).sort("timestamp")
+        self.df = load_ohlcv(self.exchange, self.symbol, self.timeframe).sort(
+            "timestamp"
+        )
         print(
             f"   {self.df.height} bars: {self.df['timestamp'].min()} → {self.df['timestamp'].max()}"
         )
@@ -114,9 +121,7 @@ class FullSystemSimulator:
         signal_series = self.strategy.generate_signals(self.df).rename("signal")
         if "signal" not in self.df.columns:
             self.df = self.df.with_columns(signal_series)
-        self.signals = (
-            self.df.select(pl.col("signal")).to_series().to_list()
-        )
+        self.signals = self.df.select(pl.col("signal")).to_series().to_list()
 
         # Khởi tạo execution engine + risk controller
         self.engine = ExecutionEngine(
@@ -230,7 +235,10 @@ class FullSystemSimulator:
                                 signal="BUY" if signal == 1 else "SELL",
                                 confidence=0.65,
                                 reasoning=f"enhanced_ma: MA{FAST_MA}/{SLOW_MA} crossover with ADX>{ADX_THRESHOLD}",
-                                details={"symbol": self.symbol, "strategy": "enhanced_ma"},
+                                details={
+                                    "symbol": self.symbol,
+                                    "strategy": "enhanced_ma",
+                                },
                                 max_position_size_pct=pos_size * price / equity,
                                 risk_level="medium",
                             )
@@ -337,7 +345,9 @@ class FullSystemSimulator:
         )
 
         print(f"\n{'=' * 55}")
-        print(f"📊 KETA QUẢ FULL SYSTEM — {self.symbol} {self.timeframe} ({self.exchange})")
+        print(
+            f"📊 KETA QUẢ FULL SYSTEM — {self.symbol} {self.timeframe} ({self.exchange})"
+        )
         print(f"{'=' * 55}")
         print(f"   Vốn ban đầu:      ${INITIAL_CAPITAL:,.2f}")
         print(f"   Vốn cuối:         ${eq_values[-1]:,.2f}")
@@ -419,7 +429,9 @@ def main():
     parser.add_argument("--timeframe", default=None, help="Timeframe, vd 1h/4h")
     args = parser.parse_args()
 
-    sim = FullSystemSimulator(fresh=args.fresh, symbol=args.symbol, timeframe=args.timeframe)
+    sim = FullSystemSimulator(
+        fresh=args.fresh, symbol=args.symbol, timeframe=args.timeframe
+    )
     sim.run(start=args.start, end=args.end, freq=args.freq)
 
 
