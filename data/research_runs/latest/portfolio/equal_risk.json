@@ -1,0 +1,52 @@
+[
+  {
+    "symbol": "ZEC/USDT",
+    "timeframe": "1d",
+    "strategy": "ma_crossover",
+    "weight": 0.2,
+    "oos_sharpe": 3.6388,
+    "net_return": 31.5634,
+    "max_dd": -2.0682,
+    "status": "EQUAL_RISK"
+  },
+  {
+    "symbol": "SOL/USDT",
+    "timeframe": "1d",
+    "strategy": "bbands",
+    "weight": 0.2,
+    "oos_sharpe": 3.1548,
+    "net_return": 7.0615,
+    "max_dd": -5.9633,
+    "status": "EQUAL_RISK"
+  },
+  {
+    "symbol": "DOGE/USDT",
+    "timeframe": "1d",
+    "strategy": "ma_crossover",
+    "weight": 0.2,
+    "oos_sharpe": 2.8656,
+    "net_return": 6.0026,
+    "max_dd": -7.5475,
+    "status": "EQUAL_RISK"
+  },
+  {
+    "symbol": "ADA/USDT",
+    "timeframe": "1d",
+    "strategy": "ma_crossover",
+    "weight": 0.2,
+    "oos_sharpe": 4.0793,
+    "net_return": 5.5821,
+    "max_dd": -0.1724,
+    "status": "EQUAL_RISK"
+  },
+  {
+    "symbol": "SOL/USDT",
+    "timeframe": "1d",
+    "strategy": "enhanced_ma",
+    "weight": 0.2,
+    "oos_sharpe": 2.6899,
+    "net_return": 4.65,
+    "max_dd": 0.0,
+    "status": "EQUAL_RISK"
+  }
+]

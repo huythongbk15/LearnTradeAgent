@@ -132,6 +132,7 @@
 │   ├── backup.sh
 │   ├── backup_local.py
 │   ├── benchmark_methodology.py
+│   ├── benchmark_multi_3y.py
 │   ├── benchmark_phase6.py
 │   ├── chaos_dryrun.py
 │   ├── check_alpaca.py
@@ -147,6 +148,7 @@
 │   ├── demo_wave_c.py
 │   ├── demo_wave_ef.py
 │   ├── download_intraday.py
+│   ├── final_report_generator.py
 │   ├── full_system_backtest.py
 │   ├── generate_holdout_manifest.py
 │   ├── generate_live_strategy_evidence.py
@@ -164,6 +166,12 @@
 │   ├── multi_symbol_bench.py
 │   ├── optimize_local.py
 │   ├── pin_image_digests.py
+│   ├── research_deep_analysis.py
+│   ├── research_evaluate.py
+│   ├── research_pipeline_multi_asset.py
+│   ├── research_pipeline_v2.py
+│   ├── research_report.py
+│   ├── research_walkforward.py
 │   ├── restore.sh
 │   ├── review_wave_ef.py
 │   ├── sign_and_verify.sh
@@ -273,6 +281,15 @@
 │       │   │   ├── liquidity_aware_twap.py
 │       │   │   ├── mpc.py
 │       │   │   └── pov.py
+│       │   ├── canonical
+│       │   │   ├── __init__.py
+│       │   │   ├── broker_gateway.py
+│       │   │   ├── causation.py
+│       │   │   ├── events.py
+│       │   │   ├── market_observation.py
+│       │   │   ├── order_planner.py
+│       │   │   ├── protection.py
+│       │   │   └── risk_decision.py
 │       │   ├── lifecycle
 │       │   │   ├── __init__.py
 │       │   │   ├── events.py
@@ -400,6 +417,8 @@
 │       ├── log_config.py
 │       └── regime.py
 ├── tests
+│   ├── execution
+│   │   └── test_canonical_pipeline.py
 │   ├── __init__.py
 │   ├── conftest.py
 │   ├── test_agent_correlation.py
@@ -508,12 +527,14 @@
 ├── .gitignore
 ├── .mcp
 ├── .trivyignore
+├── BACKTEST_3Y_REVIEW.md
 ├── Caddyfile.oracle
 ├── Dockerfile
 ├── HARDEN_OUTPUT.md
 ├── IMPROVEMENT_ROADMAP.md
 ├── LIVE_TEST_GUIDE.md
 ├── Makefile
+├── PROJECT_SCORE.md
 ├── README.md
 ├── TIER1_TIER2_PLAN.md
 ├── TRADING_SYSTEM_OVERVIEW.md

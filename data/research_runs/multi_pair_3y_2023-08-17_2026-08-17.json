@@ -1,0 +1,451 @@
+{
+  "benchmarks": {
+    "buy_hold_costed_round_trip": {
+      "annualized_sharpe": 0.6840230499025428,
+      "annualized_sortino": 0.9094160075302135,
+      "cagr_pct": 26.337896022557338,
+      "calmar": 0.37184823006532136,
+      "final_equity": 20168.35217023095,
+      "initial_equity": 10000.0,
+      "max_drawdown_pct": 70.82969311950374,
+      "total_return_pct": 101.68352170230949
+    },
+    "buy_hold_frictionless": {
+      "annualized_sharpe": 0.6855553276240464,
+      "annualized_sortino": 0.9114193606668684,
+      "cagr_pct": 26.472697604986408,
+      "calmar": 0.37375140903577986,
+      "final_equity": 20232.994285775287,
+      "initial_equity": 10000.0,
+      "max_drawdown_pct": 70.82969311950374,
+      "total_return_pct": 102.32994285775288
+    },
+    "cash_return_pct": 0.0
+  },
+  "build_sha": "5e8b5b23e94e566e8ecc599fd9ebe3052d01084e",
+  "calendar_breakdown": {
+    "2023-08-17_to_2023-12-31": {
+      "end_equity": 9607.636754394538,
+      "max_drawdown_pct": 4.633658482237857,
+      "return_pct": -3.9236324560546154,
+      "start_equity": 10000.0
+    },
+    "2024": {
+      "end_equity": 9343.712374635337,
+      "max_drawdown_pct": 5.900075166224172,
+      "return_pct": -2.747027042196215,
+      "start_equity": 9607.636754394538
+    },
+    "2025": {
+      "end_equity": 8729.89895169068,
+      "max_drawdown_pct": 8.810730035758752,
+      "return_pct": -6.569267099990461,
+      "start_equity": 9343.712374635337
+    },
+    "2026-01-01_to_2026-08-16": {
+      "end_equity": 8122.6800525659555,
+      "max_drawdown_pct": 8.385265904969842,
+      "return_pct": -6.955623455494031,
+      "start_equity": 8729.89895169068
+    }
+  },
+  "classification": "HISTORICAL_REPLAY_FROZEN_LIVE_CONFIG_NOT_UNTOUCHED_OOS",
+  "cost_stress": {
+    "0x": {
+      "annualized_sharpe": -0.08931720014716675,
+      "annualized_sortino": -0.028603123329552487,
+      "cagr_pct": -0.5934828253617352,
+      "calmar": -0.09641963590110322,
+      "closed_trades": 146,
+      "commission_paid_usd": 0.0,
+      "final_equity": 9822.969706089061,
+      "initial_equity": 10000.0,
+      "max_drawdown_pct": 6.155207078052705,
+      "open_trades_at_end": 0,
+      "profit_factor": 0.942940350983249,
+      "total_return_pct": -1.7703029391093916,
+      "win_rate_pct": 36.3013698630137
+    },
+    "1x": {
+      "annualized_sharpe": -1.204605816130886,
+      "annualized_sortino": -0.3725395995002,
+      "cagr_pct": -6.694628097988609,
+      "calmar": -0.35660560189215224,
+      "closed_trades": 146,
+      "commission_paid_usd": 946.6802246126734,
+      "final_equity": 8122.6800525659555,
+      "initial_equity": 10000.0,
+      "max_drawdown_pct": 18.77319947434044,
+      "open_trades_at_end": 0,
+      "profit_factor": 0.543327936515316,
+      "total_return_pct": -18.77319947434044,
+      "win_rate_pct": 30.136986301369863
+    },
+    "2x": {
+      "annualized_sharpe": -2.1058392957863092,
+      "annualized_sortino": -0.6324727153502495,
+      "cagr_pct": -12.395420318423135,
+      "calmar": -0.37821578210545004,
+      "closed_trades": 146,
+      "commission_paid_usd": 1844.7766008361484,
+      "final_equity": 6722.659152555623,
+      "initial_equity": 10000.0,
+      "max_drawdown_pct": 32.77340847444377,
+      "open_trades_at_end": 0,
+      "profit_factor": 0.353148468549272,
+      "total_return_pct": -32.77340847444377,
+      "win_rate_pct": 24.65753424657534
+    },
+    "3x": {
+      "annualized_sharpe": -2.9082140609503813,
+      "annualized_sortino": -0.839444151750594,
+      "cagr_pct": -18.529575327327684,
+      "calmar": -0.40341180317512465,
+      "closed_trades": 146,
+      "commission_paid_usd": 2697.636244838333,
+      "final_equity": 5406.784040157637,
+      "initial_equity": 10000.0,
+      "max_drawdown_pct": 45.932159598423624,
+      "open_trades_at_end": 0,
+      "profit_factor": 0.23960074622496944,
+      "total_return_pct": -45.932159598423624,
+      "win_rate_pct": 18.493150684931507
+    }
+  },
+  "data_quality": {
+    "AVAX/USDT": {
+      "bars": 26304,
+      "duplicates": 0,
+      "first": "2023-08-17 00:00:00",
+      "invalid_ohlc": 0,
+      "last": "2026-08-16 23:00:00",
+      "non_hourly_steps": 0,
+      "nulls": {
+        "close": 0,
+        "high": 0,
+        "low": 0,
+        "open": 0,
+        "volume": 0
+      }
+    },
+    "BTC/USDT": {
+      "bars": 26304,
+      "duplicates": 0,
+      "first": "2023-08-17 00:00:00",
+      "invalid_ohlc": 0,
+      "last": "2026-08-16 23:00:00",
+      "non_hourly_steps": 0,
+      "nulls": {
+        "close": 0,
+        "high": 0,
+        "low": 0,
+        "open": 0,
+        "volume": 0
+      }
+    },
+    "SOL/USDT": {
+      "bars": 26304,
+      "duplicates": 0,
+      "first": "2023-08-17 00:00:00",
+      "invalid_ohlc": 0,
+      "last": "2026-08-16 23:00:00",
+      "non_hourly_steps": 0,
+      "nulls": {
+        "close": 0,
+        "high": 0,
+        "low": 0,
+        "open": 0,
+        "volume": 0
+      }
+    }
+  },
+  "dataset_file_sha256": {
+    "AVAX/USDT": "399f4012570173e42f6cb61b6428bb2eff80f6d3b957ad4529985ec6513095f6",
+    "BTC/USDT": "185febe2daceec3ef378ba93c7ceb0a29a51ee4aeb612f3f571cb659219689c5",
+    "SOL/USDT": "2b05109e3afb2c15f925aa30821ced283067d933d997b0ec5f1289405b6f9e30"
+  },
+  "execution": {
+    "atr_inputs": "previous closed bar",
+    "commission_bps_per_side": 10.0,
+    "fill_timing": "signal at close t, fill at open t+1",
+    "long_only": true,
+    "position_sizing": "fixed live weights",
+    "protective_orders": "ATR stop plus ATR trailing stop, conservative stop-first",
+    "slippage_bps_per_side": 5.0,
+    "spread_bps_full": 2.0
+  },
+  "generated_at": "2026-08-17T03:49:35.620921+00:00",
+  "monthly_returns": [
+    {
+      "month": "2023-08",
+      "return_pct": -1.0490103344746426
+    },
+    {
+      "month": "2023-09",
+      "return_pct": -1.2676037197552614
+    },
+    {
+      "month": "2023-10",
+      "return_pct": -0.8240465074445646
+    },
+    {
+      "month": "2023-11",
+      "return_pct": -0.8503350792139153
+    },
+    {
+      "month": "2023-12",
+      "return_pct": 0.009008041569047442
+    },
+    {
+      "month": "2024-01",
+      "return_pct": -4.093535645560731
+    },
+    {
+      "month": "2024-02",
+      "return_pct": 0.1416150115259196
+    },
+    {
+      "month": "2024-03",
+      "return_pct": 0.21499922051928522
+    },
+    {
+      "month": "2024-04",
+      "return_pct": -1.464890069465219
+    },
+    {
+      "month": "2024-05",
+      "return_pct": 3.3152353602824425
+    },
+    {
+      "month": "2024-06",
+      "return_pct": -2.1527233645126542
+    },
+    {
+      "month": "2024-07",
+      "return_pct": 2.0435660096087327
+    },
+    {
+      "month": "2024-08",
+      "return_pct": 0.1127637862024855
+    },
+    {
+      "month": "2024-09",
+      "return_pct": 1.7617448336668007
+    },
+    {
+      "month": "2024-10",
+      "return_pct": 0.6958036322491479
+    },
+    {
+      "month": "2024-11",
+      "return_pct": -0.15756760864054087
+    },
+    {
+      "month": "2024-12",
+      "return_pct": -2.9451100371239214
+    },
+    {
+      "month": "2025-01",
+      "return_pct": -0.2887908312689813
+    },
+    {
+      "month": "2025-02",
+      "return_pct": -0.5559123682696177
+    },
+    {
+      "month": "2025-03",
+      "return_pct": -2.5717543717057256
+    },
+    {
+      "month": "2025-04",
+      "return_pct": -1.6091060640181287
+    },
+    {
+      "month": "2025-05",
+      "return_pct": -0.8230135267934702
+    },
+    {
+      "month": "2025-06",
+      "return_pct": 0.6074153075910749
+    },
+    {
+      "month": "2025-07",
+      "return_pct": -1.3336252164651174
+    },
+    {
+      "month": "2025-08",
+      "return_pct": 1.2121181094866706
+    },
+    {
+      "month": "2025-09",
+      "return_pct": 1.4150744087555012
+    },
+    {
+      "month": "2025-10",
+      "return_pct": -3.3456765097922947
+    },
+    {
+      "month": "2025-11",
+      "return_pct": -0.578402310792947
+    },
+    {
+      "month": "2025-12",
+      "return_pct": 1.2231608086046508
+    },
+    {
+      "month": "2026-01",
+      "return_pct": 0.04611388189634802
+    },
+    {
+      "month": "2026-02",
+      "return_pct": -2.311988236429352
+    },
+    {
+      "month": "2026-03",
+      "return_pct": -1.4364223057864445
+    },
+    {
+      "month": "2026-04",
+      "return_pct": -1.9938571885089074
+    },
+    {
+      "month": "2026-05",
+      "return_pct": -0.6825435125437207
+    },
+    {
+      "month": "2026-06",
+      "return_pct": 0.7990815878069712
+    },
+    {
+      "month": "2026-07",
+      "return_pct": -1.1942850287491535
+    },
+    {
+      "month": "2026-08",
+      "return_pct": -0.3643747993377189
+    }
+  ],
+  "per_symbol_1x_cost": {
+    "AVAX/USDT": {
+      "avg_hold_hours": 7.962962962962963,
+      "avg_portfolio_exposure_pct": 0.49386951920380184,
+      "closed_trades": 54,
+      "commission_paid_usd": 323.2542644271748,
+      "leg_cagr_pct": -0.6472895082493935,
+      "max_drawdown_pct": 4.869485333110257,
+      "open_trade_at_end": false,
+      "profit_factor": 0.8649062968921712,
+      "return_contribution_pct_points": -1.9297620429868378,
+      "sharpe": -0.1936478634597998,
+      "sortino": -0.045611823004729095,
+      "time_in_market_pct": 1.6347323600973236,
+      "weight_pct": 30.0,
+      "win_rate_pct": 40.74074074074074
+    },
+    "BTC/USDT": {
+      "avg_hold_hours": 6.54,
+      "avg_portfolio_exposure_pct": 0.47699234835308807,
+      "closed_trades": 50,
+      "commission_paid_usd": 379.53498718742753,
+      "leg_cagr_pct": -3.7047900906500675,
+      "max_drawdown_pct": 10.709998426790957,
+      "open_trade_at_end": false,
+      "profit_factor": 0.24220365573159816,
+      "return_contribution_pct_points": -10.709998426790957,
+      "sharpe": -1.9043857986604604,
+      "sortino": -0.32700124642403905,
+      "time_in_market_pct": 1.2431569343065694,
+      "weight_pct": 40.0,
+      "win_rate_pct": 18.0
+    },
+    "SOL/USDT": {
+      "avg_hold_hours": 9.19047619047619,
+      "avg_portfolio_exposure_pct": 0.43075591503875366,
+      "closed_trades": 42,
+      "commission_paid_usd": 243.8909729980711,
+      "leg_cagr_pct": -2.087292696067977,
+      "max_drawdown_pct": 6.133439004562646,
+      "open_trade_at_end": false,
+      "profit_factor": 0.5167098867043197,
+      "return_contribution_pct_points": -6.133439004562646,
+      "sharpe": -0.6683454066418991,
+      "sortino": -0.14379521521052985,
+      "time_in_market_pct": 1.467457420924574,
+      "weight_pct": 30.0,
+      "win_rate_pct": 30.952380952380953
+    }
+  },
+  "portfolio_1x_cost": {
+    "annualized_sharpe": -1.204605816130886,
+    "annualized_sortino": -0.3725395995002,
+    "best_month": {
+      "month": "2024-05",
+      "return_pct": 3.3152353602824425
+    },
+    "cagr_pct": -6.694628097988609,
+    "calmar": -0.35660560189215224,
+    "closed_trades": 146,
+    "commission_paid_usd": 946.6802246126734,
+    "excess_vs_costed_buy_hold_pct_points": -120.45672117664994,
+    "final_equity": 8122.6800525659555,
+    "flat_months": 0,
+    "initial_equity": 10000.0,
+    "max_drawdown_pct": 18.77319947434044,
+    "negative_months": 23,
+    "open_trades_at_end": 0,
+    "positive_months": 14,
+    "profit_factor": 0.543327936515316,
+    "total_return_pct": -18.77319947434044,
+    "win_rate_pct": 30.136986301369863,
+    "worst_month": {
+      "month": "2024-01",
+      "return_pct": -4.093535645560731
+    }
+  },
+  "statistical": {
+    "annualized_sharpe": -1.2046,
+    "deflated_sharpe_ratio": 0.0,
+    "excess_kurtosis": 188.651,
+    "n_returns": 26303,
+    "probabilistic_sharpe_ratio": 0.02,
+    "sharpe": -0.0129,
+    "sharpe_ci95_hi": -0.2163,
+    "sharpe_ci95_lo": -2.2186,
+    "skew": 1.9481,
+    "trial_count_source": "manual",
+    "trials": 8000
+  },
+  "strategy_params": {
+    "adx_threshold": 40,
+    "dd_recovery_pct": 0.03,
+    "fast_period": 10,
+    "max_dd_pct": 0.12,
+    "require_close_above_slow": true,
+    "slow_period": 60,
+    "trailing_atr_mult": 2.0
+  },
+  "technical_validation": {
+    "date_filter_fix_commit": "c408bc5c2f3675af3e3db093f1ddd3a3b1064a3c",
+    "full_suite": "830 passed, 4 skipped, 1 known deprecation warning",
+    "storage_tests": "12 passed"
+  },
+  "universe": {
+    "symbols": [
+      "BTC/USDT",
+      "SOL/USDT",
+      "AVAX/USDT"
+    ],
+    "weights": {
+      "AVAX/USDT": 0.3,
+      "BTC/USDT": 0.4,
+      "SOL/USDT": 0.3
+    }
+  },
+  "window": {
+    "bars_per_symbol": 26304,
+    "end_exclusive": "2026-08-17T00:00:00+00:00",
+    "start_inclusive": "2023-08-17T00:00:00+00:00",
+    "timeframe": "1h",
+    "years": 3.0006844626967832
+  }
+}
