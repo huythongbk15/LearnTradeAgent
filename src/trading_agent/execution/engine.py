@@ -245,7 +245,7 @@ class ExecutionEngine:
                     AuthorizedOrder(
                         intent_id=f"engine-{symbol.replace("/", "-")}-{int(datetime.now(UTC).timestamp())}",
                         symbol=symbol,
-                        side="buy" if side == OrderSide.BUY else "sell",
+                        side="buy",
                         quantity=amount,
                         idempotency_key=f"engine-{symbol.replace("/", "-")}-{int(datetime.now(UTC).timestamp())}",
                         price_reference=current_price,
@@ -319,7 +319,7 @@ class ExecutionEngine:
                     AuthorizedOrder(
                         intent_id=f"engine-{symbol.replace("/", "-")}-{int(datetime.now(UTC).timestamp())}",
                         symbol=symbol,
-                        side="buy" if side == OrderSide.BUY else "sell",
+                        side="sell",
                         quantity=amount,
                         idempotency_key=f"engine-{symbol.replace("/", "-")}-{int(datetime.now(UTC).timestamp())}",
                         price_reference=current_price,
