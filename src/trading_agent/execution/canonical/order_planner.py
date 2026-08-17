@@ -475,7 +475,10 @@ class OrderPlanner:
         tolerance = max(qty_step_tolerance, 1e-9)
         if side == "buy":
             # INCREASE: must not exceed allowed_target_exposure or max_new_exposure
-            if final_resulting_exposure > risk_decision.allowed_target_exposure + tolerance:
+            if (
+                final_resulting_exposure
+                > risk_decision.allowed_target_exposure + tolerance
+            ):
                 return OrderPlanningResult(
                     status=OrderPlanningStatus.BLOCKED,
                     intent=None,
@@ -498,16 +501,17 @@ class OrderPlanner:
                 return OrderPlanningResult(
                     status=OrderPlanningStatus.BLOCKED,
                     intent=None,
-                    reason_codes=(
-                        "POST_FEASIBILITY_OVERSHOOT_TARGET",
-                    )
+                    reason_codes=("POST_FEASIBILITY_OVERSHOOT_TARGET",)
                     + tuple(str(r) for r in adjustment_reasons),
                     requested_delta=requested_delta,
                     executable_delta=0.0,
                 )
         else:
             # REDUCE: resulting exposure must not increase
-            if abs(final_resulting_exposure) > abs(portfolio.current_exposure) + tolerance:
+            if (
+                abs(final_resulting_exposure)
+                > abs(portfolio.current_exposure) + tolerance
+            ):
                 return OrderPlanningResult(
                     status=OrderPlanningStatus.BLOCKED,
                     intent=None,
@@ -516,7 +520,6 @@ class OrderPlanner:
                     requested_delta=requested_delta,
                     executable_delta=0.0,
                 )
-
 
         # Compute idempotency keys
         keys = IdempotencyKeys.compute(

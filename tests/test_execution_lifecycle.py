@@ -270,7 +270,9 @@ def test_risk_decision_persists_and_reconstructs_on_replay(tmp_path):
         lc.approve_risk("i1", risk_decision=risk_decision)
         # Verify event contains full risk decision
         events = store.read_events("i1")
-        risk_event = next(e for e in events if e.event_type == ExecutionEventType.RISK_APPROVED)
+        risk_event = next(
+            e for e in events if e.event_type == ExecutionEventType.RISK_APPROVED
+        )
         assert "risk_decision" in risk_event.payload
         persisted_decision = risk_event.payload["risk_decision"]
         assert persisted_decision["decision_id"] == "decision-1"
@@ -1218,7 +1220,11 @@ def test_global_seq_monotonic_across_aggregates(tmp_path):
         i2_events = store.read_events("i2_1")
         assert [e.seq for e in i2_events] == [1]
         # All i1 events (across different intent IDs)
-        all_i1_events = store.read_events("i1_1") + store.read_events("i1_2") + store.read_events("i1_3")
+        all_i1_events = (
+            store.read_events("i1_1")
+            + store.read_events("i1_2")
+            + store.read_events("i1_3")
+        )
         assert len(all_i1_events) == 3
         # Global replay preserves causality
         all_agg_ids = [e.aggregate_id for e in events]
