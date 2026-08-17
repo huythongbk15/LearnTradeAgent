@@ -27,23 +27,56 @@ class ExposureEffect(str, Enum):
     NEUTRAL = "NEUTRAL"
 
 
+class OrderPlanningStatus(str, Enum):
+    """Result status of order planning."""
+
+    ORDER_REQUIRED = "ORDER_REQUIRED"
+    NOOP = "NOOP"
+    BLOCKED = "BLOCKED"
+
+
+class AdjustmentReason(str, Enum):
+    """Explicit reason when feasibility adjusts canonical quantity."""
+
+    NONE = "NONE"
+    MIN_QTY = "MIN_QTY"
+    MAX_QTY = "MAX_QTY"
+    QTY_STEP = "QTY_STEP"
+    MIN_NOTIONAL = "MIN_NOTIONAL"
+    MAX_NOTIONAL = "MAX_NOTIONAL"
+    INSUFFICIENT_CASH = "INSUFFICIENT_CASH"
+    INSUFFICIENT_INVENTORY = "INSUFFICIENT_INVENTORY"
+    MAX_LEVERAGE = "MAX_LEVERAGE"
+
+
 @dataclass(frozen=True)
 class CurrentPortfolioState:
     """Immutable snapshot of the current portfolio for planning purposes."""
 
     symbol: str
+    equity: float  # portfolio equity in quote currency (e.g., USD)
     current_exposure: float  # signed exposure [-1, 1]
     existing_quantity: float = 0.0
     avg_entry_price: float = 0.0
     existing_reservations: float = 0.0  # reserved qty not yet filled
+    available_cash: float = 0.0  # cash available for new orders
 
     def __post_init__(self) -> None:
+        if self.equity <= 0.0:
+            raise ValueError("equity must be positive")
         if not (-1.0 <= self.current_exposure <= 1.0):
             raise ValueError("current_exposure must be in [-1, 1]")
         if self.existing_quantity < 0.0:
             raise ValueError("existing_quantity must be non-negative")
         if self.existing_reservations < 0.0:
             raise ValueError("existing_reservations must be non-negative")
+        if self.available_cash < 0.0:
+            raise ValueError("available_cash must be non-negative")
+
+    @property
+    def current_notional(self) -> float:
+        """Current position notional in quote currency."""
+        return self.equity * abs(self.current_exposure)
 
 
 @dataclass(frozen=True)
@@ -58,6 +91,8 @@ class InstrumentRules:
     price_precision: int = 2
     spot_long_only: bool = True
     max_leverage: float = 1.0
+    min_notional: float = 10.0  # minimum order notional in quote currency
+    max_notional: float | None = None  # optional max notional
 
     def __post_init__(self) -> None:
         if self.min_order_qty <= 0.0:
@@ -66,6 +101,8 @@ class InstrumentRules:
             raise ValueError("max_order_qty must be >= min_order_qty")
         if self.qty_step <= 0.0:
             raise ValueError("qty_step must be positive")
+        if self.min_notional <= 0.0:
+            raise ValueError("min_notional must be positive")
 
 
 @dataclass(frozen=True)
@@ -134,8 +171,31 @@ class MarketPrice:
             raise ValueError("bid/ask/last must be non-negative")
 
 
+@dataclass(frozen=True)
+class OrderPlanningResult:
+    """Result of the planning operation."""
+
+    status: OrderPlanningStatus
+    intent: OrderIntent | None
+    reason_codes: tuple[str, ...]
+    requested_delta: float  # target_exposure - current_exposure (pre-clamp)
+    executable_delta: float  # resulting_exposure - current_exposure (post-clamp, post-feasibility)
+
+    @property
+    def is_noop(self) -> bool:
+        return self.status is OrderPlanningStatus.NOOP
+
+    @property
+    def is_blocked(self) -> bool:
+        return self.status is OrderPlanningStatus.BLOCKED
+
+    @property
+    def requires_order(self) -> bool:
+        return self.status is OrderPlanningStatus.ORDER_REQUIRED
+
+
 class OrderPlanner:
-    """Pure deterministic component: TargetExposure -> OrderIntent.
+    """Pure deterministic component: TargetExposure -> OrderPlanningResult.
 
     Parameters
     ----------
@@ -164,8 +224,9 @@ class OrderPlanner:
         portfolio: CurrentPortfolioState,
         price: MarketPrice,
         existing_reservations: float = 0.0,
-    ) -> OrderIntent:
-        """Produce an OrderIntent from pipeline inputs.
+        tolerance: float = 1e-4,
+    ) -> OrderPlanningResult:
+        """Produce an OrderPlanningResult from pipeline inputs.
 
         Parameters
         ----------
@@ -176,29 +237,30 @@ class OrderPlanner:
         observation:
             Enriched market observation (must be closed for execution).
         portfolio:
-            Current portfolio state.
+            Current portfolio state (MUST include equity for notional sizing).
         price:
             Reference price bundle.
         existing_reservations:
             Quantity already reserved but not yet filled.
+        tolerance:
+            Deadband for NOOP determination (default 1e-4 = 0.01%).
 
         Returns
         -------
-        OrderIntent
-            Deterministic order intent ready for BrokerGateway submission.
+        OrderPlanningResult
+            Contains status, optional intent, reason codes, and deltas.
 
         Raises
         ------
         ValueError
-            If the target exposure violates instrument rules or the
-            spot-long-only constraint.
+            If binding checks fail, target violates instrument rules, or
+            spot-long-only constraint is violated.
         """
+        # ── Pre-flight validation ────────────────────────────────────────
         if observation.bar_state.value != "closed":
             raise ValueError(
                 f"cannot plan from {observation.bar_state.value} observation"
             )
-        if not risk_decision.approved:
-            raise ValueError("risk decision not approved; cannot plan order")
         if target.symbol != portfolio.symbol:
             raise ValueError("target symbol must match portfolio symbol")
         if target.symbol != price.symbol:
@@ -213,39 +275,174 @@ class OrderPlanner:
                 f"{target.exposure}"
             )
 
-        # Determine resulting exposure (clamped to instrument limits)
+        # Compute raw exposure delta
+        requested_delta = target.exposure - portfolio.current_exposure
+
+        # If requesting exposure increase but risk decision doesn't approve any exposure
+        if requested_delta > 0 and not risk_decision.approved:
+            return OrderPlanningResult(
+                status=OrderPlanningStatus.BLOCKED,
+                intent=None,
+                reason_codes=("RISK_DECISION_NOT_APPROVED",),
+                requested_delta=requested_delta,
+                executable_delta=0.0,
+            )
+
+        # ── Target/Risk binding verification (P0 §4) ─────────────────────
+        if target.risk_decision_id != risk_decision.decision_id:
+            raise ValueError(
+                f"target.risk_decision_id ({target.risk_decision_id}) != "
+                f"risk_decision.decision_id ({risk_decision.decision_id})"
+            )
+        if target.forecast_fingerprint != risk_decision.forecast_fingerprint:
+            raise ValueError(
+                f"target.forecast_fingerprint ({target.forecast_fingerprint}) != "
+                f"risk_decision.forecast_fingerprint ({risk_decision.forecast_fingerprint})"
+            )
+        if target.model_artifact_id != risk_decision.model_artifact_id:
+            raise ValueError(
+                f"target.model_artifact_id ({target.model_artifact_id}) != "
+                f"risk_decision.model_artifact_id ({risk_decision.model_artifact_id})"
+            )
+
+        # ── max_new_exposure enforcement (P0 §4) — check BEFORE clamping ──
+        if requested_delta > 0:
+            if requested_delta > risk_decision.max_new_exposure + 1e-9:
+                return OrderPlanningResult(
+                    status=OrderPlanningStatus.BLOCKED,
+                    intent=None,
+                    reason_codes=("MAX_NEW_EXPOSURE_EXCEEDED",),
+                    requested_delta=requested_delta,
+                    executable_delta=0.0,
+                )
+
+        # ── reduce_only enforcement (P0 §4) — check BEFORE clamping ──────
+        if risk_decision.reduce_only and requested_delta > 1e-9:
+            return OrderPlanningResult(
+                status=OrderPlanningStatus.BLOCKED,
+                intent=None,
+                reason_codes=("REDUCE_ONLY_VIOLATION",),
+                requested_delta=requested_delta,
+                executable_delta=0.0,
+            )
+
+        # Determine resulting exposure (clamped to instrument limits and risk decision)
+        max_allowed_by_leverage = self._rules.max_leverage
+        max_allowed_by_risk = risk_decision.allowed_target_exposure
         resulting_exposure = max(
-            -self._rules.max_leverage,
-            min(self._rules.max_leverage, target.exposure),
+            -max_allowed_by_leverage,
+            min(max_allowed_by_leverage, max_allowed_by_risk, target.exposure),
         )
+        executable_delta = resulting_exposure - portfolio.current_exposure
 
-        # Compute required quantity change from exposure delta
-        # For spot, exposure is approximately (quantity * price) / equity.
-        # We need equity to compute quantity; use price_reference as a proxy
-        # when equity is not provided (caller must supply price_reference).
-        # Here we derive quantity from the exposure delta using the reference price.
-        # For simplicity and determinism, we treat 1 unit of exposure as
-        # 1 unit of notional at the reference price.
-        exposure_delta = resulting_exposure - portfolio.current_exposure
-        quantity = abs(exposure_delta) * price.mid
+        # ── NOOP determination (P0 §2) ───────────────────────────────────
+        if abs(executable_delta) <= tolerance:
+            # Within deadband → NOOP, no order intent
+            keys = IdempotencyKeys.compute(
+                decision_id=risk_decision.decision_id,
+                symbol=target.symbol,
+                target_exposure=target.exposure,
+                horizon=target.horizon,
+            )
+            return OrderPlanningResult(
+                status=OrderPlanningStatus.NOOP,
+                intent=None,
+                reason_codes=("WITHIN_TOLERANCE",),
+                requested_delta=requested_delta,
+                executable_delta=0.0,
+            )
 
-        # Apply instrument constraints
-        quantity = max(self._rules.min_order_qty, quantity)
-        quantity = min(self._rules.max_order_qty, quantity)
-        # Round to step
-        quantity = round(quantity / self._rules.qty_step) * self._rules.qty_step
-        quantity = max(self._rules.min_order_qty, quantity)
+        # ── Canonical notional-based sizing (P0 §3) ──────────────────────
+        # target_notional = equity * target_exposure
+        # current_notional = equity * current_exposure
+        # delta_notional = target_notional - current_notional
+        # raw_quantity = abs(delta_notional) / execution_price
+        target_notional = portfolio.equity * resulting_exposure
+        current_notional = portfolio.equity * portfolio.current_exposure
+        delta_notional = target_notional - current_notional
+        execution_price = price.mid
+        raw_quantity = abs(delta_notional) / execution_price
 
-        # Determine side and effect
-        if exposure_delta > 1e-12:
+        # ── Apply exchange feasibility (P0 §3) ──────────────────────────
+        quantity = raw_quantity
+        adjustment_reasons: list[AdjustmentReason] = []
+
+        # Round to qty_step
+        if self._rules.qty_step > 0:
+            stepped_qty = round(quantity / self._rules.qty_step) * self._rules.qty_step
+            if abs(stepped_qty - quantity) > 1e-12:
+                adjustment_reasons.append(AdjustmentReason.QTY_STEP)
+            quantity = stepped_qty
+
+        # min_order_qty
+        if quantity < self._rules.min_order_qty:
+            adjustment_reasons.append(AdjustmentReason.MIN_QTY)
+            quantity = self._rules.min_order_qty
+
+        # max_order_qty
+        if quantity > self._rules.max_order_qty:
+            adjustment_reasons.append(AdjustmentReason.MAX_QTY)
+            quantity = self._rules.max_order_qty
+
+        # min_notional
+        notional = quantity * execution_price
+        if notional < self._rules.min_notional:
+            min_qty_for_notional = self._rules.min_notional / execution_price
+            if min_qty_for_notional > quantity:
+                adjustment_reasons.append(AdjustmentReason.MIN_NOTIONAL)
+                quantity = min_qty_for_notional
+
+        # max_notional
+        if self._rules.max_notional is not None:
+            if notional > self._rules.max_notional:
+                max_qty_for_notional = self._rules.max_notional / execution_price
+                if max_qty_for_notional < quantity:
+                    adjustment_reasons.append(AdjustmentReason.MAX_NOTIONAL)
+                    quantity = max_qty_for_notional
+
+        # Available cash check (for BUY)
+        if executable_delta > 0:
+            required_cash = quantity * execution_price
+            if required_cash > portfolio.available_cash + 1e-9:
+                adjustment_reasons.append(AdjustmentReason.INSUFFICIENT_CASH)
+                quantity = portfolio.available_cash / execution_price
+                # Re-apply min/max after cash constraint
+                quantity = max(self._rules.min_order_qty, quantity)
+                quantity = min(self._rules.max_order_qty, quantity)
+                if self._rules.qty_step > 0:
+                    quantity = round(quantity / self._rules.qty_step) * self._rules.qty_step
+                quantity = max(self._rules.min_order_qty, quantity)
+
+        # Final check: if quantity became zero or negative after constraints
+        if quantity <= 1e-12:
+            return OrderPlanningResult(
+                status=OrderPlanningStatus.NOOP,
+                intent=None,
+                reason_codes=("NON_EXECUTABLE_AFTER_CONSTRAINTS",) + tuple(str(r) for r in adjustment_reasons),
+                requested_delta=requested_delta,
+                executable_delta=0.0,
+            )
+
+        # ── Determine side and effect ────────────────────────────────────
+        if executable_delta > 1e-12:
             side = "buy"
             effect = ExposureEffect.INCREASE
-        elif exposure_delta < -1e-12:
+        elif executable_delta < -1e-12:
             side = "sell"
             effect = ExposureEffect.REDUCE
         else:
-            side = "buy"  # neutral, no-op
-            effect = ExposureEffect.NEUTRAL
+            # Should not reach here due to NOOP check above, but defensive
+            return OrderPlanningResult(
+                status=OrderPlanningStatus.NOOP,
+                intent=None,
+                reason_codes=("ZERO_DELTA_AFTER_CLAMP",),
+                requested_delta=requested_delta,
+                executable_delta=0.0,
+            )
+
+        # Compute final resulting exposure from actual executable quantity
+        final_notional = quantity * execution_price * (1 if side == "buy" else -1)
+        final_resulting_exposure = (current_notional + final_notional) / portfolio.equity
 
         # Compute idempotency keys
         keys = IdempotencyKeys.compute(
@@ -260,7 +457,7 @@ class OrderPlanner:
             f"_{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}"
         )
 
-        return OrderIntent(
+        intent = OrderIntent(
             intent_id=intent_id,
             decision_id=risk_decision.decision_id,
             forecast_fingerprint=risk_decision.forecast_fingerprint,
@@ -271,7 +468,7 @@ class OrderPlanner:
             quantity=quantity,
             current_exposure=portfolio.current_exposure,
             target_exposure=resulting_exposure,
-            resulting_exposure=resulting_exposure,
+            resulting_exposure=final_resulting_exposure,
             exposure_effect=effect,
             price_reference=price.mid,
             idempotency_key=keys.intent_idempotency_key,
@@ -281,15 +478,33 @@ class OrderPlanner:
                 "target_exposure_key": keys.target_exposure_key,
                 "regime_entropy": risk_decision.regime_entropy,
                 "ood_score": risk_decision.ood_score,
+                "requested_delta": requested_delta,
+                "executable_delta": executable_delta,
+                "raw_quantity": raw_quantity,
+                "adjustment_reasons": [str(r) for r in adjustment_reasons],
+                "target_notional": target_notional,
+                "current_notional": current_notional,
+                "delta_notional": delta_notional,
             },
+        )
+
+        return OrderPlanningResult(
+            status=OrderPlanningStatus.ORDER_REQUIRED,
+            intent=intent,
+            reason_codes=tuple(str(r) for r in adjustment_reasons) if adjustment_reasons else ("NONE",),
+            requested_delta=requested_delta,
+            executable_delta=executable_delta,
         )
 
 
 __all__ = [
     "ExposureEffect",
+    "OrderPlanningStatus",
+    "AdjustmentReason",
     "CurrentPortfolioState",
     "InstrumentRules",
     "MarketPrice",
     "OrderIntent",
+    "OrderPlanningResult",
     "OrderPlanner",
 ]

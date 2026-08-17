@@ -5,6 +5,11 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from trading_agent.execution.canonical import (
+    EvidenceState,
+    RiskLevel,
+    UnifiedRiskDecision,
+)
 from trading_agent.execution.live_safety import (
     LIVE_CONFIRMATION,
     DuplicateOrderError,
@@ -25,6 +30,35 @@ from trading_agent.execution.live_safety import (
     validate_spread,
     validate_strategy_evidence,
 )
+
+
+def _sample_risk_decision(
+    *,
+    risk_level: RiskLevel = RiskLevel.LOW,
+    allowed_target_exposure: float = 0.25,
+    max_new_exposure: float = 0.25,
+    reduce_only: bool = False,
+) -> UnifiedRiskDecision:
+    return UnifiedRiskDecision(
+        decision_id="test-decision",
+        forecast_fingerprint="test-fp",
+        model_artifact_id="test-model",
+        requested_target_exposure=0.5,
+        allowed_target_exposure=allowed_target_exposure,
+        max_new_exposure=max_new_exposure,
+        reduce_only=reduce_only,
+        risk_level=risk_level,
+        reason_codes=("APPROVED",),
+        calibration_state=EvidenceState.KNOWN,
+        calibration_artifact_id="cal-1",
+        calibration_ece=0.02,
+        ood_state=EvidenceState.KNOWN,
+        ood_score=0.1,
+        regime_state=EvidenceState.KNOWN,
+        regime_entropy=0.2,
+        interval_width=0.05,
+        created_at=datetime.now(UTC),
+    )
 
 
 def test_mainnet_execution_requires_both_confirmations():
@@ -286,6 +320,7 @@ def test_mainnet_canary_profile_enforces_hard_caps():
             gross_exposure=0.0,
             limits=limits,
             locked_reason=None,
+            risk_decision=_sample_risk_decision(),
         )
 
 
@@ -367,6 +402,7 @@ def test_buy_order_limits_and_risk_reducing_sell():
             gross_exposure=0,
             limits=limits,
             locked_reason=None,
+            risk_decision=_sample_risk_decision(),
         )
     validate_order_risk(
         side="SELL",
@@ -377,6 +413,7 @@ def test_buy_order_limits_and_risk_reducing_sell():
         gross_exposure=700,
         limits=limits,
         locked_reason="daily loss breached",
+        risk_decision=_sample_risk_decision(risk_level=RiskLevel.HIGH, max_new_exposure=0.0, reduce_only=True),
     )
     with pytest.raises(LiveSafetyError, match="locked"):
         validate_order_risk(
@@ -388,6 +425,7 @@ def test_buy_order_limits_and_risk_reducing_sell():
             gross_exposure=0,
             limits=limits,
             locked_reason="TRADING_ENTRY_KILL_SWITCH is active",
+            risk_decision=_sample_risk_decision(),
         )
 
 

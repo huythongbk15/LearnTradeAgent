@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Sequence
 
-from trading_agent.agents.risk_decision import RiskDecision
+from trading_agent.execution.canonical import UnifiedRiskDecision
 from trading_agent.execution.lifecycle.lifecycle import (
     ExecutionHealth,
     ExposureEffect,
@@ -46,6 +46,7 @@ class PermissionReason(str, Enum):
     UNKNOWN_INVENTORY_STATE = "unknown_inventory_state"
     UNKNOWN_BROKER_STATE = "unknown_broker_state"
     INVALID_ORDER = "invalid_order"
+    MISSING_RISK_DECISION = "missing_risk_decision"
 
 
 @dataclass(frozen=True)
@@ -65,7 +66,7 @@ class PermissionResult:
 class PermissionContext:
     execution_health: ExecutionHealth
     exposure_effect: ExposureEffect
-    risk_decision: RiskDecision | None = None
+    risk_decision: UnifiedRiskDecision | None = None
     trusted_price: TrustedPrice | None = None
     max_price_age_seconds: float = 60.0
     reconciliation_state: str = "none"
@@ -88,6 +89,7 @@ class PermissionContext:
         "rejected",
         "partial",
     )
+    draft: bool = False  # True for intent creation (before risk approval)
 
 
 def evaluate_order_permission(ctx: PermissionContext) -> PermissionResult:
@@ -201,20 +203,43 @@ def evaluate_order_permission(ctx: PermissionContext) -> PermissionResult:
         return degraded(reason, "kill switch active")
 
     risk = ctx.risk_decision
-    if ctx.exposure_effect == ExposureEffect.INCREASE:
-        if risk is not None and (risk.max_new_exposure_pct <= 0 or risk.reduce_only):
-            return PermissionResult(
-                OrderPermission.BLOCK,
-                PermissionReason.HIGH_RISK_NEW_EXPOSURE,
-                f"risk={risk.risk_level.value} blocks new exposure",
-            )
-    if ctx.exposure_effect == ExposureEffect.NEUTRAL:
-        if risk is not None and (risk.max_new_exposure_pct <= 0 or risk.reduce_only):
-            return PermissionResult(
-                OrderPermission.BLOCK,
-                PermissionReason.KILL_SWITCH_NEUTRAL,
-                "neutral exposure not allowed under current risk decision",
-            )
+
+    # Missing risk decision → BLOCK for INCREASE/NEUTRAL (fail-closed)
+    # UNLESS draft=True (intent creation before risk approval)
+    if ctx.exposure_effect in (ExposureEffect.INCREASE, ExposureEffect.NEUTRAL):
+        if risk is None:
+            if ctx.draft:
+                # Draft mode: allow intent creation, submission will require risk
+                pass
+            else:
+                reason = (
+                    PermissionReason.MISSING_RISK_DECISION
+                    if ctx.exposure_effect == ExposureEffect.INCREASE
+                    else PermissionReason.KILL_SWITCH_NEUTRAL
+                )
+                detail = (
+                    "no risk decision available for exposure increase"
+                    if ctx.exposure_effect == ExposureEffect.INCREASE
+                    else "no risk decision available for neutral exposure"
+                )
+                return PermissionResult(
+                    OrderPermission.BLOCK, reason, detail
+                )
+        else:
+            if risk.allowed_target_exposure <= 1e-12 or risk.max_new_exposure <= 1e-12 or risk.reduce_only:
+                reason = (
+                    PermissionReason.HIGH_RISK_NEW_EXPOSURE
+                    if ctx.exposure_effect == ExposureEffect.INCREASE
+                    else PermissionReason.KILL_SWITCH_NEUTRAL
+                )
+                detail = (
+                    f"risk_level={risk.risk_level.value} max_new_exposure={risk.max_new_exposure} reduce_only={risk.reduce_only} blocks new exposure"
+                    if ctx.exposure_effect == ExposureEffect.INCREASE
+                    else "neutral exposure not allowed under current risk decision"
+                )
+                return PermissionResult(
+                    OrderPermission.BLOCK, reason, detail
+                )
 
     if safe_reduce:
         return PermissionResult(

@@ -34,6 +34,7 @@ from datetime import UTC, datetime
 from enum import Enum
 from typing import Any, Callable, Mapping
 
+from trading_agent.execution.canonical import UnifiedRiskDecision
 from trading_agent.execution.lifecycle.events import (
     ExecutionEvent,
     ExecutionEventType,
@@ -155,6 +156,7 @@ class OrderState:
     size: float
     status: IntentStatus = IntentStatus.PENDING
     risk_approved: bool = False
+    risk_decision: UnifiedRiskDecision | None = None
     broker_order_id: str | None = None
     exchange_order_id: str | None = None
     filled_size: float = 0.0
@@ -345,6 +347,8 @@ class ExecutionLifecycle:
         require_market_data: bool,
         exclude_intent_id: str | None = None,
         broker_state: str | None = None,
+        draft: bool = False,
+        risk_decision: UnifiedRiskDecision | None = None,
     ):
         # Local import avoids a module cycle: permission types intentionally
         # reuse lifecycle's canonical health/exposure enums.
@@ -376,6 +380,7 @@ class ExecutionLifecycle:
                     symbol,
                     exclude_intent_id=exclude_intent_id,
                 ),
+                risk_decision=risk_decision,
                 trusted_price=self._price_source(symbol),
                 max_price_age_seconds=self.max_price_age_seconds,
                 reconciliation_state=self.state.reconciliation.value,
@@ -395,6 +400,7 @@ class ExecutionLifecycle:
                 require_fresh_market_data=require_market_data,
                 enforce_inventory=require_market_data,
                 broker_state=broker_state,
+                draft=draft,
             )
         )
 
@@ -407,6 +413,7 @@ class ExecutionLifecycle:
         require_market_data: bool,
         exclude_intent_id: str | None = None,
         broker_state: str | None = None,
+        risk_decision: UnifiedRiskDecision | None = None,
     ):
         from trading_agent.execution.permission import OrderPermission
 
@@ -417,6 +424,7 @@ class ExecutionLifecycle:
             require_market_data=require_market_data,
             exclude_intent_id=exclude_intent_id,
             broker_state=broker_state,
+            risk_decision=risk_decision,
         )
         if result.permission == OrderPermission.BLOCK:
             raise InvariantViolation(result.reason.value, result.detail)
@@ -700,6 +708,7 @@ class ExecutionLifecycle:
             size,
             symbol,
             require_market_data=False,
+            draft=True,
         )
         if (
             draft_permission.permission == OrderPermission.BLOCK
@@ -716,7 +725,13 @@ class ExecutionLifecycle:
             {"symbol": symbol, "side": side, "size": size},
         )
 
-    def approve_risk(self, intent_id: str, *, rationale: str = "") -> ExecutionEvent:
+    def approve_risk(
+        self,
+        intent_id: str,
+        *,
+        rationale: str = "",
+        risk_decision: UnifiedRiskDecision | None = None,
+    ) -> ExecutionEvent:
         order = self.state.order(intent_id)
         if order is None:
             raise LifecycleError(f"unknown intent {intent_id}")
@@ -724,6 +739,9 @@ class ExecutionLifecycle:
             raise LifecycleError(
                 f"intent {intent_id} not approvable in {order.status.value}"
             )
+        # Store risk decision for permission checks on submit
+        order.risk_decision = risk_decision
+        order.risk_approved = True
         return self._emit(
             ExecutionEventType.RISK_APPROVED,
             intent_id,
@@ -771,6 +789,7 @@ class ExecutionLifecycle:
             order.symbol,
             require_market_data=True,
             exclude_intent_id=intent_id,
+            risk_decision=order.risk_decision,
         )
         payload = {
             "order_id": intent_id,

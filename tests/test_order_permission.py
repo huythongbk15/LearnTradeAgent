@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from trading_agent.agents.risk_decision import RiskDecision, RiskLevel
+from trading_agent.execution.canonical import (
+    EvidenceState,
+    RiskLevel,
+    UnifiedRiskDecision,
+)
 from trading_agent.execution.lifecycle.lifecycle import (
     ExecutionHealth,
     ExposureEffect,
@@ -38,16 +42,45 @@ def _stale_price() -> TrustedPrice:
     )
 
 
+def _sample_risk_decision(
+    *,
+    risk_level: RiskLevel = RiskLevel.LOW,
+    allowed_target_exposure: float = 0.25,
+    max_new_exposure: float = 0.25,
+    reduce_only: bool = False,
+) -> UnifiedRiskDecision:
+    return UnifiedRiskDecision(
+        decision_id="test-decision",
+        forecast_fingerprint="test-fp",
+        model_artifact_id="test-model",
+        requested_target_exposure=0.5,
+        allowed_target_exposure=allowed_target_exposure,
+        max_new_exposure=max_new_exposure,
+        reduce_only=reduce_only,
+        risk_level=risk_level,
+        reason_codes=("APPROVED",),
+        calibration_state=EvidenceState.KNOWN,
+        calibration_artifact_id="cal-1",
+        calibration_ece=0.02,
+        ood_state=EvidenceState.KNOWN,
+        ood_score=0.1,
+        regime_state=EvidenceState.KNOWN,
+        regime_entropy=0.2,
+        interval_width=0.05,
+        created_at=datetime.now(UTC),
+    )
+
+
 class TestOrderPermission:
     def test_normal_buy_allowed(self):
         result = evaluate_order_permission(
             PermissionContext(
                 execution_health=ExecutionHealth.NORMAL,
                 exposure_effect=ExposureEffect.INCREASE,
-                risk_decision=RiskDecision(
+                risk_decision=_sample_risk_decision(
                     risk_level=RiskLevel.LOW,
-                    target_exposure_pct=0.25,
-                    max_new_exposure_pct=0.25,
+                    allowed_target_exposure=0.25,
+                    max_new_exposure=0.25,
                 ),
                 trusted_price=_fresh_price(),
                 order_side="buy",
@@ -62,9 +95,9 @@ class TestOrderPermission:
             PermissionContext(
                 execution_health=ExecutionHealth.NORMAL,
                 exposure_effect=ExposureEffect.INCREASE,
-                risk_decision=RiskDecision(
+                risk_decision=_sample_risk_decision(
                     risk_level=RiskLevel.HIGH,
-                    max_new_exposure_pct=0.0,
+                    max_new_exposure=0.0,
                     reduce_only=True,
                 ),
                 trusted_price=_fresh_price(),
@@ -169,8 +202,9 @@ class TestOrderPermission:
             PermissionContext(
                 execution_health=ExecutionHealth.NORMAL,
                 exposure_effect=ExposureEffect.REDUCE,
-                risk_decision=RiskDecision(
+                risk_decision=_sample_risk_decision(
                     risk_level=RiskLevel.HIGH,
+                    max_new_exposure=0.0,
                     reduce_only=True,
                 ),
                 trusted_price=_fresh_price(),

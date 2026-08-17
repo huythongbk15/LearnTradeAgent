@@ -18,7 +18,10 @@ from dataclasses import asdict, dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from statistics import median
-from typing import Mapping
+from typing import TYPE_CHECKING, Mapping
+
+if TYPE_CHECKING:
+    from trading_agent.execution.canonical import UnifiedRiskDecision
 
 from trading_agent.execution.correlation import get_correlation_id
 
@@ -1689,6 +1692,7 @@ def validate_order_risk(
     gross_exposure: float,
     limits: LiveRiskLimits,
     locked_reason: str | None,
+    risk_decision: "UnifiedRiskDecision" | None = None,
 ) -> None:
     """Validate a proposed order against account-level hard limits."""
 
@@ -1726,6 +1730,7 @@ def validate_order_risk(
         PermissionContext(
             execution_health=ExecutionHealth.NORMAL,
             exposure_effect=exposure_effect,
+            risk_decision=risk_decision,
             kill_switch_active=bool(locked_reason),
             inventory_state="known",
             free_inventory=authorized_notional,

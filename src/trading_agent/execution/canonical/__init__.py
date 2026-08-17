@@ -29,7 +29,16 @@ from trading_agent.execution.canonical.events import (
 from trading_agent.execution.canonical.market_observation import (
     EnrichedMarketObservation,
 )
-from trading_agent.execution.canonical.order_planner import OrderIntent, OrderPlanner
+from trading_agent.execution.canonical.order_planner import (
+    OrderIntent,
+    OrderPlanner,
+    OrderPlanningResult,
+    OrderPlanningStatus,
+    AdjustmentReason,
+    CurrentPortfolioState,
+    InstrumentRules,
+    MarketPrice,
+)
 from trading_agent.execution.canonical.protection import (
     ProtectionPlan,
     ProtectionState,
@@ -39,6 +48,7 @@ from trading_agent.execution.canonical.risk_decision import (
     RiskDecisionAdapter,
     RiskLevel,
     UnifiedRiskDecision,
+    EvidenceState,
 )
 from trading_agent.execution.canonical.broker_gateway import (
     BrokerGateway,
@@ -50,11 +60,18 @@ __all__ = [
     "UnifiedRiskDecision",
     "RiskDecisionAdapter",
     "RiskLevel",
+    "EvidenceState",
     # Market observation
     "EnrichedMarketObservation",
     # Order planning
     "OrderPlanner",
     "OrderIntent",
+    "OrderPlanningResult",
+    "OrderPlanningStatus",
+    "AdjustmentReason",
+    "CurrentPortfolioState",
+    "InstrumentRules",
+    "MarketPrice",
     # Broker gateway
     "BrokerGateway",
     "CapitalChangeResult",
