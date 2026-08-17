@@ -402,20 +402,34 @@ class OrderPlanner:
                     adjustment_reasons.append(AdjustmentReason.MAX_NOTIONAL)
                     quantity = max_qty_for_notional
 
-        # Available cash check (for BUY)
+        # Available cash check (for BUY) — cash feasibility intersection
         if executable_delta > 0:
             required_cash = quantity * execution_price
             if required_cash > portfolio.available_cash + 1e-9:
                 adjustment_reasons.append(AdjustmentReason.INSUFFICIENT_CASH)
-                quantity = portfolio.available_cash / execution_price
-                # Re-apply min/max after cash constraint
+                cash_feasible_qty = portfolio.available_cash / execution_price
+                # Round DOWN to qty_step, never up
+                if self._rules.qty_step > 0:
+                    cash_feasible_qty = (
+                        round(cash_feasible_qty / self._rules.qty_step)
+                        * self._rules.qty_step
+                    )
+                # If cash cannot even cover min_order_qty after rounding down, BLOCK
+                if cash_feasible_qty < self._rules.min_order_qty - 1e-12:
+                    return OrderPlanningResult(
+                        status=OrderPlanningStatus.BLOCKED,
+                        intent=None,
+                        reason_codes=(
+                            "INSUFFICIENT_CASH_FOR_MIN_ORDER",
+                        )
+                        + tuple(str(r) for r in adjustment_reasons),
+                        requested_delta=requested_delta,
+                        executable_delta=0.0,
+                    )
+                quantity = cash_feasible_qty
+                # Clamp to [min, max]
                 quantity = max(self._rules.min_order_qty, quantity)
                 quantity = min(self._rules.max_order_qty, quantity)
-                if self._rules.qty_step > 0:
-                    quantity = (
-                        round(quantity / self._rules.qty_step) * self._rules.qty_step
-                    )
-                quantity = max(self._rules.min_order_qty, quantity)
 
         # Final check: if quantity became zero or negative after constraints
         if quantity <= 1e-12:
@@ -450,6 +464,60 @@ class OrderPlanner:
         final_resulting_exposure = (
             current_notional + final_notional
         ) / portfolio.equity
+        final_exposure_delta = final_resulting_exposure - portfolio.current_exposure
+
+        # ── Post-feasibility risk revalidation (P0 §3) ───────────────────
+        # After all feasibility adjustments, revalidate against risk decision
+        if side == "buy":
+            # INCREASE: must not exceed allowed_target_exposure or max_new_exposure
+            if final_resulting_exposure > risk_decision.allowed_target_exposure + 1e-9:
+                return OrderPlanningResult(
+                    status=OrderPlanningStatus.BLOCKED,
+                    intent=None,
+                    reason_codes=(
+                        "POST_FEASIBILITY_EXPOSURE_EXCEEDS_ALLOWED",
+                    )
+                    + tuple(str(r) for r in adjustment_reasons),
+                    requested_delta=requested_delta,
+                    executable_delta=0.0,
+                )
+            if final_exposure_delta > risk_decision.max_new_exposure + 1e-9:
+                return OrderPlanningResult(
+                    status=OrderPlanningStatus.BLOCKED,
+                    intent=None,
+                    reason_codes=(
+                        "POST_FEASIBILITY_DELTA_EXCEEDS_MAX_NEW",
+                    )
+                    + tuple(str(r) for r in adjustment_reasons),
+                    requested_delta=requested_delta,
+                    executable_delta=0.0,
+                )
+        else:
+            # REDUCE: resulting exposure must not increase
+            if abs(final_resulting_exposure) > abs(portfolio.current_exposure) + 1e-9:
+                return OrderPlanningResult(
+                    status=OrderPlanningStatus.BLOCKED,
+                    intent=None,
+                    reason_codes=(
+                        "POST_FEASIBILITY_REDUCE_INCREASES_EXPOSURE",
+                    )
+                    + tuple(str(r) for r in adjustment_reasons),
+                    requested_delta=requested_delta,
+                    executable_delta=0.0,
+                )
+
+        # Also validate against target in risk-increasing direction
+        if side == "buy" and final_resulting_exposure > target.exposure + 1e-9:
+            return OrderPlanningResult(
+                status=OrderPlanningStatus.BLOCKED,
+                intent=None,
+                reason_codes=(
+                    "POST_FEASIBILITY_OVERSHOOT_TARGET",
+                )
+                + tuple(str(r) for r in adjustment_reasons),
+                requested_delta=requested_delta,
+                executable_delta=0.0,
+            )
 
         # Compute idempotency keys
         keys = IdempotencyKeys.compute(

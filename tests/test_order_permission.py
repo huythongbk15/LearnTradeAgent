@@ -215,3 +215,85 @@ class TestOrderPermission:
         )
         assert result.permission == OrderPermission.REDUCE_ONLY
         assert result.reason == PermissionReason.REDUCE_ONLY
+
+    def test_unknown_calibration_evidence_blocks_buy(self):
+        result = evaluate_order_permission(
+            PermissionContext(
+                execution_health=ExecutionHealth.NORMAL,
+                exposure_effect=ExposureEffect.INCREASE,
+                risk_decision=_sample_risk_decision(
+                    risk_level=RiskLevel.LOW,
+                    allowed_target_exposure=0.25,
+                    max_new_exposure=0.25,
+                    calibration_state=EvidenceState.UNKNOWN,
+                ),
+                trusted_price=_fresh_price(),
+                order_side="buy",
+                order_size=1.0,
+                free_inventory=0.0,
+            )
+        )
+        assert result.permission == OrderPermission.BLOCK
+        assert result.reason == PermissionReason.MISSING_CALIBRATION_EVIDENCE
+
+    def test_missing_ood_evidence_blocks_buy(self):
+        result = evaluate_order_permission(
+            PermissionContext(
+                execution_health=ExecutionHealth.NORMAL,
+                exposure_effect=ExposureEffect.INCREASE,
+                risk_decision=_sample_risk_decision(
+                    risk_level=RiskLevel.LOW,
+                    allowed_target_exposure=0.25,
+                    max_new_exposure=0.25,
+                    ood_state=EvidenceState.MISSING,
+                ),
+                trusted_price=_fresh_price(),
+                order_side="buy",
+                order_size=1.0,
+                free_inventory=0.0,
+            )
+        )
+        assert result.permission == OrderPermission.BLOCK
+        assert result.reason == PermissionReason.MISSING_OOD_EVIDENCE
+
+    def test_stale_regime_evidence_blocks_buy(self):
+        result = evaluate_order_permission(
+            PermissionContext(
+                execution_health=ExecutionHealth.NORMAL,
+                exposure_effect=ExposureEffect.INCREASE,
+                risk_decision=_sample_risk_decision(
+                    risk_level=RiskLevel.LOW,
+                    allowed_target_exposure=0.25,
+                    max_new_exposure=0.25,
+                    regime_state=EvidenceState.STALE,
+                ),
+                trusted_price=_fresh_price(),
+                order_side="buy",
+                order_size=1.0,
+                free_inventory=0.0,
+            )
+        )
+        assert result.permission == OrderPermission.BLOCK
+        assert result.reason == PermissionReason.MISSING_REGIME_EVIDENCE
+
+    def test_unknown_evidence_allows_safe_reduce(self):
+        result = evaluate_order_permission(
+            PermissionContext(
+                execution_health=ExecutionHealth.NORMAL,
+                exposure_effect=ExposureEffect.REDUCE,
+                risk_decision=_sample_risk_decision(
+                    risk_level=RiskLevel.LOW,
+                    allowed_target_exposure=0.25,
+                    max_new_exposure=0.25,
+                    calibration_state=EvidenceState.UNKNOWN,
+                    ood_state=EvidenceState.UNKNOWN,
+                    regime_state=EvidenceState.UNKNOWN,
+                ),
+                trusted_price=_fresh_price(),
+                order_side="sell",
+                order_size=1.0,
+                free_inventory=10.0,
+            )
+        )
+        assert result.permission == OrderPermission.REDUCE_ONLY
+        assert result.reason == PermissionReason.REDUCE_ONLY
