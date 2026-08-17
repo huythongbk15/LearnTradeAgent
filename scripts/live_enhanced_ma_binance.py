@@ -44,6 +44,7 @@ from trading_agent.exchanges.models import (
     Symbol,
     TimeInForce,
 )
+from trading_agent.execution.canonical import CanonicalBrokerAdapter
 from trading_agent.execution.correlation import bind_run_correlation
 from trading_agent.execution.data_trust import (
     BINANCE_MAINNET_TIME_URL,
@@ -2025,6 +2026,9 @@ def run_locked(
             pricing_symbols=[symbol for symbol, _ in allocations],
             strict_pricing=True,
         )
+        # Wrap with canonical broker gateway (P0 §12: runner canonical migration)
+        broker = CanonicalBrokerAdapter(broker)
+        
         reconcile_unfinished_orders(
             broker=broker,
             store=store,

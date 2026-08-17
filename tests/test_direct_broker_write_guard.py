@@ -28,6 +28,7 @@ ALLOWED_FILES = {
     "broker_gateway.py",  # BrokerGateway itself
     "paper_exchange.py",  # Exchange adapter implementations
     "smart_router.py",  # Smart execution router (adapter-like)
+    "runner_adapter.py",  # Canonical wrapper for legacy runners
     "test_broker_gateway.py",  # Tests for BrokerGateway
 }
 

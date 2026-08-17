@@ -54,6 +54,7 @@ from trading_agent.execution.canonical.broker_gateway import (
     BrokerGateway,
     CapitalChangeResult,
 )
+from trading_agent.execution.canonical.runner_adapter import CanonicalBrokerAdapter
 
 __all__ = [
     # Risk decision
@@ -75,6 +76,7 @@ __all__ = [
     # Broker gateway
     "BrokerGateway",
     "CapitalChangeResult",
+    "CanonicalBrokerAdapter",
     # Protection
     "ProtectionPlan",
     "ProtectionState",
