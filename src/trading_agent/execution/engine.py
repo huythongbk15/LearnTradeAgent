@@ -13,7 +13,6 @@ import sys
 import threading
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal
 from typing import Any
 
 from trading_agent.agents.base import AgentMessage
@@ -129,7 +128,7 @@ class ExecutionEngine:
         """Convert a CapitalChangeResult to an Order for backward compatibility."""
         # Map side string to OrderSide enum
         order_side = OrderSide.BUY if side.lower() == "buy" else OrderSide.SELL
-        
+
         # Map status string to OrderStatus enum
         status_str = (result.status or "unknown").lower()
         if status_str == "filled":
@@ -144,12 +143,12 @@ class ExecutionEngine:
             order_status = OrderStatus.PARTIALLY_FILLED
         else:
             order_status = OrderStatus.OPEN if result.success else OrderStatus.REJECTED
-        
+
         # Extract fill info from raw_response
         raw = result.raw_response or {}
         filled_amount = float(raw.get("filled", raw.get("accumulated_quantity", 0)))
         avg_fill_price = float(raw.get("average", raw.get("price", 0)))
-        
+
         return Order(
             id=result.broker_order_id or "",
             symbol=symbol,
