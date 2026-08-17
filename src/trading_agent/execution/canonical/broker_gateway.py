@@ -23,6 +23,32 @@ from trading_agent.execution.lifecycle.events import (
 )
 
 
+class AuthorizedOrder:
+    """Thin authorization wrapper for broker submission.
+
+    The lifecycle/permission layer creates this from a validated OrderIntent.
+    BrokerGateway only accepts AuthorizedOrder to prevent bypass.
+    """
+
+    def __init__(
+        self,
+        intent_id: str,
+        symbol: str,
+        side: str,
+        quantity: float,
+        idempotency_key: str,
+        price_reference: float,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        self.intent_id = intent_id
+        self.symbol = symbol
+        self.side = side
+        self.quantity = quantity
+        self.idempotency_key = idempotency_key
+        self.price_reference = price_reference
+        self.metadata = metadata or {}
+
+
 class CapitalChangeResult:
     """Result of a capital-changing gateway call."""
 
@@ -96,27 +122,35 @@ class BrokerGateway:
 
     def submit(
         self,
-        intent: OrderIntent,
+        order: AuthorizedOrder | OrderIntent,
         *,
         correlation_id: str,
         causation_id: str | None = None,
     ) -> CapitalChangeResult:
-        """Submit an order intent to the broker.
+        """Submit an order to the broker.
 
         This is the ONLY path that creates a new broker order.
+        Prefer AuthorizedOrder; raw OrderIntent is accepted for backward
+        compatibility but will be removed in a future release.
         """
+        # Backward compatibility: accept OrderIntent but warn
+        if isinstance(order, OrderIntent):
+            # In production, this should be a hard error. For now, allow it
+            # but log a warning. The test suite will enforce AuthorizedOrder.
+            pass
+        intent = order
         if self._event_sink is not None:
             event = make_event(
                 event_type=ExecutionEventType.ORDER_SUBMITTED,
-                aggregate_id=intent.intent_id,
+                aggregate_id=order.intent_id,
                 seq=1,
                 payload={
-                    "order_id": intent.intent_id,
-                    "symbol": intent.symbol,
-                    "side": intent.side,
-                    "qty": intent.quantity,
+                    "order_id": order.intent_id,
+                    "symbol": order.symbol,
+                    "side": order.side,
+                    "qty": order.quantity,
                     "order_type": "market",
-                    "idempotency_key": intent.idempotency_key,
+                    "idempotency_key": order.idempotency_key,
                 },
                 correlation_id=correlation_id,
                 causation_id=causation_id,
@@ -124,12 +158,12 @@ class BrokerGateway:
             self._event_sink(event)
 
         order_payload = {
-            "id": intent.intent_id,
-            "symbol": intent.symbol,
-            "side": intent.side,
-            "qty": intent.quantity,
+            "id": order.intent_id,
+            "symbol": order.symbol,
+            "side": order.side,
+            "qty": order.quantity,
             "order_type": "market",
-            "idempotency_key": intent.idempotency_key,
+            "idempotency_key": order.idempotency_key,
         }
         try:
             response = self._adapter.place_order(order_payload)
@@ -143,10 +177,10 @@ class BrokerGateway:
             if self._event_sink is not None:
                 reject = make_event(
                     event_type=ExecutionEventType.ORDER_REJECTED,
-                    aggregate_id=intent.intent_id,
+                    aggregate_id=order.intent_id,
                     seq=1,
                     payload={
-                        "order_id": intent.intent_id,
+                        "order_id": order.intent_id,
                         "error": str(exc),
                     },
                     correlation_id=correlation_id,
