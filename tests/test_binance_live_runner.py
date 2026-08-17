@@ -19,6 +19,11 @@ from trading_agent.execution.live_safety import (
     LiveRiskStateStore,
     LiveSafetyError,
 )
+from trading_agent.execution.canonical import (
+    EvidenceState,
+    RiskLevel,
+    UnifiedRiskDecision,
+)
 
 
 def test_allocations_are_not_normalized():
@@ -272,6 +277,35 @@ class ExecutionBroker:
         return self.reconciled
 
 
+def _sample_risk_decision(
+    *,
+    risk_level: RiskLevel = RiskLevel.LOW,
+    allowed_target_exposure: float = 0.25,
+    max_new_exposure: float = 0.25,
+    reduce_only: bool = False,
+) -> UnifiedRiskDecision:
+    return UnifiedRiskDecision(
+        decision_id="test-decision",
+        forecast_fingerprint="test-fp",
+        model_artifact_id="test-model",
+        requested_target_exposure=0.5,
+        allowed_target_exposure=allowed_target_exposure,
+        max_new_exposure=max_new_exposure,
+        reduce_only=reduce_only,
+        risk_level=risk_level,
+        reason_codes=("APPROVED",),
+        calibration_state=EvidenceState.KNOWN,
+        calibration_artifact_id="cal-1",
+        calibration_ece=0.02,
+        ood_state=EvidenceState.KNOWN,
+        ood_score=0.1,
+        regime_state=EvidenceState.KNOWN,
+        regime_entropy=0.2,
+        interval_width=0.05,
+        created_at=datetime.now(UTC),
+    )
+
+
 def planned_buy():
     return {
         "market_symbol": "BTC/USDT",
@@ -280,6 +314,7 @@ def planned_buy():
         "signal_price": 100.0,
         "candle_timestamp": datetime(2026, 8, 10, 10, tzinfo=UTC),
         "reason": "test",
+        "risk_decision": _sample_risk_decision(),
     }
 
 

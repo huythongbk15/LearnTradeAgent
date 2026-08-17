@@ -14,6 +14,7 @@ from trading_agent.execution.canonical import (
     CausationChain,
     ContentHash,
     EnrichedMarketObservation,
+    EvidenceState,
     OrderPlanner,
     ProtectionPlan,
     ProtectionState,
@@ -34,6 +35,7 @@ from trading_agent.execution.canonical.order_planner import (
     CurrentPortfolioState,
     InstrumentRules,
     MarketPrice,
+    OrderPlanningStatus,
     TargetExposure,
 )
 
@@ -56,9 +58,12 @@ def sample_unified_decision(
     reduce_only: bool = False,
     risk_level: RiskLevel = RiskLevel.LOW,
     reason_codes: tuple[Any, ...] = ("APPROVED",),
-    calibration_state: str = "CALIBRATED",
+    calibration_state: EvidenceState = EvidenceState.KNOWN,
     calibration_artifact_id: str | None = "cal-1",
+    calibration_ece: float = 0.02,
+    ood_state: EvidenceState = EvidenceState.KNOWN,
     ood_score: float = 0.1,
+    regime_state: EvidenceState = EvidenceState.KNOWN,
     regime_entropy: float = 0.2,
     interval_width: float = 0.05,
     created_at: datetime | None = None,
@@ -76,7 +81,10 @@ def sample_unified_decision(
         reason_codes=reason_codes,
         calibration_state=calibration_state,
         calibration_artifact_id=calibration_artifact_id,
+        calibration_ece=calibration_ece,
+        ood_state=ood_state,
         ood_score=ood_score,
+        regime_state=regime_state,
         regime_entropy=regime_entropy,
         interval_width=interval_width,
         created_at=created_at or utcnow(),
@@ -134,14 +142,18 @@ def sample_observation(symbol: str = "BTCUSDT") -> EnrichedMarketObservation:
 
 
 def sample_portfolio(
-    symbol: str = "BTCUSDT", current_exposure: float = 0.0
+    symbol: str = "BTCUSDT",
+    current_exposure: float = 0.0,
+    equity: float = 10000.0,
 ) -> CurrentPortfolioState:
     return CurrentPortfolioState(
         symbol=symbol,
+        equity=equity,
         current_exposure=current_exposure,
         existing_quantity=0.0,
         avg_entry_price=0.0,
         existing_reservations=0.0,
+        available_cash=equity,
     )
 
 
@@ -161,10 +173,21 @@ class TestUnifiedRiskDecision:
             reduce_only=False,
             warnings=(),
         )
-        unified = RiskDecisionAdapter.from_legacy(legacy)
+        unified = RiskDecisionAdapter.from_legacy(
+            legacy,
+            calibration_state=EvidenceState.KNOWN,
+            calibration_artifact_id="cal-1",
+            calibration_ece=0.02,
+            ood_state=EvidenceState.KNOWN,
+            ood_score=0.1,
+            regime_state=EvidenceState.KNOWN,
+            regime_entropy=0.2,
+            interval_width=0.05,
+        )
         assert unified.allowed_target_exposure == 0.25
         assert unified.max_new_exposure == 0.25
         assert unified.risk_level is RiskLevel.LOW
+        assert unified.reduce_only is False
 
     def test_from_legacy_high_risk_maps_to_zero(self):
         legacy = LegacyRiskDecision(
@@ -174,10 +197,22 @@ class TestUnifiedRiskDecision:
             reduce_only=False,
             warnings=("LIMIT_BREACH",),
         )
-        unified = RiskDecisionAdapter.from_legacy(legacy)
+        unified = RiskDecisionAdapter.from_legacy(
+            legacy,
+            calibration_state=EvidenceState.KNOWN,
+            calibration_artifact_id="cal-1",
+            calibration_ece=0.02,
+            ood_state=EvidenceState.KNOWN,
+            ood_score=0.1,
+            regime_state=EvidenceState.KNOWN,
+            regime_entropy=0.2,
+            interval_width=0.05,
+        )
         assert unified.risk_level is RiskLevel.HIGH
         assert unified.allowed_target_exposure == 0.25
-        assert unified.max_new_exposure == 0.25
+        # HIGH risk should map to max_new_exposure=0 and reduce_only=True
+        assert unified.max_new_exposure == 0.0
+        assert unified.reduce_only is True
 
     def test_merge_with_unapproved_forecast_zeroes_exposure(self):
         forecast = pytest.importorskip("trading_agent.research.forecast").RiskDecision(
@@ -196,21 +231,34 @@ class TestUnifiedRiskDecision:
             reduce_only=False,
             warnings=("LIMIT_BREACH",),
         )
-        merged = RiskDecisionAdapter.merge(legacy, forecast)
+        merged = RiskDecisionAdapter.merge(
+            legacy,
+            forecast,
+            calibration_state=EvidenceState.KNOWN,
+            calibration_artifact_id="cal-1",
+            calibration_ece=0.02,
+            ood_state=EvidenceState.KNOWN,
+            ood_score=0.1,
+            regime_state=EvidenceState.KNOWN,
+            regime_entropy=0.2,
+            interval_width=0.05,
+        )
         assert merged.allowed_target_exposure == 0.0
         assert merged.max_new_exposure == 0.0
         assert merged.risk_level is RiskLevel.EXTREME
+        assert merged.reduce_only is True
 
     def test_canonical_fields_preserved(self):
         decision = sample_unified_decision(
             forecast_fingerprint="fp-abc",
             model_artifact_id="model-xyz",
             reason_codes=("APPROVED", "CALIBRATED"),
+            calibration_state=EvidenceState.KNOWN,
         )
         assert decision.forecast_fingerprint == "fp-abc"
         assert decision.model_artifact_id == "model-xyz"
         assert decision.reason_codes == ("APPROVED", "CALIBRATED")
-        assert decision.calibration_state == "CALIBRATED"
+        assert decision.calibration_state is EvidenceState.KNOWN
 
     def test_missing_risk_evidence_blocks_exposure_increase(self):
         decision = sample_unified_decision(
@@ -218,10 +266,11 @@ class TestUnifiedRiskDecision:
             allowed_target_exposure=0.0,
             max_new_exposure=0.0,
             reason_codes=("MISSING_RISK_EVIDENCE",),
-            calibration_state="MISSING",
+            calibration_state=EvidenceState.MISSING,
         )
         assert decision.allowed_target_exposure == 0.0
         assert decision.max_new_exposure == 0.0
+        assert decision.calibration_state is EvidenceState.MISSING
 
 
 # ── 2. OrderPlanner produces correct OrderIntent ───────────────────────
@@ -237,7 +286,7 @@ class TestOrderPlanner:
         target = sample_target_exposure(
             symbol="ETHUSDT", exposure=0.3, horizon=14400, decision_id="decision-1"
         )
-        intent = planner.plan(
+        result = planner.plan(
             target=target,
             risk_decision=decision,
             observation=sample_observation("ETHUSDT"),
@@ -245,6 +294,9 @@ class TestOrderPlanner:
             price=sample_price("ETHUSDT", 2000.0),
             existing_reservations=0.0,
         )
+        assert result.status is OrderPlanningStatus.ORDER_REQUIRED
+        assert result.intent is not None
+        intent = result.intent
         assert intent.side == "buy"
         assert intent.exposure_effect == "INCREASE"
         assert intent.target_exposure == 0.3
@@ -268,11 +320,19 @@ class TestOrderPlanner:
             forecast_decision,
             max_new_exposure=0.0,
             reduce_only=True,
+            calibration_state=EvidenceState.KNOWN,
+            calibration_artifact_id="cal-1",
+            calibration_ece=0.02,
+            ood_state=EvidenceState.KNOWN,
+            ood_score=0.1,
+            regime_state=EvidenceState.KNOWN,
+            regime_entropy=0.2,
+            interval_width=0.05,
         )
         target = sample_target_exposure(
             symbol="BTCUSDT", exposure=0.0, horizon=14400, decision_id="fd-1"
         )
-        intent = planner.plan(
+        result = planner.plan(
             target=target,
             risk_decision=decision,
             observation=sample_observation("BTCUSDT"),
@@ -280,6 +340,9 @@ class TestOrderPlanner:
             price=sample_price("BTCUSDT", 50000.0),
             existing_reservations=0.0,
         )
+        assert result.status is OrderPlanningStatus.ORDER_REQUIRED
+        assert result.intent is not None
+        intent = result.intent
         assert intent.side == "sell"
         assert intent.exposure_effect == "REDUCE"
 
@@ -338,11 +401,19 @@ class TestBrokerGateway:
             forecast_decision,
             max_new_exposure=0.01,
             reduce_only=False,
+            calibration_state=EvidenceState.KNOWN,
+            calibration_artifact_id="cal-1",
+            calibration_ece=0.02,
+            ood_state=EvidenceState.KNOWN,
+            ood_score=0.1,
+            regime_state=EvidenceState.KNOWN,
+            regime_entropy=0.2,
+            interval_width=0.05,
         )
         target = sample_target_exposure(
             symbol="BTCUSDT", exposure=0.01, horizon=14400, decision_id="fd-1"
         )
-        intent = planner.plan(
+        result = planner.plan(
             target=target,
             risk_decision=decision,
             observation=sample_observation("BTCUSDT"),
@@ -350,8 +421,11 @@ class TestBrokerGateway:
             price=sample_price("BTCUSDT", 50000.0),
             existing_reservations=0.0,
         )
-        result = gateway.submit(intent, correlation_id="corr-1")
-        assert isinstance(result, CapitalChangeResult)
+        assert result.status is OrderPlanningStatus.ORDER_REQUIRED
+        assert result.intent is not None
+        intent = result.intent
+        gw_result = gateway.submit(intent, correlation_id="corr-1")
+        assert isinstance(gw_result, CapitalChangeResult)
 
 
 # ── 4. ProtectionPlan state machine ───────────────────────────────────
@@ -529,11 +603,19 @@ class TestSpotLongOnlySemantics:
             forecast_decision,
             max_new_exposure=0.0,
             reduce_only=True,
+            calibration_state=EvidenceState.KNOWN,
+            calibration_artifact_id="cal-1",
+            calibration_ece=0.02,
+            ood_state=EvidenceState.KNOWN,
+            ood_score=0.1,
+            regime_state=EvidenceState.KNOWN,
+            regime_entropy=0.2,
+            interval_width=0.05,
         )
         target = sample_target_exposure(
             symbol="BTCUSDT", exposure=0.0, horizon=14400, decision_id="fd-1"
         )
-        intent = planner.plan(
+        result = planner.plan(
             target=target,
             risk_decision=decision,
             observation=sample_observation("BTCUSDT"),
@@ -541,6 +623,9 @@ class TestSpotLongOnlySemantics:
             price=sample_price("BTCUSDT", 50000.0),
             existing_reservations=0.0,
         )
+        assert result.status is OrderPlanningStatus.ORDER_REQUIRED
+        assert result.intent is not None
+        intent = result.intent
         assert intent.side == "sell"
         assert intent.exposure_effect == "REDUCE"
 
@@ -562,21 +647,25 @@ class TestMissingRiskEvidence:
         planner = OrderPlanner(
             instrument_rules=sample_instrument_rules(min_order_qty=0.0001)
         )
+        # Target wants positive exposure but risk decision blocks it
         target = sample_target_exposure(
             symbol="BTCUSDT",
-            exposure=decision.allowed_target_exposure,
+            exposure=0.3,  # wants 30% exposure
             horizon=14400,
             decision_id="decision-1",
         )
-        with pytest.raises(ValueError, match="risk decision not approved"):
-            planner.plan(
-                target=target,
-                risk_decision=decision,
-                observation=sample_observation("BTCUSDT"),
-                portfolio=sample_portfolio("BTCUSDT", 0.0),
-                price=sample_price("BTCUSDT", 50000.0),
-                existing_reservations=0.0,
-            )
+        result = planner.plan(
+            target=target,
+            risk_decision=decision,
+            observation=sample_observation("BTCUSDT"),
+            portfolio=sample_portfolio("BTCUSDT", 0.0),
+            price=sample_price("BTCUSDT", 50000.0),
+            existing_reservations=0.0,
+        )
+        assert result.status is OrderPlanningStatus.BLOCKED
+        assert result.intent is None
+        # The first check is for approved status, then max_new_exposure
+        assert "RISK_DECISION_NOT_APPROVED" in result.reason_codes
 
 
 # ── Extra: protect new order_intent fields exist ────────────────────────
@@ -601,11 +690,19 @@ class TestOrderIntentShape:
             forecast_decision,
             max_new_exposure=0.2,
             reduce_only=False,
+            calibration_state=EvidenceState.KNOWN,
+            calibration_artifact_id="cal-1",
+            calibration_ece=0.02,
+            ood_state=EvidenceState.KNOWN,
+            ood_score=0.1,
+            regime_state=EvidenceState.KNOWN,
+            regime_entropy=0.2,
+            interval_width=0.05,
         )
         target = sample_target_exposure(
             symbol="BNBUSDT", exposure=0.2, horizon=14400, decision_id="fd-1"
         )
-        intent = planner.plan(
+        result = planner.plan(
             target=target,
             risk_decision=decision,
             observation=sample_observation("BNBUSDT"),
@@ -613,6 +710,9 @@ class TestOrderIntentShape:
             price=sample_price("BNBUSDT", 300.0),
             existing_reservations=0.0,
         )
+        assert result.status is OrderPlanningStatus.ORDER_REQUIRED
+        assert result.intent is not None
+        intent = result.intent
         assert intent.intent_id
         assert intent.decision_id == "fd-1"
         assert intent.forecast_fingerprint == "fp-1"

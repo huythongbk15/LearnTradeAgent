@@ -34,6 +34,15 @@ class RiskLevel(str, Enum):
     EXTREME = "EXTREME"
 
 
+class EvidenceState(str, Enum):
+    """Evidence availability state for calibration/OOD/regime."""
+
+    KNOWN = "KNOWN"  # evidence available and current
+    UNKNOWN = "UNKNOWN"  # evidence not computed / unavailable
+    MISSING = "MISSING"  # evidence expected but not found
+    STALE = "STALE"  # evidence exists but expired
+
+
 @dataclass(frozen=True)
 class UnifiedRiskDecision:
     """Single canonical risk decision for the execution pipeline.
@@ -58,13 +67,20 @@ class UnifiedRiskDecision:
     reason_codes: tuple[RiskReason, ...]  # from forecast
 
     # ── Calibration evidence ────────────────────────────────────────────
-    calibration_state: str  # from forecast (CalibrationState value)
+    calibration_state: EvidenceState
     calibration_artifact_id: str | None
+    calibration_ece: float  # Expected Calibration Error [0, 1]
 
-    # ── Model / regime telemetry ────────────────────────────────────────
-    ood_score: float  # from forecast
-    regime_entropy: float
-    interval_width: float
+    # ── OOD evidence ────────────────────────────────────────────────────
+    ood_state: EvidenceState
+    ood_score: float  # [0, 1], higher = more OOD
+
+    # ── Regime evidence ─────────────────────────────────────────────────
+    regime_state: EvidenceState
+    regime_entropy: float  # [0, 1], higher = more uncertain
+
+    # ── Uncertainty quantification ──────────────────────────────────────
+    interval_width: float  # prediction interval width (normalized)
 
     # ── Audit ───────────────────────────────────────────────────────────
     created_at: datetime
@@ -80,6 +96,7 @@ class UnifiedRiskDecision:
             "ood_score",
             "regime_entropy",
             "interval_width",
+            "calibration_ece",
         ):
             val = float(getattr(self, name))
             if not (0.0 <= val <= 1.0):
@@ -103,6 +120,39 @@ class UnifiedRiskDecision:
             return 0.0
         return self.allowed_target_exposure
 
+    @property
+    def evidence_complete(self) -> bool:
+        """True when all evidence states are KNOWN."""
+        return (
+            self.calibration_state is EvidenceState.KNOWN
+            and self.ood_state is EvidenceState.KNOWN
+            and self.regime_state is EvidenceState.KNOWN
+        )
+
+    @property
+    def has_missing_evidence(self) -> bool:
+        """True when any evidence is MISSING or STALE."""
+        return any(
+            s in (EvidenceState.MISSING, EvidenceState.STALE)
+            for s in (
+                self.calibration_state,
+                self.ood_state,
+                self.regime_state,
+            )
+        )
+
+    @property
+    def has_unknown_evidence(self) -> bool:
+        """True when any evidence is UNKNOWN."""
+        return any(
+            s is EvidenceState.UNKNOWN
+            for s in (
+                self.calibration_state,
+                self.ood_state,
+                self.regime_state,
+            )
+        )
+
 
 class RiskDecisionAdapter:
     """Convert between legacy and canonical RiskDecision types."""
@@ -113,11 +163,14 @@ class RiskDecisionAdapter:
         *,
         forecast_fingerprint: str = "",
         model_artifact_id: str = "",
-        calibration_state: str = "UNKNOWN",
+        calibration_state: EvidenceState = EvidenceState.UNKNOWN,
         calibration_artifact_id: str | None = None,
-        regime_entropy: float = 0.0,
-        interval_width: float = 0.0,
-        ood_score: float = 0.0,
+        calibration_ece: float = 1.0,
+        ood_state: EvidenceState = EvidenceState.UNKNOWN,
+        ood_score: float = 1.0,
+        regime_state: EvidenceState = EvidenceState.UNKNOWN,
+        regime_entropy: float = 1.0,
+        interval_width: float = 1.0,
     ) -> UnifiedRiskDecision:
         """Build a UnifiedRiskDecision from a legacy RiskDecision.
 
@@ -133,19 +186,30 @@ class RiskDecisionAdapter:
             raise TypeError(f"expected LegacyRiskDecision, got {type(legacy).__name__}")
         now = datetime.now(UTC)
         decision_id = f"legacy_{now.strftime('%Y%m%d%H%M%S')}_{id(legacy):x}"
+
+        # HIGH/EXTREME legacy risk → zero new exposure, reduce_only
+        max_new_exposure = legacy.max_new_exposure_pct
+        reduce_only = legacy.reduce_only
+        if legacy.risk_level.value in ("HIGH", "EXTREME"):
+            max_new_exposure = 0.0
+            reduce_only = True
+
         return UnifiedRiskDecision(
             decision_id=decision_id,
             forecast_fingerprint=forecast_fingerprint,
             model_artifact_id=model_artifact_id,
             requested_target_exposure=legacy.target_exposure_pct,
             allowed_target_exposure=legacy.target_exposure_pct,
-            max_new_exposure=legacy.max_new_exposure_pct,
-            reduce_only=legacy.reduce_only,
+            max_new_exposure=max_new_exposure,
+            reduce_only=reduce_only,
             risk_level=RiskLevel(legacy.risk_level.value),
             reason_codes=tuple(),
             calibration_state=calibration_state,
             calibration_artifact_id=calibration_artifact_id,
+            calibration_ece=calibration_ece,
+            ood_state=ood_state,
             ood_score=ood_score,
+            regime_state=regime_state,
             regime_entropy=regime_entropy,
             interval_width=interval_width,
             created_at=now,
@@ -158,29 +222,48 @@ class RiskDecisionAdapter:
         *,
         max_new_exposure: float = 0.0,
         reduce_only: bool = False,
-        regime_entropy: float = 0.0,
-        interval_width: float = 0.0,
+        calibration_state: EvidenceState = EvidenceState.UNKNOWN,
+        calibration_artifact_id: str | None = None,
+        calibration_ece: float = 1.0,
+        ood_state: EvidenceState = EvidenceState.UNKNOWN,
+        ood_score: float = 1.0,
+        regime_state: EvidenceState = EvidenceState.UNKNOWN,
+        regime_entropy: float = 1.0,
+        interval_width: float = 1.0,
         warnings: tuple[str, ...] = (),
     ) -> UnifiedRiskDecision:
         """Build a UnifiedRiskDecision from the canonical forecast RiskDecision.
 
         Exposure fields come from the forecast decision; execution policy
-        fields are injected as arguments.
+        fields and evidence states are injected as EXPLICIT arguments.
+        NO auto-defaults for calibration/OOD/regime — callers MUST provide
+        evidence or explicitly mark UNKNOWN/MISSING/STALE.
         """
         now = datetime.now(UTC)
+
+        # If forecast doesn't approve, zero out exposure and force reduce_only
+        allowed_exposure = forecast_decision.allowed_exposure
+        if not forecast_decision.approved:
+            allowed_exposure = 0.0
+            reduce_only = True
+            max_new_exposure = 0.0
+
         return UnifiedRiskDecision(
             decision_id=forecast_decision.decision_id,
             forecast_fingerprint=forecast_decision.forecast_fingerprint,
             model_artifact_id=forecast_decision.model_artifact_id,
             requested_target_exposure=forecast_decision.requested_exposure,
-            allowed_target_exposure=forecast_decision.allowed_exposure,
+            allowed_target_exposure=allowed_exposure,
             max_new_exposure=max_new_exposure,
             reduce_only=reduce_only,
             risk_level=RiskLevel.MEDIUM,
             reason_codes=forecast_decision.reason_codes,
-            calibration_state="CALIBRATED",
-            calibration_artifact_id=forecast_decision.model_artifact_id,
-            ood_score=0.0,
+            calibration_state=calibration_state,
+            calibration_artifact_id=calibration_artifact_id,
+            calibration_ece=calibration_ece,
+            ood_state=ood_state,
+            ood_score=ood_score,
+            regime_state=regime_state,
             regime_entropy=regime_entropy,
             interval_width=interval_width,
             created_at=now,
@@ -192,8 +275,14 @@ class RiskDecisionAdapter:
         legacy: Any,
         forecast: ForecastRiskDecision,
         *,
-        regime_entropy: float = 0.0,
-        interval_width: float = 0.0,
+        calibration_state: EvidenceState = EvidenceState.UNKNOWN,
+        calibration_artifact_id: str | None = None,
+        calibration_ece: float = 1.0,
+        ood_state: EvidenceState = EvidenceState.UNKNOWN,
+        ood_score: float = 1.0,
+        regime_state: EvidenceState = EvidenceState.UNKNOWN,
+        regime_entropy: float = 1.0,
+        interval_width: float = 1.0,
     ) -> UnifiedRiskDecision:
         """Merge both legacy and forecast decisions into one unified type.
 
@@ -206,6 +295,12 @@ class RiskDecisionAdapter:
             legacy,
             forecast_fingerprint=forecast.forecast_fingerprint,
             model_artifact_id=forecast.model_artifact_id,
+            calibration_state=calibration_state,
+            calibration_artifact_id=calibration_artifact_id,
+            calibration_ece=calibration_ece,
+            ood_state=ood_state,
+            ood_score=ood_score,
+            regime_state=regime_state,
             regime_entropy=regime_entropy,
             interval_width=interval_width,
         )
@@ -213,6 +308,12 @@ class RiskDecisionAdapter:
             forecast,
             max_new_exposure=legacy_unified.max_new_exposure,
             reduce_only=legacy_unified.reduce_only,
+            calibration_state=calibration_state,
+            calibration_artifact_id=calibration_artifact_id,
+            calibration_ece=calibration_ece,
+            ood_state=ood_state,
+            ood_score=ood_score,
+            regime_state=regime_state,
             regime_entropy=regime_entropy,
             interval_width=interval_width,
         )
@@ -230,7 +331,10 @@ class RiskDecisionAdapter:
                 reason_codes=forecast_unified.reason_codes,
                 calibration_state=forecast_unified.calibration_state,
                 calibration_artifact_id=forecast_unified.calibration_artifact_id,
+                calibration_ece=forecast_unified.calibration_ece,
+                ood_state=forecast_unified.ood_state,
                 ood_score=forecast_unified.ood_score,
+                regime_state=forecast_unified.regime_state,
                 regime_entropy=forecast_unified.regime_entropy,
                 interval_width=forecast_unified.interval_width,
                 created_at=forecast_unified.created_at,
@@ -241,6 +345,7 @@ class RiskDecisionAdapter:
 
 __all__ = [
     "RiskLevel",
+    "EvidenceState",
     "UnifiedRiskDecision",
     "RiskDecisionAdapter",
 ]

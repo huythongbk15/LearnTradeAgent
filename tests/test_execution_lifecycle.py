@@ -8,9 +8,15 @@ snapshot + restore (schema_version/checksum/partial/corrupt rejection).
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import pytest
 
+from trading_agent.execution.canonical import (
+    EvidenceState,
+    RiskLevel,
+    UnifiedRiskDecision,
+)
 from trading_agent.execution.lifecycle import (
     EVENT_SCHEMA_VERSION,
     EventValidationError,
@@ -28,6 +34,50 @@ from trading_agent.execution.lifecycle import (
     TrustedPrice,
     make_event,
 )
+
+
+def sample_unified_decision(
+    *,
+    decision_id: str = "decision-1",
+    forecast_fingerprint: str = "fp-1",
+    model_artifact_id: str = "model-v1",
+    requested_target_exposure: float = 0.5,
+    allowed_target_exposure: float = 0.4,
+    max_new_exposure: float = 0.4,
+    reduce_only: bool = False,
+    risk_level: RiskLevel = RiskLevel.LOW,
+    reason_codes: tuple[Any, ...] = ("APPROVED",),
+    calibration_state: EvidenceState = EvidenceState.KNOWN,
+    calibration_artifact_id: str | None = "cal-1",
+    calibration_ece: float = 0.02,
+    ood_state: EvidenceState = EvidenceState.KNOWN,
+    ood_score: float = 0.1,
+    regime_state: EvidenceState = EvidenceState.KNOWN,
+    regime_entropy: float = 0.2,
+    interval_width: float = 0.05,
+    created_at: datetime | None = None,
+) -> UnifiedRiskDecision:
+    max_new = min(max_new_exposure, allowed_target_exposure)
+    return UnifiedRiskDecision(
+        decision_id=decision_id,
+        forecast_fingerprint=forecast_fingerprint,
+        model_artifact_id=model_artifact_id,
+        requested_target_exposure=requested_target_exposure,
+        allowed_target_exposure=allowed_target_exposure,
+        max_new_exposure=max_new,
+        reduce_only=reduce_only,
+        risk_level=risk_level,
+        reason_codes=reason_codes,
+        calibration_state=calibration_state,
+        calibration_artifact_id=calibration_artifact_id,
+        calibration_ece=calibration_ece,
+        ood_state=ood_state,
+        ood_score=ood_score,
+        regime_state=regime_state,
+        regime_entropy=regime_entropy,
+        interval_width=interval_width,
+        created_at=created_at or datetime.now(UTC),
+    )
 
 
 @pytest.fixture
@@ -115,7 +165,26 @@ def test_full_lifecycle_and_replay_determinism(tmp_path):
             ),
         )
         lc.create_order_intent("i1", "BTC/USDT", "buy", 1.0)
-        lc.approve_risk("i1")
+        risk_decision = sample_unified_decision(
+            decision_id="decision-1",
+            forecast_fingerprint="fp-1",
+            model_artifact_id="model-v1",
+            requested_target_exposure=0.5,
+            allowed_target_exposure=0.5,
+            max_new_exposure=0.5,
+            reduce_only=False,
+            risk_level=RiskLevel.LOW,
+            reason_codes=("APPROVED",),
+            calibration_state=EvidenceState.KNOWN,
+            calibration_artifact_id="cal-1",
+            calibration_ece=0.02,
+            ood_state=EvidenceState.KNOWN,
+            ood_score=0.1,
+            regime_state=EvidenceState.KNOWN,
+            regime_entropy=0.2,
+            interval_width=0.05,
+        )
+        lc.approve_risk("i1", risk_decision=risk_decision)
         lc.submit_order("i1", exchange_order_id="ex_1")
         lc.acknowledge_broker("i1", broker_order_id="br_1")
         lc.receive_fill("i1", 1.0, 99.5, protective_trigger=90.0)
@@ -177,7 +246,26 @@ def test_unknown_broker_state_goes_manual_not_silent(store):
         ),
     )
     lc.create_order_intent("i1", "BTC/USDT", "buy", 1.0)
-    lc.approve_risk("i1")
+    risk_decision = sample_unified_decision(
+        decision_id="decision-1",
+        forecast_fingerprint="fp-1",
+        model_artifact_id="model-v1",
+        requested_target_exposure=0.5,
+        allowed_target_exposure=0.5,
+        max_new_exposure=0.5,
+        reduce_only=False,
+        risk_level=RiskLevel.LOW,
+        reason_codes=("APPROVED",),
+        calibration_state=EvidenceState.KNOWN,
+        calibration_artifact_id="cal-1",
+        calibration_ece=0.02,
+        ood_state=EvidenceState.KNOWN,
+        ood_score=0.1,
+        regime_state=EvidenceState.KNOWN,
+        regime_entropy=0.2,
+        interval_width=0.05,
+    )
+    lc.approve_risk("i1", risk_decision=risk_decision)
     lc.submit_order("i1", exchange_order_id="ex_1")
     lc.acknowledge_broker("i1", broker_order_id="br_1")
     # Broker reports an unknown status for the live order
@@ -202,7 +290,26 @@ def test_no_replay_creating_synthetic_extra_fill(store):
         ),
     )
     lc.create_order_intent("i1", "BTC/USDT", "buy", 1.0)
-    lc.approve_risk("i1")
+    risk_decision = sample_unified_decision(
+        decision_id="decision-1",
+        forecast_fingerprint="fp-1",
+        model_artifact_id="model-v1",
+        requested_target_exposure=0.5,
+        allowed_target_exposure=0.5,
+        max_new_exposure=0.5,
+        reduce_only=False,
+        risk_level=RiskLevel.LOW,
+        reason_codes=("APPROVED",),
+        calibration_state=EvidenceState.KNOWN,
+        calibration_artifact_id="cal-1",
+        calibration_ece=0.02,
+        ood_state=EvidenceState.KNOWN,
+        ood_score=0.1,
+        regime_state=EvidenceState.KNOWN,
+        regime_entropy=0.2,
+        interval_width=0.05,
+    )
+    lc.approve_risk("i1", risk_decision=risk_decision)
     lc.submit_order("i1", exchange_order_id="ex_1")
     lc.acknowledge_broker("i1", broker_order_id="br_1")
     lc.receive_fill("i1", 1.0, 99.5, protective_trigger=90.0)
@@ -252,7 +359,26 @@ def test_reconciliation_blocks_entry(store):
         ),
     )
     lc.create_order_intent("i1", "BTC/USDT", "buy", 1.0)
-    lc.approve_risk("i1")
+    risk_decision = sample_unified_decision(
+        decision_id="decision-1",
+        forecast_fingerprint="fp-1",
+        model_artifact_id="model-v1",
+        requested_target_exposure=0.5,
+        allowed_target_exposure=0.5,
+        max_new_exposure=0.5,
+        reduce_only=False,
+        risk_level=RiskLevel.LOW,
+        reason_codes=("APPROVED",),
+        calibration_state=EvidenceState.KNOWN,
+        calibration_artifact_id="cal-1",
+        calibration_ece=0.02,
+        ood_state=EvidenceState.KNOWN,
+        ood_score=0.1,
+        regime_state=EvidenceState.KNOWN,
+        regime_entropy=0.2,
+        interval_width=0.05,
+    )
+    lc.approve_risk("i1", risk_decision=risk_decision)
     lc.start_reconciliation()
     with pytest.raises(InvariantViolation):
         lc.submit_order("i1", exchange_order_id="ex_1")
@@ -386,7 +512,26 @@ def test_duplicate_submit_blocked(store):
         ),
     )
     lc.create_order_intent("i1", "BTC/USDT", "buy", 1.0)
-    lc.approve_risk("i1")
+    risk_decision = sample_unified_decision(
+        decision_id="decision-1",
+        forecast_fingerprint="fp-1",
+        model_artifact_id="model-v1",
+        requested_target_exposure=0.5,
+        allowed_target_exposure=0.5,
+        max_new_exposure=0.5,
+        reduce_only=False,
+        risk_level=RiskLevel.LOW,
+        reason_codes=("APPROVED",),
+        calibration_state=EvidenceState.KNOWN,
+        calibration_artifact_id="cal-1",
+        calibration_ece=0.02,
+        ood_state=EvidenceState.KNOWN,
+        ood_score=0.1,
+        regime_state=EvidenceState.KNOWN,
+        regime_entropy=0.2,
+        interval_width=0.05,
+    )
+    lc.approve_risk("i1", risk_decision=risk_decision)
     lc.submit_order("i1", exchange_order_id="ex_1")
     with pytest.raises(InvariantViolation):
         lc.submit_order("i1", exchange_order_id="ex_1")  # duplicate live order
@@ -409,9 +554,28 @@ def test_kill_switch_blocks_buy_but_allows_reduce_only_sell(store):
         ),
         inventory_source=lambda sym, side: inventory.get(sym, 0.0),
     )
+    risk_decision = sample_unified_decision(
+        decision_id="decision-1",
+        forecast_fingerprint="fp-1",
+        model_artifact_id="model-v1",
+        requested_target_exposure=0.5,
+        allowed_target_exposure=0.5,
+        max_new_exposure=0.5,
+        reduce_only=False,
+        risk_level=RiskLevel.LOW,
+        reason_codes=("APPROVED",),
+        calibration_state=EvidenceState.KNOWN,
+        calibration_artifact_id="cal-1",
+        calibration_ece=0.02,
+        ood_state=EvidenceState.KNOWN,
+        ood_score=0.1,
+        regime_state=EvidenceState.KNOWN,
+        regime_entropy=0.2,
+        interval_width=0.05,
+    )
     # Existing position: buy 1.0 first
     lc.create_order_intent("i_buy", "BTC/USDT", "buy", 1.0)
-    lc.approve_risk("i_buy")
+    lc.approve_risk("i_buy", risk_decision=risk_decision)
     lc.submit_order("i_buy", exchange_order_id="ex_1")
     lc.acknowledge_broker("i_buy", broker_order_id="br_1")
     lc.receive_fill("i_buy", 1.0, 99.5, protective_trigger=90.0)
@@ -423,7 +587,26 @@ def test_kill_switch_blocks_buy_but_allows_reduce_only_sell(store):
         lc.create_order_intent("i_new_buy", "BTC/USDT", "buy", 1.0)
     # Reduce-only SELL allowed
     lc.create_order_intent("i_sell", "BTC/USDT", "sell", 1.0)
-    lc.approve_risk("i_sell")
+    risk_decision_sell = sample_unified_decision(
+        decision_id="decision-2",
+        forecast_fingerprint="fp-2",
+        model_artifact_id="model-v1",
+        requested_target_exposure=0.0,
+        allowed_target_exposure=0.0,
+        max_new_exposure=0.0,
+        reduce_only=True,
+        risk_level=RiskLevel.LOW,
+        reason_codes=("REDUCE_ONLY",),
+        calibration_state=EvidenceState.KNOWN,
+        calibration_artifact_id="cal-1",
+        calibration_ece=0.02,
+        ood_state=EvidenceState.KNOWN,
+        ood_score=0.1,
+        regime_state=EvidenceState.KNOWN,
+        regime_entropy=0.2,
+        interval_width=0.05,
+    )
+    lc.approve_risk("i_sell", risk_decision=risk_decision_sell)
     lc.submit_order("i_sell", exchange_order_id="ex_2")
     lc.acknowledge_broker("i_sell", broker_order_id="br_2")
     lc.receive_fill("i_sell", 1.0, 101.0)
@@ -528,8 +711,27 @@ def test_manual_intervention_blocks_new_exposure(store):
             received_at=datetime.now(UTC),
         ),
     )
+    risk_decision = sample_unified_decision(
+        decision_id="decision-1",
+        forecast_fingerprint="fp-1",
+        model_artifact_id="model-v1",
+        requested_target_exposure=0.5,
+        allowed_target_exposure=0.5,
+        max_new_exposure=0.5,
+        reduce_only=False,
+        risk_level=RiskLevel.LOW,
+        reason_codes=("APPROVED",),
+        calibration_state=EvidenceState.KNOWN,
+        calibration_artifact_id="cal-1",
+        calibration_ece=0.02,
+        ood_state=EvidenceState.KNOWN,
+        ood_score=0.1,
+        regime_state=EvidenceState.KNOWN,
+        regime_entropy=0.2,
+        interval_width=0.05,
+    )
     lc.create_order_intent("i1", "BTC/USDT", "buy", 1.0)
-    lc.approve_risk("i1")
+    lc.approve_risk("i1", risk_decision=risk_decision)
     lc.submit_order("i1", exchange_order_id="ex_1")
     lc.acknowledge_broker("i1", broker_order_id="br_1")
     # Unknown broker state → manual
@@ -552,8 +754,27 @@ def test_resolve_reconciliation_requires_no_manual_issues(store):
             received_at=datetime.now(UTC),
         ),
     )
+    risk_decision = sample_unified_decision(
+        decision_id="decision-1",
+        forecast_fingerprint="fp-1",
+        model_artifact_id="model-v1",
+        requested_target_exposure=0.5,
+        allowed_target_exposure=0.5,
+        max_new_exposure=0.5,
+        reduce_only=False,
+        risk_level=RiskLevel.LOW,
+        reason_codes=("APPROVED",),
+        calibration_state=EvidenceState.KNOWN,
+        calibration_artifact_id="cal-1",
+        calibration_ece=0.02,
+        ood_state=EvidenceState.KNOWN,
+        ood_score=0.1,
+        regime_state=EvidenceState.KNOWN,
+        regime_entropy=0.2,
+        interval_width=0.05,
+    )
     lc.create_order_intent("i1", "BTC/USDT", "buy", 1.0)
-    lc.approve_risk("i1")
+    lc.approve_risk("i1", risk_decision=risk_decision)
     lc.submit_order("i1", exchange_order_id="ex_1")
     lc.acknowledge_broker("i1", broker_order_id="br_1")
     lc.reconcile_broker_state({"ex_1": "weird_state"})
@@ -615,8 +836,27 @@ def test_protection_gap_blocks_new_exposure(store):
         ),
         require_protective_order=True,
     )
+    risk_decision = sample_unified_decision(
+        decision_id="decision-1",
+        forecast_fingerprint="fp-1",
+        model_artifact_id="model-v1",
+        requested_target_exposure=0.5,
+        allowed_target_exposure=0.5,
+        max_new_exposure=0.5,
+        reduce_only=False,
+        risk_level=RiskLevel.LOW,
+        reason_codes=("APPROVED",),
+        calibration_state=EvidenceState.KNOWN,
+        calibration_artifact_id="cal-1",
+        calibration_ece=0.02,
+        ood_state=EvidenceState.KNOWN,
+        ood_score=0.1,
+        regime_state=EvidenceState.KNOWN,
+        regime_entropy=0.2,
+        interval_width=0.05,
+    )
     lc.create_order_intent("i1", "BTC/USDT", "buy", 1.0)
-    lc.approve_risk("i1")
+    lc.approve_risk("i1", risk_decision=risk_decision)
     lc.submit_order("i1", exchange_order_id="ex_1")
     lc.acknowledge_broker("i1", broker_order_id="br_1")
     # Fill without protective trigger → protection gap
@@ -638,8 +878,27 @@ def test_fill_with_trigger_requires_ack_for_protected(store):
         ),
         require_protective_order=True,
     )
+    risk_decision = sample_unified_decision(
+        decision_id="decision-1",
+        forecast_fingerprint="fp-1",
+        model_artifact_id="model-v1",
+        requested_target_exposure=0.5,
+        allowed_target_exposure=0.5,
+        max_new_exposure=0.5,
+        reduce_only=False,
+        risk_level=RiskLevel.LOW,
+        reason_codes=("APPROVED",),
+        calibration_state=EvidenceState.KNOWN,
+        calibration_artifact_id="cal-1",
+        calibration_ece=0.02,
+        ood_state=EvidenceState.KNOWN,
+        ood_score=0.1,
+        regime_state=EvidenceState.KNOWN,
+        regime_entropy=0.2,
+        interval_width=0.05,
+    )
     lc.create_order_intent("i1", "BTC/USDT", "buy", 1.0)
-    lc.approve_risk("i1")
+    lc.approve_risk("i1", risk_decision=risk_decision)
     lc.submit_order("i1", exchange_order_id="ex_1")
     lc.acknowledge_broker("i1", broker_order_id="br_1")
     lc.receive_fill("i1", 1.0, 99.5, protective_trigger=90.0)
@@ -668,7 +927,26 @@ def test_fill_with_trigger_requires_ack_for_protected(store):
         require_protective_order=True,
     )
     lc2.create_order_intent("i3", "BTC/USDT", "sell", 1.0)
-    lc2.approve_risk("i3")
+    risk_decision_sell = sample_unified_decision(
+        decision_id="decision-3",
+        forecast_fingerprint="fp-3",
+        model_artifact_id="model-v1",
+        requested_target_exposure=0.0,
+        allowed_target_exposure=0.0,
+        max_new_exposure=0.0,
+        reduce_only=True,
+        risk_level=RiskLevel.LOW,
+        reason_codes=("REDUCE_ONLY",),
+        calibration_state=EvidenceState.KNOWN,
+        calibration_artifact_id="cal-1",
+        calibration_ece=0.02,
+        ood_state=EvidenceState.KNOWN,
+        ood_score=0.1,
+        regime_state=EvidenceState.KNOWN,
+        regime_entropy=0.2,
+        interval_width=0.05,
+    )
+    lc2.approve_risk("i3", risk_decision=risk_decision_sell)
     lc2.submit_order("i3", exchange_order_id="ex_3")
     lc2.acknowledge_broker("i3", broker_order_id="br_3")
     # Should not raise
@@ -685,8 +963,27 @@ def test_acknowledge_protective_order_sets_protected(store):
         ),
         require_protective_order=True,
     )
+    risk_decision = sample_unified_decision(
+        decision_id="decision-1",
+        forecast_fingerprint="fp-1",
+        model_artifact_id="model-v1",
+        requested_target_exposure=0.5,
+        allowed_target_exposure=0.5,
+        max_new_exposure=0.5,
+        reduce_only=False,
+        risk_level=RiskLevel.LOW,
+        reason_codes=("APPROVED",),
+        calibration_state=EvidenceState.KNOWN,
+        calibration_artifact_id="cal-1",
+        calibration_ece=0.02,
+        ood_state=EvidenceState.KNOWN,
+        ood_score=0.1,
+        regime_state=EvidenceState.KNOWN,
+        regime_entropy=0.2,
+        interval_width=0.05,
+    )
     lc.create_order_intent("i1", "BTC/USDT", "buy", 1.0)
-    lc.approve_risk("i1")
+    lc.approve_risk("i1", risk_decision=risk_decision)
     lc.submit_order("i1", exchange_order_id="ex_1")
     lc.acknowledge_broker("i1", broker_order_id="br_1")
     lc.receive_fill("i1", 1.0, 99.5, protective_trigger=90.0)
@@ -715,8 +1012,27 @@ def test_crash_between_fill_and_protective_replay_requires_protection(tmp_path):
             ),
             require_protective_order=True,
         )
+        risk_decision = sample_unified_decision(
+            decision_id="decision-1",
+            forecast_fingerprint="fp-1",
+            model_artifact_id="model-v1",
+            requested_target_exposure=0.5,
+            allowed_target_exposure=0.5,
+            max_new_exposure=0.5,
+            reduce_only=False,
+            risk_level=RiskLevel.LOW,
+            reason_codes=("APPROVED",),
+            calibration_state=EvidenceState.KNOWN,
+            calibration_artifact_id="cal-1",
+            calibration_ece=0.02,
+            ood_state=EvidenceState.KNOWN,
+            ood_score=0.1,
+            regime_state=EvidenceState.KNOWN,
+            regime_entropy=0.2,
+            interval_width=0.05,
+        )
         lc.create_order_intent("i1", "BTC/USDT", "buy", 1.0)
-        lc.approve_risk("i1")
+        lc.approve_risk("i1", risk_decision=risk_decision)
         lc.submit_order("i1", exchange_order_id="ex_1")
         lc.acknowledge_broker("i1", broker_order_id="br_1")
         lc.receive_fill("i1", 1.0, 99.5, protective_trigger=90.0)
@@ -739,8 +1055,27 @@ def test_repeated_recovery_does_not_duplicate_protection(store):
         ),
         require_protective_order=True,
     )
+    risk_decision = sample_unified_decision(
+        decision_id="decision-1",
+        forecast_fingerprint="fp-1",
+        model_artifact_id="model-v1",
+        requested_target_exposure=0.5,
+        allowed_target_exposure=0.5,
+        max_new_exposure=0.5,
+        reduce_only=False,
+        risk_level=RiskLevel.LOW,
+        reason_codes=("APPROVED",),
+        calibration_state=EvidenceState.KNOWN,
+        calibration_artifact_id="cal-1",
+        calibration_ece=0.02,
+        ood_state=EvidenceState.KNOWN,
+        ood_score=0.1,
+        regime_state=EvidenceState.KNOWN,
+        regime_entropy=0.2,
+        interval_width=0.05,
+    )
     lc.create_order_intent("i1", "BTC/USDT", "buy", 1.0)
-    lc.approve_risk("i1")
+    lc.approve_risk("i1", risk_decision=risk_decision)
     lc.submit_order("i1", exchange_order_id="ex_1")
     lc.acknowledge_broker("i1", broker_order_id="br_1")
     lc.receive_fill("i1", 1.0, 99.5, protective_trigger=90.0)
@@ -769,8 +1104,27 @@ def test_unknown_broker_state_fail_closed(store):
         ),
         require_protective_order=True,
     )
+    risk_decision = sample_unified_decision(
+        decision_id="decision-1",
+        forecast_fingerprint="fp-1",
+        model_artifact_id="model-v1",
+        requested_target_exposure=0.5,
+        allowed_target_exposure=0.5,
+        max_new_exposure=0.5,
+        reduce_only=False,
+        risk_level=RiskLevel.LOW,
+        reason_codes=("APPROVED",),
+        calibration_state=EvidenceState.KNOWN,
+        calibration_artifact_id="cal-1",
+        calibration_ece=0.02,
+        ood_state=EvidenceState.KNOWN,
+        ood_score=0.1,
+        regime_state=EvidenceState.KNOWN,
+        regime_entropy=0.2,
+        interval_width=0.05,
+    )
     lc.create_order_intent("i1", "BTC/USDT", "buy", 1.0)
-    lc.approve_risk("i1")
+    lc.approve_risk("i1", risk_decision=risk_decision)
     lc.submit_order("i1", exchange_order_id="ex_1")
     lc.acknowledge_broker("i1", broker_order_id="br_1")
     report = lc.reconcile_broker_state({"ex_1": "weird_state"})

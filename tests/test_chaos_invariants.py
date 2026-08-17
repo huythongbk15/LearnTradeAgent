@@ -11,6 +11,11 @@ from datetime import UTC, datetime
 
 import pytest
 
+from trading_agent.execution.canonical import (
+    EvidenceState,
+    RiskLevel,
+    UnifiedRiskDecision,
+)
 from trading_agent.execution.chaos_invariants import (
     FaultType,
     check_invariants,
@@ -22,6 +27,35 @@ from trading_agent.execution.lifecycle import (
     IntentStatus,
     TrustedPrice,
 )
+
+
+def _sample_risk_decision(
+    *,
+    risk_level: RiskLevel = RiskLevel.LOW,
+    allowed_target_exposure: float = 0.25,
+    max_new_exposure: float = 0.25,
+    reduce_only: bool = False,
+) -> UnifiedRiskDecision:
+    return UnifiedRiskDecision(
+        decision_id="test-decision",
+        forecast_fingerprint="test-fp",
+        model_artifact_id="test-model",
+        requested_target_exposure=0.5,
+        allowed_target_exposure=allowed_target_exposure,
+        max_new_exposure=max_new_exposure,
+        reduce_only=reduce_only,
+        risk_level=risk_level,
+        reason_codes=("APPROVED",),
+        calibration_state=EvidenceState.KNOWN,
+        calibration_artifact_id="cal-1",
+        calibration_ece=0.02,
+        ood_state=EvidenceState.KNOWN,
+        ood_score=0.1,
+        regime_state=EvidenceState.KNOWN,
+        regime_entropy=0.2,
+        interval_width=0.05,
+        created_at=datetime.now(UTC),
+    )
 
 
 @pytest.fixture
@@ -157,10 +191,11 @@ def test_reconciliation_unresolved_blocks_new_entries(tmp_path):
             received_at=datetime.now(UTC),
         ),
     )
+    risk_decision = _sample_risk_decision()
     lc.start_reconciliation()
     # Intents may be drafted, but market entry (submit) is gated.
     lc.create_order_intent("blocked2", "BTC/USDT", "buy", 1.0)
-    lc.approve_risk("blocked2")
+    lc.approve_risk("blocked2", risk_decision=risk_decision)
     with pytest.raises(InvariantViolation):
         lc.submit_order("blocked2", exchange_order_id="ex_1")
     # Once resolved, entry is allowed again.

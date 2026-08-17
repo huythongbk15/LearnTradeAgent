@@ -1439,6 +1439,7 @@ def execute_orders(
             store.clear_position_dust(pair)
         current_notional = float(current["market_value"]) if current else 0.0
         notional = quantity * float(quote_price)
+        risk_decision = planned.get("risk_decision")
         validate_order_risk(
             side=planned["action"],
             notional_usd=notional,
@@ -1448,6 +1449,7 @@ def execute_orders(
             gross_exposure=gross,
             limits=limits,
             locked_reason=locked_reason or store.state.locked_reason,
+            risk_decision=risk_decision,
         )
 
         order_key = make_order_key(
