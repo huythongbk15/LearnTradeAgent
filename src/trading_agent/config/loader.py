@@ -166,11 +166,14 @@ def _validate(raw: dict) -> None:
 
 
 def _merge_env_secrets(raw: dict) -> dict:
-    """Merge Telegram secrets from environment into alerts.telegram.
+    """Merge Telegram secrets and other ENV overrides into config.
 
     Never logs secrets. Returns a new dict (does not mutate input).
+    ENV variables take precedence over YAML values for supported keys.
     """
     merged = dict(raw)
+
+    # ── Telegram secrets ───────────────────────────────────────────────
     alerts = dict(merged.get("alerts", {}))
     telegram = dict(alerts.get("telegram", {}))
     bot_token = os.getenv("TELEGRAM_BOT_TOKEN") or telegram.get("bot_token", "")
@@ -179,6 +182,37 @@ def _merge_env_secrets(raw: dict) -> dict:
     telegram["chat_id"] = chat_id
     alerts["telegram"] = telegram
     merged["alerts"] = alerts
+
+    # ── General ENV overrides ──────────────────────────────────────────
+    # Supported ENV overrides: data.default_timeframe, data.storage, deploy.mode
+    env_overrides = {
+        "TRADING_DEFAULT_TIMEFRAME": ("data", "default_timeframe"),
+        "TRADING_STORAGE": ("data", "storage"),
+        "TRADING_DEPLOY_MODE": ("deploy", "mode"),
+        "TRADING_INITIAL_CAPITAL": ("backtest", "initial_capital"),
+        "TRADING_COMMISSION": ("backtest", "commission"),
+        "TRADING_SLIPPAGE": ("backtest", "slippage"),
+    }
+
+    for env_var, path in env_overrides.items():
+        value = os.getenv(env_var)
+        if value is None:
+            continue
+        # Navigate/create nested dicts
+        target = merged
+        for key in path[:-1]:
+            if key not in target or not isinstance(target[key], dict):
+                target[key] = {}
+            target = target[key]
+        # Type conversion
+        final_key = path[-1]
+        if final_key in ("initial_capital", "commission", "slippage"):
+            try:
+                value = float(value)
+            except ValueError:
+                continue
+        target[final_key] = value
+
     return merged
 
 

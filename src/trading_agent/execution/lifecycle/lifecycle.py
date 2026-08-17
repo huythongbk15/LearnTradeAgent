@@ -123,7 +123,19 @@ class TrustedPrice:
         if self.received_at > now:
             return False  # future timestamp / clock skew
         age = (now - self.received_at).total_seconds()
-        return age <= max_age_seconds
+        if age > max_age_seconds:
+            return False
+        # Validate exchange timestamp if present
+        if self.exchange_timestamp is not None:
+            exchange_dt = self.exchange_timestamp
+            if exchange_dt > now:
+                return False  # future exchange timestamp
+            exchange_age = (now - exchange_dt).total_seconds()
+            if (
+                exchange_age > max_age_seconds * 2
+            ):  # Allow 2x buffer for exchange latency
+                return False
+        return True
 
 
 # ── Violations ─────────────────────────────────────────────────────────
