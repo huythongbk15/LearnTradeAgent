@@ -281,6 +281,15 @@
 │       │   │   ├── liquidity_aware_twap.py
 │       │   │   ├── mpc.py
 │       │   │   └── pov.py
+│       │   ├── canonical
+│       │   │   ├── __init__.py
+│       │   │   ├── broker_gateway.py
+│       │   │   ├── causation.py
+│       │   │   ├── events.py
+│       │   │   ├── market_observation.py
+│       │   │   ├── order_planner.py
+│       │   │   ├── protection.py
+│       │   │   └── risk_decision.py
 │       │   ├── lifecycle
 │       │   │   ├── __init__.py
 │       │   │   ├── events.py
@@ -408,6 +417,8 @@
 │       ├── log_config.py
 │       └── regime.py
 ├── tests
+│   ├── execution
+│   │   └── test_canonical_pipeline.py
 │   ├── __init__.py
 │   ├── conftest.py
 │   ├── test_agent_correlation.py

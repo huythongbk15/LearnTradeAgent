@@ -234,9 +234,7 @@ class BrokerGateway:
         This is the ONLY path that creates a protective broker order.
         """
         if plan.state != ProtectionState.PROTECTION_REQUIRED:
-            raise ValueError(
-                f"cannot submit protection in state {plan.state.value}"
-            )
+            raise ValueError(f"cannot submit protection in state {plan.state.value}")
 
         if self._event_sink is not None:
             event = make_event(
@@ -277,7 +275,10 @@ class BrokerGateway:
                     event_type=ExecutionEventType.PROTECTIVE_ORDER_ACKNOWLEDGED,
                     aggregate_id=plan.plan_id,
                     seq=2,
-                    payload={"plan_id": plan.plan_id, "broker_order_id": broker_order_id},
+                    payload={
+                        "plan_id": plan.plan_id,
+                        "broker_order_id": broker_order_id,
+                    },
                     correlation_id=correlation_id,
                     causation_id=causation_id,
                 )

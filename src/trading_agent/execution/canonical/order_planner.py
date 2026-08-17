@@ -12,7 +12,9 @@ from enum import Enum
 from typing import Any
 
 from trading_agent.execution.canonical.events import IdempotencyKeys
-from trading_agent.execution.canonical.market_observation import EnrichedMarketObservation
+from trading_agent.execution.canonical.market_observation import (
+    EnrichedMarketObservation,
+)
 from trading_agent.execution.canonical.risk_decision import UnifiedRiskDecision
 from trading_agent.research.forecast import TargetExposure
 

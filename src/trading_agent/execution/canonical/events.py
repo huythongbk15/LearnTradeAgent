@@ -18,9 +18,7 @@ def _sha256_hex(payload: bytes) -> str:
 
 
 def _json_canonical(value: Any) -> str:
-    return json.dumps(
-        value, sort_keys=True, separators=(",", ":"), allow_nan=False
-    )
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
 
 
 # ── Content hashes ──────────────────────────────────────────────────────

@@ -99,7 +99,9 @@ def sample_target_exposure(
     )
 
 
-def sample_instrument_rules(symbol: str = "BTCUSDT", min_order_qty: float = 0.0001) -> InstrumentRules:
+def sample_instrument_rules(
+    symbol: str = "BTCUSDT", min_order_qty: float = 0.0001
+) -> InstrumentRules:
     return InstrumentRules(
         symbol=symbol,
         asset_class="SPOT",
@@ -131,7 +133,9 @@ def sample_observation(symbol: str = "BTCUSDT") -> EnrichedMarketObservation:
     )
 
 
-def sample_portfolio(symbol: str = "BTCUSDT", current_exposure: float = 0.0) -> CurrentPortfolioState:
+def sample_portfolio(
+    symbol: str = "BTCUSDT", current_exposure: float = 0.0
+) -> CurrentPortfolioState:
     return CurrentPortfolioState(
         symbol=symbol,
         current_exposure=current_exposure,
@@ -227,8 +231,12 @@ class TestOrderPlanner:
     def test_new_position_intent(self):
         rules = sample_instrument_rules(symbol="ETHUSDT", min_order_qty=0.001)
         planner = OrderPlanner(instrument_rules=rules)
-        decision = sample_unified_decision(allowed_target_exposure=0.3, max_new_exposure=0.3)
-        target = sample_target_exposure(symbol="ETHUSDT", exposure=0.3, horizon=14400, decision_id="decision-1")
+        decision = sample_unified_decision(
+            allowed_target_exposure=0.3, max_new_exposure=0.3
+        )
+        target = sample_target_exposure(
+            symbol="ETHUSDT", exposure=0.3, horizon=14400, decision_id="decision-1"
+        )
         intent = planner.plan(
             target=target,
             risk_decision=decision,
@@ -245,7 +253,9 @@ class TestOrderPlanner:
     def test_reduce_only_intent(self):
         rules = sample_instrument_rules(symbol="BTCUSDT", min_order_qty=0.0001)
         planner = OrderPlanner(instrument_rules=rules)
-        forecast_decision = pytest.importorskip("trading_agent.research.forecast").RiskDecision(
+        forecast_decision = pytest.importorskip(
+            "trading_agent.research.forecast"
+        ).RiskDecision(
             decision_id="fd-1",
             forecast_fingerprint="fp-1",
             model_artifact_id="model-v1",
@@ -259,7 +269,9 @@ class TestOrderPlanner:
             max_new_exposure=0.0,
             reduce_only=True,
         )
-        target = sample_target_exposure(symbol="BTCUSDT", exposure=0.0, horizon=14400, decision_id="fd-1")
+        target = sample_target_exposure(
+            symbol="BTCUSDT", exposure=0.0, horizon=14400, decision_id="fd-1"
+        )
         intent = planner.plan(
             target=target,
             risk_decision=decision,
@@ -274,8 +286,12 @@ class TestOrderPlanner:
     def test_spot_long_only_rejects_negative_target(self):
         rules = sample_instrument_rules(symbol="SOLUSDT", min_order_qty=0.01)
         planner = OrderPlanner(instrument_rules=rules)
-        decision = sample_unified_decision(allowed_target_exposure=0.0, max_new_exposure=0.0)
-        target = sample_target_exposure(symbol="SOLUSDT", exposure=-0.1, horizon=14400, decision_id="decision-1")
+        decision = sample_unified_decision(
+            allowed_target_exposure=0.0, max_new_exposure=0.0
+        )
+        target = sample_target_exposure(
+            symbol="SOLUSDT", exposure=-0.1, horizon=14400, decision_id="decision-1"
+        )
         with pytest.raises(ValueError):
             planner.plan(
                 target=target,
@@ -293,14 +309,23 @@ class TestOrderPlanner:
 class TestBrokerGateway:
     def test_gateway_exposes_only_capital_methods(self):
         gateway = BrokerGateway(adapter=None)
-        allowed = {"submit", "cancel", "fetch_order", "fetch_positions", "fetch_balances", "submit_protection"}
+        allowed = {
+            "submit",
+            "cancel",
+            "fetch_order",
+            "fetch_positions",
+            "fetch_balances",
+            "submit_protection",
+        }
         assert allowed.issubset(dir(gateway))
 
     def test_submit_returns_result_wrapper(self):
         gateway = BrokerGateway(adapter=None)
         rules = sample_instrument_rules(symbol="BTCUSDT", min_order_qty=0.0001)
         planner = OrderPlanner(instrument_rules=rules)
-        forecast_decision = pytest.importorskip("trading_agent.research.forecast").RiskDecision(
+        forecast_decision = pytest.importorskip(
+            "trading_agent.research.forecast"
+        ).RiskDecision(
             decision_id="fd-1",
             forecast_fingerprint="fp-1",
             model_artifact_id="model-v1",
@@ -314,7 +339,9 @@ class TestBrokerGateway:
             max_new_exposure=0.01,
             reduce_only=False,
         )
-        target = sample_target_exposure(symbol="BTCUSDT", exposure=0.01, horizon=14400, decision_id="fd-1")
+        target = sample_target_exposure(
+            symbol="BTCUSDT", exposure=0.01, horizon=14400, decision_id="fd-1"
+        )
         intent = planner.plan(
             target=target,
             risk_decision=decision,
@@ -468,8 +495,12 @@ class TestSpotLongOnlySemantics:
     def test_negative_target_rejected_by_order_planner(self):
         rules = sample_instrument_rules(symbol="BTCUSDT", min_order_qty=0.0001)
         planner = OrderPlanner(instrument_rules=rules)
-        decision = sample_unified_decision(allowed_target_exposure=0.0, max_new_exposure=0.0)
-        target = sample_target_exposure(symbol="BTCUSDT", exposure=-0.2, horizon=14400, decision_id="decision-1")
+        decision = sample_unified_decision(
+            allowed_target_exposure=0.0, max_new_exposure=0.0
+        )
+        target = sample_target_exposure(
+            symbol="BTCUSDT", exposure=-0.2, horizon=14400, decision_id="decision-1"
+        )
         with pytest.raises(ValueError):
             planner.plan(
                 target=target,
@@ -483,7 +514,9 @@ class TestSpotLongOnlySemantics:
     def test_zero_target_reduces_only(self):
         rules = sample_instrument_rules(symbol="BTCUSDT", min_order_qty=0.0001)
         planner = OrderPlanner(instrument_rules=rules)
-        forecast_decision = pytest.importorskip("trading_agent.research.forecast").RiskDecision(
+        forecast_decision = pytest.importorskip(
+            "trading_agent.research.forecast"
+        ).RiskDecision(
             decision_id="fd-1",
             forecast_fingerprint="fp-1",
             model_artifact_id="model-v1",
@@ -497,7 +530,9 @@ class TestSpotLongOnlySemantics:
             max_new_exposure=0.0,
             reduce_only=True,
         )
-        target = sample_target_exposure(symbol="BTCUSDT", exposure=0.0, horizon=14400, decision_id="fd-1")
+        target = sample_target_exposure(
+            symbol="BTCUSDT", exposure=0.0, horizon=14400, decision_id="fd-1"
+        )
         intent = planner.plan(
             target=target,
             risk_decision=decision,
@@ -524,7 +559,9 @@ class TestMissingRiskEvidence:
         assert decision.allowed_target_exposure == 0.0
         assert decision.max_new_exposure == 0.0
 
-        planner = OrderPlanner(instrument_rules=sample_instrument_rules(min_order_qty=0.0001))
+        planner = OrderPlanner(
+            instrument_rules=sample_instrument_rules(min_order_qty=0.0001)
+        )
         target = sample_target_exposure(
             symbol="BTCUSDT",
             exposure=decision.allowed_target_exposure,
@@ -549,7 +586,9 @@ class TestOrderIntentShape:
     def test_intent_has_canonical_fields(self):
         rules = sample_instrument_rules(symbol="BNBUSDT", min_order_qty=0.01)
         planner = OrderPlanner(instrument_rules=rules)
-        forecast_decision = pytest.importorskip("trading_agent.research.forecast").RiskDecision(
+        forecast_decision = pytest.importorskip(
+            "trading_agent.research.forecast"
+        ).RiskDecision(
             decision_id="fd-1",
             forecast_fingerprint="fp-1",
             model_artifact_id="model-v1",
@@ -563,7 +602,9 @@ class TestOrderIntentShape:
             max_new_exposure=0.2,
             reduce_only=False,
         )
-        target = sample_target_exposure(symbol="BNBUSDT", exposure=0.2, horizon=14400, decision_id="fd-1")
+        target = sample_target_exposure(
+            symbol="BNBUSDT", exposure=0.2, horizon=14400, decision_id="fd-1"
+        )
         intent = planner.plan(
             target=target,
             risk_decision=decision,

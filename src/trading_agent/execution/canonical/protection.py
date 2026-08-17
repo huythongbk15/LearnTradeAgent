@@ -51,7 +51,9 @@ class ProtectionPlan:
     stop_type: str  # "stop_loss" | "trailing_stop" | "stop_limit"
     stop_trigger: float | None = None  # price trigger
     take_profit: float | None = None
-    trailing_rule: dict[str, Any] | None = None  # {"activation_pct": ..., "trail_pct": ...}
+    trailing_rule: dict[str, Any] | None = (
+        None  # {"activation_pct": ..., "trail_pct": ...}
+    )
 
     # ── State machine ───────────────────────────────────────────────────
     state: ProtectionState = ProtectionState.NONE

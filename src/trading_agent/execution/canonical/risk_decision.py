@@ -49,20 +49,20 @@ class UnifiedRiskDecision:
 
     # ── Exposure policy ─────────────────────────────────────────────────
     requested_target_exposure: float  # from forecast (requested_exposure)
-    allowed_target_exposure: float    # from forecast (allowed_exposure)
-    max_new_exposure: float           # from legacy (max_new_exposure_pct)
-    reduce_only: bool                 # from legacy
+    allowed_target_exposure: float  # from forecast (allowed_exposure)
+    max_new_exposure: float  # from legacy (max_new_exposure_pct)
+    reduce_only: bool  # from legacy
 
     # ── Risk assessment ─────────────────────────────────────────────────
-    risk_level: RiskLevel              # from legacy
+    risk_level: RiskLevel  # from legacy
     reason_codes: tuple[RiskReason, ...]  # from forecast
 
     # ── Calibration evidence ────────────────────────────────────────────
-    calibration_state: str             # from forecast (CalibrationState value)
+    calibration_state: str  # from forecast (CalibrationState value)
     calibration_artifact_id: str | None
 
     # ── Model / regime telemetry ────────────────────────────────────────
-    ood_score: float                   # from forecast
+    ood_score: float  # from forecast
     regime_entropy: float
     interval_width: float
 
@@ -85,9 +85,7 @@ class UnifiedRiskDecision:
             if not (0.0 <= val <= 1.0):
                 raise ValueError(f"{name} must be in [0,1], got {val}")
         if self.max_new_exposure > self.allowed_target_exposure + 1e-9:
-            raise ValueError(
-                "max_new_exposure cannot exceed allowed_target_exposure"
-            )
+            raise ValueError("max_new_exposure cannot exceed allowed_target_exposure")
         if self.allowed_target_exposure > self.requested_target_exposure + 1e-9:
             raise ValueError(
                 "allowed_target_exposure cannot exceed requested_target_exposure"
@@ -132,13 +130,9 @@ class RiskDecisionAdapter:
         )
 
         if not isinstance(legacy, LegacyRiskDecision):
-            raise TypeError(
-                f"expected LegacyRiskDecision, got {type(legacy).__name__}"
-            )
+            raise TypeError(f"expected LegacyRiskDecision, got {type(legacy).__name__}")
         now = datetime.now(UTC)
-        decision_id = (
-            f"legacy_{now.strftime('%Y%m%d%H%M%S')}_{id(legacy):x}"
-        )
+        decision_id = f"legacy_{now.strftime('%Y%m%d%H%M%S')}_{id(legacy):x}"
         return UnifiedRiskDecision(
             decision_id=decision_id,
             forecast_fingerprint=forecast_fingerprint,
