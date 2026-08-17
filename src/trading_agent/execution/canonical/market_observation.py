@@ -87,6 +87,9 @@ class EnrichedMarketObservation:
             raise ValueError("bar_close_at must be timezone-aware")
         if self.is_closed and self.bar_close_at is None:
             raise ValueError("closed observations must have bar_close_at")
+        # Provenance must be present for execution-layer observations
+        if not self.data_manifest_id:
+            raise ValueError("data_manifest_id is required for execution observations")
 
     @property
     def bar_state(self) -> BarState:

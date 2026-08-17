@@ -82,6 +82,42 @@ class CanonicalBrokerAdapter:
         )
         return cancel_result.success if cancel_result else False
 
+    # ── Proxy methods for read-only broker operations ──────────────────
+
+    def get_account(self) -> dict[str, Any]:
+        """Proxy to underlying broker."""
+        return self._broker.get_account()
+
+    def get_positions(self) -> list[dict[str, Any]]:
+        """Proxy to underlying broker."""
+        return self._broker.get_positions()
+
+    def get_ticker(self, symbol: str) -> dict[str, Any]:
+        """Proxy to underlying broker."""
+        return self._broker.get_ticker(symbol)
+
+    def get_order_book(self, symbol: str, limit: int = 50) -> dict[str, Any]:
+        """Proxy to underlying broker."""
+        return self._broker.get_order_book(symbol, limit=limit)
+
+    def get_order_by_client_id(
+        self, client_order_id: str, symbol: str
+    ) -> dict[str, Any] | None:
+        """Proxy to underlying broker."""
+        return self._broker.get_order_by_client_id(client_order_id, symbol)
+
+    def normalize_order_amount(self, symbol: str, amount: float) -> float:
+        """Proxy to underlying broker."""
+        return self._broker.normalize_order_amount(symbol, amount)
+
+    def __getattr__(self, name: str) -> Any:
+        """Proxy any other attribute access to the underlying broker.
+
+        This ensures forward compatibility if the broker interface adds
+        new methods that the adapter doesn't explicitly wrap.
+        """
+        return getattr(self._broker, name)
+
     # ── Private helpers ────────────────────────────────────────────────
 
     def _make_correlation_id(self, order: Any) -> str:
