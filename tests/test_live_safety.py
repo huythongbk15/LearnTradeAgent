@@ -413,7 +413,9 @@ def test_buy_order_limits_and_risk_reducing_sell():
         gross_exposure=700,
         limits=limits,
         locked_reason="daily loss breached",
-        risk_decision=_sample_risk_decision(risk_level=RiskLevel.HIGH, max_new_exposure=0.0, reduce_only=True),
+        risk_decision=_sample_risk_decision(
+            risk_level=RiskLevel.HIGH, max_new_exposure=0.0, reduce_only=True
+        ),
     )
     with pytest.raises(LiveSafetyError, match="locked"):
         validate_order_risk(

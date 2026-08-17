@@ -37,10 +37,10 @@ class RiskLevel(str, Enum):
 class EvidenceState(str, Enum):
     """Evidence availability state for calibration/OOD/regime."""
 
-    KNOWN = "KNOWN"       # evidence available and current
-    UNKNOWN = "UNKNOWN"   # evidence not computed / unavailable
-    MISSING = "MISSING"   # evidence expected but not found
-    STALE = "STALE"       # evidence exists but expired
+    KNOWN = "KNOWN"  # evidence available and current
+    UNKNOWN = "UNKNOWN"  # evidence not computed / unavailable
+    MISSING = "MISSING"  # evidence expected but not found
+    STALE = "STALE"  # evidence exists but expired
 
 
 @dataclass(frozen=True)

@@ -179,7 +179,9 @@ class OrderPlanningResult:
     intent: OrderIntent | None
     reason_codes: tuple[str, ...]
     requested_delta: float  # target_exposure - current_exposure (pre-clamp)
-    executable_delta: float  # resulting_exposure - current_exposure (post-clamp, post-feasibility)
+    executable_delta: (
+        float  # resulting_exposure - current_exposure (post-clamp, post-feasibility)
+    )
 
     @property
     def is_noop(self) -> bool:
@@ -410,7 +412,9 @@ class OrderPlanner:
                 quantity = max(self._rules.min_order_qty, quantity)
                 quantity = min(self._rules.max_order_qty, quantity)
                 if self._rules.qty_step > 0:
-                    quantity = round(quantity / self._rules.qty_step) * self._rules.qty_step
+                    quantity = (
+                        round(quantity / self._rules.qty_step) * self._rules.qty_step
+                    )
                 quantity = max(self._rules.min_order_qty, quantity)
 
         # Final check: if quantity became zero or negative after constraints
@@ -418,7 +422,8 @@ class OrderPlanner:
             return OrderPlanningResult(
                 status=OrderPlanningStatus.NOOP,
                 intent=None,
-                reason_codes=("NON_EXECUTABLE_AFTER_CONSTRAINTS",) + tuple(str(r) for r in adjustment_reasons),
+                reason_codes=("NON_EXECUTABLE_AFTER_CONSTRAINTS",)
+                + tuple(str(r) for r in adjustment_reasons),
                 requested_delta=requested_delta,
                 executable_delta=0.0,
             )
@@ -442,7 +447,9 @@ class OrderPlanner:
 
         # Compute final resulting exposure from actual executable quantity
         final_notional = quantity * execution_price * (1 if side == "buy" else -1)
-        final_resulting_exposure = (current_notional + final_notional) / portfolio.equity
+        final_resulting_exposure = (
+            current_notional + final_notional
+        ) / portfolio.equity
 
         # Compute idempotency keys
         keys = IdempotencyKeys.compute(
@@ -491,7 +498,9 @@ class OrderPlanner:
         return OrderPlanningResult(
             status=OrderPlanningStatus.ORDER_REQUIRED,
             intent=intent,
-            reason_codes=tuple(str(r) for r in adjustment_reasons) if adjustment_reasons else ("NONE",),
+            reason_codes=tuple(str(r) for r in adjustment_reasons)
+            if adjustment_reasons
+            else ("NONE",),
             requested_delta=requested_delta,
             executable_delta=executable_delta,
         )

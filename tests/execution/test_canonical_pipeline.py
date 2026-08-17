@@ -35,7 +35,6 @@ from trading_agent.execution.canonical.order_planner import (
     CurrentPortfolioState,
     InstrumentRules,
     MarketPrice,
-    OrderPlanningResult,
     OrderPlanningStatus,
     TargetExposure,
 )

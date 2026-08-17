@@ -222,11 +222,13 @@ def evaluate_order_permission(ctx: PermissionContext) -> PermissionResult:
                     if ctx.exposure_effect == ExposureEffect.INCREASE
                     else "no risk decision available for neutral exposure"
                 )
-                return PermissionResult(
-                    OrderPermission.BLOCK, reason, detail
-                )
+                return PermissionResult(OrderPermission.BLOCK, reason, detail)
         else:
-            if risk.allowed_target_exposure <= 1e-12 or risk.max_new_exposure <= 1e-12 or risk.reduce_only:
+            if (
+                risk.allowed_target_exposure <= 1e-12
+                or risk.max_new_exposure <= 1e-12
+                or risk.reduce_only
+            ):
                 reason = (
                     PermissionReason.HIGH_RISK_NEW_EXPOSURE
                     if ctx.exposure_effect == ExposureEffect.INCREASE
@@ -237,9 +239,7 @@ def evaluate_order_permission(ctx: PermissionContext) -> PermissionResult:
                     if ctx.exposure_effect == ExposureEffect.INCREASE
                     else "neutral exposure not allowed under current risk decision"
                 )
-                return PermissionResult(
-                    OrderPermission.BLOCK, reason, detail
-                )
+                return PermissionResult(OrderPermission.BLOCK, reason, detail)
 
     if safe_reduce:
         return PermissionResult(

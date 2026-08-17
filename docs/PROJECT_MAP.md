@@ -15,6 +15,8 @@
 │   ├── BRANCH_PROTECTION.md
 │   ├── CODEOWNERS
 │   └── dependabot.yml
+├── .qwenpaw
+│   └── fork_registry.json.lock
 ├── COURSE
 │   ├── 01_data_model.md
 │   ├── 02_data_pipeline.md
