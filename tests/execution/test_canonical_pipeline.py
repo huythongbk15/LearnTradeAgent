@@ -578,14 +578,14 @@ class TestMarketObservation:
             venue="binance",
             symbol="BTCUSDT",
             timeframe="4h",
-            bar_close=105.0,
+            bar_close_at=datetime(2026, 8, 18, 0, 0, tzinfo=UTC),
             data_manifest_id="m1",
         )
         oid2 = compute_observation_id(
             venue="binance",
             symbol="BTCUSDT",
             timeframe="4h",
-            bar_close=105.0,
+            bar_close_at=datetime(2026, 8, 18, 0, 0, tzinfo=UTC),
             data_manifest_id="m1",
         )
         assert oid1 == oid2

@@ -236,6 +236,64 @@ def test_crash_between_submit_and_persist_leaves_no_phantom(tmp_path):
         assert order.status == IntentStatus.APPROVED  # not SUBMITTED
 
 
+def test_risk_decision_persists_and_reconstructs_on_replay(tmp_path):
+    path = tmp_path / "risk_auth.db"
+    risk_decision = sample_unified_decision(
+        decision_id="decision-1",
+        forecast_fingerprint="fp-1",
+        model_artifact_id="model-v1",
+        requested_target_exposure=0.5,
+        allowed_target_exposure=0.4,
+        max_new_exposure=0.3,
+        reduce_only=False,
+        risk_level=RiskLevel.LOW,
+        reason_codes=("APPROVED",),
+        calibration_state=EvidenceState.KNOWN,
+        calibration_artifact_id="cal-1",
+        calibration_ece=0.02,
+        ood_state=EvidenceState.KNOWN,
+        ood_score=0.1,
+        regime_state=EvidenceState.KNOWN,
+        regime_entropy=0.2,
+        interval_width=0.05,
+    )
+    with ExecutionEventStore(path).connect() as store:
+        lc = ExecutionLifecycle(
+            store,
+            price_source=lambda s: TrustedPrice(
+                price=100.0,
+                exchange_timestamp=datetime.now(UTC),
+                received_at=datetime.now(UTC),
+            ),
+        )
+        lc.create_order_intent("i1", "BTC/USDT", "buy", 1.0)
+        lc.approve_risk("i1", risk_decision=risk_decision)
+        # Verify event contains full risk decision
+        events = store.read_events("i1")
+        risk_event = next(e for e in events if e.event_type == ExecutionEventType.RISK_APPROVED)
+        assert "risk_decision" in risk_event.payload
+        persisted_decision = risk_event.payload["risk_decision"]
+        assert persisted_decision["decision_id"] == "decision-1"
+        assert persisted_decision["allowed_target_exposure"] == 0.4
+        assert persisted_decision["max_new_exposure"] == 0.3
+        assert persisted_decision["risk_level"] == "LOW"
+        assert persisted_decision["calibration_state"] == "KNOWN"
+    # Replay from disk — risk decision must be reconstructed
+    with ExecutionEventStore(path).connect() as store2:
+        lc2 = ExecutionLifecycle(store2)
+        lc2.load()
+        order = lc2.order("i1")
+        assert order is not None
+        assert order.status == IntentStatus.APPROVED
+        assert order.risk_approved is True
+        assert order.risk_decision is not None
+        assert order.risk_decision.decision_id == "decision-1"
+        assert order.risk_decision.allowed_target_exposure == 0.4
+        assert order.risk_decision.max_new_exposure == 0.3
+        assert order.risk_decision.risk_level == RiskLevel.LOW
+        assert order.risk_decision.calibration_state == EvidenceState.KNOWN
+
+
 def test_unknown_broker_state_goes_manual_not_silent(store):
     lc = ExecutionLifecycle(
         store,
@@ -1130,3 +1188,38 @@ def test_unknown_broker_state_fail_closed(store):
     report = lc.reconcile_broker_state({"ex_1": "weird_state"})
     assert "i1" in report["unknown"]
     assert lc.state.execution_health == ExecutionHealth.MANUAL_BLOCKED
+
+
+def test_global_seq_monotonic_across_aggregates(tmp_path):
+    path = tmp_path / "global_seq.db"
+    with ExecutionEventStore(path).connect() as store:
+        lc = ExecutionLifecycle(
+            store,
+            price_source=lambda s: TrustedPrice(
+                price=100.0,
+                exchange_timestamp=datetime.now(UTC),
+                received_at=datetime.now(UTC),
+            ),
+        )
+        # Create intents for two different aggregates
+        lc.create_order_intent("i1_1", "BTC/USDT", "buy", 1.0)
+        lc.create_order_intent("i2_1", "ETH/USDT", "buy", 1.0)
+        lc.create_order_intent("i1_2", "BTC/USDT", "buy", 1.0)
+        lc.create_order_intent("i2_2", "ETH/USDT", "buy", 1.0)
+        lc.create_order_intent("i1_3", "BTC/USDT", "buy", 1.0)
+        # Verify global_seq is monotonic
+        events = store.read_events_global()
+        assert len(events) == 5
+        global_seqs = [e.global_seq for e in events]
+        assert global_seqs == [1, 2, 3, 4, 5]
+        # Verify per-aggregate seq is still correct
+        i1_events = store.read_events("i1_1")
+        assert [e.seq for e in i1_events] == [1]
+        i2_events = store.read_events("i2_1")
+        assert [e.seq for e in i2_events] == [1]
+        # All i1 events (across different intent IDs)
+        all_i1_events = store.read_events("i1_1") + store.read_events("i1_2") + store.read_events("i1_3")
+        assert len(all_i1_events) == 3
+        # Global replay preserves causality
+        all_agg_ids = [e.aggregate_id for e in events]
+        assert all_agg_ids == ["i1_1", "i2_1", "i1_2", "i2_2", "i1_3"]

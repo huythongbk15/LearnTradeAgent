@@ -50,12 +50,15 @@ CREATE TABLE IF NOT EXISTS execution_events (
     causation_id    TEXT,
     occurred_at     TEXT NOT NULL,
     ingested_at     TEXT NOT NULL,
+    global_seq      INTEGER NOT NULL DEFAULT 0,
     UNIQUE (aggregate_id, seq)
 );
 CREATE INDEX IF NOT EXISTS idx_exec_agg_seq
     ON execution_events (aggregate_id, seq);
 CREATE INDEX IF NOT EXISTS idx_exec_event_type
     ON execution_events (event_type);
+CREATE INDEX IF NOT EXISTS idx_exec_global_seq
+    ON execution_events (global_seq);
 
 CREATE TABLE IF NOT EXISTS execution_snapshots (
     snapshot_id     TEXT PRIMARY KEY,
@@ -131,8 +134,28 @@ class ExecutionEventStore:
         conn.executescript(_SCHEMA)
         conn.commit()
         self._conn = conn
+        self._migrate_global_seq_if_needed()
         self._rebuild_sell_reservations_if_needed()
         return self
+
+    def _migrate_global_seq_if_needed(self) -> None:
+        """Populate global_seq for existing DBs that don't have it yet."""
+        cursor = self.conn.execute(
+            "SELECT COUNT(*) AS c FROM execution_events WHERE global_seq = 0"
+        )
+        row = cursor.fetchone()
+        if row is None or row["c"] == 0:
+            return
+        # Backfill global_seq in order of (aggregate_id, seq)
+        events = self.conn.execute(
+            "SELECT event_id FROM execution_events WHERE global_seq = 0 ORDER BY aggregate_id, seq"
+        ).fetchall()
+        for i, (event_id,) in enumerate(events, start=1):
+            self.conn.execute(
+                "UPDATE execution_events SET global_seq = ? WHERE event_id = ?",
+                (i, event_id),
+            )
+        self.conn.commit()
 
     def close(self) -> None:
         if self._conn is not None:
@@ -312,20 +335,28 @@ class ExecutionEventStore:
                     )
             row = event.to_row()
             row["ingested_at"] = datetime.now(UTC).isoformat()
-            cur = self.conn.execute(
+            # Populate global_seq if not provided
+            if row.get("global_seq") is None or row["global_seq"] == 0:
+                max_global = self.conn.execute(
+                    "SELECT COALESCE(MAX(global_seq), 0) FROM execution_events"
+                ).fetchone()[0]
+                row["global_seq"] = max_global + 1
+            self.conn.execute(
                 """
                 INSERT INTO execution_events
                 (event_id, seq, aggregate_id, event_type, schema_version,
-                 payload, correlation_id, causation_id, occurred_at, ingested_at)
+                 payload, correlation_id, causation_id, occurred_at, ingested_at,
+                 global_seq)
                 VALUES
                 (:event_id, :seq, :aggregate_id, :event_type, :schema_version,
-                 :payload, :correlation_id, :causation_id, :occurred_at, :ingested_at)
+                 :payload, :correlation_id, :causation_id, :occurred_at, :ingested_at,
+                 :global_seq)
                 """,
                 row,
             )
             self._apply_sell_reservation_projection(event)
             self.conn.commit()
-            return cur.rowcount == 1
+            return True
         except ReservationConflictError:
             self.conn.rollback()
             raise
@@ -396,11 +427,12 @@ class ExecutionEventStore:
         *,
         after_seq: int = 0,
         limit: int | None = None,
+        order_by_global: bool = False,
     ) -> list[ExecutionEvent]:
-        """Read events ordered by seq (deterministic replay order)."""
+        """Read events ordered by seq (or global_seq for cross-aggregate replay)."""
         sql = (
             "SELECT event_id, seq, aggregate_id, event_type, schema_version,"
-            " payload, correlation_id, causation_id, occurred_at"
+            " payload, correlation_id, causation_id, occurred_at, ingested_at, global_seq"
             " FROM execution_events"
         )
         params: list[Any] = []
@@ -409,16 +441,26 @@ class ExecutionEventStore:
             clauses.append("aggregate_id = ?")
             params.append(aggregate_id)
         if after_seq:
-            clauses.append("seq > ?")
+            if order_by_global:
+                clauses.append("global_seq > ?")
+            else:
+                clauses.append("seq > ?")
             params.append(after_seq)
         if clauses:
             sql += " WHERE " + " AND ".join(clauses)
-        sql += " ORDER BY aggregate_id, seq"
+        if order_by_global:
+            sql += " ORDER BY global_seq ASC"
+        else:
+            sql += " ORDER BY aggregate_id, seq"
         if limit is not None:
             sql += " LIMIT ?"
             params.append(limit)
         rows = self.conn.execute(sql, params).fetchall()
         return [ExecutionEvent.from_row(dict(r)) for r in rows]
+
+    def read_events_global(self, *, after_global_seq: int = 0) -> list[ExecutionEvent]:
+        """Read all events ordered by global_seq (cross-aggregate replay)."""
+        return self.read_events(after_seq=after_global_seq, order_by_global=True)
 
     def max_seq(self, aggregate_id: str) -> int:
         row = self.conn.execute(

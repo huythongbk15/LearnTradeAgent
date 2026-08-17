@@ -465,10 +465,17 @@ class OrderPlanner:
         final_exposure_delta = final_resulting_exposure - portfolio.current_exposure
 
         # ── Post-feasibility risk revalidation (P0 §3) ───────────────────
-        # After all feasibility adjustments, revalidate against risk decision
+        # After all feasibility adjustments, revalidate against risk decision.
+        # Use a tolerance of at least one qty_step to allow rounding.
+        qty_step_tolerance = (
+            self._rules.qty_step * execution_price / portfolio.equity
+            if self._rules.qty_step > 0 and portfolio.equity > 0
+            else 1e-9
+        )
+        tolerance = max(qty_step_tolerance, 1e-9)
         if side == "buy":
             # INCREASE: must not exceed allowed_target_exposure or max_new_exposure
-            if final_resulting_exposure > risk_decision.allowed_target_exposure + 1e-9:
+            if final_resulting_exposure > risk_decision.allowed_target_exposure + tolerance:
                 return OrderPlanningResult(
                     status=OrderPlanningStatus.BLOCKED,
                     intent=None,
@@ -477,7 +484,7 @@ class OrderPlanner:
                     requested_delta=requested_delta,
                     executable_delta=0.0,
                 )
-            if final_exposure_delta > risk_decision.max_new_exposure + 1e-9:
+            if final_exposure_delta > risk_decision.max_new_exposure + tolerance:
                 return OrderPlanningResult(
                     status=OrderPlanningStatus.BLOCKED,
                     intent=None,
@@ -486,9 +493,21 @@ class OrderPlanner:
                     requested_delta=requested_delta,
                     executable_delta=0.0,
                 )
+            # Also validate against target (allow rounding by tolerance)
+            if final_resulting_exposure > target.exposure + tolerance:
+                return OrderPlanningResult(
+                    status=OrderPlanningStatus.BLOCKED,
+                    intent=None,
+                    reason_codes=(
+                        "POST_FEASIBILITY_OVERSHOOT_TARGET",
+                    )
+                    + tuple(str(r) for r in adjustment_reasons),
+                    requested_delta=requested_delta,
+                    executable_delta=0.0,
+                )
         else:
             # REDUCE: resulting exposure must not increase
-            if abs(final_resulting_exposure) > abs(portfolio.current_exposure) + 1e-9:
+            if abs(final_resulting_exposure) > abs(portfolio.current_exposure) + tolerance:
                 return OrderPlanningResult(
                     status=OrderPlanningStatus.BLOCKED,
                     intent=None,
@@ -498,16 +517,6 @@ class OrderPlanner:
                     executable_delta=0.0,
                 )
 
-        # Also validate against target in risk-increasing direction
-        if side == "buy" and final_resulting_exposure > target.exposure + 1e-9:
-            return OrderPlanningResult(
-                status=OrderPlanningStatus.BLOCKED,
-                intent=None,
-                reason_codes=("POST_FEASIBILITY_OVERSHOOT_TARGET",)
-                + tuple(str(r) for r in adjustment_reasons),
-                requested_delta=requested_delta,
-                executable_delta=0.0,
-            )
 
         # Compute idempotency keys
         keys = IdempotencyKeys.compute(
