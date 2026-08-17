@@ -529,6 +529,7 @@
 ├── .gitignore
 ├── .mcp
 ├── .trivyignore
+├── AUDIT_REPORT.md
 ├── BACKTEST_3Y_REVIEW.md
 ├── Caddyfile.oracle
 ├── Dockerfile

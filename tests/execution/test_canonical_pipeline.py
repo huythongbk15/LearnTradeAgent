@@ -389,14 +389,11 @@ class TestOrderPlanner:
         assert result.status is OrderPlanningStatus.BLOCKED
         assert result.intent is None
         assert any(
-            "INSUFFICIENT_CASH_FOR_MIN_ORDER" in str(r)
-            for r in result.reason_codes
+            "INSUFFICIENT_CASH_FOR_MIN_ORDER" in str(r) for r in result.reason_codes
         )
 
     def test_cash_feasible_qty_never_rounds_up(self):
-        rules = sample_instrument_rules(
-            symbol="BTCUSDT", min_order_qty=0.001
-        )
+        rules = sample_instrument_rules(symbol="BTCUSDT", min_order_qty=0.001)
         # Override qty_step to test rounding behavior
         rules = replace(rules, qty_step=0.0005)
         planner = OrderPlanner(instrument_rules=rules)
@@ -423,9 +420,7 @@ class TestOrderPlanner:
         assert result.intent is None
 
     def test_post_feasibility_revalidation_blocks_excess_exposure(self):
-        rules = sample_instrument_rules(
-            symbol="BTCUSDT", min_order_qty=0.021
-        )
+        rules = sample_instrument_rules(symbol="BTCUSDT", min_order_qty=0.021)
         # Override qty_step
         rules = replace(rules, qty_step=0.001)
         planner = OrderPlanner(instrument_rules=rules)

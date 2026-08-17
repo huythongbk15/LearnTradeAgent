@@ -419,9 +419,7 @@ class OrderPlanner:
                     return OrderPlanningResult(
                         status=OrderPlanningStatus.BLOCKED,
                         intent=None,
-                        reason_codes=(
-                            "INSUFFICIENT_CASH_FOR_MIN_ORDER",
-                        )
+                        reason_codes=("INSUFFICIENT_CASH_FOR_MIN_ORDER",)
                         + tuple(str(r) for r in adjustment_reasons),
                         requested_delta=requested_delta,
                         executable_delta=0.0,
@@ -474,9 +472,7 @@ class OrderPlanner:
                 return OrderPlanningResult(
                     status=OrderPlanningStatus.BLOCKED,
                     intent=None,
-                    reason_codes=(
-                        "POST_FEASIBILITY_EXPOSURE_EXCEEDS_ALLOWED",
-                    )
+                    reason_codes=("POST_FEASIBILITY_EXPOSURE_EXCEEDS_ALLOWED",)
                     + tuple(str(r) for r in adjustment_reasons),
                     requested_delta=requested_delta,
                     executable_delta=0.0,
@@ -485,9 +481,7 @@ class OrderPlanner:
                 return OrderPlanningResult(
                     status=OrderPlanningStatus.BLOCKED,
                     intent=None,
-                    reason_codes=(
-                        "POST_FEASIBILITY_DELTA_EXCEEDS_MAX_NEW",
-                    )
+                    reason_codes=("POST_FEASIBILITY_DELTA_EXCEEDS_MAX_NEW",)
                     + tuple(str(r) for r in adjustment_reasons),
                     requested_delta=requested_delta,
                     executable_delta=0.0,
@@ -498,9 +492,7 @@ class OrderPlanner:
                 return OrderPlanningResult(
                     status=OrderPlanningStatus.BLOCKED,
                     intent=None,
-                    reason_codes=(
-                        "POST_FEASIBILITY_REDUCE_INCREASES_EXPOSURE",
-                    )
+                    reason_codes=("POST_FEASIBILITY_REDUCE_INCREASES_EXPOSURE",)
                     + tuple(str(r) for r in adjustment_reasons),
                     requested_delta=requested_delta,
                     executable_delta=0.0,
@@ -511,9 +503,7 @@ class OrderPlanner:
             return OrderPlanningResult(
                 status=OrderPlanningStatus.BLOCKED,
                 intent=None,
-                reason_codes=(
-                    "POST_FEASIBILITY_OVERSHOOT_TARGET",
-                )
+                reason_codes=("POST_FEASIBILITY_OVERSHOOT_TARGET",)
                 + tuple(str(r) for r in adjustment_reasons),
                 requested_delta=requested_delta,
                 executable_delta=0.0,

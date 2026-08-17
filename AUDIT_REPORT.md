@@ -97,11 +97,19 @@ Nhưng KHÔNG kiểm tra:
 if ctx.exposure_effect == ExposureEffect.INCREASE:
     if risk is not None:
         if risk.calibration_state is not EvidenceState.KNOWN:
-            return PermissionResult(OrderPermission.BLOCK, PermissionReason.MISSING_CALIBRATION_EVIDENCE, ...)
+            return PermissionResult(
+                OrderPermission.BLOCK,
+                PermissionReason.MISSING_CALIBRATION_EVIDENCE,
+                ...,
+            )
         if risk.ood_state is not EvidenceState.KNOWN:
-            return PermissionResult(OrderPermission.BLOCK, PermissionReason.MISSING_OOD_EVIDENCE, ...)
+            return PermissionResult(
+                OrderPermission.BLOCK, PermissionReason.MISSING_OOD_EVIDENCE, ...
+            )
         if risk.regime_state is not EvidenceState.KNOWN:
-            return PermissionResult(OrderPermission.BLOCK, PermissionReason.MISSING_REGIME_EVIDENCE, ...)
+            return PermissionResult(
+                OrderPermission.BLOCK, PermissionReason.MISSING_REGIME_EVIDENCE, ...
+            )
 ```
 
 ## DURABLE RISK AUTHORIZATION (P0 §6)
