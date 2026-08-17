@@ -42,6 +42,7 @@ from trading_agent.execution.lifecycle.events import (
 )
 from trading_agent.execution.lifecycle.store import (
     ExecutionEventStore,
+    ReservationConflictError,
     SequenceGapError,
 )
 
@@ -57,6 +58,7 @@ class IntentStatus(str, Enum):
     FILLED = "filled"
     CANCEL_REQUESTED = "cancel_requested"
     CANCELED = "canceled"
+    REJECTED = "rejected"
     MANUAL = "manual"
 
 
@@ -156,6 +158,9 @@ class OrderState:
     broker_order_id: str | None = None
     exchange_order_id: str | None = None
     filled_size: float = 0.0
+    authorized_quantity: float = 0.0
+    reserved_quantity: float = 0.0
+    released_quantity: float = 0.0
     avg_fill_price: float | None = None
     fees: float = 0.0
     protective_order_ids: list[str] = field(default_factory=list)
@@ -169,6 +174,14 @@ class OrderState:
     @property
     def remaining(self) -> float:
         return max(0.0, self.size - self.filled_size)
+
+    @property
+    def remaining_reserved_quantity(self) -> float:
+        """Unfilled SELL quantity still locked by event-sourced evidence."""
+        return max(
+            0.0,
+            self.reserved_quantity - self.filled_size - self.released_quantity,
+        )
 
 
 @dataclass
@@ -271,26 +284,143 @@ class ExecutionLifecycle:
 
     # ── Helpers ──────────────────────────────────────────────────────────
 
+    def active_sell_reservations(
+        self,
+        symbol: str | None = None,
+        *,
+        exclude_intent_id: str | None = None,
+    ) -> float:
+        """Return active SELL locks reconstructed from lifecycle events."""
+        return sum(
+            order.remaining_reserved_quantity
+            for intent_id, order in self.state.orders.items()
+            if order.side == "sell"
+            and (symbol is None or order.symbol == symbol)
+            and intent_id != exclude_intent_id
+        )
+
+    def _available_sell_inventory(
+        self,
+        symbol: str,
+        *,
+        exclude_intent_id: str | None = None,
+    ) -> float:
+        authorized = float(self._inventory_source(symbol, "sell"))
+        if not math.isfinite(authorized) or authorized < 0:
+            return math.nan
+        return max(
+            0.0,
+            authorized
+            - self.active_sell_reservations(
+                symbol,
+                exclude_intent_id=exclude_intent_id,
+            ),
+        )
+
     def _determine_exposure_effect(
         self,
         side: str,
         size: float,
         symbol: str,
+        *,
+        exclude_intent_id: str | None = None,
     ) -> ExposureEffect:
-        """Determine effect on total exposure.
-
-        Spot-long only:
-        - BUY always increases exposure.
-        - SELL reduces exposure if size <= available inventory.
-        - SELL that exceeds inventory would create short → increase exposure.
-        """
+        """Determine resulting spot-long exposure after local reservations."""
         if side == "buy":
             return ExposureEffect.INCREASE
-        # SELL: check if we have inventory to sell
-        free_inventory = self._inventory_source(symbol, "sell")
-        if size <= free_inventory + 1e-9:
+        available = self._available_sell_inventory(
+            symbol,
+            exclude_intent_id=exclude_intent_id,
+        )
+        if math.isfinite(available) and size <= available + 1e-9:
             return ExposureEffect.REDUCE
         return ExposureEffect.INCREASE
+
+    def _permission_result(
+        self,
+        side: str,
+        size: float,
+        symbol: str,
+        *,
+        require_market_data: bool,
+        exclude_intent_id: str | None = None,
+        broker_state: str | None = None,
+    ):
+        # Local import avoids a module cycle: permission types intentionally
+        # reuse lifecycle's canonical health/exposure enums.
+        from trading_agent.execution.permission import (
+            PermissionContext,
+            evaluate_order_permission,
+        )
+
+        available = (
+            self._available_sell_inventory(
+                symbol,
+                exclude_intent_id=exclude_intent_id,
+            )
+            if side == "sell"
+            else 0.0
+        )
+        protection_state = (
+            ProtectionState.PROTECTION_REQUIRED.value
+            if ProtectionState.PROTECTION_REQUIRED
+            in self.state.protection_state.values()
+            else ProtectionState.NONE.value
+        )
+        return evaluate_order_permission(
+            PermissionContext(
+                execution_health=self.state.execution_health,
+                exposure_effect=self._determine_exposure_effect(
+                    side,
+                    size,
+                    symbol,
+                    exclude_intent_id=exclude_intent_id,
+                ),
+                trusted_price=self._price_source(symbol),
+                max_price_age_seconds=self.max_price_age_seconds,
+                reconciliation_state=self.state.reconciliation.value,
+                protection_state=protection_state,
+                manual_blocked=self.state.manual_blocked,
+                kill_switch_active=self._kill_switch(),
+                data_trust=(
+                    "untrusted"
+                    if self.state.execution_health == ExecutionHealth.DATA_UNTRUSTED
+                    else "trusted"
+                ),
+                inventory_state=("known" if math.isfinite(available) else "unknown"),
+                free_inventory=available,
+                authorized_sellable_inventory=available,
+                order_size=size,
+                order_side=side,
+                require_fresh_market_data=require_market_data,
+                enforce_inventory=require_market_data,
+                broker_state=broker_state,
+            )
+        )
+
+    def _enforce_permission(
+        self,
+        side: str,
+        size: float,
+        symbol: str,
+        *,
+        require_market_data: bool,
+        exclude_intent_id: str | None = None,
+        broker_state: str | None = None,
+    ):
+        from trading_agent.execution.permission import OrderPermission
+
+        result = self._permission_result(
+            side,
+            size,
+            symbol,
+            require_market_data=require_market_data,
+            exclude_intent_id=exclude_intent_id,
+            broker_state=broker_state,
+        )
+        if result.permission == OrderPermission.BLOCK:
+            raise InvariantViolation(result.reason.value, result.detail)
+        return result
 
     def _check_price(self, symbol: str) -> TrustedPrice:
         """Validate and return trusted price. Raises if stale/invalid."""
@@ -331,130 +461,196 @@ class ExecutionLifecycle:
         events = self.store.read_events()
         return self.replay(events)
 
+    _EVENT_HANDLERS = {
+        ExecutionEventType.ORDER_INTENT_CREATED: "_on_order_intent_created",
+        ExecutionEventType.RISK_APPROVED: "_on_risk_approved",
+        ExecutionEventType.ORDER_SUBMITTED: "_on_order_submitted",
+        ExecutionEventType.ORDER_REJECTED: "_on_order_rejected",
+        ExecutionEventType.BROKER_ACKNOWLEDGED: "_on_broker_acknowledged",
+        ExecutionEventType.PARTIAL_FILL_RECEIVED: "_on_partial_fill_received",
+        ExecutionEventType.FILL_RECEIVED: "_on_fill_received",
+        ExecutionEventType.FEE_BOOKED: "_on_fee_booked",
+        ExecutionEventType.CANCEL_REQUESTED: "_on_cancel_requested",
+        ExecutionEventType.CANCEL_CONFIRMED: "_on_cancel_confirmed",
+        ExecutionEventType.PROTECTIVE_ORDER_CREATED: "_on_protective_order_created",
+        ExecutionEventType.PROTECTIVE_ORDER_ACKNOWLEDGED: "_on_protective_order_acknowledged",
+        ExecutionEventType.PROTECTIVE_ORDER_REPLACED: "_on_protective_order_replaced",
+        ExecutionEventType.RECONCILIATION_STARTED: "_on_reconciliation_started",
+        ExecutionEventType.RECONCILIATION_RESOLVED: "_on_reconciliation_resolved",
+        ExecutionEventType.MANUAL_INTERVENTION_REQUIRED: "_on_manual_intervention_required",
+    }
+
     def _apply(self, state: LifecycleState, event: ExecutionEvent) -> None:
-        """Apply one event to the projection. Pure + idempotent."""
-        etype = event.event_type
-        payload = event.payload
-
-        if etype == ExecutionEventType.ORDER_INTENT_CREATED:
-            state.orders[event.aggregate_id] = OrderState(
-                intent_id=event.aggregate_id,
-                symbol=payload["symbol"],
-                side=payload["side"],
-                size=float(payload["size"]),
-                created_at=event.occurred_at,
-            )
-        elif etype == ExecutionEventType.RISK_APPROVED:
-            order = state.orders.get(event.aggregate_id)
-            if order is not None:
-                order.risk_approved = True
-                order.status = IntentStatus.APPROVED
-        elif etype == ExecutionEventType.ORDER_SUBMITTED:
-            order = state.orders.get(event.aggregate_id)
-            if order is not None and order.status == IntentStatus.APPROVED:
-                order.status = IntentStatus.SUBMITTED
-                order.exchange_order_id = payload.get("exchange_order_id")
-        elif etype == ExecutionEventType.BROKER_ACKNOWLEDGED:
-            order = state.orders.get(event.aggregate_id)
-            if order is not None:
-                order.broker_order_id = (
-                    payload.get("broker_order_id") or order.broker_order_id
-                )
-                order.status = IntentStatus.ACKNOWLEDGED
-        elif etype in (
-            ExecutionEventType.PARTIAL_FILL_RECEIVED,
-            ExecutionEventType.FILL_RECEIVED,
-        ):
-            order = state.orders.get(event.aggregate_id)
-            if order is not None:
-                size = float(payload["size"])
-                price = float(payload["price"])
-                prev_filled = order.filled_size
-                order.filled_size = min(order.size, prev_filled + size)
-                if order.avg_fill_price is None:
-                    order.avg_fill_price = price
-                elif prev_filled > 0:
-                    order.avg_fill_price = (
-                        prev_filled * order.avg_fill_price + size * price
-                    ) / order.filled_size
-                if order.filled_size >= order.size - 1e-9:
-                    order.status = IntentStatus.FILLED
-                else:
-                    order.status = IntentStatus.PARTIALLY_FILLED
-                # Track protection state for buy fills
-                if self.require_protective_order and order.side == "buy":
-                    state.protection_state[event.aggregate_id] = (
-                        ProtectionState.PROTECTION_REQUIRED
-                    )
-        elif etype == ExecutionEventType.FEE_BOOKED:
-            order = state.orders.get(event.aggregate_id)
-            if order is not None:
-                order.fees += float(payload.get("fee", 0.0))
-        elif etype == ExecutionEventType.CANCEL_REQUESTED:
-            order = state.orders.get(event.aggregate_id)
-            if order is not None and order.status not in (IntentStatus.FILLED,):
-                order.status = IntentStatus.CANCEL_REQUESTED
-        elif etype == ExecutionEventType.CANCEL_CONFIRMED:
-            order = state.orders.get(event.aggregate_id)
-            if order is not None:
-                order.status = IntentStatus.CANCELED
-        elif etype == ExecutionEventType.PROTECTIVE_ORDER_CREATED:
-            state.protective_orders[event.aggregate_id] = ProtectiveOrderState(
-                order_id=event.aggregate_id,
-                symbol=payload["symbol"],
-                kind=payload.get("kind", "stop_loss"),
-                trigger_price=float(payload["trigger_price"]),
-            )
-            parent = payload.get("parent_intent_id")
-            if parent and parent in state.orders:
-                pid = event.aggregate_id
-                if pid not in state.orders[parent].protective_order_ids:
-                    state.orders[parent].protective_order_ids.append(pid)
-        elif etype == ExecutionEventType.PROTECTIVE_ORDER_REPLACED:
-            protective = state.protective_orders.get(event.aggregate_id)
-            if protective is not None:
-                protective.trigger_price = float(payload["trigger_price"])
-        elif etype == ExecutionEventType.RECONCILIATION_STARTED:
-            state.reconciliation = ReconciliationState.STARTED
-        elif etype == ExecutionEventType.RECONCILIATION_RESOLVED:
-            state.reconciliation = ReconciliationState.RESOLVED
-            # Clear manual block only if no unresolved manual issues remain
-            if not state.unresolved_manual_intents:
-                state.manual_blocked = False
-                if state.execution_health == ExecutionHealth.MANUAL_BLOCKED:
-                    state.execution_health = ExecutionHealth.NORMAL
-        elif etype == ExecutionEventType.MANUAL_INTERVENTION_REQUIRED:
-            order = state.orders.get(event.aggregate_id)
-            if order is not None:
-                order.status = IntentStatus.MANUAL
-                reason = payload.get("reason", "manual intervention required")
-                if reason not in order.manual_reasons:
-                    order.manual_reasons.append(reason)
-            state.manual_blocked = True
-            state.unresolved_manual_intents.add(event.aggregate_id)
-            # Preserve PROTECTION_GAP if already set; otherwise use MANUAL_BLOCKED.
-            if state.execution_health != ExecutionHealth.PROTECTION_GAP:
-                state.execution_health = ExecutionHealth.MANUAL_BLOCKED
-        elif etype == ExecutionEventType.PROTECTIVE_ORDER_CREATED:
-            state.protective_orders[event.aggregate_id] = ProtectiveOrderState(
-                order_id=event.aggregate_id,
-                symbol=payload["symbol"],
-                kind=payload.get("kind", "stop_loss"),
-                trigger_price=float(payload["trigger_price"]),
-            )
-            parent = payload.get("parent_intent_id")
-            if parent and parent in state.orders:
-                pid = event.aggregate_id
-                if pid not in state.orders[parent].protective_order_ids:
-                    state.orders[parent].protective_order_ids.append(pid)
-        elif etype == ExecutionEventType.PROTECTIVE_ORDER_ACKNOWLEDGED:
-            protective = state.protective_orders.get(event.aggregate_id)
-            parent = payload.get("parent_intent_id")
-            if protective is not None and parent and parent in state.orders:
-                state.protection_state[parent] = ProtectionState.PROTECTED
-
+        """Apply one event through exactly one deterministic semantic handler."""
+        handler_name = self._EVENT_HANDLERS.get(event.event_type)
+        if handler_name is None:
+            raise LifecycleError(f"no semantic handler for {event.event_type.value}")
+        getattr(self, handler_name)(state, event)
         state.last_event_ids[event.aggregate_id] = event.event_id
         state.state_version += 1
+
+    def _on_order_intent_created(
+        self, state: LifecycleState, event: ExecutionEvent
+    ) -> None:
+        payload = event.payload
+        state.orders[event.aggregate_id] = OrderState(
+            intent_id=event.aggregate_id,
+            symbol=payload["symbol"],
+            side=payload["side"],
+            size=float(payload["size"]),
+            created_at=event.occurred_at,
+        )
+
+    def _on_risk_approved(self, state: LifecycleState, event: ExecutionEvent) -> None:
+        order = state.orders.get(event.aggregate_id)
+        if order is not None:
+            order.risk_approved = True
+            order.status = IntentStatus.APPROVED
+
+    def _on_order_submitted(self, state: LifecycleState, event: ExecutionEvent) -> None:
+        order = state.orders.get(event.aggregate_id)
+        if order is not None and order.status == IntentStatus.APPROVED:
+            order.status = IntentStatus.SUBMITTED
+            order.exchange_order_id = event.payload.get("exchange_order_id")
+            if order.side == "sell":
+                order.authorized_quantity = float(event.payload["authorized_quantity"])
+                order.reserved_quantity = float(event.payload["reserved_quantity"])
+
+    @staticmethod
+    def _release_sell_remainder(order: OrderState) -> None:
+        if order.side == "sell":
+            order.released_quantity += order.remaining_reserved_quantity
+
+    def _on_order_rejected(self, state: LifecycleState, event: ExecutionEvent) -> None:
+        order = state.orders.get(event.aggregate_id)
+        if order is not None:
+            self._release_sell_remainder(order)
+            order.status = IntentStatus.REJECTED
+
+    def _on_broker_acknowledged(
+        self, state: LifecycleState, event: ExecutionEvent
+    ) -> None:
+        order = state.orders.get(event.aggregate_id)
+        if order is not None:
+            order.broker_order_id = (
+                event.payload.get("broker_order_id") or order.broker_order_id
+            )
+            order.status = IntentStatus.ACKNOWLEDGED
+
+    def _apply_fill(self, state: LifecycleState, event: ExecutionEvent) -> None:
+        order = state.orders.get(event.aggregate_id)
+        if order is None:
+            return
+        size = float(event.payload["size"])
+        price = float(event.payload["price"])
+        previous_filled = order.filled_size
+        order.filled_size = min(order.size, previous_filled + size)
+        if order.avg_fill_price is None:
+            order.avg_fill_price = price
+        elif previous_filled > 0:
+            order.avg_fill_price = (
+                previous_filled * order.avg_fill_price + size * price
+            ) / order.filled_size
+        order.status = (
+            IntentStatus.FILLED
+            if order.filled_size >= order.size - 1e-9
+            else IntentStatus.PARTIALLY_FILLED
+        )
+        if self.require_protective_order and order.side == "buy":
+            state.protection_state[event.aggregate_id] = (
+                ProtectionState.PROTECTION_REQUIRED
+            )
+
+    def _on_partial_fill_received(
+        self, state: LifecycleState, event: ExecutionEvent
+    ) -> None:
+        self._apply_fill(state, event)
+
+    def _on_fill_received(self, state: LifecycleState, event: ExecutionEvent) -> None:
+        self._apply_fill(state, event)
+
+    def _on_fee_booked(self, state: LifecycleState, event: ExecutionEvent) -> None:
+        order = state.orders.get(event.aggregate_id)
+        if order is not None:
+            order.fees += float(event.payload.get("fee", 0.0))
+
+    def _on_cancel_requested(
+        self, state: LifecycleState, event: ExecutionEvent
+    ) -> None:
+        order = state.orders.get(event.aggregate_id)
+        if order is not None and order.status != IntentStatus.FILLED:
+            order.status = IntentStatus.CANCEL_REQUESTED
+
+    def _on_cancel_confirmed(
+        self, state: LifecycleState, event: ExecutionEvent
+    ) -> None:
+        order = state.orders.get(event.aggregate_id)
+        if order is not None:
+            self._release_sell_remainder(order)
+            order.status = IntentStatus.CANCELED
+
+    def _on_protective_order_created(
+        self, state: LifecycleState, event: ExecutionEvent
+    ) -> None:
+        payload = event.payload
+        state.protective_orders[event.aggregate_id] = ProtectiveOrderState(
+            order_id=event.aggregate_id,
+            symbol=payload["symbol"],
+            kind=payload.get("kind", "stop_loss"),
+            trigger_price=float(payload["trigger_price"]),
+        )
+        parent = payload.get("parent_intent_id")
+        if parent and parent in state.orders:
+            protective_id = event.aggregate_id
+            if protective_id not in state.orders[parent].protective_order_ids:
+                state.orders[parent].protective_order_ids.append(protective_id)
+
+    def _on_protective_order_acknowledged(
+        self, state: LifecycleState, event: ExecutionEvent
+    ) -> None:
+        protective = state.protective_orders.get(event.aggregate_id)
+        parent = event.payload.get("parent_intent_id")
+        if protective is not None and parent and parent in state.orders:
+            state.protection_state[parent] = ProtectionState.PROTECTED
+
+    def _on_protective_order_replaced(
+        self, state: LifecycleState, event: ExecutionEvent
+    ) -> None:
+        protective = state.protective_orders.get(event.aggregate_id)
+        if protective is not None:
+            protective.trigger_price = float(event.payload["trigger_price"])
+
+    def _on_reconciliation_started(
+        self, state: LifecycleState, event: ExecutionEvent
+    ) -> None:
+        state.reconciliation = ReconciliationState.STARTED
+        state.execution_health = ExecutionHealth.RECONCILING
+
+    def _on_reconciliation_resolved(
+        self, state: LifecycleState, event: ExecutionEvent
+    ) -> None:
+        state.reconciliation = ReconciliationState.RESOLVED
+        if not state.unresolved_manual_intents:
+            state.manual_blocked = False
+            if state.execution_health in {
+                ExecutionHealth.MANUAL_BLOCKED,
+                ExecutionHealth.RECONCILING,
+            }:
+                state.execution_health = ExecutionHealth.NORMAL
+
+    def _on_manual_intervention_required(
+        self, state: LifecycleState, event: ExecutionEvent
+    ) -> None:
+        order = state.orders.get(event.aggregate_id)
+        if order is not None:
+            order.status = IntentStatus.MANUAL
+            reason = event.payload.get("reason", "manual intervention required")
+            if reason not in order.manual_reasons:
+                order.manual_reasons.append(reason)
+        state.manual_blocked = True
+        state.unresolved_manual_intents.add(event.aggregate_id)
+        if state.execution_health != ExecutionHealth.PROTECTION_GAP:
+            state.execution_health = ExecutionHealth.MANUAL_BLOCKED
 
     # ── Command surface (each command validates + appends) ──────────────
 
@@ -470,6 +666,11 @@ class ExecutionLifecycle:
         validate_event(event)
         try:
             inserted = self.store.append(event)
+        except ReservationConflictError as exc:
+            raise InvariantViolation(
+                "active_sell_reservations_never_exceed_authorized_inventory",
+                str(exc),
+            ) from exc
         except SequenceGapError:
             raise
         if inserted:
@@ -488,37 +689,25 @@ class ExecutionLifecycle:
             raise LifecycleError(f"side must be buy|sell, got {side!r}")
         if size <= 0:
             raise LifecycleError("size must be positive")
-        if self.state.manual_blocked:
-            raise InvariantViolation(
-                "no_new_exposure_while_manual_blocked",
-                f"manual intervention unresolved; refusing new intent {intent_id}",
-            )
-        if self.state.execution_health == ExecutionHealth.PROTECTION_GAP:
-            raise InvariantViolation(
-                "no_new_exposure_during_protection_gap",
-                f"protection gap active; refusing new intent {intent_id}",
-            )
+        # A reconciliation window may accept a draft intent for audit/replay,
+        # but submission remains fail-closed below.  Other controls (manual
+        # block, protection gap, kill switch) still reject risk-increasing
+        # intent creation immediately.
+        from trading_agent.execution.permission import OrderPermission, PermissionReason
+
+        draft_permission = self._permission_result(
+            side,
+            size,
+            symbol,
+            require_market_data=False,
+        )
         if (
-            side == "buy"
-            and ProtectionState.PROTECTION_REQUIRED
-            in self.state.protection_state.values()
+            draft_permission.permission == OrderPermission.BLOCK
+            and draft_permission.reason != PermissionReason.RECONCILIATION_UNRESOLVED
         ):
             raise InvariantViolation(
-                "no_new_exposure_while_protection_required",
-                "position protection recovery required; refusing new intent",
+                draft_permission.reason.value, draft_permission.detail
             )
-        if self._kill_switch():
-            effect = self._determine_exposure_effect(side, size, symbol)
-            if effect == ExposureEffect.INCREASE:
-                raise InvariantViolation(
-                    "no_increased_exposure_while_kill_switch_blocks_entry",
-                    f"kill switch active; refusing {effect.value} intent {intent_id}",
-                )
-            if effect == ExposureEffect.NEUTRAL:
-                raise InvariantViolation(
-                    "no_increased_exposure_while_kill_switch_blocks_entry",
-                    f"kill switch active; refusing neutral intent {intent_id}",
-                )
         if intent_id in self.state.orders:
             raise LifecycleError(f"intent {intent_id} already exists")
         return self._emit(
@@ -576,49 +765,29 @@ class ExecutionLifecycle:
                 f"intent {intent_id} must be risk-approved before submit "
                 f"(status={order.status.value})"
             )
-        # Invariant 2: no entry on stale market data.
-        self._check_price(order.symbol)
-        # Invariant 3: no entry while reconciliation unresolved.
-        if self.state.reconciliation == ReconciliationState.STARTED:
-            raise InvariantViolation(
-                "no_entry_while_reconciliation_unresolved",
-                "reconciliation in progress",
+        self._enforce_permission(
+            order.side,
+            order.size,
+            order.symbol,
+            require_market_data=True,
+            exclude_intent_id=intent_id,
+        )
+        payload = {
+            "order_id": intent_id,
+            "exchange_order_id": exchange_order_id or "",
+        }
+        if order.side == "sell":
+            authorized = float(self._inventory_source(order.symbol, "sell"))
+            payload.update(
+                symbol=order.symbol,
+                side=order.side,
+                authorized_quantity=authorized,
+                reserved_quantity=order.size,
             )
-        # Manual block / protection gap
-        if self.state.manual_blocked:
-            raise InvariantViolation(
-                "no_new_exposure_while_manual_blocked",
-                "manual intervention unresolved",
-            )
-        if self.state.execution_health == ExecutionHealth.PROTECTION_GAP:
-            raise InvariantViolation(
-                "no_new_exposure_during_protection_gap",
-                "protection gap active",
-            )
-        # Block new exposure while any position requires protection recovery.
-        if (
-            order.side == "buy"
-            and ProtectionState.PROTECTION_REQUIRED
-            in self.state.protection_state.values()
-        ):
-            raise InvariantViolation(
-                "no_new_exposure_while_protection_required",
-                "position protection recovery required; new buy blocked",
-            )
-        # Invariant 5: kill switch with exposure effect.
-        if self._kill_switch():
-            effect = self._determine_exposure_effect(
-                order.side, order.size, order.symbol
-            )
-            if effect in (ExposureEffect.INCREASE, ExposureEffect.NEUTRAL):
-                raise InvariantViolation(
-                    "no_increased_exposure_while_kill_switch_blocks_entry",
-                    f"kill switch active; {effect.value} intent {intent_id}",
-                )
         return self._emit(
             ExecutionEventType.ORDER_SUBMITTED,
             intent_id,
-            {"order_id": intent_id, "exchange_order_id": exchange_order_id or ""},
+            payload,
         )
 
     def acknowledge_broker(
@@ -674,14 +843,13 @@ class ExecutionLifecycle:
                 "no_replay_creating_synthetic_extra_fill",
                 f"fill {size} exceeds remaining {remaining}",
             )
-        # Invariant 7: cumulative sell quantity <= free inventory.
-        if order.side == "sell":
-            free = self._inventory_source(order.symbol, "sell")
-            if order.filled_size + size > free + 1e-9:
-                raise InvariantViolation(
-                    "no_sell_quantity_above_available_free_inventory",
-                    f"cumulative sell {order.filled_size + size} > free inventory {free} for {order.symbol}",
-                )
+        # Fills consume the immutable reservation, not a moving free-balance snapshot.
+        if order.side == "sell" and size > order.remaining_reserved_quantity + 1e-9:
+            raise InvariantViolation(
+                "active_sell_reservations_never_exceed_authorized_inventory",
+                f"fill {size} exceeds remaining reservation "
+                f"{order.remaining_reserved_quantity} for {order.symbol}",
+            )
         is_full = size >= remaining - 1e-9
         etype = (
             ExecutionEventType.FILL_RECEIVED
@@ -747,6 +915,22 @@ class ExecutionLifecycle:
             ExecutionEventType.CANCEL_CONFIRMED,
             intent_id,
             {"order_id": intent_id},
+        )
+
+    def reject_order(self, intent_id: str, reason: str = "") -> ExecutionEvent:
+        order = self.state.order(intent_id)
+        if order is None:
+            raise LifecycleError(f"unknown intent {intent_id}")
+        if order.status in {
+            IntentStatus.FILLED,
+            IntentStatus.CANCELED,
+            IntentStatus.REJECTED,
+        }:
+            raise LifecycleError(f"cannot reject {intent_id} in {order.status.value}")
+        return self._emit(
+            ExecutionEventType.ORDER_REJECTED,
+            intent_id,
+            {"order_id": intent_id, "reason": reason},
         )
 
     def create_protective_order(
@@ -918,6 +1102,10 @@ class ExecutionLifecycle:
                     "broker_order_id": v.broker_order_id,
                     "exchange_order_id": v.exchange_order_id,
                     "filled_size": v.filled_size,
+                    "authorized_quantity": v.authorized_quantity,
+                    "reserved_quantity": v.reserved_quantity,
+                    "released_quantity": v.released_quantity,
+                    "remaining_reserved_quantity": v.remaining_reserved_quantity,
                     "avg_fill_price": v.avg_fill_price,
                     "fees": v.fees,
                     "protective_order_ids": v.protective_order_ids,

@@ -203,14 +203,24 @@ class OnlineLearningStrategy(BaseStrategy):
         low = float(bar.low)
         volume = float(bar.volume)
 
-        # Update all indicators
-        ema_fast_val = self.ema_fast.update(close, self.current_performance)
-        ema_slow_val = self.ema_slow.update(close, self.current_performance)
-        rsi_val = self.rsi.update(close, self.current_performance)
-        bb_mid, bb_up, bb_low = self.bb.update(close, self.current_performance)
-        macd_val, macd_sig, macd_hist = self.macd.update(
-            close, self.current_performance
-        )
+        # Outcomes belong to the prior forecast and never update market state.
+        self._update_performance(close)
+        if self.signal_history:
+            for indicator in (
+                self.ema_fast,
+                self.ema_slow,
+                self.rsi,
+                self.bb,
+                self.macd,
+            ):
+                indicator.observe_outcome(self.current_performance)
+
+        # Every stateful indicator processes this bar exactly once.
+        ema_fast_val = self.ema_fast.observe_market(close)
+        ema_slow_val = self.ema_slow.observe_market(close)
+        rsi_val = self.rsi.observe_market(close)
+        bb_mid, bb_up, bb_low = self.bb.observe_market(close)
+        macd_val, macd_sig, macd_hist = self.macd.observe_market(close)
         atr_val = self.atr.update(high, low, close)
         vwap_val = self.vwap.update(close, volume)
         vol = self.volatility.update(close)
@@ -218,9 +228,6 @@ class OnlineLearningStrategy(BaseStrategy):
 
         # Detect regime
         self._detect_regime(close, ema_fast_val, ema_slow_val, rsi_val, vol, trend_corr)
-
-        # Calculate performance if in position
-        self._update_performance(close)
 
         # Generate signal
         signal = self._generate_signal(

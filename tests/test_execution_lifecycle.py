@@ -224,10 +224,9 @@ def test_sell_above_free_inventory_blocked(store):
     )
     lc.create_order_intent("i1", "BTC/USDT", "sell", 1.0)
     lc.approve_risk("i1")
-    lc.submit_order("i1", exchange_order_id="ex_1")
-    lc.acknowledge_broker("i1", broker_order_id="br_1")
     with pytest.raises(InvariantViolation):
-        lc.receive_fill("i1", 1.0, 100.0, protective_trigger=90.0)
+        lc.submit_order("i1", exchange_order_id="ex_1")
+    assert lc.order("i1").status == IntentStatus.APPROVED
     assert lc.order("i1").filled_size == 0.0
 
 

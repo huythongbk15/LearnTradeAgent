@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import sqlite3
 import uuid
 from dataclasses import dataclass
@@ -34,6 +35,7 @@ from typing import Any
 from trading_agent.execution.lifecycle.events import (
     EVENT_SCHEMA_VERSION,
     ExecutionEvent,
+    ExecutionEventType,
 )
 
 _SCHEMA = """
@@ -66,6 +68,18 @@ CREATE TABLE IF NOT EXISTS execution_snapshots (
     created_at      TEXT NOT NULL,
     UNIQUE (aggregate_id)
 );
+
+CREATE TABLE IF NOT EXISTS execution_sell_reservations (
+    intent_id            TEXT PRIMARY KEY,
+    symbol               TEXT NOT NULL,
+    authorized_quantity  REAL NOT NULL,
+    reserved_quantity    REAL NOT NULL,
+    filled_quantity      REAL NOT NULL DEFAULT 0,
+    released_quantity    REAL NOT NULL DEFAULT 0,
+    status               TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_exec_sell_reservation_symbol
+    ON execution_sell_reservations (symbol, status);
 """
 
 
@@ -75,6 +89,10 @@ class SequenceGapError(RuntimeError):
 
 class SnapshotIntegrityError(RuntimeError):
     """Raised when a snapshot is corrupt, partial or schema-incompatible."""
+
+
+class ReservationConflictError(RuntimeError):
+    """Raised when concurrent SELL locks exceed authorized inventory."""
 
 
 @dataclass(frozen=True)
@@ -113,6 +131,7 @@ class ExecutionEventStore:
         conn.executescript(_SCHEMA)
         conn.commit()
         self._conn = conn
+        self._rebuild_sell_reservations_if_needed()
         return self
 
     def close(self) -> None:
@@ -134,41 +153,168 @@ class ExecutionEventStore:
 
     # ── Append ──────────────────────────────────────────────────────────
 
+    def _rebuild_sell_reservations_if_needed(self) -> None:
+        count = self.conn.execute(
+            "SELECT COUNT(*) AS c FROM execution_sell_reservations"
+        ).fetchone()["c"]
+        if count:
+            return
+        events = self.read_events()
+        if not any(
+            event.event_type == ExecutionEventType.ORDER_SUBMITTED
+            and event.payload.get("side") == "sell"
+            for event in events
+        ):
+            return
+        try:
+            self.conn.execute("BEGIN IMMEDIATE")
+            for event in events:
+                self._apply_sell_reservation_projection(event)
+            self.conn.commit()
+        except Exception:
+            self.conn.rollback()
+            raise
+
+    def _apply_sell_reservation_projection(self, event: ExecutionEvent) -> None:
+        """Update the rebuildable SELL-lock projection inside the event tx."""
+        payload = event.payload
+        event_type = event.event_type
+        if (
+            event_type == ExecutionEventType.ORDER_SUBMITTED
+            and str(payload.get("side", "")).lower() == "sell"
+        ):
+            symbol = str(payload.get("symbol") or "")
+            authorized = float(payload.get("authorized_quantity", 0.0))
+            reserved = float(payload.get("reserved_quantity", 0.0))
+            if (
+                not symbol
+                or not math.isfinite(authorized)
+                or not math.isfinite(reserved)
+                or authorized < 0
+                or reserved <= 0
+            ):
+                raise ReservationConflictError("invalid SELL reservation evidence")
+            row = self.conn.execute(
+                """
+                SELECT COALESCE(SUM(
+                    reserved_quantity - filled_quantity - released_quantity
+                ), 0) AS active
+                FROM execution_sell_reservations
+                WHERE symbol = ? AND status = 'active'
+                """,
+                (symbol,),
+            ).fetchone()
+            active = float(row["active"] if row is not None else 0.0)
+            if active + reserved > authorized + 1e-9:
+                raise ReservationConflictError(
+                    f"active SELL reservations {active + reserved} exceed "
+                    f"authorized inventory {authorized} for {symbol}"
+                )
+            self.conn.execute(
+                """
+                INSERT INTO execution_sell_reservations
+                (intent_id, symbol, authorized_quantity, reserved_quantity,
+                 filled_quantity, released_quantity, status)
+                VALUES (?, ?, ?, ?, 0, 0, 'active')
+                """,
+                (event.aggregate_id, symbol, authorized, reserved),
+            )
+            return
+
+        if event_type in {
+            ExecutionEventType.PARTIAL_FILL_RECEIVED,
+            ExecutionEventType.FILL_RECEIVED,
+        }:
+            row = self.conn.execute(
+                """
+                SELECT reserved_quantity, filled_quantity
+                FROM execution_sell_reservations WHERE intent_id = ?
+                """,
+                (event.aggregate_id,),
+            ).fetchone()
+            if row is None:
+                return
+            filled = float(row["filled_quantity"]) + float(payload["size"])
+            reserved = float(row["reserved_quantity"])
+            if filled > reserved + 1e-9:
+                raise ReservationConflictError(
+                    f"SELL fills {filled} exceed reservation {reserved}"
+                )
+            self.conn.execute(
+                """
+                UPDATE execution_sell_reservations
+                SET filled_quantity = ?, status = ? WHERE intent_id = ?
+                """,
+                (
+                    filled,
+                    "filled" if filled >= reserved - 1e-9 else "active",
+                    event.aggregate_id,
+                ),
+            )
+            return
+
+        if event_type in {
+            ExecutionEventType.CANCEL_CONFIRMED,
+            ExecutionEventType.ORDER_REJECTED,
+        }:
+            self.conn.execute(
+                """
+                UPDATE execution_sell_reservations
+                SET released_quantity = MAX(
+                        0, reserved_quantity - filled_quantity
+                    ),
+                    status = ?
+                WHERE intent_id = ?
+                """,
+                (
+                    "canceled"
+                    if event_type == ExecutionEventType.CANCEL_CONFIRMED
+                    else "rejected",
+                    event.aggregate_id,
+                ),
+            )
+
+    def active_sell_reservations(self, symbol: str) -> float:
+        row = self.conn.execute(
+            """
+            SELECT COALESCE(SUM(
+                reserved_quantity - filled_quantity - released_quantity
+            ), 0) AS active
+            FROM execution_sell_reservations
+            WHERE symbol = ? AND status = 'active'
+            """,
+            (symbol,),
+        ).fetchone()
+        return float(row["active"] if row is not None else 0.0)
+
     def append(
         self,
         event: ExecutionEvent,
         *,
         expect_seq: bool = True,
     ) -> bool:
-        """Append one event.
-
-        Returns True if inserted, False if the event id was already present
-        (idempotent duplicate handling).
-
-        With ``expect_seq=True`` (default) a seq != max_seq+1 raises
-        :class:`SequenceGapError` — no partial state is ever written.
-        """
-        # Idempotency first: an already-persisted event_id is a no-op
-        # regardless of seq (e.g. a WS duplicate replayed after a restart).
-        existing = self.conn.execute(
-            "SELECT 1 FROM execution_events WHERE event_id = ?",
-            (event.event_id,),
-        ).fetchone()
-        if existing is not None:
-            return False
-        if expect_seq:
-            expected = self.max_seq(event.aggregate_id) + 1
-            if event.seq != expected:
-                raise SequenceGapError(
-                    f"aggregate {event.aggregate_id}: expected seq {expected}, "
-                    f"got {event.seq}"
-                )
-        row = event.to_row()
-        row["ingested_at"] = datetime.now(UTC).isoformat()
+        """Append one event and its reservation projection atomically."""
         try:
+            self.conn.execute("BEGIN IMMEDIATE")
+            existing = self.conn.execute(
+                "SELECT 1 FROM execution_events WHERE event_id = ?",
+                (event.event_id,),
+            ).fetchone()
+            if existing is not None:
+                self.conn.rollback()
+                return False
+            if expect_seq:
+                expected = self.max_seq(event.aggregate_id) + 1
+                if event.seq != expected:
+                    raise SequenceGapError(
+                        f"aggregate {event.aggregate_id}: expected seq {expected}, "
+                        f"got {event.seq}"
+                    )
+            row = event.to_row()
+            row["ingested_at"] = datetime.now(UTC).isoformat()
             cur = self.conn.execute(
                 """
-                INSERT OR IGNORE INTO execution_events
+                INSERT INTO execution_events
                 (event_id, seq, aggregate_id, event_type, schema_version,
                  payload, correlation_id, causation_id, occurred_at, ingested_at)
                 VALUES
@@ -177,13 +323,20 @@ class ExecutionEventStore:
                 """,
                 row,
             )
+            self._apply_sell_reservation_projection(event)
             self.conn.commit()
+            return cur.rowcount == 1
+        except ReservationConflictError:
+            self.conn.rollback()
+            raise
         except sqlite3.IntegrityError as exc:
-            # UNIQUE(aggregate_id, seq) conflict — duplicate seq for aggregate.
+            self.conn.rollback()
             raise SequenceGapError(
                 f"aggregate {event.aggregate_id}: duplicate seq {event.seq}"
             ) from exc
-        return cur.rowcount == 1
+        except Exception:
+            self.conn.rollback()
+            raise
 
     def append_batch(
         self,
@@ -227,7 +380,10 @@ class ExecutionEventStore:
                         """,
                         row,
                     )
-                    results.append(cur.rowcount == 1)
+                    inserted = cur.rowcount == 1
+                    if inserted:
+                        self._apply_sell_reservation_projection(event)
+                    results.append(inserted)
         except sqlite3.IntegrityError as exc:
             raise SequenceGapError("duplicate seq in batch") from exc
         return results

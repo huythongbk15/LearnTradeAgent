@@ -14,7 +14,7 @@
 | In-sample | Huấn luyện + đánh giá trên cùng dữ liệu | Thấp (overfit risk cao) |
 | Out-of-sample (OOS) | Đánh giá trên dữ liệu không dùng để chọn tham số | Trung bình |
 | Walk-forward (WFO) | Rolling train/test qua nhiều fold | Trung bình–cao nếu đủ fold & min trades |
-| Final untouched holdout | 6-12 tháng cuối chưa từng dùng cho bất kỳ quyết định nào | Cao nhất (chưa hoàn thành) |
+| Final untouched holdout | 6 tháng cuối đã freeze trong manifest và chưa được dùng để tune | Cao nhất khi chỉ mở một lần sau khi protocol được khóa |
 | Paper / Testnet | Thực thi mô phỏng với dữ liệu thật | Cao (nhưng không = live) |
 | Live | Vốn thật | Chỉ sau release gates |
 
@@ -65,7 +65,7 @@
 | Yêu cầu (prompt mục 6) | Trạng thái |
 | --- | --- |
 | Minimum trades per fold | ✅ **Done** — enforced via `min_trades_check` (tests/test_research_stats.py::TestMinTrades) |
-| 6-12 tháng final untouched holdout | **Chưa có** — cần freeze |
+| 6-12 tháng final untouched holdout | ✅ **Frozen** — immutable manifest exists; intentionally not opened for iterative tuning |
 | Regime breakdown | Một phần (ghi chú regime dependence) |
 | Block bootstrap confidence intervals | ✅ **Done** — `block_bootstrap_sharpe_ci` + tests |
 | Probabilistic / Deflated Sharpe | ✅ **Done** — `probabilistic_sharpe_ratio`, `deflated_sharpe_ratio` + tests (DSR accounts for ~8000 explored trials) |
@@ -82,3 +82,18 @@ ATR SL 2.0 / TP 6.0) là *candidate research configuration* duy nhất đáng đ
 Mỗi kết quả research mới phải ghi: commit SHA · dataset hash/manifest · date range ·
 timeframe · fees · spread · slippage · trade count · Sharpe · max DD · profit factor ·
 benchmark · OOS? · exact command.
+
+## Methodology hardening snapshot (2026-08-17)
+
+The executable methodology now uses actual gross/net returns, target-position
+turnover/cost, train-only robust transforms, nested expanding outer/inner folds,
+purge/embargo, one-shot outer testing, registry-derived trial counts and full-space
+PBO/CSCV. Calibration, conformal, drift, simulator provenance and promotion
+evidence are immutable artifacts with explicit source/status.
+
+The deterministic benchmark in `scripts/benchmark_methodology.py` is classified
+`SYNTHETIC_DIAGNOSTIC`: selected alpha and oracle-assisted regime mixture win their
+fixtures; adaptive experts lose fixed baselines; MPC is not empirically
+benchmarkable; Platt calibration improves an independent synthetic test. None of
+these results demonstrates a market edge. Details and exact values are in
+[`RESEARCH_METHODOLOGY.md`](RESEARCH_METHODOLOGY.md).

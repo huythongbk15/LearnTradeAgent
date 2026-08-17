@@ -11,6 +11,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
+from trading_agent.research.calibration import (
+    CalibrationArtifact,
+    CalibrationState,
+    calibration_state,
+)
+
 
 class UncertaintyState(Enum):
     LOW = "low"
@@ -152,6 +158,8 @@ class CalibratedDecision:
     ood_score: float
     horizon: str = "1h"
     temperature: float = 1.0
+    calibration_artifact_id: str | None = None
+    calibration_status: CalibrationState = CalibrationState.UNCALIBRATED
 
     def __post_init__(self) -> None:
         # Validate probabilities sum to 1.0
@@ -197,6 +205,8 @@ class CalibratedDecision:
             "ood_score": self.ood_score,
             "horizon": self.horizon,
             "temperature": self.temperature,
+            "calibration_artifact_id": self.calibration_artifact_id,
+            "calibration_status": self.calibration_status.value,
             "uncertainty_state": self.uncertainty_state.value,
         }
 
@@ -257,6 +267,24 @@ class DecisionPolicy:
         return max(allowed, key=lambda a: decision.action_probabilities[a])
 
 
+class GovernedDecisionPolicy(DecisionPolicy):
+    """Production gate requiring current calibration evidence for risk increase."""
+
+    def allowed_actions(self, decision: CalibratedDecision) -> set[Action]:
+        allowed = super().allowed_actions(decision)
+        interval_crosses_zero = (
+            decision.prediction_interval_lower
+            <= 0.0
+            <= decision.prediction_interval_upper
+        )
+        if (
+            decision.calibration_status != CalibrationState.CALIBRATED
+            or interval_crosses_zero
+        ):
+            allowed.discard(Action.INCREASE)
+        return allowed
+
+
 def isotonic_calibration(
     predictions: list[float],
     outcomes: list[float],
@@ -299,6 +327,7 @@ def uncertainty_signal_to_decision(
     historical_signals: list[UncertaintySignal] | None = None,
     historical_outcomes: list[float] | None = None,
     temperature: float = 1.0,
+    calibration_artifact: CalibrationArtifact | None = None,
 ) -> CalibratedDecision:
     """Convert UncertaintySignal to CalibratedDecision with calibration.
 
@@ -361,6 +390,10 @@ def uncertainty_signal_to_decision(
         ood_score=signal.ood_score,
         horizon=signal.horizon,
         temperature=temperature,
+        calibration_artifact_id=(
+            calibration_artifact.calibration_id if calibration_artifact else None
+        ),
+        calibration_status=calibration_state(calibration_artifact),
     )
 
 

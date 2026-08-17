@@ -56,15 +56,18 @@ class OnlineSMA(OnlineIndicator):
     """Simple Moving Average (streaming)."""
 
     def __init__(self, period: int):
+        if period < 1:
+            raise ValueError("period must be >= 1")
         self.period = period
-        self.values = deque(maxlen=period)
+        # Manage eviction explicitly so the outgoing value is subtracted first.
+        self.values = deque()
         self._sum = 0.0
 
     def update(self, value: float) -> float:
-        self.values.append(value)
+        if len(self.values) == self.period:
+            self._sum -= self.values.popleft()
+        self.values.append(float(value))
         self._sum += value
-        if len(self.values) > self.period:
-            self._sum -= self.values[0]
         return self._sum / len(self.values) if self.values else 0.0
 
     def reset(self) -> None:
@@ -432,7 +435,9 @@ class OnlineCorrelation(OnlineIndicator):
 
     @property
     def is_ready(self) -> bool:
-        return self.count >= 2
+        if self.period is None:
+            return self.count >= 2
+        return len(self.values_x) >= self.period
 
     @property
     def value(self) -> float:

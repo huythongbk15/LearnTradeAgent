@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from itertools import combinations
 
 import numpy as np
 from scipy import stats
@@ -217,6 +218,107 @@ def deflated_sharpe_ratio(
     )
 
 
+def combinatorially_symmetric_cross_validation(
+    candidate_returns: np.ndarray,
+    *,
+    n_slices: int = 8,
+) -> dict[str, object]:
+    """Estimate backtest-selection overfitting with CSCV.
+
+    Rows are chronological return observations and columns are candidate
+    strategies.  Each symmetric split selects the best in-sample candidate,
+    ranks it out-of-sample, and records its OOS degradation.  This complements
+    DSR; it does not replace the multiple-testing adjustment in DSR.
+    """
+
+    values = np.asarray(candidate_returns, dtype=float)
+    if values.ndim != 2:
+        raise ValueError("candidate_returns must be a 2D observations x trials matrix")
+    finite_rows = np.all(np.isfinite(values), axis=1)
+    values = values[finite_rows]
+    n_observations, n_candidates = values.shape
+    if n_candidates < 2 or n_observations < 24:
+        return {
+            "pbo": 0.0,
+            "logit_ranks": [],
+            "oos_degradation": [],
+            "n_splits": 0,
+        }
+
+    n_slices = max(4, min(int(n_slices), n_observations // 4))
+    if n_slices % 2:
+        n_slices -= 1
+    slices = [
+        part
+        for part in np.array_split(np.arange(n_observations), n_slices)
+        if len(part)
+    ]
+    n_slices = len(slices)
+    if n_slices < 4 or n_slices % 2:
+        return {
+            "pbo": 0.0,
+            "logit_ranks": [],
+            "oos_degradation": [],
+            "n_splits": 0,
+        }
+
+    def score(sample: np.ndarray) -> np.ndarray:
+        mean = np.mean(sample, axis=0)
+        volatility = np.std(sample, axis=0, ddof=1)
+        return np.divide(
+            mean,
+            volatility,
+            out=np.full_like(mean, -np.inf),
+            where=volatility > 1e-12,
+        )
+
+    logits: list[float] = []
+    degradations: list[float] = []
+    half = n_slices // 2
+    all_slices = set(range(n_slices))
+    for train_slice_ids in combinations(range(n_slices), half):
+        # Count each symmetric train/test pair once.
+        if 0 not in train_slice_ids:
+            continue
+        test_slice_ids = sorted(all_slices.difference(train_slice_ids))
+        train_idx = np.concatenate([slices[i] for i in train_slice_ids])
+        test_idx = np.concatenate([slices[i] for i in test_slice_ids])
+        train_scores = score(values[train_idx])
+        test_scores = score(values[test_idx])
+        selected = int(np.argmax(train_scores))
+
+        # Percentile rank in (0, 1), where values below 0.5 indicate that the
+        # selected IS winner fell into the lower half OOS.
+        rank = int(np.sum(test_scores < test_scores[selected]))
+        relative_rank = (rank + 1.0) / (n_candidates + 1.0)
+        relative_rank = min(max(relative_rank, 1e-9), 1.0 - 1e-9)
+        logits.append(float(math.log(relative_rank / (1.0 - relative_rank))))
+        degradations.append(float(test_scores[selected] - np.max(test_scores)))
+
+    pbo = float(np.mean(np.asarray(logits) <= 0.0)) if logits else 0.0
+    return {
+        "pbo": pbo,
+        "logit_ranks": logits,
+        "oos_degradation": degradations,
+        "n_splits": len(logits),
+    }
+
+
+def probability_of_backtest_overfitting(
+    candidate_returns: np.ndarray,
+    *,
+    n_slices: int = 8,
+) -> float:
+    """Convenience wrapper returning CSCV's PBO estimate."""
+
+    return float(
+        combinatorially_symmetric_cross_validation(
+            candidate_returns,
+            n_slices=n_slices,
+        )["pbo"]
+    )
+
+
 def min_trades_check(
     folds: list[dict],
     min_trades: int,
@@ -243,13 +345,23 @@ def summarize_sharpe(
     returns: np.ndarray,
     *,
     periods_per_year: float,
-    trials: int,
+    trials: int | None = None,
+    experiment_registry: object | None = None,
     bootstrap_iters: int = 1_000,
     block_len: int | None = None,
     seed: int = 42,
     sr_benchmark: float = 0.0,
-) -> dict[str, float]:
+) -> dict[str, float | int | str]:
     """One-call summary: point Sharpe, bootstrap CI, PSR and DSR."""
+    trial_count_source = "manual"
+    if experiment_registry is not None:
+        trial_counts = experiment_registry.trial_counts()
+        trials = int(trial_counts.effective_trial_count)
+        trial_count_source = "experiment_registry"
+    if trials is None:
+        raise ValueError("trials or experiment_registry is required")
+    if trials < 1:
+        raise ValueError("effective trial count must be >= 1")
     s = series_stats(returns, periods_per_year)
     lo, hi, _ = block_bootstrap_sharpe_ci(
         returns,
@@ -284,4 +396,5 @@ def summarize_sharpe(
         "probabilistic_sharpe_ratio": round(psr, 4),
         "deflated_sharpe_ratio": round(dsr, 4),
         "trials": trials,
+        "trial_count_source": trial_count_source,
     }

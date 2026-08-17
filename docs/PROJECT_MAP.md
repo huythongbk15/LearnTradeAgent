@@ -63,6 +63,7 @@
 │   ├── README.md
 │   ├── RESEARCH_EVIDENCE.md
 │   ├── RESEARCH_HOLDOUT.md
+│   ├── RESEARCH_METHODOLOGY.md
 │   ├── RUNBOOK.md
 │   ├── RUNBOOK_LOCAL.md
 │   ├── SECURITY.md
@@ -130,6 +131,7 @@
 │   ├── backtest_local.py
 │   ├── backup.sh
 │   ├── backup_local.py
+│   ├── benchmark_methodology.py
 │   ├── benchmark_phase6.py
 │   ├── chaos_dryrun.py
 │   ├── check_alpaca.py
@@ -207,7 +209,9 @@
 │       │   └── trader.py
 │       ├── alpha_research
 │       │   ├── __init__.py
+│       │   ├── feature_store.py
 │       │   ├── holdout.py
+│       │   ├── methodology.py
 │       │   ├── pipeline.py
 │       │   └── stats.py
 │       ├── backtest
@@ -277,6 +281,7 @@
 │       │   ├── simulator
 │       │   │   ├── __init__.py
 │       │   │   ├── calibration.py
+│       │   │   ├── calibration_provenance.py
 │       │   │   ├── engine.py
 │       │   │   ├── fee_model.py
 │       │   │   ├── fill_model.py
@@ -358,8 +363,11 @@
 │       ├── research
 │       │   ├── __init__.py
 │       │   ├── artifact.py
+│       │   ├── calibration.py
 │       │   ├── drift.py
+│       │   ├── forecast.py
 │       │   ├── lifecycle.py
+│       │   ├── promotion.py
 │       │   ├── trials.py
 │       │   └── uncertainty.py
 │       ├── risk
@@ -418,9 +426,12 @@
 │   ├── test_decision_trace.py
 │   ├── test_enhanced_ma_exit_safety.py
 │   ├── test_execution_algorithms.py
+│   ├── test_execution_hardening.py
 │   ├── test_execution_lifecycle.py
 │   ├── test_execution_simulator.py
 │   ├── test_execution_simulator_property.py
+│   ├── test_experiment_registry.py
+│   ├── test_forecast_promotion_contract.py
 │   ├── test_holdout_manifest.py
 │   ├── test_live_audit_watchdog.py
 │   ├── test_live_broker_balances.py
@@ -435,6 +446,8 @@
 │   ├── test_llm_pool.py
 │   ├── test_llm_schema.py
 │   ├── test_measure_tracking_error.py
+│   ├── test_methodology_benchmark.py
+│   ├── test_online_methodology.py
 │   ├── test_order_permission.py
 │   ├── test_p4_p7.py
 │   ├── test_paper_exchange_accounting.py
@@ -443,18 +456,21 @@
 │   ├── test_phase6.py
 │   ├── test_phase6_integration.py
 │   ├── test_post_trade_impact.py
+│   ├── test_quant_methodology.py
 │   ├── test_realtime_data.py
 │   ├── test_research_governance.py
 │   ├── test_research_stats.py
 │   ├── test_risk_decision.py
 │   ├── test_shadow_mainnet.py
 │   ├── test_simulator_calibration.py
+│   ├── test_simulator_provenance_distribution.py
 │   ├── test_storage.py
 │   ├── test_strategy_security.py
 │   ├── test_synthetic_alerts.py
 │   ├── test_testnet_soak_tracker.py
 │   ├── test_tier1_3_tier2.py
 │   ├── test_tier3_live.py
+│   ├── test_uncertainty_drift_methodology.py
 │   ├── test_verify_account_hardening.py
 │   ├── test_verify_github_controls.py
 │   ├── test_verify_provenance.py

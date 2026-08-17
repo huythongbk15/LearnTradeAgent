@@ -28,6 +28,16 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional, Sequence
 
+from trading_agent.execution.permission import (
+    OrderPermission,
+    PermissionContext,
+    evaluate_order_permission,
+)
+
+
+class OrderPermissionError(RuntimeError):
+    """A live smart order lacks authoritative permission evidence."""
+
 
 class ExecutionAlgorithm(Enum):
     TWAP = "twap"
@@ -283,11 +293,39 @@ class SmartExecutionEngine:
         self.active_orders.append(order)
         return order
 
-    async def execute(self, order: SmartOrder, dry_run: bool = True) -> dict:
+    async def execute(
+        self,
+        order: SmartOrder,
+        dry_run: bool = True,
+        *,
+        permission_context: PermissionContext | None = None,
+    ) -> dict:
         """
         Execute a smart order (simulated if dry_run=True or no exchange).
         Returns summary dict.
         """
+        if not dry_run:
+            if permission_context is None:
+                raise OrderPermissionError(
+                    "live smart execution requires a PermissionContext"
+                )
+            context_side = permission_context.order_side.strip().lower()
+            order_side = order.side.strip().lower()
+            if context_side != order_side or not math.isclose(
+                permission_context.order_size,
+                order.total_qty,
+                rel_tol=0.0,
+                abs_tol=1e-9,
+            ):
+                raise OrderPermissionError(
+                    "permission context does not match the smart order"
+                )
+            permission = evaluate_order_permission(permission_context)
+            if permission.permission == OrderPermission.BLOCK:
+                raise OrderPermissionError(
+                    f"{permission.reason.value}: {permission.detail}"
+                )
+
         order.status = "executing"
         order.start_time = time.time()
         total_filled = 0.0

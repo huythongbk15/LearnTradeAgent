@@ -25,6 +25,7 @@ from trading_agent.execution.lifecycle.lifecycle import (
 )
 from trading_agent.execution.lifecycle.store import (
     ExecutionEventStore,
+    ReservationConflictError,
     SequenceGapError,
     Snapshot,
     SnapshotIntegrityError,
@@ -49,6 +50,7 @@ __all__ = [
     "ProtectiveOrderState",
     "ProtectionState",
     "ReconciliationState",
+    "ReservationConflictError",
     "SequenceGapError",
     "Snapshot",
     "SnapshotIntegrityError",

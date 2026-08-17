@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum
-from typing import Optional
+from typing import Mapping, Optional
 
 import numpy as np
 import pandas as pd
@@ -61,6 +61,142 @@ class RegimeState:
     timestamp: datetime
     features: dict[str, float] = field(default_factory=dict)
     expected_duration: Optional[int] = None  # Days
+
+
+@dataclass(frozen=True)
+class RegimePosterior:
+    """Canonical soft regime probabilities used by strategy mixtures."""
+
+    p_trend: float
+    p_mean_reversion: float
+    p_high_vol: float
+    p_crisis: float
+    p_other: float
+
+    def __post_init__(self) -> None:
+        values = self.values
+        if any(not np.isfinite(value) or value < 0.0 for value in values):
+            raise ValueError("regime probabilities must be finite and non-negative")
+        if not np.isclose(sum(values), 1.0, atol=1e-9):
+            raise ValueError("regime probabilities must sum to one")
+
+    @property
+    def values(self) -> tuple[float, float, float, float, float]:
+        return (
+            self.p_trend,
+            self.p_mean_reversion,
+            self.p_high_vol,
+            self.p_crisis,
+            self.p_other,
+        )
+
+    @property
+    def entropy(self) -> float:
+        probabilities = np.asarray(self.values, dtype=float)
+        positive = probabilities[probabilities > 0.0]
+        return float(-np.sum(positive * np.log(positive)))
+
+    @property
+    def normalized_entropy(self) -> float:
+        return float(self.entropy / np.log(len(self.values)))
+
+    @property
+    def conviction_multiplier(self) -> float:
+        """Entropy-only shrinkage: more uncertainty can never raise exposure."""
+
+        return float(np.clip(1.0 - self.normalized_entropy, 0.0, 1.0))
+
+
+@dataclass(frozen=True)
+class RegimeMixtureForecast:
+    forecast: float
+    raw_forecast: float
+    entropy: float
+    normalized_entropy: float
+    exposure_multiplier: float
+    abstained: bool
+    reason: str | None = None
+
+
+def regime_posterior_from_state(state: RegimeState) -> RegimePosterior:
+    """Collapse detector-specific labels into a normalized five-state posterior."""
+
+    buckets = {
+        "trend": 0.0,
+        "mean_reversion": 0.0,
+        "high_vol": 0.0,
+        "crisis": 0.0,
+        "other": 0.0,
+    }
+    mapping = {
+        MarketRegime.BULL_TREND: "trend",
+        MarketRegime.BEAR_TREND: "trend",
+        MarketRegime.SIDEWAYS: "mean_reversion",
+        MarketRegime.LOW_VOLATILITY: "mean_reversion",
+        MarketRegime.HIGH_VOLATILITY: "high_vol",
+        MarketRegime.CRISIS: "crisis",
+        MarketRegime.RECOVERY: "other",
+        MarketRegime.UNKNOWN: "other",
+    }
+    for label, probability in state.probability.items():
+        try:
+            regime = label if isinstance(label, MarketRegime) else MarketRegime(label)
+        except ValueError:
+            buckets["other"] += max(0.0, float(probability))
+            continue
+        buckets[mapping[regime]] += max(0.0, float(probability))
+
+    total = sum(buckets.values())
+    if total <= 0.0 or (
+        state.regime == MarketRegime.UNKNOWN and float(state.confidence) < 0.5
+    ):
+        buckets = {name: 0.2 for name in buckets}
+        total = 1.0
+    elif total < 1.0:
+        buckets["other"] += 1.0 - total
+        total = 1.0
+    normalized = {name: value / total for name, value in buckets.items()}
+    return RegimePosterior(
+        p_trend=normalized["trend"],
+        p_mean_reversion=normalized["mean_reversion"],
+        p_high_vol=normalized["high_vol"],
+        p_crisis=normalized["crisis"],
+        p_other=normalized["other"],
+    )
+
+
+def mix_regime_forecasts(
+    posterior: RegimePosterior,
+    expert_forecasts: Mapping[str, float],
+    *,
+    max_exposure: float = 1.0,
+    abstain_entropy: float = 0.95,
+) -> RegimeMixtureForecast:
+    """Soft mixture with entropy shrinkage outside the normalization denominator."""
+
+    weights = {
+        "trend": posterior.p_trend,
+        "mean_reversion": posterior.p_mean_reversion,
+        "high_vol": posterior.p_high_vol,
+        "crisis": posterior.p_crisis,
+        "other": posterior.p_other,
+    }
+    raw = float(
+        sum(weights[name] * float(expert_forecasts.get(name, 0.0)) for name in weights)
+    )
+    exposure_cap = max(0.0, float(max_exposure))
+    multiplier = posterior.conviction_multiplier
+    abstained = posterior.normalized_entropy >= float(abstain_entropy)
+    forecast = 0.0 if abstained else raw * multiplier * exposure_cap
+    return RegimeMixtureForecast(
+        forecast=float(np.clip(forecast, -exposure_cap, exposure_cap)),
+        raw_forecast=raw,
+        entropy=posterior.entropy,
+        normalized_entropy=posterior.normalized_entropy,
+        exposure_multiplier=multiplier,
+        abstained=abstained,
+        reason="REGIME_ENTROPY_HIGH" if abstained else None,
+    )
 
 
 @dataclass
@@ -202,10 +338,10 @@ class HMMStrategy:
         regime = self._regime_names[regime_idx]
         confidence = float(current_probs[regime_idx])
 
-        prob_dict = {
-            self._regime_names[i]: float(current_probs[i])
-            for i in range(self.n_regimes)
-        }
+        prob_dict: dict[MarketRegime, float] = {}
+        for index, probability in enumerate(current_probs):
+            label = self._regime_names[index]
+            prob_dict[label] = prob_dict.get(label, 0.0) + float(probability)
 
         # Expected duration (from transition matrix)
         transmat = self.model.transmat_
@@ -329,9 +465,10 @@ class GMMStrategy:
         regime = self._regime_names[regime_idx]
         confidence = float(probs[regime_idx])
 
-        prob_dict = {
-            self._regime_names[i]: float(probs[i]) for i in range(self.n_regimes)
-        }
+        prob_dict: dict[MarketRegime, float] = {}
+        for index, probability in enumerate(probs):
+            label = self._regime_names[index]
+            prob_dict[label] = prob_dict.get(label, 0.0) + float(probability)
 
         return RegimeState(
             regime=regime,

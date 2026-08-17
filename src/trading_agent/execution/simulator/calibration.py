@@ -1,4 +1,4 @@
-"""SimulatorCalibrator — fit FillModel/ImpactModel parameters from L2/testnet fills.
+"""SimulatorCalibrator — fit models from explicitly source-labelled fills.
 
 Collects (bar, side, qty, arrival_mid, fill_vwap, spread_bps, latency_ms)
 and fits:
@@ -21,16 +21,15 @@ from typing import Any
 import polars as pl
 
 from trading_agent.execution.simulator.engine import MarketReplayEngine
-from trading_agent.execution.simulator.fill_model import FillModel
-from trading_agent.execution.simulator.impact_model import ImpactModel
 from trading_agent.execution.simulator.models import (
     SimulationConfig,
 )
+from trading_agent.execution.simulator.calibration_provenance import CalibrationSource
 
 
 @dataclass
 class CalibrationSample:
-    """One observed fill from L2 or testnet for calibration."""
+    """Legacy compact sample with mandatory source provenance."""
 
     bar_index: int
     side: str  # "buy" | "sell"
@@ -43,6 +42,10 @@ class CalibrationSample:
     timestamp: str  # ISO format
     aggressor: str  # "market" | "limit_passive"
     fee_bps: float = 0.0
+    source: str = CalibrationSource.SYNTHETIC.value
+
+    def __post_init__(self) -> None:
+        CalibrationSource(self.source)
 
     @property
     def slippage_bps(self) -> float:
@@ -126,7 +129,7 @@ class CalibrationResult:
 
 
 class SimulatorCalibrator:
-    """Collect L2/testnet fills and fit simulator parameters."""
+    """Fit simulator parameters while retaining every sample's source label."""
 
     CALIBRATION_VERSION = "1.0"
 
@@ -343,17 +346,13 @@ class SimulatorCalibrator:
         return CalibrationResult.from_dict(data)
 
 
-def collect_testnet_fills(
+def collect_simulated_fills(
     engine: MarketReplayEngine,
     order_provider,
     *,
     bars: int | None = None,
 ) -> list[CalibrationSample]:
-    """Run simulator with order_provider and collect fills as calibration samples.
-
-    This replays the same bars with the *current* config and records the
-    simulator's own fills as "pseudo-testnet" data for calibration validation.
-    """
+    """Run the simulator and collect explicitly SYNTHETIC fill samples."""
     samples: list[CalibrationSample] = []
     original_run = engine.run
 
@@ -387,6 +386,7 @@ def collect_testnet_fills(
                     fee_bps=fill.fee / fill.notional * 10_000.0
                     if fill.notional > 0
                     else 0.0,
+                    source=CalibrationSource.SYNTHETIC.value,
                 )
             )
         return result
@@ -399,22 +399,45 @@ def collect_testnet_fills(
     return samples
 
 
+def collect_testnet_fills(
+    engine: MarketReplayEngine,
+    order_provider,
+    *,
+    bars: int | None = None,
+) -> list[CalibrationSample]:
+    """Deprecated alias; output is SYNTHETIC and never testnet evidence."""
+
+    import warnings
+
+    warnings.warn(
+        "collect_testnet_fills returns SYNTHETIC simulator fills; "
+        "use collect_simulated_fills",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return collect_simulated_fills(engine, order_provider, bars=bars)
+
+
 def validate_calibration(
     config: SimulationConfig,
-    testnet_samples: list[CalibrationSample],
+    samples: list[CalibrationSample],
     holdout_frac: float = 0.2,
-) -> dict[str, float]:
-    """Validate calibrated params on holdout testnet data.
+) -> dict[str, float | int | str | bool]:
+    """Fit on a chronological train split and report holdout provenance.
 
-    Returns Reality Gap metrics between calibrated simulator and holdout samples.
+    This helper does not turn synthetic samples into empirical evidence.
     """
-    if len(testnet_samples) < 10:
+    if len(samples) < 10:
         return {"error": "insufficient_samples"}
+    sources = {CalibrationSource(sample.source) for sample in samples}
+    if len(sources) != 1:
+        return {"error": "mixed_calibration_sources"}
+    source = next(iter(sources))
 
     # Split
-    split = int(len(testnet_samples) * (1 - holdout_frac))
-    train = testnet_samples[:split]
-    holdout = testnet_samples[split:]
+    split = int(len(samples) * (1 - holdout_frac))
+    train = samples[:split]
+    holdout = samples[split:]
 
     # Calibrate on train
     calibrator = SimulatorCalibrator(config)
@@ -423,24 +446,6 @@ def validate_calibration(
     result = calibrator.calibrate()
     calibrated_config = calibrator.apply_to_config(result)
 
-    # Replay holdout bars with calibrated config
-    # (simplified: compare predicted vs actual slippage on holdout)
-    pred_slippage: list[float] = []
-    actual_slippage: list[float] = []
-
-    # Build a temporary engine with calibrated config
-    # We need the original DataFrame — skip for now, return gap metrics
-    # Full implementation would replay and compute RealityGapReport
-
-    # For now, return simple in-sample fit quality
-    fill_model = FillModel(calibrated_config)
-    impact_model = ImpactModel(calibrated_config)
-
-    for s in holdout:
-        # Predict slippage
-        # Simplified: just compare model params
-        pass
-
     return {
         "fill_model_passive_fill_prob": result.fill_model.passive_fill_prob,
         "impact_model_impact_coeff": result.impact_model.impact_coeff,
@@ -448,4 +453,10 @@ def validate_calibration(
         "impact_model_adverse_bps": result.impact_model.adverse_selection_bps,
         "train_samples": len(train),
         "holdout_samples": len(holdout),
+        "source": source.value,
+        "status": (
+            "HEURISTIC" if source == CalibrationSource.SYNTHETIC else "EMPIRICAL"
+        ),
+        "holdout_validation_status": "NOT_EVALUATED",
+        "promotion_eligible": False,
     }

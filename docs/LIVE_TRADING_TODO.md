@@ -286,6 +286,29 @@ they cannot be completed in a single session.**
 
 ---
 
+## P0 - empirical methodology-to-mainnet gates (added 2026-08-17)
+
+The implementation is ready to collect evidence; the evidence itself is not.
+Every item below must be represented by immutable `EvidenceArtifact` records for
+the exact model/commit. Unit tests and synthetic benchmarks do not satisfy them.
+
+- [ ] Positive untouched outer-OOS net return with minimum trade count, DSR ≥ 0.95,
+  PBO ≤ 0.20, positive approved cost stress and parameter stability ≥ 0.70.
+- [ ] Exact strategy/model, feature and experiment artifacts pass hash verification.
+- [ ] At least 100 execution-simulator scenarios pass with zero invariant breach.
+- [ ] Held-out TESTNET/SHADOW order observations produce a distributional reality-gap
+  score ≤ 0.50 with zero threshold breach; synthetic observations are forbidden.
+- [ ] Empirical SHADOW calibration has ≥30 observations and ECE ≤ 0.10; drift and
+  uncertainty health is `healthy` or explicitly accepted `degraded`.
+- [ ] Thirty days each of testnet and shadow operation with zero unresolved/critical
+  event, followed by a named operator approval and ticket.
+- [ ] Thirty days of canary operation with zero safety breach, followed by a separate
+  named production approval and ticket.
+- [ ] MPC/TWAP/POV comparison is rerun on held-out order-level exchange data with a
+  calibrated impact model. Until then, MPC has no empirical superiority status.
+- [ ] Adaptive experts are re-evaluated on locked OOS market data. The current
+  synthetic fixture favors fixed experts, so adaptation must not be promoted.
+
 Only after every release gate passes may the status move from `NO-GO` to
 `CANARY-READY`. Enabling mainnet and increasing capital remain separate manual
 decisions.
