@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import tempfile
+from datetime import UTC, datetime
 from pathlib import Path
 
 import polars as pl
@@ -31,7 +32,7 @@ def _redirect_storage(monkeypatch):
     monkeypatch.setattr(storage_mod.config, "storage_path", str(_TEMP))
 
 
-def _fake_candle(ts: str) -> dict:
+def _fake_candle(ts: str | datetime) -> dict:
     return {
         "timestamp": ts,
         "open": 100.0,
@@ -64,6 +65,48 @@ class TestSaveLoad:
         loaded = load_ohlcv(self.exchange, self.symbol, self.tf)
         assert len(loaded) == 1
         assert loaded["close"][0] == 100.5
+
+    @pytest.mark.parametrize(
+        ("start", "end"),
+        [
+            ("2026-01-01T01:00:00", "2026-01-01T03:00:00"),
+            ("2026-01-01T01:00:00Z", "2026-01-01T03:00:00+00:00"),
+            (
+                datetime(2026, 1, 1, 1, tzinfo=UTC),
+                datetime(2026, 1, 1, 3, tzinfo=UTC),
+            ),
+        ],
+    )
+    def test_load_date_range_is_start_inclusive_end_exclusive(self, start, end):
+        df = pl.DataFrame(
+            [_fake_candle(datetime(2026, 1, 1, hour)) for hour in range(4)]
+        )
+        save_ohlcv(df, self.exchange, self.symbol, self.tf)
+
+        loaded = load_ohlcv(
+            self.exchange,
+            self.symbol,
+            self.tf,
+            start=start,
+            end=end,
+        )
+
+        assert loaded["timestamp"].to_list() == [
+            datetime(2026, 1, 1, 1),
+            datetime(2026, 1, 1, 2),
+        ]
+
+    def test_load_date_range_rejects_invalid_iso_bound(self):
+        df = pl.DataFrame([_fake_candle(datetime(2026, 1, 1))])
+        save_ohlcv(df, self.exchange, self.symbol, self.tf)
+
+        with pytest.raises(ValueError, match="Invalid ISO date bound"):
+            load_ohlcv(
+                self.exchange,
+                self.symbol,
+                self.tf,
+                start="not-a-date",
+            )
 
     def test_append_dedup(self):
         df1 = pl.DataFrame([_fake_candle("2026-01-01 00:00:00")])

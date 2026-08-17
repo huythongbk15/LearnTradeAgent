@@ -11,6 +11,7 @@ import os
 import tempfile
 import threading
 from contextlib import contextmanager
+from datetime import UTC, date, datetime, time
 from pathlib import Path
 
 import polars as pl
@@ -20,6 +21,8 @@ from trading_agent.execution.indicators import compute_atr
 
 logger = logging.getLogger(__name__)
 _STORAGE_LOCK = threading.RLock()
+
+DateBound = str | date | datetime
 
 try:
     import fcntl
@@ -70,6 +73,35 @@ def _table_path(
     return base / exchange / safe_symbol / f"{timeframe}.parquet"
 
 
+def _coerce_date_bound(value: DateBound, timestamp_dtype: pl.DataType) -> object:
+    """Convert public date bounds to values comparable with stored timestamps."""
+    if not isinstance(timestamp_dtype, pl.Datetime):
+        return value
+
+    if isinstance(value, str):
+        normalized = value.strip()
+        if normalized.endswith(("Z", "z")):
+            normalized = normalized[:-1] + "+00:00"
+        try:
+            bound = datetime.fromisoformat(normalized)
+        except ValueError as exc:
+            raise ValueError(f"Invalid ISO date bound: {value!r}") from exc
+    elif isinstance(value, datetime):
+        bound = value
+    elif isinstance(value, date):
+        bound = datetime.combine(value, time.min)
+    else:  # pragma: no cover - protected by the public type contract
+        raise TypeError("date bounds must be ISO strings, dates, or datetimes")
+
+    # Binance datasets are stored as naive UTC. Normalize aware callers to UTC
+    # before dropping tzinfo so ISO ``Z``/offset bounds compare correctly.
+    if timestamp_dtype.time_zone is None and bound.tzinfo is not None:
+        return bound.astimezone(UTC).replace(tzinfo=None)
+    if timestamp_dtype.time_zone is not None and bound.tzinfo is None:
+        return bound.replace(tzinfo=UTC)
+    return bound
+
+
 def save_ohlcv(
     df: pl.DataFrame,
     exchange: str,
@@ -115,16 +147,17 @@ def load_ohlcv(
     symbol: str,
     timeframe: str,
     *,
-    start: str | None = None,
-    end: str | None = None,
+    start: DateBound | None = None,
+    end: DateBound | None = None,
 ) -> pl.DataFrame:
     """Load OHLCV data from parquet, optionally filtered by date range.
 
     Parameters
     ----------
-    start, end : str, optional
-        ISO-format dates e.g. ``"2025-01-01"``. Inclusive on start,
-        exclusive on end.
+    start, end : str, date, or datetime, optional
+        ISO-format dates e.g. ``"2025-01-01"`` or native temporal values.
+        Inclusive on start, exclusive on end. Aware bounds are normalized to
+        UTC when the stored timestamp column is naive UTC.
     """
     path = _table_path(exchange, symbol, timeframe)
     if not path.exists():
@@ -134,10 +167,13 @@ def load_ohlcv(
 
     df = pl.read_parquet(path).sort("timestamp")
 
-    if start:
-        df = df.filter(pl.col("timestamp") >= start)
-    if end:
-        df = df.filter(pl.col("timestamp") < end)
+    timestamp_dtype = df.schema["timestamp"]
+    if start is not None:
+        df = df.filter(
+            pl.col("timestamp") >= _coerce_date_bound(start, timestamp_dtype)
+        )
+    if end is not None:
+        df = df.filter(pl.col("timestamp") < _coerce_date_bound(end, timestamp_dtype))
     return df
 
 
