@@ -1,0 +1,152 @@
+[
+  {
+    "symbol": "SOL/USDT",
+    "timeframe": "1d",
+    "strategy": "enhanced_ma",
+    "weight": 0.06666666666666667,
+    "oos_sharpe": 2.6899,
+    "net_return": 4.65,
+    "max_dd": -2.8364,
+    "status": "EQUAL_RISK"
+  },
+  {
+    "symbol": "BNB/USDT",
+    "timeframe": "1d",
+    "strategy": "ma_crossover",
+    "weight": 0.06666666666666667,
+    "oos_sharpe": 5.3693,
+    "net_return": 4.4751,
+    "max_dd": -4.6728,
+    "status": "EQUAL_RISK"
+  },
+  {
+    "symbol": "ZEC/USDT",
+    "timeframe": "4h",
+    "strategy": "ma_crossover",
+    "weight": 0.06666666666666667,
+    "oos_sharpe": 0.7971,
+    "net_return": 1.0382,
+    "max_dd": -4.4951,
+    "status": "EQUAL_RISK"
+  },
+  {
+    "symbol": "ZEC/USDT",
+    "timeframe": "4h",
+    "strategy": "rsi",
+    "weight": 0.06666666666666667,
+    "oos_sharpe": 1.2824,
+    "net_return": 1.2573,
+    "max_dd": -5.2774,
+    "status": "EQUAL_RISK"
+  },
+  {
+    "symbol": "ZEC/USDT",
+    "timeframe": "1d",
+    "strategy": "ma_crossover",
+    "weight": 0.06666666666666667,
+    "oos_sharpe": 3.6388,
+    "net_return": 31.5634,
+    "max_dd": -35.9618,
+    "status": "EQUAL_RISK"
+  },
+  {
+    "symbol": "DOGE/USDT",
+    "timeframe": "4h",
+    "strategy": "ma_crossover",
+    "weight": 0.06666666666666667,
+    "oos_sharpe": 0.167,
+    "net_return": 0.6076,
+    "max_dd": -9.1786,
+    "status": "EQUAL_RISK"
+  },
+  {
+    "symbol": "DOGE/USDT",
+    "timeframe": "1d",
+    "strategy": "ma_crossover",
+    "weight": 0.06666666666666667,
+    "oos_sharpe": 2.8656,
+    "net_return": 6.0026,
+    "max_dd": -7.5475,
+    "status": "EQUAL_RISK"
+  },
+  {
+    "symbol": "DOGE/USDT",
+    "timeframe": "1d",
+    "strategy": "enhanced_ma",
+    "weight": 0.06666666666666667,
+    "oos_sharpe": 0.7064,
+    "net_return": 0.6901,
+    "max_dd": -10.1449,
+    "status": "EQUAL_RISK"
+  },
+  {
+    "symbol": "TRX/USDT",
+    "timeframe": "4h",
+    "strategy": "rsi",
+    "weight": 0.06666666666666667,
+    "oos_sharpe": 0.1251,
+    "net_return": -0.0317,
+    "max_dd": -2.876,
+    "status": "EQUAL_RISK"
+  },
+  {
+    "symbol": "TRX/USDT",
+    "timeframe": "4h",
+    "strategy": "bbands",
+    "weight": 0.06666666666666667,
+    "oos_sharpe": 0.0874,
+    "net_return": 0.1021,
+    "max_dd": -2.047,
+    "status": "EQUAL_RISK"
+  },
+  {
+    "symbol": "TRX/USDT",
+    "timeframe": "1d",
+    "strategy": "ma_crossover",
+    "weight": 0.06666666666666667,
+    "oos_sharpe": 4.3342,
+    "net_return": 0.8951,
+    "max_dd": -1.9661,
+    "status": "EQUAL_RISK"
+  },
+  {
+    "symbol": "TRX/USDT",
+    "timeframe": "1d",
+    "strategy": "bbands",
+    "weight": 0.06666666666666667,
+    "oos_sharpe": 2.1444,
+    "net_return": 0.2947,
+    "max_dd": -2.5592,
+    "status": "EQUAL_RISK"
+  },
+  {
+    "symbol": "TRX/USDT",
+    "timeframe": "1d",
+    "strategy": "enhanced_ma",
+    "weight": 0.06666666666666667,
+    "oos_sharpe": 0.4729,
+    "net_return": 0.2349,
+    "max_dd": -2.9659,
+    "status": "EQUAL_RISK"
+  },
+  {
+    "symbol": "NEAR/USDT",
+    "timeframe": "1d",
+    "strategy": "rsi",
+    "weight": 0.06666666666666667,
+    "oos_sharpe": 0.5588,
+    "net_return": 0.0357,
+    "max_dd": -7.2064,
+    "status": "EQUAL_RISK"
+  },
+  {
+    "symbol": "NEAR/USDT",
+    "timeframe": "1d",
+    "strategy": "bbands",
+    "weight": 0.06666666666666667,
+    "oos_sharpe": 0.2377,
+    "net_return": 0.1592,
+    "max_dd": -6.9693,
+    "status": "EQUAL_RISK"
+  }
+]

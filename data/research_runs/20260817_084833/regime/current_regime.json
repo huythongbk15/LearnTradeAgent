@@ -1,0 +1,242 @@
+[
+  {
+    "symbol": "BTC/USDT",
+    "timeframe": "1h",
+    "regime": "sideways_low_vol",
+    "mom20": 0.0079,
+    "mom60": 0.0087,
+    "vol20": 0.0017
+  },
+  {
+    "symbol": "BTC/USDT",
+    "timeframe": "4h",
+    "regime": "sideways_low_vol",
+    "mom20": 0.0004,
+    "mom60": -0.0125,
+    "vol20": 0.0028
+  },
+  {
+    "symbol": "BTC/USDT",
+    "timeframe": "1d",
+    "regime": "sideways_low_vol",
+    "mom20": -0.0134,
+    "mom60": -0.0249,
+    "vol20": 0.0095
+  },
+  {
+    "symbol": "ETH/USDT",
+    "timeframe": "1h",
+    "regime": "sideways_low_vol",
+    "mom20": 0.0106,
+    "mom60": 0.0107,
+    "vol20": 0.0027
+  },
+  {
+    "symbol": "ETH/USDT",
+    "timeframe": "4h",
+    "regime": "sideways_low_vol",
+    "mom20": 0.0078,
+    "mom60": -0.0008,
+    "vol20": 0.0037
+  },
+  {
+    "symbol": "ETH/USDT",
+    "timeframe": "1d",
+    "regime": "sideways_low_vol",
+    "mom20": -0.0087,
+    "mom60": 0.0716,
+    "vol20": 0.0122
+  },
+  {
+    "symbol": "SOL/USDT",
+    "timeframe": "1h",
+    "regime": "sideways_low_vol",
+    "mom20": 0.0066,
+    "mom60": 0.0103,
+    "vol20": 0.0035
+  },
+  {
+    "symbol": "SOL/USDT",
+    "timeframe": "4h",
+    "regime": "sideways_low_vol",
+    "mom20": -0.0064,
+    "mom60": 0.0392,
+    "vol20": 0.0049
+  },
+  {
+    "symbol": "SOL/USDT",
+    "timeframe": "1d",
+    "regime": "sideways_low_vol",
+    "mom20": 0.0055,
+    "mom60": 0.0355,
+    "vol20": 0.0132
+  },
+  {
+    "symbol": "XRP/USDT",
+    "timeframe": "1h",
+    "regime": "sideways_low_vol",
+    "mom20": 0.0032,
+    "mom60": 0.0042,
+    "vol20": 0.0023
+  },
+  {
+    "symbol": "XRP/USDT",
+    "timeframe": "4h",
+    "regime": "sideways_low_vol",
+    "mom20": -0.0062,
+    "mom60": -0.0249,
+    "vol20": 0.0039
+  },
+  {
+    "symbol": "XRP/USDT",
+    "timeframe": "1d",
+    "regime": "bear_trend",
+    "mom20": -0.068,
+    "mom60": -0.1628,
+    "vol20": 0.0131
+  },
+  {
+    "symbol": "BNB/USDT",
+    "timeframe": "1h",
+    "regime": "sideways_low_vol",
+    "mom20": -0.003,
+    "mom60": -0.0022,
+    "vol20": 0.0016
+  },
+  {
+    "symbol": "BNB/USDT",
+    "timeframe": "4h",
+    "regime": "sideways_low_vol",
+    "mom20": -0.0092,
+    "mom60": 0.0335,
+    "vol20": 0.0032
+  },
+  {
+    "symbol": "BNB/USDT",
+    "timeframe": "1d",
+    "regime": "neutral",
+    "mom20": 0.0648,
+    "mom60": 0.0022,
+    "vol20": 0.0134
+  },
+  {
+    "symbol": "ZEC/USDT",
+    "timeframe": "1h",
+    "regime": "neutral",
+    "mom20": 0.0578,
+    "mom60": 0.0453,
+    "vol20": 0.0104
+  },
+  {
+    "symbol": "ZEC/USDT",
+    "timeframe": "4h",
+    "regime": "neutral",
+    "mom20": 0.0474,
+    "mom60": 0.0235,
+    "vol20": 0.0119
+  },
+  {
+    "symbol": "ZEC/USDT",
+    "timeframe": "1d",
+    "regime": "sideways_high_vol",
+    "mom20": 0.0202,
+    "mom60": 0.0192,
+    "vol20": 0.0235
+  },
+  {
+    "symbol": "DOGE/USDT",
+    "timeframe": "1h",
+    "regime": "sideways_low_vol",
+    "mom20": 0.007,
+    "mom60": 0.0067,
+    "vol20": 0.0023
+  },
+  {
+    "symbol": "DOGE/USDT",
+    "timeframe": "4h",
+    "regime": "sideways_low_vol",
+    "mom20": 0.002,
+    "mom60": 0.0149,
+    "vol20": 0.0037
+  },
+  {
+    "symbol": "DOGE/USDT",
+    "timeframe": "1d",
+    "regime": "sideways_low_vol",
+    "mom20": -0.0111,
+    "mom60": -0.19,
+    "vol20": 0.0141
+  },
+  {
+    "symbol": "TRX/USDT",
+    "timeframe": "1h",
+    "regime": "sideways_low_vol",
+    "mom20": 0.0033,
+    "mom60": -0.0006,
+    "vol20": 0.0008
+  },
+  {
+    "symbol": "TRX/USDT",
+    "timeframe": "4h",
+    "regime": "sideways_low_vol",
+    "mom20": -0.0051,
+    "mom60": 0.0174,
+    "vol20": 0.0019
+  },
+  {
+    "symbol": "TRX/USDT",
+    "timeframe": "1d",
+    "regime": "sideways_low_vol",
+    "mom20": 0.0188,
+    "mom60": 0.0292,
+    "vol20": 0.0053
+  },
+  {
+    "symbol": "ADA/USDT",
+    "timeframe": "1h",
+    "regime": "sideways_low_vol",
+    "mom20": -0.0051,
+    "mom60": -0.0195,
+    "vol20": 0.0051
+  },
+  {
+    "symbol": "ADA/USDT",
+    "timeframe": "4h",
+    "regime": "neutral",
+    "mom20": -0.0345,
+    "mom60": -0.1264,
+    "vol20": 0.0068
+  },
+  {
+    "symbol": "ADA/USDT",
+    "timeframe": "1d",
+    "regime": "neutral",
+    "mom20": 0.124,
+    "mom60": 0.0479,
+    "vol20": 0.0308
+  },
+  {
+    "symbol": "NEAR/USDT",
+    "timeframe": "1h",
+    "regime": "sideways_low_vol",
+    "mom20": 0.0111,
+    "mom60": 0.0224,
+    "vol20": 0.0047
+  },
+  {
+    "symbol": "NEAR/USDT",
+    "timeframe": "4h",
+    "regime": "sideways_low_vol",
+    "mom20": 0.0037,
+    "mom60": 0.0006,
+    "vol20": 0.0093
+  },
+  {
+    "symbol": "NEAR/USDT",
+    "timeframe": "1d",
+    "regime": "bear_trend",
+    "mom20": -0.0515,
+    "mom60": -0.2654,
+    "vol20": 0.0179
+  }
+]

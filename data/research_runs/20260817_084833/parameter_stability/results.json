@@ -1,0 +1,122 @@
+[
+  {
+    "symbol": "BTC/USDT",
+    "timeframe": "4h",
+    "strategy": "ma_crossover",
+    "variations": 9,
+    "min_sharpe": -3.5267,
+    "max_sharpe": -1.7767,
+    "mean_sharpe": -2.7232,
+    "std_sharpe": 0.6549,
+    "stability_score": -4.1581,
+    "status": "RESEARCH_ONLY"
+  },
+  {
+    "symbol": "BTC/USDT",
+    "timeframe": "1d",
+    "strategy": "ma_crossover",
+    "variations": 9,
+    "min_sharpe": -3.3076,
+    "max_sharpe": 0.3648,
+    "mean_sharpe": -1.4191,
+    "std_sharpe": 1.0942,
+    "stability_score": -1.297,
+    "status": "RESEARCH_ONLY"
+  },
+  {
+    "symbol": "ETH/USDT",
+    "timeframe": "4h",
+    "strategy": "ma_crossover",
+    "variations": 9,
+    "min_sharpe": -3.2914,
+    "max_sharpe": -1.967,
+    "mean_sharpe": -2.6539,
+    "std_sharpe": 0.444,
+    "stability_score": -5.9772,
+    "status": "RESEARCH_ONLY"
+  },
+  {
+    "symbol": "ETH/USDT",
+    "timeframe": "1d",
+    "strategy": "ma_crossover",
+    "variations": 9,
+    "min_sharpe": -3.647,
+    "max_sharpe": 0.1008,
+    "mean_sharpe": -1.6277,
+    "std_sharpe": 1.3268,
+    "stability_score": -1.2268,
+    "status": "RESEARCH_ONLY"
+  },
+  {
+    "symbol": "SOL/USDT",
+    "timeframe": "4h",
+    "strategy": "ma_crossover",
+    "variations": 9,
+    "min_sharpe": -2.5635,
+    "max_sharpe": -0.0396,
+    "mean_sharpe": -1.2452,
+    "std_sharpe": 0.8637,
+    "stability_score": -1.4416,
+    "status": "RESEARCH_ONLY"
+  },
+  {
+    "symbol": "SOL/USDT",
+    "timeframe": "1d",
+    "strategy": "ma_crossover",
+    "variations": 9,
+    "min_sharpe": -3.0008,
+    "max_sharpe": 5.3386,
+    "mean_sharpe": 1.3829,
+    "std_sharpe": 2.6558,
+    "stability_score": 0.5207,
+    "status": "RESEARCH_ONLY"
+  },
+  {
+    "symbol": "XRP/USDT",
+    "timeframe": "4h",
+    "strategy": "ma_crossover",
+    "variations": 9,
+    "min_sharpe": -1.8451,
+    "max_sharpe": -0.4332,
+    "mean_sharpe": -1.1699,
+    "std_sharpe": 0.4225,
+    "stability_score": -2.769,
+    "status": "RESEARCH_ONLY"
+  },
+  {
+    "symbol": "XRP/USDT",
+    "timeframe": "1d",
+    "strategy": "ma_crossover",
+    "variations": 9,
+    "min_sharpe": -4.1212,
+    "max_sharpe": -0.4556,
+    "mean_sharpe": -2.5227,
+    "std_sharpe": 1.0965,
+    "stability_score": -2.3007,
+    "status": "RESEARCH_ONLY"
+  },
+  {
+    "symbol": "BNB/USDT",
+    "timeframe": "4h",
+    "strategy": "ma_crossover",
+    "variations": 9,
+    "min_sharpe": -3.6823,
+    "max_sharpe": -1.6413,
+    "mean_sharpe": -2.862,
+    "std_sharpe": 0.6901,
+    "stability_score": -4.1475,
+    "status": "RESEARCH_ONLY"
+  },
+  {
+    "symbol": "BNB/USDT",
+    "timeframe": "1d",
+    "strategy": "ma_crossover",
+    "variations": 9,
+    "min_sharpe": -7.2919,
+    "max_sharpe": -3.7605,
+    "mean_sharpe": -5.9686,
+    "std_sharpe": 0.9546,
+    "stability_score": -6.2528,
+    "status": "RESEARCH_ONLY"
+  }
+]

@@ -1,0 +1,802 @@
+[
+  {
+    "symbol": "BTC/USDT",
+    "timeframe": "4h",
+    "strategy": "ma_crossover",
+    "holdout_sharpe": -2.0642,
+    "holdout_return": -6.6301,
+    "holdout_max_dd": -9.3324,
+    "holdout_trades": 21,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "BTC/USDT",
+    "timeframe": "4h",
+    "strategy": "rsi",
+    "holdout_sharpe": -5.8546,
+    "holdout_return": -41.9299,
+    "holdout_max_dd": -47.3594,
+    "holdout_trades": 90,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "BTC/USDT",
+    "timeframe": "4h",
+    "strategy": "bbands",
+    "holdout_sharpe": -4.7042,
+    "holdout_return": -32.9344,
+    "holdout_max_dd": -42.9076,
+    "holdout_trades": 72,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "BTC/USDT",
+    "timeframe": "4h",
+    "strategy": "enhanced_ma",
+    "holdout_sharpe": 1.9968,
+    "holdout_return": 3.4118,
+    "holdout_max_dd": -4.0078,
+    "holdout_trades": 7,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "BTC/USDT",
+    "timeframe": "1d",
+    "strategy": "ma_crossover",
+    "holdout_sharpe": -1.7465,
+    "holdout_return": -3.1065,
+    "holdout_max_dd": -7.4794,
+    "holdout_trades": 3,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "BTC/USDT",
+    "timeframe": "1d",
+    "strategy": "rsi",
+    "holdout_sharpe": -6.7155,
+    "holdout_return": -22.8579,
+    "holdout_max_dd": -31.3119,
+    "holdout_trades": 13,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "BTC/USDT",
+    "timeframe": "1d",
+    "strategy": "bbands",
+    "holdout_sharpe": -5.5713,
+    "holdout_return": -17.6988,
+    "holdout_max_dd": -24.0069,
+    "holdout_trades": 9,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "BTC/USDT",
+    "timeframe": "1d",
+    "strategy": "enhanced_ma",
+    "holdout_sharpe": -1.8241,
+    "holdout_return": -1.7597,
+    "holdout_max_dd": -4.2416,
+    "holdout_trades": 1,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "ETH/USDT",
+    "timeframe": "4h",
+    "strategy": "ma_crossover",
+    "holdout_sharpe": 1.6957,
+    "holdout_return": 10.2766,
+    "holdout_max_dd": -9.2219,
+    "holdout_trades": 23,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "ETH/USDT",
+    "timeframe": "4h",
+    "strategy": "rsi",
+    "holdout_sharpe": -3.5583,
+    "holdout_return": -44.7843,
+    "holdout_max_dd": -54.6853,
+    "holdout_trades": 90,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "ETH/USDT",
+    "timeframe": "4h",
+    "strategy": "bbands",
+    "holdout_sharpe": -2.1143,
+    "holdout_return": -27.0468,
+    "holdout_max_dd": -42.3353,
+    "holdout_trades": 72,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "ETH/USDT",
+    "timeframe": "4h",
+    "strategy": "enhanced_ma",
+    "holdout_sharpe": -2.8038,
+    "holdout_return": -4.0241,
+    "holdout_max_dd": -5.1273,
+    "holdout_trades": 6,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "ETH/USDT",
+    "timeframe": "1d",
+    "strategy": "ma_crossover",
+    "holdout_sharpe": -3.4877,
+    "holdout_return": -4.9458,
+    "holdout_max_dd": -6.2855,
+    "holdout_trades": 2,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "ETH/USDT",
+    "timeframe": "1d",
+    "strategy": "rsi",
+    "holdout_sharpe": -6.5137,
+    "holdout_return": -22.5147,
+    "holdout_max_dd": -32.4242,
+    "holdout_trades": 12,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "ETH/USDT",
+    "timeframe": "1d",
+    "strategy": "bbands",
+    "holdout_sharpe": -7.7032,
+    "holdout_return": -20.2306,
+    "holdout_max_dd": -25.3332,
+    "holdout_trades": 7,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "ETH/USDT",
+    "timeframe": "1d",
+    "strategy": "enhanced_ma",
+    "holdout_sharpe": -6.8043,
+    "holdout_return": -5.7421,
+    "holdout_max_dd": -7.7369,
+    "holdout_trades": 2,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "SOL/USDT",
+    "timeframe": "4h",
+    "strategy": "ma_crossover",
+    "holdout_sharpe": 0.3657,
+    "holdout_return": 1.5023,
+    "holdout_max_dd": -14.8579,
+    "holdout_trades": 20,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "SOL/USDT",
+    "timeframe": "4h",
+    "strategy": "rsi",
+    "holdout_sharpe": -2.5379,
+    "holdout_return": -38.3902,
+    "holdout_max_dd": -53.3091,
+    "holdout_trades": 92,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "SOL/USDT",
+    "timeframe": "4h",
+    "strategy": "bbands",
+    "holdout_sharpe": -1.2188,
+    "holdout_return": -22.2332,
+    "holdout_max_dd": -44.6159,
+    "holdout_trades": 72,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "SOL/USDT",
+    "timeframe": "4h",
+    "strategy": "enhanced_ma",
+    "holdout_sharpe": -0.6765,
+    "holdout_return": -2.6579,
+    "holdout_max_dd": -6.1259,
+    "holdout_trades": 7,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "SOL/USDT",
+    "timeframe": "1d",
+    "strategy": "ma_crossover",
+    "holdout_sharpe": -0.7791,
+    "holdout_return": -1.9048,
+    "holdout_max_dd": -5.4683,
+    "holdout_trades": 3,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "SOL/USDT",
+    "timeframe": "1d",
+    "strategy": "rsi",
+    "holdout_sharpe": -5.7693,
+    "holdout_return": -22.4684,
+    "holdout_max_dd": -36.5204,
+    "holdout_trades": 14,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "SOL/USDT",
+    "timeframe": "1d",
+    "strategy": "bbands",
+    "holdout_sharpe": -1.7117,
+    "holdout_return": -5.9633,
+    "holdout_max_dd": -22.9608,
+    "holdout_trades": 6,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "SOL/USDT",
+    "timeframe": "1d",
+    "strategy": "enhanced_ma",
+    "holdout_sharpe": 0.0,
+    "holdout_return": 0.0,
+    "holdout_max_dd": 0.0,
+    "holdout_trades": 0,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "XRP/USDT",
+    "timeframe": "4h",
+    "strategy": "ma_crossover",
+    "holdout_sharpe": -3.5346,
+    "holdout_return": -18.7576,
+    "holdout_max_dd": -20.7085,
+    "holdout_trades": 22,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "XRP/USDT",
+    "timeframe": "4h",
+    "strategy": "rsi",
+    "holdout_sharpe": -1.8625,
+    "holdout_return": -30.3001,
+    "holdout_max_dd": -40.0055,
+    "holdout_trades": 105,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "XRP/USDT",
+    "timeframe": "4h",
+    "strategy": "bbands",
+    "holdout_sharpe": -4.2514,
+    "holdout_return": -49.6042,
+    "holdout_max_dd": -53.5349,
+    "holdout_trades": 92,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "XRP/USDT",
+    "timeframe": "4h",
+    "strategy": "enhanced_ma",
+    "holdout_sharpe": 0.2228,
+    "holdout_return": 0.492,
+    "holdout_max_dd": -6.8651,
+    "holdout_trades": 5,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "XRP/USDT",
+    "timeframe": "1d",
+    "strategy": "ma_crossover",
+    "holdout_sharpe": -10.2089,
+    "holdout_return": -9.6044,
+    "holdout_max_dd": -9.6044,
+    "holdout_trades": 2,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "XRP/USDT",
+    "timeframe": "1d",
+    "strategy": "rsi",
+    "holdout_sharpe": -7.6859,
+    "holdout_return": -29.6218,
+    "holdout_max_dd": -39.8754,
+    "holdout_trades": 18,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "XRP/USDT",
+    "timeframe": "1d",
+    "strategy": "bbands",
+    "holdout_sharpe": -4.9596,
+    "holdout_return": -16.0029,
+    "holdout_max_dd": -19.8383,
+    "holdout_trades": 8,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "XRP/USDT",
+    "timeframe": "1d",
+    "strategy": "enhanced_ma",
+    "holdout_sharpe": -8.8038,
+    "holdout_return": -4.0794,
+    "holdout_max_dd": -4.0794,
+    "holdout_trades": 1,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "BNB/USDT",
+    "timeframe": "4h",
+    "strategy": "ma_crossover",
+    "holdout_sharpe": -0.7419,
+    "holdout_return": -3.4706,
+    "holdout_max_dd": -11.3757,
+    "holdout_trades": 21,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "BNB/USDT",
+    "timeframe": "4h",
+    "strategy": "rsi",
+    "holdout_sharpe": -3.5019,
+    "holdout_return": -32.8813,
+    "holdout_max_dd": -41.7159,
+    "holdout_trades": 70,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "BNB/USDT",
+    "timeframe": "4h",
+    "strategy": "bbands",
+    "holdout_sharpe": -2.9198,
+    "holdout_return": -27.9281,
+    "holdout_max_dd": -30.5431,
+    "holdout_trades": 71,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "BNB/USDT",
+    "timeframe": "4h",
+    "strategy": "enhanced_ma",
+    "holdout_sharpe": -0.8489,
+    "holdout_return": -2.1254,
+    "holdout_max_dd": -6.0108,
+    "holdout_trades": 9,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "BNB/USDT",
+    "timeframe": "1d",
+    "strategy": "ma_crossover",
+    "holdout_sharpe": 3.297,
+    "holdout_return": 2.9725,
+    "holdout_max_dd": -3.8276,
+    "holdout_trades": 3,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "BNB/USDT",
+    "timeframe": "1d",
+    "strategy": "rsi",
+    "holdout_sharpe": -12.4793,
+    "holdout_return": -30.5258,
+    "holdout_max_dd": -31.888,
+    "holdout_trades": 11,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "BNB/USDT",
+    "timeframe": "1d",
+    "strategy": "bbands",
+    "holdout_sharpe": -3.3527,
+    "holdout_return": -9.7932,
+    "holdout_max_dd": -16.2745,
+    "holdout_trades": 6,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "BNB/USDT",
+    "timeframe": "1d",
+    "strategy": "enhanced_ma",
+    "holdout_sharpe": -7.8744,
+    "holdout_return": -0.9928,
+    "holdout_max_dd": -0.9928,
+    "holdout_trades": 0,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "ZEC/USDT",
+    "timeframe": "4h",
+    "strategy": "ma_crossover",
+    "holdout_sharpe": 3.3932,
+    "holdout_return": 38.8638,
+    "holdout_max_dd": -11.0731,
+    "holdout_trades": 20,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "ZEC/USDT",
+    "timeframe": "4h",
+    "strategy": "rsi",
+    "holdout_sharpe": 2.7314,
+    "holdout_return": 10.3604,
+    "holdout_max_dd": -8.2206,
+    "holdout_trades": 28,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "ZEC/USDT",
+    "timeframe": "4h",
+    "strategy": "bbands",
+    "holdout_sharpe": 2.3228,
+    "holdout_return": 9.0013,
+    "holdout_max_dd": -6.8847,
+    "holdout_trades": 21,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "ZEC/USDT",
+    "timeframe": "4h",
+    "strategy": "enhanced_ma",
+    "holdout_sharpe": -0.1411,
+    "holdout_return": -1.2654,
+    "holdout_max_dd": -13.351,
+    "holdout_trades": 9,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "ZEC/USDT",
+    "timeframe": "1d",
+    "strategy": "ma_crossover",
+    "holdout_sharpe": 1.7984,
+    "holdout_return": 2.3159,
+    "holdout_max_dd": -8.7368,
+    "holdout_trades": 1,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "ZEC/USDT",
+    "timeframe": "1d",
+    "strategy": "rsi",
+    "holdout_sharpe": 2.4898,
+    "holdout_return": 2.305,
+    "holdout_max_dd": -5.0897,
+    "holdout_trades": 2,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "ZEC/USDT",
+    "timeframe": "1d",
+    "strategy": "bbands",
+    "holdout_sharpe": 0.8818,
+    "holdout_return": 0.643,
+    "holdout_max_dd": -4.1363,
+    "holdout_trades": 2,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "ZEC/USDT",
+    "timeframe": "1d",
+    "strategy": "enhanced_ma",
+    "holdout_sharpe": -11.5258,
+    "holdout_return": -7.4877,
+    "holdout_max_dd": -7.4877,
+    "holdout_trades": 2,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "DOGE/USDT",
+    "timeframe": "4h",
+    "strategy": "ma_crossover",
+    "holdout_sharpe": -1.3219,
+    "holdout_return": -9.3621,
+    "holdout_max_dd": -19.3926,
+    "holdout_trades": 21,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "DOGE/USDT",
+    "timeframe": "4h",
+    "strategy": "rsi",
+    "holdout_sharpe": -3.4248,
+    "holdout_return": -49.4399,
+    "holdout_max_dd": -52.6832,
+    "holdout_trades": 107,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "DOGE/USDT",
+    "timeframe": "4h",
+    "strategy": "bbands",
+    "holdout_sharpe": -2.6656,
+    "holdout_return": -36.9785,
+    "holdout_max_dd": -47.8718,
+    "holdout_trades": 81,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "DOGE/USDT",
+    "timeframe": "4h",
+    "strategy": "enhanced_ma",
+    "holdout_sharpe": -3.7506,
+    "holdout_return": -6.3852,
+    "holdout_max_dd": -7.6599,
+    "holdout_trades": 7,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "DOGE/USDT",
+    "timeframe": "1d",
+    "strategy": "ma_crossover",
+    "holdout_sharpe": 9.0705,
+    "holdout_return": 11.6139,
+    "holdout_max_dd": -0.4163,
+    "holdout_trades": 1,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "DOGE/USDT",
+    "timeframe": "1d",
+    "strategy": "rsi",
+    "holdout_sharpe": -11.0782,
+    "holdout_return": -35.495,
+    "holdout_max_dd": -36.7376,
+    "holdout_trades": 14,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "DOGE/USDT",
+    "timeframe": "1d",
+    "strategy": "bbands",
+    "holdout_sharpe": -9.8932,
+    "holdout_return": -25.4602,
+    "holdout_max_dd": -27.8937,
+    "holdout_trades": 9,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "DOGE/USDT",
+    "timeframe": "1d",
+    "strategy": "enhanced_ma",
+    "holdout_sharpe": 6.9073,
+    "holdout_return": 10.754,
+    "holdout_max_dd": -0.259,
+    "holdout_trades": 1,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "TRX/USDT",
+    "timeframe": "4h",
+    "strategy": "ma_crossover",
+    "holdout_sharpe": 0.5315,
+    "holdout_return": 0.5605,
+    "holdout_max_dd": -2.5241,
+    "holdout_trades": 20,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "TRX/USDT",
+    "timeframe": "4h",
+    "strategy": "rsi",
+    "holdout_sharpe": 1.0051,
+    "holdout_return": 0.949,
+    "holdout_max_dd": -1.9877,
+    "holdout_trades": 24,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "TRX/USDT",
+    "timeframe": "4h",
+    "strategy": "bbands",
+    "holdout_sharpe": 0.7193,
+    "holdout_return": 0.6978,
+    "holdout_max_dd": -2.9536,
+    "holdout_trades": 19,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "TRX/USDT",
+    "timeframe": "4h",
+    "strategy": "enhanced_ma",
+    "holdout_sharpe": -1.3329,
+    "holdout_return": -2.4007,
+    "holdout_max_dd": -3.9906,
+    "holdout_trades": 9,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "TRX/USDT",
+    "timeframe": "1d",
+    "strategy": "ma_crossover",
+    "holdout_sharpe": 3.9486,
+    "holdout_return": 0.8704,
+    "holdout_max_dd": -2.051,
+    "holdout_trades": 1,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "TRX/USDT",
+    "timeframe": "1d",
+    "strategy": "rsi",
+    "holdout_sharpe": -0.4228,
+    "holdout_return": -0.0751,
+    "holdout_max_dd": -0.6498,
+    "holdout_trades": 2,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "TRX/USDT",
+    "timeframe": "1d",
+    "strategy": "bbands",
+    "holdout_sharpe": 5.0333,
+    "holdout_return": 0.8586,
+    "holdout_max_dd": -0.5757,
+    "holdout_trades": 2,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "TRX/USDT",
+    "timeframe": "1d",
+    "strategy": "enhanced_ma",
+    "holdout_sharpe": 0.1935,
+    "holdout_return": 0.039,
+    "holdout_max_dd": -3.9022,
+    "holdout_trades": 2,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "ADA/USDT",
+    "timeframe": "4h",
+    "strategy": "ma_crossover",
+    "holdout_sharpe": -1.8404,
+    "holdout_return": -13.0239,
+    "holdout_max_dd": -20.1788,
+    "holdout_trades": 24,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "ADA/USDT",
+    "timeframe": "4h",
+    "strategy": "rsi",
+    "holdout_sharpe": -5.9078,
+    "holdout_return": -67.4173,
+    "holdout_max_dd": -72.396,
+    "holdout_trades": 111,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "ADA/USDT",
+    "timeframe": "4h",
+    "strategy": "bbands",
+    "holdout_sharpe": -4.6612,
+    "holdout_return": -52.7318,
+    "holdout_max_dd": -56.9083,
+    "holdout_trades": 75,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "ADA/USDT",
+    "timeframe": "4h",
+    "strategy": "enhanced_ma",
+    "holdout_sharpe": -2.0037,
+    "holdout_return": -6.8406,
+    "holdout_max_dd": -7.9525,
+    "holdout_trades": 7,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "ADA/USDT",
+    "timeframe": "1d",
+    "strategy": "ma_crossover",
+    "holdout_sharpe": -0.7971,
+    "holdout_return": -1.0287,
+    "holdout_max_dd": -3.7949,
+    "holdout_trades": 2,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "ADA/USDT",
+    "timeframe": "1d",
+    "strategy": "rsi",
+    "holdout_sharpe": -7.6743,
+    "holdout_return": -28.5843,
+    "holdout_max_dd": -42.6417,
+    "holdout_trades": 14,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "ADA/USDT",
+    "timeframe": "1d",
+    "strategy": "bbands",
+    "holdout_sharpe": 4.6727,
+    "holdout_return": 14.4177,
+    "holdout_max_dd": -19.7505,
+    "holdout_trades": 7,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "ADA/USDT",
+    "timeframe": "1d",
+    "strategy": "enhanced_ma",
+    "holdout_sharpe": -10.8327,
+    "holdout_return": -7.9923,
+    "holdout_max_dd": -7.9923,
+    "holdout_trades": 2,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "NEAR/USDT",
+    "timeframe": "4h",
+    "strategy": "ma_crossover",
+    "holdout_sharpe": -1.7848,
+    "holdout_return": -4.553,
+    "holdout_max_dd": -6.5722,
+    "holdout_trades": 23,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "NEAR/USDT",
+    "timeframe": "4h",
+    "strategy": "rsi",
+    "holdout_sharpe": -0.9383,
+    "holdout_return": -2.995,
+    "holdout_max_dd": -7.477,
+    "holdout_trades": 28,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "NEAR/USDT",
+    "timeframe": "4h",
+    "strategy": "bbands",
+    "holdout_sharpe": -0.3402,
+    "holdout_return": -1.1529,
+    "holdout_max_dd": -6.5026,
+    "holdout_trades": 24,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "NEAR/USDT",
+    "timeframe": "4h",
+    "strategy": "enhanced_ma",
+    "holdout_sharpe": -1.076,
+    "holdout_return": -4.6057,
+    "holdout_max_dd": -10.4545,
+    "holdout_trades": 11,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "NEAR/USDT",
+    "timeframe": "1d",
+    "strategy": "ma_crossover",
+    "holdout_sharpe": 2.426,
+    "holdout_return": 2.7658,
+    "holdout_max_dd": -6.4471,
+    "holdout_trades": 2,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "NEAR/USDT",
+    "timeframe": "1d",
+    "strategy": "rsi",
+    "holdout_sharpe": 2.5589,
+    "holdout_return": 1.6459,
+    "holdout_max_dd": -3.5678,
+    "holdout_trades": 3,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "NEAR/USDT",
+    "timeframe": "1d",
+    "strategy": "bbands",
+    "holdout_sharpe": 0.0123,
+    "holdout_return": -0.0644,
+    "holdout_max_dd": -2.5939,
+    "holdout_trades": 2,
+    "status": "PENDING_REVIEW"
+  },
+  {
+    "symbol": "NEAR/USDT",
+    "timeframe": "1d",
+    "strategy": "enhanced_ma",
+    "holdout_sharpe": 0.0,
+    "holdout_return": 0.0,
+    "holdout_max_dd": 0.0,
+    "holdout_trades": 0,
+    "status": "PENDING_REVIEW"
+  }
+]

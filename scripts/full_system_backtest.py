@@ -76,16 +76,20 @@ PAPER_STATE = ROOT / "data" / "execution" / f"paper_{EXCHANGE}.json"
 
 
 class FullSystemSimulator:
-    def __init__(self, fresh: bool = False):
+    def __init__(self, fresh: bool = False, symbol: str | None = None, timeframe: str | None = None):
         # Reset paper state nếu cần
         if fresh and PAPER_STATE.exists():
             backup = PAPER_STATE.with_suffix(".json.bak")
             PAPER_STATE.rename(backup)
             print(f"🗑  Paper state reset (backup → {backup.name})")
 
+        self.symbol = symbol or os.getenv("SYMBOL", SYMBOL)
+        self.timeframe = timeframe or os.getenv("TIMEFRAME", TIMEFRAME)
+        self.exchange = EXCHANGE
+
         # Load data
-        print(f"📥 Loading {SYMBOL} {TIMEFRAME} from {EXCHANGE}...")
-        self.df = load_ohlcv(EXCHANGE, SYMBOL, TIMEFRAME).sort("timestamp")
+        print(f"📥 Loading {self.symbol} {self.timeframe} from {self.exchange}...")
+        self.df = load_ohlcv(self.exchange, self.symbol, self.timeframe).sort("timestamp")
         print(
             f"   {self.df.height} bars: {self.df['timestamp'].min()} → {self.df['timestamp'].max()}"
         )
@@ -107,11 +111,11 @@ class FullSystemSimulator:
 
         # Generate all signals upfront
         print("🔧 Generating signals...")
+        signal_series = self.strategy.generate_signals(self.df).rename("signal")
+        if "signal" not in self.df.columns:
+            self.df = self.df.with_columns(signal_series)
         self.signals = (
-            self.df.with_columns(self.strategy.generate_signals(self.df))
-            .select(pl.col("signal"))
-            .to_series()
-            .to_list()
+            self.df.select(pl.col("signal")).to_series().to_list()
         )
 
         # Khởi tạo execution engine + risk controller
@@ -136,10 +140,11 @@ class FullSystemSimulator:
         self.signal_log: list[dict] = []
         self.circuit_breakers: list[str] = []
         self._breaker_active = False
+        self._entry_state: dict[str, dict] = {}
 
     def _position_pct(self, price: float) -> float:
         """% portfolio đang nằm trong vị thế."""
-        pos = self.engine.exchange.get_position(SYMBOL)
+        pos = self.engine.exchange.get_position(self.symbol)
         if not pos or not pos.is_active:
             return 0.0
         equity = self.engine.exchange.get_total_equity()
@@ -163,7 +168,7 @@ class FullSystemSimulator:
             _SimClock.current = datetime.fromisoformat(str(ts)).replace(tzinfo=UTC)
 
             # 1. Cập nhật giá → unrealized PnL + stop-loss trigger
-            self.engine.update_prices({SYMBOL: price})
+            self.engine.update_prices({self.symbol: price})
 
             # 2. Risk checks (max DD, daily loss, circuit breaker)
             alerts = self.risk.check_all()
@@ -204,14 +209,14 @@ class FullSystemSimulator:
                     # Calculate position size
                     if signal == 1:  # BUY
                         # Check if we already have a long position
-                        pos = self.engine.exchange.get_position(SYMBOL)
+                        pos = self.engine.exchange.get_position(self.symbol)
                         if pos and pos.is_active and pos.quantity > 0:
                             signal = 0  # Already long, skip
 
                     if signal != 0:
                         # Use risk controller for dynamic position sizing
                         pos_size = self.risk.calculate_position_size(
-                            symbol=SYMBOL,
+                            symbol=self.symbol,
                             price=price,
                             atr=atr,
                             regime_info=regime_info
@@ -225,7 +230,7 @@ class FullSystemSimulator:
                                 signal="BUY" if signal == 1 else "SELL",
                                 confidence=0.65,
                                 reasoning=f"enhanced_ma: MA{FAST_MA}/{SLOW_MA} crossover with ADX>{ADX_THRESHOLD}",
-                                details={"symbol": SYMBOL, "strategy": "enhanced_ma"},
+                                details={"symbol": self.symbol, "strategy": "enhanced_ma"},
                                 max_position_size_pct=pos_size * price / equity,
                                 risk_level="medium",
                             )
@@ -244,18 +249,30 @@ class FullSystemSimulator:
 
                             # Execute
                             for order in self.engine.execute_signal(msg):
-                                pos = self.engine.exchange.get_position(SYMBOL)
+                                pos = self.engine.exchange.get_position(self.symbol)
+                                side = order.side.value
+                                amount = float(order.filled_amount or order.amount)
+                                if side == "buy":
+                                    self._entry_state[self.symbol] = {
+                                        "price": price,
+                                        "amount": amount,
+                                    }
+                                    pnl = 0.0
+                                elif side == "sell":
+                                    entry = self._entry_state.pop(self.symbol, None)
+                                    if entry:
+                                        pnl = (price - entry["price"]) * entry["amount"]
+                                    else:
+                                        pnl = 0.0
+                                else:
+                                    pnl = 0.0
                                 self.trade_log.append(
                                     {
                                         "timestamp": str(ts),
-                                        "side": order.side.value,
-                                        "amount": float(
-                                            order.filled_amount or order.amount
-                                        ),
+                                        "side": side,
+                                        "amount": amount,
                                         "price": price,
-                                        "pnl": float(pos.unrealized_pnl)
-                                        if pos
-                                        else 0.0,
+                                        "pnl": pnl,
                                         "equity": float(
                                             self.engine.exchange.get_total_equity()
                                         ),
@@ -320,7 +337,7 @@ class FullSystemSimulator:
         )
 
         print(f"\n{'=' * 55}")
-        print(f"📊 KẾT QUẢ FULL SYSTEM — {SYMBOL} {TIMEFRAME} ({EXCHANGE})")
+        print(f"📊 KETA QUẢ FULL SYSTEM — {self.symbol} {self.timeframe} ({self.exchange})")
         print(f"{'=' * 55}")
         print(f"   Vốn ban đầu:      ${INITIAL_CAPITAL:,.2f}")
         print(f"   Vốn cuối:         ${eq_values[-1]:,.2f}")
@@ -363,8 +380,8 @@ class FullSystemSimulator:
         with open(out_path, "w") as f:
             json.dump(
                 {
-                    "symbol": SYMBOL,
-                    "timeframe": TIMEFRAME,
+                    "symbol": self.symbol,
+                    "timeframe": self.timeframe,
                     "exchange": EXCHANGE,
                     "initial_capital": INITIAL_CAPITAL,
                     "final_equity": float(eq_values[-1]),
@@ -398,9 +415,11 @@ def main():
     parser.add_argument(
         "--freq", type=int, default=1, help="Phân tích mỗi N bar (mặc định 1h)"
     )
+    parser.add_argument("--symbol", default=None, help="Symbol, vd BTC/USDT")
+    parser.add_argument("--timeframe", default=None, help="Timeframe, vd 1h/4h")
     args = parser.parse_args()
 
-    sim = FullSystemSimulator(fresh=args.fresh)
+    sim = FullSystemSimulator(fresh=args.fresh, symbol=args.symbol, timeframe=args.timeframe)
     sim.run(start=args.start, end=args.end, freq=args.freq)
 
 

@@ -1,0 +1,182 @@
+[
+  {
+    "symbol": "BTC/USDT",
+    "base_tf": "1h",
+    "context": "none",
+    "oos_sharpe": -5.5029,
+    "net_return": -85.0777,
+    "max_dd": -85.107,
+    "status": "RESEARCH_ONLY"
+  },
+  {
+    "symbol": "BTC/USDT",
+    "base_tf": "1h",
+    "context": "1h+4h",
+    "oos_sharpe": null,
+    "net_return": null,
+    "max_dd": null,
+    "status": "PENDING_IMPLEMENTATION"
+  },
+  {
+    "symbol": "ETH/USDT",
+    "base_tf": "1h",
+    "context": "none",
+    "oos_sharpe": -3.4302,
+    "net_return": -78.6613,
+    "max_dd": -78.9202,
+    "status": "RESEARCH_ONLY"
+  },
+  {
+    "symbol": "ETH/USDT",
+    "base_tf": "1h",
+    "context": "1h+4h",
+    "oos_sharpe": null,
+    "net_return": null,
+    "max_dd": null,
+    "status": "PENDING_IMPLEMENTATION"
+  },
+  {
+    "symbol": "SOL/USDT",
+    "base_tf": "1h",
+    "context": "none",
+    "oos_sharpe": -2.4119,
+    "net_return": -80.2152,
+    "max_dd": -82.5801,
+    "status": "RESEARCH_ONLY"
+  },
+  {
+    "symbol": "SOL/USDT",
+    "base_tf": "1h",
+    "context": "1h+4h",
+    "oos_sharpe": null,
+    "net_return": null,
+    "max_dd": null,
+    "status": "PENDING_IMPLEMENTATION"
+  },
+  {
+    "symbol": "XRP/USDT",
+    "base_tf": "1h",
+    "context": "none",
+    "oos_sharpe": -3.8549,
+    "net_return": -87.2558,
+    "max_dd": -87.406,
+    "status": "RESEARCH_ONLY"
+  },
+  {
+    "symbol": "XRP/USDT",
+    "base_tf": "1h",
+    "context": "1h+4h",
+    "oos_sharpe": null,
+    "net_return": null,
+    "max_dd": null,
+    "status": "PENDING_IMPLEMENTATION"
+  },
+  {
+    "symbol": "BNB/USDT",
+    "base_tf": "1h",
+    "context": "none",
+    "oos_sharpe": -3.7161,
+    "net_return": -77.3717,
+    "max_dd": -77.8432,
+    "status": "RESEARCH_ONLY"
+  },
+  {
+    "symbol": "BNB/USDT",
+    "base_tf": "1h",
+    "context": "1h+4h",
+    "oos_sharpe": null,
+    "net_return": null,
+    "max_dd": null,
+    "status": "PENDING_IMPLEMENTATION"
+  },
+  {
+    "symbol": "ZEC/USDT",
+    "base_tf": "1h",
+    "context": "none",
+    "oos_sharpe": 0.7197,
+    "net_return": 25.4552,
+    "max_dd": -12.4358,
+    "status": "RESEARCH_ONLY"
+  },
+  {
+    "symbol": "ZEC/USDT",
+    "base_tf": "1h",
+    "context": "1h+4h",
+    "oos_sharpe": null,
+    "net_return": null,
+    "max_dd": null,
+    "status": "PENDING_IMPLEMENTATION"
+  },
+  {
+    "symbol": "DOGE/USDT",
+    "base_tf": "1h",
+    "context": "none",
+    "oos_sharpe": -2.6813,
+    "net_return": -81.5878,
+    "max_dd": -81.6777,
+    "status": "RESEARCH_ONLY"
+  },
+  {
+    "symbol": "DOGE/USDT",
+    "base_tf": "1h",
+    "context": "1h+4h",
+    "oos_sharpe": null,
+    "net_return": null,
+    "max_dd": null,
+    "status": "PENDING_IMPLEMENTATION"
+  },
+  {
+    "symbol": "TRX/USDT",
+    "base_tf": "1h",
+    "context": "none",
+    "oos_sharpe": 0.3977,
+    "net_return": 5.9006,
+    "max_dd": -9.9339,
+    "status": "RESEARCH_ONLY"
+  },
+  {
+    "symbol": "TRX/USDT",
+    "base_tf": "1h",
+    "context": "1h+4h",
+    "oos_sharpe": null,
+    "net_return": null,
+    "max_dd": null,
+    "status": "PENDING_IMPLEMENTATION"
+  },
+  {
+    "symbol": "ADA/USDT",
+    "base_tf": "1h",
+    "context": "none",
+    "oos_sharpe": -2.6016,
+    "net_return": -80.428,
+    "max_dd": -80.6404,
+    "status": "RESEARCH_ONLY"
+  },
+  {
+    "symbol": "ADA/USDT",
+    "base_tf": "1h",
+    "context": "1h+4h",
+    "oos_sharpe": null,
+    "net_return": null,
+    "max_dd": null,
+    "status": "PENDING_IMPLEMENTATION"
+  },
+  {
+    "symbol": "NEAR/USDT",
+    "base_tf": "1h",
+    "context": "none",
+    "oos_sharpe": 0.2152,
+    "net_return": 5.0067,
+    "max_dd": -11.6944,
+    "status": "RESEARCH_ONLY"
+  },
+  {
+    "symbol": "NEAR/USDT",
+    "base_tf": "1h",
+    "context": "1h+4h",
+    "oos_sharpe": null,
+    "net_return": null,
+    "max_dd": null,
+    "status": "PENDING_IMPLEMENTATION"
+  }
+]
