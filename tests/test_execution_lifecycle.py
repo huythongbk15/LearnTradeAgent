@@ -1229,3 +1229,36 @@ def test_global_seq_monotonic_across_aggregates(tmp_path):
         # Global replay preserves causality
         all_agg_ids = [e.aggregate_id for e in events]
         assert all_agg_ids == ["i1_1", "i2_1", "i1_2", "i2_2", "i1_3"]
+
+
+def test_upsert_order_intent_idempotent(tmp_path):
+    path = tmp_path / "idempotency.db"
+    with ExecutionEventStore(path).connect() as store:
+        # First insert returns the provided intent_id
+        intent_id_1 = store.upsert_order_intent(
+            intent_id="intent-1",
+            idempotency_key="idem-abc",
+            symbol="BTC/USDT",
+            side="buy",
+            size=1.0,
+            status="PENDING",
+        )
+        assert intent_id_1 == "intent-1"
+        # Second insert with same idempotency_key returns existing intent_id
+        intent_id_2 = store.upsert_order_intent(
+            intent_id="intent-2",  # Different intent_id, should be ignored
+            idempotency_key="idem-abc",
+            symbol="BTC/USDT",
+            side="buy",
+            size=1.0,
+            status="PENDING",
+        )
+        assert intent_id_2 == "intent-1"  # Returns existing
+        # Verify only one row exists
+        rows = store.conn.execute(
+            "SELECT intent_id, symbol FROM execution_order_intents WHERE idempotency_key = ?",
+            ("idem-abc",),
+        ).fetchall()
+        assert len(rows) == 1
+        assert rows[0]["intent_id"] == "intent-1"
+        assert rows[0]["symbol"] == "BTC/USDT"

@@ -83,6 +83,18 @@ CREATE TABLE IF NOT EXISTS execution_sell_reservations (
 );
 CREATE INDEX IF NOT EXISTS idx_exec_sell_reservation_symbol
     ON execution_sell_reservations (symbol, status);
+
+CREATE TABLE IF NOT EXISTS execution_order_intents (
+    intent_id        TEXT PRIMARY KEY,
+    idempotency_key  TEXT NOT NULL UNIQUE,
+    symbol           TEXT NOT NULL,
+    side             TEXT NOT NULL,
+    size             REAL NOT NULL,
+    status           TEXT NOT NULL,
+    created_at       TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_exec_order_intent_idem
+    ON execution_order_intents (idempotency_key);
 """
 
 
@@ -478,6 +490,54 @@ class ExecutionEventStore:
             "SELECT DISTINCT aggregate_id FROM execution_events ORDER BY aggregate_id"
         ).fetchall()
         return [r["aggregate_id"] for r in rows]
+
+    # ── Durable idempotency registry ────────────────────────────────────
+
+    def upsert_order_intent(
+        self,
+        intent_id: str,
+        idempotency_key: str,
+        symbol: str,
+        side: str,
+        size: float,
+        status: str = "PENDING",
+    ) -> str:
+        """Insert a new order intent or return existing intent_id atomically.
+
+        This is the durable idempotency boundary for order creation.
+        If the idempotency_key already exists, returns the existing intent_id.
+        Otherwise, inserts a new row and returns the provided intent_id.
+        """
+        try:
+            self.conn.execute("BEGIN IMMEDIATE")
+            row = self.conn.execute(
+                "SELECT intent_id FROM execution_order_intents WHERE idempotency_key = ?",
+                (idempotency_key,),
+            ).fetchone()
+            if row is not None:
+                self.conn.commit()
+                return row["intent_id"]
+            self.conn.execute(
+                """
+                INSERT INTO execution_order_intents
+                (intent_id, idempotency_key, symbol, side, size, status, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    intent_id,
+                    idempotency_key,
+                    symbol,
+                    side,
+                    size,
+                    status,
+                    datetime.now(UTC).isoformat(),
+                ),
+            )
+            self.conn.commit()
+            return intent_id
+        except Exception:
+            self.conn.rollback()
+            raise
 
     # ── Integrity / audit ───────────────────────────────────────────────
 
