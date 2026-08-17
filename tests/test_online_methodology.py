@@ -130,7 +130,10 @@ def test_streaming_atr_equals_wilder_batch() -> None:
     lows = closes - rng.uniform(0.0, 2.0, len(closes))
     online = OnlineATR(14)
     actual = np.array(
-        [online.update(high, low, close) for high, low, close in zip(highs, lows, closes)]
+        [
+            online.update(high, low, close)
+            for high, low, close in zip(highs, lows, closes)
+        ]
     )
     np.testing.assert_allclose(actual, _batch_wilder_atr(highs, lows, closes, 14))
 
@@ -148,7 +151,9 @@ def test_streaming_std_and_correlation_equal_batch(period: int) -> None:
         pd.Series(x).rolling(period, min_periods=2).std(ddof=1).fillna(0.0).to_numpy()
     )
     expected_corr = pd.Series(x).rolling(period, min_periods=2).corr(pd.Series(y))
-    expected_corr = expected_corr.replace([np.inf, -np.inf], np.nan).fillna(0.0).to_numpy()
+    expected_corr = (
+        expected_corr.replace([np.inf, -np.inf], np.nan).fillna(0.0).to_numpy()
+    )
     np.testing.assert_allclose(actual_std, expected_std, atol=1e-10)
     np.testing.assert_allclose(actual_corr, expected_corr, atol=1e-10)
 
@@ -183,7 +188,9 @@ def _run_allocator(turnover_penalty: float) -> tuple[np.ndarray, OnlineWeightAll
     for index, price in enumerate(prices):
         forecast = allocator.observe_market(float(price))
         realized = 0.0 if index == len(prices) - 1 else prices[index + 1] / price - 1.0
-        weights = allocator.observe_outcome(realized, observation_id=forecast.observation_id)
+        weights = allocator.observe_outcome(
+            realized, observation_id=forecast.observation_id
+        )
         history.append([weights[name] for name in ("fast", "medium", "slow")])
     return np.asarray(history), allocator
 
@@ -209,7 +216,9 @@ def test_turnover_penalty_reduces_weight_turnover() -> None:
 
 
 def test_regime_entropy_never_increases_conviction_and_unknown_abstains() -> None:
-    forecasts = {name: 1.0 for name in ("trend", "mean_reversion", "high_vol", "crisis", "other")}
+    forecasts = {
+        name: 1.0 for name in ("trend", "mean_reversion", "high_vol", "crisis", "other")
+    }
     posteriors = [
         RegimePosterior(1.0, 0.0, 0.0, 0.0, 0.0),
         RegimePosterior(0.8, 0.05, 0.05, 0.05, 0.05),

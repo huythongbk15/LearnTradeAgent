@@ -164,7 +164,9 @@ def fit_factor_transform(
     )
 
 
-def apply_factor_transform(values: np.ndarray, transform: FactorTransform) -> np.ndarray:
+def apply_factor_transform(
+    values: np.ndarray, transform: FactorTransform
+) -> np.ndarray:
     """Apply a frozen train-only transform without learning from its input."""
 
     x = np.asarray(values, dtype=float)
@@ -194,7 +196,11 @@ def make_chronological_folds(
     if n_observations <= min_train_size + gap + 10:
         return []
     test_indices = np.arange(min_train_size + gap, n_observations)
-    blocks = [block for block in np.array_split(test_indices, max(1, int(n_splits))) if len(block)]
+    blocks = [
+        block
+        for block in np.array_split(test_indices, max(1, int(n_splits)))
+        if len(block)
+    ]
     folds: list[ChronologicalFold] = []
     for block in blocks:
         test_start = int(block[0])
@@ -278,17 +284,25 @@ class AlphaEvaluator:
         alpha = np.asarray(alpha_values, dtype=float)
         returns = np.asarray(forward_returns, dtype=float)
         if alpha.shape != returns.shape:
-            raise ValueError("alpha_values and forward_returns must have identical shapes")
+            raise ValueError(
+                "alpha_values and forward_returns must have identical shapes"
+            )
         if target_positions is None:
             positions = self._causal_rank_positions(alpha) * float(direction)
         else:
             positions = np.asarray(target_positions, dtype=float)
             if positions.shape != returns.shape:
-                raise ValueError("target_positions and forward_returns must have identical shapes")
+                raise ValueError(
+                    "target_positions and forward_returns must have identical shapes"
+                )
             positions = positions.copy()
         positions = np.where(np.isfinite(positions), np.clip(positions, -1.0, 1.0), 0.0)
         turnover = np.abs(np.diff(positions, prepend=0.0))
-        cost_bps = self.transaction_cost_bps if transaction_cost_bps is None else float(transaction_cost_bps)
+        cost_bps = (
+            self.transaction_cost_bps
+            if transaction_cost_bps is None
+            else float(transaction_cost_bps)
+        )
         if cost_bps < 0:
             raise ValueError("transaction_cost_bps must be non-negative")
         costs = turnover * cost_bps / 10_000.0
@@ -347,11 +361,18 @@ class AlphaEvaluator:
         alpha = np.asarray(alpha_values, dtype=float)
         returns = np.asarray(forward_returns, dtype=float)
         if alpha.shape != returns.shape:
-            raise ValueError("alpha_values and forward_returns must have identical shapes")
+            raise ValueError(
+                "alpha_values and forward_returns must have identical shapes"
+            )
         valid = np.isfinite(alpha) & np.isfinite(returns)
-        report = AlphaEvaluation(name=name, category=category, n_samples=int(valid.sum()))
+        report = AlphaEvaluation(
+            name=name, category=category, n_samples=int(valid.sum())
+        )
         if valid.sum() < 30:
-            report.details = {"n_valid": int(valid.sum()), "reason": "insufficient_sample"}
+            report.details = {
+                "n_valid": int(valid.sum()),
+                "reason": "insufficient_sample",
+            }
             return report
 
         signal = alpha[valid]
@@ -360,7 +381,9 @@ class AlphaEvaluator:
             signal,
             future,
             direction=direction,
-            target_positions=None if target_positions is None else np.asarray(target_positions)[valid],
+            target_positions=None
+            if target_positions is None
+            else np.asarray(target_positions)[valid],
             transaction_cost_bps=transaction_cost_bps,
         )
         ic = sp_stats.spearmanr(signal, future).statistic
@@ -562,7 +585,9 @@ class AutoMLPipeline:
                 left = set(selections[left_index])
                 right = set(selections[right_index])
                 union = left | right
-                distances.append(0.0 if not union else 1.0 - len(left & right) / len(union))
+                distances.append(
+                    0.0 if not union else 1.0 - len(left & right) / len(union)
+                )
         return float(np.mean(distances)) if distances else 0.0
 
     def scan(
@@ -577,7 +602,11 @@ class AutoMLPipeline:
     ) -> dict[str, Any]:
         """Fit/select on inner folds and evaluate once on each outer test fold."""
 
-        horizon = self.eval.forward_periods if forward_periods is None else int(forward_periods)
+        horizon = (
+            self.eval.forward_periods
+            if forward_periods is None
+            else int(forward_periods)
+        )
         if horizon != self.eval.forward_periods:
             raise ValueError("forward_periods must match the evaluator horizon")
         forward_returns = (
@@ -595,7 +624,11 @@ class AutoMLPipeline:
             categories[name] = alpha_info.get("category", "")
             try:
                 values = self.lib.compute(name, df)
-                values = values.to_numpy(dtype=float) if hasattr(values, "to_numpy") else np.asarray(values, dtype=float)
+                values = (
+                    values.to_numpy(dtype=float)
+                    if hasattr(values, "to_numpy")
+                    else np.asarray(values, dtype=float)
+                )
                 if values.shape != forward_returns.shape:
                     raise ValueError("factor length does not match price history")
                 alpha_values[name] = values
@@ -649,7 +682,9 @@ class AutoMLPipeline:
                 transformed_train[name] = apply_factor_transform(
                     values[fold.train_start : fold.train_end], transform
                 )
-            selected = self._select_uncorrelated(ranked, inner_scores, transformed_train)
+            selected = self._select_uncorrelated(
+                ranked, inner_scores, transformed_train
+            )
             if not selected:
                 selected = ranked[:1]
             selections.append(selected)
@@ -665,9 +700,13 @@ class AutoMLPipeline:
                     forward_returns[fold.test_start : fold.test_end],
                     target_positions=positions,
                 )
-                candidate_signals[name][fold.test_start : fold.test_end] = transformed_test
+                candidate_signals[name][fold.test_start : fold.test_end] = (
+                    transformed_test
+                )
                 candidate_positions[name][fold.test_start : fold.test_end] = positions
-                candidate_net_returns[name][fold.test_start : fold.test_end] = series.net_returns
+                candidate_net_returns[name][fold.test_start : fold.test_end] = (
+                    series.net_returns
+                )
                 if name in selected:
                     selected_test_positions.append(positions)
 
@@ -692,9 +731,7 @@ class AutoMLPipeline:
                         name: (round(score, 8) if math.isfinite(score) else None)
                         for name, score in inner_scores.items()
                     },
-                    "transforms": {
-                        name: asdict(transforms[name]) for name in selected
-                    },
+                    "transforms": {name: asdict(transforms[name]) for name in selected},
                     "oos_net_sharpe": combo_report.net_sharpe,
                     "oos_gross_sharpe": combo_report.gross_sharpe,
                     "oos_objective": self.eval.objective(combo_report),
@@ -704,7 +741,9 @@ class AutoMLPipeline:
         reports: list[AlphaEvaluation] = []
         oos_mask = np.isfinite(composite_positions)
         for name in alpha_values:
-            mask = np.isfinite(candidate_positions[name]) & np.isfinite(forward_returns[:n_usable])
+            mask = np.isfinite(candidate_positions[name]) & np.isfinite(
+                forward_returns[:n_usable]
+            )
             report = self.eval.evaluate(
                 candidate_signals[name][mask],
                 forward_returns[:n_usable][mask],
@@ -731,17 +770,23 @@ class AutoMLPipeline:
             target_positions=composite_positions[oos_mask],
         )
         selection_counts = {
-            name: sum(name in selected for selected in selections) for name in alpha_values
+            name: sum(name in selected for selected in selections)
+            for name in alpha_values
         }
         final_names = sorted(
             (name for name, count in selection_counts.items() if count),
-            key=lambda name: (selection_counts[name], -reports.index(next(r for r in reports if r.name == name))),
+            key=lambda name: (
+                selection_counts[name],
+                -reports.index(next(r for r in reports if r.name == name)),
+            ),
             reverse=True,
         )[: self.max_selected]
 
         # CSCV must see the searched trial space, not a subset chosen with OOS data.
         pbo_names = list(alpha_values)
-        pbo_matrix = np.column_stack([candidate_net_returns[name] for name in pbo_names])
+        pbo_matrix = np.column_stack(
+            [candidate_net_returns[name] for name in pbo_names]
+        )
         pbo = combinatorially_symmetric_cross_validation(pbo_matrix, n_slices=8)
         top_10 = [
             {
@@ -768,7 +813,12 @@ class AutoMLPipeline:
             "total_alphas": len(reports),
             "top_10": top_10,
             "alphas": [
-                {"name": report.name, "category": report.category, "grade": report.grade, **report.details}
+                {
+                    "name": report.name,
+                    "category": report.category,
+                    "grade": report.grade,
+                    **report.details,
+                }
                 for report in reports
             ],
             "best_combo": {
@@ -787,7 +837,8 @@ class AutoMLPipeline:
             "pbo_oos_degradation": pbo["oos_degradation"],
             "pbo_candidates": pbo_names,
             "grade_distribution": {
-                grade: sum(report.grade == grade for report in reports) for grade in GRADE_SCORE
+                grade: sum(report.grade == grade for report in reports)
+                for grade in GRADE_SCORE
             },
             "factor_failures": failures,
         }
@@ -797,6 +848,8 @@ class AutoMLPipeline:
             filename = destination / (
                 f"alpha_scan_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.json"
             )
-            filename.write_text(json.dumps(report_data, indent=2, default=str), encoding="utf-8")
+            filename.write_text(
+                json.dumps(report_data, indent=2, default=str), encoding="utf-8"
+            )
             report_data["report_file"] = str(filename)
         return report_data

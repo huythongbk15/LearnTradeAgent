@@ -489,7 +489,9 @@ class ExecutionLifecycle:
         state.last_event_ids[event.aggregate_id] = event.event_id
         state.state_version += 1
 
-    def _on_order_intent_created(self, state: LifecycleState, event: ExecutionEvent) -> None:
+    def _on_order_intent_created(
+        self, state: LifecycleState, event: ExecutionEvent
+    ) -> None:
         payload = event.payload
         state.orders[event.aggregate_id] = OrderState(
             intent_id=event.aggregate_id,
@@ -525,10 +527,14 @@ class ExecutionLifecycle:
             self._release_sell_remainder(order)
             order.status = IntentStatus.REJECTED
 
-    def _on_broker_acknowledged(self, state: LifecycleState, event: ExecutionEvent) -> None:
+    def _on_broker_acknowledged(
+        self, state: LifecycleState, event: ExecutionEvent
+    ) -> None:
         order = state.orders.get(event.aggregate_id)
         if order is not None:
-            order.broker_order_id = event.payload.get("broker_order_id") or order.broker_order_id
+            order.broker_order_id = (
+                event.payload.get("broker_order_id") or order.broker_order_id
+            )
             order.status = IntentStatus.ACKNOWLEDGED
 
     def _apply_fill(self, state: LifecycleState, event: ExecutionEvent) -> None:
@@ -551,9 +557,13 @@ class ExecutionLifecycle:
             else IntentStatus.PARTIALLY_FILLED
         )
         if self.require_protective_order and order.side == "buy":
-            state.protection_state[event.aggregate_id] = ProtectionState.PROTECTION_REQUIRED
+            state.protection_state[event.aggregate_id] = (
+                ProtectionState.PROTECTION_REQUIRED
+            )
 
-    def _on_partial_fill_received(self, state: LifecycleState, event: ExecutionEvent) -> None:
+    def _on_partial_fill_received(
+        self, state: LifecycleState, event: ExecutionEvent
+    ) -> None:
         self._apply_fill(state, event)
 
     def _on_fill_received(self, state: LifecycleState, event: ExecutionEvent) -> None:
@@ -564,18 +574,24 @@ class ExecutionLifecycle:
         if order is not None:
             order.fees += float(event.payload.get("fee", 0.0))
 
-    def _on_cancel_requested(self, state: LifecycleState, event: ExecutionEvent) -> None:
+    def _on_cancel_requested(
+        self, state: LifecycleState, event: ExecutionEvent
+    ) -> None:
         order = state.orders.get(event.aggregate_id)
         if order is not None and order.status != IntentStatus.FILLED:
             order.status = IntentStatus.CANCEL_REQUESTED
 
-    def _on_cancel_confirmed(self, state: LifecycleState, event: ExecutionEvent) -> None:
+    def _on_cancel_confirmed(
+        self, state: LifecycleState, event: ExecutionEvent
+    ) -> None:
         order = state.orders.get(event.aggregate_id)
         if order is not None:
             self._release_sell_remainder(order)
             order.status = IntentStatus.CANCELED
 
-    def _on_protective_order_created(self, state: LifecycleState, event: ExecutionEvent) -> None:
+    def _on_protective_order_created(
+        self, state: LifecycleState, event: ExecutionEvent
+    ) -> None:
         payload = event.payload
         state.protective_orders[event.aggregate_id] = ProtectiveOrderState(
             order_id=event.aggregate_id,
@@ -589,22 +605,30 @@ class ExecutionLifecycle:
             if protective_id not in state.orders[parent].protective_order_ids:
                 state.orders[parent].protective_order_ids.append(protective_id)
 
-    def _on_protective_order_acknowledged(self, state: LifecycleState, event: ExecutionEvent) -> None:
+    def _on_protective_order_acknowledged(
+        self, state: LifecycleState, event: ExecutionEvent
+    ) -> None:
         protective = state.protective_orders.get(event.aggregate_id)
         parent = event.payload.get("parent_intent_id")
         if protective is not None and parent and parent in state.orders:
             state.protection_state[parent] = ProtectionState.PROTECTED
 
-    def _on_protective_order_replaced(self, state: LifecycleState, event: ExecutionEvent) -> None:
+    def _on_protective_order_replaced(
+        self, state: LifecycleState, event: ExecutionEvent
+    ) -> None:
         protective = state.protective_orders.get(event.aggregate_id)
         if protective is not None:
             protective.trigger_price = float(event.payload["trigger_price"])
 
-    def _on_reconciliation_started(self, state: LifecycleState, event: ExecutionEvent) -> None:
+    def _on_reconciliation_started(
+        self, state: LifecycleState, event: ExecutionEvent
+    ) -> None:
         state.reconciliation = ReconciliationState.STARTED
         state.execution_health = ExecutionHealth.RECONCILING
 
-    def _on_reconciliation_resolved(self, state: LifecycleState, event: ExecutionEvent) -> None:
+    def _on_reconciliation_resolved(
+        self, state: LifecycleState, event: ExecutionEvent
+    ) -> None:
         state.reconciliation = ReconciliationState.RESOLVED
         if not state.unresolved_manual_intents:
             state.manual_blocked = False
@@ -614,7 +638,9 @@ class ExecutionLifecycle:
             }:
                 state.execution_health = ExecutionHealth.NORMAL
 
-    def _on_manual_intervention_required(self, state: LifecycleState, event: ExecutionEvent) -> None:
+    def _on_manual_intervention_required(
+        self, state: LifecycleState, event: ExecutionEvent
+    ) -> None:
         order = state.orders.get(event.aggregate_id)
         if order is not None:
             order.status = IntentStatus.MANUAL

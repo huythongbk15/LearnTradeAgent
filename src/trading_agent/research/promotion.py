@@ -17,7 +17,10 @@ from trading_agent.research.lifecycle import PromotionError
 def _freeze(value: Any) -> Any:
     if isinstance(value, Mapping):
         return MappingProxyType(
-            {str(key): _freeze(item) for key, item in sorted(value.items(), key=lambda pair: str(pair[0]))}
+            {
+                str(key): _freeze(item)
+                for key, item in sorted(value.items(), key=lambda pair: str(pair[0]))
+            }
         )
     if isinstance(value, (list, tuple)):
         return tuple(_freeze(item) for item in value)
@@ -302,15 +305,27 @@ class ResearchPromotionGate:
         try:
             if kind == EvidenceKind.OUTER_OOS and number("net_return") <= 0.0:
                 return "non_positive"
-            if kind == EvidenceKind.MINIMUM_TRADES and number("trade_count") < self.minimum_trades:
+            if (
+                kind == EvidenceKind.MINIMUM_TRADES
+                and number("trade_count") < self.minimum_trades
+            ):
                 return "insufficient_trades"
-            if kind == EvidenceKind.DEFLATED_SHARPE and number("dsr_probability") < self.minimum_dsr:
+            if (
+                kind == EvidenceKind.DEFLATED_SHARPE
+                and number("dsr_probability") < self.minimum_dsr
+            ):
                 return "dsr_below_threshold"
             if kind == EvidenceKind.PBO and number("pbo") > self.maximum_pbo:
                 return "pbo_above_threshold"
-            if kind == EvidenceKind.COST_STRESS and number("stressed_net_return") <= 0.0:
+            if (
+                kind == EvidenceKind.COST_STRESS
+                and number("stressed_net_return") <= 0.0
+            ):
                 return "cost_stress_failed"
-            if kind == EvidenceKind.PARAMETER_STABILITY and number("stability_score") < 0.70:
+            if (
+                kind == EvidenceKind.PARAMETER_STABILITY
+                and number("stability_score") < 0.70
+            ):
                 return "unstable_parameters"
             if kind == EvidenceKind.ARTIFACT_INTEGRITY:
                 if payload.get("verified_artifact_id") != evidence.subject_artifact_id:
@@ -323,9 +338,15 @@ class ResearchPromotionGate:
                 if number("scenarios") < 100.0 or number("invariant_breaches") != 0.0:
                     return "simulation_gate_failed"
             if kind == EvidenceKind.REALITY_GAP:
-                if evidence.source not in (EvidenceSource.TESTNET, EvidenceSource.SHADOW):
+                if evidence.source not in (
+                    EvidenceSource.TESTNET,
+                    EvidenceSource.SHADOW,
+                ):
                     return "non_empirical_source"
-                if number("score") > self.maximum_reality_gap or number("breach_count") != 0.0:
+                if (
+                    number("score") > self.maximum_reality_gap
+                    or number("breach_count") != 0.0
+                ):
                     return "reality_gap_failed"
             if kind == EvidenceKind.EMPIRICAL_CALIBRATION:
                 if evidence.source != EvidenceSource.SHADOW:
@@ -349,10 +370,16 @@ class ResearchPromotionGate:
                     return "wrong_source"
                 if number("days") < 30.0 or number("critical_alerts") != 0.0:
                     return "shadow_soak_failed"
-            if kind in (EvidenceKind.OPERATOR_APPROVAL, EvidenceKind.PRODUCTION_APPROVAL):
+            if kind in (
+                EvidenceKind.OPERATOR_APPROVAL,
+                EvidenceKind.PRODUCTION_APPROVAL,
+            ):
                 if evidence.source != EvidenceSource.OPERATOR:
                     return "wrong_source"
-                if not str(payload.get("approver", "")).strip() or not str(payload.get("ticket", "")).strip():
+                if (
+                    not str(payload.get("approver", "")).strip()
+                    or not str(payload.get("ticket", "")).strip()
+                ):
                     return "approval_identity_missing"
             if kind == EvidenceKind.CANARY_OPERATIONAL:
                 if evidence.source != EvidenceSource.CANARY:
@@ -367,7 +394,9 @@ class ResearchPromotionGate:
 class ResearchLifecycle:
     """Canonical promotion state machine.  Evidence is retained append-only."""
 
-    def __init__(self, subject_artifact_id: str, gate: ResearchPromotionGate | None = None) -> None:
+    def __init__(
+        self, subject_artifact_id: str, gate: ResearchPromotionGate | None = None
+    ) -> None:
         if not subject_artifact_id.strip():
             raise ValueError("subject_artifact_id is required")
         self.subject_artifact_id = subject_artifact_id
@@ -388,7 +417,10 @@ class ResearchLifecycle:
         actor: str,
     ) -> ResearchPromotionEvent:
         current_index = _STAGE_ORDER.index(self.stage)
-        if current_index + 1 >= len(_STAGE_ORDER) or _STAGE_ORDER[current_index + 1] != to_stage:
+        if (
+            current_index + 1 >= len(_STAGE_ORDER)
+            or _STAGE_ORDER[current_index + 1] != to_stage
+        ):
             raise PromotionError(
                 f"invalid promotion {self.stage.value} -> {to_stage.value}; stage skipping is forbidden"
             )
@@ -397,7 +429,9 @@ class ResearchLifecycle:
         proposed = dict(self._evidence)
         for item in evidence:
             if not isinstance(item, EvidenceArtifact):
-                raise PromotionError("only immutable EvidenceArtifact instances are accepted")
+                raise PromotionError(
+                    "only immutable EvidenceArtifact instances are accepted"
+                )
             existing = proposed.get(item.evidence_id)
             if existing is not None and existing != item:
                 raise PromotionError("evidence id collision")

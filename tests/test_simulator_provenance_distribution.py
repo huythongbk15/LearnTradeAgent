@@ -141,7 +141,9 @@ def test_exchange_collection_interface_rejects_synthetic() -> None:
 
 def test_identical_distribution_evidence_passes_with_real_observations() -> None:
     synthetic_records = tuple(
-        _observation(index, source=CalibrationSource.SYNTHETIC, latency_ms=40 + index % 5)
+        _observation(
+            index, source=CalibrationSource.SYNTHETIC, latency_ms=40 + index % 5
+        )
         for index in range(100)
     )
     exchange_records = tuple(

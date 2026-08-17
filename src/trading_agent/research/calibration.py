@@ -74,7 +74,11 @@ class CalibrationArtifact:
             created = created.replace(tzinfo=UTC)
         if current - created > max_age:
             return CalibrationState.STALE
-        if self.sample_count < min_samples or self.ece > max_ece or self.brier > max_brier:
+        if (
+            self.sample_count < min_samples
+            or self.ece > max_ece
+            or self.brier > max_brier
+        ):
             return CalibrationState.DEGRADED
         return CalibrationState.CALIBRATED
 
@@ -84,7 +88,9 @@ def calibration_state(
     *,
     now: datetime | None = None,
 ) -> CalibrationState:
-    return CalibrationState.UNCALIBRATED if artifact is None else artifact.state(now=now)
+    return (
+        CalibrationState.UNCALIBRATED if artifact is None else artifact.state(now=now)
+    )
 
 
 def _canonical_sha256(value: Any) -> str:
@@ -143,6 +149,7 @@ def _fit_parameters(
             "intercept": float(model.intercept_[0]),
         }
     if method == CalibrationMethod.TEMPERATURE:
+
         def loss(log_temperature: float) -> float:
             temperature = math.exp(log_temperature)
             calibrated = np.clip(_sigmoid(logits / temperature), 1e-12, 1.0 - 1e-12)
@@ -234,7 +241,9 @@ def fit_calibration_artifact(
 ) -> CalibrationArtifact:
     """Fit only on train, then score the frozen mapping on validation."""
 
-    method = method if isinstance(method, CalibrationMethod) else CalibrationMethod(method)
+    method = (
+        method if isinstance(method, CalibrationMethod) else CalibrationMethod(method)
+    )
     if train_window.overlaps(validation_window):
         raise ValueError("calibration train and validation windows must be disjoint")
     train_probability, train_label = _validate_binary_sample(
@@ -382,14 +391,22 @@ def fit_split_conformal(
 ) -> ConformalArtifact:
     predictions = np.asarray(calibration_predictions, dtype=float)
     outcomes = np.asarray(calibration_outcomes, dtype=float)
-    if predictions.ndim != 1 or predictions.shape != outcomes.shape or predictions.size < 20:
-        raise ValueError("conformal calibration requires equal 1D samples of size >= 20")
+    if (
+        predictions.ndim != 1
+        or predictions.shape != outcomes.shape
+        or predictions.size < 20
+    ):
+        raise ValueError(
+            "conformal calibration requires equal 1D samples of size >= 20"
+        )
     if not np.all(np.isfinite(predictions)) or not np.all(np.isfinite(outcomes)):
         raise ValueError("conformal calibration sample must be finite")
     if not 0.0 < alpha < 1.0:
         raise ValueError("alpha must be in (0, 1)")
     residuals = np.abs(outcomes - predictions)
-    quantile_level = min(1.0, math.ceil((len(residuals) + 1) * (1.0 - alpha)) / len(residuals))
+    quantile_level = min(
+        1.0, math.ceil((len(residuals) + 1) * (1.0 - alpha)) / len(residuals)
+    )
     quantile = float(np.quantile(residuals, quantile_level, method="higher"))
     input_hash = _canonical_sha256(
         {
@@ -412,7 +429,9 @@ def fit_split_conformal(
     )
 
 
-def conformal_interval(prediction: float, artifact: ConformalArtifact) -> PredictionInterval:
+def conformal_interval(
+    prediction: float, artifact: ConformalArtifact
+) -> PredictionInterval:
     return PredictionInterval(
         lower=float(prediction) - artifact.residual_quantile,
         upper=float(prediction) + artifact.residual_quantile,
@@ -455,8 +474,6 @@ class MonotonicExposurePolicy:
         calibration = self._CALIBRATION_MULTIPLIER[uncertainty.calibration_state]
         calibration_quality = float(np.clip(1.0 - uncertainty.ece, 0.0, 1.0))
         ood = float(np.clip(1.0 - uncertainty.ood_score, 0.0, 1.0))
-        interval = 1.0 / (
-            1.0 + uncertainty.interval.width / self.interval_width_scale
-        )
+        interval = 1.0 / (1.0 + uncertainty.interval.width / self.interval_width_scale)
         regime = float(np.clip(1.0 - uncertainty.regime_entropy, 0.0, 1.0))
         return requested * calibration * calibration_quality * ood * interval * regime

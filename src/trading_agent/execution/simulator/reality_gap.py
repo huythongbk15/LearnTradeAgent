@@ -31,6 +31,7 @@ from trading_agent.execution.simulator.calibration_provenance import (
     CalibrationProfile,
     CalibrationSource,
 )
+
 # Metrics that every environment should provide for a comparable report.
 REALITY_GAP_METRICS = [
     "fill_ratio",
@@ -305,7 +306,9 @@ class ExecutionDistributionEvidence:
         samples: dict[str, tuple[float, ...]] = {
             "latency_ms": tuple(obs.fill_latency_ms for obs in observations),
             "slippage_bps": tuple(obs.slippage_bps for obs in observations),
-            "fill_ratio": tuple(obs.filled_qty / obs.requested_qty for obs in observations),
+            "fill_ratio": tuple(
+                obs.filled_qty / obs.requested_qty for obs in observations
+            ),
             "partial_fill_probability": tuple(
                 float(obs.partial_fills > 0 or obs.filled_qty < obs.requested_qty)
                 for obs in observations
@@ -407,13 +410,16 @@ def _distribution_distance(
         1e-9,
     )
     wasserstein = float(sp_stats.wasserstein_distance(sim, obs) / reference_scale)
-    quantile_gap = max(
-        abs(sim_summary.p50 - obs_summary.p50),
-        abs(sim_summary.p90 - obs_summary.p90),
-        abs(sim_summary.p95 - obs_summary.p95),
-        abs(sim_summary.p99 - obs_summary.p99),
-        abs(sim_summary.cvar95 - obs_summary.cvar95),
-    ) / reference_scale
+    quantile_gap = (
+        max(
+            abs(sim_summary.p50 - obs_summary.p50),
+            abs(sim_summary.p90 - obs_summary.p90),
+            abs(sim_summary.p95 - obs_summary.p95),
+            abs(sim_summary.p99 - obs_summary.p99),
+            abs(sim_summary.cvar95 - obs_summary.cvar95),
+        )
+        / reference_scale
+    )
     return max(wasserstein, quantile_gap), wasserstein, float(quantile_gap)
 
 
@@ -443,7 +449,10 @@ def compute_distributional_reality_gap(
         if observed_exchange.source == CalibrationSource.SYNTHETIC:
             breaches.append("observed exchange distribution source is SYNTHETIC")
         for metric in sorted(required_metrics):
-            if metric not in simulator.samples or metric not in observed_exchange.samples:
+            if (
+                metric not in simulator.samples
+                or metric not in observed_exchange.samples
+            ):
                 missing.append(metric)
                 continue
             statistic, wasserstein, quantile_gap = _distribution_distance(

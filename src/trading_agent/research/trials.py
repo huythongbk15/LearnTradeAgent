@@ -246,7 +246,9 @@ class ExperimentRegistry:
             seed=spec.seed,
         ).experiment_id
         if spec.experiment_id != expected:
-            raise ValueError("experiment_id does not match canonical experiment content")
+            raise ValueError(
+                "experiment_id does not match canonical experiment content"
+            )
 
         with self._lock:
             connection = self._connect()
@@ -279,11 +281,19 @@ class ExperimentRegistry:
                     stored = spec
                 else:
                     stored = self._spec_from_row(existing_row)
-                    if self._technical_identity(stored) != self._technical_identity(spec):
-                        raise ValueError("experiment_id collision with different content")
+                    if self._technical_identity(stored) != self._technical_identity(
+                        spec
+                    ):
+                        raise ValueError(
+                            "experiment_id collision with different content"
+                        )
                 connection.execute(
                     "INSERT OR IGNORE INTO experiment_aliases VALUES (?, ?, ?)",
-                    (spec.experiment_id, spec.strategy_name, datetime.now(UTC).isoformat()),
+                    (
+                        spec.experiment_id,
+                        spec.strategy_name,
+                        datetime.now(UTC).isoformat(),
+                    ),
                 )
                 connection.commit()
                 return stored
@@ -412,11 +422,15 @@ class ExperimentRegistry:
                     "empirical_trial_correlation must match the unique experiment count"
                 )
             if not np.all(np.isfinite(matrix)) or not np.allclose(matrix, matrix.T):
-                raise ValueError("empirical_trial_correlation must be finite and symmetric")
+                raise ValueError(
+                    "empirical_trial_correlation must be finite and symmetric"
+                )
             eigenvalues = np.clip(np.linalg.eigvalsh(matrix), 0.0, None)
             denominator = float(np.sum(eigenvalues**2))
             participation_ratio = (
-                float(np.sum(eigenvalues) ** 2 / denominator) if denominator > 0 else 0.0
+                float(np.sum(eigenvalues) ** 2 / denominator)
+                if denominator > 0
+                else 0.0
             )
             effective = min(raw, max(1 if raw else 0, math.ceil(participation_ratio)))
             methodology = (
@@ -502,7 +516,9 @@ class TrialsRegistry:
             strategy_name=strategy_name,
             strategy_code_sha=str(details.pop("strategy_code_sha", "legacy_unknown")),
             data_manifest_sha=str(details.pop("data_manifest_sha", "legacy_unknown")),
-            feature_schema_hash=str(details.pop("feature_schema_hash", "legacy_unknown")),
+            feature_schema_hash=str(
+                details.pop("feature_schema_hash", "legacy_unknown")
+            ),
             params_hash=param_hash(params),
             search_family=str(details.pop("search_family", "legacy")),
             search_space_hash=search_space_hash(search_space),

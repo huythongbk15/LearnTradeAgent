@@ -99,13 +99,16 @@ class CalibrationObservation:
             raise ValueError("calibration observation numeric fields must be finite")
         if self.best_bid <= 0.0 or self.best_ask <= self.best_bid:
             raise ValueError("best bid/ask must define a positive spread")
-        if not math.isclose(self.best_bid, self.book_snapshot.bids[0].price) or not math.isclose(
-            self.best_ask, self.book_snapshot.asks[0].price
-        ):
+        if not math.isclose(
+            self.best_bid, self.book_snapshot.bids[0].price
+        ) or not math.isclose(self.best_ask, self.book_snapshot.asks[0].price):
             raise ValueError("best bid/ask must match the immutable book snapshot")
         if self.bid_depth < 0.0 or self.ask_depth < 0.0:
             raise ValueError("depth must be non-negative")
-        if self.requested_qty <= 0.0 or not 0.0 <= self.filled_qty <= self.requested_qty:
+        if (
+            self.requested_qty <= 0.0
+            or not 0.0 <= self.filled_qty <= self.requested_qty
+        ):
             raise ValueError("filled quantity must be within requested quantity")
         if self.fill_latency_ms < 0.0 or self.partial_fills < 0:
             raise ValueError("latency and partial fill count must be non-negative")
@@ -146,10 +149,14 @@ class CalibrationDataset:
         if len(sources) != 1 or len(exchanges) != 1:
             raise ValueError("one dataset cannot mix sources or exchanges")
         ordered = tuple(
-            sorted(records, key=lambda record: (record.timestamp, record.broker_order_id))
+            sorted(
+                records, key=lambda record: (record.timestamp, record.broker_order_id)
+            )
         )
         payload = [asdict(record) for record in ordered]
-        data_hash = hashlib.sha256(_canonical_payload(payload).encode("utf-8")).hexdigest()
+        data_hash = hashlib.sha256(
+            _canonical_payload(payload).encode("utf-8")
+        ).hexdigest()
         return cls(
             dataset_id=f"caldata_{data_hash[:32]}",
             observations=ordered,
@@ -279,12 +286,16 @@ def collect_exchange_observations(
         )
     )
     if any(record.source == CalibrationSource.SYNTHETIC for record in records):
-        raise ValueError("exchange observation interface cannot accept SYNTHETIC records")
+        raise ValueError(
+            "exchange observation interface cannot accept SYNTHETIC records"
+        )
     requested_symbols = set(symbols)
     if any(record.exchange != exchange for record in records):
         raise ValueError("exchange observation provider returned the wrong exchange")
     if any(record.symbol not in requested_symbols for record in records):
         raise ValueError("exchange observation provider returned an unrequested symbol")
     if any(not start <= record.timestamp <= end for record in records):
-        raise ValueError("exchange observation provider returned data outside the window")
+        raise ValueError(
+            "exchange observation provider returned data outside the window"
+        )
     return CalibrationDataset.build(records)

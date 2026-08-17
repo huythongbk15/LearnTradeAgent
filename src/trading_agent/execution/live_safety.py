@@ -1717,9 +1717,7 @@ def validate_order_risk(
     )
 
     exposure_effect = (
-        ExposureEffect.REDUCE
-        if normalized_side == "SELL"
-        else ExposureEffect.INCREASE
+        ExposureEffect.REDUCE if normalized_side == "SELL" else ExposureEffect.INCREASE
     )
     authorized_notional = (
         current_symbol_notional * 1.01 if normalized_side == "SELL" else 0.0

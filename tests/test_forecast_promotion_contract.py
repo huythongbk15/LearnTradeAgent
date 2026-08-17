@@ -14,7 +14,11 @@ from trading_agent.research.forecast import (
     StrategyRiskPipeline,
     StrategyRuntime,
 )
-from trading_agent.research.lifecycle import ArtifactLifecycle, PromotionError, PromotionState
+from trading_agent.research.lifecycle import (
+    ArtifactLifecycle,
+    PromotionError,
+    PromotionState,
+)
 from trading_agent.research.promotion import (
     EvidenceArtifact,
     EvidenceKind,
@@ -196,7 +200,9 @@ def test_boolean_integrity_and_promotion_bypasses_are_rejected() -> None:
 
 def test_missing_evidence_never_improves_promotion_assessment() -> None:
     gate = ResearchPromotionGate()
-    complete = gate.assess(SUBJECT, ResearchStage.RESEARCH_VALIDATED, research_evidence())
+    complete = gate.assess(
+        SUBJECT, ResearchStage.RESEARCH_VALIDATED, research_evidence()
+    )
     incomplete = gate.assess(
         SUBJECT, ResearchStage.RESEARCH_VALIDATED, research_evidence()[:-1]
     )
@@ -322,7 +328,9 @@ def test_promotion_cannot_skip_a_stage() -> None:
         )
 
 
-def test_legacy_plugin_adapter_fails_explicitly_instead_of_silent_empty_output() -> None:
+def test_legacy_plugin_adapter_fails_explicitly_instead_of_silent_empty_output() -> (
+    None
+):
     from trading_agent.strategies.plugins.adapters import MaCrossoverPluginStrategy
 
     plugin = MaCrossoverPluginStrategy()

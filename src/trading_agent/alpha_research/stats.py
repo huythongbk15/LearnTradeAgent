@@ -248,7 +248,11 @@ def combinatorially_symmetric_cross_validation(
     n_slices = max(4, min(int(n_slices), n_observations // 4))
     if n_slices % 2:
         n_slices -= 1
-    slices = [part for part in np.array_split(np.arange(n_observations), n_slices) if len(part)]
+    slices = [
+        part
+        for part in np.array_split(np.arange(n_observations), n_slices)
+        if len(part)
+    ]
     n_slices = len(slices)
     if n_slices < 4 or n_slices % 2:
         return {

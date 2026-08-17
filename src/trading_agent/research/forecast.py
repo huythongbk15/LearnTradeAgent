@@ -27,7 +27,10 @@ from trading_agent.research.calibration import (
 def _freeze(value: Any) -> Any:
     if isinstance(value, Mapping):
         return MappingProxyType(
-            {str(key): _freeze(item) for key, item in sorted(value.items(), key=lambda pair: str(pair[0]))}
+            {
+                str(key): _freeze(item)
+                for key, item in sorted(value.items(), key=lambda pair: str(pair[0]))
+            }
         )
     if isinstance(value, (list, tuple)):
         return tuple(_freeze(item) for item in value)
@@ -84,7 +87,9 @@ class MarketObservation:
             raise ValueError("OHLC prices must be positive")
         if self.volume < 0.0:
             raise ValueError("volume must be non-negative")
-        if self.low > min(self.open, self.close) or self.high < max(self.open, self.close):
+        if self.low > min(self.open, self.close) or self.high < max(
+            self.open, self.close
+        ):
             raise ValueError("OHLC values are inconsistent")
         if self.low > self.high:
             raise ValueError("low cannot exceed high")
@@ -155,8 +160,7 @@ class Forecast:
 class ForecastStrategy(Protocol):
     """The only canonical strategy API.  It has no execution capability."""
 
-    def forecast(self, observation: MarketObservation) -> Forecast:
-        ...
+    def forecast(self, observation: MarketObservation) -> Forecast: ...
 
 
 class RiskReason(str, Enum):
@@ -220,7 +224,9 @@ class ForecastRiskPolicy:
         regime_entropy: float = 0.0,
     ) -> RiskDecision:
         request = min(1.0, max(0.0, float(requested_exposure)))
-        if not all(math.isfinite(value) for value in (request, calibration_ece, regime_entropy)):
+        if not all(
+            math.isfinite(value) for value in (request, calibration_ece, regime_entropy)
+        ):
             raise ValueError("risk policy inputs must be finite")
         if not 0.0 <= calibration_ece <= 1.0:
             raise ValueError("calibration_ece must be in [0, 1]")
@@ -352,12 +358,13 @@ class EnvironmentAdapter(Protocol):
 
     environment: DecisionEnvironment
 
-    def publish(self, decision: DecisionBundle) -> None:
-        ...
+    def publish(self, decision: DecisionBundle) -> None: ...
 
 
 class StrategyRuntime:
-    def __init__(self, pipeline: StrategyRiskPipeline, adapter: EnvironmentAdapter) -> None:
+    def __init__(
+        self, pipeline: StrategyRiskPipeline, adapter: EnvironmentAdapter
+    ) -> None:
         self._pipeline = pipeline
         self._adapter = adapter
 

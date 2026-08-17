@@ -178,9 +178,9 @@ def test_positive_gross_but_negative_net_is_rejected() -> None:
     positions = np.where(np.arange(n) % 2, 1.0, -1.0)
     gross_target = 0.0002 + 0.00005 * np.sin(np.arange(n))
     future_returns = positions * gross_target
-    report = AlphaEvaluator(
-        forward_periods=1, transaction_cost_bps=100.0
-    ).evaluate(positions, future_returns, target_positions=positions)
+    report = AlphaEvaluator(forward_periods=1, transaction_cost_bps=100.0).evaluate(
+        positions, future_returns, target_positions=positions
+    )
     assert report.gross_sharpe > 0.0
     assert report.mean_return < 0.0
     assert report.net_sharpe < 0.0

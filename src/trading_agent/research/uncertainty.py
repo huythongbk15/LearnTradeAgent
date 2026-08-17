@@ -273,7 +273,8 @@ class GovernedDecisionPolicy(DecisionPolicy):
     def allowed_actions(self, decision: CalibratedDecision) -> set[Action]:
         allowed = super().allowed_actions(decision)
         interval_crosses_zero = (
-            decision.prediction_interval_lower <= 0.0
+            decision.prediction_interval_lower
+            <= 0.0
             <= decision.prediction_interval_upper
         )
         if (

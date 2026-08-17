@@ -104,9 +104,7 @@ def test_unknown_inventory_or_broker_blocks_claimed_reduction():
     assert unknown_inventory.permission == OrderPermission.BLOCK
     assert unknown_inventory.reason == PermissionReason.UNKNOWN_INVENTORY_STATE
 
-    unknown_broker = evaluate_order_permission(
-        reducing_context(broker_state="mystery")
-    )
+    unknown_broker = evaluate_order_permission(reducing_context(broker_state="mystery"))
     assert unknown_broker.permission == OrderPermission.BLOCK
     assert unknown_broker.reason == PermissionReason.UNKNOWN_BROKER_STATE
 
@@ -148,7 +146,6 @@ def test_two_sells_cannot_reserve_same_inventory(store):
 
     assert lifecycle.active_sell_reservations("BTC/USDT") == pytest.approx(0.7)
     assert lifecycle.order("sell-2").status == IntentStatus.APPROVED
-
 
 
 def test_two_lifecycle_instances_share_transactional_sell_lock(tmp_path):

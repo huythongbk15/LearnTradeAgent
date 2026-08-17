@@ -29,6 +29,7 @@ from .feature_store import (  # noqa: F401 -- compatibility re-exports
     FeatureStoreError,
 )
 
+
 # ---------------------------------------------------------------------------
 # Alpha Library — 40+ factor implementations
 # ---------------------------------------------------------------------------

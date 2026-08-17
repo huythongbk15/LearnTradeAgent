@@ -187,7 +187,9 @@ class FixedEMAExpert:
         estimate = self.indicator.update(float(value))
         self.observation_count += 1
         deviation = (float(value) - estimate) / max(abs(estimate), 1e-12)
-        self.last_forecast = float(np.clip(deviation * math.sqrt(self.period), -1.0, 1.0))
+        self.last_forecast = float(
+            np.clip(deviation * math.sqrt(self.period), -1.0, 1.0)
+        )
         return self.last_forecast
 
     def observe_outcome(self, realized_return: float) -> None:
@@ -243,7 +245,9 @@ class OnlineWeightAllocator:
         audit_window: int = 1_000,
     ) -> None:
         self.experts = list(experts or [FastExpert(), MediumExpert(), SlowExpert()])
-        if not self.experts or len({expert.name for expert in self.experts}) != len(self.experts):
+        if not self.experts or len({expert.name for expert in self.experts}) != len(
+            self.experts
+        ):
             raise ValueError("experts must have unique identities")
         if max_weight < 1.0 / len(self.experts) or max_weight > 1.0:
             raise ValueError("max_weight cannot make the capped simplex infeasible")
@@ -285,19 +289,25 @@ class OnlineWeightAllocator:
 
     def observe_market(self, value: float) -> AllocationForecast:
         forecasts = np.asarray(
-            [expert.observe_market(float(value)) for expert in self.experts], dtype=float
+            [expert.observe_market(float(value)) for expert in self.experts],
+            dtype=float,
         )
         observation_id = self._next_observation_id
         self._next_observation_id += 1
         self._pending.append((observation_id, forecasts.copy()))
         raw = float(np.dot(self.weights, forecasts))
         uncertainty = float(np.std(forecasts))
-        shrinkage = float(np.clip(1.0 - self.uncertainty_shrinkage * uncertainty, 0.0, 1.0))
+        shrinkage = float(
+            np.clip(1.0 - self.uncertainty_shrinkage * uncertainty, 0.0, 1.0)
+        )
         result = AllocationForecast(
             observation_id=observation_id,
             forecast=raw * shrinkage,
             raw_forecast=raw,
-            weights={expert.name: float(weight) for expert, weight in zip(self.experts, self.weights)},
+            weights={
+                expert.name: float(weight)
+                for expert, weight in zip(self.experts, self.weights)
+            },
             expert_forecasts={
                 expert.name: float(forecast)
                 for expert, forecast in zip(self.experts, forecasts)
@@ -346,7 +356,10 @@ class OnlineWeightAllocator:
                 (1.0 - blend) * previous + blend * target
             )
         turnover = float(np.sum(np.abs(self.weights - previous)))
-        result = {expert.name: float(weight) for expert, weight in zip(self.experts, self.weights)}
+        result = {
+            expert.name: float(weight)
+            for expert, weight in zip(self.experts, self.weights)
+        }
         self.audit_log.append(
             {
                 "event": "outcome",
@@ -379,7 +392,9 @@ class AdaptiveStrategy:
         self.bb = AdaptiveBollingerBands(config)
         self.macd = AdaptiveMACD(config)
         self.atr = OnlineATR(14)
-        midpoint = max(config.min_period + 1, (config.min_period + config.max_period) // 2)
+        midpoint = max(
+            config.min_period + 1, (config.min_period + config.max_period) // 2
+        )
         self.allocator = OnlineWeightAllocator(
             [
                 FastExpert(config.min_period),
@@ -397,7 +412,9 @@ class AdaptiveStrategy:
         self.trades: list[float] = []
         self._last_close: float | None = None
 
-    def update(self, high: float, low: float, close: float, volume: float) -> dict[str, Any]:
+    def update(
+        self, high: float, low: float, close: float, volume: float
+    ) -> dict[str, Any]:
         close = float(close)
         if self.position != 0:
             self.performance = (close - self.entry_price) * self.position
@@ -473,7 +490,9 @@ class AdaptiveStrategy:
                 self.position = -1
                 self.entry_price = close
                 return -1
-        elif self.position > 0 and (sell_signal or (close - self.entry_price) > 2 * atr):
+        elif self.position > 0 and (
+            sell_signal or (close - self.entry_price) > 2 * atr
+        ):
             self.position = 0
             self.trades.append(close - self.entry_price)
             return -1

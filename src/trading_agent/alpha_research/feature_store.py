@@ -23,7 +23,9 @@ class FeatureStoreError(RuntimeError):
 
 
 def _validate_sha256(value: str, label: str) -> None:
-    if len(value) != 64 or any(character not in "0123456789abcdef" for character in value.lower()):
+    if len(value) != 64 or any(
+        character not in "0123456789abcdef" for character in value.lower()
+    ):
         raise ValueError(f"{label} must be a 64-character SHA-256 hex digest")
 
 
@@ -129,7 +131,11 @@ class FeatureStore:
         return cleaned
 
     def _artifact_dir(self, symbol: str, feature_name: str) -> Path:
-        return self.base / self._safe_component(symbol) / self._safe_component(feature_name)
+        return (
+            self.base
+            / self._safe_component(symbol)
+            / self._safe_component(feature_name)
+        )
 
     @staticmethod
     def _params_hash(params: dict[str, Any] | None) -> str:
@@ -139,7 +145,9 @@ class FeatureStore:
     def _schema_metadata(frame: pd.DataFrame) -> dict[str, Any]:
         return {
             "columns": [str(column) for column in frame.columns],
-            "dtypes": {str(column): str(dtype) for column, dtype in frame.dtypes.items()},
+            "dtypes": {
+                str(column): str(dtype) for column, dtype in frame.dtypes.items()
+            },
             "index_name": frame.index.name,
             "index_dtype": str(frame.index.dtype),
             "index_freq": str(getattr(frame.index, "freqstr", "") or ""),
@@ -152,7 +160,9 @@ class FeatureStore:
             payload["created_at"] = datetime.fromisoformat(payload["created_at"])
             return FeatureArtifact(**payload)
         except Exception as exc:
-            raise FeatureStoreError(f"invalid feature artifact manifest {path}: {exc}") from exc
+            raise FeatureStoreError(
+                f"invalid feature artifact manifest {path}: {exc}"
+            ) from exc
 
     def put(
         self,
@@ -172,7 +182,9 @@ class FeatureStore:
             raise TypeError("frame must be a pandas DataFrame")
         verified_code = feature_code_hash is not None or feature_callable is not None
         verified_input = input_data_manifest_sha is not None
-        code_hash = feature_code_hash or feature_code_sha(feature_callable or alpha_name)
+        code_hash = feature_code_hash or feature_code_sha(
+            feature_callable or alpha_name
+        )
         data_hash = input_data_manifest_sha or dataframe_manifest_sha(frame)
         actual_schema_hash = dataframe_schema_hash(frame)
         if schema_hash is not None and schema_hash != actual_schema_hash:
@@ -181,7 +193,9 @@ class FeatureStore:
         _validate_sha256(code_hash, "feature_code_hash")
         _validate_sha256(data_hash, "input_data_manifest_sha")
         if not timeframe.strip() or not feature_framework_version.strip():
-            raise ValueError("timeframe and feature_framework_version must be non-empty")
+            raise ValueError(
+                "timeframe and feature_framework_version must be non-empty"
+            )
         params_digest = self._params_hash(params)
         artifact_id = FeatureArtifact.identity(
             feature_name=alpha_name,
@@ -244,7 +258,9 @@ class FeatureStore:
                 schema_metadata=self._schema_metadata(frame),
                 created_at=datetime.now(UTC),
                 provenance_status=(
-                    "VERIFIED" if verified_code and verified_input else "DERIVED_FALLBACK"
+                    "VERIFIED"
+                    if verified_code and verified_input
+                    else "DERIVED_FALLBACK"
                 ),
             )
             manifest_tmp = manifest_path.with_suffix(".json.tmp")
@@ -297,7 +313,9 @@ class FeatureStore:
             for path in sorted(directory.glob("*.artifact.json"))
         ]
         params_digest = self._params_hash(params)
-        candidates = [artifact for artifact in candidates if artifact.params_hash == params_digest]
+        candidates = [
+            artifact for artifact in candidates if artifact.params_hash == params_digest
+        ]
         filters = {
             "artifact_id": artifact_id,
             "feature_code_sha": feature_code_hash,
@@ -309,7 +327,9 @@ class FeatureStore:
         for key, expected in filters.items():
             if expected is not None:
                 candidates = [
-                    artifact for artifact in candidates if getattr(artifact, key) == expected
+                    artifact
+                    for artifact in candidates
+                    if getattr(artifact, key) == expected
                 ]
         if not candidates:
             return None
@@ -324,7 +344,9 @@ class FeatureStore:
         self._cache[artifact.artifact_id] = frame
         return frame.copy()
 
-    def _read_artifact(self, artifact: FeatureArtifact, directory: Path) -> pd.DataFrame:
+    def _read_artifact(
+        self, artifact: FeatureArtifact, directory: Path
+    ) -> pd.DataFrame:
         path = directory / artifact.relative_path
         if not path.exists():
             raise FeatureStoreError(f"feature payload missing: {path}")
@@ -359,7 +381,9 @@ class FeatureStore:
         except FeatureStoreError:
             raise
         except Exception as exc:
-            raise FeatureStoreError(f"failed to read feature payload {path}: {exc}") from exc
+            raise FeatureStoreError(
+                f"failed to read feature payload {path}: {exc}"
+            ) from exc
         if len(frame) != artifact.row_count:
             raise FeatureStoreError(f"feature row-count mismatch: {path}")
         if dataframe_schema_hash(frame) != artifact.schema_hash:
@@ -376,4 +400,7 @@ class FeatureStore:
         directory = self._artifact_dir(symbol, alpha_name)
         if not directory.exists():
             return []
-        return sorted(path.name.removesuffix(".artifact.json") for path in directory.glob("*.artifact.json"))
+        return sorted(
+            path.name.removesuffix(".artifact.json")
+            for path in directory.glob("*.artifact.json")
+        )

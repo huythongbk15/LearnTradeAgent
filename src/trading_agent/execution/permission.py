@@ -129,10 +129,14 @@ def evaluate_order_permission(ctx: PermissionContext) -> PermissionResult:
         if ctx.authorized_sellable_inventory is None
         else ctx.authorized_sellable_inventory
     )
-    if ctx.enforce_inventory and side == "sell" and (
-        not inventory_known
-        or not math.isfinite(authorized)
-        or ctx.order_size > authorized + 1e-9
+    if (
+        ctx.enforce_inventory
+        and side == "sell"
+        and (
+            not inventory_known
+            or not math.isfinite(authorized)
+            or ctx.order_size > authorized + 1e-9
+        )
     ):
         reason = (
             PermissionReason.UNKNOWN_INVENTORY_STATE
@@ -153,12 +157,13 @@ def evaluate_order_permission(ctx: PermissionContext) -> PermissionResult:
         return PermissionResult(OrderPermission.BLOCK, reason, detail)
 
     if ctx.manual_blocked or ctx.execution_health == ExecutionHealth.MANUAL_BLOCKED:
-        return degraded(PermissionReason.MANUAL_BLOCKED, "manual intervention unresolved")
+        return degraded(
+            PermissionReason.MANUAL_BLOCKED, "manual intervention unresolved"
+        )
 
     if (
         ctx.execution_health == ExecutionHealth.PROTECTION_GAP
-        or ctx.protection_state
-        in {"protection_gap", "protection_required", "unknown"}
+        or ctx.protection_state in {"protection_gap", "protection_required", "unknown"}
     ):
         return degraded(PermissionReason.PROTECTION_GAP, "protection gap active")
 

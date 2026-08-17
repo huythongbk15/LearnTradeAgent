@@ -159,13 +159,13 @@ def test_feature_artifact_identity_binds_data_and_provenance(tmp_path) -> None:
     assert len(store.versions("BTC/USDT", "momentum")) == 2
     with pytest.raises(FeatureStoreError, match="ambiguous"):
         store.get("BTC/USDT", "momentum", params={"window": 10})
-    loaded = store.get(
-        "BTC/USDT", "momentum", params={"window": 10}, artifact_id=first
-    )
+    loaded = store.get("BTC/USDT", "momentum", params={"window": 10}, artifact_id=first)
     pd.testing.assert_frame_equal(loaded, frame)
 
 
-def test_csv_fallback_is_read_symmetrically_after_cold_start(tmp_path, monkeypatch) -> None:
+def test_csv_fallback_is_read_symmetrically_after_cold_start(
+    tmp_path, monkeypatch
+) -> None:
     index = pd.date_range("2025-01-01", periods=4, freq="h", name="timestamp")
     frame = pd.DataFrame(
         {"alpha": [1.0, 2.5, 3.0, 4.5], "count": [1, 2, 3, 4]}, index=index

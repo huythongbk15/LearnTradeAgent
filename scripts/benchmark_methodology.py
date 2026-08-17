@@ -41,13 +41,19 @@ from trading_agent.research.calibration import (
 SEED = 20260817
 
 
-def _net_metrics(position: np.ndarray, returns: np.ndarray, cost_bps: float = 2.0) -> dict[str, float]:
+def _net_metrics(
+    position: np.ndarray, returns: np.ndarray, cost_bps: float = 2.0
+) -> dict[str, float]:
     position = np.asarray(position, dtype=float)
     returns = np.asarray(returns, dtype=float)
     turnover = np.abs(np.diff(position, prepend=0.0))
     net = position * returns - turnover * cost_bps * 1e-4
     volatility = float(np.std(net, ddof=1))
-    sharpe = 0.0 if volatility <= 1e-15 else float(np.mean(net) / volatility * math.sqrt(252.0))
+    sharpe = (
+        0.0
+        if volatility <= 1e-15
+        else float(np.mean(net) / volatility * math.sqrt(252.0))
+    )
     equity = np.cumprod(1.0 + net)
     drawdown = equity / np.maximum.accumulate(equity) - 1.0
     return {
@@ -75,13 +81,17 @@ def benchmark_alpha_ensemble(seed: int = SEED) -> dict[str, Any]:
     transformed_test = []
     train_scores = []
     for index in range(factors):
-        transform = fit_factor_transform(values[:train_size, index], forward[:train_size])
+        transform = fit_factor_transform(
+            values[:train_size, index], forward[:train_size]
+        )
         train = apply_factor_transform(values[:train_size, index], transform)
         test = apply_factor_transform(values[train_size:, index], transform)
         transformed_train.append(train)
         transformed_test.append(test)
         score = stats.spearmanr(train, forward[:train_size]).statistic
-        train_scores.append(0.0 if not math.isfinite(float(score)) else abs(float(score)))
+        train_scores.append(
+            0.0 if not math.isfinite(float(score)) else abs(float(score))
+        )
     train_matrix = np.column_stack(transformed_train)
     test_matrix = np.column_stack(transformed_test)
     selected = np.argsort(train_scores)[-3:]
@@ -89,7 +99,11 @@ def benchmark_alpha_ensemble(seed: int = SEED) -> dict[str, Any]:
     baseline_position = np.tanh(np.mean(test_matrix, axis=1))
     candidate = _net_metrics(selected_position, forward[train_size:])
     baseline = _net_metrics(baseline_position, forward[train_size:])
-    winner = "selected_equal_standardized" if candidate["net_sharpe"] > baseline["net_sharpe"] else "all_factor_equal_standardized"
+    winner = (
+        "selected_equal_standardized"
+        if candidate["net_sharpe"] > baseline["net_sharpe"]
+        else "all_factor_equal_standardized"
+    )
     return {
         "status": "SYNTHETIC_ONLY",
         "candidate": candidate,
@@ -100,7 +114,9 @@ def benchmark_alpha_ensemble(seed: int = SEED) -> dict[str, Any]:
     }
 
 
-def _regime_series(seed: int, observations: int = 3_000) -> tuple[np.ndarray, np.ndarray]:
+def _regime_series(
+    seed: int, observations: int = 3_000
+) -> tuple[np.ndarray, np.ndarray]:
     rng = np.random.default_rng(seed)
     transition = np.array(
         [
@@ -143,7 +159,9 @@ def benchmark_regime_mixture(seed: int = SEED + 1) -> dict[str, Any]:
         rolling_vol = float(np.std(returns[index - 20 : index], ddof=1))
         expert_forecasts = {
             "trend": float(np.clip(rolling_mean / max(rolling_vol, 1e-12), -1.0, 1.0)),
-            "mean_reversion": float(np.clip(-returns[index] / max(rolling_vol, 1e-12), -1.0, 1.0)),
+            "mean_reversion": float(
+                np.clip(-returns[index] / max(rolling_vol, 1e-12), -1.0, 1.0)
+            ),
             "high_vol": 0.0,
             "crisis": -0.5,
             "other": 0.0,
@@ -161,7 +179,9 @@ def benchmark_regime_mixture(seed: int = SEED + 1) -> dict[str, Any]:
         "status": "ORACLE_ASSISTED_SYNTHETIC_ONLY",
         "candidate": candidate,
         "baseline": baseline,
-        "winner_on_this_fixture": "soft_regime_mixture" if candidate["net_sharpe"] > baseline["net_sharpe"] else "trend_x_vol",
+        "winner_on_this_fixture": "soft_regime_mixture"
+        if candidate["net_sharpe"] > baseline["net_sharpe"]
+        else "trend_x_vol",
         "production_claim": False,
         "caveat": "posterior is generated from the hidden synthetic state and is not deployable evidence",
     }
@@ -194,7 +214,9 @@ def benchmark_adaptive_experts(seed: int = SEED + 2) -> dict[str, Any]:
         allocator.observe_outcome(realized, observation_id=result.observation_id)
     candidate = _net_metrics(np.asarray(adaptive), np.asarray(outcomes))
     equal = _net_metrics(np.asarray(fixed_equal), np.asarray(outcomes))
-    fixed = [_net_metrics(np.asarray(item), np.asarray(outcomes)) for item in individual]
+    fixed = [
+        _net_metrics(np.asarray(item), np.asarray(outcomes)) for item in individual
+    ]
     best_fixed = max(fixed, key=lambda item: item["net_sharpe"])
     winner = max(
         (
@@ -209,7 +231,10 @@ def benchmark_adaptive_experts(seed: int = SEED + 2) -> dict[str, Any]:
         "fixed_equal_baseline": equal,
         "best_fixed_ex_post_baseline": best_fixed,
         "winner_on_this_fixture": winner[1],
-        "final_weights": {expert.name: round(float(weight), 6) for expert, weight in zip(allocator.experts, allocator.weights)},
+        "final_weights": {
+            expert.name: round(float(weight), 6)
+            for expert, weight in zip(allocator.experts, allocator.weights)
+        },
         "production_claim": False,
     }
 
@@ -219,7 +244,10 @@ def benchmark_calibration(seed: int = SEED + 3) -> dict[str, Any]:
     observations = 4_500
     true_probability = rng.beta(2.0, 2.0, size=observations)
     outcomes = rng.binomial(1, true_probability).astype(float)
-    logits = np.log(np.clip(true_probability, 1e-8, 1.0) / np.clip(1.0 - true_probability, 1e-8, 1.0))
+    logits = np.log(
+        np.clip(true_probability, 1e-8, 1.0)
+        / np.clip(1.0 - true_probability, 1e-8, 1.0)
+    )
     raw = 1.0 / (1.0 + np.exp(-(1.8 * logits + 0.45)))
     train, validation = slice(0, 1_500), slice(1_500, 3_000)
     test = slice(3_000, observations)
@@ -232,7 +260,9 @@ def benchmark_calibration(seed: int = SEED + 3) -> dict[str, Any]:
         validation_predictions=raw[validation],
         validation_outcomes=outcomes[validation],
         train_window=DataWindow(start, start + timedelta(days=1)),
-        validation_window=DataWindow(start + timedelta(days=2), start + timedelta(days=3)),
+        validation_window=DataWindow(
+            start + timedelta(days=2), start + timedelta(days=3)
+        ),
         created_at=start + timedelta(days=4),
     )
     calibrated = apply_calibrator(raw[test], artifact)
@@ -243,7 +273,10 @@ def benchmark_calibration(seed: int = SEED + 3) -> dict[str, Any]:
     return {
         "status": "SYNTHETIC_INDEPENDENT_TEST",
         "uncalibrated": {"brier": round(raw_brier, 6), "ece": round(raw_ece, 6)},
-        "platt_calibrated": {"brier": round(calibrated_brier, 6), "ece": round(calibrated_ece, 6)},
+        "platt_calibrated": {
+            "brier": round(calibrated_brier, 6),
+            "ece": round(calibrated_ece, 6),
+        },
         "brier_improved": calibrated_brier < raw_brier,
         "ece_improved": calibrated_ece < raw_ece,
         "production_claim": False,

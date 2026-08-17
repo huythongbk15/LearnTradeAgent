@@ -264,8 +264,10 @@ class RegimeSwitchingStrategy(Strategy):
 
     def _predict_regime_state(self, df: pl.DataFrame, bar_idx: int) -> RegimeState:
         """Predict a full posterior state without refitting on the test bar."""
+
         def unknown() -> RegimeState:
             return RegimeState(MarketRegime.UNKNOWN, 0.0, {}, datetime.now())
+
         if not self._detector_fitted:
             self._fit_detector(df)
             if not self._detector_fitted:
@@ -384,7 +386,9 @@ class RegimeSwitchingStrategy(Strategy):
         for config in configs:
             weight = max(0.0, float(config.weight))
             if config.strategy_name in sub_signals and weight > 0.0:
-                numerator += float(sub_signals[config.strategy_name][bar_index]) * weight
+                numerator += (
+                    float(sub_signals[config.strategy_name][bar_index]) * weight
+                )
                 denominator += weight
         return numerator / denominator if denominator > 0.0 else 0.0
 

@@ -117,7 +117,9 @@ def test_validation_outcomes_cannot_change_fitted_parameters() -> None:
 
 
 def test_overlapping_calibration_windows_are_rejected() -> None:
-    train_p, train_y, validation_p, validation_y, train_window, _ = _calibration_samples()
+    train_p, train_y, validation_p, validation_y, train_window, _ = (
+        _calibration_samples()
+    )
     overlapping = DataWindow(
         datetime(2024, 6, 1, tzinfo=UTC), datetime(2024, 8, 1, tzinfo=UTC)
     )
@@ -153,10 +155,15 @@ def test_calibration_artifact_store_and_states(tmp_path) -> None:
     assert store.get(artifact.calibration_id) == artifact
     assert calibration_state(None) == CalibrationState.UNCALIBRATED
     good = replace(artifact, brier=0.10, ece=0.02, sample_count=100)
-    assert good.state(now=good.created_at + timedelta(days=1)) == CalibrationState.CALIBRATED
+    assert (
+        good.state(now=good.created_at + timedelta(days=1))
+        == CalibrationState.CALIBRATED
+    )
     degraded = replace(good, ece=0.20)
     assert degraded.state(now=degraded.created_at) == CalibrationState.DEGRADED
-    assert good.state(now=good.created_at + timedelta(days=31)) == CalibrationState.STALE
+    assert (
+        good.state(now=good.created_at + timedelta(days=31)) == CalibrationState.STALE
+    )
 
     signal = UncertaintySignal(
         expected_return=0.05,

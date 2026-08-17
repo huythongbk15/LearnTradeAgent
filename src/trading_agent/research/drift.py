@@ -326,7 +326,9 @@ class DriftMonitor:
                 )
             )
         if adverse_selection_ref is not None and adverse_selection_current is not None:
-            distance = self._degradation(adverse_selection_ref, adverse_selection_current)
+            distance = self._degradation(
+                adverse_selection_ref, adverse_selection_current
+            )
             results.append(
                 DriftResult(
                     "adverse_selection_drift",
