@@ -22,6 +22,8 @@ from trading_agent.execution.indicators import (
     compute_atr_position_size,
 )
 from trading_agent.execution.paper_exchange import PaperExchange
+from trading_agent.execution.canonical import BrokerGateway, AuthorizedOrder
+
 from trading_agent.execution.types import (
     Order,
     OrderSide,
@@ -98,6 +100,8 @@ class ExecutionEngine:
     ):
         self.exchange_name = exchange_name or config.default_exchange
 
+        # ── Canonical broker gateway ───────────────────────────────
+
         # Use config default values
         self.exchange = PaperExchange(
             exchange_name=self.exchange_name,
@@ -107,6 +111,9 @@ class ExecutionEngine:
             commission=config.commission if commission is None else commission,
             slippage=config.slippage if slippage is None else slippage,
         )
+
+        # ── Canonical broker gateway ───────────────────────────────
+        self.gateway = BrokerGateway(adapter=self.exchange)
 
         # Register graceful shutdown handler
         register_shutdown_handler(self._graceful_shutdown)
@@ -235,11 +242,16 @@ class ExecutionEngine:
                     f"{max_pos_pct * 100:.0f}% of ${equity:,.2f}) "
                     f"[sizing: {sizing_method}]"
                 )
-                order = self.exchange.place_order(
-                    symbol=symbol,
-                    side=OrderSide.BUY,
-                    order_type=OrderType.MARKET,
-                    amount=amount,
+                order = self.gateway.submit(
+                    AuthorizedOrder(
+                        intent_id=f"engine-{symbol.replace("/", "-")}-{int(datetime.now(UTC).timestamp())}",
+                        symbol=symbol,
+                        side="buy" if side == OrderSide.BUY else "sell",
+                        quantity=amount,
+                        idempotency_key=f"engine-{symbol.replace("/", "-")}-{int(datetime.now(UTC).timestamp())}",
+                        price_reference=current_price,
+                    ),
+                    correlation_id=f"engine-{symbol.replace("/", "-")}-{int(datetime.now(UTC).timestamp())}",
                 )
                 orders.append(order)
 
@@ -304,11 +316,16 @@ class ExecutionEngine:
             if existing_pos and existing_pos.is_active:
                 amount = existing_pos.quantity
                 logger.info(f"Signal: SELL {amount} {symbol}")
-                order = self.exchange.place_order(
-                    symbol=symbol,
-                    side=OrderSide.SELL,
-                    order_type=OrderType.MARKET,
-                    amount=amount,
+                order = self.gateway.submit(
+                    AuthorizedOrder(
+                        intent_id=f"engine-{symbol.replace("/", "-")}-{int(datetime.now(UTC).timestamp())}",
+                        symbol=symbol,
+                        side="buy" if side == OrderSide.BUY else "sell",
+                        quantity=amount,
+                        idempotency_key=f"engine-{symbol.replace("/", "-")}-{int(datetime.now(UTC).timestamp())}",
+                        price_reference=current_price,
+                    ),
+                    correlation_id=f"engine-{symbol.replace("/", "-")}-{int(datetime.now(UTC).timestamp())}",
                 )
                 orders.append(order)
             else:
