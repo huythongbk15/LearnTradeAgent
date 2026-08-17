@@ -14,89 +14,20 @@ Designed for daily cron: compute → evaluate → report → persist.
 
 from __future__ import annotations
 
-import hashlib
-import json
 import math
-import os
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from pathlib import Path
-from typing import Any, Callable
+from typing import Callable
 
 import numpy as np
 
 
 # ---------------------------------------------------------------------------
-# Feature Store — parquet-backed factor cache
+# Feature Store - provenance-bound content-addressed artifacts
 # ---------------------------------------------------------------------------
-class FeatureStore:
-    """
-    Parquet-based feature cache with versioning.
-
-    Each alpha factor is stored as:
-        features/{symbol}/{alpha_name}/{version}.parquet
-
-    Version = hash of input params.
-    """
-
-    def __init__(self, base_path: str = "features"):
-        self.base = Path(base_path)
-        self.base.mkdir(parents=True, exist_ok=True)
-        self._cache: dict[str, Any] = {}  # in-memory L1
-
-    def _key(self, symbol: str, alpha_name: str, version: str) -> str:
-        return f"{symbol}/{alpha_name}/{version}"
-
-    def get(self, symbol: str, alpha_name: str, params: dict | None = None) -> Any:
-        version = self._version_hash(params)
-        key = self._key(symbol, alpha_name, version)
-        if key in self._cache:
-            return self._cache[key]
-        path = self.base / key.replace("/", os.sep) + ".parquet"
-        if path.exists():
-            try:
-                import pandas as pd
-
-                df = pd.read_parquet(path)
-                self._cache[key] = df
-                return df
-            except Exception:
-                return None
-        return None
-
-    def put(self, symbol: str, alpha_name: str, df, params: dict | None = None) -> str:
-        version = self._version_hash(params)
-        key = self._key(symbol, alpha_name, version)
-        dirpath = self.base / symbol / alpha_name
-        dirpath.mkdir(parents=True, exist_ok=True)
-        path = dirpath / f"{version}.parquet"
-        try:
-            df.to_parquet(path, index=False)
-        except Exception:
-            # Fallback to CSV
-            path = path.with_suffix(".csv")
-            df.to_csv(path, index=False)
-        self._cache[key] = df
-        return version
-
-    def list_alphas(self, symbol: str) -> list[str]:
-        spath = self.base / symbol
-        if not spath.exists():
-            return []
-        return [d.name for d in spath.iterdir() if d.is_dir()]
-
-    def versions(self, symbol: str, alpha_name: str) -> list[str]:
-        apath = self.base / symbol / alpha_name
-        if not apath.exists():
-            return []
-        return [f.stem for f in apath.iterdir() if f.suffix in (".parquet", ".csv")]
-
-    def _version_hash(self, params: dict | None) -> str:
-        if not params:
-            return "default"
-        raw = json.dumps(params, sort_keys=True, default=str)
-        return hashlib.md5(raw.encode()).hexdigest()[:12]
-
+from .feature_store import (  # noqa: F401 -- compatibility re-exports
+    FeatureArtifact,
+    FeatureStore,
+    FeatureStoreError,
+)
 
 # ---------------------------------------------------------------------------
 # Alpha Library — 40+ factor implementations
@@ -450,315 +381,21 @@ def _make_library() -> AlphaLibrary:
 
 
 # ---------------------------------------------------------------------------
-# Alpha Evaluator — IC, Sharpe, turnover, decay
+# Alpha evaluation and nested walk-forward selection
 # ---------------------------------------------------------------------------
-@dataclass
-class AlphaReport:
-    """Report for a single alpha factor."""
-
-    name: str
-    category: str
-    ic_mean: float = 0.0
-    ic_ir: float = 0.0  # IC / std(IC)
-    sharpe: float = 0.0
-    turnover: float = 0.0  # daily avg position changes
-    decay_halflife: int = 0  # periods until IC halves
-    monotonicity: float = 0.0  # 1.0 = perfectly monotonic
-    correlation_with_others: dict = field(default_factory=dict)
-    grade: str = ""  # A/B/C/D/F
-    details: dict = field(default_factory=dict)
-
-
-class AlphaEvaluator:
-    """
-    Evaluate alpha quality using:
-    - Rank IC (Spearman correlation with forward returns)
-    - IC Information Ratio
-    - Turnover
-    - Decay analysis
-    - Monotonicity of quantile returns
-    """
-
-    def __init__(self, forward_periods: int = 5):
-        self.forward_periods = forward_periods
-
-    def evaluate(
-        self,
-        alpha_values: np.ndarray,
-        forward_returns: np.ndarray,
-        name: str = "",
-        category: str = "",
-    ) -> AlphaReport:
-        report = AlphaReport(name=name, category=category)
-
-        valid = ~(np.isnan(alpha_values) | np.isnan(forward_returns))
-        if valid.sum() < 30:
-            report.grade = "F"
-            return report
-
-        a = alpha_values[valid]
-        f = forward_returns[valid]
-
-        # Rank IC (Spearman)
-        from scipy import stats as sp_stats
-
-        ic, _ = sp_stats.spearmanr(a, f)
-        report.ic_mean = float(ic) if not np.isnan(ic) else 0.0
-
-        # IC IR
-        # Rolling IC
-        window = min(20, len(a) // 3)
-        if window > 5:
-            rolling_ic = []
-            for i in range(0, len(a) - window, window):
-                with np.errstate(invalid="ignore", divide="ignore"):
-                    ic_win = sp_stats.spearmanr(a[i : i + window], f[i : i + window])[0]
-                rolling_ic.append(ic_win)
-            rolling_ic = [x for x in rolling_ic if not np.isnan(x)]
-            if rolling_ic:
-                report.ic_ir = report.ic_mean / (np.std(rolling_ic) + 1e-9)
-
-        # Sharpe (long-short quintile)
-        q = 5
-        if len(a) >= q * 10:
-            labels = np.argsort(np.argsort(a)) // (len(a) // q)
-            q_rets = [f[labels == qi].mean() for qi in range(q)]
-            ls_ret = q_rets[-1] - q_rets[0]
-            ls_std = np.std([q_rets[-1], q_rets[0]])
-            report.sharpe = (
-                ls_ret / (ls_std + 1e-9) * math.sqrt(252 / self.forward_periods)
-            )
-
-        # Turnover
-        alpha_sorted = np.argsort(a)
-        report.turnover = float(np.mean(np.abs(np.diff(alpha_sorted)) / len(a)))
-
-        # Decay
-        report.decay_halflife = self._estimate_decay(a, f)
-
-        # Monotonicity
-        if len(a) >= q * 10:
-            labels = np.argsort(np.argsort(a)) // (len(a) // q)
-            q_rets = [f[labels == qi].mean() for qi in range(q)]
-            mono = sum(1 for i in range(1, len(q_rets)) if q_rets[i] > q_rets[i - 1])
-            report.monotonicity = mono / (len(q_rets) - 1)
-
-        # Grade
-        # Sharpe can be extreme for quintile returns; clamp to [-5, 5]
-        clamped_sharpe = max(-5, min(5, report.sharpe))
-        score = (
-            abs(report.ic_mean) * 10
-            + abs(report.ic_ir) * 2
-            + abs(clamped_sharpe)
-            + report.monotonicity
-            - report.turnover * 5
-        )
-        if score > 2:
-            report.grade = "A"
-        elif score > 1:
-            report.grade = "B"
-        elif score > 0:
-            report.grade = "C"
-        elif score > -0.5:
-            report.grade = "D"
-        else:
-            report.grade = "F"
-
-        report.details = {
-            "n_valid": int(valid.sum()),
-            "ic_mean": round(report.ic_mean, 4),
-            "ic_ir": round(report.ic_ir, 3),
-            "sharpe": round(report.sharpe, 3),
-            "turnover": round(report.turnover, 4),
-            "decay_halflife": report.decay_halflife,
-            "monotonicity": round(report.monotonicity, 3),
-        }
-        return report
-
-    def _estimate_decay(self, alpha: np.ndarray, forward_returns: np.ndarray) -> int:
-        """Estimate IC halflife by checking IC at increasing lags."""
-        from scipy import stats as sp_stats
-
-        max_lag = min(20, len(alpha) // 5)
-        base_ic = sp_stats.spearmanr(alpha, forward_returns)[0]
-        if np.isnan(base_ic) or abs(base_ic) < 0.01:
-            return 0
-        half_ic = abs(base_ic) / 2
-        for lag in range(1, max_lag):
-            a_lag = alpha[:-lag]
-            f_lag = forward_returns[lag:]
-            ic = sp_stats.spearmanr(a_lag, f_lag)[0]
-            if not np.isnan(ic) and abs(ic) < half_ic:
-                return lag
-        return max_lag
-
-    def correlation_matrix(
-        self, alpha_values: dict[str, np.ndarray]
-    ) -> dict[str, dict[str, float]]:
-        """Pairwise IC correlation between alphas."""
-        names = list(alpha_values.keys())
-        corr = {}
-        for n1 in names:
-            corr[n1] = {}
-            for n2 in names:
-                valid = ~(np.isnan(alpha_values[n1]) | np.isnan(alpha_values[n2]))
-                if valid.sum() > 10:
-                    from scipy import stats as sp_stats
-
-                    c, _ = sp_stats.spearmanr(
-                        alpha_values[n1][valid], alpha_values[n2][valid]
-                    )
-                    corr[n1][n2] = round(float(c), 3) if not np.isnan(c) else 0.0
-                else:
-                    corr[n1][n2] = 0.0
-        return corr
-
-
-# ---------------------------------------------------------------------------
-# AutoML Pipeline — search over alpha combos
-# ---------------------------------------------------------------------------
-class AutoMLPipeline:
-    """
-    Automated alpha combination search:
-    1. Grid over alpha subsets (top N by IC)
-    2. Equal-weight and IC-weight composites
-    3. Select best by composite Sharpe / IC
-    """
-
-    def __init__(self, alpha_lib: AlphaLibrary, evaluator: AlphaEvaluator):
-        self.lib = alpha_lib
-        self.eval = evaluator
-
-    def scan(
-        self,
-        df,
-        target_col: str = "close",
-        forward_periods: int = 5,
-        max_alphas: int = 40,
-        report_path: str = "alpha_reports",
-    ) -> dict:
-        """
-        Compute all alphas, evaluate each, return top performers.
-        Returns: { "alphas": [AlphaReport...], "top_10": [...], "best_combo": {...} }
-        """
-
-        Path(report_path).mkdir(parents=True, exist_ok=True)
-        forward_ret = (
-            df[target_col].pct_change(forward_periods).shift(-forward_periods).values
-        )
-
-        results = []
-        alpha_values = {}
-        available = self.lib.list_alphas()
-
-        for alpha_info in available[:max_alphas]:
-            name = alpha_info["name"]
-            cat = alpha_info["category"]
-            try:
-                vals = self.lib.compute(name, df)
-                if hasattr(vals, "values"):
-                    vals = vals.values
-                vals = np.array(vals, dtype=float)
-                report = self.eval.evaluate(vals, forward_ret, name=name, category=cat)
-                results.append(report)
-                alpha_values[name] = vals
-            except Exception:
-                continue
-
-        results.sort(key=lambda r: (r.grade, abs(r.ic_mean)), reverse=True)
-
-        # Pairwise correlation
-        corr_matrix = self.eval.correlation_matrix(alpha_values) if alpha_values else {}
-
-        # Top 10
-        top_10 = [
-            {"name": r.name, "category": r.category, "grade": r.grade, **r.details}
-            for r in results[:10]
-        ]
-
-        # Best composite (equal weight of top 5 uncorrelated)
-        best_combo = self._find_best_combo(
-            results, alpha_values, forward_ret, corr_matrix
-        )
-
-        # Save report
-        report_data = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "total_alphas": len(results),
-            "top_10": top_10,
-            "best_combo": best_combo,
-            "grade_distribution": {
-                g: sum(1 for r in results if r.grade == g) for g in "ABCDF"
-            },
-        }
-        report_file = os.path.join(
-            report_path,
-            f"alpha_scan_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M')}.json",
-        )
-        with open(report_file, "w") as f:
-            json.dump(report_data, f, indent=2, default=str)
-
-        return report_data
-
-    def _find_best_combo(
-        self,
-        results: list[AlphaReport],
-        alpha_values: dict[str, np.ndarray],
-        forward_ret: np.ndarray,
-        corr_matrix: dict,
-    ) -> dict:
-        """Find best 3-5 alpha combo (low correlation, high IC)."""
-        from scipy import stats as sp_stats
-
-        top = [r for r in results if r.grade in ("A", "B")][:10]
-        if len(top) < 2:
-            if results:
-                top = results[:5]
-            else:
-                return {"names": [], "composite_sharpe": 0}
-
-        # Greedy selection: pick least correlated with already-selected
-        selected = [top[0].name]
-        for _ in range(4):
-            best_name = None
-            best_score = -999
-            for r in top:
-                if r.name in selected:
-                    continue
-                # Score = IC - max_corr_with_selected
-                max_corr = (
-                    max(abs(corr_matrix.get(r.name, {}).get(s, 0)) for s in selected)
-                    if selected
-                    else 0
-                )
-                score = abs(r.ic_mean) * 10 - max_corr
-                if score > best_score:
-                    best_score = score
-                    best_name = r.name
-            if best_name:
-                selected.append(best_name)
-
-        # Build composite
-        stack = [alpha_values[n] for n in selected if n in alpha_values]
-        if not stack:
-            return {"names": selected, "composite_ic": 0, "n_alphas": len(selected)}
-        with np.errstate(invalid="ignore", divide="ignore"):
-            combo_values = np.nanmean(stack, axis=0)
-        if combo_values.size == 0 or not np.all(np.isfinite(combo_values)):
-            # Không đủ dữ liệu alpha hợp lệ → trả 0 thay vì NaN
-            return {"names": selected, "composite_ic": 0, "n_alphas": len(selected)}
-        ic = (
-            sp_stats.spearmanr(combo_values, forward_ret)[0]
-            if len(combo_values) > 10
-            else 0
-        )
-
-        return {
-            "names": selected,
-            "composite_ic": round(float(ic), 4) if not np.isnan(ic) else 0,
-            "n_alphas": len(selected),
-        }
-
+from .methodology import (  # noqa: F401 -- compatibility re-exports
+    AlphaEvaluation,
+    AlphaEvaluator,
+    AlphaReport,
+    AutoMLPipeline,
+    ChronologicalFold,
+    FactorTransform,
+    ReturnSeries,
+    apply_factor_transform,
+    fit_factor_transform,
+    make_chronological_folds,
+    periods_per_year_for_timeframe,
+)
 
 # ---------------------------------------------------------------------------
 # Main demo

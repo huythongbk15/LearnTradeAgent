@@ -25,6 +25,14 @@
 | Trading invariant chaos tests (9 invariants × 16 fault injections) | yes | yes | dry-run | **NO** |
 | Shadow Mainnet Mode (real data/config/rules, NO order submission, hard guards) | yes | yes | dry-run | **NO** |
 | Research governance (StrategyArtifact, promotion lifecycle, uncertainty gate, abstention, drift, trials) | yes | yes | research only | **NO** |
+| Nested purged/embargoed outer/inner walk-forward + net cost accounting | yes | yes | deterministic/synthetic diagnostics only | **NO** |
+| Append-only experiment registry + content-addressed feature artifacts | yes | yes | local research validation | **NO** |
+| Canonical frozen Forecast → RiskDecision → TargetExposure contract | yes | yes | same-logic environment contract tested | **NO** |
+| Eight-stage content-addressed research promotion ladder | yes | yes | no artifact has completed empirical ladder | **NO** |
+| Train-only probability calibration + split conformal intervals | yes | yes | synthetic independent-test benchmark only | **NO** |
+| Distributional drift + execution-quality drift | yes | yes | synthetic/unit fixtures only | **NO** |
+| Simulator calibration provenance (synthetic/testnet/shadow/live) | yes | yes | synthetic remains HEURISTIC; empirical dataset absent | **NO** |
+| Distributional reality gap (quantiles/CVaR/Wasserstein) | yes | yes | unit fixtures; held-out exchange evidence absent | **NO** |
 | Binance Spot — protective stop (P0.1) | yes | yes | acceptance pending | **NO** |
 | Binance Spot — order lifecycle (P0.2) | yes | yes | testnet partial | **NO** |
 | Trusted time & market data (P0.3) | yes | yes | testnet partial | **NO** |
@@ -35,7 +43,7 @@
 | Order router / smart routing | yes | integration | not validated | **NO** |
 | Portfolio optimizer (BL / HRP / risk parity) | yes | yes | research only | **NO** |
 | Strategy plugin marketplace + sandbox | yes | yes | dry-run | **NO** |
-| Adaptive ML (regime / online / meta) | yes | yes | research only | **NO** |
+| Adaptive ML (soft regime posterior / constrained online experts) | yes | yes | research only; adaptive lost fixed baseline on current synthetic benchmark | **NO** |
 | Multi-region (K8s) | yes | dry-run | no real cluster validation | **NO** |
 | Chaos engineering | yes | dry-run | no production validation | **NO** |
 | Event sourcing + messaging | yes | yes | dry-run | **NO** |
@@ -56,6 +64,10 @@
   failures...).
 - **Backtest metrics không nằm trong matrix này** — chúng là research evidence, xem
   [`RESEARCH_EVIDENCE.md`](RESEARCH_EVIDENCE.md). Backtest pass KHÔNG = production validated.
+- Methodology benchmark results are explicitly `SYNTHETIC_DIAGNOSTIC`. They cannot
+  promote a model or execution algorithm. See [`RESEARCH_METHODOLOGY.md`](RESEARCH_METHODOLOGY.md).
+- MPC is presently a deterministic feasibility layer. Without a calibrated impact
+  model and held-out order-level exchange dataset, there is no valid MPC > TWAP/POV claim.
 
 ## Cách đọc
 

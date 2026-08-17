@@ -95,10 +95,10 @@ class TradingAgentStrategyAdapter(BaseStrategy):
     def on_bar(self, context: StrategyContext) -> list[Signal]:
         """Process a bar and generate signals using the wrapped strategy"""
 
-        # Build a small DataFrame from context
-        # We need historical data - for now, we'll just return empty list
-        # In a real implementation, we'd need to maintain a rolling window
-        return []
+        raise NotImplementedError(
+            "legacy plugin adapter has no rolling-history implementation; "
+            "use the canonical ForecastStrategy API"
+        )
 
     def on_fill(self, order: Order, fill_price: Decimal, fill_size: Decimal) -> None:
         pass
@@ -183,9 +183,7 @@ class MaCrossoverPluginStrategy(TradingAgentStrategyAdapter):
 
     def on_bar(self, context: StrategyContext) -> list[Signal]:
 
-        # This is a simplified implementation - in production you'd maintain
-        # a rolling window of bars to compute indicators
-        return []
+        return super().on_bar(context)
 
 
 class RsiPluginStrategy(TradingAgentStrategyAdapter):
@@ -228,7 +226,7 @@ class RsiPluginStrategy(TradingAgentStrategyAdapter):
         )
 
     def on_bar(self, context: StrategyContext) -> list[Signal]:
-        return []
+        return super().on_bar(context)
 
 
 class BBandsPluginStrategy(TradingAgentStrategyAdapter):
@@ -269,7 +267,7 @@ class BBandsPluginStrategy(TradingAgentStrategyAdapter):
         )
 
     def on_bar(self, context: StrategyContext) -> list[Signal]:
-        return []
+        return super().on_bar(context)
 
 
 # Auto-register on import

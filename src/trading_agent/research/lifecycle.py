@@ -110,7 +110,7 @@ class ArtifactLifecycle:
         *,
         note: str = "",
         actor: str = "system",
-        artifact_ok: bool = True,
+        artifact_ok: bool | None = None,
     ) -> PromotionEvent:
         """Move the artifact to ``to_state``.
 
@@ -118,10 +118,10 @@ class ArtifactLifecycle:
         artifact, or transitions while the artifact's hashes are not intact
         raise PromotionError and change nothing.
         """
-        if not artifact_ok:
+        if artifact_ok is not None:
             raise PromotionError(
-                f"artifact {self.artifact_id} integrity check failed; "
-                "immutable artifacts cannot be promoted with altered hashes"
+                "artifact_ok boolean assertions are not accepted; use the canonical "
+                "ResearchLifecycle with content-addressed ARTIFACT_INTEGRITY evidence"
             )
         if self.state == PromotionState.REJECTED:
             raise PromotionError(f"artifact {self.artifact_id} is REJECTED (terminal)")

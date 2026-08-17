@@ -1701,13 +1701,49 @@ def validate_order_risk(
     if notional_usd <= 0:
         raise LiveSafetyError("order notional must be positive")
 
+    if normalized_side == "SELL" and notional_usd > current_symbol_notional * 1.01:
+        raise LiveSafetyError("sell order exceeds the current position")
+
+    # Reuse the authoritative exposure-state semantics. Account limits below
+    # remain live-specific, but degraded-state ALLOW/REDUCE_ONLY/BLOCK does not.
+    from trading_agent.execution.lifecycle.lifecycle import (
+        ExecutionHealth,
+        ExposureEffect,
+    )
+    from trading_agent.execution.permission import (
+        OrderPermission,
+        PermissionContext,
+        evaluate_order_permission,
+    )
+
+    exposure_effect = (
+        ExposureEffect.REDUCE
+        if normalized_side == "SELL"
+        else ExposureEffect.INCREASE
+    )
+    authorized_notional = (
+        current_symbol_notional * 1.01 if normalized_side == "SELL" else 0.0
+    )
+    permission = evaluate_order_permission(
+        PermissionContext(
+            execution_health=ExecutionHealth.NORMAL,
+            exposure_effect=exposure_effect,
+            kill_switch_active=bool(locked_reason),
+            inventory_state="known",
+            free_inventory=authorized_notional,
+            authorized_sellable_inventory=authorized_notional,
+            order_size=notional_usd,
+            order_side=normalized_side.lower(),
+            require_fresh_market_data=False,
+        )
+    )
+    if permission.permission == OrderPermission.BLOCK:
+        raise LiveSafetyError(
+            f"risk circuit breaker is locked: {locked_reason or permission.detail}"
+        )
     if normalized_side == "SELL":
-        if notional_usd > current_symbol_notional * 1.01:
-            raise LiveSafetyError("sell order exceeds the current position")
         return
 
-    if locked_reason:
-        raise LiveSafetyError(f"risk circuit breaker is locked: {locked_reason}")
     effective_order_limit = limits.effective_max_order_notional(equity)
     if notional_usd > effective_order_limit:
         raise LiveSafetyError(

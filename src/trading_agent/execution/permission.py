@@ -13,6 +13,7 @@ plus deterministic reason codes for audit/observability.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from enum import Enum
 from typing import Sequence
@@ -32,10 +33,8 @@ class OrderPermission(str, Enum):
 
 
 class PermissionReason(str, Enum):
-    # Normal allow
     NORMAL = "normal"
     REDUCE_ONLY = "reduce_only"
-    # Blocks
     KILL_SWITCH_INCREASE = "kill_switch_increase"
     KILL_SWITCH_NEUTRAL = "kill_switch_neutral"
     MANUAL_BLOCKED = "manual_blocked"
@@ -44,7 +43,9 @@ class PermissionReason(str, Enum):
     RECONCILIATION_UNRESOLVED = "reconciliation_unresolved"
     HIGH_RISK_NEW_EXPOSURE = "high_risk_new_exposure"
     INSUFFICIENT_INVENTORY = "insufficient_inventory"
+    UNKNOWN_INVENTORY_STATE = "unknown_inventory_state"
     UNKNOWN_BROKER_STATE = "unknown_broker_state"
+    INVALID_ORDER = "invalid_order"
 
 
 @dataclass(frozen=True)
@@ -70,9 +71,15 @@ class PermissionContext:
     reconciliation_state: str = "none"
     protection_state: str = "none"
     manual_blocked: bool = False
+    kill_switch_active: bool = False
+    data_trust: str = "trusted"
+    inventory_state: str = "known"
     free_inventory: float = 0.0
+    authorized_sellable_inventory: float | None = None
     order_size: float = 0.0
     order_side: str = "buy"
+    require_fresh_market_data: bool = True
+    enforce_inventory: bool = True
     broker_state: str | None = None
     known_broker_states: Sequence[str] = (
         "open",
@@ -84,43 +91,20 @@ class PermissionContext:
 
 
 def evaluate_order_permission(ctx: PermissionContext) -> PermissionResult:
-    """Evaluate whether an order should be allowed, reduce-only, or blocked."""
+    """Return one authoritative, fail-closed order permission decision."""
 
-    # 1. Manual unresolved state blocks new exposure.
-    if ctx.manual_blocked or ctx.execution_health == ExecutionHealth.MANUAL_BLOCKED:
-        return PermissionResult(
-            OrderPermission.BLOCK,
-            PermissionReason.MANUAL_BLOCKED,
-            "manual intervention unresolved",
-        )
-
-    # 2. Protection gap blocks new exposure.
-    if ctx.execution_health == ExecutionHealth.PROTECTION_GAP:
-        return PermissionResult(
-            OrderPermission.BLOCK,
-            PermissionReason.PROTECTION_GAP,
-            "protection gap active",
-        )
-
-    # 3. Stale/untrusted market data blocks any order.
-    if ctx.trusted_price is None or not ctx.trusted_price.is_fresh(
-        ctx.max_price_age_seconds
+    side = ctx.order_side.strip().lower()
+    if (
+        side not in {"buy", "sell"}
+        or not math.isfinite(ctx.order_size)
+        or ctx.order_size <= 0
     ):
         return PermissionResult(
             OrderPermission.BLOCK,
-            PermissionReason.STALE_MARKET_DATA,
-            "no trusted fresh price",
+            PermissionReason.INVALID_ORDER,
+            "order side must be buy|sell and size must be finite and positive",
         )
 
-    # 4. Reconciliation unresolved blocks new exposure.
-    if ctx.reconciliation_state == "started":
-        return PermissionResult(
-            OrderPermission.BLOCK,
-            PermissionReason.RECONCILIATION_UNRESOLVED,
-            "reconciliation in progress",
-        )
-
-    # 5. Unknown broker state -> BLOCK (never silently normalize).
     if ctx.broker_state is not None and ctx.broker_state not in ctx.known_broker_states:
         return PermissionResult(
             OrderPermission.BLOCK,
@@ -128,37 +112,117 @@ def evaluate_order_permission(ctx: PermissionContext) -> PermissionResult:
             f"unknown broker state '{ctx.broker_state}'",
         )
 
-    # 6. Risk decision enforcement.
-    risk = ctx.risk_decision or RiskDecision()
+    inventory_known = ctx.inventory_state.strip().lower() == "known"
+    if (
+        ctx.enforce_inventory
+        and ctx.exposure_effect == ExposureEffect.REDUCE
+        and not inventory_known
+    ):
+        return PermissionResult(
+            OrderPermission.BLOCK,
+            PermissionReason.UNKNOWN_INVENTORY_STATE,
+            f"inventory state is {ctx.inventory_state!r}",
+        )
+
+    authorized = (
+        ctx.free_inventory
+        if ctx.authorized_sellable_inventory is None
+        else ctx.authorized_sellable_inventory
+    )
+    if ctx.enforce_inventory and side == "sell" and (
+        not inventory_known
+        or not math.isfinite(authorized)
+        or ctx.order_size > authorized + 1e-9
+    ):
+        reason = (
+            PermissionReason.UNKNOWN_INVENTORY_STATE
+            if not inventory_known or not math.isfinite(authorized)
+            else PermissionReason.INSUFFICIENT_INVENTORY
+        )
+        return PermissionResult(
+            OrderPermission.BLOCK,
+            reason,
+            f"sell {ctx.order_size} > authorized sellable inventory {authorized}",
+        )
+
+    safe_reduce = ctx.exposure_effect == ExposureEffect.REDUCE and inventory_known
+
+    def degraded(reason: PermissionReason, detail: str) -> PermissionResult:
+        if safe_reduce:
+            return PermissionResult(OrderPermission.REDUCE_ONLY, reason, detail)
+        return PermissionResult(OrderPermission.BLOCK, reason, detail)
+
+    if ctx.manual_blocked or ctx.execution_health == ExecutionHealth.MANUAL_BLOCKED:
+        return degraded(PermissionReason.MANUAL_BLOCKED, "manual intervention unresolved")
+
+    if (
+        ctx.execution_health == ExecutionHealth.PROTECTION_GAP
+        or ctx.protection_state
+        in {"protection_gap", "protection_required", "unknown"}
+    ):
+        return degraded(PermissionReason.PROTECTION_GAP, "protection gap active")
+
+    if ctx.require_fresh_market_data:
+        price = ctx.trusted_price
+        price_untrusted = (
+            ctx.data_trust.strip().lower() != "trusted"
+            or price is None
+            or not isinstance(price, TrustedPrice)
+            or not math.isfinite(price.price)
+            or price.price <= 0
+            or not price.is_fresh(ctx.max_price_age_seconds)
+        )
+        if price_untrusted:
+            return degraded(
+                PermissionReason.STALE_MARKET_DATA,
+                "no trusted finite fresh price",
+            )
+
+    if (
+        ctx.reconciliation_state == "started"
+        or ctx.execution_health == ExecutionHealth.RECONCILING
+    ):
+        return degraded(
+            PermissionReason.RECONCILIATION_UNRESOLVED,
+            "reconciliation in progress",
+        )
+
+    if ctx.kill_switch_active:
+        reason = (
+            PermissionReason.KILL_SWITCH_NEUTRAL
+            if ctx.exposure_effect == ExposureEffect.NEUTRAL
+            else PermissionReason.KILL_SWITCH_INCREASE
+        )
+        return degraded(reason, "kill switch active")
+
+    risk = ctx.risk_decision
     if ctx.exposure_effect == ExposureEffect.INCREASE:
-        if risk.max_new_exposure_pct <= 0 or risk.reduce_only:
+        if risk is not None and (risk.max_new_exposure_pct <= 0 or risk.reduce_only):
             return PermissionResult(
                 OrderPermission.BLOCK,
                 PermissionReason.HIGH_RISK_NEW_EXPOSURE,
                 f"risk={risk.risk_level.value} blocks new exposure",
             )
     if ctx.exposure_effect == ExposureEffect.NEUTRAL:
-        if risk.max_new_exposure_pct <= 0 or risk.reduce_only:
+        if risk is not None and (risk.max_new_exposure_pct <= 0 or risk.reduce_only):
             return PermissionResult(
                 OrderPermission.BLOCK,
                 PermissionReason.KILL_SWITCH_NEUTRAL,
                 "neutral exposure not allowed under current risk decision",
             )
 
-    # 7. Inventory guard for sells.
-    if ctx.order_side == "sell" and ctx.order_size > ctx.free_inventory + 1e-9:
-        return PermissionResult(
-            OrderPermission.BLOCK,
-            PermissionReason.INSUFFICIENT_INVENTORY,
-            f"sell {ctx.order_size} > free inventory {ctx.free_inventory}",
-        )
-
-    # 8. Reduce-only policy.
-    if ctx.exposure_effect == ExposureEffect.REDUCE or risk.reduce_only:
+    if safe_reduce:
         return PermissionResult(
             OrderPermission.REDUCE_ONLY,
             PermissionReason.REDUCE_ONLY,
             "reduce-only order permitted",
+        )
+
+    if risk is not None and risk.reduce_only:
+        return PermissionResult(
+            OrderPermission.BLOCK,
+            PermissionReason.HIGH_RISK_NEW_EXPOSURE,
+            "risk decision requires a provably reducing order",
         )
 
     return PermissionResult(

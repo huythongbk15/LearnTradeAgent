@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
 import numpy as np
@@ -35,7 +36,10 @@ from trading_agent.ml.regime_detection import (
     HybridRegimeDetector,
     MarketRegime,
     RegimeMethod,
+    RegimeState,
     RuleBasedStrategy,
+    mix_regime_forecasts,
+    regime_posterior_from_state,
 )
 from trading_agent.strategies.base import Strategy, register_strategy
 from trading_agent.strategies.bbands import BBandsStrategy
@@ -258,19 +262,19 @@ class RegimeSwitchingStrategy(Strategy):
         except Exception as e:
             logger.warning(f"Failed to fit regime detector: {e}")
 
-    def _predict_regime(
-        self, df: pl.DataFrame, bar_idx: int
-    ) -> tuple[MarketRegime, float]:
-        """Predict regime at bar_idx using already-fitted detector (fast, no re-fit)."""
+    def _predict_regime_state(self, df: pl.DataFrame, bar_idx: int) -> RegimeState:
+        """Predict a full posterior state without refitting on the test bar."""
+        def unknown() -> RegimeState:
+            return RegimeState(MarketRegime.UNKNOWN, 0.0, {}, datetime.now())
         if not self._detector_fitted:
             self._fit_detector(df)
             if not self._detector_fitted:
-                return MarketRegime.UNKNOWN, 0.0
+                return unknown()
 
         # Use expanding window up to bar_idx for prediction
         hist_df = df.slice(0, bar_idx + 1)
         if len(hist_df) < 50:
-            return MarketRegime.UNKNOWN, 0.0
+            return unknown()
 
         prices = hist_df["close"]
         volumes = hist_df["volume"] if "volume" in hist_df.columns else None
@@ -290,13 +294,21 @@ class RegimeSwitchingStrategy(Strategy):
             elif isinstance(detector, RuleBasedStrategy):
                 state = detector.detect(prices_pd)
             else:
-                return MarketRegime.UNKNOWN, 0.0
+                return unknown()
 
-            return state.regime, state.confidence
+            return state
 
         except Exception as e:
             logger.debug(f"Regime prediction failed at bar {bar_idx}: {e}")
-            return MarketRegime.UNKNOWN, 0.0
+            return unknown()
+
+    def _predict_regime(
+        self, df: pl.DataFrame, bar_idx: int
+    ) -> tuple[MarketRegime, float]:
+        """Compatibility view over the full posterior prediction."""
+
+        state = self._predict_regime_state(df, bar_idx)
+        return state.regime, state.confidence
 
     def _maybe_refit(self, df: pl.DataFrame, bar_idx: int) -> None:
         """Optionally re-fit detector periodically (e.g., every 500 bars)."""
@@ -361,6 +373,46 @@ class RegimeSwitchingStrategy(Strategy):
 
         return df
 
+    @staticmethod
+    def _weighted_strategy_forecast(
+        configs: list[RegimeStrategyConfig],
+        sub_signals: dict[str, np.ndarray],
+        bar_index: int,
+    ) -> float:
+        numerator = 0.0
+        denominator = 0.0
+        for config in configs:
+            weight = max(0.0, float(config.weight))
+            if config.strategy_name in sub_signals and weight > 0.0:
+                numerator += float(sub_signals[config.strategy_name][bar_index]) * weight
+                denominator += weight
+        return numerator / denominator if denominator > 0.0 else 0.0
+
+    def _canonical_expert_forecasts(
+        self,
+        sub_signals: dict[str, np.ndarray],
+        bar_index: int,
+    ) -> dict[str, float]:
+        buckets = {
+            "trend": [MarketRegime.BULL_TREND, MarketRegime.BEAR_TREND],
+            "mean_reversion": [MarketRegime.SIDEWAYS, MarketRegime.LOW_VOLATILITY],
+            "high_vol": [MarketRegime.HIGH_VOLATILITY],
+            "crisis": [MarketRegime.CRISIS],
+            "other": [MarketRegime.RECOVERY, MarketRegime.UNKNOWN],
+        }
+        return {
+            name: self._weighted_strategy_forecast(
+                [
+                    config
+                    for regime in regimes
+                    for config in self._get_regime_strategies(regime)
+                ],
+                sub_signals,
+                bar_index,
+            )
+            for name, regimes in buckets.items()
+        }
+
     def generate_signals(self, df: pl.DataFrame) -> pl.Series:
         """Generate regime-aware ensemble signals (discrete: 1=buy, -1=sell, 0=hold)."""
         n = len(df)
@@ -379,8 +431,9 @@ class RegimeSwitchingStrategy(Strategy):
         # Bar-by-bar regime detection and ensemble
         in_position = False
         for i in range(self.lookback, n):
-            # Predict regime (fast - no re-fit)
-            regime, confidence = self._predict_regime(df, i)
+            # Predict a full posterior (fast - no re-fit).
+            state = self._predict_regime_state(df, i)
+            regime, confidence = state.regime, state.confidence
 
             # Optionally re-fit periodically
             self._maybe_refit(df, i)
@@ -392,34 +445,18 @@ class RegimeSwitchingStrategy(Strategy):
                 self._regime_stable_count = 0
                 self._current_regime = regime
 
-            # Only use regime if stable and confident
-            use_regime = (
-                self._current_regime
-                if (
-                    self._regime_stable_count >= self.regime_smoothing
-                    and confidence >= self.min_confidence
-                )
-                else MarketRegime.UNKNOWN
-            )
-
-            # Get strategies for current regime
-            regime_strategies = self._get_regime_strategies(use_regime)
-
-            # Weighted ensemble of sub-strategy signals
-            weighted_signal = 0.0
-            total_weight = 0.0
-
-            for cfg in regime_strategies:
-                if cfg.strategy_name in sub_signals:
-                    sig_val = sub_signals[cfg.strategy_name][i]
-                    # Scale by regime confidence
-                    effective_weight = cfg.weight * confidence
-                    weighted_signal += sig_val * effective_weight
-                    total_weight += effective_weight
-
-            ensemble_score = weighted_signal / total_weight if total_weight > 0 else 0.0
+            self._regime_confidence = confidence
+            posterior = regime_posterior_from_state(state)
+            expert_forecasts = self._canonical_expert_forecasts(sub_signals, i)
+            mixture = mix_regime_forecasts(posterior, expert_forecasts)
+            ensemble_score = mixture.forecast
 
             # Convert continuous score to discrete signals with hysteresis
+            if mixture.abstained:
+                if in_position:
+                    raw_signals[i] = -1.0
+                    in_position = False
+                continue
             if not in_position:
                 # Flat -> look for entry (score > 0.3)
                 if ensemble_score > 0.3:

@@ -23,6 +23,14 @@ import math
 from dataclasses import dataclass, field
 from typing import Any
 
+import numpy as np
+from scipy import stats as sp_stats
+
+from trading_agent.execution.simulator.calibration_provenance import (
+    CalibrationObservation,
+    CalibrationProfile,
+    CalibrationSource,
+)
 # Metrics that every environment should provide for a comparable report.
 REALITY_GAP_METRICS = [
     "fill_ratio",
@@ -248,9 +256,236 @@ def compute_reality_gap(
     )
 
 
-def promotion_check(report: RealityGapReport) -> bool:
-    """Fail-closed promotion gate: False if ANY threshold is breached."""
-    return report.pass_gate
+@dataclass(frozen=True)
+class DistributionSummary:
+    sample_count: int
+    mean: float
+    p50: float
+    p90: float
+    p95: float
+    p99: float
+    cvar95: float
+
+    @classmethod
+    def from_values(cls, values: tuple[float, ...]) -> "DistributionSummary":
+        sample = np.asarray(values, dtype=float)
+        sample = sample[np.isfinite(sample)]
+        if sample.size == 0:
+            raise ValueError("distribution sample must contain finite values")
+        p50, p90, p95, p99 = np.quantile(sample, [0.50, 0.90, 0.95, 0.99])
+        tail = sample[sample >= p95]
+        return cls(
+            sample_count=int(sample.size),
+            mean=float(np.mean(sample)),
+            p50=float(p50),
+            p90=float(p90),
+            p95=float(p95),
+            p99=float(p99),
+            cvar95=float(np.mean(tail)),
+        )
+
+
+@dataclass(frozen=True)
+class ExecutionDistributionEvidence:
+    profile_id: str
+    source: CalibrationSource
+    samples: dict[str, tuple[float, ...]]
+    summaries: dict[str, DistributionSummary]
+
+    @classmethod
+    def from_observations(
+        cls,
+        profile: CalibrationProfile,
+        observations: tuple[CalibrationObservation, ...],
+    ) -> "ExecutionDistributionEvidence":
+        if not observations:
+            raise ValueError("execution distribution evidence must not be empty")
+        if any(observation.source != profile.source for observation in observations):
+            raise ValueError("observation source does not match calibration profile")
+        samples: dict[str, tuple[float, ...]] = {
+            "latency_ms": tuple(obs.fill_latency_ms for obs in observations),
+            "slippage_bps": tuple(obs.slippage_bps for obs in observations),
+            "fill_ratio": tuple(obs.filled_qty / obs.requested_qty for obs in observations),
+            "partial_fill_probability": tuple(
+                float(obs.partial_fills > 0 or obs.filled_qty < obs.requested_qty)
+                for obs in observations
+            ),
+            "time_to_fill_ms": tuple(obs.fill_latency_ms for obs in observations),
+            "adverse_selection_100ms_bps": tuple(
+                obs.adverse_selection_100ms_bps for obs in observations
+            ),
+            "adverse_selection_1s_bps": tuple(
+                obs.adverse_selection_1s_bps for obs in observations
+            ),
+            "adverse_selection_5s_bps": tuple(
+                obs.adverse_selection_5s_bps for obs in observations
+            ),
+            "adverse_selection_30s_bps": tuple(
+                obs.adverse_selection_30s_bps for obs in observations
+            ),
+        }
+        return cls(
+            profile_id=profile.profile_id,
+            source=profile.source,
+            samples=samples,
+            summaries={
+                metric: DistributionSummary.from_values(values)
+                for metric, values in samples.items()
+            },
+        )
+
+
+@dataclass(frozen=True)
+class DistributionGapResult:
+    metric: str
+    statistic: float
+    threshold: float
+    wasserstein: float
+    quantile_gap: float
+    simulator: DistributionSummary
+    observed_exchange: DistributionSummary
+
+    @property
+    def passed(self) -> bool:
+        return math.isfinite(self.statistic) and self.statistic <= self.threshold
+
+
+@dataclass(frozen=True)
+class DistributionRealityGapReport:
+    stage: str
+    simulator_profile_id: str | None
+    observed_profile_id: str | None
+    results: tuple[DistributionGapResult, ...]
+    missing_required: tuple[str, ...]
+    breaches: tuple[str, ...]
+    observed_source: CalibrationSource | None
+
+    @property
+    def pass_gate(self) -> bool:
+        return (
+            not self.missing_required
+            and not self.breaches
+            and self.observed_source is not None
+            and self.observed_source != CalibrationSource.SYNTHETIC
+        )
+
+
+DEFAULT_DISTRIBUTION_THRESHOLDS_BY_STAGE: dict[str, dict[str, float]] = {
+    "PAPER": {"default": 1.00},
+    "TESTNET": {"default": 0.75},
+    "SHADOW": {"default": 0.50},
+    "LIVE": {"default": 0.35},
+}
+
+DEFAULT_REQUIRED_DISTRIBUTIONS = frozenset(
+    {
+        "latency_ms",
+        "slippage_bps",
+        "fill_ratio",
+        "partial_fill_probability",
+        "time_to_fill_ms",
+        "adverse_selection_100ms_bps",
+        "adverse_selection_1s_bps",
+        "adverse_selection_5s_bps",
+        "adverse_selection_30s_bps",
+    }
+)
+
+
+def _distribution_distance(
+    simulator: tuple[float, ...],
+    observed: tuple[float, ...],
+) -> tuple[float, float, float]:
+    sim = np.asarray(simulator, dtype=float)
+    obs = np.asarray(observed, dtype=float)
+    sim_summary = DistributionSummary.from_values(simulator)
+    obs_summary = DistributionSummary.from_values(observed)
+    reference_scale = max(
+        abs(obs_summary.p50),
+        abs(obs_summary.p95 - obs_summary.p50),
+        float(np.std(obs)),
+        1e-9,
+    )
+    wasserstein = float(sp_stats.wasserstein_distance(sim, obs) / reference_scale)
+    quantile_gap = max(
+        abs(sim_summary.p50 - obs_summary.p50),
+        abs(sim_summary.p90 - obs_summary.p90),
+        abs(sim_summary.p95 - obs_summary.p95),
+        abs(sim_summary.p99 - obs_summary.p99),
+        abs(sim_summary.cvar95 - obs_summary.cvar95),
+    ) / reference_scale
+    return max(wasserstein, quantile_gap), wasserstein, float(quantile_gap)
+
+
+def compute_distributional_reality_gap(
+    *,
+    stage: str,
+    simulator: ExecutionDistributionEvidence | None,
+    observed_exchange: ExecutionDistributionEvidence | None,
+    required_metrics: frozenset[str] = DEFAULT_REQUIRED_DISTRIBUTIONS,
+    thresholds: dict[str, float] | None = None,
+) -> DistributionRealityGapReport:
+    """Compare simulator vs exchange distributions; missing critical data fails closed."""
+
+    stage_name = stage.upper()
+    if stage_name not in DEFAULT_DISTRIBUTION_THRESHOLDS_BY_STAGE:
+        raise ValueError(f"unsupported promotion stage: {stage}")
+    stage_thresholds = {
+        **DEFAULT_DISTRIBUTION_THRESHOLDS_BY_STAGE[stage_name],
+        **(thresholds or {}),
+    }
+    missing: list[str] = []
+    breaches: list[str] = []
+    results: list[DistributionGapResult] = []
+    if simulator is None or observed_exchange is None:
+        missing.extend(sorted(required_metrics))
+    else:
+        if observed_exchange.source == CalibrationSource.SYNTHETIC:
+            breaches.append("observed exchange distribution source is SYNTHETIC")
+        for metric in sorted(required_metrics):
+            if metric not in simulator.samples or metric not in observed_exchange.samples:
+                missing.append(metric)
+                continue
+            statistic, wasserstein, quantile_gap = _distribution_distance(
+                simulator.samples[metric], observed_exchange.samples[metric]
+            )
+            threshold = float(stage_thresholds.get(metric, stage_thresholds["default"]))
+            result = DistributionGapResult(
+                metric=metric,
+                statistic=statistic,
+                threshold=threshold,
+                wasserstein=wasserstein,
+                quantile_gap=quantile_gap,
+                simulator=simulator.summaries[metric],
+                observed_exchange=observed_exchange.summaries[metric],
+            )
+            results.append(result)
+            if not result.passed:
+                breaches.append(
+                    f"{metric}: distribution gap {statistic:.6f} > {threshold:.6f}"
+                )
+    if missing:
+        breaches.append("missing required distribution evidence: " + ", ".join(missing))
+    return DistributionRealityGapReport(
+        stage=stage_name,
+        simulator_profile_id=simulator.profile_id if simulator else None,
+        observed_profile_id=observed_exchange.profile_id if observed_exchange else None,
+        results=tuple(results),
+        missing_required=tuple(missing),
+        breaches=tuple(breaches),
+        observed_source=observed_exchange.source if observed_exchange else None,
+    )
+
+
+def promotion_check(
+    report: RealityGapReport,
+    distribution_report: DistributionRealityGapReport | None = None,
+) -> bool:
+    """Fail closed on scalar breaches and any required distribution evidence."""
+
+    return report.pass_gate and (
+        distribution_report is None or distribution_report.pass_gate
+    )
 
 
 def environment_metrics_from_result(result) -> dict[str, float]:

@@ -28,6 +28,7 @@ EVENT_SCHEMA_VERSION = 1
 # Event types that must carry a broker/exchange order reference.
 _ORDER_EVENTS = {
     "ORDER_SUBMITTED",
+    "ORDER_REJECTED",
     "BROKER_ACKNOWLEDGED",
     "PARTIAL_FILL_RECEIVED",
     "FILL_RECEIVED",
@@ -43,6 +44,7 @@ class ExecutionEventType(str, Enum):
     ORDER_INTENT_CREATED = "exec.order_intent_created"
     RISK_APPROVED = "exec.risk_approved"
     ORDER_SUBMITTED = "exec.order_submitted"
+    ORDER_REJECTED = "exec.order_rejected"
     BROKER_ACKNOWLEDGED = "exec.broker_acknowledged"
     PARTIAL_FILL_RECEIVED = "exec.partial_fill_received"
     FILL_RECEIVED = "exec.fill_received"

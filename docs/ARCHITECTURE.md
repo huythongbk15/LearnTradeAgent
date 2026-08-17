@@ -106,4 +106,48 @@ src/trading_agent/
 - Output: `ALLOW`, `REDUCE_ONLY`, hoặc `BLOCK` + reason codes.
 - Kiểm tra: kill switch, stale price, manual block, protection gap, reconciliation, inventory, unknown broker state.
 
+## Canonical forecast and execution boundary (2026-08-17)
+
+The production-intent contract is now explicit:
+
+```text
+MarketObservation
+  -> ForecastStrategy (broker-free)
+  -> frozen Forecast (model artifact + calibration/OOD/interval provenance)
+  -> ForecastRiskPolicy
+  -> deterministic RiskDecision
+  -> TargetExposure
+  -> authoritative OrderPermission
+  -> execution lifecycle / environment adapter
+```
+
+Only the final environment adapter differs between research, backtest, paper,
+testnet and shadow. Strategy logic and risk sizing are shared. No strategy receives
+a broker handle, and an unsupported adapter raises rather than silently returning
+no orders.
+
+`execution.permission` is the authoritative order gate for normal orders, smart
+routing, lifecycle submission and safe exits. Sell inventory is reserved
+transactionally across lifecycle instances; partial fills reduce the reservation;
+cancel/reject terminal states release only the remainder. Kill switch, stale data,
+reconciliation and unknown broker state block risk increase while permitting only
+provably reduce-only exits.
+
+## Research evidence boundary
+
+- `research/forecast.py`: immutable observation/forecast/risk/target contracts.
+- `research/promotion.py`: eight-stage, no-skip, content-addressed promotion ladder.
+- `research/trials.py`: append-only WAL experiment/evaluation registry and effective
+  trial-count derivation.
+- `alpha_research/feature_store.py`: content-addressed feature artifacts.
+- `research/calibration.py`: train-only calibrators, conformal intervals and
+  monotone uncertainty sizing.
+- `research/drift.py`: reference-only distribution and execution-quality drift.
+- `execution/simulator/calibration_provenance.py`: immutable synthetic/testnet/
+  shadow/live calibration datasets and profiles.
+
+Boolean integrity claims do not qualify for canonical promotion. Synthetic
+simulator output stays `HEURISTIC`; only captured exchange observations may become
+`EMPIRICAL`. Full methodology: [`RESEARCH_METHODOLOGY.md`](RESEARCH_METHODOLOGY.md).
+
 Chi tiết gates: [`LIVE_TRADING_TODO.md`](LIVE_TRADING_TODO.md) · Maturity: [`CAPABILITY_MATRIX.md`](CAPABILITY_MATRIX.md)
