@@ -131,7 +131,9 @@ class TrustedPrice:
             if exchange_dt > now:
                 return False  # future exchange timestamp
             exchange_age = (now - exchange_dt).total_seconds()
-            if exchange_age > max_age_seconds * 2:  # Allow 2x buffer for exchange latency
+            if (
+                exchange_age > max_age_seconds * 2
+            ):  # Allow 2x buffer for exchange latency
                 return False
         return True
 
