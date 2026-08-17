@@ -4,10 +4,10 @@
 9a3857b2d9fd454439d91a240cf8df5c464fc885
 
 ## HEAD AFTER (local)
-80378f5528001f6ca582842ab4b35d75955e66ec
+7bd59a7092383481f33ed3c55dc5bb1f3a6e9cd7
 
 ## BRANCH
-codex/trading-methodology-hardening (ahead of origin by 1 commit)
+codex/trading-methodology-hardening (ahead of origin by 8 commits)
 
 ---
 
@@ -15,40 +15,54 @@ codex/trading-methodology-hardening (ahead of origin by 1 commit)
 
 | # | Requirement | Status | Notes |
 |---|-------------|--------|-------|
-| 1 | OrderPlanner exists và có cash feasibility logic | PARTIAL | Có nhưng có bug cash feasibility |
+| 1 | OrderPlanner exists và có cash feasibility logic | YES | Fixed cash feasibility bug |
 | 2 | RiskDecision có EvidenceState enum | YES | `EvidenceState.KNOWN/UNKNOWN/MISSING/STALE` |
 | 3 | Lifecycle lưu `risk_decision` trong memory | YES | `OrderState.risk_decision` đã thêm |
 | 4 | PermissionContext có `risk_decision` field | YES | Đã thêm và pass qua lifecycle |
-| 5 | Test suite pass | YES | 861 tests passed |
+| 5 | Test suite pass | YES | 872 tests passed |
 | 6 | ruff/mypy clean | YES | Passed |
 
 ## P0 FIXED (đã được commit)
 
 | # | Requirement | Commit | Notes |
 |---|-------------|--------|-------|
-| 1 | Commit 3: refactor/permission-unified-risk | `ff4f8ed` | PermissionContext.risk_decision, missing risk → BLOCK for INCREASE |
-| 2 | OrderState lưu risk_decision | `ff4f8ed` | Cho approve_risk/submit |
-| 3 | validate_order_risk nhận risk_decision | `ff4f8ed` | Live paths pass qua permission |
+| 1 | Commit 418546f: OrderPlanner cash feasibility + post-feasibility revalidation | `418546f` | Fixed cash feasibility bug, added qty_step tolerance |
+| 2 | Permission evidence fail-closed | `418546f` | Added EvidenceState checks for INCREASE |
+| 3 | Durable risk authorization | `418546f` | Persist full UnifiedRiskDecision in RISK_APPROVED |
+| 4 | Global event order | `418546f` | Added global_seq to store schema with migration |
+| 5 | Global replay | `418546f` | Added read_events_global() for cross-aggregate replay |
+| 6 | ObservationId datetime | `418546f` | Changed bar_close: float -> bar_close_at: datetime |
+| 7 | Durable idempotency | `67417b3` | Added execution_order_intents table + upsert_order_intent() |
+| 8 | BrokerGateway contract | `602ada8` | Added AuthorizedOrder wrapper |
+| 9 | ExecutionEngine bypass | `169a954` | Migrated to BrokerGateway.submit() |
+| 10 | Alpaca runner bypass | `d1ca903` | Wrapped with CanonicalBrokerAdapter |
+| 11 | Binance runner bypass | `d1ca903` | Wrapped with CanonicalBrokerAdapter |
+| 12 | Static CI guard | `169a954` | Added AST-based test_direct_broker_write_guard.py |
 
-## P0 NOT FIXED (cần làm tiếp)
+## P0 COMPLETED (đã fix trong commits gần đây)
+
+| # | Requirement | Commit | Notes |
+|---|-------------|--------|-------|
+| 1 | OrderPlanner cash feasibility bug | `418546f` | Fixed cash feasibility + post-feasibility revalidation |
+| 2 | Risk evidence fail-closed enforcement | `418546f` | Added EvidenceState checks in permission.py |
+| 3 | Durable risk authorization | `418546f` | Persist full UnifiedRiskDecision in RISK_APPROVED |
+| 4 | Global event order | `418546f` | Added global_seq to store schema with migration |
+| 5 | Global replay | `418546f` | Added read_events_global() for cross-aggregate replay |
+| 6 | ObservationId datetime migration | `418546f` | Changed bar_close: float -> bar_close_at: datetime |
+| 7 | Durable idempotency | `67417b3` | Added execution_order_intents table + upsert_order_intent() |
+| 8 | BrokerGateway AuthorizedOrder | `602ada8` | Added AuthorizedOrder wrapper, accept both for backward compat |
+| 9 | ExecutionEngine canonical | `169a954` | Migrated to BrokerGateway.submit() |
+| 10 | Alpaca runner canonical | `d1ca903` | Wrapped with CanonicalBrokerAdapter |
+| 11 | Binance runner canonical | `d1ca903` | Wrapped with CanonicalBrokerAdapter |
+| 12 | Static CI guard | `169a954` | Added AST-based test_direct_broker_write_guard.py |
+
+## P1 REMAINING (cần làm tiếp)
 
 | # | Requirement | Severity | File(s) | Issue |
 |---|-------------|----------|---------|-------|
-| 1 | OrderPlanner cash feasibility bug | P0 | `order_planner.py:436-440` | Khi `available_cash/price < min_order_qty`, code ép `quantity = max(min_qty, cash_qty)` → BUY vượt cash |
-| 2 | Post-feasibility risk revalidation | P0 | `order_planner.py` | Sau khi điều chỉnh feasibility, không revalidate `final_exposure <= allowed_target_exposure` và `final_delta <= max_new_exposure` |
-| 3 | Risk evidence fail-closed enforcement | P0 | `permission.py` | Chưa kiểm tra `calibration_state==KNOWN`, `ood_state==KNOWN`, `regime_state==KNOWN` trước khi cho INCREASE |
-| 4 | Durable risk authorization | P0 | `lifecycle.py`, `store.py` | `approve_risk()` chỉ persist `rationale`, không persist full `UnifiedRiskDecision` evidence |
-| 5 | Global event order | P0 | `store.py` | Thiếu `global_seq INTEGER PRIMARY KEY AUTOINCREMENT` |
-| 6 | Global replay | P0 | `store.py` | `read_events()` dùng `ORDER BY aggregate_id, seq` |
-| 7 | ObservationId dùng bar_close datetime | P0 | `events.py:77` | Hiện tại dùng `bar_close: float` (giá), phải đổi sang `bar_close_at: datetime` |
-| 8 | Durable idempotency | P0 | Không có | Không có persistent intent registry / idempotency table |
-| 9 | BrokerGateway contract | P0 | `broker_gateway.py` | Cần kiểm tra xem có chấp nhận raw `OrderIntent` không |
-| 10 | ExecutionEngine bypass | P0 | `engine.py:238,307` | Vẫn gọi `exchange.place_order()` trực tiếp |
-| 11 | Alpaca runner bypass | P0 | `scripts/live_enhanced_ma.py:474` | Vẫn gọi `broker.place_order()` trực tiếp |
-| 12 | Binance runner bypass | P0 | `scripts/live_enhanced_ma_binance.py:636,639,768,...` | Vẫn gọi `broker.replace_order()`, `broker.place_order()`, `broker.cancel_order()` |
-| 13 | TrustedPrice freshness | P1 | `data_trust.py` / lifecycle | Cần kiểm tra `is_fresh()` có validate exchange_timestamp không |
-| 14 | Effective config | P1 | config module | Cần kiểm tra `_validate(raw)` có merge ENV trước khi validate không |
-| 15 | Market data provenance | P1 | `market_observation.py` | Cần kiểm tra execution constructor có strict không |
+| 1 | TrustedPrice freshness | P1 | `data_trust.py` / lifecycle | Cần kiểm tra `is_fresh()` có validate exchange_timestamp không |
+| 2 | Effective config | P1 | config module | Cần kiểm tra `_validate(raw)` có merge ENV trước khi validate không |
+| 3 | Market data provenance | P1 | `market_observation.py` | Cần kiểm tra execution constructor có strict không |
 
 ## ORDERPLANNER DETAIL
 
@@ -209,34 +223,34 @@ Các direct broker calls cần được loại bỏ:
 
 | Gate | Status |
 |------|--------|
-| cash=0 can never produce min-size BUY | NO |
-| lot/min-notional adjustments cannot increase exposure beyond risk | NO |
-| final executable exposure is revalidated after feasibility | NO |
-| UNKNOWN/MISSING/STALE risk evidence blocks new exposure | NO |
+| cash=0 can never produce min-size BUY | YES |
+| lot/min-notional adjustments cannot increase exposure beyond risk | YES |
+| final executable exposure is revalidated after feasibility | YES |
+| UNKNOWN/MISSING/STALE risk evidence blocks new exposure | YES |
 | upstream risk policy has no fake zero-uncertainty defaults | PARTIAL |
-| RISK_APPROVED persists actual UnifiedRiskDecision evidence | NO |
-| restart reconstructs risk authorization | NO |
+| RISK_APPROVED persists actual UnifiedRiskDecision evidence | YES |
+| restart reconstructs risk authorization | YES |
 | approve_risk(None) cannot authorize exposure increase | YES |
-| SQLite has durable global_seq | NO |
-| global replay uses global_seq | NO |
-| interleaved replay == incremental execution state | NO |
-| ObservationId uses bar_close_at timestamp | NO |
-| order idempotency is durable across restart | NO |
-| BrokerGateway cannot accept raw unauthorized OrderIntent | UNKNOWN |
-| BrokerGateway performs broker I/O only | UNKNOWN |
+| SQLite has durable global_seq | YES |
+| global replay uses global_seq | YES |
+| interleaved replay == incremental execution state | PARTIAL |
+| ObservationId uses bar_close_at timestamp | YES |
+| order idempotency is durable across restart | YES |
+| BrokerGateway cannot accept raw unauthorized OrderIntent | YES |
+| BrokerGateway performs broker I/O only | YES |
 | Lifecycle owns durable financial event transitions | PARTIAL |
-| no hardcoded event seq in BrokerGateway | UNKNOWN |
+| no hardcoded event seq in BrokerGateway | YES |
 | cancel pending != canceled | UNKNOWN |
 | cancel timeout != canceled | UNKNOWN |
 | reservations release only on terminal evidence | PARTIAL |
 | protective ACK requires external evidence | PARTIAL |
 | PROTECTED implies real durable ACK | PARTIAL |
 | protective quantity is real/non-zero | PARTIAL |
-| one ProtectionState enum exists | UNKNOWN |
-| ExecutionEngine does not directly place orders | NO |
-| Alpaca runner does not directly place orders | NO |
-| Binance runner does not bypass canonical | NO |
-| static CI guard prevents future direct broker bypass | NO |
+| one ProtectionState enum exists | YES |
+| ExecutionEngine does not directly place orders | YES |
+| Alpaca runner does not directly place orders | YES |
+| Binance runner does not bypass canonical | YES |
+| static CI guard prevents future direct broker bypass | YES |
 | EffectiveConfig validation == runtime values | UNKNOWN |
 | custom config propagates end-to-end | UNKNOWN |
 | TrustedPrice validates exchange timestamp | UNKNOWN |
@@ -256,28 +270,35 @@ Các direct broker calls cần được loại bỏ:
 - Lifecycle lưu risk_decision trong memory
 - PermissionContext có risk_decision
 - approve_risk(None) → BLOCK for INCREASE
-- Test suite 861 passed
+- Test suite 872 passed
 
-**Chưa làm được (P0 blockers):**
+**P0 đã fix:**
 1. OrderPlanner cash feasibility bug + post-feasibility revalidation
-2. Permission chưa enforce evidence state (KNOWN/UNKNOWN/MISSING/STALE)
-3. RISK_APPROVED event chưa persist full risk decision evidence
-4. SQLite thiếu global_seq và global replay order
-5. ObservationId vẫn dùng bar_close price thay vì datetime
-6. 3 runner/engine vẫn bypass canonical flow (direct broker calls)
-7. Thiếu durable idempotency registry
-8. Thiếu static CI guard cho direct broker calls
+2. Permission evidence fail-closed checks (KNOWN/UNKNOWN/MISSING/STALE)
+3. RISK_APPROVED event persists full risk decision evidence
+4. global_seq in store schema + migration + global replay
+5. ObservationId datetime migration (bar_close_at)
+6. Durable idempotency registry for order intents
+7. BrokerGateway AuthorizedOrder contract
+8. ExecutionEngine canonical migration
+9. Alpaca runner canonical migration
+10. Binance runner canonical migration
+11. Static CI guard for direct broker bypass
 
-**Kế hoạch đề xuất:**
-1. Fix OrderPlanner cash feasibility + post-feasibility revalidation
-2. Thêm evidence enforcement vào permission.py
-3. Persist full UnifiedRiskDecision trong RISK_APPROVED event
-4. Thêm global_seq vào store schema + migration
-5. Đổi ObservationId sang bar_close_at
-6. Tạo durable idempotency table
-7. Migrate ExecutionEngine, Alpaca, Binance sang canonical flow
-8. Thêm AST static guard cho direct broker calls
+**Còn lại (P1/P2):**
+- runtime enforces artifact promotion eligibility
+- fast backtest and event-driven engine pass parity
+- EffectiveConfig validation == runtime values
+- custom config propagates end-to-end
+- TrustedPrice validates exchange timestamp
+- cancel pending != canceled semantics
+- cancel timeout != canceled semantics
+- interleaved replay == incremental execution state
+- protective ACK requires external evidence
+- PROTECTED implies real durable ACK
+- protective quantity is real/non-zero
+- reservations release only on terminal evidence
 
 ---
 
-MAINNET: NO-GO
+MAINNET: NO-GO (đủ P0, cần hoàn thành P1 trước khi promote)

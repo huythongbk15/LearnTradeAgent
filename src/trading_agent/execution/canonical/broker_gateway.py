@@ -64,6 +64,11 @@ class CapitalChangeResult:
         self.error = error
         self.raw_response = raw_response or {}
 
+    @property
+    def status(self) -> str | None:
+        """Extract order status from raw_response if available."""
+        return self.raw_response.get("status")
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "success": self.success,

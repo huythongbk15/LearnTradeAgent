@@ -13,6 +13,7 @@ import sys
 import threading
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from typing import Any
 
 from trading_agent.agents.base import AgentMessage
@@ -26,7 +27,9 @@ from trading_agent.execution.canonical import BrokerGateway, AuthorizedOrder
 
 from trading_agent.execution.types import (
     Order,
+    OrderSide,
     OrderStatus,
+    OrderType,
 )
 
 logger = logging.getLogger(__name__)
@@ -115,6 +118,50 @@ class ExecutionEngine:
 
         # Register graceful shutdown handler
         register_shutdown_handler(self._graceful_shutdown)
+
+    @staticmethod
+    def _result_to_order(
+        result: Any,
+        symbol: str,
+        side: str,
+        quantity: float,
+    ) -> Order:
+        """Convert a CapitalChangeResult to an Order for backward compatibility."""
+        # Map side string to OrderSide enum
+        order_side = OrderSide.BUY if side.lower() == "buy" else OrderSide.SELL
+        
+        # Map status string to OrderStatus enum
+        status_str = (result.status or "unknown").lower()
+        if status_str == "filled":
+            order_status = OrderStatus.FILLED
+        elif status_str in ("canceled", "cancelled"):
+            order_status = OrderStatus.CANCELED
+        elif status_str == "rejected":
+            order_status = OrderStatus.REJECTED
+        elif status_str == "expired":
+            order_status = OrderStatus.EXPIRED
+        elif status_str in ("partial", "partially_filled"):
+            order_status = OrderStatus.PARTIALLY_FILLED
+        else:
+            order_status = OrderStatus.OPEN if result.success else OrderStatus.REJECTED
+        
+        # Extract fill info from raw_response
+        raw = result.raw_response or {}
+        filled_amount = float(raw.get("filled", raw.get("accumulated_quantity", 0)))
+        avg_fill_price = float(raw.get("average", raw.get("price", 0)))
+        
+        return Order(
+            id=result.broker_order_id or "",
+            symbol=symbol,
+            side=order_side,
+            type=OrderType.MARKET,
+            amount=float(quantity),
+            status=order_status,
+            filled_amount=filled_amount,
+            avg_fill_price=avg_fill_price,
+            client_order_id=result.broker_order_id,
+            metadata={"error": result.error} if result.error else {},
+        )
 
     def _graceful_shutdown(self) -> None:
         """Called on SIGTERM/SIGINT to close positions and persist state."""
@@ -251,10 +298,10 @@ class ExecutionEngine:
                     ),
                     correlation_id=f"engine-{symbol.replace('/', '-')}-{int(datetime.now(UTC).timestamp())}",
                 )
-                orders.append(order)
+                orders.append(self._result_to_order(order, symbol, "buy", amount))
 
                 # ── Set ATR-based trailing stop and take-profit ──────────
-                if order.status == OrderStatus.FILLED:
+                if order.status == OrderStatus.FILLED.value:
                     pos = self.exchange.get_position(symbol)
                     if pos:
                         # Store sizing method in position metadata for trade history
@@ -325,7 +372,7 @@ class ExecutionEngine:
                     ),
                     correlation_id=f"engine-{symbol.replace('/', '-')}-{int(datetime.now(UTC).timestamp())}",
                 )
-                orders.append(order)
+                orders.append(self._result_to_order(order, symbol, "sell", amount))
             else:
                 logger.info(f"SELL signal but no position in {symbol}")
 

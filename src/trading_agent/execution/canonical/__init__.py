@@ -51,6 +51,7 @@ from trading_agent.execution.canonical.risk_decision import (
     EvidenceState,
 )
 from trading_agent.execution.canonical.broker_gateway import (
+    AuthorizedOrder,
     BrokerGateway,
     CapitalChangeResult,
 )
@@ -75,6 +76,7 @@ __all__ = [
     "MarketPrice",
     # Broker gateway
     "BrokerGateway",
+    "AuthorizedOrder",
     "CapitalChangeResult",
     "CanonicalBrokerAdapter",
     # Protection
