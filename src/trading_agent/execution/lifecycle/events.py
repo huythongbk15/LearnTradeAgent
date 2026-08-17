@@ -93,6 +93,8 @@ class ExecutionEvent:
     correlation_id: str | None = None
     causation_id: str | None = None
     payload: dict[str, Any] = field(default_factory=dict)
+    ingested_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    global_seq: int = 0
 
     def to_row(self) -> dict[str, Any]:
         return {
@@ -105,6 +107,8 @@ class ExecutionEvent:
             "correlation_id": self.correlation_id,
             "causation_id": self.causation_id,
             "occurred_at": self.occurred_at.isoformat(),
+            "ingested_at": self.ingested_at.isoformat(),
+            "global_seq": self.global_seq,
         }
 
     @classmethod
@@ -119,6 +123,8 @@ class ExecutionEvent:
             correlation_id=row.get("correlation_id"),
             causation_id=row.get("causation_id"),
             occurred_at=_parse_dt(row["occurred_at"]),
+            ingested_at=_parse_dt(row.get("ingested_at") or row["occurred_at"]),
+            global_seq=int(row.get("global_seq") or 0),
         )
 
 

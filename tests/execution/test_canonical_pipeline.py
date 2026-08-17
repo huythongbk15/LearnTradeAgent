@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
 
@@ -365,6 +366,89 @@ class TestOrderPlanner:
                 existing_reservations=0.0,
             )
 
+    def test_cash_insufficient_for_min_order_blocks_buy(self):
+        rules = sample_instrument_rules(symbol="BTCUSDT", min_order_qty=0.001)
+        planner = OrderPlanner(instrument_rules=rules)
+        decision = sample_unified_decision(
+            allowed_target_exposure=0.3, max_new_exposure=0.3
+        )
+        target = sample_target_exposure(
+            symbol="BTCUSDT", exposure=0.3, horizon=14400, decision_id="decision-1"
+        )
+        # Portfolio has $5 cash, price is $50000, so max qty = 0.0001, but min is 0.001
+        portfolio = sample_portfolio("BTCUSDT", 0.0)
+        portfolio = replace(portfolio, available_cash=5.0)
+        result = planner.plan(
+            target=target,
+            risk_decision=decision,
+            observation=sample_observation("BTCUSDT"),
+            portfolio=portfolio,
+            price=sample_price("BTCUSDT", 50000.0),
+            existing_reservations=0.0,
+        )
+        assert result.status is OrderPlanningStatus.BLOCKED
+        assert result.intent is None
+        assert any(
+            "INSUFFICIENT_CASH_FOR_MIN_ORDER" in str(r) for r in result.reason_codes
+        )
+
+    def test_cash_feasible_qty_never_rounds_up(self):
+        rules = sample_instrument_rules(symbol="BTCUSDT", min_order_qty=0.001)
+        # Override qty_step to test rounding behavior
+        rules = replace(rules, qty_step=0.0005)
+        planner = OrderPlanner(instrument_rules=rules)
+        decision = sample_unified_decision(
+            allowed_target_exposure=0.3, max_new_exposure=0.3
+        )
+        target = sample_target_exposure(
+            symbol="BTCUSDT", exposure=0.3, horizon=14400, decision_id="decision-1"
+        )
+        # Portfolio has $30 cash, price is $50000, so cash_qty = 0.0006
+        # With qty_step=0.0005, round down to 0.0005, but min is 0.001
+        # Should BLOCK because cash < min_order_qty
+        portfolio = sample_portfolio("BTCUSDT", 0.0)
+        portfolio = replace(portfolio, available_cash=30.0)
+        result = planner.plan(
+            target=target,
+            risk_decision=decision,
+            observation=sample_observation("BTCUSDT"),
+            portfolio=portfolio,
+            price=sample_price("BTCUSDT", 50000.0),
+            existing_reservations=0.0,
+        )
+        assert result.status is OrderPlanningStatus.BLOCKED
+        assert result.intent is None
+
+    def test_post_feasibility_revalidation_blocks_excess_exposure(self):
+        rules = sample_instrument_rules(symbol="BTCUSDT", min_order_qty=0.021)
+        # Override qty_step
+        rules = replace(rules, qty_step=0.001)
+        planner = OrderPlanner(instrument_rules=rules)
+        decision = sample_unified_decision(
+            allowed_target_exposure=0.1,  # Only allow 10% exposure
+            max_new_exposure=0.1,
+        )
+        target = sample_target_exposure(
+            symbol="BTCUSDT", exposure=0.1, horizon=14400, decision_id="decision-1"
+        )
+        # Portfolio has $1,000 cash, price is $50,000
+        # Target qty = 0.02 (1% of 10k equity), but cash only allows 0.02
+        # min_order_qty = 0.021, so planner rounds UP to 0.021
+        # Final exposure = 0.021 * 50,000 / 10,000 = 0.105 > 0.1
+        portfolio = sample_portfolio("BTCUSDT", 0.0)
+        portfolio = replace(portfolio, equity=10_000.0, available_cash=1_000.0)
+        result = planner.plan(
+            target=target,
+            risk_decision=decision,
+            observation=sample_observation("BTCUSDT"),
+            portfolio=portfolio,
+            price=sample_price("BTCUSDT", 50_000.0),
+            existing_reservations=0.0,
+        )
+        # Should block because resulting exposure exceeds allowed_target_exposure
+        assert result.status is OrderPlanningStatus.BLOCKED
+        assert result.intent is None
+
 
 # ── 3. BrokerGateway only allows capital-changing calls through itself ──
 
@@ -494,14 +578,14 @@ class TestMarketObservation:
             venue="binance",
             symbol="BTCUSDT",
             timeframe="4h",
-            bar_close=105.0,
+            bar_close_at=datetime(2026, 8, 18, 0, 0, tzinfo=UTC),
             data_manifest_id="m1",
         )
         oid2 = compute_observation_id(
             venue="binance",
             symbol="BTCUSDT",
             timeframe="4h",
-            bar_close=105.0,
+            bar_close_at=datetime(2026, 8, 18, 0, 0, tzinfo=UTC),
             data_manifest_id="m1",
         )
         assert oid1 == oid2

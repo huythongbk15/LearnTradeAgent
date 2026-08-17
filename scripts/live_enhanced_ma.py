@@ -51,6 +51,7 @@ from trading_agent.exchanges.models import (
     Symbol,
     TimeInForce,
 )
+from trading_agent.execution.canonical import CanonicalBrokerAdapter
 from trading_agent.risk.portfolio_risk import DrawdownConfig, PortfolioRiskManager
 from trading_agent.strategies.enhanced_ma import EnhancedMaCrossover
 
@@ -214,6 +215,8 @@ def main():
     )
     asyncio.run(adapter.connect())
     broker = LiveBroker("alpaca", adapter)
+    # Wrap with canonical broker gateway (P0 §11: runner canonical migration)
+    broker = CanonicalBrokerAdapter(broker)
 
     acct = broker.get_account()
     print("\n✅ Alpaca Paper connected")

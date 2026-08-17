@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Mapping
 
 
@@ -72,14 +73,16 @@ class ObservationId:
         venue: str,
         symbol: str,
         timeframe: str,
-        bar_close: float,
+        bar_close_at: datetime,
         data_manifest_id: str,
     ) -> ObservationId:
+        if bar_close_at.tzinfo is None:
+            raise ValueError("bar_close_at must be timezone-aware")
         payload = {
             "venue": str(venue),
             "symbol": str(symbol),
             "timeframe": str(timeframe),
-            "bar_close": float(bar_close),
+            "bar_close_at": bar_close_at.isoformat(),
             "data_manifest_id": str(data_manifest_id),
         }
         return ObservationId(ContentHash.from_mapping(payload).value)
@@ -167,14 +170,14 @@ def compute_observation_id(
     venue: str,
     symbol: str,
     timeframe: str,
-    bar_close: float,
+    bar_close_at: datetime,
     data_manifest_id: str,
 ) -> str:
     return ObservationId.compute(
         venue=venue,
         symbol=symbol,
         timeframe=timeframe,
-        bar_close=bar_close,
+        bar_close_at=bar_close_at,
         data_manifest_id=data_manifest_id,
     ).value
 

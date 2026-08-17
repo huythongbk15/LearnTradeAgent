@@ -22,6 +22,8 @@ from trading_agent.execution.indicators import (
     compute_atr_position_size,
 )
 from trading_agent.execution.paper_exchange import PaperExchange
+from trading_agent.execution.canonical import BrokerGateway, AuthorizedOrder
+
 from trading_agent.execution.types import (
     Order,
     OrderSide,
@@ -98,6 +100,8 @@ class ExecutionEngine:
     ):
         self.exchange_name = exchange_name or config.default_exchange
 
+        # ── Canonical broker gateway ───────────────────────────────
+
         # Use config default values
         self.exchange = PaperExchange(
             exchange_name=self.exchange_name,
@@ -108,8 +112,55 @@ class ExecutionEngine:
             slippage=config.slippage if slippage is None else slippage,
         )
 
+        # ── Canonical broker gateway ───────────────────────────────
+        self.gateway = BrokerGateway(adapter=self.exchange)
+
         # Register graceful shutdown handler
         register_shutdown_handler(self._graceful_shutdown)
+
+    @staticmethod
+    def _result_to_order(
+        result: Any,
+        symbol: str,
+        side: str,
+        quantity: float,
+    ) -> Order:
+        """Convert a CapitalChangeResult to an Order for backward compatibility."""
+        # Map side string to OrderSide enum
+        order_side = OrderSide.BUY if side.lower() == "buy" else OrderSide.SELL
+
+        # Map status string to OrderStatus enum
+        status_str = (result.status or "unknown").lower()
+        if status_str == "filled":
+            order_status = OrderStatus.FILLED
+        elif status_str in ("canceled", "cancelled"):
+            order_status = OrderStatus.CANCELED
+        elif status_str == "rejected":
+            order_status = OrderStatus.REJECTED
+        elif status_str == "expired":
+            order_status = OrderStatus.EXPIRED
+        elif status_str in ("partial", "partially_filled"):
+            order_status = OrderStatus.PARTIALLY_FILLED
+        else:
+            order_status = OrderStatus.OPEN if result.success else OrderStatus.REJECTED
+
+        # Extract fill info from raw_response
+        raw = result.raw_response or {}
+        filled_amount = float(raw.get("filled", raw.get("accumulated_quantity", 0)))
+        avg_fill_price = float(raw.get("average", raw.get("price", 0)))
+
+        return Order(
+            id=result.broker_order_id or "",
+            symbol=symbol,
+            side=order_side,
+            type=OrderType.MARKET,
+            amount=float(quantity),
+            status=order_status,
+            filled_amount=filled_amount,
+            avg_fill_price=avg_fill_price,
+            client_order_id=result.broker_order_id,
+            metadata={"error": result.error} if result.error else {},
+        )
 
     def _graceful_shutdown(self) -> None:
         """Called on SIGTERM/SIGINT to close positions and persist state."""
@@ -235,16 +286,21 @@ class ExecutionEngine:
                     f"{max_pos_pct * 100:.0f}% of ${equity:,.2f}) "
                     f"[sizing: {sizing_method}]"
                 )
-                order = self.exchange.place_order(
-                    symbol=symbol,
-                    side=OrderSide.BUY,
-                    order_type=OrderType.MARKET,
-                    amount=amount,
+                order = self.gateway.submit(
+                    AuthorizedOrder(
+                        intent_id=f"engine-{symbol.replace('/', '-')}-{int(datetime.now(UTC).timestamp())}",
+                        symbol=symbol,
+                        side="buy",
+                        quantity=amount,
+                        idempotency_key=f"engine-{symbol.replace('/', '-')}-{int(datetime.now(UTC).timestamp())}",
+                        price_reference=current_price,
+                    ),
+                    correlation_id=f"engine-{symbol.replace('/', '-')}-{int(datetime.now(UTC).timestamp())}",
                 )
-                orders.append(order)
+                orders.append(self._result_to_order(order, symbol, "buy", amount))
 
                 # ── Set ATR-based trailing stop and take-profit ──────────
-                if order.status == OrderStatus.FILLED:
+                if order.status == OrderStatus.FILLED.value:
                     pos = self.exchange.get_position(symbol)
                     if pos:
                         # Store sizing method in position metadata for trade history
@@ -304,13 +360,18 @@ class ExecutionEngine:
             if existing_pos and existing_pos.is_active:
                 amount = existing_pos.quantity
                 logger.info(f"Signal: SELL {amount} {symbol}")
-                order = self.exchange.place_order(
-                    symbol=symbol,
-                    side=OrderSide.SELL,
-                    order_type=OrderType.MARKET,
-                    amount=amount,
+                order = self.gateway.submit(
+                    AuthorizedOrder(
+                        intent_id=f"engine-{symbol.replace('/', '-')}-{int(datetime.now(UTC).timestamp())}",
+                        symbol=symbol,
+                        side="sell",
+                        quantity=amount,
+                        idempotency_key=f"engine-{symbol.replace('/', '-')}-{int(datetime.now(UTC).timestamp())}",
+                        price_reference=current_price,
+                    ),
+                    correlation_id=f"engine-{symbol.replace('/', '-')}-{int(datetime.now(UTC).timestamp())}",
                 )
-                orders.append(order)
+                orders.append(self._result_to_order(order, symbol, "sell", amount))
             else:
                 logger.info(f"SELL signal but no position in {symbol}")
 

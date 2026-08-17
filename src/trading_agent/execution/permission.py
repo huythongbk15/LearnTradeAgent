@@ -18,7 +18,10 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Sequence
 
-from trading_agent.execution.canonical import UnifiedRiskDecision
+from trading_agent.execution.canonical import (
+    EvidenceState,
+    UnifiedRiskDecision,
+)
 from trading_agent.execution.lifecycle.lifecycle import (
     ExecutionHealth,
     ExposureEffect,
@@ -47,6 +50,10 @@ class PermissionReason(str, Enum):
     UNKNOWN_BROKER_STATE = "unknown_broker_state"
     INVALID_ORDER = "invalid_order"
     MISSING_RISK_DECISION = "missing_risk_decision"
+    MISSING_CALIBRATION_EVIDENCE = "missing_calibration_evidence"
+    MISSING_OOD_EVIDENCE = "missing_ood_evidence"
+    MISSING_REGIME_EVIDENCE = "missing_regime_evidence"
+    STALE_RISK_EVIDENCE = "stale_risk_evidence"
 
 
 @dataclass(frozen=True)
@@ -240,6 +247,27 @@ def evaluate_order_permission(ctx: PermissionContext) -> PermissionResult:
                     else "neutral exposure not allowed under current risk decision"
                 )
                 return PermissionResult(OrderPermission.BLOCK, reason, detail)
+
+        # Evidence fail-closed for INCREASE: all evidence must be KNOWN
+        if risk is not None and ctx.exposure_effect == ExposureEffect.INCREASE:
+            if risk.calibration_state is not EvidenceState.KNOWN:
+                return PermissionResult(
+                    OrderPermission.BLOCK,
+                    PermissionReason.MISSING_CALIBRATION_EVIDENCE,
+                    f"calibration_state={risk.calibration_state.value}",
+                )
+            if risk.ood_state is not EvidenceState.KNOWN:
+                return PermissionResult(
+                    OrderPermission.BLOCK,
+                    PermissionReason.MISSING_OOD_EVIDENCE,
+                    f"ood_state={risk.ood_state.value}",
+                )
+            if risk.regime_state is not EvidenceState.KNOWN:
+                return PermissionResult(
+                    OrderPermission.BLOCK,
+                    PermissionReason.MISSING_REGIME_EVIDENCE,
+                    f"regime_state={risk.regime_state.value}",
+                )
 
     if safe_reduce:
         return PermissionResult(

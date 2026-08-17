@@ -29,7 +29,7 @@ Unknown broker states are *never* silently normalized: they emit
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
 from typing import Any, Callable, Mapping
@@ -514,6 +514,10 @@ class ExecutionLifecycle:
         if order is not None:
             order.risk_approved = True
             order.status = IntentStatus.APPROVED
+            # Reconstruct risk decision from persisted event payload
+            risk_decision_data = event.payload.get("risk_decision")
+            if risk_decision_data is not None:
+                order.risk_decision = UnifiedRiskDecision(**risk_decision_data)
 
     def _on_order_submitted(self, state: LifecycleState, event: ExecutionEvent) -> None:
         order = state.orders.get(event.aggregate_id)
@@ -742,10 +746,14 @@ class ExecutionLifecycle:
         # Store risk decision for permission checks on submit
         order.risk_decision = risk_decision
         order.risk_approved = True
+        payload = {"rationale": rationale}
+        if risk_decision is not None:
+            # Persist full risk decision evidence for audit/replay
+            payload["risk_decision"] = asdict(risk_decision)
         return self._emit(
             ExecutionEventType.RISK_APPROVED,
             intent_id,
-            {"rationale": rationale},
+            payload,
         )
 
     def submit_order(

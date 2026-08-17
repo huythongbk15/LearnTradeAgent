@@ -291,7 +291,8 @@
 │       │   │   ├── market_observation.py
 │       │   │   ├── order_planner.py
 │       │   │   ├── protection.py
-│       │   │   └── risk_decision.py
+│       │   │   ├── risk_decision.py
+│       │   │   └── runner_adapter.py
 │       │   ├── lifecycle
 │       │   │   ├── __init__.py
 │       │   │   ├── events.py
@@ -445,6 +446,7 @@
 │   ├── test_config_effective.py
 │   ├── test_data_trust.py
 │   ├── test_decision_trace.py
+│   ├── test_direct_broker_write_guard.py
 │   ├── test_enhanced_ma_exit_safety.py
 │   ├── test_execution_algorithms.py
 │   ├── test_execution_hardening.py
@@ -529,6 +531,7 @@
 ├── .gitignore
 ├── .mcp
 ├── .trivyignore
+├── AUDIT_REPORT.md
 ├── BACKTEST_3Y_REVIEW.md
 ├── Caddyfile.oracle
 ├── Dockerfile
