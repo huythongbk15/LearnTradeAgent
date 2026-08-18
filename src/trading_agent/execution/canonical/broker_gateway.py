@@ -159,11 +159,6 @@ class AuthorizedOrder:
         self.authorized_at = fields["authorized_at"]
         self.authorization_hash = fields["authorization_hash"]
 
-    @classmethod
-    def create(cls, **fields: Any) -> AuthorizedOrder:
-        """Factory for lifecycle-authorized orders."""
-        return cls(token="__authorized__", **fields)
-
 
 class ExchangeAdapter(Protocol):
     """Minimal exchange adapter protocol the gateway depends on.
@@ -201,10 +196,13 @@ class BrokerGateway:
     adapter:
         The exchange/broker adapter.  The gateway owns the reference; no
         other module may call the adapter directly.
+    store:
+        The execution event store for durable authorization verification.
     """
 
-    def __init__(self, adapter: ExchangeAdapter) -> None:
+    def __init__(self, adapter: ExchangeAdapter, store: Any = None) -> None:
         self._adapter = adapter
+        self._store = store
 
     # ── Public API ───────────────────────────────────────────────────────
 
@@ -217,11 +215,15 @@ class BrokerGateway:
         """Submit an order to the broker.
 
         Accepts ONLY lifecycle-authorized AuthorizedOrder.
+        Verifies authorization against durable state before broker I/O.
         """
         if not isinstance(order, AuthorizedOrder):
             raise AuthorizationError(
                 f"BrokerGateway.submit() accepts only AuthorizedOrder, got {type(order).__name__}"
             )
+        # Verify authorization against durable state (P0 §15)
+        if self._store is not None:
+            self._verify_authorization(order)
         order_payload = {
             "id": order.intent_id,
             "symbol": order.symbol,
@@ -245,6 +247,29 @@ class BrokerGateway:
                 broker_order_id=None,
                 error=str(exc),
             )
+
+    def _verify_authorization(self, order: AuthorizedOrder) -> None:
+        """Verify authorization against durable lifecycle state."""
+        auth = self._store.get_latest_authorization(order.intent_id)
+        if auth is None:
+            raise AuthorizationError(
+                f"no durable ORDER_AUTHORIZED found for intent {order.intent_id}"
+            )
+        # Verify binding
+        if auth.get("authorization_id") != order.authorization_id:
+            raise AuthorizationError("authorization_id mismatch")
+        if auth.get("idempotency_key") != order.idempotency_key:
+            raise AuthorizationError("idempotency_key mismatch")
+        if auth.get("symbol") != order.symbol:
+            raise AuthorizationError("symbol mismatch")
+        if auth.get("side") != order.side:
+            raise AuthorizationError("side mismatch")
+        if abs(float(auth.get("quantity", 0)) - float(order.quantity)) > 1e-12:
+            raise AuthorizationError("quantity mismatch")
+        if auth.get("risk_decision_id") != order.risk_decision_id:
+            raise AuthorizationError("risk_decision_id mismatch")
+        if auth.get("payload_hash") != order.authorization_hash:
+            raise AuthorizationError("payload_hash mismatch")
 
     def cancel(
         self,

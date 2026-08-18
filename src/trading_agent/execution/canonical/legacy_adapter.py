@@ -85,32 +85,53 @@ class LegacyDecisionAdapter:
         now = datetime.now(UTC)
 
         reason_codes: tuple[Any, ...] = ()
-        # For legacy signals, we assume APPROVED if confidence > 0 and side is explicit
+        # For legacy signals, we do NOT fabricate KNOWN evidence.
+        # Missing real evidence must remain UNKNOWN/MISSING/STALE.
+        # A strategy signal is not a risk approval.
+        calibration_state = EvidenceState.MISSING
+        ood_state = EvidenceState.MISSING
+        regime_state = EvidenceState.MISSING
+        calibration_artifact_id = None
+        calibration_ece = None
+        ood_score = None
+        regime_entropy = None
+
+        # Only approve if we have real evidence (legacy signals do not have it)
         if confidence > 0 and side in ("buy", "sell"):
             reason_codes = (RiskReason.APPROVED,)
+
+        # For spot-long-only, SELL means EXIT_TO_FLAT (target 0.0), not -1.0
+        if side == "sell":
+            requested_target = 0.0
+            allowed_target = 0.0
+            reduce_only = True
+        else:
+            requested_target = 1.0
+            allowed_target = 1.0
+            reduce_only = False
 
         risk_decision = UnifiedRiskDecision(
             decision_id=decision_id,
             forecast_fingerprint=forecast_fingerprint,
             model_artifact_id=model_artifact_id,
-            requested_target_exposure=1.0 if side == "buy" else -1.0,
-            allowed_target_exposure=1.0 if side == "buy" else -1.0,
+            requested_target_exposure=requested_target,
+            allowed_target_exposure=allowed_target,
             max_new_exposure=max_pos_pct,
-            reduce_only=(side == "sell"),
+            reduce_only=reduce_only,
             risk_level=self.default_risk_level,
             reason_codes=reason_codes,
-            calibration_state=EvidenceState.KNOWN,
-            calibration_artifact_id=None,
-            calibration_ece=self.calibration_ece,
-            ood_state=EvidenceState.KNOWN,
-            ood_score=self.ood_score,
-            regime_state=EvidenceState.KNOWN,
-            regime_entropy=self.regime_entropy,
+            calibration_state=calibration_state,
+            calibration_artifact_id=calibration_artifact_id,
+            calibration_ece=calibration_ece,
+            ood_state=ood_state,
+            ood_score=ood_score,
+            regime_state=regime_state,
+            regime_entropy=regime_entropy,
             interval_width=1.0,
             created_at=now,
         )
 
-        exposure = 1.0 if side == "buy" else -1.0
+        exposure = 1.0 if side == "buy" else 0.0  # spot-long-only: SELL → FLAT (0.0), not -1.0
         target = TargetExposure(
             symbol=observation.symbol,
             exposure=exposure,

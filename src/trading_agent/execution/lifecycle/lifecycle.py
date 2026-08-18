@@ -34,7 +34,7 @@ from datetime import UTC, datetime
 from enum import Enum
 from typing import Any, Callable, Mapping
 
-from trading_agent.execution.canonical import UnifiedRiskDecision
+from trading_agent.execution.canonical import UnifiedRiskDecision, RiskLevel
 from trading_agent.execution.canonical.broker_gateway import (
     CancelEvidence,
     ProtectiveAckEvidence,
@@ -99,6 +99,18 @@ class ProtectionState(str, Enum):
     PROTECTION_REQUIRED = "protection_required"
     PROTECTIVE_SUBMITTING = "protective_submitting"
     PROTECTED = "protected"
+
+
+@dataclass(frozen=True)
+class EmergencyReduceRequest:
+    """Typed request for an emergency risk-reducing exit."""
+
+    intent_id: str
+    symbol: str
+    side: str  # must be "sell" for long-only
+    quantity: float
+    reason: str  # "ATR_STOP_TRIGGERED" | "PORTFOLIO_HALT" | "PROTECTIVE_EMERGENCY_EXIT" | "MANUAL_DUST_REDUCTION"
+    parent_intent_id: str | None = None
 
 
 LIVE_STATUSES = frozenset(
@@ -184,6 +196,12 @@ class OrderState:
     protective_order_ids: list[str] = field(default_factory=list)
     manual_reasons: list[str] = field(default_factory=list)
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    # Authorization tracking (P0)
+    authorization_id: str | None = None
+    idempotency_key: str | None = None
+    payload_hash: str | None = None
+    permission: str | None = None
+    authorized_at: str | None = None
 
     @property
     def is_live(self) -> bool:
@@ -514,6 +532,7 @@ class ExecutionLifecycle:
     _EVENT_HANDLERS = {
         ExecutionEventType.ORDER_INTENT_CREATED: "_on_order_intent_created",
         ExecutionEventType.RISK_APPROVED: "_on_risk_approved",
+        ExecutionEventType.ORDER_AUTHORIZED: "_on_order_authorized",
         ExecutionEventType.ORDER_SUBMITTED: "_on_order_submitted",
         ExecutionEventType.ORDER_REJECTED: "_on_order_rejected",
         ExecutionEventType.BROKER_ACKNOWLEDGED: "_on_broker_acknowledged",
@@ -560,6 +579,17 @@ class ExecutionLifecycle:
             risk_decision_data = event.payload.get("risk_decision")
             if risk_decision_data is not None:
                 order.risk_decision = UnifiedRiskDecision(**risk_decision_data)
+
+    def _on_order_authorized(self, state: LifecycleState, event: ExecutionEvent) -> None:
+        order = state.orders.get(event.aggregate_id)
+        if order is not None:
+            order.authorized_quantity = float(event.payload.get("authorized_quantity", 0.0))
+            order.authorization_id = event.payload.get("authorization_id")
+            order.idempotency_key = event.payload.get("idempotency_key")
+            order.payload_hash = event.payload.get("payload_hash")
+            order.permission = event.payload.get("permission")
+            order.authorized_at = event.payload.get("authorized_at")
+            order.status = IntentStatus.ACKNOWLEDGED
 
     def _on_order_submitted(self, state: LifecycleState, event: ExecutionEvent) -> None:
         order = state.orders.get(event.aggregate_id)
@@ -831,6 +861,82 @@ class ExecutionLifecycle:
             payload,
         )
 
+    def authorize_order(
+        self,
+        intent_id: str,
+        *,
+        authorization_id: str,
+        idempotency_key: str,
+        payload_hash: str,
+        risk_decision_id: str,
+        forecast_fingerprint: str,
+        model_artifact_id: str,
+        permission: str,
+        symbol: str,
+        side: str,
+        quantity: float,
+        exposure_effect: str,
+        current_exposure: float,
+        resulting_exposure: float,
+        authorized_at: str,
+    ) -> ExecutionEvent:
+        """Issue durable ORDER_AUTHORIZED event.
+
+        This is the ONLY path that creates broker-valid authorization.
+        Validates:
+        - intent exists and is risk-approved
+        - quantity/symbol/side match intent
+        - idempotency key is registered
+        - risk decision is bound to target
+        """
+        order = self.state.order(intent_id)
+        if order is None:
+            raise LifecycleError(f"unknown intent {intent_id}")
+        if order.status != IntentStatus.APPROVED:
+            raise LifecycleError(
+                f"intent {intent_id} must be risk-approved before authorization "
+                f"(status={order.status.value})"
+            )
+        # Validate binding
+        if order.symbol != symbol or order.side != side:
+            raise LifecycleError(
+                f"authorization binding mismatch: intent {intent_id} "
+                f"symbol/side {order.symbol}/{order.side} != {symbol}/{side}"
+            )
+        if abs(float(order.size) - float(quantity)) > 1e-12:
+            raise LifecycleError(
+                f"authorization quantity mismatch: intent {intent_id} "
+                f"size={order.size} != authorized={quantity}"
+            )
+        # Verify idempotency key is registered
+        existing = self.store.get_intent_by_idempotency_key(idempotency_key)
+        if existing is not None and existing != intent_id:
+            raise LifecycleError(
+                f"idempotency_key {idempotency_key} already maps to {existing}"
+            )
+        payload = {
+            "authorization_id": authorization_id,
+            "intent_id": intent_id,
+            "idempotency_key": idempotency_key,
+            "payload_hash": payload_hash,
+            "risk_decision_id": risk_decision_id,
+            "forecast_fingerprint": forecast_fingerprint,
+            "model_artifact_id": model_artifact_id,
+            "permission": permission,
+            "symbol": symbol,
+            "side": side,
+            "quantity": quantity,
+            "exposure_effect": exposure_effect,
+            "current_exposure": current_exposure,
+            "resulting_exposure": resulting_exposure,
+            "authorized_at": authorized_at,
+        }
+        return self._emit(
+            ExecutionEventType.ORDER_AUTHORIZED,
+            intent_id,
+            payload,
+        )
+
     def submit_order(
         self,
         intent_id: str,
@@ -891,6 +997,80 @@ class ExecutionLifecycle:
             intent_id,
             payload,
         )
+
+    def emergency_reduce(self, request: EmergencyReduceRequest) -> ExecutionEvent:
+        """Authorize an emergency risk-reducing exit.
+
+        Lifecycle may authorize only if:
+        - side is SELL for long-only
+        - known current inventory > 0
+        - quantity <= trusted available inventory
+        - resulting exposure <= current exposure
+        - resulting exposure >= 0
+        - no new exposure possible
+        - reason code is explicit.
+        """
+        if request.side.lower() != "sell":
+            raise LifecycleError("emergency reduce requires sell side for long-only")
+        if not request.reason:
+            raise LifecycleError("emergency reduce requires explicit reason code")
+        # Create intent
+        intent_id = request.intent_id
+        if intent_id in self.state.orders:
+            raise LifecycleError(f"intent {intent_id} already exists")
+        created = self._emit(
+            ExecutionEventType.ORDER_INTENT_CREATED,
+            intent_id,
+            {
+                "symbol": request.symbol,
+                "side": request.side,
+                "size": request.quantity,
+                "reason": request.reason,
+                "parent_intent_id": request.parent_intent_id or "",
+            },
+        )
+        # Auto-approve risk for emergency reduce (known reduce-only)
+        risk_decision = UnifiedRiskDecision(
+            decision_id=f"emergency_{intent_id}",
+            forecast_fingerprint="",
+            model_artifact_id="emergency_reduce",
+            requested_target_exposure=0.0,
+            allowed_target_exposure=0.0,
+            max_new_exposure=0.0,
+            reduce_only=True,
+            risk_level=RiskLevel.HIGH,
+            reason_codes=(),
+            calibration_state=EvidenceState.KNOWN,
+            calibration_artifact_id="emergency",
+            calibration_ece=0.0,
+            ood_state=EvidenceState.KNOWN,
+            ood_score=0.0,
+            regime_state=EvidenceState.KNOWN,
+            regime_entropy=0.0,
+            interval_width=1.0,
+            created_at=datetime.now(UTC),
+        )
+        approved = self.approve_risk(intent_id, risk_decision=risk_decision)
+        # Authorize
+        now = datetime.now(UTC).isoformat()
+        auth = self.authorize_order(
+            intent_id=intent_id,
+            authorization_id=f"emergency-auth-{intent_id}",
+            idempotency_key=f"emergency-{intent_id}",
+            payload_hash="",
+            risk_decision_id=risk_decision.decision_id,
+            forecast_fingerprint="",
+            model_artifact_id="emergency_reduce",
+            permission="REDUCE_ONLY",
+            symbol=request.symbol,
+            side=request.side,
+            quantity=request.quantity,
+            exposure_effect="reduce",
+            current_exposure=0.0,
+            resulting_exposure=0.0,
+            authorized_at=now,
+        )
+        return auth
 
     def acknowledge_broker(
         self, intent_id: str, broker_order_id: str

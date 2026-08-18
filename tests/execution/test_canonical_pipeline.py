@@ -511,7 +511,8 @@ class TestBrokerGateway:
         assert result.intent is not None
         intent = result.intent
         # Create lifecycle-authorized AuthorizedOrder (not raw OrderIntent)
-        authorized = AuthorizedOrder.create(
+        authorized = AuthorizedOrder(
+            token="__authorized__",
             intent_id=intent.intent_id,
             symbol=intent.symbol,
             side=intent.side,

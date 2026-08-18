@@ -6,6 +6,7 @@ calls, no randomness.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
@@ -369,9 +370,9 @@ class OrderPlanner:
         quantity = raw_quantity
         adjustment_reasons: list[AdjustmentReason] = []
 
-        # Round to qty_step
+        # Round to qty_step — floor to avoid overspending cash
         if self._rules.qty_step > 0:
-            stepped_qty = round(quantity / self._rules.qty_step) * self._rules.qty_step
+            stepped_qty = math.floor(quantity / self._rules.qty_step) * self._rules.qty_step
             if abs(stepped_qty - quantity) > 1e-12:
                 adjustment_reasons.append(AdjustmentReason.QTY_STEP)
             quantity = stepped_qty
@@ -408,10 +409,10 @@ class OrderPlanner:
             if required_cash > portfolio.available_cash + 1e-9:
                 adjustment_reasons.append(AdjustmentReason.INSUFFICIENT_CASH)
                 cash_feasible_qty = portfolio.available_cash / execution_price
-                # Round DOWN to qty_step, never up
+                # Round DOWN to qty_step, never up (mathematically safe floor)
                 if self._rules.qty_step > 0:
                     cash_feasible_qty = (
-                        round(cash_feasible_qty / self._rules.qty_step)
+                        math.floor(cash_feasible_qty / self._rules.qty_step)
                         * self._rules.qty_step
                     )
                 # If cash cannot even cover min_order_qty after rounding down, BLOCK
@@ -531,7 +532,7 @@ class OrderPlanner:
 
         intent_id = (
             f"intent_{risk_decision.decision_id}_{target.symbol}"
-            f"_{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}"
+            f"_{side}_{keys.target_exposure_key}"
         )
 
         intent = OrderIntent(

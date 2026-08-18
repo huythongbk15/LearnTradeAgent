@@ -553,6 +553,29 @@ class ExecutionEventStore:
             self.conn.rollback()
             raise
 
+    def get_intent_by_idempotency_key(self, idempotency_key: str) -> str | None:
+        """Return intent_id for a given idempotency_key, or None."""
+        row = self.conn.execute(
+            "SELECT intent_id FROM execution_order_intents WHERE idempotency_key = ?",
+            (idempotency_key,),
+        ).fetchone()
+        return row["intent_id"] if row else None
+
+    def get_latest_authorization(self, intent_id: str) -> dict[str, Any] | None:
+        """Return the latest ORDER_AUTHORIZED event payload for an intent, or None."""
+        row = self.conn.execute(
+            """
+            SELECT payload FROM execution_events
+            WHERE aggregate_id = ? AND event_type = ?
+            ORDER BY seq DESC LIMIT 1
+            """,
+            (intent_id, "exec.order_authorized"),
+        ).fetchone()
+        if row is None:
+            return None
+        import json
+        return json.loads(row["payload"])
+
     # ── Integrity / audit ───────────────────────────────────────────────
 
     def integrity_check(self) -> dict[str, Any]:
