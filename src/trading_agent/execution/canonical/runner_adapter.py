@@ -48,7 +48,13 @@ class CanonicalBrokerAdapter:
 
     # ── Public API (mirrors LiveBroker) ────────────────────────────────
 
-    def place_order(self, order: Any, *, correlation_id: str, evidence: LegacyAuthorizationEvidence | None = None) -> dict[str, Any]:
+    def place_order(
+        self,
+        order: Any,
+        *,
+        correlation_id: str,
+        evidence: LegacyAuthorizationEvidence | None = None,
+    ) -> dict[str, Any]:
         """Submit an order through the canonical gateway.
 
         Accepts either:
@@ -108,6 +114,7 @@ class CanonicalBrokerAdapter:
             }
         # Only proceed if cancel is terminal
         from trading_agent.execution.canonical.broker_gateway import CancelState
+
         if cancel_result.evidence.state not in {
             CancelState.CANCELED,
             CancelState.REJECTED,

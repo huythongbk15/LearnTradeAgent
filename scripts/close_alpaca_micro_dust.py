@@ -40,21 +40,27 @@ def close_micro_dust_positions():
                     time_in_force=TimeInForce.IOC,
                 )
                 client.submit_order(order_data=order_req)
-                closed.append({
-                    "symbol": symbol,
-                    "qty": qty,
-                    "market_value": market_value,
-                })
+                closed.append(
+                    {
+                        "symbol": symbol,
+                        "qty": qty,
+                        "market_value": market_value,
+                    }
+                )
             except Exception as e:
-                skipped.append({
-                    "symbol": symbol,
-                    "reason": str(e),
-                })
+                skipped.append(
+                    {
+                        "symbol": symbol,
+                        "reason": str(e),
+                    }
+                )
         else:
-            skipped.append({
-                "symbol": symbol,
-                "reason": f"above threshold ({market_value:.2f} USD)",
-            })
+            skipped.append(
+                {
+                    "symbol": symbol,
+                    "reason": f"above threshold ({market_value:.2f} USD)",
+                }
+            )
 
     print(f"Closed {len(closed)} micro-dust positions:")
     for p in closed:

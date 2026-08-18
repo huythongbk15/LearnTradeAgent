@@ -58,14 +58,16 @@ class DummyAdapter:
         limit_price: float | None = None,
     ) -> dict[str, Any]:
         order_id = f"broker-{len(self.orders) + 1}"
-        self.orders.append({
-            "id": order_id,
-            "symbol": symbol,
-            "side": side,
-            "qty": qty,
-            "order_type": order_type,
-            "limit_price": limit_price,
-        })
+        self.orders.append(
+            {
+                "id": order_id,
+                "symbol": symbol,
+                "side": side,
+                "qty": qty,
+                "order_type": order_type,
+                "limit_price": limit_price,
+            }
+        )
         return {"id": order_id, "status": "open"}
 
     def cancel_order(self, order_id: str) -> dict[str, Any]:
@@ -80,9 +82,7 @@ class DummyAdapter:
     def fetch_balances(self) -> dict[str, Any]:
         return {"USDT": 10000.0}
 
-    def close_position(
-        self, symbol: str, price: float, reason: str
-    ) -> dict[str, Any]:
+    def close_position(self, symbol: str, price: float, reason: str) -> dict[str, Any]:
         return {"symbol": symbol, "status": "closed"}
 
 
@@ -91,7 +91,11 @@ class TestGlobalEventSequence:
 
     def test_global_seq_unique_and_monotonic(self, tmp_path):
         store = ExecutionEventStore(str(tmp_path / "events.db")).connect()
-        from trading_agent.execution.lifecycle.events import ExecutionEvent, ExecutionEventType
+        from trading_agent.execution.lifecycle.events import (
+            ExecutionEvent,
+            ExecutionEventType,
+        )
+
         events = []
         seq_counters = {"agg-0": 0, "agg-1": 0, "agg-2": 0}
         for i in range(10):
@@ -124,7 +128,11 @@ class TestGlobalEventSequence:
         # SQLite check_same_thread=True prevents cross-thread connection use.
         # Instead, verify sequential append preserves monotonic global_seq.
         store = ExecutionEventStore(str(tmp_path / "events.db")).connect()
-        from trading_agent.execution.lifecycle.events import ExecutionEvent, ExecutionEventType
+        from trading_agent.execution.lifecycle.events import (
+            ExecutionEvent,
+            ExecutionEventType,
+        )
+
         results = []
         for thread_id in range(5):
             for i in range(5):
@@ -156,7 +164,11 @@ class TestGlobalReplay:
 
     def test_replay_global_deterministic(self, tmp_path):
         store = ExecutionEventStore(str(tmp_path / "events.db")).connect()
-        from trading_agent.execution.lifecycle.events import ExecutionEvent, ExecutionEventType
+        from trading_agent.execution.lifecycle.events import (
+            ExecutionEvent,
+            ExecutionEventType,
+        )
+
         # Interleave events from 3 aggregates
         events = []
         for i in range(30):
@@ -374,7 +386,12 @@ class TestAuthorizedOrderUnforgeable:
 
 
 def _sample_risk_decision():
-    from trading_agent.execution.canonical import UnifiedRiskDecision, RiskLevel, EvidenceState
+    from trading_agent.execution.canonical import (
+        UnifiedRiskDecision,
+        RiskLevel,
+        EvidenceState,
+    )
+
     return UnifiedRiskDecision(
         decision_id="test-decision",
         forecast_fingerprint="test-fp",

@@ -36,6 +36,7 @@ class AuthorizationError(RuntimeError):
 
 class CancelState(str, Enum):
     """Typed cancel terminal and non-terminal states."""
+
     REQUEST_ACCEPTED = "REQUEST_ACCEPTED"
     PENDING = "PENDING"
     CANCELED = "CANCELED"
@@ -49,6 +50,7 @@ class CancelState(str, Enum):
 @dataclass(frozen=True)
 class CancelEvidence:
     """Typed terminal evidence for a cancel request."""
+
     broker_order_id: str
     state: CancelState
     venue: str
@@ -60,6 +62,7 @@ class CancelEvidence:
 @dataclass(frozen=True)
 class ProtectiveAckEvidence:
     """Typed evidence that a protective order is acknowledged by the broker."""
+
     broker_order_id: str
     broker_ack_id: str
     venue: str
@@ -74,6 +77,7 @@ class ProtectiveAckEvidence:
 @dataclass(frozen=True)
 class BrokerSubmitResult:
     """Typed result of a broker submit."""
+
     success: bool
     broker_order_id: str | None
     error: str | None
@@ -83,6 +87,7 @@ class BrokerSubmitResult:
 @dataclass(frozen=True)
 class CancelResult:
     """Typed result of a broker cancel request."""
+
     success: bool
     evidence: CancelEvidence | None
     error: str | None
@@ -91,6 +96,7 @@ class CancelResult:
 @dataclass(frozen=True)
 class ProtectiveSubmitResult:
     """Typed result of a protective order submission."""
+
     success: bool
     evidence: ProtectiveAckEvidence | None
     error: str | None
@@ -290,7 +296,10 @@ class BrokerGateway:
 
         # Validate quantity semantics (P0)
         if plan.quantity_mode == ProtectionQuantityMode.EXPLICIT_QUANTITY:
-            if not math.isfinite(plan.protected_quantity) or plan.protected_quantity <= 0:
+            if (
+                not math.isfinite(plan.protected_quantity)
+                or plan.protected_quantity <= 0
+            ):
                 return ProtectiveSubmitResult(
                     success=False,
                     evidence=None,

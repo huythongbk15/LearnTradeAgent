@@ -22,11 +22,14 @@ from trading_agent.execution.canonical.broker_gateway import AuthorizedOrder
 @dataclass(frozen=True)
 class LegacyAuthorizationEvidence:
     """Evidence required to authorize a legacy runner order."""
+
     symbol: str
     side: str
     quantity: float
     price_reference: float
-    signal_reason: str  # "ATR_TRAILING_STOP" | "PORTFOLIO_HALT" | "REBALANCE" | "STRATEGY_FLAT"
+    signal_reason: (
+        str  # "ATR_TRAILING_STOP" | "PORTFOLIO_HALT" | "REBALANCE" | "STRATEGY_FLAT"
+    )
     strategy_version: str
     account_equity: float
     current_exposure: float

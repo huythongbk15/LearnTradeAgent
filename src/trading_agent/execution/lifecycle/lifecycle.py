@@ -1003,7 +1003,9 @@ class ExecutionLifecycle:
             {"order_id": intent_id, "reason": reason},
         )
 
-    def confirm_cancel(self, intent_id: str, evidence: CancelEvidence) -> ExecutionEvent:
+    def confirm_cancel(
+        self, intent_id: str, evidence: CancelEvidence
+    ) -> ExecutionEvent:
         """Confirm cancellation with typed terminal evidence.
 
         Only terminal states (CANCELED, FILLED, REJECTED, EXPIRED) allow

@@ -45,7 +45,9 @@ from trading_agent.exchanges.models import (
     TimeInForce,
 )
 from trading_agent.execution.canonical import CanonicalBrokerAdapter
-from trading_agent.execution.canonical.legacy_authorization import LegacyAuthorizationEvidence
+from trading_agent.execution.canonical.legacy_authorization import (
+    LegacyAuthorizationEvidence,
+)
 from trading_agent.execution.correlation import bind_run_correlation
 from trading_agent.execution.data_trust import (
     BINANCE_MAINNET_TIME_URL,
@@ -1521,7 +1523,9 @@ def execute_orders(
                         symbol=pair,
                         side="sell",
                         quantity=float(order.size) if hasattr(order, "size") else 0.0,
-                        price_reference=float(order.stop_price) if hasattr(order, "stop_price") else 0.0,
+                        price_reference=float(order.stop_price)
+                        if hasattr(order, "stop_price")
+                        else 0.0,
                         signal_reason="PROTECTIVE_STOP_EXIT_REPLACE",
                         strategy_version="legacy-binance-ma-v1",
                         account_equity=0.0,
@@ -1549,7 +1553,9 @@ def execute_orders(
                         symbol=pair,
                         side="sell",
                         quantity=float(order.size) if hasattr(order, "size") else 0.0,
-                        price_reference=float(order.stop_price) if hasattr(order, "stop_price") else 0.0,
+                        price_reference=float(order.stop_price)
+                        if hasattr(order, "stop_price")
+                        else 0.0,
                         signal_reason="PROTECTIVE_STOP_EXIT_PLACE",
                         strategy_version="legacy-binance-ma-v1",
                         account_equity=0.0,

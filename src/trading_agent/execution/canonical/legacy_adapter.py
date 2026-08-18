@@ -24,6 +24,7 @@ from trading_agent.execution.canonical.market_observation import (
 @dataclass(frozen=True)
 class LegacySignal:
     """Minimal representation of a Phase 2 agent signal."""
+
     symbol: str
     side: str  # "buy" | "sell"
     confidence: float
@@ -48,7 +49,9 @@ class LegacyDecisionAdapter:
         self.ood_score = ood_score
         self.regime_entropy = regime_entropy
 
-    def adapt(self, signal: Any, observation: EnrichedMarketObservation) -> tuple[UnifiedRiskDecision, TargetExposure]:
+    def adapt(
+        self, signal: Any, observation: EnrichedMarketObservation
+    ) -> tuple[UnifiedRiskDecision, TargetExposure]:
         """Convert signal to canonical risk decision and target exposure."""
         if hasattr(signal, "signal"):
             signal_str = str(signal.signal).upper()
@@ -61,7 +64,9 @@ class LegacyDecisionAdapter:
             confidence = float(signal.get("confidence", 0.5) or 0.5)
             max_pos_pct = float(signal.get("max_position_size_pct", 0.25) or 0.25)
 
-        side = "buy" if signal_str == "BUY" else "sell" if signal_str == "SELL" else "hold"
+        side = (
+            "buy" if signal_str == "BUY" else "sell" if signal_str == "SELL" else "hold"
+        )
         if side == "hold":
             raise ValueError("HOLD signals do not produce risk decisions")
 

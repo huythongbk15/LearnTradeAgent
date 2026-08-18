@@ -58,6 +58,7 @@
 │   ├── LIVE_TRADING_RUNBOOK.md
 │   ├── LIVE_TRADING_TODO.md
 │   ├── OPERATIONAL_DRILLS.md
+│   ├── P0_EXECUTION_MAP.md
 │   ├── PHASE6_P3_REPORT.md
 │   ├── PRODUCTION_POLICY.md
 │   ├── PROJECT_MAP.md
@@ -141,6 +142,7 @@
 │   ├── check_live_audit.py
 │   ├── check_md_links.py
 │   ├── check_metrics.py
+│   ├── close_alpaca_micro_dust.py
 │   ├── cron_wrapper.sh
 │   ├── db_stats.py
 │   ├── debug_signals.py
@@ -196,6 +198,7 @@
 │   ├── walk_forward_optimize.py
 │   ├── watchdog.sh
 │   ├── webui.sh
+│   ├── wfo_10symbol_4h.py
 │   ├── wfo_ma_adx.py
 │   └── wfo_optimize.py
 ├── src
@@ -288,6 +291,8 @@
 │       │   │   ├── broker_gateway.py
 │       │   │   ├── causation.py
 │       │   │   ├── events.py
+│       │   │   ├── legacy_adapter.py
+│       │   │   ├── legacy_authorization.py
 │       │   │   ├── market_observation.py
 │       │   │   ├── order_planner.py
 │       │   │   ├── protection.py
@@ -429,7 +434,7 @@
 │   ├── test_agent_safety.py
 │   ├── test_alert_pager.py
 │   ├── test_alpaca_safety.py
-│   ├── test_atr_improvements.py
+│   ├── test_atr_improvements.py.legacy
 │   ├── test_audit_correlation.py
 │   ├── test_audit_ship_offhost.py
 │   ├── test_backtest_accounting.py
@@ -472,6 +477,7 @@
 │   ├── test_methodology_benchmark.py
 │   ├── test_online_methodology.py
 │   ├── test_order_permission.py
+│   ├── test_p0_convergence.py
 │   ├── test_p4_p7.py
 │   ├── test_paper_exchange_accounting.py
 │   ├── test_phase2.py

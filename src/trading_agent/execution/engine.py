@@ -186,9 +186,15 @@ class ExecutionEngine:
         permission_ctx = OrderPermission(
             execution_health="normal",
             exposure_effect=(
-                __import__("trading_agent.execution.canonical.risk_decision", fromlist=["ExposureEffect"]).ExposureEffect.INCREASE
+                __import__(
+                    "trading_agent.execution.canonical.risk_decision",
+                    fromlist=["ExposureEffect"],
+                ).ExposureEffect.INCREASE
                 if signal_str == "BUY"
-                else __import__("trading_agent.execution.canonical.risk_decision", fromlist=["ExposureEffect"]).ExposureEffect.REDUCE
+                else __import__(
+                    "trading_agent.execution.canonical.risk_decision",
+                    fromlist=["ExposureEffect"],
+                ).ExposureEffect.REDUCE
             ),
             risk_decision=risk_decision,
             trusted_price=_TrustedPrice(current_price),
@@ -211,7 +217,13 @@ class ExecutionEngine:
             price=price,
             existing_reservations=self.lifecycle.active_sell_reservations(symbol),
         )
-        if plan_result.status != __import__("trading_agent.execution.canonical.order_planner", fromlist=["OrderPlanningStatus"]).OrderPlanningStatus.READY:
+        if (
+            plan_result.status
+            != __import__(
+                "trading_agent.execution.canonical.order_planner",
+                fromlist=["OrderPlanningStatus"],
+            ).OrderPlanningStatus.READY
+        ):
             logger.warning(f"Planner returned {plan_result.status.value}")
             return orders
         if plan_result.intent is None:
@@ -258,7 +270,8 @@ class ExecutionEngine:
             correlation_id=intent.intent_id,
             exposure_effect=permission_ctx.exposure_effect.value,
             current_exposure=portfolio.current_exposure,
-            resulting_exposure=portfolio.current_exposure + plan_result.executable_delta,
+            resulting_exposure=portfolio.current_exposure
+            + plan_result.executable_delta,
             authorized_at=now,
             authorization_hash=authorization_hash,
         )
@@ -322,7 +335,9 @@ class ExecutionEngine:
                 )
                 self.store.append(ack_event)
 
-            orders.append(self._result_to_order(result, symbol, intent.side, intent.quantity))
+            orders.append(
+                self._result_to_order(result, symbol, intent.side, intent.quantity)
+            )
         else:
             reject_event = self.lifecycle.reject_order(
                 intent_id=intent.intent_id,
@@ -408,7 +423,12 @@ class ExecutionEngine:
         order_side = OrderSide.BUY if side.lower() == "buy" else OrderSide.SELL
         status = OrderStatus.FILLED if result.success else OrderStatus.REJECTED
         raw = result.raw_response or {}
-        filled_amount = float(raw.get("filled", raw.get("accumulated_quantity", quantity if result.success else 0)))
+        filled_amount = float(
+            raw.get(
+                "filled",
+                raw.get("accumulated_quantity", quantity if result.success else 0),
+            )
+        )
         avg_fill_price = float(raw.get("average", raw.get("price", 0)))
         return Order(
             id=result.broker_order_id or "",
@@ -424,15 +444,21 @@ class ExecutionEngine:
         )
 
 
-def _make_authorization_hash(intent_id: str, risk_decision_id: str, permission: str, authorized_at: str) -> str:
+def _make_authorization_hash(
+    intent_id: str, risk_decision_id: str, permission: str, authorized_at: str
+) -> str:
     """Stable authorization hash for audit."""
     import hashlib
-    blob = f"{intent_id}|{risk_decision_id}|{permission}|{authorized_at}".encode("utf-8")
+
+    blob = f"{intent_id}|{risk_decision_id}|{permission}|{authorized_at}".encode(
+        "utf-8"
+    )
     return hashlib.sha256(blob).hexdigest()
 
 
 class _TrustedPrice:
     """Minimal trusted price wrapper for permission checks."""
+
     def __init__(self, price: float) -> None:
         self.price = price
         self.updated_at = datetime.now(UTC)

@@ -91,10 +91,11 @@ class ProtectionPlan:
         if self.take_profit is not None and self.take_profit <= 0.0:
             raise ValueError("take_profit must be positive when set")
         if self.quantity_mode == ProtectionQuantityMode.EXPLICIT_QUANTITY:
-            if not math.isfinite(self.protected_quantity) or self.protected_quantity <= 0:
-                raise ValueError(
-                    "EXPLICIT_QUANTITY requires protected_quantity > 0"
-                )
+            if (
+                not math.isfinite(self.protected_quantity)
+                or self.protected_quantity <= 0
+            ):
+                raise ValueError("EXPLICIT_QUANTITY requires protected_quantity > 0")
 
     def with_state(self, state: ProtectionState) -> ProtectionPlan:
         """Return a new plan with updated state."""

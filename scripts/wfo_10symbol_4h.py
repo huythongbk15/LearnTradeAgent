@@ -154,13 +154,15 @@ def walk_forward_optimize(
         # Out-of-sample test
         try:
             oos_metrics = run_backtest(test_df, strategy_name, best_params)
-            results.append({
-                "fold": fold,
-                "strategy": strategy_name,
-                "best_params": best_params,
-                "is_sharpe": best_sharpe,
-                "oos_metrics": oos_metrics,
-            })
+            results.append(
+                {
+                    "fold": fold,
+                    "strategy": strategy_name,
+                    "best_params": best_params,
+                    "is_sharpe": best_sharpe,
+                    "oos_metrics": oos_metrics,
+                }
+            )
             print(
                 f"    Fold {fold}: IS sharpe={best_sharpe:.2f}, "
                 f"OOS return={oos_metrics['total_return_pct']:.1f}%"
@@ -222,15 +224,19 @@ def main():
 
     # Save results
     with open(output_file, "w") as f:
-        json.dump({
-            "timestamp": timestamp,
-            "symbols": SYMBOLS,
-            "timeframe": TIMEFRAME,
-            "train_months": TRAIN_MONTHS,
-            "test_months": TEST_MONTHS,
-            "step_months": STEP_MONTHS,
-            "results": all_results,
-        }, f, indent=2)
+        json.dump(
+            {
+                "timestamp": timestamp,
+                "symbols": SYMBOLS,
+                "timeframe": TIMEFRAME,
+                "train_months": TRAIN_MONTHS,
+                "test_months": TEST_MONTHS,
+                "step_months": STEP_MONTHS,
+                "results": all_results,
+            },
+            f,
+            indent=2,
+        )
 
     print(f"\n✅ Done — results: {output_file}")
 

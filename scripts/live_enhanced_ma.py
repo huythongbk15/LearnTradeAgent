@@ -52,7 +52,9 @@ from trading_agent.exchanges.models import (
     TimeInForce,
 )
 from trading_agent.execution.canonical import CanonicalBrokerAdapter
-from trading_agent.execution.canonical.legacy_authorization import LegacyAuthorizationEvidence
+from trading_agent.execution.canonical.legacy_authorization import (
+    LegacyAuthorizationEvidence,
+)
 from trading_agent.risk.portfolio_risk import DrawdownConfig, PortfolioRiskManager
 from trading_agent.strategies.enhanced_ma import EnhancedMaCrossover
 
