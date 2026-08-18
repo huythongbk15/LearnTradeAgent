@@ -384,7 +384,9 @@ def execution_close(symbol: str | None, close_all: bool, yes: bool):
         if order:
             console.print(f"[red]Position closed: {symbol} (order {order.id})[/red]")
         else:
-            console.print(f"[yellow]Close failed for {symbol} (no fresh price)[/yellow]")
+            console.print(
+                f"[yellow]Close failed for {symbol} (no fresh price)[/yellow]"
+            )
 
     execution_status.callback()
 
@@ -551,8 +553,14 @@ def _place_order_via_gateway(live_broker, order):
     )
     from trading_agent.execution.canonical.cli_adapter import CliBrokerAdapter
     from trading_agent.execution.lifecycle import ExecutionEventStore
-    from trading_agent.execution.lifecycle.lifecycle import ExecutionLifecycle, TrustedPrice
-    from trading_agent.execution.permission import PermissionContext, evaluate_order_permission
+    from trading_agent.execution.lifecycle.lifecycle import (
+        ExecutionLifecycle,
+        TrustedPrice,
+    )
+    from trading_agent.execution.permission import (
+        PermissionContext,
+        evaluate_order_permission,
+    )
 
     adapter = CliBrokerAdapter(live_broker)
     store = ExecutionEventStore(":memory:").connect()
@@ -707,7 +715,9 @@ def _place_order_via_gateway(live_broker, order):
         metadata={
             "order_type": order.type.value.lower(),
             "price": float(order.price) if order.price is not None else None,
-            "stop_price": float(order.stop_price) if order.stop_price is not None else None,
+            "stop_price": float(order.stop_price)
+            if order.stop_price is not None
+            else None,
             "time_in_force": order.time_in_force.value.lower(),
         },
     )

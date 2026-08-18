@@ -545,9 +545,7 @@ class ExecutionEngine:
                 authorized_at=auth_event.payload.get("authorized_at", ""),
                 authorization_hash="",
             )
-            result = self.gateway.submit(
-                authorized, correlation_id=emergency.intent_id
-            )
+            result = self.gateway.submit(authorized, correlation_id=emergency.intent_id)
             if result.success and result.broker_order_id:
                 self.lifecycle.submit_order(
                     intent_id=emergency.intent_id,

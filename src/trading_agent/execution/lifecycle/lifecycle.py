@@ -1034,8 +1034,7 @@ class ExecutionLifecycle:
             IntentStatus.ACKNOWLEDGED,
         }:
             raise LifecycleError(
-                f"intent {intent_id} cannot submit from status "
-                f"{order.status.value}"
+                f"intent {intent_id} cannot submit from status {order.status.value}"
             )
         self._enforce_permission(
             order.side,

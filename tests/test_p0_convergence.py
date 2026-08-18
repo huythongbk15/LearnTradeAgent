@@ -675,6 +675,7 @@ class TestCliOrderE2E:
         async def fetch_ticker(self, symbol):
             class Ticker:
                 last = 100.0
+
             return Ticker()
 
         def place_order(self, order):

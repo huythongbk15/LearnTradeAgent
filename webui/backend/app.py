@@ -225,7 +225,9 @@ class _AlpacaSyncAdapter:
             time_in_force=TimeInForce.IOC,
         )
         order = self._run(self._adapter.create_order(order_req))
-        return {"id": getattr(order, "id", None) or getattr(order, "client_order_id", None)}
+        return {
+            "id": getattr(order, "id", None) or getattr(order, "client_order_id", None)
+        }
 
 
 async def _alpaca():
@@ -476,12 +478,16 @@ async def api_close(req: CloseRequest) -> dict:
         )
     try:
         from trading_agent.execution.lifecycle import ExecutionEventStore
-        from trading_agent.execution.lifecycle.lifecycle import ExecutionLifecycle, TrustedPrice
+        from trading_agent.execution.lifecycle.lifecycle import (
+            ExecutionLifecycle,
+            TrustedPrice,
+        )
         from trading_agent.execution.canonical import BrokerGateway
 
         adapter = await _alpaca()
         sync_adapter = _AlpacaSyncAdapter(adapter)
         store = ExecutionEventStore(":memory:").connect()
+
         def _inventory_source(symbol, side):
             if side != "sell":
                 return 0.0
@@ -526,9 +532,15 @@ async def api_close(req: CloseRequest) -> dict:
                 "reason": "manual",
             }
             try:
-                from trading_agent.execution.lifecycle.lifecycle import EmergencyReduceRequest
-                auth_event = lifecycle.emergency_reduce(EmergencyReduceRequest(**emergency))
+                from trading_agent.execution.lifecycle.lifecycle import (
+                    EmergencyReduceRequest,
+                )
+
+                auth_event = lifecycle.emergency_reduce(
+                    EmergencyReduceRequest(**emergency)
+                )
                 from trading_agent.execution.canonical import AuthorizedOrder
+
                 authorized = AuthorizedOrder(
                     token="__authorized__",
                     intent_id=emergency["intent_id"],
@@ -550,7 +562,9 @@ async def api_close(req: CloseRequest) -> dict:
                     authorized_at=auth_event.payload.get("authorized_at", ""),
                     authorization_hash="",
                 )
-                result = gateway.submit(authorized, correlation_id=emergency["intent_id"])
+                result = gateway.submit(
+                    authorized, correlation_id=emergency["intent_id"]
+                )
                 if result.success and result.broker_order_id:
                     lifecycle.submit_order(
                         intent_id=emergency["intent_id"],

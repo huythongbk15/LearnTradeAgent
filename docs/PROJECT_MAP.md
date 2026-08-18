@@ -143,6 +143,7 @@
 │   ├── check_md_links.py
 │   ├── check_metrics.py
 │   ├── close_alpaca_micro_dust.py
+│   ├── compare_baseline_vs_new.py
 │   ├── cron_wrapper.sh
 │   ├── db_stats.py
 │   ├── debug_signals.py
@@ -167,6 +168,9 @@
 │   ├── load_test_phase6.py
 │   ├── measure_tracking_error.py
 │   ├── monthly_wfo.py
+│   ├── multi_pair_1h_1y_backtest.py
+│   ├── multi_pair_1h_backtest.py
+│   ├── multi_pair_1h_fast.py
 │   ├── multi_symbol_bench.py
 │   ├── optimize_local.py
 │   ├── pin_image_digests.py
@@ -290,6 +294,7 @@
 │       │   │   ├── __init__.py
 │       │   │   ├── broker_gateway.py
 │       │   │   ├── causation.py
+│       │   │   ├── cli_adapter.py
 │       │   │   ├── events.py
 │       │   │   ├── legacy_adapter.py
 │       │   │   ├── legacy_authorization.py
@@ -329,7 +334,6 @@
 │       │   ├── permission.py
 │       │   ├── risk_controller.py
 │       │   ├── shadow.py
-│       │   ├── smart_router.py
 │       │   └── types.py
 │       ├── features
 │       │   ├── llm
@@ -497,7 +501,6 @@
 │   ├── test_strategy_security.py
 │   ├── test_synthetic_alerts.py
 │   ├── test_testnet_soak_tracker.py
-│   ├── test_tier1_3_tier2.py
 │   ├── test_tier3_live.py
 │   ├── test_uncertainty_drift_methodology.py
 │   ├── test_verify_account_hardening.py
@@ -541,6 +544,7 @@
 ├── BACKTEST_3Y_REVIEW.md
 ├── Caddyfile.oracle
 ├── Dockerfile
+├── FINAL_REPORT.md
 ├── HARDEN_OUTPUT.md
 ├── IMPROVEMENT_ROADMAP.md
 ├── LIVE_TEST_GUIDE.md
@@ -556,6 +560,7 @@
 ├── pyproject.toml
 ├── requirements-web.txt
 ├── requirements.lock
+├── smoke_p0.py
 └── uv.lock
 ```
 

@@ -89,8 +89,14 @@ class LegacyDecisionAdapter:
         # For legacy signals, we do NOT fabricate KNOWN evidence.
         # Missing real evidence must remain UNKNOWN/MISSING/STALE.
         # A strategy signal is not a risk approval.
-        backtest_allow = os.getenv("BACKTEST_ALLOW_NEW_EXPOSURE", "").lower() in ("1", "true", "yes")
-        calibration_state = EvidenceState.KNOWN if backtest_allow else EvidenceState.MISSING
+        backtest_allow = os.getenv("BACKTEST_ALLOW_NEW_EXPOSURE", "").lower() in (
+            "1",
+            "true",
+            "yes",
+        )
+        calibration_state = (
+            EvidenceState.KNOWN if backtest_allow else EvidenceState.MISSING
+        )
         ood_state = EvidenceState.KNOWN if backtest_allow else EvidenceState.MISSING
         regime_state = EvidenceState.KNOWN if backtest_allow else EvidenceState.MISSING
         calibration_artifact_id = "backtest-legacy-v1" if backtest_allow else ""
@@ -118,7 +124,11 @@ class LegacyDecisionAdapter:
             requested_target = 1.0
             # Allow new exposure in backtest-only mode; production stays blocked
             # when evidence is missing.
-            if os.getenv("BACKTEST_ALLOW_NEW_EXPOSURE", "").lower() in ("1", "true", "yes"):
+            if os.getenv("BACKTEST_ALLOW_NEW_EXPOSURE", "").lower() in (
+                "1",
+                "true",
+                "yes",
+            ):
                 allowed_target = 1.0
                 max_new_exposure = 1.0
                 reduce_only = False

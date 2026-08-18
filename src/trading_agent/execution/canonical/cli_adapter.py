@@ -24,7 +24,9 @@ class CliBrokerAdapter:
             raise TypeError(f"symbol must be Symbol, got {type(symbol)}")
 
         side = (
-            OrderSide.BUY if payload["side"].strip().lower() == "buy" else OrderSide.SELL
+            OrderSide.BUY
+            if payload["side"].strip().lower() == "buy"
+            else OrderSide.SELL
         )
         order_type_str = payload.get("order_type", "market").strip().lower()
         order_type = OrderType.MARKET
@@ -35,7 +37,9 @@ class CliBrokerAdapter:
         elif order_type_str == "stop_limit":
             order_type = OrderType.STOP_LIMIT
 
-        price = Decimal(str(payload["price"])) if payload.get("price") is not None else None
+        price = (
+            Decimal(str(payload["price"])) if payload.get("price") is not None else None
+        )
         stop_price = (
             Decimal(str(payload["stop_price"]))
             if payload.get("stop_price") is not None

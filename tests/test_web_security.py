@@ -30,12 +30,15 @@ class FakeAlpaca:
     async def fetch_ticker(self, symbol):
         class Ticker:
             last = 50000.0
+
         return Ticker()
 
     async def create_order(self, order_req):
         self.orders.append(order_req)
+
         class Order:
             id = f"order-{len(self.orders)}"
+
         return Order()
 
 

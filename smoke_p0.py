@@ -26,6 +26,7 @@ def test_execution_engine_init() -> None:
     """ExecutionEngine initialization."""
     try:
         from trading_agent.execution.engine import ExecutionEngine
+
         engine = ExecutionEngine()
         record("engine_init", True, "ExecutionEngine initialized")
     except Exception as exc:
@@ -39,14 +40,10 @@ def test_engine_buy_path() -> None:
         from trading_agent.execution.engine import ExecutionEngine
         from trading_agent.execution.canonical import (
             EnrichedMarketObservation,
-            CurrentPortfolioState,
-            MarketPrice,
         )
         from trading_agent.execution.canonical.events import (
-            ObservationId,
             compute_observation_id,
         )
-        from trading_agent.research.forecast import TargetExposure
 
         engine = ExecutionEngine()
         symbol = "BTC/USDT"
@@ -98,8 +95,6 @@ def test_engine_sell_path() -> None:
         from trading_agent.execution.engine import ExecutionEngine
         from trading_agent.execution.canonical import (
             EnrichedMarketObservation,
-            CurrentPortfolioState,
-            MarketPrice,
         )
         from trading_agent.execution.canonical.events import compute_observation_id
 
@@ -209,7 +204,10 @@ def test_engine_close_all() -> None:
 def test_broker_gateway_paper() -> None:
     """BrokerGateway with PaperExchange adapter."""
     try:
-        from trading_agent.execution.canonical.broker_gateway import BrokerGateway, AuthorizedOrder
+        from trading_agent.execution.canonical.broker_gateway import (
+            BrokerGateway,
+            AuthorizedOrder,
+        )
         from trading_agent.execution.paper_exchange import PaperExchange
         from trading_agent.execution.lifecycle import ExecutionEventStore
 
@@ -240,9 +238,15 @@ def test_broker_gateway_paper() -> None:
                 authorized_at=datetime.now(UTC).isoformat(),
                 authorization_hash="test-hash",
             )
-            record("broker_gateway_paper", True, "AuthorizedOrder created directly (unsafe but works)")
+            record(
+                "broker_gateway_paper",
+                True,
+                "AuthorizedOrder created directly (unsafe but works)",
+            )
         except Exception as exc:
-            record("broker_gateway_paper", False, f"AuthorizedOrder creation failed: {exc}")
+            record(
+                "broker_gateway_paper", False, f"AuthorizedOrder creation failed: {exc}"
+            )
     except Exception as exc:
         record("broker_gateway_paper", False, f"{exc}\n{traceback.format_exc()}")
 
@@ -250,9 +254,13 @@ def test_broker_gateway_paper() -> None:
 def test_legacy_adapter() -> None:
     """LegacyDecisionAdapter BUY/SELL."""
     try:
-        from trading_agent.execution.canonical.legacy_adapter import LegacyDecisionAdapter
+        from trading_agent.execution.canonical.legacy_adapter import (
+            LegacyDecisionAdapter,
+        )
         from trading_agent.execution.canonical.events import compute_observation_id
-        from trading_agent.execution.canonical.market_observation import EnrichedMarketObservation
+        from trading_agent.execution.canonical.market_observation import (
+            EnrichedMarketObservation,
+        )
         from trading_agent.agents.base import AgentMessage
 
         adapter = LegacyDecisionAdapter()
@@ -281,13 +289,33 @@ def test_legacy_adapter() -> None:
             data_manifest_id="test-manifest",
         )
 
-        buy_signal = AgentMessage(role="trader", signal="BUY", confidence=0.8, reasoning="test", details={"symbol": "BTC/USDT"})
+        buy_signal = AgentMessage(
+            role="trader",
+            signal="BUY",
+            confidence=0.8,
+            reasoning="test",
+            details={"symbol": "BTC/USDT"},
+        )
         risk, target = adapter.adapt(buy_signal, observation)
-        record("legacy_adapter_buy", True, f"target={target.exposure}, approved={risk.approved}")
+        record(
+            "legacy_adapter_buy",
+            True,
+            f"target={target.exposure}, approved={risk.approved}",
+        )
 
-        sell_signal = AgentMessage(role="trader", signal="SELL", confidence=0.8, reasoning="test", details={"symbol": "BTC/USDT"})
+        sell_signal = AgentMessage(
+            role="trader",
+            signal="SELL",
+            confidence=0.8,
+            reasoning="test",
+            details={"symbol": "BTC/USDT"},
+        )
         risk2, target2 = adapter.adapt(sell_signal, observation)
-        record("legacy_adapter_sell", True, f"target={target2.exposure}, approved={risk2.approved}")
+        record(
+            "legacy_adapter_sell",
+            True,
+            f"target={target2.exposure}, approved={risk2.approved}",
+        )
     except Exception as exc:
         record("legacy_adapter", False, f"{exc}\n{traceback.format_exc()}")
 
@@ -295,8 +323,14 @@ def test_legacy_adapter() -> None:
 def test_cancel_race() -> None:
     """Cancel race: FILLED during cancel should not become CANCELED."""
     try:
-        from trading_agent.execution.lifecycle import ExecutionLifecycle, ExecutionEventStore
-        from trading_agent.execution.canonical.broker_gateway import CancelEvidence, CancelState
+        from trading_agent.execution.lifecycle import (
+            ExecutionLifecycle,
+            ExecutionEventStore,
+        )
+        from trading_agent.execution.canonical.broker_gateway import (
+            CancelEvidence,
+            CancelState,
+        )
 
         store = ExecutionEventStore(":memory:").connect()
         lifecycle = ExecutionLifecycle(
@@ -305,7 +339,9 @@ def test_cancel_race() -> None:
         )
 
         intent_id = "cancel-race-test"
-        lifecycle.create_order_intent(intent_id=intent_id, symbol="BTC/USDT", side="sell", size=0.01)
+        lifecycle.create_order_intent(
+            intent_id=intent_id, symbol="BTC/USDT", side="sell", size=0.01
+        )
         lifecycle.approve_risk(intent_id=intent_id)
         lifecycle.authorize_order(
             intent_id=intent_id,
@@ -341,7 +377,11 @@ def test_cancel_race() -> None:
         if order_state and order_state.status.value == "filled":
             record("cancel_race_filled", True, "FILLED during cancel stays FILLED")
         else:
-            record("cancel_race_filled", False, f"status={order_state.status.value if order_state else 'missing'}")
+            record(
+                "cancel_race_filled",
+                False,
+                f"status={order_state.status.value if order_state else 'missing'}",
+            )
     except Exception as exc:
         record("cancel_race_filled", False, f"{exc}\n{traceback.format_exc()}")
 
@@ -349,8 +389,13 @@ def test_cancel_race() -> None:
 def test_protective_ack() -> None:
     """Protective ACK validation."""
     try:
-        from trading_agent.execution.lifecycle import ExecutionLifecycle, ExecutionEventStore
-        from trading_agent.execution.canonical.broker_gateway import ProtectiveAckEvidence
+        from trading_agent.execution.lifecycle import (
+            ExecutionLifecycle,
+            ExecutionEventStore,
+        )
+        from trading_agent.execution.canonical.broker_gateway import (
+            ProtectiveAckEvidence,
+        )
 
         store = ExecutionEventStore(":memory:").connect()
         lifecycle = ExecutionLifecycle(
@@ -359,7 +404,9 @@ def test_protective_ack() -> None:
         )
 
         intent_id = "protective-test"
-        lifecycle.create_order_intent(intent_id=intent_id, symbol="BTC/USDT", side="buy", size=0.01)
+        lifecycle.create_order_intent(
+            intent_id=intent_id, symbol="BTC/USDT", side="buy", size=0.01
+        )
         lifecycle.approve_risk(intent_id=intent_id)
         lifecycle.authorize_order(
             intent_id=intent_id,
@@ -410,7 +457,10 @@ def test_protective_ack() -> None:
 def test_idempotency_retry() -> None:
     """Idempotency retry: same key should not create duplicate intent."""
     try:
-        from trading_agent.execution.lifecycle import ExecutionLifecycle, ExecutionEventStore
+        from trading_agent.execution.lifecycle import (
+            ExecutionLifecycle,
+            ExecutionEventStore,
+        )
 
         store = ExecutionEventStore(":memory:").connect()
         lifecycle = ExecutionLifecycle(
@@ -433,7 +483,11 @@ def test_idempotency_retry() -> None:
                 size=0.01,
                 idempotency_key=idem_key,
             )
-            record("idempotency_retry", False, "duplicate intent created with same idempotency key")
+            record(
+                "idempotency_retry",
+                False,
+                "duplicate intent created with same idempotency key",
+            )
         except Exception as exc:
             if "duplicate idempotency_key" in str(exc):
                 record("idempotency_retry", True, "duplicate rejected")
@@ -446,7 +500,10 @@ def test_idempotency_retry() -> None:
 def test_global_replay() -> None:
     """Global replay equality."""
     try:
-        from trading_agent.execution.lifecycle import ExecutionLifecycle, ExecutionEventStore
+        from trading_agent.execution.lifecycle import (
+            ExecutionLifecycle,
+            ExecutionEventStore,
+        )
 
         store = ExecutionEventStore(":memory:").connect()
         lifecycle = ExecutionLifecycle(
@@ -454,7 +511,9 @@ def test_global_replay() -> None:
             inventory_source=lambda symbol, side: 10.0,
         )
         intent_id = "replay-test"
-        lifecycle.create_order_intent(intent_id=intent_id, symbol="BTC/USDT", side="buy", size=0.01)
+        lifecycle.create_order_intent(
+            intent_id=intent_id, symbol="BTC/USDT", side="buy", size=0.01
+        )
         lifecycle.approve_risk(intent_id=intent_id)
         lifecycle.authorize_order(
             intent_id=intent_id,
@@ -480,7 +539,11 @@ def test_global_replay() -> None:
         if len(replayed.orders) == len(original["orders"]):
             record("global_replay", True, f"replayed {len(replayed.orders)} orders")
         else:
-            record("global_replay", False, f"replayed {len(replayed.orders)} vs original {len(original['orders'])}")
+            record(
+                "global_replay",
+                False,
+                f"replayed {len(replayed.orders)} vs original {len(original['orders'])}",
+            )
     except Exception as exc:
         record("global_replay", False, f"{exc}\n{traceback.format_exc()}")
 

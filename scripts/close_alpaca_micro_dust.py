@@ -58,7 +58,9 @@ class _AlpacaSyncAdapter:
             time_in_force=TimeInForce.IOC,
         )
         order = self._run(self._adapter.submit_order(order_data=order_req))
-        return {"id": getattr(order, "id", None) or getattr(order, "client_order_id", None)}
+        return {
+            "id": getattr(order, "id", None) or getattr(order, "client_order_id", None)
+        }
 
 
 def close_micro_dust_positions():
@@ -73,13 +75,15 @@ def close_micro_dust_positions():
     store = ExecutionEventStore(":memory:").connect()
     lifecycle = ExecutionLifecycle(
         store,
-        price_source=lambda s: TrustedPrice(
-            price=float(sync_adapter.get_ticker(s).get("last") or 0.0),
-            exchange_timestamp=datetime.now(UTC),
-            received_at=datetime.now(UTC),
-        )
-        if sync_adapter.get_ticker(s).get("last")
-        else None,
+        price_source=lambda s: (
+            TrustedPrice(
+                price=float(sync_adapter.get_ticker(s).get("last") or 0.0),
+                exchange_timestamp=datetime.now(UTC),
+                received_at=datetime.now(UTC),
+            )
+            if sync_adapter.get_ticker(s).get("last")
+            else None
+        ),
     )
     gateway = BrokerGateway(adapter=sync_adapter, store=store)
 

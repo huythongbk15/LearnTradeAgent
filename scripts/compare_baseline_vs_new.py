@@ -32,7 +32,9 @@ def summarize_old(d: dict) -> dict:
         "negative_months": pf.get("negative_months"),
         "per_symbol": {
             sym: {
-                "return_contribution_pct_points": m.get("return_contribution_pct_points"),
+                "return_contribution_pct_points": m.get(
+                    "return_contribution_pct_points"
+                ),
                 "sharpe": m.get("sharpe"),
                 "max_drawdown_pct": m.get("max_drawdown_pct"),
                 "win_rate_pct": m.get("win_rate_pct"),
@@ -52,16 +54,18 @@ def summarize_new(d: dict) -> dict:
                 m = fold.get("oos_metrics", {})
                 if m.get("sharpe") is None:
                     continue
-                all_folds.append({
-                    "symbol": sym,
-                    "strategy": strategy_name,
-                    "fold": fold.get("fold"),
-                    "sharpe": m.get("sharpe"),
-                    "return_pct": m.get("total_return_pct"),
-                    "max_dd_pct": m.get("max_drawdown_pct"),
-                    "win_rate": m.get("win_rate"),
-                    "num_trades": m.get("num_trades"),
-                })
+                all_folds.append(
+                    {
+                        "symbol": sym,
+                        "strategy": strategy_name,
+                        "fold": fold.get("fold"),
+                        "sharpe": m.get("sharpe"),
+                        "return_pct": m.get("total_return_pct"),
+                        "max_dd_pct": m.get("max_drawdown_pct"),
+                        "win_rate": m.get("win_rate"),
+                        "num_trades": m.get("num_trades"),
+                    }
+                )
     sharpe_vals = [m["sharpe"] for m in all_folds]
     return_vals = [m["return_pct"] for m in all_folds]
     profitable = [m for m in all_folds if m["return_pct"] > 0]
@@ -104,27 +108,49 @@ def main() -> None:
     print("\n[NEW] 4h WFO 10 symbols")
     print(f"  Universe: {new['symbols']}")
     print(f"  Fold records: {new['fold_records']}")
-    print(f"  Profitable folds: {new['profitable_folds']} ({new['profitable_pct']:.1f}%)")
-    print(f"  Return avg/median: {new['return_avg']:.2f}% / {new['return_median']:.2f}%")
+    print(
+        f"  Profitable folds: {new['profitable_folds']} ({new['profitable_pct']:.1f}%)"
+    )
+    print(
+        f"  Return avg/median: {new['return_avg']:.2f}% / {new['return_median']:.2f}%"
+    )
     print(f"  Sharpe avg/median: {new['sharpe_avg']:.2f} / {new['sharpe_median']:.2f}")
     print(f"  Best/Worst Sharpe: {new['best_sharpe']:.2f} / {new['worst_sharpe']:.2f}")
-    print(f"  Best/Worst Return: {new['best_return']:.2f}% / {new['worst_return']:.2f}%")
+    print(
+        f"  Best/Worst Return: {new['best_return']:.2f}% / {new['worst_return']:.2f}%"
+    )
 
     print("\n[ASSESSMENT]")
-    if old["annualized_sharpe"] < 0 and new["sharpe_avg"] is not None and new["sharpe_avg"] > old["annualized_sharpe"]:
+    if (
+        old["annualized_sharpe"] < 0
+        and new["sharpe_avg"] is not None
+        and new["sharpe_avg"] > old["annualized_sharpe"]
+    ):
         print("  ✅ New system improves Sharpe vs old negative baseline")
     else:
         print("  ⚠️ Sharpe improvement unclear")
 
-    if old["total_return_pct"] < 0 and new["return_avg"] is not None and new["return_avg"] > old["total_return_pct"]:
+    if (
+        old["total_return_pct"] < 0
+        and new["return_avg"] is not None
+        and new["return_avg"] > old["total_return_pct"]
+    ):
         print("  ✅ New system improves return vs old negative baseline")
     else:
         print("  ⚠️ Return improvement unclear")
 
-    print("\n[NOTE] Direct 1h full-system comparison blocked by backtest execution timeout.")
-    print("  Root cause: canonical execution pipeline requires market observation + evidence")
-    print("  for new exposure; legacy backtest path currently times out on full 1h history.")
-    print("  Next: either run smaller 1h slice, or fix backtest pipeline to match old baseline runtime.")
+    print(
+        "\n[NOTE] Direct 1h full-system comparison blocked by backtest execution timeout."
+    )
+    print(
+        "  Root cause: canonical execution pipeline requires market observation + evidence"
+    )
+    print(
+        "  for new exposure; legacy backtest path currently times out on full 1h history."
+    )
+    print(
+        "  Next: either run smaller 1h slice, or fix backtest pipeline to match old baseline runtime."
+    )
 
 
 if __name__ == "__main__":
