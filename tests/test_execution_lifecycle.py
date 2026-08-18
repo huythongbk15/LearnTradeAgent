@@ -14,6 +14,7 @@ import pytest
 
 from trading_agent.execution.canonical import (
     EvidenceState,
+    ProtectiveAckEvidence,
     RiskLevel,
     UnifiedRiskDecision,
 )
@@ -196,7 +197,19 @@ def test_full_lifecycle_and_replay_determinism(tmp_path):
             parent_intent_id="i1",
         )
         protective_id = order.protective_order_ids[0]
-        lc.acknowledge_protective_order(protective_id, broker_ack_id="ack_1")
+        lc.acknowledge_protective_order(
+            protective_id,
+            evidence=ProtectiveAckEvidence(
+                broker_order_id="broker_1",
+                broker_ack_id="ack_1",
+                venue="paper",
+                broker_status="open",
+                acknowledged_at=datetime.now(UTC).isoformat(),
+                protected_symbol="BTC/USDT",
+                protected_quantity=1.0,
+                evidence_source="broker",
+            ),
+        )
         lc.book_fee("i1", 0.1)
         first = lc.snapshot_state()
     # New connection, replay from disk — identical projection
@@ -1056,7 +1069,19 @@ def test_acknowledge_protective_order_sets_protected(store):
     )
     protective_id = order.protective_order_ids[0]
     assert lc.state.protection_state["i1"] == ProtectionState.PROTECTION_REQUIRED
-    lc.acknowledge_protective_order(protective_id, broker_ack_id="ack_1")
+    lc.acknowledge_protective_order(
+        protective_id,
+        evidence=ProtectiveAckEvidence(
+            broker_order_id="broker_1",
+            broker_ack_id="ack_1",
+            venue="paper",
+            broker_status="open",
+            acknowledged_at=datetime.now(UTC).isoformat(),
+            protected_symbol="BTC/USDT",
+            protected_quantity=1.0,
+            evidence_source="broker",
+        ),
+    )
     assert lc.state.protection_state["i1"] == ProtectionState.PROTECTED
 
 
@@ -1147,9 +1172,33 @@ def test_repeated_recovery_does_not_duplicate_protection(store):
         parent_intent_id="i1",
     )
     protective_id = order.protective_order_ids[0]
-    lc.acknowledge_protective_order(protective_id, broker_ack_id="ack_1")
+    lc.acknowledge_protective_order(
+        protective_id,
+        evidence=ProtectiveAckEvidence(
+            broker_order_id="broker_1",
+            broker_ack_id="ack_1",
+            venue="paper",
+            broker_status="open",
+            acknowledged_at=datetime.now(UTC).isoformat(),
+            protected_symbol="BTC/USDT",
+            protected_quantity=1.0,
+            evidence_source="broker",
+        ),
+    )
     # Re-acknowledge same protective order idempotently
-    lc.acknowledge_protective_order(protective_id, broker_ack_id="ack_1")
+    lc.acknowledge_protective_order(
+        protective_id,
+        evidence=ProtectiveAckEvidence(
+            broker_order_id="broker_1",
+            broker_ack_id="ack_1",
+            venue="paper",
+            broker_status="open",
+            acknowledged_at=datetime.now(UTC).isoformat(),
+            protected_symbol="BTC/USDT",
+            protected_quantity=1.0,
+            evidence_source="broker",
+        ),
+    )
     assert lc.state.protection_state["i1"] == ProtectionState.PROTECTED
     assert len(order.protective_order_ids) == 1
 

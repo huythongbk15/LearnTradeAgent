@@ -29,12 +29,16 @@ ALLOWED_FILES = {
     "paper_exchange.py",  # Exchange adapter implementations
     "smart_router.py",  # Smart execution router (adapter-like)
     "runner_adapter.py",  # Canonical wrapper for legacy runners
+    "legacy_authorization.py",  # Legacy authorization bridge
+    "live_enhanced_ma.py",  # Runtime script (canonical via CanonicalBrokerAdapter)
+    "live_enhanced_ma_binance.py",  # Runtime script (canonical via CanonicalBrokerAdapter)
     "test_broker_gateway.py",  # Tests for BrokerGateway
 }
 
 # Directories to scan
 SCAN_DIRS = [
     Path("src/trading_agent/execution"),
+    Path("scripts"),
 ]
 
 

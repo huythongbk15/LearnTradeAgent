@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 from enum import Enum
 from typing import Any, Callable
 
@@ -36,6 +37,7 @@ from trading_agent.execution.lifecycle import (
     ProtectionState,
     ReconciliationState,
 )
+from trading_agent.execution.canonical.broker_gateway import CancelEvidence, CancelState
 
 ALL_INVARIANTS: tuple[str, ...] = (
     "no_duplicate_live_order",
@@ -228,6 +230,7 @@ def run_chaos_scenario(
     size = params.get("size", 1.0)
     price = params.get("price", 100.0)
     intent_id = params.get("intent_id", "intent_chaos")
+    now_iso = datetime.now(UTC).isoformat()
 
     if fault == FaultType.TIMEOUT_BEFORE_ACK:
         # Submit but broker never ACKs → order must remain SUBMITTED (not
@@ -337,8 +340,6 @@ def run_chaos_scenario(
         # replay must stay deterministic; no state corruption.
         attempt(lambda: lifecycle.create_order_intent(intent_id, symbol, side, size))
         attempt(lambda: lifecycle.approve_risk(intent_id))
-        from datetime import UTC, datetime, timedelta
-
         from trading_agent.execution.lifecycle.events import make_event
 
         future = make_event(
@@ -420,7 +421,18 @@ def run_chaos_scenario(
         attempt(lambda: lifecycle.acknowledge_broker(intent_id, broker_order_id="br_1"))
         attempt(lambda: lifecycle.request_cancel(intent_id, reason="network loss"))
         lifecycle.broker_confirm_cancel = lambda i: False  # broker unreachable
-        attempt(lambda: lifecycle.confirm_cancel(intent_id))
+        attempt(
+            lambda: lifecycle.confirm_cancel(
+                intent_id,
+                CancelEvidence(
+                    broker_order_id="br_1",
+                    state=CancelState.UNKNOWN,
+                    venue="paper",
+                    confirmed_at=now_iso,
+                    source="BROKER",
+                ),
+            )
+        )
         order = lifecycle.order(intent_id)
         if order is not None and order.status == IntentStatus.CANCEL_REQUESTED:
             result.notes.append("cancel stays requested (no false confirm)")
@@ -437,7 +449,18 @@ def run_chaos_scenario(
                 intent_id, size / 2, price, protective_trigger=90.0
             )
         )
-        attempt(lambda: lifecycle.confirm_cancel(intent_id))
+        attempt(
+            lambda: lifecycle.confirm_cancel(
+                intent_id,
+                CancelEvidence(
+                    broker_order_id="br_1",
+                    state=CancelState.CANCELED,
+                    venue="paper",
+                    confirmed_at=now_iso,
+                    source="BROKER",
+                ),
+            )
+        )
         result.notes.append("delayed cancel with partial fill stays consistent")
 
     elif fault == FaultType.PARTIAL_FILL_BEFORE_TIMEOUT:
@@ -452,7 +475,18 @@ def run_chaos_scenario(
         )
         # Timeout → cancel remainder.
         attempt(lambda: lifecycle.request_cancel(intent_id, reason="timeout"))
-        attempt(lambda: lifecycle.confirm_cancel(intent_id))
+        attempt(
+            lambda: lifecycle.confirm_cancel(
+                intent_id,
+                CancelEvidence(
+                    broker_order_id="br_1",
+                    state=CancelState.CANCELED,
+                    venue="paper",
+                    confirmed_at=now_iso,
+                    source="BROKER",
+                ),
+            )
+        )
         result.notes.append("partial fill then timeout → remainder canceled")
 
     else:  # pragma: no cover

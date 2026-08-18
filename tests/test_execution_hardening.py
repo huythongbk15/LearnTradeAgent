@@ -28,6 +28,7 @@ from trading_agent.execution.smart_router import (
     OrderPermissionError,
     SmartExecutionEngine,
 )
+from trading_agent.execution.canonical.broker_gateway import CancelEvidence, CancelState
 
 
 def fresh_price() -> TrustedPrice:
@@ -196,7 +197,16 @@ def test_cancel_or_reject_releases_remaining_reservation(store, terminal):
 
     if terminal == "cancel":
         lifecycle.request_cancel("sell")
-        lifecycle.confirm_cancel("sell")
+        lifecycle.confirm_cancel(
+            "sell",
+            CancelEvidence(
+                broker_order_id="ex",
+                state=CancelState.CANCELED,
+                venue="paper",
+                confirmed_at=datetime.now(UTC).isoformat(),
+                source="BROKER",
+            ),
+        )
         assert lifecycle.order("sell").status == IntentStatus.CANCELED
     else:
         lifecycle.reject_order("sell", reason="broker rejected")

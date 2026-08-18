@@ -50,7 +50,7 @@ CREATE TABLE IF NOT EXISTS execution_events (
     causation_id    TEXT,
     occurred_at     TEXT NOT NULL,
     ingested_at     TEXT NOT NULL,
-    global_seq      INTEGER NOT NULL DEFAULT 0,
+    global_seq      INTEGER NOT NULL UNIQUE CHECK (global_seq > 0),
     UNIQUE (aggregate_id, seq)
 );
 CREATE INDEX IF NOT EXISTS idx_exec_agg_seq
@@ -151,22 +151,27 @@ class ExecutionEventStore:
         return self
 
     def _migrate_global_seq_if_needed(self) -> None:
-        """Populate global_seq for existing DBs that don't have it yet."""
+        """Populate global_seq for existing DBs that don't have it yet.
+
+        Policy A (safe boundary):
+        - Old events (already persisted before migration) cannot have their
+          true historical cross-aggregate order reconstructed reliably.
+        - We mark them with global_seq = -1 to indicate "pre-migration".
+        - New events appended after migration receive strictly monotonic
+          global_seq > 0.
+        - Replay must handle pre-migration events separately (e.g., via
+          snapshot or aggregate-local replay).
+        """
         cursor = self.conn.execute(
             "SELECT COUNT(*) AS c FROM execution_events WHERE global_seq = 0"
         )
         row = cursor.fetchone()
         if row is None or row["c"] == 0:
             return
-        # Backfill global_seq in order of (aggregate_id, seq)
-        events = self.conn.execute(
-            "SELECT event_id FROM execution_events WHERE global_seq = 0 ORDER BY aggregate_id, seq"
-        ).fetchall()
-        for i, (event_id,) in enumerate(events, start=1):
-            self.conn.execute(
-                "UPDATE execution_events SET global_seq = ? WHERE event_id = ?",
-                (i, event_id),
-            )
+        # Mark pre-migration events with -1; new events will get >0
+        self.conn.execute(
+            "UPDATE execution_events SET global_seq = -1 WHERE global_seq = 0"
+        )
         self.conn.commit()
 
     def close(self) -> None:
@@ -407,19 +412,28 @@ class ExecutionEventStore:
         results: list[bool] = []
         try:
             with self.conn:
-                for event in events:
+                # Pre-allocate global_seq for the entire batch to ensure
+                # strict monotonicity within the transaction.
+                max_global = self.conn.execute(
+                    "SELECT COALESCE(MAX(global_seq), 0) FROM execution_events"
+                ).fetchone()[0]
+                global_seq_counter = max_global
+                for idx, event in enumerate(events):
+                    global_seq_counter += 1
                     row = event.to_row()
                     row["ingested_at"] = datetime.now(UTC).isoformat()
+                    row["global_seq"] = global_seq_counter
                     cur = self.conn.execute(
                         """
                         INSERT OR IGNORE INTO execution_events
                         (event_id, seq, aggregate_id, event_type, schema_version,
                          payload, correlation_id, causation_id, occurred_at,
-                         ingested_at)
+                         ingested_at, global_seq)
                         VALUES
                         (:event_id, :seq, :aggregate_id, :event_type,
                          :schema_version, :payload, :correlation_id,
-                         :causation_id, :occurred_at, :ingested_at)
+                         :causation_id, :occurred_at, :ingested_at,
+                         :global_seq)
                         """,
                         row,
                     )

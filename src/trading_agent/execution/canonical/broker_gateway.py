@@ -5,77 +5,135 @@ flow through this gateway.  Direct calls to ``adapter.place_order()``,
 ``exchange.create_order()``, ``engine.close_all()``, or
 ``exchange._close_position()`` are FORBIDDEN outside this module.
 
-The gateway is intentionally thin: it validates inputs, records the intent,
-and delegates to the configured exchange adapter.  All side-effects (fills,
-cancellations, protective orders) are emitted as execution events so the
-lifecycle store can replay them.
+The gateway is intentionally thin: it validates inputs, delegates to the
+configured exchange adapter, and returns typed broker facts.  It does NOT:
+- emit financial lifecycle events;
+- allocate event sequences;
+- decide lifecycle state transitions;
+- interpret broker outcomes into financial state.
+
+All side-effects (fills, cancellations, protective orders) are interpreted
+and persisted by ExecutionLifecycle.
 """
 
 from __future__ import annotations
 
+import math
+from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any, Protocol
 
-from trading_agent.execution.canonical.order_planner import OrderIntent
-from trading_agent.execution.canonical.protection import ProtectionPlan, ProtectionState
-from trading_agent.execution.lifecycle.events import (
-    ExecutionEventType,
-    make_event,
+from trading_agent.execution.canonical.protection import (
+    ProtectionPlan,
+    ProtectionQuantityMode,
+    ProtectionState,
 )
 
 
-class AuthorizedOrder:
-    """Thin authorization wrapper for broker submission.
+class AuthorizationError(RuntimeError):
+    """Raised when an unauthorized order reaches the gateway."""
 
-    The lifecycle/permission layer creates this from a validated OrderIntent.
-    BrokerGateway only accepts AuthorizedOrder to prevent bypass.
+
+class CancelState(str, Enum):
+    """Typed cancel terminal and non-terminal states."""
+    REQUEST_ACCEPTED = "REQUEST_ACCEPTED"
+    PENDING = "PENDING"
+    CANCELED = "CANCELED"
+    FILLED = "FILLED"
+    REJECTED = "REJECTED"
+    EXPIRED = "EXPIRED"
+    UNKNOWN = "UNKNOWN"
+    FAILED = "FAILED"
+
+
+@dataclass(frozen=True)
+class CancelEvidence:
+    """Typed terminal evidence for a cancel request."""
+    broker_order_id: str
+    state: CancelState
+    venue: str
+    confirmed_at: str
+    source: str  # "BROKER" | "RECONCILIATION" | "SIMULATOR"
+    raw_response: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class ProtectiveAckEvidence:
+    """Typed evidence that a protective order is acknowledged by the broker."""
+    broker_order_id: str
+    broker_ack_id: str
+    venue: str
+    broker_status: str
+    acknowledged_at: str
+    protected_symbol: str
+    protected_quantity: float
+    evidence_source: str  # "BROKER" | "RECONCILIATION" | "SIMULATOR"
+    raw_response: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class BrokerSubmitResult:
+    """Typed result of a broker submit."""
+    success: bool
+    broker_order_id: str | None
+    error: str | None
+    raw_response: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class CancelResult:
+    """Typed result of a broker cancel request."""
+    success: bool
+    evidence: CancelEvidence | None
+    error: str | None
+
+
+@dataclass(frozen=True)
+class ProtectiveSubmitResult:
+    """Typed result of a protective order submission."""
+    success: bool
+    evidence: ProtectiveAckEvidence | None
+    error: str | None
+
+
+class AuthorizedOrder:
+    """Unforgeable authorization wrapper for broker submission.
+
+    Construction is restricted to the lifecycle authorization path.
+    Normal callers cannot create valid instances.
     """
 
-    def __init__(
-        self,
-        intent_id: str,
-        symbol: str,
-        side: str,
-        quantity: float,
-        idempotency_key: str,
-        price_reference: float,
-        metadata: dict[str, Any] | None = None,
-    ) -> None:
-        self.intent_id = intent_id
-        self.symbol = symbol
-        self.side = side
-        self.quantity = quantity
-        self.idempotency_key = idempotency_key
-        self.price_reference = price_reference
-        self.metadata = metadata or {}
+    def __init__(self, token: str, **fields: Any) -> None:
+        if token != "__authorized__":
+            raise AuthorizationError(
+                "AuthorizedOrder must be created through lifecycle authorization"
+            )
+        self._token = token
+        self.intent_id = fields["intent_id"]
+        self.symbol = fields["symbol"]
+        self.side = fields["side"]
+        self.quantity = fields["quantity"]
+        self.idempotency_key = fields["idempotency_key"]
+        self.price_reference = fields["price_reference"]
+        self.metadata = fields.get("metadata", {})
+        # Required authorization evidence
+        self.risk_decision_id = fields["risk_decision_id"]
+        self.forecast_fingerprint = fields["forecast_fingerprint"]
+        self.model_artifact_id = fields["model_artifact_id"]
+        self.permission_result = fields["permission_result"]
+        self.authorization_id = fields["authorization_id"]
+        self.lifecycle_event_id = fields["lifecycle_event_id"]
+        self.correlation_id = fields["correlation_id"]
+        self.exposure_effect = fields["exposure_effect"]
+        self.current_exposure = fields["current_exposure"]
+        self.resulting_exposure = fields["resulting_exposure"]
+        self.authorized_at = fields["authorized_at"]
+        self.authorization_hash = fields["authorization_hash"]
 
-
-class CapitalChangeResult:
-    """Result of a capital-changing gateway call."""
-
-    def __init__(
-        self,
-        success: bool,
-        broker_order_id: str | None = None,
-        error: str | None = None,
-        raw_response: dict[str, Any] | None = None,
-    ) -> None:
-        self.success = success
-        self.broker_order_id = broker_order_id
-        self.error = error
-        self.raw_response = raw_response or {}
-
-    @property
-    def status(self) -> str | None:
-        """Extract order status from raw_response if available."""
-        return self.raw_response.get("status")
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "success": self.success,
-            "broker_order_id": self.broker_order_id,
-            "error": self.error,
-            "raw_response": self.raw_response,
-        }
+    @classmethod
+    def create(cls, **fields: Any) -> AuthorizedOrder:
+        """Factory for lifecycle-authorized orders."""
+        return cls(token="__authorized__", **fields)
 
 
 class ExchangeAdapter(Protocol):
@@ -83,6 +141,10 @@ class ExchangeAdapter(Protocol):
 
     Implementations must NOT be called from outside the gateway.
     """
+
+    capabilities: dict[str, bool] = {
+        "close_position_protection": False,
+    }
 
     def place_order(self, order: dict[str, Any]) -> dict[str, Any]: ...
     def create_order(
@@ -110,58 +172,27 @@ class BrokerGateway:
     adapter:
         The exchange/broker adapter.  The gateway owns the reference; no
         other module may call the adapter directly.
-    event_sink:
-        Callable that receives ExecutionEvent instances for append to the
-        lifecycle store.
     """
 
-    def __init__(
-        self,
-        adapter: ExchangeAdapter,
-        event_sink: Any | None = None,
-    ) -> None:
+    def __init__(self, adapter: ExchangeAdapter) -> None:
         self._adapter = adapter
-        self._event_sink = event_sink
 
     # ── Public API ───────────────────────────────────────────────────────
 
     def submit(
         self,
-        order: AuthorizedOrder | OrderIntent,
+        order: AuthorizedOrder,
         *,
         correlation_id: str,
-        causation_id: str | None = None,
-    ) -> CapitalChangeResult:
+    ) -> BrokerSubmitResult:
         """Submit an order to the broker.
 
-        This is the ONLY path that creates a new broker order.
-        Prefer AuthorizedOrder; raw OrderIntent is accepted for backward
-        compatibility but will be removed in a future release.
+        Accepts ONLY lifecycle-authorized AuthorizedOrder.
         """
-        # Backward compatibility: accept OrderIntent but warn
-        if isinstance(order, OrderIntent):
-            # In production, this should be a hard error. For now, allow it
-            # but log a warning. The test suite will enforce AuthorizedOrder.
-            pass
-        intent = order
-        if self._event_sink is not None:
-            event = make_event(
-                event_type=ExecutionEventType.ORDER_SUBMITTED,
-                aggregate_id=order.intent_id,
-                seq=1,
-                payload={
-                    "order_id": order.intent_id,
-                    "symbol": order.symbol,
-                    "side": order.side,
-                    "qty": order.quantity,
-                    "order_type": "market",
-                    "idempotency_key": order.idempotency_key,
-                },
-                correlation_id=correlation_id,
-                causation_id=causation_id,
+        if not isinstance(order, AuthorizedOrder):
+            raise AuthorizationError(
+                f"BrokerGateway.submit() accepts only AuthorizedOrder, got {type(order).__name__}"
             )
-            self._event_sink(event)
-
         order_payload = {
             "id": order.intent_id,
             "symbol": order.symbol,
@@ -173,72 +204,56 @@ class BrokerGateway:
         try:
             response = self._adapter.place_order(order_payload)
             broker_order_id = response.get("id") or response.get("order_id")
-            return CapitalChangeResult(
+            return BrokerSubmitResult(
                 success=True,
                 broker_order_id=broker_order_id,
                 raw_response=response,
             )
         except Exception as exc:
-            if self._event_sink is not None:
-                reject = make_event(
-                    event_type=ExecutionEventType.ORDER_REJECTED,
-                    aggregate_id=order.intent_id,
-                    seq=1,
-                    payload={
-                        "order_id": order.intent_id,
-                        "error": str(exc),
-                    },
-                    correlation_id=correlation_id,
-                    causation_id=causation_id,
-                )
-                self._event_sink(reject)
-            return CapitalChangeResult(success=False, error=str(exc))
+            return BrokerSubmitResult(
+                success=False,
+                broker_order_id=None,
+                error=str(exc),
+            )
 
     def cancel(
         self,
         order_id: str,
         *,
         correlation_id: str,
-        causation_id: str | None = None,
-    ) -> CapitalChangeResult:
-        """Request cancellation of a broker order."""
-        if self._event_sink is not None:
-            event = make_event(
-                event_type=ExecutionEventType.CANCEL_REQUESTED,
-                aggregate_id=order_id,
-                seq=1,
-                payload={"order_id": order_id},
-                correlation_id=correlation_id,
-                causation_id=causation_id,
-            )
-            self._event_sink(event)
+    ) -> CancelResult:
+        """Request cancellation of a broker order.
 
+        Returns typed CancelResult.  Lifecycle interprets broker response
+        into terminal evidence.
+        """
         try:
             response = self._adapter.cancel_order(order_id)
-            if self._event_sink is not None:
-                confirm = make_event(
-                    event_type=ExecutionEventType.CANCEL_CONFIRMED,
-                    aggregate_id=order_id,
-                    seq=2,
-                    payload={"order_id": order_id},
-                    correlation_id=correlation_id,
-                    causation_id=causation_id,
-                )
-                self._event_sink(confirm)
-            return CapitalChangeResult(
+            # Adapter returned without exception — request accepted, not confirmed
+            return CancelResult(
                 success=True,
-                broker_order_id=order_id,
-                raw_response=response,
+                evidence=CancelEvidence(
+                    broker_order_id=order_id,
+                    state=CancelState.REQUEST_ACCEPTED,
+                    venue="",
+                    confirmed_at="",
+                    source="BROKER",
+                    raw_response=response,
+                ),
+                error=None,
             )
         except Exception as exc:
-            return CapitalChangeResult(success=False, error=str(exc))
+            return CancelResult(
+                success=False,
+                evidence=None,
+                error=str(exc),
+            )
 
     def fetch_order(
         self,
         order_id: str,
         *,
         correlation_id: str,
-        causation_id: str | None = None,
     ) -> dict[str, Any]:
         """Fetch current state of a broker order."""
         return self._adapter.fetch_order(order_id)
@@ -247,7 +262,6 @@ class BrokerGateway:
         self,
         *,
         correlation_id: str,
-        causation_id: str | None = None,
     ) -> list[dict[str, Any]]:
         """Fetch current positions from the broker."""
         return self._adapter.fetch_positions()
@@ -256,7 +270,6 @@ class BrokerGateway:
         self,
         *,
         correlation_id: str,
-        causation_id: str | None = None,
     ) -> dict[str, Any]:
         """Fetch current balances from the broker."""
         return self._adapter.fetch_balances()
@@ -266,31 +279,39 @@ class BrokerGateway:
         plan: ProtectionPlan,
         *,
         correlation_id: str,
-        causation_id: str | None = None,
-    ) -> CapitalChangeResult:
+    ) -> ProtectiveSubmitResult:
         """Submit a protective order (stop-loss / take-profit).
 
         This is the ONLY path that creates a protective broker order.
+        Returns typed result; lifecycle interprets into ProtectiveAckEvidence.
         """
         if plan.state != ProtectionState.PROTECTION_REQUIRED:
             raise ValueError(f"cannot submit protection in state {plan.state.value}")
 
-        if self._event_sink is not None:
-            event = make_event(
-                event_type=ExecutionEventType.PROTECTIVE_ORDER_CREATED,
-                aggregate_id=plan.plan_id,
-                seq=1,
-                payload={
-                    "plan_id": plan.plan_id,
-                    "symbol": plan.symbol,
-                    "stop_type": plan.stop_type,
-                    "stop_trigger": plan.stop_trigger,
-                    "take_profit": plan.take_profit,
-                },
-                correlation_id=correlation_id,
-                causation_id=causation_id,
+        # Validate quantity semantics (P0)
+        if plan.quantity_mode == ProtectionQuantityMode.EXPLICIT_QUANTITY:
+            if not math.isfinite(plan.protected_quantity) or plan.protected_quantity <= 0:
+                return ProtectiveSubmitResult(
+                    success=False,
+                    evidence=None,
+                    error="EXPLICIT_QUANTITY requires protected_quantity > 0",
+                )
+            qty = plan.protected_quantity
+        elif plan.quantity_mode == ProtectionQuantityMode.CLOSE_POSITION:
+            capabilities = getattr(self._adapter, "capabilities", {})
+            if not capabilities.get("close_position_protection", False):
+                return ProtectiveSubmitResult(
+                    success=False,
+                    evidence=None,
+                    error="adapter does not support CLOSE_POSITION protection",
+                )
+            qty = 0.0  # adapter interprets as close position
+        else:
+            return ProtectiveSubmitResult(
+                success=False,
+                evidence=None,
+                error=f"unsupported quantity_mode: {plan.quantity_mode}",
             )
-            self._event_sink(event)
 
         # Build broker order payload from plan
         order_payload: dict[str, Any] = {
@@ -304,37 +325,37 @@ class BrokerGateway:
             response = self._adapter.create_order(
                 symbol=plan.symbol,
                 side="sell",
-                qty=0.0,  # protective orders may use different qty semantics
+                qty=qty,
                 order_type=plan.stop_type,
                 limit_price=plan.take_profit,
             )
             broker_order_id = response.get("id") or response.get("order_id")
-            if self._event_sink is not None:
-                ack = make_event(
-                    event_type=ExecutionEventType.PROTECTIVE_ORDER_ACKNOWLEDGED,
-                    aggregate_id=plan.plan_id,
-                    seq=2,
-                    payload={
-                        "plan_id": plan.plan_id,
-                        "broker_order_id": broker_order_id,
-                    },
-                    correlation_id=correlation_id,
-                    causation_id=causation_id,
-                )
-                self._event_sink(ack)
-            return CapitalChangeResult(
+            return ProtectiveSubmitResult(
                 success=True,
-                broker_order_id=broker_order_id,
-                raw_response=response,
+                evidence=ProtectiveAckEvidence(
+                    broker_order_id=broker_order_id or "",
+                    broker_ack_id=broker_order_id or "",
+                    venue="",
+                    broker_status="",
+                    acknowledged_at="",
+                    protected_symbol=plan.symbol,
+                    protected_quantity=plan.protected_quantity,
+                    evidence_source="BROKER",
+                    raw_response=response,
+                ),
+                error=None,
             )
         except Exception as exc:
-            return CapitalChangeResult(success=False, error=str(exc))
+            return ProtectiveSubmitResult(
+                success=False,
+                evidence=None,
+                error=str(exc),
+            )
 
     def close_all_positions(
         self,
         *,
         correlation_id: str,
-        causation_id: str | None = None,
         reason: str = "manual_kill",
     ) -> dict[str, list[str]]:
         """Emergency close all positions.
@@ -358,5 +379,12 @@ class BrokerGateway:
 __all__ = [
     "ExchangeAdapter",
     "BrokerGateway",
-    "CapitalChangeResult",
+    "AuthorizedOrder",
+    "CancelState",
+    "CancelEvidence",
+    "ProtectiveAckEvidence",
+    "BrokerSubmitResult",
+    "CancelResult",
+    "ProtectiveSubmitResult",
+    "AuthorizationError",
 ]

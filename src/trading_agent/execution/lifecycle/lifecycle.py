@@ -35,6 +35,10 @@ from enum import Enum
 from typing import Any, Callable, Mapping
 
 from trading_agent.execution.canonical import UnifiedRiskDecision
+from trading_agent.execution.canonical.broker_gateway import (
+    CancelEvidence,
+    ProtectiveAckEvidence,
+)
 from trading_agent.execution.lifecycle.events import (
     ExecutionEvent,
     ExecutionEventType,
@@ -465,10 +469,15 @@ class ExecutionLifecycle:
     # ── Deterministic replay ────────────────────────────────────────────
 
     def replay(self, events: list[ExecutionEvent]) -> LifecycleState:
-        """Replay events in seq order into a fresh state (deterministic)."""
+        """Replay events in seq order into a fresh state (deterministic).
+
+        Assumes events are already sorted by (aggregate_id, seq) or by
+        global_seq for cross-aggregate replay.  For true global replay,
+        use replay_global().
+        """
         state = LifecycleState()
         seen: set[str] = set()
-        for event in sorted(events, key=lambda e: (e.aggregate_id, e.seq)):
+        for event in events:
             if event.event_id in seen:
                 continue  # duplicate event — idempotent
             seen.add(event.event_id)
@@ -476,10 +485,31 @@ class ExecutionLifecycle:
         self.state = state
         return state
 
+    def replay_global(self, events: list[ExecutionEvent]) -> LifecycleState:
+        """Replay events in strict global_seq order (cross-aggregate replay)."""
+        if not events:
+            return LifecycleState()
+        # Verify global_seq is present and strictly increasing
+        prev_seq = 0
+        for event in events:
+            if event.global_seq <= 0:
+                raise LifecycleError(
+                    f"global replay requires global_seq > 0, got {event.global_seq} "
+                    f"for {event.event_id}"
+                )
+            if event.global_seq <= prev_seq:
+                raise LifecycleError(
+                    f"global_seq not strictly increasing: {prev_seq} -> {event.global_seq} "
+                    f"for {event.event_id}"
+                )
+            prev_seq = event.global_seq
+        # Events are assumed to be pre-sorted by global_seq; do not re-sort.
+        return self.replay(list(events))
+
     def load(self) -> LifecycleState:
         """Load + replay the persisted log (crash recovery entry point)."""
-        events = self.store.read_events()
-        return self.replay(events)
+        events = self.store.read_events_global()
+        return self.replay_global(events)
 
     _EVENT_HANDLERS = {
         ExecutionEventType.ORDER_INTENT_CREATED: "_on_order_intent_created",
@@ -608,10 +638,23 @@ class ExecutionLifecycle:
     def _on_cancel_confirmed(
         self, state: LifecycleState, event: ExecutionEvent
     ) -> None:
+        from trading_agent.execution.canonical.broker_gateway import CancelState
+
         order = state.orders.get(event.aggregate_id)
         if order is not None:
-            self._release_sell_remainder(order)
-            order.status = IntentStatus.CANCELED
+            state_value = event.payload.get("state", "")
+            # Only release on terminal evidence
+            if state_value in {
+                CancelState.CANCELED.value,
+                CancelState.FILLED.value,
+                CancelState.REJECTED.value,
+                CancelState.EXPIRED.value,
+            }:
+                self._release_sell_remainder(order)
+                order.status = IntentStatus.CANCELED
+            else:
+                # Non-terminal cancel state — keep reservation locked
+                order.status = IntentStatus.CANCEL_REQUESTED
 
     def _on_protective_order_created(
         self, state: LifecycleState, event: ExecutionEvent
@@ -635,6 +678,12 @@ class ExecutionLifecycle:
         protective = state.protective_orders.get(event.aggregate_id)
         parent = event.payload.get("parent_intent_id")
         if protective is not None and parent and parent in state.orders:
+            # Validate protective evidence before marking PROTECTED
+            broker_order_id = event.payload.get("broker_order_id")
+            broker_ack_id = event.payload.get("broker_ack_id")
+            if not broker_order_id or not broker_ack_id:
+                # Missing broker evidence — do NOT mark PROTECTED
+                return
             state.protection_state[parent] = ProtectionState.PROTECTED
 
     def _on_protective_order_replaced(
@@ -707,6 +756,7 @@ class ExecutionLifecycle:
         symbol: str,
         side: str,
         size: float,
+        idempotency_key: str | None = None,
     ) -> ExecutionEvent:
         """Invariant 5: no increased exposure while kill switch blocks entry."""
         if side not in ("buy", "sell"):
@@ -735,6 +785,19 @@ class ExecutionLifecycle:
             )
         if intent_id in self.state.orders:
             raise LifecycleError(f"intent {intent_id} already exists")
+        # Durable idempotency: atomically register intent before emitting event
+        if idempotency_key is not None:
+            existing_id = self.store.upsert_order_intent(
+                intent_id=intent_id,
+                idempotency_key=idempotency_key,
+                symbol=symbol,
+                side=side,
+                size=size,
+            )
+            if existing_id != intent_id:
+                raise LifecycleError(
+                    f"duplicate idempotency_key: {idempotency_key} maps to {existing_id}"
+                )
         return self._emit(
             ExecutionEventType.ORDER_INTENT_CREATED,
             intent_id,
@@ -940,20 +1003,39 @@ class ExecutionLifecycle:
             {"order_id": intent_id, "reason": reason},
         )
 
-    def confirm_cancel(self, intent_id: str) -> ExecutionEvent:
+    def confirm_cancel(self, intent_id: str, evidence: CancelEvidence) -> ExecutionEvent:
+        """Confirm cancellation with typed terminal evidence.
+
+        Only terminal states (CANCELED, FILLED, REJECTED, EXPIRED) allow
+        reservation release.  Non-terminal states (PENDING, UNKNOWN,
+        REQUEST_ACCEPTED) keep the SELL reservation locked.
+        """
+        from trading_agent.execution.canonical.broker_gateway import CancelState
+
         order = self.state.order(intent_id)
         if order is None or order.status != IntentStatus.CANCEL_REQUESTED:
             raise LifecycleError(f"no pending cancel for {intent_id}")
-        if self.broker_confirm_cancel is not None and not self.broker_confirm_cancel(
-            intent_id
-        ):
+        if evidence.state not in {
+            CancelState.CANCELED,
+            CancelState.FILLED,
+            CancelState.REJECTED,
+            CancelState.EXPIRED,
+        }:
             raise LifecycleError(
-                f"broker unreachable: cancel for {intent_id} not confirmed"
+                f"cancel evidence state {evidence.state.value} is not terminal; "
+                f"reservation remains locked for {intent_id}"
             )
         return self._emit(
             ExecutionEventType.CANCEL_CONFIRMED,
             intent_id,
-            {"order_id": intent_id},
+            {
+                "order_id": intent_id,
+                "broker_order_id": evidence.broker_order_id,
+                "state": evidence.state.value,
+                "venue": evidence.venue,
+                "confirmed_at": evidence.confirmed_at,
+                "source": evidence.source,
+            },
         )
 
     def reject_order(self, intent_id: str, reason: str = "") -> ExecutionEvent:
@@ -999,12 +1081,20 @@ class ExecutionLifecycle:
     def acknowledge_protective_order(
         self,
         protective_order_id: str,
-        *,
-        broker_ack_id: str | None = None,
+        evidence: ProtectiveAckEvidence,
     ) -> ExecutionEvent:
+        """Acknowledge protective order with real broker/reconciliation evidence."""
         protective = self.state.protective_orders.get(protective_order_id)
         if protective is None:
             raise LifecycleError(f"unknown protective order {protective_order_id}")
+        if protective.symbol != evidence.protected_symbol:
+            raise LifecycleError(
+                f"protective order symbol mismatch: {protective.symbol} != {evidence.protected_symbol}"
+            )
+        if not evidence.broker_order_id:
+            raise LifecycleError("protective ack evidence requires broker_order_id")
+        if not evidence.broker_ack_id:
+            raise LifecycleError("protective ack evidence requires broker_ack_id")
         parent_intent_id = None
         for intent_id, order in self.state.orders.items():
             if protective_order_id in order.protective_order_ids:
@@ -1017,9 +1107,14 @@ class ExecutionLifecycle:
         payload = {
             "protective_order_id": protective_order_id,
             "parent_intent_id": parent_intent_id,
+            "broker_order_id": evidence.broker_order_id,
+            "broker_ack_id": evidence.broker_ack_id,
+            "venue": evidence.venue,
+            "broker_status": evidence.broker_status,
+            "acknowledged_at": evidence.acknowledged_at,
+            "protected_quantity": evidence.protected_quantity,
+            "evidence_source": evidence.evidence_source,
         }
-        if broker_ack_id is not None:
-            payload["broker_ack_id"] = broker_ack_id
         return self._emit(
             ExecutionEventType.PROTECTIVE_ORDER_ACKNOWLEDGED,
             protective_order_id,

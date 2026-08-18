@@ -45,6 +45,7 @@ from trading_agent.exchanges.models import (
     TimeInForce,
 )
 from trading_agent.execution.canonical import CanonicalBrokerAdapter
+from trading_agent.execution.canonical.legacy_authorization import LegacyAuthorizationEvidence
 from trading_agent.execution.correlation import bind_run_correlation
 from trading_agent.execution.data_trust import (
     BINANCE_MAINNET_TIME_URL,
@@ -634,10 +635,39 @@ def ensure_protective_stop(
                 raise LiveSafetyError(
                     f"active protective order ID is missing for {pair}"
                 )
-            result = broker.replace_order(exchange_order_id, order)
+            result = broker.replace_order(
+                exchange_order_id,
+                order,
+                evidence=LegacyAuthorizationEvidence(
+                    symbol=pair,
+                    side="sell",
+                    quantity=normalized_quantity,
+                    price_reference=desired_stop,
+                    signal_reason="PROTECTIVE_STOP_REPLACE",
+                    strategy_version="legacy-binance-ma-v1",
+                    account_equity=0.0,  # populated upstream if available
+                    current_exposure=0.0,
+                    idempotency_key=str(pending["client_order_id"]),
+                    correlation_id=str(pending["client_order_id"]),
+                ),
+            )
             operation = "protective_stop_replaced"
         else:
-            result = broker.place_order(order)
+            result = broker.place_order(
+                order,
+                evidence=LegacyAuthorizationEvidence(
+                    symbol=pair,
+                    side="sell",
+                    quantity=normalized_quantity,
+                    price_reference=desired_stop,
+                    signal_reason="PROTECTIVE_STOP_PLACE",
+                    strategy_version="legacy-binance-ma-v1",
+                    account_equity=0.0,
+                    current_exposure=0.0,
+                    idempotency_key=str(pending["client_order_id"]),
+                    correlation_id=str(pending["client_order_id"]),
+                ),
+            )
     except Exception as exc:
         store.update_pending_protective_order(
             pair,
@@ -1484,7 +1514,22 @@ def execute_orders(
                     raise LiveSafetyError(
                         f"active protective order ID is missing for {pair}"
                     )
-                result = broker.replace_order(protective_exchange_id, order)
+                result = broker.replace_order(
+                    protective_exchange_id,
+                    order,
+                    evidence=LegacyAuthorizationEvidence(
+                        symbol=pair,
+                        side="sell",
+                        quantity=float(order.size) if hasattr(order, "size") else 0.0,
+                        price_reference=float(order.stop_price) if hasattr(order, "stop_price") else 0.0,
+                        signal_reason="PROTECTIVE_STOP_EXIT_REPLACE",
+                        strategy_version="legacy-binance-ma-v1",
+                        account_equity=0.0,
+                        current_exposure=0.0,
+                        idempotency_key=order_key,
+                        correlation_id=order_key,
+                    ),
+                )
                 store.clear_active_protective_order(pair)
                 _audit_protective_event(
                     audit_log_path,
@@ -1498,7 +1543,21 @@ def execute_orders(
                     },
                 )
             else:
-                result = broker.place_order(order)
+                result = broker.place_order(
+                    order,
+                    evidence=LegacyAuthorizationEvidence(
+                        symbol=pair,
+                        side="sell",
+                        quantity=float(order.size) if hasattr(order, "size") else 0.0,
+                        price_reference=float(order.stop_price) if hasattr(order, "stop_price") else 0.0,
+                        signal_reason="PROTECTIVE_STOP_EXIT_PLACE",
+                        strategy_version="legacy-binance-ma-v1",
+                        account_equity=0.0,
+                        current_exposure=0.0,
+                        idempotency_key=order_key,
+                        correlation_id=order_key,
+                    ),
+                )
         except Exception as exc:
             store.update_order(order_key, status="reconciling", error=str(exc))
             if audit_log_path:
