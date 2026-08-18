@@ -34,7 +34,11 @@ from datetime import UTC, datetime
 from enum import Enum
 from typing import Any, Callable, Mapping
 
-from trading_agent.execution.canonical import UnifiedRiskDecision, RiskLevel
+from trading_agent.execution.canonical import (
+    UnifiedRiskDecision,
+    RiskLevel,
+    EvidenceState,
+)
 from trading_agent.execution.canonical.broker_gateway import (
     CancelEvidence,
     ProtectiveAckEvidence,
@@ -580,10 +584,14 @@ class ExecutionLifecycle:
             if risk_decision_data is not None:
                 order.risk_decision = UnifiedRiskDecision(**risk_decision_data)
 
-    def _on_order_authorized(self, state: LifecycleState, event: ExecutionEvent) -> None:
+    def _on_order_authorized(
+        self, state: LifecycleState, event: ExecutionEvent
+    ) -> None:
         order = state.orders.get(event.aggregate_id)
         if order is not None:
-            order.authorized_quantity = float(event.payload.get("authorized_quantity", 0.0))
+            order.authorized_quantity = float(
+                event.payload.get("authorized_quantity", 0.0)
+            )
             order.authorization_id = event.payload.get("authorization_id")
             order.idempotency_key = event.payload.get("idempotency_key")
             order.payload_hash = event.payload.get("payload_hash")

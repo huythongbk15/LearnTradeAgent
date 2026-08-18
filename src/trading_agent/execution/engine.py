@@ -23,6 +23,7 @@ from trading_agent.execution.canonical import (
     BrokerGateway,
     LegacyDecisionAdapter,
     OrderPlanner,
+    AuthorizedOrder,
     EnrichedMarketObservation,
     CurrentPortfolioState,
     MarketPrice,
@@ -31,10 +32,21 @@ from trading_agent.execution.canonical import (
     ProtectionQuantityMode,
     ProtectiveAckEvidence,
 )
-from trading_agent.execution.canonical.risk_decision import RiskLevel
-from trading_agent.execution.canonical.order_planner import OrderPlanningStatus, ExposureEffect
-from trading_agent.execution.permission import PermissionContext, evaluate_order_permission
-from trading_agent.execution.lifecycle import ExecutionLifecycle, ExecutionEventStore, ExecutionHealth, TrustedPrice
+from trading_agent.execution.canonical.order_planner import (
+    OrderPlanningStatus,
+    ExposureEffect,
+)
+from trading_agent.execution.permission import (
+    PermissionContext,
+    evaluate_order_permission,
+)
+from trading_agent.execution.lifecycle import (
+    ExecutionLifecycle,
+    ExecutionEventStore,
+    ExecutionHealth,
+    TrustedPrice,
+)
+from trading_agent.execution.lifecycle.lifecycle import EmergencyReduceRequest
 from trading_agent.execution.types import (
     Order,
     OrderSide,
@@ -132,7 +144,9 @@ class ExecutionEngine:
 
     # ── Execute signals from Phase 2 agents ────────────────────────────
 
-    def execute_signal(self, signal: AgentMessage, observation: EnrichedMarketObservation | None = None) -> list[Order]:
+    def execute_signal(
+        self, signal: AgentMessage, observation: EnrichedMarketObservation | None = None
+    ) -> list[Order]:
         """Execute a trading signal from the multi-agent system.
 
         Takes the final ``Trader`` agent signal and converts it to orders
@@ -157,10 +171,14 @@ class ExecutionEngine:
 
         # ── Observation: must come from market data layer ───────────────
         if observation is None:
-            logger.warning("execute_signal requires a market observation from the data layer")
+            logger.warning(
+                "execute_signal requires a market observation from the data layer"
+            )
             return orders
         if not observation.is_closed:
-            logger.warning(f"Refusing to execute from unclosed observation {observation.observation_id}")
+            logger.warning(
+                f"Refusing to execute from unclosed observation {observation.observation_id}"
+            )
             return orders
 
         # ── Canonical legacy adapter: AgentMessage → risk + target ─────
@@ -192,7 +210,9 @@ class ExecutionEngine:
         )
 
         # ── Permission check (canonical PermissionContext) ─────────────
-        exposure_effect = ExposureEffect.INCREASE if signal_str == "BUY" else ExposureEffect.REDUCE
+        exposure_effect = (
+            ExposureEffect.INCREASE if signal_str == "BUY" else ExposureEffect.REDUCE
+        )
         permission_ctx = PermissionContext(
             execution_health=ExecutionHealth.NORMAL,
             exposure_effect=exposure_effect,
@@ -209,7 +229,9 @@ class ExecutionEngine:
             kill_switch_active=False,
             data_trust="trusted",
             inventory_state="known",
-            free_inventory=portfolio.available_cash if signal_str == "BUY" else current_qty,
+            free_inventory=portfolio.available_cash
+            if signal_str == "BUY"
+            else current_qty,
             authorized_sellable_inventory=current_qty,
             order_size=0.0,  # planner will determine
             order_side=signal_str.lower(),
@@ -277,7 +299,8 @@ class ExecutionEngine:
             quantity=intent.quantity,
             exposure_effect=permission_ctx.exposure_effect.value,
             current_exposure=portfolio.current_exposure,
-            resulting_exposure=plan_result.executable_delta + portfolio.current_exposure,
+            resulting_exposure=plan_result.executable_delta
+            + portfolio.current_exposure,
             authorized_at=now,
         )
 
@@ -299,7 +322,8 @@ class ExecutionEngine:
             correlation_id=intent.intent_id,
             exposure_effect=permission_ctx.exposure_effect.value,
             current_exposure=portfolio.current_exposure,
-            resulting_exposure=plan_result.executable_delta + portfolio.current_exposure,
+            resulting_exposure=plan_result.executable_delta
+            + portfolio.current_exposure,
             authorized_at=now,
             authorization_hash=authorization_hash,
         )
@@ -427,7 +451,9 @@ class ExecutionEngine:
                     authorized_at=auth_event.payload.get("authorized_at", ""),
                     authorization_hash="",
                 )
-                result = self.gateway.submit(authorized, correlation_id=emergency.intent_id)
+                result = self.gateway.submit(
+                    authorized, correlation_id=emergency.intent_id
+                )
                 if result.success and result.broker_order_id:
                     self.lifecycle.submit_order(
                         intent_id=emergency.intent_id,

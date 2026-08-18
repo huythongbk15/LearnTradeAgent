@@ -131,7 +131,9 @@ class LegacyDecisionAdapter:
             created_at=now,
         )
 
-        exposure = 1.0 if side == "buy" else 0.0  # spot-long-only: SELL → FLAT (0.0), not -1.0
+        exposure = (
+            1.0 if side == "buy" else 0.0
+        )  # spot-long-only: SELL → FLAT (0.0), not -1.0
         target = TargetExposure(
             symbol=observation.symbol,
             exposure=exposure,

@@ -372,7 +372,9 @@ class OrderPlanner:
 
         # Round to qty_step — floor to avoid overspending cash
         if self._rules.qty_step > 0:
-            stepped_qty = math.floor(quantity / self._rules.qty_step) * self._rules.qty_step
+            stepped_qty = (
+                math.floor(quantity / self._rules.qty_step) * self._rules.qty_step
+            )
             if abs(stepped_qty - quantity) > 1e-12:
                 adjustment_reasons.append(AdjustmentReason.QTY_STEP)
             quantity = stepped_qty

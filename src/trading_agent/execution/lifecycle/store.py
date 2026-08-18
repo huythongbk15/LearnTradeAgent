@@ -574,6 +574,7 @@ class ExecutionEventStore:
         if row is None:
             return None
         import json
+
         return json.loads(row["payload"])
 
     # ── Integrity / audit ───────────────────────────────────────────────
