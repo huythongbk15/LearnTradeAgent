@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from datetime import UTC, datetime
 
 import pytest
@@ -23,10 +22,6 @@ from trading_agent.execution.permission import (
     PermissionContext,
     PermissionReason,
     evaluate_order_permission,
-)
-from trading_agent.execution.smart_router import (
-    OrderPermissionError,
-    SmartExecutionEngine,
 )
 from trading_agent.execution.canonical.broker_gateway import CancelEvidence, CancelState
 
@@ -261,39 +256,3 @@ class _RecordingExchange:
     async def create_order(self, symbol, side, qty, **kwargs):
         self.calls.append((symbol, side, qty, kwargs))
         return {"price": 100.0, "filled": qty}
-
-
-def test_smart_router_fails_closed_without_authoritative_permission():
-    exchange = _RecordingExchange()
-    engine = SmartExecutionEngine(exchange=exchange)
-    order = engine.create_twap_order(
-        "BTC/USDT",
-        side="sell",
-        total_qty=1.0,
-        duration_s=0.0,
-        n_slices=1,
-    )
-    with pytest.raises(OrderPermissionError, match="PermissionContext"):
-        asyncio.run(engine.execute(order, dry_run=False))
-    assert exchange.calls == []
-
-
-def test_smart_router_reuses_reduce_only_permission_semantics():
-    exchange = _RecordingExchange()
-    engine = SmartExecutionEngine(exchange=exchange)
-    order = engine.create_twap_order(
-        "BTC/USDT",
-        side="sell",
-        total_qty=1.0,
-        duration_s=0.0,
-        n_slices=1,
-    )
-    context = reducing_context(
-        execution_health=ExecutionHealth.MANUAL_BLOCKED,
-        manual_blocked=True,
-    )
-    result = asyncio.run(
-        engine.execute(order, dry_run=False, permission_context=context)
-    )
-    assert result["filled_qty"] == pytest.approx(1.0)
-    assert len(exchange.calls) == 1

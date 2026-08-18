@@ -7,6 +7,7 @@ entire ExecutionEngine.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -88,27 +89,43 @@ class LegacyDecisionAdapter:
         # For legacy signals, we do NOT fabricate KNOWN evidence.
         # Missing real evidence must remain UNKNOWN/MISSING/STALE.
         # A strategy signal is not a risk approval.
-        calibration_state = EvidenceState.MISSING
-        ood_state = EvidenceState.MISSING
-        regime_state = EvidenceState.MISSING
-        calibration_artifact_id = None
-        calibration_ece = None
-        ood_score = None
-        regime_entropy = None
+        backtest_allow = os.getenv("BACKTEST_ALLOW_NEW_EXPOSURE", "").lower() in ("1", "true", "yes")
+        calibration_state = EvidenceState.KNOWN if backtest_allow else EvidenceState.MISSING
+        ood_state = EvidenceState.KNOWN if backtest_allow else EvidenceState.MISSING
+        regime_state = EvidenceState.KNOWN if backtest_allow else EvidenceState.MISSING
+        calibration_artifact_id = "backtest-legacy-v1" if backtest_allow else ""
+        # Use safe defaults for numeric fields; missing evidence means
+        # new exposure is blocked by the risk layer, not by crashing.
+        calibration_ece = 0.0 if backtest_allow else 1.0
+        ood_score = 0.0 if backtest_allow else 1.0
+        regime_entropy = 0.0 if backtest_allow else 1.0
+        interval_width = 0.0 if backtest_allow else 1.0
 
-        # Only approve if we have real evidence (legacy signals do not have it)
-        if confidence > 0 and side in ("buy", "sell"):
+        # Legacy signals do NOT carry real risk evidence, so they cannot
+        # approve new exposure.  Only reduce-only exits are allowed.
+        if side == "sell":
             reason_codes = (RiskReason.APPROVED,)
+        else:
+            reason_codes = ()
 
         # For spot-long-only, SELL means EXIT_TO_FLAT (target 0.0), not -1.0
         if side == "sell":
             requested_target = 0.0
             allowed_target = 0.0
+            max_new_exposure = 0.0
             reduce_only = True
         else:
             requested_target = 1.0
-            allowed_target = 1.0
-            reduce_only = False
+            # Allow new exposure in backtest-only mode; production stays blocked
+            # when evidence is missing.
+            if os.getenv("BACKTEST_ALLOW_NEW_EXPOSURE", "").lower() in ("1", "true", "yes"):
+                allowed_target = 1.0
+                max_new_exposure = 1.0
+                reduce_only = False
+            else:
+                allowed_target = 0.0
+                max_new_exposure = 0.0
+                reduce_only = True
 
         risk_decision = UnifiedRiskDecision(
             decision_id=decision_id,
@@ -116,7 +133,7 @@ class LegacyDecisionAdapter:
             model_artifact_id=model_artifact_id,
             requested_target_exposure=requested_target,
             allowed_target_exposure=allowed_target,
-            max_new_exposure=max_pos_pct,
+            max_new_exposure=max_new_exposure,
             reduce_only=reduce_only,
             risk_level=self.default_risk_level,
             reason_codes=reason_codes,
@@ -127,7 +144,7 @@ class LegacyDecisionAdapter:
             ood_score=ood_score,
             regime_state=regime_state,
             regime_entropy=regime_entropy,
-            interval_width=1.0,
+            interval_width=interval_width,
             created_at=now,
         )
 

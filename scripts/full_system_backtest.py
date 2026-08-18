@@ -36,6 +36,7 @@ import polars as pl
 from trading_agent.agents.base import AgentMessage
 from trading_agent.data.storage import load_ohlcv
 from trading_agent.execution import risk_controller as rc_module
+from trading_agent.execution.canonical.market_observation import EnrichedMarketObservation
 from trading_agent.execution.engine import ExecutionEngine
 from trading_agent.execution.risk_controller import RiskController
 from trading_agent.strategies.enhanced_ma import EnhancedMaCrossover
@@ -255,8 +256,24 @@ class FullSystemSimulator:
                                 }
                             )
 
+                            # Build observation from current bar for canonical pipeline
+                            observation = EnrichedMarketObservation(
+                                observation_id=f"obs-{self.symbol}-{i}",
+                                symbol=self.symbol,
+                                bar_close_at=datetime.fromisoformat(str(ts)).replace(tzinfo=UTC),
+                                bar_state="closed",
+                                is_closed=True,
+                                mid=price,
+                                price=price,
+                                volume=float(row.get("volume", 0.0)),
+                                indicators={
+                                    k: float(row[k]) for k in ["fast_ma", "slow_ma", "adx", "atr"]
+                                    if k in row and row[k] is not None
+                                },
+                            )
+
                             # Execute
-                            for order in self.engine.execute_signal(msg):
+                            for order in self.engine.execute_signal(msg, observation=observation):
                                 pos = self.engine.exchange.get_position(self.symbol)
                                 side = order.side.value
                                 amount = float(order.filled_amount or order.amount)

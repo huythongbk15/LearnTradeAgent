@@ -361,10 +361,15 @@ def execution_close(symbol: str | None, close_all: bool, yes: bool):
         if not yes and not Confirm.ask("⚠️  Close ALL positions?"):
             return
         result = engine.close_all(reason="manual_kill")
-        if result["remaining"]:
+        remaining = [
+            pos.symbol
+            for pos in engine.exchange.get_all_positions()
+            if pos.is_active and pos.quantity > 0
+        ]
+        if remaining:
             console.print(
                 f"[bold red]Close-all incomplete; remaining: "
-                f"{', '.join(result['remaining'])} (fresh prices required)[/bold red]"
+                f"{', '.join(remaining)} (fresh prices required)[/bold red]"
             )
         else:
             console.print("[red]🔴 All positions closed[/red]")
@@ -375,8 +380,11 @@ def execution_close(symbol: str | None, close_all: bool, yes: bool):
             return
         if not yes and not Confirm.ask(f"Close {pos.quantity:.4f} {symbol}?"):
             return
-        engine.exchange._close_position(symbol, pos.current_price, reason="manual")
-        console.print(f"[red]Position closed: {symbol}[/red]")
+        order = engine.close_position(symbol, reason="manual")
+        if order:
+            console.print(f"[red]Position closed: {symbol} (order {order.id})[/red]")
+        else:
+            console.print(f"[yellow]Close failed for {symbol} (no fresh price)[/yellow]")
 
     execution_status.callback()
 
@@ -526,6 +534,201 @@ def _paper_execution_error(broker: str, broker_facade: Any) -> str | None:
     if getattr(getattr(adapter, "config", None), "paper", None) is not True:
         return "the connected Alpaca adapter is not a verified Paper account"
     return None
+
+
+def _place_order_via_gateway(live_broker, order):
+    """Route a manual CLI order through canonical lifecycle + BrokerGateway."""
+    import asyncio
+    import math
+    from datetime import UTC, datetime
+
+    from trading_agent.execution.canonical import (
+        BrokerGateway,
+        AuthorizedOrder,
+        UnifiedRiskDecision,
+        RiskLevel,
+        EvidenceState,
+    )
+    from trading_agent.execution.canonical.cli_adapter import CliBrokerAdapter
+    from trading_agent.execution.lifecycle import ExecutionEventStore
+    from trading_agent.execution.lifecycle.lifecycle import ExecutionLifecycle, TrustedPrice
+    from trading_agent.execution.permission import PermissionContext, evaluate_order_permission
+
+    adapter = CliBrokerAdapter(live_broker)
+    store = ExecutionEventStore(":memory:").connect()
+
+    def _price_source(symbol):
+        try:
+            ticker = asyncio.run(live_broker.adapter.fetch_ticker(symbol))
+            last = getattr(ticker, "last", None) or getattr(ticker, "price", None)
+            if last is not None and math.isfinite(last) and last > 0:
+                return TrustedPrice(
+                    price=float(last),
+                    exchange_timestamp=datetime.now(UTC),
+                    received_at=datetime.now(UTC),
+                )
+        except Exception:
+            pass
+        return None
+
+    def _inventory_source(symbol, side):
+        if side != "sell":
+            return 0.0
+        try:
+            positions = live_broker.get_positions()
+            sym_str = symbol.pair if hasattr(symbol, "pair") else str(symbol)
+            for pos in positions:
+                if pos.get("symbol") == sym_str:
+                    return float(pos.get("qty", 0))
+        except Exception:
+            pass
+        return 0.0
+
+    lifecycle = ExecutionLifecycle(
+        store,
+        price_source=_price_source,
+        inventory_source=_inventory_source,
+    )
+
+    intent_id = f"cli-{int(datetime.now(UTC).timestamp())}"
+    symbol = order.symbol
+    side = "buy" if order.side.value.lower() == "buy" else "sell"
+    size = float(order.size)
+
+    # 1. Create intent (draft mode allows missing risk decision)
+    lifecycle.create_order_intent(
+        intent_id=intent_id,
+        symbol=symbol,
+        side=side,
+        size=size,
+        idempotency_key=order.client_order_id,
+    )
+
+    # 2. Synthetic risk decision for manual CLI order
+    risk_decision = UnifiedRiskDecision(
+        decision_id=f"cli-risk-{intent_id}",
+        forecast_fingerprint="cli-manual",
+        model_artifact_id="cli-manual",
+        requested_target_exposure=1.0,
+        allowed_target_exposure=1.0,
+        max_new_exposure=1.0,
+        reduce_only=False,
+        risk_level=RiskLevel.LOW,
+        reason_codes=(),
+        calibration_state=EvidenceState.KNOWN,
+        calibration_artifact_id="cli",
+        calibration_ece=0.0,
+        ood_state=EvidenceState.KNOWN,
+        ood_score=0.0,
+        regime_state=EvidenceState.KNOWN,
+        regime_entropy=0.0,
+        interval_width=0.0,
+        created_at=datetime.now(UTC),
+    )
+
+    # 3. Approve risk
+    lifecycle.approve_risk(intent_id, risk_decision=risk_decision)
+
+    # 4. Evaluate permission
+    exposure_effect = "increase" if side == "buy" else "reduce"
+    permission = evaluate_order_permission(
+        PermissionContext(
+            execution_health="normal",
+            exposure_effect=exposure_effect,
+            risk_decision=risk_decision,
+            trusted_price=None,
+            max_price_age_seconds=60.0,
+            reconciliation_state="none",
+            protection_state="none",
+            manual_blocked=False,
+            kill_switch_active=False,
+            data_trust="trusted",
+            inventory_state="known",
+            free_inventory=0.0,
+            authorized_sellable_inventory=size if side == "sell" else 0.0,
+            order_size=size,
+            order_side=side,
+            require_fresh_market_data=False,
+            enforce_inventory=False,
+            broker_state=None,
+            draft=False,
+        )
+    )
+
+    if not permission.allowed():
+        raise RuntimeError(
+            f"Order blocked by permission: {permission.reason.value} — {permission.detail}"
+        )
+
+    # 5. Authorize order
+    now = datetime.now(UTC).isoformat()
+    auth_event = lifecycle.authorize_order(
+        intent_id=intent_id,
+        authorization_id=f"auth-{intent_id}",
+        idempotency_key=order.client_order_id or intent_id,
+        payload_hash="",
+        risk_decision_id=risk_decision.decision_id,
+        forecast_fingerprint=risk_decision.forecast_fingerprint,
+        model_artifact_id=risk_decision.model_artifact_id,
+        permission=permission.permission.value,
+        symbol=symbol,
+        side=side,
+        quantity=size,
+        exposure_effect=exposure_effect,
+        current_exposure=0.0,
+        resulting_exposure=size if side == "buy" else 0.0,
+        authorized_at=now,
+    )
+
+    # 6. Request broker submission
+    lifecycle.request_broker_submission(intent_id)
+
+    # 7. Build AuthorizedOrder with original order metadata
+    authorized = AuthorizedOrder(
+        token="__authorized__",
+        intent_id=intent_id,
+        symbol=symbol,
+        side=side,
+        quantity=size,
+        idempotency_key=order.client_order_id or intent_id,
+        price_reference=0.0,
+        risk_decision_id=risk_decision.decision_id,
+        forecast_fingerprint=risk_decision.forecast_fingerprint,
+        model_artifact_id=risk_decision.model_artifact_id,
+        permission_result=permission.permission.value,
+        authorization_id=auth_event.payload["authorization_id"],
+        lifecycle_event_id=auth_event.event_id,
+        correlation_id=intent_id,
+        exposure_effect=exposure_effect,
+        current_exposure=0.0,
+        resulting_exposure=size if side == "buy" else 0.0,
+        authorized_at=now,
+        authorization_hash="",
+        metadata={
+            "order_type": order.type.value.lower(),
+            "price": float(order.price) if order.price is not None else None,
+            "stop_price": float(order.stop_price) if order.stop_price is not None else None,
+            "time_in_force": order.time_in_force.value.lower(),
+        },
+    )
+
+    # 8. Submit via gateway
+    gateway = BrokerGateway(adapter=adapter, store=store)
+    result = gateway.submit(authorized, correlation_id=intent_id)
+
+    if result.success and result.broker_order_id:
+        lifecycle.submit_order(
+            intent_id=intent_id,
+            exchange_order_id=result.broker_order_id,
+        )
+
+    return {
+        "id": result.broker_order_id,
+        "status": "submitted" if result.success else "rejected",
+        "filled_qty": 0.0,
+        "avg_fill_price": 0.0,
+        "error": result.error,
+    }
 
 
 @live.command("connect")
@@ -968,7 +1171,7 @@ def live_order(
         return
 
     try:
-        result = adapter.place_order(order)
+        result = _place_order_via_gateway(adapter, order)
         console.print("[green]✅ Order placed![/green]")
         console.print(f"  Order ID: {result.get('id', 'N/A')}")
         console.print(f"  Status: {result.get('status', 'N/A')}")

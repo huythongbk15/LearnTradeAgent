@@ -108,6 +108,38 @@ class BrokerSubmitResult:
 
 
 @dataclass(frozen=True)
+class BrokerOrderRequest:
+    """Typed request for a broker order submission.
+
+    Constructed by BrokerGateway from an AuthorizedOrder and passed to the
+    adapter's place_order() as a dict payload.
+    """
+
+    intent_id: str
+    symbol: Any  # Symbol
+    side: str
+    quantity: float
+    order_type: str = "market"
+    price: float | None = None
+    stop_price: float | None = None
+    time_in_force: str = "day"
+    idempotency_key: str | None = None
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "id": self.intent_id,
+            "symbol": self.symbol,
+            "side": self.side,
+            "qty": self.quantity,
+            "order_type": self.order_type,
+            "price": self.price,
+            "stop_price": self.stop_price,
+            "time_in_force": self.time_in_force,
+            "idempotency_key": self.idempotency_key,
+        }
+
+
+@dataclass(frozen=True)
 class CancelResult:
     """Typed result of a broker cancel request."""
 
@@ -224,16 +256,19 @@ class BrokerGateway:
         # Verify authorization against durable state (P0 §15)
         if self._store is not None:
             self._verify_authorization(order)
-        order_payload = {
-            "id": order.intent_id,
-            "symbol": order.symbol,
-            "side": order.side,
-            "qty": order.quantity,
-            "order_type": "market",
-            "idempotency_key": order.idempotency_key,
-        }
+        request = BrokerOrderRequest(
+            intent_id=order.intent_id,
+            symbol=order.symbol,
+            side=order.side,
+            quantity=order.quantity,
+            order_type=order.metadata.get("order_type", "market"),
+            price=order.metadata.get("price"),
+            stop_price=order.metadata.get("stop_price"),
+            time_in_force=order.metadata.get("time_in_force", "day"),
+            idempotency_key=order.idempotency_key,
+        )
         try:
-            response = self._adapter.place_order(order_payload)
+            response = self._adapter.place_order(request.to_payload())
             broker_order_id = response.get("id") or response.get("order_id")
             return BrokerSubmitResult(
                 success=True,
@@ -260,7 +295,12 @@ class BrokerGateway:
             raise AuthorizationError("authorization_id mismatch")
         if auth.get("idempotency_key") != order.idempotency_key:
             raise AuthorizationError("idempotency_key mismatch")
-        if auth.get("symbol") != order.symbol:
+        # Normalize symbol for comparison (Symbol object vs persisted string)
+        auth_symbol = auth.get("symbol")
+        order_symbol = order.symbol
+        if hasattr(order_symbol, "pair"):
+            order_symbol = order_symbol.pair
+        if auth_symbol != order_symbol:
             raise AuthorizationError("symbol mismatch")
         if auth.get("side") != order.side:
             raise AuthorizationError("side mismatch")
