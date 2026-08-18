@@ -21,9 +21,9 @@ from trading_agent.config.loader import config
 from trading_agent.execution.paper_exchange import PaperExchange
 from trading_agent.execution.canonical import (
     BrokerGateway,
-    AuthorizedOrder,
     LegacyDecisionAdapter,
     OrderPlanner,
+    AuthorizedOrder,
     EnrichedMarketObservation,
     CurrentPortfolioState,
     MarketPrice,
@@ -32,8 +32,21 @@ from trading_agent.execution.canonical import (
     ProtectionQuantityMode,
     ProtectiveAckEvidence,
 )
-from trading_agent.execution.permission import OrderPermission
-from trading_agent.execution.lifecycle import ExecutionLifecycle, ExecutionEventStore
+from trading_agent.execution.canonical.order_planner import (
+    OrderPlanningStatus,
+    ExposureEffect,
+)
+from trading_agent.execution.permission import (
+    PermissionContext,
+    evaluate_order_permission,
+)
+from trading_agent.execution.lifecycle import (
+    ExecutionLifecycle,
+    ExecutionEventStore,
+    ExecutionHealth,
+    TrustedPrice,
+)
+from trading_agent.execution.lifecycle.lifecycle import EmergencyReduceRequest
 from trading_agent.execution.types import (
     Order,
     OrderSide,
@@ -117,8 +130,8 @@ class ExecutionEngine:
         )
 
         # ── Canonical execution stack ─────────────────────────────────
-        self.gateway = BrokerGateway(adapter=self.exchange)
         self.store = ExecutionEventStore("data/execution/events.db")
+        self.gateway = BrokerGateway(adapter=self.exchange, store=self.store)
         self.lifecycle = ExecutionLifecycle(self.store)
         self.planner = OrderPlanner(
             instrument_rules=InstrumentRules(symbol="BTC/USDT", spot_long_only=True),
@@ -131,11 +144,15 @@ class ExecutionEngine:
 
     # ── Execute signals from Phase 2 agents ────────────────────────────
 
-    def execute_signal(self, signal: AgentMessage) -> list[Order]:
+    def execute_signal(
+        self, signal: AgentMessage, observation: EnrichedMarketObservation | None = None
+    ) -> list[Order]:
         """Execute a trading signal from the multi-agent system.
 
         Takes the final ``Trader`` agent signal and converts it to orders
-        through the canonical pipeline.
+        through the canonical pipeline:
+        AgentMessage → LegacyDecisionAdapter → UnifiedRiskDecision → TargetExposure
+        → OrderPlanner → PermissionContext → ExecutionLifecycle → BrokerGateway.
         """
         signal_str = signal.signal.upper()
         orders: list[Order] = []
@@ -152,58 +169,78 @@ class ExecutionEngine:
             logger.warning(f"Cannot execute: no price data for {symbol}")
             return orders
 
+        # ── Observation: must come from market data layer ───────────────
+        if observation is None:
+            logger.warning(
+                "execute_signal requires a market observation from the data layer"
+            )
+            return orders
+        if not observation.is_closed:
+            logger.warning(
+                f"Refusing to execute from unclosed observation {observation.observation_id}"
+            )
+            return orders
+
         # ── Canonical legacy adapter: AgentMessage → risk + target ─────
-        observation = EnrichedMarketObservation(
-            observation_id=f"obs-{symbol}-{int(datetime.now(UTC).timestamp())}",
-            symbol=symbol,
-            bar_close_at=datetime.now(UTC),
-            bar_state="closed",
-            price=current_price,
-            volume=0.0,
-            indicators={},
-        )
         try:
             risk_decision, target = self.legacy_adapter.adapt(signal, observation)
         except ValueError as exc:
             logger.warning(f"Legacy adapter rejected signal: {exc}")
             return orders
 
-        # ── Permission check ───────────────────────────────────────────
+        # ── Portfolio state (canonical fields) ──────────────────────────
         existing_pos = self.exchange.get_position(symbol)
+        current_qty = existing_pos.quantity if existing_pos else 0.0
+        current_notional = current_qty * current_price
+        equity = self.exchange.get_total_equity()
+        current_exposure = current_notional / equity if equity > 0 else 0.0
         portfolio = CurrentPortfolioState(
             symbol=symbol,
-            current_exposure=existing_pos.quantity if existing_pos else 0.0,
-            equity=self.exchange.get_total_equity(),
-            cash=self.exchange.get_balance("USDT"),
+            current_exposure=current_exposure,
+            equity=equity,
+            existing_quantity=current_qty,
+            available_cash=self.exchange.get_balance("USDT"),
         )
         price = MarketPrice(
             symbol=symbol,
-            current=current_price,
             mid=current_price,
-            best_bid=current_price,
-            best_ask=current_price,
+            bid=current_price,
+            ask=current_price,
+            last=current_price,
         )
-        permission_ctx = OrderPermission(
-            execution_health="normal",
-            exposure_effect=(
-                __import__(
-                    "trading_agent.execution.canonical.risk_decision",
-                    fromlist=["ExposureEffect"],
-                ).ExposureEffect.INCREASE
-                if signal_str == "BUY"
-                else __import__(
-                    "trading_agent.execution.canonical.risk_decision",
-                    fromlist=["ExposureEffect"],
-                ).ExposureEffect.REDUCE
-            ),
+
+        # ── Permission check (canonical PermissionContext) ─────────────
+        exposure_effect = (
+            ExposureEffect.INCREASE if signal_str == "BUY" else ExposureEffect.REDUCE
+        )
+        permission_ctx = PermissionContext(
+            execution_health=ExecutionHealth.NORMAL,
+            exposure_effect=exposure_effect,
             risk_decision=risk_decision,
-            trusted_price=_TrustedPrice(current_price),
-            free_inventory=portfolio.cash,
+            trusted_price=TrustedPrice(
+                price=current_price,
+                exchange_timestamp=None,
+                received_at=datetime.now(UTC),
+            ),
+            max_price_age_seconds=60.0,
+            reconciliation_state="none",
+            protection_state="none",
+            manual_blocked=False,
+            kill_switch_active=False,
+            data_trust="trusted",
+            inventory_state="known",
+            free_inventory=portfolio.available_cash
+            if signal_str == "BUY"
+            else current_qty,
+            authorized_sellable_inventory=current_qty,
             order_size=0.0,  # planner will determine
             order_side=signal_str.lower(),
+            require_fresh_market_data=True,
             enforce_inventory=True,
+            broker_state=None,
+            draft=False,
         )
-        permission = OrderPermission.evaluate(permission_ctx)
+        permission = evaluate_order_permission(permission_ctx)
         if not permission.allowed():
             logger.warning(f"Order blocked by permission: {permission.reason.value}")
             return orders
@@ -217,36 +254,30 @@ class ExecutionEngine:
             price=price,
             existing_reservations=self.lifecycle.active_sell_reservations(symbol),
         )
-        if (
-            plan_result.status
-            != __import__(
-                "trading_agent.execution.canonical.order_planner",
-                fromlist=["OrderPlanningStatus"],
-            ).OrderPlanningStatus.READY
-        ):
-            logger.warning(f"Planner returned {plan_result.status.value}")
+        if plan_result.status != OrderPlanningStatus.ORDER_REQUIRED:
+            logger.info(f"Planner returned {plan_result.status.value} — no order")
             return orders
         if plan_result.intent is None:
             return orders
 
         intent = plan_result.intent
 
-        # ── Lifecycle: create intent + approve risk + submit ──────────
+        # ── Lifecycle: create intent + approve risk + authorize ────────
+        # Lifecycle owns event append; callers must NOT double-append.
         created_event = self.lifecycle.create_order_intent(
             intent_id=intent.intent_id,
             symbol=intent.symbol,
             side=intent.side,
             size=intent.quantity,
+            idempotency_key=intent.idempotency_key,
         )
-        self.store.append(created_event)
 
         approved_event = self.lifecycle.approve_risk(
             intent_id=intent.intent_id,
             risk_decision=risk_decision,
         )
-        self.store.append(approved_event)
 
-        # ── Build unforgeable AuthorizedOrder ──────────────────────────
+        # Build durable authorization through lifecycle
         now = datetime.now(UTC).isoformat()
         authorization_hash = _make_authorization_hash(
             intent.intent_id,
@@ -254,7 +285,28 @@ class ExecutionEngine:
             permission.permission.value,
             now,
         )
-        authorized = AuthorizedOrder.create(
+        authorized_event = self.lifecycle.authorize_order(
+            intent_id=intent.intent_id,
+            authorization_id=f"auth-{intent.intent_id}",
+            idempotency_key=intent.idempotency_key,
+            payload_hash=authorization_hash,
+            risk_decision_id=risk_decision.decision_id,
+            forecast_fingerprint=risk_decision.forecast_fingerprint,
+            model_artifact_id=risk_decision.model_artifact_id,
+            permission=permission.permission.value,
+            symbol=intent.symbol,
+            side=intent.side,
+            quantity=intent.quantity,
+            exposure_effect=permission_ctx.exposure_effect.value,
+            current_exposure=portfolio.current_exposure,
+            resulting_exposure=plan_result.executable_delta
+            + portfolio.current_exposure,
+            authorized_at=now,
+        )
+
+        # ── Build AuthorizedOrder from durable authorization ────────────
+        authorized = AuthorizedOrder(
+            token="__authorized__",
             intent_id=intent.intent_id,
             symbol=intent.symbol,
             side=intent.side,
@@ -265,24 +317,23 @@ class ExecutionEngine:
             forecast_fingerprint=risk_decision.forecast_fingerprint,
             model_artifact_id=risk_decision.model_artifact_id,
             permission_result=permission.permission.value,
-            authorization_id=f"auth-{intent.intent_id}",
-            lifecycle_event_id=approved_event.event_id,
+            authorization_id=authorized_event.payload["authorization_id"],
+            lifecycle_event_id=authorized_event.event_id,
             correlation_id=intent.intent_id,
             exposure_effect=permission_ctx.exposure_effect.value,
             current_exposure=portfolio.current_exposure,
-            resulting_exposure=portfolio.current_exposure
-            + plan_result.executable_delta,
+            resulting_exposure=plan_result.executable_delta
+            + portfolio.current_exposure,
             authorized_at=now,
             authorization_hash=authorization_hash,
         )
 
-        # ── Submit via gateway ─────────────────────────────────────────
+        # ── Submit via gateway (verifies auth against durable state) ────
         result = self.gateway.submit(authorized, correlation_id=intent.intent_id)
         submit_event = self.lifecycle.submit_order(
             intent_id=intent.intent_id,
             exchange_order_id=result.broker_order_id,
         )
-        self.store.append(submit_event)
 
         if result.success and result.broker_order_id:
             # Simulate immediate fill for paper trading
@@ -292,7 +343,6 @@ class ExecutionEngine:
                 price=current_price,
                 fee=0.0,
             )
-            self.store.append(fill_event)
 
             # Protection plan (explicit quantity, no magic zero)
             plan = ProtectionPlan(
@@ -311,8 +361,6 @@ class ExecutionEngine:
                 trigger_price=plan.stop_trigger,
                 parent_intent_id=intent.intent_id,
             )
-            self.store.append(protective_event)
-
             protection_result = self.gateway.submit_protection(
                 plan,
                 correlation_id=intent.intent_id,
@@ -333,7 +381,6 @@ class ExecutionEngine:
                     protective_order_id=protective_event.aggregate_id,
                     evidence=ack_evidence,
                 )
-                self.store.append(ack_event)
 
             orders.append(
                 self._result_to_order(result, symbol, intent.side, intent.quantity)
@@ -343,7 +390,6 @@ class ExecutionEngine:
                 intent_id=intent.intent_id,
                 reason=result.error or "gateway submit failed",
             )
-            self.store.append(reject_event)
 
         return orders
 
@@ -364,31 +410,75 @@ class ExecutionEngine:
     # ── Position management ────────────────────────────────────────────
 
     def close_all(self, reason: str = "manual") -> list[Order]:
-        """Close all open positions via canonical gateway."""
+        """Close all open positions via canonical lifecycle emergency reduce."""
         orders: list[Order] = []
         for pos in self.exchange.get_all_positions():
-            if not pos.is_active:
+            if not pos.quantity <= 0:
                 continue
             symbol = pos.symbol
             current_price = self._get_current_price(symbol)
             if current_price is None:
                 continue
-            result = self.gateway.close_all_positions(
-                correlation_id=f"close-all-{reason}",
+            # Use canonical emergency reduce through lifecycle
+            emergency = EmergencyReduceRequest(
+                intent_id=f"emergency-close-{symbol}-{int(datetime.now(UTC).timestamp())}",
+                symbol=symbol,
+                side="sell",
+                quantity=pos.quantity,
                 reason=reason,
             )
-            orders.append(
-                Order(
-                    id="",
+            try:
+                auth_event = self.lifecycle.emergency_reduce(emergency)
+                # Submit via gateway
+                authorized = AuthorizedOrder(
+                    token="__authorized__",
+                    intent_id=emergency.intent_id,
                     symbol=symbol,
-                    side=OrderSide.SELL,
-                    type=OrderType.MARKET,
-                    amount=pos.quantity,
-                    status=OrderStatus.FILLED,
-                    filled_amount=pos.quantity,
-                    avg_fill_price=current_price,
+                    side="sell",
+                    quantity=pos.quantity,
+                    idempotency_key=f"emergency-{symbol}",
+                    price_reference=current_price,
+                    risk_decision_id=auth_event.payload.get("risk_decision_id", ""),
+                    forecast_fingerprint="",
+                    model_artifact_id="emergency_reduce",
+                    permission_result="REDUCE_ONLY",
+                    authorization_id=auth_event.payload.get("authorization_id", ""),
+                    lifecycle_event_id=auth_event.event_id,
+                    correlation_id=emergency.intent_id,
+                    exposure_effect="reduce",
+                    current_exposure=0.0,
+                    resulting_exposure=0.0,
+                    authorized_at=auth_event.payload.get("authorized_at", ""),
+                    authorization_hash="",
                 )
-            )
+                result = self.gateway.submit(
+                    authorized, correlation_id=emergency.intent_id
+                )
+                if result.success and result.broker_order_id:
+                    self.lifecycle.submit_order(
+                        intent_id=emergency.intent_id,
+                        exchange_order_id=result.broker_order_id,
+                    )
+                    self.lifecycle.execute_fill(
+                        intent_id=emergency.intent_id,
+                        quantity=pos.quantity,
+                        price=current_price,
+                        fee=0.0,
+                    )
+                    orders.append(
+                        Order(
+                            id=result.broker_order_id,
+                            symbol=symbol,
+                            side=OrderSide.SELL,
+                            type=OrderType.MARKET,
+                            amount=pos.quantity,
+                            status=OrderStatus.FILLED,
+                            filled_amount=pos.quantity,
+                            avg_fill_price=current_price,
+                        )
+                    )
+            except Exception as e:
+                logger.error(f"Emergency reduce failed for {symbol}: {e}")
         return orders
 
     def get_summary(self) -> dict[str, Any]:

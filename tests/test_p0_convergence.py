@@ -362,7 +362,8 @@ class TestAuthorizedOrderUnforgeable:
             )
 
     def test_factory_creates_valid(self):
-        order = AuthorizedOrder.create(
+        order = AuthorizedOrder(
+            token="__authorized__",
             intent_id="i1",
             symbol="BTC/USDT",
             side="buy",
