@@ -8,6 +8,7 @@ entire ExecutionEngine.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any
 
 from trading_agent.execution.canonical.risk_decision import (
@@ -81,6 +82,7 @@ class LegacyDecisionAdapter:
         decision_id = f"legacy_{observation.observation_id}"
         forecast_fingerprint = observation.observation_id
         model_artifact_id = "legacy_runner"
+        now = datetime.now(UTC)
 
         reason_codes: tuple[Any, ...] = ()
         # For legacy signals, we assume APPROVED if confidence > 0 and side is explicit
@@ -104,6 +106,8 @@ class LegacyDecisionAdapter:
             ood_score=self.ood_score,
             regime_state=EvidenceState.KNOWN,
             regime_entropy=self.regime_entropy,
+            interval_width=1.0,
+            created_at=now,
         )
 
         exposure = 1.0 if side == "buy" else -1.0

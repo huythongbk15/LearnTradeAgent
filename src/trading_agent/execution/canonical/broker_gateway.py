@@ -58,6 +58,16 @@ class CancelEvidence:
     source: str  # "BROKER" | "RECONCILIATION" | "SIMULATOR"
     raw_response: dict[str, Any] = field(default_factory=dict)
 
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "broker_order_id": self.broker_order_id,
+            "state": self.state.value,
+            "venue": self.venue,
+            "confirmed_at": self.confirmed_at,
+            "source": self.source,
+            "raw_response": self.raw_response,
+        }
+
 
 @dataclass(frozen=True)
 class ProtectiveAckEvidence:
@@ -72,6 +82,19 @@ class ProtectiveAckEvidence:
     protected_quantity: float
     evidence_source: str  # "BROKER" | "RECONCILIATION" | "SIMULATOR"
     raw_response: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "broker_order_id": self.broker_order_id,
+            "broker_ack_id": self.broker_ack_id,
+            "venue": self.venue,
+            "broker_status": self.broker_status,
+            "acknowledged_at": self.acknowledged_at,
+            "protected_symbol": self.protected_symbol,
+            "protected_quantity": self.protected_quantity,
+            "evidence_source": self.evidence_source,
+            "raw_response": self.raw_response,
+        }
 
 
 @dataclass(frozen=True)
@@ -213,6 +236,7 @@ class BrokerGateway:
             return BrokerSubmitResult(
                 success=True,
                 broker_order_id=broker_order_id,
+                error=None,
                 raw_response=response,
             )
         except Exception as exc:
