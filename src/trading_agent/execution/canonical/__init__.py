@@ -26,6 +26,9 @@ from trading_agent.execution.canonical.events import (
     compute_observation_id,
     compute_target_exposure_key,
 )
+from trading_agent.execution.canonical.legacy_adapter import (
+    LegacyDecisionAdapter,
+)
 from trading_agent.execution.canonical.market_observation import (
     EnrichedMarketObservation,
 )
@@ -43,6 +46,7 @@ from trading_agent.execution.canonical.protection import (
     ProtectionPlan,
     ProtectionState,
     ProtectionStatus,
+    ProtectionQuantityMode,
 )
 from trading_agent.execution.canonical.risk_decision import (
     RiskDecisionAdapter,
@@ -53,7 +57,13 @@ from trading_agent.execution.canonical.risk_decision import (
 from trading_agent.execution.canonical.broker_gateway import (
     AuthorizedOrder,
     BrokerGateway,
-    CapitalChangeResult,
+    BrokerSubmitResult,
+    CancelResult,
+    ProtectiveSubmitResult,
+    CancelState,
+    CancelEvidence,
+    ProtectiveAckEvidence,
+    AuthorizationError,
 )
 from trading_agent.execution.canonical.runner_adapter import CanonicalBrokerAdapter
 
@@ -63,6 +73,8 @@ __all__ = [
     "RiskDecisionAdapter",
     "RiskLevel",
     "EvidenceState",
+    # Legacy adapter
+    "LegacyDecisionAdapter",
     # Market observation
     "EnrichedMarketObservation",
     # Order planning
@@ -77,12 +89,19 @@ __all__ = [
     # Broker gateway
     "BrokerGateway",
     "AuthorizedOrder",
-    "CapitalChangeResult",
+    "BrokerSubmitResult",
+    "CancelResult",
+    "ProtectiveSubmitResult",
+    "CancelState",
+    "CancelEvidence",
+    "ProtectiveAckEvidence",
+    "AuthorizationError",
     "CanonicalBrokerAdapter",
     # Protection
     "ProtectionPlan",
     "ProtectionState",
     "ProtectionStatus",
+    "ProtectionQuantityMode",
     # Idempotency / content hashes
     "ContentHash",
     "DecisionKey",

@@ -52,6 +52,9 @@ from trading_agent.exchanges.models import (
     TimeInForce,
 )
 from trading_agent.execution.canonical import CanonicalBrokerAdapter
+from trading_agent.execution.canonical.legacy_authorization import (
+    LegacyAuthorizationEvidence,
+)
 from trading_agent.risk.portfolio_risk import DrawdownConfig, PortfolioRiskManager
 from trading_agent.strategies.enhanced_ma import EnhancedMaCrossover
 
@@ -474,7 +477,22 @@ def main():
                 size=Decimal(str(qty)),  # use exact qty (already floored for SELL)
                 time_in_force=TimeInForce.GTC,
             )
-            result = broker.place_order(order)
+            result = broker.place_order(
+                order,
+                correlation_id=f"{d['alpaca_symbol']}-{d['action']}-{int(datetime.now(UTC).timestamp())}",
+                evidence=LegacyAuthorizationEvidence(
+                    symbol=str(symbol),
+                    side=d["action"].lower(),
+                    quantity=float(qty),
+                    price_reference=float(d["price"]),
+                    signal_reason=d.get("reason", "UNKNOWN"),
+                    strategy_version="legacy-enhanced-ma-v1",
+                    account_equity=equity,
+                    current_exposure=current_qty,
+                    idempotency_key=f"legacy-{d['alpaca_symbol']}-{int(datetime.now(UTC).timestamp())}",
+                    correlation_id=f"{d['alpaca_symbol']}-{d['action']}-{int(datetime.now(UTC).timestamp())}",
+                ),
+            )
             print(
                 f"  ✅ Order: {result['side']} {result['qty']} {result['symbol']} → {result['status']}"
             )

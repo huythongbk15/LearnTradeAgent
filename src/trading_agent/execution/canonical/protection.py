@@ -7,6 +7,7 @@ a position is protected.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
@@ -32,6 +33,13 @@ class ProtectionStatus(str, Enum):
     TRIGGERED = "triggered"
     CANCELED = "canceled"
     FAILED = "failed"
+
+
+class ProtectionQuantityMode(str, Enum):
+    """How protective order quantity is specified."""
+
+    EXPLICIT_QUANTITY = "EXPLICIT_QUANTITY"
+    CLOSE_POSITION = "CLOSE_POSITION"
 
 
 @dataclass(frozen=True)
@@ -60,6 +68,10 @@ class ProtectionPlan:
     status: ProtectionStatus = ProtectionStatus.ABSENT
     broker_order_id: str | None = None
 
+    # ── Quantity semantics ──────────────────────────────────────────────
+    quantity_mode: ProtectionQuantityMode = ProtectionQuantityMode.EXPLICIT_QUANTITY
+    protected_quantity: float = 0.0  # required when mode == EXPLICIT_QUANTITY
+
     # ── Audit ───────────────────────────────────────────────────────────
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
@@ -78,6 +90,12 @@ class ProtectionPlan:
             raise ValueError("stop_trigger must be positive when set")
         if self.take_profit is not None and self.take_profit <= 0.0:
             raise ValueError("take_profit must be positive when set")
+        if self.quantity_mode == ProtectionQuantityMode.EXPLICIT_QUANTITY:
+            if (
+                not math.isfinite(self.protected_quantity)
+                or self.protected_quantity <= 0
+            ):
+                raise ValueError("EXPLICIT_QUANTITY requires protected_quantity > 0")
 
     def with_state(self, state: ProtectionState) -> ProtectionPlan:
         """Return a new plan with updated state."""
@@ -92,6 +110,8 @@ class ProtectionPlan:
             state=state,
             status=self.status,
             broker_order_id=self.broker_order_id,
+            quantity_mode=self.quantity_mode,
+            protected_quantity=self.protected_quantity,
             created_at=self.created_at,
             updated_at=datetime.now(UTC),
             metadata=self.metadata,
@@ -110,6 +130,8 @@ class ProtectionPlan:
             state=ProtectionState.PROTECTIVE_ACKNOWLEDGED,
             status=ProtectionStatus.ACTIVE,
             broker_order_id=broker_order_id,
+            quantity_mode=self.quantity_mode,
+            protected_quantity=self.protected_quantity,
             created_at=self.created_at,
             updated_at=datetime.now(UTC),
             metadata=self.metadata,

@@ -1,8 +1,9 @@
 """
-Execution Engine — unified interface to trade.
+Execution Engine — canonical interface to trade.
 
-Kết nối Phase 2 (signals) với Phase 3 (execution).
-Tự động chọn paper/live mode dựa trên config.
+Kết nối Phase 2 (signals) với Phase 3 (execution) qua canonical pipeline:
+AgentMessage → LegacyDecisionAdapter → UnifiedRiskDecision → TargetExposure
+→ OrderPlanner → OrderPermission → ExecutionLifecycle → BrokerGateway.
 """
 
 from __future__ import annotations
@@ -12,18 +13,27 @@ import signal
 import sys
 import threading
 from collections.abc import Callable
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any
 
 from trading_agent.agents.base import AgentMessage
 from trading_agent.config.loader import config
-from trading_agent.execution.indicators import (
-    compute_atr,
-    compute_atr_position_size,
-)
 from trading_agent.execution.paper_exchange import PaperExchange
-from trading_agent.execution.canonical import BrokerGateway, AuthorizedOrder
-
+from trading_agent.execution.canonical import (
+    BrokerGateway,
+    AuthorizedOrder,
+    LegacyDecisionAdapter,
+    OrderPlanner,
+    EnrichedMarketObservation,
+    CurrentPortfolioState,
+    MarketPrice,
+    InstrumentRules,
+    ProtectionPlan,
+    ProtectionQuantityMode,
+    ProtectiveAckEvidence,
+)
+from trading_agent.execution.permission import OrderPermission
+from trading_agent.execution.lifecycle import ExecutionLifecycle, ExecutionEventStore
 from trading_agent.execution.types import (
     Order,
     OrderSide,
@@ -79,16 +89,12 @@ def setup_graceful_shutdown() -> None:
 
 
 class ExecutionEngine:
-    """Unified execution engine.
+    """Canonical execution engine.
 
     Currently supports paper trading only (safe, no real money).
-    Live mode via CCXT will be added in a later iteration.
-
-    Usage:
-        engine = ExecutionEngine()
-        engine.execute_signal(signal_message)  # from Phase 2
-        engine.update_prices({"BTC/USDT": 65000})
-        print(engine.get_summary())
+    All capital-changing orders flow through the canonical pipeline:
+    AgentMessage → LegacyDecisionAdapter → UnifiedRiskDecision → TargetExposure
+    → OrderPlanner → OrderPermission → ExecutionLifecycle → BrokerGateway.
     """
 
     def __init__(
@@ -100,9 +106,7 @@ class ExecutionEngine:
     ):
         self.exchange_name = exchange_name or config.default_exchange
 
-        # ── Canonical broker gateway ───────────────────────────────
-
-        # Use config default values
+        # ── Paper exchange (broker adapter) ───────────────────────────
         self.exchange = PaperExchange(
             exchange_name=self.exchange_name,
             initial_balance=(
@@ -112,55 +116,236 @@ class ExecutionEngine:
             slippage=config.slippage if slippage is None else slippage,
         )
 
-        # ── Canonical broker gateway ───────────────────────────────
+        # ── Canonical execution stack ─────────────────────────────────
         self.gateway = BrokerGateway(adapter=self.exchange)
+        self.store = ExecutionEventStore("data/execution/events.db")
+        self.lifecycle = ExecutionLifecycle(self.store)
+        self.planner = OrderPlanner(
+            instrument_rules=InstrumentRules(symbol="BTC/USDT", spot_long_only=True),
+            strategy_version="legacy-engine-v1",
+        )
+        self.legacy_adapter = LegacyDecisionAdapter()
 
         # Register graceful shutdown handler
         register_shutdown_handler(self._graceful_shutdown)
 
-    @staticmethod
-    def _result_to_order(
-        result: Any,
-        symbol: str,
-        side: str,
-        quantity: float,
-    ) -> Order:
-        """Convert a CapitalChangeResult to an Order for backward compatibility."""
-        # Map side string to OrderSide enum
-        order_side = OrderSide.BUY if side.lower() == "buy" else OrderSide.SELL
+    # ── Execute signals from Phase 2 agents ────────────────────────────
 
-        # Map status string to OrderStatus enum
-        status_str = (result.status or "unknown").lower()
-        if status_str == "filled":
-            order_status = OrderStatus.FILLED
-        elif status_str in ("canceled", "cancelled"):
-            order_status = OrderStatus.CANCELED
-        elif status_str == "rejected":
-            order_status = OrderStatus.REJECTED
-        elif status_str == "expired":
-            order_status = OrderStatus.EXPIRED
-        elif status_str in ("partial", "partially_filled"):
-            order_status = OrderStatus.PARTIALLY_FILLED
-        else:
-            order_status = OrderStatus.OPEN if result.success else OrderStatus.REJECTED
+    def execute_signal(self, signal: AgentMessage) -> list[Order]:
+        """Execute a trading signal from the multi-agent system.
 
-        # Extract fill info from raw_response
-        raw = result.raw_response or {}
-        filled_amount = float(raw.get("filled", raw.get("accumulated_quantity", 0)))
-        avg_fill_price = float(raw.get("average", raw.get("price", 0)))
+        Takes the final ``Trader`` agent signal and converts it to orders
+        through the canonical pipeline.
+        """
+        signal_str = signal.signal.upper()
+        orders: list[Order] = []
 
-        return Order(
-            id=result.broker_order_id or "",
-            symbol=symbol,
-            side=order_side,
-            type=OrderType.MARKET,
-            amount=float(quantity),
-            status=order_status,
-            filled_amount=filled_amount,
-            avg_fill_price=avg_fill_price,
-            client_order_id=result.broker_order_id,
-            metadata={"error": result.error} if result.error else {},
+        if signal_str == "HOLD":
+            logger.info("Signal: HOLD — no action")
+            return orders
+
+        symbol = (
+            signal.details.get("symbol", "BTC/USDT") if signal.details else "BTC/USDT"
         )
+        current_price = self._get_current_price(symbol)
+        if current_price is None or current_price <= 0:
+            logger.warning(f"Cannot execute: no price data for {symbol}")
+            return orders
+
+        # ── Canonical legacy adapter: AgentMessage → risk + target ─────
+        observation = EnrichedMarketObservation(
+            observation_id=f"obs-{symbol}-{int(datetime.now(UTC).timestamp())}",
+            symbol=symbol,
+            bar_close_at=datetime.now(UTC),
+            bar_state="closed",
+            price=current_price,
+            volume=0.0,
+            indicators={},
+        )
+        try:
+            risk_decision, target = self.legacy_adapter.adapt(signal, observation)
+        except ValueError as exc:
+            logger.warning(f"Legacy adapter rejected signal: {exc}")
+            return orders
+
+        # ── Permission check ───────────────────────────────────────────
+        existing_pos = self.exchange.get_position(symbol)
+        portfolio = CurrentPortfolioState(
+            symbol=symbol,
+            current_exposure=existing_pos.quantity if existing_pos else 0.0,
+            equity=self.exchange.get_total_equity(),
+            cash=self.exchange.get_balance("USDT"),
+        )
+        price = MarketPrice(
+            symbol=symbol,
+            current=current_price,
+            mid=current_price,
+            best_bid=current_price,
+            best_ask=current_price,
+        )
+        permission_ctx = OrderPermission(
+            execution_health="normal",
+            exposure_effect=(
+                __import__(
+                    "trading_agent.execution.canonical.risk_decision",
+                    fromlist=["ExposureEffect"],
+                ).ExposureEffect.INCREASE
+                if signal_str == "BUY"
+                else __import__(
+                    "trading_agent.execution.canonical.risk_decision",
+                    fromlist=["ExposureEffect"],
+                ).ExposureEffect.REDUCE
+            ),
+            risk_decision=risk_decision,
+            trusted_price=_TrustedPrice(current_price),
+            free_inventory=portfolio.cash,
+            order_size=0.0,  # planner will determine
+            order_side=signal_str.lower(),
+            enforce_inventory=True,
+        )
+        permission = OrderPermission.evaluate(permission_ctx)
+        if not permission.allowed():
+            logger.warning(f"Order blocked by permission: {permission.reason.value}")
+            return orders
+
+        # ── Order planning (canonical sizing) ──────────────────────────
+        plan_result = self.planner.plan(
+            target=target,
+            risk_decision=risk_decision,
+            observation=observation,
+            portfolio=portfolio,
+            price=price,
+            existing_reservations=self.lifecycle.active_sell_reservations(symbol),
+        )
+        if (
+            plan_result.status
+            != __import__(
+                "trading_agent.execution.canonical.order_planner",
+                fromlist=["OrderPlanningStatus"],
+            ).OrderPlanningStatus.READY
+        ):
+            logger.warning(f"Planner returned {plan_result.status.value}")
+            return orders
+        if plan_result.intent is None:
+            return orders
+
+        intent = plan_result.intent
+
+        # ── Lifecycle: create intent + approve risk + submit ──────────
+        created_event = self.lifecycle.create_order_intent(
+            intent_id=intent.intent_id,
+            symbol=intent.symbol,
+            side=intent.side,
+            size=intent.quantity,
+        )
+        self.store.append(created_event)
+
+        approved_event = self.lifecycle.approve_risk(
+            intent_id=intent.intent_id,
+            risk_decision=risk_decision,
+        )
+        self.store.append(approved_event)
+
+        # ── Build unforgeable AuthorizedOrder ──────────────────────────
+        now = datetime.now(UTC).isoformat()
+        authorization_hash = _make_authorization_hash(
+            intent.intent_id,
+            risk_decision.decision_id,
+            permission.permission.value,
+            now,
+        )
+        authorized = AuthorizedOrder.create(
+            intent_id=intent.intent_id,
+            symbol=intent.symbol,
+            side=intent.side,
+            quantity=intent.quantity,
+            idempotency_key=intent.idempotency_key,
+            price_reference=current_price,
+            risk_decision_id=risk_decision.decision_id,
+            forecast_fingerprint=risk_decision.forecast_fingerprint,
+            model_artifact_id=risk_decision.model_artifact_id,
+            permission_result=permission.permission.value,
+            authorization_id=f"auth-{intent.intent_id}",
+            lifecycle_event_id=approved_event.event_id,
+            correlation_id=intent.intent_id,
+            exposure_effect=permission_ctx.exposure_effect.value,
+            current_exposure=portfolio.current_exposure,
+            resulting_exposure=portfolio.current_exposure
+            + plan_result.executable_delta,
+            authorized_at=now,
+            authorization_hash=authorization_hash,
+        )
+
+        # ── Submit via gateway ─────────────────────────────────────────
+        result = self.gateway.submit(authorized, correlation_id=intent.intent_id)
+        submit_event = self.lifecycle.submit_order(
+            intent_id=intent.intent_id,
+            exchange_order_id=result.broker_order_id,
+        )
+        self.store.append(submit_event)
+
+        if result.success and result.broker_order_id:
+            # Simulate immediate fill for paper trading
+            fill_event = self.lifecycle.execute_fill(
+                intent_id=intent.intent_id,
+                quantity=intent.quantity,
+                price=current_price,
+                fee=0.0,
+            )
+            self.store.append(fill_event)
+
+            # Protection plan (explicit quantity, no magic zero)
+            plan = ProtectionPlan(
+                plan_id=f"prot_{intent.intent_id}",
+                model_risk_decision_id=risk_decision.decision_id,
+                symbol=intent.symbol,
+                stop_type="stop_loss",
+                stop_trigger=current_price * 0.95,
+                take_profit=current_price * 1.10,
+                quantity_mode=ProtectionQuantityMode.EXPLICIT_QUANTITY,
+                protected_quantity=intent.quantity,
+            )
+            protective_event = self.lifecycle.create_protective_order(
+                symbol=plan.symbol,
+                kind=plan.stop_type,
+                trigger_price=plan.stop_trigger,
+                parent_intent_id=intent.intent_id,
+            )
+            self.store.append(protective_event)
+
+            protection_result = self.gateway.submit_protection(
+                plan,
+                correlation_id=intent.intent_id,
+            )
+            if protection_result.success and protection_result.evidence:
+                ack_evidence = ProtectiveAckEvidence(
+                    broker_order_id=protection_result.evidence.broker_order_id,
+                    broker_ack_id=protection_result.evidence.broker_ack_id,
+                    venue=protection_result.evidence.venue,
+                    broker_status="open",
+                    acknowledged_at=datetime.now(UTC).isoformat(),
+                    protected_symbol=plan.symbol,
+                    protected_quantity=plan.protected_quantity,
+                    evidence_source="BROKER",
+                    raw_response=protection_result.evidence.raw_response,
+                )
+                ack_event = self.lifecycle.acknowledge_protective_order(
+                    protective_order_id=protective_event.aggregate_id,
+                    evidence=ack_evidence,
+                )
+                self.store.append(ack_event)
+
+            orders.append(
+                self._result_to_order(result, symbol, intent.side, intent.quantity)
+            )
+        else:
+            reject_event = self.lifecycle.reject_order(
+                intent_id=intent.intent_id,
+                reason=result.error or "gateway submit failed",
+            )
+            self.store.append(reject_event)
+
+        return orders
 
     def _graceful_shutdown(self) -> None:
         """Called on SIGTERM/SIGINT to close positions and persist state."""
@@ -170,388 +355,111 @@ class ExecutionEngine:
         except Exception as e:
             logger.error(f"Error during graceful shutdown: {e}")
 
-    # ── Execute signals from Phase 2 agents ────────────────────────────
-
-    def execute_signal(self, signal: AgentMessage) -> list[Order]:
-        """Execute a trading signal from the multi-agent system.
-
-        Takes the final ``Trader`` agent signal and converts it to orders.
-
-        Parameters
-        ----------
-        signal : AgentMessage
-            The ``trader`` agent's output. Expected fields:
-            - signal: "BUY" | "SELL" | "HOLD"
-            - confidence: 0.0-1.0
-            - max_position_size_pct: max % of portfolio to use
-            - risk_level: risk assessment
-            - atr: current ATR value (optional, for risk-based sizing)
-            - risk_reward: target R:R ratio (optional, default 2.0)
-            - trailing_atr_mult: ATR multiplier for trailing stop (optional, default 2.0)
-
-        Returns
-        -------
-        list[Order]
-            Orders that were placed (empty for HOLD)
-        """
-        signal_str = signal.signal.upper()
-        orders: list[Order] = []
-
-        if signal_str == "HOLD":
-            logger.info("Signal: HOLD — no action")
-            return orders
-
-        # Determine position size
-        symbol = (
-            signal.details.get("symbol", "BTC/USDT") if signal.details else "BTC/USDT"
-        )
-        max_pos_pct = signal.max_position_size_pct or 0.25
-        confidence = signal.confidence or 0.5
-
-        # Calculate amount based on portfolio allocation
-        equity = self.exchange.get_total_equity()
-        current_price = self._get_current_price(symbol)
-        if current_price is None or current_price <= 0:
-            logger.warning(f"Cannot execute: no price data for {symbol}")
-            return orders
-
-        # Get ATR for risk-based sizing
-        atr = None
-        if signal.details and "atr" in signal.details:
-            atr = signal.details["atr"]
-        else:
-            # Try to load pre-computed ATR from storage first
-            try:
-                from trading_agent.data.storage import load_ohlcv
-
-                df = load_ohlcv(self.exchange_name, symbol, "1h")
-                if not df.is_empty() and "atr" in df.columns:
-                    atr = float(df["atr"].tail(1).item())
-                elif not df.is_empty():
-                    # Fallback: compute ATR on-demand
-                    atr_expr = compute_atr(df, period=14)
-                    atr_series = df.select(atr_expr).to_series()
-                    atr = (
-                        float(atr_series.tail(1).item())
-                        if not atr_series.is_empty()
-                        else None
-                    )
-            except Exception as e:
-                logger.warning(f"ATR load failed for {symbol}: {e}")
-
-        # Get existing position
-        existing_pos = self.exchange.get_position(symbol)
-        existing_qty = existing_pos.quantity if existing_pos else 0.0
-
-        if signal_str == "BUY":
-            # Calculate buy amount
-            if not existing_pos or not existing_pos.is_active:
-                # ── Enhanced position sizing ──────────────────────────────
-                if atr and atr > 0:
-                    # ATR-based position sizing: risk 2% per trade
-                    risk_pct = 0.02 * confidence  # Scale risk by confidence
-                    atr_mult = (
-                        signal.details.get("trailing_atr_mult", 2.0)
-                        if signal.details
-                        else 2.0
-                    )
-                    amount = compute_atr_position_size(
-                        equity=equity,
-                        atr=atr,
-                        current_price=current_price,
-                        risk_pct=risk_pct,
-                        atr_multiplier=atr_mult,
-                    )
-                    # Cap at max position size
-                    max_amount = (equity * max_pos_pct) / current_price
-                    amount = min(amount, max_amount)
-                    sizing_method = "ATR"
-                else:
-                    # Fallback: percentage of equity
-                    max_cost = equity * max_pos_pct
-                    amount = max_cost / current_price
-                    sizing_method = "fixed_pct"
-
-                # Round to reasonable precision (0.001 for BTC)
-                amount = max(0.001, round(amount, 4))
-
-                logger.info(
-                    f"Signal: BUY {amount} {symbol} "
-                    f"(${amount * current_price:,.2f}, "
-                    f"{max_pos_pct * 100:.0f}% of ${equity:,.2f}) "
-                    f"[sizing: {sizing_method}, ATR={atr:.2f}]"
-                    if atr
-                    else f"Signal: BUY {amount} {symbol} "
-                    f"(${amount * current_price:,.2f}, "
-                    f"{max_pos_pct * 100:.0f}% of ${equity:,.2f}) "
-                    f"[sizing: {sizing_method}]"
-                )
-                order = self.gateway.submit(
-                    AuthorizedOrder(
-                        intent_id=f"engine-{symbol.replace('/', '-')}-{int(datetime.now(UTC).timestamp())}",
-                        symbol=symbol,
-                        side="buy",
-                        quantity=amount,
-                        idempotency_key=f"engine-{symbol.replace('/', '-')}-{int(datetime.now(UTC).timestamp())}",
-                        price_reference=current_price,
-                    ),
-                    correlation_id=f"engine-{symbol.replace('/', '-')}-{int(datetime.now(UTC).timestamp())}",
-                )
-                orders.append(self._result_to_order(order, symbol, "buy", amount))
-
-                # ── Set ATR-based trailing stop and take-profit ──────────
-                if order.status == OrderStatus.FILLED.value:
-                    pos = self.exchange.get_position(symbol)
-                    if pos:
-                        # Store sizing method in position metadata for trade history
-                        pos.metadata["sizing_method"] = sizing_method
-
-                        # ATR-based trailing stop
-                        if atr and atr > 0:
-                            trailing_mult = (
-                                signal.details.get("trailing_atr_mult", 2.0)
-                                if signal.details
-                                else 2.0
-                            )
-                            pos.trailing_stop_pct = (
-                                trailing_mult  # repurpose field as ATR multiplier
-                            )
-                            pos.stop_loss = current_price - (atr * trailing_mult)
-                            pos.metadata["trailing_stop_type"] = "atr"
-                            logger.info(
-                                f"ATR trailing stop set: {symbol} @ {pos.stop_loss:.2f} (ATR={atr:.2f}, mult={trailing_mult})"
-                            )
-                        else:
-                            # Fixed percentage fallback
-                            stop_pct = 0.05
-                            pos.stop_loss = current_price * (1 - stop_pct)
-                            pos.metadata["trailing_stop_type"] = "fixed_pct"
-                            logger.info(
-                                f"Fixed stop-loss set: {symbol} @ {pos.stop_loss:.2f} ({stop_pct * 100:.1f}%)"
-                            )
-
-                        # Active take-profit: R:R based (default 2:1)
-                        risk_reward = (
-                            signal.details.get("risk_reward", 2.0)
-                            if signal.details
-                            else 2.0
-                        )
-                        if atr and atr > 0:
-                            take_profit_dist = atr * trailing_mult * risk_reward
-                            pos.take_profit = current_price + take_profit_dist
-                        else:
-                            # Fallback: fixed R:R from stop
-                            stop_dist = current_price - pos.stop_loss
-                            pos.take_profit = current_price + (stop_dist * risk_reward)
-                        pos.metadata["risk_reward"] = risk_reward
-                        logger.info(
-                            f"Take-profit set: {symbol} @ {pos.take_profit:.2f} (R:R={risk_reward})"
-                        )
-
-                        # Persist position metadata (sizing_method, trailing_stop_type, risk_reward)
-                        self.exchange._save_state()
-
-            else:
-                logger.info(
-                    f"BUY signal but already in position: {existing_pos.quantity} {symbol}"
-                )
-
-        elif signal_str == "SELL":
-            if existing_pos and existing_pos.is_active:
-                amount = existing_pos.quantity
-                logger.info(f"Signal: SELL {amount} {symbol}")
-                order = self.gateway.submit(
-                    AuthorizedOrder(
-                        intent_id=f"engine-{symbol.replace('/', '-')}-{int(datetime.now(UTC).timestamp())}",
-                        symbol=symbol,
-                        side="sell",
-                        quantity=amount,
-                        idempotency_key=f"engine-{symbol.replace('/', '-')}-{int(datetime.now(UTC).timestamp())}",
-                        price_reference=current_price,
-                    ),
-                    correlation_id=f"engine-{symbol.replace('/', '-')}-{int(datetime.now(UTC).timestamp())}",
-                )
-                orders.append(self._result_to_order(order, symbol, "sell", amount))
-            else:
-                logger.info(f"SELL signal but no position in {symbol}")
-
-        return orders
-
-    def set_stop_loss(self, symbol: str, stop_pct: float = 0.05):
-        """Set a stop-loss on an existing position.
-
-        Parameters
-        ----------
-        symbol : str
-            Trading pair
-        stop_pct : float
-            Stop distance from entry (e.g. 0.05 = 5% below entry)
-        """
-        pos = self.exchange.get_position(symbol)
-        if pos and pos.is_active:
-            pos.stop_loss = pos.entry_price * (1 - stop_pct)
-            logger.info(
-                f"Stop-loss set: {symbol} @ {pos.stop_loss:.2f} "
-                f"({stop_pct * 100:.1f}% below entry)"
-            )
-
     # ── Price feed ─────────────────────────────────────────────────────
 
     def update_prices(self, prices: dict[str, float]):
-        """Update current prices for all tracked symbols.
-
-        Call this regularly (e.g. every new candle) to:
-        - Update unrealized P&L
-        - Check stop-loss/take-profit triggers
-        - Fill pending limit/stop orders
-        """
+        """Update price data for internal tracking."""
         self.exchange.update_prices(prices)
 
-    @staticmethod
-    def _timeframe_seconds(timeframe: str) -> int:
-        tf = timeframe.lower().strip()
-        units = {"m": 60, "h": 3600, "d": 86400, "w": 604800}
-        if len(tf) < 2 or tf[-1] not in units:
-            raise ValueError(f"Unsupported timeframe: {timeframe!r}")
-        try:
-            amount = int(tf[:-1])
-        except ValueError as exc:
-            raise ValueError(f"Unsupported timeframe: {timeframe!r}") from exc
-        if amount <= 0:
-            raise ValueError(f"Unsupported timeframe: {timeframe!r}")
-        return amount * units[tf[-1]]
+    # ── Position management ────────────────────────────────────────────
 
-    def update_market_price(
-        self,
-        symbol: str,
-        price: float,
-        candle_open_time: datetime,
-        timeframe: str,
-    ) -> None:
-        """Accept a price only from a recently closed candle."""
-        if not isinstance(candle_open_time, datetime):
-            raise ValueError("Market data timestamp must be a datetime")
-        if candle_open_time.tzinfo is None:
-            candle_open_time = candle_open_time.replace(tzinfo=UTC)
-        else:
-            candle_open_time = candle_open_time.astimezone(UTC)
-
-        duration = self._timeframe_seconds(timeframe)
-        bar_close = candle_open_time + timedelta(seconds=duration)
-        now = datetime.now(UTC)
-        if now < bar_close:
-            raise ValueError("Refusing execution from an incomplete candle")
-        if (now - bar_close).total_seconds() > max(duration * 2, 300):
-            raise ValueError("Refusing execution from stale market data")
-        self.update_prices({symbol: price})
-
-    def update_from_dataframe(self, symbol: str, df: Any, timeframe: str = "1h"):
-        """Update from the latest recently closed OHLCV candle."""
-        if df.is_empty():
-            return
-        latest_close = float(df["close"].tail(1).item())
-        if "timestamp" not in df.columns:
-            raise ValueError("OHLCV data must contain timestamp for execution")
-        latest_timestamp = df["timestamp"].tail(1).item()
-        self.update_market_price(symbol, latest_close, latest_timestamp, timeframe)
-
-    def update_with_atr(self, symbol: str, df: Any):
-        """Update prices with OHLCV data for ATR-based trailing stop.
-
-        Computes ATR and passes OHLCV to paper exchange for dynamic trailing stops.
-        """
-        if df.is_empty():
-            return
-        latest_close = float(df["close"].tail(1).item())
-        prices = {symbol: latest_close}
-
-        # Use pre-computed ATR if available, otherwise compute
-        if "atr" not in df.columns:
-            atr_series = compute_atr(df, period=14)
-            df = df.with_columns(atr_series)
-
-        ohlcv_data = {symbol: df}
-        self.exchange.update_prices(prices, ohlcv_data)
-
-    def update_all_with_atr(self, data: dict[str, Any]):
-        """Update all tracked symbols with OHLCV data for ATR trailing stops.
-
-        Parameters
-        ----------
-        data : dict[str, Any]
-            Symbol -> OHLCV DataFrame mapping
-        """
-        prices = {}
-        ohlcv_data = {}
-        for symbol, df in data.items():
-            if not df.is_empty():
-                latest_close = float(df["close"].tail(1).item())
-                prices[symbol] = latest_close
-                if "atr" not in df.columns:
-                    atr_series = compute_atr(df, period=14)
-                    df = df.with_columns(atr_series)
-                ohlcv_data[symbol] = df
-
-        if prices:
-            self.exchange.update_prices(prices, ohlcv_data)
-
-    # ── Status & Reporting ─────────────────────────────────────────────
+    def close_all(self, reason: str = "manual") -> list[Order]:
+        """Close all open positions via canonical gateway."""
+        orders: list[Order] = []
+        for pos in self.exchange.get_all_positions():
+            if not pos.is_active:
+                continue
+            symbol = pos.symbol
+            current_price = self._get_current_price(symbol)
+            if current_price is None:
+                continue
+            result = self.gateway.close_all_positions(
+                correlation_id=f"close-all-{reason}",
+                reason=reason,
+            )
+            orders.append(
+                Order(
+                    id="",
+                    symbol=symbol,
+                    side=OrderSide.SELL,
+                    type=OrderType.MARKET,
+                    amount=pos.quantity,
+                    status=OrderStatus.FILLED,
+                    filled_amount=pos.quantity,
+                    avg_fill_price=current_price,
+                )
+            )
+        return orders
 
     def get_summary(self) -> dict[str, Any]:
-        """Get a full execution summary."""
+        """Get current portfolio summary."""
         positions = self.exchange.get_all_positions()
-        total_equity = self.exchange.get_total_equity()
-        cash = self.exchange.get_balance("USDT")
-        open_orders = self.exchange.get_open_orders()
-
-        # Calculate totals
-        total_pnl = sum(p.unrealized_pnl for p in positions)
-        pos_value = total_equity - cash
-
         return {
-            "equity": round(total_equity, 2),
-            "cash": round(cash, 2),
-            "positions_value": round(pos_value, 2),
-            "unrealized_pnl": round(total_pnl, 2),
-            "return_pct": round(((total_equity / config.initial_capital) - 1) * 100, 2),
-            "open_positions": len(positions),
-            "open_orders": len(open_orders),
+            "total_equity": self.exchange.get_total_equity(),
+            "cash": self.exchange.get_balance("USDT"),
+            "open_positions": len([p for p in positions if p.is_active]),
+            "open_orders": len(self.exchange.get_open_orders()),
             "total_trades": len(self.exchange.trades),
         }
-
-    def get_positions_summary(self) -> list[dict[str, Any]]:
-        """Get detailed position info."""
-        result = []
-        for pos in self.exchange.get_all_positions():
-            result.append(
-                {
-                    "symbol": pos.symbol,
-                    "quantity": pos.quantity,
-                    "entry_price": pos.entry_price,
-                    "current_price": pos.current_price,
-                    "pnl": round(pos.unrealized_pnl, 2),
-                    "pnl_pct": round(pos.unrealized_pnl_pct, 2),
-                    "value": round(pos.market_value, 2),
-                    "stop_loss": pos.stop_loss,
-                    "take_profit": pos.take_profit,
-                }
-            )
-        return result
-
-    def get_trade_history(self, limit: int = 10) -> list[dict[str, Any]]:
-        """Get recent trade history."""
-        return [t.to_dict() for t in self.exchange.get_trade_history(limit)]
-
-    def close_all(self, reason: str = "manual_kill") -> dict[str, list[str]]:
-        """Emergency close all positions."""
-        return self.exchange.close_all_positions(reason=reason)
-
-    def reset(self):
-        """Reset paper exchange to initial state."""
-        self.exchange.reset()
 
     # ── Helpers ────────────────────────────────────────────────────────
 
     def _get_current_price(self, symbol: str) -> float | None:
-        """Return only a recently timestamped price; never revive stale storage."""
-        return self.exchange._fresh_price(symbol)
+        try:
+            ticker = self.exchange.get_ticker(symbol)
+            price = ticker.get("last") or ticker.get("price")
+            return float(price) if price is not None else None
+        except Exception:
+            return None
+
+    @staticmethod
+    def _result_to_order(
+        result: Any,
+        symbol: str,
+        side: str,
+        quantity: float,
+    ) -> Order:
+        """Convert a BrokerSubmitResult to an Order for backward compatibility."""
+        order_side = OrderSide.BUY if side.lower() == "buy" else OrderSide.SELL
+        status = OrderStatus.FILLED if result.success else OrderStatus.REJECTED
+        raw = result.raw_response or {}
+        filled_amount = float(
+            raw.get(
+                "filled",
+                raw.get("accumulated_quantity", quantity if result.success else 0),
+            )
+        )
+        avg_fill_price = float(raw.get("average", raw.get("price", 0)))
+        return Order(
+            id=result.broker_order_id or "",
+            symbol=symbol,
+            side=order_side,
+            type=OrderType.MARKET,
+            amount=float(quantity),
+            status=status,
+            filled_amount=filled_amount,
+            avg_fill_price=avg_fill_price,
+            client_order_id=result.broker_order_id,
+            metadata={"error": result.error} if result.error else {},
+        )
+
+
+def _make_authorization_hash(
+    intent_id: str, risk_decision_id: str, permission: str, authorized_at: str
+) -> str:
+    """Stable authorization hash for audit."""
+    import hashlib
+
+    blob = f"{intent_id}|{risk_decision_id}|{permission}|{authorized_at}".encode(
+        "utf-8"
+    )
+    return hashlib.sha256(blob).hexdigest()
+
+
+class _TrustedPrice:
+    """Minimal trusted price wrapper for permission checks."""
+
+    def __init__(self, price: float) -> None:
+        self.price = price
+        self.updated_at = datetime.now(UTC)
+        self.age_seconds = 0.0

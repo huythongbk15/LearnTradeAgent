@@ -11,7 +11,8 @@ import pytest
 from trading_agent.agents.risk_decision import RiskDecision as LegacyRiskDecision
 from trading_agent.agents.risk_decision import RiskLevel as LegacyRiskLevel
 from trading_agent.execution.canonical import (
-    CapitalChangeResult,
+    AuthorizedOrder,
+    BrokerSubmitResult,
     CausationChain,
     ContentHash,
     EnrichedMarketObservation,
@@ -20,6 +21,7 @@ from trading_agent.execution.canonical import (
     ProtectionPlan,
     ProtectionState,
     ProtectionStatus,
+    ProtectionQuantityMode,
     RiskLevel,
     RiskDecisionAdapter,
     TraceContext,
@@ -508,8 +510,29 @@ class TestBrokerGateway:
         assert result.status is OrderPlanningStatus.ORDER_REQUIRED
         assert result.intent is not None
         intent = result.intent
-        gw_result = gateway.submit(intent, correlation_id="corr-1")
-        assert isinstance(gw_result, CapitalChangeResult)
+        # Create lifecycle-authorized AuthorizedOrder (not raw OrderIntent)
+        authorized = AuthorizedOrder.create(
+            intent_id=intent.intent_id,
+            symbol=intent.symbol,
+            side=intent.side,
+            quantity=intent.quantity,
+            idempotency_key=intent.idempotency_key,
+            price_reference=50000.0,
+            risk_decision_id="fd-1",
+            forecast_fingerprint="fp-1",
+            model_artifact_id="model-v1",
+            permission_result="ALLOW",
+            authorization_id=f"auth-{intent.intent_id}",
+            lifecycle_event_id=f"event-{intent.intent_id}",
+            correlation_id=intent.intent_id,
+            exposure_effect="INCREASE",
+            current_exposure=0.0,
+            resulting_exposure=intent.quantity,
+            authorized_at=datetime.now(UTC).isoformat(),
+            authorization_hash="test-hash",
+        )
+        gw_result = gateway.submit(authorized, correlation_id="corr-1")
+        assert isinstance(gw_result, BrokerSubmitResult)
 
 
 # ── 4. ProtectionPlan state machine ───────────────────────────────────
@@ -525,6 +548,8 @@ class TestProtectionPlan:
             stop_trigger=45000.0,
             take_profit=60000.0,
             state=ProtectionState.NONE,
+            quantity_mode=ProtectionQuantityMode.EXPLICIT_QUANTITY,
+            protected_quantity=1.0,
         )
         next_plan = plan.with_state(ProtectionState.PROTECTION_REQUIRED)
         assert next_plan.state is ProtectionState.PROTECTION_REQUIRED
@@ -538,6 +563,8 @@ class TestProtectionPlan:
             stop_type="stop_loss",
             stop_trigger=1800.0,
             take_profit=2500.0,
+            quantity_mode=ProtectionQuantityMode.EXPLICIT_QUANTITY,
+            protected_quantity=1.0,
         )
         acked = plan.with_broker_order("broker-order-1")
         assert acked.broker_order_id == "broker-order-1"
