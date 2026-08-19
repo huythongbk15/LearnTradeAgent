@@ -16,6 +16,7 @@ from trading_agent.execution.data_trust import (
     ServerClock,
     StaleQuoteError,
     TimeStampedFetch,
+    TrustedPrice,
     reject_high_latency,
     reject_stale_exchange_timestamp,
 )
@@ -335,3 +336,89 @@ def test_monitor_rejects_and_counts():
         )
     assert monitor.rejection_count() == 1
     assert monitor.metrics()["rejections"] == 1
+
+
+# ── TrustedPrice exchange timestamp validation ─────────────────────────
+
+
+class TestTrustedPriceValidation:
+    def test_mandatory_exchange_timestamp_has_value(self):
+        tp = TrustedPrice(
+            symbol="BTC/USDT",
+            price=50_000.0,
+            exchange_timestamp=time.time() * 1000,
+            received_at=time.monotonic(),
+        )
+        assert tp.exchange_timestamp is not None
+
+    def test_fresh_price_passes(self):
+        tp = TrustedPrice(
+            symbol="BTC/USDT",
+            price=50_000.0,
+            exchange_timestamp=(time.time() - 1) * 1000,
+            received_at=time.monotonic(),
+        )
+        tp.validate_freshness(max_age_s=30.0)  # no raise
+
+    def test_stale_price_raises(self):
+        tp = TrustedPrice(
+            symbol="BTC/USDT",
+            price=50_000.0,
+            exchange_timestamp=(time.time() - 120) * 1000,
+            received_at=time.monotonic(),
+        )
+        with pytest.raises(StaleQuoteError, match="stale"):
+            tp.validate_freshness(max_age_s=30.0)
+
+    def test_future_timestamp_raises(self):
+        tp = TrustedPrice(
+            symbol="BTC/USDT",
+            price=50_000.0,
+            exchange_timestamp=(time.time() + 60) * 1000,
+            received_at=time.monotonic(),
+        )
+        with pytest.raises(StaleQuoteError, match="future"):
+            tp.validate_freshness(max_age_s=30.0)
+
+    def test_monotonicity_passes_on_first_sample(self):
+        tp = TrustedPrice(
+            symbol="BTC/USDT",
+            price=50_000.0,
+            exchange_timestamp=time.time() * 1000,
+            received_at=time.monotonic(),
+            previous_exchange_timestamp=None,
+        )
+        tp.validate_monotonicity()  # no raise
+
+    def test_monotonicity_passes_when_increasing(self):
+        tp = TrustedPrice(
+            symbol="BTC/USDT",
+            price=50_000.0,
+            exchange_timestamp=(time.time() + 1) * 1000,
+            received_at=time.monotonic(),
+            previous_exchange_timestamp=time.time() * 1000,
+        )
+        tp.validate_monotonicity()  # no raise
+
+    def test_monotonicity_raises_when_decreasing(self):
+        tp = TrustedPrice(
+            symbol="BTC/USDT",
+            price=50_000.0,
+            exchange_timestamp=(time.time() - 1) * 1000,
+            received_at=time.monotonic(),
+            previous_exchange_timestamp=time.time() * 1000,
+        )
+        with pytest.raises(DataTrustError, match="monotonicity violated"):
+            tp.validate_monotonicity()
+
+    def test_monotonicity_raises_when_frozen(self):
+        now_ms = time.time() * 1000
+        tp = TrustedPrice(
+            symbol="BTC/USDT",
+            price=50_000.0,
+            exchange_timestamp=now_ms,
+            received_at=time.monotonic(),
+            previous_exchange_timestamp=now_ms,
+        )
+        with pytest.raises(DataTrustError, match="monotonicity violated"):
+            tp.validate_monotonicity()

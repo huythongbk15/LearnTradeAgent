@@ -486,7 +486,7 @@ async def api_close(req: CloseRequest) -> dict:
 
         adapter = await _alpaca()
         sync_adapter = _AlpacaSyncAdapter(adapter)
-        store = ExecutionEventStore(":memory:").connect()
+        store = ExecutionEventStore("data/execution/events.db").connect()
 
         def _inventory_source(symbol, side):
             if side != "sell":

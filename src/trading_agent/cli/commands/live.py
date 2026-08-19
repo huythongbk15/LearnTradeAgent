@@ -555,6 +555,8 @@ def _place_order_via_gateway(live_broker, order):
     from trading_agent.execution.lifecycle import ExecutionEventStore
     from trading_agent.execution.lifecycle.lifecycle import (
         ExecutionLifecycle,
+        ExposureEffect,
+        ExecutionHealth,
         TrustedPrice,
     )
     from trading_agent.execution.permission import (
@@ -638,11 +640,11 @@ def _place_order_via_gateway(live_broker, order):
     lifecycle.approve_risk(intent_id, risk_decision=risk_decision)
 
     # 4. Evaluate permission
-    exposure_effect = "increase" if side == "buy" else "reduce"
+    exposure_effect = ExposureEffect.INCREASE if side == "buy" else ExposureEffect.REDUCE
     permission = evaluate_order_permission(
         PermissionContext(
-            execution_health="normal",
-            exposure_effect=exposure_effect,
+            execution_health=ExecutionHealth.NORMAL,
+            exposure_effect=exposure_effect.value,
             risk_decision=risk_decision,
             trusted_price=None,
             max_price_age_seconds=60.0,
@@ -682,7 +684,7 @@ def _place_order_via_gateway(live_broker, order):
         symbol=symbol,
         side=side,
         quantity=size,
-        exposure_effect=exposure_effect,
+        exposure_effect=exposure_effect.value,
         current_exposure=0.0,
         resulting_exposure=size if side == "buy" else 0.0,
         authorized_at=now,
@@ -692,8 +694,9 @@ def _place_order_via_gateway(live_broker, order):
     lifecycle.request_broker_submission(intent_id)
 
     # 7. Build AuthorizedOrder with original order metadata
+    from trading_agent.execution.canonical.broker_gateway import _AUTHORIZED_TOKEN
     authorized = AuthorizedOrder(
-        token="__authorized__",
+        token=_AUTHORIZED_TOKEN,
         intent_id=intent_id,
         symbol=symbol,
         side=side,
@@ -707,7 +710,7 @@ def _place_order_via_gateway(live_broker, order):
         authorization_id=auth_event.payload["authorization_id"],
         lifecycle_event_id=auth_event.event_id,
         correlation_id=intent_id,
-        exposure_effect=exposure_effect,
+        exposure_effect=exposure_effect.value,
         current_exposure=0.0,
         resulting_exposure=size if side == "buy" else 0.0,
         authorized_at=now,

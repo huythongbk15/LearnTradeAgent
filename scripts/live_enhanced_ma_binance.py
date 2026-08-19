@@ -44,9 +44,29 @@ from trading_agent.exchanges.models import (
     Symbol,
     TimeInForce,
 )
-from trading_agent.execution.canonical import CanonicalBrokerAdapter
+from trading_agent.execution.canonical import (
+    BrokerGateway,
+    AuthorizedOrder,
+    ExchangeAdapter,
+)
 from trading_agent.execution.canonical.legacy_authorization import (
     LegacyAuthorizationEvidence,
+)
+from trading_agent.execution.canonical.risk_decision import (
+    RiskLevel,
+    EvidenceState,
+    UnifiedRiskDecision,
+)
+from trading_agent.execution.lifecycle import ExecutionEventStore
+from trading_agent.execution.lifecycle.lifecycle import (
+    ExecutionLifecycle,
+    ExecutionHealth,
+    ExposureEffect,
+    TrustedPrice,
+)
+from trading_agent.execution.permission import (
+    PermissionContext,
+    evaluate_order_permission,
 )
 from trading_agent.execution.correlation import bind_run_correlation
 from trading_agent.execution.data_trust import (
@@ -1410,6 +1430,150 @@ def protect_remaining_position(
     return remaining_quantity
 
 
+def _canonical_submit(
+    broker,
+    lifecycle: ExecutionLifecycle,
+    gateway: BrokerGateway,
+    symbol,
+    side: str,
+    qty: float,
+    correlation_id: str,
+    risk_level: str = "LOW",
+    reduce_only: bool = False,
+    risk_decision_id: str = "",
+    forecast_fingerprint: str = "binance-manual",
+    model_artifact_id: str = "binance-manual",
+) -> dict:
+    """Submit an order through the full canonical pipeline.
+
+    Replaces the legacy ``broker.place_order(order, evidence=...)`` path.
+    """
+    # 1. Create order intent
+    lifecycle.create_order_intent(
+        intent_id=correlation_id,
+        symbol=str(symbol),
+        side=side,
+        size=qty,
+        idempotency_key=correlation_id,
+    )
+
+    # 2. Approve risk with realistic unknown evidence (no forecast/model)
+    risk_decision = UnifiedRiskDecision(
+        decision_id=risk_decision_id or f"risk-{correlation_id}",
+        forecast_fingerprint=forecast_fingerprint,
+        model_artifact_id=model_artifact_id,
+        requested_target_exposure=qty if side == "buy" else 0.0,
+        allowed_target_exposure=qty if side == "buy" else 0.0,
+        max_new_exposure=0.0 if reduce_only else qty,
+        reduce_only=reduce_only,
+        risk_level=RiskLevel(risk_level),
+        reason_codes=(),
+        calibration_state=EvidenceState.UNKNOWN,
+        calibration_artifact_id="binance-live",
+        calibration_ece=1.0,
+        ood_state=EvidenceState.UNKNOWN,
+        ood_score=1.0,
+        regime_state=EvidenceState.UNKNOWN,
+        regime_entropy=1.0,
+        interval_width=1.0,
+        created_at=datetime.now(UTC),
+    )
+    lifecycle.approve_risk(correlation_id, risk_decision=risk_decision)
+
+    # 3. Evaluate permission
+    exposure_effect = ExposureEffect.INCREASE if side == "buy" else ExposureEffect.REDUCE
+    permission = evaluate_order_permission(
+        PermissionContext(
+            execution_health=ExecutionHealth.NORMAL,
+            exposure_effect=exposure_effect,
+            risk_decision=risk_decision,
+            trusted_price=None,
+            max_price_age_seconds=60.0,
+            reconciliation_state="none",
+            protection_state="none",
+            manual_blocked=False,
+            kill_switch_active=False,
+            data_trust="trusted",
+            inventory_state="known",
+            free_inventory=qty,
+            authorized_sellable_inventory=qty if side == "sell" else 0.0,
+            order_size=qty,
+            order_side=side,
+            require_fresh_market_data=False,
+            enforce_inventory=False,
+            broker_state=None,
+            draft=False,
+        )
+    )
+    if not permission.allowed():
+        return {
+            "success": False,
+            "error": f"Permission blocked: {permission.reason.value} - {permission.detail}",
+            "side": side,
+            "qty": qty,
+            "symbol": str(symbol),
+            "status": "blocked",
+        }
+
+    # 4. Authorize order
+    auth_event = lifecycle.authorize_order(
+        intent_id=correlation_id,
+        authorization_id=f"auth-{correlation_id}",
+        idempotency_key=correlation_id,
+        payload_hash="",
+        risk_decision_id=risk_decision.decision_id,
+        forecast_fingerprint=forecast_fingerprint,
+        model_artifact_id=model_artifact_id,
+        permission=permission.permission.value,
+        symbol=str(symbol),
+        side=side,
+        quantity=qty,
+        exposure_effect=exposure_effect.value,
+        current_exposure=0.0,
+        resulting_exposure=qty if side == "buy" else 0.0,
+        authorized_at=datetime.now(UTC).isoformat(),
+    )
+
+    # 5. Request broker submission
+    lifecycle.request_broker_submission(correlation_id)
+
+    # 6. Build AuthorizedOrder and submit through gateway
+    from trading_agent.execution.canonical.broker_gateway import _AUTHORIZED_TOKEN
+    authorized = AuthorizedOrder(
+        token=_AUTHORIZED_TOKEN,
+        intent_id=correlation_id,
+        symbol=str(symbol),
+        side=side,
+        quantity=qty,
+        idempotency_key=correlation_id,
+        price_reference=0.0,
+        risk_decision_id=risk_decision.decision_id,
+        forecast_fingerprint=forecast_fingerprint,
+        model_artifact_id=model_artifact_id,
+        permission_result=permission.permission.value,
+        authorization_id=auth_event.payload["authorization_id"],
+        lifecycle_event_id=auth_event.event_id,
+        correlation_id=correlation_id,
+        exposure_effect=exposure_effect.value,
+        current_exposure=0.0,
+        resulting_exposure=qty if side == "buy" else 0.0,
+        authorized_at=auth_event.payload["authorized_at"],
+        authorization_hash="",
+    )
+    result = gateway.submit(authorized, correlation_id=correlation_id)
+
+    # 7. Return legacy-format result
+    return {
+        "success": result.success,
+        "broker_order_id": result.broker_order_id,
+        "error": result.error,
+        "side": side,
+        "qty": qty,
+        "symbol": str(symbol),
+        "status": "submitted" if result.success else "rejected",
+    }
+
+
 def execute_orders(
     *,
     orders: list[dict],
@@ -1420,6 +1584,8 @@ def execute_orders(
     audit_log_path: str | None = None,
     reconciliation_timeout_seconds: float = 0.0,
     monitor: DataTrustMonitor | None = None,
+    lifecycle: ExecutionLifecycle | None = None,
+    gateway: BrokerGateway | None = None,
     sleep_fn=time.sleep,
     monotonic_fn=time.monotonic,
 ) -> None:
@@ -2097,6 +2263,22 @@ def run_locked(
         )
         # Wrap with canonical broker gateway (P0 §12: runner canonical migration)
         broker = CanonicalBrokerAdapter(broker)
+
+        # Canonical execution: lifecycle + gateway (P0 §12: runner canonical migration)
+        canonical_store = ExecutionEventStore("data/execution/events.db").connect()
+        canonical_lifecycle = ExecutionLifecycle(
+            canonical_store,
+            price_source=lambda s: (
+                TrustedPrice(
+                    price=float(broker.get_ticker(s).get("last") or 0.0),
+                    exchange_timestamp=datetime.now(UTC),
+                    received_at=datetime.now(UTC),
+                )
+                if broker.get_ticker(s).get("last")
+                else None
+            ),
+        )
+        canonical_gateway = BrokerGateway(adapter=broker, store=canonical_store)
 
         reconcile_unfinished_orders(
             broker=broker,

@@ -25,6 +25,7 @@ from trading_agent.execution.canonical.broker_gateway import (
     CancelState,
     ProtectiveAckEvidence,
     AuthorizationError,
+    _AUTHORIZED_TOKEN,
 )
 from trading_agent.execution.canonical.protection import (
     ProtectionPlan,
@@ -287,9 +288,10 @@ class TestProtectiveEvidence:
                 protected_quantity=0.0,
             )
 
-    def test_gateway_protection_requires_explicit_quantity(self):
+    def test_gateway_protection_requires_explicit_quantity(self, tmp_path):
         adapter = DummyAdapter()
-        gateway = BrokerGateway(adapter)
+        store = ExecutionEventStore(str(tmp_path / "gateway.db")).connect()
+        gateway = BrokerGateway(adapter, store=store)
         plan = ProtectionPlan(
             plan_id="p1",
             model_risk_decision_id="r1",
@@ -396,7 +398,7 @@ class TestAuthorizedOrderUnforgeable:
 
     def test_factory_creates_valid(self):
         order = AuthorizedOrder(
-            token="__authorized__",
+            token=_AUTHORIZED_TOKEN,
             intent_id="i1",
             symbol="BTC/USDT",
             side="buy",
@@ -448,7 +450,7 @@ class TestBrokerGatewayAuthorizationAttacks:
         )
         lifecycle.request_broker_submission(intent_id)
         order = AuthorizedOrder(
-            token="__authorized__",
+            token=_AUTHORIZED_TOKEN,
             intent_id=intent_id,
             symbol="BTC/USDT",
             side="buy",
@@ -474,7 +476,7 @@ class TestBrokerGatewayAuthorizationAttacks:
         store = ExecutionEventStore(tmp_path / "no-auth.db").connect()
         gateway = BrokerGateway(adapter=None, store=store)
         order = AuthorizedOrder(
-            token="__authorized__",
+            token=_AUTHORIZED_TOKEN,
             intent_id="no-auth-intent",
             symbol="BTC/USDT",
             side="buy",
@@ -501,7 +503,7 @@ class TestBrokerGatewayAuthorizationAttacks:
         store, authorized_order = self._setup_authorized_order(tmp_path)
         gateway = BrokerGateway(adapter=None, store=store)
         tampered = AuthorizedOrder(
-            token="__authorized__",
+            token=_AUTHORIZED_TOKEN,
             intent_id=authorized_order.intent_id,
             symbol=authorized_order.symbol,
             side=authorized_order.side,
@@ -528,7 +530,7 @@ class TestBrokerGatewayAuthorizationAttacks:
         store, authorized_order = self._setup_authorized_order(tmp_path)
         gateway = BrokerGateway(adapter=None, store=store)
         tampered = AuthorizedOrder(
-            token="__authorized__",
+            token=_AUTHORIZED_TOKEN,
             intent_id=authorized_order.intent_id,
             symbol=authorized_order.symbol,
             side=authorized_order.side,
@@ -555,7 +557,7 @@ class TestBrokerGatewayAuthorizationAttacks:
         store, authorized_order = self._setup_authorized_order(tmp_path)
         gateway = BrokerGateway(adapter=None, store=store)
         tampered = AuthorizedOrder(
-            token="__authorized__",
+            token=_AUTHORIZED_TOKEN,
             intent_id=authorized_order.intent_id,
             symbol="ETH/USDT",
             side=authorized_order.side,
@@ -582,7 +584,7 @@ class TestBrokerGatewayAuthorizationAttacks:
         store, authorized_order = self._setup_authorized_order(tmp_path)
         gateway = BrokerGateway(adapter=None, store=store)
         tampered = AuthorizedOrder(
-            token="__authorized__",
+            token=_AUTHORIZED_TOKEN,
             intent_id=authorized_order.intent_id,
             symbol=authorized_order.symbol,
             side=authorized_order.side,
@@ -609,7 +611,7 @@ class TestBrokerGatewayAuthorizationAttacks:
         store, authorized_order = self._setup_authorized_order(tmp_path)
         gateway = BrokerGateway(adapter=None, store=store)
         tampered = AuthorizedOrder(
-            token="__authorized__",
+            token=_AUTHORIZED_TOKEN,
             intent_id=authorized_order.intent_id,
             symbol=authorized_order.symbol,
             side=authorized_order.side,
@@ -636,7 +638,7 @@ class TestBrokerGatewayAuthorizationAttacks:
         store, authorized_order = self._setup_authorized_order(tmp_path)
         gateway = BrokerGateway(adapter=None, store=store)
         tampered = AuthorizedOrder(
-            token="__authorized__",
+            token=_AUTHORIZED_TOKEN,
             intent_id=authorized_order.intent_id,
             symbol=authorized_order.symbol,
             side=authorized_order.side,
@@ -680,10 +682,42 @@ class TestCliOrderE2E:
 
         def place_order(self, order):
             self.calls.append(order)
+            if isinstance(order, dict):
+                qty = float(order.get("qty", 0.0))
+            else:
+                qty = float(order.size)
             return {
                 "id": f"broker-{len(self.calls)}",
                 "status": "filled",
-                "filled_qty": float(order.size),
+                "filled_qty": qty,
+                "avg_fill_price": 100.0,
+            }
+
+        async def create_order(self, order, side=None, qty=None, order_type=None, limit_price=None, **kwargs):
+            if hasattr(order, 'symbol'):
+                # Called with Order object from _SyncAsyncBridge
+                self.calls.append({
+                    "symbol": str(order.symbol),
+                    "side": order.side,
+                    "qty": float(order.size),
+                    "order_type": order.type,
+                    "limit_price": order.price,
+                })
+                qty_val = float(order.size)
+            else:
+                # Called with keyword args from BrokerGateway.submit_protection
+                self.calls.append({
+                    "symbol": str(order),
+                    "side": side,
+                    "qty": float(qty),
+                    "order_type": order_type,
+                    "limit_price": limit_price,
+                })
+                qty_val = float(qty)
+            return {
+                "id": f"broker-{len(self.calls)}",
+                "status": "filled",
+                "filled_qty": qty_val,
                 "avg_fill_price": 100.0,
             }
 
@@ -700,8 +734,8 @@ class TestCliOrderE2E:
         assert result["id"] == "broker-1"
         assert result["status"] == "submitted"
         assert len(broker.calls) == 1
-        assert broker.calls[0].side == OrderSide.BUY
-        assert broker.calls[0].size == Decimal("1.0")
+        assert broker.calls[0]["side"] == OrderSide.BUY
+        assert broker.calls[0]["qty"] == 1.0
 
     def test_e2e_sell_order_flows_through_gateway(self):
         broker = self._MockLiveBroker()
@@ -717,8 +751,8 @@ class TestCliOrderE2E:
         assert result["id"] == "broker-1"
         assert result["status"] == "submitted"
         assert len(broker.calls) == 1
-        assert broker.calls[0].side == OrderSide.SELL
-        assert broker.calls[0].size == Decimal("0.5")
+        assert broker.calls[0]["side"] == OrderSide.SELL
+        assert broker.calls[0]["qty"] == 0.5
 
     def test_e2e_sell_without_inventory_is_blocked(self):
         broker = self._MockLiveBroker()
@@ -745,8 +779,8 @@ class TestCliOrderE2E:
         result = _place_order_via_gateway(broker, order)
         assert result["id"] == "broker-1"
         assert len(broker.calls) == 1
-        assert broker.calls[0].type == OrderType.LIMIT
-        assert broker.calls[0].price == Decimal("50000.0")
+        assert broker.calls[0]["order_type"] == OrderType.LIMIT
+        assert broker.calls[0]["limit_price"] == Decimal("50000.0")
 
 
 def _sample_risk_decision():

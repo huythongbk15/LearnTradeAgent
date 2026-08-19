@@ -19,6 +19,7 @@ and persisted by ExecutionLifecycle.
 from __future__ import annotations
 
 import math
+import uuid
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Protocol
@@ -28,6 +29,9 @@ from trading_agent.execution.canonical.protection import (
     ProtectionQuantityMode,
     ProtectionState,
 )
+
+
+_AUTHORIZED_TOKEN = uuid.uuid4().hex
 
 
 class AuthorizationError(RuntimeError):
@@ -165,7 +169,7 @@ class AuthorizedOrder:
     """
 
     def __init__(self, token: str, **fields: Any) -> None:
-        if token != "__authorized__":
+        if token != _AUTHORIZED_TOKEN:
             raise AuthorizationError(
                 "AuthorizedOrder must be created through lifecycle authorization"
             )
@@ -232,7 +236,9 @@ class BrokerGateway:
         The execution event store for durable authorization verification.
     """
 
-    def __init__(self, adapter: ExchangeAdapter, store: Any = None) -> None:
+    def __init__(self, adapter: ExchangeAdapter, store: Any) -> None:
+        if store is None:
+            raise ValueError("BrokerGateway requires a durable execution event store")
         self._adapter = adapter
         self._store = store
 

@@ -333,7 +333,6 @@ class ExecutionEngine:
 
         # ── Build AuthorizedOrder from durable authorization ────────────
         authorized = AuthorizedOrder(
-            token="__authorized__",
             intent_id=intent.intent_id,
             symbol=intent.symbol,
             side=intent.side,
@@ -364,11 +363,10 @@ class ExecutionEngine:
 
         if result.success and result.broker_order_id:
             # Simulate immediate fill for paper trading
-            fill_event = self.lifecycle.execute_fill(
+            fill_event = self.lifecycle.receive_fill(
                 intent_id=intent.intent_id,
-                quantity=intent.quantity,
+                size=intent.quantity,
                 price=current_price,
-                fee=0.0,
             )
 
             # Protection plan (explicit quantity, no magic zero)
@@ -457,8 +455,9 @@ class ExecutionEngine:
             try:
                 auth_event = self.lifecycle.emergency_reduce(emergency)
                 # Submit via gateway
+                from trading_agent.execution.canonical.broker_gateway import _AUTHORIZED_TOKEN
                 authorized = AuthorizedOrder(
-                    token="__authorized__",
+                    token=_AUTHORIZED_TOKEN,
                     intent_id=emergency.intent_id,
                     symbol=symbol,
                     side="sell",
@@ -524,8 +523,9 @@ class ExecutionEngine:
         )
         try:
             auth_event = self.lifecycle.emergency_reduce(emergency)
+            from trading_agent.execution.canonical.broker_gateway import _AUTHORIZED_TOKEN
             authorized = AuthorizedOrder(
-                token="__authorized__",
+                token=_AUTHORIZED_TOKEN,
                 intent_id=emergency.intent_id,
                 symbol=symbol,
                 side="sell",

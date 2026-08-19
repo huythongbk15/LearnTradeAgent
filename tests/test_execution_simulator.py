@@ -697,3 +697,187 @@ class TestRealityGap:
         )
         assert "tracking_error_bps" in report.missing_in_both
         assert report.pass_gate  # optional missing doesn't fail gate
+
+
+# ── Timeout / Cancel / Reservation / Crash semantics ─────────────────
+
+
+class TestTimeoutAndCancelSemantics:
+    def test_cancel_does_not_become_rejected(self):
+        df = make_df(20)
+        cfg = SimulationConfig(
+            random_seed=1, passive_fill_prob=0.0
+        )  # never passive-fill
+        engine = MarketReplayEngine(df, config=cfg, symbol="T", initial_cash=10_000.0)
+        result = engine.run(
+            lambda i, e: (
+                [
+                    OrderIntent(
+                        order_id="lim",
+                        side=SimSide.BUY,
+                        order_type=SimOrderType.LIMIT,
+                        quantity=1.0,
+                        limit_price=1.0,
+                    )
+                ]
+                if i == 3
+                else []
+            )
+        )
+        order = next(o for o in result.order_results if o.order_id == "lim")
+        assert order.status == SimOrderStatus.SUBMITTED
+        # Cancel it — must not be REJECTED.
+        engine.cancel_order("lim", 10)
+        assert order.status == SimOrderStatus.CANCELED
+        assert order.reject_reason == RejectReason.NONE
+
+    def test_resting_limit_never_silently_rejected(self):
+        df = make_df(20)
+        cfg = SimulationConfig(
+            random_seed=1, passive_fill_prob=0.0
+        )
+        engine = MarketReplayEngine(df, config=cfg, symbol="T", initial_cash=10_000.0)
+        result = engine.run(
+            lambda i, e: (
+                [
+                    OrderIntent(
+                        order_id="lim",
+                        side=SimSide.BUY,
+                        order_type=SimOrderType.LIMIT,
+                        quantity=1.0,
+                        limit_price=1.0,
+                    )
+                ]
+                if i == 3
+                else []
+            )
+        )
+        order = next(o for o in result.order_results if o.order_id == "lim")
+        # Throughout its lifetime the order is SUBMITTED, never REJECTED.
+        assert order.status == SimOrderStatus.SUBMITTED
+        assert order.reject_reason == RejectReason.NONE
+
+    def test_cancel_releases_reservation(self):
+        df = make_df(20)
+        cfg = SimulationConfig(
+            random_seed=1, passive_fill_prob=0.0
+        )
+        engine = MarketReplayEngine(df, config=cfg, symbol="T", initial_cash=10_000.0)
+        result = engine.run(
+            lambda i, e: (
+                [
+                    OrderIntent(
+                        order_id="lim",
+                        side=SimSide.SELL,
+                        order_type=SimOrderType.LIMIT,
+                        quantity=2.0,
+                        limit_price=9999.0,
+                    )
+                ]
+                if i == 3
+                else []
+            )
+        )
+        order = next(o for o in result.order_results if o.order_id == "lim")
+        assert order.status == SimOrderStatus.SUBMITTED
+        engine.cancel_order("lim", 10)
+        assert order.status == SimOrderStatus.CANCELED
+        # Reservation released: missed_fill_quantity reflects the unfilled qty.
+        assert result.ledger.missed_fill_quantity >= 0
+
+    def test_timeout_not_equal_rejected_in_metrics(self):
+        """A timed-out order must not inflate rejected_order_rate."""
+        df = make_df(20)
+        cfg = SimulationConfig(
+            random_seed=1, passive_fill_prob=0.0
+        )
+        engine = MarketReplayEngine(df, config=cfg, symbol="T", initial_cash=10_000.0)
+        result = engine.run(
+            lambda i, e: (
+                [
+                    OrderIntent(
+                        order_id="lim",
+                        side=SimSide.BUY,
+                        order_type=SimOrderType.LIMIT,
+                        quantity=1.0,
+                        limit_price=1.0,
+                    )
+                ]
+                if i == 3
+                else []
+            )
+        )
+        # Cancel (simulating a timeout-then-cancel path)
+        engine.cancel_order("lim", 10)
+        assert result.metrics.rejected_order_rate == pytest.approx(0.0)
+
+
+class TestCrashMatrix:
+    @pytest.mark.parametrize(
+        ("crash_bar", "seed"),
+        [
+            (5, 1),
+            (10, 42),
+            (15, 7),
+        ],
+    )
+    def test_simulator_survives_mid_run_cancel(self, crash_bar, seed):
+        """Cancel at various bars during a run — no crash, deterministic output."""
+        df = make_df(40)
+        cfg = SimulationConfig(
+            random_seed=seed, spread_bps=5.0, passive_fill_prob=0.0
+        )
+        engine = MarketReplayEngine(df, config=cfg, symbol="T", initial_cash=10_000.0)
+
+        def provider(i, eng):
+            if i == 3:
+                return [
+                    OrderIntent(
+                        order_id="o",
+                        side=SimSide.BUY,
+                        order_type=SimOrderType.LIMIT,
+                        quantity=1.0,
+                        limit_price=1.0,  # far below market → rests, never fills
+                    )
+                ]
+            return []
+
+        result = engine.run(provider)
+        engine.cancel_order("o", crash_bar)
+        # State remains consistent after cancel.
+        order = next(o for o in result.order_results if o.order_id == "o")
+        assert order.status in (SimOrderStatus.SUBMITTED, SimOrderStatus.CANCELED)
+
+    @pytest.mark.parametrize(
+        ("max_age", "should_reject"),
+        [
+            (1e-9, True),
+            (1e-3, True),
+            (10.0, False),
+        ],
+    )
+    def test_stale_quote_matrix(self, max_age, should_reject):
+        df = make_df(10)
+        cfg = SimulationConfig(
+            random_seed=1, max_book_age_seconds=max_age
+        )
+        engine = MarketReplayEngine(df, config=cfg, symbol="T", initial_cash=10_000.0)
+        result = engine.run(
+            lambda i, e: (
+                [
+                    OrderIntent(
+                        order_id=f"o{i}",
+                        side=SimSide.BUY,
+                        order_type=SimOrderType.MARKET,
+                        quantity=1.0,
+                    )
+                ]
+                if i == 3
+                else []
+            )
+        )
+        if should_reject:
+            assert result.order_results[0].reject_reason == RejectReason.STALE_QUOTE
+            assert result.metrics.rejected_order_rate == pytest.approx(1.0)
+        else:
+            assert result.order_results[0].reject_reason != RejectReason.STALE_QUOTE
