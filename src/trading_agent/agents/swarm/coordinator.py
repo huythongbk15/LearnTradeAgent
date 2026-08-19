@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -123,7 +124,7 @@ class CoordinatorAgent(Agent):
         """Aggregate agent signals."""
         if not signals:
             return SwarmSignal(
-                swarm_id=f"swarm_{datetime.utcnow().timestamp()}",
+                swarm_id=f"swarm_{uuid.uuid4().hex}",
                 symbol=symbol,
                 final_action="hold",
                 final_confidence=0.0,
@@ -176,7 +177,7 @@ class CoordinatorAgent(Agent):
             }
 
         return SwarmSignal(
-            swarm_id=f"swarm_{datetime.utcnow().timestamp()}",
+            swarm_id=f"swarm_{uuid.uuid4().hex}",
             symbol=symbol,
             final_action=final["action"],
             final_confidence=final["confidence"],
@@ -418,7 +419,7 @@ class CompetitiveSwarm(CoordinatorAgent):
         """Override for competitive mode."""
         if not signals:
             return SwarmSignal(
-                swarm_id=f"swarm_{datetime.utcnow().timestamp()}",
+                swarm_id=f"swarm_{uuid.uuid4().hex}",
                 symbol=symbol,
                 final_action="hold",
                 final_confidence=0.0,
@@ -446,7 +447,7 @@ class CompetitiveSwarm(CoordinatorAgent):
         size_pct = best_signal.size_pct if risk_approved else 0
 
         return SwarmSignal(
-            swarm_id=f"swarm_{datetime.utcnow().timestamp()}",
+            swarm_id=f"swarm_{uuid.uuid4().hex}",
             symbol=symbol,
             final_action=action,
             final_confidence=best_signal.confidence,

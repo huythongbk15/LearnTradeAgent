@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import time
+import uuid
 from typing import Any
 
 import click
@@ -546,7 +547,6 @@ def _place_order_via_gateway(live_broker, order):
 
     from trading_agent.execution.canonical import (
         BrokerGateway,
-        AuthorizedOrder,
         UnifiedRiskDecision,
         RiskLevel,
         EvidenceState,
@@ -558,6 +558,7 @@ def _place_order_via_gateway(live_broker, order):
         ExposureEffect,
         ExecutionHealth,
         TrustedPrice,
+        ExposureEffect,
     )
     from trading_agent.execution.permission import (
         PermissionContext,
@@ -600,7 +601,7 @@ def _place_order_via_gateway(live_broker, order):
         inventory_source=_inventory_source,
     )
 
-    intent_id = f"cli-{int(datetime.now(UTC).timestamp())}"
+    intent_id = f"cli-{uuid.uuid4().hex}"
     symbol = order.symbol
     side = "buy" if order.side.value.lower() == "buy" else "sell"
     size = float(order.size)
@@ -614,29 +615,42 @@ def _place_order_via_gateway(live_broker, order):
         idempotency_key=order.client_order_id,
     )
 
-    # 2. Synthetic risk decision for manual CLI order
+    # 2. MANUAL CLI ORDERS REQUIRE REAL RISK EVIDENCE.
+    # Synthetic perfect risk (calibration_ece=0.0, etc.) is FORBIDDEN.
+    # Operator must provide real risk evidence via risk policy/evidence.
+    # For now, we BLOCK manual BUY/SELL that would increase exposure.
+    # Only REDUCE (sell) with trusted inventory is allowed for manual override.
+    if side == "buy":
+        raise RuntimeError(
+            "Manual BUY orders require real risk evidence from risk policy. "
+            "Synthetic risk evidence is forbidden. Provide --risk-decision-id or "
+            "configure risk policy to generate real risk evidence."
+        )
+
+    # For SELL (reduce-only), we can proceed with minimal risk decision
+    # since we're reducing exposure and have inventory evidence
     risk_decision = UnifiedRiskDecision(
         decision_id=f"cli-risk-{intent_id}",
-        forecast_fingerprint="cli-manual",
+        forecast_fingerprint="cli-manual-reduce",
         model_artifact_id="cli-manual",
-        requested_target_exposure=1.0,
-        allowed_target_exposure=1.0,
-        max_new_exposure=1.0,
-        reduce_only=False,
-        risk_level=RiskLevel.LOW,
-        reason_codes=(),
+        requested_target_exposure=0.0,
+        allowed_target_exposure=0.0,
+        max_new_exposure=0.0,
+        reduce_only=True,
+        risk_level=RiskLevel.HIGH,
+        reason_codes=("MANUAL_REDUCE",),
         calibration_state=EvidenceState.KNOWN,
-        calibration_artifact_id="cli",
-        calibration_ece=0.0,
+        calibration_artifact_id="cli-manual",
+        calibration_ece=1.0,  # Max uncertainty - no calibration evidence
         ood_state=EvidenceState.KNOWN,
-        ood_score=0.0,
+        ood_score=1.0,  # Max uncertainty - no OOD evidence
         regime_state=EvidenceState.KNOWN,
-        regime_entropy=0.0,
-        interval_width=0.0,
+        regime_entropy=1.0,  # Max uncertainty - no regime evidence
+        interval_width=1.0,  # Max uncertainty
         created_at=datetime.now(UTC),
     )
 
-    # 3. Approve risk
+    # 3. Approve risk (reduce-only allowed with minimal evidence)
     lifecycle.approve_risk(intent_id, risk_decision=risk_decision)
 
     # 4. Evaluate permission
@@ -648,20 +662,20 @@ def _place_order_via_gateway(live_broker, order):
             execution_health=ExecutionHealth.NORMAL,
             exposure_effect=exposure_effect.value,
             risk_decision=risk_decision,
-            trusted_price=None,
+            trusted_price=None,  # No price for manual reduce
             max_price_age_seconds=60.0,
             reconciliation_state="none",
             protection_state="none",
             manual_blocked=False,
             kill_switch_active=False,
             data_trust="trusted",
-            inventory_state="known",
+            inventory_state="known",  # We have inventory from broker
             free_inventory=0.0,
-            authorized_sellable_inventory=size if side == "sell" else 0.0,
+            authorized_sellable_inventory=size,  # We have inventory
             order_size=size,
-            order_side=side,
-            require_fresh_market_data=False,
-            enforce_inventory=False,
+            order_side="sell",
+            require_fresh_market_data=True,  # Enable for safety
+            enforce_inventory=True,  # Enable for safety
             broker_state=None,
             draft=False,
         )
@@ -672,11 +686,9 @@ def _place_order_via_gateway(live_broker, order):
             f"Order blocked by permission: {permission.reason.value} — {permission.detail}"
         )
 
-    # 5. Authorize order
-    now = datetime.now(UTC).isoformat()
+    # 5. Authorize order (lifecycle derives all fields from durable state)
     auth_event = lifecycle.authorize_order(
         intent_id=intent_id,
-        authorization_id=f"auth-{intent_id}",
         idempotency_key=order.client_order_id or intent_id,
         payload_hash="",
         risk_decision_id=risk_decision.decision_id,
@@ -728,9 +740,13 @@ def _place_order_via_gateway(live_broker, order):
         },
     )
 
-    # 8. Submit via gateway
+    # 6. Request broker submission (durable pre-submission event)
+    lifecycle.request_broker_submission(intent_id)
+
+    # 7. Submit via gateway using authorization_id from durable authorization
+    auth_id = auth_event.payload["authorization_id"]
     gateway = BrokerGateway(adapter=adapter, store=store)
-    result = gateway.submit(authorized, correlation_id=intent_id)
+    result = gateway.submit(auth_id, correlation_id=intent_id)
 
     if result.success and result.broker_order_id:
         lifecycle.submit_order(
@@ -1152,10 +1168,8 @@ def live_order(
         else "market"
     )
 
-    from datetime import datetime
-
     order = Order(
-        id=f"cli_{datetime.now().timestamp()}",
+        id=f"cli_{uuid.uuid4().hex}",
         symbol=sym,
         side=OrderSide.BUY if side == "buy" else OrderSide.SELL,
         type=OrderType(broker_type.upper()),

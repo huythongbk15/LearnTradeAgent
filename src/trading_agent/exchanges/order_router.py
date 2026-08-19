@@ -11,6 +11,7 @@ Provides intelligent order execution across multiple exchanges:
 
 import asyncio
 import logging
+import uuid
 from abc import ABC, abstractmethod
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -156,7 +157,7 @@ class BestPriceRouter(ExecutionAlgorithm):
         results = []
         for child in plan.child_orders:
             order = Order(
-                id=f"{plan.symbol.base}_{datetime.now().timestamp()}",
+                id=f"{plan.symbol.base}_{uuid.uuid4().hex}",
                 symbol=plan.symbol,
                 side=plan.side,
                 type=child["type"],
@@ -235,7 +236,7 @@ class TWAPRouter(ExecutionAlgorithm):
         for child in plan.child_orders:
             await asyncio.sleep(child["delay"].total_seconds())
             order = Order(
-                id=f"{plan.symbol.base}_twap_{datetime.now().timestamp()}",
+                id=f"{plan.symbol.base}_twap_{uuid.uuid4().hex}",
                 symbol=plan.symbol,
                 side=plan.side,
                 type=child["type"],
@@ -306,7 +307,7 @@ class SplitRouter(ExecutionAlgorithm):
         tasks = []
         for child in plan.child_orders:
             order = Order(
-                id=f"{plan.symbol.base}_split_{datetime.now().timestamp()}",
+                id=f"{plan.symbol.base}_split_{uuid.uuid4().hex}",
                 symbol=plan.symbol,
                 side=plan.side,
                 type=child["type"],

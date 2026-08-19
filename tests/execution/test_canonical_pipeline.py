@@ -12,7 +12,7 @@ import pytest
 from trading_agent.agents.risk_decision import RiskDecision as LegacyRiskDecision
 from trading_agent.agents.risk_decision import RiskLevel as LegacyRiskLevel
 from trading_agent.execution.canonical import (
-    AuthorizedOrder,
+    BrokerGateway,
     BrokerSubmitResult,
     CausationChain,
     ContentHash,
@@ -526,23 +526,19 @@ class TestBrokerGateway:
             intent_id=intent.intent_id,
             symbol=intent.symbol,
             side=intent.side,
-            quantity=intent.quantity,
+            size=intent.quantity,
             idempotency_key=intent.idempotency_key,
-            price_reference=50000.0,
-            risk_decision_id="fd-1",
-            forecast_fingerprint="fp-1",
-            model_artifact_id="model-v1",
-            permission_result="ALLOW",
-            authorization_id=f"auth-{intent.intent_id}",
-            lifecycle_event_id=f"event-{intent.intent_id}",
-            correlation_id=intent.intent_id,
-            exposure_effect="INCREASE",
-            current_exposure=0.0,
-            resulting_exposure=intent.quantity,
-            authorized_at=datetime.now(UTC).isoformat(),
-            authorization_hash="test-hash",
         )
-        gw_result = gateway.submit(authorized, correlation_id="corr-1")
+        lifecycle.approve_risk(intent.intent_id, risk_decision=decision)
+
+        auth_event = lifecycle.authorize_order(
+            intent_id=intent.intent_id,
+            idempotency_key=intent.idempotency_key,
+        )
+        lifecycle.request_broker_submission(intent.intent_id)
+        auth_id = auth_event.payload["authorization_id"]
+
+        gw_result = gateway.submit(auth_id, correlation_id="corr-1")
         assert isinstance(gw_result, BrokerSubmitResult)
 
 

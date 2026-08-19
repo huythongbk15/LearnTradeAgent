@@ -10,6 +10,7 @@ Supports:
 """
 
 import logging
+import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -579,7 +580,7 @@ class AutoRebalancer:
         orders = []
         for t in trades:
             order = Order(
-                id=f"rebal_{t['symbol'].base}_{datetime.now().timestamp()}",
+                id=f"rebal_{t['symbol'].base}_{uuid.uuid4().hex}",
                 symbol=t["symbol"],
                 side=t["side"],
                 type=OrderType.MARKET,  # Could use LIMIT with slippage buffer

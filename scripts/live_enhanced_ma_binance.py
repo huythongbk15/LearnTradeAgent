@@ -79,6 +79,7 @@ from trading_agent.execution.data_trust import (
     TimeStampedFetch,
     reject_high_latency,
 )
+from trading_agent.execution.lifecycle.store import ExecutionEventStore
 from trading_agent.execution.live_safety import (
     LIVE_CONFIRMATION,
     RISK_INCREASE_CONFIRMATION,
@@ -2265,7 +2266,10 @@ def run_locked(
             strict_pricing=True,
         )
         # Wrap with canonical broker gateway (P0 §12: runner canonical migration)
-        broker = CanonicalBrokerAdapter(broker)
+        execution_store = ExecutionEventStore("data/execution/events.db")
+        broker = CanonicalBrokerAdapter(
+            broker, gateway=BrokerGateway(adapter=broker, store=execution_store)
+        )
 
         # Canonical execution: lifecycle + gateway (P0 §12: runner canonical migration)
         canonical_store = ExecutionEventStore("data/execution/events.db").connect()

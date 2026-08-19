@@ -12,6 +12,7 @@ import logging
 import signal
 import sys
 import threading
+import uuid
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
@@ -23,7 +24,6 @@ from trading_agent.execution.canonical import (
     BrokerGateway,
     LegacyDecisionAdapter,
     OrderPlanner,
-    AuthorizedOrder,
     EnrichedMarketObservation,
     CurrentPortfolioState,
     MarketPrice,
@@ -326,7 +326,7 @@ class ExecutionEngine:
             authorized_at=now,
         )
 
-        # ── Durable broker submission request BEFORE broker I/O ────────
+        # ──── Durable broker submission request BEFORE broker I/O ────────
         request_event = self.lifecycle.request_broker_submission(
             intent_id=intent.intent_id,
         )
@@ -446,7 +446,7 @@ class ExecutionEngine:
                 continue
             # Use canonical emergency reduce through lifecycle
             emergency = EmergencyReduceRequest(
-                intent_id=f"emergency-close-{symbol}-{int(datetime.now(UTC).timestamp())}",
+                intent_id=f"emergency-close-{symbol}-{uuid.uuid4().hex}",
                 symbol=symbol,
                 side="sell",
                 quantity=pos.quantity,
@@ -481,7 +481,7 @@ class ExecutionEngine:
                     authorization_hash="",
                 )
                 result = self.gateway.submit(
-                    authorized, correlation_id=emergency.intent_id
+                    auth_id, correlation_id=emergency.intent_id
                 )
                 if result.success and result.broker_order_id:
                     self.lifecycle.submit_order(
@@ -518,7 +518,7 @@ class ExecutionEngine:
         if current_price is None:
             return None
         emergency = EmergencyReduceRequest(
-            intent_id=f"emergency-close-{symbol}-{int(datetime.now(UTC).timestamp())}",
+            intent_id=f"emergency-close-{symbol}-{uuid.uuid4().hex}",
             symbol=symbol,
             side="sell",
             quantity=pos.quantity,

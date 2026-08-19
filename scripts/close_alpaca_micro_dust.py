@@ -5,6 +5,7 @@ import os
 import sys
 import asyncio
 import threading
+import uuid
 from datetime import UTC, datetime
 
 sys.path.insert(0, ".")
@@ -19,7 +20,7 @@ from trading_agent.execution.lifecycle.lifecycle import (
     EmergencyReduceRequest,
     TrustedPrice,
 )
-from trading_agent.execution.canonical import BrokerGateway, AuthorizedOrder
+from trading_agent.execution.canonical import BrokerGateway
 
 ALPACA_MICRO_DUST_THRESHOLD_USD = 5.0
 
@@ -128,7 +129,7 @@ def close_micro_dust_positions():
                     continue
                 current_price = float(price)
                 emergency = EmergencyReduceRequest(
-                    intent_id=f"emergency-close-{symbol}-{int(datetime.now(UTC).timestamp())}",
+                    intent_id=f"emergency-close-{symbol}-{uuid.uuid4().hex}",
                     symbol=symbol,
                     side="sell",
                     quantity=qty,
