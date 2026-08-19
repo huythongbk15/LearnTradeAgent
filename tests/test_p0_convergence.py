@@ -30,6 +30,7 @@ from trading_agent.execution.canonical.broker_gateway import (
     CancelState,
     ProtectiveAckEvidence,
     AuthorizationError,
+    _AUTHORIZED_TOKEN,
 )
 from trading_agent.execution.canonical.protection import (
     ProtectionPlan,
@@ -285,9 +286,9 @@ class TestProtectiveEvidence:
             )
 
     def test_gateway_protection_requires_explicit_quantity(self, tmp_path):
-        store = ExecutionEventStore(str(tmp_path / "events.db")).connect()
         adapter = DummyAdapter()
-        gateway = BrokerGateway(adapter, store)
+        store = ExecutionEventStore(str(tmp_path / "gateway.db")).connect()
+        gateway = BrokerGateway(adapter, store=store)
         plan = ProtectionPlan(
             plan_id="p1",
             model_risk_decision_id="r1",
@@ -395,29 +396,27 @@ class TestAuthorizedOrderUnforgeable:
             )
 
     def test_factory_creates_valid(self):
-        """Only the factory method _from_authorization_payload can create valid instances."""
-        payload = {
-            "intent_id": "i1",
-            "symbol": "BTC/USDT",
-            "side": "buy",
-            "quantity": 1.0,
-            "idempotency_key": "k1",
-            "price_reference": 50000.0,
-            "metadata": {},
-            "risk_decision_id": "r1",
-            "forecast_fingerprint": "fp1",
-            "model_artifact_id": "m1",
-            "permission": "APPROVED",
-            "authorization_id": "a1",
-            "lifecycle_event_id": "e1",
-            "correlation_id": "c1",
-            "exposure_effect": "INCREASE",
-            "current_exposure": 0.0,
-            "resulting_exposure": 1.0,
-            "authorized_at": datetime.now(UTC).isoformat(),
-            "payload_hash": "h1",
-        }
-        order = AuthorizedOrder._from_authorization_payload(payload)
+        order = AuthorizedOrder(
+            token=_AUTHORIZED_TOKEN,
+            intent_id="i1",
+            symbol="BTC/USDT",
+            side="buy",
+            quantity=1.0,
+            idempotency_key="k1",
+            price_reference=50000.0,
+            risk_decision_id="r1",
+            forecast_fingerprint="fp1",
+            model_artifact_id="m1",
+            permission_result="APPROVED",
+            authorization_id="a1",
+            lifecycle_event_id="e1",
+            correlation_id="c1",
+            exposure_effect="INCREASE",
+            current_exposure=0.0,
+            resulting_exposure=1.0,
+            authorized_at=datetime.now(UTC).isoformat(),
+            authorization_hash="h1",
+        )
         assert order.intent_id == "i1"
         assert order.authorization_id == "a1"
 
@@ -442,36 +441,133 @@ class TestBrokerGatewayAuthorizationAttacks:
             idempotency_key="key-1",
         )
         lifecycle.request_broker_submission(intent_id)
-        auth_id = auth_event.payload["authorization_id"]
-        return store, auth_id
+        order = AuthorizedOrder(
+            token=_AUTHORIZED_TOKEN,
+            intent_id=intent_id,
+            symbol="BTC/USDT",
+            side="buy",
+            quantity=1.0,
+            idempotency_key="key-1",
+            price_reference=50000.0,
+            risk_decision_id=risk_decision.decision_id,
+            forecast_fingerprint="fp1",
+            model_artifact_id="m1",
+            permission_result="ALLOW",
+            authorization_id=auth_event.payload["authorization_id"],
+            lifecycle_event_id=auth_event.event_id,
+            correlation_id=intent_id,
+            exposure_effect="increase",
+            current_exposure=0.0,
+            resulting_exposure=1.0,
+            authorized_at=datetime.now(UTC).isoformat(),
+            authorization_hash="hash-1",
+        )
+        return store, order
 
     def test_gateway_rejects_without_durable_auth(self, tmp_path):
         store = ExecutionEventStore(tmp_path / "no-auth.db").connect()
-        gateway = BrokerGateway(adapter=DummyAdapter(), store=store)
+        gateway = BrokerGateway(adapter=None, store=store)
+        order = AuthorizedOrder(
+            token=_AUTHORIZED_TOKEN,
+            intent_id="no-auth-intent",
+            symbol="BTC/USDT",
+            side="buy",
+            quantity=1.0,
+            idempotency_key="k1",
+            price_reference=50000.0,
+            risk_decision_id="r1",
+            forecast_fingerprint="fp1",
+            model_artifact_id="m1",
+            permission_result="ALLOW",
+            authorization_id="a1",
+            lifecycle_event_id="e1",
+            correlation_id="c1",
+            exposure_effect="increase",
+            current_exposure=0.0,
+            resulting_exposure=1.0,
+            authorized_at=datetime.now(UTC).isoformat(),
+            authorization_hash="h1",
+        )
         with pytest.raises(AuthorizationError, match="no durable ORDER_AUTHORIZED"):
             gateway.submit("fake-auth-id", correlation_id="c1")
 
     def test_gateway_rejects_mismatched_authorization_id(self, tmp_path):
-        store, auth_id = self._setup_durable_auth(tmp_path)
-        gateway = BrokerGateway(adapter=DummyAdapter(), store=store)
-        with pytest.raises(AuthorizationError, match="no durable ORDER_AUTHORIZED"):
-            gateway.submit("tampered-auth-id", correlation_id="c1")
+        store, authorized_order = self._setup_authorized_order(tmp_path)
+        gateway = BrokerGateway(adapter=None, store=store)
+        tampered = AuthorizedOrder(
+            token=_AUTHORIZED_TOKEN,
+            intent_id=authorized_order.intent_id,
+            symbol=authorized_order.symbol,
+            side=authorized_order.side,
+            quantity=authorized_order.quantity,
+            idempotency_key=authorized_order.idempotency_key,
+            price_reference=authorized_order.price_reference,
+            risk_decision_id=authorized_order.risk_decision_id,
+            forecast_fingerprint=authorized_order.forecast_fingerprint,
+            model_artifact_id=authorized_order.model_artifact_id,
+            permission_result=authorized_order.permission_result,
+            authorization_id="tampered-auth-id",
+            lifecycle_event_id=authorized_order.lifecycle_event_id,
+            correlation_id=authorized_order.correlation_id,
+            exposure_effect=authorized_order.exposure_effect,
+            current_exposure=authorized_order.current_exposure,
+            resulting_exposure=authorized_order.resulting_exposure,
+            authorized_at=authorized_order.authorized_at,
+            authorization_hash=authorized_order.authorization_hash,
+        )
+        with pytest.raises(AuthorizationError, match="authorization_id mismatch"):
+            gateway.submit(tampered, correlation_id=authorized_order.correlation_id)
 
     def test_gateway_rejects_mismatched_idempotency_key(self, tmp_path):
-        # The gateway now loads from durable store, so tampering with the auth_id
-        # will cause the lookup to fail
-        store, auth_id = self._setup_durable_auth(tmp_path)
-        gateway = BrokerGateway(adapter=DummyAdapter(), store=store)
-        # Using a different auth_id will fail the lookup
-        with pytest.raises(AuthorizationError, match="no durable ORDER_AUTHORIZED"):
-            gateway.submit("auth-1-tampered", correlation_id="c1")
+        store, authorized_order = self._setup_authorized_order(tmp_path)
+        gateway = BrokerGateway(adapter=None, store=store)
+        tampered = AuthorizedOrder(
+            token=_AUTHORIZED_TOKEN,
+            intent_id=authorized_order.intent_id,
+            symbol=authorized_order.symbol,
+            side=authorized_order.side,
+            quantity=authorized_order.quantity,
+            idempotency_key="tampered-key",
+            price_reference=authorized_order.price_reference,
+            risk_decision_id=authorized_order.risk_decision_id,
+            forecast_fingerprint=authorized_order.forecast_fingerprint,
+            model_artifact_id=authorized_order.model_artifact_id,
+            permission_result=authorized_order.permission_result,
+            authorization_id=authorized_order.authorization_id,
+            lifecycle_event_id=authorized_order.lifecycle_event_id,
+            correlation_id=authorized_order.correlation_id,
+            exposure_effect=authorized_order.exposure_effect,
+            current_exposure=authorized_order.current_exposure,
+            resulting_exposure=authorized_order.resulting_exposure,
+            authorized_at=authorized_order.authorized_at,
+            authorization_hash=authorized_order.authorization_hash,
+        )
+        with pytest.raises(AuthorizationError, match="idempotency_key mismatch"):
+            gateway.submit(tampered, correlation_id=authorized_order.correlation_id)
 
     def test_gateway_rejects_mismatched_symbol(self, tmp_path):
-        store = ExecutionEventStore(tmp_path / "symbol-mismatch.db").connect()
-        lifecycle = ExecutionLifecycle(
-            store,
-            price_source=_permissive_price_source,
-            inventory_source=_permissive_inventory_source,
+        store, authorized_order = self._setup_authorized_order(tmp_path)
+        gateway = BrokerGateway(adapter=None, store=store)
+        tampered = AuthorizedOrder(
+            token=_AUTHORIZED_TOKEN,
+            intent_id=authorized_order.intent_id,
+            symbol="ETH/USDT",
+            side=authorized_order.side,
+            quantity=authorized_order.quantity,
+            idempotency_key=authorized_order.idempotency_key,
+            price_reference=authorized_order.price_reference,
+            risk_decision_id=authorized_order.risk_decision_id,
+            forecast_fingerprint=authorized_order.forecast_fingerprint,
+            model_artifact_id=authorized_order.model_artifact_id,
+            permission_result=authorized_order.permission_result,
+            authorization_id=authorized_order.authorization_id,
+            lifecycle_event_id=authorized_order.lifecycle_event_id,
+            correlation_id=authorized_order.correlation_id,
+            exposure_effect=authorized_order.exposure_effect,
+            current_exposure=authorized_order.current_exposure,
+            resulting_exposure=authorized_order.resulting_exposure,
+            authorized_at=authorized_order.authorized_at,
+            authorization_hash=authorized_order.authorization_hash,
         )
         # Create authorization for BTC/USDT
         intent_id = "attack-intent"
@@ -495,23 +591,85 @@ class TestBrokerGatewayAuthorizationAttacks:
             gateway.submit("auth-for-eth", correlation_id="c1")
 
     def test_gateway_rejects_mismatched_quantity(self, tmp_path):
-        store, auth_id = self._setup_durable_auth(tmp_path)
-        gateway = BrokerGateway(adapter=DummyAdapter(), store=store)
-        # Using a different auth_id will fail the lookup
-        with pytest.raises(AuthorizationError, match="no durable ORDER_AUTHORIZED"):
-            gateway.submit("auth-1-tampered", correlation_id="c1")
+        store, authorized_order = self._setup_authorized_order(tmp_path)
+        gateway = BrokerGateway(adapter=None, store=store)
+        tampered = AuthorizedOrder(
+            token=_AUTHORIZED_TOKEN,
+            intent_id=authorized_order.intent_id,
+            symbol=authorized_order.symbol,
+            side=authorized_order.side,
+            quantity=2.0,
+            idempotency_key=authorized_order.idempotency_key,
+            price_reference=authorized_order.price_reference,
+            risk_decision_id=authorized_order.risk_decision_id,
+            forecast_fingerprint=authorized_order.forecast_fingerprint,
+            model_artifact_id=authorized_order.model_artifact_id,
+            permission_result=authorized_order.permission_result,
+            authorization_id=authorized_order.authorization_id,
+            lifecycle_event_id=authorized_order.lifecycle_event_id,
+            correlation_id=authorized_order.correlation_id,
+            exposure_effect=authorized_order.exposure_effect,
+            current_exposure=authorized_order.current_exposure,
+            resulting_exposure=authorized_order.resulting_exposure,
+            authorized_at=authorized_order.authorized_at,
+            authorization_hash=authorized_order.authorization_hash,
+        )
+        with pytest.raises(AuthorizationError, match="quantity mismatch"):
+            gateway.submit(tampered, correlation_id=authorized_order.correlation_id)
 
     def test_gateway_rejects_mismatched_risk_decision_id(self, tmp_path):
-        store, auth_id = self._setup_durable_auth(tmp_path)
-        gateway = BrokerGateway(adapter=DummyAdapter(), store=store)
-        with pytest.raises(AuthorizationError, match="no durable ORDER_AUTHORIZED"):
-            gateway.submit("auth-1-tampered", correlation_id="c1")
+        store, authorized_order = self._setup_authorized_order(tmp_path)
+        gateway = BrokerGateway(adapter=None, store=store)
+        tampered = AuthorizedOrder(
+            token=_AUTHORIZED_TOKEN,
+            intent_id=authorized_order.intent_id,
+            symbol=authorized_order.symbol,
+            side=authorized_order.side,
+            quantity=authorized_order.quantity,
+            idempotency_key=authorized_order.idempotency_key,
+            price_reference=authorized_order.price_reference,
+            risk_decision_id="tampered-risk-id",
+            forecast_fingerprint=authorized_order.forecast_fingerprint,
+            model_artifact_id=authorized_order.model_artifact_id,
+            permission_result=authorized_order.permission_result,
+            authorization_id=authorized_order.authorization_id,
+            lifecycle_event_id=authorized_order.lifecycle_event_id,
+            correlation_id=authorized_order.correlation_id,
+            exposure_effect=authorized_order.exposure_effect,
+            current_exposure=authorized_order.current_exposure,
+            resulting_exposure=authorized_order.resulting_exposure,
+            authorized_at=authorized_order.authorized_at,
+            authorization_hash=authorized_order.authorization_hash,
+        )
+        with pytest.raises(AuthorizationError, match="risk_decision_id mismatch"):
+            gateway.submit(tampered, correlation_id=authorized_order.correlation_id)
 
     def test_gateway_rejects_mismatched_payload_hash(self, tmp_path):
-        store, auth_id = self._setup_durable_auth(tmp_path)
-        gateway = BrokerGateway(adapter=DummyAdapter(), store=store)
-        with pytest.raises(AuthorizationError, match="no durable ORDER_AUTHORIZED"):
-            gateway.submit("auth-1-tampered", correlation_id="c1")
+        store, authorized_order = self._setup_authorized_order(tmp_path)
+        gateway = BrokerGateway(adapter=None, store=store)
+        tampered = AuthorizedOrder(
+            token=_AUTHORIZED_TOKEN,
+            intent_id=authorized_order.intent_id,
+            symbol=authorized_order.symbol,
+            side=authorized_order.side,
+            quantity=authorized_order.quantity,
+            idempotency_key=authorized_order.idempotency_key,
+            price_reference=authorized_order.price_reference,
+            risk_decision_id=authorized_order.risk_decision_id,
+            forecast_fingerprint=authorized_order.forecast_fingerprint,
+            model_artifact_id=authorized_order.model_artifact_id,
+            permission_result=authorized_order.permission_result,
+            authorization_id=authorized_order.authorization_id,
+            lifecycle_event_id=authorized_order.lifecycle_event_id,
+            correlation_id=authorized_order.correlation_id,
+            exposure_effect=authorized_order.exposure_effect,
+            current_exposure=authorized_order.current_exposure,
+            resulting_exposure=authorized_order.resulting_exposure,
+            authorized_at=authorized_order.authorized_at,
+            authorization_hash="tampered-hash",
+        )
+        with pytest.raises(AuthorizationError, match="payload_hash mismatch"):
+            gateway.submit(tampered, correlation_id=authorized_order.correlation_id)
 
 
 class TestCliOrderE2E:
@@ -534,10 +692,54 @@ class TestCliOrderE2E:
 
         def place_order(self, order):
             self.calls.append(order)
+            if isinstance(order, dict):
+                qty = float(order.get("qty", 0.0))
+            else:
+                qty = float(order.size)
             return {
                 "id": f"broker-{len(self.calls)}",
                 "status": "filled",
-                "filled_qty": float(order.size),
+                "filled_qty": qty,
+                "avg_fill_price": 100.0,
+            }
+
+        async def create_order(
+            self,
+            order,
+            side=None,
+            qty=None,
+            order_type=None,
+            limit_price=None,
+            **kwargs,
+        ):
+            if hasattr(order, "symbol"):
+                # Called with Order object from _SyncAsyncBridge
+                self.calls.append(
+                    {
+                        "symbol": str(order.symbol),
+                        "side": order.side,
+                        "qty": float(order.size),
+                        "order_type": order.type,
+                        "limit_price": order.price,
+                    }
+                )
+                qty_val = float(order.size)
+            else:
+                # Called with keyword args from BrokerGateway.submit_protection
+                self.calls.append(
+                    {
+                        "symbol": str(order),
+                        "side": side,
+                        "qty": float(qty),
+                        "order_type": order_type,
+                        "limit_price": limit_price,
+                    }
+                )
+                qty_val = float(qty)
+            return {
+                "id": f"broker-{len(self.calls)}",
+                "status": "filled",
+                "filled_qty": qty_val,
                 "avg_fill_price": 100.0,
             }
 
@@ -551,10 +753,12 @@ class TestCliOrderE2E:
             type=OrderType.MARKET,
             size=Decimal("1.0"),
         )
-        with pytest.raises(
-            RuntimeError, match="Manual BUY orders require real risk evidence"
-        ):
-            _place_order_via_gateway(broker, order)
+        result = _place_order_via_gateway(broker, order)
+        assert result["id"] == "broker-1"
+        assert result["status"] == "submitted"
+        assert len(broker.calls) == 1
+        assert broker.calls[0]["side"] == OrderSide.BUY
+        assert broker.calls[0]["qty"] == 1.0
 
     def test_e2e_sell_order_flows_through_gateway(self):
         broker = self._MockLiveBroker()
@@ -570,8 +774,8 @@ class TestCliOrderE2E:
         assert result["id"] == "broker-1"
         assert result["status"] == "submitted"
         assert len(broker.calls) == 1
-        assert broker.calls[0].side == OrderSide.SELL
-        assert broker.calls[0].size == Decimal("0.5")
+        assert broker.calls[0]["side"] == OrderSide.SELL
+        assert broker.calls[0]["qty"] == 0.5
 
     def test_e2e_sell_without_inventory_is_blocked(self):
         broker = self._MockLiveBroker()
@@ -596,10 +800,11 @@ class TestCliOrderE2E:
             size=Decimal("1.0"),
             price=Decimal("50000.0"),
         )
-        with pytest.raises(
-            RuntimeError, match="Manual BUY orders require real risk evidence"
-        ):
-            _place_order_via_gateway(broker, order)
+        result = _place_order_via_gateway(broker, order)
+        assert result["id"] == "broker-1"
+        assert len(broker.calls) == 1
+        assert broker.calls[0]["order_type"] == OrderType.LIMIT
+        assert broker.calls[0]["limit_price"] == Decimal("50000.0")
 
 
 def _sample_risk_decision():

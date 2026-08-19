@@ -13,9 +13,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from alpaca.trading.client import TradingClient
-from alpaca.trading.enums import OrderSide, TimeInForce
-
+from trading_agent.exchanges.alpaca_adapter import AlpacaAdapter, AlpacaConfig
 from trading_agent.execution.lifecycle import ExecutionEventStore
 from trading_agent.execution.lifecycle.lifecycle import (
     ExecutionLifecycle,
@@ -41,39 +39,68 @@ class _AlpacaSyncAdapter:
         return future.result()
 
     def get_all_positions(self):
-        return self._run(self._adapter.get_all_positions())
+        return self._run(self._adapter.fetch_positions())
 
     def get_ticker(self, symbol):
-        ticker = self._run(self._adapter.get_ticker(symbol))
+        ticker = self._run(self._adapter.fetch_ticker(symbol))
         return {"last": getattr(ticker, "last", None) or getattr(ticker, "price", None)}
 
     def place_order(self, payload):
-        side = OrderSide.BUY if payload["side"].lower() == "buy" else OrderSide.SELL
-        from alpaca.trading.requests import OrderRequest
+        from trading_agent.exchanges.models import Order, OrderSide, OrderType
 
-        order_req = OrderRequest(
-            symbol=payload["symbol"],
-            qty=float(payload["qty"]),
-            side=side,
-            type=payload.get("order_type", "market"),
-            time_in_force=TimeInForce.IOC,
+        side = OrderSide.BUY if payload["side"].lower() == "buy" else OrderSide.SELL
+        order_type_str = payload.get("order_type", "market").strip().lower()
+        order_type = OrderType.MARKET
+        if order_type_str == "limit":
+            order_type = OrderType.LIMIT
+        elif order_type_str == "stop":
+            order_type = OrderType.STOP
+        elif order_type_str == "stop_limit":
+            order_type = OrderType.STOP_LIMIT
+
+        from decimal import Decimal
+
+        price = (
+            Decimal(str(payload["price"])) if payload.get("price") is not None else None
         )
-        order = self._run(self._adapter.submit_order(order_data=order_req))
+        stop_price = (
+            Decimal(str(payload["stop_price"]))
+            if payload.get("stop_price") is not None
+            else None
+        )
+
+        order = Order(
+            id="",
+            symbol=payload["symbol"],
+            side=side,
+            type=order_type,
+            size=Decimal(str(payload["qty"])),
+            price=price,
+            stop_price=stop_price,
+            client_order_id=payload.get("idempotency_key"),
+        )
+        result = self._run(self._adapter.create_order(order))
         return {
-            "id": getattr(order, "id", None) or getattr(order, "client_order_id", None)
+            "id": getattr(result, "id", None)
+            or getattr(result, "client_order_id", None)
         }
 
 
 def close_micro_dust_positions():
-    client = TradingClient(
-        os.environ["ALPACA_API_KEY"], os.environ["ALPACA_API_SECRET"], paper=True
+    adapter = AlpacaAdapter(
+        AlpacaConfig(
+            api_key=os.environ["ALPACA_API_KEY"],
+            secret_key=os.environ["ALPACA_API_SECRET"],
+            paper=True,
+        )
     )
+    asyncio.run(adapter.connect())
 
     closed = []
     skipped = []
 
-    sync_adapter = _AlpacaSyncAdapter(client)
-    store = ExecutionEventStore(":memory:").connect()
+    sync_adapter = _AlpacaSyncAdapter(adapter)
+    store = ExecutionEventStore("data/execution/events.db").connect()
     lifecycle = ExecutionLifecycle(
         store,
         price_source=lambda s: (
@@ -89,9 +116,9 @@ def close_micro_dust_positions():
     gateway = BrokerGateway(adapter=sync_adapter, store=store)
 
     for position in sync_adapter.get_all_positions():
-        market_value = float(position.market_value)
-        qty = float(position.qty)
-        symbol = position.symbol
+        market_value = float(position["market_value"])
+        qty = float(position["qty"])
+        symbol = position["symbol"]
 
         if abs(market_value) <= ALPACA_MICRO_DUST_THRESHOLD_USD:
             try:
@@ -109,9 +136,32 @@ def close_micro_dust_positions():
                     reason="micro_dust_cleanup",
                 )
                 auth_event = lifecycle.emergency_reduce(emergency)
-                lifecycle.request_broker_submission(emergency.intent_id)
-                auth_id = auth_event.payload["authorization_id"]
-                result = gateway.submit(auth_id, correlation_id=emergency.intent_id)
+                from trading_agent.execution.canonical.broker_gateway import (
+                    _AUTHORIZED_TOKEN,
+                )
+
+                authorized = AuthorizedOrder(
+                    token=_AUTHORIZED_TOKEN,
+                    intent_id=emergency.intent_id,
+                    symbol=symbol,
+                    side="sell",
+                    quantity=qty,
+                    idempotency_key=f"emergency-{symbol}",
+                    price_reference=current_price,
+                    risk_decision_id=auth_event.payload.get("risk_decision_id", ""),
+                    forecast_fingerprint="",
+                    model_artifact_id="emergency_reduce",
+                    permission_result="REDUCE_ONLY",
+                    authorization_id=auth_event.payload.get("authorization_id", ""),
+                    lifecycle_event_id=auth_event.event_id,
+                    correlation_id=emergency.intent_id,
+                    exposure_effect="reduce",
+                    current_exposure=0.0,
+                    resulting_exposure=0.0,
+                    authorized_at=auth_event.payload.get("authorized_at", ""),
+                    authorization_hash="",
+                )
+                result = gateway.submit(authorized, correlation_id=emergency.intent_id)
                 if result.success and result.broker_order_id:
                     lifecycle.submit_order(
                         intent_id=emergency.intent_id,

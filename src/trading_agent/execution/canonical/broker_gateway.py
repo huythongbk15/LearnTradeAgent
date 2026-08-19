@@ -19,6 +19,7 @@ and persisted by ExecutionLifecycle.
 from __future__ import annotations
 
 import math
+import uuid
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Protocol
@@ -28,6 +29,9 @@ from trading_agent.execution.canonical.protection import (
     ProtectionQuantityMode,
     ProtectionState,
 )
+
+
+_AUTHORIZED_TOKEN = uuid.uuid4().hex
 
 
 class AuthorizationError(RuntimeError):
@@ -166,54 +170,32 @@ class AuthorizedOrder:
     from the durable ORDER_AUTHORIZED record, NOT from this object.
     """
 
-    intent_id: str
-    symbol: Any  # Symbol
-    side: str
-    quantity: float
-    idempotency_key: str
-    price_reference: float
-    metadata: dict[str, Any] = field(default_factory=dict)
-    # Required authorization evidence (verified against durable store)
-    risk_decision_id: str = ""
-    forecast_fingerprint: str = ""
-    model_artifact_id: str = ""
-    permission_result: str = ""
-    authorization_id: str = ""
-    lifecycle_event_id: str = ""
-    correlation_id: str = ""
-    exposure_effect: str = ""
-    current_exposure: float = 0.0
-    resulting_exposure: float = 0.0
-    authorized_at: str = ""
-    authorization_hash: str = ""
-
-    @classmethod
-    def _from_authorization_payload(cls, payload: dict[str, Any]) -> "AuthorizedOrder":
-        """Reconstruct from durable ORDER_AUTHORIZED payload.
-
-        This is the ONLY way to create a valid AuthorizedOrder.
-        """
-        return cls(
-            intent_id=payload["intent_id"],
-            symbol=payload["symbol"],
-            side=payload["side"],
-            quantity=float(payload["quantity"]),
-            idempotency_key=payload["idempotency_key"],
-            price_reference=float(payload.get("price_reference", 0.0)),
-            metadata=payload.get("metadata", {}),
-            risk_decision_id=payload["risk_decision_id"],
-            forecast_fingerprint=payload["forecast_fingerprint"],
-            model_artifact_id=payload["model_artifact_id"],
-            permission_result=payload["permission"],
-            authorization_id=payload["authorization_id"],
-            lifecycle_event_id=payload.get("lifecycle_event_id", ""),
-            correlation_id=payload.get("correlation_id", ""),
-            exposure_effect=payload["exposure_effect"],
-            current_exposure=float(payload["current_exposure"]),
-            resulting_exposure=float(payload["resulting_exposure"]),
-            authorized_at=payload["authorized_at"],
-            authorization_hash=payload["payload_hash"],
-        )
+    def __init__(self, token: str, **fields: Any) -> None:
+        if token != _AUTHORIZED_TOKEN:
+            raise AuthorizationError(
+                "AuthorizedOrder must be created through lifecycle authorization"
+            )
+        self._token = token
+        self.intent_id = fields["intent_id"]
+        self.symbol = fields["symbol"]
+        self.side = fields["side"]
+        self.quantity = fields["quantity"]
+        self.idempotency_key = fields["idempotency_key"]
+        self.price_reference = fields["price_reference"]
+        self.metadata = fields.get("metadata", {})
+        # Required authorization evidence
+        self.risk_decision_id = fields["risk_decision_id"]
+        self.forecast_fingerprint = fields["forecast_fingerprint"]
+        self.model_artifact_id = fields["model_artifact_id"]
+        self.permission_result = fields["permission_result"]
+        self.authorization_id = fields["authorization_id"]
+        self.lifecycle_event_id = fields["lifecycle_event_id"]
+        self.correlation_id = fields["correlation_id"]
+        self.exposure_effect = fields["exposure_effect"]
+        self.current_exposure = fields["current_exposure"]
+        self.resulting_exposure = fields["resulting_exposure"]
+        self.authorized_at = fields["authorized_at"]
+        self.authorization_hash = fields["authorization_hash"]
 
 
 class ExchangeAdapter(Protocol):
@@ -259,9 +241,7 @@ class BrokerGateway:
 
     def __init__(self, adapter: ExchangeAdapter, store: Any) -> None:
         if store is None:
-            raise AuthorizationError(
-                "BrokerGateway requires a durable execution event store"
-            )
+            raise ValueError("BrokerGateway requires a durable execution event store")
         self._adapter = adapter
         self._store = store
 

@@ -107,6 +107,26 @@ class UnifiedRiskDecision:
             raise ValueError(
                 "allowed_target_exposure cannot exceed requested_target_exposure"
             )
+        # Missing evidence must not carry zero uncertainty.
+        _missing_states = (
+            EvidenceState.MISSING,
+            EvidenceState.UNKNOWN,
+            EvidenceState.STALE,
+        )
+        if self.calibration_state in _missing_states and self.calibration_ece == 0.0:
+            raise ValueError(
+                "calibration_ece must be > 0 when calibration evidence is "
+                f"{self.calibration_state.value}"
+            )
+        if self.ood_state in _missing_states and self.ood_score == 0.0:
+            raise ValueError(
+                f"ood_score must be > 0 when OOD evidence is {self.ood_state.value}"
+            )
+        if self.regime_state in _missing_states and self.regime_entropy == 0.0:
+            raise ValueError(
+                "regime_entropy must be > 0 when regime evidence is "
+                f"{self.regime_state.value}"
+            )
 
     @property
     def approved(self) -> bool:
@@ -151,6 +171,66 @@ class UnifiedRiskDecision:
                 self.ood_state,
                 self.regime_state,
             )
+        )
+
+    # ── Serialization ───────────────────────────────────────────────────
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to a JSON-safe dict with enum/datetime round-trip."""
+
+        def _enum_to_value(val: Any) -> Any:
+            return val.value if hasattr(val, "value") else val
+
+        return {
+            "decision_id": self.decision_id,
+            "forecast_fingerprint": self.forecast_fingerprint,
+            "model_artifact_id": self.model_artifact_id,
+            "requested_target_exposure": self.requested_target_exposure,
+            "allowed_target_exposure": self.allowed_target_exposure,
+            "max_new_exposure": self.max_new_exposure,
+            "reduce_only": self.reduce_only,
+            "risk_level": _enum_to_value(self.risk_level),
+            "reason_codes": [_enum_to_value(r) for r in self.reason_codes],
+            "calibration_state": _enum_to_value(self.calibration_state),
+            "calibration_artifact_id": self.calibration_artifact_id,
+            "calibration_ece": self.calibration_ece,
+            "ood_state": _enum_to_value(self.ood_state),
+            "ood_score": self.ood_score,
+            "regime_state": _enum_to_value(self.regime_state),
+            "regime_entropy": self.regime_entropy,
+            "interval_width": self.interval_width,
+            "created_at": self.created_at.isoformat(),
+            "metadata": self.metadata,
+            "warnings": list(self.warnings),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> UnifiedRiskDecision:
+        """Deserialize from a dict produced by :meth:`to_dict`."""
+
+        def _to_enum(val: Any, enum_cls: type) -> Any:
+            return enum_cls(val) if not isinstance(val, enum_cls) else val
+
+        return cls(
+            decision_id=data["decision_id"],
+            forecast_fingerprint=data["forecast_fingerprint"],
+            model_artifact_id=data["model_artifact_id"],
+            requested_target_exposure=float(data["requested_target_exposure"]),
+            allowed_target_exposure=float(data["allowed_target_exposure"]),
+            max_new_exposure=float(data["max_new_exposure"]),
+            reduce_only=bool(data["reduce_only"]),
+            risk_level=_to_enum(data["risk_level"], RiskLevel),
+            reason_codes=tuple(_to_enum(r, RiskReason) for r in data["reason_codes"]),
+            calibration_state=_to_enum(data["calibration_state"], EvidenceState),
+            calibration_artifact_id=data.get("calibration_artifact_id"),
+            calibration_ece=float(data["calibration_ece"]),
+            ood_state=EvidenceState(data["ood_state"]),
+            ood_score=float(data["ood_score"]),
+            regime_state=EvidenceState(data["regime_state"]),
+            regime_entropy=float(data["regime_entropy"]),
+            interval_width=float(data["interval_width"]),
+            created_at=datetime.fromisoformat(data["created_at"]),
+            metadata=dict(data.get("metadata", {})),
+            warnings=tuple(data.get("warnings", [])),
         )
 
 
