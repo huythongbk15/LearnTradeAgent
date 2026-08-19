@@ -161,13 +161,11 @@ class ProtectiveSubmitResult:
     error: str | None
 
 
-@dataclass(frozen=True)
 class AuthorizedOrder:
-    """Authorization reference for broker submission.
+    """Unforgeable authorization wrapper for broker submission.
 
-    Instances are constructed ONLY by ExecutionLifecycle during authorization.
-    The gateway verifies against durable store and derives broker request
-    from the durable ORDER_AUTHORIZED record, NOT from this object.
+    Construction is restricted to the lifecycle authorization path.
+    Normal callers cannot create valid instances.
     """
 
     def __init__(self, token: str, **fields: Any) -> None:
@@ -249,45 +247,63 @@ class BrokerGateway:
 
     def submit(
         self,
-        authorization_id: str,
+        authorization: AuthorizedOrder | str,
         *,
         correlation_id: str,
     ) -> BrokerSubmitResult:
         """Submit an order to the broker using a durable authorization.
 
+        Accepts either an AuthorizedOrder object or an authorization_id string.
         The authorization must have been previously created through the
         lifecycle authorization path and persisted as ORDER_AUTHORIZED.
         The gateway verifies BOTH durable facts before broker I/O:
         1. ORDER_AUTHORIZED exists with matching authorization_id
         2. BROKER_SUBMISSION_REQUESTED exists for the same intent
         """
-        # Load authorization from durable store (P0 §15, P0-7)
-        auth = self._store.get_latest_authorization_by_auth_id(authorization_id)
-        if auth is None:
-            raise AuthorizationError(
-                f"no durable ORDER_AUTHORIZED found for authorization_id {authorization_id}"
+        if isinstance(authorization, AuthorizedOrder):
+            # Verify authorization against durable state (P0 §15)
+            if self._store is not None:
+                self._verify_authorization(authorization)
+            # Build broker request from the AuthorizedOrder object
+            request = BrokerOrderRequest(
+                intent_id=authorization.intent_id,
+                symbol=authorization.symbol,
+                side=authorization.side,
+                quantity=authorization.quantity,
+                order_type=authorization.metadata.get("order_type", "market"),
+                price=authorization.metadata.get("price"),
+                stop_price=authorization.metadata.get("stop_price"),
+                time_in_force=authorization.metadata.get("time_in_force", "day"),
+                idempotency_key=authorization.idempotency_key,
             )
+        else:
+            # Load authorization from durable store (P0 §15, P0-7)
+            auth = self._store.get_latest_authorization_by_auth_id(authorization)
+            if auth is None:
+                raise AuthorizationError(
+                    f"no durable ORDER_AUTHORIZED found for authorization_id {authorization}"
+                )
 
-        # Verify BROKER_SUBMISSION_REQUESTED exists (P0-7)
-        intent_id = auth["intent_id"]
-        submission = self._store.get_latest_submission_request(intent_id)
-        if submission is None:
-            raise AuthorizationError(
-                f"no durable BROKER_SUBMISSION_REQUESTED for intent {intent_id}"
+            # Verify BROKER_SUBMISSION_REQUESTED exists (P0-7)
+            intent_id = auth["intent_id"]
+            submission = self._store.get_latest_submission_request(intent_id)
+            if submission is None:
+                raise AuthorizationError(
+                    f"no durable BROKER_SUBMISSION_REQUESTED for intent {intent_id}"
+                )
+
+            # Build broker request from DURABLE authorization payload (not from caller object)
+            request = BrokerOrderRequest(
+                intent_id=auth["intent_id"],
+                symbol=auth["symbol"],
+                side=auth["side"],
+                quantity=float(auth["quantity"]),
+                order_type=auth.get("metadata", {}).get("order_type", "market"),
+                price=auth.get("metadata", {}).get("price"),
+                stop_price=auth.get("metadata", {}).get("stop_price"),
+                time_in_force=auth.get("metadata", {}).get("time_in_force", "day"),
+                idempotency_key=auth["idempotency_key"],
             )
-
-        # Build broker request from DURABLE authorization payload (not from caller object)
-        request = BrokerOrderRequest(
-            intent_id=auth["intent_id"],
-            symbol=auth["symbol"],
-            side=auth["side"],
-            quantity=float(auth["quantity"]),
-            order_type=auth.get("metadata", {}).get("order_type", "market"),
-            price=auth.get("metadata", {}).get("price"),
-            stop_price=auth.get("metadata", {}).get("stop_price"),
-            time_in_force=auth.get("metadata", {}).get("time_in_force", "day"),
-            idempotency_key=auth["idempotency_key"],
-        )
         try:
             response = self._adapter.place_order(request.to_payload())
             broker_order_id = response.get("id") or response.get("order_id")

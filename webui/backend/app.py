@@ -563,7 +563,7 @@ async def api_close(req: CloseRequest) -> dict:
                     current_exposure=0.0,
                     resulting_exposure=0.0,
                     authorized_at=auth_event.payload.get("authorized_at", ""),
-                    authorization_hash="",
+                    authorization_hash=auth_event.payload["payload_hash"],
                 )
                 result = gateway.submit(
                     authorized, correlation_id=emergency["intent_id"]

@@ -687,25 +687,12 @@ def _place_order_via_gateway(live_broker, order):
         )
 
     # 5. Authorize order (lifecycle derives all fields from durable state)
-    now = datetime.now(UTC).isoformat()
     auth_event = lifecycle.authorize_order(
         intent_id=intent_id,
         idempotency_key=order.client_order_id or intent_id,
-        payload_hash="",
-        risk_decision_id=risk_decision.decision_id,
-        forecast_fingerprint=risk_decision.forecast_fingerprint,
-        model_artifact_id=risk_decision.model_artifact_id,
-        permission=permission.permission.value,
-        symbol=symbol,
-        side=side,
-        quantity=size,
-        exposure_effect=exposure_effect.value,
-        current_exposure=0.0,
-        resulting_exposure=size if side == "buy" else 0.0,
-        authorized_at=now,
     )
 
-    # 6. Request broker submission
+    # 6. Request broker submission (durable pre-submission event)
     lifecycle.request_broker_submission(intent_id)
 
     # 7. Build AuthorizedOrder with original order metadata
@@ -729,8 +716,8 @@ def _place_order_via_gateway(live_broker, order):
         exposure_effect=exposure_effect.value,
         current_exposure=0.0,
         resulting_exposure=size if side == "buy" else 0.0,
-        authorized_at=now,
-        authorization_hash="",
+        authorized_at=datetime.now(UTC).isoformat(),
+        authorization_hash=auth_event.payload["payload_hash"],
         metadata={
             "order_type": order.type.value.lower(),
             "price": float(order.price) if order.price is not None else None,
@@ -741,13 +728,9 @@ def _place_order_via_gateway(live_broker, order):
         },
     )
 
-    # 6. Request broker submission (durable pre-submission event)
-    lifecycle.request_broker_submission(intent_id)
-
-    # 7. Submit via gateway using authorization_id from durable authorization
-    auth_id = auth_event.payload["authorization_id"]
+    # 8. Submit via gateway using AuthorizedOrder object
     gateway = BrokerGateway(adapter=adapter, store=store)
-    result = gateway.submit(auth_id, correlation_id=intent_id)
+    result = gateway.submit(authorized, correlation_id=intent_id)
 
     if result.success and result.broker_order_id:
         lifecycle.submit_order(
