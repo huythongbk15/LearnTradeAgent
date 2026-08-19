@@ -577,7 +577,9 @@ class ExecutionEventStore:
 
         return json.loads(row["payload"])
 
-    def get_latest_authorization_by_auth_id(self, authorization_id: str) -> dict[str, Any] | None:
+    def get_latest_authorization_by_auth_id(
+        self, authorization_id: str
+    ) -> dict[str, Any] | None:
         """Return the latest ORDER_AUTHORIZED event payload by authorization_id, or None."""
         row = self.conn.execute(
             """

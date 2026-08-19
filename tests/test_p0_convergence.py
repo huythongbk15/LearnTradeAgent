@@ -39,7 +39,6 @@ from trading_agent.execution.canonical.protection import (
 from trading_agent.execution.lifecycle.store import ExecutionEventStore
 from trading_agent.execution.lifecycle.lifecycle import (
     ExecutionLifecycle,
-    InvariantViolation,
     LifecycleError,
     TrustedPrice,
 )
@@ -530,6 +529,7 @@ class TestCliOrderE2E:
         async def fetch_ticker(self, symbol):
             class Ticker:
                 last = 100.0
+
             return Ticker()
 
         def place_order(self, order):
@@ -551,7 +551,9 @@ class TestCliOrderE2E:
             type=OrderType.MARKET,
             size=Decimal("1.0"),
         )
-        with pytest.raises(RuntimeError, match="Manual BUY orders require real risk evidence"):
+        with pytest.raises(
+            RuntimeError, match="Manual BUY orders require real risk evidence"
+        ):
             _place_order_via_gateway(broker, order)
 
     def test_e2e_sell_order_flows_through_gateway(self):
@@ -594,7 +596,9 @@ class TestCliOrderE2E:
             size=Decimal("1.0"),
             price=Decimal("50000.0"),
         )
-        with pytest.raises(RuntimeError, match="Manual BUY orders require real risk evidence"):
+        with pytest.raises(
+            RuntimeError, match="Manual BUY orders require real risk evidence"
+        ):
             _place_order_via_gateway(broker, order)
 
 

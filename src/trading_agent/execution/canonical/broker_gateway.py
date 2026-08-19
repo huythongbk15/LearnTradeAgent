@@ -190,7 +190,7 @@ class AuthorizedOrder:
     @classmethod
     def _from_authorization_payload(cls, payload: dict[str, Any]) -> "AuthorizedOrder":
         """Reconstruct from durable ORDER_AUTHORIZED payload.
-        
+
         This is the ONLY way to create a valid AuthorizedOrder.
         """
         return cls(
@@ -259,7 +259,9 @@ class BrokerGateway:
 
     def __init__(self, adapter: ExchangeAdapter, store: Any) -> None:
         if store is None:
-            raise AuthorizationError("BrokerGateway requires a durable execution event store")
+            raise AuthorizationError(
+                "BrokerGateway requires a durable execution event store"
+            )
         self._adapter = adapter
         self._store = store
 
@@ -285,7 +287,7 @@ class BrokerGateway:
             raise AuthorizationError(
                 f"no durable ORDER_AUTHORIZED found for authorization_id {authorization_id}"
             )
-        
+
         # Verify BROKER_SUBMISSION_REQUESTED exists (P0-7)
         intent_id = auth["intent_id"]
         submission = self._store.get_latest_submission_request(intent_id)

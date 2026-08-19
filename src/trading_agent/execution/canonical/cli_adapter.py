@@ -42,7 +42,7 @@ class CliBrokerAdapter:
                 )
             else:
                 raise ValueError(f"Invalid symbol format: {symbol}")
-        
+
         if not isinstance(symbol, Symbol):
             raise TypeError(f"symbol must be Symbol, got {type(symbol)}")
 

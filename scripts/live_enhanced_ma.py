@@ -223,7 +223,9 @@ def main():
     broker = LiveBroker("alpaca", adapter)
     # Wrap with canonical broker gateway (P0 §11: runner canonical migration)
     store = ExecutionEventStore("data/execution/events.db")
-    broker = CanonicalBrokerAdapter(broker, gateway=BrokerGateway(adapter=broker, store=store))
+    broker = CanonicalBrokerAdapter(
+        broker, gateway=BrokerGateway(adapter=broker, store=store)
+    )
 
     acct = broker.get_account()
     print("\n✅ Alpaca Paper connected")

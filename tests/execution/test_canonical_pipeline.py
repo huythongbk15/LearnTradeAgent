@@ -513,7 +513,7 @@ class TestBrokerGateway:
         assert result.status is OrderPlanningStatus.ORDER_REQUIRED
         assert result.intent is not None
         intent = result.intent
-        
+
         # Create lifecycle with permissive price source for test
         def _test_price_source(symbol: str) -> TrustedPrice:
             return TrustedPrice(
@@ -521,6 +521,7 @@ class TestBrokerGateway:
                 exchange_timestamp=datetime.now(UTC),
                 received_at=datetime.now(UTC),
             )
+
         lifecycle = ExecutionLifecycle(store, price_source=_test_price_source)
         lifecycle.create_order_intent(
             intent_id=intent.intent_id,
@@ -530,14 +531,14 @@ class TestBrokerGateway:
             idempotency_key=intent.idempotency_key,
         )
         lifecycle.approve_risk(intent.intent_id, risk_decision=decision)
-        
+
         auth_event = lifecycle.authorize_order(
             intent_id=intent.intent_id,
             idempotency_key=intent.idempotency_key,
         )
         lifecycle.request_broker_submission(intent.intent_id)
         auth_id = auth_event.payload["authorization_id"]
-        
+
         gw_result = gateway.submit(auth_id, correlation_id="corr-1")
         assert isinstance(gw_result, BrokerSubmitResult)
 

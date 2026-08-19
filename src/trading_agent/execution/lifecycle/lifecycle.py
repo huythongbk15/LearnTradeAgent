@@ -953,11 +953,13 @@ class ExecutionLifecycle:
         # Derive current exposure from inventory source
         current_exposure = 0.0
         if side == "sell":
-            available = self._available_sell_inventory(symbol_str, exclude_intent_id=intent_id)
+            available = self._available_sell_inventory(
+                symbol_str, exclude_intent_id=intent_id
+            )
             if math.isfinite(available):
                 current_exposure = available
             else:
-                current_exposure = float('nan')
+                current_exposure = float("nan")
 
         # Determine exposure effect
         if side == "buy":
@@ -998,7 +1000,9 @@ class ExecutionLifecycle:
             ),
             inventory_state=("known" if math.isfinite(current_exposure) else "unknown"),
             free_inventory=current_exposure if math.isfinite(current_exposure) else 0.0,
-            authorized_sellable_inventory=current_exposure if math.isfinite(current_exposure) else None,
+            authorized_sellable_inventory=current_exposure
+            if math.isfinite(current_exposure)
+            else None,
             order_size=quantity,
             order_side=side,
             require_fresh_market_data=True,
@@ -1027,14 +1031,22 @@ class ExecutionLifecycle:
             "idempotency_key": idempotency_key,
             "payload_hash": payload_hash,
             "risk_decision_id": self.state.order(intent_id).risk_decision.decision_id,
-            "forecast_fingerprint": self.state.order(intent_id).risk_decision.forecast_fingerprint,
-            "model_artifact_id": self.state.order(intent_id).risk_decision.model_artifact_id,
-            "permission": "ALLOW" if permission_result.permission == OrderPermission.ALLOW else "REDUCE_ONLY",
+            "forecast_fingerprint": self.state.order(
+                intent_id
+            ).risk_decision.forecast_fingerprint,
+            "model_artifact_id": self.state.order(
+                intent_id
+            ).risk_decision.model_artifact_id,
+            "permission": "ALLOW"
+            if permission_result.permission == OrderPermission.ALLOW
+            else "REDUCE_ONLY",
             "symbol": order.symbol,
             "side": side,
             "quantity": quantity,
             "exposure_effect": exposure_effect.value,
-            "current_exposure": current_exposure if math.isfinite(current_exposure) else 0.0,
+            "current_exposure": current_exposure
+            if math.isfinite(current_exposure)
+            else 0.0,
             "resulting_exposure": resulting_exposure,
             "authorized_at": authorized_at,
         }

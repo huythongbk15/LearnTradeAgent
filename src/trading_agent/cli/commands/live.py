@@ -653,6 +653,7 @@ def _place_order_via_gateway(live_broker, order):
 
     # 4. Evaluate permission (use real enums, enable checks for manual orders)
     from trading_agent.execution.lifecycle.lifecycle import ExecutionHealth
+
     exposure_effect_enum = ExposureEffect.REDUCE  # side is always "sell" here
     permission = evaluate_order_permission(
         PermissionContext(
@@ -690,7 +691,9 @@ def _place_order_via_gateway(live_broker, order):
         metadata={
             "order_type": order.type.value.lower(),
             "price": float(order.price) if order.price is not None else None,
-            "stop_price": float(order.stop_price) if order.stop_price is not None else None,
+            "stop_price": float(order.stop_price)
+            if order.stop_price is not None
+            else None,
             "time_in_force": order.time_in_force.value.lower(),
         },
     )
@@ -1122,8 +1125,6 @@ def live_order(
         if order_type in ("market", "limit", "stop", "stop_limit")
         else "market"
     )
-
-    from datetime import datetime
 
     order = Order(
         id=f"cli_{uuid.uuid4().hex}",

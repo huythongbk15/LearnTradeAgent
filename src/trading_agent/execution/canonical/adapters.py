@@ -38,7 +38,9 @@ class CanonicalExecutionAdapter(Protocol):
     def fetch_order(self, order_id: str) -> "BrokerOrderFact": ...
     def fetch_positions(self) -> list["BrokerPositionFact"]: ...
     def fetch_balances(self) -> dict[str, Decimal]: ...
-    def close_position(self, request: "BrokerClosePositionRequest") -> "BrokerClosePositionFact": ...
+    def close_position(
+        self, request: "BrokerClosePositionRequest"
+    ) -> "BrokerClosePositionFact": ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,7 +66,9 @@ class BrokerOrderRequest:
             "qty": float(self.quantity),
             "order_type": self.order_type.value.lower(),
             "price": float(self.price) if self.price is not None else None,
-            "stop_price": float(self.stop_price) if self.stop_price is not None else None,
+            "stop_price": float(self.stop_price)
+            if self.stop_price is not None
+            else None,
             "time_in_force": self.time_in_force,
             "idempotency_key": self.idempotency_key,
         }
@@ -204,7 +208,9 @@ class PaperExecutionAdapter:
             order_type=request.order_type.value.lower(),
             amount=float(request.quantity),
             price=float(request.price) if request.price is not None else None,
-            stop_price=float(request.stop_price) if request.stop_price is not None else None,
+            stop_price=float(request.stop_price)
+            if request.stop_price is not None
+            else None,
             time_in_force=request.time_in_force,
             client_order_id=request.idempotency_key,
         )
@@ -257,12 +263,22 @@ class PaperExecutionAdapter:
         positions = self._exchange.get_all_positions()
         return [
             BrokerPositionFact(
-                symbol=Symbol(p.symbol.split("/")[0], p.symbol.split("/")[1], AssetClass.STOCK, MarketType.SPOT, "paper"),
+                symbol=Symbol(
+                    p.symbol.split("/")[0],
+                    p.symbol.split("/")[1],
+                    AssetClass.STOCK,
+                    MarketType.SPOT,
+                    "paper",
+                ),
                 quantity=Decimal(str(p.qty)),
                 side=OrderSide.BUY if p.side.lower() == "long" else OrderSide.SELL,
                 entry_price=Decimal(str(p.entry_price)) if p.entry_price else None,
-                current_price=Decimal(str(p.current_price)) if p.current_price else None,
-                unrealized_pnl=Decimal(str(p.unrealized_pnl)) if p.unrealized_pnl else None,
+                current_price=Decimal(str(p.current_price))
+                if p.current_price
+                else None,
+                unrealized_pnl=Decimal(str(p.unrealized_pnl))
+                if p.unrealized_pnl
+                else None,
                 realized_pnl=Decimal(str(p.realized_pnl)) if p.realized_pnl else None,
                 venue="paper",
             )
@@ -272,7 +288,9 @@ class PaperExecutionAdapter:
     def fetch_balances(self) -> dict[str, Decimal]:
         return {k: Decimal(str(v)) for k, v in self._exchange.get_balances().items()}
 
-    def close_position(self, request: "BrokerClosePositionRequest") -> "BrokerClosePositionFact":
+    def close_position(
+        self, request: "BrokerClosePositionRequest"
+    ) -> "BrokerClosePositionFact":
         result = self._exchange.close_position(request.symbol, request.reason)
         return BrokerClosePositionFact(
             symbol=request.symbol,
@@ -352,13 +370,27 @@ class LiveBrokerExecutionAdapter:
         positions = self._broker.get_positions()
         return [
             BrokerPositionFact(
-                symbol=Symbol(p["symbol"].split("/")[0], p["symbol"].split("/")[1], AssetClass.STOCK, MarketType.SPOT, "alpaca"),
+                symbol=Symbol(
+                    p["symbol"].split("/")[0],
+                    p["symbol"].split("/")[1],
+                    AssetClass.STOCK,
+                    MarketType.SPOT,
+                    "alpaca",
+                ),
                 quantity=Decimal(str(p["qty"])),
                 side=OrderSide.BUY if p["side"] == "long" else OrderSide.SELL,
-                entry_price=Decimal(str(p["entry_price"])) if p.get("entry_price") else None,
-                current_price=Decimal(str(p["current_price"])) if p.get("current_price") else None,
-                unrealized_pnl=Decimal(str(p["unrealized_pnl"])) if p.get("unrealized_pnl") else None,
-                realized_pnl=Decimal(str(p["realized_pnl"])) if p.get("realized_pnl") else None,
+                entry_price=Decimal(str(p["entry_price"]))
+                if p.get("entry_price")
+                else None,
+                current_price=Decimal(str(p["current_price"]))
+                if p.get("current_price")
+                else None,
+                unrealized_pnl=Decimal(str(p["unrealized_pnl"]))
+                if p.get("unrealized_pnl")
+                else None,
+                realized_pnl=Decimal(str(p["realized_pnl"]))
+                if p.get("realized_pnl")
+                else None,
                 venue="alpaca",
             )
             for p in positions
@@ -367,7 +399,9 @@ class LiveBrokerExecutionAdapter:
     def fetch_balances(self) -> dict[str, Decimal]:
         return {k: Decimal(str(v)) for k, v in self._broker.get_balances().items()}
 
-    def close_position(self, request: "BrokerClosePositionRequest") -> "BrokerClosePositionFact":
+    def close_position(
+        self, request: "BrokerClosePositionRequest"
+    ) -> "BrokerClosePositionFact":
         result = self._broker.close_position(request.symbol, request.reason)
         return BrokerClosePositionFact(
             symbol=request.symbol,
@@ -420,13 +454,17 @@ class AlpacaExecutionAdapter:
             type=request.order_type.value.lower(),
             time_in_force=TimeInForce.IOC,
             limit_price=float(request.price) if request.price is not None else None,
-            stop_price=float(request.stop_price) if request.stop_price is not None else None,
+            stop_price=float(request.stop_price)
+            if request.stop_price is not None
+            else None,
             client_order_id=request.idempotency_key,
         )
         order = self._run(self._adapter.create_order(order_req))
         return BrokerSubmitFact(
             state=BrokerSubmitState.ACCEPTED,
-            broker_order_id=str(getattr(order, "id", None) or getattr(order, "client_order_id", None)),
+            broker_order_id=str(
+                getattr(order, "id", None) or getattr(order, "client_order_id", None)
+            ),
             client_order_id=request.idempotency_key,
             venue="alpaca",
             broker_status="open",
@@ -470,12 +508,24 @@ class AlpacaExecutionAdapter:
         positions = self._run(self._adapter.fetch_positions())
         return [
             BrokerPositionFact(
-                symbol=Symbol(p.symbol.split("/")[0], p.symbol.split("/")[1], AssetClass.STOCK, MarketType.SPOT, "alpaca"),
+                symbol=Symbol(
+                    p.symbol.split("/")[0],
+                    p.symbol.split("/")[1],
+                    AssetClass.STOCK,
+                    MarketType.SPOT,
+                    "alpaca",
+                ),
                 quantity=Decimal(str(p.qty)),
                 side=OrderSide.BUY if p.side == "long" else OrderSide.SELL,
-                entry_price=Decimal(str(p.avg_entry_price)) if p.avg_entry_price else None,
-                current_price=Decimal(str(p.current_price)) if p.current_price else None,
-                unrealized_pnl=Decimal(str(p.unrealized_pl)) if p.unrealized_pl else None,
+                entry_price=Decimal(str(p.avg_entry_price))
+                if p.avg_entry_price
+                else None,
+                current_price=Decimal(str(p.current_price))
+                if p.current_price
+                else None,
+                unrealized_pnl=Decimal(str(p.unrealized_pl))
+                if p.unrealized_pl
+                else None,
                 realized_pnl=None,
                 venue="alpaca",
             )
@@ -486,7 +536,9 @@ class AlpacaExecutionAdapter:
         account = self._run(self._adapter.fetch_account())
         return {"USD": Decimal(str(account.cash))}
 
-    def close_position(self, request: "BrokerClosePositionRequest") -> "BrokerClosePositionFact":
+    def close_position(
+        self, request: "BrokerClosePositionRequest"
+    ) -> "BrokerClosePositionFact":
         self._run(self._adapter.close_position(request.symbol))
         return BrokerClosePositionFact(
             symbol=request.symbol,
@@ -589,13 +641,27 @@ class BinanceExecutionAdapter:
         positions = self._run(self._adapter.fetch_positions())
         return [
             BrokerPositionFact(
-                symbol=Symbol(p["symbol"].split("/")[0], p["symbol"].split("/")[1], AssetClass.CRYPTO, MarketType.SPOT, "binance"),
+                symbol=Symbol(
+                    p["symbol"].split("/")[0],
+                    p["symbol"].split("/")[1],
+                    AssetClass.CRYPTO,
+                    MarketType.SPOT,
+                    "binance",
+                ),
                 quantity=Decimal(str(p["qty"])),
                 side=OrderSide.BUY if p["side"] == "long" else OrderSide.SELL,
-                entry_price=Decimal(str(p["entry_price"])) if p.get("entry_price") else None,
-                current_price=Decimal(str(p["current_price"])) if p.get("current_price") else None,
-                unrealized_pnl=Decimal(str(p["unrealized_pnl"])) if p.get("unrealized_pnl") else None,
-                realized_pnl=Decimal(str(p["realized_pnl"])) if p.get("realized_pnl") else None,
+                entry_price=Decimal(str(p["entry_price"]))
+                if p.get("entry_price")
+                else None,
+                current_price=Decimal(str(p["current_price"]))
+                if p.get("current_price")
+                else None,
+                unrealized_pnl=Decimal(str(p["unrealized_pnl"]))
+                if p.get("unrealized_pnl")
+                else None,
+                realized_pnl=Decimal(str(p["realized_pnl"]))
+                if p.get("realized_pnl")
+                else None,
                 venue="binance",
             )
             for p in positions
@@ -605,7 +671,9 @@ class BinanceExecutionAdapter:
         balances = self._run(self._adapter.fetch_balances())
         return {k: Decimal(str(v)) for k, v in balances.items()}
 
-    def close_position(self, request: "BrokerClosePositionRequest") -> "BrokerClosePositionFact":
+    def close_position(
+        self, request: "BrokerClosePositionRequest"
+    ) -> "BrokerClosePositionFact":
         result = self._run(self._adapter.close_position(request.symbol))
         return BrokerClosePositionFact(
             symbol=request.symbol,

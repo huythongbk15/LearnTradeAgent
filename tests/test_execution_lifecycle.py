@@ -1331,6 +1331,7 @@ def test_upsert_order_intent_idempotent(tmp_path):
 
 # ── P0 missing tests ────────────────────────────────────────────────────
 
+
 class TestP0MissingTests:
     """Tests for P0 items that were missing from the original audit."""
 
@@ -1532,7 +1533,6 @@ class TestP0MissingTests:
 
     def test_coverage_not_deleted(self):
         """P0-57: Coverage files must not be deleted by cleanup scripts."""
-        import glob
         # Exclude this test file from the check to avoid self-triggering
         this_file = __import__("os").path.abspath(__file__)
         for path in ["scripts/", "src/", "tests/"]:

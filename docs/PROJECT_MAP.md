@@ -292,6 +292,7 @@
 │       │   │   └── pov.py
 │       │   ├── canonical
 │       │   │   ├── __init__.py
+│       │   │   ├── adapters.py
 │       │   │   ├── broker_gateway.py
 │       │   │   ├── causation.py
 │       │   │   ├── cli_adapter.py

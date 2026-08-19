@@ -435,7 +435,9 @@ class ExecutionEngine:
                 auth_event = self.lifecycle.emergency_reduce(emergency)
                 self.lifecycle.request_broker_submission(emergency.intent_id)
                 auth_id = auth_event.payload["authorization_id"]
-                result = self.gateway.submit(auth_id, correlation_id=emergency.intent_id)
+                result = self.gateway.submit(
+                    auth_id, correlation_id=emergency.intent_id
+                )
                 if result.success and result.broker_order_id:
                     self.lifecycle.submit_order(
                         intent_id=emergency.intent_id,
