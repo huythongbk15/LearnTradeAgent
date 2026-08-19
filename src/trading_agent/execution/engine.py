@@ -482,7 +482,8 @@ class ExecutionEngine:
                     authorization_hash="",
                 )
                 result = self.gateway.submit(
-                    auth_event.payload["authorization_id"], correlation_id=emergency.intent_id
+                    auth_event.payload["authorization_id"],
+                    correlation_id=emergency.intent_id,
                 )
                 if result.success and result.broker_order_id:
                     self.lifecycle.submit_order(
