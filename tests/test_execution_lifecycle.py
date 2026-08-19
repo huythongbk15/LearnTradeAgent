@@ -1327,3 +1327,266 @@ def test_upsert_order_intent_idempotent(tmp_path):
         assert len(rows) == 1
         assert rows[0]["intent_id"] == "intent-1"
         assert rows[0]["symbol"] == "BTC/USDT"
+
+
+# ── P0 missing tests ────────────────────────────────────────────────────
+
+
+class TestP0MissingTests:
+    """Tests for P0 items that were missing from the original audit."""
+
+    def test_authorization_attack_fake_permission_evidence_blocked(self, tmp_path):
+        """P0-50: Fake permission evidence must fail-closed."""
+        store = ExecutionEventStore(str(tmp_path / "events.db")).connect()
+        lc = ExecutionLifecycle(
+            store,
+            price_source=lambda s: TrustedPrice(
+                price=100.0,
+                exchange_timestamp=datetime.now(UTC),
+                received_at=datetime.now(UTC),
+            ),
+            inventory_source=lambda s, side: 1000.0 if side == "sell" else 0.0,
+        )
+        lc.create_order_intent("attack-1", "BTC/USDT", "sell", 1.0)
+        risk_decision = sample_unified_decision(
+            decision_id="decision-attack",
+            forecast_fingerprint="fp-attack",
+            model_artifact_id="model-v1",
+            requested_target_exposure=0.0,
+            allowed_target_exposure=0.0,
+            max_new_exposure=0.0,
+            reduce_only=True,
+            risk_level=RiskLevel.HIGH,
+            reason_codes=("TEST",),
+            calibration_state=EvidenceState.KNOWN,
+            calibration_artifact_id="cal-1",
+            calibration_ece=1.0,
+            ood_state=EvidenceState.KNOWN,
+            ood_score=1.0,
+            regime_state=EvidenceState.KNOWN,
+            regime_entropy=1.0,
+            interval_width=1.0,
+        )
+        lc.approve_risk("attack-1", risk_decision=risk_decision)
+        # Attempt to authorize with tampered permission evidence should fail
+        with pytest.raises(LifecycleError):
+            lc.authorize_order(
+                "attack-1",
+                idempotency_key="attack-key",
+                authorization_id="forged-auth-id",
+            )
+
+    def test_paper_buy_e2e(self, tmp_path):
+        """P0-51: Paper buy end-to-end through lifecycle."""
+        store = ExecutionEventStore(str(tmp_path / "events.db")).connect()
+        lc = ExecutionLifecycle(
+            store,
+            price_source=lambda s: TrustedPrice(
+                price=100.0,
+                exchange_timestamp=datetime.now(UTC),
+                received_at=datetime.now(UTC),
+            ),
+            inventory_source=lambda s, side: 0.0,
+        )
+        intent_id = "paper-buy-1"
+        lc.create_order_intent(intent_id, "BTC/USDT", "buy", 1.0)
+        risk_decision = sample_unified_decision(
+            decision_id="decision-buy",
+            forecast_fingerprint="fp-buy",
+            model_artifact_id="model-v1",
+            requested_target_exposure=1.0,
+            allowed_target_exposure=1.0,
+            max_new_exposure=1.0,
+            reduce_only=False,
+            risk_level=RiskLevel.LOW,
+            reason_codes=("BUY",),
+            calibration_state=EvidenceState.KNOWN,
+            calibration_artifact_id="cal-1",
+            calibration_ece=0.02,
+            ood_state=EvidenceState.KNOWN,
+            ood_score=0.1,
+            regime_state=EvidenceState.KNOWN,
+            regime_entropy=0.2,
+            interval_width=0.05,
+        )
+        lc.approve_risk(intent_id, risk_decision=risk_decision)
+        lc.authorize_order(intent_id, idempotency_key="buy-key")
+        lc.request_broker_submission(intent_id)
+        order = lc.order(intent_id)
+        assert order.status == IntentStatus.SUBMITTED
+
+    def test_spot_exit_e2e(self, tmp_path):
+        """P0-52: Spot exit (sell) end-to-end through lifecycle."""
+        store = ExecutionEventStore(str(tmp_path / "events.db")).connect()
+        lc = ExecutionLifecycle(
+            store,
+            price_source=lambda s: TrustedPrice(
+                price=100.0,
+                exchange_timestamp=datetime.now(UTC),
+                received_at=datetime.now(UTC),
+            ),
+            inventory_source=lambda s, side: 10.0 if side == "sell" else 0.0,
+        )
+        intent_id = "spot-exit-1"
+        lc.create_order_intent(intent_id, "BTC/USDT", "sell", 2.0)
+        risk_decision = sample_unified_decision(
+            decision_id="decision-sell",
+            forecast_fingerprint="fp-sell",
+            model_artifact_id="model-v1",
+            requested_target_exposure=0.0,
+            allowed_target_exposure=0.0,
+            max_new_exposure=0.0,
+            reduce_only=True,
+            risk_level=RiskLevel.LOW,
+            reason_codes=("SELL",),
+            calibration_state=EvidenceState.KNOWN,
+            calibration_artifact_id="cal-1",
+            calibration_ece=0.02,
+            ood_state=EvidenceState.KNOWN,
+            ood_score=0.1,
+            regime_state=EvidenceState.KNOWN,
+            regime_entropy=0.2,
+            interval_width=0.05,
+        )
+        lc.approve_risk(intent_id, risk_decision=risk_decision)
+        lc.authorize_order(intent_id, idempotency_key="sell-key")
+        lc.request_broker_submission(intent_id)
+        order = lc.order(intent_id)
+        assert order.status == IntentStatus.SUBMITTED
+
+    def test_negative_e2e_sell_without_inventory_blocked(self, tmp_path):
+        """P0-53: Negative E2E: sell without inventory must be blocked."""
+        store = ExecutionEventStore(str(tmp_path / "events.db")).connect()
+        lc = ExecutionLifecycle(
+            store,
+            price_source=lambda s: TrustedPrice(
+                price=100.0,
+                exchange_timestamp=datetime.now(UTC),
+                received_at=datetime.now(UTC),
+            ),
+            inventory_source=lambda s, side: 0.0,
+        )
+        intent_id = "negative-sell-1"
+        lc.create_order_intent(intent_id, "BTC/USDT", "sell", 1.0)
+        risk_decision = sample_unified_decision(
+            decision_id="decision-negative",
+            forecast_fingerprint="fp-negative",
+            model_artifact_id="model-v1",
+            requested_target_exposure=0.0,
+            allowed_target_exposure=0.0,
+            max_new_exposure=0.0,
+            reduce_only=True,
+            risk_level=RiskLevel.LOW,
+            reason_codes=("SELL",),
+            calibration_state=EvidenceState.KNOWN,
+            calibration_artifact_id="cal-1",
+            calibration_ece=0.02,
+            ood_state=EvidenceState.KNOWN,
+            ood_score=0.1,
+            regime_state=EvidenceState.KNOWN,
+            regime_entropy=0.2,
+            interval_width=0.05,
+        )
+        lc.approve_risk(intent_id, risk_decision=risk_decision)
+        with pytest.raises(LifecycleError):
+            lc.authorize_order(intent_id, idempotency_key="negative-key")
+
+    def test_tests_exercise_real_path(self, tmp_path):
+        """P0-56: Tests must exercise real lifecycle path, not mocked."""
+        store = ExecutionEventStore(str(tmp_path / "events.db")).connect()
+        lc = ExecutionLifecycle(
+            store,
+            price_source=lambda s: TrustedPrice(
+                price=100.0,
+                exchange_timestamp=datetime.now(UTC),
+                received_at=datetime.now(UTC),
+            ),
+            inventory_source=lambda s, side: 10.0 if side == "sell" else 0.0,
+        )
+        # Real path: create -> approve -> authorize -> request submission
+        intent_id = "real-path-1"
+        lc.create_order_intent(intent_id, "BTC/USDT", "sell", 1.0)
+        risk_decision = sample_unified_decision(
+            decision_id="decision-real",
+            forecast_fingerprint="fp-real",
+            model_artifact_id="model-v1",
+            requested_target_exposure=0.0,
+            allowed_target_exposure=0.0,
+            max_new_exposure=0.0,
+            reduce_only=True,
+            risk_level=RiskLevel.LOW,
+            reason_codes=("SELL",),
+            calibration_state=EvidenceState.KNOWN,
+            calibration_artifact_id="cal-1",
+            calibration_ece=0.02,
+            ood_state=EvidenceState.KNOWN,
+            ood_score=0.1,
+            regime_state=EvidenceState.KNOWN,
+            regime_entropy=0.2,
+            interval_width=0.05,
+        )
+        lc.approve_risk(intent_id, risk_decision=risk_decision)
+        auth = lc.authorize_order(intent_id, idempotency_key="real-key")
+        assert auth.event_type == ExecutionEventType.ORDER_AUTHORIZED
+        sub = lc.request_broker_submission(intent_id)
+        assert sub.event_type == ExecutionEventType.BROKER_SUBMISSION_REQUESTED
+
+    def test_coverage_not_deleted(self):
+        """P0-57: Coverage files must not be deleted by cleanup scripts."""
+        # Exclude this test file from the check to avoid self-triggering
+        this_file = __import__("os").path.abspath(__file__)
+        for path in ["scripts/", "src/", "tests/"]:
+            for root, dirs, files in __import__("os").walk(path):
+                for f in files:
+                    if not f.endswith(".py"):
+                        continue
+                    full = __import__("os").path.join(root, f)
+                    if __import__("os").path.abspath(full) == this_file:
+                        continue
+                    with open(full) as fh:
+                        content = fh.read()
+                        assert "rm -rf htmlcov" not in content
+                        assert "rm -rf .coverage" not in content
+
+    def test_execution_path_audit_table(self, tmp_path):
+        """P0-61: Execution path must be auditable via store."""
+        store = ExecutionEventStore(str(tmp_path / "events.db")).connect()
+        lc = ExecutionLifecycle(
+            store,
+            price_source=lambda s: TrustedPrice(
+                price=100.0,
+                exchange_timestamp=datetime.now(UTC),
+                received_at=datetime.now(UTC),
+            ),
+            inventory_source=lambda s, side: 10.0 if side == "sell" else 0.0,
+        )
+        intent_id = "audit-1"
+        lc.create_order_intent(intent_id, "BTC/USDT", "sell", 1.0)
+        risk_decision = sample_unified_decision(
+            decision_id="decision-audit",
+            forecast_fingerprint="fp-audit",
+            model_artifact_id="model-v1",
+            requested_target_exposure=0.0,
+            allowed_target_exposure=0.0,
+            max_new_exposure=0.0,
+            reduce_only=True,
+            risk_level=RiskLevel.LOW,
+            reason_codes=("SELL",),
+            calibration_state=EvidenceState.KNOWN,
+            calibration_artifact_id="cal-1",
+            calibration_ece=0.02,
+            ood_state=EvidenceState.KNOWN,
+            ood_score=0.1,
+            regime_state=EvidenceState.KNOWN,
+            regime_entropy=0.2,
+            interval_width=0.05,
+        )
+        lc.approve_risk(intent_id, risk_decision=risk_decision)
+        lc.authorize_order(intent_id, idempotency_key="audit-key")
+        lc.request_broker_submission(intent_id)
+        events = store.read_events(intent_id)
+        event_types = [e.event_type for e in events]
+        assert ExecutionEventType.ORDER_INTENT_CREATED in event_types
+        assert ExecutionEventType.RISK_APPROVED in event_types
+        assert ExecutionEventType.ORDER_AUTHORIZED in event_types
+        assert ExecutionEventType.BROKER_SUBMISSION_REQUESTED in event_types

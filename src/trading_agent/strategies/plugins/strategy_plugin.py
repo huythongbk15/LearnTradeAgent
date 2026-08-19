@@ -164,7 +164,7 @@ class Signal:
             size=size,
             price=self.price,
             stop_price=self.stop_loss,
-            client_order_id=f"{self.strategy_name}_{self.timestamp.timestamp()}",
+            client_order_id=f"{self.strategy_name}_{uuid.uuid4().hex}",
         )
 
 

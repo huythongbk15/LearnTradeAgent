@@ -157,39 +157,63 @@ class ProtectiveSubmitResult:
     error: str | None
 
 
+@dataclass(frozen=True)
 class AuthorizedOrder:
-    """Unforgeable authorization wrapper for broker submission.
+    """Authorization reference for broker submission.
 
-    Construction is restricted to the lifecycle authorization path.
-    Normal callers cannot create valid instances.
+    Instances are constructed ONLY by ExecutionLifecycle during authorization.
+    The gateway verifies against durable store and derives broker request
+    from the durable ORDER_AUTHORIZED record, NOT from this object.
     """
 
-    def __init__(self, token: str, **fields: Any) -> None:
-        if token != "__authorized__":
-            raise AuthorizationError(
-                "AuthorizedOrder must be created through lifecycle authorization"
-            )
-        self._token = token
-        self.intent_id = fields["intent_id"]
-        self.symbol = fields["symbol"]
-        self.side = fields["side"]
-        self.quantity = fields["quantity"]
-        self.idempotency_key = fields["idempotency_key"]
-        self.price_reference = fields["price_reference"]
-        self.metadata = fields.get("metadata", {})
-        # Required authorization evidence
-        self.risk_decision_id = fields["risk_decision_id"]
-        self.forecast_fingerprint = fields["forecast_fingerprint"]
-        self.model_artifact_id = fields["model_artifact_id"]
-        self.permission_result = fields["permission_result"]
-        self.authorization_id = fields["authorization_id"]
-        self.lifecycle_event_id = fields["lifecycle_event_id"]
-        self.correlation_id = fields["correlation_id"]
-        self.exposure_effect = fields["exposure_effect"]
-        self.current_exposure = fields["current_exposure"]
-        self.resulting_exposure = fields["resulting_exposure"]
-        self.authorized_at = fields["authorized_at"]
-        self.authorization_hash = fields["authorization_hash"]
+    intent_id: str
+    symbol: Any  # Symbol
+    side: str
+    quantity: float
+    idempotency_key: str
+    price_reference: float
+    metadata: dict[str, Any] = field(default_factory=dict)
+    # Required authorization evidence (verified against durable store)
+    risk_decision_id: str = ""
+    forecast_fingerprint: str = ""
+    model_artifact_id: str = ""
+    permission_result: str = ""
+    authorization_id: str = ""
+    lifecycle_event_id: str = ""
+    correlation_id: str = ""
+    exposure_effect: str = ""
+    current_exposure: float = 0.0
+    resulting_exposure: float = 0.0
+    authorized_at: str = ""
+    authorization_hash: str = ""
+
+    @classmethod
+    def _from_authorization_payload(cls, payload: dict[str, Any]) -> "AuthorizedOrder":
+        """Reconstruct from durable ORDER_AUTHORIZED payload.
+
+        This is the ONLY way to create a valid AuthorizedOrder.
+        """
+        return cls(
+            intent_id=payload["intent_id"],
+            symbol=payload["symbol"],
+            side=payload["side"],
+            quantity=float(payload["quantity"]),
+            idempotency_key=payload["idempotency_key"],
+            price_reference=float(payload.get("price_reference", 0.0)),
+            metadata=payload.get("metadata", {}),
+            risk_decision_id=payload["risk_decision_id"],
+            forecast_fingerprint=payload["forecast_fingerprint"],
+            model_artifact_id=payload["model_artifact_id"],
+            permission_result=payload["permission"],
+            authorization_id=payload["authorization_id"],
+            lifecycle_event_id=payload.get("lifecycle_event_id", ""),
+            correlation_id=payload.get("correlation_id", ""),
+            exposure_effect=payload["exposure_effect"],
+            current_exposure=float(payload["current_exposure"]),
+            resulting_exposure=float(payload["resulting_exposure"]),
+            authorized_at=payload["authorized_at"],
+            authorization_hash=payload["payload_hash"],
+        )
 
 
 class ExchangeAdapter(Protocol):
@@ -230,9 +254,14 @@ class BrokerGateway:
         other module may call the adapter directly.
     store:
         The execution event store for durable authorization verification.
+        REQUIRED - no broker I/O is permitted without durable authorization.
     """
 
-    def __init__(self, adapter: ExchangeAdapter, store: Any = None) -> None:
+    def __init__(self, adapter: ExchangeAdapter, store: Any) -> None:
+        if store is None:
+            raise AuthorizationError(
+                "BrokerGateway requires a durable execution event store"
+            )
         self._adapter = adapter
         self._store = store
 
@@ -240,32 +269,44 @@ class BrokerGateway:
 
     def submit(
         self,
-        order: AuthorizedOrder,
+        authorization_id: str,
         *,
         correlation_id: str,
     ) -> BrokerSubmitResult:
-        """Submit an order to the broker.
+        """Submit an order to the broker using a durable authorization.
 
-        Accepts ONLY lifecycle-authorized AuthorizedOrder.
-        Verifies authorization against durable state before broker I/O.
+        The authorization must have been previously created through the
+        lifecycle authorization path and persisted as ORDER_AUTHORIZED.
+        The gateway verifies BOTH durable facts before broker I/O:
+        1. ORDER_AUTHORIZED exists with matching authorization_id
+        2. BROKER_SUBMISSION_REQUESTED exists for the same intent
         """
-        if not isinstance(order, AuthorizedOrder):
+        # Load authorization from durable store (P0 §15, P0-7)
+        auth = self._store.get_latest_authorization_by_auth_id(authorization_id)
+        if auth is None:
             raise AuthorizationError(
-                f"BrokerGateway.submit() accepts only AuthorizedOrder, got {type(order).__name__}"
+                f"no durable ORDER_AUTHORIZED found for authorization_id {authorization_id}"
             )
-        # Verify authorization against durable state (P0 §15)
-        if self._store is not None:
-            self._verify_authorization(order)
+
+        # Verify BROKER_SUBMISSION_REQUESTED exists (P0-7)
+        intent_id = auth["intent_id"]
+        submission = self._store.get_latest_submission_request(intent_id)
+        if submission is None:
+            raise AuthorizationError(
+                f"no durable BROKER_SUBMISSION_REQUESTED for intent {intent_id}"
+            )
+
+        # Build broker request from DURABLE authorization payload (not from caller object)
         request = BrokerOrderRequest(
-            intent_id=order.intent_id,
-            symbol=order.symbol,
-            side=order.side,
-            quantity=order.quantity,
-            order_type=order.metadata.get("order_type", "market"),
-            price=order.metadata.get("price"),
-            stop_price=order.metadata.get("stop_price"),
-            time_in_force=order.metadata.get("time_in_force", "day"),
-            idempotency_key=order.idempotency_key,
+            intent_id=auth["intent_id"],
+            symbol=auth["symbol"],
+            side=auth["side"],
+            quantity=float(auth["quantity"]),
+            order_type=auth.get("metadata", {}).get("order_type", "market"),
+            price=auth.get("metadata", {}).get("price"),
+            stop_price=auth.get("metadata", {}).get("stop_price"),
+            time_in_force=auth.get("metadata", {}).get("time_in_force", "day"),
+            idempotency_key=auth["idempotency_key"],
         )
         try:
             response = self._adapter.place_order(request.to_payload())

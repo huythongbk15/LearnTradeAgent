@@ -15,6 +15,7 @@ import json
 import os
 import sys
 import tempfile
+import uuid
 from decimal import Decimal
 from pathlib import Path
 
@@ -52,9 +53,11 @@ from trading_agent.exchanges.models import (
     TimeInForce,
 )
 from trading_agent.execution.canonical import CanonicalBrokerAdapter
+from trading_agent.execution.canonical.broker_gateway import BrokerGateway
 from trading_agent.execution.canonical.legacy_authorization import (
     LegacyAuthorizationEvidence,
 )
+from trading_agent.execution.lifecycle.store import ExecutionEventStore
 from trading_agent.risk.portfolio_risk import DrawdownConfig, PortfolioRiskManager
 from trading_agent.strategies.enhanced_ma import EnhancedMaCrossover
 
@@ -219,7 +222,10 @@ def main():
     asyncio.run(adapter.connect())
     broker = LiveBroker("alpaca", adapter)
     # Wrap with canonical broker gateway (P0 §11: runner canonical migration)
-    broker = CanonicalBrokerAdapter(broker)
+    store = ExecutionEventStore("data/execution/events.db")
+    broker = CanonicalBrokerAdapter(
+        broker, gateway=BrokerGateway(adapter=broker, store=store)
+    )
 
     acct = broker.get_account()
     print("\n✅ Alpaca Paper connected")
@@ -479,7 +485,7 @@ def main():
             )
             result = broker.place_order(
                 order,
-                correlation_id=f"{d['alpaca_symbol']}-{d['action']}-{int(datetime.now(UTC).timestamp())}",
+                correlation_id=f"{d['alpaca_symbol']}-{d['action']}-{uuid.uuid4().hex}",
                 evidence=LegacyAuthorizationEvidence(
                     symbol=str(symbol),
                     side=d["action"].lower(),
@@ -489,8 +495,8 @@ def main():
                     strategy_version="legacy-enhanced-ma-v1",
                     account_equity=equity,
                     current_exposure=current_qty,
-                    idempotency_key=f"legacy-{d['alpaca_symbol']}-{int(datetime.now(UTC).timestamp())}",
-                    correlation_id=f"{d['alpaca_symbol']}-{d['action']}-{int(datetime.now(UTC).timestamp())}",
+                    idempotency_key=f"legacy-{d['alpaca_symbol']}-{uuid.uuid4().hex}",
+                    correlation_id=f"{d['alpaca_symbol']}-{d['action']}-{uuid.uuid4().hex}",
                 ),
             )
             print(

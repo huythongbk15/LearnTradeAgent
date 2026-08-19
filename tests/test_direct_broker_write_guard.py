@@ -29,6 +29,7 @@ FORBIDDEN_METHODS = {
 ALLOWED_FILES = {
     "broker_gateway.py",  # BrokerGateway itself
     "paper_exchange.py",  # Exchange adapter implementations
+    "adapters.py",  # Canonical venue adapters (PaperExecutionAdapter, etc.)
     "runner_adapter.py",  # Canonical wrapper for legacy runners
     "legacy_authorization.py",  # Legacy authorization bridge
     "live_enhanced_ma.py",  # Runtime script (canonical via CanonicalBrokerAdapter)
@@ -82,6 +83,7 @@ def _is_forbidden_call(node: ast.Call, file_path: Path) -> tuple[bool, str | Non
             # Adapter implementations can call self.*
             if file_path.name in (
                 "paper_exchange.py",
+                "adapters.py",
                 "runner_adapter.py",
                 "legacy_authorization.py",
                 "alpaca_adapter.py",

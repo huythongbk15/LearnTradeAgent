@@ -5,6 +5,7 @@ import os
 import sys
 import asyncio
 import threading
+import uuid
 from datetime import UTC, datetime
 
 sys.path.insert(0, ".")
@@ -21,7 +22,7 @@ from trading_agent.execution.lifecycle.lifecycle import (
     EmergencyReduceRequest,
     TrustedPrice,
 )
-from trading_agent.execution.canonical import BrokerGateway, AuthorizedOrder
+from trading_agent.execution.canonical import BrokerGateway
 
 ALPACA_MICRO_DUST_THRESHOLD_USD = 5.0
 
@@ -101,35 +102,16 @@ def close_micro_dust_positions():
                     continue
                 current_price = float(price)
                 emergency = EmergencyReduceRequest(
-                    intent_id=f"emergency-close-{symbol}-{int(datetime.now(UTC).timestamp())}",
+                    intent_id=f"emergency-close-{symbol}-{uuid.uuid4().hex}",
                     symbol=symbol,
                     side="sell",
                     quantity=qty,
                     reason="micro_dust_cleanup",
                 )
                 auth_event = lifecycle.emergency_reduce(emergency)
-                authorized = AuthorizedOrder(
-                    token="__authorized__",
-                    intent_id=emergency.intent_id,
-                    symbol=symbol,
-                    side="sell",
-                    quantity=qty,
-                    idempotency_key=f"emergency-{symbol}",
-                    price_reference=current_price,
-                    risk_decision_id=auth_event.payload.get("risk_decision_id", ""),
-                    forecast_fingerprint="",
-                    model_artifact_id="emergency_reduce",
-                    permission_result="REDUCE_ONLY",
-                    authorization_id=auth_event.payload.get("authorization_id", ""),
-                    lifecycle_event_id=auth_event.event_id,
-                    correlation_id=emergency.intent_id,
-                    exposure_effect="reduce",
-                    current_exposure=0.0,
-                    resulting_exposure=0.0,
-                    authorized_at=auth_event.payload.get("authorized_at", ""),
-                    authorization_hash="",
-                )
-                result = gateway.submit(authorized, correlation_id=emergency.intent_id)
+                lifecycle.request_broker_submission(emergency.intent_id)
+                auth_id = auth_event.payload["authorization_id"]
+                result = gateway.submit(auth_id, correlation_id=emergency.intent_id)
                 if result.success and result.broker_order_id:
                     lifecycle.submit_order(
                         intent_id=emergency.intent_id,
