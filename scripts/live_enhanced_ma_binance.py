@@ -2287,6 +2287,22 @@ def run_locked(
         )
         canonical_gateway = BrokerGateway(adapter=broker, store=canonical_store)
 
+        # Canonical execution: lifecycle + gateway (P0 §12: runner canonical migration)
+        canonical_store = ExecutionEventStore("data/execution/events.db").connect()
+        canonical_lifecycle = ExecutionLifecycle(
+            canonical_store,
+            price_source=lambda s: (
+                TrustedPrice(
+                    price=float(broker.get_ticker(s).get("last") or 0.0),
+                    exchange_timestamp=datetime.now(UTC),
+                    received_at=datetime.now(UTC),
+                )
+                if broker.get_ticker(s).get("last")
+                else None
+            ),
+        )
+        canonical_gateway = BrokerGateway(adapter=broker, store=canonical_store)
+
         reconcile_unfinished_orders(
             broker=broker,
             store=store,

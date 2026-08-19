@@ -743,6 +743,73 @@ class TestCliOrderE2E:
                 "avg_fill_price": 100.0,
             }
 
+        async def create_order(
+            self,
+            order,
+            side=None,
+            qty=None,
+            order_type=None,
+            limit_price=None,
+            **kwargs,
+        ):
+            if hasattr(order, "symbol"):
+                # Called with Order object from _SyncAsyncBridge
+                self.calls.append(
+                    {
+                        "symbol": str(order.symbol),
+                        "side": order.side,
+                        "qty": float(order.size),
+                        "order_type": order.type,
+                        "limit_price": order.price,
+                    }
+                )
+                qty_val = float(order.size)
+            else:
+                # Called with keyword args from BrokerGateway.submit_protection
+                self.calls.append(
+                    {
+                        "symbol": str(order),
+                        "side": side,
+                        "qty": float(qty),
+                        "order_type": order_type,
+                        "limit_price": limit_price,
+                    }
+                )
+                qty_val = float(qty)
+            return {
+                "id": f"broker-{len(self.calls)}",
+                "status": "filled",
+                "filled_qty": qty_val,
+                "avg_fill_price": 100.0,
+            }
+                    {
+                        "symbol": str(order.symbol),
+                        "side": order.side,
+                        "qty": float(order.size),
+                        "order_type": order.type,
+                        "limit_price": order.price,
+                    }
+                )
+                qty_val = float(order.size)
+            else:
+                # Called with keyword args from BrokerGateway.submit_protection
+                self.calls.append(
+                    {
+                        "symbol": str(order),
+                        "side": side,
+                        "qty": float(qty),
+                        "order_type": order_type,
+                        "limit_price": limit_price,
+                    }
+                )
+                qty_val = float(qty)
+            return {
+                "id": f"broker-{len(self.calls)}",
+                "status": "filled",
+                "filled_qty": qty_val,
+                "avg_fill_price": 100.0,
+            }
+
     def test_e2e_buy_order_is_blocked(self):
         """Manual BUY orders are blocked - require real risk evidence."""
         broker = self._MockLiveBroker()

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 pytest.importorskip("fastapi")
@@ -7,6 +9,21 @@ pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient
 
 import webui.backend.app as backend
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+EVENT_DB = PROJECT_ROOT / "data" / "execution" / "events.db"
+
+
+@pytest.fixture(autouse=True)
+def _clean_event_db(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "data" / "execution").mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("ALPACA_API_KEY", "test-key")
+    monkeypatch.setenv("ALPACA_API_SECRET", "test-secret")
+    if EVENT_DB.exists():
+        EVENT_DB.unlink()
+    yield
 
 
 class FakePosition:
