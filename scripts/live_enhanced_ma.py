@@ -54,7 +54,6 @@ from trading_agent.exchanges.models import (
 from trading_agent.execution.canonical import (
     BrokerGateway,
     AuthorizedOrder,
-    ExchangeAdapter,
 )
 from trading_agent.execution.canonical.risk_decision import (
     RiskLevel,

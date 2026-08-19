@@ -47,7 +47,7 @@ from trading_agent.exchanges.models import (
 from trading_agent.execution.canonical import (
     BrokerGateway,
     AuthorizedOrder,
-    ExchangeAdapter,
+    CanonicalBrokerAdapter,
 )
 from trading_agent.execution.canonical.legacy_authorization import (
     LegacyAuthorizationEvidence,

@@ -9,7 +9,6 @@ import pytest
 from trading_agent.agents.risk_decision import RiskDecision, RiskLevel
 from trading_agent.execution.canonical.risk_decision import (
     EvidenceState,
-    RiskDecisionAdapter,
     RiskReason,
     UnifiedRiskDecision,
 )

@@ -45,7 +45,7 @@ class _AlpacaSyncAdapter:
         return {"last": getattr(ticker, "last", None) or getattr(ticker, "price", None)}
 
     def place_order(self, payload):
-        from trading_agent.exchanges.models import Order, OrderSide, OrderType, TimeInForce
+        from trading_agent.exchanges.models import Order, OrderSide, OrderType
 
         side = OrderSide.BUY if payload["side"].lower() == "buy" else OrderSide.SELL
         order_type_str = payload.get("order_type", "market").strip().lower()
