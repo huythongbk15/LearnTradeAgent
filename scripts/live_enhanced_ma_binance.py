@@ -45,6 +45,7 @@ from trading_agent.exchanges.models import (
     TimeInForce,
 )
 from trading_agent.execution.canonical import CanonicalBrokerAdapter
+from trading_agent.execution.canonical.broker_gateway import BrokerGateway
 from trading_agent.execution.canonical.legacy_authorization import (
     LegacyAuthorizationEvidence,
 )
@@ -59,6 +60,7 @@ from trading_agent.execution.data_trust import (
     TimeStampedFetch,
     reject_high_latency,
 )
+from trading_agent.execution.lifecycle.store import ExecutionEventStore
 from trading_agent.execution.live_safety import (
     LIVE_CONFIRMATION,
     RISK_INCREASE_CONFIRMATION,
@@ -2096,7 +2098,8 @@ def run_locked(
             strict_pricing=True,
         )
         # Wrap with canonical broker gateway (P0 §12: runner canonical migration)
-        broker = CanonicalBrokerAdapter(broker)
+        execution_store = ExecutionEventStore("data/execution/events.db")
+        broker = CanonicalBrokerAdapter(broker, gateway=BrokerGateway(adapter=broker, store=execution_store))
 
         reconcile_unfinished_orders(
             broker=broker,

@@ -28,6 +28,7 @@ Unknown broker states are *never* silently normalized: they emit
 
 from __future__ import annotations
 
+import hashlib
 import math
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
@@ -879,9 +880,15 @@ class ExecutionLifecycle:
             raise LifecycleError(
                 f"intent {intent_id} not approvable in {order.status.value}"
             )
-        # Store risk decision for permission checks on submit
-        order.risk_decision = risk_decision
-        order.risk_approved = True
+        # For execution-capable intents, risk_decision is MANDATORY.
+        # Draft/legacy audit paths may pass None, but they must not become executable.
+        if risk_decision is None:
+            # Draft mode: allow None but mark as not risk-approved for execution
+            order.risk_decision = None
+            order.risk_approved = False
+        else:
+            order.risk_decision = risk_decision
+            order.risk_approved = True
         payload = {"rationale": rationale}
         if risk_decision is not None:
             # Persist full risk decision evidence for audit/replay
@@ -896,30 +903,28 @@ class ExecutionLifecycle:
         self,
         intent_id: str,
         *,
-        authorization_id: str,
         idempotency_key: str,
-        payload_hash: str,
-        risk_decision_id: str,
-        forecast_fingerprint: str,
-        model_artifact_id: str,
-        permission: str,
-        symbol: str,
-        side: str,
-        quantity: float,
-        exposure_effect: str,
-        current_exposure: float,
-        resulting_exposure: float,
-        authorized_at: str,
+        authorization_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> ExecutionEvent:
         """Issue durable ORDER_AUTHORIZED event.
 
         This is the ONLY path that creates broker-valid authorization.
-        Validates:
-        - intent exists and is risk-approved
-        - quantity/symbol/side match intent
-        - idempotency key is registered
-        - risk decision is bound to target
+        The lifecycle derives ALL authorization fields from durable state:
+        - risk decision from approve_risk()
+        - symbol/side/quantity from intent
+        - exposure effect from inventory
+        - permission from permission gate
+        - payload hash computed internally
+        - authorization_id generated internally if not provided
+        - timestamp generated internally
+
+        Caller MUST NOT supply: risk_decision_id, permission, exposure_effect,
+        current_exposure, resulting_exposure, authorized_at, payload_hash,
+        forecast_fingerprint, model_artifact_id, or authorization_id (optional).
         """
+        if authorization_id is not None:
+            raise LifecycleError("authorization_id must not be supplied by caller")
         order = self.state.order(intent_id)
         if order is None:
             raise LifecycleError(f"unknown intent {intent_id}")
@@ -928,45 +933,113 @@ class ExecutionLifecycle:
                 f"intent {intent_id} must be risk-approved before authorization "
                 f"(status={order.status.value})"
             )
-        # Normalize symbol for comparison and durable storage
-        symbol_str = symbol.pair if hasattr(symbol, "pair") else str(symbol)
-        order_symbol = order.symbol
-        if hasattr(order_symbol, "pair"):
-            order_symbol = order_symbol.pair
-        # Validate binding
-        if order_symbol != symbol_str or order.side != side:
+        if order.risk_decision is None:
             raise LifecycleError(
-                f"authorization binding mismatch: intent {intent_id} "
-                f"symbol/side {order.symbol}/{order.side} != {symbol}/{side}"
+                f"intent {intent_id} has no risk decision; cannot authorize"
             )
-        if abs(float(order.size) - float(quantity)) > 1e-12:
-            raise LifecycleError(
-                f"authorization quantity mismatch: intent {intent_id} "
-                f"size={order.size} != authorized={quantity}"
-            )
+
+        risk_decision = order.risk_decision
+        symbol_str = order.symbol
+        side = order.side
+        quantity = order.size
+
         # Verify idempotency key is registered
         existing = self.store.get_intent_by_idempotency_key(idempotency_key)
         if existing is not None and existing != intent_id:
             raise LifecycleError(
                 f"idempotency_key {idempotency_key} already maps to {existing}"
             )
+
+        # Derive current exposure from inventory source
+        current_exposure = 0.0
+        if side == "sell":
+            available = self._available_sell_inventory(symbol_str, exclude_intent_id=intent_id)
+            if math.isfinite(available):
+                current_exposure = available
+            else:
+                current_exposure = float('nan')
+
+        # Determine exposure effect
+        if side == "buy":
+            exposure_effect = ExposureEffect.INCREASE
+            resulting_exposure = current_exposure + quantity
+        else:
+            exposure_effect = ExposureEffect.REDUCE
+            resulting_exposure = max(0.0, current_exposure - quantity)
+
+        # Evaluate permission
+        from trading_agent.execution.permission import (
+            PermissionContext,
+            evaluate_order_permission,
+            OrderPermission,
+        )
+
+        # Get trusted price for permission check
+        price = self._price_source(symbol_str)
+        permission_ctx = PermissionContext(
+            execution_health=self.state.execution_health,
+            exposure_effect=exposure_effect,
+            risk_decision=self.state.order(intent_id).risk_decision,
+            trusted_price=price,
+            max_price_age_seconds=self.max_price_age_seconds,
+            reconciliation_state=self.state.reconciliation.value,
+            protection_state=(
+                ProtectionState.PROTECTION_REQUIRED.value
+                if ProtectionState.PROTECTION_REQUIRED
+                in self.state.protection_state.values()
+                else ProtectionState.NONE.value
+            ),
+            manual_blocked=self.state.manual_blocked,
+            kill_switch_active=self._kill_switch(),
+            data_trust=(
+                "untrusted"
+                if self.state.execution_health == ExecutionHealth.DATA_UNTRUSTED
+                else "trusted"
+            ),
+            inventory_state=("known" if math.isfinite(current_exposure) else "unknown"),
+            free_inventory=current_exposure if math.isfinite(current_exposure) else 0.0,
+            authorized_sellable_inventory=current_exposure if math.isfinite(current_exposure) else None,
+            order_size=quantity,
+            order_side=side,
+            require_fresh_market_data=True,
+            enforce_inventory=True,
+            broker_state=None,
+            draft=False,
+        )
+        permission_result = evaluate_order_permission(permission_ctx)
+        if permission_result.permission == OrderPermission.BLOCK:
+            raise LifecycleError(
+                f"permission blocked: {permission_result.reason.value} — {permission_result.detail}"
+            )
+
+        # Generate authorization fields internally
+        now = datetime.now(UTC).isoformat()
+        authorization_id = authorization_id or f"auth-{intent_id}"
+        payload_hash = hashlib.sha256(
+            f"{intent_id}:{quantity}:{side}:{now}".encode()
+        ).hexdigest()[:32]
+        authorized_at = now
+
+        # Build payload from derived values
         payload = {
             "authorization_id": authorization_id,
             "intent_id": intent_id,
             "idempotency_key": idempotency_key,
             "payload_hash": payload_hash,
-            "risk_decision_id": risk_decision_id,
-            "forecast_fingerprint": forecast_fingerprint,
-            "model_artifact_id": model_artifact_id,
-            "permission": permission,
-            "symbol": symbol_str,
+            "risk_decision_id": self.state.order(intent_id).risk_decision.decision_id,
+            "forecast_fingerprint": self.state.order(intent_id).risk_decision.forecast_fingerprint,
+            "model_artifact_id": self.state.order(intent_id).risk_decision.model_artifact_id,
+            "permission": "ALLOW" if permission_result.permission == OrderPermission.ALLOW else "REDUCE_ONLY",
+            "symbol": order.symbol,
             "side": side,
             "quantity": quantity,
-            "exposure_effect": exposure_effect,
-            "current_exposure": current_exposure,
+            "exposure_effect": exposure_effect.value,
+            "current_exposure": current_exposure if math.isfinite(current_exposure) else 0.0,
             "resulting_exposure": resulting_exposure,
             "authorized_at": authorized_at,
         }
+        if metadata:
+            payload["metadata"] = metadata
         return self._emit(
             ExecutionEventType.ORDER_AUTHORIZED,
             intent_id,
@@ -1106,11 +1179,11 @@ class ExecutionLifecycle:
             reason_codes=(),
             calibration_state=EvidenceState.KNOWN,
             calibration_artifact_id="emergency",
-            calibration_ece=0.0,
+            calibration_ece=1.0,
             ood_state=EvidenceState.KNOWN,
-            ood_score=0.0,
+            ood_score=1.0,
             regime_state=EvidenceState.KNOWN,
-            regime_entropy=0.0,
+            regime_entropy=1.0,
             interval_width=1.0,
             created_at=datetime.now(UTC),
         )
@@ -1119,20 +1192,7 @@ class ExecutionLifecycle:
         now = datetime.now(UTC).isoformat()
         auth = self.authorize_order(
             intent_id=intent_id,
-            authorization_id=f"emergency-auth-{intent_id}",
             idempotency_key=f"emergency-{intent_id}",
-            payload_hash="",
-            risk_decision_id=risk_decision.decision_id,
-            forecast_fingerprint="",
-            model_artifact_id="emergency_reduce",
-            permission="REDUCE_ONLY",
-            symbol=request.symbol,
-            side=request.side,
-            quantity=request.quantity,
-            exposure_effect="reduce",
-            current_exposure=0.0,
-            resulting_exposure=0.0,
-            authorized_at=now,
         )
         return auth
 

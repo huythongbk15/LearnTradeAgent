@@ -577,6 +577,38 @@ class ExecutionEventStore:
 
         return json.loads(row["payload"])
 
+    def get_latest_authorization_by_auth_id(self, authorization_id: str) -> dict[str, Any] | None:
+        """Return the latest ORDER_AUTHORIZED event payload by authorization_id, or None."""
+        row = self.conn.execute(
+            """
+            SELECT payload FROM execution_events
+            WHERE event_type = ? AND json_extract(payload, '$.authorization_id') = ?
+            ORDER BY seq DESC LIMIT 1
+            """,
+            ("exec.order_authorized", authorization_id),
+        ).fetchone()
+        if row is None:
+            return None
+        import json
+
+        return json.loads(row["payload"])
+
+    def get_latest_submission_request(self, intent_id: str) -> dict[str, Any] | None:
+        """Return the latest BROKER_SUBMISSION_REQUESTED event payload for an intent, or None."""
+        row = self.conn.execute(
+            """
+            SELECT payload FROM execution_events
+            WHERE aggregate_id = ? AND event_type = ?
+            ORDER BY seq DESC LIMIT 1
+            """,
+            (intent_id, "exec.broker_submission_requested"),
+        ).fetchone()
+        if row is None:
+            return None
+        import json
+
+        return json.loads(row["payload"])
+
     # ── Integrity / audit ───────────────────────────────────────────────
 
     def integrity_check(self) -> dict[str, Any]:

@@ -175,7 +175,10 @@ class CanonicalBrokerAdapter:
         if client_id:
             return f"runner-{client_id}"
         symbol = getattr(order, "symbol", "unknown")
-        return f"runner-{symbol}-{id(order)}"
+        # Use symbol + side + size for stable identity; avoid id(order)
+        side = getattr(order, "side", "unknown")
+        size = getattr(order, "size", None) or getattr(order, "amount", None)
+        return f"runner-{symbol}-{side}-{size}"
 
     def _to_legacy_result(self, result: BrokerSubmitResult) -> dict[str, Any]:
         """Convert a BrokerSubmitResult to legacy dict format."""

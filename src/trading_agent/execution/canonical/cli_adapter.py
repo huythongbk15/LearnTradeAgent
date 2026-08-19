@@ -9,7 +9,14 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from trading_agent.exchanges.models import Order, OrderSide, OrderType, Symbol
+from trading_agent.exchanges.models import (
+    AssetClass,
+    MarketType,
+    Order,
+    OrderSide,
+    OrderType,
+    Symbol,
+)
 
 
 class CliBrokerAdapter:
@@ -20,6 +27,22 @@ class CliBrokerAdapter:
 
     def place_order(self, payload):
         symbol = payload["symbol"]
+        # Convert string symbol to Symbol object for LiveBroker
+        if isinstance(symbol, str):
+            # Parse "BTC/USD" format and create Symbol with default Alpaca settings
+            parts = symbol.split("/")
+            if len(parts) == 2:
+                base, quote = parts
+                symbol = Symbol(
+                    base=base,
+                    quote=quote,
+                    asset_class=AssetClass.STOCK,
+                    market_type=MarketType.SPOT,
+                    exchange="alpaca",
+                )
+            else:
+                raise ValueError(f"Invalid symbol format: {symbol}")
+        
         if not isinstance(symbol, Symbol):
             raise TypeError(f"symbol must be Symbol, got {type(symbol)}")
 

@@ -12,6 +12,7 @@ import logging
 import signal
 import sys
 import threading
+import uuid
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
@@ -23,7 +24,6 @@ from trading_agent.execution.canonical import (
     BrokerGateway,
     LegacyDecisionAdapter,
     OrderPlanner,
-    AuthorizedOrder,
     EnrichedMarketObservation,
     CurrentPortfolioState,
     MarketPrice,
@@ -326,37 +326,14 @@ class ExecutionEngine:
             authorized_at=now,
         )
 
-        # ── Durable broker submission request BEFORE broker I/O ────────
+        # ──── Durable broker submission request BEFORE broker I/O ────────
         request_event = self.lifecycle.request_broker_submission(
             intent_id=intent.intent_id,
         )
 
-        # ── Build AuthorizedOrder from durable authorization ────────────
-        authorized = AuthorizedOrder(
-            token="__authorized__",
-            intent_id=intent.intent_id,
-            symbol=intent.symbol,
-            side=intent.side,
-            quantity=intent.quantity,
-            idempotency_key=intent.idempotency_key,
-            price_reference=current_price,
-            risk_decision_id=risk_decision.decision_id,
-            forecast_fingerprint=risk_decision.forecast_fingerprint,
-            model_artifact_id=risk_decision.model_artifact_id,
-            permission_result=permission.permission.value,
-            authorization_id=authorized_event.payload["authorization_id"],
-            lifecycle_event_id=authorized_event.event_id,
-            correlation_id=intent.intent_id,
-            exposure_effect=exposure_effect.value,
-            current_exposure=portfolio.current_exposure,
-            resulting_exposure=plan_result.executable_delta
-            + portfolio.current_exposure,
-            authorized_at=now,
-            authorization_hash=authorization_hash,
-        )
-
-        # ── Submit via gateway (verifies auth against durable state) ────
-        result = self.gateway.submit(authorized, correlation_id=intent.intent_id)
+        # ─── Submit via gateway using authorization_id from durable authorization ──
+        auth_id = authorized_event.payload["authorization_id"]
+        result = self.gateway.submit(auth_id, correlation_id=intent.intent_id)
         submit_event = self.lifecycle.submit_order(
             intent_id=intent.intent_id,
             exchange_order_id=result.broker_order_id,
@@ -448,7 +425,7 @@ class ExecutionEngine:
                 continue
             # Use canonical emergency reduce through lifecycle
             emergency = EmergencyReduceRequest(
-                intent_id=f"emergency-close-{symbol}-{int(datetime.now(UTC).timestamp())}",
+                intent_id=f"emergency-close-{symbol}-{uuid.uuid4().hex}",
                 symbol=symbol,
                 side="sell",
                 quantity=pos.quantity,
@@ -456,31 +433,9 @@ class ExecutionEngine:
             )
             try:
                 auth_event = self.lifecycle.emergency_reduce(emergency)
-                # Submit via gateway
-                authorized = AuthorizedOrder(
-                    token="__authorized__",
-                    intent_id=emergency.intent_id,
-                    symbol=symbol,
-                    side="sell",
-                    quantity=pos.quantity,
-                    idempotency_key=f"emergency-{symbol}",
-                    price_reference=current_price,
-                    risk_decision_id=auth_event.payload.get("risk_decision_id", ""),
-                    forecast_fingerprint="",
-                    model_artifact_id="emergency_reduce",
-                    permission_result="REDUCE_ONLY",
-                    authorization_id=auth_event.payload.get("authorization_id", ""),
-                    lifecycle_event_id=auth_event.event_id,
-                    correlation_id=emergency.intent_id,
-                    exposure_effect="reduce",
-                    current_exposure=0.0,
-                    resulting_exposure=0.0,
-                    authorized_at=auth_event.payload.get("authorized_at", ""),
-                    authorization_hash="",
-                )
-                result = self.gateway.submit(
-                    authorized, correlation_id=emergency.intent_id
-                )
+                self.lifecycle.request_broker_submission(emergency.intent_id)
+                auth_id = auth_event.payload["authorization_id"]
+                result = self.gateway.submit(auth_id, correlation_id=emergency.intent_id)
                 if result.success and result.broker_order_id:
                     self.lifecycle.submit_order(
                         intent_id=emergency.intent_id,
@@ -516,7 +471,7 @@ class ExecutionEngine:
         if current_price is None:
             return None
         emergency = EmergencyReduceRequest(
-            intent_id=f"emergency-close-{symbol}-{int(datetime.now(UTC).timestamp())}",
+            intent_id=f"emergency-close-{symbol}-{uuid.uuid4().hex}",
             symbol=symbol,
             side="sell",
             quantity=pos.quantity,
@@ -524,28 +479,9 @@ class ExecutionEngine:
         )
         try:
             auth_event = self.lifecycle.emergency_reduce(emergency)
-            authorized = AuthorizedOrder(
-                token="__authorized__",
-                intent_id=emergency.intent_id,
-                symbol=symbol,
-                side="sell",
-                quantity=pos.quantity,
-                idempotency_key=f"emergency-{symbol}",
-                price_reference=current_price,
-                risk_decision_id=auth_event.payload.get("risk_decision_id", ""),
-                forecast_fingerprint="",
-                model_artifact_id="emergency_reduce",
-                permission_result="REDUCE_ONLY",
-                authorization_id=auth_event.payload.get("authorization_id", ""),
-                lifecycle_event_id=auth_event.event_id,
-                correlation_id=emergency.intent_id,
-                exposure_effect="reduce",
-                current_exposure=0.0,
-                resulting_exposure=0.0,
-                authorized_at=auth_event.payload.get("authorized_at", ""),
-                authorization_hash="",
-            )
-            result = self.gateway.submit(authorized, correlation_id=emergency.intent_id)
+            self.lifecycle.request_broker_submission(emergency.intent_id)
+            auth_id = auth_event.payload["authorization_id"]
+            result = self.gateway.submit(auth_id, correlation_id=emergency.intent_id)
             if result.success and result.broker_order_id:
                 self.lifecycle.submit_order(
                     intent_id=emergency.intent_id,
