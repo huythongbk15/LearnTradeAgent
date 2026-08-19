@@ -164,6 +164,54 @@ def reject_stale_exchange_timestamp(
         raise StaleQuoteError(f"{context} is stale: age {age:.1f}s > {max_age_s:.1f}s")
 
 
+@dataclass(frozen=True)
+class TrustedPrice:
+    """A new-exposure price with mandatory exchange timestamp and integrity checks.
+
+    ``exchange_timestamp`` is mandatory (ms since epoch).  Freshness and
+    monotonicity are validated explicitly; any violation raises
+    :class:`DataTrustError` instead of degrading silently.
+    """
+
+    symbol: str
+    price: float
+    exchange_timestamp: float  # ms since epoch — mandatory
+    received_at: float  # monotonic seconds
+    sequence_id: int | None = None
+    previous_exchange_timestamp: float | None = None  # for monotonicity
+
+    def validate_freshness(
+        self,
+        *,
+        max_age_s: float = DEFAULT_MAX_QUOTE_AGE_S,
+        now_s: float | None = None,
+        context: str = "trusted price",
+    ) -> None:
+        """Raise if the price is stale, future-dated, or beyond tolerance."""
+        if not math.isfinite(max_age_s) or max_age_s <= 0:
+            raise DataTrustError("max_age_s must be finite and positive")
+        wall_now = now_s if now_s is not None else time.time()
+        age_s = wall_now - (self.exchange_timestamp / 1000.0)
+        if age_s < -5.0:
+            raise StaleQuoteError(
+                f"{context} exchange timestamp is {abs(age_s):.1f}s in the future"
+            )
+        if age_s > max_age_s:
+            raise StaleQuoteError(
+                f"{context} is stale: age {age_s:.1f}s > {max_age_s:.1f}s"
+            )
+
+    def validate_monotonicity(self, context: str = "trusted price") -> None:
+        """Raise if exchange timestamp goes backwards or freezes."""
+        if self.previous_exchange_timestamp is None:
+            return
+        if self.exchange_timestamp <= self.previous_exchange_timestamp:
+            raise DataTrustError(
+                f"{context} exchange timestamp monotonicity violated: "
+                f"{self.exchange_timestamp} <= {self.previous_exchange_timestamp}"
+            )
+
+
 class ServerClock:
     """Track and enforce sync between the local clock and the exchange.
 

@@ -563,7 +563,7 @@ def _place_order_via_gateway(live_broker, order):
     )
 
     adapter = CliBrokerAdapter(live_broker)
-    store = ExecutionEventStore(":memory:").connect()
+    store = ExecutionEventStore("data/execution/events.db").connect()
 
     def _price_source(symbol):
         try:

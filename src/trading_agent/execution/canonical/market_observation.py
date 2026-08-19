@@ -16,10 +16,15 @@ from trading_agent.research.forecast import MarketObservation as BaseMarketObser
 
 
 class BarState(str, Enum):
-    """Whether the observation is based on a closed or forming bar."""
+    """Source-confirmed candle lifecycle states.
 
-    CLOSED = "closed"
+    Only SOURCE_CONFIRMED_CLOSED authorizes new exposure. Wall-clock alone
+    is no longer execution CLOSED evidence.
+    """
+
     FORMING = "forming"
+    EXPECTED_CLOSED_BY_TIME = "expected_closed_by_time"
+    SOURCE_CONFIRMED_CLOSED = "closed"
     UNKNOWN = "unknown"
 
 
@@ -93,10 +98,17 @@ class EnrichedMarketObservation:
 
     @property
     def bar_state(self) -> BarState:
+        """Derive candle state from source + wall-clock, never wall-clock alone.
+
+        Only ``is_closed=True`` (source-confirmed) may authorize new exposure.
+        """
         if self.is_closed:
-            return BarState.CLOSED
-        if self.bar_close_at is not None and datetime.now(UTC) >= self.bar_close_at:
-            return BarState.CLOSED
+            return BarState.SOURCE_CONFIRMED_CLOSED
+        if (
+            self.bar_close_at is not None
+            and datetime.now(UTC) >= self.bar_close_at
+        ):
+            return BarState.EXPECTED_CLOSED_BY_TIME
         if (
             self.bar_open_at is not None
             and self.bar_close_at is not None

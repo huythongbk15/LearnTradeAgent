@@ -6,11 +6,9 @@ call ``broker.place_order()``, ``broker.replace_order()``, and
 they flow through :class:`BrokerGateway`, preserving the canonical
 execution boundary.
 
-The adapter does NOT fabricate authorization.  It accepts ONLY
-lifecycle-authorized :class:`AuthorizedOrder` instances OR legacy
-``Order`` objects paired with explicit evidence through
-:func:`LegacyAuthorizationEvidence`.  Runners must obtain authorization
-through the canonical path before calling this adapter.
+The adapter accepts ONLY lifecycle-authorized :class:`AuthorizedOrder`
+instances.  Runners must obtain authorization through the canonical
+path before calling this adapter.
 """
 
 from __future__ import annotations
@@ -22,11 +20,6 @@ from trading_agent.execution.canonical.broker_gateway import (
     BrokerGateway,
     BrokerSubmitResult,
     AuthorizationError,
-)
-from trading_agent.execution.canonical.legacy_authorization import (
-    LegacyAuthorizationEvidence,
-    LegacyAuthorizationError,
-    authorize_legacy_order,
 )
 
 
@@ -53,27 +46,17 @@ class CanonicalBrokerAdapter:
         order: Any,
         *,
         correlation_id: str,
-        evidence: LegacyAuthorizationEvidence | None = None,
     ) -> dict[str, Any]:
         """Submit an order through the canonical gateway.
 
-        Accepts either:
-        - lifecycle-authorized ``AuthorizedOrder`` (preferred), or
-        - legacy ``Order`` + explicit ``LegacyAuthorizationEvidence`` (temporary bridge).
+        Accepts ONLY lifecycle-authorized ``AuthorizedOrder``.
         """
-        if isinstance(order, AuthorizedOrder):
-            authorized = order
-        elif evidence is not None:
-            try:
-                authorized = authorize_legacy_order(evidence)
-            except LegacyAuthorizationError as exc:
-                raise AuthorizationError(f"Legacy authorization failed: {exc}") from exc
-        else:
+        if not isinstance(order, AuthorizedOrder):
             raise AuthorizationError(
-                f"CanonicalBrokerAdapter.place_order() accepts only AuthorizedOrder "
-                f"or legacy Order with evidence, got {type(order).__name__}"
+                f"CanonicalBrokerAdapter.place_order() accepts only AuthorizedOrder, "
+                f"got {type(order).__name__}"
             )
-        result = self._gateway.submit(authorized, correlation_id=correlation_id)
+        result = self._gateway.submit(order, correlation_id=correlation_id)
         return self._to_legacy_result(result)
 
     def replace_order(
@@ -82,7 +65,6 @@ class CanonicalBrokerAdapter:
         order: Any,
         *,
         correlation_id: str,
-        evidence: LegacyAuthorizationEvidence | None = None,
     ) -> dict[str, Any]:
         """Cancel-replace via canonical lifecycle path.
 
@@ -90,17 +72,10 @@ class CanonicalBrokerAdapter:
         new authorization → submit replacement.
         If canonical cancel cannot be performed safely, fail closed.
         """
-        if isinstance(order, AuthorizedOrder):
-            authorized = order
-        elif evidence is not None:
-            try:
-                authorized = authorize_legacy_order(evidence)
-            except LegacyAuthorizationError as exc:
-                raise AuthorizationError(f"Legacy authorization failed: {exc}") from exc
-        else:
+        if not isinstance(order, AuthorizedOrder):
             raise AuthorizationError(
-                f"CanonicalBrokerAdapter.replace_order() accepts only AuthorizedOrder "
-                f"or legacy Order with evidence, got {type(order).__name__}"
+                f"CanonicalBrokerAdapter.replace_order() accepts only AuthorizedOrder, "
+                f"got {type(order).__name__}"
             )
         # Canonical replace: cancel then submit new
         cancel_result = self._gateway.cancel(
@@ -125,7 +100,7 @@ class CanonicalBrokerAdapter:
                 "error": f"cancel not terminal: {cancel_result.evidence.state.value}",
             }
         # Submit replacement
-        return self.place_order(authorized, correlation_id=correlation_id)
+        return self.place_order(order, correlation_id=correlation_id)
 
     def cancel_order(self, order_id: str, *, correlation_id: str) -> dict[str, Any]:
         """Cancel an order through the canonical gateway."""
@@ -170,12 +145,14 @@ class CanonicalBrokerAdapter:
     # ── Private helpers ────────────────────────────────────────────────
 
     def _make_correlation_id(self, order: Any) -> str:
-        """Generate a correlation ID from an order object."""
+        """Generate a deterministic correlation ID from an order object."""
         client_id = getattr(order, "client_order_id", None)
         if client_id:
             return f"runner-{client_id}"
         symbol = getattr(order, "symbol", "unknown")
-        return f"runner-{symbol}-{id(order)}"
+        pair = symbol.pair if hasattr(symbol, "pair") else str(symbol)
+        side = getattr(order, "side", "unknown")
+        return f"runner-{pair}-{side.value.lower()}-{int(getattr(order, 'size', 0) * 1e8)}"
 
     def _to_legacy_result(self, result: BrokerSubmitResult) -> dict[str, Any]:
         """Convert a BrokerSubmitResult to legacy dict format."""

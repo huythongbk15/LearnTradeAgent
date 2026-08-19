@@ -14,6 +14,7 @@ from typing import Any
 
 from trading_agent.execution.canonical.events import IdempotencyKeys
 from trading_agent.execution.canonical.market_observation import (
+    BarState,
     EnrichedMarketObservation,
 )
 from trading_agent.execution.canonical.risk_decision import UnifiedRiskDecision
@@ -260,7 +261,7 @@ class OrderPlanner:
             spot-long-only constraint is violated.
         """
         # ── Pre-flight validation ────────────────────────────────────────
-        if observation.bar_state.value != "closed":
+        if observation.bar_state is not BarState.SOURCE_CONFIRMED_CLOSED:
             raise ValueError(
                 f"cannot plan from {observation.bar_state.value} observation"
             )

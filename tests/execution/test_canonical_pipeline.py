@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -599,7 +599,7 @@ class TestMarketObservation:
         assert obs.timeframe == "4h"
         assert obs.data_manifest_id == "manifest-1"
         assert obs.observation_id == "obs-1"
-        assert obs.bar_state is BarState.CLOSED
+        assert obs.bar_state is BarState.SOURCE_CONFIRMED_CLOSED
 
     def test_observation_id_deterministic(self):
         oid1 = compute_observation_id(
@@ -833,3 +833,142 @@ class TestOrderIntentShape:
         assert intent.asset_class == "SPOT"
         assert intent.price_reference == 300.0
         assert intent.created_at <= utcnow()
+
+
+# ── 11. Source-confirmed candle semantics ─────────────────────────────
+
+
+class TestSourceConfirmedCandleSemantics:
+    def test_closed_observation_is_source_confirmed(self):
+        now = utcnow()
+        obs = EnrichedMarketObservation(
+            symbol="BTCUSDT",
+            observed_at=now,
+            open=100.0,
+            high=110.0,
+            low=95.0,
+            close=105.0,
+            volume=1000.0,
+            observation_id="obs-1",
+            venue="binance",
+            timeframe="4h",
+            bar_close_at=now,
+            is_closed=True,
+            data_manifest_id="manifest-1",
+        )
+        assert obs.bar_state is BarState.SOURCE_CONFIRMED_CLOSED
+
+    def test_forming_before_close(self):
+        now = utcnow()
+        obs = EnrichedMarketObservation(
+            symbol="BTCUSDT",
+            observed_at=now,
+            open=100.0,
+            high=110.0,
+            low=95.0,
+            close=105.0,
+            volume=1000.0,
+            observation_id="obs-1",
+            venue="binance",
+            timeframe="4h",
+            bar_open_at=now - timedelta(hours=1),
+            bar_close_at=now + timedelta(hours=1),
+            is_closed=False,
+            data_manifest_id="manifest-1",
+        )
+        assert obs.bar_state is BarState.FORMING
+
+    def test_expected_closed_by_time_after_close_not_confirmed(self):
+        now = utcnow()
+        obs = EnrichedMarketObservation(
+            symbol="BTCUSDT",
+            observed_at=now,
+            open=100.0,
+            high=110.0,
+            low=95.0,
+            close=105.0,
+            volume=1000.0,
+            observation_id="obs-1",
+            venue="binance",
+            timeframe="4h",
+            bar_open_at=now - timedelta(hours=2),
+            bar_close_at=now - timedelta(minutes=30),
+            is_closed=False,
+            data_manifest_id="manifest-1",
+        )
+        assert obs.bar_state is BarState.EXPECTED_CLOSED_BY_TIME
+
+    def test_unknown_without_timing(self):
+        now = utcnow()
+        obs = EnrichedMarketObservation(
+            symbol="BTCUSDT",
+            observed_at=now,
+            open=100.0,
+            high=110.0,
+            low=95.0,
+            close=105.0,
+            volume=1000.0,
+            observation_id="obs-1",
+            venue="binance",
+            timeframe="4h",
+            is_closed=False,
+            data_manifest_id="manifest-1",
+        )
+        assert obs.bar_state is BarState.UNKNOWN
+
+    def test_only_source_confirmed_authorizes_new_exposure(self):
+        rules = sample_instrument_rules(symbol="BTCUSDT", min_order_qty=0.0001)
+        planner = OrderPlanner(instrument_rules=rules)
+        decision = sample_unified_decision(
+            allowed_target_exposure=0.3, max_new_exposure=0.3
+        )
+        target = sample_target_exposure(
+            symbol="BTCUSDT", exposure=0.3, horizon=14400, decision_id="decision-1"
+        )
+        for bad_state in (BarState.FORMING, BarState.EXPECTED_CLOSED_BY_TIME, BarState.UNKNOWN):
+            obs = sample_observation("BTCUSDT")
+            # Manually override bar_state by manipulating the observation's fields
+            # We create a fresh observation with is_closed=False and appropriate timing
+            if bad_state is BarState.FORMING:
+                obs = EnrichedMarketObservation(
+                    symbol="BTCUSDT",
+                    observed_at=utcnow(),
+                    open=100.0, high=110.0, low=95.0, close=105.0, volume=1000.0,
+                    observation_id="obs-forming",
+                    venue="binance", timeframe="4h",
+                    bar_open_at=utcnow() - timedelta(hours=1),
+                    bar_close_at=utcnow() + timedelta(hours=1),
+                    is_closed=False,
+                    data_manifest_id="manifest-1",
+                )
+            elif bad_state is BarState.EXPECTED_CLOSED_BY_TIME:
+                obs = EnrichedMarketObservation(
+                    symbol="BTCUSDT",
+                    observed_at=utcnow(),
+                    open=100.0, high=110.0, low=95.0, close=105.0, volume=1000.0,
+                    observation_id="obs-expected",
+                    venue="binance", timeframe="4h",
+                    bar_open_at=utcnow() - timedelta(hours=2),
+                    bar_close_at=utcnow() - timedelta(minutes=30),
+                    is_closed=False,
+                    data_manifest_id="manifest-1",
+                )
+            else:
+                obs = EnrichedMarketObservation(
+                    symbol="BTCUSDT",
+                    observed_at=utcnow(),
+                    open=100.0, high=110.0, low=95.0, close=105.0, volume=1000.0,
+                    observation_id="obs-unknown",
+                    venue="binance", timeframe="4h",
+                    is_closed=False,
+                    data_manifest_id="manifest-1",
+                )
+            with pytest.raises(ValueError, match="cannot plan from"):
+                planner.plan(
+                    target=target,
+                    risk_decision=decision,
+                    observation=obs,
+                    portfolio=sample_portfolio("BTCUSDT", 0.0),
+                    price=sample_price("BTCUSDT", 50000.0),
+                    existing_reservations=0.0,
+                )
