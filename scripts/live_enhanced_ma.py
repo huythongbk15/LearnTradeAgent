@@ -259,7 +259,9 @@ def _canonical_submit(
     lifecycle.approve_risk(correlation_id, risk_decision=risk_decision)
 
     # 3. Evaluate permission
-    exposure_effect = ExposureEffect.INCREASE if side == "buy" else ExposureEffect.REDUCE
+    exposure_effect = (
+        ExposureEffect.INCREASE if side == "buy" else ExposureEffect.REDUCE
+    )
     permission = evaluate_order_permission(
         PermissionContext(
             execution_health=ExecutionHealth.NORMAL,
@@ -317,6 +319,7 @@ def _canonical_submit(
 
     # 6. Build AuthorizedOrder and submit through gateway
     from trading_agent.execution.canonical.broker_gateway import _AUTHORIZED_TOKEN
+
     authorized = AuthorizedOrder(
         token=_AUTHORIZED_TOKEN,
         intent_id=correlation_id,
@@ -650,9 +653,7 @@ def main():
                 size=Decimal(str(qty)),  # use exact qty (already floored for SELL)
                 time_in_force=TimeInForce.GTC,
             )
-            correlation_id = (
-                f"{d['alpaca_symbol']}-{d['action']}-{int(datetime.now(UTC).timestamp())}"
-            )
+            correlation_id = f"{d['alpaca_symbol']}-{d['action']}-{int(datetime.now(UTC).timestamp())}"
             result = _canonical_submit(
                 broker,
                 lifecycle,

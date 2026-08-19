@@ -1481,7 +1481,9 @@ def _canonical_submit(
     lifecycle.approve_risk(correlation_id, risk_decision=risk_decision)
 
     # 3. Evaluate permission
-    exposure_effect = ExposureEffect.INCREASE if side == "buy" else ExposureEffect.REDUCE
+    exposure_effect = (
+        ExposureEffect.INCREASE if side == "buy" else ExposureEffect.REDUCE
+    )
     permission = evaluate_order_permission(
         PermissionContext(
             execution_health=ExecutionHealth.NORMAL,
@@ -1539,6 +1541,7 @@ def _canonical_submit(
 
     # 6. Build AuthorizedOrder and submit through gateway
     from trading_agent.execution.canonical.broker_gateway import _AUTHORIZED_TOKEN
+
     authorized = AuthorizedOrder(
         token=_AUTHORIZED_TOKEN,
         intent_id=correlation_id,

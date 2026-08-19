@@ -80,7 +80,8 @@ class _AlpacaSyncAdapter:
         )
         result = self._run(self._adapter.create_order(order))
         return {
-            "id": getattr(result, "id", None) or getattr(result, "client_order_id", None)
+            "id": getattr(result, "id", None)
+            or getattr(result, "client_order_id", None)
         }
 
 
@@ -134,7 +135,10 @@ def close_micro_dust_positions():
                     reason="micro_dust_cleanup",
                 )
                 auth_event = lifecycle.emergency_reduce(emergency)
-                from trading_agent.execution.canonical.broker_gateway import _AUTHORIZED_TOKEN
+                from trading_agent.execution.canonical.broker_gateway import (
+                    _AUTHORIZED_TOKEN,
+                )
+
                 authorized = AuthorizedOrder(
                     token=_AUTHORIZED_TOKEN,
                     intent_id=emergency.intent_id,

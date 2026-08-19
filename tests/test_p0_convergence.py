@@ -693,26 +693,38 @@ class TestCliOrderE2E:
                 "avg_fill_price": 100.0,
             }
 
-        async def create_order(self, order, side=None, qty=None, order_type=None, limit_price=None, **kwargs):
-            if hasattr(order, 'symbol'):
+        async def create_order(
+            self,
+            order,
+            side=None,
+            qty=None,
+            order_type=None,
+            limit_price=None,
+            **kwargs,
+        ):
+            if hasattr(order, "symbol"):
                 # Called with Order object from _SyncAsyncBridge
-                self.calls.append({
-                    "symbol": str(order.symbol),
-                    "side": order.side,
-                    "qty": float(order.size),
-                    "order_type": order.type,
-                    "limit_price": order.price,
-                })
+                self.calls.append(
+                    {
+                        "symbol": str(order.symbol),
+                        "side": order.side,
+                        "qty": float(order.size),
+                        "order_type": order.type,
+                        "limit_price": order.price,
+                    }
+                )
                 qty_val = float(order.size)
             else:
                 # Called with keyword args from BrokerGateway.submit_protection
-                self.calls.append({
-                    "symbol": str(order),
-                    "side": side,
-                    "qty": float(qty),
-                    "order_type": order_type,
-                    "limit_price": limit_price,
-                })
+                self.calls.append(
+                    {
+                        "symbol": str(order),
+                        "side": side,
+                        "qty": float(qty),
+                        "order_type": order_type,
+                        "limit_price": limit_price,
+                    }
+                )
                 qty_val = float(qty)
             return {
                 "id": f"broker-{len(self.calls)}",

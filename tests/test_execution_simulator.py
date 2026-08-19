@@ -733,9 +733,7 @@ class TestTimeoutAndCancelSemantics:
 
     def test_resting_limit_never_silently_rejected(self):
         df = make_df(20)
-        cfg = SimulationConfig(
-            random_seed=1, passive_fill_prob=0.0
-        )
+        cfg = SimulationConfig(random_seed=1, passive_fill_prob=0.0)
         engine = MarketReplayEngine(df, config=cfg, symbol="T", initial_cash=10_000.0)
         result = engine.run(
             lambda i, e: (
@@ -759,9 +757,7 @@ class TestTimeoutAndCancelSemantics:
 
     def test_cancel_releases_reservation(self):
         df = make_df(20)
-        cfg = SimulationConfig(
-            random_seed=1, passive_fill_prob=0.0
-        )
+        cfg = SimulationConfig(random_seed=1, passive_fill_prob=0.0)
         engine = MarketReplayEngine(df, config=cfg, symbol="T", initial_cash=10_000.0)
         result = engine.run(
             lambda i, e: (
@@ -788,9 +784,7 @@ class TestTimeoutAndCancelSemantics:
     def test_timeout_not_equal_rejected_in_metrics(self):
         """A timed-out order must not inflate rejected_order_rate."""
         df = make_df(20)
-        cfg = SimulationConfig(
-            random_seed=1, passive_fill_prob=0.0
-        )
+        cfg = SimulationConfig(random_seed=1, passive_fill_prob=0.0)
         engine = MarketReplayEngine(df, config=cfg, symbol="T", initial_cash=10_000.0)
         result = engine.run(
             lambda i, e: (
@@ -824,9 +818,7 @@ class TestCrashMatrix:
     def test_simulator_survives_mid_run_cancel(self, crash_bar, seed):
         """Cancel at various bars during a run — no crash, deterministic output."""
         df = make_df(40)
-        cfg = SimulationConfig(
-            random_seed=seed, spread_bps=5.0, passive_fill_prob=0.0
-        )
+        cfg = SimulationConfig(random_seed=seed, spread_bps=5.0, passive_fill_prob=0.0)
         engine = MarketReplayEngine(df, config=cfg, symbol="T", initial_cash=10_000.0)
 
         def provider(i, eng):
@@ -858,9 +850,7 @@ class TestCrashMatrix:
     )
     def test_stale_quote_matrix(self, max_age, should_reject):
         df = make_df(10)
-        cfg = SimulationConfig(
-            random_seed=1, max_book_age_seconds=max_age
-        )
+        cfg = SimulationConfig(random_seed=1, max_book_age_seconds=max_age)
         engine = MarketReplayEngine(df, config=cfg, symbol="T", initial_cash=10_000.0)
         result = engine.run(
             lambda i, e: (

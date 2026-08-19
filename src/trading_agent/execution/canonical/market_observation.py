@@ -104,10 +104,7 @@ class EnrichedMarketObservation:
         """
         if self.is_closed:
             return BarState.SOURCE_CONFIRMED_CLOSED
-        if (
-            self.bar_close_at is not None
-            and datetime.now(UTC) >= self.bar_close_at
-        ):
+        if self.bar_close_at is not None and datetime.now(UTC) >= self.bar_close_at:
             return BarState.EXPECTED_CLOSED_BY_TIME
         if (
             self.bar_open_at is not None

@@ -103,8 +103,12 @@ class TestUnifiedRiskDecisionSerialization:
         assert restored.decision_id == decision.decision_id
         assert restored.forecast_fingerprint == decision.forecast_fingerprint
         assert restored.model_artifact_id == decision.model_artifact_id
-        assert restored.requested_target_exposure == pytest.approx(decision.requested_target_exposure)
-        assert restored.allowed_target_exposure == pytest.approx(decision.allowed_target_exposure)
+        assert restored.requested_target_exposure == pytest.approx(
+            decision.requested_target_exposure
+        )
+        assert restored.allowed_target_exposure == pytest.approx(
+            decision.allowed_target_exposure
+        )
         assert restored.max_new_exposure == pytest.approx(decision.max_new_exposure)
         assert restored.reduce_only == decision.reduce_only
         assert restored.risk_level == decision.risk_level

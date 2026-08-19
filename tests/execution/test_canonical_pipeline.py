@@ -460,7 +460,9 @@ class TestOrderPlanner:
 
 
 class TestBrokerGateway:
-    @pytest.mark.skip(reason="BrokerGateway store contract changed; skip until gateway updated")
+    @pytest.mark.skip(
+        reason="BrokerGateway store contract changed; skip until gateway updated"
+    )
     def test_gateway_exposes_only_capital_methods(self):
         gateway = BrokerGateway(adapter=None, store=MagicMock())
         allowed = {
@@ -473,7 +475,9 @@ class TestBrokerGateway:
         }
         assert allowed.issubset(dir(gateway))
 
-    @pytest.mark.skip(reason="BrokerGateway store contract changed; skip until gateway updated")
+    @pytest.mark.skip(
+        reason="BrokerGateway store contract changed; skip until gateway updated"
+    )
     def test_submit_returns_result_wrapper(self):
         gateway = BrokerGateway(adapter=None, store=MagicMock())
         rules = sample_instrument_rules(symbol="BTCUSDT", min_order_qty=0.0001)
@@ -931,7 +935,11 @@ class TestSourceConfirmedCandleSemantics:
         target = sample_target_exposure(
             symbol="BTCUSDT", exposure=0.3, horizon=14400, decision_id="decision-1"
         )
-        for bad_state in (BarState.FORMING, BarState.EXPECTED_CLOSED_BY_TIME, BarState.UNKNOWN):
+        for bad_state in (
+            BarState.FORMING,
+            BarState.EXPECTED_CLOSED_BY_TIME,
+            BarState.UNKNOWN,
+        ):
             obs = sample_observation("BTCUSDT")
             # Manually override bar_state by manipulating the observation's fields
             # We create a fresh observation with is_closed=False and appropriate timing
@@ -939,9 +947,14 @@ class TestSourceConfirmedCandleSemantics:
                 obs = EnrichedMarketObservation(
                     symbol="BTCUSDT",
                     observed_at=utcnow(),
-                    open=100.0, high=110.0, low=95.0, close=105.0, volume=1000.0,
+                    open=100.0,
+                    high=110.0,
+                    low=95.0,
+                    close=105.0,
+                    volume=1000.0,
                     observation_id="obs-forming",
-                    venue="binance", timeframe="4h",
+                    venue="binance",
+                    timeframe="4h",
                     bar_open_at=utcnow() - timedelta(hours=1),
                     bar_close_at=utcnow() + timedelta(hours=1),
                     is_closed=False,
@@ -951,9 +964,14 @@ class TestSourceConfirmedCandleSemantics:
                 obs = EnrichedMarketObservation(
                     symbol="BTCUSDT",
                     observed_at=utcnow(),
-                    open=100.0, high=110.0, low=95.0, close=105.0, volume=1000.0,
+                    open=100.0,
+                    high=110.0,
+                    low=95.0,
+                    close=105.0,
+                    volume=1000.0,
                     observation_id="obs-expected",
-                    venue="binance", timeframe="4h",
+                    venue="binance",
+                    timeframe="4h",
                     bar_open_at=utcnow() - timedelta(hours=2),
                     bar_close_at=utcnow() - timedelta(minutes=30),
                     is_closed=False,
@@ -963,9 +981,14 @@ class TestSourceConfirmedCandleSemantics:
                 obs = EnrichedMarketObservation(
                     symbol="BTCUSDT",
                     observed_at=utcnow(),
-                    open=100.0, high=110.0, low=95.0, close=105.0, volume=1000.0,
+                    open=100.0,
+                    high=110.0,
+                    low=95.0,
+                    close=105.0,
+                    volume=1000.0,
                     observation_id="obs-unknown",
-                    venue="binance", timeframe="4h",
+                    venue="binance",
+                    timeframe="4h",
                     is_closed=False,
                     data_manifest_id="manifest-1",
                 )

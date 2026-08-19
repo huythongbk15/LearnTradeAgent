@@ -152,7 +152,9 @@ class CanonicalBrokerAdapter:
         symbol = getattr(order, "symbol", "unknown")
         pair = symbol.pair if hasattr(symbol, "pair") else str(symbol)
         side = getattr(order, "side", "unknown")
-        return f"runner-{pair}-{side.value.lower()}-{int(getattr(order, 'size', 0) * 1e8)}"
+        return (
+            f"runner-{pair}-{side.value.lower()}-{int(getattr(order, 'size', 0) * 1e8)}"
+        )
 
     def _to_legacy_result(self, result: BrokerSubmitResult) -> dict[str, Any]:
         """Convert a BrokerSubmitResult to legacy dict format."""

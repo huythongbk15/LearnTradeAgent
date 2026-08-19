@@ -67,15 +67,19 @@ class _SyncAsyncBridge:
         result = self._run(self._adapter.fetch_positions(symbol))
         out = []
         for p in result:
-            out.append({
-                "symbol": p.symbol.pair if hasattr(p.symbol, "pair") else str(p.symbol),
-                "qty": float(p.qty),
-                "avg_entry_price": float(p.entry_price),
-                "current_price": float(p.mark_price),
-                "market_value": float(p.notional),
-                "unrealized_pl": float(p.unrealized_pl),
-                "side": "long" if p.is_long else "short",
-            })
+            out.append(
+                {
+                    "symbol": p.symbol.pair
+                    if hasattr(p.symbol, "pair")
+                    else str(p.symbol),
+                    "qty": float(p.qty),
+                    "avg_entry_price": float(p.entry_price),
+                    "current_price": float(p.mark_price),
+                    "market_value": float(p.notional),
+                    "unrealized_pl": float(p.unrealized_pl),
+                    "side": "long" if p.is_long else "short",
+                }
+            )
         return out
 
     def fetch_balances(self) -> dict[str, Any]:

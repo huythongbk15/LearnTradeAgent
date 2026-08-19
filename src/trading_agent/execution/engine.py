@@ -455,7 +455,10 @@ class ExecutionEngine:
             try:
                 auth_event = self.lifecycle.emergency_reduce(emergency)
                 # Submit via gateway
-                from trading_agent.execution.canonical.broker_gateway import _AUTHORIZED_TOKEN
+                from trading_agent.execution.canonical.broker_gateway import (
+                    _AUTHORIZED_TOKEN,
+                )
+
                 authorized = AuthorizedOrder(
                     token=_AUTHORIZED_TOKEN,
                     intent_id=emergency.intent_id,
@@ -523,7 +526,10 @@ class ExecutionEngine:
         )
         try:
             auth_event = self.lifecycle.emergency_reduce(emergency)
-            from trading_agent.execution.canonical.broker_gateway import _AUTHORIZED_TOKEN
+            from trading_agent.execution.canonical.broker_gateway import (
+                _AUTHORIZED_TOKEN,
+            )
+
             authorized = AuthorizedOrder(
                 token=_AUTHORIZED_TOKEN,
                 intent_id=emergency.intent_id,

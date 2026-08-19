@@ -640,7 +640,9 @@ def _place_order_via_gateway(live_broker, order):
     lifecycle.approve_risk(intent_id, risk_decision=risk_decision)
 
     # 4. Evaluate permission
-    exposure_effect = ExposureEffect.INCREASE if side == "buy" else ExposureEffect.REDUCE
+    exposure_effect = (
+        ExposureEffect.INCREASE if side == "buy" else ExposureEffect.REDUCE
+    )
     permission = evaluate_order_permission(
         PermissionContext(
             execution_health=ExecutionHealth.NORMAL,
@@ -695,6 +697,7 @@ def _place_order_via_gateway(live_broker, order):
 
     # 7. Build AuthorizedOrder with original order metadata
     from trading_agent.execution.canonical.broker_gateway import _AUTHORIZED_TOKEN
+
     authorized = AuthorizedOrder(
         token=_AUTHORIZED_TOKEN,
         intent_id=intent_id,

@@ -108,19 +108,19 @@ class UnifiedRiskDecision:
                 "allowed_target_exposure cannot exceed requested_target_exposure"
             )
         # Missing evidence must not carry zero uncertainty.
-        _missing_states = (EvidenceState.MISSING, EvidenceState.UNKNOWN, EvidenceState.STALE)
-        if (
-            self.calibration_state in _missing_states
-            and self.calibration_ece == 0.0
-        ):
+        _missing_states = (
+            EvidenceState.MISSING,
+            EvidenceState.UNKNOWN,
+            EvidenceState.STALE,
+        )
+        if self.calibration_state in _missing_states and self.calibration_ece == 0.0:
             raise ValueError(
                 "calibration_ece must be > 0 when calibration evidence is "
                 f"{self.calibration_state.value}"
             )
         if self.ood_state in _missing_states and self.ood_score == 0.0:
             raise ValueError(
-                "ood_score must be > 0 when OOD evidence is "
-                f"{self.ood_state.value}"
+                f"ood_score must be > 0 when OOD evidence is {self.ood_state.value}"
             )
         if self.regime_state in _missing_states and self.regime_entropy == 0.0:
             raise ValueError(
@@ -176,6 +176,7 @@ class UnifiedRiskDecision:
     # ── Serialization ───────────────────────────────────────────────────
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a JSON-safe dict with enum/datetime round-trip."""
+
         def _enum_to_value(val: Any) -> Any:
             return val.value if hasattr(val, "value") else val
 
@@ -205,6 +206,7 @@ class UnifiedRiskDecision:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> UnifiedRiskDecision:
         """Deserialize from a dict produced by :meth:`to_dict`."""
+
         def _to_enum(val: Any, enum_cls: type) -> Any:
             return enum_cls(val) if not isinstance(val, enum_cls) else val
 
@@ -217,9 +219,7 @@ class UnifiedRiskDecision:
             max_new_exposure=float(data["max_new_exposure"]),
             reduce_only=bool(data["reduce_only"]),
             risk_level=_to_enum(data["risk_level"], RiskLevel),
-            reason_codes=tuple(
-                _to_enum(r, RiskReason) for r in data["reason_codes"]
-            ),
+            reason_codes=tuple(_to_enum(r, RiskReason) for r in data["reason_codes"]),
             calibration_state=_to_enum(data["calibration_state"], EvidenceState),
             calibration_artifact_id=data.get("calibration_artifact_id"),
             calibration_ece=float(data["calibration_ece"]),
