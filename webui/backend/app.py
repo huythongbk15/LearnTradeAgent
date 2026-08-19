@@ -540,9 +540,10 @@ async def api_close(req: CloseRequest) -> dict:
                     EmergencyReduceRequest(**emergency)
                 )
                 from trading_agent.execution.canonical import AuthorizedOrder
+                from trading_agent.execution.canonical.broker_gateway import _AUTHORIZED_TOKEN
 
                 authorized = AuthorizedOrder(
-                    token="__authorized__",
+                    token=_AUTHORIZED_TOKEN,
                     intent_id=emergency["intent_id"],
                     symbol=symbol,
                     side="sell",
