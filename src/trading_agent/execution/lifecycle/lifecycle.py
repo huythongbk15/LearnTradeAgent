@@ -61,6 +61,7 @@ from trading_agent.execution.lifecycle.store import (
 class IntentStatus(str, Enum):
     PENDING = "pending"
     APPROVED = "approved"
+    AUTHORIZED = "authorized"
     SUBMITTED = "submitted"
     ACKNOWLEDGED = "acknowledged"
     PARTIALLY_FILLED = "partially_filled"
@@ -119,6 +120,7 @@ class EmergencyReduceRequest:
 
 LIVE_STATUSES = frozenset(
     {
+        IntentStatus.AUTHORIZED,
         IntentStatus.SUBMITTED,
         IntentStatus.ACKNOWLEDGED,
         IntentStatus.PARTIALLY_FILLED,
@@ -537,6 +539,7 @@ class ExecutionLifecycle:
         ExecutionEventType.ORDER_INTENT_CREATED: "_on_order_intent_created",
         ExecutionEventType.RISK_APPROVED: "_on_risk_approved",
         ExecutionEventType.ORDER_AUTHORIZED: "_on_order_authorized",
+        ExecutionEventType.BROKER_SUBMISSION_REQUESTED: "_on_broker_submission_requested",
         ExecutionEventType.ORDER_SUBMITTED: "_on_order_submitted",
         ExecutionEventType.ORDER_REJECTED: "_on_order_rejected",
         ExecutionEventType.BROKER_ACKNOWLEDGED: "_on_broker_acknowledged",
@@ -597,12 +600,26 @@ class ExecutionLifecycle:
             order.payload_hash = event.payload.get("payload_hash")
             order.permission = event.payload.get("permission")
             order.authorized_at = event.payload.get("authorized_at")
-            order.status = IntentStatus.ACKNOWLEDGED
+            order.status = IntentStatus.AUTHORIZED
+
+    def _on_broker_submission_requested(
+        self, state: LifecycleState, event: ExecutionEvent
+    ) -> None:
+        order = state.orders.get(event.aggregate_id)
+        if order is not None and order.status in {
+            IntentStatus.APPROVED,
+            IntentStatus.AUTHORIZED,
+        }:
+            order.status = IntentStatus.SUBMITTED
 
     def _on_order_submitted(self, state: LifecycleState, event: ExecutionEvent) -> None:
         order = state.orders.get(event.aggregate_id)
-        if order is not None and order.status == IntentStatus.APPROVED:
-            order.status = IntentStatus.SUBMITTED
+        if order is not None:
+            if order.status in {
+                IntentStatus.APPROVED,
+                IntentStatus.AUTHORIZED,
+            }:
+                order.status = IntentStatus.SUBMITTED
             order.exchange_order_id = event.payload.get("exchange_order_id")
             if order.side == "sell":
                 order.authorized_quantity = float(event.payload["authorized_quantity"])
@@ -684,12 +701,15 @@ class ExecutionLifecycle:
             # Only release on terminal evidence
             if state_value in {
                 CancelState.CANCELED.value,
-                CancelState.FILLED.value,
                 CancelState.REJECTED.value,
                 CancelState.EXPIRED.value,
             }:
                 self._release_sell_remainder(order)
                 order.status = IntentStatus.CANCELED
+            elif state_value == CancelState.FILLED.value:
+                # FILLED during cancel: order is filled, not canceled.
+                # Reservation is consumed by fill, not released.
+                order.status = IntentStatus.FILLED
             else:
                 # Non-terminal cancel state — keep reservation locked
                 order.status = IntentStatus.CANCEL_REQUESTED
@@ -807,10 +827,13 @@ class ExecutionLifecycle:
         # intent creation immediately.
         from trading_agent.execution.permission import OrderPermission, PermissionReason
 
+        # Normalize symbol to canonical string for durable storage
+        symbol_str = symbol.pair if hasattr(symbol, "pair") else str(symbol)
+
         draft_permission = self._permission_result(
             side,
             size,
-            symbol,
+            symbol_str,
             require_market_data=False,
             draft=True,
         )
@@ -828,7 +851,7 @@ class ExecutionLifecycle:
             existing_id = self.store.upsert_order_intent(
                 intent_id=intent_id,
                 idempotency_key=idempotency_key,
-                symbol=symbol,
+                symbol=symbol_str,
                 side=side,
                 size=size,
             )
@@ -839,7 +862,7 @@ class ExecutionLifecycle:
         return self._emit(
             ExecutionEventType.ORDER_INTENT_CREATED,
             intent_id,
-            {"symbol": symbol, "side": side, "size": size},
+            {"symbol": symbol_str, "side": side, "size": size},
         )
 
     def approve_risk(
@@ -905,8 +928,13 @@ class ExecutionLifecycle:
                 f"intent {intent_id} must be risk-approved before authorization "
                 f"(status={order.status.value})"
             )
+        # Normalize symbol for comparison and durable storage
+        symbol_str = symbol.pair if hasattr(symbol, "pair") else str(symbol)
+        order_symbol = order.symbol
+        if hasattr(order_symbol, "pair"):
+            order_symbol = order_symbol.pair
         # Validate binding
-        if order.symbol != symbol or order.side != side:
+        if order_symbol != symbol_str or order.side != side:
             raise LifecycleError(
                 f"authorization binding mismatch: intent {intent_id} "
                 f"symbol/side {order.symbol}/{order.side} != {symbol}/{side}"
@@ -931,7 +959,7 @@ class ExecutionLifecycle:
             "forecast_fingerprint": forecast_fingerprint,
             "model_artifact_id": model_artifact_id,
             "permission": permission,
-            "symbol": symbol,
+            "symbol": symbol_str,
             "side": side,
             "quantity": quantity,
             "exposure_effect": exposure_effect,
@@ -945,40 +973,68 @@ class ExecutionLifecycle:
             payload,
         )
 
+    def request_broker_submission(
+        self,
+        intent_id: str,
+    ) -> ExecutionEvent:
+        """Persist broker submission request BEFORE broker I/O.
+
+        This is the durable pre-submission event required for crash safety:
+        if the process crashes after broker accepts but before local ACK,
+        restart can reconcile from this event.
+        """
+        order = self.state.order(intent_id)
+        if order is None:
+            raise LifecycleError(f"unknown intent {intent_id}")
+        if order.status not in {IntentStatus.APPROVED, IntentStatus.AUTHORIZED}:
+            raise LifecycleError(
+                f"intent {intent_id} must be risk-approved/authorized before "
+                f"broker submission (status={order.status.value})"
+            )
+        return self._emit(
+            ExecutionEventType.BROKER_SUBMISSION_REQUESTED,
+            intent_id,
+            {"order_id": intent_id},
+        )
+
     def submit_order(
         self,
         intent_id: str,
         *,
         exchange_order_id: str | None = None,
     ) -> ExecutionEvent:
-        """Submit an order to the broker.
+        """Record broker submission result.
 
-        Guards (invariants):
-        * 1 no duplicate live order — an intent cannot have two live orders;
-        * 2 no entry when market data is stale;
-        * 3 no entry while reconciliation is unresolved;
-        * 5 no increased exposure while kill switch blocks entry.
+        This should be called AFTER broker I/O with the exchange_order_id.
+        For backward compatibility, if the order is still in APPROVED or
+        AUTHORIZED state, automatically emit BROKER_SUBMISSION_REQUESTED
+        before ORDER_SUBMITTED so the durable pre-submission event always
+        exists.
         """
         order = self.state.order(intent_id)
         if order is None:
             raise LifecycleError(f"unknown intent {intent_id}")
         # Invariant 1: no duplicate live order for the same intent.
-        if order.is_live:
+        if order.is_live and order.exchange_order_id:
             raise InvariantViolation(
                 "no_duplicate_live_order",
                 f"intent {intent_id} already {order.status.value}",
             )
-        if order.status in (
+        if order.status in {
             IntentStatus.FILLED,
             IntentStatus.CANCEL_REQUESTED,
             IntentStatus.CANCELED,
             IntentStatus.MANUAL,
-        ):
+        }:
             raise LifecycleError(f"intent {intent_id} already {order.status.value}")
-        if order.status != IntentStatus.APPROVED:
+        if order.status not in {
+            IntentStatus.APPROVED,
+            IntentStatus.AUTHORIZED,
+            IntentStatus.SUBMITTED,
+            IntentStatus.ACKNOWLEDGED,
+        }:
             raise LifecycleError(
-                f"intent {intent_id} must be risk-approved before submit "
-                f"(status={order.status.value})"
+                f"intent {intent_id} cannot submit from status {order.status.value}"
             )
         self._enforce_permission(
             order.side,

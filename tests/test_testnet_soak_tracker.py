@@ -62,7 +62,7 @@ def test_count_critical_with_lookback():
         _event("order_non_terminal", NOW),
     ]
     assert count_critical(events)["order_submission_unknown"] == 1
-    within = count_critical(events, lookback_days=7)
+    within = count_critical(events, lookback_days=7, now=NOW)
     assert within == {"reconciliation_blocked": 1, "order_non_terminal": 1}
 
 

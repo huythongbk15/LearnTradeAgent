@@ -129,11 +129,11 @@ def count_lifecycles(events: list[dict]) -> tuple[int, dict[str, int]]:
 
 
 def count_critical(
-    events: list[dict], *, lookback_days: int | None = None
+    events: list[dict], *, lookback_days: int | None = None, now: datetime | None = None
 ) -> dict[str, int]:
-    cutoff = (
-        datetime.now(UTC) - timedelta(days=lookback_days) if lookback_days else None
-    )
+    if now is None:
+        now = datetime.now(UTC)
+    cutoff = now - timedelta(days=lookback_days) if lookback_days else None
     counts: dict[str, int] = {}
     for event in events:
         if event.get("event") not in CRITICAL_EVENTS:

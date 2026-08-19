@@ -495,6 +495,9 @@ class ProtectiveBroker:
         self.replace_calls = 0
         self.cancel_calls = 0
 
+    def get_account(self):
+        return {"equity": 100_000.0, "cash": 100_000.0}
+
     def normalize_order_amount(self, symbol, amount, *, reference_price):
         return round(float(amount), 6)
 

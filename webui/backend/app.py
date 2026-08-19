@@ -15,6 +15,7 @@ import sys
 import threading
 import time
 import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi import (
@@ -189,6 +190,44 @@ def _live_snapshot(ttl: float = 20.0) -> dict:
         snap["note"] = str(exc)[:200]
         _snapshot_cache.update(data=snap, ts=now)
     return snap
+
+
+class _AlpacaSyncAdapter:
+    """Synchronous wrapper around async AlpacaAdapter for canonical gateway."""
+
+    def __init__(self, async_adapter):
+        self._adapter = async_adapter
+        self._loop = asyncio.new_event_loop()
+        self._thread = threading.Thread(target=self._loop.run_forever, daemon=True)
+        self._thread.start()
+
+    def _run(self, coro):
+        future = asyncio.run_coroutine_threadsafe(coro, self._loop)
+        return future.result()
+
+    def get_all_positions(self):
+        return self._run(self._adapter.fetch_positions())
+
+    def get_ticker(self, symbol):
+        ticker = self._run(self._adapter.fetch_ticker(symbol))
+        return {"last": getattr(ticker, "last", None) or getattr(ticker, "price", None)}
+
+    def place_order(self, payload):
+        from alpaca.trading.requests import OrderRequest
+        from alpaca.trading.enums import OrderSide, TimeInForce
+
+        side = OrderSide.BUY if payload["side"].lower() == "buy" else OrderSide.SELL
+        order_req = OrderRequest(
+            symbol=payload["symbol"],
+            qty=float(payload["qty"]),
+            side=side,
+            type=payload.get("order_type", "market"),
+            time_in_force=TimeInForce.IOC,
+        )
+        order = self._run(self._adapter.create_order(order_req))
+        return {
+            "id": getattr(order, "id", None) or getattr(order, "client_order_id", None)
+        }
 
 
 async def _alpaca():
@@ -438,13 +477,114 @@ async def api_close(req: CloseRequest) -> dict:
             status_code=400, detail="Explicit close-all confirmation required"
         )
     try:
+        from trading_agent.execution.lifecycle import ExecutionEventStore
+        from trading_agent.execution.lifecycle.lifecycle import (
+            ExecutionLifecycle,
+            TrustedPrice,
+        )
+        from trading_agent.execution.canonical import BrokerGateway
+
         adapter = await _alpaca()
-        detail = await adapter.close_all_positions(cancel_orders=True)
-        remaining = await adapter.fetch_positions()
+        sync_adapter = _AlpacaSyncAdapter(adapter)
+        store = ExecutionEventStore(":memory:").connect()
+
+        def _inventory_source(symbol, side):
+            if side != "sell":
+                return 0.0
+            for pos in sync_adapter.get_all_positions():
+                if pos.symbol == symbol:
+                    return float(pos.qty)
+            return 0.0
+
+        lifecycle = ExecutionLifecycle(
+            store,
+            price_source=lambda s: (
+                TrustedPrice(
+                    price=float(sync_adapter.get_ticker(s).get("last") or 0.0),
+                    exchange_timestamp=datetime.now(UTC),
+                    received_at=datetime.now(UTC),
+                )
+                if sync_adapter.get_ticker(s).get("last")
+                else None
+            ),
+            inventory_source=_inventory_source,
+        )
+        gateway = BrokerGateway(adapter=sync_adapter, store=store)
+        positions = sync_adapter.get_all_positions()
+        detail = {"closed": [], "failed": []}
+        for pos in positions:
+            symbol = pos.symbol
+            qty = float(pos.qty)
+            if qty <= 0:
+                continue
+            current_price = None
+            ticker = sync_adapter.get_ticker(symbol)
+            if ticker.get("last"):
+                current_price = float(ticker["last"])
+            if current_price is None:
+                detail["failed"].append({"symbol": symbol, "reason": "no price"})
+                continue
+            emergency = {
+                "intent_id": f"emergency-close-{symbol}-{int(datetime.now(UTC).timestamp())}",
+                "symbol": symbol,
+                "side": "sell",
+                "quantity": qty,
+                "reason": "manual",
+            }
+            try:
+                from trading_agent.execution.lifecycle.lifecycle import (
+                    EmergencyReduceRequest,
+                )
+
+                auth_event = lifecycle.emergency_reduce(
+                    EmergencyReduceRequest(**emergency)
+                )
+                from trading_agent.execution.canonical import AuthorizedOrder
+
+                authorized = AuthorizedOrder(
+                    token="__authorized__",
+                    intent_id=emergency["intent_id"],
+                    symbol=symbol,
+                    side="sell",
+                    quantity=qty,
+                    idempotency_key=f"emergency-{emergency['intent_id']}",
+                    price_reference=current_price,
+                    risk_decision_id=auth_event.payload.get("risk_decision_id", ""),
+                    forecast_fingerprint="",
+                    model_artifact_id="emergency_reduce",
+                    permission_result="REDUCE_ONLY",
+                    authorization_id=auth_event.payload.get("authorization_id", ""),
+                    lifecycle_event_id=auth_event.event_id,
+                    correlation_id=emergency["intent_id"],
+                    exposure_effect="reduce",
+                    current_exposure=0.0,
+                    resulting_exposure=0.0,
+                    authorized_at=auth_event.payload.get("authorized_at", ""),
+                    authorization_hash="",
+                )
+                result = gateway.submit(
+                    authorized, correlation_id=emergency["intent_id"]
+                )
+                if result.success and result.broker_order_id:
+                    lifecycle.submit_order(
+                        intent_id=emergency["intent_id"],
+                        exchange_order_id=result.broker_order_id,
+                    )
+                    lifecycle.receive_fill(
+                        intent_id=emergency["intent_id"],
+                        size=qty,
+                        price=current_price,
+                    )
+                    detail["closed"].append(symbol)
+                else:
+                    detail["failed"].append({"symbol": symbol, "reason": result.error})
+            except Exception as exc:  # noqa: BLE001
+                detail["failed"].append({"symbol": symbol, "reason": str(exc)})
+        remaining = sync_adapter.get_all_positions()
         return {
-            "closed": len(remaining) == 0,
+            "closed": len(detail["failed"]) == 0,
             "detail": detail,
-            "remaining": [position.symbol.pair for position in remaining],
+            "remaining": [position.symbol for position in remaining],
         }
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(

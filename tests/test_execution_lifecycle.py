@@ -186,6 +186,7 @@ def test_full_lifecycle_and_replay_determinism(tmp_path):
             interval_width=0.05,
         )
         lc.approve_risk("i1", risk_decision=risk_decision)
+        lc.request_broker_submission("i1")
         lc.submit_order("i1", exchange_order_id="ex_1")
         lc.acknowledge_broker("i1", broker_order_id="br_1")
         lc.receive_fill("i1", 1.0, 99.5, protective_trigger=90.0)
@@ -339,6 +340,7 @@ def test_unknown_broker_state_goes_manual_not_silent(store):
         interval_width=0.05,
     )
     lc.approve_risk("i1", risk_decision=risk_decision)
+    lc.request_broker_submission("i1")
     lc.submit_order("i1", exchange_order_id="ex_1")
     lc.acknowledge_broker("i1", broker_order_id="br_1")
     # Broker reports an unknown status for the live order
@@ -383,6 +385,7 @@ def test_no_replay_creating_synthetic_extra_fill(store):
         interval_width=0.05,
     )
     lc.approve_risk("i1", risk_decision=risk_decision)
+    lc.request_broker_submission("i1")
     lc.submit_order("i1", exchange_order_id="ex_1")
     lc.acknowledge_broker("i1", broker_order_id="br_1")
     lc.receive_fill("i1", 1.0, 99.5, protective_trigger=90.0)
@@ -605,6 +608,7 @@ def test_duplicate_submit_blocked(store):
         interval_width=0.05,
     )
     lc.approve_risk("i1", risk_decision=risk_decision)
+    lc.request_broker_submission("i1")
     lc.submit_order("i1", exchange_order_id="ex_1")
     with pytest.raises(InvariantViolation):
         lc.submit_order("i1", exchange_order_id="ex_1")  # duplicate live order
@@ -649,6 +653,7 @@ def test_kill_switch_blocks_buy_but_allows_reduce_only_sell(store):
     # Existing position: buy 1.0 first
     lc.create_order_intent("i_buy", "BTC/USDT", "buy", 1.0)
     lc.approve_risk("i_buy", risk_decision=risk_decision)
+    lc.request_broker_submission("i_buy")
     lc.submit_order("i_buy", exchange_order_id="ex_1")
     lc.acknowledge_broker("i_buy", broker_order_id="br_1")
     lc.receive_fill("i_buy", 1.0, 99.5, protective_trigger=90.0)
@@ -680,6 +685,7 @@ def test_kill_switch_blocks_buy_but_allows_reduce_only_sell(store):
         interval_width=0.05,
     )
     lc.approve_risk("i_sell", risk_decision=risk_decision_sell)
+    lc.request_broker_submission("i_sell")
     lc.submit_order("i_sell", exchange_order_id="ex_2")
     lc.acknowledge_broker("i_sell", broker_order_id="br_2")
     lc.receive_fill("i_sell", 1.0, 101.0)
@@ -764,6 +770,7 @@ def test_cumulative_sell_inventory_guard(store):
     )
     lc.create_order_intent("i1", "BTC/USDT", "sell", 1.0)
     lc.approve_risk("i1")
+    lc.request_broker_submission("i1")
     lc.submit_order("i1", exchange_order_id="ex_1")
     lc.acknowledge_broker("i1", broker_order_id="br_1")
     # Partial fill #1: 0.6 OK (inventory 1.0)
@@ -805,6 +812,7 @@ def test_manual_intervention_blocks_new_exposure(store):
     )
     lc.create_order_intent("i1", "BTC/USDT", "buy", 1.0)
     lc.approve_risk("i1", risk_decision=risk_decision)
+    lc.request_broker_submission("i1")
     lc.submit_order("i1", exchange_order_id="ex_1")
     lc.acknowledge_broker("i1", broker_order_id="br_1")
     # Unknown broker state → manual
@@ -848,6 +856,7 @@ def test_resolve_reconciliation_requires_no_manual_issues(store):
     )
     lc.create_order_intent("i1", "BTC/USDT", "buy", 1.0)
     lc.approve_risk("i1", risk_decision=risk_decision)
+    lc.request_broker_submission("i1")
     lc.submit_order("i1", exchange_order_id="ex_1")
     lc.acknowledge_broker("i1", broker_order_id="br_1")
     lc.reconcile_broker_state({"ex_1": "weird_state"})
@@ -930,6 +939,7 @@ def test_protection_gap_blocks_new_exposure(store):
     )
     lc.create_order_intent("i1", "BTC/USDT", "buy", 1.0)
     lc.approve_risk("i1", risk_decision=risk_decision)
+    lc.request_broker_submission("i1")
     lc.submit_order("i1", exchange_order_id="ex_1")
     lc.acknowledge_broker("i1", broker_order_id="br_1")
     # Fill without protective trigger → protection gap
@@ -972,6 +982,7 @@ def test_fill_with_trigger_requires_ack_for_protected(store):
     )
     lc.create_order_intent("i1", "BTC/USDT", "buy", 1.0)
     lc.approve_risk("i1", risk_decision=risk_decision)
+    lc.request_broker_submission("i1")
     lc.submit_order("i1", exchange_order_id="ex_1")
     lc.acknowledge_broker("i1", broker_order_id="br_1")
     lc.receive_fill("i1", 1.0, 99.5, protective_trigger=90.0)
@@ -1020,6 +1031,7 @@ def test_fill_with_trigger_requires_ack_for_protected(store):
         interval_width=0.05,
     )
     lc2.approve_risk("i3", risk_decision=risk_decision_sell)
+    lc2.request_broker_submission("i3")
     lc2.submit_order("i3", exchange_order_id="ex_3")
     lc2.acknowledge_broker("i3", broker_order_id="br_3")
     # Should not raise
@@ -1057,6 +1069,7 @@ def test_acknowledge_protective_order_sets_protected(store):
     )
     lc.create_order_intent("i1", "BTC/USDT", "buy", 1.0)
     lc.approve_risk("i1", risk_decision=risk_decision)
+    lc.request_broker_submission("i1")
     lc.submit_order("i1", exchange_order_id="ex_1")
     lc.acknowledge_broker("i1", broker_order_id="br_1")
     lc.receive_fill("i1", 1.0, 99.5, protective_trigger=90.0)
@@ -1118,6 +1131,7 @@ def test_crash_between_fill_and_protective_replay_requires_protection(tmp_path):
         )
         lc.create_order_intent("i1", "BTC/USDT", "buy", 1.0)
         lc.approve_risk("i1", risk_decision=risk_decision)
+        lc.request_broker_submission("i1")
         lc.submit_order("i1", exchange_order_id="ex_1")
         lc.acknowledge_broker("i1", broker_order_id="br_1")
         lc.receive_fill("i1", 1.0, 99.5, protective_trigger=90.0)
@@ -1161,6 +1175,7 @@ def test_repeated_recovery_does_not_duplicate_protection(store):
     )
     lc.create_order_intent("i1", "BTC/USDT", "buy", 1.0)
     lc.approve_risk("i1", risk_decision=risk_decision)
+    lc.request_broker_submission("i1")
     lc.submit_order("i1", exchange_order_id="ex_1")
     lc.acknowledge_broker("i1", broker_order_id="br_1")
     lc.receive_fill("i1", 1.0, 99.5, protective_trigger=90.0)
@@ -1234,6 +1249,7 @@ def test_unknown_broker_state_fail_closed(store):
     )
     lc.create_order_intent("i1", "BTC/USDT", "buy", 1.0)
     lc.approve_risk("i1", risk_decision=risk_decision)
+    lc.request_broker_submission("i1")
     lc.submit_order("i1", exchange_order_id="ex_1")
     lc.acknowledge_broker("i1", broker_order_id="br_1")
     report = lc.reconcile_broker_state({"ex_1": "weird_state"})

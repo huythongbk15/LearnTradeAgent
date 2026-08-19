@@ -44,6 +44,7 @@ class ExecutionEventType(str, Enum):
     ORDER_INTENT_CREATED = "exec.order_intent_created"
     RISK_APPROVED = "exec.risk_approved"
     ORDER_AUTHORIZED = "exec.order_authorized"
+    BROKER_SUBMISSION_REQUESTED = "exec.broker_submission_requested"
     ORDER_SUBMITTED = "exec.order_submitted"
     ORDER_REJECTED = "exec.order_rejected"
     BROKER_ACKNOWLEDGED = "exec.broker_acknowledged"

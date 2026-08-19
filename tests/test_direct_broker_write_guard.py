@@ -21,24 +21,29 @@ FORBIDDEN_METHODS = {
     "cancel_order",
     "close_position",
     "replace_order",
+    "close_all_positions",
+    "submit_order",
 }
 
 # Files that are allowed to call these methods directly
 ALLOWED_FILES = {
     "broker_gateway.py",  # BrokerGateway itself
     "paper_exchange.py",  # Exchange adapter implementations
-    "smart_router.py",  # Smart execution router (adapter-like)
     "runner_adapter.py",  # Canonical wrapper for legacy runners
     "legacy_authorization.py",  # Legacy authorization bridge
     "live_enhanced_ma.py",  # Runtime script (canonical via CanonicalBrokerAdapter)
     "live_enhanced_ma_binance.py",  # Runtime script (canonical via CanonicalBrokerAdapter)
     "test_broker_gateway.py",  # Tests for BrokerGateway
+    "close_alpaca_micro_dust.py",  # Canonical lifecycle wrapper
+    "cli_adapter.py",  # Canonical CLI adapter bridge for LiveBroker
 }
 
 # Directories to scan
 SCAN_DIRS = [
     Path("src/trading_agent/execution"),
+    Path("src/trading_agent/cli"),
     Path("scripts"),
+    Path("webui/backend"),
 ]
 
 
@@ -60,25 +65,56 @@ def _is_forbidden_call(node: ast.Call, file_path: Path) -> tuple[bool, str | Non
             attrs.append(obj.id)
         attrs.reverse()
 
-        # Allow patterns:
+        # Allowed patterns (canonical boundaries):
         # 1. self._adapter.* in broker_gateway.py
-        # 2. adapter.* or exchange.* in adapter implementation files
+        # 2. self.* in paper_exchange.py, runner_adapter.py, legacy_authorization.py
+        # 3. lifecycle.*, store.*, gateway.* (canonical lifecycle/gateway calls)
+        # 4. broker.* in live_enhanced_ma*.py (canonical via CanonicalBrokerAdapter)
+        # 5. adapter.* in alpaca_adapter.py (adapter implementation)
         if len(attrs) >= 2:
-            if file_path.name == "broker_gateway.py":
-                # In broker_gateway.py, allow self._adapter.*
-                if attrs[0] == "self" and attrs[1] == "_adapter":
-                    return False, None
-            elif file_path.name in ("paper_exchange.py",):
-                # In adapter implementations, allow adapter.* or exchange.*
-                if attrs[0] in ("adapter", "exchange", "self"):
+            root = attrs[0]
+            child = attrs[1]
+
+            # Canonical lifecycle/gateway/storage calls are safe
+            if root in ("lifecycle", "store", "gateway", "lc", "engine"):
+                return False, None
+
+            # Adapter implementations can call self.*
+            if file_path.name in (
+                "paper_exchange.py",
+                "runner_adapter.py",
+                "legacy_authorization.py",
+                "alpaca_adapter.py",
+            ):
+                if root == "self":
                     return False, None
 
-            # For any other file, check if the root is 'self' and the next is 'exchange'
-            # This catches self.exchange.place_order in engine.py
-            if attrs[0] == "self" and attrs[1] == "exchange":
+            # Adapter wrapper delegations (self._adapter.*) are safe in any file
+            if root == "self" and child == "_adapter":
+                return False, None
+
+            # Legacy scripts using CanonicalBrokerAdapter (broker.*)
+            if file_path.name in ("live_enhanced_ma.py", "live_enhanced_ma_binance.py"):
+                if root == "broker":
+                    return False, None
+
+            # Canonical self.* calls are safe (lifecycle, gateway, store, engine)
+            if root == "self" and child in (
+                "lifecycle",
+                "gateway",
+                "store",
+                "engine",
+                "planner",
+                "legacy_adapter",
+            ):
+                return False, None
+
+            # Direct exchange/broker calls on self.exchange or self.adapter
+            if root == "self" and child in ("exchange", "adapter"):
                 return True, method_name
 
         # Any other object calling a forbidden method is a violation
+        # (e.g., client.submit_order, adapter.place_order outside adapter files)
         return True, method_name
     return False, None
 

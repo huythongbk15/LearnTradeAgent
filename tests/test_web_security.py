@@ -9,16 +9,37 @@ from fastapi.testclient import TestClient
 import webui.backend.app as backend
 
 
+class FakePosition:
+    def __init__(self, symbol, qty):
+        self.symbol = symbol
+        self.qty = qty
+
+
 class FakeAlpaca:
     def __init__(self):
         self.close_calls: list[bool] = []
+        self.orders: list[dict] = []
 
     async def close_all_positions(self, *, cancel_orders: bool):
         self.close_calls.append(cancel_orders)
         return {"requested": 1, "cancel_orders": cancel_orders, "account": "paper"}
 
     async def fetch_positions(self):
-        return []
+        return [FakePosition("BTC/USD", 1.0)]
+
+    async def fetch_ticker(self, symbol):
+        class Ticker:
+            last = 50000.0
+
+        return Ticker()
+
+    async def create_order(self, order_req):
+        self.orders.append(order_req)
+
+        class Order:
+            id = f"order-{len(self.orders)}"
+
+        return Order()
 
 
 def test_health_route_is_available():
@@ -72,8 +93,10 @@ def test_kill_switch_uses_shared_paper_adapter_and_verifies_empty(monkeypatch):
     )
 
     assert response.status_code == 200
-    assert response.json()["closed"] is True
-    assert fake.close_calls == [True]
+    data = response.json()
+    assert data["closed"] is True
+    assert len(fake.orders) == 1
+    assert fake.orders[0].symbol == "BTC/USD"
 
 
 def test_paper_cycle_is_off_by_default_and_rejects_live_money(monkeypatch):

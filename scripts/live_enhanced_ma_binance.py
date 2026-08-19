@@ -630,6 +630,8 @@ def ensure_protective_stop(
         stop_price=desired_stop,
     )
     operation = "protective_stop_placed"
+    account = broker.get_account()
+    account_equity = float(account.get("equity", 0.0))
     try:
         if isinstance(active, dict):
             exchange_order_id = str(active.get("exchange_order_id") or "")
@@ -647,7 +649,7 @@ def ensure_protective_stop(
                     price_reference=desired_stop,
                     signal_reason="PROTECTIVE_STOP_REPLACE",
                     strategy_version="legacy-binance-ma-v1",
-                    account_equity=0.0,  # populated upstream if available
+                    account_equity=account_equity,
                     current_exposure=0.0,
                     idempotency_key=str(pending["client_order_id"]),
                     correlation_id=str(pending["client_order_id"]),
@@ -664,7 +666,7 @@ def ensure_protective_stop(
                     price_reference=desired_stop,
                     signal_reason="PROTECTIVE_STOP_PLACE",
                     strategy_version="legacy-binance-ma-v1",
-                    account_equity=0.0,
+                    account_equity=account_equity,
                     current_exposure=0.0,
                     idempotency_key=str(pending["client_order_id"]),
                     correlation_id=str(pending["client_order_id"]),
@@ -1507,6 +1509,8 @@ def execute_orders(
             size=Decimal(str(quantity)),
             time_in_force=TimeInForce.GTC,
         )
+        account = broker.get_account()
+        account_equity = float(account.get("equity", 0.0))
         try:
             if isinstance(active_protective, dict):
                 protective_exchange_id = str(
@@ -1528,7 +1532,7 @@ def execute_orders(
                         else 0.0,
                         signal_reason="PROTECTIVE_STOP_EXIT_REPLACE",
                         strategy_version="legacy-binance-ma-v1",
-                        account_equity=0.0,
+                        account_equity=account_equity,
                         current_exposure=0.0,
                         idempotency_key=order_key,
                         correlation_id=order_key,
@@ -1558,7 +1562,7 @@ def execute_orders(
                         else 0.0,
                         signal_reason="PROTECTIVE_STOP_EXIT_PLACE",
                         strategy_version="legacy-binance-ma-v1",
-                        account_equity=0.0,
+                        account_equity=account_equity,
                         current_exposure=0.0,
                         idempotency_key=order_key,
                         correlation_id=order_key,

@@ -167,14 +167,6 @@ class CanonicalBrokerAdapter:
         """Proxy to underlying broker."""
         return self._broker.normalize_order_amount(symbol, amount)
 
-    def __getattr__(self, name: str) -> Any:
-        """Proxy any other attribute access to the underlying broker.
-
-        This ensures forward compatibility if the broker interface adds
-        new methods that the adapter doesn't explicitly wrap.
-        """
-        return getattr(self._broker, name)
-
     # ── Private helpers ────────────────────────────────────────────────
 
     def _make_correlation_id(self, order: Any) -> str:
