@@ -21,6 +21,7 @@ from trading_agent.agents.base import AgentMessage
 from trading_agent.config.loader import config
 from trading_agent.execution.paper_exchange import PaperExchange
 from trading_agent.execution.canonical import (
+    AuthorizedOrder,
     BrokerGateway,
     LegacyDecisionAdapter,
     OrderPlanner,
@@ -481,7 +482,7 @@ class ExecutionEngine:
                     authorization_hash="",
                 )
                 result = self.gateway.submit(
-                    auth_id, correlation_id=emergency.intent_id
+                    auth_event.payload["authorization_id"], correlation_id=emergency.intent_id
                 )
                 if result.success and result.broker_order_id:
                     self.lifecycle.submit_order(

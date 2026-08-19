@@ -20,7 +20,7 @@ from trading_agent.execution.lifecycle.lifecycle import (
     EmergencyReduceRequest,
     TrustedPrice,
 )
-from trading_agent.execution.canonical import BrokerGateway
+from trading_agent.execution.canonical import BrokerGateway, AuthorizedOrder
 
 ALPACA_MICRO_DUST_THRESHOLD_USD = 5.0
 

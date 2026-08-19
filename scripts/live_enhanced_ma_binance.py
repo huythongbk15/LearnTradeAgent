@@ -79,7 +79,6 @@ from trading_agent.execution.data_trust import (
     TimeStampedFetch,
     reject_high_latency,
 )
-from trading_agent.execution.lifecycle.store import ExecutionEventStore
 from trading_agent.execution.live_safety import (
     LIVE_CONFIRMATION,
     RISK_INCREASE_CONFIRMATION,

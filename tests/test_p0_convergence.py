@@ -547,6 +547,14 @@ class TestBrokerGatewayAuthorizationAttacks:
 
     def test_gateway_rejects_mismatched_symbol(self, tmp_path):
         store, authorized_order = self._setup_authorized_order(tmp_path)
+        lifecycle = ExecutionLifecycle(
+            store,
+            price_source=lambda s: TrustedPrice(
+                price=100.0,
+                exchange_timestamp=datetime.now(UTC),
+                received_at=datetime.now(UTC),
+            ),
+        )
         gateway = BrokerGateway(adapter=None, store=store)
         tampered = AuthorizedOrder(
             token=_AUTHORIZED_TOKEN,
@@ -715,73 +723,6 @@ class TestCliOrderE2E:
             if hasattr(order, "symbol"):
                 # Called with Order object from _SyncAsyncBridge
                 self.calls.append(
-                    {
-                        "symbol": str(order.symbol),
-                        "side": order.side,
-                        "qty": float(order.size),
-                        "order_type": order.type,
-                        "limit_price": order.price,
-                    }
-                )
-                qty_val = float(order.size)
-            else:
-                # Called with keyword args from BrokerGateway.submit_protection
-                self.calls.append(
-                    {
-                        "symbol": str(order),
-                        "side": side,
-                        "qty": float(qty),
-                        "order_type": order_type,
-                        "limit_price": limit_price,
-                    }
-                )
-                qty_val = float(qty)
-            return {
-                "id": f"broker-{len(self.calls)}",
-                "status": "filled",
-                "filled_qty": qty_val,
-                "avg_fill_price": 100.0,
-            }
-
-        async def create_order(
-            self,
-            order,
-            side=None,
-            qty=None,
-            order_type=None,
-            limit_price=None,
-            **kwargs,
-        ):
-            if hasattr(order, "symbol"):
-                # Called with Order object from _SyncAsyncBridge
-                self.calls.append(
-                    {
-                        "symbol": str(order.symbol),
-                        "side": order.side,
-                        "qty": float(order.size),
-                        "order_type": order.type,
-                        "limit_price": order.price,
-                    }
-                )
-                qty_val = float(order.size)
-            else:
-                # Called with keyword args from BrokerGateway.submit_protection
-                self.calls.append(
-                    {
-                        "symbol": str(order),
-                        "side": side,
-                        "qty": float(qty),
-                        "order_type": order_type,
-                        "limit_price": limit_price,
-                    }
-                )
-                qty_val = float(qty)
-            return {
-                "id": f"broker-{len(self.calls)}",
-                "status": "filled",
-                "filled_qty": qty_val,
-                "avg_fill_price": 100.0,
-            }
                     {
                         "symbol": str(order.symbol),
                         "side": order.side,

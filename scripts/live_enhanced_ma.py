@@ -15,7 +15,6 @@ import json
 import os
 import sys
 import tempfile
-import uuid
 from decimal import Decimal
 from pathlib import Path
 
@@ -72,8 +71,6 @@ from trading_agent.execution.permission import (
     PermissionContext,
     evaluate_order_permission,
 )
-)
-from trading_agent.execution.lifecycle.store import ExecutionEventStore
 from trading_agent.risk.portfolio_risk import DrawdownConfig, PortfolioRiskManager
 from trading_agent.strategies.enhanced_ma import EnhancedMaCrossover
 

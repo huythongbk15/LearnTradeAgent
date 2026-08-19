@@ -12,6 +12,7 @@ import pytest
 from trading_agent.agents.risk_decision import RiskDecision as LegacyRiskDecision
 from trading_agent.agents.risk_decision import RiskLevel as LegacyRiskLevel
 from trading_agent.execution.canonical import (
+    AuthorizedOrder,
     BrokerGateway,
     BrokerSubmitResult,
     CausationChain,
@@ -34,8 +35,12 @@ from trading_agent.execution.canonical import (
     propagate_causation,
 )
 from trading_agent.execution.canonical.broker_gateway import (
-    BrokerGateway,
     _AUTHORIZED_TOKEN,
+)
+from trading_agent.execution.lifecycle import ExecutionEventStore
+from trading_agent.execution.lifecycle.lifecycle import (
+    ExecutionLifecycle,
+    TrustedPrice,
 )
 from trading_agent.execution.canonical.market_observation import BarState
 from trading_agent.execution.canonical.order_planner import (
@@ -480,6 +485,15 @@ class TestBrokerGateway:
     )
     def test_submit_returns_result_wrapper(self):
         gateway = BrokerGateway(adapter=None, store=MagicMock())
+        store = ExecutionEventStore(":memory:").connect()
+        lifecycle = ExecutionLifecycle(
+            store,
+            price_source=lambda s: TrustedPrice(
+                price=100.0,
+                exchange_timestamp=datetime.now(UTC),
+                received_at=datetime.now(UTC),
+            ),
+        )
         rules = sample_instrument_rules(symbol="BTCUSDT", min_order_qty=0.0001)
         planner = OrderPlanner(instrument_rules=rules)
         forecast_decision = pytest.importorskip(

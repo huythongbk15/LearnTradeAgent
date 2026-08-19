@@ -546,6 +546,7 @@ def _place_order_via_gateway(live_broker, order):
     from datetime import UTC, datetime
 
     from trading_agent.execution.canonical import (
+        AuthorizedOrder,
         BrokerGateway,
         UnifiedRiskDecision,
         RiskLevel,
@@ -555,7 +556,6 @@ def _place_order_via_gateway(live_broker, order):
     from trading_agent.execution.lifecycle import ExecutionEventStore
     from trading_agent.execution.lifecycle.lifecycle import (
         ExecutionLifecycle,
-        ExposureEffect,
         ExecutionHealth,
         TrustedPrice,
         ExposureEffect,
@@ -687,6 +687,7 @@ def _place_order_via_gateway(live_broker, order):
         )
 
     # 5. Authorize order (lifecycle derives all fields from durable state)
+    now = datetime.now(UTC).isoformat()
     auth_event = lifecycle.authorize_order(
         intent_id=intent_id,
         idempotency_key=order.client_order_id or intent_id,
