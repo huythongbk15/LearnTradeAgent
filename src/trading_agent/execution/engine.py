@@ -350,7 +350,15 @@ class ExecutionEngine:
             exchange_order_id=result.broker_order_id,
         )
 
-        if result.success and result.broker_order_id:
+        if result.state == BrokerSubmitState.UNKNOWN:
+            # Broker did not confirm final state — enter reconciliation instead of rejecting.
+            # UNKNOWN is not a failure; it means the broker response was inconclusive.
+            # Reconciliation will query broker state again and resolve to FILLED/REJECTED/MANUAL.
+            self.lifecycle.start_reconciliation()
+            orders.append(
+                self._result_to_order(result, symbol, intent.side, intent.quantity)
+            )
+        elif result.success and result.broker_order_id:
             # Simulate immediate fill for paper trading
             fill_event = self.lifecycle.receive_fill(
                 intent_id=intent.intent_id,
@@ -583,22 +591,27 @@ class ExecutionEngine:
     # ── Helpers ────────────────────────────────────────────────────────
 
     def _get_current_price(self, symbol: str) -> tuple[float, datetime] | None:
-        """Return (price, exchange_timestamp) from live ticker or price cache."""
+        """Return (price, exchange_timestamp) from live ticker or price cache.
+
+        Strict: only returns a price when the exchange-provided timestamp is
+        available. Fabricating ``datetime.now(UTC)`` would bypass the freshness
+        invariant and is not allowed.
+        """
         # Prefer live ticker from adapter; fall back to simulator price cache.
         try:
             ticker = self.exchange.get_ticker(symbol)
             price = ticker.get("last") or ticker.get("price")
             if price is not None:
-                # Live adapters should include an exchange-provided timestamp.
                 ts = ticker.get("timestamp")
                 if ts is not None:
                     if isinstance(ts, datetime):
                         exchange_ts = ts
                     else:
                         exchange_ts = datetime.fromtimestamp(float(ts), UTC)
-                else:
-                    exchange_ts = datetime.now(UTC)
-                return float(price), exchange_ts
+                    return float(price), exchange_ts
+                # No timestamp from live adapter — reject to avoid stale data
+                logger.debug("Ticker for %s missing timestamp; rejecting as stale", symbol)
+                return None
         except Exception:
             pass
         try:
@@ -606,9 +619,10 @@ class ExecutionEngine:
             ts = self.exchange._last_price_timestamps.get(symbol)
             if ts is not None:
                 exchange_ts = datetime.fromtimestamp(float(ts), UTC)
-            else:
-                exchange_ts = datetime.now(UTC)
-            return price, exchange_ts
+                return price, exchange_ts
+            # No cached timestamp — reject to avoid stale data
+            logger.debug("Cached price for %s missing timestamp; rejecting as stale", symbol)
+            return None
         except Exception:
             return None
 
