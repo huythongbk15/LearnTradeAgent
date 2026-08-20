@@ -234,7 +234,9 @@ class _AlpacaSyncAdapter:
         response = self.place_order(payload)
         broker_order_id = response.get("id")
         return BrokerSubmitFact(
-            state=BrokerSubmitState.ACCEPTED if broker_order_id else BrokerSubmitState.REJECTED,
+            state=BrokerSubmitState.ACCEPTED
+            if broker_order_id
+            else BrokerSubmitState.REJECTED,
             broker_order_id=broker_order_id,
             client_order_id=getattr(request, "idempotency_key", None),
             venue="cli",

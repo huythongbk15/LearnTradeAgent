@@ -260,19 +260,25 @@ class BrokerGateway:
             # Convert legacy string types to canonical types
             symbol_str = str(authorization.symbol)
             side_str = str(authorization.side).lower()
-            order_type_str = str(authorization.metadata.get("order_type", "market")).lower()
-            
+            order_type_str = str(
+                authorization.metadata.get("order_type", "market")
+            ).lower()
+
             # Parse symbol string to Symbol object
             if "/" in symbol_str:
                 base, quote = symbol_str.split("/")
-                symbol_obj = Symbol(base, quote, AssetClass.CRYPTO, MarketType.SPOT, "paper")
+                symbol_obj = Symbol(
+                    base, quote, AssetClass.CRYPTO, MarketType.SPOT, "paper"
+                )
             else:
                 # Fallback for non-standard symbols
-                symbol_obj = Symbol(symbol_str, "USD", AssetClass.STOCK, MarketType.SPOT, "paper")
-            
+                symbol_obj = Symbol(
+                    symbol_str, "USD", AssetClass.STOCK, MarketType.SPOT, "paper"
+                )
+
             # Convert side string to OrderSide enum
             side_enum = OrderSide.BUY if side_str == "buy" else OrderSide.SELL
-            
+
             # Convert order_type string to OrderType enum
             order_type_map = {
                 "market": OrderType.MARKET,
@@ -282,12 +288,20 @@ class BrokerGateway:
                 "trailing_stop": OrderType.TRAILING_STOP,
             }
             order_type_enum = order_type_map.get(order_type_str, OrderType.MARKET)
-            
+
             # Convert numeric values to Decimal
             quantity_decimal = Decimal(str(authorization.quantity))
-            price_decimal = Decimal(str(authorization.metadata["price"])) if authorization.metadata.get("price") is not None else None
-            stop_price_decimal = Decimal(str(authorization.metadata["stop_price"])) if authorization.metadata.get("stop_price") is not None else None
-            
+            price_decimal = (
+                Decimal(str(authorization.metadata["price"]))
+                if authorization.metadata.get("price") is not None
+                else None
+            )
+            stop_price_decimal = (
+                Decimal(str(authorization.metadata["stop_price"]))
+                if authorization.metadata.get("stop_price") is not None
+                else None
+            )
+
             request = BrokerOrderRequest(
                 intent_id=authorization.intent_id,
                 symbol=symbol_obj,
@@ -296,7 +310,9 @@ class BrokerGateway:
                 order_type=order_type_enum,
                 price=price_decimal,
                 stop_price=stop_price_decimal,
-                time_in_force=str(authorization.metadata.get("time_in_force", "day")).upper(),
+                time_in_force=str(
+                    authorization.metadata.get("time_in_force", "day")
+                ).upper(),
                 idempotency_key=authorization.idempotency_key,
             )
         else:
@@ -319,18 +335,24 @@ class BrokerGateway:
             # Convert legacy string types to canonical types
             symbol_str = str(auth["symbol"])
             side_str = str(auth["side"]).lower()
-            order_type_str = str(auth.get("metadata", {}).get("order_type", "market")).lower()
-            
+            order_type_str = str(
+                auth.get("metadata", {}).get("order_type", "market")
+            ).lower()
+
             # Parse symbol string to Symbol object
             if "/" in symbol_str:
                 base, quote = symbol_str.split("/")
-                symbol_obj = Symbol(base, quote, AssetClass.CRYPTO, MarketType.SPOT, "paper")
+                symbol_obj = Symbol(
+                    base, quote, AssetClass.CRYPTO, MarketType.SPOT, "paper"
+                )
             else:
-                symbol_obj = Symbol(symbol_str, "USD", AssetClass.STOCK, MarketType.SPOT, "paper")
-            
+                symbol_obj = Symbol(
+                    symbol_str, "USD", AssetClass.STOCK, MarketType.SPOT, "paper"
+                )
+
             # Convert side string to OrderSide enum
             side_enum = OrderSide.BUY if side_str == "buy" else OrderSide.SELL
-            
+
             # Convert order_type string to OrderType enum
             order_type_map = {
                 "market": OrderType.MARKET,
@@ -340,14 +362,16 @@ class BrokerGateway:
                 "trailing_stop": OrderType.TRAILING_STOP,
             }
             order_type_enum = order_type_map.get(order_type_str, OrderType.MARKET)
-            
+
             # Convert numeric values to Decimal
             quantity_decimal = Decimal(str(auth["quantity"]))
             price_val = auth.get("metadata", {}).get("price")
             stop_price_val = auth.get("metadata", {}).get("stop_price")
             price_decimal = Decimal(str(price_val)) if price_val is not None else None
-            stop_price_decimal = Decimal(str(stop_price_val)) if stop_price_val is not None else None
-            
+            stop_price_decimal = (
+                Decimal(str(stop_price_val)) if stop_price_val is not None else None
+            )
+
             request = BrokerOrderRequest(
                 intent_id=auth["intent_id"],
                 symbol=symbol_obj,
@@ -356,7 +380,9 @@ class BrokerGateway:
                 order_type=order_type_enum,
                 price=price_decimal,
                 stop_price=stop_price_decimal,
-                time_in_force=str(auth.get("metadata", {}).get("time_in_force", "day")).upper(),
+                time_in_force=str(
+                    auth.get("metadata", {}).get("time_in_force", "day")
+                ).upper(),
                 idempotency_key=auth["idempotency_key"],
             )
         try:
@@ -423,6 +449,7 @@ class BrokerGateway:
         try:
             # Use canonical adapter.request_cancel() returning BrokerCancelFact
             from trading_agent.execution.canonical.adapters import BrokerCancelRequest
+
             cancel_request = BrokerCancelRequest(
                 broker_order_id=order_id,
                 client_order_id=None,
@@ -441,12 +468,15 @@ class BrokerGateway:
             }
             mapped_state = state_map.get(cancel_fact.state, CancelState.UNKNOWN)
             return CancelResult(
-                success=mapped_state in {CancelState.REQUEST_ACCEPTED, CancelState.CANCELED},
+                success=mapped_state
+                in {CancelState.REQUEST_ACCEPTED, CancelState.CANCELED},
                 evidence=CancelEvidence(
                     broker_order_id=order_id,
                     state=mapped_state,
                     venue=cancel_fact.venue,
-                    confirmed_at=cancel_fact.confirmed_at.isoformat() if isinstance(cancel_fact.confirmed_at, datetime) else str(cancel_fact.confirmed_at),
+                    confirmed_at=cancel_fact.confirmed_at.isoformat()
+                    if isinstance(cancel_fact.confirmed_at, datetime)
+                    else str(cancel_fact.confirmed_at),
                     source=cancel_fact.source,
                     raw_response=cancel_fact.raw_response,
                 ),
@@ -477,11 +507,17 @@ class BrokerGateway:
             "quantity": float(order_fact.quantity),
             "filled_quantity": float(order_fact.filled_quantity),
             "price": float(order_fact.price) if order_fact.price is not None else None,
-            "stop_price": float(order_fact.stop_price) if order_fact.stop_price is not None else None,
+            "stop_price": float(order_fact.stop_price)
+            if order_fact.stop_price is not None
+            else None,
             "status": order_fact.status,
             "venue": order_fact.venue,
-            "created_at": order_fact.created_at.isoformat() if isinstance(order_fact.created_at, datetime) else str(order_fact.created_at),
-            "updated_at": order_fact.updated_at.isoformat() if isinstance(order_fact.updated_at, datetime) else str(order_fact.updated_at),
+            "created_at": order_fact.created_at.isoformat()
+            if isinstance(order_fact.created_at, datetime)
+            else str(order_fact.created_at),
+            "updated_at": order_fact.updated_at.isoformat()
+            if isinstance(order_fact.updated_at, datetime)
+            else str(order_fact.updated_at),
             "raw_response": order_fact.raw_response,
         }
 
@@ -498,10 +534,18 @@ class BrokerGateway:
                 "symbol": str(p.symbol),
                 "quantity": float(p.quantity),
                 "side": p.side.value,
-                "entry_price": float(p.entry_price) if p.entry_price is not None else None,
-                "current_price": float(p.current_price) if p.current_price is not None else None,
-                "unrealized_pnl": float(p.unrealized_pnl) if p.unrealized_pnl is not None else None,
-                "realized_pnl": float(p.realized_pnl) if p.realized_pnl is not None else None,
+                "entry_price": float(p.entry_price)
+                if p.entry_price is not None
+                else None,
+                "current_price": float(p.current_price)
+                if p.current_price is not None
+                else None,
+                "unrealized_pnl": float(p.unrealized_pnl)
+                if p.unrealized_pnl is not None
+                else None,
+                "realized_pnl": float(p.realized_pnl)
+                if p.realized_pnl is not None
+                else None,
                 "venue": p.venue,
             }
             for p in position_facts
@@ -617,7 +661,10 @@ class BrokerGateway:
                 continue
             try:
                 # Use canonical adapter.close_position() with BrokerClosePositionRequest
-                from trading_agent.execution.canonical.adapters import BrokerClosePositionRequest
+                from trading_agent.execution.canonical.adapters import (
+                    BrokerClosePositionRequest,
+                )
+
                 close_request = BrokerClosePositionRequest(
                     symbol=pos.symbol,
                     reason=reason,

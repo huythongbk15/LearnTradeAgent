@@ -45,7 +45,6 @@ from trading_agent.exchanges.models import (
     TimeInForce,
 )
 from trading_agent.execution.canonical import CanonicalBrokerAdapter
-from trading_agent.execution.canonical.broker_gateway import BrokerGateway
 from trading_agent.execution.canonical.legacy_authorization import (
     LegacyAuthorizationEvidence,
 )
@@ -2099,9 +2098,7 @@ def run_locked(
         )
         # Wrap with canonical broker gateway (P0 §12: runner canonical migration)
         execution_store = ExecutionEventStore("data/execution/events.db")
-        broker = CanonicalBrokerAdapter(
-            broker, store=execution_store
-        )
+        broker = CanonicalBrokerAdapter(broker, store=execution_store)
 
         reconcile_unfinished_orders(
             broker=broker,

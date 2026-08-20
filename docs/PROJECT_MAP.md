@@ -431,7 +431,8 @@
 │       └── regime.py
 ├── tests
 │   ├── execution
-│   │   └── test_canonical_pipeline.py
+│   │   ├── test_canonical_pipeline.py
+│   │   └── test_e2e_paper_flow.py
 │   ├── __init__.py
 │   ├── conftest.py
 │   ├── test_agent_correlation.py

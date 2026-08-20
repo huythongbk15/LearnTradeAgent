@@ -204,7 +204,11 @@ class PaperExecutionAdapter:
         # Convert canonical request to legacy call
         # Note: PaperExchange.place_order() doesn't accept time_in_force
         # Use symbol.pair for PaperExchange which expects "BTC/USDT" format
-        symbol_pair = request.symbol.pair if hasattr(request.symbol, 'pair') else str(request.symbol)
+        symbol_pair = (
+            request.symbol.pair
+            if hasattr(request.symbol, "pair")
+            else str(request.symbol)
+        )
         order_result = self._exchange.place_order(
             symbol=symbol_pair,
             side=request.side.value.lower(),
@@ -236,9 +240,13 @@ class PaperExecutionAdapter:
                 "side": order_result.side.value,
                 "type": order_result.type.value,
                 "amount": float(order_result.amount),
-                "price": float(order_result.price) if order_result.price is not None else None,
+                "price": float(order_result.price)
+                if order_result.price is not None
+                else None,
                 "filled_amount": float(order_result.filled_amount),
-                "avg_fill_price": float(order_result.avg_fill_price) if order_result.avg_fill_price is not None else None,
+                "avg_fill_price": float(order_result.avg_fill_price)
+                if order_result.avg_fill_price is not None
+                else None,
                 "cost": float(order_result.cost),
             },
         )

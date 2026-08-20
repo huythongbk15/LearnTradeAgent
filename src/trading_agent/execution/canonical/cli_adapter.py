@@ -25,7 +25,10 @@ from trading_agent.exchanges.models import (
     Symbol,
 )
 
-from trading_agent.execution.canonical.adapters import BrokerSubmitFact, BrokerSubmitState
+from trading_agent.execution.canonical.adapters import (
+    BrokerSubmitFact,
+    BrokerSubmitState,
+)
 
 
 class _SyncAsyncBridge:
@@ -136,9 +139,7 @@ class CliBrokerAdapter:
             raise TypeError(f"symbol must be Symbol, got {type(symbol)}")
 
         side = (
-            OrderSide.BUY
-            if request.side.strip().lower() == "buy"
-            else OrderSide.SELL
+            OrderSide.BUY if request.side.strip().lower() == "buy" else OrderSide.SELL
         )
         order_type_str = getattr(request, "order_type", "market").strip().lower()
         order_type = OrderType.MARKET
@@ -149,7 +150,11 @@ class CliBrokerAdapter:
         elif order_type_str == "stop_limit":
             order_type = OrderType.STOP_LIMIT
 
-        price = Decimal(str(request.price)) if getattr(request, "price", None) is not None else None
+        price = (
+            Decimal(str(request.price))
+            if getattr(request, "price", None) is not None
+            else None
+        )
         stop_price = (
             Decimal(str(request.stop_price))
             if getattr(request, "stop_price", None) is not None
@@ -170,7 +175,9 @@ class CliBrokerAdapter:
         broker_order_id = response.get("id")
         broker_status = response.get("status", "unknown")
         return BrokerSubmitFact(
-            state=BrokerSubmitState.ACCEPTED if broker_order_id else BrokerSubmitState.REJECTED,
+            state=BrokerSubmitState.ACCEPTED
+            if broker_order_id
+            else BrokerSubmitState.REJECTED,
             broker_order_id=broker_order_id,
             client_order_id=getattr(request, "idempotency_key", None),
             venue="cli",
