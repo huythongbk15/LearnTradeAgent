@@ -638,9 +638,7 @@ class ExecutionEngine:
             )
             or 0
         )
-        avg_fill_price = float(
-            (raw.get("average") or raw.get("price") or 0)
-        )
+        avg_fill_price = float((raw.get("average") or raw.get("price") or 0))
         return Order(
             id=result.broker_order_id or "",
             symbol=symbol,

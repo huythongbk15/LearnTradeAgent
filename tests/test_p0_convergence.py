@@ -14,7 +14,6 @@ Tests the specific P0 fixes:
 from __future__ import annotations
 
 import tempfile
-import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -834,6 +833,7 @@ def _sample_risk_decision():
 
 # ── Additional P1 convergence tests ──────────────────────────────────
 
+
 class TestConcurrentSameDB:
     """Prove same-database concurrent access does not corrupt state."""
 
@@ -888,6 +888,7 @@ class TestConcurrentSameDB:
         assert all_ok, "Some concurrent appends failed"
         # Verify total count
         import sqlite3
+
         conn = sqlite3.connect(db_path)
         try:
             count = conn.execute("SELECT COUNT(*) FROM execution_events").fetchone()[0]
@@ -981,7 +982,6 @@ class TestEnginePaperE2E:
         # Allow new exposure in this backtest-style test
         monkeypatch.setenv("BACKTEST_ALLOW_NEW_EXPOSURE", "1")
 
-        from pathlib import Path
         from trading_agent.agents.base import AgentMessage
         from trading_agent.execution.canonical.market_observation import (
             EnrichedMarketObservation,
@@ -1050,14 +1050,12 @@ class TestEnginePaperE2E:
         # Allow new exposure so the adapter doesn't block SELL either
         monkeypatch.setenv("BACKTEST_ALLOW_NEW_EXPOSURE", "1")
 
-        from pathlib import Path
         from trading_agent.agents.base import AgentMessage
         from trading_agent.execution.canonical.market_observation import (
             EnrichedMarketObservation,
         )
         from trading_agent.execution.engine import ExecutionEngine
         from trading_agent.execution.paper_exchange import PaperExchange
-        from trading_agent.execution.types import OrderStatus
 
         state_dir = tmp_path / "paper_state"
         state_dir.mkdir()
