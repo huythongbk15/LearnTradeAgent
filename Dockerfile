@@ -34,7 +34,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Create and activate the virtualenv for the runtime image.
 RUN python -m venv /opt/venv
-ENV PATH="/opt/venv/bin:$PATH" \
+ENV PATH="/opt/venv/bin:${PATH}" \
     VIRTUAL_ENV="/opt/venv"
 
 WORKDIR /app
@@ -76,7 +76,7 @@ WORKDIR /app
 
 # Copy the virtualenv built in the builder stage (same Python 3.12 line).
 COPY --from=builder /opt/venv /opt/venv
-ENV PATH="/opt/venv/bin:$PATH"
+ENV PATH="/opt/venv/bin:${PATH}"
 
 # Copy application code
 COPY --chown=appuser:appgroup src/ ./src/
@@ -101,8 +101,8 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
 # Environment
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONPATH="/app/src:$PYTHONPATH" \
-    PATH="/opt/venv/bin:/home/appuser/.local/bin:$PATH" \
+    PYTHONPATH="/app/src:${PYTHONPATH}" \
+    PATH="/opt/venv/bin:/home/appuser/.local/bin:${PATH}" \
     TRADING_CONFIG_PATH=/app/config/config.yaml
 
 # Default command (can be overridden in compose)
@@ -127,7 +127,7 @@ COPY --chown=appuser:appgroup . .
 # Install dev dependencies
 RUN pip install --no-cache-dir -e ".[dev,web,infra,ml,research,portfolio]"
 
-ENV PYTHONPATH="/app/src:$PYTHONPATH"
+ENV PYTHONPATH="/app/src:${PYTHONPATH}"
 
 USER appuser
 
