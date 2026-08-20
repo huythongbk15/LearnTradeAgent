@@ -10,7 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, Mapping
 
 
@@ -76,13 +76,15 @@ class ObservationId:
         bar_close_at: datetime,
         data_manifest_id: str,
     ) -> ObservationId:
+        # UTC normalization: convert any timezone-aware datetime to UTC
         if bar_close_at.tzinfo is None:
             raise ValueError("bar_close_at must be timezone-aware")
+        bar_close_utc = bar_close_at.astimezone(UTC)
         payload = {
             "venue": str(venue),
             "symbol": str(symbol),
             "timeframe": str(timeframe),
-            "bar_close_at": bar_close_at.isoformat(),
+            "bar_close_at": bar_close_utc.isoformat(),
             "data_manifest_id": str(data_manifest_id),
         }
         return ObservationId(ContentHash.from_mapping(payload).value)

@@ -42,6 +42,9 @@ from trading_agent.execution.canonical.order_planner import (
     InstrumentRules,
     MarketPrice,
 )
+from trading_agent.execution.canonical.adapters import (
+    PaperExecutionAdapter,
+)
 from trading_agent.execution.canonical.protection import (
     ProtectionPlan,
     ProtectionState,
@@ -86,6 +89,8 @@ __all__ = [
     "CurrentPortfolioState",
     "InstrumentRules",
     "MarketPrice",
+    # Adapters
+    "PaperExecutionAdapter",
     # Broker gateway
     "BrokerGateway",
     "AuthorizedOrder",

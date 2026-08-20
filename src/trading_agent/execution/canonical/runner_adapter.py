@@ -37,14 +37,28 @@ class CanonicalBrokerAdapter:
     ----------
     broker:
         The legacy broker facade (e.g. ``LiveBroker``).
-    gateway:
-        The canonical :class:`BrokerGateway`.  Created automatically if
-        not provided.
+    store:
+        The execution event store for durable authorization verification.
+        REQUIRED - no broker I/O is permitted without durable authorization.
     """
 
-    def __init__(self, broker: Any, gateway: BrokerGateway | None = None) -> None:
+    def __init__(self, broker: Any, store: Any) -> None:
         self._broker = broker
-        self._gateway = gateway or BrokerGateway(adapter=broker)
+        # Create canonical adapter from broker and inject with store into BrokerGateway
+        from trading_agent.execution.canonical.adapters import (
+            AlpacaExecutionAdapter,
+            BinanceExecutionAdapter,
+            LiveBrokerExecutionAdapter,
+        )
+        # Auto-detect adapter type based on broker class name
+        broker_cls_name = type(broker).__name__.lower()
+        if "alpaca" in broker_cls_name:
+            canonical_adapter = AlpacaExecutionAdapter(broker)
+        elif "binance" in broker_cls_name:
+            canonical_adapter = BinanceExecutionAdapter(broker)
+        else:
+            canonical_adapter = LiveBrokerExecutionAdapter(broker)
+        self._gateway = BrokerGateway(adapter=canonical_adapter, store=store)
 
     # ── Public API (mirrors LiveBroker) ────────────────────────────────
 
