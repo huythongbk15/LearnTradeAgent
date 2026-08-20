@@ -44,7 +44,11 @@ from trading_agent.exchanges.models import (
     Symbol,
     TimeInForce,
 )
-from trading_agent.execution.canonical import CanonicalBrokerAdapter
+from trading_agent.execution.canonical import (
+    BrokerGateway,
+    CanonicalBrokerAdapter,
+    AuthorizedOrder,
+)
 from trading_agent.execution.canonical.legacy_authorization import (
     LegacyAuthorizationEvidence,
 )

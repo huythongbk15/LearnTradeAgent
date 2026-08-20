@@ -164,7 +164,9 @@ class UnifiedRiskDecision:
             "max_new_exposure": self.max_new_exposure,
             "reduce_only": self.reduce_only,
             "risk_level": self.risk_level.value,
-            "reason_codes": [rc.value if hasattr(rc, "value") else rc for rc in self.reason_codes],
+            "reason_codes": [
+                rc.value if hasattr(rc, "value") else rc for rc in self.reason_codes
+            ],
             "calibration_state": self.calibration_state.value,
             "calibration_artifact_id": self.calibration_artifact_id,
             "calibration_ece": self.calibration_ece,
@@ -194,7 +196,8 @@ class UnifiedRiskDecision:
             reduce_only=bool(data.get("reduce_only", False)),
             risk_level=RiskLevel(data["risk_level"]),
             reason_codes=tuple(
-                rc if isinstance(rc, str) else RiskReason(rc) for rc in data.get("reason_codes", [])
+                rc if isinstance(rc, str) else RiskReason(rc)
+                for rc in data.get("reason_codes", [])
             ),
             calibration_state=EvidenceState(data["calibration_state"]),
             calibration_artifact_id=data.get("calibration_artifact_id"),

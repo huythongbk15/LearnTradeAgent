@@ -77,7 +77,9 @@ class DummyAdapter:
         )
         broker_order_id = response.get("id")
         return BrokerSubmitFact(
-            state=BrokerSubmitState.ACCEPTED if broker_order_id else BrokerSubmitState.REJECTED,
+            state=BrokerSubmitState.ACCEPTED
+            if broker_order_id
+            else BrokerSubmitState.REJECTED,
             broker_order_id=broker_order_id,
             client_order_id=getattr(request, "idempotency_key", None),
             venue="dummy",
@@ -749,8 +751,6 @@ class TestCliOrderE2E:
                 "filled_qty": qty_val,
                 "avg_fill_price": 100.0,
             }
-
-    def test_e2e_buy_order_flows_through_gateway(self):
 
     def test_e2e_sell_order_flows_through_gateway(self):
         broker = self._MockLiveBroker()

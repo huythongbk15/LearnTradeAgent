@@ -304,13 +304,6 @@ class BrokerGateway:
                 if authorization.metadata.get("stop_price") is not None
                 else None
             )
-        else:
-            # Load authorization from durable store (P0 §15, P0-7)
-            auth = self._store.get_latest_authorization_by_auth_id(authorization)
-            if auth is None:
-                raise AuthorizationError(
-                    f"no durable ORDER_AUTHORIZED found for authorization_id {authorization}"
-                )
 
             request = BrokerOrderRequest(
                 intent_id=authorization.intent_id,
