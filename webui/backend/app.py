@@ -520,7 +520,7 @@ async def api_close(req: CloseRequest) -> dict:
 
         adapter = await _alpaca()
         sync_adapter = _AlpacaSyncAdapter(adapter)
-        store = ExecutionEventStore("data/execution/webui_close.db").connect()
+        store = ExecutionEventStore("data/execution/events.db").connect()
 
         def _inventory_source(symbol, side):
             if side != "sell":
@@ -573,11 +573,35 @@ async def api_close(req: CloseRequest) -> dict:
                 auth_event = lifecycle.emergency_reduce(
                     EmergencyReduceRequest(**emergency)
                 )
-                # Persist pre-submission request (durable)
-                lifecycle.request_broker_submission(emergency["intent_id"])
-                # Submit using authorization_id from durable authorization
-                auth_id = auth_event.payload["authorization_id"]
-                result = gateway.submit(auth_id, correlation_id=emergency["intent_id"])
+                from trading_agent.execution.canonical import AuthorizedOrder
+                from trading_agent.execution.canonical.broker_gateway import (
+                    _AUTHORIZED_TOKEN,
+                )
+
+                authorized = AuthorizedOrder(
+                    token=_AUTHORIZED_TOKEN,
+                    intent_id=emergency["intent_id"],
+                    symbol=symbol,
+                    side="sell",
+                    quantity=qty,
+                    idempotency_key=f"emergency-{emergency['intent_id']}",
+                    price_reference=current_price,
+                    risk_decision_id=auth_event.payload.get("risk_decision_id", ""),
+                    forecast_fingerprint="",
+                    model_artifact_id="emergency_reduce",
+                    permission_result="REDUCE_ONLY",
+                    authorization_id=auth_event.payload.get("authorization_id", ""),
+                    lifecycle_event_id=auth_event.event_id,
+                    correlation_id=emergency["intent_id"],
+                    exposure_effect="reduce",
+                    current_exposure=0.0,
+                    resulting_exposure=0.0,
+                    authorized_at=auth_event.payload.get("authorized_at", ""),
+                    authorization_hash=auth_event.payload["payload_hash"],
+                )
+                result = gateway.submit(
+                    authorized, correlation_id=emergency["intent_id"]
+                )
                 if result.success and result.broker_order_id:
                     lifecycle.submit_order(
                         intent_id=emergency["intent_id"],

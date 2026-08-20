@@ -67,6 +67,7 @@ from trading_agent.execution.canonical.broker_gateway import (
     CancelEvidence,
     ProtectiveAckEvidence,
     AuthorizationError,
+    ExchangeAdapter,
 )
 from trading_agent.execution.canonical.runner_adapter import CanonicalBrokerAdapter
 
@@ -101,6 +102,7 @@ __all__ = [
     "CancelEvidence",
     "ProtectiveAckEvidence",
     "AuthorizationError",
+    "ExchangeAdapter",
     "CanonicalBrokerAdapter",
     # Protection
     "ProtectionPlan",

@@ -54,6 +54,9 @@ from trading_agent.exchanges.models import (
 _AUTHORIZED_TOKEN = uuid.uuid4().hex
 
 
+_AUTHORIZED_TOKEN = uuid.uuid4().hex
+
+
 class AuthorizationError(RuntimeError):
     """Raised when an unauthorized order reaches the gateway."""
 
@@ -301,6 +304,13 @@ class BrokerGateway:
                 if authorization.metadata.get("stop_price") is not None
                 else None
             )
+        else:
+            # Load authorization from durable store (P0 §15, P0-7)
+            auth = self._store.get_latest_authorization_by_auth_id(authorization)
+            if auth is None:
+                raise AuthorizationError(
+                    f"no durable ORDER_AUTHORIZED found for authorization_id {authorization}"
+                )
 
             request = BrokerOrderRequest(
                 intent_id=authorization.intent_id,

@@ -105,6 +105,80 @@ class _SyncAsyncBridge:
         return result if isinstance(result, dict) else {"closed": len(result)}
 
 
+class _SyncAsyncBridge:
+    """Run an async adapter's coroutines synchronously via a background loop."""
+
+    def __init__(self, async_adapter) -> None:
+        self._adapter = async_adapter
+        self._loop = asyncio.new_event_loop()
+        self._thread = threading.Thread(target=self._loop.run_forever, daemon=True)
+        self._thread.start()
+
+    def _run(self, coro):
+        future = asyncio.run_coroutine_threadsafe(coro, self._loop)
+        return future.result()
+
+    def create_order(self, order: Order) -> dict[str, Any]:
+        result = self._run(self._adapter.create_order(order))
+        if hasattr(result, "id"):
+            return {
+                "id": result.id,
+                "client_order_id": getattr(result, "client_order_id", None),
+                "status": getattr(result, "status", "filled"),
+            }
+        return result if isinstance(result, dict) else {"status": "unknown"}
+
+    def cancel_order(self, order_id: str, symbol: Symbol) -> dict[str, Any]:
+        result = self._run(self._adapter.cancel_order(order_id, symbol))
+        return result if isinstance(result, dict) else {"success": bool(result)}
+
+    def fetch_order(self, order_id: str, symbol: Symbol) -> dict[str, Any]:
+        result = self._run(self._adapter.fetch_order(order_id, symbol))
+        if hasattr(result, "id"):
+            return {
+                "id": result.id,
+                "status": getattr(result, "status", "unknown"),
+                "filled_qty": getattr(result, "filled_qty", 0.0),
+                "avg_fill_price": getattr(result, "avg_fill_price", None),
+            }
+        return result if isinstance(result, dict) else {}
+
+    def fetch_positions(self, symbol: str | None = None) -> list[dict[str, Any]]:
+        result = self._run(self._adapter.fetch_positions(symbol))
+        out = []
+        for p in result:
+            out.append(
+                {
+                    "symbol": p.symbol.pair
+                    if hasattr(p.symbol, "pair")
+                    else str(p.symbol),
+                    "qty": float(p.qty),
+                    "avg_entry_price": float(p.entry_price),
+                    "current_price": float(p.mark_price),
+                    "market_value": float(p.notional),
+                    "unrealized_pl": float(p.unrealized_pl),
+                    "side": "long" if p.is_long else "short",
+                }
+            )
+        return out
+
+    def fetch_balances(self) -> dict[str, Any]:
+        result = self._run(self._adapter.fetch_balance())
+        return result if isinstance(result, dict) else {}
+
+    def fetch_ticker(self, symbol: Symbol) -> dict[str, Any]:
+        result = self._run(self._adapter.fetch_ticker(symbol))
+        return {
+            "last": getattr(result, "last", None) or getattr(result, "price", None),
+            "bid": getattr(result, "bid", None),
+            "ask": getattr(result, "ask", None),
+        }
+
+    def close_all_positions(self) -> dict[str, Any]:
+        result = self._run(self._adapter.close_all_positions())
+        return result if isinstance(result, dict) else {"closed": len(result)}
+
+
 class CliBrokerAdapter:
     """Dict-based adapter bridge for ExchangeAdapter → BrokerGateway.
 

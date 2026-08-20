@@ -546,6 +546,7 @@ def _place_order_via_gateway(live_broker, order):
     from datetime import UTC, datetime
 
     from trading_agent.execution.canonical import (
+        AuthorizedOrder,
         BrokerGateway,
         UnifiedRiskDecision,
         RiskLevel,
@@ -555,6 +556,7 @@ def _place_order_via_gateway(live_broker, order):
     from trading_agent.execution.lifecycle import ExecutionEventStore
     from trading_agent.execution.lifecycle.lifecycle import (
         ExecutionLifecycle,
+        ExecutionHealth,
         TrustedPrice,
         ExposureEffect,
     )
@@ -564,7 +566,7 @@ def _place_order_via_gateway(live_broker, order):
     )
 
     adapter = CliBrokerAdapter(live_broker)
-    store = ExecutionEventStore(":memory:").connect()
+    store = ExecutionEventStore("data/execution/events.db").connect()
 
     def _price_source(symbol):
         try:
@@ -651,14 +653,14 @@ def _place_order_via_gateway(live_broker, order):
     # 3. Approve risk (reduce-only allowed with minimal evidence)
     lifecycle.approve_risk(intent_id, risk_decision=risk_decision)
 
-    # 4. Evaluate permission (use real enums, enable checks for manual orders)
-    from trading_agent.execution.lifecycle.lifecycle import ExecutionHealth
-
-    exposure_effect_enum = ExposureEffect.REDUCE  # side is always "sell" here
+    # 4. Evaluate permission
+    exposure_effect = (
+        ExposureEffect.INCREASE if side == "buy" else ExposureEffect.REDUCE
+    )
     permission = evaluate_order_permission(
         PermissionContext(
             execution_health=ExecutionHealth.NORMAL,
-            exposure_effect=exposure_effect_enum,
+            exposure_effect=exposure_effect.value,
             risk_decision=risk_decision,
             trusted_price=None,  # No price for manual reduce
             max_price_age_seconds=60.0,
@@ -688,6 +690,34 @@ def _place_order_via_gateway(live_broker, order):
     auth_event = lifecycle.authorize_order(
         intent_id=intent_id,
         idempotency_key=order.client_order_id or intent_id,
+    )
+
+    # 6. Request broker submission (durable pre-submission event)
+    lifecycle.request_broker_submission(intent_id)
+
+    # 7. Build AuthorizedOrder with original order metadata
+    from trading_agent.execution.canonical.broker_gateway import _AUTHORIZED_TOKEN
+
+    authorized = AuthorizedOrder(
+        token=_AUTHORIZED_TOKEN,
+        intent_id=intent_id,
+        symbol=symbol,
+        side=side,
+        quantity=size,
+        idempotency_key=order.client_order_id or intent_id,
+        price_reference=0.0,
+        risk_decision_id=risk_decision.decision_id,
+        forecast_fingerprint=risk_decision.forecast_fingerprint,
+        model_artifact_id=risk_decision.model_artifact_id,
+        permission_result=permission.permission.value,
+        authorization_id=auth_event.payload["authorization_id"],
+        lifecycle_event_id=auth_event.event_id,
+        correlation_id=intent_id,
+        exposure_effect=exposure_effect.value,
+        current_exposure=0.0,
+        resulting_exposure=size if side == "buy" else 0.0,
+        authorized_at=datetime.now(UTC).isoformat(),
+        authorization_hash=auth_event.payload["payload_hash"],
         metadata={
             "order_type": order.type.value.lower(),
             "price": float(order.price) if order.price is not None else None,
@@ -698,13 +728,9 @@ def _place_order_via_gateway(live_broker, order):
         },
     )
 
-    # 6. Request broker submission (durable pre-submission event)
-    lifecycle.request_broker_submission(intent_id)
-
-    # 7. Submit via gateway using authorization_id from durable authorization
-    auth_id = auth_event.payload["authorization_id"]
+    # 8. Submit via gateway using AuthorizedOrder object
     gateway = BrokerGateway(adapter=adapter, store=store)
-    result = gateway.submit(auth_id, correlation_id=intent_id)
+    result = gateway.submit(authorized, correlation_id=intent_id)
 
     if result.success and result.broker_order_id:
         lifecycle.submit_order(
