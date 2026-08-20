@@ -286,22 +286,30 @@ class PaperExecutionAdapter:
         symbol_str = str(order.symbol)
         if "/" in symbol_str:
             base, quote = symbol_str.split("/")
-            symbol_obj = Symbol(base, quote, AssetClass.CRYPTO, MarketType.SPOT, "paper")
+            symbol_obj = Symbol(
+                base, quote, AssetClass.CRYPTO, MarketType.SPOT, "paper"
+            )
         else:
-            symbol_obj = Symbol(symbol_str, "USD", AssetClass.STOCK, MarketType.SPOT, "paper")
+            symbol_obj = Symbol(
+                symbol_str, "USD", AssetClass.STOCK, MarketType.SPOT, "paper"
+            )
         return BrokerOrderFact(
             broker_order_id=order.id,
             client_order_id=getattr(order, "client_order_id", None),
             symbol=symbol_obj,
             side=OrderSide.BUY if order.side.value == "buy" else OrderSide.SELL,
-            order_type=OrderType.MARKET if order.type.value == "market" else OrderType.LIMIT,
+            order_type=OrderType.MARKET
+            if order.type.value == "market"
+            else OrderType.LIMIT,
             quantity=Decimal(str(order.amount)),
             filled_quantity=Decimal(str(order.filled_amount)),
             price=Decimal(str(order.price)) if order.price is not None else None,
             stop_price=None,
             status=order.status.value,
             venue="paper",
-            created_at=order.timestamp if hasattr(order, "timestamp") else datetime.now(UTC),
+            created_at=order.timestamp
+            if hasattr(order, "timestamp")
+            else datetime.now(UTC),
             updated_at=datetime.now(UTC),
             raw_response={
                 "id": order.id,

@@ -1153,7 +1153,10 @@ class ExecutionLifecycle:
             risk_decision=order.risk_decision,
         )
         # Lifecycle sizing enforcement: order size must not exceed authorized quantity
-        if order.authorized_quantity > 0 and order.size > order.authorized_quantity + 1e-12:
+        if (
+            order.authorized_quantity > 0
+            and order.size > order.authorized_quantity + 1e-12
+        ):
             raise InvariantViolation(
                 "order_size_exceeds_authorization",
                 f"intent {intent_id} order size {order.size} exceeds "
