@@ -177,6 +177,7 @@ class CanonicalBrokerAdapter:
             "success": result.success,
             "broker_order_id": result.broker_order_id,
             "error": result.error,
+            "state": result.state.value if result.state else None,
             "raw_response": result.raw_response,
         }
 

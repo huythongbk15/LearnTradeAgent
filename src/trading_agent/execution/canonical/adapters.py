@@ -265,22 +265,55 @@ class PaperExecutionAdapter:
         )
 
     def fetch_order(self, order_id: str) -> BrokerOrderFact:
-        # PaperExchange doesn't have fetch_order, return minimal fact
+        order = self._exchange.get_order(order_id)
+        if order is None:
+            return BrokerOrderFact(
+                broker_order_id=order_id,
+                client_order_id=None,
+                symbol=Symbol("", "", AssetClass.CRYPTO, MarketType.SPOT, ""),
+                side=OrderSide.BUY,
+                order_type=OrderType.MARKET,
+                quantity=Decimal("0"),
+                filled_quantity=Decimal("0"),
+                price=None,
+                stop_price=None,
+                status="unknown",
+                venue="paper",
+                created_at=datetime.now(UTC),
+                updated_at=datetime.now(UTC),
+                raw_response={},
+            )
+        symbol_str = str(order.symbol)
+        if "/" in symbol_str:
+            base, quote = symbol_str.split("/")
+            symbol_obj = Symbol(base, quote, AssetClass.CRYPTO, MarketType.SPOT, "paper")
+        else:
+            symbol_obj = Symbol(symbol_str, "USD", AssetClass.STOCK, MarketType.SPOT, "paper")
         return BrokerOrderFact(
-            broker_order_id=order_id,
-            client_order_id=None,
-            symbol=Symbol("", "", AssetClass.CRYPTO, MarketType.SPOT, ""),
-            side=OrderSide.BUY,
-            order_type=OrderType.MARKET,
-            quantity=Decimal("0"),
-            filled_quantity=Decimal("0"),
-            price=None,
+            broker_order_id=order.id,
+            client_order_id=getattr(order, "client_order_id", None),
+            symbol=symbol_obj,
+            side=OrderSide.BUY if order.side.value == "buy" else OrderSide.SELL,
+            order_type=OrderType.MARKET if order.type.value == "market" else OrderType.LIMIT,
+            quantity=Decimal(str(order.amount)),
+            filled_quantity=Decimal(str(order.filled_amount)),
+            price=Decimal(str(order.price)) if order.price is not None else None,
             stop_price=None,
-            status="unknown",
+            status=order.status.value,
             venue="paper",
-            created_at=datetime.now(UTC),
+            created_at=order.timestamp if hasattr(order, "timestamp") else datetime.now(UTC),
             updated_at=datetime.now(UTC),
-            raw_response={},
+            raw_response={
+                "id": order.id,
+                "status": order.status.value,
+                "symbol": str(order.symbol),
+                "side": order.side.value,
+                "type": order.type.value,
+                "amount": float(order.amount),
+                "filled_amount": float(order.filled_amount),
+                "price": float(order.price) if order.price is not None else None,
+                "cost": float(order.cost),
+            },
         )
 
     def fetch_positions(self) -> list[BrokerPositionFact]:

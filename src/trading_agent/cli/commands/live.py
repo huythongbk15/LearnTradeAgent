@@ -539,7 +539,7 @@ def _paper_execution_error(broker: str, broker_facade: Any) -> str | None:
     return None
 
 
-def _place_order_via_gateway(live_broker, order):
+def _place_order_via_gateway(live_broker, order, store=None):
     """Route a manual CLI order through canonical lifecycle + BrokerGateway."""
     import asyncio
     import math
@@ -566,7 +566,8 @@ def _place_order_via_gateway(live_broker, order):
     )
 
     adapter = CliBrokerAdapter(live_broker)
-    store = ExecutionEventStore("data/execution/events.db").connect()
+    if store is None:
+        store = ExecutionEventStore("data/execution/events.db").connect()
 
     def _price_source(symbol):
         try:

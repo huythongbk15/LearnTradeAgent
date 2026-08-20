@@ -67,14 +67,14 @@ def make_observation(symbol: str = "BTC/USDT") -> EnrichedMarketObservation:
 
 
 def make_risk_decision(symbol: str = "BTC/USDT") -> UnifiedRiskDecision:
-    """Create a low-risk decision allowing 40% exposure."""
+    """Create a low-risk decision allowing 100% exposure for testing."""
     return UnifiedRiskDecision(
         decision_id="decision-e2e-1",
         forecast_fingerprint="fp-e2e-1",
         model_artifact_id="model-e2e-v1",
-        requested_target_exposure=0.4,
-        allowed_target_exposure=0.4,
-        max_new_exposure=0.4,
+        requested_target_exposure=1.0,
+        allowed_target_exposure=1.0,
+        max_new_exposure=1.0,
         reduce_only=False,
         risk_level=RiskLevel.LOW,
         reason_codes=("approved",),
@@ -203,7 +203,7 @@ class TestE2EPaperFlow:
 
             # ── Step 2: Create risk decision ─────────────────────────────
             risk_decision = make_risk_decision()
-            assert risk_decision.allowed_target_exposure == 0.4
+            assert risk_decision.allowed_target_exposure == 1.0
             assert risk_decision.reduce_only is False
 
             # ── Step 3: Plan order ───────────────────────────────────────
@@ -365,7 +365,7 @@ class TestE2EPaperFlow:
             risk_dict = auth_event.payload["risk_decision"]
             assert risk_dict["decision_id"] == "decision-e2e-1"
             assert risk_dict["risk_level"] == "LOW"
-            assert risk_dict["allowed_target_exposure"] == 0.4
+            assert risk_dict["allowed_target_exposure"] == 1.0
 
             # Round-trip: dict → UnifiedRiskDecision
             restored_decision = UnifiedRiskDecision.from_dict(risk_dict)

@@ -283,6 +283,15 @@ class BrokerGateway:
             # Verify authorization against durable state (P0 §15)
             if self._store is not None:
                 self._verify_authorization(authorization)
+                # Verify BROKER_SUBMISSION_REQUESTED exists (P0-7) — object path
+                submission = self._store.get_latest_submission_request(
+                    authorization.intent_id
+                )
+                if submission is None:
+                    raise AuthorizationError(
+                        f"no durable BROKER_SUBMISSION_REQUESTED for intent "
+                        f"{authorization.intent_id}"
+                    )
             # Build canonical broker request from the AuthorizedOrder object
             # Convert legacy string types to canonical types
             symbol_str = str(authorization.symbol)

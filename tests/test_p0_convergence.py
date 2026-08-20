@@ -13,7 +13,9 @@ Tests the specific P0 fixes:
 
 from __future__ import annotations
 
+import tempfile
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -762,7 +764,10 @@ class TestCliOrderE2E:
             type=OrderType.MARKET,
             size=Decimal("0.5"),
         )
-        result = _place_order_via_gateway(broker, order)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "events.db"
+            store = ExecutionEventStore(str(db_path)).connect()
+            result = _place_order_via_gateway(broker, order, store=store)
         assert result["id"] == "broker-1"
         assert result["status"] == "submitted"
         assert len(broker.calls) == 1
@@ -808,9 +813,9 @@ def _sample_risk_decision():
         decision_id="test-decision",
         forecast_fingerprint="test-fp",
         model_artifact_id="test-model",
-        requested_target_exposure=0.5,
-        allowed_target_exposure=0.25,
-        max_new_exposure=0.25,
+        requested_target_exposure=1.0,
+        allowed_target_exposure=1.0,
+        max_new_exposure=1.0,
         reduce_only=False,
         risk_level=RiskLevel.LOW,
         reason_codes=("APPROVED",),

@@ -517,25 +517,31 @@ class ExecutionLifecycle:
         return state
 
     def replay_global(self, events: list[ExecutionEvent]) -> LifecycleState:
-        """Replay events in strict global_seq order (cross-aggregate replay)."""
+        """Replay events in strict global_seq order (cross-aggregate replay).
+
+        Handles legacy pre-migration events (global_seq = -1) by replaying
+        them in aggregate-local order BEFORE the post-migration global order.
+        """
         if not events:
             return LifecycleState()
-        # Verify global_seq is present and strictly increasing
+        pre_migration = [e for e in events if e.global_seq == -1]
+        post_migration = [e for e in events if e.global_seq > 0]
+        # Sort post-migration by global_seq (strictly increasing)
+        post_migration.sort(key=lambda e: e.global_seq)
+        # Verify post-migration global_seq is strictly increasing
         prev_seq = 0
-        for event in events:
-            if event.global_seq <= 0:
-                raise LifecycleError(
-                    f"global replay requires global_seq > 0, got {event.global_seq} "
-                    f"for {event.event_id}"
-                )
+        for event in post_migration:
             if event.global_seq <= prev_seq:
                 raise LifecycleError(
                     f"global_seq not strictly increasing: {prev_seq} -> {event.global_seq} "
                     f"for {event.event_id}"
                 )
             prev_seq = event.global_seq
-        # Events are assumed to be pre-sorted by global_seq; do not re-sort.
-        return self.replay(list(events))
+        # Replay pre-migration events in aggregate-local order (aggregate_id, seq)
+        pre_migration.sort(key=lambda e: (e.aggregate_id, e.seq))
+        # Combine: pre-migration first (best-effort ordering), then post-migration
+        combined = pre_migration + post_migration
+        return self.replay(combined)
 
     def load(self) -> LifecycleState:
         """Load + replay the persisted log (crash recovery entry point)."""
@@ -592,7 +598,7 @@ class ExecutionLifecycle:
             # Reconstruct risk decision from persisted event payload
             risk_decision_data = event.payload.get("risk_decision")
             if risk_decision_data is not None:
-                order.risk_decision = UnifiedRiskDecision(**risk_decision_data)
+                order.risk_decision = UnifiedRiskDecision.from_dict(risk_decision_data)
 
     def _on_order_authorized(
         self, state: LifecycleState, event: ExecutionEvent
@@ -1146,6 +1152,22 @@ class ExecutionLifecycle:
             exclude_intent_id=intent_id,
             risk_decision=order.risk_decision,
         )
+        # Lifecycle sizing enforcement: order size must not exceed authorized quantity
+        if order.authorized_quantity > 0 and order.size > order.authorized_quantity + 1e-12:
+            raise InvariantViolation(
+                "order_size_exceeds_authorization",
+                f"intent {intent_id} order size {order.size} exceeds "
+                f"authorized quantity {order.authorized_quantity}",
+            )
+        # For sells, ensure order size is within available inventory
+        if order.side == "sell" and hasattr(self, "_inventory_source"):
+            available = float(self._inventory_source(order.symbol, "sell"))
+            if order.size > available + 1e-12:
+                raise InvariantViolation(
+                    "insufficient_inventory",
+                    f"intent {intent_id} sell size {order.size} exceeds "
+                    f"available inventory {available}",
+                )
         payload = {
             "order_id": intent_id,
             "exchange_order_id": exchange_order_id or "",
@@ -1223,6 +1245,8 @@ class ExecutionLifecycle:
             intent_id=intent_id,
             idempotency_key=f"emergency-{intent_id}",
         )
+        # Emit durable pre-submission event for gateway enforcement
+        self.request_broker_submission(intent_id)
         return auth
 
     def acknowledge_broker(

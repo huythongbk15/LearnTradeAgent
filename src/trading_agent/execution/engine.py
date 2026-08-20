@@ -33,7 +33,10 @@ from trading_agent.execution.canonical import (
     ProtectionQuantityMode,
     ProtectiveAckEvidence,
 )
-from trading_agent.execution.canonical.broker_gateway import _AUTHORIZED_TOKEN
+from trading_agent.execution.canonical.broker_gateway import (
+    _AUTHORIZED_TOKEN,
+    BrokerSubmitState,
+)
 from trading_agent.execution.canonical.adapters import PaperExecutionAdapter
 from trading_agent.execution.canonical.order_planner import (
     OrderPlanningStatus,
@@ -594,7 +597,10 @@ class ExecutionEngine:
     ) -> Order:
         """Convert a BrokerSubmitResult to an Order for backward compatibility."""
         order_side = OrderSide.BUY if side.lower() == "buy" else OrderSide.SELL
-        status = OrderStatus.FILLED if result.success else OrderStatus.REJECTED
+        if getattr(result, "state", None) == BrokerSubmitState.UNKNOWN:
+            status = OrderStatus.REJECTED
+        else:
+            status = OrderStatus.FILLED if result.success else OrderStatus.REJECTED
         raw = result.raw_response or {}
         filled_amount = float(
             raw.get(
