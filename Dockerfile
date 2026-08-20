@@ -101,7 +101,7 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
 # Environment
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONPATH="/app/src:${PYTHONPATH}" \
+    PYTHONPATH=/app/src \
     PATH="/opt/venv/bin:/home/appuser/.local/bin:${PATH}" \
     TRADING_CONFIG_PATH=/app/config/config.yaml
 
@@ -127,7 +127,7 @@ COPY --chown=appuser:appgroup . .
 # Install dev dependencies
 RUN pip install --no-cache-dir -e ".[dev,web,infra,ml,research,portfolio]"
 
-ENV PYTHONPATH="/app/src:${PYTHONPATH}"
+ENV PYTHONPATH=/app/src
 
 USER appuser
 
