@@ -115,8 +115,6 @@ def main():
                 trades[-1]["status"] = "failed"
                 trades[-1]["detail"] = s
 
-    print(out)
-
     # 3. Notify Telegram: chi khi có lệnh thật sự (fill) hoặc lỗi nghiêm trọng
     filled = [t for t in trades if t["status"] == "filled"]
     failed = [t for t in trades if t["status"] == "failed"]
@@ -142,7 +140,7 @@ def main():
     if not trades:
         print("  → Không có lệnh nào cần xử lý (signals giữ nguyên)")
 
-    # 4. In output (cho cron log)
+    # 4. In output (cho cron log) — print exactly once
     print(out[-2200:] if len(out) > 2200 else out)
 
     # Exit code

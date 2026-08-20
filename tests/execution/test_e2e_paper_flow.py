@@ -57,7 +57,7 @@ def make_observation(symbol: str = "BTC/USDT") -> EnrichedMarketObservation:
         data_manifest_id="manifest-e2e-1",
     )
     # Verify bar_state property
-    assert obs.bar_state == BarState.SOURCE_CONFIRMED_CLOSED
+    assert obs.bar_state == BarState.CLOSED
     return obs
 
 

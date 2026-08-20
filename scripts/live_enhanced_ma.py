@@ -381,21 +381,9 @@ def main():
     )
     asyncio.run(adapter.connect())
     broker = LiveBroker("alpaca", adapter)
-    # Canonical execution: lifecycle + gateway (P0 §11: runner canonical migration)
-    store = ExecutionEventStore("data/execution/events.db").connect()
-    lifecycle = ExecutionLifecycle(
-        store,
-        price_source=lambda s: (
-            TrustedPrice(
-                price=float(broker.get_ticker(s).get("last") or 0.0),
-                exchange_timestamp=datetime.now(UTC),
-                received_at=datetime.now(UTC),
-            )
-            if broker.get_ticker(s).get("last")
-            else None
-        ),
-    )
-    gateway = BrokerGateway(adapter=broker, store=store)
+    # Wrap with canonical broker gateway (P0 §11: runner canonical migration)
+    store = ExecutionEventStore("data/execution/events.db")
+    broker = CanonicalBrokerAdapter(broker, store=store)
 
     acct = broker.get_account()
     print("\n✅ Alpaca Paper connected")
