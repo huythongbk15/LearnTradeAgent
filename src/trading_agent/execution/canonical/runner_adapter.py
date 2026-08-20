@@ -43,6 +43,7 @@ class CanonicalBrokerAdapter:
             BinanceExecutionAdapter,
             LiveBrokerExecutionAdapter,
         )
+
         # Auto-detect adapter type based on broker class name
         broker_cls_name = type(broker).__name__.lower()
         if "alpaca" in broker_cls_name:

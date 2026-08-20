@@ -142,7 +142,7 @@ class TrustedPrice:
 
     def is_fresh(self, max_age_seconds: float) -> bool:
         """Reject stale, future, or absurd timestamps.
-        
+
         Strict exchange timestamp validation:
         - Exchange timestamp must not be in the future
         - Exchange timestamp must not be older than max_age_seconds
@@ -966,7 +966,7 @@ class ExecutionLifecycle:
             if math.isfinite(available):
                 # Convert quantity to notional exposure using current price
                 price = self._price_source(symbol_str)
-                if price is not None and hasattr(price, 'price') and price.price > 0:
+                if price is not None and hasattr(price, "price") and price.price > 0:
                     # We need equity for notional/equity calculation
                     # Use a placeholder 1.0 for equity ratio if not available
                     # The actual equity normalization happens at a higher level

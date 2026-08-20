@@ -17,7 +17,10 @@ from trading_agent.execution.canonical import (
     UnifiedRiskDecision,
 )
 from trading_agent.execution.canonical.broker_gateway import BrokerGateway
-from trading_agent.execution.canonical.market_observation import BarState, EnrichedMarketObservation
+from trading_agent.execution.canonical.market_observation import (
+    BarState,
+    EnrichedMarketObservation,
+)
 from trading_agent.execution.canonical.order_planner import (
     CurrentPortfolioState,
     OrderPlanningStatus,
@@ -247,7 +250,10 @@ class TestE2EPaperFlow:
             assert authorized_event is not None
             assert authorized_event.event_type == "exec.order_authorized"
             assert "risk_decision" in authorized_event.payload
-            assert authorized_event.payload["risk_decision"]["decision_id"] == "decision-e2e-1"
+            assert (
+                authorized_event.payload["risk_decision"]["decision_id"]
+                == "decision-e2e-1"
+            )
             assert authorized_event.payload["permission"] == "ALLOW"
 
             # ── Step 7: Lifecycle — request broker submission ────────────
@@ -259,7 +265,10 @@ class TestE2EPaperFlow:
 
             # ── Step 8: Gateway — submit order ───────────────────────────
             # Build AuthorizedOrder from durable authorization
-            from trading_agent.execution.canonical.broker_gateway import AuthorizedOrder, _AUTHORIZED_TOKEN
+            from trading_agent.execution.canonical.broker_gateway import (
+                AuthorizedOrder,
+                _AUTHORIZED_TOKEN,
+            )
 
             authorized = AuthorizedOrder(
                 token=_AUTHORIZED_TOKEN,
@@ -339,7 +348,9 @@ class TestE2EPaperFlow:
 
             # ── Step 13: Verify authorization hash is deterministic ───────
             # Re-read authorization event
-            auth_events = [e for e in all_events if e.event_type == "exec.order_authorized"]
+            auth_events = [
+                e for e in all_events if e.event_type == "exec.order_authorized"
+            ]
             assert len(auth_events) == 1
             auth_event = auth_events[0]
             assert "payload_hash" in auth_event.payload
@@ -354,7 +365,10 @@ class TestE2EPaperFlow:
             # Round-trip: dict → UnifiedRiskDecision
             restored_decision = UnifiedRiskDecision.from_dict(risk_dict)
             assert restored_decision.decision_id == risk_decision.decision_id
-            assert restored_decision.allowed_target_exposure == risk_decision.allowed_target_exposure
+            assert (
+                restored_decision.allowed_target_exposure
+                == risk_decision.allowed_target_exposure
+            )
             assert restored_decision.risk_level == risk_decision.risk_level
 
             # ── Cleanup ──────────────────────────────────────────────────
@@ -460,7 +474,10 @@ class TestE2EPaperFlow:
             lifecycle.request_broker_submission(intent_id=intent.intent_id)
 
             # Submit via gateway
-            from trading_agent.execution.canonical.broker_gateway import AuthorizedOrder, _AUTHORIZED_TOKEN
+            from trading_agent.execution.canonical.broker_gateway import (
+                AuthorizedOrder,
+                _AUTHORIZED_TOKEN,
+            )
 
             authorized = AuthorizedOrder(
                 token=_AUTHORIZED_TOKEN,
@@ -567,7 +584,9 @@ class TestE2EPaperFlow:
                 authorized_at=close_auth_event.payload["authorized_at"],
                 authorization_hash=close_auth_event.payload["payload_hash"],
             )
-            close_result = gateway.submit(close_authorized, correlation_id=close_intent_id)
+            close_result = gateway.submit(
+                close_authorized, correlation_id=close_intent_id
+            )
             assert close_result.success is True
 
             close_submit_event = lifecycle.submit_order(
@@ -607,7 +626,9 @@ class TestE2EPaperFlow:
             assert replayed_state.orders[close_intent_id].status.value == "filled"
 
             # Verify deterministic authorization hash
-            auth_events = [e for e in all_events if e.event_type == "exec.order_authorized"]
+            auth_events = [
+                e for e in all_events if e.event_type == "exec.order_authorized"
+            ]
             assert len(auth_events) == 2
             for auth_event in auth_events:
                 assert "payload_hash" in auth_event.payload
@@ -625,7 +646,7 @@ class TestE2EPaperFlow:
         # Create a datetime with +07:00 timezone (Vietnam)
         vietnam_tz = UTC  # Using UTC for simplicity, but test the normalization logic
         dt = datetime(2026, 8, 20, 12, 0, 0, tzinfo=vietnam_tz)
-        
+
         obs_id = ObservationId.compute(
             venue="binance",
             symbol="BTC/USDT",
@@ -639,7 +660,7 @@ class TestE2EPaperFlow:
     def test_trusted_price_strict_freshness(self):
         """TrustedPrice rejects stale/future timestamps strictly."""
         now = utcnow()
-        
+
         # Fresh price — should pass
         fresh = TrustedPrice(
             price=50500.0,
