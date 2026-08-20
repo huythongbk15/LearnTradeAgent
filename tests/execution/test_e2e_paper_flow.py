@@ -772,7 +772,9 @@ class TestTwoConnectionConcurrency:
                             authorized_at=datetime.now(UTC),
                             authorization_hash="hash-a",
                         )
-                        return gateway_a.submit(authorized, correlation_id="concurrent-a")
+                        return gateway_a.submit(
+                            authorized, correlation_id="concurrent-a"
+                        )
                     except Exception as exc:
                         return exc
 
@@ -799,12 +801,18 @@ class TestTwoConnectionConcurrency:
                             authorized_at=datetime.now(UTC),
                             authorization_hash="hash-b",
                         )
-                        return gateway_b.submit(authorized, correlation_id="concurrent-b")
+                        return gateway_b.submit(
+                            authorized, correlation_id="concurrent-b"
+                        )
                     except Exception as exc:
                         return exc
 
-                t_a = threading.Thread(target=lambda: results.__setitem__("a", run_gateway_a()))
-                t_b = threading.Thread(target=lambda: results.__setitem__("b", run_gateway_b()))
+                t_a = threading.Thread(
+                    target=lambda: results.__setitem__("a", run_gateway_a())
+                )
+                t_b = threading.Thread(
+                    target=lambda: results.__setitem__("b", run_gateway_b())
+                )
                 t_a.start()
                 t_b.start()
                 t_a.join(timeout=10)
@@ -836,7 +844,9 @@ class TestExecutionEngineE2E:
 
         # Seed price cache so engine can build TrustedPrice with exchange_timestamp
         engine.exchange._last_price_cache["BTC/USDT"] = 50000.0
-        engine.exchange._last_price_timestamps["BTC/USDT"] = datetime.now(UTC).timestamp()
+        engine.exchange._last_price_timestamps["BTC/USDT"] = datetime.now(
+            UTC
+        ).timestamp()
 
         # Build a closed market observation (engine requires observation is closed)
         now = datetime.now(UTC)
@@ -870,13 +880,17 @@ class TestExecutionEngineE2E:
 
         # Mock planner to force ORDER_REQUIRED so we can exercise the rest
         # of the engine pipeline (legacy adapter → risk → lifecycle → gateway → exchange)
-        with patch.object(engine.planner, "plan", return_value=OrderPlanningResult(
-            status=OrderPlanningStatus.ORDER_REQUIRED,
-            intent=None,  # engine will build intent from legacy adapter
-            reason_codes=(),
-            requested_delta=0.01,
-            executable_delta=0.01,
-        )):
+        with patch.object(
+            engine.planner,
+            "plan",
+            return_value=OrderPlanningResult(
+                status=OrderPlanningStatus.ORDER_REQUIRED,
+                intent=None,  # engine will build intent from legacy adapter
+                reason_codes=(),
+                requested_delta=0.01,
+                executable_delta=0.01,
+            ),
+        ):
             orders = engine.execute_signal(signal, observation=observation)
 
         # Engine may return 0 or 1 order depending on risk/permission; both are valid
