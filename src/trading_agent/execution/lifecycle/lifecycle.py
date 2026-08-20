@@ -965,26 +965,18 @@ class ExecutionLifecycle:
                 f"idempotency_key {idempotency_key} already maps to {existing}"
             )
 
-        # Derive current exposure from inventory source using notional/equity
+        # Derive current exposure from inventory source in base currency units.
+        # For sells, exposure is the available inventory (quantity).
+        # For buys, exposure is 0.0 (no current position).
         current_exposure = 0.0
         if side == "sell":
-            available = self._available_sell_inventory(
+            current_exposure = self._available_sell_inventory(
                 symbol_str, exclude_intent_id=intent_id
             )
-            if math.isfinite(available):
-                # Convert quantity to notional exposure using current price
-                price = self._price_source(symbol_str)
-                if price is not None and hasattr(price, "price") and price.price > 0:
-                    # We need equity for notional/equity calculation
-                    # Use a placeholder 1.0 for equity ratio if not available
-                    # The actual equity normalization happens at a higher level
-                    current_exposure = available * float(price.price)
-                else:
-                    current_exposure = available  # fallback to quantity
-            else:
+            if not math.isfinite(current_exposure):
                 current_exposure = float("nan")
 
-        # Determine exposure effect
+        # Determine exposure effect in base currency units
         if side == "buy":
             exposure_effect = ExposureEffect.INCREASE
             resulting_exposure = current_exposure + quantity
