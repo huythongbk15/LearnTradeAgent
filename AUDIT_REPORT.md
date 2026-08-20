@@ -56,13 +56,17 @@ codex/trading-methodology-hardening (ahead of origin by 8 commits)
 | 11 | Binance runner canonical | `d1ca903` | Wrapped with CanonicalBrokerAdapter |
 | 12 | Static CI guard | `169a954` | Added AST-based test_direct_broker_write_guard.py |
 
+## P1 COMPLETED
+
+| # | Requirement | Severity | File(s) | Resolution |
+|---|-------------|----------|---------|------------|
+| 1 | TrustedPrice freshness | P1 | `data_trust.py` / lifecycle | `is_fresh()` already validates `exchange_timestamp`: rejects future/stale timestamps and future-dated exchange data with tolerance |
+| 2 | Effective config | P1 | config module | `_validate(raw)` already calls `_merge_env_secrets(raw)` before validation; ENV overrides take precedence for Telegram and supported fields |
+| 3 | Market data provenance | P1 | `market_observation.py` | `EnrichedMarketObservation.__post_init__` now enforces strict provenance: NaN/Inf rejection, non-negative volume, future timestamp rejection, bar_close_at >= bar_open_at, and required `data_manifest_id` |
+
 ## P1 REMAINING (cần làm tiếp)
 
-| # | Requirement | Severity | File(s) | Issue |
-|---|-------------|----------|---------|-------|
-| 1 | TrustedPrice freshness | P1 | `data_trust.py` / lifecycle | Cần kiểm tra `is_fresh()` có validate exchange_timestamp không |
-| 2 | Effective config | P1 | config module | Cần kiểm tra `_validate(raw)` có merge ENV trước khi validate không |
-| 3 | Market data provenance | P1 | `market_observation.py` | Cần kiểm tra execution constructor có strict không |
+(no remaining P1 items — all three resolved)
 
 ## ORDERPLANNER DETAIL
 

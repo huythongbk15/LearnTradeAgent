@@ -181,3 +181,4 @@ data/cost_stress_report.json
 data/binance_testnet_risk_state_v2.json
 data/binance_testnet_risk_state_v2.json.lock
 data/binance_testnet_risk_state.json.lock
+CANONICAL_EXECUTION_REFACTOR_TODO.md

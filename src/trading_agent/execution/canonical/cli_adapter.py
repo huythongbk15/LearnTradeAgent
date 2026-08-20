@@ -30,7 +30,6 @@ from trading_agent.execution.canonical.adapters import (
     BrokerSubmitState,
 )
 
-
 class _SyncAsyncBridge:
     """Run an async adapter's coroutines synchronously via a background loop."""
 

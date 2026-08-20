@@ -96,6 +96,40 @@ class EnrichedMarketObservation:
         if not self.data_manifest_id:
             raise ValueError("data_manifest_id is required for execution observations")
 
+        # Strict market data provenance: reject NaN/Inf and impossible values
+        import math
+
+        for field_name, value in (
+            ("open", self.open),
+            ("high", self.high),
+            ("low", self.low),
+            ("close", self.close),
+            ("volume", self.volume),
+        ):
+            if not isinstance(value, (int, float)):
+                raise TypeError(f"{field_name} must be numeric")
+            if math.isnan(value) or math.isinf(value):
+                raise ValueError(f"{field_name} must be finite, got {value}")
+            if field_name != "volume" and value <= 0:
+                raise ValueError(f"{field_name} must be > 0, got {value}")
+            if field_name == "volume" and value < 0:
+                raise ValueError(f"volume must be >= 0, got {value}")
+
+        # observed_at should not be significantly in the future
+        now = datetime.now(UTC)
+        if self.observed_at > now:
+            raise ValueError(
+                f"observed_at must not be in the future: {self.observed_at} > {now}"
+            )
+
+        # bar_close_at must be >= bar_open_at when both are present
+        if self.bar_open_at is not None and self.bar_close_at is not None:
+            if self.bar_close_at < self.bar_open_at:
+                raise ValueError(
+                    f"bar_close_at must be >= bar_open_at: "
+                    f"{self.bar_close_at} < {self.bar_open_at}"
+                )
+
     @property
     def bar_state(self) -> BarState:
         """Derive candle state from source + wall-clock, never wall-clock alone.

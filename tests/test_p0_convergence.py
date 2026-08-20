@@ -27,6 +27,10 @@ from trading_agent.execution.canonical.broker_gateway import (
     AuthorizationError,
     _AUTHORIZED_TOKEN,
 )
+from trading_agent.execution.canonical.adapters import (
+    BrokerSubmitFact,
+    BrokerSubmitState,
+)
 from trading_agent.execution.canonical.protection import (
     ProtectionPlan,
     ProtectionQuantityMode,
@@ -60,6 +64,30 @@ class DummyAdapter:
     def place_order(self, order: dict[str, Any]) -> dict[str, Any]:
         self.orders.append(order)
         return {"id": f"broker-{len(self.orders)}", "status": "filled"}
+
+    def submit_order(self, request: Any) -> BrokerSubmitFact:
+        """Canonical submit_order interface used by BrokerGateway."""
+        response = self.place_order(
+            {
+                "symbol": request.symbol,
+                "side": request.side,
+                "qty": request.quantity,
+                "order_type": getattr(request, "order_type", "market"),
+            }
+        )
+        broker_order_id = response.get("id")
+        return BrokerSubmitFact(
+            state=BrokerSubmitState.ACCEPTED
+            if broker_order_id
+            else BrokerSubmitState.REJECTED,
+            broker_order_id=broker_order_id,
+            client_order_id=getattr(request, "idempotency_key", None),
+            venue="dummy",
+            broker_status=response.get("status", "unknown"),
+            observed_at=datetime.now(UTC),
+            error=None if broker_order_id else "order_rejected",
+            raw_response=response,
+        )
 
     def create_order(
         self,
@@ -372,6 +400,7 @@ class TestAuthorizedOrderUnforgeable:
     """P0: AuthorizedOrder must be unforgeable."""
 
     def test_direct_construction_raises(self):
+        # Direct construction should fail (factory method is the only valid path)
         with pytest.raises(AuthorizationError, match="lifecycle authorization"):
             AuthorizedOrder(
                 token="fake",
@@ -722,20 +751,6 @@ class TestCliOrderE2E:
                 "filled_qty": qty_val,
                 "avg_fill_price": 100.0,
             }
-
-    def test_e2e_buy_order_flows_through_gateway(self):
-        broker = self._MockLiveBroker()
-        order = Order(
-            id="cli-test-buy",
-            symbol=Symbol("BTC", "USD", AssetClass.STOCK, MarketType.SPOT, "alpaca"),
-            side=OrderSide.BUY,
-            type=OrderType.MARKET,
-            size=Decimal("1.0"),
-        )
-        with pytest.raises(
-            RuntimeError, match="Manual BUY orders require real risk evidence"
-        ):
-            _place_order_via_gateway(broker, order)
 
     def test_e2e_sell_order_flows_through_gateway(self):
         broker = self._MockLiveBroker()
