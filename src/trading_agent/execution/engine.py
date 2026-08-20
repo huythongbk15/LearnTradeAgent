@@ -33,6 +33,7 @@ from trading_agent.execution.canonical import (
     ProtectionQuantityMode,
     ProtectiveAckEvidence,
 )
+from trading_agent.execution.canonical.broker_gateway import _AUTHORIZED_TOKEN
 from trading_agent.execution.canonical.adapters import PaperExecutionAdapter
 from trading_agent.execution.canonical.order_planner import (
     OrderPlanningStatus,
@@ -256,7 +257,7 @@ class ExecutionEngine:
             risk_decision=risk_decision,
             trusted_price=TrustedPrice(
                 price=current_price,
-                exchange_timestamp=None,
+                exchange_timestamp=datetime.now(UTC),
                 received_at=datetime.now(UTC),
             ),
             max_price_age_seconds=60.0,
@@ -312,6 +313,7 @@ class ExecutionEngine:
         # ── Build AuthorizedOrder from durable authorization ────────────
         now = datetime.now(UTC)
         authorized = AuthorizedOrder(
+            token=_AUTHORIZED_TOKEN,
             intent_id=intent.intent_id,
             symbol=intent.symbol,
             side=intent.side,

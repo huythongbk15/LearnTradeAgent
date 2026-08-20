@@ -128,6 +128,7 @@ class BrokerSubmitResult:
     success: bool
     broker_order_id: str | None
     error: str | None
+    state: "BrokerSubmitState | None" = None
     raw_response: dict[str, Any] = field(default_factory=dict)
 
 
@@ -194,6 +195,32 @@ class AuthorizedOrder:
                 "AuthorizedOrder must be created through lifecycle authorization"
             )
         self._token = token
+        # Required fields — fail fast with clear message if missing
+        required = (
+            "intent_id",
+            "symbol",
+            "side",
+            "quantity",
+            "idempotency_key",
+            "price_reference",
+            "risk_decision_id",
+            "forecast_fingerprint",
+            "model_artifact_id",
+            "permission_result",
+            "authorization_id",
+            "lifecycle_event_id",
+            "correlation_id",
+            "exposure_effect",
+            "current_exposure",
+            "resulting_exposure",
+            "authorized_at",
+            "authorization_hash",
+        )
+        missing = [k for k in required if k not in fields]
+        if missing:
+            raise AuthorizationError(
+                f"AuthorizedOrder missing required fields: {', '.join(missing)}"
+            )
         self.intent_id = fields["intent_id"]
         self.symbol = fields["symbol"]
         self.side = fields["side"]
@@ -388,16 +415,17 @@ class BrokerGateway:
         try:
             # Use canonical adapter.submit_order() returning BrokerSubmitFact
             submit_fact: BrokerSubmitFact = self._adapter.submit_order(request)
+            success = submit_fact.state in (
+                BrokerSubmitState.ACCEPTED,
+                BrokerSubmitState.OPEN,
+                BrokerSubmitState.PARTIALLY_FILLED,
+                BrokerSubmitState.FILLED,
+            )
             return BrokerSubmitResult(
-                success=submit_fact.state
-                in (
-                    BrokerSubmitState.ACCEPTED,
-                    BrokerSubmitState.OPEN,
-                    BrokerSubmitState.PARTIALLY_FILLED,
-                    BrokerSubmitState.FILLED,
-                ),
+                success=success,
                 broker_order_id=submit_fact.broker_order_id,
                 error=submit_fact.error,
+                state=submit_fact.state,
                 raw_response=submit_fact.raw_response,
             )
         except Exception as exc:
@@ -405,6 +433,8 @@ class BrokerGateway:
                 success=False,
                 broker_order_id=None,
                 error=str(exc),
+                state=BrokerSubmitState.UNKNOWN,
+                raw_response={},
             )
 
     def _verify_authorization(self, order: AuthorizedOrder) -> None:

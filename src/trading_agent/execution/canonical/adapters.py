@@ -218,6 +218,7 @@ class PaperExecutionAdapter:
             stop_price=float(request.stop_price)
             if request.stop_price is not None
             else None,
+            idempotency_key=request.idempotency_key,
             client_order_id=request.idempotency_key,
         )
 
@@ -293,8 +294,8 @@ class PaperExecutionAdapter:
                     MarketType.SPOT,
                     "paper",
                 ),
-                quantity=Decimal(str(p.qty)),
-                side=OrderSide.BUY if p.side.lower() == "long" else OrderSide.SELL,
+                quantity=Decimal(str(p.quantity)),
+                side=OrderSide.BUY if p.side == OrderSide.LONG else OrderSide.SELL,
                 entry_price=Decimal(str(p.entry_price)) if p.entry_price else None,
                 current_price=Decimal(str(p.current_price))
                 if p.current_price

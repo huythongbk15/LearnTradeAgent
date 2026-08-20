@@ -136,7 +136,7 @@ class TrustedPrice:
     """Typed market-data object with freshness and integrity guarantees."""
 
     price: float
-    exchange_timestamp: datetime | None
+    exchange_timestamp: datetime
     received_at: datetime
     sequence_id: int | None = None
 
@@ -155,16 +155,15 @@ class TrustedPrice:
         age = (now - self.received_at).total_seconds()
         if age > max_age_seconds:
             return False
-        # Validate exchange timestamp if present — strict validation
-        if self.exchange_timestamp is not None:
-            exchange_dt = self.exchange_timestamp
-            if exchange_dt > now:
-                return False  # future exchange timestamp
-            exchange_age = (now - exchange_dt).total_seconds()
-            if exchange_age > max_age_seconds:
-                return False  # exchange data is stale
-            if exchange_age < -5.0:
-                return False  # exchange timestamp significantly in the future
+        # exchange_timestamp is mandatory — strict validation
+        exchange_dt = self.exchange_timestamp
+        if exchange_dt > now:
+            return False  # future exchange timestamp
+        exchange_age = (now - exchange_dt).total_seconds()
+        if exchange_age > max_age_seconds:
+            return False  # exchange data is stale
+        if exchange_age < -5.0:
+            return False  # exchange timestamp significantly in the future
         return True
 
 

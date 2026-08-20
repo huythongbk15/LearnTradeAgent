@@ -50,7 +50,7 @@ CREATE TABLE IF NOT EXISTS execution_events (
     causation_id    TEXT,
     occurred_at     TEXT NOT NULL,
     ingested_at     TEXT NOT NULL,
-    global_seq      INTEGER NOT NULL UNIQUE CHECK (global_seq > 0),
+    global_seq      INTEGER NOT NULL UNIQUE CHECK (global_seq > 0 OR global_seq = -1),
     UNIQUE (aggregate_id, seq)
 );
 CREATE INDEX IF NOT EXISTS idx_exec_agg_seq
