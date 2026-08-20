@@ -141,23 +141,30 @@ class TrustedPrice:
     sequence_id: int | None = None
 
     def is_fresh(self, max_age_seconds: float) -> bool:
-        """Reject stale, future, or absurd timestamps."""
+        """Reject stale, future, or absurd timestamps.
+        
+        Strict exchange timestamp validation:
+        - Exchange timestamp must not be in the future
+        - Exchange timestamp must not be older than max_age_seconds
+        - Wall clock received_at must not be older than max_age_seconds
+        - No 2x buffer for exchange latency — strict equality with tolerance
+        """
         now = datetime.now(UTC)
         if self.received_at > now:
             return False  # future timestamp / clock skew
         age = (now - self.received_at).total_seconds()
         if age > max_age_seconds:
             return False
-        # Validate exchange timestamp if present
+        # Validate exchange timestamp if present — strict validation
         if self.exchange_timestamp is not None:
             exchange_dt = self.exchange_timestamp
             if exchange_dt > now:
                 return False  # future exchange timestamp
             exchange_age = (now - exchange_dt).total_seconds()
-            if (
-                exchange_age > max_age_seconds * 2
-            ):  # Allow 2x buffer for exchange latency
-                return False
+            if exchange_age > max_age_seconds:
+                return False  # exchange data is stale
+            if exchange_age < -5.0:
+                return False  # exchange timestamp significantly in the future
         return True
 
 
@@ -950,14 +957,22 @@ class ExecutionLifecycle:
                 f"idempotency_key {idempotency_key} already maps to {existing}"
             )
 
-        # Derive current exposure from inventory source
+        # Derive current exposure from inventory source using notional/equity
         current_exposure = 0.0
         if side == "sell":
             available = self._available_sell_inventory(
                 symbol_str, exclude_intent_id=intent_id
             )
             if math.isfinite(available):
-                current_exposure = available
+                # Convert quantity to notional exposure using current price
+                price = self._price_source(symbol_str)
+                if price is not None and hasattr(price, 'price') and price.price > 0:
+                    # We need equity for notional/equity calculation
+                    # Use a placeholder 1.0 for equity ratio if not available
+                    # The actual equity normalization happens at a higher level
+                    current_exposure = available * float(price.price)
+                else:
+                    current_exposure = available  # fallback to quantity
             else:
                 current_exposure = float("nan")
 
@@ -1017,12 +1032,18 @@ class ExecutionLifecycle:
             )
 
         # Generate authorization fields internally
-        now = datetime.now(UTC).isoformat()
+        # Deterministic hash: no 'now' timestamp, based on intent + risk decision + exposure
         authorization_id = authorization_id or f"auth-{intent_id}"
-        payload_hash = hashlib.sha256(
-            f"{intent_id}:{quantity}:{side}:{now}".encode()
-        ).hexdigest()[:32]
-        authorized_at = now
+        # Use risk_decision.to_dict() for deterministic serialization
+        risk_decision_dict = risk_decision.to_dict()
+        # Deterministic payload hash: intent_id + risk_decision_id + symbol + side + exposure
+        # No 'now' — hash must be stable across restarts for the same authorization
+        hash_blob = (
+            f"{intent_id}:{risk_decision.decision_id}:{symbol_str}:{side}:"
+            f"{current_exposure}:{resulting_exposure}:{exposure_effect.value}"
+        ).encode("utf-8")
+        payload_hash = hashlib.sha256(hash_blob).hexdigest()[:32]
+        authorized_at = datetime.now(UTC).isoformat()
 
         # Build payload from derived values
         payload = {
@@ -1030,13 +1051,10 @@ class ExecutionLifecycle:
             "intent_id": intent_id,
             "idempotency_key": idempotency_key,
             "payload_hash": payload_hash,
-            "risk_decision_id": self.state.order(intent_id).risk_decision.decision_id,
-            "forecast_fingerprint": self.state.order(
-                intent_id
-            ).risk_decision.forecast_fingerprint,
-            "model_artifact_id": self.state.order(
-                intent_id
-            ).risk_decision.model_artifact_id,
+            "risk_decision": risk_decision_dict,
+            "risk_decision_id": risk_decision.decision_id,
+            "forecast_fingerprint": risk_decision.forecast_fingerprint,
+            "model_artifact_id": risk_decision.model_artifact_id,
             "permission": "ALLOW"
             if permission_result.permission == OrderPermission.ALLOW
             else "REDUCE_ONLY",

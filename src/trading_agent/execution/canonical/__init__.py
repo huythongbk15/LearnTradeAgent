@@ -42,6 +42,9 @@ from trading_agent.execution.canonical.order_planner import (
     InstrumentRules,
     MarketPrice,
 )
+from trading_agent.execution.canonical.adapters import (
+    PaperExecutionAdapter,
+)
 from trading_agent.execution.canonical.protection import (
     ProtectionPlan,
     ProtectionState,
@@ -64,7 +67,6 @@ from trading_agent.execution.canonical.broker_gateway import (
     CancelEvidence,
     ProtectiveAckEvidence,
     AuthorizationError,
-    ExchangeAdapter,
 )
 from trading_agent.execution.canonical.runner_adapter import CanonicalBrokerAdapter
 
@@ -87,6 +89,8 @@ __all__ = [
     "CurrentPortfolioState",
     "InstrumentRules",
     "MarketPrice",
+    # Adapters
+    "PaperExecutionAdapter",
     # Broker gateway
     "BrokerGateway",
     "AuthorizedOrder",
@@ -97,7 +101,6 @@ __all__ = [
     "CancelEvidence",
     "ProtectiveAckEvidence",
     "AuthorizationError",
-    "ExchangeAdapter",
     "CanonicalBrokerAdapter",
     # Protection
     "ProtectionPlan",

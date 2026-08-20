@@ -31,6 +31,11 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from trading_agent.execution.canonical.adapters import (
+    BrokerSubmitFact,
+    BrokerSubmitState,
+)
+
 from scripts.live_config import DRAWDOWN_TIERS
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -211,6 +216,33 @@ class _AlpacaSyncAdapter:
     def get_ticker(self, symbol):
         ticker = self._run(self._adapter.fetch_ticker(symbol))
         return {"last": getattr(ticker, "last", None) or getattr(ticker, "price", None)}
+
+    def submit_order(self, request):
+        """Submit order via canonical BrokerOrderRequest."""
+        symbol = request.symbol
+        if hasattr(symbol, "alpaca_symbol"):
+            symbol = symbol.alpaca_symbol
+        payload = {
+            "symbol": symbol,
+            "side": request.side,
+            "qty": request.quantity,
+            "order_type": getattr(request, "order_type", "market"),
+            "price": getattr(request, "price", None),
+            "stop_price": getattr(request, "stop_price", None),
+            "idempotency_key": getattr(request, "idempotency_key", None),
+        }
+        response = self.place_order(payload)
+        broker_order_id = response.get("id")
+        return BrokerSubmitFact(
+            state=BrokerSubmitState.ACCEPTED if broker_order_id else BrokerSubmitState.REJECTED,
+            broker_order_id=broker_order_id,
+            client_order_id=getattr(request, "idempotency_key", None),
+            venue="cli",
+            broker_status="accepted" if broker_order_id else "rejected",
+            observed_at=datetime.now(UTC),
+            error=None if broker_order_id else "order_rejected",
+            raw_response=response,
+        )
 
     def place_order(self, payload):
         from alpaca.trading.requests import OrderRequest

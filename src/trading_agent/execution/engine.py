@@ -33,6 +33,7 @@ from trading_agent.execution.canonical import (
     ProtectionQuantityMode,
     ProtectiveAckEvidence,
 )
+from trading_agent.execution.canonical.adapters import PaperExecutionAdapter
 from trading_agent.execution.canonical.order_planner import (
     OrderPlanningStatus,
     ExposureEffect,
@@ -135,7 +136,9 @@ class ExecutionEngine:
         # ── Canonical execution stack ─────────────────────────────────
         self.store = ExecutionEventStore("data/execution/events.db")
         self.store.connect()
-        self.gateway = BrokerGateway(adapter=self.exchange, store=self.store)
+        # Use PaperExecutionAdapter wrapping PaperExchange
+        paper_adapter = PaperExecutionAdapter(self.exchange)
+        self.gateway = BrokerGateway(adapter=paper_adapter, store=self.store)
         self.lifecycle = ExecutionLifecycle(
             self.store,
             price_source=lambda symbol: (
@@ -295,36 +298,10 @@ class ExecutionEngine:
         )
 
         # Build durable authorization through lifecycle
-        now = datetime.now(UTC).isoformat()
-        authorization_hash = _make_authorization_hash(
-            intent.intent_id,
-            risk_decision.decision_id,
-            permission.permission.value,
-            now,
-            intent.symbol,
-            intent.side,
-            intent.quantity,
-            portfolio.current_exposure,
-            plan_result.executable_delta + portfolio.current_exposure,
-            exposure_effect.value,
-        )
+        # Lifecycle derives ALL authorization fields internally from durable state
         authorized_event = self.lifecycle.authorize_order(
             intent_id=intent.intent_id,
-            authorization_id=f"auth-{intent.intent_id}",
             idempotency_key=intent.idempotency_key,
-            payload_hash=authorization_hash,
-            risk_decision_id=risk_decision.decision_id,
-            forecast_fingerprint=risk_decision.forecast_fingerprint,
-            model_artifact_id=risk_decision.model_artifact_id,
-            permission=permission.permission.value,
-            symbol=intent.symbol,
-            side=intent.side,
-            quantity=intent.quantity,
-            exposure_effect=exposure_effect.value,
-            current_exposure=portfolio.current_exposure,
-            resulting_exposure=plan_result.executable_delta
-            + portfolio.current_exposure,
-            authorized_at=now,
         )
 
         # ──── Durable broker submission request BEFORE broker I/O ────────
@@ -333,6 +310,7 @@ class ExecutionEngine:
         )
 
         # ── Build AuthorizedOrder from durable authorization ────────────
+        now = datetime.now(UTC)
         authorized = AuthorizedOrder(
             intent_id=intent.intent_id,
             symbol=intent.symbol,
@@ -352,7 +330,7 @@ class ExecutionEngine:
             resulting_exposure=plan_result.executable_delta
             + portfolio.current_exposure,
             authorized_at=now,
-            authorization_hash=authorization_hash,
+            authorization_hash=authorized_event.payload.get("payload_hash"),
         )
 
         # ── Submit via gateway (verifies auth against durable state) ────

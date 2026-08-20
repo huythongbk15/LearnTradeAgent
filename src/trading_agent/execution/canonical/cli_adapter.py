@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import threading
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -23,6 +24,8 @@ from trading_agent.exchanges.models import (
     OrderType,
     Symbol,
 )
+
+from trading_agent.execution.canonical.adapters import BrokerSubmitFact, BrokerSubmitState
 
 
 class _SyncAsyncBridge:
@@ -111,6 +114,71 @@ class CliBrokerAdapter:
         self._bridge = _SyncAsyncBridge(async_adapter)
 
     # ── ExchangeAdapter protocol ────────────────────────────────────────
+
+    def submit_order(self, request: Any) -> BrokerSubmitFact:
+        """Submit order via canonical BrokerOrderRequest."""
+        symbol = request.symbol
+        if isinstance(symbol, str):
+            parts = symbol.split("/")
+            if len(parts) == 2:
+                base, quote = parts
+                symbol = Symbol(
+                    base=base,
+                    quote=quote,
+                    asset_class=AssetClass.STOCK,
+                    market_type=MarketType.SPOT,
+                    exchange="alpaca",
+                )
+            else:
+                raise ValueError(f"Invalid symbol format: {symbol}")
+
+        if not isinstance(symbol, Symbol):
+            raise TypeError(f"symbol must be Symbol, got {type(symbol)}")
+
+        side = (
+            OrderSide.BUY
+            if request.side.strip().lower() == "buy"
+            else OrderSide.SELL
+        )
+        order_type_str = getattr(request, "order_type", "market").strip().lower()
+        order_type = OrderType.MARKET
+        if order_type_str == "limit":
+            order_type = OrderType.LIMIT
+        elif order_type_str == "stop":
+            order_type = OrderType.STOP
+        elif order_type_str == "stop_limit":
+            order_type = OrderType.STOP_LIMIT
+
+        price = Decimal(str(request.price)) if getattr(request, "price", None) is not None else None
+        stop_price = (
+            Decimal(str(request.stop_price))
+            if getattr(request, "stop_price", None) is not None
+            else None
+        )
+
+        order = Order(
+            id="",
+            symbol=symbol,
+            side=side,
+            type=order_type,
+            size=Decimal(str(request.quantity)),
+            price=price,
+            stop_price=stop_price,
+            client_order_id=getattr(request, "idempotency_key", None),
+        )
+        response = self._bridge.create_order(order)
+        broker_order_id = response.get("id")
+        broker_status = response.get("status", "unknown")
+        return BrokerSubmitFact(
+            state=BrokerSubmitState.ACCEPTED if broker_order_id else BrokerSubmitState.REJECTED,
+            broker_order_id=broker_order_id,
+            client_order_id=getattr(request, "idempotency_key", None),
+            venue="cli",
+            broker_status=broker_status,
+            observed_at=datetime.now(UTC),
+            error=None if broker_order_id else response.get("error"),
+            raw_response=response,
+        )
 
     def place_order(self, payload: dict[str, Any]) -> dict[str, Any]:
         symbol = payload["symbol"]

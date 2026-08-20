@@ -202,8 +202,11 @@ class PaperExecutionAdapter:
     def submit_order(self, request: BrokerOrderRequest) -> BrokerSubmitFact:
         """Submit order via PaperExchange legacy API."""
         # Convert canonical request to legacy call
-        result = self._exchange.place_order(
-            symbol=request.symbol,
+        # Note: PaperExchange.place_order() doesn't accept time_in_force
+        # Use symbol.pair for PaperExchange which expects "BTC/USDT" format
+        symbol_pair = request.symbol.pair if hasattr(request.symbol, 'pair') else str(request.symbol)
+        order_result = self._exchange.place_order(
+            symbol=symbol_pair,
             side=request.side.value.lower(),
             order_type=request.order_type.value.lower(),
             amount=float(request.quantity),
@@ -211,21 +214,33 @@ class PaperExecutionAdapter:
             stop_price=float(request.stop_price)
             if request.stop_price is not None
             else None,
-            time_in_force=request.time_in_force,
             client_order_id=request.idempotency_key,
         )
 
-        # Convert legacy response to canonical fact
-        broker_order_id = result.get("id") or result.get("order_id")
+        # Convert legacy Order object to canonical fact
+        # PaperExchange uses trading_agent.execution.types.Order (amount, filled_amount, cost)
+        broker_order_id = order_result.id
+        broker_status = order_result.status.value
         return BrokerSubmitFact(
             state=BrokerSubmitState.ACCEPTED,
             broker_order_id=broker_order_id,
             client_order_id=request.idempotency_key,
             venue="paper",
-            broker_status=result.get("status", "open"),
+            broker_status=broker_status,
             observed_at=datetime.now(UTC),
-            error=None,
-            raw_response=result,
+            error=None,  # execution.types.Order doesn't have error attribute
+            raw_response={
+                "id": order_result.id,
+                "status": broker_status,
+                "symbol": str(order_result.symbol),
+                "side": order_result.side.value,
+                "type": order_result.type.value,
+                "amount": float(order_result.amount),
+                "price": float(order_result.price) if order_result.price is not None else None,
+                "filled_amount": float(order_result.filled_amount),
+                "avg_fill_price": float(order_result.avg_fill_price) if order_result.avg_fill_price is not None else None,
+                "cost": float(order_result.cost),
+            },
         )
 
     def request_cancel(self, request: BrokerCancelRequest) -> BrokerCancelFact:

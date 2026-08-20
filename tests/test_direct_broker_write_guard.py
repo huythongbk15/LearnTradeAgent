@@ -37,6 +37,7 @@ ALLOWED_FILES = {
     "test_broker_gateway.py",  # Tests for BrokerGateway
     "close_alpaca_micro_dust.py",  # Canonical lifecycle wrapper
     "cli_adapter.py",  # Canonical CLI adapter bridge for LiveBroker
+    "app.py",  # WebUI backend containing _AlpacaSyncAdapter (canonical sync wrapper)
 }
 
 # Directories to scan

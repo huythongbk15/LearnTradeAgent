@@ -2267,7 +2267,7 @@ def run_locked(
         # Wrap with canonical broker gateway (P0 §12: runner canonical migration)
         execution_store = ExecutionEventStore("data/execution/events.db")
         broker = CanonicalBrokerAdapter(
-            broker, gateway=BrokerGateway(adapter=broker, store=execution_store)
+            broker, store=execution_store
         )
 
         # Canonical execution: lifecycle + gateway (P0 §12: runner canonical migration)
