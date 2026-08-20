@@ -519,29 +519,32 @@ class ExecutionLifecycle:
     def replay_global(self, events: list[ExecutionEvent]) -> LifecycleState:
         """Replay events in strict global_seq order (cross-aggregate replay).
 
-        Handles legacy pre-migration events (global_seq = -1) by replaying
-        them in aggregate-local order BEFORE the post-migration global order.
+        Pre-migration events (global_seq = -1) are NOT allowed because
+        cross-aggregate ordering cannot be reconstructed from aggregate-local
+        seq alone. Run the migration script to assign valid global_seq values
+        before loading.
         """
         if not events:
             return LifecycleState()
+        # Strict: reject any pre-migration event
         pre_migration = [e for e in events if e.global_seq == -1]
-        post_migration = [e for e in events if e.global_seq > 0]
+        if pre_migration:
+            raise LifecycleError(
+                f"global replay rejected {len(pre_migration)} pre-migration events "
+                f"(global_seq = -1). Run migration to assign global_seq."
+            )
         # Sort post-migration by global_seq (strictly increasing)
-        post_migration.sort(key=lambda e: e.global_seq)
-        # Verify post-migration global_seq is strictly increasing
+        events.sort(key=lambda e: e.global_seq)
+        # Verify global_seq is strictly increasing
         prev_seq = 0
-        for event in post_migration:
+        for event in events:
             if event.global_seq <= prev_seq:
                 raise LifecycleError(
                     f"global_seq not strictly increasing: {prev_seq} -> {event.global_seq} "
                     f"for {event.event_id}"
                 )
             prev_seq = event.global_seq
-        # Replay pre-migration events in aggregate-local order (aggregate_id, seq)
-        pre_migration.sort(key=lambda e: (e.aggregate_id, e.seq))
-        # Combine: pre-migration first (best-effort ordering), then post-migration
-        combined = pre_migration + post_migration
-        return self.replay(combined)
+        return self.replay(events)
 
     def load(self) -> LifecycleState:
         """Load + replay the persisted log (crash recovery entry point)."""
@@ -1051,6 +1054,9 @@ class ExecutionLifecycle:
         authorized_at = datetime.now(UTC).isoformat()
 
         # Build payload from derived values
+        # authorized_quantity is the quantity approved by risk decision (base currency).
+        # It equals the intent quantity because the planner already enforced max_new_exposure.
+        authorized_quantity = quantity
         payload = {
             "authorization_id": authorization_id,
             "intent_id": intent_id,
@@ -1066,6 +1072,7 @@ class ExecutionLifecycle:
             "symbol": order.symbol,
             "side": side,
             "quantity": quantity,
+            "authorized_quantity": authorized_quantity,
             "exposure_effect": exposure_effect.value,
             "current_exposure": current_exposure
             if math.isfinite(current_exposure)

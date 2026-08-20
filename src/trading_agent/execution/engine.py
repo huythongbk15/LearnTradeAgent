@@ -30,6 +30,7 @@ from trading_agent.execution.canonical import (
     MarketPrice,
     InstrumentRules,
     ProtectionPlan,
+    ProtectionState,
     ProtectionQuantityMode,
     ProtectiveAckEvidence,
 )
@@ -188,8 +189,12 @@ class ExecutionEngine:
         symbol = (
             signal.details.get("symbol", "BTC/USDT") if signal.details else "BTC/USDT"
         )
-        current_price = self._get_current_price(symbol)
-        if current_price is None or current_price <= 0:
+        price_info = self._get_current_price(symbol)
+        if price_info is None:
+            logger.warning(f"Cannot execute: no price data for {symbol}")
+            return orders
+        current_price, exchange_timestamp = price_info
+        if current_price <= 0:
             logger.warning(f"Cannot execute: no price data for {symbol}")
             return orders
 
@@ -260,7 +265,7 @@ class ExecutionEngine:
             risk_decision=risk_decision,
             trusted_price=TrustedPrice(
                 price=current_price,
-                exchange_timestamp=datetime.now(UTC),
+                exchange_timestamp=exchange_timestamp,
                 received_at=datetime.now(UTC),
             ),
             max_price_age_seconds=60.0,
@@ -361,6 +366,7 @@ class ExecutionEngine:
                 stop_type="stop_loss",
                 stop_trigger=current_price * 0.95,
                 take_profit=current_price * 1.10,
+                state=ProtectionState.PROTECTION_REQUIRED,
                 quantity_mode=ProtectionQuantityMode.EXPLICIT_QUANTITY,
                 protected_quantity=intent.quantity,
             )
@@ -425,9 +431,10 @@ class ExecutionEngine:
             if pos.quantity <= 0:
                 continue
             symbol = pos.symbol
-            current_price = self._get_current_price(symbol)
-            if current_price is None:
+            price_info = self._get_current_price(symbol)
+            if price_info is None:
                 continue
+            current_price, _ = price_info
             # Use canonical emergency reduce through lifecycle
             emergency = EmergencyReduceRequest(
                 intent_id=f"emergency-close-{symbol}-{uuid.uuid4().hex}",
@@ -499,9 +506,10 @@ class ExecutionEngine:
         pos = self.exchange.get_position(symbol)
         if not pos or not pos.is_active or pos.quantity <= 0:
             return None
-        current_price = self._get_current_price(symbol)
-        if current_price is None:
+        price_info = self._get_current_price(symbol)
+        if price_info is None:
             return None
+        current_price, _ = price_info
         emergency = EmergencyReduceRequest(
             intent_id=f"emergency-close-{symbol}-{uuid.uuid4().hex}",
             symbol=symbol,
@@ -574,17 +582,33 @@ class ExecutionEngine:
 
     # ── Helpers ────────────────────────────────────────────────────────
 
-    def _get_current_price(self, symbol: str) -> float | None:
+    def _get_current_price(self, symbol: str) -> tuple[float, datetime] | None:
+        """Return (price, exchange_timestamp) from live ticker or price cache."""
         # Prefer live ticker from adapter; fall back to simulator price cache.
         try:
             ticker = self.exchange.get_ticker(symbol)
             price = ticker.get("last") or ticker.get("price")
             if price is not None:
-                return float(price)
+                # Live adapters should include an exchange-provided timestamp.
+                ts = ticker.get("timestamp")
+                if ts is not None:
+                    if isinstance(ts, datetime):
+                        exchange_ts = ts
+                    else:
+                        exchange_ts = datetime.fromtimestamp(float(ts), UTC)
+                else:
+                    exchange_ts = datetime.now(UTC)
+                return float(price), exchange_ts
         except Exception:
             pass
         try:
-            return float(self.exchange._last_price_cache[symbol])
+            price = float(self.exchange._last_price_cache[symbol])
+            ts = self.exchange._last_price_timestamps.get(symbol)
+            if ts is not None:
+                exchange_ts = datetime.fromtimestamp(float(ts), UTC)
+            else:
+                exchange_ts = datetime.now(UTC)
+            return price, exchange_ts
         except Exception:
             return None
 
@@ -597,18 +621,26 @@ class ExecutionEngine:
     ) -> Order:
         """Convert a BrokerSubmitResult to an Order for backward compatibility."""
         order_side = OrderSide.BUY if side.lower() == "buy" else OrderSide.SELL
-        if getattr(result, "state", None) == BrokerSubmitState.UNKNOWN:
-            status = OrderStatus.REJECTED
+        state = getattr(result, "state", None)
+        if state == BrokerSubmitState.UNKNOWN:
+            # UNKNOWN is not a rejection; it means the broker did not confirm
+            # the final state. Treat as SUBMITTED for reconciliation downstream.
+            status = OrderStatus.SUBMITTED
+        elif result.success:
+            status = OrderStatus.FILLED
         else:
-            status = OrderStatus.FILLED if result.success else OrderStatus.REJECTED
+            status = OrderStatus.REJECTED
         raw = result.raw_response or {}
         filled_amount = float(
             raw.get(
                 "filled",
                 raw.get("accumulated_quantity", quantity if result.success else 0),
             )
+            or 0
         )
-        avg_fill_price = float(raw.get("average", raw.get("price", 0)))
+        avg_fill_price = float(
+            (raw.get("average") or raw.get("price") or 0)
+        )
         return Order(
             id=result.broker_order_id or "",
             symbol=symbol,
