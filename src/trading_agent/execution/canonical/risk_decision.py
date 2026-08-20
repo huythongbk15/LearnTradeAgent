@@ -107,7 +107,10 @@ class UnifiedRiskDecision:
             raise ValueError(
                 "allowed_target_exposure cannot exceed requested_target_exposure"
             )
-        if self.calibration_state is EvidenceState.MISSING and self.calibration_ece == 0.0:
+        if (
+            self.calibration_state is EvidenceState.MISSING
+            and self.calibration_ece == 0.0
+        ):
             raise ValueError("calibration_ece must be > 0")
         if self.ood_state is EvidenceState.UNKNOWN and self.ood_score == 0.0:
             raise ValueError("ood_score must be > 0")
