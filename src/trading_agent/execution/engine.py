@@ -9,6 +9,7 @@ AgentMessage → LegacyDecisionAdapter → UnifiedRiskDecision → TargetExposur
 from __future__ import annotations
 
 import logging
+import math
 import signal
 import sys
 import threading
@@ -126,7 +127,34 @@ class ExecutionEngine:
         *,
         exchange: PaperExchange | None = None,
     ):
-        self.exchange_name = exchange_name or config.default_exchange
+        # ── Constructor strictness: validate inputs early ─────────────
+        if exchange is not None:
+            # When an exchange is injected, we still need a name for telemetry.
+            self.exchange_name = exchange_name or getattr(
+                exchange, "exchange_name", "injected"
+            )
+        else:
+            self.exchange_name = exchange_name or config.default_exchange
+            if not self.exchange_name or not isinstance(self.exchange_name, str):
+                raise ValueError(
+                    f"exchange_name must be a non-empty string, got {exchange_name!r}"
+                )
+
+        if initial_capital is not None:
+            if not math.isfinite(initial_capital) or initial_capital <= 0:
+                raise ValueError(
+                    f"initial_capital must be finite and positive, got {initial_capital}"
+                )
+        if commission is not None:
+            if not math.isfinite(commission) or commission < 0:
+                raise ValueError(
+                    f"commission must be finite and non-negative, got {commission}"
+                )
+        if slippage is not None:
+            if not math.isfinite(slippage) or slippage < 0:
+                raise ValueError(
+                    f"slippage must be finite and non-negative, got {slippage}"
+                )
 
         # ── Paper exchange (broker adapter) ───────────────────────────
         self.exchange = exchange or PaperExchange(
@@ -693,6 +721,10 @@ class _TrustedPrice:
     """Minimal trusted price wrapper for permission checks."""
 
     def __init__(self, price: float) -> None:
+        if not math.isfinite(price) or price <= 0:
+            raise ValueError(
+                f"_TrustedPrice requires a finite positive price, got {price}"
+            )
         self.price = price
         self.updated_at = datetime.now(UTC)
         self.age_seconds = 0.0
