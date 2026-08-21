@@ -1468,7 +1468,9 @@ class TestP1ConvergenceProofs:
             event = lifecycle.record_broker_submit_result(intent_id, unknown_result)
 
             # UNKNOWN must not be treated as rejection
-            assert event is None  # UNKNOWN returns None (manual intervention + reconciliation)
+            assert (
+                event is None
+            )  # UNKNOWN returns None (manual intervention + reconciliation)
             assert lifecycle.state.reconciliation.value == "started"
             assert lifecycle.state.manual_blocked is True
             # Order transitions to MANUAL status (not rejected), awaiting reconciliation
@@ -1478,7 +1480,8 @@ class TestP1ConvergenceProofs:
 
             # Verify NO resubmit event was created (no duplicate broker_submission_requested)
             submission_events = [
-                e for e in store.read_events_global()
+                e
+                for e in store.read_events_global()
                 if e.event_type == "exec.broker_submission_requested"
             ]
             assert len(submission_events) == 1, "UNKNOWN must not trigger resubmit"
@@ -1592,22 +1595,24 @@ class TestP1ConvergenceProofs:
             risk_decision_id="rd-unknown-engine",
         )
 
-        with patch.object(
-            engine.legacy_adapter,
-            "adapt",
-            return_value=(mock_risk_decision, mock_target),
-        ), patch.object(
-            engine.planner,
-            "plan",
-            return_value=OrderPlanningResult(
-                status=OrderPlanningStatus.ORDER_REQUIRED,
-                intent=mock_intent,
-                reason_codes=(),
-                requested_delta=0.01,
-                executable_delta=0.01,
+        with (
+            patch.object(
+                engine.legacy_adapter,
+                "adapt",
+                return_value=(mock_risk_decision, mock_target),
             ),
-        ), patch.object(
-            engine.gateway, "submit", side_effect=mock_submit
+            patch.object(
+                engine.planner,
+                "plan",
+                return_value=OrderPlanningResult(
+                    status=OrderPlanningStatus.ORDER_REQUIRED,
+                    intent=mock_intent,
+                    reason_codes=(),
+                    requested_delta=0.01,
+                    executable_delta=0.01,
+                ),
+            ),
+            patch.object(engine.gateway, "submit", side_effect=mock_submit),
         ):
             orders = engine.execute_signal(signal, observation=observation)
 
@@ -1712,19 +1717,22 @@ class TestP1ConvergenceProofs:
                     risk_decision_id="rd-restart",
                 )
 
-                with patch.object(
-                    engine1.legacy_adapter,
-                    "adapt",
-                    return_value=(mock_risk_decision, mock_target),
-                ), patch.object(
-                    engine1.planner,
-                    "plan",
-                    return_value=OrderPlanningResult(
-                        status=OrderPlanningStatus.ORDER_REQUIRED,
-                        intent=mock_intent,
-                        reason_codes=(),
-                        requested_delta=0.01,
-                        executable_delta=0.01,
+                with (
+                    patch.object(
+                        engine1.legacy_adapter,
+                        "adapt",
+                        return_value=(mock_risk_decision, mock_target),
+                    ),
+                    patch.object(
+                        engine1.planner,
+                        "plan",
+                        return_value=OrderPlanningResult(
+                            status=OrderPlanningStatus.ORDER_REQUIRED,
+                            intent=mock_intent,
+                            reason_codes=(),
+                            requested_delta=0.01,
+                            executable_delta=0.01,
+                        ),
                     ),
                 ):
                     orders1 = engine1.execute_signal(signal, observation=observation)
@@ -1751,9 +1759,17 @@ class TestP1ConvergenceProofs:
                 for intent_id in orders_before:
                     status = replayed_state.orders[intent_id].status.value
                     assert status in (
-                        "pending", "approved", "authorized", "submitted",
-                        "acknowledged", "partially_filled", "filled",
-                        "cancel_requested", "canceled", "rejected", "manual",
+                        "pending",
+                        "approved",
+                        "authorized",
+                        "submitted",
+                        "acknowledged",
+                        "partially_filled",
+                        "filled",
+                        "cancel_requested",
+                        "canceled",
+                        "rejected",
+                        "manual",
                     ), f"Unexpected replayed status: {status}"
             finally:
                 os.chdir(orig_cwd)
