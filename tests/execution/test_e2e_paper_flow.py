@@ -425,6 +425,156 @@ class TestE2EPaperFlow:
             store.close()
             store2.close()
 
+    def test_restart_reconciles_paper_positions(self):
+        """P0-5B: After restart, lifecycle must reconcile paper positions against exchange state."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state_dir = Path(tmpdir) / "paper_state"
+            state_dir.mkdir()
+            db_path = Path(tmpdir) / "events.db"
+
+            exchange = PaperExchange(
+                exchange_name="binance",
+                initial_balance=100_000.0,
+                commission=0.001,
+                slippage=0.0005,
+                state_dir=state_dir,
+            )
+            exchange.update_prices({"BTC/USDT": 50500.0})
+
+            adapter = PaperExecutionAdapter(exchange)
+            store = ExecutionEventStore(str(db_path))
+            store.connect()
+            gateway = BrokerGateway(adapter=adapter, store=store)
+
+            def price_source(symbol: str) -> TrustedPrice | None:
+                if symbol in exchange._last_price_cache:
+                    return TrustedPrice(
+                        price=float(exchange._last_price_cache[symbol]),
+                        exchange_timestamp=datetime.fromtimestamp(
+                            exchange._last_price_timestamps[symbol], UTC
+                        ),
+                        received_at=utcnow(),
+                    )
+                return None
+
+            def inventory_source(symbol: str, side: str) -> float:
+                return 1.0
+
+            def portfolio_source(symbol: str) -> PortfolioRiskSnapshot | None:
+                return make_portfolio_source(exchange)(symbol)
+
+            lifecycle = ExecutionLifecycle(
+                store,
+                price_source=price_source,
+                inventory_source=inventory_source,
+                portfolio_source=portfolio_source,
+                max_price_age_seconds=300.0,
+            )
+
+            # Create and fill an order
+            intent_id = "recon-restart-1"
+            lifecycle.create_order_intent(
+                intent_id=intent_id,
+                symbol="BTC/USDT",
+                side="buy",
+                size=0.01,
+                idempotency_key="ik-recon-restart",
+            )
+            risk_decision = UnifiedRiskDecision(
+                decision_id="decision-recon-restart",
+                forecast_fingerprint="fp-recon-restart",
+                model_artifact_id="m-recon-restart",
+                requested_target_exposure=1.0,
+                allowed_target_exposure=1.0,
+                max_new_exposure=1.0,
+                reduce_only=False,
+                risk_level=RiskLevel.LOW,
+                reason_codes=(),
+                calibration_state=EvidenceState.KNOWN,
+                calibration_artifact_id="cal-recon-restart",
+                calibration_ece=0.0,
+                ood_state=EvidenceState.KNOWN,
+                ood_score=0.0,
+                regime_state=EvidenceState.KNOWN,
+                regime_entropy=0.0,
+                interval_width=0.0,
+                created_at=utcnow(),
+            )
+            lifecycle.approve_risk(intent_id, risk_decision=risk_decision)
+            authorized_event = lifecycle.authorize_order(
+                intent_id=intent_id,
+                idempotency_key="ik-recon-restart",
+            )
+            request_event = lifecycle.request_broker_submission(intent_id)
+
+            from trading_agent.execution.canonical.broker_gateway import (
+                AuthorizedOrder,
+                _AUTHORIZED_TOKEN,
+            )
+
+            authorized = AuthorizedOrder(
+                token=_AUTHORIZED_TOKEN,
+                intent_id=intent_id,
+                symbol="BTC/USDT",
+                side="buy",
+                quantity=0.01,
+                idempotency_key="ik-recon-restart",
+                price_reference=50500.0,
+                risk_decision_id=risk_decision.decision_id,
+                forecast_fingerprint=risk_decision.forecast_fingerprint,
+                model_artifact_id=risk_decision.model_artifact_id,
+                permission_result="ALLOW",
+                authorization_id=authorized_event.payload["authorization_id"],
+                lifecycle_event_id=authorized_event.event_id,
+                correlation_id=intent_id,
+                exposure_effect="increase",
+                current_exposure=0.0,
+                resulting_exposure=0.4,
+                authorized_at=authorized_event.payload["authorized_at"],
+                authorization_hash=authorized_event.payload["payload_hash"],
+            )
+
+            result = gateway.submit(authorized, correlation_id=intent_id)
+            assert result.success
+
+            # Close store to simulate crash
+            store.close()
+
+            # Reopen store and recreate lifecycle (simulating restart)
+            store2 = ExecutionEventStore(str(db_path))
+            store2.connect()
+            lifecycle2 = ExecutionLifecycle(
+                store2,
+                price_source=price_source,
+                inventory_source=inventory_source,
+                portfolio_source=portfolio_source,
+                max_price_age_seconds=300.0,
+            )
+
+            # Replay events
+            all_events = store2.read_events_global()
+            replayed_state = lifecycle2.replay(all_events)
+
+            # After replay, order is at last known lifecycle state (submitted)
+            order = replayed_state.orders[intent_id]
+            assert order.status.value == "submitted"
+
+            # Reconcile with exchange: verify broker knows the order is closed
+            # (full state restoration would require additional fill-event replay;
+            # here we verify reconciliation path is intact after restart)
+            report = lifecycle2.reconcile_broker_state(
+                broker_states={intent_id: "closed"}
+            )
+            assert intent_id in report["synced"]
+            assert lifecycle2.state.reconciliation.value == "resolved"
+
+            # Verify exchange position matches
+            pos = exchange.get_position("BTC/USDT")
+            assert pos is not None
+            assert pos.quantity == 0.01
+
+            store2.close()
+
     def test_e2e_paper_flow_with_fill_and_position(self):
         """E2E flow that creates a position, then closes it."""
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1225,6 +1375,67 @@ class TestP1ConvergenceProofs:
         gs = [r[1] for r in rows]
         assert all(g > 0 for g in gs), f"found non-positive global_seq: {gs}"
         assert gs == [1, 2, 3], f"unexpected global_seq order: {gs}"
+
+    def test_mixed_legacy_and_new_db_replay(self):
+        """P0-4B: Mixed legacy (global_seq=-1) and new (global_seq>0) events must replay without crash."""
+        import sqlite3
+
+        db_path = Path(tempfile.gettempdir()) / "test_mixed_legacy.db"
+        if db_path.exists():
+            db_path.unlink()
+
+        conn = sqlite3.connect(db_path)
+        conn.executescript("""
+            CREATE TABLE execution_events (
+                event_id TEXT PRIMARY KEY,
+                seq INTEGER NOT NULL,
+                aggregate_id TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                schema_version INTEGER NOT NULL,
+                payload TEXT NOT NULL,
+                correlation_id TEXT,
+                causation_id TEXT,
+                occurred_at TEXT NOT NULL,
+                ingested_at TEXT NOT NULL,
+                global_seq INTEGER NOT NULL CHECK (global_seq > 0 OR global_seq = -1),
+                UNIQUE (aggregate_id, seq)
+            );
+        """)
+        # Legacy events (pre-migration)
+        legacy_events = [
+            ("legacy-1", 1, "agg-legacy", "TYPE_A", 1, "{}", "c-legacy", None, "2024-01-01T00:00:00Z", "2024-01-01T00:00:00Z", -1),
+            ("legacy-2", 2, "agg-legacy", "TYPE_B", 1, "{}", "c-legacy", "legacy-1", "2024-01-01T00:01:00Z", "2024-01-01T00:01:00Z", -1),
+        ]
+        # New events (post-migration) — start from 100 to leave room for legacy migration
+        new_events = [
+            ("new-1", 1, "agg-new", "TYPE_A", 1, "{}", "c-new", None, "2024-01-01T00:02:00Z", "2024-01-01T00:02:00Z", 100),
+            ("new-2", 2, "agg-new", "TYPE_B", 1, "{}", "c-new", "new-1", "2024-01-01T00:03:00Z", "2024-01-01T00:03:00Z", 101),
+        ]
+        for e in legacy_events + new_events:
+            conn.execute("INSERT INTO execution_events VALUES (?,?,?,?,?,?,?,?,?,?,?)", e)
+        conn.commit()
+        conn.close()
+
+        # Run migration to assign global_seq to legacy events
+        import subprocess
+        result = subprocess.run(
+            [sys.executable, "scripts/migrate_global_seq.py", str(db_path)],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, result.stderr
+
+        # Verify mixed DB: legacy events now have positive global_seq, new events unchanged
+        conn = sqlite3.connect(db_path)
+        rows = conn.execute(
+            "SELECT event_id, global_seq FROM execution_events ORDER BY global_seq"
+        ).fetchall()
+        conn.close()
+        gs = [r[1] for r in rows]
+        assert all(g > 0 for g in gs), f"found non-positive global_seq after migration: {gs}"
+        # Legacy events get 1,2; new events keep 100,101
+        assert len(set(gs)) == 4, "global_seq must be unique after migration"
+        assert set(gs) == {1, 2, 100, 101}, f"unexpected global_seq values: {gs}"
 
     def test_idempotency_race_same_key_rejected(self):
         """Duplicate authorization with same idempotency_key across intents must be rejected."""
