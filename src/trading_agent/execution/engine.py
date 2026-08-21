@@ -638,7 +638,9 @@ class ExecutionEngine:
                         exchange_ts = datetime.fromtimestamp(float(ts), UTC)
                     return float(price), exchange_ts
                 # No timestamp from live adapter — reject to avoid stale data
-                logger.debug("Ticker for %s missing timestamp; rejecting as stale", symbol)
+                logger.debug(
+                    "Ticker for %s missing timestamp; rejecting as stale", symbol
+                )
                 return None
         except Exception:
             pass
@@ -649,7 +651,9 @@ class ExecutionEngine:
                 exchange_ts = datetime.fromtimestamp(float(ts), UTC)
                 return price, exchange_ts
             # No cached timestamp — reject to avoid stale data
-            logger.debug("Cached price for %s missing timestamp; rejecting as stale", symbol)
+            logger.debug(
+                "Cached price for %s missing timestamp; rejecting as stale", symbol
+            )
             return None
         except Exception:
             return None

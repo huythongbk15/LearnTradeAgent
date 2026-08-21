@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import argparse
 import sqlite3
-from datetime import datetime, UTC
 from pathlib import Path
 
 
@@ -57,8 +56,10 @@ def migrate(db_path: str, *, dry_run: bool = False) -> int:
             ).fetchall()
             print("Sample events to migrate:")
             for r in sample:
-                print(f"  {r['event_id']} | {r['aggregate_id']} | seq={r['seq']} | "
-                      f"occurred_at={r['occurred_at']} | current global_seq={r['global_seq']}")
+                print(
+                    f"  {r['event_id']} | {r['aggregate_id']} | seq={r['seq']} | "
+                    f"occurred_at={r['occurred_at']} | current global_seq={r['global_seq']}"
+                )
             return legacy_count
 
         # Assign new global_seq values based on (occurred_at, aggregate_id, seq)
@@ -100,12 +101,16 @@ def migrate(db_path: str, *, dry_run: bool = False) -> int:
                 "SELECT COUNT(*) FROM execution_events WHERE global_seq > 0"
             ).fetchone()[0]
             if actual != expected:
-                print(f"WARNING: global_seq has gaps or duplicates! "
-                      f"expected {expected} rows in range [{min_seq}, {max_seq}], "
-                      f"found {actual}")
+                print(
+                    f"WARNING: global_seq has gaps or duplicates! "
+                    f"expected {expected} rows in range [{min_seq}, {max_seq}], "
+                    f"found {actual}"
+                )
             else:
-                print(f"Verification passed: {actual} events with global_seq > 0, "
-                      f"no gaps in [{min_seq}, {max_seq}].")
+                print(
+                    f"Verification passed: {actual} events with global_seq > 0, "
+                    f"no gaps in [{min_seq}, {max_seq}]."
+                )
 
             # Check for any remaining -1 or 0 values
             remaining = conn.execute(
