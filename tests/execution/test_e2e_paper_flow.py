@@ -1405,38 +1405,43 @@ class TestExecutionEngineE2E:
             created_at=datetime.now(UTC),
         )
 
-        with patch.object(
-            engine.legacy_adapter,
-            "adapt",
-            return_value=(
-                risk_decision,
-                TargetExposure(
-                    symbol="BTC/USDT",
-                    exposure=0.05,
-                    horizon=1,
-                    forecast_fingerprint="fp-unknown-1",
-                    model_artifact_id="m-unknown-1",
-                    risk_decision_id="rd-unknown-1",
+        with (
+            patch.object(
+                engine.legacy_adapter,
+                "adapt",
+                return_value=(
+                    risk_decision,
+                    TargetExposure(
+                        symbol="BTC/USDT",
+                        exposure=0.05,
+                        horizon=1,
+                        forecast_fingerprint="fp-unknown-1",
+                        model_artifact_id="m-unknown-1",
+                        risk_decision_id="rd-unknown-1",
+                    ),
                 ),
             ),
-        ), patch.object(
-            engine.planner,
-            "plan",
-            return_value=OrderPlanningResult(
-                status=OrderPlanningStatus.ORDER_REQUIRED,
-                intent=fake_intent,
-                reason_codes=(),
-                requested_delta=0.01,
-                executable_delta=0.01,
+            patch.object(
+                engine.planner,
+                "plan",
+                return_value=OrderPlanningResult(
+                    status=OrderPlanningStatus.ORDER_REQUIRED,
+                    intent=fake_intent,
+                    reason_codes=(),
+                    requested_delta=0.01,
+                    executable_delta=0.01,
+                ),
             ),
-        ), patch.object(
-            engine.store,
-            "claim_submission",
-            return_value=True,
-        ), patch.object(
-            engine.gateway,
-            "submit",
-            return_value=unknown_fact,
+            patch.object(
+                engine.store,
+                "claim_submission",
+                return_value=True,
+            ),
+            patch.object(
+                engine.gateway,
+                "submit",
+                return_value=unknown_fact,
+            ),
         ):
             orders = engine.execute_signal(signal, observation=observation)
 
@@ -2450,6 +2455,7 @@ class TestP1ConvergenceProofs:
                     ), f"Unexpected replayed status: {status}"
             finally:
                 os.chdir(orig_cwd)
+
 
 class TestPaperReconciliationAdapter:
     """P0-5A: Test the adapter, not underlying exchange."""
