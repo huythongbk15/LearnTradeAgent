@@ -22,10 +22,13 @@ from trading_agent.execution.canonical import (
     UnifiedRiskDecision,
 )
 from trading_agent.execution.canonical.order_planner import (
+    CurrentPortfolioState,
     ExposureEffect,
     OrderIntent,
+    OrderPlanningResult,
+    OrderPlanningStatus,
+    TargetExposure,
 )
-from trading_agent.research.forecast import TargetExposure
 from trading_agent.execution.canonical.adapters import BrokerSubmitFact
 from trading_agent.execution.types import OrderSide, OrderStatus, OrderType
 from trading_agent.exchanges.models import AssetClass
@@ -39,17 +42,9 @@ from trading_agent.execution.canonical.market_observation import (
     BarState,
     EnrichedMarketObservation,
 )
-from trading_agent.execution.canonical.order_planner import (
-    CurrentPortfolioState,
-    OrderIntent,
-    OrderPlanningResult,
-    OrderPlanningStatus,
-    TargetExposure,
-)
 from trading_agent.execution.lifecycle import ExecutionEventStore
 from trading_agent.execution.lifecycle.lifecycle import (
     ExecutionLifecycle,
-    ExposureEffect,
     LifecycleError,
     TrustedPrice,
     PortfolioRiskSnapshot,
@@ -2455,17 +2450,6 @@ class TestP1ConvergenceProofs:
                     ), f"Unexpected replayed status: {status}"
             finally:
                 os.chdir(orig_cwd)
-
-class TestPaperReconciliationAdapter:
-    """P0-5A: Test the adapter, not underlying exchange."""
-
-    def test_fetch_positions_returns_crypto_facts(self):
-        """Paper adapter must map BTC/USDT to CRYPTO, not STOCK."""
-
-        # 4. MISSING/UNKNOWN state
-        fact_missing = adapter.fetch_order("non-existent-order-id")
-        assert fact_missing.status == "unknown"
-        assert fact_missing.broker_order_id == "non-existent-order-id"
 
 class TestPaperReconciliationAdapter:
     """P0-5A: Test the adapter, not underlying exchange."""
