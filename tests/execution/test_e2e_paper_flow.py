@@ -1025,6 +1025,214 @@ class TestTwoConnectionConcurrency:
                 assert len(exchange_b.orders) == 1
                 assert list(exchange_a.orders.keys()) != list(exchange_b.orders.keys())
 
+    def test_atomic_submission_claim_two_connection_race(self):
+        """P0-3A: Two connections racing for same intent must have exactly one winner."""
+        import threading
+        import tempfile
+        from trading_agent.execution.lifecycle.lifecycle import ExecutionLifecycle
+        from trading_agent.execution.canonical.broker_gateway import BrokerGateway
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "events.db"
+            # Shared exchange
+            exchange = PaperExchange(
+                exchange_name="binance",
+                initial_balance=100_000.0,
+                state_dir=tmpdir,
+            )
+            adapter = PaperExecutionAdapter(exchange)
+
+            # Shared counter for how many times submit was attempted
+            submit_counter = {"count": 0, "lock": threading.Lock()}
+
+            def make_lifecycle(conn_id: str) -> ExecutionLifecycle:
+                store = ExecutionEventStore(str(db_path))
+                store.connect()
+                gateway = BrokerGateway(adapter=adapter, store=store)
+
+                def price_source(symbol: str) -> TrustedPrice | None:
+                    if symbol in exchange._last_price_cache:
+                        return TrustedPrice(
+                            price=float(exchange._last_price_cache[symbol]),
+                            exchange_timestamp=datetime.fromtimestamp(
+                                exchange._last_price_timestamps[symbol], UTC
+                            ),
+                            received_at=utcnow(),
+                        )
+                    return None
+
+                def inventory_source(symbol: str, side: str) -> float:
+                    return 1.0
+
+                def portfolio_source(symbol: str) -> PortfolioRiskSnapshot | None:
+                    return make_portfolio_source(exchange)(symbol)
+
+                lifecycle = ExecutionLifecycle(
+                    store,
+                    price_source=price_source,
+                    inventory_source=inventory_source,
+                    portfolio_source=portfolio_source,
+                )
+                return lifecycle
+
+            # Prepare intent in connection A
+            lifecycle_a = make_lifecycle("conn-a")
+            intent_id = "race-intent-1"
+            lifecycle_a.create_order_intent(
+                intent_id=intent_id,
+                symbol="BTC/USDT",
+                side="buy",
+                size=0.01,
+                idempotency_key="ik-race-1",
+            )
+            risk_decision = UnifiedRiskDecision(
+                decision_id="rd-race-1",
+                forecast_fingerprint="fp-race-1",
+                model_artifact_id="m-race-1",
+                requested_target_exposure=0.06,
+                allowed_target_exposure=0.06,
+                max_new_exposure=0.06,
+                reduce_only=False,
+                risk_level=RiskLevel.LOW,
+                reason_codes=(),
+                calibration_state=EvidenceState.KNOWN,
+                calibration_artifact_id="cal-race-1",
+                calibration_ece=0.0,
+                ood_state=EvidenceState.KNOWN,
+                ood_score=0.0,
+                regime_state=EvidenceState.KNOWN,
+                regime_entropy=0.0,
+                interval_width=0.0,
+                created_at=utcnow(),
+            )
+            lifecycle_a.approve_risk(intent_id, risk_decision=risk_decision)
+            exchange.update_prices({"BTC/USDT": 50500.0})
+            lifecycle_a.authorize_order(
+                intent_id=intent_id,
+                idempotency_key="ik-race-1",
+            )
+
+            barrier = threading.Barrier(2)
+            results = {"a": None, "b": None}
+
+            def race_conn(conn_id: str):
+                try:
+                    lifecycle = make_lifecycle(conn_id)
+                    # Load existing events so lifecycle knows about the intent
+                    existing_events = lifecycle.store.read_events_global()
+                    if existing_events:
+                        lifecycle.replay_global(existing_events)
+                    barrier.wait(timeout=5)
+                    event = lifecycle.request_broker_submission(
+                        intent_id, claimed_by=conn_id
+                    )
+                    results[conn_id] = ("ok", event.event_id)
+                except Exception as exc:
+                    results[conn_id] = ("error", str(exc))
+
+            t_a = threading.Thread(target=race_conn, args=("a",))
+            t_b = threading.Thread(target=race_conn, args=("b",))
+            t_a.start()
+            t_b.start()
+            t_a.join(timeout=10)
+            t_b.join(timeout=10)
+
+            # Exactly one connection must succeed
+            ok_count = sum(1 for v in results.values() if v is not None and v[0] == "ok")
+            assert ok_count == 1, f"expected exactly 1 winner, got: {results}"
+            # The loser must see claim failure
+            loser = "b" if results["a"][0] == "ok" else "a"
+            assert results[loser][0] == "error"
+            assert "already claimed" in results[loser][1]
+
+    def test_idempotency_payload_conflict_same_key_different_qty(self):
+        """P0-3B: Same idempotency key with different qty must conflict."""
+        import tempfile
+        from trading_agent.execution.lifecycle.lifecycle import ExecutionLifecycle
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "events.db"
+            store = ExecutionEventStore(str(db_path))
+            store.connect()
+            exchange = PaperExchange(
+                exchange_name="binance",
+                initial_balance=100_000.0,
+                state_dir=tmpdir,
+            )
+            adapter = PaperExecutionAdapter(exchange)
+
+            def price_source(symbol: str) -> TrustedPrice | None:
+                if symbol in exchange._last_price_cache:
+                    return TrustedPrice(
+                        price=float(exchange._last_price_cache[symbol]),
+                        exchange_timestamp=datetime.fromtimestamp(
+                            exchange._last_price_timestamps[symbol], UTC
+                        ),
+                        received_at=utcnow(),
+                    )
+                return None
+
+            def inventory_source(symbol: str, side: str) -> float:
+                return 1.0
+
+            def portfolio_source(symbol: str) -> PortfolioRiskSnapshot | None:
+                return make_portfolio_source(exchange)(symbol)
+
+            lifecycle = ExecutionLifecycle(
+                store,
+                price_source=price_source,
+                inventory_source=inventory_source,
+                portfolio_source=portfolio_source,
+            )
+
+            # First order with idempotency key X and qty 0.01
+            intent_id_1 = "idem-conflict-1"
+            lifecycle.create_order_intent(
+                intent_id=intent_id_1,
+                symbol="BTC/USDT",
+                side="buy",
+                size=0.01,
+                idempotency_key="ik-conflict",
+            )
+            risk_decision_1 = UnifiedRiskDecision(
+                decision_id="rd-conflict-1",
+                forecast_fingerprint="fp-conflict-1",
+                model_artifact_id="m-conflict-1",
+                requested_target_exposure=0.06,
+                allowed_target_exposure=0.06,
+                max_new_exposure=0.06,
+                reduce_only=False,
+                risk_level=RiskLevel.LOW,
+                reason_codes=(),
+                calibration_state=EvidenceState.KNOWN,
+                calibration_artifact_id="cal-conflict-1",
+                calibration_ece=0.0,
+                ood_state=EvidenceState.KNOWN,
+                ood_score=0.0,
+                regime_state=EvidenceState.KNOWN,
+                regime_entropy=0.0,
+                interval_width=0.0,
+                created_at=utcnow(),
+            )
+            lifecycle.approve_risk(intent_id_1, risk_decision=risk_decision_1)
+            exchange.update_prices({"BTC/USDT": 50500.0})
+            lifecycle.authorize_order(
+                intent_id=intent_id_1,
+                idempotency_key="ik-conflict",
+            )
+            lifecycle.request_broker_submission(intent_id_1, claimed_by="conn-1")
+
+            # Second order with SAME idempotency key but DIFFERENT qty (0.02)
+            intent_id_2 = "idem-conflict-2"
+            with pytest.raises(LifecycleError, match="duplicate idempotency_key"):
+                lifecycle.create_order_intent(
+                    intent_id=intent_id_2,
+                    symbol="BTC/USDT",
+                    side="buy",
+                    size=0.02,  # different qty
+                    idempotency_key="ik-conflict",  # same key
+                )
+
 
 class TestExecutionEngineE2E:
     """Actual ExecutionEngine end-to-end flow: signal → execution → fill → state."""

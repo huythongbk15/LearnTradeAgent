@@ -95,6 +95,17 @@ CREATE TABLE IF NOT EXISTS execution_order_intents (
 );
 CREATE INDEX IF NOT EXISTS idx_exec_order_intent_idem
     ON execution_order_intents (idempotency_key);
+
+CREATE TABLE IF NOT EXISTS execution_submission_claims (
+    intent_id            TEXT PRIMARY KEY,
+    claimed_by           TEXT NOT NULL,
+    claimed_at           TEXT NOT NULL,
+    idempotency_key      TEXT NOT NULL,
+    payload_hash         TEXT NOT NULL,
+    status               TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_exec_submission_claim_idem
+    ON execution_submission_claims (idempotency_key);
 """
 
 
@@ -326,6 +337,60 @@ class ExecutionEventStore:
             (symbol,),
         ).fetchone()
         return float(row["active"] if row is not None else 0.0)
+
+    def claim_submission(
+        self,
+        *,
+        intent_id: str,
+        claimed_by: str,
+        idempotency_key: str,
+        payload_hash: str,
+        now: str | None = None,
+    ) -> bool:
+        """Atomically claim a submission intent.
+
+        Returns True if the claim succeeded. Returns False if another
+        connection already claimed this intent.
+        """
+        now = now or datetime.now(UTC).isoformat()
+        try:
+            self.conn.execute("BEGIN IMMEDIATE")
+            existing = self.conn.execute(
+                "SELECT 1 FROM execution_submission_claims WHERE intent_id = ?",
+                (intent_id,),
+            ).fetchone()
+            if existing is not None:
+                self.conn.rollback()
+                return False
+            self.conn.execute(
+                """
+                INSERT INTO execution_submission_claims
+                    (intent_id, claimed_by, claimed_at, idempotency_key, payload_hash, status)
+                VALUES (?, ?, ?, ?, ?, 'claimed')
+                """,
+                (intent_id, claimed_by, now, idempotency_key, payload_hash),
+            )
+            self.conn.commit()
+            return True
+        except Exception:
+            self.conn.rollback()
+            raise
+
+    def release_submission_claim(self, intent_id: str) -> None:
+        """Release a submission claim after completion or cancellation."""
+        self.conn.execute(
+            "DELETE FROM execution_submission_claims WHERE intent_id = ?",
+            (intent_id,),
+        )
+        self.conn.commit()
+
+    def submission_claim(self, intent_id: str) -> dict | None:
+        """Return the current claim for an intent, or None."""
+        row = self.conn.execute(
+            "SELECT * FROM execution_submission_claims WHERE intent_id = ?",
+            (intent_id,),
+        ).fetchone()
+        return dict(row) if row is not None else None
 
     def append(
         self,

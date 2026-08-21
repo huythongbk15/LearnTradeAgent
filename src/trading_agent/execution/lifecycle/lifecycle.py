@@ -1236,12 +1236,16 @@ class ExecutionLifecycle:
     def request_broker_submission(
         self,
         intent_id: str,
+        *,
+        claimed_by: str = "default",
     ) -> ExecutionEvent:
         """Persist broker submission request BEFORE broker I/O.
 
         This is the durable pre-submission event required for crash safety:
         if the process crashes after broker accepts but before local ACK,
         restart can reconcile from this event.
+
+        Uses atomic submission claim to prevent duplicate broker I/O.
         """
         order = self.state.order(intent_id)
         if order is None:
@@ -1250,6 +1254,17 @@ class ExecutionLifecycle:
             raise LifecycleError(
                 f"intent {intent_id} must be risk-approved/authorized before "
                 f"broker submission (status={order.status.value})"
+            )
+        # Atomic claim: only one connection can submit this intent
+        claimed = self.store.claim_submission(
+            intent_id=intent_id,
+            claimed_by=claimed_by,
+            idempotency_key=order.idempotency_key or "",
+            payload_hash=order.payload_hash or "",
+        )
+        if not claimed:
+            raise LifecycleError(
+                f"intent {intent_id} already claimed for submission by another connection"
             )
         return self._emit(
             ExecutionEventType.BROKER_SUBMISSION_REQUESTED,
