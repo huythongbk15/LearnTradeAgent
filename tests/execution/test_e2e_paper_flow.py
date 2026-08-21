@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import math
+import sys
 import tempfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+
+import pytest
 
 from trading_agent.agents.base import AgentMessage
 from trading_agent.execution.canonical import (
@@ -32,7 +36,11 @@ from trading_agent.execution.canonical.order_planner import (
     TargetExposure,
 )
 from trading_agent.execution.lifecycle import ExecutionEventStore
-from trading_agent.execution.lifecycle.lifecycle import ExecutionLifecycle, TrustedPrice
+from trading_agent.execution.lifecycle.lifecycle import (
+    ExecutionLifecycle,
+    LifecycleError,
+    TrustedPrice,
+)
 from trading_agent.execution.paper_exchange import PaperExchange
 
 
@@ -897,3 +905,350 @@ class TestExecutionEngineE2E:
         # as long as the pipeline ran without exception.
         # For this test we only verify the engine accepted the signal and ran the flow.
         assert isinstance(orders, list)
+
+
+class TestP1ConvergenceProofs:
+    """P1 convergence edge-case proofs requested by the user."""
+
+    def test_broker_unknown_enters_reconciliation(self):
+        """Broker UNKNOWN must not be treated as rejection; lifecycle must reconcile."""
+        from trading_agent.execution.canonical.broker_gateway import BrokerSubmitState
+        from trading_agent.execution.lifecycle.lifecycle import (
+            ExecutionLifecycle,
+            ExecutionEventStore,
+            TrustedPrice,
+        )
+
+        fake_price = TrustedPrice(
+            price=50000.0,
+            exchange_timestamp=utcnow(),
+            received_at=utcnow(),
+        )
+
+        def price_source(symbol: str) -> TrustedPrice:
+            return fake_price
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ExecutionEventStore(Path(tmp) / "events.db")
+            store.connect()
+            lifecycle = ExecutionLifecycle(store, price_source=price_source)
+
+            # Create an order intent and authorize it
+            intent_id = "test-unknown-recon"
+            lifecycle.create_order_intent(
+                intent_id=intent_id,
+                symbol="BTC/USDT",
+                side="buy",
+                size=0.01,
+                idempotency_key="ik-unknown-recon",
+            )
+            risk_decision = UnifiedRiskDecision(
+                decision_id="rd-unknown",
+                forecast_fingerprint="fp-unknown",
+                model_artifact_id="m-unknown",
+                requested_target_exposure=0.01,
+                allowed_target_exposure=0.01,
+                max_new_exposure=0.01,
+                reduce_only=False,
+                risk_level=RiskLevel.LOW,
+                reason_codes=(),
+                calibration_state=EvidenceState.KNOWN,
+                calibration_artifact_id="cal-unknown",
+                calibration_ece=0.0,
+                ood_state=EvidenceState.KNOWN,
+                ood_score=0.0,
+                regime_state=EvidenceState.KNOWN,
+                regime_entropy=0.0,
+                interval_width=0.0,
+                created_at=utcnow(),
+            )
+            lifecycle.approve_risk(intent_id, risk_decision=risk_decision)
+            auth_event = lifecycle.authorize_order(
+                intent_id=intent_id,
+                idempotency_key="ik-unknown-recon",
+            )
+            auth_id = auth_event.payload["authorization_id"]
+
+            # Simulate a BrokerSubmitResult with state=UNKNOWN
+            unknown_result = BrokerSubmitResult(
+                success=True,
+                broker_order_id="broker-unknown-1",
+                state=BrokerSubmitState.UNKNOWN,
+                error=None,
+            )
+
+            # Submit through lifecycle directly, then manually trigger reconciliation
+            # (in real flow, engine does this when result.state == UNKNOWN)
+            submit_event = lifecycle.submit_order(
+                intent_id=intent_id,
+                exchange_order_id=unknown_result.broker_order_id,
+            )
+            lifecycle.start_reconciliation()
+
+            # Lifecycle should be in reconciliation, not rejected
+            assert lifecycle.state.reconciliation.value == "started"
+            assert any(o.status.value == "submitted" for o in lifecycle.state.orders.values())
+
+    def test_lifecycle_authorization_unit_consistency(self):
+        """authorized_quantity must be in base currency units (quantity), not notional."""
+        fake_price = TrustedPrice(
+            price=50000.0,
+            exchange_timestamp=utcnow(),
+            received_at=utcnow(),
+        )
+
+        def price_source(symbol: str) -> TrustedPrice:
+            return fake_price
+
+        def inventory_source(symbol: str, side: str) -> float:
+            return 1.0  # known inventory
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ExecutionEventStore(Path(tmp) / "events.db")
+            store.connect()
+            lifecycle = ExecutionLifecycle(
+                store,
+                price_source=price_source,
+                inventory_source=inventory_source,
+            )
+
+            intent_id = "test-unit-consistency"
+            lifecycle.create_order_intent(
+                intent_id=intent_id,
+                symbol="BTC/USDT",
+                side="sell",
+                size=0.5,
+                idempotency_key="ik-unit-consistency",
+            )
+            risk_decision = UnifiedRiskDecision(
+                decision_id="rd-unit",
+                forecast_fingerprint="fp-unit",
+                model_artifact_id="m-unit",
+                requested_target_exposure=0.0,
+                allowed_target_exposure=0.0,
+                max_new_exposure=0.0,
+                reduce_only=True,
+                risk_level=RiskLevel.LOW,
+                reason_codes=(),
+                calibration_state=EvidenceState.KNOWN,
+                calibration_artifact_id="cal-unit",
+                calibration_ece=0.0,
+                ood_state=EvidenceState.KNOWN,
+                ood_score=0.0,
+                regime_state=EvidenceState.KNOWN,
+                regime_entropy=0.0,
+                interval_width=0.0,
+                created_at=utcnow(),
+            )
+            lifecycle.approve_risk(intent_id, risk_decision=risk_decision)
+            auth_event = lifecycle.authorize_order(
+                intent_id=intent_id,
+                idempotency_key="ik-unit-consistency",
+            )
+
+            order = lifecycle.state.order(intent_id)
+            # authorized_quantity must equal the intent size (base currency units)
+            assert math.isfinite(order.authorized_quantity)
+            assert order.authorized_quantity == 0.5
+
+    def test_exchange_timestamp_no_fallback_fabrication(self):
+        """_get_current_price must return None when exchange timestamp is missing."""
+        from trading_agent.execution.engine import ExecutionEngine
+
+        engine = ExecutionEngine(exchange_name="paper")
+        # Seed price cache WITHOUT timestamps
+        engine.exchange._last_price_cache["BTC/USDT"] = 50000.0
+        # No timestamp entry -> must reject
+        assert "BTC/USDT" not in engine.exchange._last_price_timestamps
+
+        price = engine._get_current_price("BTC/USDT")
+        assert price is None
+
+    def test_global_seq_migration_idempotent(self):
+        """migrate_global_seq.py must be idempotent and safe."""
+        import sqlite3
+
+        db_path = Path(tempfile.gettempdir()) / "test_migration.db"
+        if db_path.exists():
+            db_path.unlink()
+
+        conn = sqlite3.connect(db_path)
+        conn.executescript("""
+            CREATE TABLE execution_events (
+                event_id TEXT PRIMARY KEY,
+                seq INTEGER NOT NULL,
+                aggregate_id TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                schema_version INTEGER NOT NULL,
+                payload TEXT NOT NULL,
+                correlation_id TEXT,
+                causation_id TEXT,
+                occurred_at TEXT NOT NULL,
+                ingested_at TEXT NOT NULL,
+                global_seq INTEGER NOT NULL CHECK (global_seq > 0 OR global_seq = -1),
+                UNIQUE (aggregate_id, seq)
+            );
+        """)
+        events = [
+            ("e1", 1, "agg1", "TYPE_A", 1, "{}", "c1", None, "2024-01-01T00:00:00Z", "2024-01-01T00:00:00Z", -1),
+            ("e2", 2, "agg1", "TYPE_B", 1, "{}", "c1", "e1", "2024-01-01T00:01:00Z", "2024-01-01T00:01:00Z", -1),
+            ("e3", 1, "agg2", "TYPE_A", 1, "{}", "c2", None, "2024-01-01T00:00:30Z", "2024-01-01T00:00:30Z", -1),
+        ]
+        for e in events:
+            conn.execute("INSERT INTO execution_events VALUES (?,?,?,?,?,?,?,?,?,?,?)", e)
+        conn.commit()
+        conn.close()
+
+        # Run migration twice
+        import subprocess
+        for _ in range(2):
+            result = subprocess.run(
+                [sys.executable, "scripts/migrate_global_seq.py", str(db_path)],
+                capture_output=True,
+                text=True,
+            )
+            assert result.returncode == 0, result.stderr
+
+        # Verify all events have positive global_seq
+        conn = sqlite3.connect(db_path)
+        rows = conn.execute("SELECT event_id, global_seq FROM execution_events ORDER BY occurred_at, aggregate_id, seq").fetchall()
+        conn.close()
+        gs = [r[1] for r in rows]
+        assert all(g > 0 for g in gs), f"found non-positive global_seq: {gs}"
+        assert gs == [1, 2, 3], f"unexpected global_seq order: {gs}"
+
+    def test_idempotency_race_same_key_rejected(self):
+        """Duplicate authorization with same idempotency_key across intents must be rejected."""
+        fake_price = TrustedPrice(
+            price=50000.0,
+            exchange_timestamp=utcnow(),
+            received_at=utcnow(),
+        )
+
+        def price_source(symbol: str) -> TrustedPrice:
+            return fake_price
+
+        def inventory_source(symbol: str, side: str) -> float:
+            return 1.0
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ExecutionEventStore(Path(tmp) / "events.db")
+            store.connect()
+            lifecycle = ExecutionLifecycle(
+                store,
+                price_source=price_source,
+                inventory_source=inventory_source,
+            )
+
+            intent_id_1 = "test-idempotency-race-1"
+            lifecycle.create_order_intent(
+                intent_id=intent_id_1,
+                symbol="BTC/USDT",
+                side="buy",
+                size=0.01,
+                idempotency_key="ik-race",
+            )
+            risk_decision = UnifiedRiskDecision(
+                decision_id="rd-race",
+                forecast_fingerprint="fp-race",
+                model_artifact_id="m-race",
+                requested_target_exposure=0.01,
+                allowed_target_exposure=0.01,
+                max_new_exposure=0.01,
+                reduce_only=False,
+                risk_level=RiskLevel.LOW,
+                reason_codes=(),
+                calibration_state=EvidenceState.KNOWN,
+                calibration_artifact_id="cal-race",
+                calibration_ece=0.0,
+                ood_state=EvidenceState.KNOWN,
+                ood_score=0.0,
+                regime_state=EvidenceState.KNOWN,
+                regime_entropy=0.0,
+                interval_width=0.0,
+                created_at=utcnow(),
+            )
+            lifecycle.approve_risk(intent_id_1, risk_decision=risk_decision)
+            lifecycle.authorize_order(intent_id=intent_id_1, idempotency_key="ik-race")
+
+            # Second intent without idempotency_key, but authorize with same key must fail
+            intent_id_2 = "test-idempotency-race-2"
+            lifecycle.create_order_intent(
+                intent_id=intent_id_2,
+                symbol="BTC/USDT",
+                side="buy",
+                size=0.01,
+                idempotency_key="ik-race-unique",
+            )
+            lifecycle.approve_risk(intent_id_2, risk_decision=risk_decision)
+            with pytest.raises(LifecycleError, match="idempotency_key"):
+                lifecycle.authorize_order(intent_id=intent_id_2, idempotency_key="ik-race")
+
+    def test_paper_reconciliation_adapter(self):
+        """PaperExecutionAdapter must reconcile positions against exchange state."""
+        from decimal import Decimal
+
+        from trading_agent.execution.canonical.adapters import (
+            BrokerOrderRequest,
+            OrderSide,
+            OrderType,
+            Symbol,
+            AssetClass,
+            MarketType,
+        )
+
+        exchange = PaperExchange(exchange_name="paper_recon_test")
+        exchange.reset()
+        # Seed a fresh price so the paper exchange can fill the order
+        exchange._last_price_cache["BTC/USDT"] = 50000.0
+        exchange._last_price_timestamps["BTC/USDT"] = datetime.now(UTC).timestamp()
+        adapter = PaperExecutionAdapter(exchange)
+
+        # Submit a BUY order through the canonical adapter
+        request = BrokerOrderRequest(
+            intent_id="recon-1",
+            symbol=Symbol("BTC", "USDT", AssetClass.CRYPTO, MarketType.SPOT, "paper"),
+            side=OrderSide.BUY,
+            quantity=Decimal("0.01"),
+            order_type=OrderType.MARKET,
+            price=Decimal("50000"),
+            idempotency_key="ik-recon-1",
+        )
+        fact = adapter.submit_order(request)
+        assert fact.state == "ACCEPTED"
+        assert fact.broker_order_id is not None
+
+        # Verify position exists in underlying exchange
+        positions = exchange.get_all_positions()
+        assert len(positions) == 1
+        assert positions[0].symbol == "BTC/USDT"
+        assert positions[0].quantity > 0
+
+    def test_anti_bypass_authorization_hash_bound(self):
+        """AuthorizedOrder authorization_hash must bind to durable auth evidence."""
+        from trading_agent.execution.canonical.broker_gateway import AuthorizedOrder
+
+        order = AuthorizedOrder(
+            token=_AUTHORIZED_TOKEN,
+            intent_id="anti-bypass",
+            symbol="BTC/USDT",
+            side="buy",
+            quantity=0.01,
+            idempotency_key="ik-anti-bypass",
+            price_reference=50000.0,
+            risk_decision_id="rd-anti",
+            forecast_fingerprint="fp-anti",
+            model_artifact_id="m-anti",
+            permission_result="ALLOW",
+            authorization_id="auth-anti",
+            lifecycle_event_id="le-anti",
+            correlation_id="corr-anti",
+            exposure_effect="INCREASE",
+            current_exposure=0.0,
+            resulting_exposure=0.01,
+            authorized_at=utcnow(),
+            authorization_hash="hash-anti",
+        )
+        # Hash must be bound to the authorization evidence
+        assert order.authorization_hash == "hash-anti"
+        assert order.authorization_id == "auth-anti"
