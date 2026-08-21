@@ -55,6 +55,7 @@ def utcnow() -> datetime:
 def make_portfolio_source(exchange: PaperExchange, symbol: str = "BTC/USDT"):
     """Create a portfolio source function from PaperExchange state."""
     sym_str = symbol.pair if hasattr(symbol, "pair") else str(symbol)
+
     def portfolio_source(symbol: str) -> PortfolioRiskSnapshot | None:
         try:
             with exchange._state_lock:
@@ -78,6 +79,7 @@ def make_portfolio_source(exchange: PaperExchange, symbol: str = "BTC/USDT"):
                 )
         except Exception:
             return None
+
     return portfolio_source
 
 

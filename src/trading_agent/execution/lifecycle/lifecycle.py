@@ -307,7 +307,9 @@ class LifecycleState:
 
 PriceSource = Callable[[str], TrustedPrice | None]  # symbol -> trusted price
 InventorySource = Callable[[str, str], float]  # symbol, side -> free inventory
-PortfolioSource = Callable[[str], PortfolioRiskSnapshot | None]  # symbol -> trusted portfolio snapshot
+PortfolioSource = Callable[
+    [str], PortfolioRiskSnapshot | None
+]  # symbol -> trusted portfolio snapshot
 
 
 def _default_price_source() -> PriceSource:
@@ -329,6 +331,7 @@ def _default_portfolio_source() -> PortfolioSource:
             observed_at=datetime.now(UTC),
             source="default_test",
         )
+
     return default_portfolio
 
 
@@ -667,8 +670,12 @@ class ExecutionLifecycle:
             # True portfolio exposure (P0-1)
             order.price_reference = event.payload.get("price_reference")
             order.portfolio_equity = event.payload.get("portfolio_equity")
-            order.current_position_quantity = event.payload.get("current_position_quantity")
-            order.resulting_position_quantity = event.payload.get("resulting_position_quantity")
+            order.current_position_quantity = event.payload.get(
+                "current_position_quantity"
+            )
+            order.resulting_position_quantity = event.payload.get(
+                "resulting_position_quantity"
+            )
             order.current_exposure = event.payload.get("current_exposure")
             order.resulting_exposure = event.payload.get("resulting_exposure")
             order.incremental_exposure = event.payload.get("incremental_exposure")
@@ -1029,7 +1036,11 @@ class ExecutionLifecycle:
             )
 
         portfolio = self._portfolio_source(symbol_str)
-        if portfolio is None or not math.isfinite(portfolio.equity) or portfolio.equity <= 0:
+        if (
+            portfolio is None
+            or not math.isfinite(portfolio.equity)
+            or portfolio.equity <= 0
+        ):
             # Fallback to default portfolio to allow testing / graceful degradation
             portfolio = _default_portfolio_source()(symbol_str)
 
@@ -1058,7 +1069,9 @@ class ExecutionLifecycle:
         resulting_notional = resulting_position_quantity * price.price
         current_exposure_ratio = current_notional / portfolio.equity
         resulting_exposure_ratio = resulting_notional / portfolio.equity
-        incremental_exposure_ratio = max(0.0, resulting_exposure_ratio - current_exposure_ratio)
+        incremental_exposure_ratio = max(
+            0.0, resulting_exposure_ratio - current_exposure_ratio
+        )
 
         # Clamp to [0, 1] for safety
         current_exposure_ratio = max(0.0, min(1.0, current_exposure_ratio))
@@ -1075,7 +1088,10 @@ class ExecutionLifecycle:
                     f"{current_exposure_ratio:.6f} -> {resulting_exposure_ratio:.6f}",
                 )
         else:
-            if resulting_exposure_ratio > risk_decision.allowed_target_exposure + tolerance:
+            if (
+                resulting_exposure_ratio
+                > risk_decision.allowed_target_exposure + tolerance
+            ):
                 raise InvariantViolation(
                     "allowed_target_exposure_exceeded",
                     f"resulting exposure {resulting_exposure_ratio:.6f} > "
@@ -1096,8 +1112,10 @@ class ExecutionLifecycle:
         )
 
         exposure_effect = (
-            ExposureEffect.INCREASE if resulting_exposure_ratio > current_exposure_ratio + tolerance
-            else ExposureEffect.REDUCE if resulting_exposure_ratio < current_exposure_ratio - tolerance
+            ExposureEffect.INCREASE
+            if resulting_exposure_ratio > current_exposure_ratio + tolerance
+            else ExposureEffect.REDUCE
+            if resulting_exposure_ratio < current_exposure_ratio - tolerance
             else ExposureEffect.NEUTRAL
         )
 
@@ -1108,11 +1126,24 @@ class ExecutionLifecycle:
             inventory_sellable = self._inventory_source(symbol_str, side)
             free_inventory = inventory_sellable
             authorized_sellable = inventory_sellable
-            inventory_state = "known" if math.isfinite(inventory_sellable) and inventory_sellable >= 0 else "unknown"
+            inventory_state = (
+                "known"
+                if math.isfinite(inventory_sellable) and inventory_sellable >= 0
+                else "unknown"
+            )
         else:
-            free_inventory = portfolio.available_quantity if math.isfinite(portfolio.available_quantity) else 0.0
+            free_inventory = (
+                portfolio.available_quantity
+                if math.isfinite(portfolio.available_quantity)
+                else 0.0
+            )
             authorized_sellable = None
-            inventory_state = "known" if math.isfinite(portfolio.available_quantity) and portfolio.available_quantity >= 0 else "unknown"
+            inventory_state = (
+                "known"
+                if math.isfinite(portfolio.available_quantity)
+                and portfolio.available_quantity >= 0
+                else "unknown"
+            )
 
         permission_ctx = PermissionContext(
             execution_health=self.state.execution_health,
@@ -1755,7 +1786,9 @@ class ExecutionLifecycle:
             )
             # Extract partial fill details from raw_response
             raw = result.raw_response or {}
-            filled_size = float(raw.get("filled", raw.get("accumulated_quantity", 0)) or 0)
+            filled_size = float(
+                raw.get("filled", raw.get("accumulated_quantity", 0)) or 0
+            )
             fill_price = float(
                 raw.get("average", raw.get("price", raw.get("limit_price", 0))) or 0
             )
@@ -1787,7 +1820,10 @@ class ExecutionLifecycle:
                 },
             )
             raw = result.raw_response or {}
-            filled_size = float(raw.get("filled", raw.get("accumulated_quantity", order.size)) or order.size)
+            filled_size = float(
+                raw.get("filled", raw.get("accumulated_quantity", order.size))
+                or order.size
+            )
             fill_price = float(
                 raw.get("average", raw.get("price", raw.get("limit_price", 0))) or 0
             )
