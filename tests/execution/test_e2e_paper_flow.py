@@ -1403,21 +1403,72 @@ class TestP1ConvergenceProofs:
         """)
         # Legacy events (pre-migration)
         legacy_events = [
-            ("legacy-1", 1, "agg-legacy", "TYPE_A", 1, "{}", "c-legacy", None, "2024-01-01T00:00:00Z", "2024-01-01T00:00:00Z", -1),
-            ("legacy-2", 2, "agg-legacy", "TYPE_B", 1, "{}", "c-legacy", "legacy-1", "2024-01-01T00:01:00Z", "2024-01-01T00:01:00Z", -1),
+            (
+                "legacy-1",
+                1,
+                "agg-legacy",
+                "TYPE_A",
+                1,
+                "{}",
+                "c-legacy",
+                None,
+                "2024-01-01T00:00:00Z",
+                "2024-01-01T00:00:00Z",
+                -1,
+            ),
+            (
+                "legacy-2",
+                2,
+                "agg-legacy",
+                "TYPE_B",
+                1,
+                "{}",
+                "c-legacy",
+                "legacy-1",
+                "2024-01-01T00:01:00Z",
+                "2024-01-01T00:01:00Z",
+                -1,
+            ),
         ]
         # New events (post-migration) — start from 100 to leave room for legacy migration
         new_events = [
-            ("new-1", 1, "agg-new", "TYPE_A", 1, "{}", "c-new", None, "2024-01-01T00:02:00Z", "2024-01-01T00:02:00Z", 100),
-            ("new-2", 2, "agg-new", "TYPE_B", 1, "{}", "c-new", "new-1", "2024-01-01T00:03:00Z", "2024-01-01T00:03:00Z", 101),
+            (
+                "new-1",
+                1,
+                "agg-new",
+                "TYPE_A",
+                1,
+                "{}",
+                "c-new",
+                None,
+                "2024-01-01T00:02:00Z",
+                "2024-01-01T00:02:00Z",
+                100,
+            ),
+            (
+                "new-2",
+                2,
+                "agg-new",
+                "TYPE_B",
+                1,
+                "{}",
+                "c-new",
+                "new-1",
+                "2024-01-01T00:03:00Z",
+                "2024-01-01T00:03:00Z",
+                101,
+            ),
         ]
         for e in legacy_events + new_events:
-            conn.execute("INSERT INTO execution_events VALUES (?,?,?,?,?,?,?,?,?,?,?)", e)
+            conn.execute(
+                "INSERT INTO execution_events VALUES (?,?,?,?,?,?,?,?,?,?,?)", e
+            )
         conn.commit()
         conn.close()
 
         # Run migration to assign global_seq to legacy events
         import subprocess
+
         result = subprocess.run(
             [sys.executable, "scripts/migrate_global_seq.py", str(db_path)],
             capture_output=True,
@@ -1432,7 +1483,9 @@ class TestP1ConvergenceProofs:
         ).fetchall()
         conn.close()
         gs = [r[1] for r in rows]
-        assert all(g > 0 for g in gs), f"found non-positive global_seq after migration: {gs}"
+        assert all(g > 0 for g in gs), (
+            f"found non-positive global_seq after migration: {gs}"
+        )
         # Legacy events get 1,2; new events keep 100,101
         assert len(set(gs)) == 4, "global_seq must be unique after migration"
         assert set(gs) == {1, 2, 100, 101}, f"unexpected global_seq values: {gs}"
