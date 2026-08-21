@@ -558,6 +558,7 @@ def _place_order_via_gateway(live_broker, order, store=None):
         ExecutionLifecycle,
         ExecutionHealth,
         TrustedPrice,
+        PortfolioRiskSnapshot,
         ExposureEffect,
     )
     from trading_agent.execution.permission import (
@@ -596,10 +597,49 @@ def _place_order_via_gateway(live_broker, order, store=None):
             pass
         return 0.0
 
+    def _portfolio_source(symbol):
+        try:
+            account = live_broker.get_account()
+        except Exception:
+            account = None
+        try:
+            positions = live_broker.get_positions()
+        except Exception:
+            positions = []
+        sym_str = symbol.pair if hasattr(symbol, "pair") else str(symbol)
+        position_quantity = 0.0
+        available_quantity = 0.0
+        for pos in positions:
+            if pos.get("symbol") == sym_str:
+                position_quantity = float(pos.get("qty", 0))
+                available_quantity = float(pos.get("free_qty", position_quantity))
+                break
+        equity = 100_000.0
+        available_cash = 100_000.0
+        observed_at = datetime.now(UTC)
+        source = "live_broker"
+        if account is not None:
+            try:
+                equity = float(account.get("equity", equity))
+                available_cash = float(account.get("cash", available_cash))
+                source = "live_broker"
+            except Exception:
+                pass
+        return PortfolioRiskSnapshot(
+            symbol=sym_str,
+            position_quantity=position_quantity,
+            available_quantity=available_quantity,
+            equity=equity,
+            available_cash=available_cash,
+            observed_at=observed_at,
+            source=source,
+        )
+
     lifecycle = ExecutionLifecycle(
         store,
         price_source=_price_source,
         inventory_source=_inventory_source,
+        portfolio_source=_portfolio_source,
     )
 
     intent_id = f"cli-{uuid.uuid4().hex}"

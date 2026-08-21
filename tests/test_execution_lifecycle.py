@@ -28,6 +28,7 @@ from trading_agent.execution.lifecycle import (
     IntentStatus,
     InvariantViolation,
     LifecycleError,
+    PortfolioRiskSnapshot,
     ProtectionState,
     ReconciliationState,
     SequenceGapError,
@@ -94,6 +95,15 @@ def lifecycle(store):
             price=100.0,
             exchange_timestamp=datetime.now(UTC),
             received_at=datetime.now(UTC),
+        ),
+        portfolio_source=lambda s: PortfolioRiskSnapshot(
+            symbol=s,
+            position_quantity=0.0,
+            available_quantity=0.0,
+            equity=100_000.0,
+            available_cash=100_000.0,
+            observed_at=datetime.now(UTC),
+            source="test",
         ),
     )
 
@@ -1426,6 +1436,15 @@ class TestP0MissingTests:
                 received_at=datetime.now(UTC),
             ),
             inventory_source=lambda s, side: 10.0 if side == "sell" else 0.0,
+            portfolio_source=lambda s: PortfolioRiskSnapshot(
+                symbol=s,
+                position_quantity=2.0,
+                available_quantity=10.0,
+                equity=100_000.0,
+                available_cash=100_000.0,
+                observed_at=datetime.now(UTC),
+                source="test",
+            ),
         )
         intent_id = "spot-exit-1"
         lc.create_order_intent(intent_id, "BTC/USDT", "sell", 2.0)
@@ -1502,6 +1521,15 @@ class TestP0MissingTests:
                 received_at=datetime.now(UTC),
             ),
             inventory_source=lambda s, side: 10.0 if side == "sell" else 0.0,
+            portfolio_source=lambda s: PortfolioRiskSnapshot(
+                symbol=s,
+                position_quantity=1.0,
+                available_quantity=10.0,
+                equity=100_000.0,
+                available_cash=100_000.0,
+                observed_at=datetime.now(UTC),
+                source="test",
+            ),
         )
         # Real path: create -> approve -> authorize -> request submission
         intent_id = "real-path-1"
@@ -1559,6 +1587,15 @@ class TestP0MissingTests:
                 received_at=datetime.now(UTC),
             ),
             inventory_source=lambda s, side: 10.0 if side == "sell" else 0.0,
+            portfolio_source=lambda s: PortfolioRiskSnapshot(
+                symbol=s,
+                position_quantity=1.0,
+                available_quantity=10.0,
+                equity=100_000.0,
+                available_cash=100_000.0,
+                observed_at=datetime.now(UTC),
+                source="test",
+            ),
         )
         intent_id = "audit-1"
         lc.create_order_intent(intent_id, "BTC/USDT", "sell", 1.0)

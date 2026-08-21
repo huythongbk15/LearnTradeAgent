@@ -51,8 +51,10 @@ from trading_agent.execution.permission import (
 from trading_agent.execution.lifecycle import (
     ExecutionLifecycle,
     ExecutionEventStore,
+    ExecutionEventType,
     ExecutionHealth,
     TrustedPrice,
+    PortfolioRiskSnapshot,
 )
 from trading_agent.execution.lifecycle.lifecycle import EmergencyReduceRequest
 from trading_agent.execution.types import (
@@ -185,6 +187,7 @@ class ExecutionEngine:
                 if symbol in self.exchange._last_price_cache
                 else None
             ),
+            portfolio_source=lambda symbol: self._build_portfolio_snapshot(symbol),
         )
         self.planner = OrderPlanner(
             instrument_rules=InstrumentRules(symbol="BTC/USDT", spot_long_only=True),
@@ -194,6 +197,30 @@ class ExecutionEngine:
 
         # Register graceful shutdown handler
         register_shutdown_handler(self._graceful_shutdown)
+
+    def _build_portfolio_snapshot(self, symbol: str) -> PortfolioRiskSnapshot | None:
+        """Build a trusted portfolio snapshot from exchange state."""
+        try:
+            with self.exchange._state_lock:
+                position = self.exchange.get_position(symbol)
+                position_quantity = position.quantity if position else 0.0
+                available_quantity = position_quantity  # spot long-only: all available
+                equity = self.exchange.get_total_equity()
+                available_cash = self.exchange.get_balance("USDT")
+                observed_at = datetime.now(UTC)
+                source = "paper_exchange"
+        except Exception as e:
+            logger.warning(f"Failed to build portfolio snapshot for {symbol}: {e}")
+            return None
+        return PortfolioRiskSnapshot(
+            symbol=symbol,
+            position_quantity=position_quantity,
+            available_quantity=available_quantity,
+            equity=equity,
+            available_cash=available_cash,
+            observed_at=observed_at,
+            source=source,
+        )
 
     # ── Execute signals from Phase 2 agents ────────────────────────────
 
@@ -378,21 +405,30 @@ class ExecutionEngine:
             exchange_order_id=result.broker_order_id,
         )
 
-        if result.state == BrokerSubmitState.UNKNOWN:
-            # Broker did not confirm final state — enter reconciliation instead of rejecting.
-            # UNKNOWN is not a failure; it means the broker response was inconclusive.
-            # Reconciliation will query broker state again and resolve to FILLED/REJECTED/MANUAL.
-            self.lifecycle.start_reconciliation()
+        # Record broker result through lifecycle (P0-2A: broker fact handler)
+        broker_event = self.lifecycle.record_broker_submit_result(
+            intent_id=intent.intent_id,
+            result=result,
+        )
+
+        if broker_event is None:
+            # UNKNOWN or unrecognized state: reconciliation already started by lifecycle
             orders.append(
                 self._result_to_order(result, symbol, intent.side, intent.quantity)
             )
-        elif result.success and result.broker_order_id:
-            # Simulate immediate fill for paper trading
-            fill_event = self.lifecycle.receive_fill(
-                intent_id=intent.intent_id,
-                size=intent.quantity,
-                price=current_price,
+        elif broker_event.event_type == ExecutionEventType.ORDER_REJECTED:
+            # Broker rejected — already recorded by lifecycle
+            orders.append(
+                self._result_to_order(result, symbol, intent.side, intent.quantity)
             )
+        elif broker_event.event_type == ExecutionEventType.BROKER_ACKNOWLEDGED:
+            # For paper trading: simulate immediate fill after acknowledgment
+            if result.state in (BrokerSubmitState.ACCEPTED, BrokerSubmitState.OPEN):
+                fill_event = self.lifecycle.receive_fill(
+                    intent_id=intent.intent_id,
+                    size=intent.quantity,
+                    price=current_price,
+                )
 
             # Protection plan (explicit quantity, no magic zero)
             plan = ProtectionPlan(
@@ -436,10 +472,15 @@ class ExecutionEngine:
             orders.append(
                 self._result_to_order(result, symbol, intent.side, intent.quantity)
             )
+        elif broker_event.event_type == ExecutionEventType.FILL_RECEIVED:
+            # Already filled by broker — no simulation needed
+            orders.append(
+                self._result_to_order(result, symbol, intent.side, intent.quantity)
+            )
         else:
-            reject_event = self.lifecycle.reject_order(
-                intent_id=intent.intent_id,
-                reason=result.error or "gateway submit failed",
+            # Other events (partial fill, etc.) — still add to orders
+            orders.append(
+                self._result_to_order(result, symbol, intent.side, intent.quantity)
             )
 
         return orders

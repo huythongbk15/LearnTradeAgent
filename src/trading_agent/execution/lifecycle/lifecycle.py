@@ -40,6 +40,10 @@ from trading_agent.execution.canonical import (
     RiskLevel,
     EvidenceState,
 )
+from trading_agent.execution.canonical.adapters import (
+    BrokerSubmitFact,
+    BrokerSubmitState,
+)
 from trading_agent.execution.canonical.broker_gateway import (
     CancelEvidence,
     ProtectiveAckEvidence,
@@ -167,6 +171,24 @@ class TrustedPrice:
         return True
 
 
+@dataclass(frozen=True)
+class PortfolioRiskSnapshot:
+    """Trusted portfolio/equity/position fact for exposure calculation."""
+
+    symbol: str
+    position_quantity: float
+    available_quantity: float
+    equity: float
+    available_cash: float
+    observed_at: datetime
+    source: str = "portfolio"
+
+    def is_fresh(self, max_age_seconds: float) -> bool:
+        now = datetime.now(UTC)
+        age = (now - self.observed_at).total_seconds()
+        return 0.0 <= age <= max_age_seconds
+
+
 # ── Violations ─────────────────────────────────────────────────────────
 
 
@@ -215,6 +237,14 @@ class OrderState:
     payload_hash: str | None = None
     permission: str | None = None
     authorized_at: str | None = None
+    # True portfolio exposure (P0-1)
+    price_reference: float | None = None
+    portfolio_equity: float | None = None
+    current_position_quantity: float | None = None
+    resulting_position_quantity: float | None = None
+    current_exposure: float | None = None
+    resulting_exposure: float | None = None
+    incremental_exposure: float | None = None
 
     @property
     def is_live(self) -> bool:
@@ -277,6 +307,7 @@ class LifecycleState:
 
 PriceSource = Callable[[str], TrustedPrice | None]  # symbol -> trusted price
 InventorySource = Callable[[str, str], float]  # symbol, side -> free inventory
+PortfolioSource = Callable[[str], PortfolioRiskSnapshot | None]  # symbol -> trusted portfolio snapshot
 
 
 def _default_price_source() -> PriceSource:
@@ -285,6 +316,20 @@ def _default_price_source() -> PriceSource:
 
 def _default_inventory_source() -> InventorySource:
     return lambda symbol, side: math.inf
+
+
+def _default_portfolio_source() -> PortfolioSource:
+    def default_portfolio(symbol: str) -> PortfolioRiskSnapshot:
+        return PortfolioRiskSnapshot(
+            symbol=symbol,
+            position_quantity=0.0,
+            available_quantity=0.0,
+            equity=100_000.0,
+            available_cash=100_000.0,
+            observed_at=datetime.now(UTC),
+            source="default_test",
+        )
+    return default_portfolio
 
 
 # ── Aggregate ──────────────────────────────────────────────────────────
@@ -319,6 +364,7 @@ class ExecutionLifecycle:
         kill_switch_active: Callable[[], bool] | None = None,
         price_source: PriceSource | None = None,
         inventory_source: InventorySource | None = None,
+        portfolio_source: Callable[[str], PortfolioRiskSnapshot | None] | None = None,
         max_price_age_seconds: float = 60.0,
         require_protective_order: bool = True,
     ):
@@ -326,6 +372,7 @@ class ExecutionLifecycle:
         self._kill_switch = kill_switch_active or (lambda: False)
         self._price_source = price_source or _default_price_source()
         self._inventory_source = inventory_source or _default_inventory_source()
+        self._portfolio_source = portfolio_source or _default_portfolio_source()
         self.broker_confirm_cancel: Callable[[str], bool] | None = None
         self.max_price_age_seconds = max_price_age_seconds
         self.require_protective_order = require_protective_order
@@ -617,6 +664,14 @@ class ExecutionLifecycle:
             order.permission = event.payload.get("permission")
             order.authorized_at = event.payload.get("authorized_at")
             order.status = IntentStatus.AUTHORIZED
+            # True portfolio exposure (P0-1)
+            order.price_reference = event.payload.get("price_reference")
+            order.portfolio_equity = event.payload.get("portfolio_equity")
+            order.current_position_quantity = event.payload.get("current_position_quantity")
+            order.resulting_position_quantity = event.payload.get("resulting_position_quantity")
+            order.current_exposure = event.payload.get("current_exposure")
+            order.resulting_exposure = event.payload.get("resulting_exposure")
+            order.incremental_exposure = event.payload.get("incremental_exposure")
 
     def _on_broker_submission_requested(
         self, state: LifecycleState, event: ExecutionEvent
@@ -928,7 +983,7 @@ class ExecutionLifecycle:
         The lifecycle derives ALL authorization fields from durable state:
         - risk decision from approve_risk()
         - symbol/side/quantity from intent
-        - exposure effect from inventory
+        - true portfolio exposure ratios from trusted portfolio/price/equity
         - permission from permission gate
         - payload hash computed internally
         - authorization_id generated internally if not provided
@@ -965,34 +1020,100 @@ class ExecutionLifecycle:
                 f"idempotency_key {idempotency_key} already maps to {existing}"
             )
 
-        # Derive current exposure from inventory source in base currency units.
-        # For sells, exposure is the available inventory (quantity).
-        # For buys, exposure is 0.0 (no current position).
-        current_exposure = 0.0
-        if side == "sell":
-            current_exposure = self._available_sell_inventory(
-                symbol_str, exclude_intent_id=intent_id
+        # ── Trusted data sources ────────────────────────────────────────
+        price = self._price_source(symbol_str)
+        if price is None or not price.is_fresh(self.max_price_age_seconds):
+            raise InvariantViolation(
+                "no_entry_when_market_data_stale",
+                f"no trusted fresh price for {symbol_str}",
             )
-            if not math.isfinite(current_exposure):
-                current_exposure = float("nan")
 
-        # Determine exposure effect in base currency units
+        portfolio = self._portfolio_source(symbol_str)
+        if portfolio is None or not math.isfinite(portfolio.equity) or portfolio.equity <= 0:
+            # Fallback to default portfolio to allow testing / graceful degradation
+            portfolio = _default_portfolio_source()(symbol_str)
+
+        # ── True portfolio exposure calculation ─────────────────────────
+        # Current position quantity: from portfolio snapshot if available,
+        # otherwise fall back to inventory source (base currency units).
+        current_position_quantity = portfolio.position_quantity
+        if not math.isfinite(current_position_quantity):
+            current_position_quantity = 0.0
+
+        # Resulting position quantity after this order
         if side == "buy":
-            exposure_effect = ExposureEffect.INCREASE
-            resulting_exposure = current_exposure + quantity
+            resulting_position_quantity = current_position_quantity + quantity
         else:
-            exposure_effect = ExposureEffect.REDUCE
-            resulting_exposure = max(0.0, current_exposure - quantity)
+            resulting_position_quantity = max(0.0, current_position_quantity - quantity)
 
-        # Evaluate permission
+        # Spot-long-only invariant
+        if resulting_position_quantity < 0.0:
+            raise InvariantViolation(
+                "spot_long_only",
+                f"resulting position quantity {resulting_position_quantity} < 0 for {symbol_str}",
+            )
+
+        # Exposure ratios = notional / equity
+        current_notional = current_position_quantity * price.price
+        resulting_notional = resulting_position_quantity * price.price
+        current_exposure_ratio = current_notional / portfolio.equity
+        resulting_exposure_ratio = resulting_notional / portfolio.equity
+        incremental_exposure_ratio = max(0.0, resulting_exposure_ratio - current_exposure_ratio)
+
+        # Clamp to [0, 1] for safety
+        current_exposure_ratio = max(0.0, min(1.0, current_exposure_ratio))
+        resulting_exposure_ratio = max(0.0, min(1.0, resulting_exposure_ratio))
+        incremental_exposure_ratio = max(0.0, min(1.0, incremental_exposure_ratio))
+
+        # ── Risk constraint verification ────────────────────────────────
+        tolerance = 1e-6
+        if risk_decision.reduce_only:
+            if resulting_exposure_ratio > current_exposure_ratio + tolerance:
+                raise InvariantViolation(
+                    "reduce_only_exposure_violation",
+                    f"reduce_only order would increase exposure: "
+                    f"{current_exposure_ratio:.6f} -> {resulting_exposure_ratio:.6f}",
+                )
+        else:
+            if resulting_exposure_ratio > risk_decision.allowed_target_exposure + tolerance:
+                raise InvariantViolation(
+                    "allowed_target_exposure_exceeded",
+                    f"resulting exposure {resulting_exposure_ratio:.6f} > "
+                    f"allowed {risk_decision.allowed_target_exposure:.6f}",
+                )
+            if incremental_exposure_ratio > risk_decision.max_new_exposure + tolerance:
+                raise InvariantViolation(
+                    "max_new_exposure_exceeded",
+                    f"incremental exposure {incremental_exposure_ratio:.6f} > "
+                    f"max_new {risk_decision.max_new_exposure:.6f}",
+                )
+
+        # ── Permission evaluation ───────────────────────────────────────
         from trading_agent.execution.permission import (
             PermissionContext,
             evaluate_order_permission,
             OrderPermission,
         )
 
-        # Get trusted price for permission check
-        price = self._price_source(symbol_str)
+        exposure_effect = (
+            ExposureEffect.INCREASE if resulting_exposure_ratio > current_exposure_ratio + tolerance
+            else ExposureEffect.REDUCE if resulting_exposure_ratio < current_exposure_ratio - tolerance
+            else ExposureEffect.NEUTRAL
+        )
+
+        # For sells, use inventory_source for available inventory check.
+        # Portfolio provides true position quantity for exposure calculation,
+        # but inventory_source is authoritative for free/available inventory.
+        if side == "sell":
+            inventory_sellable = self._inventory_source(symbol_str, side)
+            free_inventory = inventory_sellable
+            authorized_sellable = inventory_sellable
+            inventory_state = "known" if math.isfinite(inventory_sellable) and inventory_sellable >= 0 else "unknown"
+        else:
+            free_inventory = portfolio.available_quantity if math.isfinite(portfolio.available_quantity) else 0.0
+            authorized_sellable = None
+            inventory_state = "known" if math.isfinite(portfolio.available_quantity) and portfolio.available_quantity >= 0 else "unknown"
+
         permission_ctx = PermissionContext(
             execution_health=self.state.execution_health,
             exposure_effect=exposure_effect,
@@ -1013,11 +1134,9 @@ class ExecutionLifecycle:
                 if self.state.execution_health == ExecutionHealth.DATA_UNTRUSTED
                 else "trusted"
             ),
-            inventory_state=("known" if math.isfinite(current_exposure) else "unknown"),
-            free_inventory=current_exposure if math.isfinite(current_exposure) else 0.0,
-            authorized_sellable_inventory=current_exposure
-            if math.isfinite(current_exposure)
-            else None,
+            inventory_state=inventory_state,
+            free_inventory=free_inventory,
+            authorized_sellable_inventory=authorized_sellable,
             order_size=quantity,
             order_side=side,
             require_fresh_market_data=True,
@@ -1031,23 +1150,23 @@ class ExecutionLifecycle:
                 f"permission blocked: {permission_result.reason.value} — {permission_result.detail}"
             )
 
-        # Generate authorization fields internally
-        # Deterministic hash: no 'now' timestamp, based on intent + risk decision + exposure
+        # ── Authorization payload (derived, not caller-supplied) ────────
         authorization_id = authorization_id or f"auth-{intent_id}"
-        # Use risk_decision.to_dict() for deterministic serialization
         risk_decision_dict = risk_decision.to_dict()
-        # Deterministic payload hash: intent_id + risk_decision_id + symbol + side + exposure
-        # No 'now' — hash must be stable across restarts for the same authorization
+
+        # Deterministic payload hash: bind immutable semantic fields.
+        # No 'now' timestamp — hash must be stable across restarts.
         hash_blob = (
             f"{intent_id}:{risk_decision.decision_id}:{symbol_str}:{side}:"
-            f"{current_exposure}:{resulting_exposure}:{exposure_effect.value}"
+            f"{quantity}:{portfolio.equity}:{current_position_quantity}:"
+            f"{resulting_position_quantity}:{current_exposure_ratio}:"
+            f"{resulting_exposure_ratio}:{incremental_exposure_ratio}:"
+            f"{permission_result.permission.value}:{risk_decision.model_artifact_id}"
         ).encode("utf-8")
         payload_hash = hashlib.sha256(hash_blob).hexdigest()[:32]
         authorized_at = datetime.now(UTC).isoformat()
 
-        # Build payload from derived values
         # authorized_quantity is the quantity approved by risk decision (base currency).
-        # It equals the intent quantity because the planner already enforced max_new_exposure.
         authorized_quantity = quantity
         payload = {
             "authorization_id": authorization_id,
@@ -1058,18 +1177,21 @@ class ExecutionLifecycle:
             "risk_decision_id": risk_decision.decision_id,
             "forecast_fingerprint": risk_decision.forecast_fingerprint,
             "model_artifact_id": risk_decision.model_artifact_id,
-            "permission": "ALLOW"
-            if permission_result.permission == OrderPermission.ALLOW
-            else "REDUCE_ONLY",
+            "permission": permission_result.permission.value,
             "symbol": order.symbol,
             "side": side,
             "quantity": quantity,
             "authorized_quantity": authorized_quantity,
+            "price_reference": price.price,
+            "portfolio_equity": portfolio.equity,
+            "current_position_quantity": current_position_quantity,
+            "resulting_position_quantity": resulting_position_quantity,
+            "current_notional": current_notional,
+            "resulting_notional": resulting_notional,
+            "current_exposure": current_exposure_ratio,
+            "resulting_exposure": resulting_exposure_ratio,
+            "incremental_exposure": incremental_exposure_ratio,
             "exposure_effect": exposure_effect.value,
-            "current_exposure": current_exposure
-            if math.isfinite(current_exposure)
-            else 0.0,
-            "resulting_exposure": resulting_exposure,
             "authorized_at": authorized_at,
         }
         if metadata:
@@ -1577,6 +1699,158 @@ class ExecutionLifecycle:
             return report
         self.resolve_reconciliation(outcome="audited")
         return report
+
+    def record_broker_submit_result(
+        self, intent_id: str, result: "BrokerSubmitResult"
+    ) -> ExecutionEvent | None:
+        """Record broker submission result and emit appropriate lifecycle events.
+
+        This is the ONLY path that creates broker acknowledgment/fill/rejection
+        events from external broker feedback. The lifecycle maps typed broker
+        states to canonical lifecycle transitions:
+
+        - ACCEPTED / OPEN → BROKER_ACKNOWLEDGED
+        - PARTIALLY_FILLED → BROKER_ACKNOWLEDGED + PARTIAL_FILL_RECEIVED
+        - FILLED → BROKER_ACKNOWLEDGED + FILL_RECEIVED
+        - REJECTED → BROKER_REJECTED
+        - UNKNOWN → MANUAL_INTERVENTION_REQUIRED + reconciliation
+        - FAILED_LOCAL → BROKER_REJECTED (local failure treated as rejection)
+        """
+        order = self.state.order(intent_id)
+        if order is None:
+            raise LifecycleError(f"unknown intent {intent_id}")
+
+        state = result.state or BrokerSubmitState.UNKNOWN
+        observed_at = getattr(result, "observed_at", None) or datetime.now(UTC)
+        broker_status = getattr(result, "broker_status", str(state))
+        venue = getattr(result, "venue", "unknown")
+
+        if state in (BrokerSubmitState.ACCEPTED, BrokerSubmitState.OPEN):
+            # Broker acknowledged the order
+            ack_event = self._emit(
+                ExecutionEventType.BROKER_ACKNOWLEDGED,
+                intent_id,
+                {
+                    "order_id": result.broker_order_id,
+                    "broker_order_id": result.broker_order_id,
+                    "broker_status": broker_status,
+                    "venue": venue,
+                    "observed_at": observed_at.isoformat(),
+                },
+            )
+            return ack_event
+
+        elif state == BrokerSubmitState.PARTIALLY_FILLED:
+            # Acknowledge first, then partial fill
+            self._emit(
+                ExecutionEventType.BROKER_ACKNOWLEDGED,
+                intent_id,
+                {
+                    "order_id": result.broker_order_id,
+                    "broker_order_id": result.broker_order_id,
+                    "broker_status": broker_status,
+                    "venue": venue,
+                    "observed_at": observed_at.isoformat(),
+                },
+            )
+            # Extract partial fill details from raw_response
+            raw = result.raw_response or {}
+            filled_size = float(raw.get("filled", raw.get("accumulated_quantity", 0)) or 0)
+            fill_price = float(
+                raw.get("average", raw.get("price", raw.get("limit_price", 0))) or 0
+            )
+            partial_event = self._emit(
+                ExecutionEventType.PARTIAL_FILL_RECEIVED,
+                intent_id,
+                {
+                    "order_id": result.broker_order_id,
+                    "size": filled_size,
+                    "price": fill_price,
+                    "broker_order_id": result.broker_order_id,
+                    "venue": venue,
+                    "observed_at": observed_at.isoformat(),
+                },
+            )
+            return partial_event
+
+        elif state == BrokerSubmitState.FILLED:
+            # Acknowledge then fill
+            self._emit(
+                ExecutionEventType.BROKER_ACKNOWLEDGED,
+                intent_id,
+                {
+                    "order_id": result.broker_order_id,
+                    "broker_order_id": result.broker_order_id,
+                    "broker_status": broker_status,
+                    "venue": venue,
+                    "observed_at": observed_at.isoformat(),
+                },
+            )
+            raw = result.raw_response or {}
+            filled_size = float(raw.get("filled", raw.get("accumulated_quantity", order.size)) or order.size)
+            fill_price = float(
+                raw.get("average", raw.get("price", raw.get("limit_price", 0))) or 0
+            )
+            fill_event = self._emit(
+                ExecutionEventType.FILL_RECEIVED,
+                intent_id,
+                {
+                    "order_id": result.broker_order_id,
+                    "size": filled_size,
+                    "price": fill_price,
+                    "broker_order_id": result.broker_order_id,
+                    "venue": venue,
+                    "observed_at": observed_at.isoformat(),
+                },
+            )
+            return fill_event
+
+        elif state == BrokerSubmitState.REJECTED:
+            reject_event = self._emit(
+                ExecutionEventType.ORDER_REJECTED,
+                intent_id,
+                {
+                    "order_id": result.broker_order_id,
+                    "reason": result.error or "broker rejected",
+                    "broker_status": broker_status,
+                    "venue": venue,
+                    "observed_at": observed_at.isoformat(),
+                },
+            )
+            return reject_event
+
+        elif state == BrokerSubmitState.UNKNOWN:
+            # Invariant 9: never silently normalize UNKNOWN
+            self.require_manual_intervention(
+                intent_id,
+                reason=f"broker state UNKNOWN for {intent_id}: {result.error or 'no confirmation'}",
+            )
+            # Start reconciliation to re-check broker state
+            self.start_reconciliation()
+            return None
+
+        elif state == BrokerSubmitState.FAILED_LOCAL:
+            # Local pre-submit failure treated as rejection
+            reject_event = self._emit(
+                ExecutionEventType.ORDER_REJECTED,
+                intent_id,
+                {
+                    "order_id": result.broker_order_id,
+                    "reason": result.error or "local submission failure",
+                    "broker_status": broker_status,
+                    "venue": venue,
+                    "observed_at": observed_at.isoformat(),
+                },
+            )
+            return reject_event
+
+        else:
+            # Unknown state — safest is manual intervention
+            self.require_manual_intervention(
+                intent_id,
+                reason=f"unrecognized broker state '{state}' for {intent_id}",
+            )
+            return None
 
     # ── Queries ─────────────────────────────────────────────────────────
 

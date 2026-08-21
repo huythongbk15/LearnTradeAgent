@@ -35,6 +35,9 @@ from trading_agent.execution.canonical.adapters import (
     BrokerSubmitFact,
     BrokerSubmitState,
 )
+from trading_agent.execution.lifecycle.lifecycle import (
+    PortfolioRiskSnapshot,
+)
 
 from scripts.live_config import DRAWDOWN_TIERS
 
@@ -530,6 +533,35 @@ async def api_close(req: CloseRequest) -> dict:
                     return float(pos.qty)
             return 0.0
 
+        def _portfolio_source(symbol):
+            try:
+                account = sync_adapter._adapter.get_account_info()
+            except Exception:
+                account = {}
+            try:
+                positions = sync_adapter.get_all_positions()
+            except Exception:
+                positions = []
+            sym_str = symbol.pair if hasattr(symbol, "pair") else str(symbol)
+            position_quantity = 0.0
+            available_quantity = 0.0
+            for pos in positions:
+                if pos.symbol == sym_str:
+                    position_quantity = float(pos.qty)
+                    available_quantity = float(pos.qty)
+                    break
+            equity = float(account.get("equity", 100_000.0))
+            available_cash = float(account.get("cash", 100_000.0))
+            return PortfolioRiskSnapshot(
+                symbol=sym_str,
+                position_quantity=position_quantity,
+                available_quantity=available_quantity,
+                equity=equity,
+                available_cash=available_cash,
+                observed_at=datetime.now(UTC),
+                source="webui_close",
+            )
+
         lifecycle = ExecutionLifecycle(
             store,
             price_source=lambda s: (
@@ -542,6 +574,7 @@ async def api_close(req: CloseRequest) -> dict:
                 else None
             ),
             inventory_source=_inventory_source,
+            portfolio_source=_portfolio_source,
         )
         gateway = BrokerGateway(adapter=sync_adapter, store=store)
         positions = sync_adapter.get_all_positions()

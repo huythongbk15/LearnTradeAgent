@@ -40,6 +40,7 @@ from trading_agent.execution.lifecycle.lifecycle import (
     ExecutionLifecycle,
     LifecycleError,
     TrustedPrice,
+    PortfolioRiskSnapshot,
 )
 from trading_agent.execution.paper_exchange import PaperExchange
 
@@ -49,6 +50,35 @@ from trading_agent.execution.paper_exchange import PaperExchange
 
 def utcnow() -> datetime:
     return datetime.now(UTC)
+
+
+def make_portfolio_source(exchange: PaperExchange, symbol: str = "BTC/USDT"):
+    """Create a portfolio source function from PaperExchange state."""
+    sym_str = symbol.pair if hasattr(symbol, "pair") else str(symbol)
+    def portfolio_source(symbol: str) -> PortfolioRiskSnapshot | None:
+        try:
+            with exchange._state_lock:
+                position = exchange.get_position(sym_str)
+                position_quantity = position.quantity if position else 0.0
+                available_quantity = position_quantity
+                equity = exchange.get_total_equity()
+                available_cash = exchange.get_balance("USDT")
+                observed_at = datetime.now(UTC)
+                source = "test_paper_exchange"
+                if equity <= 0:
+                    return None
+                return PortfolioRiskSnapshot(
+                    symbol=sym_str,
+                    position_quantity=position_quantity,
+                    available_quantity=available_quantity,
+                    equity=equity,
+                    available_cash=available_cash,
+                    observed_at=observed_at,
+                    source=source,
+                )
+        except Exception:
+            return None
+    return portfolio_source
 
 
 def make_observation(symbol: str = "BTC/USDT") -> EnrichedMarketObservation:
@@ -195,6 +225,7 @@ class TestE2EPaperFlow:
                 store,
                 price_source=price_source,
                 inventory_source=inventory_source,
+                portfolio_source=make_portfolio_source(exchange),
                 max_price_age_seconds=300.0,
             )
 
@@ -346,6 +377,7 @@ class TestE2EPaperFlow:
                 store2,
                 price_source=price_source,
                 inventory_source=inventory_source,
+                portfolio_source=make_portfolio_source(exchange),
                 max_price_age_seconds=300.0,
             )
 
@@ -437,6 +469,7 @@ class TestE2EPaperFlow:
                 store,
                 price_source=price_source,
                 inventory_source=inventory_source,
+                portfolio_source=make_portfolio_source(exchange),
                 max_price_age_seconds=300.0,
             )
 
@@ -628,6 +661,7 @@ class TestE2EPaperFlow:
                 store3,
                 price_source=price_source,
                 inventory_source=inventory_source,
+                portfolio_source=make_portfolio_source(exchange),
                 max_price_age_seconds=300.0,
             )
             replayed_state = lifecycle3.replay(all_events)
@@ -928,10 +962,25 @@ class TestP1ConvergenceProofs:
         def price_source(symbol: str) -> TrustedPrice:
             return fake_price
 
+        def portfolio_source(symbol: str) -> PortfolioRiskSnapshot | None:
+            return PortfolioRiskSnapshot(
+                symbol=symbol,
+                position_quantity=0.0,
+                available_quantity=0.0,
+                equity=100_000.0,
+                available_cash=100_000.0,
+                observed_at=datetime.now(UTC),
+                source="test",
+            )
+
         with tempfile.TemporaryDirectory() as tmp:
             store = ExecutionEventStore(Path(tmp) / "events.db")
             store.connect()
-            lifecycle = ExecutionLifecycle(store, price_source=price_source)
+            lifecycle = ExecutionLifecycle(
+                store,
+                price_source=price_source,
+                portfolio_source=portfolio_source,
+            )
 
             # Create an order intent and authorize it
             intent_id = "test-unknown-recon"
@@ -1005,6 +1054,17 @@ class TestP1ConvergenceProofs:
         def inventory_source(symbol: str, side: str) -> float:
             return 1.0  # known inventory
 
+        def portfolio_source(symbol: str) -> PortfolioRiskSnapshot | None:
+            return PortfolioRiskSnapshot(
+                symbol=symbol,
+                position_quantity=1.0,
+                available_quantity=1.0,
+                equity=100_000.0,
+                available_cash=100_000.0,
+                observed_at=datetime.now(UTC),
+                source="test",
+            )
+
         with tempfile.TemporaryDirectory() as tmp:
             store = ExecutionEventStore(Path(tmp) / "events.db")
             store.connect()
@@ -1012,6 +1072,7 @@ class TestP1ConvergenceProofs:
                 store,
                 price_source=price_source,
                 inventory_source=inventory_source,
+                portfolio_source=portfolio_source,
             )
 
             intent_id = "test-unit-consistency"
@@ -1174,6 +1235,17 @@ class TestP1ConvergenceProofs:
         def inventory_source(symbol: str, side: str) -> float:
             return 1.0
 
+        def portfolio_source(symbol: str) -> PortfolioRiskSnapshot | None:
+            return PortfolioRiskSnapshot(
+                symbol=symbol,
+                position_quantity=0.0,
+                available_quantity=0.0,
+                equity=100_000.0,
+                available_cash=100_000.0,
+                observed_at=datetime.now(UTC),
+                source="test",
+            )
+
         with tempfile.TemporaryDirectory() as tmp:
             store = ExecutionEventStore(Path(tmp) / "events.db")
             store.connect()
@@ -1181,6 +1253,7 @@ class TestP1ConvergenceProofs:
                 store,
                 price_source=price_source,
                 inventory_source=inventory_source,
+                portfolio_source=portfolio_source,
             )
 
             intent_id_1 = "test-idempotency-race-1"
