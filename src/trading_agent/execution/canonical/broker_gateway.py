@@ -242,6 +242,49 @@ class AuthorizedOrder:
         self.authorized_at = fields["authorized_at"]
         self.authorization_hash = fields["authorization_hash"]
 
+    @classmethod
+    def from_event(
+        cls,
+        token: str,
+        auth_event: ExecutionEvent,
+        *,
+        price_reference: float = 0.0,
+        current_exposure: float = 0.0,
+        resulting_exposure: float | None = None,
+        metadata: dict[str, Any] | None = None,
+        correlation_id: str | None = None,
+    ) -> "AuthorizedOrder":
+        """Build an AuthorizedOrder from an ORDER_AUTHORIZED event.
+
+        This factory ensures all required fields are populated from the
+        durable authorization evidence, preventing caller-side drift.
+        """
+        payload = auth_event.payload
+        return cls(
+            token=token,
+            intent_id=payload["intent_id"],
+            symbol=payload["symbol"],
+            side=payload["side"],
+            quantity=payload["quantity"],
+            idempotency_key=payload["idempotency_key"],
+            price_reference=price_reference,
+            risk_decision_id=payload["risk_decision_id"],
+            forecast_fingerprint=payload["forecast_fingerprint"],
+            model_artifact_id=payload["model_artifact_id"],
+            permission_result=payload["permission"],
+            authorization_id=payload["authorization_id"],
+            lifecycle_event_id=auth_event.event_id,
+            correlation_id=correlation_id or payload["intent_id"],
+            exposure_effect=payload["exposure_effect"],
+            current_exposure=current_exposure,
+            resulting_exposure=resulting_exposure
+            if resulting_exposure is not None
+            else current_exposure,
+            authorized_at=payload["authorized_at"],
+            authorization_hash=payload.get("payload_hash", ""),
+            metadata=metadata or {},
+        )
+
 
 class BrokerGateway:
     """The ONLY capital-changing boundary.

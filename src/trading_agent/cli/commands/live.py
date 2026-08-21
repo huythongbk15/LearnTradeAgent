@@ -736,29 +736,16 @@ def _place_order_via_gateway(live_broker, order, store=None):
     # 6. Request broker submission (durable pre-submission event)
     lifecycle.request_broker_submission(intent_id)
 
-    # 7. Build AuthorizedOrder with original order metadata
+    # 7. Build AuthorizedOrder from durable authorization event
     from trading_agent.execution.canonical.broker_gateway import _AUTHORIZED_TOKEN
 
-    authorized = AuthorizedOrder(
-        token=_AUTHORIZED_TOKEN,
-        intent_id=intent_id,
-        symbol=symbol,
-        side=side,
-        quantity=size,
-        idempotency_key=order.client_order_id or intent_id,
+    authorized = AuthorizedOrder.from_event(
+        _AUTHORIZED_TOKEN,
+        auth_event,
         price_reference=0.0,
-        risk_decision_id=risk_decision.decision_id,
-        forecast_fingerprint=risk_decision.forecast_fingerprint,
-        model_artifact_id=risk_decision.model_artifact_id,
-        permission_result=permission.permission.value,
-        authorization_id=auth_event.payload["authorization_id"],
-        lifecycle_event_id=auth_event.event_id,
-        correlation_id=intent_id,
-        exposure_effect=exposure_effect.value,
         current_exposure=0.0,
         resulting_exposure=size if side == "buy" else 0.0,
-        authorized_at=datetime.now(UTC).isoformat(),
-        authorization_hash=auth_event.payload["payload_hash"],
+        correlation_id=intent_id,
         metadata={
             "order_type": order.type.value.lower(),
             "price": float(order.price) if order.price is not None else None,
