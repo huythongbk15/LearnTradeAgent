@@ -987,7 +987,9 @@ class TestP1ConvergenceProofs:
 
             # Lifecycle should be in reconciliation, not rejected
             assert lifecycle.state.reconciliation.value == "started"
-            assert any(o.status.value == "submitted" for o in lifecycle.state.orders.values())
+            assert any(
+                o.status.value == "submitted" for o in lifecycle.state.orders.values()
+            )
 
     def test_lifecycle_authorization_unit_consistency(self):
         """authorized_quantity must be in base currency units (quantity), not notional."""
@@ -1090,17 +1092,56 @@ class TestP1ConvergenceProofs:
             );
         """)
         events = [
-            ("e1", 1, "agg1", "TYPE_A", 1, "{}", "c1", None, "2024-01-01T00:00:00Z", "2024-01-01T00:00:00Z", -1),
-            ("e2", 2, "agg1", "TYPE_B", 1, "{}", "c1", "e1", "2024-01-01T00:01:00Z", "2024-01-01T00:01:00Z", -1),
-            ("e3", 1, "agg2", "TYPE_A", 1, "{}", "c2", None, "2024-01-01T00:00:30Z", "2024-01-01T00:00:30Z", -1),
+            (
+                "e1",
+                1,
+                "agg1",
+                "TYPE_A",
+                1,
+                "{}",
+                "c1",
+                None,
+                "2024-01-01T00:00:00Z",
+                "2024-01-01T00:00:00Z",
+                -1,
+            ),
+            (
+                "e2",
+                2,
+                "agg1",
+                "TYPE_B",
+                1,
+                "{}",
+                "c1",
+                "e1",
+                "2024-01-01T00:01:00Z",
+                "2024-01-01T00:01:00Z",
+                -1,
+            ),
+            (
+                "e3",
+                1,
+                "agg2",
+                "TYPE_A",
+                1,
+                "{}",
+                "c2",
+                None,
+                "2024-01-01T00:00:30Z",
+                "2024-01-01T00:00:30Z",
+                -1,
+            ),
         ]
         for e in events:
-            conn.execute("INSERT INTO execution_events VALUES (?,?,?,?,?,?,?,?,?,?,?)", e)
+            conn.execute(
+                "INSERT INTO execution_events VALUES (?,?,?,?,?,?,?,?,?,?,?)", e
+            )
         conn.commit()
         conn.close()
 
         # Run migration twice
         import subprocess
+
         for _ in range(2):
             result = subprocess.run(
                 [sys.executable, "scripts/migrate_global_seq.py", str(db_path)],
@@ -1111,7 +1152,9 @@ class TestP1ConvergenceProofs:
 
         # Verify all events have positive global_seq
         conn = sqlite3.connect(db_path)
-        rows = conn.execute("SELECT event_id, global_seq FROM execution_events ORDER BY occurred_at, aggregate_id, seq").fetchall()
+        rows = conn.execute(
+            "SELECT event_id, global_seq FROM execution_events ORDER BY occurred_at, aggregate_id, seq"
+        ).fetchall()
         conn.close()
         gs = [r[1] for r in rows]
         assert all(g > 0 for g in gs), f"found non-positive global_seq: {gs}"
@@ -1182,7 +1225,9 @@ class TestP1ConvergenceProofs:
             )
             lifecycle.approve_risk(intent_id_2, risk_decision=risk_decision)
             with pytest.raises(LifecycleError, match="idempotency_key"):
-                lifecycle.authorize_order(intent_id=intent_id_2, idempotency_key="ik-race")
+                lifecycle.authorize_order(
+                    intent_id=intent_id_2, idempotency_key="ik-race"
+                )
 
     def test_paper_reconciliation_adapter(self):
         """PaperExecutionAdapter must reconcile positions against exchange state."""
