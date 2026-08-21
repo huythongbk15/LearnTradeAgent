@@ -1586,6 +1586,68 @@ class TestP1ConvergenceProofs:
         assert all(g > 0 for g in gs), f"found non-positive global_seq: {gs}"
         assert gs == [1, 2, 3], f"unexpected global_seq order: {gs}"
 
+    def test_migration_creates_submission_claims_table(self):
+        """Migration must create execution_submission_claims table idempotently."""
+        import sqlite3
+
+        db_path = Path(tempfile.gettempdir()) / "test_migration_claims.db"
+        if db_path.exists():
+            db_path.unlink()
+
+        conn = sqlite3.connect(db_path)
+        conn.executescript("""
+            CREATE TABLE execution_events (
+                event_id TEXT PRIMARY KEY,
+                seq INTEGER NOT NULL,
+                aggregate_id TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                schema_version INTEGER NOT NULL,
+                payload TEXT NOT NULL,
+                correlation_id TEXT,
+                causation_id TEXT,
+                occurred_at TEXT NOT NULL,
+                ingested_at TEXT NOT NULL,
+                global_seq INTEGER NOT NULL CHECK (global_seq > 0 OR global_seq = -1),
+                UNIQUE (aggregate_id, seq)
+            );
+        """)
+        conn.close()
+
+        # Run migration
+        import subprocess
+
+        result = subprocess.run(
+            [sys.executable, "scripts/migrate_global_seq.py", str(db_path)],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, result.stderr
+
+        # Verify table exists and has correct schema
+        conn = sqlite3.connect(db_path)
+        try:
+            tables = [
+                r[0]
+                for r in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                ).fetchall()
+            ]
+            assert "execution_submission_claims" in tables, (
+                f"missing execution_submission_claims table, found: {tables}"
+            )
+            # Index also exists
+            indexes = [
+                r[0]
+                for r in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='execution_submission_claims'"
+                ).fetchall()
+            ]
+            assert "idx_exec_submission_claim_idem" in indexes, (
+                f"missing submission claims index, found: {indexes}"
+            )
+        finally:
+            conn.close()
+
     def test_mixed_legacy_and_new_db_replay(self):
         """P0-4B: Mixed legacy (global_seq=-1) and new (global_seq>0) events must replay without crash."""
         import sqlite3

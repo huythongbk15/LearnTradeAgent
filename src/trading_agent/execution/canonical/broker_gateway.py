@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from trading_agent.execution.canonical.adapters import (
     BrokerCancelFact,
@@ -37,7 +37,6 @@ from trading_agent.execution.canonical.adapters import (
     BrokerSubmitState,
     CanonicalExecutionAdapter,
 )
-from trading_agent.execution.lifecycle.events import ExecutionEvent
 from trading_agent.execution.canonical.protection import (
     ProtectionPlan,
     ProtectionQuantityMode,
@@ -51,6 +50,8 @@ from trading_agent.exchanges.models import (
     Symbol,
 )
 
+if TYPE_CHECKING:
+    from trading_agent.execution.lifecycle.events import ExecutionEvent
 
 _AUTHORIZED_TOKEN = uuid.uuid4().hex
 

@@ -32,6 +32,23 @@ def migrate(db_path: str, *, dry_run: bool = False) -> int:
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     try:
+        # Ensure new tables exist (idempotent)
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS execution_submission_claims (
+                intent_id            TEXT PRIMARY KEY,
+                claimed_by           TEXT NOT NULL,
+                claimed_at           TEXT NOT NULL,
+                idempotency_key      TEXT NOT NULL,
+                payload_hash         TEXT NOT NULL,
+                status               TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_exec_submission_claim_idem
+                ON execution_submission_claims (idempotency_key);
+            """
+        )
+        conn.commit()
+
         # Check if migration is needed
         cursor = conn.execute(
             "SELECT COUNT(*) AS c FROM execution_events "
