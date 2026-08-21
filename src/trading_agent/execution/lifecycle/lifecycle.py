@@ -1701,7 +1701,7 @@ class ExecutionLifecycle:
         return report
 
     def record_broker_submit_result(
-        self, intent_id: str, result: "BrokerSubmitResult"
+        self, intent_id: str, result: BrokerSubmitFact
     ) -> ExecutionEvent | None:
         """Record broker submission result and emit appropriate lifecycle events.
 
