@@ -37,6 +37,7 @@ from trading_agent.execution.canonical.adapters import (
     BrokerSubmitState,
     CanonicalExecutionAdapter,
 )
+from trading_agent.execution.lifecycle.events import ExecutionEvent
 from trading_agent.execution.canonical.protection import (
     ProtectionPlan,
     ProtectionQuantityMode,
