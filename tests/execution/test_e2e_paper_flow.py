@@ -1138,7 +1138,9 @@ class TestTwoConnectionConcurrency:
             t_b.join(timeout=10)
 
             # Exactly one connection must succeed
-            ok_count = sum(1 for v in results.values() if v is not None and v[0] == "ok")
+            ok_count = sum(
+                1 for v in results.values() if v is not None and v[0] == "ok"
+            )
             assert ok_count == 1, f"expected exactly 1 winner, got: {results}"
             # The loser must see claim failure
             loser = "b" if results["a"][0] == "ok" else "a"
