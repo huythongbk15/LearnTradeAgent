@@ -13,11 +13,11 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any, Protocol, runtime_checkable
 
+from trading_agent.execution.types import OrderSide
 from trading_agent.exchanges.models import (
     AssetClass,
     MarketType,
     Order,
-    OrderSide,
     OrderType,
     Symbol,
 )
@@ -331,12 +331,12 @@ class PaperExecutionAdapter:
                 symbol=Symbol(
                     p.symbol.split("/")[0],
                     p.symbol.split("/")[1],
-                    AssetClass.STOCK,
+                    AssetClass.CRYPTO if "/" in p.symbol else AssetClass.STOCK,
                     MarketType.SPOT,
                     "paper",
                 ),
                 quantity=Decimal(str(p.quantity)),
-                side=OrderSide.BUY if p.side == OrderSide.LONG else OrderSide.SELL,
+                side=OrderSide.BUY if p.side == OrderSide.BUY else OrderSide.SELL,
                 entry_price=Decimal(str(p.entry_price)) if p.entry_price else None,
                 current_price=Decimal(str(p.current_price))
                 if p.current_price

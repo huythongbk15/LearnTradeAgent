@@ -6,6 +6,7 @@ import math
 import sys
 import tempfile
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -20,6 +21,14 @@ from trading_agent.execution.canonical import (
     RiskLevel,
     UnifiedRiskDecision,
 )
+from trading_agent.execution.canonical.order_planner import (
+    ExposureEffect,
+    OrderIntent,
+)
+from trading_agent.research.forecast import TargetExposure
+from trading_agent.execution.canonical.adapters import BrokerSubmitFact
+from trading_agent.execution.types import OrderSide, OrderStatus, OrderType
+from trading_agent.exchanges.models import AssetClass
 from trading_agent.execution.canonical.broker_gateway import (
     AuthorizedOrder,
     BrokerGateway,
@@ -1305,6 +1314,141 @@ class TestExecutionEngineE2E:
         # For this test we only verify the engine accepted the signal and ran the flow.
         assert isinstance(orders, list)
 
+    def test_engine_unknown_broker_state_treated_as_open(self):
+        """P0-2: Broker UNKNOWN must become OrderStatus.OPEN, not REJECTED."""
+        from unittest.mock import patch
+        from trading_agent.execution.engine import ExecutionEngine
+        from trading_agent.execution.canonical.order_planner import (
+            OrderPlanningResult,
+            OrderPlanningStatus,
+        )
+        from trading_agent.execution.canonical.adapters import BrokerSubmitState
+
+        engine = ExecutionEngine(exchange_name="paper")
+
+        # Seed price cache
+        engine.exchange._last_price_cache["BTC/USDT"] = 50000.0
+        engine.exchange._last_price_timestamps["BTC/USDT"] = datetime.now(
+            UTC
+        ).timestamp()
+
+        now = datetime.now(UTC)
+        observation = EnrichedMarketObservation(
+            symbol="BTC/USDT",
+            observed_at=now,
+            open=50000.0,
+            high=51000.0,
+            low=49000.0,
+            close=50500.0,
+            volume=100.0,
+            timeframe="1h",
+            bar_close_at=now,
+            is_closed=True,
+            data_manifest_id="manifest-1",
+            feature_artifact_id="features-1",
+        )
+
+        signal = AgentMessage(
+            role="trader",
+            signal="BUY",
+            confidence=0.9,
+            reasoning="Signal-based entry",
+            details={
+                "symbol": "BTC/USDT",
+                "quantity": 0.01,
+                "price": 50000.0,
+            },
+        )
+
+        unknown_fact = BrokerSubmitFact(
+            state=BrokerSubmitState.UNKNOWN,
+            broker_order_id="broker-unknown-1",
+            client_order_id="client-unknown-1",
+            venue="paper",
+            broker_status="UNKNOWN",
+            observed_at=datetime.now(UTC),
+            error=None,
+            raw_response={},
+        )
+
+        fake_intent = OrderIntent(
+            intent_id="intent-unknown-1",
+            decision_id="rd-unknown-1",
+            forecast_fingerprint="fp-unknown-1",
+            model_artifact_id="m-unknown-1",
+            symbol="BTC/USDT",
+            asset_class="crypto",
+            side="buy",
+            quantity=0.01,
+            current_exposure=0.0,
+            target_exposure=0.05,
+            resulting_exposure=0.05,
+            exposure_effect=ExposureEffect.INCREASE,
+            price_reference=50000.0,
+            idempotency_key="ik-unknown-1",
+            created_at=datetime.now(UTC),
+        )
+
+        risk_decision = UnifiedRiskDecision(
+            decision_id="rd-unknown-1",
+            forecast_fingerprint="fp-unknown-1",
+            model_artifact_id="m-unknown-1",
+            requested_target_exposure=0.05,
+            allowed_target_exposure=0.05,
+            max_new_exposure=0.05,
+            reduce_only=False,
+            risk_level=RiskLevel.LOW,
+            reason_codes=(),
+            calibration_state=EvidenceState.KNOWN,
+            calibration_artifact_id="cal-unknown-1",
+            calibration_ece=0.0,
+            ood_state=EvidenceState.KNOWN,
+            ood_score=0.0,
+            regime_state=EvidenceState.KNOWN,
+            regime_entropy=0.0,
+            interval_width=0.0,
+            created_at=datetime.now(UTC),
+        )
+
+        with patch.object(
+            engine.legacy_adapter,
+            "adapt",
+            return_value=(
+                risk_decision,
+                TargetExposure(
+                    symbol="BTC/USDT",
+                    exposure=0.05,
+                    horizon=1,
+                    forecast_fingerprint="fp-unknown-1",
+                    model_artifact_id="m-unknown-1",
+                    risk_decision_id="rd-unknown-1",
+                ),
+            ),
+        ), patch.object(
+            engine.planner,
+            "plan",
+            return_value=OrderPlanningResult(
+                status=OrderPlanningStatus.ORDER_REQUIRED,
+                intent=fake_intent,
+                reason_codes=(),
+                requested_delta=0.01,
+                executable_delta=0.01,
+            ),
+        ), patch.object(
+            engine.store,
+            "claim_submission",
+            return_value=True,
+        ), patch.object(
+            engine.gateway,
+            "submit",
+            return_value=unknown_fact,
+        ):
+            orders = engine.execute_signal(signal, observation=observation)
+
+        assert len(orders) == 1
+        assert orders[0].status == OrderStatus.OPEN
+        assert orders[0].id == "broker-unknown-1"
+
 
 class TestP1ConvergenceProofs:
     """P1 convergence edge-case proofs requested by the user."""
@@ -2022,10 +2166,11 @@ class TestP1ConvergenceProofs:
             ]
             assert len(submission_events) == 1, "UNKNOWN must not trigger resubmit"
 
-    def test_engine_unknown_broker_state_no_resubmit(self):
+    def test_engine_unknown_broker_state_no_resubmit(self, tmp_path):
         """P0-10: ExecutionEngine must not resubmit when broker returns UNKNOWN."""
         from unittest.mock import patch
         from trading_agent.execution.engine import ExecutionEngine
+        from trading_agent.execution.lifecycle import ExecutionEventStore
         from trading_agent.execution.canonical.broker_gateway import (
             BrokerSubmitResult,
             BrokerSubmitState,
@@ -2033,7 +2178,8 @@ class TestP1ConvergenceProofs:
         from trading_agent.execution.canonical.order_planner import OrderIntent
         from trading_agent.execution.lifecycle.lifecycle import ExposureEffect
 
-        engine = ExecutionEngine(exchange_name="paper")
+        store = ExecutionEventStore(str(tmp_path / "events.db")).connect()
+        engine = ExecutionEngine(exchange_name="paper", store=store)
         engine.exchange._last_price_cache["BTC/USDT"] = 50000.0
         engine.exchange._last_price_timestamps["BTC/USDT"] = datetime.now(
             UTC
@@ -2309,3 +2455,115 @@ class TestP1ConvergenceProofs:
                     ), f"Unexpected replayed status: {status}"
             finally:
                 os.chdir(orig_cwd)
+
+class TestPaperReconciliationAdapter:
+    """P0-5A: Test the adapter, not underlying exchange."""
+
+    def test_fetch_positions_returns_crypto_facts(self):
+        """Paper adapter must map BTC/USDT to CRYPTO, not STOCK."""
+
+        # 4. MISSING/UNKNOWN state
+        fact_missing = adapter.fetch_order("non-existent-order-id")
+        assert fact_missing.status == "unknown"
+        assert fact_missing.broker_order_id == "non-existent-order-id"
+
+class TestPaperReconciliationAdapter:
+    """P0-5A: Test the adapter, not underlying exchange."""
+
+    def test_fetch_positions_returns_crypto_facts(self, tmp_path: Path):
+        """Paper adapter must map BTC/USDT to CRYPTO, not STOCK."""
+        from trading_agent.execution.canonical.adapters import PaperExecutionAdapter
+
+        state_dir = tmp_path / "paper_state"
+        state_dir.mkdir()
+        exchange = PaperExchange(
+            exchange_name="binance",
+            initial_balance=100_000.0,
+            state_dir=state_dir,
+            slippage=0.0,
+        )
+        adapter = PaperExecutionAdapter(exchange)
+
+        # Update price so market order can fill
+        exchange.update_prices({"BTC/USDT": 50000.0})
+
+        # Place a market buy order -> creates position
+        order = exchange.place_order(
+            symbol="BTC/USDT",
+            side="buy",
+            amount=0.01,
+            price=50000.0,
+        )
+        assert order.status == OrderStatus.FILLED
+
+        facts = adapter.fetch_positions()
+        assert len(facts) == 1
+        fact = facts[0]
+        assert fact.symbol.base == "BTC"
+        assert fact.symbol.quote == "USDT"
+        assert fact.symbol.asset_class == AssetClass.CRYPTO
+        assert fact.side == OrderSide.BUY
+        assert fact.quantity == Decimal("0.01")
+        assert fact.entry_price == Decimal("50000.0")
+
+        # Ensure no stale loaded state leaked into this test instance
+        assert not any(
+            p.symbol.base == "BTC" and p.symbol.asset_class == AssetClass.STOCK
+            for p in facts
+        ), "adapter must not return STOCK asset class for crypto symbols"
+
+    def test_fetch_order_various_states(self, tmp_path: Path):
+        """Adapter fetch_order must return correct facts for OPEN, FILLED, CANCELED, MISSING."""
+        from trading_agent.execution.canonical.adapters import PaperExecutionAdapter
+
+        state_dir = tmp_path / "paper_state"
+        state_dir.mkdir()
+        exchange = PaperExchange(
+            exchange_name="binance",
+            initial_balance=100_000.0,
+            state_dir=state_dir,
+            slippage=0.0,
+        )
+        adapter = PaperExecutionAdapter(exchange)
+        exchange.update_prices({"ETH/USDT": 3000.0})
+
+        # 1. OPEN state: place limit order away from market
+        limit_order = exchange.place_order(
+            symbol="ETH/USDT",
+            side="buy",
+            order_type=OrderType.LIMIT,
+            amount=0.1,
+            price=2500.0,  # limit below market -> stays open
+        )
+        fact_open = adapter.fetch_order(limit_order.id)
+        assert fact_open.status == "open"
+        assert fact_open.symbol.asset_class == AssetClass.CRYPTO
+
+        # 2. FILLED state: market order
+        market_order = exchange.place_order(
+            symbol="ETH/USDT",
+            side="buy",
+            amount=0.05,
+            price=3000.0,
+        )
+        fact_filled = adapter.fetch_order(market_order.id)
+        assert fact_filled.status == "filled"
+        assert fact_filled.filled_quantity == Decimal("0.05")
+
+        # 3. CANCELED state
+        cancel_order = exchange.place_order(
+            symbol="ETH/USDT",
+            side="buy",
+            order_type=OrderType.LIMIT,
+            amount=0.01,
+            price=2500.0,
+        )
+        assert cancel_order.status == OrderStatus.OPEN
+        exchange.cancel_order(cancel_order.id)
+        fact_canceled = adapter.fetch_order(cancel_order.id)
+        assert fact_canceled.status == "canceled"
+
+        # 4. MISSING/UNKNOWN state
+        fact_missing = adapter.fetch_order("non-existent-order-id")
+        assert fact_missing.status == "unknown"
+        assert fact_missing.broker_order_id == "non-existent-order-id"

@@ -987,6 +987,7 @@ class TestEnginePaperE2E:
             EnrichedMarketObservation,
         )
         from trading_agent.execution.engine import ExecutionEngine
+        from trading_agent.execution.lifecycle import ExecutionEventStore
         from trading_agent.execution.paper_exchange import PaperExchange
         from trading_agent.execution.types import OrderStatus
 
@@ -998,7 +999,8 @@ class TestEnginePaperE2E:
             initial_balance=100_000.0,
             state_dir=state_dir,
         )
-        engine = ExecutionEngine(exchange=exchange)
+        store = ExecutionEventStore(str(tmp_path / "events.db")).connect()
+        engine = ExecutionEngine(exchange=exchange, store=store)
         # Seed a price so the engine has a valid market observation
         engine.exchange.update_prices({"BTC/USDT": 50_000.0})
         # Ensure the engine has a current price for the symbol

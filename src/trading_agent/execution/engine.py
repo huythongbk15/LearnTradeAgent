@@ -128,6 +128,7 @@ class ExecutionEngine:
         slippage: float | None = None,
         *,
         exchange: PaperExchange | None = None,
+        store: Any | None = None,
     ):
         # ── Constructor strictness: validate inputs early ─────────────
         if exchange is not None:
@@ -169,8 +170,9 @@ class ExecutionEngine:
         )
 
         # ── Canonical execution stack ─────────────────────────────────
-        self.store = ExecutionEventStore("data/execution/events.db")
-        self.store.connect()
+        self.store = store or ExecutionEventStore("data/execution/events.db")
+        if store is None:
+            self.store.connect()
         # Use PaperExecutionAdapter wrapping PaperExchange
         paper_adapter = PaperExecutionAdapter(self.exchange)
         self.gateway = BrokerGateway(adapter=paper_adapter, store=self.store)
@@ -677,10 +679,16 @@ class ExecutionEngine:
         else:
             status = OrderStatus.REJECTED
         raw = result.raw_response or {}
+        success = result.state in {
+            BrokerSubmitState.ACCEPTED,
+            BrokerSubmitState.OPEN,
+            BrokerSubmitState.PARTIALLY_FILLED,
+            BrokerSubmitState.FILLED,
+        }
         filled_amount = float(
             raw.get(
                 "filled",
-                raw.get("accumulated_quantity", quantity if result.success else 0),
+                raw.get("accumulated_quantity", quantity if success else 0),
             )
             or 0
         )
