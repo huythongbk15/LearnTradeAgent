@@ -711,8 +711,8 @@ class ExecutionEngine:
         state = getattr(result, "state", None)
         if state == BrokerSubmitState.UNKNOWN:
             # UNKNOWN is not a rejection; it means the broker did not confirm
-            # the final state. Treat as SUBMITTED for reconciliation downstream.
-            status = OrderStatus.SUBMITTED
+            # the final state. Treat as OPEN for reconciliation downstream.
+            status = OrderStatus.OPEN
         elif result.success:
             status = OrderStatus.FILLED
         else:

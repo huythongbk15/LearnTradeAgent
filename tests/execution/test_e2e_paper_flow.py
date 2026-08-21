@@ -32,12 +32,15 @@ from trading_agent.execution.canonical.market_observation import (
 )
 from trading_agent.execution.canonical.order_planner import (
     CurrentPortfolioState,
+    OrderIntent,
+    OrderPlanningResult,
     OrderPlanningStatus,
     TargetExposure,
 )
 from trading_agent.execution.lifecycle import ExecutionEventStore
 from trading_agent.execution.lifecycle.lifecycle import (
     ExecutionLifecycle,
+    ExposureEffect,
     LifecycleError,
     TrustedPrice,
     PortfolioRiskSnapshot,
@@ -1372,3 +1375,385 @@ class TestP1ConvergenceProofs:
         # Hash must be bound to the authorization evidence
         assert order.authorization_hash == "hash-anti"
         assert order.authorization_id == "auth-anti"
+
+    def test_broker_unknown_reconciles_without_resubmit(self):
+        """P0-2B: Broker UNKNOWN must trigger reconciliation without resubmit."""
+        from trading_agent.execution.canonical.broker_gateway import (
+            BrokerSubmitResult,
+            BrokerSubmitState,
+        )
+        from trading_agent.execution.lifecycle.lifecycle import (
+            ExecutionLifecycle,
+            ExecutionEventStore,
+            TrustedPrice,
+        )
+
+        fake_price = TrustedPrice(
+            price=50000.0,
+            exchange_timestamp=utcnow(),
+            received_at=utcnow(),
+        )
+
+        def price_source(symbol: str) -> TrustedPrice:
+            return fake_price
+
+        def portfolio_source(symbol: str) -> PortfolioRiskSnapshot | None:
+            return PortfolioRiskSnapshot(
+                symbol=symbol,
+                position_quantity=0.0,
+                available_quantity=0.0,
+                equity=100_000.0,
+                available_cash=100_000.0,
+                observed_at=datetime.now(UTC),
+                source="test",
+            )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ExecutionEventStore(Path(tmp) / "events.db")
+            store.connect()
+            lifecycle = ExecutionLifecycle(
+                store,
+                price_source=price_source,
+                portfolio_source=portfolio_source,
+            )
+
+            # Create and authorize an order
+            intent_id = "test-unknown-no-resubmit"
+            lifecycle.create_order_intent(
+                intent_id=intent_id,
+                symbol="BTC/USDT",
+                side="buy",
+                size=0.01,
+                idempotency_key="ik-unknown-no-resubmit",
+            )
+            risk_decision = UnifiedRiskDecision(
+                decision_id="rd-unknown",
+                forecast_fingerprint="fp-unknown",
+                model_artifact_id="m-unknown",
+                requested_target_exposure=0.01,
+                allowed_target_exposure=0.01,
+                max_new_exposure=0.01,
+                reduce_only=False,
+                risk_level=RiskLevel.LOW,
+                reason_codes=(),
+                calibration_state=EvidenceState.KNOWN,
+                calibration_artifact_id="cal-unknown",
+                calibration_ece=0.0,
+                ood_state=EvidenceState.KNOWN,
+                ood_score=0.0,
+                regime_state=EvidenceState.KNOWN,
+                regime_entropy=0.0,
+                interval_width=0.0,
+                created_at=utcnow(),
+            )
+            lifecycle.approve_risk(intent_id, risk_decision=risk_decision)
+            auth_event = lifecycle.authorize_order(
+                intent_id=intent_id,
+                idempotency_key="ik-unknown-no-resubmit",
+            )
+
+            # Initial broker submission request (normal flow)
+            request_event = lifecycle.request_broker_submission(intent_id)
+            assert request_event is not None
+
+            # Simulate broker returning UNKNOWN via record_broker_submit_result
+            unknown_result = BrokerSubmitResult(
+                success=True,
+                broker_order_id="broker-unknown-1",
+                state=BrokerSubmitState.UNKNOWN,
+                error=None,
+            )
+
+            # This is the ONLY path that should create broker events from external feedback
+            event = lifecycle.record_broker_submit_result(intent_id, unknown_result)
+
+            # UNKNOWN must not be treated as rejection
+            assert event is None  # UNKNOWN returns None (manual intervention + reconciliation)
+            assert lifecycle.state.reconciliation.value == "started"
+            assert lifecycle.state.manual_blocked is True
+            # Order transitions to MANUAL status (not rejected), awaiting reconciliation
+            order = lifecycle.state.order(intent_id)
+            assert order is not None
+            assert order.status.value == "manual"
+
+            # Verify NO resubmit event was created (no duplicate broker_submission_requested)
+            submission_events = [
+                e for e in store.read_events_global()
+                if e.event_type == "exec.broker_submission_requested"
+            ]
+            assert len(submission_events) == 1, "UNKNOWN must not trigger resubmit"
+
+    def test_engine_unknown_broker_state_no_resubmit(self):
+        """P0-10: ExecutionEngine must not resubmit when broker returns UNKNOWN."""
+        from unittest.mock import patch
+        from trading_agent.execution.engine import ExecutionEngine
+        from trading_agent.execution.canonical.broker_gateway import (
+            BrokerSubmitResult,
+            BrokerSubmitState,
+        )
+        from trading_agent.execution.canonical.order_planner import OrderIntent
+        from trading_agent.execution.lifecycle.lifecycle import ExposureEffect
+
+        engine = ExecutionEngine(exchange_name="paper")
+        engine.exchange._last_price_cache["BTC/USDT"] = 50000.0
+        engine.exchange._last_price_timestamps["BTC/USDT"] = datetime.now(
+            UTC
+        ).timestamp()
+
+        now = datetime.now(UTC)
+        observation = EnrichedMarketObservation(
+            symbol="BTC/USDT",
+            observed_at=now,
+            open=50000.0,
+            high=51000.0,
+            low=49000.0,
+            close=50500.0,
+            volume=100.0,
+            timeframe="1h",
+            bar_close_at=now,
+            is_closed=True,
+            data_manifest_id="manifest-1",
+            feature_artifact_id="features-1",
+        )
+
+        signal = AgentMessage(
+            role="trader",
+            signal="BUY",
+            confidence=0.9,
+            reasoning="Signal-based entry",
+            details={
+                "symbol": "BTC/USDT",
+                "quantity": 0.01,
+                "price": 50000.0,
+            },
+        )
+
+        # Track submission calls
+        submit_calls = []
+
+        def mock_submit(authorized, correlation_id=None):
+            submit_calls.append(correlation_id)
+            return BrokerSubmitResult(
+                success=True,
+                broker_order_id="broker-unknown-engine",
+                state=BrokerSubmitState.UNKNOWN,
+                error=None,
+            )
+
+        # Mock intent that passes permission check
+        # PaperExchange default initial_balance is 10_000, so 0.01 BTC @ 50k = 0.05 exposure ratio
+        mock_intent = OrderIntent(
+            intent_id="intent-unknown-engine",
+            decision_id="rd-unknown-engine",
+            forecast_fingerprint="fp-unknown-engine",
+            model_artifact_id="m-unknown-engine",
+            symbol="BTC/USDT",
+            asset_class="crypto",
+            side="buy",
+            quantity=0.01,
+            current_exposure=0.0,
+            target_exposure=0.05,
+            resulting_exposure=0.05,
+            exposure_effect=ExposureEffect.INCREASE,
+            price_reference=50000.0,
+            idempotency_key="ik-unknown-engine",
+            created_at=now,
+        )
+
+        # Mock risk decision that allows new exposure
+        # PaperExchange default initial_balance is 10_000, so 0.01 BTC @ 50k = 0.05 exposure ratio
+        mock_risk_decision = UnifiedRiskDecision(
+            decision_id="rd-unknown-engine",
+            forecast_fingerprint="fp-unknown-engine",
+            model_artifact_id="m-unknown-engine",
+            requested_target_exposure=0.06,
+            allowed_target_exposure=0.06,
+            max_new_exposure=0.06,
+            reduce_only=False,
+            risk_level=RiskLevel.LOW,
+            reason_codes=(),
+            calibration_state=EvidenceState.KNOWN,
+            calibration_artifact_id="cal-unknown-engine",
+            calibration_ece=0.0,
+            ood_state=EvidenceState.KNOWN,
+            ood_score=0.0,
+            regime_state=EvidenceState.KNOWN,
+            regime_entropy=0.0,
+            interval_width=0.0,
+            created_at=now,
+        )
+
+        mock_target = TargetExposure(
+            symbol="BTC/USDT",
+            exposure=0.05,
+            horizon=14400,
+            forecast_fingerprint="fp-unknown-engine",
+            model_artifact_id="m-unknown-engine",
+            risk_decision_id="rd-unknown-engine",
+        )
+
+        with patch.object(
+            engine.legacy_adapter,
+            "adapt",
+            return_value=(mock_risk_decision, mock_target),
+        ), patch.object(
+            engine.planner,
+            "plan",
+            return_value=OrderPlanningResult(
+                status=OrderPlanningStatus.ORDER_REQUIRED,
+                intent=mock_intent,
+                reason_codes=(),
+                requested_delta=0.01,
+                executable_delta=0.01,
+            ),
+        ), patch.object(
+            engine.gateway, "submit", side_effect=mock_submit
+        ):
+            orders = engine.execute_signal(signal, observation=observation)
+
+        # Engine should have called submit exactly once (no resubmit on UNKNOWN)
+        assert len(submit_calls) == 1
+        # Engine should not raise; UNKNOWN is handled gracefully
+        assert isinstance(orders, list)
+
+    def test_engine_full_state_restart_preserves_orders(self):
+        """P0-9: Engine full-state restart must preserve in-flight orders."""
+        import os
+        from unittest.mock import patch
+        from trading_agent.execution.engine import ExecutionEngine
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Use tmpdir as cwd so engine's relative DB path resolves here
+            orig_cwd = os.getcwd()
+            os.chdir(tmpdir)
+            try:
+                # Phase 1: Create engine, submit an order, then "crash"
+                engine1 = ExecutionEngine(exchange_name="paper")
+                engine1.exchange._last_price_cache["BTC/USDT"] = 50000.0
+                engine1.exchange._last_price_timestamps["BTC/USDT"] = datetime.now(
+                    UTC
+                ).timestamp()
+
+                now = datetime.now(UTC)
+                observation = EnrichedMarketObservation(
+                    symbol="BTC/USDT",
+                    observed_at=now,
+                    open=50000.0,
+                    high=51000.0,
+                    low=49000.0,
+                    close=50500.0,
+                    volume=100.0,
+                    timeframe="1h",
+                    bar_close_at=now,
+                    is_closed=True,
+                    data_manifest_id="manifest-1",
+                    feature_artifact_id="features-1",
+                )
+
+                signal = AgentMessage(
+                    role="trader",
+                    signal="BUY",
+                    confidence=0.9,
+                    reasoning="Signal-based entry",
+                    details={
+                        "symbol": "BTC/USDT",
+                        "quantity": 0.01,
+                        "price": 50000.0,
+                    },
+                )
+
+                # Mock intent that passes permission check
+                mock_intent = OrderIntent(
+                    intent_id="intent-restart",
+                    decision_id="rd-restart",
+                    forecast_fingerprint="fp-restart",
+                    model_artifact_id="m-restart",
+                    symbol="BTC/USDT",
+                    asset_class="crypto",
+                    side="buy",
+                    quantity=0.01,
+                    current_exposure=0.0,
+                    target_exposure=0.05,
+                    resulting_exposure=0.05,
+                    exposure_effect=ExposureEffect.INCREASE,
+                    price_reference=50000.0,
+                    idempotency_key="ik-restart",
+                    created_at=now,
+                )
+
+                # Mock risk decision that allows new exposure
+                mock_risk_decision = UnifiedRiskDecision(
+                    decision_id="rd-restart",
+                    forecast_fingerprint="fp-restart",
+                    model_artifact_id="m-restart",
+                    requested_target_exposure=0.06,
+                    allowed_target_exposure=0.06,
+                    max_new_exposure=0.06,
+                    reduce_only=False,
+                    risk_level=RiskLevel.LOW,
+                    reason_codes=(),
+                    calibration_state=EvidenceState.KNOWN,
+                    calibration_artifact_id="cal-restart",
+                    calibration_ece=0.0,
+                    ood_state=EvidenceState.KNOWN,
+                    ood_score=0.0,
+                    regime_state=EvidenceState.KNOWN,
+                    regime_entropy=0.0,
+                    interval_width=0.0,
+                    created_at=now,
+                )
+
+                mock_target = TargetExposure(
+                    symbol="BTC/USDT",
+                    exposure=0.05,
+                    horizon=14400,
+                    forecast_fingerprint="fp-restart",
+                    model_artifact_id="m-restart",
+                    risk_decision_id="rd-restart",
+                )
+
+                with patch.object(
+                    engine1.legacy_adapter,
+                    "adapt",
+                    return_value=(mock_risk_decision, mock_target),
+                ), patch.object(
+                    engine1.planner,
+                    "plan",
+                    return_value=OrderPlanningResult(
+                        status=OrderPlanningStatus.ORDER_REQUIRED,
+                        intent=mock_intent,
+                        reason_codes=(),
+                        requested_delta=0.01,
+                        executable_delta=0.01,
+                    ),
+                ):
+                    orders1 = engine1.execute_signal(signal, observation=observation)
+
+                # Capture lifecycle state before "restart"
+                lifecycle1 = engine1.lifecycle
+                orders_before = list(lifecycle1.state.orders.keys())
+                assert len(orders_before) >= 1
+
+                # Phase 2: "Restart" — create new engine with same DB
+                engine2 = ExecutionEngine(exchange_name="paper")
+                engine2.exchange._last_price_cache["BTC/USDT"] = 50000.0
+                engine2.exchange._last_price_timestamps["BTC/USDT"] = datetime.now(
+                    UTC
+                ).timestamp()
+
+                # Replay events to rebuild state
+                all_events = engine2.lifecycle.store.read_events_global()
+                replayed_state = engine2.lifecycle.replay(all_events)
+
+                # Verify orders preserved after restart
+                orders_after = list(replayed_state.orders.keys())
+                assert orders_before == orders_after, "Order state must survive restart"
+                for intent_id in orders_before:
+                    status = replayed_state.orders[intent_id].status.value
+                    assert status in (
+                        "pending", "approved", "authorized", "submitted",
+                        "acknowledged", "partially_filled", "filled",
+                        "cancel_requested", "canceled", "rejected", "manual",
+                    ), f"Unexpected replayed status: {status}"
+            finally:
+                os.chdir(orig_cwd)
