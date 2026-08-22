@@ -24,6 +24,7 @@ import json
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 
 def _snapshot_checksum(state: dict[str, Any]) -> str:
