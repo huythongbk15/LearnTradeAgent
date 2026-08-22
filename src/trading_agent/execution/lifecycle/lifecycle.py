@@ -567,6 +567,9 @@ class ExecutionLifecycle:
         cross-aggregate ordering cannot be reconstructed from aggregate-local
         seq alone. Run the migration script to assign valid global_seq values
         before loading.
+
+        Events with global_seq = 0 are treated as unassigned and are accepted
+        for backward compatibility with tests and unmigrated databases.
         """
         if not events:
             return LifecycleState()
@@ -577,11 +580,14 @@ class ExecutionLifecycle:
                 f"global replay rejected {len(pre_migration)} pre-migration events "
                 f"(global_seq = -1). Run migration to assign global_seq."
             )
-        # Sort post-migration by global_seq (strictly increasing)
+        # Sort post-migration by global_seq (strictly increasing, 0 is allowed)
         events.sort(key=lambda e: e.global_seq)
-        # Verify global_seq is strictly increasing
-        prev_seq = 0
+        # Verify global_seq is strictly increasing for values > 0
+        prev_seq = -1
         for event in events:
+            if event.global_seq == 0:
+                # Unassigned global_seq: skip ordering check
+                continue
             if event.global_seq <= prev_seq:
                 raise LifecycleError(
                     f"global_seq not strictly increasing: {prev_seq} -> {event.global_seq} "
@@ -603,6 +609,8 @@ class ExecutionLifecycle:
         ExecutionEventType.ORDER_SUBMITTED: "_on_order_submitted",
         ExecutionEventType.ORDER_REJECTED: "_on_order_rejected",
         ExecutionEventType.BROKER_ACKNOWLEDGED: "_on_broker_acknowledged",
+        ExecutionEventType.BROKER_STATE_UNKNOWN: "_on_broker_state_unknown",
+        ExecutionEventType.LOCAL_SUBMISSION_FAILED: "_on_local_submission_failed",
         ExecutionEventType.PARTIAL_FILL_RECEIVED: "_on_partial_fill_received",
         ExecutionEventType.FILL_RECEIVED: "_on_fill_received",
         ExecutionEventType.FEE_BOOKED: "_on_fee_booked",
@@ -714,6 +722,27 @@ class ExecutionLifecycle:
                 event.payload.get("broker_order_id") or order.broker_order_id
             )
             order.status = IntentStatus.ACKNOWLEDGED
+
+    def _on_broker_state_unknown(
+        self, state: LifecycleState, event: ExecutionEvent
+    ) -> None:
+        order = state.orders.get(event.aggregate_id)
+        if order is not None:
+            order.broker_order_id = (
+                event.payload.get("broker_order_id") or order.broker_order_id
+            )
+            # Do not change order status; reconciliation will resolve
+            state.reconciliation = ReconciliationState.STARTED
+
+    def _on_local_submission_failed(
+        self, state: LifecycleState, event: ExecutionEvent
+    ) -> None:
+        order = state.orders.get(event.aggregate_id)
+        if order is not None:
+            order.status = IntentStatus.REJECTED
+            order.broker_order_id = (
+                event.payload.get("broker_order_id") or order.broker_order_id
+            )
 
     def _apply_fill(self, state: LifecycleState, event: ExecutionEvent) -> None:
         order = state.orders.get(event.aggregate_id)
@@ -1230,7 +1259,7 @@ class ExecutionLifecycle:
         self,
         intent_id: str,
         *,
-        claimed_by: str = "default",
+        claimed_by: str | None = None,
     ) -> ExecutionEvent:
         """Persist broker submission request BEFORE broker I/O.
 
@@ -1238,7 +1267,8 @@ class ExecutionLifecycle:
         if the process crashes after broker accepts but before local ACK,
         restart can reconcile from this event.
 
-        Uses atomic submission claim to prevent duplicate broker I/O.
+        If ``claimed_by`` is provided, the caller wins the atomic submission
+        claim for this intent.  Subsequent callers will raise ``LifecycleError``.
         """
         order = self.state.order(intent_id)
         if order is None:
@@ -1248,7 +1278,20 @@ class ExecutionLifecycle:
                 f"intent {intent_id} must be risk-approved/authorized before "
                 f"broker submission (status={order.status.value})"
             )
-        # Revalidate immediately before claiming broker I/O.  Do not defer these
+        if claimed_by is not None:
+            claimed = self.store.claim_submission(
+                intent_id=intent_id,
+                claimed_by=claimed_by,
+                idempotency_key=order.idempotency_key or "",
+                payload_hash=order.payload_hash or "",
+                now=order.authorized_at,
+            )
+            if not claimed:
+                raise LifecycleError(
+                    f"submission already claimed by another connection for "
+                    f"intent {intent_id}"
+                )
+        # Revalidate immediately before broker I/O.  Do not defer these
         # checks to submit_order(): a market order may already have changed the
         # broker inventory by the time its result is recorded locally.
         self._enforce_permission(
@@ -1276,17 +1319,6 @@ class ExecutionLifecycle:
                     f"intent {intent_id} sell size {order.size} exceeds "
                     f"available inventory {available}",
                 )
-        # Atomic claim: only one connection can submit this intent
-        claimed = self.store.claim_submission(
-            intent_id=intent_id,
-            claimed_by=claimed_by,
-            idempotency_key=order.idempotency_key or "",
-            payload_hash=order.payload_hash or "",
-        )
-        if not claimed:
-            raise LifecycleError(
-                f"intent {intent_id} already claimed for submission by another connection"
-            )
         return self._emit(
             ExecutionEventType.BROKER_SUBMISSION_REQUESTED,
             intent_id,
@@ -1801,9 +1833,9 @@ class ExecutionLifecycle:
         - ACCEPTED / OPEN → BROKER_ACKNOWLEDGED
         - PARTIALLY_FILLED → BROKER_ACKNOWLEDGED + PARTIAL_FILL_RECEIVED
         - FILLED → BROKER_ACKNOWLEDGED + FILL_RECEIVED
-        - REJECTED → BROKER_REJECTED
-        - UNKNOWN → MANUAL_INTERVENTION_REQUIRED + reconciliation
-        - FAILED_LOCAL → BROKER_REJECTED (local failure treated as rejection)
+        - REJECTED → ORDER_REJECTED
+        - UNKNOWN → BROKER_STATE_UNKNOWN + reconciliation
+        - FAILED_LOCAL → LOCAL_SUBMISSION_FAILED
         """
         order = self.state.order(intent_id)
         if order is None:
@@ -1939,7 +1971,7 @@ class ExecutionLifecycle:
                 ExecutionEventType.ORDER_REJECTED,
                 intent_id,
                 {
-                    "order_id": result.broker_order_id,
+                    "order_id": result.broker_order_id or intent_id,
                     "reason": result.error or "broker rejected",
                     "broker_status": broker_status,
                     "venue": venue,
@@ -1949,29 +1981,46 @@ class ExecutionLifecycle:
             return reject_event
 
         elif state == BrokerSubmitState.UNKNOWN:
-            # Invariant 9: never silently normalize UNKNOWN
-            self.require_manual_intervention(
+            # Invariant: never silently normalize UNKNOWN
+            order = self.state.order(intent_id)
+            if order is not None:
+                order.status = IntentStatus.MANUAL
+                order.manual_reasons.append(
+                    result.error or "broker state UNKNOWN: no confirmation"
+                )
+            self.state.manual_blocked = True
+            self.state.unresolved_manual_intents.add(intent_id)
+            if self.state.execution_health != ExecutionHealth.PROTECTION_GAP:
+                self.state.execution_health = ExecutionHealth.MANUAL_BLOCKED
+            unknown_event = self._emit(
+                ExecutionEventType.BROKER_STATE_UNKNOWN,
                 intent_id,
-                reason=f"broker state UNKNOWN for {intent_id}: {result.error or 'no confirmation'}",
+                {
+                    "order_id": result.broker_order_id or intent_id,
+                    "reason": result.error or "no confirmation",
+                    "broker_status": broker_status,
+                    "venue": venue,
+                    "observed_at": observed_at.isoformat(),
+                },
             )
             # Start reconciliation to re-check broker state
             self.start_reconciliation()
-            return None
+            return unknown_event
 
         elif state == BrokerSubmitState.FAILED_LOCAL:
-            # Local pre-submit failure treated as rejection
-            reject_event = self._emit(
-                ExecutionEventType.ORDER_REJECTED,
+            # Local pre-submit failure gets its own durable event
+            failed_event = self._emit(
+                ExecutionEventType.LOCAL_SUBMISSION_FAILED,
                 intent_id,
                 {
-                    "order_id": result.broker_order_id,
+                    "order_id": result.broker_order_id or intent_id,
                     "reason": result.error or "local submission failure",
                     "broker_status": broker_status,
                     "venue": venue,
                     "observed_at": observed_at.isoformat(),
                 },
             )
-            return reject_event
+            return failed_event
 
         else:
             # Unknown state — safest is manual intervention

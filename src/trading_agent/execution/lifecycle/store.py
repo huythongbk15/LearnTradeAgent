@@ -676,6 +676,38 @@ class ExecutionEventStore:
 
         return json.loads(row["payload"])
 
+    def get_latest_broker_event(
+        self, intent_id: str
+    ) -> tuple[str, dict[str, Any]] | None:
+        """Return the latest broker outcome event type and payload for an intent.
+
+        Scans in order: BROKER_ACKNOWLEDGED, ORDER_REJECTED,
+        BROKER_STATE_UNKNOWN, LOCAL_SUBMISSION_FAILED, PARTIAL_FILL_RECEIVED,
+        FILL_RECEIVED.
+        """
+        event_types = [
+            "exec.broker_acknowledged",
+            "exec.order_rejected",
+            "exec.broker_state_unknown",
+            "exec.local_submission_failed",
+            "exec.partial_fill_received",
+            "exec.fill_received",
+        ]
+        for etype in event_types:
+            row = self.conn.execute(
+                """
+                SELECT payload FROM execution_events
+                WHERE aggregate_id = ? AND event_type = ?
+                ORDER BY seq DESC LIMIT 1
+                """,
+                (intent_id, etype),
+            ).fetchone()
+            if row is not None:
+                import json
+
+                return etype, json.loads(row["payload"])
+        return None
+
     # ── Integrity / audit ───────────────────────────────────────────────
 
     def integrity_check(self) -> dict[str, Any]:

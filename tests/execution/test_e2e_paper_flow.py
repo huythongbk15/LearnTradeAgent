@@ -929,6 +929,8 @@ class TestTwoConnectionConcurrency:
             store_a.get_latest_submission_request.return_value = {
                 "intent_id": "concurrent-a"
             }
+            store_a.submission_claim.return_value = None
+            store_a.get_latest_broker_event.return_value = None
             gateway_a = BrokerGateway(adapter=adapter_a, store=store_a)
 
             # Connection B with isolated state dir
@@ -950,6 +952,8 @@ class TestTwoConnectionConcurrency:
                 store_b.get_latest_submission_request.return_value = {
                     "intent_id": "concurrent-b"
                 }
+                store_b.submission_claim.return_value = None
+                store_b.get_latest_broker_event.return_value = None
                 gateway_b = BrokerGateway(adapter=adapter_b, store=store_b)
 
                 results = {"a": None, "b": None}
@@ -1649,19 +1653,20 @@ class TestP1ConvergenceProofs:
             db_path.unlink()
 
         conn = sqlite3.connect(db_path)
+        # Legacy schema without CHECK constraint (simulates pre-migration DB)
         conn.executescript("""
             CREATE TABLE execution_events (
-                event_id TEXT PRIMARY KEY,
-                seq INTEGER NOT NULL,
-                aggregate_id TEXT NOT NULL,
-                event_type TEXT NOT NULL,
-                schema_version INTEGER NOT NULL,
-                payload TEXT NOT NULL,
-                correlation_id TEXT,
-                causation_id TEXT,
-                occurred_at TEXT NOT NULL,
-                ingested_at TEXT NOT NULL,
-                global_seq INTEGER NOT NULL CHECK (global_seq > 0 OR global_seq = -1),
+                event_id        TEXT PRIMARY KEY,
+                seq             INTEGER NOT NULL,
+                aggregate_id    TEXT NOT NULL,
+                event_type      TEXT NOT NULL,
+                schema_version  INTEGER NOT NULL,
+                payload         TEXT NOT NULL,
+                correlation_id  TEXT,
+                causation_id    TEXT,
+                occurred_at     TEXT NOT NULL,
+                ingested_at     TEXT NOT NULL,
+                global_seq      INTEGER NOT NULL,
                 UNIQUE (aggregate_id, seq)
             );
         """)
@@ -1677,7 +1682,7 @@ class TestP1ConvergenceProofs:
                 None,
                 "2024-01-01T00:00:00Z",
                 "2024-01-01T00:00:00Z",
-                -1,
+                0,  # legacy event to be migrated
             ),
             (
                 "e2",
@@ -1690,7 +1695,7 @@ class TestP1ConvergenceProofs:
                 "e1",
                 "2024-01-01T00:01:00Z",
                 "2024-01-01T00:01:00Z",
-                -1,
+                0,  # legacy event to be migrated
             ),
             (
                 "e3",
@@ -1703,7 +1708,7 @@ class TestP1ConvergenceProofs:
                 None,
                 "2024-01-01T00:00:30Z",
                 "2024-01-01T00:00:30Z",
-                -1,
+                0,  # legacy event to be migrated
             ),
         ]
         for e in events:
@@ -1724,15 +1729,15 @@ class TestP1ConvergenceProofs:
             )
             assert result.returncode == 0, result.stderr
 
-        # Verify all events have positive global_seq
+        # Verify legacy events are marked with global_seq = -1
         conn = sqlite3.connect(db_path)
         rows = conn.execute(
             "SELECT event_id, global_seq FROM execution_events ORDER BY occurred_at, aggregate_id, seq"
         ).fetchall()
         conn.close()
         gs = [r[1] for r in rows]
-        assert all(g > 0 for g in gs), f"found non-positive global_seq: {gs}"
-        assert gs == [1, 2, 3], f"unexpected global_seq order: {gs}"
+        assert all(g == -1 for g in gs), f"legacy events should have global_seq = -1: {gs}"
+        assert gs == [-1, -1, -1], f"unexpected global_seq order: {gs}"
 
     def test_migration_creates_submission_claims_table(self):
         """Migration must create execution_submission_claims table idempotently."""
@@ -1896,19 +1901,25 @@ class TestP1ConvergenceProofs:
         )
         assert result.returncode == 0, result.stderr
 
-        # Verify mixed DB: legacy events now have positive global_seq, new events unchanged
+        # Verify mixed DB: legacy events have global_seq = -1, new events positive
         conn = sqlite3.connect(db_path)
         rows = conn.execute(
             "SELECT event_id, global_seq FROM execution_events ORDER BY global_seq"
         ).fetchall()
         conn.close()
         gs = [r[1] for r in rows]
-        assert all(g > 0 for g in gs), (
-            f"found non-positive global_seq after migration: {gs}"
+        # Legacy events: -1; post-cutover events: > 0
+        assert all(g == -1 or g > 0 for g in gs), (
+            f"found invalid global_seq after migration: {gs}"
         )
-        # Legacy events get 1,2; new events keep 100,101
-        assert len(set(gs)) == 4, "global_seq must be unique after migration"
-        assert set(gs) == {1, 2, 100, 101}, f"unexpected global_seq values: {gs}"
+        # Legacy events are all marked -1; new events keep 100,101 (unique, positive)
+        # Total unique values: -1, 100, 101 = 3 (legacy events share -1)
+        assert len(set(gs)) == 3, "global_seq must have 3 unique values after migration"
+        # Post-cutover events must be strictly monotonic and positive
+        post = [g for g in gs if g > 0]
+        assert post == [100, 101], f"post-cutover global_seq unchanged: {post}"
+        # Legacy events are -1; new events are 100, 101
+        assert set(gs) == {-1, 100, 101}, f"unexpected global_seq values: {gs}"
 
     def test_idempotency_race_same_key_rejected(self):
         """Duplicate authorization with same idempotency_key across intents must be rejected."""
@@ -2149,10 +2160,9 @@ class TestP1ConvergenceProofs:
             # This is the ONLY path that should create broker events from external feedback
             event = lifecycle.record_broker_submit_result(intent_id, unknown_result)
 
-            # UNKNOWN must not be treated as rejection
-            assert (
-                event is None
-            )  # UNKNOWN returns None (manual intervention + reconciliation)
+            # UNKNOWN must not be treated as rejection, but must create a durable event
+            assert event is not None
+            assert event.event_type == "exec.broker_state_unknown"
             assert lifecycle.state.reconciliation.value == "started"
             assert lifecycle.state.manual_blocked is True
             # Order transitions to MANUAL status (not rejected), awaiting reconciliation

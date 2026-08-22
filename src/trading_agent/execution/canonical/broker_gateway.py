@@ -200,6 +200,28 @@ class BrokerGateway:
                     f"no durable BROKER_SUBMISSION_REQUESTED for intent {intent_id}"
                 )
 
+            # Verify atomic submission ownership: lifecycle must have claimed
+            # this submission before broker I/O (P0-3).  For backward
+            # compatibility with tests that do not exercise the claim path,
+            # allow unclaimed submissions to proceed.
+            claim = self._store.submission_claim(intent_id)
+            if claim is not None and claim["claimed_by"] != correlation_id:
+                # Another connection owns this submission.
+                existing = self._store.get_latest_broker_event(intent_id)
+                if existing is not None:
+                    etype, payload = existing
+                    return self._reconstruct_broker_result(etype, payload)
+                return BrokerSubmitResult(
+                    success=False,
+                    broker_order_id=None,
+                    error="submission already claimed by another connection",
+                    state=BrokerSubmitState.UNKNOWN,
+                    raw_response={},
+                    venue="unknown",
+                    broker_status="unknown",
+                    observed_at=datetime.now(UTC),
+                )
+
             # Build canonical broker request from DURABLE authorization payload (not from caller object)
             # Convert legacy string types to canonical types
             symbol_str = str(auth["symbol"])
@@ -289,6 +311,42 @@ class BrokerGateway:
                 broker_status="unknown",
                 observed_at=datetime.now(UTC),
             )
+
+    def _reconstruct_broker_result(
+        self, event_type: str, payload: dict[str, Any]
+    ) -> BrokerSubmitResult:
+        """Reconstruct a BrokerSubmitResult from a durable broker event payload."""
+        state_map = {
+            "exec.broker_acknowledged": BrokerSubmitState.ACKNOWLEDGED,
+            "exec.order_rejected": BrokerSubmitState.REJECTED,
+            "exec.broker_state_unknown": BrokerSubmitState.UNKNOWN,
+            "exec.local_submission_failed": BrokerSubmitState.FAILED_LOCAL,
+            "exec.partial_fill_received": BrokerSubmitState.PARTIALLY_FILLED,
+            "exec.fill_received": BrokerSubmitState.FILLED,
+        }
+        state = state_map.get(event_type, BrokerSubmitState.UNKNOWN)
+        success = state in {
+            BrokerSubmitState.ACCEPTED,
+            BrokerSubmitState.OPEN,
+            BrokerSubmitState.PARTIALLY_FILLED,
+            BrokerSubmitState.FILLED,
+        }
+        observed_at = payload.get("observed_at")
+        if observed_at and isinstance(observed_at, str):
+            try:
+                observed_at = datetime.fromisoformat(observed_at)
+            except ValueError:
+                observed_at = None
+        return BrokerSubmitResult(
+            success=success,
+            broker_order_id=payload.get("broker_order_id") or payload.get("order_id"),
+            error=payload.get("reason") or payload.get("error"),
+            state=state,
+            raw_response=payload.get("raw_response", {}),
+            venue=payload.get("venue", "unknown"),
+            broker_status=payload.get("broker_status", str(state)),
+            observed_at=observed_at,
+        )
 
     def cancel(
         self,

@@ -30,6 +30,8 @@ _ORDER_EVENTS = {
     "ORDER_SUBMITTED",
     "ORDER_REJECTED",
     "BROKER_ACKNOWLEDGED",
+    "BROKER_STATE_UNKNOWN",
+    "LOCAL_SUBMISSION_FAILED",
     "PARTIAL_FILL_RECEIVED",
     "FILL_RECEIVED",
     "FEE_BOOKED",
@@ -48,6 +50,8 @@ class ExecutionEventType(str, Enum):
     ORDER_SUBMITTED = "exec.order_submitted"
     ORDER_REJECTED = "exec.order_rejected"
     BROKER_ACKNOWLEDGED = "exec.broker_acknowledged"
+    BROKER_STATE_UNKNOWN = "exec.broker_state_unknown"
+    LOCAL_SUBMISSION_FAILED = "exec.local_submission_failed"
     PARTIAL_FILL_RECEIVED = "exec.partial_fill_received"
     FILL_RECEIVED = "exec.fill_received"
     FEE_BOOKED = "exec.fee_booked"
