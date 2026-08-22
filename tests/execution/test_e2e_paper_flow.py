@@ -1736,7 +1736,9 @@ class TestP1ConvergenceProofs:
         ).fetchall()
         conn.close()
         gs = [r[1] for r in rows]
-        assert all(g == -1 for g in gs), f"legacy events should have global_seq = -1: {gs}"
+        assert all(g == -1 for g in gs), (
+            f"legacy events should have global_seq = -1: {gs}"
+        )
         assert gs == [-1, -1, -1], f"unexpected global_seq order: {gs}"
 
     def test_migration_creates_submission_claims_table(self):
