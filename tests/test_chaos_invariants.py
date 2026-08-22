@@ -25,6 +25,8 @@ from trading_agent.execution.lifecycle import (
     ExecutionEventStore,
     ExecutionLifecycle,
     IntentStatus,
+    LifecycleError,
+    PortfolioRiskSnapshot,
     TrustedPrice,
 )
 
@@ -171,11 +173,23 @@ def test_network_loss_cancel_not_falsely_confirmed(tmp_path):
 
 def test_stale_market_blocks_entry_even_with_good_intent(tmp_path):
     store = ExecutionEventStore(tmp_path / "m.db").connect()
-    lc = ExecutionLifecycle(store, price_source=lambda s: None)  # no fresh data
+    lc = ExecutionLifecycle(
+        store,
+        price_source=lambda s: None,  # no fresh data
+        portfolio_source=lambda s: PortfolioRiskSnapshot(
+            symbol=s,
+            position_quantity=0.0,
+            available_quantity=0.0,
+            equity=100_000.0,
+            available_cash=100_000.0,
+            observed_at=datetime.now(UTC),
+            source="test",
+        ),
+    )
     result = run_chaos_scenario(lc, FaultType.STALE_MARKET_DATA)
     assert result.passed
     order = lc.order("intent_chaos")
-    assert order.status == IntentStatus.APPROVED  # submit blocked
+    assert order.status == IntentStatus.APPROVED  # authorize blocked
     assert order.filled_size == 0.0
 
 
@@ -190,14 +204,25 @@ def test_reconciliation_unresolved_blocks_new_entries(tmp_path):
             exchange_timestamp=datetime.now(UTC),
             received_at=datetime.now(UTC),
         ),
+        portfolio_source=lambda s: PortfolioRiskSnapshot(
+            symbol=s,
+            position_quantity=0.0,
+            available_quantity=0.0,
+            equity=100_000.0,
+            available_cash=100_000.0,
+            observed_at=datetime.now(UTC),
+            source="test",
+        ),
     )
     risk_decision = _sample_risk_decision()
     lc.start_reconciliation()
-    # Intents may be drafted, but market entry (submit) is gated.
+    # Intents may be drafted, but market entry (authorize) is gated.
     lc.create_order_intent("blocked2", "BTC/USDT", "buy", 1.0)
     lc.approve_risk("blocked2", risk_decision=risk_decision)
-    with pytest.raises(InvariantViolation):
-        lc.submit_order("blocked2", exchange_order_id="ex_1")
+    with pytest.raises(LifecycleError):
+        lc.authorize_order("blocked2", idempotency_key="blocked2")
     # Once resolved, entry is allowed again.
     lc.resolve_reconciliation()
+    lc.authorize_order("blocked2", idempotency_key="blocked2")
+    lc.request_broker_submission("blocked2", claimed_by="blocked2")
     lc.submit_order("blocked2", exchange_order_id="ex_1")

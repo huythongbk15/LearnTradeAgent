@@ -240,6 +240,7 @@ class OrderState:
     permission: str | None = None
     authorized_at: str | None = None
     submission_requested: bool = False
+    io_started: bool = False
     # True portfolio exposure (P0-1)
     price_reference: float | None = None
     portfolio_equity: float | None = None
@@ -608,6 +609,7 @@ class ExecutionLifecycle:
         ExecutionEventType.RISK_APPROVED: "_on_risk_approved",
         ExecutionEventType.ORDER_AUTHORIZED: "_on_order_authorized",
         ExecutionEventType.BROKER_SUBMISSION_REQUESTED: "_on_broker_submission_requested",
+        ExecutionEventType.BROKER_IO_STARTED: "_on_broker_io_started",
         ExecutionEventType.ORDER_SUBMITTED: "_on_order_submitted",
         ExecutionEventType.ORDER_REJECTED: "_on_order_rejected",
         ExecutionEventType.BROKER_ACKNOWLEDGED: "_on_broker_acknowledged",
@@ -690,6 +692,13 @@ class ExecutionLifecycle:
         order = state.orders.get(event.aggregate_id)
         if order is not None:
             order.submission_requested = True
+
+    def _on_broker_io_started(
+        self, state: LifecycleState, event: ExecutionEvent
+    ) -> None:
+        order = state.orders.get(event.aggregate_id)
+        if order is not None:
+            order.io_started = True
 
     def _on_order_submitted(self, state: LifecycleState, event: ExecutionEvent) -> None:
         order = state.orders.get(event.aggregate_id)
@@ -1325,14 +1334,42 @@ class ExecutionLifecycle:
             )
         if order.side == "sell":
             available = float(self._inventory_source(order.symbol, "sell"))
-            if order.size > available + 1e-12:
+            reserved = self.active_sell_reservations(order.symbol, exclude_intent_id=intent_id)
+            free = max(0.0, available - reserved)
+            if order.size > free + 1e-12:
                 raise InvariantViolation(
                     "insufficient_inventory",
                     f"intent {intent_id} sell size {order.size} exceeds "
-                    f"available inventory {available}",
+                    f"free inventory {free} (available={available}, reserved={reserved})",
                 )
         return self._emit(
             ExecutionEventType.BROKER_SUBMISSION_REQUESTED,
+            intent_id,
+            {"order_id": intent_id},
+        )
+
+    def record_broker_io_started(self, intent_id: str) -> ExecutionEvent:
+        """Durable transition: submission claim → broker I/O started.
+
+        This must be emitted by the gateway immediately before calling
+        ``adapter.submit_order()``.  On restart, if an intent is claimed
+        but ``io_started`` is False, the submission is considered
+        unstarted and must not be retried automatically.
+        """
+        order = self.state.order(intent_id)
+        if order is None:
+            raise LifecycleError(f"unknown intent {intent_id}")
+        if not order.submission_requested:
+            raise LifecycleError(
+                f"intent {intent_id} must have BROKER_SUBMISSION_REQUESTED "
+                f"before IO_STARTED"
+            )
+        if order.io_started:
+            raise LifecycleError(
+                f"intent {intent_id} already has BROKER_IO_STARTED"
+            )
+        return self._emit(
+            ExecutionEventType.BROKER_IO_STARTED,
             intent_id,
             {"order_id": intent_id},
         )
@@ -1376,15 +1413,16 @@ class ExecutionLifecycle:
             raise LifecycleError(
                 f"intent {intent_id} cannot submit from status {order.status.value}"
             )
+        # For backward compatibility: if the order is still in APPROVED or
+        # AUTHORIZED state and broker submission hasn't been requested yet,
+        # automatically emit BROKER_SUBMISSION_REQUESTED before ORDER_SUBMITTED
+        # so the durable pre-submission event always exists.  This also
+        # revalidates inventory/risk before broker I/O.
         if not order.submission_requested and order.status in {
             IntentStatus.APPROVED,
             IntentStatus.AUTHORIZED,
         }:
-            # Legacy/local callers may record a submission without explicitly
-            # creating the pre-I/O event. Preserve fail-closed validation and
-            # durable ordering for those callers. Canonical gateway callers
-            # already have this event, so post-fill inventory is never re-read.
-            self.request_broker_submission(intent_id)
+            self.request_broker_submission(intent_id, claimed_by=intent_id)
         # Lifecycle sizing enforcement: order size must not exceed authorized quantity
         if (
             order.authorized_quantity > 0
@@ -1400,11 +1438,10 @@ class ExecutionLifecycle:
             "exchange_order_id": exchange_order_id or "",
         }
         if order.side == "sell":
+            available = float(self._inventory_source(order.symbol, "sell"))
             authorized_quantity = order.authorized_quantity
             if authorized_quantity <= 0:
-                authorized_quantity = float(
-                    self._inventory_source(order.symbol, "sell")
-                )
+                authorized_quantity = available
             payload.update(
                 symbol=order.symbol,
                 side=order.side,

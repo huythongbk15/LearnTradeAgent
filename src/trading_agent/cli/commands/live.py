@@ -672,7 +672,7 @@ def _place_order_via_gateway(live_broker, order, store=None):
         )
     )
 
-    gateway = BrokerGateway(adapter=adapter, store=store)
+    gateway = BrokerGateway(adapter=adapter, store=store, lifecycle=lifecycle)
     result = gateway.submit(
         auth_event.payload["authorization_id"],
         correlation_id=intent_id,

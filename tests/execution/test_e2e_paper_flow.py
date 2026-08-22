@@ -213,9 +213,6 @@ class TestE2EPaperFlow:
             store = ExecutionEventStore(str(db_path))
             store.connect()
 
-            # Create BrokerGateway with adapter and store
-            gateway = BrokerGateway(adapter=adapter, store=store)
-
             # Create lifecycle
             def price_source(symbol: str) -> TrustedPrice | None:
                 if symbol in exchange._last_price_cache:
@@ -248,6 +245,9 @@ class TestE2EPaperFlow:
                 portfolio_source=make_portfolio_source(exchange),
                 max_price_age_seconds=300.0,
             )
+
+            # Create BrokerGateway with adapter, store, and lifecycle
+            gateway = BrokerGateway(adapter=adapter, store=store, lifecycle=lifecycle)
 
             # Create planner
             planner = OrderPlanner(
@@ -453,7 +453,6 @@ class TestE2EPaperFlow:
             adapter = PaperExecutionAdapter(exchange)
             store = ExecutionEventStore(str(db_path))
             store.connect()
-            gateway = BrokerGateway(adapter=adapter, store=store)
 
             def price_source(symbol: str) -> TrustedPrice | None:
                 if symbol in exchange._last_price_cache:
@@ -479,6 +478,9 @@ class TestE2EPaperFlow:
                 portfolio_source=portfolio_source,
                 max_price_age_seconds=300.0,
             )
+
+            # Create BrokerGateway with adapter, store, and lifecycle
+            gateway = BrokerGateway(adapter=adapter, store=store, lifecycle=lifecycle)
 
             # Create and fill an order
             intent_id = "recon-restart-1"
@@ -603,7 +605,6 @@ class TestE2EPaperFlow:
             adapter = PaperExecutionAdapter(exchange)
             store = ExecutionEventStore(str(db_path))
             store.connect()
-            gateway = BrokerGateway(adapter=adapter, store=store)
 
             def price_source(symbol: str) -> TrustedPrice | None:
                 if symbol in exchange._last_price_cache:
@@ -636,6 +637,9 @@ class TestE2EPaperFlow:
                 portfolio_source=make_portfolio_source(exchange),
                 max_price_age_seconds=300.0,
             )
+
+            # Create BrokerGateway with adapter, store, and lifecycle
+            gateway = BrokerGateway(adapter=adapter, store=store, lifecycle=lifecycle)
 
             # ── Phase 1: Open position ───────────────────────────────────
             observation = make_observation()
@@ -941,7 +945,7 @@ class TestTwoConnectionConcurrency:
                 "intent_id": "concurrent-a",
             }
             store_a.get_latest_broker_event.return_value = None
-            gateway_a = BrokerGateway(adapter=adapter_a, store=store_a)
+            gateway_a = BrokerGateway(adapter=adapter_a, store=store_a, lifecycle=None)
 
             # Connection B with isolated state dir
             with tempfile.TemporaryDirectory() as tmp_b:
@@ -967,7 +971,7 @@ class TestTwoConnectionConcurrency:
                     "intent_id": "concurrent-b",
                 }
                 store_b.get_latest_broker_event.return_value = None
-                gateway_b = BrokerGateway(adapter=adapter_b, store=store_b)
+                gateway_b = BrokerGateway(adapter=adapter_b, store=store_b, lifecycle=None)
 
                 results = {"a": None, "b": None}
 
@@ -1073,7 +1077,6 @@ class TestTwoConnectionConcurrency:
             def make_lifecycle(conn_id: str) -> ExecutionLifecycle:
                 store = ExecutionEventStore(str(db_path))
                 store.connect()
-                gateway = BrokerGateway(adapter=adapter, store=store)
 
                 def price_source(symbol: str) -> TrustedPrice | None:
                     if symbol in exchange._last_price_cache:

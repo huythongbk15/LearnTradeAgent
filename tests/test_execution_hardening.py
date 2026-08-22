@@ -14,6 +14,7 @@ from trading_agent.execution.lifecycle import (
     ExposureEffect,
     IntentStatus,
     InvariantViolation,
+    PortfolioRiskSnapshot,
     ReconciliationState,
     TrustedPrice,
 )
@@ -22,6 +23,11 @@ from trading_agent.execution.permission import (
     PermissionContext,
     PermissionReason,
     evaluate_order_permission,
+)
+from trading_agent.execution.canonical import (
+    EvidenceState,
+    RiskLevel,
+    UnifiedRiskDecision,
 )
 from trading_agent.execution.canonical.broker_gateway import CancelEvidence, CancelState
 
@@ -105,10 +111,22 @@ def test_unknown_inventory_or_broker_blocks_claimed_reduction():
     assert unknown_broker.reason == PermissionReason.UNKNOWN_BROKER_STATE
 
 
-def build_lifecycle(store, inventory, *, price_source=fresh_price):
+def build_lifecycle(store, inventory, *, price_source=fresh_price, portfolio_source=None):
+    if portfolio_source is None:
+        def portfolio_source(symbol):
+            return PortfolioRiskSnapshot(
+                symbol=symbol,
+                position_quantity=0.0,
+                available_quantity=inventory.get(symbol, 0.0),
+                equity=100_000.0,
+                available_cash=100_000.0,
+                observed_at=datetime.now(UTC),
+                source="test",
+            )
     return ExecutionLifecycle(
         store,
         price_source=lambda symbol: price_source(),
+        portfolio_source=portfolio_source,
         inventory_source=lambda symbol, side: inventory[symbol],
     )
 

@@ -231,22 +231,27 @@ def evaluate_order_permission(ctx: PermissionContext) -> PermissionResult:
                 )
                 return PermissionResult(OrderPermission.BLOCK, reason, detail)
         else:
-            if (
+            if ctx.exposure_effect == ExposureEffect.INCREASE and (
                 risk.allowed_target_exposure <= 1e-12
                 or risk.max_new_exposure <= 1e-12
                 or risk.reduce_only
             ):
-                reason = (
-                    PermissionReason.HIGH_RISK_NEW_EXPOSURE
-                    if ctx.exposure_effect == ExposureEffect.INCREASE
-                    else PermissionReason.KILL_SWITCH_NEUTRAL
+                return PermissionResult(
+                    OrderPermission.BLOCK,
+                    PermissionReason.HIGH_RISK_NEW_EXPOSURE,
+                    f"risk_level={risk.risk_level.value} max_new_exposure={risk.max_new_exposure} reduce_only={risk.reduce_only} blocks new exposure",
                 )
-                detail = (
-                    f"risk_level={risk.risk_level.value} max_new_exposure={risk.max_new_exposure} reduce_only={risk.reduce_only} blocks new exposure"
-                    if ctx.exposure_effect == ExposureEffect.INCREASE
-                    else "neutral exposure not allowed under current risk decision"
+            if ctx.exposure_effect == ExposureEffect.NEUTRAL and (
+                risk.allowed_target_exposure <= 1e-12
+                or risk.max_new_exposure <= 1e-12
+            ):
+                # Neutral exposure is blocked only when risk params explicitly
+                # forbid any exposure, NOT merely because reduce_only is set.
+                return PermissionResult(
+                    OrderPermission.BLOCK,
+                    PermissionReason.KILL_SWITCH_NEUTRAL,
+                    "neutral exposure not allowed under current risk decision",
                 )
-                return PermissionResult(OrderPermission.BLOCK, reason, detail)
 
         # Evidence fail-closed for INCREASE: all evidence must be KNOWN
         if risk is not None and ctx.exposure_effect == ExposureEffect.INCREASE:

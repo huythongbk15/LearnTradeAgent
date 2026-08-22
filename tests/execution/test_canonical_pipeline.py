@@ -466,7 +466,7 @@ class TestBrokerGateway:
         reason="BrokerGateway store contract changed; skip until gateway updated"
     )
     def test_gateway_exposes_only_capital_methods(self):
-        gateway = BrokerGateway(adapter=None, store=MagicMock())
+        gateway = BrokerGateway(adapter=None, store=MagicMock(), lifecycle=MagicMock())
         allowed = {
             "submit",
             "cancel",
@@ -481,7 +481,7 @@ class TestBrokerGateway:
         reason="BrokerGateway store contract changed; skip until gateway updated"
     )
     def test_submit_returns_result_wrapper(self):
-        gateway = BrokerGateway(adapter=None, store=MagicMock())
+        gateway = BrokerGateway(adapter=None, store=MagicMock(), lifecycle=MagicMock())
         store = ExecutionEventStore(":memory:").connect()
         lifecycle = ExecutionLifecycle(
             store,

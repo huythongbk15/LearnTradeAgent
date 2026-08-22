@@ -361,6 +361,7 @@ def canonical_stack(tmp_path, broker, *, position_quantity: float = 0.1):
     gateway = BrokerGateway(
         adapter=LiveBrokerExecutionAdapter(broker),
         store=store,
+        lifecycle=lifecycle,
     )
     return lifecycle, gateway
 

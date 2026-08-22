@@ -158,11 +158,17 @@ class BrokerGateway:
         REQUIRED - no broker I/O is permitted without durable authorization.
     """
 
-    def __init__(self, adapter: CanonicalExecutionAdapter, store: Any) -> None:
+    def __init__(
+        self,
+        adapter: CanonicalExecutionAdapter,
+        store: Any,
+        lifecycle: Any | None = None,
+    ) -> None:
         if store is None:
             raise ValueError("BrokerGateway requires a durable execution event store")
         self._adapter = adapter
         self._store = store
+        self._lifecycle = lifecycle
 
     # ── Public API ───────────────────────────────────────────────────────
 
@@ -287,6 +293,9 @@ class BrokerGateway:
                 idempotency_key=auth["idempotency_key"],
             )
         try:
+            # Durable transition CLAIMED → IO_STARTED before broker I/O (P0-3A)
+            if self._lifecycle is not None:
+                self._lifecycle.record_broker_io_started(auth["intent_id"])
             # Use canonical adapter.submit_order() returning BrokerSubmitFact
             submit_fact: BrokerSubmitFact = self._adapter.submit_order(request)
             success = submit_fact.state in (

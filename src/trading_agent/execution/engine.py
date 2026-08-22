@@ -170,7 +170,6 @@ class ExecutionEngine:
             self.store.connect()
         # Use PaperExecutionAdapter wrapping PaperExchange
         paper_adapter = PaperExecutionAdapter(self.exchange)
-        self.gateway = BrokerGateway(adapter=paper_adapter, store=self.store)
         self.lifecycle = ExecutionLifecycle(
             self.store,
             price_source=lambda symbol: (
@@ -186,6 +185,9 @@ class ExecutionEngine:
             ),
             inventory_source=self._inventory_source,
             portfolio_source=lambda symbol: self._build_portfolio_snapshot(symbol),
+        )
+        self.gateway = BrokerGateway(
+            adapter=paper_adapter, store=self.store, lifecycle=self.lifecycle
         )
         self.planner = OrderPlanner(
             instrument_rules=InstrumentRules(symbol="BTC/USDT", spot_long_only=True),

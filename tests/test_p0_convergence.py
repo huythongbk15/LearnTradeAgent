@@ -335,7 +335,7 @@ class TestProtectiveEvidence:
     def test_gateway_protection_requires_durable_authorization(self, tmp_path):
         adapter = DummyAdapter()
         store = ExecutionEventStore(str(tmp_path / "gateway.db")).connect()
-        gateway = BrokerGateway(adapter, store=store)
+        gateway = BrokerGateway(adapter, store=store, lifecycle=None)
         with pytest.raises(AuthorizationError, match="no durable ORDER_AUTHORIZED"):
             gateway.submit_protection("missing-auth", correlation_id="c1")
         assert adapter.orders == []
@@ -500,7 +500,7 @@ class LegacyBrokerGatewayAuthorizationAttacks:
 
     def test_gateway_rejects_without_durable_auth(self, tmp_path):
         store = ExecutionEventStore(tmp_path / "no-auth.db").connect()
-        gateway = BrokerGateway(adapter=None, store=store)
+        gateway = BrokerGateway(adapter=None, store=store, lifecycle=None)
         order = AuthorizedOrder(
             token=_AUTHORIZED_TOKEN,
             intent_id="no-auth-intent",
@@ -527,7 +527,7 @@ class LegacyBrokerGatewayAuthorizationAttacks:
 
     def test_gateway_rejects_mismatched_authorization_id(self, tmp_path):
         store, authorized_order = self._setup_authorized_order(tmp_path)
-        gateway = BrokerGateway(adapter=None, store=store)
+        gateway = BrokerGateway(adapter=None, store=store, lifecycle=None)
         tampered = AuthorizedOrder(
             token=_AUTHORIZED_TOKEN,
             intent_id=authorized_order.intent_id,
@@ -554,7 +554,7 @@ class LegacyBrokerGatewayAuthorizationAttacks:
 
     def test_gateway_rejects_mismatched_idempotency_key(self, tmp_path):
         store, authorized_order = self._setup_authorized_order(tmp_path)
-        gateway = BrokerGateway(adapter=None, store=store)
+        gateway = BrokerGateway(adapter=None, store=store, lifecycle=None)
         tampered = AuthorizedOrder(
             token=_AUTHORIZED_TOKEN,
             intent_id=authorized_order.intent_id,
@@ -581,7 +581,7 @@ class LegacyBrokerGatewayAuthorizationAttacks:
 
     def test_gateway_rejects_mismatched_symbol(self, tmp_path):
         store, authorized_order = self._setup_authorized_order(tmp_path)
-        gateway = BrokerGateway(adapter=None, store=store)
+        gateway = BrokerGateway(adapter=None, store=store, lifecycle=None)
         tampered = AuthorizedOrder(
             token=_AUTHORIZED_TOKEN,
             intent_id=authorized_order.intent_id,
@@ -608,7 +608,7 @@ class LegacyBrokerGatewayAuthorizationAttacks:
 
     def test_gateway_rejects_mismatched_quantity(self, tmp_path):
         store, authorized_order = self._setup_authorized_order(tmp_path)
-        gateway = BrokerGateway(adapter=None, store=store)
+        gateway = BrokerGateway(adapter=None, store=store, lifecycle=None)
         tampered = AuthorizedOrder(
             token=_AUTHORIZED_TOKEN,
             intent_id=authorized_order.intent_id,
@@ -635,7 +635,7 @@ class LegacyBrokerGatewayAuthorizationAttacks:
 
     def test_gateway_rejects_mismatched_risk_decision_id(self, tmp_path):
         store, authorized_order = self._setup_authorized_order(tmp_path)
-        gateway = BrokerGateway(adapter=None, store=store)
+        gateway = BrokerGateway(adapter=None, store=store, lifecycle=None)
         tampered = AuthorizedOrder(
             token=_AUTHORIZED_TOKEN,
             intent_id=authorized_order.intent_id,
@@ -662,7 +662,7 @@ class LegacyBrokerGatewayAuthorizationAttacks:
 
     def test_gateway_rejects_mismatched_payload_hash(self, tmp_path):
         store, authorized_order = self._setup_authorized_order(tmp_path)
-        gateway = BrokerGateway(adapter=None, store=store)
+        gateway = BrokerGateway(adapter=None, store=store, lifecycle=None)
         tampered = AuthorizedOrder(
             token=_AUTHORIZED_TOKEN,
             intent_id=authorized_order.intent_id,
@@ -709,19 +709,19 @@ class TestDurableAuthorizationGateway:
 
     def test_unknown_authorization_id_is_rejected(self, tmp_path):
         store = ExecutionEventStore(tmp_path / "unknown-auth.db").connect()
-        gateway = BrokerGateway(adapter=DummyAdapter(), store=store)
+        gateway = BrokerGateway(adapter=DummyAdapter(), store=store, lifecycle=None)
         with pytest.raises(AuthorizationError, match="no durable ORDER_AUTHORIZED"):
             gateway.submit("unknown-auth", correlation_id="corr")
 
     def test_submission_request_is_required(self, tmp_path):
         store, auth_id = self._authorize(tmp_path, request_submission=False)
-        gateway = BrokerGateway(adapter=DummyAdapter(), store=store)
+        gateway = BrokerGateway(adapter=DummyAdapter(), store=store, lifecycle=None)
         with pytest.raises(AuthorizationError, match="BROKER_SUBMISSION_REQUESTED"):
             gateway.submit(auth_id, correlation_id="corr")
 
     def test_non_string_caller_payload_is_rejected(self, tmp_path):
         store, auth_id = self._authorize(tmp_path)
-        gateway = BrokerGateway(adapter=DummyAdapter(), store=store)
+        gateway = BrokerGateway(adapter=DummyAdapter(), store=store, lifecycle=None)
         with pytest.raises(AuthorizationError, match="non-empty string"):
             gateway.submit({"authorization_id": auth_id}, correlation_id="corr")
 
