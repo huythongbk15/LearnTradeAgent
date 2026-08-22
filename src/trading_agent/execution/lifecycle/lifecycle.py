@@ -325,9 +325,6 @@ class LifecycleState:
                 authorized_quantity=float(order_data.get("authorized_quantity", 0.0)),
                 reserved_quantity=float(order_data.get("reserved_quantity", 0.0)),
                 released_quantity=float(order_data.get("released_quantity", 0.0)),
-                remaining_reserved_quantity=float(
-                    order_data.get("remaining_reserved_quantity", 0.0)
-                ),
                 avg_fill_price=order_data.get("avg_fill_price"),
                 fees=order_data.get("fees", {}),
                 protective_order_ids=order_data.get("protective_order_ids", []),
@@ -2188,7 +2185,6 @@ class ExecutionLifecycle:
                     "authorized_quantity": v.authorized_quantity,
                     "reserved_quantity": v.reserved_quantity,
                     "released_quantity": v.released_quantity,
-                    "remaining_reserved_quantity": v.remaining_reserved_quantity,
                     "avg_fill_price": v.avg_fill_price,
                     "fees": v.fees,
                     "protective_order_ids": v.protective_order_ids,
