@@ -514,7 +514,9 @@ class TestE2EPaperFlow:
                 intent_id=intent_id,
                 idempotency_key="ik-recon-restart",
             )
-            request_event = lifecycle.request_broker_submission(intent_id, claimed_by=intent_id)
+            request_event = lifecycle.request_broker_submission(
+                intent_id, claimed_by=intent_id
+            )
 
             authorized = AuthorizedOrder(
                 token=_AUTHORIZED_TOKEN,
@@ -679,7 +681,9 @@ class TestE2EPaperFlow:
                 idempotency_key=intent.idempotency_key,
             )
             assert auth_event.event_type == "exec.order_authorized"
-            lifecycle.request_broker_submission(intent_id=intent.intent_id, claimed_by=intent.intent_id)
+            lifecycle.request_broker_submission(
+                intent_id=intent.intent_id, claimed_by=intent.intent_id
+            )
 
             # Submit via the durable authorization ID.
             authorized = AuthorizedOrder(
@@ -762,7 +766,9 @@ class TestE2EPaperFlow:
                 idempotency_key=f"close-{intent.idempotency_key}",
             )
             assert close_auth_event.event_type == "exec.order_authorized"
-            lifecycle.request_broker_submission(intent_id=close_intent_id, claimed_by=close_intent_id)
+            lifecycle.request_broker_submission(
+                intent_id=close_intent_id, claimed_by=close_intent_id
+            )
 
             close_authorized = AuthorizedOrder(
                 token=_AUTHORIZED_TOKEN,
@@ -2155,7 +2161,9 @@ class TestP1ConvergenceProofs:
             )
 
             # Initial broker submission request (normal flow)
-            request_event = lifecycle.request_broker_submission(intent_id, claimed_by=intent_id)
+            request_event = lifecycle.request_broker_submission(
+                intent_id, claimed_by=intent_id
+            )
             assert request_event is not None
 
             # Simulate broker returning UNKNOWN via record_broker_submit_result

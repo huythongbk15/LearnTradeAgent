@@ -138,7 +138,9 @@ def migrate(db_path: str, *, dry_run: bool = False, force: bool = False) -> int:
             "aggregates": aggregate_latest,
             "legacy_payload_checksum": hashlib.sha256(
                 json.dumps(payload_hashes, default=str, sort_keys=True).encode("utf-8")
-            ).hexdigest() if payload_hashes else None,
+            ).hexdigest()
+            if payload_hashes
+            else None,
             "cutover_at": datetime.now(UTC).isoformat(),
             "note": (
                 "Pre-migration events are NOT assigned fabricated global_seq. "
