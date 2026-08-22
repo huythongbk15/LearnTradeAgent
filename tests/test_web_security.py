@@ -53,9 +53,7 @@ class FakeAlpaca:
     async def fetch_positions(self):
         if not self._position_open:
             return []
-        symbol = Symbol(
-            "BTC", "USD", AssetClass.CRYPTO, MarketType.SPOT, "alpaca"
-        )
+        symbol = Symbol("BTC", "USD", AssetClass.CRYPTO, MarketType.SPOT, "alpaca")
         return [FakePosition(symbol, 1.0)]
 
     async def fetch_ticker(self, symbol):

@@ -654,9 +654,7 @@ def ensure_protective_stop(
             )
         result = _canonical_result_payload(submission)
         if submission.state == BrokerSubmitState.UNKNOWN:
-            raise LiveSafetyError(
-                f"protective submission state is unknown for {pair}"
-            )
+            raise LiveSafetyError(f"protective submission state is unknown for {pair}")
         lifecycle.record_broker_submit_result(intent_id, submission)
     except Exception as exc:
         store.update_pending_protective_order(
@@ -1600,7 +1598,9 @@ def execute_orders(
     monotonic_fn=time.monotonic,
 ) -> None:
     if lifecycle is None or gateway is None:
-        raise LiveSafetyError("canonical lifecycle and gateway are required for execution")
+        raise LiveSafetyError(
+            "canonical lifecycle and gateway are required for execution"
+        )
     for planned in orders:
         account = broker.get_account()
         positions = broker.get_positions()
@@ -1713,7 +1713,9 @@ def execute_orders(
                 intent_id=order_key,
                 symbol=pair,
                 quantity=quantity,
-                reason="STRATEGY_EXIT" if planned["action"] == "SELL" else "STRATEGY_ENTRY",
+                reason="STRATEGY_EXIT"
+                if planned["action"] == "SELL"
+                else "STRATEGY_ENTRY",
             )
             submission = gateway.submit(
                 authorization_id,
@@ -2264,6 +2266,7 @@ def run_locked(
             pricing_symbols=[symbol for symbol, _ in allocations],
             strict_pricing=True,
         )
+
         def _canonical_price_source(symbol_value: str) -> TrustedPrice | None:
             ticker = broker.get_ticker(exchange_symbol(str(symbol_value)))
             price = float(ticker.get("last") or 0.0)

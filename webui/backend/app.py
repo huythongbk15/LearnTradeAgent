@@ -577,9 +577,7 @@ async def api_close(req: CloseRequest) -> dict:
             if current_price is None:
                 detail["failed"].append({"symbol": symbol, "reason": "no price"})
                 continue
-            intent_id = (
-                f"emergency-close-{symbol}-{int(datetime.now(UTC).timestamp())}"
-            )
+            intent_id = f"emergency-close-{symbol}-{int(datetime.now(UTC).timestamp())}"
             try:
                 auth_event = lifecycle.emergency_reduce(
                     EmergencyReduceRequest(

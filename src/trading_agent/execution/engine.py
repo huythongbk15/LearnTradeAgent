@@ -400,7 +400,9 @@ class ExecutionEngine:
             result=result,
         )
 
-        orders.append(self._result_to_order(result, symbol, intent.side, intent.quantity))
+        orders.append(
+            self._result_to_order(result, symbol, intent.side, intent.quantity)
+        )
         if (
             broker_event is not None
             and broker_event.event_type

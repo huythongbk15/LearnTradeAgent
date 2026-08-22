@@ -44,6 +44,7 @@ from trading_agent.exchanges.models import (
     Symbol,
 )
 
+
 class AuthorizationError(RuntimeError):
     """Raised when an unauthorized order reaches the gateway."""
 

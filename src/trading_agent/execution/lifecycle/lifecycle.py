@@ -1332,10 +1332,10 @@ class ExecutionLifecycle:
             raise LifecycleError(
                 f"intent {intent_id} cannot submit from status {order.status.value}"
             )
-        if (
-            not order.submission_requested
-            and order.status in {IntentStatus.APPROVED, IntentStatus.AUTHORIZED}
-        ):
+        if not order.submission_requested and order.status in {
+            IntentStatus.APPROVED,
+            IntentStatus.AUTHORIZED,
+        }:
             # Legacy/local callers may record a submission without explicitly
             # creating the pre-I/O event. Preserve fail-closed validation and
             # durable ordering for those callers. Canonical gateway callers

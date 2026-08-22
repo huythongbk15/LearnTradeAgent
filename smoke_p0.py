@@ -179,7 +179,10 @@ def _check_unknown_requires_reconciliation(root: Path) -> None:
         raise AssertionError("ambiguous submit was silently promoted to success")
     lifecycle.record_broker_submit_result(intent_id, result)
     order = lifecycle.state.order(intent_id)
-    if order.status.value != "manual" or lifecycle.state.reconciliation.value != "started":
+    if (
+        order.status.value != "manual"
+        or lifecycle.state.reconciliation.value != "started"
+    ):
         raise AssertionError("UNKNOWN submit did not require manual reconciliation")
 
 
@@ -194,7 +197,9 @@ def main() -> int:
             _check_unknown_requires_reconciliation(root)
         finally:
             os.chdir(original_cwd)
-    print("P0 smoke passed: durable auth, trusted risk data, fill evidence, UNKNOWN fail-closed")
+    print(
+        "P0 smoke passed: durable auth, trusted risk data, fill evidence, UNKNOWN fail-closed"
+    )
     return 0
 
 

@@ -296,15 +296,12 @@
 │       │   │   ├── adapters.py
 │       │   │   ├── broker_gateway.py
 │       │   │   ├── causation.py
-│       │   │   ├── cli_adapter.py
 │       │   │   ├── events.py
 │       │   │   ├── legacy_adapter.py
-│       │   │   ├── legacy_authorization.py
 │       │   │   ├── market_observation.py
 │       │   │   ├── order_planner.py
 │       │   │   ├── protection.py
-│       │   │   ├── risk_decision.py
-│       │   │   └── runner_adapter.py
+│       │   │   └── risk_decision.py
 │       │   ├── lifecycle
 │       │   │   ├── __init__.py
 │       │   │   ├── events.py

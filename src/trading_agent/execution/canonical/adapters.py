@@ -427,12 +427,16 @@ class LiveBrokerExecutionAdapter:
                 if broker_order_id
                 else BrokerSubmitState.FAILED_LOCAL
             )
-        elif state in {
-            BrokerSubmitState.ACCEPTED,
-            BrokerSubmitState.OPEN,
-            BrokerSubmitState.PARTIALLY_FILLED,
-            BrokerSubmitState.FILLED,
-        } and not broker_order_id:
+        elif (
+            state
+            in {
+                BrokerSubmitState.ACCEPTED,
+                BrokerSubmitState.OPEN,
+                BrokerSubmitState.PARTIALLY_FILLED,
+                BrokerSubmitState.FILLED,
+            }
+            and not broker_order_id
+        ):
             state = BrokerSubmitState.UNKNOWN
         return BrokerSubmitFact(
             state=state,
@@ -664,12 +668,8 @@ class AlpacaExecutionAdapter:
                 symbol=p.symbol,
                 quantity=Decimal(str(p.size)),
                 side=OrderSide.BUY if float(p.size) >= 0 else OrderSide.SELL,
-                entry_price=Decimal(str(p.entry_price))
-                if p.entry_price
-                else None,
-                current_price=Decimal(str(p.mark_price))
-                if p.mark_price
-                else None,
+                entry_price=Decimal(str(p.entry_price)) if p.entry_price else None,
+                current_price=Decimal(str(p.mark_price)) if p.mark_price else None,
                 unrealized_pnl=Decimal(str(p.unrealized_pnl))
                 if p.unrealized_pnl
                 else None,
