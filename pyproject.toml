@@ -31,7 +31,7 @@ web = [
     "fastapi (>=0.141.1,<1.0)",
     "pydantic (>=2.13.4,<3.0)",
     "uvicorn[standard] (>=0.52.1,<1.0)",
-    "alpaca-py (>=0.42,<0.44)",
+    "alpaca-py (>=0.42,<0.45)",
 ]
 
 # Machine learning: regime detection, online learning, RL, meta-learning
@@ -56,7 +56,7 @@ portfolio = [
 
 # Live trading on Binance/Alpaca/OANDA/CEX: exchange adapters + live broker
 live-binance = [
-    "alpaca-py (>=0.42,<0.44)",
+    "alpaca-py (>=0.42,<0.45)",
     "ccxt (>=4.0)",
 ]
 
