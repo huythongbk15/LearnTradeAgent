@@ -971,7 +971,9 @@ class TestTwoConnectionConcurrency:
                     "intent_id": "concurrent-b",
                 }
                 store_b.get_latest_broker_event.return_value = None
-                gateway_b = BrokerGateway(adapter=adapter_b, store=store_b, lifecycle=None)
+                gateway_b = BrokerGateway(
+                    adapter=adapter_b, store=store_b, lifecycle=None
+                )
 
                 results = {"a": None, "b": None}
 
@@ -1059,7 +1061,6 @@ class TestTwoConnectionConcurrency:
         import threading
         import tempfile
         from trading_agent.execution.lifecycle.lifecycle import ExecutionLifecycle
-        from trading_agent.execution.canonical.broker_gateway import BrokerGateway
 
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = Path(tmpdir) / "events.db"

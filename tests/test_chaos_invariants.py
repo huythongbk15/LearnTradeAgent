@@ -194,7 +194,6 @@ def test_stale_market_blocks_entry_even_with_good_intent(tmp_path):
 
 
 def test_reconciliation_unresolved_blocks_new_entries(tmp_path):
-    from trading_agent.execution.lifecycle import InvariantViolation
 
     store = ExecutionEventStore(tmp_path / "r.db").connect()
     lc = ExecutionLifecycle(

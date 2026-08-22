@@ -242,8 +242,7 @@ def evaluate_order_permission(ctx: PermissionContext) -> PermissionResult:
                     f"risk_level={risk.risk_level.value} max_new_exposure={risk.max_new_exposure} reduce_only={risk.reduce_only} blocks new exposure",
                 )
             if ctx.exposure_effect == ExposureEffect.NEUTRAL and (
-                risk.allowed_target_exposure <= 1e-12
-                or risk.max_new_exposure <= 1e-12
+                risk.allowed_target_exposure <= 1e-12 or risk.max_new_exposure <= 1e-12
             ):
                 # Neutral exposure is blocked only when risk params explicitly
                 # forbid any exposure, NOT merely because reduce_only is set.

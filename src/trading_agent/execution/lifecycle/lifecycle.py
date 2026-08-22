@@ -1334,7 +1334,9 @@ class ExecutionLifecycle:
             )
         if order.side == "sell":
             available = float(self._inventory_source(order.symbol, "sell"))
-            reserved = self.active_sell_reservations(order.symbol, exclude_intent_id=intent_id)
+            reserved = self.active_sell_reservations(
+                order.symbol, exclude_intent_id=intent_id
+            )
             free = max(0.0, available - reserved)
             if order.size > free + 1e-12:
                 raise InvariantViolation(
@@ -1365,9 +1367,7 @@ class ExecutionLifecycle:
                 f"before IO_STARTED"
             )
         if order.io_started:
-            raise LifecycleError(
-                f"intent {intent_id} already has BROKER_IO_STARTED"
-            )
+            raise LifecycleError(f"intent {intent_id} already has BROKER_IO_STARTED")
         return self._emit(
             ExecutionEventType.BROKER_IO_STARTED,
             intent_id,

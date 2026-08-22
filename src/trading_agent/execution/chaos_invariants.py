@@ -237,7 +237,9 @@ def run_chaos_scenario(
         # silently considered live-acked), then manual intervention.
         attempt(lambda: lifecycle.create_order_intent(intent_id, symbol, side, size))
         attempt(lambda: lifecycle.approve_risk(intent_id))
-        attempt(lambda: lifecycle.request_broker_submission(intent_id, claimed_by=intent_id))
+        attempt(
+            lambda: lifecycle.request_broker_submission(intent_id, claimed_by=intent_id)
+        )
         attempt(lambda: lifecycle.submit_order(intent_id, exchange_order_id="ex_1"))
         # No BROKER_ACKNOWLEDGED — timeout path
         attempt(
@@ -250,7 +252,9 @@ def run_chaos_scenario(
     elif fault == FaultType.TIMEOUT_AFTER_ACCEPT:
         attempt(lambda: lifecycle.create_order_intent(intent_id, symbol, side, size))
         attempt(lambda: lifecycle.approve_risk(intent_id))
-        attempt(lambda: lifecycle.request_broker_submission(intent_id, claimed_by=intent_id))
+        attempt(
+            lambda: lifecycle.request_broker_submission(intent_id, claimed_by=intent_id)
+        )
         attempt(lambda: lifecycle.submit_order(intent_id, exchange_order_id="ex_1"))
         attempt(lambda: lifecycle.acknowledge_broker(intent_id, broker_order_id="br_1"))
         # Timeout after accept → cancel path (no fill invented)
@@ -260,7 +264,9 @@ def run_chaos_scenario(
     elif fault == FaultType.DUPLICATE_WS_EVENT:
         attempt(lambda: lifecycle.create_order_intent(intent_id, symbol, side, size))
         attempt(lambda: lifecycle.approve_risk(intent_id))
-        attempt(lambda: lifecycle.request_broker_submission(intent_id, claimed_by=intent_id))
+        attempt(
+            lambda: lifecycle.request_broker_submission(intent_id, claimed_by=intent_id)
+        )
         attempt(lambda: lifecycle.submit_order(intent_id, exchange_order_id="ex_1"))
         attempt(lambda: lifecycle.acknowledge_broker(intent_id, broker_order_id="br_1"))
         event = attempt(
@@ -297,7 +303,9 @@ def run_chaos_scenario(
     elif fault == FaultType.REST_WS_DISAGREEMENT:
         attempt(lambda: lifecycle.create_order_intent(intent_id, symbol, side, size))
         attempt(lambda: lifecycle.approve_risk(intent_id))
-        attempt(lambda: lifecycle.request_broker_submission(intent_id, claimed_by=intent_id))
+        attempt(
+            lambda: lifecycle.request_broker_submission(intent_id, claimed_by=intent_id)
+        )
         attempt(lambda: lifecycle.submit_order(intent_id, exchange_order_id="ex_1"))
         attempt(lambda: lifecycle.acknowledge_broker(intent_id, broker_order_id="br_1"))
         # WS reports full fill at price A; REST reports different fill — the
@@ -318,7 +326,9 @@ def run_chaos_scenario(
         # price_source returns None → authorize must be blocked before submit.
         attempt(lambda: lifecycle.create_order_intent(intent_id, symbol, side, size))
         attempt(lambda: lifecycle.approve_risk(intent_id))
-        attempt(lambda: lifecycle.request_broker_submission(intent_id, claimed_by=intent_id))
+        attempt(
+            lambda: lifecycle.request_broker_submission(intent_id, claimed_by=intent_id)
+        )
         # authorize_order is the gate that validates trusted market data;
         # submit_order does not re-check freshness.
         attempt(lambda: lifecycle.authorize_order(intent_id, idempotency_key=intent_id))
@@ -365,7 +375,9 @@ def run_chaos_scenario(
         # manual intervention, no fill invented.
         attempt(lambda: lifecycle.create_order_intent(intent_id, symbol, side, size))
         attempt(lambda: lifecycle.approve_risk(intent_id))
-        attempt(lambda: lifecycle.request_broker_submission(intent_id, claimed_by=intent_id))
+        attempt(
+            lambda: lifecycle.request_broker_submission(intent_id, claimed_by=intent_id)
+        )
         attempt(lambda: lifecycle.submit_order(intent_id, exchange_order_id="ex_1"))
         attempt(
             lambda: lifecycle.require_manual_intervention(
@@ -399,7 +411,9 @@ def run_chaos_scenario(
         # in a nested transaction context (sqlite serializes writes).
         attempt(lambda: lifecycle.create_order_intent(intent_id, symbol, side, size))
         attempt(lambda: lifecycle.approve_risk(intent_id))
-        attempt(lambda: lifecycle.request_broker_submission(intent_id, claimed_by=intent_id))
+        attempt(
+            lambda: lifecycle.request_broker_submission(intent_id, claimed_by=intent_id)
+        )
         attempt(lambda: lifecycle.submit_order(intent_id, exchange_order_id="ex_1"))
         result.notes.append("db write contention handled by sqlite transaction")
 
@@ -426,7 +440,9 @@ def run_chaos_scenario(
         # cancel-requested (never silently canceled without broker confirm).
         attempt(lambda: lifecycle.create_order_intent(intent_id, symbol, side, size))
         attempt(lambda: lifecycle.approve_risk(intent_id))
-        attempt(lambda: lifecycle.request_broker_submission(intent_id, claimed_by=intent_id))
+        attempt(
+            lambda: lifecycle.request_broker_submission(intent_id, claimed_by=intent_id)
+        )
         attempt(lambda: lifecycle.submit_order(intent_id, exchange_order_id="ex_1"))
         attempt(lambda: lifecycle.acknowledge_broker(intent_id, broker_order_id="br_1"))
         attempt(lambda: lifecycle.request_cancel(intent_id, reason="network loss"))
@@ -450,7 +466,9 @@ def run_chaos_scenario(
     elif fault == FaultType.DELAYED_CANCEL:
         attempt(lambda: lifecycle.create_order_intent(intent_id, symbol, side, size))
         attempt(lambda: lifecycle.approve_risk(intent_id))
-        attempt(lambda: lifecycle.request_broker_submission(intent_id, claimed_by=intent_id))
+        attempt(
+            lambda: lifecycle.request_broker_submission(intent_id, claimed_by=intent_id)
+        )
         attempt(lambda: lifecycle.submit_order(intent_id, exchange_order_id="ex_1"))
         attempt(lambda: lifecycle.acknowledge_broker(intent_id, broker_order_id="br_1"))
         attempt(lambda: lifecycle.request_cancel(intent_id, reason="delayed"))
@@ -477,7 +495,9 @@ def run_chaos_scenario(
     elif fault == FaultType.PARTIAL_FILL_BEFORE_TIMEOUT:
         attempt(lambda: lifecycle.create_order_intent(intent_id, symbol, side, size))
         attempt(lambda: lifecycle.approve_risk(intent_id))
-        attempt(lambda: lifecycle.request_broker_submission(intent_id, claimed_by=intent_id))
+        attempt(
+            lambda: lifecycle.request_broker_submission(intent_id, claimed_by=intent_id)
+        )
         attempt(lambda: lifecycle.submit_order(intent_id, exchange_order_id="ex_1"))
         attempt(lambda: lifecycle.acknowledge_broker(intent_id, broker_order_id="br_1"))
         attempt(
