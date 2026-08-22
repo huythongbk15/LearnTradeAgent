@@ -18,13 +18,11 @@ and persisted by ExecutionLifecycle.
 
 from __future__ import annotations
 
-import math
-import uuid
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from enum import Enum
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from trading_agent.execution.canonical.adapters import (
     BrokerCancelFact,
@@ -32,15 +30,11 @@ from trading_agent.execution.canonical.adapters import (
     BrokerClosePositionFact,
     BrokerClosePositionRequest,
     BrokerOrderFact,
+    BrokerOrderRequest,
     BrokerPositionFact,
     BrokerSubmitFact,
     BrokerSubmitState,
     CanonicalExecutionAdapter,
-)
-from trading_agent.execution.canonical.protection import (
-    ProtectionPlan,
-    ProtectionQuantityMode,
-    ProtectionState,
 )
 from trading_agent.exchanges.models import (
     AssetClass,
@@ -49,12 +43,6 @@ from trading_agent.exchanges.models import (
     OrderType,
     Symbol,
 )
-
-if TYPE_CHECKING:
-    from trading_agent.execution.lifecycle.events import ExecutionEvent
-
-_AUTHORIZED_TOKEN = uuid.uuid4().hex
-
 
 class AuthorizationError(RuntimeError):
     """Raised when an unauthorized order reaches the gateway."""
@@ -132,38 +120,9 @@ class BrokerSubmitResult:
     error: str | None
     state: "BrokerSubmitState | None" = None
     raw_response: dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass(frozen=True)
-class BrokerOrderRequest:
-    """Typed request for a broker order submission.
-
-    Constructed by BrokerGateway from an AuthorizedOrder and passed to the
-    adapter's place_order() as a dict payload.
-    """
-
-    intent_id: str
-    symbol: Any  # Symbol
-    side: str
-    quantity: float
-    order_type: str = "market"
-    price: float | None = None
-    stop_price: float | None = None
-    time_in_force: str = "day"
-    idempotency_key: str | None = None
-
-    def to_payload(self) -> dict[str, Any]:
-        return {
-            "id": self.intent_id,
-            "symbol": self.symbol,
-            "side": self.side,
-            "qty": self.quantity,
-            "order_type": self.order_type,
-            "price": self.price,
-            "stop_price": self.stop_price,
-            "time_in_force": self.time_in_force,
-            "idempotency_key": self.idempotency_key,
-        }
+    venue: str = "unknown"
+    broker_status: str = "unknown"
+    observed_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -182,110 +141,7 @@ class ProtectiveSubmitResult:
     success: bool
     evidence: ProtectiveAckEvidence | None
     error: str | None
-
-
-class AuthorizedOrder:
-    """Unforgeable authorization wrapper for broker submission.
-
-    Construction is restricted to the lifecycle authorization path.
-    Normal callers cannot create valid instances.
-    """
-
-    def __init__(self, token: str, **fields: Any) -> None:
-        if token != _AUTHORIZED_TOKEN:
-            raise AuthorizationError(
-                "AuthorizedOrder must be created through lifecycle authorization"
-            )
-        self._token = token
-        # Required fields — fail fast with clear message if missing
-        required = (
-            "intent_id",
-            "symbol",
-            "side",
-            "quantity",
-            "idempotency_key",
-            "price_reference",
-            "risk_decision_id",
-            "forecast_fingerprint",
-            "model_artifact_id",
-            "permission_result",
-            "authorization_id",
-            "lifecycle_event_id",
-            "correlation_id",
-            "exposure_effect",
-            "current_exposure",
-            "resulting_exposure",
-            "authorized_at",
-            "authorization_hash",
-        )
-        missing = [k for k in required if k not in fields]
-        if missing:
-            raise AuthorizationError(
-                f"AuthorizedOrder missing required fields: {', '.join(missing)}"
-            )
-        self.intent_id = fields["intent_id"]
-        self.symbol = fields["symbol"]
-        self.side = fields["side"]
-        self.quantity = fields["quantity"]
-        self.idempotency_key = fields["idempotency_key"]
-        self.price_reference = fields["price_reference"]
-        self.metadata = fields.get("metadata", {})
-        # Required authorization evidence
-        self.risk_decision_id = fields["risk_decision_id"]
-        self.forecast_fingerprint = fields["forecast_fingerprint"]
-        self.model_artifact_id = fields["model_artifact_id"]
-        self.permission_result = fields["permission_result"]
-        self.authorization_id = fields["authorization_id"]
-        self.lifecycle_event_id = fields["lifecycle_event_id"]
-        self.correlation_id = fields["correlation_id"]
-        self.exposure_effect = fields["exposure_effect"]
-        self.current_exposure = fields["current_exposure"]
-        self.resulting_exposure = fields["resulting_exposure"]
-        self.authorized_at = fields["authorized_at"]
-        self.authorization_hash = fields["authorization_hash"]
-
-    @classmethod
-    def from_event(
-        cls,
-        token: str,
-        auth_event: ExecutionEvent,
-        *,
-        price_reference: float = 0.0,
-        current_exposure: float = 0.0,
-        resulting_exposure: float | None = None,
-        metadata: dict[str, Any] | None = None,
-        correlation_id: str | None = None,
-    ) -> "AuthorizedOrder":
-        """Build an AuthorizedOrder from an ORDER_AUTHORIZED event.
-
-        This factory ensures all required fields are populated from the
-        durable authorization evidence, preventing caller-side drift.
-        """
-        payload = auth_event.payload
-        return cls(
-            token=token,
-            intent_id=payload["intent_id"],
-            symbol=payload["symbol"],
-            side=payload["side"],
-            quantity=payload["quantity"],
-            idempotency_key=payload["idempotency_key"],
-            price_reference=price_reference,
-            risk_decision_id=payload["risk_decision_id"],
-            forecast_fingerprint=payload["forecast_fingerprint"],
-            model_artifact_id=payload["model_artifact_id"],
-            permission_result=payload["permission"],
-            authorization_id=payload["authorization_id"],
-            lifecycle_event_id=auth_event.event_id,
-            correlation_id=correlation_id or payload["intent_id"],
-            exposure_effect=payload["exposure_effect"],
-            current_exposure=current_exposure,
-            resulting_exposure=resulting_exposure
-            if resulting_exposure is not None
-            else current_exposure,
-            authorized_at=payload["authorized_at"],
-            authorization_hash=payload.get("payload_hash", ""),
-            metadata=metadata or {},
-        )
+    submission: BrokerSubmitResult | None = None
 
 
 class BrokerGateway:
@@ -311,97 +167,28 @@ class BrokerGateway:
 
     def submit(
         self,
-        authorization: AuthorizedOrder | str,
+        authorization_id: str,
         *,
         correlation_id: str,
     ) -> BrokerSubmitResult:
-        """Submit an order to the broker using a durable authorization.
+        """Submit an order reconstructed exclusively from durable authorization.
 
-        Accepts either an AuthorizedOrder object or an authorization_id string.
-        The authorization must have been previously created through the
-        lifecycle authorization path and persisted as ORDER_AUTHORIZED.
+        The caller supplies only an opaque authorization id.  Risk, permission,
+        sizing, and venue fields are loaded from ``ORDER_AUTHORIZED`` and cannot
+        be overridden after lifecycle authorization.
+
         The gateway verifies BOTH durable facts before broker I/O:
         1. ORDER_AUTHORIZED exists with matching authorization_id
         2. BROKER_SUBMISSION_REQUESTED exists for the same intent
         """
-        if isinstance(authorization, AuthorizedOrder):
-            # Verify authorization against durable state (P0 §15)
-            if self._store is not None:
-                self._verify_authorization(authorization)
-                # Verify BROKER_SUBMISSION_REQUESTED exists (P0-7) — object path
-                submission = self._store.get_latest_submission_request(
-                    authorization.intent_id
-                )
-                if submission is None:
-                    raise AuthorizationError(
-                        f"no durable BROKER_SUBMISSION_REQUESTED for intent "
-                        f"{authorization.intent_id}"
-                    )
-            # Build canonical broker request from the AuthorizedOrder object
-            # Convert legacy string types to canonical types
-            symbol_str = str(authorization.symbol)
-            side_str = str(authorization.side).lower()
-            order_type_str = str(
-                authorization.metadata.get("order_type", "market")
-            ).lower()
-
-            # Parse symbol string to Symbol object
-            if "/" in symbol_str:
-                base, quote = symbol_str.split("/")
-                symbol_obj = Symbol(
-                    base, quote, AssetClass.CRYPTO, MarketType.SPOT, "paper"
-                )
-            else:
-                # Fallback for non-standard symbols
-                symbol_obj = Symbol(
-                    symbol_str, "USD", AssetClass.STOCK, MarketType.SPOT, "paper"
-                )
-
-            # Convert side string to OrderSide enum
-            side_enum = OrderSide.BUY if side_str == "buy" else OrderSide.SELL
-
-            # Convert order_type string to OrderType enum
-            order_type_map = {
-                "market": OrderType.MARKET,
-                "limit": OrderType.LIMIT,
-                "stop": OrderType.STOP,
-                "stop_limit": OrderType.STOP_LIMIT,
-                "trailing_stop": OrderType.TRAILING_STOP,
-            }
-            order_type_enum = order_type_map.get(order_type_str, OrderType.MARKET)
-
-            # Convert numeric values to Decimal
-            quantity_decimal = Decimal(str(authorization.quantity))
-            price_decimal = (
-                Decimal(str(authorization.metadata["price"]))
-                if authorization.metadata.get("price") is not None
-                else None
-            )
-            stop_price_decimal = (
-                Decimal(str(authorization.metadata["stop_price"]))
-                if authorization.metadata.get("stop_price") is not None
-                else None
-            )
-
-            request = BrokerOrderRequest(
-                intent_id=authorization.intent_id,
-                symbol=symbol_obj,
-                side=side_enum,
-                quantity=quantity_decimal,
-                order_type=order_type_enum,
-                price=price_decimal,
-                stop_price=stop_price_decimal,
-                time_in_force=str(
-                    authorization.metadata.get("time_in_force", "day")
-                ).upper(),
-                idempotency_key=authorization.idempotency_key,
-            )
+        if not isinstance(authorization_id, str) or not authorization_id:
+            raise AuthorizationError("authorization_id must be a non-empty string")
         else:
             # Load authorization from durable store (P0 §15, P0-7)
-            auth = self._store.get_latest_authorization_by_auth_id(authorization)
+            auth = self._store.get_latest_authorization_by_auth_id(authorization_id)
             if auth is None:
                 raise AuthorizationError(
-                    f"no durable ORDER_AUTHORIZED found for authorization_id {authorization}"
+                    f"no durable ORDER_AUTHORIZED found for authorization_id {authorization_id}"
                 )
 
             # Verify BROKER_SUBMISSION_REQUESTED exists (P0-7)
@@ -422,7 +209,7 @@ class BrokerGateway:
 
             # Parse symbol string to Symbol object
             if "/" in symbol_str:
-                base, quote = symbol_str.split("/")
+                base, quote = symbol_str.split("/", maxsplit=1)
                 symbol_obj = Symbol(
                     base, quote, AssetClass.CRYPTO, MarketType.SPOT, "paper"
                 )
@@ -431,7 +218,8 @@ class BrokerGateway:
                     symbol_str, "USD", AssetClass.STOCK, MarketType.SPOT, "paper"
                 )
 
-            # Convert side string to OrderSide enum
+            if side_str not in {"buy", "sell"}:
+                raise AuthorizationError(f"unsupported authorized side {side_str!r}")
             side_enum = OrderSide.BUY if side_str == "buy" else OrderSide.SELL
 
             # Convert order_type string to OrderType enum
@@ -442,7 +230,11 @@ class BrokerGateway:
                 "stop_limit": OrderType.STOP_LIMIT,
                 "trailing_stop": OrderType.TRAILING_STOP,
             }
-            order_type_enum = order_type_map.get(order_type_str, OrderType.MARKET)
+            if order_type_str not in order_type_map:
+                raise AuthorizationError(
+                    f"unsupported authorized order type {order_type_str!r}"
+                )
+            order_type_enum = order_type_map[order_type_str]
 
             # Convert numeric values to Decimal
             quantity_decimal = Decimal(str(auth["quantity"]))
@@ -481,6 +273,9 @@ class BrokerGateway:
                 error=submit_fact.error,
                 state=submit_fact.state,
                 raw_response=submit_fact.raw_response,
+                venue=submit_fact.venue,
+                broker_status=submit_fact.broker_status,
+                observed_at=submit_fact.observed_at,
             )
         except Exception as exc:
             return BrokerSubmitResult(
@@ -489,41 +284,17 @@ class BrokerGateway:
                 error=str(exc),
                 state=BrokerSubmitState.UNKNOWN,
                 raw_response={},
+                venue="unknown",
+                broker_status="unknown",
+                observed_at=datetime.now(UTC),
             )
-
-    def _verify_authorization(self, order: AuthorizedOrder) -> None:
-        """Verify authorization against durable lifecycle state."""
-        auth = self._store.get_latest_authorization(order.intent_id)
-        if auth is None:
-            raise AuthorizationError(
-                f"no durable ORDER_AUTHORIZED found for intent {order.intent_id}"
-            )
-        # Verify binding
-        if auth.get("authorization_id") != order.authorization_id:
-            raise AuthorizationError("authorization_id mismatch")
-        if auth.get("idempotency_key") != order.idempotency_key:
-            raise AuthorizationError("idempotency_key mismatch")
-        # Normalize symbol for comparison (Symbol object vs persisted string)
-        auth_symbol = auth.get("symbol")
-        order_symbol = order.symbol
-        if hasattr(order_symbol, "pair"):
-            order_symbol = order_symbol.pair
-        if auth_symbol != order_symbol:
-            raise AuthorizationError("symbol mismatch")
-        if auth.get("side") != order.side:
-            raise AuthorizationError("side mismatch")
-        if abs(float(auth.get("quantity", 0)) - float(order.quantity)) > 1e-12:
-            raise AuthorizationError("quantity mismatch")
-        if auth.get("risk_decision_id") != order.risk_decision_id:
-            raise AuthorizationError("risk_decision_id mismatch")
-        if auth.get("payload_hash") != order.authorization_hash:
-            raise AuthorizationError("payload_hash mismatch")
 
     def cancel(
         self,
         order_id: str,
         *,
         correlation_id: str,
+        symbol: str | None = None,
     ) -> CancelResult:
         """Request cancellation of a broker order.
 
@@ -534,8 +305,20 @@ class BrokerGateway:
             # Use canonical adapter.request_cancel() returning BrokerCancelFact
             from trading_agent.execution.canonical.adapters import BrokerCancelRequest
 
+            symbol_obj = None
+            if symbol:
+                if "/" in symbol:
+                    base, quote = symbol.split("/", maxsplit=1)
+                    symbol_obj = Symbol(
+                        base, quote, AssetClass.CRYPTO, MarketType.SPOT, "live"
+                    )
+                else:
+                    symbol_obj = Symbol(
+                        symbol, "USD", AssetClass.STOCK, MarketType.SPOT, "live"
+                    )
             cancel_request = BrokerCancelRequest(
                 broker_order_id=order_id,
+                symbol=symbol_obj,
                 client_order_id=None,
                 idempotency_key=None,
             )
@@ -647,116 +430,64 @@ class BrokerGateway:
 
     def submit_protection(
         self,
-        plan: ProtectionPlan,
+        authorization_id: str,
         *,
         correlation_id: str,
     ) -> ProtectiveSubmitResult:
-        """Submit a protective order (stop-loss / take-profit).
+        """Submit a reduce-only protective order from durable authorization."""
+        if not isinstance(authorization_id, str) or not authorization_id:
+            raise AuthorizationError("authorization_id must be a non-empty string")
+        auth = self._store.get_latest_authorization_by_auth_id(authorization_id)
+        if auth is None:
+            raise AuthorizationError(
+                f"no durable ORDER_AUTHORIZED found for authorization_id {authorization_id}"
+            )
+        metadata = auth.get("metadata", {})
+        order_type = str(metadata.get("order_type", "")).lower()
+        if str(auth.get("side", "")).lower() != "sell" or order_type not in {
+            "stop",
+            "stop_limit",
+            "trailing_stop",
+        }:
+            raise AuthorizationError(
+                "protective submission requires an authorized SELL stop order"
+            )
 
-        This is the ONLY path that creates a protective broker order.
-        Returns typed result; lifecycle interprets into ProtectiveAckEvidence.
-        """
-        if plan.state != ProtectionState.PROTECTION_REQUIRED:
-            raise ValueError(f"cannot submit protection in state {plan.state.value}")
-
-        # Validate quantity semantics (P0)
-        if plan.quantity_mode == ProtectionQuantityMode.EXPLICIT_QUANTITY:
-            if (
-                not math.isfinite(plan.protected_quantity)
-                or plan.protected_quantity <= 0
-            ):
-                return ProtectiveSubmitResult(
-                    success=False,
-                    evidence=None,
-                    error="EXPLICIT_QUANTITY requires protected_quantity > 0",
-                )
-            qty = plan.protected_quantity
-        elif plan.quantity_mode == ProtectionQuantityMode.CLOSE_POSITION:
-            capabilities = getattr(self._adapter, "capabilities", {})
-            if not capabilities.get("close_position_protection", False):
-                return ProtectiveSubmitResult(
-                    success=False,
-                    evidence=None,
-                    error="adapter does not support CLOSE_POSITION protection",
-                )
-            qty = 0.0  # adapter interprets as close position
-        else:
+        submission = self.submit(
+            authorization_id,
+            correlation_id=correlation_id,
+        )
+        if (
+            not submission.success
+            or not submission.broker_order_id
+            or submission.state
+            not in {BrokerSubmitState.ACCEPTED, BrokerSubmitState.OPEN}
+        ):
             return ProtectiveSubmitResult(
                 success=False,
                 evidence=None,
-                error=f"unsupported quantity_mode: {plan.quantity_mode}",
+                error=submission.error
+                or "protective order did not become a resting acknowledged order",
+                submission=submission,
             )
-
-        # Build broker order payload from plan
-        order_payload: dict[str, Any] = {
-            "id": plan.plan_id,
-            "symbol": plan.symbol,
-            "order_type": plan.stop_type,
-            "stop_price": plan.stop_trigger,
-            "limit_price": plan.take_profit,
-        }
-        try:
-            response = self._adapter.create_order(
-                symbol=plan.symbol,
-                side="sell",
-                qty=qty,
-                order_type=plan.stop_type,
-                limit_price=plan.take_profit,
-            )
-            broker_order_id = response.get("id") or response.get("order_id")
-            return ProtectiveSubmitResult(
-                success=True,
-                evidence=ProtectiveAckEvidence(
-                    broker_order_id=broker_order_id or "",
-                    broker_ack_id=broker_order_id or "",
-                    venue="",
-                    broker_status="",
-                    acknowledged_at="",
-                    protected_symbol=plan.symbol,
-                    protected_quantity=plan.protected_quantity,
-                    evidence_source="BROKER",
-                    raw_response=response,
-                ),
-                error=None,
-            )
-        except Exception as exc:
-            return ProtectiveSubmitResult(
-                success=False,
-                evidence=None,
-                error=str(exc),
-            )
-
-    def close_all_positions(
-        self,
-        *,
-        correlation_id: str,
-        reason: str = "manual_kill",
-    ) -> dict[str, list[str]]:
-        """Emergency close all positions.
-
-        This is the ONLY authorized path for close-all operations.
-        """
-        # Use canonical adapter.fetch_positions() returning list[BrokerPositionFact]
-        position_facts = self._adapter.fetch_positions()
-        remaining: list[str] = []
-        for pos in position_facts:
-            symbol = str(pos.symbol)
-            if not symbol:
-                continue
-            try:
-                # Use canonical adapter.close_position() with BrokerClosePositionRequest
-                from trading_agent.execution.canonical.adapters import (
-                    BrokerClosePositionRequest,
-                )
-
-                close_request = BrokerClosePositionRequest(
-                    symbol=pos.symbol,
-                    reason=reason,
-                )
-                self._adapter.close_position(close_request)
-            except Exception:
-                remaining.append(symbol)
-        return {"remaining": remaining}
+        broker_status = submission.broker_status.lower()
+        observed_at = submission.observed_at or datetime.now(UTC)
+        return ProtectiveSubmitResult(
+            success=True,
+            evidence=ProtectiveAckEvidence(
+                broker_order_id=submission.broker_order_id,
+                broker_ack_id=submission.broker_order_id,
+                venue=submission.venue,
+                broker_status=broker_status,
+                acknowledged_at=observed_at.isoformat(),
+                protected_symbol=str(auth["symbol"]),
+                protected_quantity=float(auth["quantity"]),
+                evidence_source="BROKER",
+                raw_response=submission.raw_response,
+            ),
+            error=None,
+            submission=submission,
+        )
 
 
 __all__ = [
@@ -771,7 +502,6 @@ __all__ = [
     "BrokerClosePositionRequest",
     "BrokerClosePositionFact",
     "BrokerGateway",
-    "AuthorizedOrder",
     "CancelState",
     "CancelEvidence",
     "ProtectiveAckEvidence",

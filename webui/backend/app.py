@@ -32,7 +32,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from trading_agent.execution.canonical.adapters import (
-    BrokerSubmitFact,
+    AlpacaExecutionAdapter,
     BrokerSubmitState,
 )
 from trading_agent.execution.lifecycle.lifecycle import (
@@ -217,54 +217,26 @@ class _AlpacaSyncAdapter:
         return self._run(self._adapter.fetch_positions())
 
     def get_ticker(self, symbol):
+        if isinstance(symbol, str):
+            from trading_agent.exchanges.models import AssetClass, MarketType, Symbol
+
+            base, _, quote = symbol.partition("/")
+            symbol = Symbol(
+                base,
+                quote or "USD",
+                AssetClass.STOCK,
+                MarketType.SPOT,
+                "alpaca",
+            )
         ticker = self._run(self._adapter.fetch_ticker(symbol))
-        return {"last": getattr(ticker, "last", None) or getattr(ticker, "price", None)}
-
-    def submit_order(self, request):
-        """Submit order via canonical BrokerOrderRequest."""
-        symbol = request.symbol
-        if hasattr(symbol, "alpaca_symbol"):
-            symbol = symbol.alpaca_symbol
-        payload = {
-            "symbol": symbol,
-            "side": request.side,
-            "qty": request.quantity,
-            "order_type": getattr(request, "order_type", "market"),
-            "price": getattr(request, "price", None),
-            "stop_price": getattr(request, "stop_price", None),
-            "idempotency_key": getattr(request, "idempotency_key", None),
-        }
-        response = self.place_order(payload)
-        broker_order_id = response.get("id")
-        return BrokerSubmitFact(
-            state=BrokerSubmitState.ACCEPTED
-            if broker_order_id
-            else BrokerSubmitState.REJECTED,
-            broker_order_id=broker_order_id,
-            client_order_id=getattr(request, "idempotency_key", None),
-            venue="cli",
-            broker_status="accepted" if broker_order_id else "rejected",
-            observed_at=datetime.now(UTC),
-            error=None if broker_order_id else "order_rejected",
-            raw_response=response,
-        )
-
-    def place_order(self, payload):
-        from alpaca.trading.requests import OrderRequest
-        from alpaca.trading.enums import OrderSide, TimeInForce
-
-        side = OrderSide.BUY if payload["side"].lower() == "buy" else OrderSide.SELL
-        order_req = OrderRequest(
-            symbol=payload["symbol"],
-            qty=float(payload["qty"]),
-            side=side,
-            type=payload.get("order_type", "market"),
-            time_in_force=TimeInForce.IOC,
-        )
-        order = self._run(self._adapter.create_order(order_req))
         return {
-            "id": getattr(order, "id", None) or getattr(order, "client_order_id", None)
+            "last": getattr(ticker, "last", None) or getattr(ticker, "price", None),
+            "timestamp": getattr(ticker, "timestamp", None),
+            "received_at": datetime.now(UTC),
         }
+
+    def get_account(self):
+        return self._adapter.get_account_info()
 
 
 async def _alpaca():
@@ -516,6 +488,7 @@ async def api_close(req: CloseRequest) -> dict:
     try:
         from trading_agent.execution.lifecycle import ExecutionEventStore
         from trading_agent.execution.lifecycle.lifecycle import (
+            EmergencyReduceRequest,
             ExecutionLifecycle,
             TrustedPrice,
         )
@@ -525,33 +498,32 @@ async def api_close(req: CloseRequest) -> dict:
         sync_adapter = _AlpacaSyncAdapter(adapter)
         store = ExecutionEventStore("data/execution/events.db").connect()
 
+        def _symbol_text(value) -> str:
+            return str(getattr(value, "pair", value))
+
         def _inventory_source(symbol, side):
             if side != "sell":
                 return 0.0
             for pos in sync_adapter.get_all_positions():
-                if pos.symbol == symbol:
-                    return float(pos.qty)
+                if _symbol_text(pos.symbol) == str(symbol):
+                    return max(0.0, float(pos.size))
             return 0.0
 
         def _portfolio_source(symbol):
-            try:
-                account = sync_adapter._adapter.get_account_info()
-            except Exception:
-                account = {}
-            try:
-                positions = sync_adapter.get_all_positions()
-            except Exception:
-                positions = []
-            sym_str = symbol.pair if hasattr(symbol, "pair") else str(symbol)
+            account = sync_adapter.get_account()
+            positions = sync_adapter.get_all_positions()
+            sym_str = str(symbol)
             position_quantity = 0.0
             available_quantity = 0.0
             for pos in positions:
-                if pos.symbol == sym_str:
-                    position_quantity = float(pos.qty)
-                    available_quantity = float(pos.qty)
+                if _symbol_text(pos.symbol) == sym_str:
+                    position_quantity = max(0.0, float(pos.size))
+                    available_quantity = position_quantity
                     break
-            equity = float(account.get("equity", 100_000.0))
-            available_cash = float(account.get("cash", 100_000.0))
+            equity = float(account.get("equity") or 0.0)
+            available_cash = float(account.get("cash") or 0.0)
+            if equity <= 0 or available_cash < 0:
+                return None
             return PortfolioRiskSnapshot(
                 symbol=sym_str,
                 position_quantity=position_quantity,
@@ -562,26 +534,40 @@ async def api_close(req: CloseRequest) -> dict:
                 source="webui_close",
             )
 
+        def _price_source(symbol):
+            ticker = sync_adapter.get_ticker(symbol)
+            price = float(ticker.get("last") or 0.0)
+            exchange_timestamp = ticker.get("timestamp")
+            received_at = ticker.get("received_at")
+            if (
+                price <= 0
+                or not isinstance(exchange_timestamp, datetime)
+                or exchange_timestamp.tzinfo is None
+                or not isinstance(received_at, datetime)
+                or received_at.tzinfo is None
+            ):
+                return None
+            return TrustedPrice(
+                price=price,
+                exchange_timestamp=exchange_timestamp.astimezone(UTC),
+                received_at=received_at.astimezone(UTC),
+            )
+
         lifecycle = ExecutionLifecycle(
             store,
-            price_source=lambda s: (
-                TrustedPrice(
-                    price=float(sync_adapter.get_ticker(s).get("last") or 0.0),
-                    exchange_timestamp=datetime.now(UTC),
-                    received_at=datetime.now(UTC),
-                )
-                if sync_adapter.get_ticker(s).get("last")
-                else None
-            ),
+            price_source=_price_source,
             inventory_source=_inventory_source,
             portfolio_source=_portfolio_source,
         )
-        gateway = BrokerGateway(adapter=sync_adapter, store=store)
+        gateway = BrokerGateway(
+            adapter=AlpacaExecutionAdapter(adapter),
+            store=store,
+        )
         positions = sync_adapter.get_all_positions()
         detail = {"closed": [], "failed": []}
         for pos in positions:
-            symbol = pos.symbol
-            qty = float(pos.qty)
+            symbol = _symbol_text(pos.symbol)
+            qty = max(0.0, float(pos.size))
             if qty <= 0:
                 continue
             current_price = None
@@ -591,61 +577,39 @@ async def api_close(req: CloseRequest) -> dict:
             if current_price is None:
                 detail["failed"].append({"symbol": symbol, "reason": "no price"})
                 continue
-            emergency = {
-                "intent_id": f"emergency-close-{symbol}-{int(datetime.now(UTC).timestamp())}",
-                "symbol": symbol,
-                "side": "sell",
-                "quantity": qty,
-                "reason": "manual",
-            }
+            intent_id = (
+                f"emergency-close-{symbol}-{int(datetime.now(UTC).timestamp())}"
+            )
             try:
-                from trading_agent.execution.lifecycle.lifecycle import (
-                    EmergencyReduceRequest,
-                )
-
                 auth_event = lifecycle.emergency_reduce(
-                    EmergencyReduceRequest(**emergency)
-                )
-                from trading_agent.execution.canonical import AuthorizedOrder
-                from trading_agent.execution.canonical.broker_gateway import (
-                    _AUTHORIZED_TOKEN,
-                )
-
-                authorized = AuthorizedOrder(
-                    token=_AUTHORIZED_TOKEN,
-                    intent_id=emergency["intent_id"],
-                    symbol=symbol,
-                    side="sell",
-                    quantity=qty,
-                    idempotency_key=f"emergency-{emergency['intent_id']}",
-                    price_reference=current_price,
-                    risk_decision_id=auth_event.payload.get("risk_decision_id", ""),
-                    forecast_fingerprint="",
-                    model_artifact_id="emergency_reduce",
-                    permission_result="REDUCE_ONLY",
-                    authorization_id=auth_event.payload.get("authorization_id", ""),
-                    lifecycle_event_id=auth_event.event_id,
-                    correlation_id=emergency["intent_id"],
-                    exposure_effect="reduce",
-                    current_exposure=0.0,
-                    resulting_exposure=0.0,
-                    authorized_at=auth_event.payload.get("authorized_at", ""),
-                    authorization_hash=auth_event.payload["payload_hash"],
+                    EmergencyReduceRequest(
+                        intent_id=intent_id,
+                        symbol=symbol,
+                        side="sell",
+                        quantity=qty,
+                        reason="manual",
+                        metadata={"order_type": "market", "time_in_force": "ioc"},
+                    )
                 )
                 result = gateway.submit(
-                    authorized, correlation_id=emergency["intent_id"]
+                    str(auth_event.payload["authorization_id"]),
+                    correlation_id=intent_id,
                 )
                 if result.success and result.broker_order_id:
                     lifecycle.submit_order(
-                        intent_id=emergency["intent_id"],
+                        intent_id=intent_id,
                         exchange_order_id=result.broker_order_id,
                     )
-                    lifecycle.receive_fill(
-                        intent_id=emergency["intent_id"],
-                        size=qty,
-                        price=current_price,
-                    )
+                lifecycle.record_broker_submit_result(intent_id, result)
+                if result.state == BrokerSubmitState.FILLED:
                     detail["closed"].append(symbol)
+                elif result.success:
+                    detail["failed"].append(
+                        {
+                            "symbol": symbol,
+                            "reason": "order accepted but fill is not yet confirmed",
+                        }
+                    )
                 else:
                     detail["failed"].append({"symbol": symbol, "reason": result.error})
             except Exception as exc:  # noqa: BLE001
@@ -654,7 +618,7 @@ async def api_close(req: CloseRequest) -> dict:
         return {
             "closed": len(detail["failed"]) == 0,
             "detail": detail,
-            "remaining": [position.symbol for position in remaining],
+            "remaining": [_symbol_text(position.symbol) for position in remaining],
         }
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(

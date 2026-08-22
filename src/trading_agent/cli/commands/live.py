@@ -546,27 +546,18 @@ def _place_order_via_gateway(live_broker, order, store=None):
     from datetime import UTC, datetime
 
     from trading_agent.execution.canonical import (
-        AuthorizedOrder,
         BrokerGateway,
-        UnifiedRiskDecision,
-        RiskLevel,
-        EvidenceState,
     )
-    from trading_agent.execution.canonical.cli_adapter import CliBrokerAdapter
+    from trading_agent.execution.canonical.adapters import LiveBrokerExecutionAdapter
     from trading_agent.execution.lifecycle import ExecutionEventStore
     from trading_agent.execution.lifecycle.lifecycle import (
         ExecutionLifecycle,
-        ExecutionHealth,
+        EmergencyReduceRequest,
         TrustedPrice,
         PortfolioRiskSnapshot,
-        ExposureEffect,
-    )
-    from trading_agent.execution.permission import (
-        PermissionContext,
-        evaluate_order_permission,
     )
 
-    adapter = CliBrokerAdapter(live_broker)
+    adapter = LiveBrokerExecutionAdapter(live_broker)
     if store is None:
         store = ExecutionEventStore("data/execution/events.db").connect()
 
@@ -574,10 +565,17 @@ def _place_order_via_gateway(live_broker, order, store=None):
         try:
             ticker = asyncio.run(live_broker.adapter.fetch_ticker(symbol))
             last = getattr(ticker, "last", None) or getattr(ticker, "price", None)
-            if last is not None and math.isfinite(last) and last > 0:
+            exchange_timestamp = getattr(ticker, "timestamp", None)
+            if (
+                last is not None
+                and math.isfinite(last)
+                and last > 0
+                and isinstance(exchange_timestamp, datetime)
+                and exchange_timestamp.tzinfo is not None
+            ):
                 return TrustedPrice(
                     price=float(last),
-                    exchange_timestamp=datetime.now(UTC),
+                    exchange_timestamp=exchange_timestamp.astimezone(UTC),
                     received_at=datetime.now(UTC),
                 )
         except Exception:
@@ -601,7 +599,7 @@ def _place_order_via_gateway(live_broker, order, store=None):
         try:
             account = live_broker.get_account()
         except Exception:
-            account = None
+            return None
         try:
             positions = live_broker.get_positions()
         except Exception:
@@ -614,17 +612,16 @@ def _place_order_via_gateway(live_broker, order, store=None):
                 position_quantity = float(pos.get("qty", 0))
                 available_quantity = float(pos.get("free_qty", position_quantity))
                 break
-        equity = 100_000.0
-        available_cash = 100_000.0
+        if not isinstance(account, dict):
+            return None
+        try:
+            equity = float(account["equity"])
+            available_cash = float(account["cash"])
+        except (KeyError, TypeError, ValueError):
+            return None
+        if not math.isfinite(equity) or equity <= 0:
+            return None
         observed_at = datetime.now(UTC)
-        source = "live_broker"
-        if account is not None:
-            try:
-                equity = float(account.get("equity", equity))
-                available_cash = float(account.get("cash", available_cash))
-                source = "live_broker"
-            except Exception:
-                pass
         return PortfolioRiskSnapshot(
             symbol=sym_str,
             position_quantity=position_quantity,
@@ -632,7 +629,7 @@ def _place_order_via_gateway(live_broker, order, store=None):
             equity=equity,
             available_cash=available_cash,
             observed_at=observed_at,
-            source=source,
+            source="live_broker",
         )
 
     lifecycle = ExecutionLifecycle(
@@ -643,24 +640,10 @@ def _place_order_via_gateway(live_broker, order, store=None):
     )
 
     intent_id = f"cli-{uuid.uuid4().hex}"
-    symbol = order.symbol
+    symbol = order.symbol.pair if hasattr(order.symbol, "pair") else str(order.symbol)
     side = "buy" if order.side.value.lower() == "buy" else "sell"
     size = float(order.size)
 
-    # 1. Create intent (draft mode allows missing risk decision)
-    lifecycle.create_order_intent(
-        intent_id=intent_id,
-        symbol=symbol,
-        side=side,
-        size=size,
-        idempotency_key=order.client_order_id,
-    )
-
-    # 2. MANUAL CLI ORDERS REQUIRE REAL RISK EVIDENCE.
-    # Synthetic perfect risk (calibration_ece=0.0, etc.) is FORBIDDEN.
-    # Operator must provide real risk evidence via risk policy/evidence.
-    # For now, we BLOCK manual BUY/SELL that would increase exposure.
-    # Only REDUCE (sell) with trusted inventory is allowed for manual override.
     if side == "buy":
         raise RuntimeError(
             "Manual BUY orders require real risk evidence from risk policy. "
@@ -668,111 +651,46 @@ def _place_order_via_gateway(live_broker, order, store=None):
             "configure risk policy to generate real risk evidence."
         )
 
-    # For SELL (reduce-only), we can proceed with minimal risk decision
-    # since we're reducing exposure and have inventory evidence
-    risk_decision = UnifiedRiskDecision(
-        decision_id=f"cli-risk-{intent_id}",
-        forecast_fingerprint="cli-manual-reduce",
-        model_artifact_id="cli-manual",
-        requested_target_exposure=0.0,
-        allowed_target_exposure=0.0,
-        max_new_exposure=0.0,
-        reduce_only=True,
-        risk_level=RiskLevel.HIGH,
-        reason_codes=("MANUAL_REDUCE",),
-        calibration_state=EvidenceState.KNOWN,
-        calibration_artifact_id="cli-manual",
-        calibration_ece=1.0,  # Max uncertainty - no calibration evidence
-        ood_state=EvidenceState.KNOWN,
-        ood_score=1.0,  # Max uncertainty - no OOD evidence
-        regime_state=EvidenceState.KNOWN,
-        regime_entropy=1.0,  # Max uncertainty - no regime evidence
-        interval_width=1.0,  # Max uncertainty
-        created_at=datetime.now(UTC),
-    )
-
-    # 3. Approve risk (reduce-only allowed with minimal evidence)
-    lifecycle.approve_risk(intent_id, risk_decision=risk_decision)
-
-    # 4. Evaluate permission
-    exposure_effect = (
-        ExposureEffect.INCREASE if side == "buy" else ExposureEffect.REDUCE
-    )
-    permission = evaluate_order_permission(
-        PermissionContext(
-            execution_health=ExecutionHealth.NORMAL,
-            exposure_effect=exposure_effect.value,
-            risk_decision=risk_decision,
-            trusted_price=None,  # No price for manual reduce
-            max_price_age_seconds=60.0,
-            reconciliation_state="none",
-            protection_state="none",
-            manual_blocked=False,
-            kill_switch_active=False,
-            data_trust="trusted",
-            inventory_state="known",  # We have inventory from broker
-            free_inventory=0.0,
-            authorized_sellable_inventory=size,  # We have inventory
-            order_size=size,
-            order_side="sell",
-            require_fresh_market_data=True,  # Enable for safety
-            enforce_inventory=True,  # Enable for safety
-            broker_state=None,
-            draft=False,
+    # Manual exits use the lifecycle-owned emergency-reduce policy.  It binds
+    # trusted venue inventory/portfolio/price and persists the submission
+    # request before any broker I/O.
+    auth_event = lifecycle.emergency_reduce(
+        EmergencyReduceRequest(
+            intent_id=intent_id,
+            symbol=symbol,
+            side="sell",
+            quantity=size,
+            reason="MANUAL_REDUCE",
+            metadata={
+                "order_type": order.type.value.lower(),
+                "price": float(order.price) if order.price is not None else None,
+                "stop_price": (
+                    float(order.stop_price) if order.stop_price is not None else None
+                ),
+                "time_in_force": order.time_in_force.value.lower(),
+            },
         )
     )
 
-    if not permission.allowed():
-        raise RuntimeError(
-            f"Order blocked by permission: {permission.reason.value} — {permission.detail}"
-        )
-
-    # 5. Authorize order (lifecycle derives all fields from durable state)
-    auth_event = lifecycle.authorize_order(
-        intent_id=intent_id,
-        idempotency_key=order.client_order_id or intent_id,
-    )
-
-    # 6. Request broker submission (durable pre-submission event)
-    lifecycle.request_broker_submission(intent_id)
-
-    # 7. Build AuthorizedOrder from durable authorization event
-    from trading_agent.execution.canonical.broker_gateway import _AUTHORIZED_TOKEN
-
-    authorized = AuthorizedOrder.from_event(
-        _AUTHORIZED_TOKEN,
-        auth_event,
-        price_reference=0.0,
-        current_exposure=0.0,
-        resulting_exposure=size if side == "buy" else 0.0,
-        correlation_id=intent_id,
-        metadata={
-            "order_type": order.type.value.lower(),
-            "price": float(order.price) if order.price is not None else None,
-            "stop_price": float(order.stop_price)
-            if order.stop_price is not None
-            else None,
-            "time_in_force": order.time_in_force.value.lower(),
-        },
-    )
-
-    # 8. Submit via gateway using AuthorizedOrder object
     gateway = BrokerGateway(adapter=adapter, store=store)
-    result = gateway.submit(authorized, correlation_id=intent_id)
-
+    result = gateway.submit(
+        auth_event.payload["authorization_id"],
+        correlation_id=intent_id,
+    )
     if result.success and result.broker_order_id:
         lifecycle.submit_order(
             intent_id=intent_id,
             exchange_order_id=result.broker_order_id,
         )
+    lifecycle.record_broker_submit_result(intent_id, result)
 
-    return {
-        "id": result.broker_order_id,
-        "status": "submitted" if result.success else "rejected",
-        "filled_qty": 0.0,
-        "avg_fill_price": 0.0,
-        "error": result.error,
-    }
+    response = dict(result.raw_response or {})
+    response.setdefault("id", result.broker_order_id)
+    response.setdefault("status", "submitted" if result.success else "rejected")
+    response.setdefault("filled_qty", 0.0)
+    response.setdefault("avg_fill_price", 0.0)
+    response.setdefault("error", result.error)
+    return response
 
 
 @live.command("connect")

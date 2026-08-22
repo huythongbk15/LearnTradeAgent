@@ -212,16 +212,13 @@ def test_router_best_price_routes_to_cheapest_venue(router):
     from trading_agent.exchanges.order_router import RoutingStrategy
 
     sym = crypto_symbol("BTC", "USDT", "binance")
-    orders = _run(
-        r.smart_order(
+    plan = _run(
+        r.create_execution_plan(
             sym, OrderSide.BUY, Decimal("0.1"), strategy=RoutingStrategy.BEST_PRICE
         )
     )
-    assert orders, "should fill at least one order"
-    assert orders[0].status == OrderStatus.FILLED
-    # Best price = binance (lower ask), so route goes there
-    assert orders[0].avg_fill_price < Decimal("100500")
-    print(f"  BestPrice BUY routed @ {orders[0].avg_fill_price} (binance > kraken)")
+    assert plan.child_orders
+    assert plan.child_orders[0]["exchange"] == "binance"
 
 
 def test_router_rejects_no_venues():
@@ -231,7 +228,7 @@ def test_router_rejects_no_venues():
     r = OrderRouter(multi_exchange=MockMultiExchange({}))
     sym = crypto_symbol("BTC", "USDT", "binance")
     with pytest.raises(ValueError):
-        _run(r.smart_order(sym, OrderSide.BUY, Decimal("1")))
+        _run(r.create_execution_plan(sym, OrderSide.BUY, Decimal("1")))
 
 
 def test_router_twap_splits_into_slices(router):
@@ -255,21 +252,21 @@ def test_router_twap_splits_into_slices(router):
     print(f"  TWAP plan: {len(plan.child_orders)} slices (total {total})")
 
 
-def test_router_execution_quality_tracks_fills(router):
+def test_router_direct_execution_fails_closed(router):
     from trading_agent.exchanges.models import crypto_symbol
     from trading_agent.exchanges.order_router import RoutingStrategy
 
     r, _, _ = router
     sym = crypto_symbol("BTC", "USDT", "binance")
-    _run(
-        r.smart_order(
-            sym, OrderSide.BUY, Decimal("0.5"), strategy=RoutingStrategy.BEST_PRICE
+    with pytest.raises(RuntimeError, match="durable authorization"):
+        _run(
+            r.smart_order(
+                sym,
+                OrderSide.BUY,
+                Decimal("0.5"),
+                strategy=RoutingStrategy.BEST_PRICE,
+            )
         )
-    )
-    q = r.get_execution_quality(sym)
-    assert q["total_orders"] == 1
-    assert q["fill_rate"] == 1.0
-    print(f"  Execution quality: {q}")
 
 
 # ════════════════════════════════════════════════════════════════

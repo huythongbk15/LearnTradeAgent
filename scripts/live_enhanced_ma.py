@@ -53,23 +53,14 @@ from trading_agent.exchanges.models import (
 )
 from trading_agent.execution.canonical import (
     BrokerGateway,
-    AuthorizedOrder,
 )
-from trading_agent.execution.canonical.risk_decision import (
-    RiskLevel,
-    EvidenceState,
-    UnifiedRiskDecision,
-)
+from trading_agent.execution.canonical.adapters import LiveBrokerExecutionAdapter
 from trading_agent.execution.lifecycle import ExecutionEventStore
 from trading_agent.execution.lifecycle.lifecycle import (
+    EmergencyReduceRequest,
     ExecutionLifecycle,
-    ExecutionHealth,
-    ExposureEffect,
+    PortfolioRiskSnapshot,
     TrustedPrice,
-)
-from trading_agent.execution.permission import (
-    PermissionContext,
-    evaluate_order_permission,
 )
 from trading_agent.risk.portfolio_risk import DrawdownConfig, PortfolioRiskManager
 from trading_agent.strategies.enhanced_ma import EnhancedMaCrossover
@@ -222,128 +213,42 @@ def _canonical_submit(
     forecast_fingerprint: str = "cli-manual",
     model_artifact_id: str = "cli-manual",
 ) -> dict:
-    """Submit an order through the full canonical pipeline.
+    """Submit only lifecycle-authorized risk-reducing legacy actions.
 
-    Replaces the legacy ``broker.place_order(order, evidence=...)`` path.
+    This runner has no promoted forecast/risk artifact, so exposure-increasing
+    orders fail closed.  Canonical paper BUYs must use ``ExecutionEngine``.
     """
-    # 1. Create order intent
-    lifecycle.create_order_intent(
-        intent_id=correlation_id,
-        symbol=str(symbol),
-        side=side,
-        size=qty,
-        idempotency_key=correlation_id,
-    )
-
-    # 2. Approve risk with realistic unknown evidence (no forecast/model)
-    risk_decision = UnifiedRiskDecision(
-        decision_id=risk_decision_id or f"risk-{correlation_id}",
-        forecast_fingerprint=forecast_fingerprint,
-        model_artifact_id=model_artifact_id,
-        requested_target_exposure=qty if side == "buy" else 0.0,
-        allowed_target_exposure=qty if side == "buy" else 0.0,
-        max_new_exposure=0.0 if reduce_only else qty,
-        reduce_only=reduce_only,
-        risk_level=RiskLevel(risk_level),
-        reason_codes=(),
-        calibration_state=EvidenceState.UNKNOWN,
-        calibration_artifact_id="live-ma",
-        calibration_ece=1.0,
-        ood_state=EvidenceState.UNKNOWN,
-        ood_score=1.0,
-        regime_state=EvidenceState.UNKNOWN,
-        regime_entropy=1.0,
-        interval_width=1.0,
-        created_at=datetime.now(UTC),
-    )
-    lifecycle.approve_risk(correlation_id, risk_decision=risk_decision)
-
-    # 3. Evaluate permission
-    exposure_effect = (
-        ExposureEffect.INCREASE if side == "buy" else ExposureEffect.REDUCE
-    )
-    permission = evaluate_order_permission(
-        PermissionContext(
-            execution_health=ExecutionHealth.NORMAL,
-            exposure_effect=exposure_effect,
-            risk_decision=risk_decision,
-            trusted_price=None,
-            max_price_age_seconds=60.0,
-            reconciliation_state="none",
-            protection_state="none",
-            manual_blocked=False,
-            kill_switch_active=False,
-            data_trust="trusted",
-            inventory_state="known",
-            free_inventory=qty,
-            authorized_sellable_inventory=qty if side == "sell" else 0.0,
-            order_size=qty,
-            order_side=side,
-            require_fresh_market_data=False,
-            enforce_inventory=False,
-            broker_state=None,
-            draft=False,
-        )
-    )
-    if not permission.allowed():
+    if side.lower() != "sell":
         return {
             "success": False,
-            "error": f"Permission blocked: {permission.reason.value} - {permission.detail}",
+            "error": "legacy live runner cannot increase exposure without real risk evidence",
             "side": side,
             "qty": qty,
             "symbol": str(symbol),
             "status": "blocked",
         }
-
-    # 4. Authorize order
-    auth_event = lifecycle.authorize_order(
-        intent_id=correlation_id,
-        authorization_id=f"auth-{correlation_id}",
-        idempotency_key=correlation_id,
-        payload_hash="",
-        risk_decision_id=risk_decision.decision_id,
-        forecast_fingerprint=forecast_fingerprint,
-        model_artifact_id=model_artifact_id,
-        permission=permission.permission.value,
-        symbol=str(symbol),
-        side=side,
-        quantity=qty,
-        exposure_effect=exposure_effect.value,
-        current_exposure=0.0,
-        resulting_exposure=qty if side == "buy" else 0.0,
-        authorized_at=datetime.now(UTC).isoformat(),
+    symbol_str = symbol.pair if hasattr(symbol, "pair") else str(symbol)
+    auth_event = lifecycle.emergency_reduce(
+        EmergencyReduceRequest(
+            intent_id=correlation_id,
+            symbol=symbol_str,
+            side="sell",
+            quantity=qty,
+            reason="LEGACY_RUNNER_REDUCE",
+            metadata={"order_type": "market", "time_in_force": "gtc"},
+        )
     )
-
-    # 5. Request broker submission
-    lifecycle.request_broker_submission(correlation_id)
-
-    # 6. Build AuthorizedOrder and submit through gateway
-    from trading_agent.execution.canonical.broker_gateway import _AUTHORIZED_TOKEN
-
-    authorized = AuthorizedOrder(
-        token=_AUTHORIZED_TOKEN,
-        intent_id=correlation_id,
-        symbol=str(symbol),
-        side=side,
-        quantity=qty,
-        idempotency_key=correlation_id,
-        price_reference=0.0,
-        risk_decision_id=risk_decision.decision_id,
-        forecast_fingerprint=forecast_fingerprint,
-        model_artifact_id=model_artifact_id,
-        permission_result=permission.permission.value,
-        authorization_id=auth_event.payload["authorization_id"],
-        lifecycle_event_id=auth_event.event_id,
+    result = gateway.submit(
+        auth_event.payload["authorization_id"],
         correlation_id=correlation_id,
-        exposure_effect=exposure_effect.value,
-        current_exposure=0.0,
-        resulting_exposure=qty if side == "buy" else 0.0,
-        authorized_at=auth_event.payload["authorized_at"],
-        authorization_hash="",
     )
-    result = gateway.submit(authorized, correlation_id=correlation_id)
+    if result.success and result.broker_order_id:
+        lifecycle.submit_order(
+            intent_id=correlation_id,
+            exchange_order_id=result.broker_order_id,
+        )
+    lifecycle.record_broker_submit_result(correlation_id, result)
 
-    # 7. Return legacy-format result
     return {
         "success": result.success,
         "broker_order_id": result.broker_order_id,
@@ -383,19 +288,67 @@ def main():
     broker = LiveBroker("alpaca", adapter)
     # Canonical execution: lifecycle + gateway (P0 §11: runner canonical migration)
     store = ExecutionEventStore("data/execution/events.db").connect()
+
+    def _venue_symbol(value):
+        if isinstance(value, Symbol):
+            return value
+        raw = str(value)
+        base, _, quote = raw.partition("/")
+        return Symbol(
+            base=base,
+            quote=quote or "USD",
+            asset_class=AssetClass.CRYPTO,
+            market_type=MarketType.SPOT,
+            exchange="alpaca",
+        )
+
+    def _price_source(value):
+        ticker = broker.get_ticker(_venue_symbol(value))
+        price = ticker.get("last")
+        exchange_timestamp = ticker.get("timestamp")
+        if not price or not isinstance(exchange_timestamp, datetime):
+            return None
+        return TrustedPrice(
+            price=float(price),
+            exchange_timestamp=exchange_timestamp.astimezone(UTC),
+            received_at=datetime.now(UTC),
+        )
+
+    def _inventory_source(value, side):
+        if side != "sell":
+            return 0.0
+        pair = _venue_symbol(value).pair
+        for position in broker.get_positions():
+            if position.get("symbol") == pair:
+                return float(position.get("qty") or 0.0)
+        return 0.0
+
+    def _portfolio_source(value):
+        account = broker.get_account()
+        try:
+            equity = float(account["equity"])
+            cash = float(account["cash"])
+        except (KeyError, TypeError, ValueError):
+            return None
+        pair = _venue_symbol(value).pair
+        quantity = _inventory_source(value, "sell")
+        return PortfolioRiskSnapshot(
+            symbol=pair,
+            position_quantity=quantity,
+            available_quantity=quantity,
+            equity=equity,
+            available_cash=cash,
+            observed_at=datetime.now(UTC),
+            source="alpaca",
+        )
+
     lifecycle = ExecutionLifecycle(
         store,
-        price_source=lambda s: (
-            TrustedPrice(
-                price=float(broker.get_ticker(s).get("last") or 0.0),
-                exchange_timestamp=datetime.now(UTC),
-                received_at=datetime.now(UTC),
-            )
-            if broker.get_ticker(s).get("last")
-            else None
-        ),
+        price_source=_price_source,
+        inventory_source=_inventory_source,
+        portfolio_source=_portfolio_source,
     )
-    gateway = BrokerGateway(adapter=broker, store=store)
+    gateway = BrokerGateway(adapter=LiveBrokerExecutionAdapter(broker), store=store)
 
     acct = broker.get_account()
     print("\n✅ Alpaca Paper connected")

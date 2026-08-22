@@ -17,7 +17,6 @@ import sys
 import time
 from contextlib import suppress
 from datetime import UTC, datetime
-from decimal import Decimal
 
 sys.path.insert(0, "src")
 
@@ -37,36 +36,25 @@ from trading_agent.exchanges.live_broker import LiveBroker
 from trading_agent.exchanges.models import (
     AssetClass,
     MarketType,
-    Order,
     OrderConstraintError,
-    OrderSide,
-    OrderType,
     Symbol,
-    TimeInForce,
 )
 from trading_agent.execution.canonical import (
     BrokerGateway,
-    CanonicalBrokerAdapter,
-    AuthorizedOrder,
+    CancelState,
 )
-from trading_agent.execution.canonical.legacy_authorization import (
-    LegacyAuthorizationEvidence,
+from trading_agent.execution.canonical.adapters import (
+    BrokerSubmitFact,
+    BrokerSubmitState,
+    LiveBrokerExecutionAdapter,
 )
-from trading_agent.execution.canonical.risk_decision import (
-    RiskLevel,
-    EvidenceState,
-    UnifiedRiskDecision,
-)
+from trading_agent.execution.canonical.risk_decision import UnifiedRiskDecision
 from trading_agent.execution.lifecycle import ExecutionEventStore
 from trading_agent.execution.lifecycle.lifecycle import (
+    EmergencyReduceRequest,
     ExecutionLifecycle,
-    ExecutionHealth,
-    ExposureEffect,
+    PortfolioRiskSnapshot,
     TrustedPrice,
-)
-from trading_agent.execution.permission import (
-    PermissionContext,
-    evaluate_order_permission,
 )
 from trading_agent.execution.correlation import bind_run_correlation
 from trading_agent.execution.data_trust import (
@@ -407,25 +395,6 @@ def apply_atr_protection(
             )
 
 
-def _protective_order(
-    *,
-    symbol: Symbol,
-    client_order_id: str,
-    quantity: float,
-    stop_price: float,
-) -> Order:
-    return Order(
-        id="",
-        client_order_id=client_order_id,
-        symbol=symbol,
-        side=OrderSide.SELL,
-        type=OrderType.STOP,
-        size=Decimal(str(quantity)),
-        stop_price=Decimal(str(stop_price)),
-        time_in_force=TimeInForce.GTC,
-    )
-
-
 def _audit_protective_event(
     audit_log_path: str | None,
     event: str,
@@ -582,6 +551,8 @@ def ensure_protective_stop(
     desired_stop: float,
     current_price: float,
     broker: LiveBroker,
+    lifecycle: ExecutionLifecycle,
+    gateway: BrokerGateway,
     store: LiveRiskStateStore,
     limits: LiveRiskLimits | None = None,
     audit_log_path: str | None = None,
@@ -643,15 +614,7 @@ def ensure_protective_stop(
         quantity=normalized_quantity,
         stop_price=desired_stop,
     )
-    order = _protective_order(
-        symbol=symbol,
-        client_order_id=str(pending["client_order_id"]),
-        quantity=normalized_quantity,
-        stop_price=desired_stop,
-    )
     operation = "protective_stop_placed"
-    account = broker.get_account()
-    account_equity = float(account.get("equity", 0.0))
     try:
         if isinstance(active, dict):
             exchange_order_id = str(active.get("exchange_order_id") or "")
@@ -659,39 +622,42 @@ def ensure_protective_stop(
                 raise LiveSafetyError(
                     f"active protective order ID is missing for {pair}"
                 )
-            result = broker.replace_order(
-                exchange_order_id,
-                order,
-                evidence=LegacyAuthorizationEvidence(
-                    symbol=pair,
-                    side="sell",
-                    quantity=normalized_quantity,
-                    price_reference=desired_stop,
-                    signal_reason="PROTECTIVE_STOP_REPLACE",
-                    strategy_version="legacy-binance-ma-v1",
-                    account_equity=account_equity,
-                    current_exposure=0.0,
-                    idempotency_key=str(pending["client_order_id"]),
-                    correlation_id=str(pending["client_order_id"]),
-                ),
+            _cancel_canonical_order(
+                lifecycle=lifecycle,
+                gateway=gateway,
+                intent_id=str(active.get("client_order_id") or ""),
+                broker_order_id=exchange_order_id,
+                symbol=pair,
+                reason="tighten protective stop",
             )
+            store.clear_active_protective_order(pair)
             operation = "protective_stop_replaced"
-        else:
-            result = broker.place_order(
-                order,
-                evidence=LegacyAuthorizationEvidence(
-                    symbol=pair,
-                    side="sell",
-                    quantity=normalized_quantity,
-                    price_reference=desired_stop,
-                    signal_reason="PROTECTIVE_STOP_PLACE",
-                    strategy_version="legacy-binance-ma-v1",
-                    account_equity=account_equity,
-                    current_exposure=0.0,
-                    idempotency_key=str(pending["client_order_id"]),
-                    correlation_id=str(pending["client_order_id"]),
-                ),
+        intent_id = str(pending["client_order_id"])
+        authorization_id = _authorize_live_order(
+            lifecycle=lifecycle,
+            planned={"action": "SELL"},
+            intent_id=intent_id,
+            symbol=pair,
+            quantity=normalized_quantity,
+            reason="PROTECTIVE_EMERGENCY_EXIT",
+            order_type="stop",
+            stop_price=desired_stop,
+        )
+        submission = gateway.submit(
+            authorization_id,
+            correlation_id=intent_id,
+        )
+        if submission.success and submission.broker_order_id:
+            lifecycle.submit_order(
+                intent_id,
+                exchange_order_id=submission.broker_order_id,
             )
+        result = _canonical_result_payload(submission)
+        if submission.state == BrokerSubmitState.UNKNOWN:
+            raise LiveSafetyError(
+                f"protective submission state is unknown for {pair}"
+            )
+        lifecycle.record_broker_submit_result(intent_id, submission)
     except Exception as exc:
         store.update_pending_protective_order(
             pair,
@@ -707,6 +673,7 @@ def ensure_protective_stop(
         if recovered is not None and str(recovered.get("client_order_id")) == str(
             pending.get("client_order_id")
         ):
+            _record_reconciled_submission(lifecycle, intent_id, recovered)
             return recovered
         raise LiveSafetyError(
             f"protective stop update failed for {pair}; previous stop was retained"
@@ -751,6 +718,8 @@ def ensure_protective_stops(
     states: dict[str, dict],
     positions: list[dict],
     broker: LiveBroker,
+    lifecycle: ExecutionLifecycle,
+    gateway: BrokerGateway,
     store: LiveRiskStateStore,
     limits: LiveRiskLimits | None = None,
     skip_symbols: set[str] | None = None,
@@ -777,6 +746,8 @@ def ensure_protective_stops(
             desired_stop=float(stop),
             current_price=float(state["price"]),
             broker=broker,
+            lifecycle=lifecycle,
+            gateway=gateway,
             store=store,
             limits=limits,
             audit_log_path=audit_log_path,
@@ -788,6 +759,8 @@ def cleanup_orphan_protective_stops(
     managed_symbols: list[str],
     positions: list[dict],
     broker: LiveBroker,
+    lifecycle: ExecutionLifecycle,
+    gateway: BrokerGateway,
     store: LiveRiskStateStore,
     audit_log_path: str | None = None,
 ) -> None:
@@ -820,13 +793,18 @@ def cleanup_orphan_protective_stops(
             status = str(result.get("status") or "unknown").lower()
             if status in {"open", "partial"}:
                 exchange_order_id = str(result.get("id") or "")
-                if not exchange_order_id or not broker.cancel_order(
-                    exchange_order_id,
-                    exchange_symbol(pair),
-                ):
+                if not exchange_order_id:
                     raise LiveSafetyError(
                         f"cannot cancel orphan protective order for {pair}"
                     )
+                _cancel_canonical_order(
+                    lifecycle=lifecycle,
+                    gateway=gateway,
+                    intent_id=client_order_id,
+                    broker_order_id=exchange_order_id,
+                    symbol=pair,
+                    reason="remove orphan protective stop",
+                )
             elif status not in {"filled", "cancelled", "rejected", "expired"}:
                 raise LiveSafetyError(
                     f"orphan protective order has unknown status for {pair}: {status}"
@@ -1355,6 +1333,8 @@ def protect_remaining_position(
     planned: dict,
     result: dict,
     broker: LiveBroker,
+    lifecycle: ExecutionLifecycle,
+    gateway: BrokerGateway,
     store: LiveRiskStateStore,
     limits: LiveRiskLimits | None = None,
     audit_log_path: str | None = None,
@@ -1404,6 +1384,8 @@ def protect_remaining_position(
             desired_stop=desired_stop,
             current_price=float(planned["signal_price"]),
             broker=broker,
+            lifecycle=lifecycle,
+            gateway=gateway,
             store=store,
             limits=limits,
             audit_log_path=audit_log_path,
@@ -1430,151 +1412,176 @@ def protect_remaining_position(
     return remaining_quantity
 
 
-def _canonical_submit(
-    broker,
+def _canonical_result_payload(result) -> dict:
+    """Preserve the broker payload while making canonical state explicit."""
+
+    payload = dict(result.raw_response or {})
+    state_to_status = {
+        BrokerSubmitState.ACCEPTED: "open",
+        BrokerSubmitState.OPEN: "open",
+        BrokerSubmitState.PARTIALLY_FILLED: "partial",
+        BrokerSubmitState.FILLED: "filled",
+        BrokerSubmitState.REJECTED: "rejected",
+        BrokerSubmitState.FAILED_LOCAL: "rejected",
+        BrokerSubmitState.UNKNOWN: "unknown",
+    }
+    payload.setdefault("id", result.broker_order_id or "")
+    payload.setdefault("status", state_to_status.get(result.state, "unknown"))
+    payload.setdefault("error", result.error)
+    return payload
+
+
+def _record_reconciled_submission(
+    lifecycle: ExecutionLifecycle,
+    intent_id: str,
+    result: dict,
+) -> None:
+    """Persist client-ID reconciliation as typed lifecycle evidence."""
+
+    status = str(result.get("status") or "unknown").lower()
+    state = {
+        "open": BrokerSubmitState.OPEN,
+        "partial": BrokerSubmitState.PARTIALLY_FILLED,
+        "filled": BrokerSubmitState.FILLED,
+        "rejected": BrokerSubmitState.REJECTED,
+        "cancelled": BrokerSubmitState.REJECTED,
+        "expired": BrokerSubmitState.REJECTED,
+    }.get(status)
+    if state is None:
+        raise LiveSafetyError(
+            f"reconciliation returned non-actionable status {status} for {intent_id}"
+        )
+
+    broker_order_id = (
+        str(
+            result.get("id")
+            or result.get("order_id")
+            or result.get("exchange_order_id")
+            or ""
+        )
+        or None
+    )
+    if state != BrokerSubmitState.REJECTED and broker_order_id is None:
+        raise LiveSafetyError(
+            f"reconciliation returned {status} without broker order ID for {intent_id}"
+        )
+
+    order = lifecycle.state.order(intent_id)
+    if broker_order_id and order is not None and not order.exchange_order_id:
+        lifecycle.submit_order(intent_id, exchange_order_id=broker_order_id)
+
+    normalized = dict(result)
+    normalized.setdefault(
+        "filled_qty",
+        result.get("filled_amount", result.get("filled", 0.0)),
+    )
+    normalized.setdefault(
+        "avg_fill_price",
+        result.get("average", result.get("price", 0.0)),
+    )
+    error = str(result.get("error") or "") or None
+    lifecycle.record_broker_submit_result(
+        intent_id,
+        BrokerSubmitFact(
+            state=state,
+            broker_order_id=broker_order_id,
+            client_order_id=str(result.get("client_order_id") or intent_id),
+            venue="binance",
+            broker_status=status,
+            observed_at=datetime.now(UTC),
+            error=error,
+            raw_response=normalized,
+        ),
+    )
+
+
+def _cancel_canonical_order(
+    *,
     lifecycle: ExecutionLifecycle,
     gateway: BrokerGateway,
-    symbol,
-    side: str,
-    qty: float,
-    correlation_id: str,
-    risk_level: str = "LOW",
-    reduce_only: bool = False,
-    risk_decision_id: str = "",
-    forecast_fingerprint: str = "binance-manual",
-    model_artifact_id: str = "binance-manual",
-) -> dict:
-    """Submit an order through the full canonical pipeline.
+    intent_id: str,
+    broker_order_id: str,
+    symbol: str,
+    reason: str,
+) -> None:
+    """Persist a cancel request and require broker-confirmed terminal evidence."""
 
-    Replaces the legacy ``broker.place_order(order, evidence=...)`` path.
-    """
-    # 1. Create order intent
-    lifecycle.create_order_intent(
-        intent_id=correlation_id,
-        symbol=str(symbol),
-        side=side,
-        size=qty,
-        idempotency_key=correlation_id,
+    lifecycle_order = lifecycle.state.order(intent_id)
+    if lifecycle_order is not None:
+        if lifecycle_order.status.value != "cancel_requested":
+            lifecycle.request_cancel(intent_id, reason=reason)
+    cancel = gateway.cancel(
+        broker_order_id,
+        correlation_id=f"{intent_id}-cancel",
+        symbol=symbol,
     )
-
-    # 2. Approve risk with realistic unknown evidence (no forecast/model)
-    risk_decision = UnifiedRiskDecision(
-        decision_id=risk_decision_id or f"risk-{correlation_id}",
-        forecast_fingerprint=forecast_fingerprint,
-        model_artifact_id=model_artifact_id,
-        requested_target_exposure=qty if side == "buy" else 0.0,
-        allowed_target_exposure=qty if side == "buy" else 0.0,
-        max_new_exposure=0.0 if reduce_only else qty,
-        reduce_only=reduce_only,
-        risk_level=RiskLevel(risk_level),
-        reason_codes=(),
-        calibration_state=EvidenceState.UNKNOWN,
-        calibration_artifact_id="binance-live",
-        calibration_ece=1.0,
-        ood_state=EvidenceState.UNKNOWN,
-        ood_score=1.0,
-        regime_state=EvidenceState.UNKNOWN,
-        regime_entropy=1.0,
-        interval_width=1.0,
-        created_at=datetime.now(UTC),
-    )
-    lifecycle.approve_risk(correlation_id, risk_decision=risk_decision)
-
-    # 3. Evaluate permission
-    exposure_effect = (
-        ExposureEffect.INCREASE if side == "buy" else ExposureEffect.REDUCE
-    )
-    permission = evaluate_order_permission(
-        PermissionContext(
-            execution_health=ExecutionHealth.NORMAL,
-            exposure_effect=exposure_effect,
-            risk_decision=risk_decision,
-            trusted_price=None,
-            max_price_age_seconds=60.0,
-            reconciliation_state="none",
-            protection_state="none",
-            manual_blocked=False,
-            kill_switch_active=False,
-            data_trust="trusted",
-            inventory_state="known",
-            free_inventory=qty,
-            authorized_sellable_inventory=qty if side == "sell" else 0.0,
-            order_size=qty,
-            order_side=side,
-            require_fresh_market_data=False,
-            enforce_inventory=False,
-            broker_state=None,
-            draft=False,
+    if (
+        not cancel.success
+        or cancel.evidence is None
+        or cancel.evidence.state is not CancelState.CANCELED
+    ):
+        raise LiveSafetyError(
+            f"broker did not confirm cancellation for {broker_order_id}: "
+            f"{cancel.error or 'unknown cancel state'}"
         )
-    )
-    if not permission.allowed():
-        return {
-            "success": False,
-            "error": f"Permission blocked: {permission.reason.value} - {permission.detail}",
-            "side": side,
-            "qty": qty,
-            "symbol": str(symbol),
-            "status": "blocked",
-        }
+    if lifecycle_order is not None:
+        lifecycle.confirm_cancel(intent_id, cancel.evidence)
 
-    # 4. Authorize order
-    auth_event = lifecycle.authorize_order(
-        intent_id=correlation_id,
-        authorization_id=f"auth-{correlation_id}",
-        idempotency_key=correlation_id,
-        payload_hash="",
-        risk_decision_id=risk_decision.decision_id,
-        forecast_fingerprint=forecast_fingerprint,
-        model_artifact_id=model_artifact_id,
-        permission=permission.permission.value,
-        symbol=str(symbol),
-        side=side,
-        quantity=qty,
-        exposure_effect=exposure_effect.value,
-        current_exposure=0.0,
-        resulting_exposure=qty if side == "buy" else 0.0,
-        authorized_at=datetime.now(UTC).isoformat(),
-    )
 
-    # 5. Request broker submission
-    lifecycle.request_broker_submission(correlation_id)
+def _authorize_live_order(
+    *,
+    lifecycle: ExecutionLifecycle,
+    planned: dict,
+    intent_id: str,
+    symbol: str,
+    quantity: float,
+    reason: str,
+    order_type: str = "market",
+    stop_price: float | None = None,
+) -> str:
+    """Create a durable authorization without caller-controlled risk facts."""
 
-    # 6. Build AuthorizedOrder and submit through gateway
-    from trading_agent.execution.canonical.broker_gateway import _AUTHORIZED_TOKEN
-
-    authorized = AuthorizedOrder(
-        token=_AUTHORIZED_TOKEN,
-        intent_id=correlation_id,
-        symbol=str(symbol),
-        side=side,
-        quantity=qty,
-        idempotency_key=correlation_id,
-        price_reference=0.0,
-        risk_decision_id=risk_decision.decision_id,
-        forecast_fingerprint=forecast_fingerprint,
-        model_artifact_id=model_artifact_id,
-        permission_result=permission.permission.value,
-        authorization_id=auth_event.payload["authorization_id"],
-        lifecycle_event_id=auth_event.event_id,
-        correlation_id=correlation_id,
-        exposure_effect=exposure_effect.value,
-        current_exposure=0.0,
-        resulting_exposure=qty if side == "buy" else 0.0,
-        authorized_at=auth_event.payload["authorized_at"],
-        authorization_hash="",
-    )
-    result = gateway.submit(authorized, correlation_id=correlation_id)
-
-    # 7. Return legacy-format result
-    return {
-        "success": result.success,
-        "broker_order_id": result.broker_order_id,
-        "error": result.error,
-        "side": side,
-        "qty": qty,
-        "symbol": str(symbol),
-        "status": "submitted" if result.success else "rejected",
+    metadata: dict[str, object] = {
+        "order_type": order_type,
+        "time_in_force": "gtc",
     }
+    if stop_price is not None:
+        metadata["stop_price"] = stop_price
+    side = str(planned["action"]).lower()
+    if side == "sell":
+        auth = lifecycle.emergency_reduce(
+            EmergencyReduceRequest(
+                intent_id=intent_id,
+                symbol=symbol,
+                side="sell",
+                quantity=quantity,
+                reason=reason,
+                idempotency_key=intent_id,
+                metadata=metadata,
+            )
+        )
+        return str(auth.payload["authorization_id"])
+
+    risk_decision = planned.get("risk_decision")
+    if not isinstance(risk_decision, UnifiedRiskDecision):
+        raise LiveSafetyError(
+            f"BUY {symbol} has no promoted UnifiedRiskDecision; exposure increase blocked"
+        )
+    lifecycle.create_order_intent(
+        intent_id=intent_id,
+        symbol=symbol,
+        side="buy",
+        size=quantity,
+        idempotency_key=intent_id,
+    )
+    lifecycle.approve_risk(intent_id, risk_decision=risk_decision)
+    auth = lifecycle.authorize_order(
+        intent_id=intent_id,
+        idempotency_key=intent_id,
+        metadata=metadata,
+    )
+    lifecycle.request_broker_submission(intent_id)
+    return str(auth.payload["authorization_id"])
 
 
 def execute_orders(
@@ -1592,6 +1599,8 @@ def execute_orders(
     sleep_fn=time.sleep,
     monotonic_fn=time.monotonic,
 ) -> None:
+    if lifecycle is None or gateway is None:
+        raise LiveSafetyError("canonical lifecycle and gateway are required for execution")
     for planned in orders:
         account = broker.get_account()
         positions = broker.get_positions()
@@ -1669,17 +1678,6 @@ def execute_orders(
             signal_timestamp=planned["candle_timestamp"],
         )
         store.update_order(order_key, status="submitted")
-        order = Order(
-            id="",
-            client_order_id=order_key,
-            symbol=symbol,
-            side=OrderSide.BUY if planned["action"] == "BUY" else OrderSide.SELL,
-            type=OrderType.MARKET,
-            size=Decimal(str(quantity)),
-            time_in_force=TimeInForce.GTC,
-        )
-        account = broker.get_account()
-        account_equity = float(account.get("equity", 0.0))
         try:
             if isinstance(active_protective, dict):
                 protective_exchange_id = str(
@@ -1689,23 +1687,13 @@ def execute_orders(
                     raise LiveSafetyError(
                         f"active protective order ID is missing for {pair}"
                     )
-                result = broker.replace_order(
-                    protective_exchange_id,
-                    order,
-                    evidence=LegacyAuthorizationEvidence(
-                        symbol=pair,
-                        side="sell",
-                        quantity=float(order.size) if hasattr(order, "size") else 0.0,
-                        price_reference=float(order.stop_price)
-                        if hasattr(order, "stop_price")
-                        else 0.0,
-                        signal_reason="PROTECTIVE_STOP_EXIT_REPLACE",
-                        strategy_version="legacy-binance-ma-v1",
-                        account_equity=account_equity,
-                        current_exposure=0.0,
-                        idempotency_key=order_key,
-                        correlation_id=order_key,
-                    ),
+                _cancel_canonical_order(
+                    lifecycle=lifecycle,
+                    gateway=gateway,
+                    intent_id=str(active_protective.get("client_order_id") or ""),
+                    broker_order_id=protective_exchange_id,
+                    symbol=pair,
+                    reason="hand protective stop to market exit",
                 )
                 store.clear_active_protective_order(pair)
                 _audit_protective_event(
@@ -1719,24 +1707,29 @@ def execute_orders(
                         "exit_client_order_id": order_key,
                     },
                 )
-            else:
-                result = broker.place_order(
-                    order,
-                    evidence=LegacyAuthorizationEvidence(
-                        symbol=pair,
-                        side="sell",
-                        quantity=float(order.size) if hasattr(order, "size") else 0.0,
-                        price_reference=float(order.stop_price)
-                        if hasattr(order, "stop_price")
-                        else 0.0,
-                        signal_reason="PROTECTIVE_STOP_EXIT_PLACE",
-                        strategy_version="legacy-binance-ma-v1",
-                        account_equity=account_equity,
-                        current_exposure=0.0,
-                        idempotency_key=order_key,
-                        correlation_id=order_key,
-                    ),
+            authorization_id = _authorize_live_order(
+                lifecycle=lifecycle,
+                planned=planned,
+                intent_id=order_key,
+                symbol=pair,
+                quantity=quantity,
+                reason="STRATEGY_EXIT" if planned["action"] == "SELL" else "STRATEGY_ENTRY",
+            )
+            submission = gateway.submit(
+                authorization_id,
+                correlation_id=order_key,
+            )
+            if submission.success and submission.broker_order_id:
+                lifecycle.submit_order(
+                    order_key,
+                    exchange_order_id=submission.broker_order_id,
                 )
+            result = _canonical_result_payload(submission)
+            if submission.state == BrokerSubmitState.UNKNOWN:
+                raise LiveSafetyError(
+                    f"broker submission state is unknown for {order_key}"
+                )
+            lifecycle.record_broker_submit_result(order_key, submission)
         except Exception as exc:
             store.update_order(order_key, status="reconciling", error=str(exc))
             if audit_log_path:
@@ -1755,6 +1748,7 @@ def execute_orders(
             )
             if reconciled is not None:
                 persist_order_result(store, order_key, reconciled)
+                _record_reconciled_submission(lifecycle, order_key, reconciled)
                 audit_order_result(
                     audit_log_path,
                     "order_reconciled_after_submission_error",
@@ -1789,6 +1783,8 @@ def execute_orders(
                         planned=planned,
                         result=reconciled,
                         broker=broker,
+                        lifecycle=lifecycle,
+                        gateway=gateway,
                         store=store,
                         limits=limits,
                         audit_log_path=audit_log_path,
@@ -1853,6 +1849,8 @@ def execute_orders(
             planned=planned,
             result=result,
             broker=broker,
+            lifecycle=lifecycle,
+            gateway=gateway,
             store=store,
             limits=limits,
             audit_log_path=audit_log_path,
@@ -1881,6 +1879,8 @@ def execute_orders(
                         planned=planned,
                         result=result,
                         broker=broker,
+                        lifecycle=lifecycle,
+                        gateway=gateway,
                         store=store,
                         limits=limits,
                         audit_log_path=audit_log_path,
@@ -2264,41 +2264,83 @@ def run_locked(
             pricing_symbols=[symbol for symbol, _ in allocations],
             strict_pricing=True,
         )
-        # Wrap with canonical broker gateway (P0 §12: runner canonical migration)
-        execution_store = ExecutionEventStore("data/execution/events.db")
-        broker = CanonicalBrokerAdapter(broker, store=execution_store)
+        def _canonical_price_source(symbol_value: str) -> TrustedPrice | None:
+            ticker = broker.get_ticker(exchange_symbol(str(symbol_value)))
+            price = float(ticker.get("last") or 0.0)
+            exchange_timestamp = ticker.get("timestamp")
+            received_at = ticker.get("received_at")
+            if (
+                not math.isfinite(price)
+                or price <= 0
+                or not isinstance(exchange_timestamp, datetime)
+                or exchange_timestamp.tzinfo is None
+                or not isinstance(received_at, datetime)
+                or received_at.tzinfo is None
+            ):
+                return None
+            return TrustedPrice(
+                price=price,
+                exchange_timestamp=exchange_timestamp.astimezone(UTC),
+                received_at=received_at.astimezone(UTC),
+            )
 
-        # Canonical execution: lifecycle + gateway (P0 §12: runner canonical migration)
+        def _canonical_portfolio_source(
+            symbol_value: str,
+        ) -> PortfolioRiskSnapshot | None:
+            account_snapshot = broker.get_account()
+            equity_value = float(account_snapshot.get("equity") or 0.0)
+            cash_value = float(account_snapshot.get("cash") or 0.0)
+            if (
+                not math.isfinite(equity_value)
+                or equity_value <= 0
+                or not math.isfinite(cash_value)
+                or cash_value < 0
+            ):
+                return None
+            position = next(
+                (
+                    item
+                    for item in broker.get_positions()
+                    if str(item.get("symbol")) == str(symbol_value)
+                ),
+                None,
+            )
+            position_quantity = float(position.get("qty") or 0.0) if position else 0.0
+            available_quantity = (
+                float(position.get("free_qty") or 0.0)
+                if position and "free_qty" in position
+                else position_quantity
+            )
+            if any(
+                not math.isfinite(value) or value < 0
+                for value in (position_quantity, available_quantity)
+            ):
+                return None
+            return PortfolioRiskSnapshot(
+                symbol=str(symbol_value),
+                position_quantity=position_quantity,
+                available_quantity=available_quantity,
+                equity=equity_value,
+                available_cash=cash_value,
+                observed_at=datetime.now(UTC),
+                source="binance_live_broker",
+            )
+
         canonical_store = ExecutionEventStore("data/execution/events.db").connect()
         canonical_lifecycle = ExecutionLifecycle(
             canonical_store,
-            price_source=lambda s: (
-                TrustedPrice(
-                    price=float(broker.get_ticker(s).get("last") or 0.0),
-                    exchange_timestamp=datetime.now(UTC),
-                    received_at=datetime.now(UTC),
-                )
-                if broker.get_ticker(s).get("last")
-                else None
+            price_source=_canonical_price_source,
+            inventory_source=lambda symbol_value, side: (
+                snapshot.available_quantity
+                if (snapshot := _canonical_portfolio_source(symbol_value)) is not None
+                else 0.0
             ),
+            portfolio_source=_canonical_portfolio_source,
         )
-        canonical_gateway = BrokerGateway(adapter=broker, store=canonical_store)
-
-        # Canonical execution: lifecycle + gateway (P0 §12: runner canonical migration)
-        canonical_store = ExecutionEventStore("data/execution/events.db").connect()
-        canonical_lifecycle = ExecutionLifecycle(
-            canonical_store,
-            price_source=lambda s: (
-                TrustedPrice(
-                    price=float(broker.get_ticker(s).get("last") or 0.0),
-                    exchange_timestamp=datetime.now(UTC),
-                    received_at=datetime.now(UTC),
-                )
-                if broker.get_ticker(s).get("last")
-                else None
-            ),
+        canonical_gateway = BrokerGateway(
+            adapter=LiveBrokerExecutionAdapter(broker),
+            store=canonical_store,
         )
-        canonical_gateway = BrokerGateway(adapter=broker, store=canonical_store)
 
         reconcile_unfinished_orders(
             broker=broker,
@@ -2313,6 +2355,8 @@ def run_locked(
                 managed_symbols=[symbol for symbol, _ in allocations],
                 positions=positions,
                 broker=broker,
+                lifecycle=canonical_lifecycle,
+                gateway=canonical_gateway,
                 store=store,
                 audit_log_path=args.audit_log,
             )
@@ -2388,6 +2432,8 @@ def run_locked(
                 states=states,
                 positions=positions,
                 broker=broker,
+                lifecycle=canonical_lifecycle,
+                gateway=canonical_gateway,
                 store=store,
                 limits=limits,
                 skip_symbols={
@@ -2427,6 +2473,8 @@ def run_locked(
         execute_orders(
             orders=prepared,
             broker=broker,
+            lifecycle=canonical_lifecycle,
+            gateway=canonical_gateway,
             store=store,
             limits=limits,
             locked_reason=locked_reason,

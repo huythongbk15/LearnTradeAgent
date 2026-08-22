@@ -7,8 +7,8 @@ Tests the specific P0 fixes:
 4. Reservation release only on terminal evidence
 5. Protective order evidence (no magic qty=0)
 6. Durable idempotency (duplicate key returns existing intent)
-7. AuthorizedOrder unforgeability
-8. BrokerGateway accepts only AuthorizedOrder
+7. Durable authorization IDs are opaque and mandatory
+8. BrokerGateway reconstructs requests only from durable state
 """
 
 from __future__ import annotations
@@ -21,13 +21,11 @@ from typing import Any
 import pytest
 
 from trading_agent.execution.canonical.broker_gateway import (
-    AuthorizedOrder,
     BrokerGateway,
     CancelEvidence,
     CancelState,
     ProtectiveAckEvidence,
     AuthorizationError,
-    _AUTHORIZED_TOKEN,
 )
 from trading_agent.execution.canonical.adapters import (
     BrokerSubmitFact,
@@ -36,12 +34,12 @@ from trading_agent.execution.canonical.adapters import (
 from trading_agent.execution.canonical.protection import (
     ProtectionPlan,
     ProtectionQuantityMode,
-    ProtectionState,
 )
 from trading_agent.execution.lifecycle.store import ExecutionEventStore
 from trading_agent.execution.lifecycle.lifecycle import (
     ExecutionLifecycle,
     LifecycleError,
+    PortfolioRiskSnapshot,
     TrustedPrice,
 )
 from trading_agent.cli.commands.live import _place_order_via_gateway
@@ -54,6 +52,11 @@ from trading_agent.exchanges.models import (
     OrderType,
     Symbol,
 )
+
+# Retained only inside non-collected legacy regression examples below.  The
+# production type/token no longer exists; active tests exercise durable IDs.
+AuthorizedOrder: Any = None
+_AUTHORIZED_TOKEN: Any = None
 
 
 class DummyAdapter:
@@ -142,6 +145,18 @@ def _permissive_inventory_source(symbol: str, side: str) -> float:
 
     def close_position(self, symbol: str, price: float, reason: str) -> dict[str, Any]:
         return {"symbol": symbol, "status": "closed"}
+
+
+def _permissive_portfolio_source(symbol: str) -> PortfolioRiskSnapshot:
+    return PortfolioRiskSnapshot(
+        symbol=symbol,
+        position_quantity=0.0,
+        available_quantity=1000.0,
+        equity=100_000.0,
+        available_cash=100_000.0,
+        observed_at=datetime.now(UTC),
+        source="test",
+    )
 
 
 class TestGlobalEventSequence:
@@ -317,23 +332,13 @@ class TestProtectiveEvidence:
                 protected_quantity=0.0,
             )
 
-    def test_gateway_protection_requires_explicit_quantity(self, tmp_path):
+    def test_gateway_protection_requires_durable_authorization(self, tmp_path):
         adapter = DummyAdapter()
         store = ExecutionEventStore(str(tmp_path / "gateway.db")).connect()
         gateway = BrokerGateway(adapter, store=store)
-        plan = ProtectionPlan(
-            plan_id="p1",
-            model_risk_decision_id="r1",
-            symbol="BTC/USDT",
-            stop_type="stop_loss",
-            stop_trigger=50000.0,
-            state=ProtectionState.PROTECTION_REQUIRED,
-            quantity_mode=ProtectionQuantityMode.EXPLICIT_QUANTITY,
-            protected_quantity=1.0,
-        )
-        result = gateway.submit_protection(plan, correlation_id="c1")
-        assert result.success is True
-        assert result.evidence is not None
+        with pytest.raises(AuthorizationError, match="no durable ORDER_AUTHORIZED"):
+            gateway.submit_protection("missing-auth", correlation_id="c1")
+        assert adapter.orders == []
 
     def test_protective_ack_requires_broker_evidence(self, tmp_path):
         store = ExecutionEventStore(str(tmp_path / "events.db")).connect()
@@ -398,7 +403,7 @@ class TestDurableIdempotency:
         assert rows["c"] == 1
 
 
-class TestAuthorizedOrderUnforgeable:
+class LegacyAuthorizedOrderUnforgeable:
     """P0: AuthorizedOrder must be unforgeable."""
 
     def test_direct_construction_raises(self):
@@ -451,7 +456,7 @@ class TestAuthorizedOrderUnforgeable:
         assert order.intent_id == "i1"
 
 
-class TestBrokerGatewayAuthorizationAttacks:
+class LegacyBrokerGatewayAuthorizationAttacks:
     """P0: BrokerGateway must verify durable authorization before broker I/O."""
 
     def _setup_authorized_order(self, tmp_path):
@@ -683,6 +688,56 @@ class TestBrokerGatewayAuthorizationAttacks:
             gateway.submit(tampered, correlation_id=authorized_order.correlation_id)
 
 
+class TestDurableAuthorizationGateway:
+    """P0: callers can submit only an opaque durable authorization ID."""
+
+    def _authorize(self, tmp_path, *, request_submission: bool = True):
+        store = ExecutionEventStore(tmp_path / "durable-auth.db").connect()
+        lifecycle = ExecutionLifecycle(
+            store,
+            price_source=_permissive_price_source,
+            inventory_source=_permissive_inventory_source,
+            portfolio_source=_permissive_portfolio_source,
+        )
+        intent_id = "durable-intent"
+        lifecycle.create_order_intent(intent_id, "BTC/USDT", "buy", 1.0)
+        lifecycle.approve_risk(intent_id, risk_decision=_sample_risk_decision())
+        auth = lifecycle.authorize_order(intent_id, idempotency_key="durable-key")
+        if request_submission:
+            lifecycle.request_broker_submission(intent_id)
+        return store, str(auth.payload["authorization_id"])
+
+    def test_unknown_authorization_id_is_rejected(self, tmp_path):
+        store = ExecutionEventStore(tmp_path / "unknown-auth.db").connect()
+        gateway = BrokerGateway(adapter=DummyAdapter(), store=store)
+        with pytest.raises(AuthorizationError, match="no durable ORDER_AUTHORIZED"):
+            gateway.submit("unknown-auth", correlation_id="corr")
+
+    def test_submission_request_is_required(self, tmp_path):
+        store, auth_id = self._authorize(tmp_path, request_submission=False)
+        gateway = BrokerGateway(adapter=DummyAdapter(), store=store)
+        with pytest.raises(AuthorizationError, match="BROKER_SUBMISSION_REQUESTED"):
+            gateway.submit(auth_id, correlation_id="corr")
+
+    def test_non_string_caller_payload_is_rejected(self, tmp_path):
+        store, auth_id = self._authorize(tmp_path)
+        gateway = BrokerGateway(adapter=DummyAdapter(), store=store)
+        with pytest.raises(AuthorizationError, match="non-empty string"):
+            gateway.submit({"authorization_id": auth_id}, correlation_id="corr")
+
+    def test_request_is_reconstructed_from_durable_authorization(self, tmp_path):
+        store, auth_id = self._authorize(tmp_path)
+        adapter = DummyAdapter()
+        result = BrokerGateway(adapter=adapter, store=store).submit(
+            auth_id,
+            correlation_id="corr",
+        )
+        assert result.success
+        assert len(adapter.orders) == 1
+        assert adapter.orders[0]["symbol"].pair == "BTC/USDT"
+        assert float(adapter.orders[0]["qty"]) == 1.0
+
+
 class TestCliOrderE2E:
     """P0: CLI manual orders must flow through canonical lifecycle + gateway."""
 
@@ -690,6 +745,7 @@ class TestCliOrderE2E:
         def __init__(self):
             self.calls = []
             self.adapter = self
+            self.broker = "alpaca"
             self._positions = []
 
         def get_positions(self):
@@ -698,8 +754,12 @@ class TestCliOrderE2E:
         async def fetch_ticker(self, symbol):
             class Ticker:
                 last = 100.0
+                timestamp = datetime.now(UTC)
 
             return Ticker()
+
+        def get_account(self):
+            return {"equity": 10_000.0, "cash": 10_000.0}
 
         def place_order(self, order):
             self.calls.append(order)
@@ -769,10 +829,10 @@ class TestCliOrderE2E:
             store = ExecutionEventStore(str(db_path)).connect()
             result = _place_order_via_gateway(broker, order, store=store)
         assert result["id"] == "broker-1"
-        assert result["status"] == "submitted"
+        assert result["status"] == "filled"
         assert len(broker.calls) == 1
-        assert broker.calls[0]["side"] == OrderSide.SELL
-        assert broker.calls[0]["qty"] == 0.5
+        assert broker.calls[0].side == OrderSide.SELL
+        assert float(broker.calls[0].size) == 0.5
 
     def test_e2e_sell_without_inventory_is_blocked(self):
         broker = self._MockLiveBroker()

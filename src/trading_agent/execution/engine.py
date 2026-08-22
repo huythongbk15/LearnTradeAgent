@@ -22,7 +22,6 @@ from trading_agent.agents.base import AgentMessage
 from trading_agent.config.loader import config
 from trading_agent.execution.paper_exchange import PaperExchange
 from trading_agent.execution.canonical import (
-    AuthorizedOrder,
     BrokerGateway,
     LegacyDecisionAdapter,
     OrderPlanner,
@@ -33,12 +32,8 @@ from trading_agent.execution.canonical import (
     ProtectionPlan,
     ProtectionState,
     ProtectionQuantityMode,
-    ProtectiveAckEvidence,
 )
-from trading_agent.execution.canonical.broker_gateway import (
-    _AUTHORIZED_TOKEN,
-    BrokerSubmitState,
-)
+from trading_agent.execution.canonical.broker_gateway import BrokerSubmitState
 from trading_agent.execution.canonical.adapters import PaperExecutionAdapter
 from trading_agent.execution.canonical.order_planner import (
     OrderPlanningStatus,
@@ -189,6 +184,7 @@ class ExecutionEngine:
                 if symbol in self.exchange._last_price_cache
                 else None
             ),
+            inventory_source=self._inventory_source,
             portfolio_source=lambda symbol: self._build_portfolio_snapshot(symbol),
         )
         self.planner = OrderPlanner(
@@ -223,6 +219,13 @@ class ExecutionEngine:
             observed_at=observed_at,
             source=source,
         )
+
+    def _inventory_source(self, symbol: str, side: str) -> float:
+        """Return broker-backed free spot inventory for lifecycle authorization."""
+        if side.lower() != "sell":
+            return 0.0
+        snapshot = self._build_portfolio_snapshot(symbol)
+        return snapshot.available_quantity if snapshot is not None else float("nan")
 
     # ── Execute signals from Phase 2 agents ────────────────────────────
 
@@ -375,23 +378,21 @@ class ExecutionEngine:
             intent_id=intent.intent_id,
         )
 
-        # ── Build AuthorizedOrder from durable authorization ────────────
-        authorized = AuthorizedOrder.from_event(
-            _AUTHORIZED_TOKEN,
-            authorized_event,
-            price_reference=current_price,
-            current_exposure=portfolio.current_exposure,
-            resulting_exposure=plan_result.executable_delta
-            + portfolio.current_exposure,
-            correlation_id=intent.intent_id,
-        )
+        # Keep only the durable authorization id across the gateway boundary.
+        authorization_id = authorized_event.payload["authorization_id"]
 
         # ── Submit via gateway (verifies auth against durable state) ────
-        result = self.gateway.submit(authorized, correlation_id=intent.intent_id)
-        submit_event = self.lifecycle.submit_order(
-            intent_id=intent.intent_id,
-            exchange_order_id=result.broker_order_id,
-        )
+        result = self.gateway.submit(authorization_id, correlation_id=intent.intent_id)
+        if result.broker_order_id and result.state in {
+            BrokerSubmitState.ACCEPTED,
+            BrokerSubmitState.OPEN,
+            BrokerSubmitState.PARTIALLY_FILLED,
+            BrokerSubmitState.FILLED,
+        }:
+            self.lifecycle.submit_order(
+                intent_id=intent.intent_id,
+                exchange_order_id=result.broker_order_id,
+            )
 
         # Record broker result through lifecycle (P0-2A: broker fact handler)
         broker_event = self.lifecycle.record_broker_submit_result(
@@ -399,26 +400,26 @@ class ExecutionEngine:
             result=result,
         )
 
-        if broker_event is None:
-            # UNKNOWN or unrecognized state: reconciliation already started by lifecycle
-            orders.append(
-                self._result_to_order(result, symbol, intent.side, intent.quantity)
+        orders.append(self._result_to_order(result, symbol, intent.side, intent.quantity))
+        if (
+            broker_event is not None
+            and broker_event.event_type
+            in {
+                ExecutionEventType.FILL_RECEIVED,
+                ExecutionEventType.PARTIAL_FILL_RECEIVED,
+            }
+            and intent.side.lower() == "buy"
+        ):
+            lifecycle_order = self.lifecycle.order(intent.intent_id)
+            protected_quantity = (
+                lifecycle_order.filled_size if lifecycle_order is not None else 0.0
             )
-        elif broker_event.event_type == ExecutionEventType.ORDER_REJECTED:
-            # Broker rejected — already recorded by lifecycle
-            orders.append(
-                self._result_to_order(result, symbol, intent.side, intent.quantity)
-            )
-        elif broker_event.event_type == ExecutionEventType.BROKER_ACKNOWLEDGED:
-            # For paper trading: simulate immediate fill after acknowledgment
-            if result.state in (BrokerSubmitState.ACCEPTED, BrokerSubmitState.OPEN):
-                fill_event = self.lifecycle.receive_fill(
-                    intent_id=intent.intent_id,
-                    size=intent.quantity,
-                    price=current_price,
+            if protected_quantity <= 0:
+                self.lifecycle.require_manual_intervention(
+                    intent.intent_id,
+                    reason="broker fill did not produce a positive protected quantity",
                 )
-
-            # Protection plan (explicit quantity, no magic zero)
+                return orders
             plan = ProtectionPlan(
                 plan_id=f"prot_{intent.intent_id}",
                 model_risk_decision_id=risk_decision.decision_id,
@@ -428,7 +429,7 @@ class ExecutionEngine:
                 take_profit=current_price * 1.10,
                 state=ProtectionState.PROTECTION_REQUIRED,
                 quantity_mode=ProtectionQuantityMode.EXPLICIT_QUANTITY,
-                protected_quantity=intent.quantity,
+                protected_quantity=protected_quantity,
             )
             protective_event = self.lifecycle.create_protective_order(
                 symbol=plan.symbol,
@@ -436,40 +437,57 @@ class ExecutionEngine:
                 trigger_price=plan.stop_trigger,
                 parent_intent_id=intent.intent_id,
             )
+            protection_intent_id = f"{protective_event.aggregate_id}_submit"
+            protection_auth = self.lifecycle.emergency_reduce(
+                EmergencyReduceRequest(
+                    intent_id=protection_intent_id,
+                    symbol=plan.symbol,
+                    side="sell",
+                    quantity=plan.protected_quantity,
+                    reason="PROTECTIVE_STOP",
+                    parent_intent_id=intent.intent_id,
+                    idempotency_key=protection_intent_id,
+                    metadata={
+                        "order_type": "stop",
+                        "stop_price": plan.stop_trigger,
+                        "time_in_force": "gtc",
+                    },
+                )
+            )
             protection_result = self.gateway.submit_protection(
-                plan,
+                str(protection_auth.payload["authorization_id"]),
                 correlation_id=intent.intent_id,
             )
+            protection_submission = protection_result.submission
+            if protection_submission is not None:
+                if (
+                    protection_submission.broker_order_id
+                    and protection_submission.state
+                    in {
+                        BrokerSubmitState.ACCEPTED,
+                        BrokerSubmitState.OPEN,
+                        BrokerSubmitState.PARTIALLY_FILLED,
+                        BrokerSubmitState.FILLED,
+                    }
+                ):
+                    self.lifecycle.submit_order(
+                        protection_intent_id,
+                        exchange_order_id=protection_submission.broker_order_id,
+                    )
+                self.lifecycle.record_broker_submit_result(
+                    protection_intent_id,
+                    protection_submission,
+                )
             if protection_result.success and protection_result.evidence:
-                ack_evidence = ProtectiveAckEvidence(
-                    broker_order_id=protection_result.evidence.broker_order_id,
-                    broker_ack_id=protection_result.evidence.broker_ack_id,
-                    venue=protection_result.evidence.venue,
-                    broker_status="open",
-                    acknowledged_at=datetime.now(UTC).isoformat(),
-                    protected_symbol=plan.symbol,
-                    protected_quantity=plan.protected_quantity,
-                    evidence_source="BROKER",
-                    raw_response=protection_result.evidence.raw_response,
-                )
-                ack_event = self.lifecycle.acknowledge_protective_order(
+                self.lifecycle.acknowledge_protective_order(
                     protective_order_id=protective_event.aggregate_id,
-                    evidence=ack_evidence,
+                    evidence=protection_result.evidence,
                 )
-
-            orders.append(
-                self._result_to_order(result, symbol, intent.side, intent.quantity)
-            )
-        elif broker_event.event_type == ExecutionEventType.FILL_RECEIVED:
-            # Already filled by broker — no simulation needed
-            orders.append(
-                self._result_to_order(result, symbol, intent.side, intent.quantity)
-            )
-        else:
-            # Other events (partial fill, etc.) — still add to orders
-            orders.append(
-                self._result_to_order(result, symbol, intent.side, intent.quantity)
-            )
+            else:
+                self.lifecycle.require_manual_intervention(
+                    intent.intent_id,
+                    reason="broker did not acknowledge the required protective order",
+                )
 
         return orders
 
@@ -507,35 +525,22 @@ class ExecutionEngine:
                 side="sell",
                 quantity=pos.quantity,
                 reason=reason,
+                metadata={"order_type": "market", "time_in_force": "gtc"},
             )
             try:
                 auth_event = self.lifecycle.emergency_reduce(emergency)
-                # Submit via gateway using canonical factory
-                from trading_agent.execution.canonical.broker_gateway import (
-                    _AUTHORIZED_TOKEN,
-                )
-
-                authorized = AuthorizedOrder.from_event(
-                    _AUTHORIZED_TOKEN,
-                    auth_event,
-                    price_reference=current_price,
-                    current_exposure=0.0,
-                    resulting_exposure=0.0,
-                    correlation_id=emergency.intent_id,
-                )
                 result = self.gateway.submit(
-                    authorized, correlation_id=emergency.intent_id
+                    auth_event.payload["authorization_id"],
+                    correlation_id=emergency.intent_id,
                 )
                 if result.success and result.broker_order_id:
                     self.lifecycle.submit_order(
                         intent_id=emergency.intent_id,
                         exchange_order_id=result.broker_order_id,
                     )
-                    self.lifecycle.receive_fill(
-                        intent_id=emergency.intent_id,
-                        size=pos.quantity,
-                        price=current_price,
-                    )
+                self.lifecycle.record_broker_submit_result(emergency.intent_id, result)
+                if result.state == BrokerSubmitState.FILLED and result.broker_order_id:
+                    raw = result.raw_response or {}
                     orders.append(
                         Order(
                             id=result.broker_order_id,
@@ -544,8 +549,12 @@ class ExecutionEngine:
                             type=OrderType.MARKET,
                             amount=pos.quantity,
                             status=OrderStatus.FILLED,
-                            filled_amount=pos.quantity,
-                            avg_fill_price=current_price,
+                            filled_amount=float(
+                                raw.get("filled_qty", raw.get("filled_amount", 0)) or 0
+                            ),
+                            avg_fill_price=float(
+                                raw.get("avg_fill_price", raw.get("price", 0)) or 0
+                            ),
                         )
                     )
             except Exception as e:
@@ -567,32 +576,22 @@ class ExecutionEngine:
             side="sell",
             quantity=pos.quantity,
             reason=reason,
+            metadata={"order_type": "market", "time_in_force": "gtc"},
         )
         try:
             auth_event = self.lifecycle.emergency_reduce(emergency)
-            from trading_agent.execution.canonical.broker_gateway import (
-                _AUTHORIZED_TOKEN,
-            )
-
-            authorized = AuthorizedOrder.from_event(
-                _AUTHORIZED_TOKEN,
-                auth_event,
-                price_reference=current_price,
-                current_exposure=0.0,
-                resulting_exposure=0.0,
+            result = self.gateway.submit(
+                auth_event.payload["authorization_id"],
                 correlation_id=emergency.intent_id,
             )
-            result = self.gateway.submit(authorized, correlation_id=emergency.intent_id)
             if result.success and result.broker_order_id:
                 self.lifecycle.submit_order(
                     intent_id=emergency.intent_id,
                     exchange_order_id=result.broker_order_id,
                 )
-                self.lifecycle.receive_fill(
-                    intent_id=emergency.intent_id,
-                    size=pos.quantity,
-                    price=current_price,
-                )
+            self.lifecycle.record_broker_submit_result(emergency.intent_id, result)
+            if result.state == BrokerSubmitState.FILLED and result.broker_order_id:
+                raw = result.raw_response or {}
                 return Order(
                     id=result.broker_order_id,
                     symbol=symbol,
@@ -600,8 +599,12 @@ class ExecutionEngine:
                     type=OrderType.MARKET,
                     amount=pos.quantity,
                     status=OrderStatus.FILLED,
-                    filled_amount=pos.quantity,
-                    avg_fill_price=current_price,
+                    filled_amount=float(
+                        raw.get("filled_qty", raw.get("filled_amount", 0)) or 0
+                    ),
+                    avg_fill_price=float(
+                        raw.get("avg_fill_price", raw.get("price", 0)) or 0
+                    ),
                 )
         except Exception as e:
             logger.error(f"Emergency reduce failed for {symbol}: {e}")

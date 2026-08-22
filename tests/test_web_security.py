@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -9,6 +11,7 @@ pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient
 
 import webui.backend.app as backend
+from trading_agent.exchanges.models import AssetClass, MarketType, Symbol
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -29,34 +32,53 @@ def _clean_event_db(tmp_path, monkeypatch):
 class FakePosition:
     def __init__(self, symbol, qty):
         self.symbol = symbol
-        self.qty = qty
+        self.size = qty
+        self.entry_price = 50_000.0
+        self.mark_price = 50_000.0
+        self.unrealized_pnl = 0.0
+        self.realized_pnl = 0.0
+        self.notional = qty * self.mark_price
 
 
 class FakeAlpaca:
     def __init__(self):
         self.close_calls: list[bool] = []
-        self.orders: list[dict] = []
+        self.orders: list[object] = []
+        self._position_open = True
 
     async def close_all_positions(self, *, cancel_orders: bool):
         self.close_calls.append(cancel_orders)
         return {"requested": 1, "cancel_orders": cancel_orders, "account": "paper"}
 
     async def fetch_positions(self):
-        return [FakePosition("BTC/USD", 1.0)]
+        if not self._position_open:
+            return []
+        symbol = Symbol(
+            "BTC", "USD", AssetClass.CRYPTO, MarketType.SPOT, "alpaca"
+        )
+        return [FakePosition(symbol, 1.0)]
 
     async def fetch_ticker(self, symbol):
         class Ticker:
             last = 50000.0
+            timestamp = datetime.now(UTC)
 
         return Ticker()
 
+    def get_account_info(self):
+        return {"equity": 100_000.0, "cash": 100_000.0}
+
     async def create_order(self, order_req):
         self.orders.append(order_req)
-
-        class Order:
-            id = f"order-{len(self.orders)}"
-
-        return Order()
+        self._position_open = False
+        return SimpleNamespace(
+            id=f"order-{len(self.orders)}",
+            client_order_id=order_req.client_order_id,
+            status="filled",
+            filled_size=order_req.size,
+            avg_fill_price=50_000.0,
+            error=None,
+        )
 
 
 def test_health_route_is_available():
@@ -111,9 +133,9 @@ def test_kill_switch_uses_shared_paper_adapter_and_verifies_empty(monkeypatch):
 
     assert response.status_code == 200
     data = response.json()
-    assert data["closed"] is True
+    assert data["closed"] is True, data
     assert len(fake.orders) == 1
-    assert fake.orders[0].symbol == "BTC/USD"
+    assert fake.orders[0].symbol.pair == "BTC/USD"
 
 
 def test_paper_cycle_is_off_by_default_and_rejects_live_money(monkeypatch):

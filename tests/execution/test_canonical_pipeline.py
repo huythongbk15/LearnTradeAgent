@@ -12,7 +12,6 @@ import pytest
 from trading_agent.agents.risk_decision import RiskDecision as LegacyRiskDecision
 from trading_agent.agents.risk_decision import RiskLevel as LegacyRiskLevel
 from trading_agent.execution.canonical import (
-    AuthorizedOrder,
     BrokerGateway,
     BrokerSubmitResult,
     CausationChain,
@@ -34,12 +33,10 @@ from trading_agent.execution.canonical import (
     compute_target_exposure_key,
     propagate_causation,
 )
-from trading_agent.execution.canonical.broker_gateway import (
-    _AUTHORIZED_TOKEN,
-)
 from trading_agent.execution.lifecycle import ExecutionEventStore
 from trading_agent.execution.lifecycle.lifecycle import (
     ExecutionLifecycle,
+    PortfolioRiskSnapshot,
     TrustedPrice,
 )
 from trading_agent.execution.canonical.market_observation import BarState
@@ -493,6 +490,15 @@ class TestBrokerGateway:
                 exchange_timestamp=datetime.now(UTC),
                 received_at=datetime.now(UTC),
             ),
+            portfolio_source=lambda s: PortfolioRiskSnapshot(
+                symbol=str(s),
+                position_quantity=0.0,
+                available_quantity=0.0,
+                equity=100_000.0,
+                available_cash=100_000.0,
+                observed_at=datetime.now(UTC),
+                source="test",
+            ),
         )
         rules = sample_instrument_rules(symbol="BTCUSDT", min_order_qty=0.0001)
         planner = OrderPlanner(instrument_rules=rules)
@@ -534,9 +540,7 @@ class TestBrokerGateway:
         assert result.status is OrderPlanningStatus.ORDER_REQUIRED
         assert result.intent is not None
         intent = result.intent
-        # Create lifecycle-authorized AuthorizedOrder (not raw OrderIntent)
-        authorized = AuthorizedOrder(
-            token=_AUTHORIZED_TOKEN,
+        lifecycle.create_order_intent(
             intent_id=intent.intent_id,
             symbol=intent.symbol,
             side=intent.side,

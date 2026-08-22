@@ -9,9 +9,7 @@ Provides intelligent order execution across multiple exchanges:
 - Execution quality analytics
 """
 
-import asyncio
 import logging
-import uuid
 from abc import ABC, abstractmethod
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -28,7 +26,6 @@ from trading_agent.exchanges.models import (
     Order,
     OrderBook,
     OrderSide,
-    OrderStatus,
     OrderType,
     Position,
     Symbol,
@@ -154,26 +151,10 @@ class BestPriceRouter(ExecutionAlgorithm):
         )
 
     async def execute(self, plan: ExecutionPlan) -> list[Order]:
-        results = []
-        for child in plan.child_orders:
-            order = Order(
-                id=f"{plan.symbol.base}_{uuid.uuid4().hex}",
-                symbol=plan.symbol,
-                side=plan.side,
-                type=child["type"],
-                size=child["size"],
-                price=child["price"],
-                time_in_force=child["time_in_force"],
-            )
-            try:
-                executed = await child["adapter"].create_order(order)
-                results.append(executed)
-            except Exception as e:
-                logger.error(f"BestPriceRouter execution failed: {e}")
-                order.status = OrderStatus.REJECTED
-                order.error = str(e)
-                results.append(order)
-        return results
+        raise RuntimeError(
+            "OrderRouter is planning-only; submit authorized child orders through "
+            "ExecutionLifecycle and BrokerGateway"
+        )
 
 
 class TWAPRouter(ExecutionAlgorithm):
@@ -232,26 +213,10 @@ class TWAPRouter(ExecutionAlgorithm):
         )
 
     async def execute(self, plan: ExecutionPlan) -> list[Order]:
-        results = []
-        for child in plan.child_orders:
-            await asyncio.sleep(child["delay"].total_seconds())
-            order = Order(
-                id=f"{plan.symbol.base}_twap_{uuid.uuid4().hex}",
-                symbol=plan.symbol,
-                side=plan.side,
-                type=child["type"],
-                size=child["size"],
-                time_in_force=child["time_in_force"],
-            )
-            try:
-                executed = await child["adapter"].create_order(order)
-                results.append(executed)
-            except Exception as e:
-                logger.error(f"TWAP execution failed: {e}")
-                order.status = OrderStatus.REJECTED
-                order.error = str(e)
-                results.append(order)
-        return results
+        raise RuntimeError(
+            "OrderRouter is planning-only; submit authorized child orders through "
+            "ExecutionLifecycle and BrokerGateway"
+        )
 
 
 class SplitRouter(ExecutionAlgorithm):
@@ -303,38 +268,10 @@ class SplitRouter(ExecutionAlgorithm):
         )
 
     async def execute(self, plan: ExecutionPlan) -> list[Order]:
-        # Execute all child orders concurrently
-        tasks = []
-        for child in plan.child_orders:
-            order = Order(
-                id=f"{plan.symbol.base}_split_{uuid.uuid4().hex}",
-                symbol=plan.symbol,
-                side=plan.side,
-                type=child["type"],
-                size=child["size"],
-                price=child["price"],
-                time_in_force=child["time_in_force"],
-            )
-            tasks.append(child["adapter"].create_order(order))
-
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        executed_orders = []
-        for i, result in enumerate(results):
-            if isinstance(result, Exception):
-                logger.error(f"SplitRouter child {i} failed: {result}")
-                order = Order(
-                    id=f"{plan.symbol.base}_split_{i}",
-                    symbol=plan.symbol,
-                    side=plan.side,
-                    type=plan.child_orders[i]["type"],
-                    size=plan.child_orders[i]["size"],
-                    status=OrderStatus.REJECTED,
-                    error=str(result),
-                )
-                executed_orders.append(order)
-            else:
-                executed_orders.append(result)
-        return executed_orders
+        raise RuntimeError(
+            "OrderRouter is planning-only; submit authorized child orders through "
+            "ExecutionLifecycle and BrokerGateway"
+        )
 
 
 class VWAPRouter(ExecutionAlgorithm):
@@ -491,25 +428,11 @@ class OrderRouter:
         return plan
 
     async def execute_plan(self, plan: ExecutionPlan) -> list[Order]:
-        """Execute an execution plan"""
-        algorithm = self.get_algorithm(plan.strategy)
-        orders = await algorithm.execute(plan)
-
-        # Record execution
-        self._execution_history.append(
-            {
-                "plan": plan,
-                "orders": orders,
-                "timestamp": datetime.now(),
-                "filled_size": sum(o.filled_size for o in orders),
-                "avg_price": sum(o.avg_fill_price * o.filled_size for o in orders)
-                / sum(o.filled_size for o in orders)
-                if orders
-                else Decimal(0),
-            }
+        """Block direct execution; the router is an execution-plan producer only."""
+        raise RuntimeError(
+            "OrderRouter cannot execute broker writes directly; authorize every child "
+            "order through ExecutionLifecycle and BrokerGateway"
         )
-
-        return orders
 
     async def smart_order(
         self,
@@ -519,11 +442,11 @@ class OrderRouter:
         strategy: RoutingStrategy | None = None,
         time_horizon: timedelta = timedelta(minutes=5),
     ) -> list[Order]:
-        """One-shot smart order: plan + execute"""
-        plan = await self.create_execution_plan(
-            symbol, side, size, strategy, time_horizon
+        """Block the legacy plan-and-execute shortcut."""
+        raise RuntimeError(
+            "smart_order is disabled because it bypasses durable authorization; "
+            "use create_execution_plan and submit each child via BrokerGateway"
         )
-        return await self.execute_plan(plan)
 
     def get_execution_quality(self, symbol: Symbol | None = None) -> dict:
         """Analyze execution quality"""

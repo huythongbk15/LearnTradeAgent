@@ -71,6 +71,7 @@ dev = [
     "pytest-asyncio (>=1.4.0,<2.0.0)",
     "pytest-cov (>=5.0)",
     "ruff (>=0.6)",
+    "mypy (>=1.11,<2.0)",
     "hypothesis (>=6.100,<7.0)",
 ]
 
@@ -105,6 +106,21 @@ filterwarnings = [
     "ignore:Mean of empty slice:RuntimeWarning",
     "ignore:invalid value encountered in scalar divide:RuntimeWarning",
 ]
+
+[tool.mypy]
+python_version = "3.12"
+files = [
+    "src/trading_agent/execution/canonical/broker_gateway.py",
+    "src/trading_agent/execution/canonical/adapters.py",
+    "src/trading_agent/execution/lifecycle/lifecycle.py",
+    "src/trading_agent/execution/engine.py",
+]
+follow_imports = "skip"
+ignore_missing_imports = true
+check_untyped_defs = true
+no_implicit_optional = true
+warn_unused_ignores = true
+show_error_codes = true
 
 [tool.ruff]
 # CI lint scope: real bugs (pyflakes) + syntax errors. Style rules (line

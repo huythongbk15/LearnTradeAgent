@@ -58,7 +58,6 @@ from trading_agent.execution.canonical.risk_decision import (
     EvidenceState,
 )
 from trading_agent.execution.canonical.broker_gateway import (
-    AuthorizedOrder,
     BrokerGateway,
     BrokerSubmitResult,
     CancelResult,
@@ -68,7 +67,6 @@ from trading_agent.execution.canonical.broker_gateway import (
     ProtectiveAckEvidence,
     AuthorizationError,
 )
-from trading_agent.execution.canonical.runner_adapter import CanonicalBrokerAdapter
 
 __all__ = [
     # Risk decision
@@ -93,7 +91,6 @@ __all__ = [
     "PaperExecutionAdapter",
     # Broker gateway
     "BrokerGateway",
-    "AuthorizedOrder",
     "BrokerSubmitResult",
     "CancelResult",
     "ProtectiveSubmitResult",
@@ -101,7 +98,6 @@ __all__ = [
     "CancelEvidence",
     "ProtectiveAckEvidence",
     "AuthorizationError",
-    "CanonicalBrokerAdapter",
     # Protection
     "ProtectionPlan",
     "ProtectionState",

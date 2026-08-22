@@ -41,6 +41,12 @@ jobs:
       - name: Lint (ruff)
         run: ruff check .
 
+      - name: Type-check execution safety boundary
+        run: mypy
+
+      - name: Canonical execution P0 smoke gate
+        run: python smoke_p0.py
+
       - name: Generated docs not stale
         run: |
           python scripts/generate_project_map.py --check

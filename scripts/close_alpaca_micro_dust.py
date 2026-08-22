@@ -4,6 +4,7 @@
 import os
 import sys
 import asyncio
+import math
 import threading
 import uuid
 from datetime import UTC, datetime
@@ -14,13 +15,19 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from trading_agent.exchanges.alpaca_adapter import AlpacaAdapter, AlpacaConfig
+from trading_agent.exchanges.models import AssetClass, MarketType, Symbol
 from trading_agent.execution.lifecycle import ExecutionEventStore
 from trading_agent.execution.lifecycle.lifecycle import (
     ExecutionLifecycle,
     EmergencyReduceRequest,
+    PortfolioRiskSnapshot,
     TrustedPrice,
 )
-from trading_agent.execution.canonical import BrokerGateway, AuthorizedOrder
+from trading_agent.execution.canonical import BrokerGateway
+from trading_agent.execution.canonical.adapters import (
+    AlpacaExecutionAdapter,
+    BrokerSubmitState,
+)
 
 ALPACA_MICRO_DUST_THRESHOLD_USD = 5.0
 
@@ -42,48 +49,24 @@ class _AlpacaSyncAdapter:
         return self._run(self._adapter.fetch_positions())
 
     def get_ticker(self, symbol):
+        if isinstance(symbol, str):
+            base, _, quote = symbol.partition("/")
+            symbol = Symbol(
+                base,
+                quote or "USD",
+                AssetClass.STOCK,
+                MarketType.SPOT,
+                "alpaca",
+            )
         ticker = self._run(self._adapter.fetch_ticker(symbol))
-        return {"last": getattr(ticker, "last", None) or getattr(ticker, "price", None)}
-
-    def place_order(self, payload):
-        from trading_agent.exchanges.models import Order, OrderSide, OrderType
-
-        side = OrderSide.BUY if payload["side"].lower() == "buy" else OrderSide.SELL
-        order_type_str = payload.get("order_type", "market").strip().lower()
-        order_type = OrderType.MARKET
-        if order_type_str == "limit":
-            order_type = OrderType.LIMIT
-        elif order_type_str == "stop":
-            order_type = OrderType.STOP
-        elif order_type_str == "stop_limit":
-            order_type = OrderType.STOP_LIMIT
-
-        from decimal import Decimal
-
-        price = (
-            Decimal(str(payload["price"])) if payload.get("price") is not None else None
-        )
-        stop_price = (
-            Decimal(str(payload["stop_price"]))
-            if payload.get("stop_price") is not None
-            else None
-        )
-
-        order = Order(
-            id="",
-            symbol=payload["symbol"],
-            side=side,
-            type=order_type,
-            size=Decimal(str(payload["qty"])),
-            price=price,
-            stop_price=stop_price,
-            client_order_id=payload.get("idempotency_key"),
-        )
-        result = self._run(self._adapter.create_order(order))
         return {
-            "id": getattr(result, "id", None)
-            or getattr(result, "client_order_id", None)
+            "last": getattr(ticker, "last", None) or getattr(ticker, "price", None),
+            "timestamp": getattr(ticker, "timestamp", None),
+            "received_at": datetime.now(UTC),
         }
+
+    def get_account(self):
+        return self._adapter.get_account_info()
 
 
 def close_micro_dust_positions():
@@ -101,24 +84,73 @@ def close_micro_dust_positions():
 
     sync_adapter = _AlpacaSyncAdapter(adapter)
     store = ExecutionEventStore("data/execution/events.db").connect()
+
+    def _price_source(symbol):
+        ticker = sync_adapter.get_ticker(symbol)
+        price = float(ticker.get("last") or 0.0)
+        exchange_timestamp = ticker.get("timestamp")
+        received_at = ticker.get("received_at")
+        if (
+            not math.isfinite(price)
+            or price <= 0
+            or not isinstance(exchange_timestamp, datetime)
+            or exchange_timestamp.tzinfo is None
+            or not isinstance(received_at, datetime)
+            or received_at.tzinfo is None
+        ):
+            return None
+        return TrustedPrice(
+            price=price,
+            exchange_timestamp=exchange_timestamp.astimezone(UTC),
+            received_at=received_at.astimezone(UTC),
+        )
+
+    def _portfolio_source(symbol):
+        account = sync_adapter.get_account()
+        equity = float(account.get("equity") or 0.0)
+        cash = float(account.get("cash") or 0.0)
+        if (
+            not math.isfinite(equity)
+            or equity <= 0
+            or not math.isfinite(cash)
+            or cash < 0
+        ):
+            return None
+        quantity = 0.0
+        for position in sync_adapter.get_all_positions():
+            if str(position.symbol) == str(symbol):
+                quantity = max(0.0, float(position.size))
+                break
+        return PortfolioRiskSnapshot(
+            symbol=str(symbol),
+            position_quantity=quantity,
+            available_quantity=quantity,
+            equity=equity,
+            available_cash=cash,
+            observed_at=datetime.now(UTC),
+            source="alpaca_paper",
+        )
+
     lifecycle = ExecutionLifecycle(
         store,
-        price_source=lambda s: (
-            TrustedPrice(
-                price=float(sync_adapter.get_ticker(s).get("last") or 0.0),
-                exchange_timestamp=datetime.now(UTC),
-                received_at=datetime.now(UTC),
-            )
-            if sync_adapter.get_ticker(s).get("last")
-            else None
+        price_source=_price_source,
+        inventory_source=lambda symbol, side: (
+            snapshot.available_quantity
+            if (snapshot := _portfolio_source(symbol)) is not None
+            else 0.0
         ),
+        portfolio_source=_portfolio_source,
     )
-    gateway = BrokerGateway(adapter=sync_adapter, store=store)
+    execution_adapter = AlpacaExecutionAdapter(adapter)
+    gateway = BrokerGateway(
+        adapter=execution_adapter,
+        store=store,
+    )
 
     for position in sync_adapter.get_all_positions():
-        market_value = float(position["market_value"])
-        qty = float(position["qty"])
-        symbol = position["symbol"]
+        market_value = float(position.notional)
+        qty = max(0.0, float(position.size))
+        symbol = position.symbol
 
         if abs(market_value) <= ALPACA_MICRO_DUST_THRESHOLD_USD:
             try:
@@ -130,73 +162,56 @@ def close_micro_dust_positions():
                 current_price = float(price)
                 emergency = EmergencyReduceRequest(
                     intent_id=f"emergency-close-{symbol}-{uuid.uuid4().hex}",
-                    symbol=symbol,
+                    symbol=str(symbol),
                     side="sell",
                     quantity=qty,
                     reason="micro_dust_cleanup",
+                    metadata={"order_type": "market", "time_in_force": "ioc"},
                 )
                 auth_event = lifecycle.emergency_reduce(emergency)
-                from trading_agent.execution.canonical.broker_gateway import (
-                    _AUTHORIZED_TOKEN,
-                )
-
-                authorized = AuthorizedOrder(
-                    token=_AUTHORIZED_TOKEN,
-                    intent_id=emergency.intent_id,
-                    symbol=symbol,
-                    side="sell",
-                    quantity=qty,
-                    idempotency_key=f"emergency-{symbol}",
-                    price_reference=current_price,
-                    risk_decision_id=auth_event.payload.get("risk_decision_id", ""),
-                    forecast_fingerprint="",
-                    model_artifact_id="emergency_reduce",
-                    permission_result="REDUCE_ONLY",
-                    authorization_id=auth_event.payload.get("authorization_id", ""),
-                    lifecycle_event_id=auth_event.event_id,
+                result = gateway.submit(
+                    str(auth_event.payload["authorization_id"]),
                     correlation_id=emergency.intent_id,
-                    exposure_effect="reduce",
-                    current_exposure=0.0,
-                    resulting_exposure=0.0,
-                    authorized_at=auth_event.payload.get("authorized_at", ""),
-                    authorization_hash="",
                 )
-                result = gateway.submit(authorized, correlation_id=emergency.intent_id)
                 if result.success and result.broker_order_id:
                     lifecycle.submit_order(
                         intent_id=emergency.intent_id,
                         exchange_order_id=result.broker_order_id,
                     )
-                    lifecycle.receive_fill(
-                        intent_id=emergency.intent_id,
-                        size=qty,
-                        price=current_price,
-                    )
+                lifecycle.record_broker_submit_result(emergency.intent_id, result)
+                if result.state == BrokerSubmitState.FILLED:
                     closed.append(
                         {
-                            "symbol": symbol,
+                            "symbol": str(symbol),
                             "qty": qty,
                             "market_value": market_value,
+                        }
+                    )
+                elif result.success:
+                    skipped.append(
+                        {
+                            "symbol": str(symbol),
+                            "reason": "order accepted but fill is not yet confirmed",
                         }
                     )
                 else:
                     skipped.append(
                         {
-                            "symbol": symbol,
+                            "symbol": str(symbol),
                             "reason": result.error or "gateway submit failed",
                         }
                     )
             except Exception as e:
                 skipped.append(
                     {
-                        "symbol": symbol,
+                        "symbol": str(symbol),
                         "reason": str(e),
                     }
                 )
         else:
             skipped.append(
                 {
-                    "symbol": symbol,
+                    "symbol": str(symbol),
                     "reason": f"above threshold ({market_value:.2f} USD)",
                 }
             )

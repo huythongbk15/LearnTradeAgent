@@ -121,6 +121,8 @@ class EmergencyReduceRequest:
     quantity: float
     reason: str  # "ATR_STOP_TRIGGERED" | "PORTFOLIO_HALT" | "PROTECTIVE_EMERGENCY_EXIT" | "MANUAL_DUST_REDUCTION"
     parent_intent_id: str | None = None
+    idempotency_key: str | None = None
+    metadata: dict[str, Any] | None = None
 
 
 LIVE_STATUSES = frozenset(
@@ -237,6 +239,7 @@ class OrderState:
     payload_hash: str | None = None
     permission: str | None = None
     authorized_at: str | None = None
+    submission_requested: bool = False
     # True portfolio exposure (P0-1)
     price_reference: float | None = None
     portfolio_equity: float | None = None
@@ -317,22 +320,13 @@ def _default_price_source() -> PriceSource:
 
 
 def _default_inventory_source() -> InventorySource:
-    return lambda symbol, side: math.inf
+    # Missing broker inventory is unknown, never unlimited.
+    return lambda symbol, side: 0.0
 
 
 def _default_portfolio_source() -> PortfolioSource:
-    def default_portfolio(symbol: str) -> PortfolioRiskSnapshot:
-        return PortfolioRiskSnapshot(
-            symbol=symbol,
-            position_quantity=0.0,
-            available_quantity=0.0,
-            equity=100_000.0,
-            available_cash=100_000.0,
-            observed_at=datetime.now(UTC),
-            source="default_test",
-        )
-
-    return default_portfolio
+    # Authorization must fail closed until a venue-backed snapshot is wired.
+    return lambda symbol: None
 
 
 # ── Aggregate ──────────────────────────────────────────────────────────
@@ -684,11 +678,8 @@ class ExecutionLifecycle:
         self, state: LifecycleState, event: ExecutionEvent
     ) -> None:
         order = state.orders.get(event.aggregate_id)
-        if order is not None and order.status in {
-            IntentStatus.APPROVED,
-            IntentStatus.AUTHORIZED,
-        }:
-            order.status = IntentStatus.SUBMITTED
+        if order is not None:
+            order.submission_requested = True
 
     def _on_order_submitted(self, state: LifecycleState, event: ExecutionEvent) -> None:
         order = state.orders.get(event.aggregate_id)
@@ -966,7 +957,7 @@ class ExecutionLifecycle:
         else:
             order.risk_decision = risk_decision
             order.risk_approved = True
-        payload = {"rationale": rationale}
+        payload: dict[str, Any] = {"rationale": rationale}
         if risk_decision is not None:
             # Persist full risk decision evidence for audit/replay
             payload["risk_decision"] = asdict(risk_decision)
@@ -1041,8 +1032,10 @@ class ExecutionLifecycle:
             or not math.isfinite(portfolio.equity)
             or portfolio.equity <= 0
         ):
-            # Fallback to default portfolio to allow testing / graceful degradation
-            portfolio = _default_portfolio_source()(symbol_str)
+            raise InvariantViolation(
+                "trusted_portfolio_required",
+                f"no trusted positive-equity portfolio snapshot for {symbol_str}",
+            )
 
         # ── True portfolio exposure calculation ─────────────────────────
         # Current position quantity: from portfolio snapshot if available,
@@ -1148,7 +1141,7 @@ class ExecutionLifecycle:
         permission_ctx = PermissionContext(
             execution_health=self.state.execution_health,
             exposure_effect=exposure_effect,
-            risk_decision=self.state.order(intent_id).risk_decision,
+            risk_decision=order.risk_decision,
             trusted_price=price,
             max_price_age_seconds=self.max_price_age_seconds,
             reconciliation_state=self.state.reconciliation.value,
@@ -1199,7 +1192,7 @@ class ExecutionLifecycle:
 
         # authorized_quantity is the quantity approved by risk decision (base currency).
         authorized_quantity = quantity
-        payload = {
+        payload: dict[str, Any] = {
             "authorization_id": authorization_id,
             "intent_id": intent_id,
             "idempotency_key": idempotency_key,
@@ -1255,6 +1248,34 @@ class ExecutionLifecycle:
                 f"intent {intent_id} must be risk-approved/authorized before "
                 f"broker submission (status={order.status.value})"
             )
+        # Revalidate immediately before claiming broker I/O.  Do not defer these
+        # checks to submit_order(): a market order may already have changed the
+        # broker inventory by the time its result is recorded locally.
+        self._enforce_permission(
+            order.side,
+            order.size,
+            order.symbol,
+            require_market_data=True,
+            exclude_intent_id=intent_id,
+            risk_decision=order.risk_decision,
+        )
+        if (
+            order.authorized_quantity > 0
+            and order.size > order.authorized_quantity + 1e-12
+        ):
+            raise InvariantViolation(
+                "order_size_exceeds_authorization",
+                f"intent {intent_id} order size {order.size} exceeds "
+                f"authorized quantity {order.authorized_quantity}",
+            )
+        if order.side == "sell":
+            available = float(self._inventory_source(order.symbol, "sell"))
+            if order.size > available + 1e-12:
+                raise InvariantViolation(
+                    "insufficient_inventory",
+                    f"intent {intent_id} sell size {order.size} exceeds "
+                    f"available inventory {available}",
+                )
         # Atomic claim: only one connection can submit this intent
         claimed = self.store.claim_submission(
             intent_id=intent_id,
@@ -1311,14 +1332,15 @@ class ExecutionLifecycle:
             raise LifecycleError(
                 f"intent {intent_id} cannot submit from status {order.status.value}"
             )
-        self._enforce_permission(
-            order.side,
-            order.size,
-            order.symbol,
-            require_market_data=True,
-            exclude_intent_id=intent_id,
-            risk_decision=order.risk_decision,
-        )
+        if (
+            not order.submission_requested
+            and order.status in {IntentStatus.APPROVED, IntentStatus.AUTHORIZED}
+        ):
+            # Legacy/local callers may record a submission without explicitly
+            # creating the pre-I/O event. Preserve fail-closed validation and
+            # durable ordering for those callers. Canonical gateway callers
+            # already have this event, so post-fill inventory is never re-read.
+            self.request_broker_submission(intent_id)
         # Lifecycle sizing enforcement: order size must not exceed authorized quantity
         if (
             order.authorized_quantity > 0
@@ -1329,25 +1351,20 @@ class ExecutionLifecycle:
                 f"intent {intent_id} order size {order.size} exceeds "
                 f"authorized quantity {order.authorized_quantity}",
             )
-        # For sells, ensure order size is within available inventory
-        if order.side == "sell" and hasattr(self, "_inventory_source"):
-            available = float(self._inventory_source(order.symbol, "sell"))
-            if order.size > available + 1e-12:
-                raise InvariantViolation(
-                    "insufficient_inventory",
-                    f"intent {intent_id} sell size {order.size} exceeds "
-                    f"available inventory {available}",
-                )
-        payload = {
+        payload: dict[str, Any] = {
             "order_id": intent_id,
             "exchange_order_id": exchange_order_id or "",
         }
         if order.side == "sell":
-            authorized = float(self._inventory_source(order.symbol, "sell"))
+            authorized_quantity = order.authorized_quantity
+            if authorized_quantity <= 0:
+                authorized_quantity = float(
+                    self._inventory_source(order.symbol, "sell")
+                )
             payload.update(
                 symbol=order.symbol,
                 side=order.side,
-                authorized_quantity=authorized,
+                authorized_quantity=authorized_quantity,
                 reserved_quantity=order.size,
             )
         return self._emit(
@@ -1413,7 +1430,8 @@ class ExecutionLifecycle:
         now = datetime.now(UTC).isoformat()
         auth = self.authorize_order(
             intent_id=intent_id,
-            idempotency_key=f"emergency-{intent_id}",
+            idempotency_key=request.idempotency_key or f"emergency-{intent_id}",
+            metadata=request.metadata,
         )
         # Emit durable pre-submission event for gateway enforcement
         self.request_broker_submission(intent_id)
@@ -1624,6 +1642,31 @@ class ExecutionLifecycle:
             raise LifecycleError("protective ack evidence requires broker_order_id")
         if not evidence.broker_ack_id:
             raise LifecycleError("protective ack evidence requires broker_ack_id")
+        if not evidence.venue or evidence.venue.lower() == "unknown":
+            raise LifecycleError("protective ack evidence requires a known venue")
+        if evidence.broker_status.lower() not in {"accepted", "new", "open"}:
+            raise LifecycleError(
+                "protective ack evidence requires a resting broker status"
+            )
+        try:
+            acknowledged_at = datetime.fromisoformat(evidence.acknowledged_at)
+        except (TypeError, ValueError) as exc:
+            raise LifecycleError(
+                "protective ack evidence requires a valid acknowledged_at"
+            ) from exc
+        if acknowledged_at.tzinfo is None:
+            raise LifecycleError(
+                "protective ack evidence acknowledged_at must be timezone-aware"
+            )
+        if evidence.evidence_source not in {"BROKER", "RECONCILIATION", "SIMULATOR"}:
+            raise LifecycleError("protective ack evidence source is invalid")
+        if (
+            not math.isfinite(evidence.protected_quantity)
+            or evidence.protected_quantity <= 0
+        ):
+            raise LifecycleError(
+                "protective ack evidence requires a positive protected quantity"
+            )
         parent_intent_id = None
         for intent_id, order in self.state.orders.items():
             if protective_order_id in order.protective_order_ids:
@@ -1771,6 +1814,48 @@ class ExecutionLifecycle:
         broker_status = getattr(result, "broker_status", str(state))
         venue = getattr(result, "venue", "unknown")
 
+        def _fill_details(default_size: float) -> tuple[float, float] | None:
+            raw = result.raw_response or {}
+            filled_size = float(
+                raw.get(
+                    "filled",
+                    raw.get(
+                        "filled_qty",
+                        raw.get(
+                            "filled_amount",
+                            raw.get("accumulated_quantity", default_size),
+                        ),
+                    ),
+                )
+                or default_size
+            )
+            fill_price = float(
+                raw.get(
+                    "average",
+                    raw.get(
+                        "avg_fill_price",
+                        raw.get("price", raw.get("limit_price", 0)),
+                    ),
+                )
+                or 0
+            )
+            if (
+                not math.isfinite(filled_size)
+                or filled_size <= 0
+                or not math.isfinite(fill_price)
+                or fill_price <= 0
+            ):
+                self.require_manual_intervention(
+                    intent_id,
+                    reason=(
+                        "broker reported a fill without positive quantity/price "
+                        f"for {intent_id}"
+                    ),
+                )
+                self.start_reconciliation()
+                return None
+            return filled_size, fill_price
+
         if state in (BrokerSubmitState.ACCEPTED, BrokerSubmitState.OPEN):
             # Broker acknowledged the order
             ack_event = self._emit(
@@ -1800,13 +1885,10 @@ class ExecutionLifecycle:
                 },
             )
             # Extract partial fill details from raw_response
-            raw = result.raw_response or {}
-            filled_size = float(
-                raw.get("filled", raw.get("accumulated_quantity", 0)) or 0
-            )
-            fill_price = float(
-                raw.get("average", raw.get("price", raw.get("limit_price", 0))) or 0
-            )
+            fill_details = _fill_details(0.0)
+            if fill_details is None:
+                return None
+            filled_size, fill_price = fill_details
             partial_event = self._emit(
                 ExecutionEventType.PARTIAL_FILL_RECEIVED,
                 intent_id,
@@ -1834,14 +1916,10 @@ class ExecutionLifecycle:
                     "observed_at": observed_at.isoformat(),
                 },
             )
-            raw = result.raw_response or {}
-            filled_size = float(
-                raw.get("filled", raw.get("accumulated_quantity", order.size))
-                or order.size
-            )
-            fill_price = float(
-                raw.get("average", raw.get("price", raw.get("limit_price", 0))) or 0
-            )
+            fill_details = _fill_details(order.size)
+            if fill_details is None:
+                return None
+            filled_size, fill_price = fill_details
             fill_event = self._emit(
                 ExecutionEventType.FILL_RECEIVED,
                 intent_id,

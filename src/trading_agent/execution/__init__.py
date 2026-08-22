@@ -11,7 +11,7 @@ Modules:
 - canonical/            — Canonical execution pipeline
   - legacy_adapter.py   — Legacy signal → canonical risk decision adapter
   - broker_gateway.py   — Capital-changing boundary
-  - runner_adapter.py   — Legacy runner wrapper
+  - adapters.py         — Typed canonical venue adapters
   - order_planner.py    — Order planning and sizing
   - permission.py       — Permission checks
   - protection.py       — Protective order plans

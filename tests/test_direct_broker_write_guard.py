@@ -25,25 +25,23 @@ FORBIDDEN_METHODS = {
     "submit_order",
 }
 
-# Files that are allowed to call these methods directly
-ALLOWED_FILES = {
-    "broker_gateway.py",  # BrokerGateway itself
-    "paper_exchange.py",  # Exchange adapter implementations
-    "adapters.py",  # Canonical venue adapters (PaperExecutionAdapter, etc.)
-    "runner_adapter.py",  # Canonical wrapper for legacy runners
-    "legacy_authorization.py",  # Legacy authorization bridge
-    "live_enhanced_ma.py",  # Runtime script (canonical via CanonicalBrokerAdapter)
-    "live_enhanced_ma_binance.py",  # Runtime script (canonical via CanonicalBrokerAdapter)
-    "test_broker_gateway.py",  # Tests for BrokerGateway
-    "close_alpaca_micro_dust.py",  # Canonical lifecycle wrapper
-    "cli_adapter.py",  # Canonical CLI adapter bridge for LiveBroker
-    "app.py",  # WebUI backend containing _AlpacaSyncAdapter (canonical sync wrapper)
+# Exact implementation boundaries allowed to perform broker writes.
+# Keep this list path-specific so a same-named runtime script cannot bypass CI.
+ALLOWED_BOUNDARIES = {
+    Path("src/trading_agent/execution/canonical/broker_gateway.py"),
+    Path("src/trading_agent/execution/canonical/adapters.py"),
+    Path("src/trading_agent/execution/paper_exchange.py"),
+    Path("src/trading_agent/exchanges/live_broker.py"),
+    Path("src/trading_agent/exchanges/ccxt_adapter.py"),
+    Path("src/trading_agent/exchanges/alpaca_adapter.py"),
+    Path("src/trading_agent/exchanges/futures/binance_futures.py"),
+    Path("src/trading_agent/exchanges/futures/bybit_futures.py"),
+    Path("src/trading_agent/exchanges/futures/deribit_options.py"),
 }
 
 # Directories to scan
 SCAN_DIRS = [
-    Path("src/trading_agent/execution"),
-    Path("src/trading_agent/cli"),
+    Path("src"),
     Path("scripts"),
     Path("webui/backend"),
 ]
@@ -51,6 +49,8 @@ SCAN_DIRS = [
 
 def _is_forbidden_call(node: ast.Call, file_path: Path) -> tuple[bool, str | None]:
     """Check if an AST call node is a forbidden direct broker call."""
+    if file_path in ALLOWED_BOUNDARIES:
+        return False, None
     # Get the method name being called
     if isinstance(node.func, ast.Attribute):
         method_name = node.func.attr
@@ -67,12 +67,6 @@ def _is_forbidden_call(node: ast.Call, file_path: Path) -> tuple[bool, str | Non
             attrs.append(obj.id)
         attrs.reverse()
 
-        # Allowed patterns (canonical boundaries):
-        # 1. self._adapter.* in broker_gateway.py
-        # 2. self.* in paper_exchange.py, runner_adapter.py, legacy_authorization.py
-        # 3. lifecycle.*, store.*, gateway.* (canonical lifecycle/gateway calls)
-        # 4. broker.* in live_enhanced_ma*.py (canonical via CanonicalBrokerAdapter)
-        # 5. adapter.* in alpaca_adapter.py (adapter implementation)
         if len(attrs) >= 2:
             root = attrs[0]
             child = attrs[1]
@@ -81,26 +75,6 @@ def _is_forbidden_call(node: ast.Call, file_path: Path) -> tuple[bool, str | Non
             if root in ("lifecycle", "store", "gateway", "lc", "engine"):
                 return False, None
 
-            # Adapter implementations can call self.*
-            if file_path.name in (
-                "paper_exchange.py",
-                "adapters.py",
-                "runner_adapter.py",
-                "legacy_authorization.py",
-                "alpaca_adapter.py",
-            ):
-                if root == "self":
-                    return False, None
-
-            # Adapter wrapper delegations (self._adapter.*) are safe in any file
-            if root == "self" and child == "_adapter":
-                return False, None
-
-            # Legacy scripts using CanonicalBrokerAdapter (broker.*)
-            if file_path.name in ("live_enhanced_ma.py", "live_enhanced_ma_binance.py"):
-                if root == "broker":
-                    return False, None
-
             # Canonical self.* calls are safe (lifecycle, gateway, store, engine)
             if root == "self" and child in (
                 "lifecycle",
@@ -108,7 +82,15 @@ def _is_forbidden_call(node: ast.Call, file_path: Path) -> tuple[bool, str | Non
                 "store",
                 "engine",
                 "planner",
-                "legacy_adapter",
+            ):
+                return False, None
+
+            # ExecutionLifecycle may call its own event-recording method. This
+            # is not a venue write and remains inside the lifecycle package.
+            if (
+                file_path == Path("src/trading_agent/execution/lifecycle/lifecycle.py")
+                and root == "self"
+                and method_name == "submit_order"
             ):
                 return False, None
 
@@ -165,8 +147,7 @@ class TestDirectBrokerWriteGuard:
         all_violations = []
 
         for file_path in python_files:
-            # Skip test files and allowed files
-            if file_path.name in ALLOWED_FILES or file_path.name.startswith("test_"):
+            if file_path.name.startswith("test_"):
                 continue
 
             violations = _scan_file_for_forbidden_calls(file_path)

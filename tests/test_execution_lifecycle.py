@@ -218,7 +218,7 @@ def test_full_lifecycle_and_replay_determinism(tmp_path):
                 acknowledged_at=datetime.now(UTC).isoformat(),
                 protected_symbol="BTC/USDT",
                 protected_quantity=1.0,
-                evidence_source="broker",
+                evidence_source="BROKER",
             ),
         )
         lc.book_fee("i1", 0.1)
@@ -1102,7 +1102,7 @@ def test_acknowledge_protective_order_sets_protected(store):
             acknowledged_at=datetime.now(UTC).isoformat(),
             protected_symbol="BTC/USDT",
             protected_quantity=1.0,
-            evidence_source="broker",
+            evidence_source="BROKER",
         ),
     )
     assert lc.state.protection_state["i1"] == ProtectionState.PROTECTED
@@ -1207,7 +1207,7 @@ def test_repeated_recovery_does_not_duplicate_protection(store):
             acknowledged_at=datetime.now(UTC).isoformat(),
             protected_symbol="BTC/USDT",
             protected_quantity=1.0,
-            evidence_source="broker",
+            evidence_source="BROKER",
         ),
     )
     # Re-acknowledge same protective order idempotently
@@ -1221,7 +1221,7 @@ def test_repeated_recovery_does_not_duplicate_protection(store):
             acknowledged_at=datetime.now(UTC).isoformat(),
             protected_symbol="BTC/USDT",
             protected_quantity=1.0,
-            evidence_source="broker",
+            evidence_source="BROKER",
         ),
     )
     assert lc.state.protection_state["i1"] == ProtectionState.PROTECTED
@@ -1397,6 +1397,15 @@ class TestP0MissingTests:
                 received_at=datetime.now(UTC),
             ),
             inventory_source=lambda s, side: 0.0,
+            portfolio_source=lambda s: PortfolioRiskSnapshot(
+                symbol=s,
+                position_quantity=0.0,
+                available_quantity=0.0,
+                equity=100_000.0,
+                available_cash=100_000.0,
+                observed_at=datetime.now(UTC),
+                source="test",
+            ),
         )
         intent_id = "paper-buy-1"
         lc.create_order_intent(intent_id, "BTC/USDT", "buy", 1.0)
@@ -1423,7 +1432,8 @@ class TestP0MissingTests:
         lc.authorize_order(intent_id, idempotency_key="buy-key")
         lc.request_broker_submission(intent_id)
         order = lc.order(intent_id)
-        assert order.status == IntentStatus.SUBMITTED
+        assert order.status == IntentStatus.AUTHORIZED
+        assert order.submission_requested is True
 
     def test_spot_exit_e2e(self, tmp_path):
         """P0-52: Spot exit (sell) end-to-end through lifecycle."""
@@ -1471,7 +1481,8 @@ class TestP0MissingTests:
         lc.authorize_order(intent_id, idempotency_key="sell-key")
         lc.request_broker_submission(intent_id)
         order = lc.order(intent_id)
-        assert order.status == IntentStatus.SUBMITTED
+        assert order.status == IntentStatus.AUTHORIZED
+        assert order.submission_requested is True
 
     def test_negative_e2e_sell_without_inventory_blocked(self, tmp_path):
         """P0-53: Negative E2E: sell without inventory must be blocked."""
@@ -1484,6 +1495,15 @@ class TestP0MissingTests:
                 received_at=datetime.now(UTC),
             ),
             inventory_source=lambda s, side: 0.0,
+            portfolio_source=lambda s: PortfolioRiskSnapshot(
+                symbol=s,
+                position_quantity=0.0,
+                available_quantity=0.0,
+                equity=100_000.0,
+                available_cash=100_000.0,
+                observed_at=datetime.now(UTC),
+                source="test",
+            ),
         )
         intent_id = "negative-sell-1"
         lc.create_order_intent(intent_id, "BTC/USDT", "sell", 1.0)

@@ -33,10 +33,8 @@ from trading_agent.execution.canonical.adapters import BrokerSubmitFact
 from trading_agent.execution.types import OrderSide, OrderStatus, OrderType
 from trading_agent.exchanges.models import AssetClass
 from trading_agent.execution.canonical.broker_gateway import (
-    AuthorizedOrder,
     BrokerGateway,
     BrokerSubmitResult,
-    _AUTHORIZED_TOKEN,
 )
 from trading_agent.execution.canonical.market_observation import (
     BarState,
@@ -50,6 +48,19 @@ from trading_agent.execution.lifecycle.lifecycle import (
     PortfolioRiskSnapshot,
 )
 from trading_agent.execution.paper_exchange import PaperExchange
+
+
+class _DurableAuthorizationId(str):
+    """Test migration shim: expose only the durable ID at the gateway boundary."""
+
+    def __new__(cls, **fields):
+        instance = str.__new__(cls, str(fields["authorization_id"]))
+        instance.__dict__.update(fields)
+        return instance
+
+
+AuthorizedOrder = _DurableAuthorizationId
+_AUTHORIZED_TOKEN = object()
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────
@@ -317,12 +328,7 @@ class TestE2EPaperFlow:
             assert request_event.event_type == "exec.broker_submission_requested"
 
             # ── Step 8: Gateway — submit order ───────────────────────────
-            # Build AuthorizedOrder from durable authorization
-            from trading_agent.execution.canonical.broker_gateway import (
-                AuthorizedOrder,
-                _AUTHORIZED_TOKEN,
-            )
-
+            # Test shim exposes only the durable authorization ID to the gateway.
             authorized = AuthorizedOrder(
                 token=_AUTHORIZED_TOKEN,
                 intent_id=intent.intent_id,
@@ -357,12 +363,10 @@ class TestE2EPaperFlow:
             assert submit_event is not None
             assert submit_event.event_type == "exec.order_submitted"
 
-            # ── Step 10: Lifecycle — receive fill ────────────────────────
-            fill_event = lifecycle.receive_fill(
+            # ── Step 10: Lifecycle — record the typed broker fill ────────
+            fill_event = lifecycle.record_broker_submit_result(
                 intent_id=intent.intent_id,
-                size=intent.quantity,
-                price=50500.0,
-                protective_trigger=49000.0,  # Stop loss below entry
+                result=result,
             )
             assert fill_event is not None
             assert fill_event.event_type == "exec.fill_received"
@@ -511,11 +515,6 @@ class TestE2EPaperFlow:
             )
             request_event = lifecycle.request_broker_submission(intent_id)
 
-            from trading_agent.execution.canonical.broker_gateway import (
-                AuthorizedOrder,
-                _AUTHORIZED_TOKEN,
-            )
-
             authorized = AuthorizedOrder(
                 token=_AUTHORIZED_TOKEN,
                 intent_id=intent_id,
@@ -559,9 +558,12 @@ class TestE2EPaperFlow:
             all_events = store2.read_events_global()
             replayed_state = lifecycle2.replay(all_events)
 
-            # After replay, order is at last known lifecycle state (submitted)
+            # Broker I/O happened, but no local broker result was persisted before
+            # the crash. Replay must preserve the ambiguous pre-submit claim
+            # without fabricating an ORDER_SUBMITTED fact.
             order = replayed_state.orders[intent_id]
-            assert order.status.value == "submitted"
+            assert order.status.value == "authorized"
+            assert order.submission_requested is True
 
             # Reconcile with exchange: verify broker knows the order is closed
             # (full state restoration would require additional fill-event replay;
@@ -678,12 +680,7 @@ class TestE2EPaperFlow:
             assert auth_event.event_type == "exec.order_authorized"
             lifecycle.request_broker_submission(intent_id=intent.intent_id)
 
-            # Submit via gateway
-            from trading_agent.execution.canonical.broker_gateway import (
-                AuthorizedOrder,
-                _AUTHORIZED_TOKEN,
-            )
-
+            # Submit via the durable authorization ID.
             authorized = AuthorizedOrder(
                 token=_AUTHORIZED_TOKEN,
                 intent_id=intent.intent_id,
@@ -713,11 +710,9 @@ class TestE2EPaperFlow:
                 exchange_order_id=result.broker_order_id,
             )
             assert submit_event.event_type == "exec.order_submitted"
-            fill_event = lifecycle.receive_fill(
+            fill_event = lifecycle.record_broker_submit_result(
                 intent_id=intent.intent_id,
-                size=intent.quantity,
-                price=50500.0,
-                protective_trigger=49000.0,  # Stop loss below entry to avoid MANUAL state
+                result=result,
             )
             assert fill_event.event_type == "exec.fill_received"
 
@@ -799,10 +794,9 @@ class TestE2EPaperFlow:
                 exchange_order_id=close_result.broker_order_id,
             )
             assert close_submit_event.event_type == "exec.order_submitted"
-            close_fill_event = lifecycle.receive_fill(
+            close_fill_event = lifecycle.record_broker_submit_result(
                 intent_id=close_intent_id,
-                size=position.quantity,
-                price=50500.0,
+                result=close_result,
             )
             assert close_fill_event.event_type == "exec.fill_received"
 
@@ -919,10 +913,12 @@ class TestTwoConnectionConcurrency:
         # Connection A with isolated state dir
         with tempfile.TemporaryDirectory() as tmp_a:
             exchange_a = PaperExchange(state_dir=tmp_a)
+            exchange_a.update_prices({"BTC/USDT": 50_000.0})
             adapter_a = PaperExecutionAdapter(exchange_a)
             store_a = MagicMock()
-            store_a.get_latest_authorization.return_value = {
+            store_a.get_latest_authorization_by_auth_id.return_value = {
                 "authorization_id": "auth-a",
+                "intent_id": "concurrent-a",
                 "idempotency_key": "concurrent-a",
                 "symbol": "BTC/USDT",
                 "side": "buy",
@@ -930,21 +926,29 @@ class TestTwoConnectionConcurrency:
                 "risk_decision_id": "rd-a",
                 "payload_hash": "hash-a",
             }
+            store_a.get_latest_submission_request.return_value = {
+                "intent_id": "concurrent-a"
+            }
             gateway_a = BrokerGateway(adapter=adapter_a, store=store_a)
 
             # Connection B with isolated state dir
             with tempfile.TemporaryDirectory() as tmp_b:
                 exchange_b = PaperExchange(state_dir=tmp_b)
+                exchange_b.update_prices({"ETH/USDT": 3_000.0})
                 adapter_b = PaperExecutionAdapter(exchange_b)
                 store_b = MagicMock()
-                store_b.get_latest_authorization.return_value = {
+                store_b.get_latest_authorization_by_auth_id.return_value = {
                     "authorization_id": "auth-b",
+                    "intent_id": "concurrent-b",
                     "idempotency_key": "concurrent-b",
                     "symbol": "ETH/USDT",
                     "side": "buy",
                     "quantity": 0.1,
                     "risk_decision_id": "rd-b",
                     "payload_hash": "hash-b",
+                }
+                store_b.get_latest_submission_request.return_value = {
+                    "intent_id": "concurrent-b"
                 }
                 gateway_b = BrokerGateway(adapter=adapter_b, store=store_b)
 
@@ -2018,7 +2022,7 @@ class TestP1ConvergenceProofs:
             idempotency_key="ik-recon-1",
         )
         fact = adapter.submit_order(request)
-        assert fact.state == "ACCEPTED"
+        assert fact.state == "FILLED"
         assert fact.broker_order_id is not None
 
         # Verify position exists in underlying exchange
@@ -2028,9 +2032,7 @@ class TestP1ConvergenceProofs:
         assert positions[0].quantity > 0
 
     def test_anti_bypass_authorization_hash_bound(self):
-        """AuthorizedOrder authorization_hash must bind to durable auth evidence."""
-        from trading_agent.execution.canonical.broker_gateway import AuthorizedOrder
-
+        """The test shim passes only the durable ID across the gateway boundary."""
         order = AuthorizedOrder(
             token=_AUTHORIZED_TOKEN,
             intent_id="anti-bypass",

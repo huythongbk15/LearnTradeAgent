@@ -4,6 +4,7 @@ import json
 import os
 import sys
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 
 import pytest
 
@@ -13,16 +14,30 @@ if SCRIPTS not in sys.path:
 
 import live_enhanced_ma_binance as runner
 
-from trading_agent.exchanges.models import OrderConstraintError
+from trading_agent.exchanges.models import (
+    Order,
+    OrderConstraintError,
+    OrderSide,
+    OrderType,
+    TimeInForce,
+)
 from trading_agent.execution.live_safety import (
     LiveRiskLimits,
     LiveRiskStateStore,
     LiveSafetyError,
 )
 from trading_agent.execution.canonical import (
+    BrokerGateway,
     EvidenceState,
     RiskLevel,
     UnifiedRiskDecision,
+)
+from trading_agent.execution.canonical.adapters import LiveBrokerExecutionAdapter
+from trading_agent.execution.lifecycle import ExecutionEventStore
+from trading_agent.execution.lifecycle.lifecycle import (
+    ExecutionLifecycle,
+    PortfolioRiskSnapshot,
+    TrustedPrice,
 )
 
 
@@ -318,6 +333,38 @@ def planned_buy():
     }
 
 
+def canonical_stack(tmp_path, broker, *, position_quantity: float = 0.1):
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    store = ExecutionEventStore(tmp_path / "events.db").connect()
+
+    def portfolio_source(symbol):
+        return PortfolioRiskSnapshot(
+            symbol=str(symbol),
+            position_quantity=position_quantity,
+            available_quantity=position_quantity,
+            equity=100_000.0,
+            available_cash=100_000.0,
+            observed_at=datetime.now(UTC),
+            source="test",
+        )
+
+    lifecycle = ExecutionLifecycle(
+        store,
+        price_source=lambda symbol: TrustedPrice(
+            price=100.0,
+            exchange_timestamp=datetime.now(UTC),
+            received_at=datetime.now(UTC),
+        ),
+        inventory_source=lambda symbol, side: position_quantity,
+        portfolio_source=portfolio_source,
+    )
+    gateway = BrokerGateway(
+        adapter=LiveBrokerExecutionAdapter(broker),
+        store=store,
+    )
+    return lifecycle, gateway
+
+
 def order_result(status: str, *, filled_qty: float) -> dict:
     return {
         "id": "exchange-1",
@@ -362,10 +409,13 @@ def test_timeout_after_accept_is_reconciled_and_stops_batch(tmp_path):
         error=TimeoutError("client timed out"),
         reconciled=order_result("filled", filled_qty=0.1),
     )
+    lifecycle, gateway = canonical_stack(tmp_path, broker, position_quantity=0.0)
     with pytest.raises(LiveSafetyError, match="exchange reports filled"):
         runner.execute_orders(
             orders=[planned_buy()],
             broker=broker,
+            lifecycle=lifecycle,
+            gateway=gateway,
             store=store,
             limits=LiveRiskLimits(),
         )
@@ -588,12 +638,16 @@ def test_sell_capacity_counts_only_free_and_our_protective_reservation():
 def test_minimum_filter_remainder_is_persisted_as_controlled_dust(tmp_path):
     store = initialized_position_store(tmp_path)
     audit_path = tmp_path / "execution.jsonl"
+    broker = DustRejectedBroker()
+    lifecycle, gateway = canonical_stack(tmp_path, broker)
     result = runner.ensure_protective_stop(
         pair="BTC/USDT",
         quantity=0.04,
         desired_stop=90.0,
         current_price=100.0,
-        broker=DustRejectedBroker(),
+        broker=broker,
+        lifecycle=lifecycle,
+        gateway=gateway,
         store=store,
         limits=LiveRiskLimits(max_dust_notional_usd=5.0),
         audit_log_path=audit_path,
@@ -609,23 +663,34 @@ def test_minimum_filter_remainder_is_persisted_as_controlled_dust(tmp_path):
 
 def test_large_or_non_minimum_remainder_still_fails_closed(tmp_path):
     store = initialized_position_store(tmp_path)
+    broker = DustRejectedBroker()
+    lifecycle, gateway = canonical_stack(tmp_path, broker)
     with pytest.raises(OrderConstraintError):
         runner.ensure_protective_stop(
             pair="BTC/USDT",
             quantity=0.06,
             desired_stop=90.0,
             current_price=100.0,
-            broker=DustRejectedBroker(),
+            broker=broker,
+            lifecycle=lifecycle,
+            gateway=gateway,
             store=store,
             limits=LiveRiskLimits(max_dust_notional_usd=5.0),
         )
+    broker2 = DustRejectedBroker(constraint="maximum_notional")
+    lifecycle2, gateway2 = canonical_stack(
+        tmp_path / "second",
+        broker2,
+    )
     with pytest.raises(OrderConstraintError):
         runner.ensure_protective_stop(
             pair="BTC/USDT",
             quantity=0.04,
             desired_stop=90.0,
             current_price=100.0,
-            broker=DustRejectedBroker(constraint="maximum_notional"),
+            broker=broker2,
+            lifecycle=lifecycle2,
+            gateway=gateway2,
             store=store,
             limits=LiveRiskLimits(max_dust_notional_usd=5.0),
         )
@@ -634,12 +699,15 @@ def test_large_or_non_minimum_remainder_still_fails_closed(tmp_path):
 def test_exchange_native_stop_is_idempotent_and_only_tightens(tmp_path):
     store = initialized_position_store(tmp_path)
     broker = ProtectiveBroker()
+    lifecycle, gateway = canonical_stack(tmp_path, broker)
     first = runner.ensure_protective_stop(
         pair="BTC/USDT",
         quantity=0.1,
         desired_stop=90.0,
         current_price=100.0,
         broker=broker,
+        lifecycle=lifecycle,
+        gateway=gateway,
         store=store,
     )
     assert first["status"] == "open"
@@ -651,6 +719,8 @@ def test_exchange_native_stop_is_idempotent_and_only_tightens(tmp_path):
         desired_stop=89.0,
         current_price=100.0,
         broker=broker,
+        lifecycle=lifecycle,
+        gateway=gateway,
         store=store,
     )
     assert unchanged["client_order_id"] == first["client_order_id"]
@@ -663,22 +733,29 @@ def test_exchange_native_stop_is_idempotent_and_only_tightens(tmp_path):
         desired_stop=92.0,
         current_price=100.0,
         broker=broker,
+        lifecycle=lifecycle,
+        gateway=gateway,
         store=store,
     )
     assert tightened["stop_price"] == pytest.approx(92.0)
     assert tightened["client_order_id"] != first["client_order_id"]
-    assert broker.replace_calls == 1
+    assert broker.replace_calls == 0
+    assert broker.cancel_calls == 1
+    assert broker.place_calls == 2
 
 
 def test_protective_stop_timeout_after_accept_is_recovered(tmp_path):
     store = initialized_position_store(tmp_path)
     broker = ProtectiveBroker(timeout_after_accept=True)
+    lifecycle, gateway = canonical_stack(tmp_path, broker)
     recovered = runner.ensure_protective_stop(
         pair="BTC/USDT",
         quantity=0.1,
         desired_stop=90.0,
         current_price=100.0,
         broker=broker,
+        lifecycle=lifecycle,
+        gateway=gateway,
         store=store,
     )
     assert recovered["status"] == "open"
@@ -688,12 +765,15 @@ def test_protective_stop_timeout_after_accept_is_recovered(tmp_path):
 def test_duplicate_active_and_pending_stops_fail_closed(tmp_path):
     store = initialized_position_store(tmp_path)
     broker = ProtectiveBroker()
+    lifecycle, gateway = canonical_stack(tmp_path, broker)
     runner.ensure_protective_stop(
         pair="BTC/USDT",
         quantity=0.1,
         desired_stop=90.0,
         current_price=100.0,
         broker=broker,
+        lifecycle=lifecycle,
+        gateway=gateway,
         store=store,
     )
     pending = store.reserve_protective_order(
@@ -701,11 +781,15 @@ def test_duplicate_active_and_pending_stops_fail_closed(tmp_path):
         quantity=0.1,
         stop_price=92.0,
     )
-    pending_order = runner._protective_order(
+    pending_order = Order(
+        id="",
         symbol=runner.exchange_symbol("BTC/USDT"),
         client_order_id=pending["client_order_id"],
-        quantity=0.1,
-        stop_price=92.0,
+        side=OrderSide.SELL,
+        type=OrderType.STOP,
+        size=Decimal("0.1"),
+        stop_price=Decimal("92.0"),
+        time_in_force=TimeInForce.GTC,
     )
     broker._result(pending_order)
     with pytest.raises(LiveSafetyError, match="duplicate active protective"):
@@ -719,18 +803,23 @@ def test_duplicate_active_and_pending_stops_fail_closed(tmp_path):
 def test_orphan_protective_stop_is_cancelled_before_state_is_cleared(tmp_path):
     store = initialized_position_store(tmp_path)
     broker = ProtectiveBroker()
+    lifecycle, gateway = canonical_stack(tmp_path, broker)
     runner.ensure_protective_stop(
         pair="BTC/USDT",
         quantity=0.1,
         desired_stop=90.0,
         current_price=100.0,
         broker=broker,
+        lifecycle=lifecycle,
+        gateway=gateway,
         store=store,
     )
     runner.cleanup_orphan_protective_stops(
         managed_symbols=["BTC/USDT"],
         positions=[],
         broker=broker,
+        lifecycle=lifecycle,
+        gateway=gateway,
         store=store,
     )
     assert broker.cancel_calls == 1
