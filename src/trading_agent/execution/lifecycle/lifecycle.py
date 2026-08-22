@@ -343,16 +343,12 @@ class LifecycleState:
                 status=po_data["status"],
             )
         state.reconciliation = ReconciliationState(data.get("reconciliation", "NONE"))
-        state.execution_health = ExecutionHealth(
-            data.get("execution_health", "NORMAL")
-        )
+        state.execution_health = ExecutionHealth(data.get("execution_health", "NORMAL"))
         state.protection_state = {
             k: ProtectionState(v) for k, v in data.get("protection_state", {}).items()
         }
         state.manual_blocked = data.get("manual_blocked", False)
-        state.unresolved_manual_intents = set(
-            data.get("unresolved_manual_intents", [])
-        )
+        state.unresolved_manual_intents = set(data.get("unresolved_manual_intents", []))
         state.last_event_ids = {}
         state.state_version = data.get("state_version", 0)
         return state

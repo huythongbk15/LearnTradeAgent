@@ -710,26 +710,34 @@ class TestDurableAuthorizationGateway:
 
     def test_unknown_authorization_id_is_rejected(self, tmp_path):
         store = ExecutionEventStore(tmp_path / "unknown-auth.db").connect()
-        gateway = BrokerGateway(adapter=DummyAdapter(), store=store, lifecycle=MagicMock())
+        gateway = BrokerGateway(
+            adapter=DummyAdapter(), store=store, lifecycle=MagicMock()
+        )
         with pytest.raises(AuthorizationError, match="no durable ORDER_AUTHORIZED"):
             gateway.submit("unknown-auth", correlation_id="corr")
 
     def test_submission_request_is_required(self, tmp_path):
         store, auth_id = self._authorize(tmp_path, request_submission=False)
-        gateway = BrokerGateway(adapter=DummyAdapter(), store=store, lifecycle=MagicMock())
+        gateway = BrokerGateway(
+            adapter=DummyAdapter(), store=store, lifecycle=MagicMock()
+        )
         with pytest.raises(AuthorizationError, match="BROKER_SUBMISSION_REQUESTED"):
             gateway.submit(auth_id, correlation_id="corr")
 
     def test_non_string_caller_payload_is_rejected(self, tmp_path):
         store, auth_id = self._authorize(tmp_path)
-        gateway = BrokerGateway(adapter=DummyAdapter(), store=store, lifecycle=MagicMock())
+        gateway = BrokerGateway(
+            adapter=DummyAdapter(), store=store, lifecycle=MagicMock()
+        )
         with pytest.raises(AuthorizationError, match="non-empty string"):
             gateway.submit({"authorization_id": auth_id}, correlation_id="corr")
 
     def test_request_is_reconstructed_from_durable_authorization(self, tmp_path):
         store, auth_id = self._authorize(tmp_path)
         adapter = DummyAdapter()
-        result = BrokerGateway(adapter=adapter, store=store, lifecycle=MagicMock()).submit(
+        result = BrokerGateway(
+            adapter=adapter, store=store, lifecycle=MagicMock()
+        ).submit(
             auth_id,
             correlation_id="durable-intent",
         )

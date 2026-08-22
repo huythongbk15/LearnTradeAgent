@@ -167,7 +167,9 @@ class BrokerGateway:
         if store is None:
             raise ValueError("BrokerGateway requires a durable execution event store")
         if lifecycle is None:
-            raise ValueError("BrokerGateway requires a lifecycle for durable BROKER_IO_STARTED")
+            raise ValueError(
+                "BrokerGateway requires a lifecycle for durable BROKER_IO_STARTED"
+            )
         self._adapter = adapter
         self._store = store
         self._lifecycle = lifecycle
