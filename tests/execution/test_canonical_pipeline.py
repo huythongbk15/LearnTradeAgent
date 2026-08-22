@@ -553,7 +553,7 @@ class TestBrokerGateway:
             intent_id=intent.intent_id,
             idempotency_key=intent.idempotency_key,
         )
-        lifecycle.request_broker_submission(intent.intent_id)
+        lifecycle.request_broker_submission(intent.intent_id, claimed_by="corr-1")
         auth_id = auth_event.payload["authorization_id"]
 
         gw_result = gateway.submit(auth_id, correlation_id="corr-1")

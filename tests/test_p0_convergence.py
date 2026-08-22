@@ -474,7 +474,7 @@ class LegacyBrokerGatewayAuthorizationAttacks:
             intent_id=intent_id,
             idempotency_key="key-1",
         )
-        lifecycle.request_broker_submission(intent_id)
+        lifecycle.request_broker_submission(intent_id, claimed_by=intent_id)
         order = AuthorizedOrder(
             token=_AUTHORIZED_TOKEN,
             intent_id=intent_id,
@@ -704,7 +704,7 @@ class TestDurableAuthorizationGateway:
         lifecycle.approve_risk(intent_id, risk_decision=_sample_risk_decision())
         auth = lifecycle.authorize_order(intent_id, idempotency_key="durable-key")
         if request_submission:
-            lifecycle.request_broker_submission(intent_id)
+            lifecycle.request_broker_submission(intent_id, claimed_by=intent_id)
         return store, str(auth.payload["authorization_id"])
 
     def test_unknown_authorization_id_is_rejected(self, tmp_path):
@@ -730,7 +730,7 @@ class TestDurableAuthorizationGateway:
         adapter = DummyAdapter()
         result = BrokerGateway(adapter=adapter, store=store).submit(
             auth_id,
-            correlation_id="corr",
+            correlation_id="durable-intent",
         )
         assert result.success
         assert len(adapter.orders) == 1

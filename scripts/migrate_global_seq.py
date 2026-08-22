@@ -64,6 +64,8 @@ def migrate(db_path: str, *, dry_run: bool = False, force: bool = False) -> int:
                 cutover_at           TEXT NOT NULL,
                 first_post_cutover_global_seq INTEGER NOT NULL,
                 legacy_event_count   INTEGER NOT NULL,
+                aggregate_count      INTEGER NOT NULL,
+                legacy_payload_checksum TEXT,
                 checksum             TEXT NOT NULL,
                 created_at           TEXT NOT NULL
             );
@@ -109,10 +111,34 @@ def migrate(db_path: str, *, dry_run: bool = False, force: bool = False) -> int:
                 )
             return legacy_count
 
-        # Create verified cutover snapshot
+        # Create verified cutover snapshot — full aggregate state boundary
+        # Capture per-aggregate latest event to reconstruct LifecycleState
+        aggregate_rows = conn.execute("""
+            SELECT aggregate_id, event_type, seq, occurred_at, payload
+            FROM execution_events
+            WHERE global_seq = 0
+            ORDER BY aggregate_id, seq ASC
+        """).fetchall()
+
+        aggregate_latest: dict[str, dict[str, Any]] = {}
+        payload_hashes = []
+        for r in aggregate_rows:
+            agg = r["aggregate_id"]
+            aggregate_latest[agg] = {
+                "event_type": r["event_type"],
+                "seq": r["seq"],
+                "occurred_at": r["occurred_at"],
+            }
+            payload_hashes.append(r["payload"])
+
         snapshot_state = {
             "migration_policy": "cutover",
             "legacy_event_count": legacy_count,
+            "aggregate_count": len(aggregate_latest),
+            "aggregates": aggregate_latest,
+            "legacy_payload_checksum": hashlib.sha256(
+                json.dumps(payload_hashes, default=str, sort_keys=True).encode("utf-8")
+            ).hexdigest() if payload_hashes else None,
             "cutover_at": datetime.now(UTC).isoformat(),
             "note": (
                 "Pre-migration events are NOT assigned fabricated global_seq. "
@@ -135,8 +161,9 @@ def migrate(db_path: str, *, dry_run: bool = False, force: bool = False) -> int:
                 """
                 INSERT INTO execution_migration_state
                 (migration_id, snapshot_id, cutover_at, first_post_cutover_global_seq,
-                 legacy_event_count, checksum, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                 legacy_event_count, aggregate_count, legacy_payload_checksum,
+                 checksum, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     snapshot_id,
@@ -144,6 +171,8 @@ def migrate(db_path: str, *, dry_run: bool = False, force: bool = False) -> int:
                     snapshot_state["cutover_at"],
                     1,  # first post-cutover global_seq
                     legacy_count,
+                    len(aggregate_latest),
+                    snapshot_state["legacy_payload_checksum"],
                     snapshot_checksum,
                     datetime.now(UTC).isoformat(),
                 ),

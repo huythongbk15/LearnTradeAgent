@@ -323,6 +323,7 @@ class TestE2EPaperFlow:
             # ── Step 7: Lifecycle — request broker submission ────────────
             request_event = lifecycle.request_broker_submission(
                 intent_id=intent.intent_id,
+                claimed_by=intent.intent_id,
             )
             assert request_event is not None
             assert request_event.event_type == "exec.broker_submission_requested"
@@ -513,7 +514,7 @@ class TestE2EPaperFlow:
                 intent_id=intent_id,
                 idempotency_key="ik-recon-restart",
             )
-            request_event = lifecycle.request_broker_submission(intent_id)
+            request_event = lifecycle.request_broker_submission(intent_id, claimed_by=intent_id)
 
             authorized = AuthorizedOrder(
                 token=_AUTHORIZED_TOKEN,
@@ -678,7 +679,7 @@ class TestE2EPaperFlow:
                 idempotency_key=intent.idempotency_key,
             )
             assert auth_event.event_type == "exec.order_authorized"
-            lifecycle.request_broker_submission(intent_id=intent.intent_id)
+            lifecycle.request_broker_submission(intent_id=intent.intent_id, claimed_by=intent.intent_id)
 
             # Submit via the durable authorization ID.
             authorized = AuthorizedOrder(
@@ -761,7 +762,7 @@ class TestE2EPaperFlow:
                 idempotency_key=f"close-{intent.idempotency_key}",
             )
             assert close_auth_event.event_type == "exec.order_authorized"
-            lifecycle.request_broker_submission(intent_id=close_intent_id)
+            lifecycle.request_broker_submission(intent_id=close_intent_id, claimed_by=close_intent_id)
 
             close_authorized = AuthorizedOrder(
                 token=_AUTHORIZED_TOKEN,
@@ -929,7 +930,10 @@ class TestTwoConnectionConcurrency:
             store_a.get_latest_submission_request.return_value = {
                 "intent_id": "concurrent-a"
             }
-            store_a.submission_claim.return_value = None
+            store_a.submission_claim.return_value = {
+                "claimed_by": "concurrent-a",
+                "intent_id": "concurrent-a",
+            }
             store_a.get_latest_broker_event.return_value = None
             gateway_a = BrokerGateway(adapter=adapter_a, store=store_a)
 
@@ -952,7 +956,10 @@ class TestTwoConnectionConcurrency:
                 store_b.get_latest_submission_request.return_value = {
                     "intent_id": "concurrent-b"
                 }
-                store_b.submission_claim.return_value = None
+                store_b.submission_claim.return_value = {
+                    "claimed_by": "concurrent-b",
+                    "intent_id": "concurrent-b",
+                }
                 store_b.get_latest_broker_event.return_value = None
                 gateway_b = BrokerGateway(adapter=adapter_b, store=store_b)
 
@@ -2148,7 +2155,7 @@ class TestP1ConvergenceProofs:
             )
 
             # Initial broker submission request (normal flow)
-            request_event = lifecycle.request_broker_submission(intent_id)
+            request_event = lifecycle.request_broker_submission(intent_id, claimed_by=intent_id)
             assert request_event is not None
 
             # Simulate broker returning UNKNOWN via record_broker_submit_result

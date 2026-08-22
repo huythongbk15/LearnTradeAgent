@@ -363,6 +363,7 @@ class ExecutionLifecycle:
         inventory_source: InventorySource | None = None,
         portfolio_source: Callable[[str], PortfolioRiskSnapshot | None] | None = None,
         max_price_age_seconds: float = 60.0,
+        max_portfolio_age_seconds: float = 60.0,
         require_protective_order: bool = True,
     ):
         self.store = store
@@ -372,6 +373,7 @@ class ExecutionLifecycle:
         self._portfolio_source = portfolio_source or _default_portfolio_source()
         self.broker_confirm_cancel: Callable[[str], bool] | None = None
         self.max_price_age_seconds = max_price_age_seconds
+        self.max_portfolio_age_seconds = max_portfolio_age_seconds
         self.require_protective_order = require_protective_order
         self.state = LifecycleState()
 
@@ -1058,12 +1060,22 @@ class ExecutionLifecycle:
         portfolio = self._portfolio_source(symbol_str)
         if (
             portfolio is None
+            or not portfolio.is_fresh(self.max_portfolio_age_seconds)
             or not math.isfinite(portfolio.equity)
             or portfolio.equity <= 0
+            or not math.isfinite(portfolio.position_quantity)
+            or portfolio.position_quantity < 0
+            or not math.isfinite(portfolio.available_quantity)
+            or portfolio.available_quantity < 0
+            or not math.isfinite(portfolio.available_cash)
+            or portfolio.available_cash < 0
         ):
             raise InvariantViolation(
                 "trusted_portfolio_required",
-                f"no trusted positive-equity portfolio snapshot for {symbol_str}",
+                f"no trusted valid portfolio snapshot for {symbol_str} "
+                f"(fresh={portfolio.is_fresh(self.max_portfolio_age_seconds) if portfolio else False}, "
+                f"equity={portfolio.equity if portfolio else None}, "
+                f"position={portfolio.position_quantity if portfolio else None})",
             )
 
         # ── True portfolio exposure calculation ─────────────────────────
@@ -1466,7 +1478,7 @@ class ExecutionLifecycle:
             metadata=request.metadata,
         )
         # Emit durable pre-submission event for gateway enforcement
-        self.request_broker_submission(intent_id)
+        self.request_broker_submission(intent_id, claimed_by=intent_id)
         return auth
 
     def acknowledge_broker(

@@ -374,8 +374,10 @@ class ExecutionEngine:
         )
 
         # ──── Durable broker submission request BEFORE broker I/O ────────
+        # Engine claims ownership atomically before gateway I/O.
         request_event = self.lifecycle.request_broker_submission(
             intent_id=intent.intent_id,
+            claimed_by=intent.intent_id,
         )
 
         # Keep only the durable authorization id across the gateway boundary.

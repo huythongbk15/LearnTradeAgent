@@ -200,12 +200,17 @@ class BrokerGateway:
                     f"no durable BROKER_SUBMISSION_REQUESTED for intent {intent_id}"
                 )
 
-            # Verify atomic submission ownership: lifecycle must have claimed
-            # this submission before broker I/O (P0-3).  For backward
-            # compatibility with tests that do not exercise the claim path,
-            # allow unclaimed submissions to proceed.
+            # Verify atomic submission ownership: lifecycle MUST have claimed
+            # this submission before broker I/O (P0-3).  Unclaimed submissions
+            # are rejected to prevent double-execution or unowned orders.
             claim = self._store.submission_claim(intent_id)
-            if claim is not None and claim["claimed_by"] != correlation_id:
+            if claim is None:
+                raise AuthorizationError(
+                    f"submission not claimed for intent {intent_id}: "
+                    f"caller must call lifecycle.request_broker_submission() "
+                    f"with claimed_by before gateway.submit()"
+                )
+            if claim["claimed_by"] != correlation_id:
                 # Another connection owns this submission.
                 existing = self._store.get_latest_broker_event(intent_id)
                 if existing is not None:
