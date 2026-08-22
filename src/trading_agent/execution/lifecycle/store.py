@@ -422,7 +422,11 @@ class ExecutionEventStore:
                 max_global = self.conn.execute(
                     "SELECT COALESCE(MAX(global_seq), 0) FROM execution_events"
                 ).fetchone()[0]
-                row["global_seq"] = max_global + 1
+                # Ensure first post-cutover seq is 1 and positive seqs are unique.
+                if max_global < 1:
+                    row["global_seq"] = 1
+                else:
+                    row["global_seq"] = max_global + 1
             self.conn.execute(
                 """
                 INSERT INTO execution_events

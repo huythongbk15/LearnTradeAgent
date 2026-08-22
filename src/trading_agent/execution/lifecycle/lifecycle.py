@@ -306,6 +306,57 @@ class LifecycleState:
             unresolved_manual_intents=set(self.unresolved_manual_intents),
         )
 
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "LifecycleState":
+        """Restore state from a snapshot dictionary."""
+        state = cls()
+        state.orders = {}
+        for intent_id, order_data in data.get("orders", {}).items():
+            state.orders[intent_id] = OrderState(
+                intent_id=order_data["intent_id"],
+                symbol=order_data["symbol"],
+                side=order_data["side"],
+                size=float(order_data["size"]),
+                status=IntentStatus(order_data["status"]),
+                risk_approved=order_data.get("risk_approved", False),
+                broker_order_id=order_data.get("broker_order_id"),
+                exchange_order_id=order_data.get("exchange_order_id"),
+                filled_size=float(order_data.get("filled_size", 0.0)),
+                authorized_quantity=float(order_data.get("authorized_quantity", 0.0)),
+                reserved_quantity=float(order_data.get("reserved_quantity", 0.0)),
+                released_quantity=float(order_data.get("released_quantity", 0.0)),
+                remaining_reserved_quantity=float(
+                    order_data.get("remaining_reserved_quantity", 0.0)
+                ),
+                avg_fill_price=order_data.get("avg_fill_price"),
+                fees=order_data.get("fees", {}),
+                protective_order_ids=order_data.get("protective_order_ids", []),
+                manual_reasons=order_data.get("manual_reasons", []),
+            )
+        state.protective_orders = {}
+        for order_id, po_data in data.get("protective_orders", {}).items():
+            state.protective_orders[order_id] = ProtectiveOrderState(
+                order_id=po_data["order_id"],
+                symbol=po_data["symbol"],
+                kind=po_data["kind"],
+                trigger_price=float(po_data["trigger_price"]),
+                status=po_data["status"],
+            )
+        state.reconciliation = ReconciliationState(data.get("reconciliation", "NONE"))
+        state.execution_health = ExecutionHealth(
+            data.get("execution_health", "NORMAL")
+        )
+        state.protection_state = {
+            k: ProtectionState(v) for k, v in data.get("protection_state", {}).items()
+        }
+        state.manual_blocked = data.get("manual_blocked", False)
+        state.unresolved_manual_intents = set(
+            data.get("unresolved_manual_intents", [])
+        )
+        state.last_event_ids = {}
+        state.state_version = data.get("state_version", 0)
+        return state
+
 
 # ── Guards plumbing ────────────────────────────────────────────────────
 
@@ -366,6 +417,7 @@ class ExecutionLifecycle:
         max_price_age_seconds: float = 60.0,
         max_portfolio_age_seconds: float = 60.0,
         require_protective_order: bool = True,
+        snapshot_interval: int | None = None,
     ):
         self.store = store
         self._kill_switch = kill_switch_active or (lambda: False)
@@ -376,6 +428,8 @@ class ExecutionLifecycle:
         self.max_price_age_seconds = max_price_age_seconds
         self.max_portfolio_age_seconds = max_portfolio_age_seconds
         self.require_protective_order = require_protective_order
+        self.snapshot_interval = snapshot_interval
+        self._snapshot_counter = 0
         self.state = LifecycleState()
 
     # ── Helpers ──────────────────────────────────────────────────────────
@@ -546,14 +600,16 @@ class ExecutionLifecycle:
 
     # ── Deterministic replay ────────────────────────────────────────────
 
-    def replay(self, events: list[ExecutionEvent]) -> LifecycleState:
-        """Replay events in seq order into a fresh state (deterministic).
+    def replay(
+        self, events: list[ExecutionEvent], initial_state: LifecycleState | None = None
+    ) -> LifecycleState:
+        """Replay events in seq order into state (deterministic).
 
-        Assumes events are already sorted by (aggregate_id, seq) or by
-        global_seq for cross-aggregate replay.  For true global replay,
-        use replay_global().
+        If ``initial_state`` is provided, replay starts from that state
+        instead of a fresh ``LifecycleState()``.  This enables snapshot +
+        delta replay for crash recovery.
         """
-        state = LifecycleState()
+        state = LifecycleState() if initial_state is None else initial_state
         seen: set[str] = set()
         for event in events:
             if event.event_id in seen:
@@ -600,9 +656,43 @@ class ExecutionLifecycle:
         return self.replay(events)
 
     def load(self) -> LifecycleState:
-        """Load + replay the persisted log (crash recovery entry point)."""
+        """Load + replay the persisted log (crash recovery entry point).
+
+        Recovery order:
+        1. Load latest durable snapshot (if any).
+        2. Load events after the snapshot's ``last_seq``.
+        3. Replay those events on top of the snapshot state.
+
+        If no snapshot exists, fall back to full global replay (which
+        rejects pre-migration events).
+        """
+        snapshot = self.store.load_snapshot("global")
+        if snapshot is not None:
+            # Snapshot-based recovery: only replay events after the snapshot.
+            state = LifecycleState.from_dict(snapshot.state)
+            events = self.store.read_events_global(after_global_seq=snapshot.last_seq)
+            return self.replay(events, initial_state=state)
+        # No snapshot: full global replay (pre-migration events rejected).
         events = self.store.read_events_global()
         return self.replay_global(events)
+
+    def _maybe_save_snapshot(self) -> None:
+        """Persist a snapshot every ``snapshot_interval`` events, if configured."""
+        if self.snapshot_interval is None or self.snapshot_interval <= 0:
+            return
+        self._snapshot_counter += 1
+        if self._snapshot_counter % self.snapshot_interval != 0:
+            return
+        try:
+            self.store.save_snapshot(
+                aggregate_id="global",
+                state=self.snapshot_state(),
+                state_version=self.state.state_version,
+                last_seq=self.last_seq(),
+            )
+        except Exception:
+            # Snapshot failures must not break event processing.
+            pass
 
     _EVENT_HANDLERS = {
         ExecutionEventType.ORDER_INTENT_CREATED: "_on_order_intent_created",
@@ -636,6 +726,7 @@ class ExecutionLifecycle:
         getattr(self, handler_name)(state, event)
         state.last_event_ids[event.aggregate_id] = event.event_id
         state.state_version += 1
+        self._maybe_save_snapshot()
 
     def _on_order_intent_created(
         self, state: LifecycleState, event: ExecutionEvent
@@ -2126,6 +2217,8 @@ class ExecutionLifecycle:
             },
             "manual_blocked": self.state.manual_blocked,
             "unresolved_manual_intents": sorted(self.state.unresolved_manual_intents),
+            "state_version": self.state.state_version,
+            "last_event_ids": dict(self.state.last_event_ids),
         }
 
     def last_seq(self) -> int:

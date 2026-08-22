@@ -562,6 +562,7 @@ async def api_close(req: CloseRequest) -> dict:
         gateway = BrokerGateway(
             adapter=AlpacaExecutionAdapter(adapter),
             store=store,
+            lifecycle=lifecycle,
         )
         positions = sync_adapter.get_all_positions()
         detail = {"closed": [], "failed": []}

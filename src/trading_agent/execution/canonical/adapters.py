@@ -94,6 +94,7 @@ class BrokerSubmitState(StrEnum):
     """Broker submission state — explicit, not boolean."""
 
     ACCEPTED = "ACCEPTED"
+    ACKNOWLEDGED = "ACKNOWLEDGED"
     OPEN = "OPEN"
     PARTIALLY_FILLED = "PARTIALLY_FILLED"
     FILLED = "FILLED"

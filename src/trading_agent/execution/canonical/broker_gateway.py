@@ -162,10 +162,12 @@ class BrokerGateway:
         self,
         adapter: CanonicalExecutionAdapter,
         store: Any,
-        lifecycle: Any | None = None,
+        lifecycle: Any,
     ) -> None:
         if store is None:
             raise ValueError("BrokerGateway requires a durable execution event store")
+        if lifecycle is None:
+            raise ValueError("BrokerGateway requires a lifecycle for durable BROKER_IO_STARTED")
         self._adapter = adapter
         self._store = store
         self._lifecycle = lifecycle
@@ -294,8 +296,7 @@ class BrokerGateway:
             )
         try:
             # Durable transition CLAIMED → IO_STARTED before broker I/O (P0-3A)
-            if self._lifecycle is not None:
-                self._lifecycle.record_broker_io_started(auth["intent_id"])
+            self._lifecycle.record_broker_io_started(auth["intent_id"])
             # Use canonical adapter.submit_order() returning BrokerSubmitFact
             submit_fact: BrokerSubmitFact = self._adapter.submit_order(request)
             success = submit_fact.state in (

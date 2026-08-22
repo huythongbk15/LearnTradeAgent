@@ -945,7 +945,7 @@ class TestTwoConnectionConcurrency:
                 "intent_id": "concurrent-a",
             }
             store_a.get_latest_broker_event.return_value = None
-            gateway_a = BrokerGateway(adapter=adapter_a, store=store_a, lifecycle=None)
+            gateway_a = BrokerGateway(adapter=adapter_a, store=store_a, lifecycle=MagicMock())
 
             # Connection B with isolated state dir
             with tempfile.TemporaryDirectory() as tmp_b:
@@ -972,7 +972,7 @@ class TestTwoConnectionConcurrency:
                 }
                 store_b.get_latest_broker_event.return_value = None
                 gateway_b = BrokerGateway(
-                    adapter=adapter_b, store=store_b, lifecycle=None
+                    adapter=adapter_b, store=store_b, lifecycle=MagicMock()
                 )
 
                 results = {"a": None, "b": None}
