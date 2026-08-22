@@ -348,7 +348,11 @@ def main():
         inventory_source=_inventory_source,
         portfolio_source=_portfolio_source,
     )
-    gateway = BrokerGateway(adapter=LiveBrokerExecutionAdapter(broker), store=store)
+    gateway = BrokerGateway(
+        adapter=LiveBrokerExecutionAdapter(broker),
+        store=store,
+        lifecycle=lifecycle,
+    )
 
     acct = broker.get_account()
     print("\n✅ Alpaca Paper connected")
