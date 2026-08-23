@@ -139,7 +139,7 @@ def _check_paper_flow(root: Path) -> None:
         state_dir=root / "paper-state",
     )
     exchange.update_prices({SYMBOL: PRICE})
-    gateway = BrokerGateway(PaperExecutionAdapter(exchange), store)
+    gateway = BrokerGateway(PaperExecutionAdapter(exchange), store, lifecycle)
 
     try:
         gateway.submit(
@@ -153,6 +153,7 @@ def _check_paper_flow(root: Path) -> None:
 
     intent_id = "paper-fill"
     authorization_id = _authorized_order(lifecycle, intent_id)
+    lifecycle.request_broker_submission(intent_id, claimed_by=intent_id)
     result = gateway.submit(authorization_id, correlation_id=intent_id)
     if result.state != BrokerSubmitState.FILLED or not result.broker_order_id:
         raise AssertionError(f"paper order was not fill-confirmed: {result}")
@@ -171,7 +172,8 @@ def _check_unknown_requires_reconciliation(root: Path) -> None:
     )
     intent_id = "ambiguous-submit"
     authorization_id = _authorized_order(lifecycle, intent_id)
-    result = BrokerGateway(_UnknownAdapter(), store).submit(
+    lifecycle.request_broker_submission(intent_id, claimed_by=intent_id)
+    result = BrokerGateway(_UnknownAdapter(), store, lifecycle).submit(
         authorization_id,
         correlation_id=intent_id,
     )
