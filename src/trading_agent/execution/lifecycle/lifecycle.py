@@ -58,6 +58,7 @@ from trading_agent.execution.lifecycle.store import (
     ExecutionEventStore,
     ReservationConflictError,
     SequenceGapError,
+    SnapshotIntegrityError,
 )
 
 # ── Status vocabulary ──────────────────────────────────────────────────
@@ -333,9 +334,12 @@ class LifecycleState:
                 reserved_quantity=float(order_data.get("reserved_quantity", 0.0)),
                 released_quantity=float(order_data.get("released_quantity", 0.0)),
                 avg_fill_price=order_data.get("avg_fill_price"),
-                fees=order_data.get("fees", {}),
+                fees=float(order_data.get("fees", 0.0)),
                 protective_order_ids=order_data.get("protective_order_ids", []),
                 manual_reasons=order_data.get("manual_reasons", []),
+                created_at=datetime.fromisoformat(order_data["created_at"])
+                if order_data.get("created_at")
+                else datetime(1970, 1, 1, tzinfo=UTC),
                 # P0 authorization tracking
                 authorization_id=order_data.get("authorization_id"),
                 idempotency_key=order_data.get("idempotency_key"),
@@ -369,11 +373,79 @@ class LifecycleState:
         state.protection_state = {
             k: ProtectionState(v) for k, v in data.get("protection_state", {}).items()
         }
-        state.manual_blocked = data.get("manual_blocked", False)
+        manual_blocked = data.get("manual_blocked", False)
+        if not isinstance(manual_blocked, bool):
+            raise ValueError("snapshot manual_blocked must be boolean")
+        state.manual_blocked = manual_blocked
         state.unresolved_manual_intents = set(data.get("unresolved_manual_intents", []))
         state.last_event_ids = dict(data.get("last_event_ids", {}))
-        state.state_version = data.get("state_version", 0)
+        state.state_version = int(data.get("state_version", 0))
+        if state.state_version < 0:
+            raise ValueError("snapshot state_version cannot be negative")
         return state
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return the complete capital-relevant snapshot representation."""
+        return {
+            "orders": {
+                key: {
+                    "intent_id": value.intent_id,
+                    "symbol": value.symbol,
+                    "side": value.side,
+                    "size": value.size,
+                    "status": value.status.value,
+                    "risk_approved": value.risk_approved,
+                    "risk_decision": value.risk_decision.to_dict()
+                    if value.risk_decision
+                    else None,
+                    "broker_order_id": value.broker_order_id,
+                    "exchange_order_id": value.exchange_order_id,
+                    "filled_size": value.filled_size,
+                    "authorized_quantity": value.authorized_quantity,
+                    "reserved_quantity": value.reserved_quantity,
+                    "released_quantity": value.released_quantity,
+                    "avg_fill_price": value.avg_fill_price,
+                    "fees": value.fees,
+                    "protective_order_ids": list(value.protective_order_ids),
+                    "manual_reasons": list(value.manual_reasons),
+                    "created_at": value.created_at.isoformat(),
+                    "authorization_id": value.authorization_id,
+                    "idempotency_key": value.idempotency_key,
+                    "payload_hash": value.payload_hash,
+                    "permission": value.permission,
+                    "authorized_at": value.authorized_at,
+                    "submission_requested": value.submission_requested,
+                    "io_started": value.io_started,
+                    "price_reference": value.price_reference,
+                    "portfolio_equity": value.portfolio_equity,
+                    "current_position_quantity": value.current_position_quantity,
+                    "resulting_position_quantity": value.resulting_position_quantity,
+                    "current_exposure": value.current_exposure,
+                    "resulting_exposure": value.resulting_exposure,
+                    "incremental_exposure": value.incremental_exposure,
+                }
+                for key, value in self.orders.items()
+            },
+            "protective_orders": {
+                key: {
+                    "order_id": value.order_id,
+                    "symbol": value.symbol,
+                    "kind": value.kind,
+                    "trigger_price": value.trigger_price,
+                    "status": value.status,
+                }
+                for key, value in self.protective_orders.items()
+            },
+            "reconciliation": self.reconciliation.value,
+            "execution_health": self.execution_health.value,
+            "protection_state": {
+                key: value.value for key, value in self.protection_state.items()
+            },
+            "manual_blocked": self.manual_blocked,
+            "unresolved_manual_intents": sorted(self.unresolved_manual_intents),
+            "state_version": self.state_version,
+            "last_event_ids": dict(self.last_event_ids),
+        }
 
 
 # ── Guards plumbing ────────────────────────────────────────────────────
@@ -645,31 +717,26 @@ class ExecutionLifecycle:
     def replay_global(self, events: list[ExecutionEvent]) -> LifecycleState:
         """Replay events in strict global_seq order (cross-aggregate replay).
 
-        Pre-migration events (global_seq = -1) are NOT allowed because
+        Pre-migration events (global_seq <= 0) are NOT allowed because
         cross-aggregate ordering cannot be reconstructed from aggregate-local
         seq alone. Run the migration script to assign valid global_seq values
         before loading.
 
-        Events with global_seq = 0 are treated as unassigned and are accepted
-        for backward compatibility with tests and unmigrated databases.
+        Unassigned global_seq = 0 is also legacy ambiguity and fails closed.
         """
         if not events:
             return LifecycleState()
-        # Strict: reject any pre-migration event
-        pre_migration = [e for e in events if e.global_seq == -1]
+        # Strict: reject every event without canonical post-cutover ordering.
+        pre_migration = [e for e in events if e.global_seq <= 0]
         if pre_migration:
             raise LifecycleError(
                 f"global replay rejected {len(pre_migration)} pre-migration events "
-                f"(global_seq = -1). Run migration to assign global_seq."
+                f"(global_seq <= 0). Complete verified cutover first."
             )
-        # Sort post-migration by global_seq (strictly increasing, 0 is allowed)
+        # Sort post-migration by strict positive global sequence.
         events.sort(key=lambda e: e.global_seq)
-        # Verify global_seq is strictly increasing for values > 0
-        prev_seq = -1
+        prev_seq = 0
         for event in events:
-            if event.global_seq == 0:
-                # Unassigned global_seq: skip ordering check
-                continue
             if event.global_seq <= prev_seq:
                 raise LifecycleError(
                     f"global_seq not strictly increasing: {prev_seq} -> {event.global_seq} "
@@ -689,15 +756,46 @@ class ExecutionLifecycle:
         If no snapshot exists, fall back to full global replay (which
         rejects pre-migration events).
         """
-        snapshot = self.store.load_snapshot("global")
+        self.store.validate_global_sequence()
+        cutover_snapshot = self.store.validate_cutover_authority()
+        runtime_snapshot = self.store.load_snapshot("global")
+        snapshot = runtime_snapshot or cutover_snapshot
         if snapshot is not None:
-            # Snapshot-based recovery: only replay events after the snapshot.
-            state = LifecycleState.from_dict(snapshot.state)
+            max_global_seq = self.store.max_global_seq()
+            if not 0 <= snapshot.last_global_seq <= max_global_seq:
+                raise SnapshotIntegrityError(
+                    "snapshot last_global_seq is outside the durable event log"
+                )
+            if (
+                cutover_snapshot is not None
+                and snapshot.state_version < cutover_snapshot.state_version
+            ):
+                raise SnapshotIntegrityError(
+                    "runtime snapshot predates immutable cutover authority"
+                )
+            if (
+                runtime_snapshot is not None
+                and cutover_snapshot is not None
+                and runtime_snapshot.last_global_seq == 0
+                and runtime_snapshot.checksum != cutover_snapshot.checksum
+            ):
+                raise SnapshotIntegrityError(
+                    "zero-sequence runtime snapshot differs from cutover authority"
+                )
+            try:
+                state = LifecycleState.from_dict(snapshot.state)
+                normalized = state.to_dict()
+                if LifecycleState.from_dict(normalized).to_dict() != normalized:
+                    raise ValueError("snapshot semantic round-trip changed state")
+            except (KeyError, TypeError, ValueError) as exc:
+                raise SnapshotIntegrityError(
+                    "snapshot cannot reconstruct complete lifecycle state"
+                ) from exc
             events = self.store.read_events_global(
                 after_global_seq=snapshot.last_global_seq
             )
             return self.replay(events, initial_state=state)
-        # No snapshot: full global replay (pre-migration events rejected).
+        # No legacy rows and no snapshot: replay canonical positive events.
         events = self.store.read_events_global()
         return self.replay_global(events)
 
@@ -2283,69 +2381,7 @@ class ExecutionLifecycle:
 
     def snapshot_state(self) -> dict[str, Any]:
         """Serializable state for the durable snapshot (store.save_snapshot)."""
-        return {
-            "orders": {
-                k: {
-                    # Core identity
-                    "intent_id": v.intent_id,
-                    "symbol": v.symbol,
-                    "side": v.side,
-                    "size": v.size,
-                    "status": v.status.value,
-                    "risk_approved": v.risk_approved,
-                    # Broker tracking
-                    "broker_order_id": v.broker_order_id,
-                    "exchange_order_id": v.exchange_order_id,
-                    "filled_size": v.filled_size,
-                    "authorized_quantity": v.authorized_quantity,
-                    "reserved_quantity": v.reserved_quantity,
-                    "released_quantity": v.released_quantity,
-                    "avg_fill_price": v.avg_fill_price,
-                    "fees": v.fees,
-                    "protective_order_ids": v.protective_order_ids,
-                    "manual_reasons": v.manual_reasons,
-                    # P0 authorization tracking
-                    "risk_decision": v.risk_decision.to_dict()
-                    if v.risk_decision
-                    else None,
-                    "authorization_id": v.authorization_id,
-                    "idempotency_key": v.idempotency_key,
-                    "payload_hash": v.payload_hash,
-                    "permission": v.permission,
-                    "authorized_at": v.authorized_at,
-                    "submission_requested": v.submission_requested,
-                    "io_started": v.io_started,
-                    # P0-1 portfolio exposure
-                    "price_reference": v.price_reference,
-                    "portfolio_equity": v.portfolio_equity,
-                    "current_position_quantity": v.current_position_quantity,
-                    "resulting_position_quantity": v.resulting_position_quantity,
-                    "current_exposure": v.current_exposure,
-                    "resulting_exposure": v.resulting_exposure,
-                    "incremental_exposure": v.incremental_exposure,
-                }
-                for k, v in self.state.orders.items()
-            },
-            "protective_orders": {
-                k: {
-                    "order_id": v.order_id,
-                    "symbol": v.symbol,
-                    "kind": v.kind,
-                    "trigger_price": v.trigger_price,
-                    "status": v.status,
-                }
-                for k, v in self.state.protective_orders.items()
-            },
-            "reconciliation": self.state.reconciliation.value,
-            "execution_health": self.state.execution_health.value,
-            "protection_state": {
-                k: v.value for k, v in self.state.protection_state.items()
-            },
-            "manual_blocked": self.state.manual_blocked,
-            "unresolved_manual_intents": sorted(self.state.unresolved_manual_intents),
-            "state_version": self.state.state_version,
-            "last_event_ids": dict(self.state.last_event_ids),
-        }
+        return self.state.to_dict()
 
     def last_global_seq(self) -> int:
         return self.store.max_global_seq()

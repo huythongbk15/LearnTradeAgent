@@ -114,7 +114,9 @@ files = [
     "src/trading_agent/execution/canonical/adapters.py",
     "src/trading_agent/execution/application.py",
     "src/trading_agent/execution/lifecycle/lifecycle.py",
+    "src/trading_agent/execution/lifecycle/store.py",
     "src/trading_agent/execution/engine.py",
+    "scripts/migrate_global_seq.py",
 ]
 follow_imports = "skip"
 ignore_missing_imports = true

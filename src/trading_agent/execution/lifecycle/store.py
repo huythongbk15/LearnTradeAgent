@@ -30,7 +30,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping, Sequence
 
 from trading_agent.execution.lifecycle.events import (
     EVENT_SCHEMA_VERSION,
@@ -38,6 +38,8 @@ from trading_agent.execution.lifecycle.events import (
     ExecutionEventType,
     UnknownEventTypeError,
 )
+
+CUTOVER_MIGRATION_VERSION = 2
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS execution_events (
@@ -60,6 +62,9 @@ CREATE INDEX IF NOT EXISTS idx_exec_event_type
     ON execution_events (event_type);
 CREATE INDEX IF NOT EXISTS idx_exec_global_seq
     ON execution_events (global_seq);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_exec_global_seq_positive
+    ON execution_events (global_seq)
+    WHERE global_seq > 0;
 
 CREATE TABLE IF NOT EXISTS execution_snapshots (
     snapshot_id     TEXT PRIMARY KEY,
@@ -71,6 +76,38 @@ CREATE TABLE IF NOT EXISTS execution_snapshots (
     checksum        TEXT NOT NULL,
     created_at      TEXT NOT NULL,
     UNIQUE (aggregate_id)
+);
+
+CREATE TABLE IF NOT EXISTS execution_cutover_snapshots (
+    snapshot_id     TEXT PRIMARY KEY,
+    aggregate_id    TEXT NOT NULL UNIQUE CHECK (aggregate_id = 'global'),
+    schema_version  INTEGER NOT NULL,
+    state_version   INTEGER NOT NULL,
+    last_seq        INTEGER NOT NULL CHECK (last_seq = 0),
+    state_json      TEXT NOT NULL,
+    checksum        TEXT NOT NULL,
+    created_at      TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS execution_migration_state (
+    migration_id         TEXT PRIMARY KEY,
+    migration_version    INTEGER NOT NULL,
+    snapshot_id          TEXT NOT NULL UNIQUE,
+    snapshot_checksum    TEXT NOT NULL,
+    source_event_count   INTEGER NOT NULL,
+    source_event_checksum TEXT NOT NULL,
+    legacy_event_count   INTEGER NOT NULL,
+    cutover_at           TEXT NOT NULL,
+    first_post_cutover_global_seq INTEGER NOT NULL CHECK (
+        first_post_cutover_global_seq = 1
+    ),
+    schema_version       INTEGER NOT NULL,
+    state_version        INTEGER NOT NULL,
+    source_provenance    TEXT NOT NULL,
+    source_db_fingerprint TEXT,
+    created_at           TEXT NOT NULL,
+    FOREIGN KEY (snapshot_id)
+        REFERENCES execution_cutover_snapshots(snapshot_id)
 );
 
 CREATE TABLE IF NOT EXISTS execution_sell_reservations (
@@ -118,6 +155,14 @@ class SnapshotIntegrityError(RuntimeError):
     """Raised when a snapshot is corrupt, partial or schema-incompatible."""
 
 
+class LegacyMigrationError(SnapshotIntegrityError):
+    """Raised when legacy history cannot be migrated without guessing truth."""
+
+
+class LegacyCutoverStateRequired(LegacyMigrationError):
+    """Raised when unordered legacy history has no verified cutover authority."""
+
+
 class ReservationConflictError(RuntimeError):
     """Raised when concurrent SELL locks exceed authorized inventory."""
 
@@ -133,9 +178,48 @@ class Snapshot:
     created_at: datetime
 
 
+@dataclass(frozen=True)
+class CutoverMetadata:
+    migration_id: str
+    migration_version: int
+    snapshot_id: str
+    snapshot_checksum: str
+    source_event_count: int
+    source_event_checksum: str
+    legacy_event_count: int
+    cutover_at: datetime
+    first_post_cutover_global_seq: int
+    schema_version: int
+    state_version: int
+    source_provenance: str
+    source_db_fingerprint: str | None
+
+
 def snapshot_checksum(state: dict[str, Any]) -> str:
     """Deterministic checksum over the snapshot state."""
     blob = json.dumps(state, default=str, sort_keys=True).encode("utf-8")
+    return hashlib.sha256(blob).hexdigest()
+
+
+_SOURCE_EVENT_FIELDS = (
+    "event_id",
+    "seq",
+    "aggregate_id",
+    "event_type",
+    "schema_version",
+    "payload",
+    "correlation_id",
+    "causation_id",
+    "occurred_at",
+    "ingested_at",
+)
+
+
+def source_event_checksum(rows: Sequence[Mapping[str, Any] | sqlite3.Row]) -> str:
+    """Bind migration metadata to immutable legacy rows without inventing order."""
+    normalized = [{field: row[field] for field in _SOURCE_EVENT_FIELDS} for row in rows]
+    normalized.sort(key=lambda item: str(item["event_id"]))
+    blob = json.dumps(normalized, default=str, sort_keys=True).encode("utf-8")
     return hashlib.sha256(blob).hexdigest()
 
 
@@ -157,36 +241,28 @@ class ExecutionEventStore:
         conn.execute("PRAGMA foreign_keys=ON")
         conn.executescript(_SCHEMA)
         conn.commit()
+        positive_index = next(
+            (
+                row
+                for row in conn.execute("PRAGMA index_list(execution_events)")
+                if row["name"] == "idx_exec_global_seq_positive"
+            ),
+            None,
+        )
+        if (
+            positive_index is None
+            or not bool(positive_index["unique"])
+            or not bool(positive_index["partial"])
+        ):
+            conn.close()
+            raise SnapshotIntegrityError(
+                "positive global_seq must have a unique partial DB index"
+            )
         self._conn = conn
-        # NOTE: Legacy DB migration (_migrate_global_seq_if_needed) and
-        # sell reservation rebuild (_rebuild_sell_reservations_if_needed)
-        # are NO LONGER automatic on connect().  They must be invoked
-        # explicitly after verified cutover.
+        # Legacy cutover is never automatic. The dedicated migration command
+        # validates authority and commits snapshot + marker + row marking as
+        # one transaction before append/recovery will accept legacy rows.
         return self
-
-    def _migrate_global_seq_if_needed(self) -> None:
-        """Populate global_seq for existing DBs that don't have it yet.
-
-        Policy A (safe boundary):
-        - Old events (already persisted before migration) cannot have their
-          true historical cross-aggregate order reconstructed reliably.
-        - We mark them with global_seq = -1 to indicate "pre-migration".
-        - New events appended after migration receive strictly monotonic
-          global_seq > 0.
-        - Replay must handle pre-migration events separately (e.g., via
-          snapshot or aggregate-local replay).
-        """
-        cursor = self.conn.execute(
-            "SELECT COUNT(*) AS c FROM execution_events WHERE global_seq = 0"
-        )
-        row = cursor.fetchone()
-        if row is None or row["c"] == 0:
-            return
-        # Mark pre-migration events with -1; new events will get >0
-        self.conn.execute(
-            "UPDATE execution_events SET global_seq = -1 WHERE global_seq = 0"
-        )
-        self.conn.commit()
 
     def close(self) -> None:
         if self._conn is not None:
@@ -395,6 +471,22 @@ class ExecutionEventStore:
         ).fetchone()
         return dict(row) if row is not None else None
 
+    def _assert_append_ready(self) -> None:
+        self.validate_global_sequence()
+        uncut = self.conn.execute(
+            "SELECT COUNT(*) AS c FROM execution_events WHERE global_seq = 0"
+        ).fetchone()["c"]
+        if uncut:
+            raise LegacyCutoverStateRequired(
+                "legacy execution history has no trustworthy global ordering and "
+                "has not completed verified cutover; refusing append"
+            )
+        legacy = self.conn.execute(
+            "SELECT COUNT(*) AS c FROM execution_events WHERE global_seq = -1"
+        ).fetchone()["c"]
+        if legacy:
+            self.validate_cutover_authority()
+
     def append(
         self,
         event: ExecutionEvent,
@@ -404,6 +496,7 @@ class ExecutionEventStore:
         """Append one event and its reservation projection atomically."""
         try:
             self.conn.execute("BEGIN IMMEDIATE")
+            self._assert_append_ready()
             existing = self.conn.execute(
                 "SELECT 1 FROM execution_events WHERE event_id = ?",
                 (event.event_id,),
@@ -420,16 +513,11 @@ class ExecutionEventStore:
                     )
             row = event.to_row()
             row["ingested_at"] = datetime.now(UTC).isoformat()
-            # Populate global_seq if not provided
-            if row.get("global_seq") is None or row["global_seq"] == 0:
-                max_global = self.conn.execute(
-                    "SELECT COALESCE(MAX(global_seq), 0) FROM execution_events"
-                ).fetchone()[0]
-                # Ensure first post-cutover seq is 1 and positive seqs are unique.
-                if max_global < 1:
-                    row["global_seq"] = 1
-                else:
-                    row["global_seq"] = max_global + 1
+            max_global = self.conn.execute(
+                "SELECT COALESCE(MAX(CASE WHEN global_seq > 0 "
+                "THEN global_seq END), 0) FROM execution_events"
+            ).fetchone()[0]
+            row["global_seq"] = int(max_global) + 1
             self.conn.execute(
                 """
                 INSERT INTO execution_events
@@ -467,35 +555,35 @@ class ExecutionEventStore:
         """Append events atomically in one transaction with BEGIN IMMEDIATE."""
         if not events:
             return []
-        if expect_seq:
-            # Track expected seq locally per aggregate so batch seqs are
-            # validated against the pre-batch state, not intermediate inserts.
-            expected_by_aggregate: dict[str, int] = {}
-            for event in events:
-                agg = event.aggregate_id
-                if agg not in expected_by_aggregate:
-                    expected_by_aggregate[agg] = self.max_seq(agg) + 1
-                if event.seq != expected_by_aggregate[agg]:
-                    raise SequenceGapError(
-                        f"aggregate {agg}: expected seq {expected_by_aggregate[agg]}, "
-                        f"got {event.seq}"
-                    )
-                expected_by_aggregate[agg] += 1
         results: list[bool] = []
         try:
             self.conn.execute("BEGIN IMMEDIATE")
+            self._assert_append_ready()
+            if expect_seq:
+                # Validate under the same writer lock used for allocation.
+                expected_by_aggregate: dict[str, int] = {}
+                for event in events:
+                    agg = event.aggregate_id
+                    if agg not in expected_by_aggregate:
+                        expected_by_aggregate[agg] = self.max_seq(agg) + 1
+                    if event.seq != expected_by_aggregate[agg]:
+                        raise SequenceGapError(
+                            f"aggregate {agg}: expected seq "
+                            f"{expected_by_aggregate[agg]}, got {event.seq}"
+                        )
+                    expected_by_aggregate[agg] += 1
             # Pre-allocate global_seq for the entire batch to ensure
             # strict monotonicity within the transaction.
             max_global = self.conn.execute(
-                "SELECT COALESCE(MAX(global_seq), 0) FROM execution_events"
+                "SELECT COALESCE(MAX(CASE WHEN global_seq > 0 "
+                "THEN global_seq END), 0) FROM execution_events"
             ).fetchone()[0]
-            # Ensure first post-cutover seq is 1 and positive seqs are unique.
-            global_seq_counter = max_global if max_global >= 1 else 0
+            global_seq_counter = int(max_global)
             for idx, event in enumerate(events):
-                global_seq_counter += 1
+                next_global_seq = global_seq_counter + 1
                 row = event.to_row()
                 row["ingested_at"] = datetime.now(UTC).isoformat()
-                row["global_seq"] = global_seq_counter
+                row["global_seq"] = next_global_seq
                 cur = self.conn.execute(
                     """
                     INSERT OR IGNORE INTO execution_events
@@ -512,6 +600,7 @@ class ExecutionEventStore:
                 )
                 inserted = cur.rowcount == 1
                 if inserted:
+                    global_seq_counter = next_global_seq
                     self._apply_sell_reservation_projection(event)
                 results.append(inserted)
             self.conn.commit()
@@ -544,12 +633,14 @@ class ExecutionEventStore:
         if aggregate_id is not None:
             clauses.append("aggregate_id = ?")
             params.append(aggregate_id)
-        if after_seq:
-            if order_by_global:
-                clauses.append("global_seq > ?")
-            else:
-                clauses.append("seq > ?")
+        if order_by_global:
+            # Global recovery never replays unordered legacy rows (-1/0).
+            clauses.append("global_seq > ?")
             params.append(after_seq)
+        elif after_seq:
+            if not order_by_global:
+                clauses.append("seq > ?")
+                params.append(after_seq)
         if clauses:
             sql += " WHERE " + " AND ".join(clauses)
         if order_by_global:
@@ -585,9 +676,26 @@ class ExecutionEventStore:
 
     def max_global_seq(self) -> int:
         row = self.conn.execute(
-            "SELECT MAX(global_seq) AS m FROM execution_events"
+            "SELECT MAX(CASE WHEN global_seq > 0 THEN global_seq END) AS m "
+            "FROM execution_events"
         ).fetchone()
         return int(row["m"]) if row and row["m"] is not None else 0
+
+    def validate_global_sequence(self) -> None:
+        """Reject gaps or a non-one post-cutover sequence origin."""
+        row = self.conn.execute(
+            "SELECT COUNT(*) AS c, MIN(global_seq) AS lo, MAX(global_seq) AS hi "
+            "FROM execution_events WHERE global_seq > 0"
+        ).fetchone()
+        count = int(row["c"])
+        if count == 0:
+            return
+        minimum = int(row["lo"])
+        maximum = int(row["hi"])
+        if minimum != 1 or count != maximum:
+            raise SnapshotIntegrityError(
+                "post-cutover global_seq must be contiguous from 1"
+            )
 
     def count(self) -> int:
         row = self.conn.execute("SELECT COUNT(*) AS c FROM execution_events").fetchone()
@@ -771,6 +879,161 @@ class ExecutionEventStore:
 
     # ── Durable snapshot + restore ──────────────────────────────────────
 
+    def _table_columns(self, table: str) -> set[str]:
+        return {
+            str(row["name"])
+            for row in self.conn.execute(f"PRAGMA table_info({table})").fetchall()
+        }
+
+    def load_cutover_metadata(self) -> CutoverMetadata | None:
+        """Load the single migration marker, rejecting old/partial schemas."""
+        expected = {
+            "migration_id",
+            "migration_version",
+            "snapshot_id",
+            "snapshot_checksum",
+            "source_event_count",
+            "source_event_checksum",
+            "legacy_event_count",
+            "cutover_at",
+            "first_post_cutover_global_seq",
+            "schema_version",
+            "state_version",
+            "source_provenance",
+            "source_db_fingerprint",
+            "created_at",
+        }
+        columns = self._table_columns("execution_migration_state")
+        if not columns:
+            return None
+        missing = expected - columns
+        if missing:
+            raise SnapshotIntegrityError(
+                "legacy cutover metadata uses an incompatible schema; missing "
+                + ", ".join(sorted(missing))
+            )
+        rows = self.conn.execute(
+            "SELECT * FROM execution_migration_state ORDER BY created_at"
+        ).fetchall()
+        if not rows:
+            return None
+        if len(rows) != 1:
+            raise SnapshotIntegrityError(
+                "multiple cutover markers found; refusing ambiguous recovery"
+            )
+        row = rows[0]
+        return CutoverMetadata(
+            migration_id=str(row["migration_id"]),
+            migration_version=int(row["migration_version"]),
+            snapshot_id=str(row["snapshot_id"]),
+            snapshot_checksum=str(row["snapshot_checksum"]),
+            source_event_count=int(row["source_event_count"]),
+            source_event_checksum=str(row["source_event_checksum"]),
+            legacy_event_count=int(row["legacy_event_count"]),
+            cutover_at=datetime.fromisoformat(str(row["cutover_at"])),
+            first_post_cutover_global_seq=int(row["first_post_cutover_global_seq"]),
+            schema_version=int(row["schema_version"]),
+            state_version=int(row["state_version"]),
+            source_provenance=str(row["source_provenance"]),
+            source_db_fingerprint=row["source_db_fingerprint"],
+        )
+
+    def load_cutover_snapshot(self) -> Snapshot | None:
+        """Load the immutable snapshot that established legacy cutover truth."""
+        columns = self._table_columns("execution_cutover_snapshots")
+        if not columns:
+            return None
+        rows = self.conn.execute(
+            "SELECT * FROM execution_cutover_snapshots WHERE aggregate_id = 'global'"
+        ).fetchall()
+        if not rows:
+            return None
+        if len(rows) != 1:
+            raise SnapshotIntegrityError("multiple global cutover snapshots found")
+        row = rows[0]
+        try:
+            state = json.loads(row["state_json"])
+        except json.JSONDecodeError as exc:
+            raise SnapshotIntegrityError(
+                "cutover snapshot contains unreadable state_json"
+            ) from exc
+        checksum = snapshot_checksum(state)
+        if checksum != row["checksum"]:
+            raise SnapshotIntegrityError("cutover snapshot checksum mismatch")
+        if int(row["schema_version"]) != EVENT_SCHEMA_VERSION:
+            raise SnapshotIntegrityError("cutover snapshot schema is incompatible")
+        if int(row["last_seq"]) != 0:
+            raise SnapshotIntegrityError(
+                "cutover snapshot must precede global_seq allocation at zero"
+            )
+        return Snapshot(
+            aggregate_id="global",
+            schema_version=int(row["schema_version"]),
+            state_version=int(row["state_version"]),
+            last_global_seq=0,
+            state=state,
+            checksum=str(row["checksum"]),
+            created_at=datetime.fromisoformat(str(row["created_at"])),
+        )
+
+    def validate_cutover_authority(self) -> Snapshot | None:
+        """Prove that every unordered legacy row is bound to cutover truth."""
+        uncut = self.conn.execute(
+            "SELECT COUNT(*) AS c FROM execution_events WHERE global_seq = 0"
+        ).fetchone()["c"]
+        if uncut:
+            raise LegacyCutoverStateRequired(
+                "legacy execution history has no trustworthy global ordering and "
+                "has not completed verified cutover"
+            )
+        legacy_rows = self.conn.execute(
+            "SELECT * FROM execution_events WHERE global_seq = -1"
+        ).fetchall()
+        if not legacy_rows:
+            return None
+        for row in legacy_rows:
+            try:
+                event = ExecutionEvent.from_row(dict(row))
+                if event.schema_version != EVENT_SCHEMA_VERSION:
+                    raise ValueError("unsupported legacy event schema")
+            except (UnknownEventTypeError, KeyError, TypeError, ValueError) as exc:
+                raise SnapshotIntegrityError(
+                    "unknown or malformed legacy execution event blocks recovery"
+                ) from exc
+        metadata = self.load_cutover_metadata()
+        snapshot = self.load_cutover_snapshot()
+        if metadata is None or snapshot is None:
+            raise LegacyCutoverStateRequired(
+                "pre-cutover events exist without a verified snapshot and marker"
+            )
+        if metadata.migration_version != CUTOVER_MIGRATION_VERSION:
+            raise SnapshotIntegrityError("unsupported legacy cutover migration version")
+        if (
+            metadata.snapshot_id
+            != self.conn.execute(
+                "SELECT snapshot_id FROM execution_cutover_snapshots "
+                "WHERE aggregate_id = 'global'"
+            ).fetchone()["snapshot_id"]
+        ):
+            raise SnapshotIntegrityError("cutover marker references another snapshot")
+        if metadata.snapshot_checksum != snapshot.checksum:
+            raise SnapshotIntegrityError(
+                "cutover marker checksum does not bind snapshot"
+            )
+        if metadata.schema_version != snapshot.schema_version:
+            raise SnapshotIntegrityError("cutover marker schema version mismatch")
+        if metadata.state_version != snapshot.state_version:
+            raise SnapshotIntegrityError("cutover marker state version mismatch")
+        if metadata.first_post_cutover_global_seq != 1:
+            raise SnapshotIntegrityError("invalid first post-cutover global sequence")
+        if metadata.legacy_event_count != len(legacy_rows):
+            raise SnapshotIntegrityError("legacy event count changed after cutover")
+        if metadata.source_event_count != len(legacy_rows):
+            raise SnapshotIntegrityError("cutover source event count mismatch")
+        if metadata.source_event_checksum != source_event_checksum(legacy_rows):
+            raise SnapshotIntegrityError("legacy event checksum changed after cutover")
+        return snapshot
+
     def save_snapshot(
         self,
         aggregate_id: str,
@@ -864,6 +1127,11 @@ __all__ = [
     "ExecutionEventStore",
     "SequenceGapError",
     "SnapshotIntegrityError",
+    "LegacyMigrationError",
+    "LegacyCutoverStateRequired",
     "Snapshot",
+    "CutoverMetadata",
+    "CUTOVER_MIGRATION_VERSION",
     "snapshot_checksum",
+    "source_event_checksum",
 ]

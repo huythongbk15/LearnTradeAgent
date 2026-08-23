@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import math
 import sys
 import tempfile
@@ -41,8 +42,10 @@ from trading_agent.execution.canonical.market_observation import (
     EnrichedMarketObservation,
 )
 from trading_agent.execution.lifecycle import ExecutionEventStore
+from trading_agent.execution.lifecycle import snapshot_checksum
 from trading_agent.execution.lifecycle.lifecycle import (
     ExecutionLifecycle,
+    LifecycleState,
     LifecycleError,
     TrustedPrice,
     PortfolioRiskSnapshot,
@@ -1695,7 +1698,7 @@ class TestP1ConvergenceProofs:
                 "e1",
                 1,
                 "agg1",
-                "TYPE_A",
+                "exec.order_intent_created",
                 1,
                 "{}",
                 "c1",
@@ -1708,7 +1711,7 @@ class TestP1ConvergenceProofs:
                 "e2",
                 2,
                 "agg1",
-                "TYPE_B",
+                "exec.risk_approved",
                 1,
                 "{}",
                 "c1",
@@ -1721,7 +1724,7 @@ class TestP1ConvergenceProofs:
                 "e3",
                 1,
                 "agg2",
-                "TYPE_A",
+                "exec.order_intent_created",
                 1,
                 "{}",
                 "c2",
@@ -1738,12 +1741,35 @@ class TestP1ConvergenceProofs:
         conn.commit()
         conn.close()
 
-        # Run migration twice
+        # Explicit operator proof that these synthetic fixtures normalize flat.
+        snapshot_path = db_path.with_suffix(".snapshot.json")
+        empty_state = LifecycleState().to_dict()
+        snapshot_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "state_version": 0,
+                    "last_global_seq": 0,
+                    "provenance": "synthetic fixture independently verified flat",
+                    "verified_empty": True,
+                    "state": empty_state,
+                    "checksum": snapshot_checksum(empty_state),
+                }
+            )
+        )
+
+        # Run migration twice; rerun must verify and remain idempotent.
         import subprocess
 
         for _ in range(2):
             result = subprocess.run(
-                [sys.executable, "scripts/migrate_global_seq.py", str(db_path)],
+                [
+                    sys.executable,
+                    "scripts/migrate_global_seq.py",
+                    str(db_path),
+                    "--snapshot",
+                    str(snapshot_path),
+                ],
                 capture_output=True,
                 text=True,
             )
@@ -1761,8 +1787,8 @@ class TestP1ConvergenceProofs:
         )
         assert gs == [-1, -1, -1], f"unexpected global_seq order: {gs}"
 
-    def test_migration_creates_submission_claims_table(self):
-        """Migration must create execution_submission_claims table idempotently."""
+    def test_runtime_store_creates_submission_claims_table(self):
+        """Normal store initialization owns runtime submission-claim schema."""
         import sqlite3
 
         db_path = Path(tempfile.gettempdir()) / "test_migration_claims.db"
@@ -1788,15 +1814,8 @@ class TestP1ConvergenceProofs:
         """)
         conn.close()
 
-        # Run migration
-        import subprocess
-
-        result = subprocess.run(
-            [sys.executable, "scripts/migrate_global_seq.py", str(db_path)],
-            capture_output=True,
-            text=True,
-        )
-        assert result.returncode == 0, result.stderr
+        store = ExecutionEventStore(db_path).connect()
+        store.close()
 
         # Verify table exists and has correct schema
         conn = sqlite3.connect(db_path)
@@ -1823,8 +1842,8 @@ class TestP1ConvergenceProofs:
         finally:
             conn.close()
 
-    def test_mixed_legacy_and_new_db_replay(self):
-        """P0-4B: Mixed legacy (global_seq=-1) and new (global_seq>0) events must replay without crash."""
+    def test_mixed_uncut_legacy_and_positive_sequences_fail_closed(self):
+        """An already-mixed history has no provable cutover boundary."""
         import sqlite3
 
         db_path = Path(tempfile.gettempdir()) / "test_mixed_legacy.db"
@@ -1844,7 +1863,7 @@ class TestP1ConvergenceProofs:
                 causation_id TEXT,
                 occurred_at TEXT NOT NULL,
                 ingested_at TEXT NOT NULL,
-                global_seq INTEGER NOT NULL CHECK (global_seq > 0 OR global_seq = -1),
+                global_seq INTEGER NOT NULL,
                 UNIQUE (aggregate_id, seq)
             );
         """)
@@ -1861,7 +1880,7 @@ class TestP1ConvergenceProofs:
                 None,
                 "2024-01-01T00:00:00Z",
                 "2024-01-01T00:00:00Z",
-                -1,
+                0,
             ),
             (
                 "legacy-2",
@@ -1874,7 +1893,7 @@ class TestP1ConvergenceProofs:
                 "legacy-1",
                 "2024-01-01T00:01:00Z",
                 "2024-01-01T00:01:00Z",
-                -1,
+                0,
             ),
         ]
         # New events (post-migration) — start from 100 to leave room for legacy migration
@@ -1913,7 +1932,7 @@ class TestP1ConvergenceProofs:
         conn.commit()
         conn.close()
 
-        # Run migration to assign global_seq to legacy events
+        # Migration must not guess a boundary or mutate either partition.
         import subprocess
 
         result = subprocess.run(
@@ -1921,27 +1940,21 @@ class TestP1ConvergenceProofs:
             capture_output=True,
             text=True,
         )
-        assert result.returncode == 0, result.stderr
+        assert result.returncode != 0
+        assert "ambiguous cutover" in result.stderr
 
-        # Verify mixed DB: legacy events have global_seq = -1, new events positive
+        # Verify exact source global_seq values remain untouched.
         conn = sqlite3.connect(db_path)
         rows = conn.execute(
             "SELECT event_id, global_seq FROM execution_events ORDER BY global_seq"
         ).fetchall()
         conn.close()
         gs = [r[1] for r in rows]
-        # Legacy events: -1; post-cutover events: > 0
-        assert all(g == -1 or g > 0 for g in gs), (
-            f"found invalid global_seq after migration: {gs}"
-        )
-        # Legacy events are all marked -1; new events keep 100,101 (unique, positive)
-        # Total unique values: -1, 100, 101 = 3 (legacy events share -1)
+        assert all(g == 0 or g > 0 for g in gs)
         assert len(set(gs)) == 3, "global_seq must have 3 unique values after migration"
-        # Post-cutover events must be strictly monotonic and positive
         post = [g for g in gs if g > 0]
-        assert post == [100, 101], f"post-cutover global_seq unchanged: {post}"
-        # Legacy events are -1; new events are 100, 101
-        assert set(gs) == {-1, 100, 101}, f"unexpected global_seq values: {gs}"
+        assert post == [100, 101]
+        assert set(gs) == {0, 100, 101}
 
     def test_idempotency_race_same_key_rejected(self):
         """Duplicate authorization with same idempotency_key across intents must be rejected."""

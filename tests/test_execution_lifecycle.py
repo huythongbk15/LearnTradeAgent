@@ -7,6 +7,7 @@ snapshot + restore (schema_version/checksum/partial/corrupt rejection).
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -34,6 +35,7 @@ from trading_agent.execution.lifecycle import (
     IntentStatus,
     InvariantViolation,
     LifecycleError,
+    LifecycleState,
     PortfolioRiskSnapshot,
     ProtectionState,
     ReconciliationState,
@@ -41,6 +43,7 @@ from trading_agent.execution.lifecycle import (
     SnapshotIntegrityError,
     TrustedPrice,
     make_event,
+    snapshot_checksum,
 )
 
 from scripts.migrate_global_seq import migrate
@@ -1812,24 +1815,60 @@ def test_legacy_migrate_append_restart_snapshot_delta_replay(tmp_path: Path) -> 
         lc.approve_risk(intent_id, risk_decision=sample_unified_decision())
         lc.authorize_order(intent_id, idempotency_key="legacy-key")
         lc.request_broker_submission(intent_id, claimed_by=intent_id)
+        trusted_state = lc.snapshot_state()
     finally:
         store.close()
 
     # Verify legacy events exist; simulate pre-migration state by resetting global_seq to 0
     conn = sqlite3.connect(str(db_path))
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA ignore_check_constraints=ON")
-    conn.execute("UPDATE execution_events SET global_seq = 0")
-    conn.execute("PRAGMA ignore_check_constraints=OFF")
-    conn.commit()
+    conn.executescript(
+        """
+        ALTER TABLE execution_events RENAME TO execution_events_current;
+        CREATE TABLE execution_events (
+            event_id TEXT PRIMARY KEY,
+            seq INTEGER NOT NULL,
+            aggregate_id TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            schema_version INTEGER NOT NULL,
+            payload TEXT NOT NULL,
+            correlation_id TEXT,
+            causation_id TEXT,
+            occurred_at TEXT NOT NULL,
+            ingested_at TEXT NOT NULL,
+            global_seq INTEGER NOT NULL,
+            UNIQUE (aggregate_id, seq)
+        );
+        INSERT INTO execution_events
+        SELECT event_id, seq, aggregate_id, event_type, schema_version, payload,
+               correlation_id, causation_id, occurred_at, ingested_at, 0
+        FROM execution_events_current;
+        DROP TABLE execution_events_current;
+        """
+    )
     legacy = conn.execute(
         "SELECT COUNT(*) AS c FROM execution_events WHERE global_seq = 0"
     ).fetchone()
     assert legacy["c"] > 0, "expected legacy events with global_seq = 0"
     conn.close()
 
-    # 2. Run migration
-    migrate(str(db_path))
+    # 2. Run migration using independently captured pre-cutover authority.
+    snapshot_path = tmp_path / "verified-cutover.json"
+    snapshot_path.write_text(
+        json.dumps(
+            {
+                "schema_version": EVENT_SCHEMA_VERSION,
+                "state_version": trusted_state["state_version"],
+                "last_global_seq": 0,
+                "provenance": "test captured normalized state before cutover",
+                "verified_empty": False,
+                "state": trusted_state,
+                "checksum": snapshot_checksum(trusted_state),
+            },
+            sort_keys=True,
+        )
+    )
+    migrate(str(db_path), snapshot_path=snapshot_path)
 
     # 3. Append a new post-cutover event
     store = ExecutionEventStore(str(db_path)).connect()
@@ -1910,7 +1949,10 @@ def test_legacy_migrate_append_restart_snapshot_delta_replay(tmp_path: Path) -> 
                     source="test",
                 ),
             )
-            incremental_state = lc_inc.replay(all_events)
+            incremental_state = lc_inc.replay(
+                all_events,
+                initial_state=LifecycleState.from_dict(trusted_state),
+            )
         finally:
             store_inc.close()
 

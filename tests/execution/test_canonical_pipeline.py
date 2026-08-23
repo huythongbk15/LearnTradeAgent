@@ -33,6 +33,10 @@ from trading_agent.execution.canonical import (
     compute_target_exposure_key,
     propagate_causation,
 )
+from trading_agent.execution.canonical.adapters import (
+    BrokerSubmitFact,
+    BrokerSubmitState,
+)
 from trading_agent.execution.lifecycle import ExecutionEventStore
 from trading_agent.execution.lifecycle.lifecycle import (
     ExecutionLifecycle,
@@ -462,11 +466,10 @@ class TestOrderPlanner:
 
 
 class TestBrokerGateway:
-    @pytest.mark.skip(
-        reason="BrokerGateway store contract changed; skip until gateway updated"
-    )
     def test_gateway_exposes_only_capital_methods(self):
-        gateway = BrokerGateway(adapter=None, store=MagicMock(), lifecycle=MagicMock())
+        gateway = BrokerGateway(
+            adapter=MagicMock(), store=MagicMock(), lifecycle=MagicMock()
+        )
         allowed = {
             "submit",
             "cancel",
@@ -477,11 +480,7 @@ class TestBrokerGateway:
         }
         assert allowed.issubset(dir(gateway))
 
-    @pytest.mark.skip(
-        reason="BrokerGateway store contract changed; skip until gateway updated"
-    )
     def test_submit_returns_result_wrapper(self):
-        gateway = BrokerGateway(adapter=None, store=MagicMock(), lifecycle=MagicMock())
         store = ExecutionEventStore(":memory:").connect()
         lifecycle = ExecutionLifecycle(
             store,
@@ -556,8 +555,22 @@ class TestBrokerGateway:
         lifecycle.request_broker_submission(intent.intent_id, claimed_by="corr-1")
         auth_id = auth_event.payload["authorization_id"]
 
+        adapter = MagicMock()
+        adapter.submit_order.return_value = BrokerSubmitFact(
+            state=BrokerSubmitState.ACCEPTED,
+            broker_order_id="broker-test-1",
+            client_order_id=intent.idempotency_key,
+            venue="test",
+            broker_status="accepted",
+            observed_at=datetime.now(UTC),
+            error=None,
+            raw_response={},
+        )
+        gateway = BrokerGateway(adapter=adapter, store=store, lifecycle=lifecycle)
+
         gw_result = gateway.submit(auth_id, correlation_id="corr-1")
         assert isinstance(gw_result, BrokerSubmitResult)
+        assert gw_result.success is True
 
 
 # ── 4. ProtectionPlan state machine ───────────────────────────────────
