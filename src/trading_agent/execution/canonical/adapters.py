@@ -213,10 +213,14 @@ class PaperExecutionAdapter:
             if hasattr(request.symbol, "pair")
             else str(request.symbol)
         )
+        legacy_order_type = {
+            OrderType.STOP: "stop_loss",
+            OrderType.STOP_LIMIT: "stop_loss_limit",
+        }.get(request.order_type, request.order_type.value.lower())
         order_result = self._exchange.place_order(
             symbol=symbol_pair,
             side=request.side.value.lower(),
-            order_type=request.order_type.value.lower(),
+            order_type=legacy_order_type,
             amount=float(request.quantity),
             price=float(request.price) if request.price is not None else None,
             stop_price=float(request.stop_price)

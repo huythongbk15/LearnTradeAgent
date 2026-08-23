@@ -1059,6 +1059,7 @@ class TestEnginePaperE2E:
         from trading_agent.execution.lifecycle import ExecutionEventStore
         from trading_agent.execution.paper_exchange import PaperExchange
         from trading_agent.execution.types import OrderStatus
+        from trading_agent.execution.canonical.order_planner import InstrumentRules
 
         # Use isolated state dir to avoid cross-test pollution
         state_dir = tmp_path / "paper_state"
@@ -1069,7 +1070,18 @@ class TestEnginePaperE2E:
             state_dir=state_dir,
         )
         store = ExecutionEventStore(str(tmp_path / "events.db")).connect()
-        engine = ExecutionEngine(exchange=exchange, store=store)
+        
+        # Create instrument rules for BTC/USDT
+        instrument_rules = InstrumentRules(
+            symbol="BTC/USDT",
+            asset_class="crypto",
+            min_order_qty=0.001,
+            max_order_qty=1.0,
+            qty_step=0.001,
+            price_precision=2,
+            min_notional=10.0,
+        )
+        engine = ExecutionEngine(exchange=exchange, store=store, instrument_rules=instrument_rules)
         # Seed a price so the engine has a valid market observation
         engine.exchange.update_prices({"BTC/USDT": 50_000.0})
         # Ensure the engine has a current price for the symbol
@@ -1127,6 +1139,7 @@ class TestEnginePaperE2E:
         )
         from trading_agent.execution.engine import ExecutionEngine
         from trading_agent.execution.paper_exchange import PaperExchange
+        from trading_agent.execution.canonical.order_planner import InstrumentRules
 
         state_dir = tmp_path / "paper_state"
         state_dir.mkdir()
@@ -1135,7 +1148,18 @@ class TestEnginePaperE2E:
             initial_balance=100_000.0,
             state_dir=state_dir,
         )
-        engine = ExecutionEngine(exchange=exchange)
+        
+        # Create instrument rules for BTC/USDT
+        instrument_rules = InstrumentRules(
+            symbol="BTC/USDT",
+            asset_class="crypto",
+            min_order_qty=0.001,
+            max_order_qty=1.0,
+            qty_step=0.001,
+            price_precision=2,
+            min_notional=10.0,
+        )
+        engine = ExecutionEngine(exchange=exchange, instrument_rules=instrument_rules)
         # Engine's planner is hardcoded for BTC/USDT; use the same symbol
         engine.exchange.update_prices({"BTC/USDT": 50_000.0})
         now = datetime.now(UTC)

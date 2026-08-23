@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Multi-pair 1h full system backtest with baseline comparison."""
+"""Multi-pair 1h full system backtest with baseline comparison — parallel execution."""
 
 from __future__ import annotations
 
@@ -7,26 +7,31 @@ import json
 import os
 import subprocess
 import sys
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import UTC, datetime
 from pathlib import Path
 
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
-# Multi-pair 1h universe — matches live paper universe subset
+# Multi-pair 1h universe — 10 symbols for full backtest
 PAIRS = [
     "BTC/USDT",
     "ETH/USDT",
     "SOL/USDT",
     "XRP/USDT",
     "BNB/USDT",
+    "ZEC/USDT",
     "DOGE/USDT",
-    "AVAX/USDT",
+    "TRX/USDT",
+    "ADA/USDT",
+    "NEAR/USDT",
 ]
 
 EXCHANGE = os.getenv("EXCHANGE", "binance")
 TIMEFRAME = "1h"
 INITIAL_CAPITAL = float(os.getenv("INITIAL_CAPITAL", "100000"))
+MAX_WORKERS = int(os.getenv("MAX_WORKERS", "4"))  # Parallel workers
 OUT_DIR = ROOT / "data" / "benchmarks" / "multi_pair_1h"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -51,7 +56,7 @@ def run_backtest(symbol: str) -> dict:
     print(f"\n{'=' * 60}")
     print(f"🚀 Running {symbol} {TIMEFRAME}")
     print(f"{'=' * 60}")
-    proc = subprocess.run(cmd, env=env, capture_output=True, text=True, cwd=str(ROOT))
+    proc = subprocess.run(cmd, env=env, capture_output=True, text=True, cwd=str(ROOT), timeout=7200)
     stdout = proc.stdout
     stderr = proc.stderr
     print(stdout)
@@ -109,9 +114,21 @@ def run_backtest(symbol: str) -> dict:
 def main() -> None:
     timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     results = []
-    for symbol in PAIRS:
-        res = run_backtest(symbol)
-        results.append(res)
+
+    # Run backtests in parallel
+    with ProcessPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        future_to_symbol = {executor.submit(run_backtest, symbol): symbol for symbol in PAIRS}
+        for future in as_completed(future_to_symbol):
+            symbol = future_to_symbol[future]
+            try:
+                res = future.result()
+            except Exception as e:
+                print(f"❌ {symbol} failed with exception: {e}")
+                res = {"symbol": symbol, "error": str(e)}
+            results.append(res)
+
+    # Sort results by symbol for consistent output
+    results.sort(key=lambda r: r.get("symbol", ""))
 
     # Save raw results
     out_file = OUT_DIR / f"multi_pair_1h_{timestamp}.json"

@@ -16,11 +16,12 @@ import threading
 import uuid
 from collections.abc import Callable
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from trading_agent.agents.base import AgentMessage
 from trading_agent.config.loader import config
-from trading_agent.execution.paper_exchange import PaperExchange
+from trading_agent.execution.paper_exchange import STATE_DIR, PaperExchange
 from trading_agent.execution.canonical import (
     BrokerGateway,
     LegacyDecisionAdapter,
@@ -33,6 +34,7 @@ from trading_agent.execution.canonical import (
     ProtectionState,
     ProtectionQuantityMode,
 )
+from trading_agent.execution.lifecycle.lifecycle import IntentStatus
 from trading_agent.execution.canonical.broker_gateway import BrokerSubmitState
 from trading_agent.execution.canonical.adapters import PaperExecutionAdapter
 from trading_agent.execution.application import (
@@ -127,19 +129,25 @@ class ExecutionEngine:
         *,
         exchange: PaperExchange | None = None,
         store: Any | None = None,
+        instrument_rules: InstrumentRules | None = None,
+        state_dir: str | Path | None = None,
+        event_store_path: str | Path | None = None,
+        allow_backtest_new_exposure: bool | None = None,
+        paper_price_persist_interval: int = 1,
     ):
         # ── Constructor strictness: validate inputs early ─────────────
         if exchange is not None:
             # When an exchange is injected, we still need a name for telemetry.
-            self.exchange_name = exchange_name or getattr(
+            resolved_exchange_name = exchange_name or getattr(
                 exchange, "exchange_name", "injected"
             )
         else:
-            self.exchange_name = exchange_name or config.default_exchange
-            if not self.exchange_name or not isinstance(self.exchange_name, str):
-                raise ValueError(
-                    f"exchange_name must be a non-empty string, got {exchange_name!r}"
-                )
+            resolved_exchange_name = exchange_name or config.default_exchange
+        if not isinstance(resolved_exchange_name, str) or not resolved_exchange_name:
+            raise ValueError(
+                f"exchange_name must be a non-empty string, got {exchange_name!r}"
+            )
+        self.exchange_name: str = resolved_exchange_name
 
         if initial_capital is not None:
             if not math.isfinite(initial_capital) or initial_capital <= 0:
@@ -165,10 +173,14 @@ class ExecutionEngine:
             ),
             commission=config.commission if commission is None else commission,
             slippage=config.slippage if slippage is None else slippage,
+            state_dir=state_dir or STATE_DIR,
+            price_persist_interval=paper_price_persist_interval,
         )
 
         # ── Canonical execution stack ─────────────────────────────────
-        self.store = store or ExecutionEventStore("data/execution/events.db")
+        self.store = store or ExecutionEventStore(
+            event_store_path or "data/execution/events.db"
+        )
         if store is None:
             self.store.connect()
         # Use PaperExecutionAdapter wrapping PaperExchange
@@ -192,16 +204,22 @@ class ExecutionEngine:
         self.gateway = BrokerGateway(
             adapter=paper_adapter, store=self.store, lifecycle=self.lifecycle
         )
-        self.planner = OrderPlanner(
-            instrument_rules=InstrumentRules(symbol="BTC/USDT", spot_long_only=True),
-            strategy_version="legacy-engine-v1",
+        if instrument_rules is not None:
+            self.planner = OrderPlanner(
+                instrument_rules=instrument_rules,
+                strategy_version="legacy-engine-v1",
+            )
+            self.execution_service = CanonicalExecutionService(
+                lifecycle=self.lifecycle,
+                gateway=self.gateway,
+                planner=self.planner,
+            )
+        else:
+            self.planner = None
+            self.execution_service = None
+        self.legacy_adapter = LegacyDecisionAdapter(
+            allow_new_exposure=allow_backtest_new_exposure
         )
-        self.execution_service = CanonicalExecutionService(
-            lifecycle=self.lifecycle,
-            gateway=self.gateway,
-            planner=self.planner,
-        )
-        self.legacy_adapter = LegacyDecisionAdapter()
 
         # Register graceful shutdown handler
         register_shutdown_handler(self._graceful_shutdown)
@@ -249,12 +267,27 @@ class ExecutionEngine:
         AgentMessage → LegacyDecisionAdapter → UnifiedRiskDecision → TargetExposure
         → OrderPlanner → PermissionContext → ExecutionLifecycle → BrokerGateway.
         """
+        if self.execution_service is None:
+            raise RuntimeError(
+                "execute_signal requires instrument_rules to be provided at engine construction"
+            )
         signal_str = signal.signal.upper()
         orders: list[Order] = []
 
         if signal_str == "HOLD":
             logger.info("Signal: HOLD — no action")
             return orders
+
+        # Sync protective orders with actual positions (handles internal closes)
+        self._sync_protective_orders()
+
+        symbol = (
+            signal.details.get("symbol", "BTC/USDT") if signal.details else "BTC/USDT"
+        )
+        # For SELL signals (exits), cancel any resting protective order first
+        # to release its inventory reservation before authorizing the exit.
+        if signal_str == "SELL":
+            self._cancel_resting_protection(symbol)
 
         symbol = (
             signal.details.get("symbol", "BTC/USDT") if signal.details else "BTC/USDT"
@@ -372,19 +405,21 @@ class ExecutionEngine:
         orders.append(
             self._result_to_order(result, symbol, intent.side, intent.quantity)
         )
-        if (
+        fill_received = (
             broker_event is not None
             and broker_event.event_type
             in {
                 ExecutionEventType.FILL_RECEIVED,
                 ExecutionEventType.PARTIAL_FILL_RECEIVED,
             }
-            and intent.side.lower() == "buy"
-        ):
-            lifecycle_order = self.lifecycle.order(intent.intent_id)
-            protected_quantity = (
-                lifecycle_order.filled_size if lifecycle_order is not None else 0.0
-            )
+        )
+        if fill_received and intent.side.lower() == "sell":
+            self._cancel_resting_protection(symbol)
+        if fill_received and intent.side.lower() == "buy":
+            # Use actual paper exchange position quantity for protective order
+            # (accounts for fees, slippage, partial fills)
+            position = self.exchange.get_position(symbol)
+            protected_quantity = position.quantity if position and position.is_active else 0.0
             if protected_quantity <= 0:
                 self.lifecycle.require_manual_intervention(
                     intent.intent_id,
@@ -424,7 +459,7 @@ class ExecutionEngine:
                         "time_in_force": "gtc",
                     },
                 ),
-                correlation_id=intent.intent_id,
+                correlation_id=protection_intent_id,
             )
             if protection_result.success and protection_result.evidence:
                 self.lifecycle.acknowledge_protective_order(
@@ -438,6 +473,83 @@ class ExecutionEngine:
                 )
 
         return orders
+
+    def _cancel_resting_protection(self, symbol: str) -> None:
+        """Cancel paper stop orders and their lifecycle intents after an explicit exit."""
+        # Cancel paper exchange order
+        for order in list(self.exchange.get_open_orders(symbol)):
+            if order.side == OrderSide.SELL and order.type in {
+                OrderType.STOP_LOSS,
+                OrderType.STOP_LOSS_LIMIT,
+            }:
+                self.exchange.cancel_order(order.id)
+        # Cancel associated lifecycle protective order intent to release reservation
+        for intent_id, order_state in self.lifecycle.state.orders.items():
+            if not intent_id.startswith("prot_") or not intent_id.endswith("_submit"):
+                continue
+            if order_state.symbol != symbol:
+                continue
+            if order_state.status not in {IntentStatus.AUTHORIZED, IntentStatus.ACKNOWLEDGED}:
+                continue
+            # Cancel the protective order intent
+            self._cancel_protective_intent(intent_id, "explicit_exit_signal")
+
+    def _sync_protective_orders(self) -> None:
+        """Sync protective orders with actual paper exchange positions.
+        
+        The paper exchange may close positions internally (stop_loss/take_profit)
+        without notifying the lifecycle. This method detects such closures and
+        cancels the associated protective order intents to release reservations.
+        """
+        # Get all positions from paper exchange
+        current_positions = {}
+        for pos in self.exchange.get_all_positions():
+            if pos.is_active and pos.quantity > 0:
+                current_positions[pos.symbol] = pos.quantity
+        
+        # Check lifecycle orders for protective orders
+        for intent_id, order_state in self.lifecycle.state.orders.items():
+            if not intent_id.startswith("prot_") or not intent_id.endswith("_submit"):
+                continue
+            if order_state.status not in {IntentStatus.AUTHORIZED, IntentStatus.ACKNOWLEDGED}:
+                continue
+            symbol = order_state.symbol
+            protected_qty = order_state.size  # the quantity the protective order tries to sell
+            
+            # If position is closed or reduced, cancel the protective order
+            current_qty = current_positions.get(symbol, 0.0)
+            if current_qty <= 0:
+                # Position fully closed - cancel protective order
+                logger.info(f"Position {symbol} closed, cancelling protective order {intent_id}")
+                self._cancel_protective_intent(intent_id, "position_closed_externally")
+            elif current_qty < protected_qty:
+                # Position reduced - adjust protective order quantity
+                # For now, cancel and let new one be created on next fill
+                logger.warning(
+                    f"Position {symbol} reduced from {protected_qty} to {current_qty}, "
+                    f"cancelling protective order {intent_id}"
+                )
+                self._cancel_protective_intent(intent_id, "position_reduced_externally")
+
+    def _cancel_protective_intent(self, intent_id: str, reason: str) -> None:
+        """Cancel a protective order intent and release its reservation."""
+        order_state = self.lifecycle.state.orders.get(intent_id)
+        if order_state is None:
+            return
+        # Emit CANCEL_CONFIRMED event to release store reservation
+        # CANCEL_CONFIRMED requires payload['order_id'] (broker/exchange order ID)
+        # and payload['state'] = 'CANCELED' (uppercase, per CancelState enum) to trigger reservation release
+        order_id = order_state.exchange_order_id or order_state.broker_order_id
+        payload = {"reason": reason, "state": "CANCELED"}
+        if order_id:
+            payload["order_id"] = order_id
+        self.lifecycle._emit(
+            ExecutionEventType.CANCEL_CONFIRMED,
+            intent_id,
+            payload,
+        )
+        # Cancel paper exchange order
+        self._cancel_resting_protection(order_state.symbol)
 
     def _graceful_shutdown(self) -> None:
         """Called on SIGTERM/SIGINT to close positions and persist state."""
@@ -457,6 +569,10 @@ class ExecutionEngine:
 
     def close_all(self, reason: str = "manual") -> list[Order]:
         """Close all open positions via canonical lifecycle emergency reduce."""
+        if self.execution_service is None:
+            raise RuntimeError(
+                "close_all requires instrument_rules to be provided at engine construction"
+            )
         orders: list[Order] = []
         for pos in self.exchange.get_all_positions():
             if pos.quantity <= 0:
@@ -501,6 +617,10 @@ class ExecutionEngine:
 
     def close_position(self, symbol: str, reason: str = "manual") -> Order | None:
         """Close a single position via canonical lifecycle emergency reduce."""
+        if self.execution_service is None:
+            raise RuntimeError(
+                "close_position requires instrument_rules to be provided at engine construction"
+            )
         pos = self.exchange.get_position(symbol)
         if not pos or not pos.is_active or pos.quantity <= 0:
             return None
@@ -560,7 +680,10 @@ class ExecutionEngine:
         """
         # Prefer live ticker from adapter; fall back to simulator price cache.
         try:
-            ticker = self.exchange.get_ticker(symbol)
+            get_ticker = getattr(self.exchange, "get_ticker", None)
+            if not callable(get_ticker):
+                raise AttributeError("exchange has no live ticker API")
+            ticker = get_ticker(symbol)
             price = ticker.get("last") or ticker.get("price")
             if price is not None:
                 ts = ticker.get("timestamp")

@@ -7,6 +7,7 @@ entire ExecutionEngine.
 
 from __future__ import annotations
 
+import math
 import os
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -45,11 +46,23 @@ class LegacyDecisionAdapter:
         calibration_ece: float = 0.05,
         ood_score: float = 0.3,
         regime_entropy: float = 0.4,
+        allow_new_exposure: bool | None = None,
     ) -> None:
         self.default_risk_level = default_risk_level
         self.calibration_ece = calibration_ece
         self.ood_score = ood_score
         self.regime_entropy = regime_entropy
+        self.allow_new_exposure = allow_new_exposure
+
+    def _new_exposure_allowed(self) -> bool:
+        """Return explicit backtest authorization, falling back to legacy env config."""
+        if self.allow_new_exposure is not None:
+            return self.allow_new_exposure
+        return os.getenv("BACKTEST_ALLOW_NEW_EXPOSURE", "").lower() in {
+            "1",
+            "true",
+            "yes",
+        }
 
     def adapt(
         self, signal: Any, observation: EnrichedMarketObservation
@@ -65,6 +78,10 @@ class LegacyDecisionAdapter:
             details = signal.get("details", {}) or {}
             confidence = float(signal.get("confidence", 0.5) or 0.5)
             max_pos_pct = float(signal.get("max_position_size_pct", 0.25) or 0.25)
+
+        if not math.isfinite(max_pos_pct):
+            raise ValueError("max_position_size_pct must be finite")
+        max_pos_pct = max(0.0, min(1.0, max_pos_pct))
 
         side = (
             "buy" if signal_str == "BUY" else "sell" if signal_str == "SELL" else "hold"
@@ -89,11 +106,7 @@ class LegacyDecisionAdapter:
         # For legacy signals, we do NOT fabricate KNOWN evidence.
         # Missing real evidence must remain UNKNOWN/MISSING/STALE.
         # A strategy signal is not a risk approval.
-        backtest_allow = os.getenv("BACKTEST_ALLOW_NEW_EXPOSURE", "").lower() in (
-            "1",
-            "true",
-            "yes",
-        )
+        backtest_allow = self._new_exposure_allowed()
         calibration_state = (
             EvidenceState.KNOWN if backtest_allow else EvidenceState.MISSING
         )
@@ -121,16 +134,12 @@ class LegacyDecisionAdapter:
             max_new_exposure = 0.0
             reduce_only = True
         else:
-            requested_target = 1.0
+            requested_target = max_pos_pct
             # Allow new exposure in backtest-only mode; production stays blocked
             # when evidence is missing.
-            if os.getenv("BACKTEST_ALLOW_NEW_EXPOSURE", "").lower() in (
-                "1",
-                "true",
-                "yes",
-            ):
-                allowed_target = 1.0
-                max_new_exposure = 1.0
+            if backtest_allow:
+                allowed_target = max_pos_pct
+                max_new_exposure = max_pos_pct
                 reduce_only = False
             else:
                 allowed_target = 0.0
@@ -158,9 +167,9 @@ class LegacyDecisionAdapter:
             created_at=now,
         )
 
-        exposure = (
-            1.0 if side == "buy" else 0.0
-        )  # spot-long-only: SELL → FLAT (0.0), not -1.0
+        # Spot-long-only: SELL → FLAT (0.0), not -1.0.  BUY honors the
+        # upstream risk controller's maximum target exposure.
+        exposure = max_pos_pct if side == "buy" else 0.0
         target = TargetExposure(
             symbol=observation.symbol,
             exposure=exposure,

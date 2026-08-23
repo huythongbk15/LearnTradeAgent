@@ -14,11 +14,12 @@ Cách dùng:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import logging
 import os
 import sys
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 # Tắt toàn bộ log INFO/WARNING của thư viện (giữ console output sạch)
@@ -34,11 +35,13 @@ import numpy as np
 import polars as pl
 
 from trading_agent.agents.base import AgentMessage
+from trading_agent.config.loader import config
 from trading_agent.data.storage import load_ohlcv
 from trading_agent.execution import risk_controller as rc_module
 from trading_agent.execution.canonical.market_observation import (
     EnrichedMarketObservation,
 )
+from trading_agent.execution.canonical.order_planner import InstrumentRules
 from trading_agent.execution.engine import ExecutionEngine
 from trading_agent.execution.risk_controller import RiskController
 from trading_agent.strategies.enhanced_ma import EnhancedMaCrossover
@@ -75,7 +78,27 @@ ADX_THRESHOLD = float(os.getenv("ADX_THRESHOLD", "40"))
 ATR_SL_MULT = float(os.getenv("ATR_SL_MULT", "2.0"))
 ATR_TP_MULT = float(os.getenv("ATR_TP_MULT", "3.0"))
 
-PAPER_STATE = ROOT / "data" / "execution" / f"paper_{EXCHANGE}.json"
+def _timeframe_delta(timeframe: str) -> timedelta:
+    """Convert a compact timeframe such as 15m/1h/4h/1d to a duration."""
+    if len(timeframe) < 2 or not timeframe[:-1].isdigit():
+        raise ValueError(f"Unsupported timeframe: {timeframe!r}")
+    amount = int(timeframe[:-1])
+    unit = timeframe[-1].lower()
+    if amount <= 0 or unit not in {"m", "h", "d"}:
+        raise ValueError(f"Unsupported timeframe: {timeframe!r}")
+    return {
+        "m": timedelta(minutes=amount),
+        "h": timedelta(hours=amount),
+        "d": timedelta(days=amount),
+    }[unit]
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return f"sha256:{digest.hexdigest()}"
 
 
 class FullSystemSimulator:
@@ -84,16 +107,57 @@ class FullSystemSimulator:
         fresh: bool = False,
         symbol: str | None = None,
         timeframe: str | None = None,
+        state_dir: str | Path | None = None,
+        report_path: str | Path | None = None,
+        run_id: str | None = None,
+        allow_new_exposure: bool = True,
+        state_flush_bars: int = 100,
+        data_manifest_id: str | None = None,
     ):
-        # Reset paper state nếu cần
-        if fresh and PAPER_STATE.exists():
-            backup = PAPER_STATE.with_suffix(".json.bak")
-            PAPER_STATE.rename(backup)
-            print(f"🗑  Paper state reset (backup → {backup.name})")
-
         self.symbol = symbol or os.getenv("SYMBOL", SYMBOL)
         self.timeframe = timeframe or os.getenv("TIMEFRAME", TIMEFRAME)
         self.exchange = EXCHANGE
+        self.timeframe_delta = _timeframe_delta(self.timeframe)
+
+        safe_symbol = self.symbol.replace("/", "_").replace(":", "_")
+        resolved_run_id = run_id or os.getenv("BACKTEST_RUN_ID") or datetime.now(
+            UTC
+        ).strftime("%Y%m%dT%H%M%S_%fZ")
+        if state_dir is None:
+            self.run_dir = (
+                ROOT
+                / "data"
+                / "backtests"
+                / "full_system"
+                / resolved_run_id
+                / safe_symbol
+            )
+            self.state_dir = self.run_dir / "execution"
+        else:
+            self.state_dir = Path(state_dir).resolve()
+            self.run_dir = self.state_dir.parent
+        self.report_path = (
+            Path(report_path).resolve()
+            if report_path is not None
+            else self.run_dir / "report.json"
+        )
+
+        if fresh and self.state_dir.exists() and any(self.state_dir.iterdir()):
+            backup = self.state_dir.with_name(
+                f"{self.state_dir.name}.bak-"
+                f"{datetime.now(UTC).strftime('%Y%m%dT%H%M%S_%fZ')}"
+            )
+            self.state_dir.rename(backup)
+            print(f"🗑  Paper state reset (backup → {backup.name})")
+        self.state_dir.mkdir(parents=True, exist_ok=True)
+
+        data_path = (
+            config.storage_abs_path
+            / self.exchange
+            / safe_symbol
+            / f"{self.timeframe}.parquet"
+        )
+        self.data_manifest_id = data_manifest_id or _sha256_file(data_path)
 
         # Load data
         print(f"📥 Loading {self.symbol} {self.timeframe} from {self.exchange}...")
@@ -105,15 +169,24 @@ class FullSystemSimulator:
         )
 
         # Initialize strategy
-        self.strategy = EnhancedMaCrossover(
+        strategy_params = {
+            "fast_period": FAST_MA,
+            "slow_period": SLOW_MA,
+            "adx_threshold": ADX_THRESHOLD,
+            "atr_sl_mult": ATR_SL_MULT,
+            "atr_tp_mult": ATR_TP_MULT,
+        }
+        self.strategy = EnhancedMaCrossover(strategy_params)
+        feature_identity = json.dumps(
             {
-                "fast_period": FAST_MA,
-                "slow_period": SLOW_MA,
-                "adx_threshold": ADX_THRESHOLD,
-                "atr_sl_mult": ATR_SL_MULT,
-                "atr_tp_mult": ATR_TP_MULT,
-            }
-        )
+                "data_manifest_id": self.data_manifest_id,
+                "strategy": "enhanced_ma",
+                "params": strategy_params,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
+        self.feature_artifact_id = f"sha256:{hashlib.sha256(feature_identity).hexdigest()}"
 
         # Pre-compute indicators on full dataset
         print("🔧 Computing strategy indicators...")
@@ -128,7 +201,19 @@ class FullSystemSimulator:
 
         # Khởi tạo execution engine + risk controller
         self.engine = ExecutionEngine(
-            exchange_name=EXCHANGE, initial_capital=INITIAL_CAPITAL
+            exchange_name=EXCHANGE,
+            initial_capital=INITIAL_CAPITAL,
+            instrument_rules=InstrumentRules(
+                symbol=self.symbol,
+                min_order_qty=1e-8,
+                max_order_qty=1e12,
+                qty_step=1e-8,
+                spot_long_only=True,
+            ),
+            state_dir=self.state_dir,
+            event_store_path=self.state_dir / "events.db",
+            allow_backtest_new_exposure=allow_new_exposure,
+            paper_price_persist_interval=state_flush_bars,
         )
         self.risk = RiskController(
             self.engine,
@@ -158,8 +243,15 @@ class FullSystemSimulator:
         equity = self.engine.exchange.get_total_equity()
         return (pos.quantity * price) / equity if equity > 0 else 0.0
 
-    def run(self, start: int = 0, end: int | None = None, freq: int = 1):
+    def run(
+        self, start: int = 0, end: int | None = None, freq: int = 1
+    ) -> dict[str, object]:
+        if start < 0 or freq <= 0:
+            raise ValueError("start must be non-negative and freq must be positive")
         end = end if end is not None else self.df.height
+        end = min(end, self.df.height)
+        if end <= start:
+            raise ValueError(f"Invalid bar window: start={start}, end={end}")
         n = end - start
         print(f"🚀 Simulating bars {start}→{end} ({n} bars, decision mỗi {freq}h)")
         print(
@@ -173,7 +265,13 @@ class FullSystemSimulator:
             signal = int(self.signals[i]) if self.signals[i] is not None else 0
 
             # Đồng hồ giả lập theo bar hiện tại
-            _SimClock.current = datetime.fromisoformat(str(ts)).replace(tzinfo=UTC)
+            bar_open_at = datetime.fromisoformat(str(ts))
+            if bar_open_at.tzinfo is None:
+                bar_open_at = bar_open_at.replace(tzinfo=UTC)
+            else:
+                bar_open_at = bar_open_at.astimezone(UTC)
+            bar_close_at = bar_open_at + self.timeframe_delta
+            _SimClock.current = bar_close_at
 
             # 1. Cập nhật giá → unrealized PnL + stop-loss trigger
             self.engine.update_prices({self.symbol: price})
@@ -214,25 +312,36 @@ class FullSystemSimulator:
                         "atr_pctl": row.get("atr_pctl"),
                     }
 
-                    # Calculate position size
+                    position = self.engine.exchange.get_position(self.symbol)
+                    max_target_exposure = 0.0
                     if signal == 1:  # BUY
-                        # Check if we already have a long position
-                        pos = self.engine.exchange.get_position(self.symbol)
-                        if pos and pos.is_active and pos.quantity > 0:
+                        if position and position.is_active and position.quantity > 0:
                             signal = 0  # Already long, skip
+                        else:
+                            pos_size = self.risk.calculate_position_size(
+                                symbol=self.symbol,
+                                price=price,
+                                atr=atr,
+                                regime_info=regime_info
+                                if any(v is not None for v in regime_info.values())
+                                else None,
+                            )
+                            if pos_size <= 0:
+                                signal = 0
+                            else:
+                                max_target_exposure = min(
+                                    MAX_POS_SIZE_PCT,
+                                    pos_size * price / equity,
+                                )
+                    elif signal == -1:  # SELL (exit to flat)
+                        if not position or not position.is_active or position.quantity <= 0:
+                            # No position to exit, skip SELL signal
+                            signal = 0
+                        else:
+                            # Exit signal - use full position size to flatten
+                            max_target_exposure = 0.0  # target 0 exposure
 
                     if signal != 0:
-                        # Use risk controller for dynamic position sizing
-                        pos_size = self.risk.calculate_position_size(
-                            symbol=self.symbol,
-                            price=price,
-                            atr=atr,
-                            regime_info=regime_info
-                            if any(v is not None for v in regime_info.values())
-                            else None,
-                        )
-
-                        if pos_size > 0:
                             msg = AgentMessage(
                                 role="trader",
                                 signal="BUY" if signal == 1 else "SELL",
@@ -242,7 +351,7 @@ class FullSystemSimulator:
                                     "symbol": self.symbol,
                                     "strategy": "enhanced_ma",
                                 },
-                                max_position_size_pct=pos_size * price / equity,
+                                max_position_size_pct=max_target_exposure,
                                 risk_level="medium",
                             )
 
@@ -262,19 +371,25 @@ class FullSystemSimulator:
                             observation = EnrichedMarketObservation(
                                 observation_id=f"obs-{self.symbol}-{i}",
                                 symbol=self.symbol,
-                                bar_close_at=datetime.fromisoformat(str(ts)).replace(
-                                    tzinfo=UTC
-                                ),
-                                bar_state="closed",
-                                is_closed=True,
-                                mid=price,
-                                price=price,
+                                observed_at=bar_close_at,
+                                open=float(row["open"]),
+                                high=float(row["high"]),
+                                low=float(row["low"]),
+                                close=price,
                                 volume=float(row.get("volume", 0.0)),
-                                indicators={
+                                features={
                                     k: float(row[k])
                                     for k in ["fast_ma", "slow_ma", "adx", "atr"]
                                     if k in row and row[k] is not None
                                 },
+                                venue=self.exchange,
+                                source="historical_parquet",
+                                timeframe=self.timeframe,
+                                bar_open_at=bar_open_at,
+                                bar_close_at=bar_close_at,
+                                is_closed=True,
+                                data_manifest_id=self.data_manifest_id,
+                                feature_artifact_id=self.feature_artifact_id,
                             )
 
                             # Execute
@@ -316,8 +431,8 @@ class FullSystemSimulator:
                                 print(
                                     f"   {side} {order.filled_amount or order.amount:.4f} @ ${price:,.2f} @ {ts}"
                                 )
-                                # Exit plan
-                                self.risk.set_stop_loss_on_all_positions(STOP_LOSS_PCT)
+                                # The canonical lifecycle owns the protective stop.
+                                # Paper-side TP/trailing behavior remains optional.
                                 self.risk.set_take_profit_on_all_positions(
                                     TAKE_PROFIT_PCT
                                 )
@@ -337,13 +452,14 @@ class FullSystemSimulator:
                 )
 
         print("\n✅ Simulation complete")
-        self._report()
+        self.engine.exchange.flush_state()
+        return self._report()
 
     # ── Báo cáo ────────────────────────────────────────────────────────
-    def _report(self):
+    def _report(self) -> dict[str, object]:
         if not self.equity_curve:
             print("❌ No data")
-            return
+            return {}
 
         eq_values = np.array([e[1] for e in self.equity_curve])
         returns = np.diff(eq_values) / eq_values[:-1]
@@ -408,33 +524,33 @@ class FullSystemSimulator:
                 f"   {side} {t['side']}  {t['amount']:.4f} @ ${t['price']:,.2f} pnl ${pnl:+.2f} ({pnl / t['price'] / t['amount'] * 100:+.1f}%) [{t.get('exit_reason', 'signal')}] {t['timestamp'][:19]}"
             )
 
-        # Save
-        out_path = ROOT / "data" / "full_system_backtest.json"
-        out_path.parent.mkdir(exist_ok=True)
-        with open(out_path, "w") as f:
-            json.dump(
-                {
-                    "symbol": self.symbol,
-                    "timeframe": self.timeframe,
-                    "exchange": EXCHANGE,
-                    "initial_capital": INITIAL_CAPITAL,
-                    "final_equity": float(eq_values[-1]),
-                    "total_return_pct": total_return,
-                    "sharpe": sharpe,
-                    "max_drawdown_pct": max_dd,
-                    "total_trades": len(self.trade_log),
-                    "win_rate_pct": win_rate,
-                    "profit_factor": profit_factor,
-                    "circuit_breakers": len(self.circuit_breakers),
-                    "equity_curve": [
-                        [str(ts), float(eq)] for ts, eq in self.equity_curve
-                    ],
-                    "trades": self.trade_log,
-                },
-                f,
-                indent=2,
-            )
-        print(f"\n💾 Saved → {out_path}")
+        report: dict[str, object] = {
+            "symbol": self.symbol,
+            "timeframe": self.timeframe,
+            "exchange": EXCHANGE,
+            "initial_capital": INITIAL_CAPITAL,
+            "final_equity": float(eq_values[-1]),
+            "total_return_pct": float(total_return),
+            "sharpe": float(sharpe),
+            "max_drawdown_pct": float(max_dd),
+            "total_trades": len(self.trade_log),
+            "win_rate_pct": float(win_rate),
+            "profit_factor": float(profit_factor),
+            "circuit_breakers": len(self.circuit_breakers),
+            "signals_seen": len(self.signal_log),
+            "open_positions": len(self.engine.exchange.get_all_positions()),
+            "open_orders": len(self.engine.exchange.get_open_orders()),
+            "data_manifest_id": self.data_manifest_id,
+            "feature_artifact_id": self.feature_artifact_id,
+            "state_dir": str(self.state_dir),
+            "equity_curve": [[str(ts), float(eq)] for ts, eq in self.equity_curve],
+            "trades": self.trade_log,
+        }
+        self.report_path.parent.mkdir(parents=True, exist_ok=True)
+        with self.report_path.open("w") as output:
+            json.dump(report, output, indent=2)
+        print(f"\n💾 Saved → {self.report_path}")
+        return report
 
 
 def main():
@@ -451,12 +567,47 @@ def main():
     )
     parser.add_argument("--symbol", default=None, help="Symbol, vd BTC/USDT")
     parser.add_argument("--timeframe", default=None, help="Timeframe, vd 1h/4h")
+    parser.add_argument("--state-dir", default=None, help="Isolated paper state directory")
+    parser.add_argument("--report-path", default=None, help="Output JSON report path")
+    parser.add_argument("--run-id", default=None, help="Stable identifier for this run")
+    parser.add_argument(
+        "--state-flush-bars",
+        type=int,
+        default=int(os.getenv("BACKTEST_STATE_FLUSH_BARS", "100")),
+        help="Persist mark-to-market state every N bars",
+    )
+    parser.add_argument(
+        "--tail-bars",
+        type=int,
+        default=None,
+        help="Run only the most recent N bars",
+    )
+    parser.add_argument(
+        "--allow-new-exposure",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Explicitly authorize new exposure for this paper backtest only",
+    )
     args = parser.parse_args()
 
     sim = FullSystemSimulator(
-        fresh=args.fresh, symbol=args.symbol, timeframe=args.timeframe
+        fresh=args.fresh,
+        symbol=args.symbol,
+        timeframe=args.timeframe,
+        state_dir=args.state_dir,
+        report_path=args.report_path,
+        run_id=args.run_id,
+        allow_new_exposure=args.allow_new_exposure,
+        state_flush_bars=args.state_flush_bars,
     )
-    sim.run(start=args.start, end=args.end, freq=args.freq)
+    start = args.start
+    if args.tail_bars is not None:
+        if args.tail_bars <= 0:
+            parser.error("--tail-bars must be positive")
+        if args.start != 0 or args.end is not None:
+            parser.error("--tail-bars cannot be combined with --start/--end")
+        start = max(0, sim.df.height - args.tail_bars)
+    sim.run(start=start, end=args.end, freq=args.freq)
 
 
 if __name__ == "__main__":

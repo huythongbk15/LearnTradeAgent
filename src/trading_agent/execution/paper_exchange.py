@@ -161,6 +161,7 @@ class PaperExchange:
         slippage: float = DEFAULT_SLIPPAGE,
         state_dir: str | Path = STATE_DIR,
         max_price_age_seconds: float = 300.0,
+        price_persist_interval: int = 1,
     ):
         if initial_balance <= 0:
             raise ValueError("initial_balance must be positive")
@@ -170,6 +171,8 @@ class PaperExchange:
             raise ValueError("slippage must be in [0, 1)")
         if max_price_age_seconds <= 0:
             raise ValueError("max_price_age_seconds must be positive")
+        if price_persist_interval <= 0:
+            raise ValueError("price_persist_interval must be positive")
 
         self.exchange_name = exchange_name
         self.commission = commission
@@ -177,6 +180,7 @@ class PaperExchange:
         self.state_dir = Path(state_dir)
         self.initial_balance = float(initial_balance)
         self.max_price_age_seconds = float(max_price_age_seconds)
+        self.price_persist_interval = int(price_persist_interval)
         self._state_lock = threading.RLock()
 
         # In-memory state
@@ -286,6 +290,9 @@ class PaperExchange:
         # Market orders fill immediately
         if order_type == OrderType.MARKET:
             self._fill_market_order(order_id)
+        else:
+            # Resting limit/stop orders must survive a restart immediately.
+            self._save_state()
 
         return order
 
@@ -453,6 +460,11 @@ class PaperExchange:
         if self._equity_snapshot_counter % 20 == 0:
             _log_equity_snapshot(equity, cash, pos_value, drawdown, peak)
 
+        if self._equity_snapshot_counter % self.price_persist_interval == 0:
+            self._save_state()
+
+    def flush_state(self) -> None:
+        """Durably persist the latest paper state after a batched backtest run."""
         self._save_state()
 
     @_synchronized

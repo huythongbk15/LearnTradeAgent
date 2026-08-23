@@ -1274,12 +1274,13 @@ class TestExecutionEngineE2E:
     """Actual ExecutionEngine end-to-end flow: signal → execution → fill → state."""
 
     def test_engine_execute_signal_full_flow(self):
-        from unittest.mock import patch
+        from unittest.mock import patch, MagicMock
         from trading_agent.execution.engine import ExecutionEngine
         from trading_agent.execution.canonical.order_planner import (
             OrderPlanningResult,
             OrderPlanningStatus,
         )
+        from trading_agent.execution.application import CanonicalExecutionService
 
         engine = ExecutionEngine(exchange_name="paper")
 
@@ -1288,6 +1289,16 @@ class TestExecutionEngineE2E:
         engine.exchange._last_price_timestamps["BTC/USDT"] = datetime.now(
             UTC
         ).timestamp()
+
+        # Mock execution_service since engine is created without instrument_rules
+        engine.execution_service = MagicMock(spec=CanonicalExecutionService)
+        engine.execution_service.plan.return_value = OrderPlanningResult(
+            status=OrderPlanningStatus.ORDER_REQUIRED,
+            intent=None,  # engine will build intent from legacy adapter
+            reason_codes=(),
+            requested_delta=0.01,
+            executable_delta=0.01,
+        )
 
         # Build a closed market observation (engine requires observation is closed)
         now = datetime.now(UTC)
@@ -1319,20 +1330,7 @@ class TestExecutionEngineE2E:
             },
         )
 
-        # Mock planner to force ORDER_REQUIRED so we can exercise the rest
-        # of the engine pipeline (legacy adapter → risk → lifecycle → gateway → exchange)
-        with patch.object(
-            engine.planner,
-            "plan",
-            return_value=OrderPlanningResult(
-                status=OrderPlanningStatus.ORDER_REQUIRED,
-                intent=None,  # engine will build intent from legacy adapter
-                reason_codes=(),
-                requested_delta=0.01,
-                executable_delta=0.01,
-            ),
-        ):
-            orders = engine.execute_signal(signal, observation=observation)
+        orders = engine.execute_signal(signal, observation=observation)
 
         # Engine may return 0 or 1 order depending on risk/permission; both are valid
         # as long as the pipeline ran without exception.
@@ -1341,16 +1339,20 @@ class TestExecutionEngineE2E:
 
     def test_engine_unknown_broker_state_treated_as_open(self, tmp_path):
         """P0-2: Broker UNKNOWN must become OrderStatus.OPEN, not REJECTED."""
-        from unittest.mock import patch
+        from unittest.mock import patch, MagicMock
         from trading_agent.execution.engine import ExecutionEngine
         from trading_agent.execution.canonical.order_planner import (
             OrderPlanningResult,
             OrderPlanningStatus,
         )
-        from trading_agent.execution.canonical.adapters import BrokerSubmitState
+        from trading_agent.execution.canonical.broker_gateway import BrokerSubmitState, BrokerSubmitResult
+        from trading_agent.execution.application import CanonicalExecutionService, ExecutionSubmission
 
         event_store = ExecutionEventStore(tmp_path / "engine-unknown.db").connect()
         engine = ExecutionEngine(exchange_name="paper", store=event_store)
+
+        # Mock execution_service since engine is created without instrument_rules
+        engine.execution_service = MagicMock(spec=CanonicalExecutionService)
 
         # Seed price cache
         engine.exchange._last_price_cache["BTC/USDT"] = 50000.0
@@ -1386,17 +1388,7 @@ class TestExecutionEngineE2E:
             },
         )
 
-        unknown_fact = BrokerSubmitFact(
-            state=BrokerSubmitState.UNKNOWN,
-            broker_order_id="broker-unknown-1",
-            client_order_id="client-unknown-1",
-            venue="paper",
-            broker_status="UNKNOWN",
-            observed_at=datetime.now(UTC),
-            error=None,
-            raw_response={},
-        )
-
+        # Mock execution_service.plan to return ORDER_REQUIRED
         fake_intent = OrderIntent(
             intent_id="intent-unknown-1",
             decision_id="rd-unknown-1",
@@ -1415,6 +1407,20 @@ class TestExecutionEngineE2E:
             created_at=datetime.now(UTC),
         )
 
+        # Mock execution_service.submit_planned to return UNKNOWN broker state
+        unknown_result = BrokerSubmitResult(
+            success=True,
+            broker_order_id="broker-unknown-1",
+            state=BrokerSubmitState.UNKNOWN,
+            error=None,
+        )
+        mock_submission_result = ExecutionSubmission(
+            intent_id="intent-unknown-1",
+            result=unknown_result,
+            broker_event=None,
+        )
+
+        # Mock legacy_adapter to return our risk decision
         risk_decision = UnifiedRiskDecision(
             decision_id="rd-unknown-1",
             forecast_fingerprint="fp-unknown-1",
@@ -1436,42 +1442,28 @@ class TestExecutionEngineE2E:
             created_at=datetime.now(UTC),
         )
 
-        with (
-            patch.object(
-                engine.legacy_adapter,
-                "adapt",
-                return_value=(
-                    risk_decision,
-                    TargetExposure(
-                        symbol="BTC/USDT",
-                        exposure=0.05,
-                        horizon=1,
-                        forecast_fingerprint="fp-unknown-1",
-                        model_artifact_id="m-unknown-1",
-                        risk_decision_id="rd-unknown-1",
-                    ),
+        engine.execution_service.plan.return_value = OrderPlanningResult(
+            status=OrderPlanningStatus.ORDER_REQUIRED,
+            intent=fake_intent,
+            reason_codes=(),
+            requested_delta=0.01,
+            executable_delta=0.01,
+        )
+        engine.execution_service.submit_planned.return_value = mock_submission_result
+
+        with patch.object(
+            engine.legacy_adapter,
+            "adapt",
+            return_value=(
+                risk_decision,
+                TargetExposure(
+                    symbol="BTC/USDT",
+                    exposure=0.05,
+                    horizon=1,
+                    forecast_fingerprint="fp-unknown-1",
+                    model_artifact_id="m-unknown-1",
+                    risk_decision_id="rd-unknown-1",
                 ),
-            ),
-            patch.object(
-                engine.planner,
-                "plan",
-                return_value=OrderPlanningResult(
-                    status=OrderPlanningStatus.ORDER_REQUIRED,
-                    intent=fake_intent,
-                    reason_codes=(),
-                    requested_delta=0.01,
-                    executable_delta=0.01,
-                ),
-            ),
-            patch.object(
-                engine.store,
-                "claim_submission",
-                return_value=True,
-            ),
-            patch.object(
-                engine.gateway,
-                "submit",
-                return_value=unknown_fact,
             ),
         ):
             orders = engine.execute_signal(signal, observation=observation)
@@ -2217,7 +2209,7 @@ class TestP1ConvergenceProofs:
 
     def test_engine_unknown_broker_state_no_resubmit(self, tmp_path):
         """P0-10: ExecutionEngine must not resubmit when broker returns UNKNOWN."""
-        from unittest.mock import patch
+        from unittest.mock import patch, MagicMock
         from trading_agent.execution.engine import ExecutionEngine
         from trading_agent.execution.lifecycle import ExecutionEventStore
         from trading_agent.execution.canonical.broker_gateway import (
@@ -2226,9 +2218,11 @@ class TestP1ConvergenceProofs:
         )
         from trading_agent.execution.canonical.order_planner import OrderIntent
         from trading_agent.execution.lifecycle.lifecycle import ExposureEffect
+        from trading_agent.execution.application import CanonicalExecutionService, ExecutionSubmission
 
         store = ExecutionEventStore(str(tmp_path / "events.db")).connect()
         engine = ExecutionEngine(exchange_name="paper", store=store)
+        engine.execution_service = MagicMock(spec=CanonicalExecutionService)
         engine.exchange._last_price_cache["BTC/USDT"] = 50000.0
         engine.exchange._last_price_timestamps["BTC/USDT"] = datetime.now(
             UTC
@@ -2265,15 +2259,6 @@ class TestP1ConvergenceProofs:
         # Track submission calls
         submit_calls = []
 
-        def mock_submit(authorized, correlation_id=None):
-            submit_calls.append(correlation_id)
-            return BrokerSubmitResult(
-                success=True,
-                broker_order_id="broker-unknown-engine",
-                state=BrokerSubmitState.UNKNOWN,
-                error=None,
-            )
-
         # Mock intent that passes permission check
         # PaperExchange default initial_balance is 10_000, so 0.01 BTC @ 50k = 0.05 exposure ratio
         mock_intent = OrderIntent(
@@ -2295,7 +2280,6 @@ class TestP1ConvergenceProofs:
         )
 
         # Mock risk decision that allows new exposure
-        # PaperExchange default initial_balance is 10_000, so 0.01 BTC @ 50k = 0.05 exposure ratio
         mock_risk_decision = UnifiedRiskDecision(
             decision_id="rd-unknown-engine",
             forecast_fingerprint="fp-unknown-engine",
@@ -2326,24 +2310,38 @@ class TestP1ConvergenceProofs:
             risk_decision_id="rd-unknown-engine",
         )
 
+        # Mock execution_service.plan to return ORDER_REQUIRED
+        engine.execution_service.plan.return_value = OrderPlanningResult(
+            status=OrderPlanningStatus.ORDER_REQUIRED,
+            intent=mock_intent,
+            reason_codes=(),
+            requested_delta=0.01,
+            executable_delta=0.01,
+        )
+
+        # Mock execution_service.submit_planned to return UNKNOWN broker state
+        def mock_submit_planned(planning, risk_decision, permission_context, correlation_id=None):
+            submit_calls.append(correlation_id)
+            unknown_result = BrokerSubmitResult(
+                success=True,
+                broker_order_id="broker-unknown-engine",
+                state=BrokerSubmitState.UNKNOWN,
+                error=None,
+            )
+            return ExecutionSubmission(
+                intent_id=correlation_id,
+                result=unknown_result,
+                broker_event=None,
+            )
+
+        engine.execution_service.submit_planned.side_effect = mock_submit_planned
+
         with (
             patch.object(
                 engine.legacy_adapter,
                 "adapt",
                 return_value=(mock_risk_decision, mock_target),
             ),
-            patch.object(
-                engine.planner,
-                "plan",
-                return_value=OrderPlanningResult(
-                    status=OrderPlanningStatus.ORDER_REQUIRED,
-                    intent=mock_intent,
-                    reason_codes=(),
-                    requested_delta=0.01,
-                    executable_delta=0.01,
-                ),
-            ),
-            patch.object(engine.gateway, "submit", side_effect=mock_submit),
         ):
             orders = engine.execute_signal(signal, observation=observation)
 
@@ -2357,14 +2355,28 @@ class TestP1ConvergenceProofs:
         import os
         from unittest.mock import patch
         from trading_agent.execution.engine import ExecutionEngine
+        from trading_agent.execution.canonical.broker_gateway import BrokerSubmitResult, BrokerSubmitState
+        from trading_agent.execution.canonical.order_planner import InstrumentRules, OrderIntent
+        from trading_agent.execution.lifecycle.lifecycle import ExposureEffect
 
         with tempfile.TemporaryDirectory() as tmpdir:
             # Use tmpdir as cwd so engine's relative DB path resolves here
             orig_cwd = os.getcwd()
             os.chdir(tmpdir)
             try:
+                # Create instrument rules for BTC/USDT
+                instrument_rules = InstrumentRules(
+                    symbol="BTC/USDT",
+                    asset_class="crypto",
+                    min_order_qty=0.001,
+                    max_order_qty=1.0,
+                    qty_step=0.001,
+                    price_precision=2,
+                    min_notional=10.0,
+                )
+                
                 # Phase 1: Create engine, submit an order, then "crash"
-                engine1 = ExecutionEngine(exchange_name="paper")
+                engine1 = ExecutionEngine(exchange_name="paper", instrument_rules=instrument_rules)
                 engine1.exchange._last_price_cache["BTC/USDT"] = 50000.0
                 engine1.exchange._last_price_timestamps["BTC/USDT"] = datetime.now(
                     UTC
@@ -2398,24 +2410,17 @@ class TestP1ConvergenceProofs:
                     },
                 )
 
-                # Mock intent that passes permission check
-                mock_intent = OrderIntent(
-                    intent_id="intent-restart",
-                    decision_id="rd-restart",
-                    forecast_fingerprint="fp-restart",
-                    model_artifact_id="m-restart",
-                    symbol="BTC/USDT",
-                    asset_class="crypto",
-                    side="buy",
-                    quantity=0.01,
-                    current_exposure=0.0,
-                    target_exposure=0.05,
-                    resulting_exposure=0.05,
-                    exposure_effect=ExposureEffect.INCREASE,
-                    price_reference=50000.0,
-                    idempotency_key="ik-restart",
-                    created_at=now,
-                )
+                # Track submission calls
+                submit_calls = []
+
+                def mock_submit(authorized, correlation_id=None):
+                    submit_calls.append(correlation_id)
+                    return BrokerSubmitResult(
+                        success=True,
+                        broker_order_id="broker-restart",
+                        state=BrokerSubmitState.FILLED,
+                        error=None,
+                    )
 
                 # Mock risk decision that allows new exposure
                 mock_risk_decision = UnifiedRiskDecision(
@@ -2448,33 +2453,24 @@ class TestP1ConvergenceProofs:
                     risk_decision_id="rd-restart",
                 )
 
+                # Use real execution_service but mock the gateway submit
                 with (
                     patch.object(
                         engine1.legacy_adapter,
                         "adapt",
                         return_value=(mock_risk_decision, mock_target),
                     ),
-                    patch.object(
-                        engine1.planner,
-                        "plan",
-                        return_value=OrderPlanningResult(
-                            status=OrderPlanningStatus.ORDER_REQUIRED,
-                            intent=mock_intent,
-                            reason_codes=(),
-                            requested_delta=0.01,
-                            executable_delta=0.01,
-                        ),
-                    ),
+                    patch.object(engine1.gateway, "submit", side_effect=mock_submit),
                 ):
                     orders1 = engine1.execute_signal(signal, observation=observation)
 
                 # Capture lifecycle state before "restart"
                 lifecycle1 = engine1.lifecycle
                 orders_before = list(lifecycle1.state.orders.keys())
-                assert len(orders_before) >= 1
+                assert len(orders_before) >= 1, f"Expected orders, got: {orders_before}"
 
                 # Phase 2: "Restart" — create new engine with same DB
-                engine2 = ExecutionEngine(exchange_name="paper")
+                engine2 = ExecutionEngine(exchange_name="paper", instrument_rules=instrument_rules)
                 engine2.exchange._last_price_cache["BTC/USDT"] = 50000.0
                 engine2.exchange._last_price_timestamps["BTC/USDT"] = datetime.now(
                     UTC
