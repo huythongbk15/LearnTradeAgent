@@ -35,19 +35,22 @@ from trading_agent.execution.canonical import (
 )
 from trading_agent.execution.canonical.broker_gateway import BrokerSubmitState
 from trading_agent.execution.canonical.adapters import PaperExecutionAdapter
+from trading_agent.execution.application import (
+    CanonicalExecutionService,
+    ExecutionBlockedError,
+)
 from trading_agent.execution.canonical.order_planner import (
     OrderPlanningStatus,
-    ExposureEffect,
 )
 from trading_agent.execution.permission import (
     PermissionContext,
-    evaluate_order_permission,
 )
 from trading_agent.execution.lifecycle import (
     ExecutionLifecycle,
     ExecutionEventStore,
     ExecutionEventType,
     ExecutionHealth,
+    ExposureEffect,
     TrustedPrice,
     PortfolioRiskSnapshot,
 )
@@ -193,6 +196,11 @@ class ExecutionEngine:
             instrument_rules=InstrumentRules(symbol="BTC/USDT", spot_long_only=True),
             strategy_version="legacy-engine-v1",
         )
+        self.execution_service = CanonicalExecutionService(
+            lifecycle=self.lifecycle,
+            gateway=self.gateway,
+            planner=self.planner,
+        )
         self.legacy_adapter = LegacyDecisionAdapter()
 
         # Register graceful shutdown handler
@@ -301,7 +309,7 @@ class ExecutionEngine:
         )
 
         # ── Order planning (canonical sizing) ──────────────────────────
-        plan_result = self.planner.plan(
+        plan_result = self.execution_service.plan(
             target=target,
             risk_decision=risk_decision,
             observation=observation,
@@ -348,61 +356,18 @@ class ExecutionEngine:
             broker_state=None,
             draft=False,
         )
-        permission = evaluate_order_permission(permission_ctx)
-        if not permission.allowed():
-            logger.warning(f"Order blocked by permission: {permission.reason.value}")
-            return orders
-
-        # ── Lifecycle: create intent + approve risk + authorize ────────
-        # Lifecycle owns event append; callers must NOT double-append.
-        created_event = self.lifecycle.create_order_intent(
-            intent_id=intent.intent_id,
-            symbol=intent.symbol,
-            side=intent.side,
-            size=intent.quantity,
-            idempotency_key=intent.idempotency_key,
-        )
-
-        approved_event = self.lifecycle.approve_risk(
-            intent_id=intent.intent_id,
-            risk_decision=risk_decision,
-        )
-
-        # Build durable authorization through lifecycle
-        # Lifecycle derives ALL authorization fields internally from durable state
-        authorized_event = self.lifecycle.authorize_order(
-            intent_id=intent.intent_id,
-            idempotency_key=intent.idempotency_key,
-        )
-
-        # ──── Durable broker submission request BEFORE broker I/O ────────
-        # Engine claims ownership atomically before gateway I/O.
-        request_event = self.lifecycle.request_broker_submission(
-            intent_id=intent.intent_id,
-            claimed_by=intent.intent_id,
-        )
-
-        # Keep only the durable authorization id across the gateway boundary.
-        authorization_id = authorized_event.payload["authorization_id"]
-
-        # ── Submit via gateway (verifies auth against durable state) ────
-        result = self.gateway.submit(authorization_id, correlation_id=intent.intent_id)
-        if result.broker_order_id and result.state in {
-            BrokerSubmitState.ACCEPTED,
-            BrokerSubmitState.OPEN,
-            BrokerSubmitState.PARTIALLY_FILLED,
-            BrokerSubmitState.FILLED,
-        }:
-            self.lifecycle.submit_order(
-                intent_id=intent.intent_id,
-                exchange_order_id=result.broker_order_id,
+        try:
+            submission = self.execution_service.submit_planned(
+                planning=plan_result,
+                risk_decision=risk_decision,
+                permission_context=permission_ctx,
+                correlation_id=intent.intent_id,
             )
-
-        # Record broker result through lifecycle (P0-2A: broker fact handler)
-        broker_event = self.lifecycle.record_broker_submit_result(
-            intent_id=intent.intent_id,
-            result=result,
-        )
+        except ExecutionBlockedError as exc:
+            logger.warning(f"Order blocked by canonical execution service: {exc}")
+            return orders
+        result = submission.result
+        broker_event = submission.broker_event
 
         orders.append(
             self._result_to_order(result, symbol, intent.side, intent.quantity)
@@ -444,7 +409,7 @@ class ExecutionEngine:
                 parent_intent_id=intent.intent_id,
             )
             protection_intent_id = f"{protective_event.aggregate_id}_submit"
-            protection_auth = self.lifecycle.emergency_reduce(
+            protection_result = self.execution_service.emergency_protection(
                 EmergencyReduceRequest(
                     intent_id=protection_intent_id,
                     symbol=plan.symbol,
@@ -458,32 +423,9 @@ class ExecutionEngine:
                         "stop_price": plan.stop_trigger,
                         "time_in_force": "gtc",
                     },
-                )
-            )
-            protection_result = self.gateway.submit_protection(
-                str(protection_auth.payload["authorization_id"]),
+                ),
                 correlation_id=intent.intent_id,
             )
-            protection_submission = protection_result.submission
-            if protection_submission is not None:
-                if (
-                    protection_submission.broker_order_id
-                    and protection_submission.state
-                    in {
-                        BrokerSubmitState.ACCEPTED,
-                        BrokerSubmitState.OPEN,
-                        BrokerSubmitState.PARTIALLY_FILLED,
-                        BrokerSubmitState.FILLED,
-                    }
-                ):
-                    self.lifecycle.submit_order(
-                        protection_intent_id,
-                        exchange_order_id=protection_submission.broker_order_id,
-                    )
-                self.lifecycle.record_broker_submit_result(
-                    protection_intent_id,
-                    protection_submission,
-                )
             if protection_result.success and protection_result.evidence:
                 self.lifecycle.acknowledge_protective_order(
                     protective_order_id=protective_event.aggregate_id,
@@ -534,17 +476,7 @@ class ExecutionEngine:
                 metadata={"order_type": "market", "time_in_force": "gtc"},
             )
             try:
-                auth_event = self.lifecycle.emergency_reduce(emergency)
-                result = self.gateway.submit(
-                    auth_event.payload["authorization_id"],
-                    correlation_id=emergency.intent_id,
-                )
-                if result.success and result.broker_order_id:
-                    self.lifecycle.submit_order(
-                        intent_id=emergency.intent_id,
-                        exchange_order_id=result.broker_order_id,
-                    )
-                self.lifecycle.record_broker_submit_result(emergency.intent_id, result)
+                result = self.execution_service.emergency_close(emergency).result
                 if result.state == BrokerSubmitState.FILLED and result.broker_order_id:
                     raw = result.raw_response or {}
                     orders.append(
@@ -585,17 +517,7 @@ class ExecutionEngine:
             metadata={"order_type": "market", "time_in_force": "gtc"},
         )
         try:
-            auth_event = self.lifecycle.emergency_reduce(emergency)
-            result = self.gateway.submit(
-                auth_event.payload["authorization_id"],
-                correlation_id=emergency.intent_id,
-            )
-            if result.success and result.broker_order_id:
-                self.lifecycle.submit_order(
-                    intent_id=emergency.intent_id,
-                    exchange_order_id=result.broker_order_id,
-                )
-            self.lifecycle.record_broker_submit_result(emergency.intent_id, result)
+            result = self.execution_service.emergency_close(emergency).result
             if result.state == BrokerSubmitState.FILLED and result.broker_order_id:
                 raw = result.raw_response or {}
                 return Order(

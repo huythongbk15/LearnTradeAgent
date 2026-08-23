@@ -56,6 +56,7 @@ ORDER_LEDGER_TERMINAL_STATUSES = frozenset(
 ORDER_LEDGER_TRANSITIONS = {
     "reserved": {
         "submitted",
+        "rejected",
         "reconciling",
         "manual_intervention",
     },
@@ -1693,6 +1694,7 @@ def validate_order_risk(
     limits: LiveRiskLimits,
     locked_reason: str | None,
     risk_decision: "UnifiedRiskDecision" | None = None,
+    trusted_price=None,
 ) -> None:
     """Validate a proposed order against account-level hard limits."""
 
@@ -1713,6 +1715,7 @@ def validate_order_risk(
     from trading_agent.execution.lifecycle.lifecycle import (
         ExecutionHealth,
         ExposureEffect,
+        TrustedPrice,
     )
     from trading_agent.execution.permission import (
         OrderPermission,
@@ -1723,6 +1726,8 @@ def validate_order_risk(
     exposure_effect = (
         ExposureEffect.REDUCE if normalized_side == "SELL" else ExposureEffect.INCREASE
     )
+    if trusted_price is not None and not isinstance(trusted_price, TrustedPrice):
+        raise TypeError("trusted_price must be a TrustedPrice")
     authorized_notional = (
         current_symbol_notional * 1.01 if normalized_side == "SELL" else 0.0
     )
@@ -1731,13 +1736,14 @@ def validate_order_risk(
             execution_health=ExecutionHealth.NORMAL,
             exposure_effect=exposure_effect,
             risk_decision=risk_decision,
+            trusted_price=trusted_price,
             kill_switch_active=bool(locked_reason),
             inventory_state="known",
             free_inventory=authorized_notional,
             authorized_sellable_inventory=authorized_notional,
             order_size=notional_usd,
             order_side=normalized_side.lower(),
-            require_fresh_market_data=False,
+            require_fresh_market_data=True,
         )
     )
     if permission.permission == OrderPermission.BLOCK:

@@ -55,6 +55,7 @@ from trading_agent.execution.canonical import (
     BrokerGateway,
 )
 from trading_agent.execution.canonical.adapters import LiveBrokerExecutionAdapter
+from trading_agent.execution.application import CanonicalExecutionService
 from trading_agent.execution.lifecycle import ExecutionEventStore
 from trading_agent.execution.lifecycle.lifecycle import (
     EmergencyReduceRequest,
@@ -228,7 +229,11 @@ def _canonical_submit(
             "status": "blocked",
         }
     symbol_str = symbol.pair if hasattr(symbol, "pair") else str(symbol)
-    auth_event = lifecycle.emergency_reduce(
+    execution_service = CanonicalExecutionService(
+        lifecycle=lifecycle,
+        gateway=gateway,
+    )
+    result = execution_service.emergency_close(
         EmergencyReduceRequest(
             intent_id=correlation_id,
             symbol=symbol_str,
@@ -237,17 +242,7 @@ def _canonical_submit(
             reason="LEGACY_RUNNER_REDUCE",
             metadata={"order_type": "market", "time_in_force": "gtc"},
         )
-    )
-    result = gateway.submit(
-        auth_event.payload["authorization_id"],
-        correlation_id=correlation_id,
-    )
-    if result.success and result.broker_order_id:
-        lifecycle.submit_order(
-            intent_id=correlation_id,
-            exchange_order_id=result.broker_order_id,
-        )
-    lifecycle.record_broker_submit_result(correlation_id, result)
+    ).result
 
     return {
         "success": result.success,

@@ -112,6 +112,7 @@ python_version = "3.12"
 files = [
     "src/trading_agent/execution/canonical/broker_gateway.py",
     "src/trading_agent/execution/canonical/adapters.py",
+    "src/trading_agent/execution/application.py",
     "src/trading_agent/execution/lifecycle/lifecycle.py",
     "src/trading_agent/execution/engine.py",
 ]

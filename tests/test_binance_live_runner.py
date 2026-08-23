@@ -258,6 +258,7 @@ class ExecutionBroker:
         self.result = result
         self.error = error
         self.reconciled = reconciled
+        self.place_calls = 0
 
     def get_account(self):
         return {"equity": 1_000.0, "cash": 1_000.0}
@@ -284,6 +285,7 @@ class ExecutionBroker:
         return round(amount, 6)
 
     def place_order(self, order):
+        self.place_calls += 1
         if self.error is not None:
             raise self.error
         return self.result
@@ -404,14 +406,14 @@ def test_partial_fill_stops_batch_and_is_persisted(tmp_path):
     ]
 
 
-def test_timeout_after_accept_is_reconciled_and_stops_batch(tmp_path):
+def test_buy_without_order_planner_output_is_blocked_before_broker_io(tmp_path):
     store = LiveRiskStateStore(tmp_path / "state.json")
     broker = ExecutionBroker(
         error=TimeoutError("client timed out"),
         reconciled=order_result("filled", filled_qty=0.1),
     )
     lifecycle, gateway = canonical_stack(tmp_path, broker, position_quantity=0.0)
-    with pytest.raises(LiveSafetyError, match="exchange reports filled"):
+    with pytest.raises(LiveSafetyError, match="OrderPlanner output"):
         runner.execute_orders(
             orders=[planned_buy()],
             broker=broker,
@@ -420,9 +422,9 @@ def test_timeout_after_accept_is_reconciled_and_stops_batch(tmp_path):
             store=store,
             limits=LiveRiskLimits(),
         )
+    assert broker.place_calls == 0
     record = next(iter(store.state.order_ledger.values()))
-    assert record["status"] == "filled"
-    assert store.unfinished_orders() == {}
+    assert record["status"] == "rejected"
 
 
 def test_unfinished_order_blocks_new_batch_when_exchange_cannot_find_it(tmp_path):

@@ -28,6 +28,7 @@ from trading_agent.execution.canonical.adapters import (
     AlpacaExecutionAdapter,
     BrokerSubmitState,
 )
+from trading_agent.execution.application import CanonicalExecutionService
 
 ALPACA_MICRO_DUST_THRESHOLD_USD = 5.0
 
@@ -147,6 +148,10 @@ def close_micro_dust_positions():
         store=store,
         lifecycle=lifecycle,
     )
+    execution_service = CanonicalExecutionService(
+        lifecycle=lifecycle,
+        gateway=gateway,
+    )
 
     for position in sync_adapter.get_all_positions():
         market_value = float(position.notional)
@@ -169,17 +174,7 @@ def close_micro_dust_positions():
                     reason="micro_dust_cleanup",
                     metadata={"order_type": "market", "time_in_force": "ioc"},
                 )
-                auth_event = lifecycle.emergency_reduce(emergency)
-                result = gateway.submit(
-                    str(auth_event.payload["authorization_id"]),
-                    correlation_id=emergency.intent_id,
-                )
-                if result.success and result.broker_order_id:
-                    lifecycle.submit_order(
-                        intent_id=emergency.intent_id,
-                        exchange_order_id=result.broker_order_id,
-                    )
-                lifecycle.record_broker_submit_result(emergency.intent_id, result)
+                result = execution_service.emergency_close(emergency).result
                 if result.state == BrokerSubmitState.FILLED:
                     closed.append(
                         {

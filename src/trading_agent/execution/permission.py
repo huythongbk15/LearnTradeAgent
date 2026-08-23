@@ -98,6 +98,12 @@ class PermissionContext:
     )
     draft: bool = False  # True for intent creation (before risk approval)
 
+    def __post_init__(self) -> None:
+        if not isinstance(self.execution_health, ExecutionHealth):
+            raise TypeError("execution_health must be an ExecutionHealth")
+        if not isinstance(self.exposure_effect, ExposureEffect):
+            raise TypeError("exposure_effect must be an ExposureEffect")
+
 
 def evaluate_order_permission(ctx: PermissionContext) -> PermissionResult:
     """Return one authoritative, fail-closed order permission decision."""

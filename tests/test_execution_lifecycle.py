@@ -20,6 +20,10 @@ from trading_agent.execution.canonical import (
     RiskLevel,
     UnifiedRiskDecision,
 )
+from trading_agent.execution.canonical.adapters import (
+    BrokerSubmitFact,
+    BrokerSubmitState,
+)
 from trading_agent.execution.lifecycle import (
     EVENT_SCHEMA_VERSION,
     EventValidationError,
@@ -40,6 +44,30 @@ from trading_agent.execution.lifecycle import (
 )
 
 from scripts.migrate_global_seq import migrate
+
+
+def _restart_lifecycle(db_path: Path) -> tuple[ExecutionEventStore, ExecutionLifecycle]:
+    restarted_store = ExecutionEventStore(db_path).connect()
+    restarted = ExecutionLifecycle(
+        restarted_store,
+        price_source=lambda s: TrustedPrice(
+            price=100.0,
+            exchange_timestamp=datetime.now(UTC),
+            received_at=datetime.now(UTC),
+        ),
+        inventory_source=lambda symbol, side: 1.0,
+        portfolio_source=lambda symbol: PortfolioRiskSnapshot(
+            symbol=str(symbol),
+            position_quantity=1.0,
+            available_quantity=1.0,
+            equity=10_000.0,
+            available_cash=10_000.0,
+            observed_at=datetime.now(UTC),
+            source="restart-test",
+        ),
+    )
+    restarted.load()
+    return restarted_store, restarted
 
 
 def sample_unified_decision(
@@ -84,6 +112,72 @@ def sample_unified_decision(
         interval_width=interval_width,
         created_at=created_at or datetime.now(UTC),
     )
+
+
+def test_unknown_broker_fact_survives_restart_and_reconciles_durably(tmp_path):
+    db_path = tmp_path / "unknown-restart.db"
+    initial_store, initial = _restart_lifecycle(db_path)
+    initial.create_order_intent(
+        intent_id="unknown-1",
+        symbol="BTC/USDT",
+        side="buy",
+        size=0.1,
+        idempotency_key="unknown-1",
+    )
+    initial.approve_risk(
+        "unknown-1",
+        risk_decision=sample_unified_decision(),
+    )
+    initial.authorize_order("unknown-1", idempotency_key="unknown-1")
+    initial.request_broker_submission("unknown-1", claimed_by="test")
+    initial.record_broker_io_started("unknown-1")
+    initial.record_broker_submit_result(
+        "unknown-1",
+        BrokerSubmitFact(
+            state=BrokerSubmitState.UNKNOWN,
+            broker_order_id=None,
+            client_order_id="unknown-1",
+            venue="test",
+            broker_status="timeout",
+            observed_at=datetime.now(UTC),
+            error="transport timeout",
+            raw_response={},
+        ),
+    )
+    initial_store.close()
+
+    restarted_store, restarted = _restart_lifecycle(db_path)
+    recovered = restarted.order("unknown-1")
+    assert recovered is not None
+    assert recovered.status is IntentStatus.MANUAL
+    assert recovered.submission_requested is True
+    assert recovered.io_started is True
+    assert restarted.state.reconciliation is ReconciliationState.STARTED
+    assert "unknown-1" in restarted.state.unresolved_manual_intents
+
+    restarted.record_reconciled_broker_submit_result(
+        "unknown-1",
+        BrokerSubmitFact(
+            state=BrokerSubmitState.OPEN,
+            broker_order_id="broker-1",
+            client_order_id="unknown-1",
+            venue="test",
+            broker_status="open",
+            observed_at=datetime.now(UTC),
+            error=None,
+            raw_response={},
+        ),
+    )
+    assert restarted.order("unknown-1").status is IntentStatus.ACKNOWLEDGED
+    assert restarted.state.reconciliation is ReconciliationState.RESOLVED
+    assert not restarted.state.unresolved_manual_intents
+    restarted_store.close()
+
+    final_store, final = _restart_lifecycle(db_path)
+    assert final.order("unknown-1").status is IntentStatus.ACKNOWLEDGED
+    assert final.state.reconciliation is ReconciliationState.RESOLVED
+    assert not final.state.unresolved_manual_intents
+    final_store.close()
 
 
 @pytest.fixture

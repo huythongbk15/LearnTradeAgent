@@ -35,6 +35,7 @@ from trading_agent.execution.canonical.adapters import (
     AlpacaExecutionAdapter,
     BrokerSubmitState,
 )
+from trading_agent.execution.application import CanonicalExecutionService
 from trading_agent.execution.lifecycle.lifecycle import (
     PortfolioRiskSnapshot,
 )
@@ -564,6 +565,10 @@ async def api_close(req: CloseRequest) -> dict:
             store=store,
             lifecycle=lifecycle,
         )
+        execution_service = CanonicalExecutionService(
+            lifecycle=lifecycle,
+            gateway=gateway,
+        )
         positions = sync_adapter.get_all_positions()
         detail = {"closed": [], "failed": []}
         for pos in positions:
@@ -580,7 +585,7 @@ async def api_close(req: CloseRequest) -> dict:
                 continue
             intent_id = f"emergency-close-{symbol}-{int(datetime.now(UTC).timestamp())}"
             try:
-                auth_event = lifecycle.emergency_reduce(
+                submission = execution_service.emergency_close(
                     EmergencyReduceRequest(
                         intent_id=intent_id,
                         symbol=symbol,
@@ -590,16 +595,7 @@ async def api_close(req: CloseRequest) -> dict:
                         metadata={"order_type": "market", "time_in_force": "ioc"},
                     )
                 )
-                result = gateway.submit(
-                    str(auth_event.payload["authorization_id"]),
-                    correlation_id=intent_id,
-                )
-                if result.success and result.broker_order_id:
-                    lifecycle.submit_order(
-                        intent_id=intent_id,
-                        exchange_order_id=result.broker_order_id,
-                    )
-                lifecycle.record_broker_submit_result(intent_id, result)
+                result = submission.result
                 if result.state == BrokerSubmitState.FILLED:
                     detail["closed"].append(symbol)
                 elif result.success:

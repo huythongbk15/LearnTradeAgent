@@ -12,6 +12,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from trading_agent.cli._common import console
+from trading_agent.execution.application import CanonicalExecutionService
 
 # ── execution subcommands ────────────────────────────────────────────────
 
@@ -654,7 +655,12 @@ def _place_order_via_gateway(live_broker, order, store=None):
     # Manual exits use the lifecycle-owned emergency-reduce policy.  It binds
     # trusted venue inventory/portfolio/price and persists the submission
     # request before any broker I/O.
-    auth_event = lifecycle.emergency_reduce(
+    gateway = BrokerGateway(adapter=adapter, store=store, lifecycle=lifecycle)
+    execution_service = CanonicalExecutionService(
+        lifecycle=lifecycle,
+        gateway=gateway,
+    )
+    result = execution_service.emergency_close(
         EmergencyReduceRequest(
             intent_id=intent_id,
             symbol=symbol,
@@ -670,19 +676,7 @@ def _place_order_via_gateway(live_broker, order, store=None):
                 "time_in_force": order.time_in_force.value.lower(),
             },
         )
-    )
-
-    gateway = BrokerGateway(adapter=adapter, store=store, lifecycle=lifecycle)
-    result = gateway.submit(
-        auth_event.payload["authorization_id"],
-        correlation_id=intent_id,
-    )
-    if result.success and result.broker_order_id:
-        lifecycle.submit_order(
-            intent_id=intent_id,
-            exchange_order_id=result.broker_order_id,
-        )
-    lifecycle.record_broker_submit_result(intent_id, result)
+    ).result
 
     response = dict(result.raw_response or {})
     response.setdefault("id", result.broker_order_id)

@@ -10,6 +10,7 @@ from trading_agent.execution.canonical import (
     RiskLevel,
     UnifiedRiskDecision,
 )
+from trading_agent.execution.lifecycle import TrustedPrice
 from trading_agent.execution.live_safety import (
     LIVE_CONFIRMATION,
     DuplicateOrderError,
@@ -59,6 +60,11 @@ def _sample_risk_decision(
         interval_width=0.05,
         created_at=datetime.now(UTC),
     )
+
+
+def _trusted_price() -> TrustedPrice:
+    now = datetime.now(UTC)
+    return TrustedPrice(price=100.0, exchange_timestamp=now, received_at=now)
 
 
 def test_mainnet_execution_requires_both_confirmations():
@@ -321,6 +327,7 @@ def test_mainnet_canary_profile_enforces_hard_caps():
             limits=limits,
             locked_reason=None,
             risk_decision=_sample_risk_decision(),
+            trusted_price=_trusted_price(),
         )
 
 
@@ -403,6 +410,7 @@ def test_buy_order_limits_and_risk_reducing_sell():
             limits=limits,
             locked_reason=None,
             risk_decision=_sample_risk_decision(),
+            trusted_price=_trusted_price(),
         )
     validate_order_risk(
         side="SELL",
@@ -428,6 +436,7 @@ def test_buy_order_limits_and_risk_reducing_sell():
             limits=limits,
             locked_reason="TRADING_ENTRY_KILL_SWITCH is active",
             risk_decision=_sample_risk_decision(),
+            trusted_price=_trusted_price(),
         )
 
 

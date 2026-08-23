@@ -1336,7 +1336,7 @@ class TestExecutionEngineE2E:
         # For this test we only verify the engine accepted the signal and ran the flow.
         assert isinstance(orders, list)
 
-    def test_engine_unknown_broker_state_treated_as_open(self):
+    def test_engine_unknown_broker_state_treated_as_open(self, tmp_path):
         """P0-2: Broker UNKNOWN must become OrderStatus.OPEN, not REJECTED."""
         from unittest.mock import patch
         from trading_agent.execution.engine import ExecutionEngine
@@ -1346,7 +1346,8 @@ class TestExecutionEngineE2E:
         )
         from trading_agent.execution.canonical.adapters import BrokerSubmitState
 
-        engine = ExecutionEngine(exchange_name="paper")
+        event_store = ExecutionEventStore(tmp_path / "engine-unknown.db").connect()
+        engine = ExecutionEngine(exchange_name="paper", store=event_store)
 
         # Seed price cache
         engine.exchange._last_price_cache["BTC/USDT"] = 50000.0

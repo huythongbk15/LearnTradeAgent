@@ -829,6 +829,7 @@ class ExecutionLifecycle:
             if order.status in {
                 IntentStatus.APPROVED,
                 IntentStatus.AUTHORIZED,
+                IntentStatus.MANUAL,
             }:
                 order.status = IntentStatus.SUBMITTED
             order.exchange_order_id = event.payload.get("exchange_order_id")
@@ -846,6 +847,7 @@ class ExecutionLifecycle:
         if order is not None:
             self._release_sell_remainder(order)
             order.status = IntentStatus.REJECTED
+            self._resolve_manual_intent(state, event.aggregate_id)
 
     def _on_broker_acknowledged(
         self, state: LifecycleState, event: ExecutionEvent
@@ -856,6 +858,7 @@ class ExecutionLifecycle:
                 event.payload.get("broker_order_id") or order.broker_order_id
             )
             order.status = IntentStatus.ACKNOWLEDGED
+            self._resolve_manual_intent(state, event.aggregate_id)
 
     def _on_broker_state_unknown(
         self, state: LifecycleState, event: ExecutionEvent
@@ -865,8 +868,15 @@ class ExecutionLifecycle:
             order.broker_order_id = (
                 event.payload.get("broker_order_id") or order.broker_order_id
             )
-            # Do not change order status; reconciliation will resolve
-            state.reconciliation = ReconciliationState.STARTED
+            order.status = IntentStatus.MANUAL
+            reason = str(event.payload.get("reason") or "broker state unknown")
+            if reason not in order.manual_reasons:
+                order.manual_reasons.append(reason)
+        state.manual_blocked = True
+        state.unresolved_manual_intents.add(event.aggregate_id)
+        state.reconciliation = ReconciliationState.STARTED
+        if state.execution_health != ExecutionHealth.PROTECTION_GAP:
+            state.execution_health = ExecutionHealth.RECONCILING
 
     def _on_local_submission_failed(
         self, state: LifecycleState, event: ExecutionEvent
@@ -877,6 +887,17 @@ class ExecutionLifecycle:
             order.broker_order_id = (
                 event.payload.get("broker_order_id") or order.broker_order_id
             )
+            self._resolve_manual_intent(state, event.aggregate_id)
+
+    @staticmethod
+    def _resolve_manual_intent(state: LifecycleState, intent_id: str) -> None:
+        """Clear UNKNOWN only after a later durable broker fact resolves it."""
+
+        state.unresolved_manual_intents.discard(intent_id)
+        if not state.unresolved_manual_intents:
+            state.manual_blocked = False
+            if state.reconciliation == ReconciliationState.STARTED:
+                state.execution_health = ExecutionHealth.RECONCILING
 
     def _apply_fill(self, state: LifecycleState, event: ExecutionEvent) -> None:
         order = state.orders.get(event.aggregate_id)
@@ -2206,6 +2227,59 @@ class ExecutionLifecycle:
 
     def order(self, intent_id: str) -> OrderState | None:
         return self.state.order(intent_id)
+
+    def record_reconciled_broker_submit_result(
+        self,
+        intent_id: str,
+        result: BrokerSubmitFact,
+    ) -> ExecutionEvent | None:
+        """Resolve a durable UNKNOWN using a later typed broker lookup fact."""
+
+        order = self.state.order(intent_id)
+        if order is None:
+            raise LifecycleError(f"unknown intent {intent_id}")
+        if self.state.reconciliation != ReconciliationState.STARTED:
+            raise LifecycleError("no reconciliation in progress")
+        if intent_id not in self.state.unresolved_manual_intents:
+            raise LifecycleError(f"intent {intent_id} has no unresolved UNKNOWN fact")
+
+        state = result.state or BrokerSubmitState.UNKNOWN
+        if state in {BrokerSubmitState.UNKNOWN, BrokerSubmitState.FAILED_LOCAL}:
+            raise LifecycleError(
+                f"reconciliation requires a known broker state, got {state.value}"
+            )
+        if state in {
+            BrokerSubmitState.ACCEPTED,
+            BrokerSubmitState.OPEN,
+            BrokerSubmitState.PARTIALLY_FILLED,
+            BrokerSubmitState.FILLED,
+        }:
+            if not result.broker_order_id:
+                raise LifecycleError("reconciled live order requires broker_order_id")
+            payload: dict[str, Any] = {
+                "order_id": intent_id,
+                "exchange_order_id": result.broker_order_id,
+            }
+            if order.side == "sell":
+                payload.update(
+                    symbol=order.symbol,
+                    side=order.side,
+                    authorized_quantity=order.authorized_quantity,
+                    reserved_quantity=order.size,
+                )
+            self._emit(ExecutionEventType.ORDER_SUBMITTED, intent_id, payload)
+
+        event = self.record_broker_submit_result(intent_id, result)
+        if intent_id in self.state.unresolved_manual_intents:
+            raise LifecycleError(
+                f"broker fact {state.value} did not resolve UNKNOWN for {intent_id}"
+            )
+        if (
+            self.state.reconciliation == ReconciliationState.STARTED
+            and not self.state.unresolved_manual_intents
+        ):
+            self.resolve_reconciliation(outcome=f"broker_fact:{state.value}")
+        return event
 
     def snapshot_state(self) -> dict[str, Any]:
         """Serializable state for the durable snapshot (store.save_snapshot)."""

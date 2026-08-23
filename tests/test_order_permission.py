@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+import pytest
+
 from trading_agent.execution.canonical import (
     EvidenceState,
     RiskLevel,
@@ -75,6 +77,22 @@ def _sample_risk_decision(
 
 
 class TestOrderPermission:
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [
+            ("execution_health", "normal"),
+            ("exposure_effect", "increase"),
+        ],
+    )
+    def test_context_rejects_string_safety_enums(self, field, value):
+        values = {
+            "execution_health": ExecutionHealth.NORMAL,
+            "exposure_effect": ExposureEffect.INCREASE,
+        }
+        values[field] = value
+        with pytest.raises(TypeError):
+            PermissionContext(**values)
+
     def test_normal_buy_allowed(self):
         result = evaluate_order_permission(
             PermissionContext(
