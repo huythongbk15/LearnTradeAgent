@@ -1,18 +1,17 @@
 # .github/workflows/cd-staging.yml — Continuous Deployment to Staging
-# Triggers: CI workflow completes successfully on master branch
+# Triggers: Provenance Gate completes successfully on master branch
 
 name: CD Staging
 
 on:
   workflow_run:
-    workflows: ["CI"]
+    workflows: ["Provenance Gate"]
     types: [completed]
     branches: [master]
 
 permissions:
   contents: read
   packages: read
-  id-token: write
   attestations: read
   actions: read
 
@@ -27,12 +26,43 @@ jobs:
       IMAGE_NAME: ${{ github.repository }}
       STAGING_HOST: ${{ secrets.STAGING_HOST }}
       STAGING_USER: ${{ secrets.STAGING_USER }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
+      - name: Download immutable provenance verdict
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: provenance-verdict
+          path: provenance-verdict
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Validate immutable provenance verdict
+        id: verdict
+        shell: bash
+        run: |
+          HEAD_SHA="$(tr -d '\r\n' < provenance-verdict/head-sha.txt)"
+          IMAGE="$(tr -d '\r\n' < provenance-verdict/image-ref.txt)"
+          REPOSITORY="${GITHUB_REPOSITORY,,}"
+          if [[ ! "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Provenance verdict contains an invalid commit SHA" >&2
+            exit 1
+          fi
+          if [[ ! "$IMAGE" =~ ^ghcr\.io/$REPOSITORY@sha256:[0-9a-f]{64}$ ]]; then
+            echo "Provenance verdict contains an invalid image digest" >&2
+            exit 1
+          fi
+          echo "head_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.verdict.outputs.head_sha }}
 
       - name: Install cosign
-        uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: v3.1.3
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
@@ -42,84 +72,33 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       # =========================================================================
-      # STEP 6: VERIFY IMAGE SIGNATURE & SBOM BEFORE DEPLOY
+      # VERIFY ALL PROVENANCE CRITERIA AGAIN BEFORE DEPLOY
       # =========================================================================
-      - name: Determine image tag (SHA-based from CI)
+      - name: Pull exact image from provenance verdict
         id: image-tag
         shell: bash
         run: |
-          # CI pushes sha-<sha> tag
-          REPOSITORY="${GITHUB_REPOSITORY,,}"
-          SHA_TAG="${{ env.REGISTRY }}/$REPOSITORY:sha-${{ github.event.workflow_run.head_sha }}"
-          docker pull "$SHA_TAG"
-          REVISION="$(docker image inspect --format='{{index .Config.Labels "org.opencontainers.image.revision"}}' "$SHA_TAG")"
-          if [ "$REVISION" != "${{ github.event.workflow_run.head_sha }}" ]; then
-            echo "Image revision label does not match the successful CI commit" >&2
+          IMAGE="${{ steps.verdict.outputs.image }}"
+          docker pull "$IMAGE"
+          REVISION="$(docker image inspect --format='{{index .Config.Labels "org.opencontainers.image.revision"}}' "$IMAGE")"
+          if [ "$REVISION" != "${{ steps.verdict.outputs.head_sha }}" ]; then
+            echo "Image revision label does not match the provenance verdict" >&2
             exit 1
           fi
-          DIGEST_IMAGE="$(docker image inspect --format='{{index .RepoDigests 0}}' "$SHA_TAG")"
-          case "$DIGEST_IMAGE" in
-            *@sha256:*) ;;
-            *) echo "Registry did not return an immutable digest" >&2; exit 1 ;;
-          esac
-          echo "image=$DIGEST_IMAGE" >> "$GITHUB_OUTPUT"
-          echo "Using immutable image: $DIGEST_IMAGE"
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+          echo "Using immutable image: $IMAGE"
 
-      - name: Verify cosign signature
-        id: verify-signature
-        env:
-          COSIGN_EXPERIMENTAL: 1
+      - name: Run provenance verifier (all 7 criteria)
         run: |
-          IMAGE="${{ steps.image-tag.outputs.image }}"
-          echo "Verifying signature for $IMAGE"
-          if cosign verify "$IMAGE" \
-            --certificate-identity="https://github.com/huythongbk15/LearnTradeAgent/.github/workflows/ci.yml@refs/heads/master" \
-            --certificate-oidc-issuer="https://token.actions.githubusercontent.com"; then
-            echo "✅ Signature verified"
-            echo "verified=true" >> $GITHUB_OUTPUT
-          else
-            echo "❌ Signature verification FAILED"
-            echo "verified=false" >> $GITHUB_OUTPUT
-            exit 1
-          fi
-
-      - name: Verify signed SBOM attestation
-        id: verify-sbom
-        run: |
-          IMAGE="${{ steps.image-tag.outputs.image }}"
-          echo "Verifying SBOM for $IMAGE"
-          if cosign verify-attestation "$IMAGE" --type=spdxjson \
-            --certificate-identity="https://github.com/huythongbk15/LearnTradeAgent/.github/workflows/ci.yml@refs/heads/master" \
-            --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
-            > verified-sbom-attestation.json; then
-            echo "✅ SBOM verified"
-            echo "verified=true" >> $GITHUB_OUTPUT
-          else
-            echo "❌ SBOM verification FAILED"
-            echo "verified=false" >> $GITHUB_OUTPUT
-            exit 1
-          fi
-
-      - name: Download SBOM artifact (for record)
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: sbom-${{ github.event.workflow_run.head_sha }}
-          path: ./sbom
-          run-id: ${{ github.event.workflow_run.id }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Display SBOM summary
-        if: always()
-        run: |
-          if [ -f ./sbom/sbom.spdx.json ]; then
-            echo "=== SBOM Summary ==="
-            jq '.packages | length' ./sbom/sbom.spdx.json | xargs -I{} echo "Total packages: {}"
-          else
-            echo "⚠️ SBOM artifact missing"
-          fi
+          python scripts/verify_provenance.py \
+            --image "${{ steps.image-tag.outputs.image }}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --commit "${{ steps.verdict.outputs.head_sha }}" \
+            --workflow .github/workflows/ci.yml \
+            --ref refs/heads/master
 
       # =========================================================================
-      # DEPLOY TO STAGING (only after signature & SBOM verified)
+      # DEPLOY TO STAGING (only after signature, SBOM, and SLSA verified)
       # =========================================================================
       - name: Set up SSH
         uses: webfactory/ssh-agent@e83874834305fe9a4a2997156cb26c5de65a8555 # v0.10.0
@@ -139,7 +118,7 @@ jobs:
           ssh ${{ env.STAGING_USER }}@${{ env.STAGING_HOST }} "
             set -e
             cd /opt/trading-agent-staging
-            # Pin deployment to the exact image that passed signature verification.
+            # Pin deployment to the exact image that passed full provenance verification.
             echo 'TRADING_AGENT_IMAGE=${{ steps.image-tag.outputs.image }}' > .env.image
             chmod 600 .env.image
             # Pull latest images
@@ -169,10 +148,11 @@ jobs:
           token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           message: |
             🚀 **Staging Deployed & Verified**
-            Commit: ${{ github.event.workflow_run.head_sha }}
+            Commit: ${{ steps.verdict.outputs.head_sha }}
             Image: ${{ steps.image-tag.outputs.image }}
             ✅ Cosign signature verified
-            ✅ SBOM verified
+            ✅ GitHub SPDX SBOM attestation verified
+            ✅ GitHub SLSA v1 provenance verified
             URL: https://staging.trading-agent.example.com
 
       - name: Notify on failure
@@ -183,6 +163,6 @@ jobs:
           token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           message: |
             ❌ **Staging Deployment FAILED**
-            Commit: ${{ github.event.workflow_run.head_sha }}
+            Commit: ${{ steps.verdict.outputs.head_sha }}
             Run: ${{ github.run_id }}
             Check GitHub Actions for details.

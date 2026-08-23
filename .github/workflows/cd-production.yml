@@ -18,7 +18,6 @@ on:
 permissions:
   contents: read
   packages: read
-  id-token: write
   attestations: read
 
 concurrency:
@@ -35,12 +34,15 @@ jobs:
       IMAGE_NAME: ${{ github.repository }}
       PRODUCTION_HOST: ${{ secrets.PRODUCTION_HOST }}
       PRODUCTION_USER: ${{ secrets.PRODUCTION_USER }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install cosign
-        uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: v3.1.3
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
@@ -50,7 +52,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       # =========================================================================
-      # VERIFY IMAGE SIGNATURE & SBOM BEFORE PRODUCTION DEPLOY
+      # VERIFY IMAGE SIGNATURE, SBOM, AND SLSA BEFORE PRODUCTION DEPLOY
       # =========================================================================
       - name: Determine image tag
         id: image-tag
@@ -78,57 +80,16 @@ jobs:
           echo "image=$DIGEST_IMAGE" >> "$GITHUB_OUTPUT"
           echo "Using immutable image: $DIGEST_IMAGE"
 
-      - name: Verify cosign signature
-        id: verify-signature
-        env:
-          COSIGN_EXPERIMENTAL: 1
+      - name: Run provenance verifier (all 7 criteria)
         run: |
-          IMAGE="${{ steps.image-tag.outputs.image }}"
-          echo "Verifying signature for $IMAGE"
-          if cosign verify "$IMAGE" \
-            --certificate-identity="https://github.com/huythongbk15/LearnTradeAgent/.github/workflows/ci.yml@refs/heads/master" \
-            --certificate-oidc-issuer="https://token.actions.githubusercontent.com"; then
-            echo "✅ Signature verified"
-            echo "verified=true" >> $GITHUB_OUTPUT
-          else
-            echo "❌ Signature verification FAILED"
-            echo "verified=false" >> $GITHUB_OUTPUT
-            exit 1
-          fi
-
-      - name: Verify signed SBOM attestation
-        id: verify-sbom
-        run: |
-          IMAGE="${{ steps.image-tag.outputs.image }}"
-          echo "Verifying SBOM for $IMAGE"
-          if cosign verify-attestation "$IMAGE" --type=spdxjson \
-            --certificate-identity="https://github.com/huythongbk15/LearnTradeAgent/.github/workflows/ci.yml@refs/heads/master" \
-            --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
-            > verified-sbom-attestation.json; then
-            echo "✅ SBOM verified"
-            echo "verified=true" >> $GITHUB_OUTPUT
-          else
-            echo "❌ SBOM verification FAILED"
-            echo "verified=false" >> $GITHUB_OUTPUT
-            exit 1
-          fi
-
-      - name: Verify SLSA provenance attestation
-        id: verify-provenance
-        run: |
-          IMAGE="${{ steps.image-tag.outputs.image }}"
-          echo "Verifying SLSA provenance for $IMAGE"
-          if cosign verify-attestation "$IMAGE" --type=slsaprovenance \
-            --certificate-identity="https://github.com/huythongbk15/LearnTradeAgent/.github/workflows/ci.yml@refs/heads/master" \
-            --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
-            > verified-provenance-attestation.json; then
-            echo "✅ SLSA provenance verified"
-            echo "verified=true" >> $GITHUB_OUTPUT
-          else
-            echo "❌ Provenance verification FAILED"
-            echo "verified=false" >> $GITHUB_OUTPUT
-            exit 1
-          fi
+          SHA="${{ github.event.inputs.sha }}"
+          SHA="${SHA#sha-}"
+          python scripts/verify_provenance.py \
+            --image "${{ steps.image-tag.outputs.image }}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --commit "$SHA" \
+            --workflow .github/workflows/ci.yml \
+            --ref refs/heads/master
 
       - name: Verify target commit is on master history (branch/ref binding)
         env:
@@ -180,7 +141,7 @@ jobs:
               cp .env.image .env.image.previous || true
             fi
 
-            # Pin deployment to the exact image that passed signature verification.
+            # Pin deployment to the exact image that passed full provenance verification.
             echo 'TRADING_AGENT_IMAGE=${{ steps.image-tag.outputs.image }}' > .env.image
             chmod 600 .env.image
 
@@ -215,7 +176,8 @@ jobs:
             SHA: ${{ github.event.inputs.sha }}
             Image: ${{ steps.image-tag.outputs.image }}
             ✅ Cosign signature verified
-            ✅ SBOM verified
+            ✅ GitHub SPDX SBOM attestation verified
+            ✅ GitHub SLSA v1 provenance verified
             ✅ Single execution leader healthy
             ⚠️ Mainnet trading remains NO-GO unless explicitly enabled by operator.
 
