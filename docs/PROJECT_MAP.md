@@ -466,6 +466,7 @@
 │   ├── test_experiment_registry.py
 │   ├── test_forecast_promotion_contract.py
 │   ├── test_holdout_manifest.py
+│   ├── test_legacy_cutover_migration.py
 │   ├── test_live_audit_watchdog.py
 │   ├── test_live_broker_balances.py
 │   ├── test_live_cron_runner.py
