@@ -33,7 +33,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from trading_agent.execution.lifecycle.lifecycle import (
     ExecutionLifecycle,
     ExecutionEvent,
-    LifecycleState,
 )
 from trading_agent.execution.lifecycle.store import ExecutionEventStore
 
@@ -164,8 +163,9 @@ def migrate(db_path: str, *, dry_run: bool = False, force: bool = False) -> int:
             ]
             legacy_payload_checksum = (
                 hashlib.sha256(
-                    json.dumps(legacy_payload_hashes, default=str, sort_keys=True)
-                    .encode("utf-8")
+                    json.dumps(
+                        legacy_payload_hashes, default=str, sort_keys=True
+                    ).encode("utf-8")
                 ).hexdigest()
                 if legacy_payload_hashes
                 else None
@@ -193,9 +193,7 @@ def migrate(db_path: str, *, dry_run: bool = False, force: bool = False) -> int:
             aggregate_count_row = conn.execute(
                 "SELECT COUNT(DISTINCT aggregate_id) AS c FROM execution_events"
             ).fetchone()
-            aggregate_count = (
-                aggregate_count_row["c"] if aggregate_count_row else 0
-            )
+            aggregate_count = aggregate_count_row["c"] if aggregate_count_row else 0
 
             conn.execute(
                 """

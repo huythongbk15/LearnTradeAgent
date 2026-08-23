@@ -1810,6 +1810,9 @@ def test_legacy_migrate_append_restart_snapshot_delta_replay(tmp_path: Path) -> 
         assert restarted_state.reconciliation == incremental_state.reconciliation
         assert restarted_state.execution_health == incremental_state.execution_health
         assert restarted_state.manual_blocked == incremental_state.manual_blocked
-        assert restarted_state.unresolved_manual_intents == incremental_state.unresolved_manual_intents
+        assert (
+            restarted_state.unresolved_manual_intents
+            == incremental_state.unresolved_manual_intents
+        )
     finally:
         store.close()

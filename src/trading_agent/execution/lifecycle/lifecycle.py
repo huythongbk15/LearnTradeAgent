@@ -345,9 +345,7 @@ class LifecycleState:
             k: ProtectionState(v) for k, v in data.get("protection_state", {}).items()
         }
         state.manual_blocked = data.get("manual_blocked", False)
-        state.unresolved_manual_intents = set(
-            data.get("unresolved_manual_intents", [])
-        )
+        state.unresolved_manual_intents = set(data.get("unresolved_manual_intents", []))
         state.last_event_ids = dict(data.get("last_event_ids", {}))
         state.state_version = data.get("state_version", 0)
         return state
@@ -665,7 +663,9 @@ class ExecutionLifecycle:
         if snapshot is not None:
             # Snapshot-based recovery: only replay events after the snapshot.
             state = LifecycleState.from_dict(snapshot.state)
-            events = self.store.read_events_global(after_global_seq=snapshot.last_global_seq)
+            events = self.store.read_events_global(
+                after_global_seq=snapshot.last_global_seq
+            )
             return self.replay(events, initial_state=state)
         # No snapshot: full global replay (pre-migration events rejected).
         events = self.store.read_events_global()
