@@ -7,6 +7,7 @@ snapshot + restore (schema_version/checksum/partial/corrupt rejection).
 
 from __future__ import annotations
 
+import sqlite3
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -36,6 +37,8 @@ from trading_agent.execution.lifecycle import (
     TrustedPrice,
     make_event,
 )
+
+from scripts.migrate_global_seq import migrate
 
 
 def sample_unified_decision(
@@ -517,13 +520,13 @@ def test_snapshot_restore_roundtrip(store):
         "i1",
         lc.snapshot_state(),
         state_version=1,
-        last_seq=lc.last_seq(),
+        last_global_seq=lc.store.max_global_seq(),
     )
     restored = store.load_snapshot("i1")
     assert restored is not None
     assert restored.checksum == snap.checksum
     assert restored.state_version == 1
-    assert restored.last_seq == 2
+    assert restored.last_global_seq == 2
     assert restored.state["orders"]["i1"]["status"] == "approved"
 
 
@@ -537,7 +540,7 @@ def test_corrupt_snapshot_rejected(store):
         ),
     )
     lc.create_order_intent("i1", "BTC/USDT", "buy", 1.0)
-    store.save_snapshot("i1", lc.snapshot_state(), state_version=1, last_seq=1)
+    store.save_snapshot("i1", lc.snapshot_state(), state_version=1, last_global_seq=1)
     # Corrupt the stored state_json
     store.conn.execute(
         "UPDATE execution_snapshots SET state_json = '{}' WHERE aggregate_id = 'i1'"
@@ -557,7 +560,7 @@ def test_partial_snapshot_json_rejected(store):
         ),
     )
     lc.create_order_intent("i1", "BTC/USDT", "buy", 1.0)
-    store.save_snapshot("i1", lc.snapshot_state(), state_version=1, last_seq=1)
+    store.save_snapshot("i1", lc.snapshot_state(), state_version=1, last_global_seq=1)
     # Simulate a torn write (truncated json)
     store.conn.execute(
         "UPDATE execution_snapshots SET state_json = '{\"orders\": {' WHERE aggregate_id = 'i1'"
@@ -577,7 +580,7 @@ def test_old_schema_snapshot_rejected(store):
         ),
     )
     lc.create_order_intent("i1", "BTC/USDT", "buy", 1.0)
-    store.save_snapshot("i1", lc.snapshot_state(), state_version=1, last_seq=1)
+    store.save_snapshot("i1", lc.snapshot_state(), state_version=1, last_global_seq=1)
     store.conn.execute(
         "UPDATE execution_snapshots SET schema_version = 0 WHERE aggregate_id = 'i1'"
     )
@@ -1658,3 +1661,154 @@ class TestP0MissingTests:
         assert ExecutionEventType.RISK_APPROVED in event_types
         assert ExecutionEventType.ORDER_AUTHORIZED in event_types
         assert ExecutionEventType.BROKER_SUBMISSION_REQUESTED in event_types
+
+
+def test_legacy_migrate_append_restart_snapshot_delta_replay(tmp_path: Path) -> None:
+    """legacy -> migrate -> append -> restart -> snapshot+delta replay == incremental state"""
+    db_path = tmp_path / "legacy_migration.db"
+
+    # 1. Build legacy DB with events having global_seq = 0
+    store = ExecutionEventStore(str(db_path)).connect()
+    try:
+        lc = ExecutionLifecycle(
+            store,
+            price_source=lambda s: TrustedPrice(
+                price=100.0,
+                exchange_timestamp=datetime.now(UTC),
+                received_at=datetime.now(UTC),
+            ),
+            inventory_source=lambda s, side: 10.0 if side == "sell" else 0.0,
+            portfolio_source=lambda s: PortfolioRiskSnapshot(
+                symbol=s,
+                position_quantity=1.0,
+                available_quantity=10.0,
+                equity=100_000.0,
+                available_cash=100_000.0,
+                observed_at=datetime.now(UTC),
+                source="test",
+            ),
+        )
+        intent_id = "legacy-intent"
+        lc.create_order_intent(intent_id, "BTC/USDT", "sell", 1.0)
+        lc.approve_risk(intent_id, risk_decision=sample_unified_decision())
+        lc.authorize_order(intent_id, idempotency_key="legacy-key")
+        lc.request_broker_submission(intent_id, claimed_by=intent_id)
+    finally:
+        store.close()
+
+    # Verify legacy events exist; simulate pre-migration state by resetting global_seq to 0
+    conn = sqlite3.connect(str(db_path))
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA ignore_check_constraints=ON")
+    conn.execute("UPDATE execution_events SET global_seq = 0")
+    conn.execute("PRAGMA ignore_check_constraints=OFF")
+    conn.commit()
+    legacy = conn.execute(
+        "SELECT COUNT(*) AS c FROM execution_events WHERE global_seq = 0"
+    ).fetchone()
+    assert legacy["c"] > 0, "expected legacy events with global_seq = 0"
+    conn.close()
+
+    # 2. Run migration
+    migrate(str(db_path))
+
+    # 3. Append a new post-cutover event
+    store = ExecutionEventStore(str(db_path)).connect()
+    try:
+        lc2 = ExecutionLifecycle(
+            store,
+            price_source=lambda s: TrustedPrice(
+                price=100.0,
+                exchange_timestamp=datetime.now(UTC),
+                received_at=datetime.now(UTC),
+            ),
+            inventory_source=lambda s, side: 10.0 if side == "sell" else 0.0,
+            portfolio_source=lambda s: PortfolioRiskSnapshot(
+                symbol=s,
+                position_quantity=1.0,
+                available_quantity=10.0,
+                equity=100_000.0,
+                available_cash=100_000.0,
+                observed_at=datetime.now(UTC),
+                source="test",
+            ),
+        )
+        # load() should recover from snapshot + delta replay
+        lc2.load()
+        # Verify post-cutover event exists
+        order = lc2.order(intent_id)
+        assert order is not None
+        assert order.status == IntentStatus.AUTHORIZED
+
+        # Append new event post-cutover
+        new_intent = "post-cutover-intent"
+        lc2.create_order_intent(new_intent, "ETH/USDT", "buy", 2.0)
+    finally:
+        store.close()
+
+    # 4. Restart: load again from snapshot + delta replay
+    store = ExecutionEventStore(str(db_path)).connect()
+    try:
+        lc3 = ExecutionLifecycle(
+            store,
+            price_source=lambda s: TrustedPrice(
+                price=100.0,
+                exchange_timestamp=datetime.now(UTC),
+                received_at=datetime.now(UTC),
+            ),
+            inventory_source=lambda s, side: 10.0 if side == "sell" else 0.0,
+            portfolio_source=lambda s: PortfolioRiskSnapshot(
+                symbol=s,
+                position_quantity=1.0,
+                available_quantity=10.0,
+                equity=100_000.0,
+                available_cash=100_000.0,
+                observed_at=datetime.now(UTC),
+                source="test",
+            ),
+        )
+        restarted_state = lc3.load()
+
+        # 5. Build incremental state by replaying ALL events from scratch
+        store_inc = ExecutionEventStore(str(db_path)).connect()
+        try:
+            all_events = store_inc.read_events_global()
+            lc_inc = ExecutionLifecycle(
+                store_inc,
+                price_source=lambda s: TrustedPrice(
+                    price=100.0,
+                    exchange_timestamp=datetime.now(UTC),
+                    received_at=datetime.now(UTC),
+                ),
+                inventory_source=lambda s, side: 10.0 if side == "sell" else 0.0,
+                portfolio_source=lambda s: PortfolioRiskSnapshot(
+                    symbol=s,
+                    position_quantity=1.0,
+                    available_quantity=10.0,
+                    equity=100_000.0,
+                    available_cash=100_000.0,
+                    observed_at=datetime.now(UTC),
+                    source="test",
+                ),
+            )
+            incremental_state = lc_inc.replay(all_events)
+        finally:
+            store_inc.close()
+
+        # 6. Compare: restarted state must equal incremental state
+        assert restarted_state.orders.keys() == incremental_state.orders.keys()
+        for intent_id in restarted_state.orders:
+            r = restarted_state.orders[intent_id]
+            i = incremental_state.orders[intent_id]
+            assert r.status == i.status
+            assert r.side == i.side
+            assert r.size == i.size
+            assert r.filled_size == i.filled_size
+            assert r.reserved_quantity == i.reserved_quantity
+            assert r.released_quantity == i.released_quantity
+        assert restarted_state.reconciliation == incremental_state.reconciliation
+        assert restarted_state.execution_health == incremental_state.execution_health
+        assert restarted_state.manual_blocked == incremental_state.manual_blocked
+        assert restarted_state.unresolved_manual_intents == incremental_state.unresolved_manual_intents
+    finally:
+        store.close()

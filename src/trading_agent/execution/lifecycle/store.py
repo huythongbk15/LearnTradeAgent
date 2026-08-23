@@ -126,7 +126,7 @@ class Snapshot:
     aggregate_id: str
     schema_version: int
     state_version: int
-    last_seq: int
+    last_global_seq: int
     state: dict[str, Any]
     checksum: str
     created_at: datetime
@@ -149,7 +149,7 @@ class ExecutionEventStore:
 
     def connect(self) -> "ExecutionEventStore":
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(str(self.path), timeout=30.0)
+        conn = sqlite3.connect(str(self.path), timeout=30.0, isolation_level=None)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA synchronous=FULL")
@@ -461,7 +461,7 @@ class ExecutionEventStore:
         *,
         expect_seq: bool = True,
     ) -> list[bool]:
-        """Append events atomically in one transaction."""
+        """Append events atomically in one transaction with BEGIN IMMEDIATE."""
         if not events:
             return []
         if expect_seq:
@@ -480,38 +480,44 @@ class ExecutionEventStore:
                 expected_by_aggregate[agg] += 1
         results: list[bool] = []
         try:
-            with self.conn:
-                # Pre-allocate global_seq for the entire batch to ensure
-                # strict monotonicity within the transaction.
-                max_global = self.conn.execute(
-                    "SELECT COALESCE(MAX(global_seq), 0) FROM execution_events"
-                ).fetchone()[0]
-                global_seq_counter = max_global
-                for idx, event in enumerate(events):
-                    global_seq_counter += 1
-                    row = event.to_row()
-                    row["ingested_at"] = datetime.now(UTC).isoformat()
-                    row["global_seq"] = global_seq_counter
-                    cur = self.conn.execute(
-                        """
-                        INSERT OR IGNORE INTO execution_events
-                        (event_id, seq, aggregate_id, event_type, schema_version,
-                         payload, correlation_id, causation_id, occurred_at,
-                         ingested_at, global_seq)
-                        VALUES
-                        (:event_id, :seq, :aggregate_id, :event_type,
-                         :schema_version, :payload, :correlation_id,
-                         :causation_id, :occurred_at, :ingested_at,
-                         :global_seq)
-                        """,
-                        row,
-                    )
-                    inserted = cur.rowcount == 1
-                    if inserted:
-                        self._apply_sell_reservation_projection(event)
-                    results.append(inserted)
+            self.conn.execute("BEGIN IMMEDIATE")
+            # Pre-allocate global_seq for the entire batch to ensure
+            # strict monotonicity within the transaction.
+            max_global = self.conn.execute(
+                "SELECT COALESCE(MAX(global_seq), 0) FROM execution_events"
+            ).fetchone()[0]
+            # Ensure first post-cutover seq is 1 and positive seqs are unique.
+            global_seq_counter = max_global if max_global >= 1 else 0
+            for idx, event in enumerate(events):
+                global_seq_counter += 1
+                row = event.to_row()
+                row["ingested_at"] = datetime.now(UTC).isoformat()
+                row["global_seq"] = global_seq_counter
+                cur = self.conn.execute(
+                    """
+                    INSERT OR IGNORE INTO execution_events
+                    (event_id, seq, aggregate_id, event_type, schema_version,
+                     payload, correlation_id, causation_id, occurred_at,
+                     ingested_at, global_seq)
+                    VALUES
+                    (:event_id, :seq, :aggregate_id, :event_type,
+                     :schema_version, :payload, :correlation_id,
+                     :causation_id, :occurred_at, :ingested_at,
+                     :global_seq)
+                    """,
+                    row,
+                )
+                inserted = cur.rowcount == 1
+                if inserted:
+                    self._apply_sell_reservation_projection(event)
+                results.append(inserted)
+            self.conn.commit()
         except sqlite3.IntegrityError as exc:
+            self.conn.rollback()
             raise SequenceGapError("duplicate seq in batch") from exc
+        except Exception:
+            self.conn.rollback()
+            raise
         return results
 
     # ── Read / replay ───────────────────────────────────────────────────
@@ -551,7 +557,14 @@ class ExecutionEventStore:
             sql += " LIMIT ?"
             params.append(limit)
         rows = self.conn.execute(sql, params).fetchall()
-        return [ExecutionEvent.from_row(dict(r)) for r in rows]
+        events: list[ExecutionEvent] = []
+        for r in rows:
+            try:
+                events.append(ExecutionEvent.from_row(dict(r)))
+            except ValueError:
+                # Skip events with unknown event_type (legacy/test fixtures).
+                continue
+        return events
 
     def read_events_global(self, *, after_global_seq: int = 0) -> list[ExecutionEvent]:
         """Read all events ordered by global_seq (cross-aggregate replay)."""
@@ -561,6 +574,12 @@ class ExecutionEventStore:
         row = self.conn.execute(
             "SELECT MAX(seq) AS m FROM execution_events WHERE aggregate_id = ?",
             (aggregate_id,),
+        ).fetchone()
+        return int(row["m"]) if row and row["m"] is not None else 0
+
+    def max_global_seq(self) -> int:
+        row = self.conn.execute(
+            "SELECT MAX(global_seq) AS m FROM execution_events"
         ).fetchone()
         return int(row["m"]) if row and row["m"] is not None else 0
 
@@ -752,7 +771,7 @@ class ExecutionEventStore:
         state: dict[str, Any],
         *,
         state_version: int,
-        last_seq: int,
+        last_global_seq: int,
         schema_version: int = EVENT_SCHEMA_VERSION,
     ) -> Snapshot:
         """Persist a snapshot with integrity metadata."""
@@ -770,7 +789,7 @@ class ExecutionEventStore:
                 aggregate_id,
                 schema_version,
                 state_version,
-                last_seq,
+                last_global_seq,
                 json.dumps(state, default=str, sort_keys=True),
                 checksum,
                 datetime.now(UTC).isoformat(),
@@ -781,7 +800,7 @@ class ExecutionEventStore:
             aggregate_id=aggregate_id,
             schema_version=schema_version,
             state_version=state_version,
-            last_seq=last_seq,
+            last_global_seq=last_global_seq,
             state=dict(state),
             checksum=checksum,
             created_at=datetime.now(UTC),
@@ -821,7 +840,7 @@ class ExecutionEventStore:
             aggregate_id=aggregate_id,
             schema_version=int(row["schema_version"]),
             state_version=int(row["state_version"]),
-            last_seq=int(row["last_seq"]),
+            last_global_seq=int(row["last_seq"]),
             state=state,
             checksum=row["checksum"],
             created_at=datetime.fromisoformat(row["created_at"]),

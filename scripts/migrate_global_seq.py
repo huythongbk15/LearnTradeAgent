@@ -22,9 +22,20 @@ import argparse
 import hashlib
 import json
 import sqlite3
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+# Allow standalone script to import project modules
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from trading_agent.execution.lifecycle.lifecycle import (
+    ExecutionLifecycle,
+    ExecutionEvent,
+    LifecycleState,
+)
+from trading_agent.execution.lifecycle.store import ExecutionEventStore
 
 
 def _snapshot_checksum(state: dict[str, Any]) -> str:
@@ -111,46 +122,66 @@ def migrate(db_path: str, *, dry_run: bool = False, force: bool = False) -> int:
                 )
             return legacy_count
 
-        # Create verified cutover snapshot — full aggregate state boundary
-        # Capture per-aggregate latest event to reconstruct LifecycleState
-        aggregate_rows = conn.execute("""
-            SELECT aggregate_id, event_type, seq, occurred_at, payload
-            FROM execution_events
-            WHERE global_seq = 0
-            ORDER BY aggregate_id, seq ASC
-        """).fetchall()
+        # Reconstruct verified LifecycleState snapshot by replaying all events.
+        # Pre-migration events are ordered by (occurred_at, aggregate_id, seq),
+        # post-migration events by global_seq.
+        store = ExecutionEventStore(db_path).connect()
+        try:
+            all_rows = conn.execute(
+                "SELECT * FROM execution_events ORDER BY occurred_at, aggregate_id, seq"
+            ).fetchall()
+            all_events: list[ExecutionEvent] = []
+            for r in all_rows:
+                try:
+                    all_events.append(ExecutionEvent.from_row(dict(r)))
+                except ValueError:
+                    # Skip events with unknown event_type (e.g. test fixtures,
+                    # legacy events from older schema versions).  These cannot
+                    # be replayed semantically, but they are still preserved
+                    # in the DB and will receive global_seq = -1.
+                    continue
 
-        aggregate_latest: dict[str, dict[str, Any]] = {}
-        payload_hashes = []
-        for r in aggregate_rows:
-            agg = r["aggregate_id"]
-            aggregate_latest[agg] = {
-                "event_type": r["event_type"],
-                "seq": r["seq"],
-                "occurred_at": r["occurred_at"],
-            }
-            payload_hashes.append(r["payload"])
+            # Sort: pre-migration by natural order, post-migration by global_seq
+            pre_migration = [e for e in all_events if e.global_seq == -1]
+            post_migration = [e for e in all_events if e.global_seq > 0]
+            post_migration.sort(key=lambda e: e.global_seq)
+            sorted_events = pre_migration + post_migration
 
-        snapshot_state = {
-            "migration_policy": "cutover",
-            "legacy_event_count": legacy_count,
-            "aggregate_count": len(aggregate_latest),
-            "aggregates": aggregate_latest,
-            "legacy_payload_checksum": hashlib.sha256(
-                json.dumps(payload_hashes, default=str, sort_keys=True).encode("utf-8")
-            ).hexdigest()
-            if payload_hashes
-            else None,
-            "cutover_at": datetime.now(UTC).isoformat(),
-            "note": (
+            lifecycle = ExecutionLifecycle(store)
+            lifecycle.replay(sorted_events)
+            snapshot_state = lifecycle.snapshot_state()
+            snapshot_state["migration_policy"] = "cutover"
+            snapshot_state["cutover_at"] = datetime.now(UTC).isoformat()
+            snapshot_state["note"] = (
                 "Pre-migration events are NOT assigned fabricated global_seq. "
                 "Post-cutover events receive strict monotonic global_seq > 0."
-            ),
-        }
-        snapshot_id = f"migration-{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}"
-        snapshot_checksum = _snapshot_checksum(snapshot_state)
+            )
+            snapshot_id = f"migration-{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}"
+            snapshot_checksum = _snapshot_checksum(snapshot_state)
 
-        conn.execute("BEGIN")
+            legacy_payload_hashes = [
+                r["payload"] for r in all_rows if r["global_seq"] == 0 and r["payload"]
+            ]
+            legacy_payload_checksum = (
+                hashlib.sha256(
+                    json.dumps(legacy_payload_hashes, default=str, sort_keys=True)
+                    .encode("utf-8")
+                ).hexdigest()
+                if legacy_payload_hashes
+                else None
+            )
+
+            # Persist verified global snapshot via store
+            store.save_snapshot(
+                aggregate_id="global",
+                state=snapshot_state,
+                state_version=lifecycle.state.state_version,
+                last_global_seq=0,
+            )
+        finally:
+            store.close()
+
+        conn.execute("BEGIN IMMEDIATE")
         try:
             # 1. Mark legacy events as pre-migration (global_seq = -1)
             conn.execute(
@@ -159,6 +190,13 @@ def migrate(db_path: str, *, dry_run: bool = False, force: bool = False) -> int:
             legacy_updated = conn.total_changes
 
             # 2. Record migration metadata
+            aggregate_count_row = conn.execute(
+                "SELECT COUNT(DISTINCT aggregate_id) AS c FROM execution_events"
+            ).fetchone()
+            aggregate_count = (
+                aggregate_count_row["c"] if aggregate_count_row else 0
+            )
+
             conn.execute(
                 """
                 INSERT INTO execution_migration_state
@@ -173,8 +211,8 @@ def migrate(db_path: str, *, dry_run: bool = False, force: bool = False) -> int:
                     snapshot_state["cutover_at"],
                     1,  # first post-cutover global_seq
                     legacy_count,
-                    len(aggregate_latest),
-                    snapshot_state["legacy_payload_checksum"],
+                    aggregate_count,
+                    legacy_payload_checksum,
                     snapshot_checksum,
                     datetime.now(UTC).isoformat(),
                 ),

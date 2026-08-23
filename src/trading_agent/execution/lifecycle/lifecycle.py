@@ -345,8 +345,10 @@ class LifecycleState:
             k: ProtectionState(v) for k, v in data.get("protection_state", {}).items()
         }
         state.manual_blocked = data.get("manual_blocked", False)
-        state.unresolved_manual_intents = set(data.get("unresolved_manual_intents", []))
-        state.last_event_ids = {}
+        state.unresolved_manual_intents = set(
+            data.get("unresolved_manual_intents", [])
+        )
+        state.last_event_ids = dict(data.get("last_event_ids", {}))
         state.state_version = data.get("state_version", 0)
         return state
 
@@ -653,7 +655,7 @@ class ExecutionLifecycle:
 
         Recovery order:
         1. Load latest durable snapshot (if any).
-        2. Load events after the snapshot's ``last_seq``.
+        2. Load events after the snapshot's ``last_global_seq``.
         3. Replay those events on top of the snapshot state.
 
         If no snapshot exists, fall back to full global replay (which
@@ -663,7 +665,7 @@ class ExecutionLifecycle:
         if snapshot is not None:
             # Snapshot-based recovery: only replay events after the snapshot.
             state = LifecycleState.from_dict(snapshot.state)
-            events = self.store.read_events_global(after_global_seq=snapshot.last_seq)
+            events = self.store.read_events_global(after_global_seq=snapshot.last_global_seq)
             return self.replay(events, initial_state=state)
         # No snapshot: full global replay (pre-migration events rejected).
         events = self.store.read_events_global()
@@ -681,7 +683,7 @@ class ExecutionLifecycle:
                 aggregate_id="global",
                 state=self.snapshot_state(),
                 state_version=self.state.state_version,
-                last_seq=self.last_seq(),
+                last_global_seq=self.store.max_global_seq(),
             )
         except Exception:
             # Snapshot failures must not break event processing.
@@ -2213,9 +2215,8 @@ class ExecutionLifecycle:
             "last_event_ids": dict(self.state.last_event_ids),
         }
 
-    def last_seq(self) -> int:
-        seqs = [self.store.max_seq(agg) for agg in self.store.aggregates()]
-        return max(seqs) if seqs else 0
+    def last_global_seq(self) -> int:
+        return self.store.max_global_seq()
 
 
 __all__ = [
