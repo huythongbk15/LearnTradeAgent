@@ -1598,11 +1598,15 @@ def _submit_live_order(
             f"BUY {symbol} has no canonical PermissionContext; exposure increase blocked"
         )
     if planning.intent.intent_id != intent_id:
-        raise LiveSafetyError("planned intent identity does not match durable order key")
+        raise LiveSafetyError(
+            "planned intent identity does not match durable order key"
+        )
     if planning.intent.symbol != symbol:
         raise LiveSafetyError("planned intent symbol does not match live order")
     if abs(planning.intent.quantity - quantity) > 1e-12:
-        raise LiveSafetyError("venue quantity does not match canonical planned quantity")
+        raise LiveSafetyError(
+            "venue quantity does not match canonical planned quantity"
+        )
     return execution_service.submit_planned(
         planning=planning,
         risk_decision=risk_decision,
