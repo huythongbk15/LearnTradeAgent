@@ -528,7 +528,31 @@ def test_snapshot_restore_roundtrip(store):
     assert restored.checksum == snap.checksum
     assert restored.state_version == 1
     assert restored.last_global_seq == 2
-    assert restored.state["orders"]["i1"]["status"] == "approved"
+
+    # Full normalized semantic state comparison
+    original_state = lc.snapshot_state()
+    restored_state = restored.state
+
+    # Compare top-level metadata
+    assert restored_state["reconciliation"] == original_state["reconciliation"]
+    assert restored_state["execution_health"] == original_state["execution_health"]
+    assert restored_state["manual_blocked"] == original_state["manual_blocked"]
+    assert restored_state["state_version"] == original_state["state_version"]
+
+    # Compare orders: full normalized semantic state
+    for intent_id in original_state["orders"]:
+        orig_order = original_state["orders"][intent_id]
+        rest_order = restored_state["orders"][intent_id]
+        # All fields must match after round-trip
+        for key in orig_order:
+            assert key in rest_order, f"missing key {key} in restored order"
+            assert rest_order[key] == orig_order[key], (
+                f"mismatch on {key}: {rest_order[key]!r} != {orig_order[key]!r}"
+            )
+        # No extra keys
+        assert set(rest_order.keys()) == set(orig_order.keys()), (
+            f"key set mismatch: {set(rest_order.keys())} != {set(orig_order.keys())}"
+        )
 
 
 def test_corrupt_snapshot_rejected(store):

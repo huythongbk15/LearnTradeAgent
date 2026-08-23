@@ -312,6 +312,12 @@ class LifecycleState:
         state = cls()
         state.orders = {}
         for intent_id, order_data in data.get("orders", {}).items():
+            risk_decision_data = order_data.get("risk_decision")
+            risk_decision = (
+                UnifiedRiskDecision.from_dict(risk_decision_data)
+                if risk_decision_data
+                else None
+            )
             state.orders[intent_id] = OrderState(
                 intent_id=order_data["intent_id"],
                 symbol=order_data["symbol"],
@@ -319,6 +325,7 @@ class LifecycleState:
                 size=float(order_data["size"]),
                 status=IntentStatus(order_data["status"]),
                 risk_approved=order_data.get("risk_approved", False),
+                risk_decision=risk_decision,
                 broker_order_id=order_data.get("broker_order_id"),
                 exchange_order_id=order_data.get("exchange_order_id"),
                 filled_size=float(order_data.get("filled_size", 0.0)),
@@ -329,6 +336,22 @@ class LifecycleState:
                 fees=order_data.get("fees", {}),
                 protective_order_ids=order_data.get("protective_order_ids", []),
                 manual_reasons=order_data.get("manual_reasons", []),
+                # P0 authorization tracking
+                authorization_id=order_data.get("authorization_id"),
+                idempotency_key=order_data.get("idempotency_key"),
+                payload_hash=order_data.get("payload_hash"),
+                permission=order_data.get("permission"),
+                authorized_at=order_data.get("authorized_at"),
+                submission_requested=order_data.get("submission_requested", False),
+                io_started=order_data.get("io_started", False),
+                # P0-1 portfolio exposure
+                price_reference=order_data.get("price_reference"),
+                portfolio_equity=order_data.get("portfolio_equity"),
+                current_position_quantity=order_data.get("current_position_quantity"),
+                resulting_position_quantity=order_data.get("resulting_position_quantity"),
+                current_exposure=order_data.get("current_exposure"),
+                resulting_exposure=order_data.get("resulting_exposure"),
+                incremental_exposure=order_data.get("incremental_exposure"),
             )
         state.protective_orders = {}
         for order_id, po_data in data.get("protective_orders", {}).items():
@@ -423,6 +446,7 @@ class ExecutionLifecycle:
         self.require_protective_order = require_protective_order
         self.snapshot_interval = snapshot_interval
         self._snapshot_counter = 0
+        self._in_replay = False
         self.state = LifecycleState()
 
     # ── Helpers ──────────────────────────────────────────────────────────
@@ -604,11 +628,15 @@ class ExecutionLifecycle:
         """
         state = LifecycleState() if initial_state is None else initial_state
         seen: set[str] = set()
-        for event in events:
-            if event.event_id in seen:
-                continue  # duplicate event — idempotent
-            seen.add(event.event_id)
-            self._apply(state, event)
+        self._in_replay = True
+        try:
+            for event in events:
+                if event.event_id in seen:
+                    continue  # duplicate event — idempotent
+                seen.add(event.event_id)
+                self._apply(state, event)
+        finally:
+            self._in_replay = False
         self.state = state
         return state
 
@@ -672,7 +700,14 @@ class ExecutionLifecycle:
         return self.replay_global(events)
 
     def _maybe_save_snapshot(self) -> None:
-        """Persist a snapshot every ``snapshot_interval`` events, if configured."""
+        """Persist a snapshot every ``snapshot_interval`` events, if configured.
+
+        Snapshot writes are DISABLED during replay to avoid persisting
+        transient reconstructed state.  Only live event processing
+        produces durable snapshots.
+        """
+        if self._in_replay:
+            return
         if self.snapshot_interval is None or self.snapshot_interval <= 0:
             return
         self._snapshot_counter += 1
@@ -2175,12 +2210,14 @@ class ExecutionLifecycle:
         return {
             "orders": {
                 k: {
+                    # Core identity
                     "intent_id": v.intent_id,
                     "symbol": v.symbol,
                     "side": v.side,
                     "size": v.size,
                     "status": v.status.value,
                     "risk_approved": v.risk_approved,
+                    # Broker tracking
                     "broker_order_id": v.broker_order_id,
                     "exchange_order_id": v.exchange_order_id,
                     "filled_size": v.filled_size,
@@ -2191,6 +2228,23 @@ class ExecutionLifecycle:
                     "fees": v.fees,
                     "protective_order_ids": v.protective_order_ids,
                     "manual_reasons": v.manual_reasons,
+                    # P0 authorization tracking
+                    "risk_decision": v.risk_decision.to_dict() if v.risk_decision else None,
+                    "authorization_id": v.authorization_id,
+                    "idempotency_key": v.idempotency_key,
+                    "payload_hash": v.payload_hash,
+                    "permission": v.permission,
+                    "authorized_at": v.authorized_at,
+                    "submission_requested": v.submission_requested,
+                    "io_started": v.io_started,
+                    # P0-1 portfolio exposure
+                    "price_reference": v.price_reference,
+                    "portfolio_equity": v.portfolio_equity,
+                    "current_position_quantity": v.current_position_quantity,
+                    "resulting_position_quantity": v.resulting_position_quantity,
+                    "current_exposure": v.current_exposure,
+                    "resulting_exposure": v.resulting_exposure,
+                    "incremental_exposure": v.incremental_exposure,
                 }
                 for k, v in self.state.orders.items()
             },

@@ -30,6 +30,7 @@ from typing import Any
 # Allow standalone script to import project modules
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from trading_agent.execution.lifecycle.events import UnknownEventTypeError
 from trading_agent.execution.lifecycle.lifecycle import (
     ExecutionLifecycle,
     ExecutionEvent,
@@ -121,33 +122,33 @@ def migrate(db_path: str, *, dry_run: bool = False, force: bool = False) -> int:
                 )
             return legacy_count
 
-        # Reconstruct verified LifecycleState snapshot by replaying all events.
-        # Pre-migration events are ordered by (occurred_at, aggregate_id, seq),
-        # post-migration events by global_seq.
+        # Reconstruct verified LifecycleState snapshot by replaying events.
+        # Legacy pre-migration events have unknowable global history, so they
+        # are NOT assigned fabricated global_seq.  Only post-migration events
+        # (global_seq > 0) are replayed in verified order.
         store = ExecutionEventStore(db_path).connect()
         try:
             all_rows = conn.execute(
-                "SELECT * FROM execution_events ORDER BY occurred_at, aggregate_id, seq"
+                "SELECT * FROM execution_events ORDER BY global_seq"
             ).fetchall()
             all_events: list[ExecutionEvent] = []
             for r in all_rows:
                 try:
                     all_events.append(ExecutionEvent.from_row(dict(r)))
-                except ValueError:
+                except UnknownEventTypeError:
                     # Skip events with unknown event_type (e.g. test fixtures,
                     # legacy events from older schema versions).  These cannot
                     # be replayed semantically, but they are still preserved
                     # in the DB and will receive global_seq = -1.
                     continue
 
-            # Sort: pre-migration by natural order, post-migration by global_seq
-            pre_migration = [e for e in all_events if e.global_seq == -1]
+            # Partition: legacy (global_seq <= 0) vs post-migration (global_seq > 0)
+            # Only post-migration events are replayed for snapshot reconstruction.
             post_migration = [e for e in all_events if e.global_seq > 0]
-            post_migration.sort(key=lambda e: e.global_seq)
-            sorted_events = pre_migration + post_migration
+            # Legacy events are preserved as-is; their order is unknowable.
 
             lifecycle = ExecutionLifecycle(store)
-            lifecycle.replay(sorted_events)
+            lifecycle.replay(post_migration)
             snapshot_state = lifecycle.snapshot_state()
             snapshot_state["migration_policy"] = "cutover"
             snapshot_state["cutover_at"] = datetime.now(UTC).isoformat()

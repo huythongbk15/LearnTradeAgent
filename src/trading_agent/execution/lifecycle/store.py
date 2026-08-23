@@ -36,6 +36,7 @@ from trading_agent.execution.lifecycle.events import (
     EVENT_SCHEMA_VERSION,
     ExecutionEvent,
     ExecutionEventType,
+    UnknownEventTypeError,
 )
 
 _SCHEMA = """
@@ -157,8 +158,10 @@ class ExecutionEventStore:
         conn.executescript(_SCHEMA)
         conn.commit()
         self._conn = conn
-        self._migrate_global_seq_if_needed()
-        self._rebuild_sell_reservations_if_needed()
+        # NOTE: Legacy DB migration (_migrate_global_seq_if_needed) and
+        # sell reservation rebuild (_rebuild_sell_reservations_if_needed)
+        # are NO LONGER automatic on connect().  They must be invoked
+        # explicitly after verified cutover.
         return self
 
     def _migrate_global_seq_if_needed(self) -> None:
@@ -561,9 +564,12 @@ class ExecutionEventStore:
         for r in rows:
             try:
                 events.append(ExecutionEvent.from_row(dict(r)))
-            except ValueError:
-                # Skip events with unknown event_type (legacy/test fixtures).
-                continue
+            except UnknownEventTypeError as exc:
+                # Fail closed: unknown event_type indicates corrupted or
+                # incompatible data.  Do NOT silently skip.
+                raise RuntimeError(
+                    f"unknown event_type in execution_events: {exc}"
+                ) from exc
         return events
 
     def read_events_global(self, *, after_global_seq: int = 0) -> list[ExecutionEvent]:

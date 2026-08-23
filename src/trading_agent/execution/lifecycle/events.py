@@ -120,11 +120,17 @@ class ExecutionEvent:
 
     @classmethod
     def from_row(cls, row: dict[str, Any]) -> "ExecutionEvent":
+        try:
+            event_type = ExecutionEventType(row["event_type"])
+        except ValueError:
+            raise UnknownEventTypeError(
+                f"unknown event_type={row['event_type']!r} for event_id={row['event_id']!r}"
+            )
         return cls(
             event_id=row["event_id"],
             seq=int(row["seq"]),
             aggregate_id=row["aggregate_id"],
-            event_type=ExecutionEventType(row["event_type"]),
+            event_type=event_type,
             schema_version=int(row["schema_version"]),
             payload=_json_loads(row["payload"]),
             correlation_id=row.get("correlation_id"),
@@ -167,6 +173,11 @@ def make_event(
 
 class EventValidationError(ValueError):
     """Raised when an execution event is malformed."""
+
+
+class UnknownEventTypeError(ValueError):
+    """Raised when an event has an unknown/unsupported event_type."""
+    pass
 
 
 def validate_event(event: ExecutionEvent) -> None:
