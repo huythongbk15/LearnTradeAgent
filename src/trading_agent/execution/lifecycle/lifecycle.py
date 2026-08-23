@@ -348,7 +348,9 @@ class LifecycleState:
                 price_reference=order_data.get("price_reference"),
                 portfolio_equity=order_data.get("portfolio_equity"),
                 current_position_quantity=order_data.get("current_position_quantity"),
-                resulting_position_quantity=order_data.get("resulting_position_quantity"),
+                resulting_position_quantity=order_data.get(
+                    "resulting_position_quantity"
+                ),
                 current_exposure=order_data.get("current_exposure"),
                 resulting_exposure=order_data.get("resulting_exposure"),
                 incremental_exposure=order_data.get("incremental_exposure"),
@@ -2229,7 +2231,9 @@ class ExecutionLifecycle:
                     "protective_order_ids": v.protective_order_ids,
                     "manual_reasons": v.manual_reasons,
                     # P0 authorization tracking
-                    "risk_decision": v.risk_decision.to_dict() if v.risk_decision else None,
+                    "risk_decision": v.risk_decision.to_dict()
+                    if v.risk_decision
+                    else None,
                     "authorization_id": v.authorization_id,
                     "idempotency_key": v.idempotency_key,
                     "payload_hash": v.payload_hash,

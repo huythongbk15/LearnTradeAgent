@@ -177,6 +177,7 @@ class EventValidationError(ValueError):
 
 class UnknownEventTypeError(ValueError):
     """Raised when an event has an unknown/unsupported event_type."""
+
     pass
 
 
