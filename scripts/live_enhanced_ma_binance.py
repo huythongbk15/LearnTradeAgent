@@ -2343,6 +2343,7 @@ def run_locked(
         canonical_gateway = BrokerGateway(
             adapter=LiveBrokerExecutionAdapter(broker),
             store=canonical_store,
+            lifecycle=canonical_lifecycle,
         )
 
         reconcile_unfinished_orders(

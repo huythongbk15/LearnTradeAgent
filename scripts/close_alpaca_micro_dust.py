@@ -145,6 +145,7 @@ def close_micro_dust_positions():
     gateway = BrokerGateway(
         adapter=execution_adapter,
         store=store,
+        lifecycle=lifecycle,
     )
 
     for position in sync_adapter.get_all_positions():
