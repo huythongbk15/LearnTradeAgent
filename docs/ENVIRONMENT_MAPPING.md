@@ -112,14 +112,10 @@
         "TRENDING_DOWN": 0.12,
         "SIDEWAYS": 0.58,
         "VOLATILE": 0.18,
-        "UNKNOWN": 0.05
+        "UNKNOWN": 0.05,
     },
     "recommended_strategy": "rsi",
-    "recommended_params": {
-        "period": 14,
-        "oversold": 35,
-        "overbought": 65
-    }
+    "recommended_params": {"period": 14, "oversold": 35, "overbought": 65},
 }
 ```
 

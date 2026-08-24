@@ -102,22 +102,23 @@ The resolver follows fail-closed semantics:
 The resolver applies environment-specific constraints:
 
 ```python
-def _apply_env_constraints(params: dict, promoted: PromotedStrategy, env: Environment) -> dict:
+def _apply_env_constraints(
+    params: dict, promoted: PromotedStrategy, env: Environment
+) -> dict:
     # Symbol restrictions
     if "symbol" in params:
         validate_symbol(params["symbol"], env)
-    
+
     # Timeframe restrictions
     if "timeframe" in params:
         validate_timeframe(params["timeframe"], env)
-    
+
     # Risk cap adjustments
     if "target_exposure_pct" in params:
         params["target_exposure_pct"] = min(
-            params["target_exposure_pct"],
-            config.exposure.max_single_strategy_exposure
+            params["target_exposure_pct"], config.exposure.max_single_strategy_exposure
         )
-    
+
     return params
 ```
 

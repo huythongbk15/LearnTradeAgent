@@ -11,9 +11,9 @@ The authority chain is a sequence of `CausationLink` objects forming a `Causatio
 
 ```python
 class CausationLink:
-    source: AuthorityName        # e.g., MODEL_BEST, DECISION_AUTHORITY
-    input_id: str                # e.g., "DEFAULT_TARGET" or "2024-03-15T12:30:45"
-    output_id: str               # e.g., "MARKET_ABLE" or "MAX_RISK_MODEL_PROD"
+    source: AuthorityName  # e.g., MODEL_BEST, DECISION_AUTHORITY
+    input_id: str  # e.g., "DEFAULT_TARGET" or "2024-03-15T12:30:45"
+    output_id: str  # e.g., "MARKET_ABLE" or "MAX_RISK_MODEL_PROD"
     timestamp: datetime
     metadata: dict
 ```
@@ -87,12 +87,11 @@ def add_link(chain: CausationChain, link: CausationLink) -> CausationChain:
 
 ### Finding Links
 ```python
-def find_links_by_source(chain: CausationChain, source_name: str) -> tuple[CausationLink, ...]:
+def find_links_by_source(
+    chain: CausationChain, source_name: str
+) -> tuple[CausationLink, ...]:
     """Find all links from a specific authority name."""
-    return tuple(
-        link for link in chain.links 
-        if link.source.value == source_name
-    )
+    return tuple(link for link in chain.links if link.source.value == source_name)
 ```
 
 ### Complete Chain
@@ -146,16 +145,17 @@ Common queries on the authority chain:
 # Get first DecisionAuthority link
 first_decision_link = next(
     (link for link in chain.links if link.source == AuthorityName.DECISION_AUTHORITY),
-    None
+    None,
 )
 
 # Check if chain contains EXECUTION_AUTHORITY
-has_execution = any(link.source == AuthorityName.EXECUTION_AUTHORITY for link in chain.links)
+has_execution = any(
+    link.source == AuthorityName.EXECUTION_AUTHORITY for link in chain.links
+)
 
 # Count links by authority
 count_by_source = {
-    link.source.value: getattr(chain.links, '__len__') 
-    for link in chain.links
+    link.source.value: getattr(chain.links, "__len__") for link in chain.links
 }
 ```
 

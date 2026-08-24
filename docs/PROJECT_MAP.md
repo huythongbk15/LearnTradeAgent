@@ -50,10 +50,12 @@
 │   │   └── architecture_2026-08.md
 │   ├── ACCOUNT_HARDENING.md
 │   ├── ARCHITECTURE.md
+│   ├── AUTHORITY_CHAIN_OPS.md
 │   ├── CAPABILITY_MATRIX.md
 │   ├── DEPLOYMENT.md
 │   ├── DEPLOY_ORACLE.md
 │   ├── DEVELOPMENT.md
+│   ├── ENVIRONMENT_MAPPING.md
 │   ├── LIVE_TRADING_OPTIMIZATION_PLAN.md
 │   ├── LIVE_TRADING_RUNBOOK.md
 │   ├── LIVE_TRADING_TODO.md
@@ -63,12 +65,14 @@
 │   ├── PRODUCTION_POLICY.md
 │   ├── PROJECT_MAP.md
 │   ├── PROJECT_SUMMARY.md
+│   ├── PROMOTION_BINDING.md
 │   ├── README.md
 │   ├── RESEARCH_EVIDENCE.md
 │   ├── RESEARCH_HOLDOUT.md
 │   ├── RESEARCH_METHODOLOGY.md
 │   ├── RUNBOOK.md
 │   ├── RUNBOOK_LOCAL.md
+│   ├── RUNTIME_RESOLVER.md
 │   ├── SECURITY.md
 │   ├── SYSTEM_GUIDE.md
 │   ├── demo.md
@@ -248,7 +252,8 @@
 │       │   ├── execution.py
 │       │   ├── exposure.py
 │       │   ├── loader.py
-│       │   └── portfolio.py
+│       │   ├── portfolio.py
+│       │   └── resolver.py
 │       ├── backtest
 │       │   ├── __init__.py
 │       │   └── engine.py
@@ -402,7 +407,8 @@
 │       ├── online_learning
 │       │   ├── __init__.py
 │       │   ├── adaptive_strategy.py
-│       │   └── regime_detector.py
+│       │   ├── regime_detector.py
+│       │   └── regime_switch.py
 │       ├── portfolio
 │       │   ├── attribution
 │       │   │   ├── __init__.py
@@ -455,6 +461,8 @@
 │       ├── log_config.py
 │       └── regime.py
 ├── tests
+│   ├── authority
+│   │   └── test_resolver.py
 │   ├── execution
 │   │   ├── test_cancel_stop_regressions.py
 │   │   ├── test_canonical_pipeline.py
@@ -486,6 +494,7 @@
 │   ├── test_data_trust.py
 │   ├── test_decision_trace.py
 │   ├── test_direct_broker_write_guard.py
+│   ├── test_e2e_authority_chain.py
 │   ├── test_enhanced_ma_exit_safety.py
 │   ├── test_execution_algorithms.py
 │   ├── test_execution_hardening.py
@@ -581,10 +590,12 @@
 ├── HARDEN_OUTPUT.md
 ├── IMPROVEMENT_ROADMAP.md
 ├── LIVE_TEST_GUIDE.md
+├── MILESTONE_B_COMPLETE.md
 ├── Makefile
 ├── P0_STATUS.md
 ├── PROJECT_SCORE.md
 ├── README.md
+├── REGIME_SWITCH_SUMMARY.md
 ├── SYSTEM_MAP.md
 ├── TIER1_TIER2_PLAN.md
 ├── TRADE_FLOW.md
