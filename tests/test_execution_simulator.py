@@ -4,20 +4,18 @@ Tests for Execution Simulator.
 
 import pytest
 import numpy as np
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 from trading_agent.execution.backtest_sim import (
     ExecutionSimulator,
     SimulatorConfig,
     SimulatedOrder,
-    SimulatedFill,
     OrderBookSnapshot,
     OrderType,
     OrderSide,
     FillModel,
     ImpactModel,
     create_execution_simulator,
-    SimulatorBacktestEngine,
     run_simulator_backtest,
 )
 from trading_agent.strategies.ma_crossover import MaCrossover
@@ -250,7 +248,7 @@ class TestExecutionSimulator:
             latencies.append(fills[0].latency_ms)
         
         # All latencies should be positive
-        assert all(l > 0 for l in latencies)
+        assert all(lat > 0 for lat in latencies)
         # Mean should be around base_latency
         assert 50 < np.mean(latencies) < 200
     
