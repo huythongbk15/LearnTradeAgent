@@ -131,6 +131,7 @@
 │   ├── alert_pager.py
 │   ├── audit_retention.py
 │   ├── audit_ship_offhost.py
+│   ├── backtest_adaptive.py
 │   ├── backtest_local.py
 │   ├── backup.sh
 │   ├── backup_local.py
@@ -159,6 +160,7 @@
 │   ├── generate_live_strategy_evidence.py
 │   ├── generate_project_map.py
 │   ├── health_check.sh
+│   ├── holdout_fast_test.py
 │   ├── live_config.py
 │   ├── live_cron_runner.py
 │   ├── live_enhanced_ma.py
@@ -166,6 +168,7 @@
 │   ├── live_status_report.py
 │   ├── llm_pool_cli.py
 │   ├── load_test_phase6.py
+│   ├── lopo_cross_pair.py
 │   ├── measure_tracking_error.py
 │   ├── migrate_global_seq.py
 │   ├── monthly_wfo.py
@@ -175,6 +178,8 @@
 │   ├── multi_symbol_bench.py
 │   ├── optimize_local.py
 │   ├── pin_image_digests.py
+│   ├── portfolio_holdout.py
+│   ├── portfolio_holdout_adaptive.py
 │   ├── research_deep_analysis.py
 │   ├── research_evaluate.py
 │   ├── research_pipeline_multi_asset.py
@@ -204,6 +209,8 @@
 │   ├── watchdog.sh
 │   ├── webui.sh
 │   ├── wfo_10symbol_4h.py
+│   ├── wfo_1d_fast_params.py
+│   ├── wfo_1d_paper_eligible.py
 │   ├── wfo_ma_adx.py
 │   └── wfo_optimize.py
 ├── src
@@ -392,6 +399,10 @@
 │       │   ├── database.py
 │       │   ├── metrics.py
 │       │   └── metrics_server.py
+│       ├── online_learning
+│       │   ├── __init__.py
+│       │   ├── adaptive_strategy.py
+│       │   └── regime_detector.py
 │       ├── portfolio
 │       │   ├── attribution
 │       │   │   ├── __init__.py
@@ -565,6 +576,7 @@
 ├── BACKTEST_3Y_REVIEW.md
 ├── Caddyfile.oracle
 ├── Dockerfile
+├── EXPERT_ROADMAP.md
 ├── FINAL_REPORT.md
 ├── HARDEN_OUTPUT.md
 ├── IMPROVEMENT_ROADMAP.md
