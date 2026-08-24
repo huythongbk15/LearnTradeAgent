@@ -297,6 +297,7 @@
 │       │   │   ├── broker_gateway.py
 │       │   │   ├── causation.py
 │       │   │   ├── events.py
+│       │   │   ├── instrument_registry.py
 │       │   │   ├── legacy_adapter.py
 │       │   │   ├── market_observation.py
 │       │   │   ├── order_planner.py
@@ -430,8 +431,11 @@
 │       └── regime.py
 ├── tests
 │   ├── execution
+│   │   ├── test_cancel_stop_regressions.py
 │   │   ├── test_canonical_pipeline.py
-│   │   └── test_e2e_paper_flow.py
+│   │   ├── test_e2e_paper_flow.py
+│   │   ├── test_instrument_registry.py
+│   │   └── test_paper_exchange_telemetry.py
 │   ├── __init__.py
 │   ├── conftest.py
 │   ├── test_agent_correlation.py
@@ -481,6 +485,7 @@
 │   ├── test_llm_schema.py
 │   ├── test_measure_tracking_error.py
 │   ├── test_methodology_benchmark.py
+│   ├── test_multi_pair_backtest_contract.py
 │   ├── test_online_methodology.py
 │   ├── test_order_permission.py
 │   ├── test_p0_convergence.py
@@ -555,6 +560,7 @@
 ├── PROJECT_SCORE.md
 ├── README.md
 ├── TIER1_TIER2_PLAN.md
+├── TRADE_FLOW.md
 ├── TRADING_SYSTEM_OVERVIEW.md
 ├── credentials.example.yaml
 ├── docker-compose.oracle.yml

@@ -83,7 +83,10 @@ portfolio = CurrentPortfolioState(
 
 price = MarketPrice(
     symbol=symbol,
-    mid=current_price, bid=current_price, ask=current_price, last=current_price
+    mid=current_price,
+    bid=current_price,
+    ask=current_price,
+    last=current_price,
 )
 ```
 
