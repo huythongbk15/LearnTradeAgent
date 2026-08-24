@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-"""Multi-pair 1h full system backtest with baseline comparison — parallel execution."""
+"""Fail-closed multi-pair 1h full-system backtest runner."""
 
 from __future__ import annotations
 
 import json
+import math
 import os
 import subprocess
 import sys
+import uuid
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import UTC, datetime
 from pathlib import Path
@@ -14,30 +16,111 @@ from pathlib import Path
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
-# Multi-pair 1h universe — 10 symbols for full backtest
-PAIRS = [
-    "BTC/USDT",
-    "ETH/USDT",
-    "SOL/USDT",
-    "XRP/USDT",
-    "BNB/USDT",
-    "ZEC/USDT",
-    "DOGE/USDT",
-    "TRX/USDT",
-    "ADA/USDT",
-    "NEAR/USDT",
-]
+from trading_agent.execution.canonical.instrument_registry import TEN_PAIR_1H_SYMBOLS
+
+PAIRS = list(TEN_PAIR_1H_SYMBOLS)
 
 EXCHANGE = os.getenv("EXCHANGE", "binance")
 TIMEFRAME = "1h"
 INITIAL_CAPITAL = float(os.getenv("INITIAL_CAPITAL", "100000"))
-MAX_WORKERS = int(os.getenv("MAX_WORKERS", "4"))  # Parallel workers
+MAX_WORKERS = max(1, int(os.getenv("MAX_WORKERS", "4")))
+TAIL_BARS = int(os.getenv("BARS", "0"))
+STATE_FLUSH_BARS = max(1, int(os.getenv("BACKTEST_STATE_FLUSH_BARS", "100")))
 OUT_DIR = ROOT / "data" / "benchmarks" / "multi_pair_1h"
-OUT_DIR.mkdir(parents=True, exist_ok=True)
+RUNS_DIR = ROOT / "data" / "backtests" / "multi_pair_1h"
 
 
-def run_backtest(symbol: str) -> dict:
-    """Run full_system_backtest.py for a single symbol and return parsed metrics."""
+REQUIRED_METRICS = {
+    "symbol",
+    "timeframe",
+    "final_equity",
+    "total_return_pct",
+    "sharpe",
+    "max_drawdown_pct",
+    "total_trades",
+    "win_rate_pct",
+    "data_manifest_id",
+    "feature_artifact_id",
+    "execution_health",
+}
+FINITE_METRICS = {
+    "final_equity",
+    "total_return_pct",
+    "sharpe",
+    "max_drawdown_pct",
+    "win_rate_pct",
+}
+
+
+def _safe_symbol(symbol: str) -> str:
+    return symbol.replace("/", "_").replace(":", "_")
+
+
+def _data_path(symbol: str) -> Path:
+    return (
+        ROOT / "data" / "raw" / EXCHANGE / _safe_symbol(symbol) / f"{TIMEFRAME}.parquet"
+    )
+
+
+def _preflight() -> None:
+    if len(PAIRS) != 10 or len(set(PAIRS)) != 10:
+        raise RuntimeError(
+            "The canonical 1h universe must contain exactly 10 unique pairs"
+        )
+    missing = [
+        str(_data_path(symbol)) for symbol in PAIRS if not _data_path(symbol).is_file()
+    ]
+    if missing:
+        raise FileNotFoundError("Missing 1h input data: " + ", ".join(missing))
+    if TAIL_BARS < 0:
+        raise ValueError("BARS must be zero (full history) or a positive integer")
+
+
+def _validate_report(symbol: str, report: object) -> dict[str, object]:
+    if not isinstance(report, dict):
+        raise ValueError("child report is not a JSON object")
+    missing = sorted(REQUIRED_METRICS.difference(report))
+    if missing:
+        raise ValueError(f"child report missing required fields: {', '.join(missing)}")
+    if report["symbol"] != symbol or report["timeframe"] != TIMEFRAME:
+        raise ValueError(
+            "child report identity does not match requested symbol/timeframe"
+        )
+    for key in FINITE_METRICS:
+        value = report[key]
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError(f"child report field {key} is not numeric")
+        if not math.isfinite(float(value)):
+            raise ValueError(f"child report field {key} is not finite")
+    total_trades = report["total_trades"]
+    if (
+        isinstance(total_trades, bool)
+        or not isinstance(total_trades, int)
+        or total_trades < 0
+    ):
+        raise ValueError(
+            "child report field total_trades must be a non-negative integer"
+        )
+    health = report["execution_health"]
+    if not isinstance(health, dict):
+        raise ValueError("child execution_health is not an object")
+    unsafe_health = (
+        health.get("status") != "normal"
+        or bool(health.get("unknown_orders", 0))
+        or bool(health.get("manual_interventions", 0))
+        or bool(health.get("unprotected_positions", []))
+    )
+    if unsafe_health:
+        raise ValueError(f"unsafe terminal execution state: {health}")
+    return report
+
+
+def run_backtest(symbol: str, run_id: str) -> dict[str, object]:
+    """Run one isolated child and load its machine-readable report."""
+    safe_symbol = _safe_symbol(symbol)
+    pair_dir = RUNS_DIR / run_id / safe_symbol
+    state_dir = pair_dir / "execution"
+    report_path = pair_dir / "report.json"
     env = os.environ.copy()
     env.update(
         {
@@ -46,17 +129,41 @@ def run_backtest(symbol: str) -> dict:
             "EXCHANGE": EXCHANGE,
             "INITIAL_CAPITAL": str(INITIAL_CAPITAL),
             "USE_LLM": "false",
+            "BACKTEST_RUN_ID": run_id,
         }
     )
     cmd = [
         sys.executable,
         str(ROOT / "scripts" / "full_system_backtest.py"),
         "--fresh",
+        "--symbol",
+        symbol,
+        "--timeframe",
+        TIMEFRAME,
+        "--run-id",
+        run_id,
+        "--state-dir",
+        str(state_dir),
+        "--report-path",
+        str(report_path),
+        "--state-flush-bars",
+        str(STATE_FLUSH_BARS),
+        "--allow-new-exposure",
     ]
+    if TAIL_BARS:
+        cmd.extend(["--tail-bars", str(TAIL_BARS)])
     print(f"\n{'=' * 60}")
     print(f"🚀 Running {symbol} {TIMEFRAME}")
     print(f"{'=' * 60}")
-    proc = subprocess.run(cmd, env=env, capture_output=True, text=True, cwd=str(ROOT), timeout=7200)
+    proc = subprocess.run(
+        cmd,
+        env=env,
+        capture_output=True,
+        text=True,
+        cwd=str(ROOT),
+        timeout=7200,
+        check=False,
+    )
     stdout = proc.stdout
     stderr = proc.stderr
     print(stdout)
@@ -64,60 +171,31 @@ def run_backtest(symbol: str) -> dict:
         print(f"❌ {symbol} failed: {stderr[-500:] if stderr else 'unknown'}")
         return {"symbol": symbol, "error": f"returncode={proc.returncode}"}
 
-    # Parse metrics from stdout (last printed summary)
-    metrics = {"symbol": symbol, "timeframe": TIMEFRAME}
-    for line in stdout.splitlines():
-        if "Final Equity:" in line:
-            try:
-                metrics["final_equity"] = float(
-                    line.split("Final Equity:")[1]
-                    .strip()
-                    .replace("$", "")
-                    .replace(",", "")
-                )
-            except Exception:
-                pass
-        if "Total Return:" in line:
-            try:
-                metrics["total_return_pct"] = float(
-                    line.split("Total Return:")[1].strip().replace("%", "")
-                )
-            except Exception:
-                pass
-        if "Max Drawdown:" in line:
-            try:
-                metrics["max_drawdown_pct"] = float(
-                    line.split("Max Drawdown:")[1].strip().replace("%", "")
-                )
-            except Exception:
-                pass
-        if "Sharpe Ratio:" in line:
-            try:
-                metrics["sharpe"] = float(line.split("Sharpe Ratio:")[1].strip())
-            except Exception:
-                pass
-        if "Win Rate:" in line:
-            try:
-                metrics["win_rate_pct"] = float(
-                    line.split("Win Rate:")[1].strip().replace("%", "")
-                )
-            except Exception:
-                pass
-        if "Total Trades:" in line:
-            try:
-                metrics["total_trades"] = int(line.split("Total Trades:")[1].strip())
-            except Exception:
-                pass
-    return metrics
+    if not report_path.is_file():
+        return {"symbol": symbol, "error": f"missing child report: {report_path}"}
+    try:
+        with report_path.open(encoding="utf-8") as source:
+            report = _validate_report(symbol, json.load(source))
+    except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
+        return {"symbol": symbol, "error": str(exc)}
+    report["report_path"] = str(report_path)
+    report["state_dir"] = str(state_dir)
+    return report
 
 
 def main() -> None:
-    timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
-    results = []
+    _preflight()
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    RUNS_DIR.mkdir(parents=True, exist_ok=True)
+    run_id = f"{datetime.now(UTC).strftime('%Y%m%dT%H%M%S_%fZ')}_{uuid.uuid4().hex[:8]}"
+    timestamp = run_id
+    results: list[dict[str, object]] = []
 
     # Run backtests in parallel
-    with ProcessPoolExecutor(max_workers=MAX_WORKERS) as executor:
-        future_to_symbol = {executor.submit(run_backtest, symbol): symbol for symbol in PAIRS}
+    with ProcessPoolExecutor(max_workers=min(MAX_WORKERS, len(PAIRS))) as executor:
+        future_to_symbol = {
+            executor.submit(run_backtest, symbol, run_id): symbol for symbol in PAIRS
+        }
         for future in as_completed(future_to_symbol):
             symbol = future_to_symbol[future]
             try:
@@ -129,12 +207,21 @@ def main() -> None:
 
     # Sort results by symbol for consistent output
     results.sort(key=lambda r: r.get("symbol", ""))
+    failures = [result for result in results if "error" in result]
 
     # Save raw results
     out_file = OUT_DIR / f"multi_pair_1h_{timestamp}.json"
-    with open(out_file, "w") as f:
+    with out_file.open("w", encoding="utf-8") as f:
         json.dump(
             {
+                "schema_version": 1,
+                "run_id": run_id,
+                "status": "passed"
+                if not failures and len(results) == len(PAIRS)
+                else "failed",
+                "successful_pairs": len(results) - len(failures),
+                "failed_pairs": len(failures),
+                "tail_bars": TAIL_BARS or None,
                 "generated_at": datetime.now(UTC).isoformat(),
                 "exchange": EXCHANGE,
                 "timeframe": TIMEFRAME,
@@ -144,6 +231,7 @@ def main() -> None:
             },
             f,
             indent=2,
+            allow_nan=False,
         )
 
     # Print summary table
@@ -168,34 +256,9 @@ def main() -> None:
             f"{r.get('win_rate_pct', 0):>8.2f}"
         )
 
-    # Compare with baseline if exists
-    baseline_files = sorted(OUT_DIR.glob("multi_pair_1h_*.json"))
-    if len(baseline_files) >= 2:
-        # Compare with previous run
-        prev_file = baseline_files[-2]
-        with open(prev_file) as f:
-            prev = json.load(f)
-        print(f"\n📈 Comparison vs {prev_file.name}:")
-        print("-" * 80)
-        prev_map = {r["symbol"]: r for r in prev.get("results", [])}
-        for r in results:
-            sym = r.get("symbol")
-            if sym not in prev_map:
-                continue
-            p = prev_map[sym]
-            if "error" in r or "error" in p:
-                continue
-            ret_delta = r.get("total_return_pct", 0) - p.get("total_return_pct", 0)
-            dd_delta = r.get("max_drawdown_pct", 0) - p.get("max_drawdown_pct", 0)
-            sharpe_delta = r.get("sharpe", 0) - p.get("sharpe", 0)
-            print(
-                f"{sym:<12} "
-                f"ΔRet={ret_delta:>+8.2f}% "
-                f"ΔDD={dd_delta:>+8.2f}% "
-                f"ΔSharpe={sharpe_delta:>+8.2f}"
-            )
-
     print(f"\n✅ Saved to {out_file}")
+    if failures or len(results) != len(PAIRS):
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

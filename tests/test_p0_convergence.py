@@ -1046,10 +1046,8 @@ class TestConcurrentSameDB:
 class TestEnginePaperE2E:
     """Actual Engine + PaperExchange integration tests."""
 
-    def test_engine_execute_signal_buy_and_fill(self, tmp_path, monkeypatch):
+    def test_engine_execute_signal_buy_and_fill(self, tmp_path):
         """Engine should create, submit, and fill a BUY order end-to-end."""
-        # Allow new exposure in this backtest-style test
-        monkeypatch.setenv("BACKTEST_ALLOW_NEW_EXPOSURE", "1")
 
         from trading_agent.agents.base import AgentMessage
         from trading_agent.execution.canonical.market_observation import (
@@ -1070,7 +1068,7 @@ class TestEnginePaperE2E:
             state_dir=state_dir,
         )
         store = ExecutionEventStore(str(tmp_path / "events.db")).connect()
-        
+
         # Create instrument rules for BTC/USDT
         instrument_rules = InstrumentRules(
             symbol="BTC/USDT",
@@ -1081,7 +1079,12 @@ class TestEnginePaperE2E:
             price_precision=2,
             min_notional=10.0,
         )
-        engine = ExecutionEngine(exchange=exchange, store=store, instrument_rules=instrument_rules)
+        engine = ExecutionEngine(
+            exchange=exchange,
+            store=store,
+            instrument_rules=instrument_rules,
+            allow_backtest_new_exposure=True,
+        )
         # Seed a price so the engine has a valid market observation
         engine.exchange.update_prices({"BTC/USDT": 50_000.0})
         # Ensure the engine has a current price for the symbol
@@ -1128,10 +1131,8 @@ class TestEnginePaperE2E:
         assert pos is not None
         assert pos.quantity > 0
 
-    def test_engine_execute_signal_sell_without_position(self, tmp_path, monkeypatch):
+    def test_engine_execute_signal_sell_without_position(self, tmp_path):
         """Engine should reject a SELL signal when no position exists."""
-        # Allow new exposure so the adapter doesn't block SELL either
-        monkeypatch.setenv("BACKTEST_ALLOW_NEW_EXPOSURE", "1")
 
         from trading_agent.agents.base import AgentMessage
         from trading_agent.execution.canonical.market_observation import (
@@ -1148,7 +1149,7 @@ class TestEnginePaperE2E:
             initial_balance=100_000.0,
             state_dir=state_dir,
         )
-        
+
         # Create instrument rules for BTC/USDT
         instrument_rules = InstrumentRules(
             symbol="BTC/USDT",
@@ -1160,7 +1161,7 @@ class TestEnginePaperE2E:
             min_notional=10.0,
         )
         engine = ExecutionEngine(exchange=exchange, instrument_rules=instrument_rules)
-        # Engine's planner is hardcoded for BTC/USDT; use the same symbol
+        # Use the symbol governed by the supplied instrument rules.
         engine.exchange.update_prices({"BTC/USDT": 50_000.0})
         now = datetime.now(UTC)
         observation = EnrichedMarketObservation(

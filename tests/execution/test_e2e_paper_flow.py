@@ -30,7 +30,6 @@ from trading_agent.execution.canonical.order_planner import (
     OrderPlanningStatus,
     TargetExposure,
 )
-from trading_agent.execution.canonical.adapters import BrokerSubmitFact
 from trading_agent.execution.types import OrderSide, OrderStatus, OrderType
 from trading_agent.exchanges.models import AssetClass
 from trading_agent.execution.canonical.broker_gateway import (
@@ -1274,7 +1273,7 @@ class TestExecutionEngineE2E:
     """Actual ExecutionEngine end-to-end flow: signal → execution → fill → state."""
 
     def test_engine_execute_signal_full_flow(self):
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import MagicMock
         from trading_agent.execution.engine import ExecutionEngine
         from trading_agent.execution.canonical.order_planner import (
             OrderPlanningResult,
@@ -1345,8 +1344,14 @@ class TestExecutionEngineE2E:
             OrderPlanningResult,
             OrderPlanningStatus,
         )
-        from trading_agent.execution.canonical.broker_gateway import BrokerSubmitState, BrokerSubmitResult
-        from trading_agent.execution.application import CanonicalExecutionService, ExecutionSubmission
+        from trading_agent.execution.canonical.broker_gateway import (
+            BrokerSubmitState,
+            BrokerSubmitResult,
+        )
+        from trading_agent.execution.application import (
+            CanonicalExecutionService,
+            ExecutionSubmission,
+        )
 
         event_store = ExecutionEventStore(tmp_path / "engine-unknown.db").connect()
         engine = ExecutionEngine(exchange_name="paper", store=event_store)
@@ -2218,7 +2223,10 @@ class TestP1ConvergenceProofs:
         )
         from trading_agent.execution.canonical.order_planner import OrderIntent
         from trading_agent.execution.lifecycle.lifecycle import ExposureEffect
-        from trading_agent.execution.application import CanonicalExecutionService, ExecutionSubmission
+        from trading_agent.execution.application import (
+            CanonicalExecutionService,
+            ExecutionSubmission,
+        )
 
         store = ExecutionEventStore(str(tmp_path / "events.db")).connect()
         engine = ExecutionEngine(exchange_name="paper", store=store)
@@ -2320,7 +2328,9 @@ class TestP1ConvergenceProofs:
         )
 
         # Mock execution_service.submit_planned to return UNKNOWN broker state
-        def mock_submit_planned(planning, risk_decision, permission_context, correlation_id=None):
+        def mock_submit_planned(
+            planning, risk_decision, permission_context, correlation_id=None
+        ):
             submit_calls.append(correlation_id)
             unknown_result = BrokerSubmitResult(
                 success=True,
@@ -2355,9 +2365,13 @@ class TestP1ConvergenceProofs:
         import os
         from unittest.mock import patch
         from trading_agent.execution.engine import ExecutionEngine
-        from trading_agent.execution.canonical.broker_gateway import BrokerSubmitResult, BrokerSubmitState
-        from trading_agent.execution.canonical.order_planner import InstrumentRules, OrderIntent
-        from trading_agent.execution.lifecycle.lifecycle import ExposureEffect
+        from trading_agent.execution.canonical.broker_gateway import (
+            BrokerSubmitResult,
+            BrokerSubmitState,
+        )
+        from trading_agent.execution.canonical.order_planner import (
+            InstrumentRules,
+        )
 
         with tempfile.TemporaryDirectory() as tmpdir:
             # Use tmpdir as cwd so engine's relative DB path resolves here
@@ -2374,9 +2388,11 @@ class TestP1ConvergenceProofs:
                     price_precision=2,
                     min_notional=10.0,
                 )
-                
+
                 # Phase 1: Create engine, submit an order, then "crash"
-                engine1 = ExecutionEngine(exchange_name="paper", instrument_rules=instrument_rules)
+                engine1 = ExecutionEngine(
+                    exchange_name="paper", instrument_rules=instrument_rules
+                )
                 engine1.exchange._last_price_cache["BTC/USDT"] = 50000.0
                 engine1.exchange._last_price_timestamps["BTC/USDT"] = datetime.now(
                     UTC
@@ -2470,7 +2486,9 @@ class TestP1ConvergenceProofs:
                 assert len(orders_before) >= 1, f"Expected orders, got: {orders_before}"
 
                 # Phase 2: "Restart" — create new engine with same DB
-                engine2 = ExecutionEngine(exchange_name="paper", instrument_rules=instrument_rules)
+                engine2 = ExecutionEngine(
+                    exchange_name="paper", instrument_rules=instrument_rules
+                )
                 engine2.exchange._last_price_cache["BTC/USDT"] = 50000.0
                 engine2.exchange._last_price_timestamps["BTC/USDT"] = datetime.now(
                     UTC

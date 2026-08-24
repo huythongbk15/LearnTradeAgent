@@ -41,7 +41,9 @@ from trading_agent.execution import risk_controller as rc_module
 from trading_agent.execution.canonical.market_observation import (
     EnrichedMarketObservation,
 )
-from trading_agent.execution.canonical.order_planner import InstrumentRules
+from trading_agent.execution.canonical.instrument_registry import (
+    get_instrument_rules,
+)
 from trading_agent.execution.engine import ExecutionEngine
 from trading_agent.execution.risk_controller import RiskController
 from trading_agent.strategies.enhanced_ma import EnhancedMaCrossover
@@ -77,6 +79,7 @@ SLOW_MA = int(os.getenv("SLOW_MA", "50"))
 ADX_THRESHOLD = float(os.getenv("ADX_THRESHOLD", "40"))
 ATR_SL_MULT = float(os.getenv("ATR_SL_MULT", "2.0"))
 ATR_TP_MULT = float(os.getenv("ATR_TP_MULT", "3.0"))
+
 
 def _timeframe_delta(timeframe: str) -> timedelta:
     """Convert a compact timeframe such as 15m/1h/4h/1d to a duration."""
@@ -120,9 +123,12 @@ class FullSystemSimulator:
         self.timeframe_delta = _timeframe_delta(self.timeframe)
 
         safe_symbol = self.symbol.replace("/", "_").replace(":", "_")
-        resolved_run_id = run_id or os.getenv("BACKTEST_RUN_ID") or datetime.now(
-            UTC
-        ).strftime("%Y%m%dT%H%M%S_%fZ")
+        resolved_run_id = (
+            run_id
+            or os.getenv("BACKTEST_RUN_ID")
+            or datetime.now(UTC).strftime("%Y%m%dT%H%M%S_%fZ")
+        )
+        self.run_id = resolved_run_id
         if state_dir is None:
             self.run_dir = (
                 ROOT
@@ -186,7 +192,9 @@ class FullSystemSimulator:
             sort_keys=True,
             separators=(",", ":"),
         ).encode()
-        self.feature_artifact_id = f"sha256:{hashlib.sha256(feature_identity).hexdigest()}"
+        self.feature_artifact_id = (
+            f"sha256:{hashlib.sha256(feature_identity).hexdigest()}"
+        )
 
         # Pre-compute indicators on full dataset
         print("🔧 Computing strategy indicators...")
@@ -203,17 +211,12 @@ class FullSystemSimulator:
         self.engine = ExecutionEngine(
             exchange_name=EXCHANGE,
             initial_capital=INITIAL_CAPITAL,
-            instrument_rules=InstrumentRules(
-                symbol=self.symbol,
-                min_order_qty=1e-8,
-                max_order_qty=1e12,
-                qty_step=1e-8,
-                spot_long_only=True,
-            ),
+            instrument_rules=get_instrument_rules(self.symbol),
             state_dir=self.state_dir,
             event_store_path=self.state_dir / "events.db",
             allow_backtest_new_exposure=allow_new_exposure,
             paper_price_persist_interval=state_flush_bars,
+            disable_paper_telemetry=True,
         )
         self.risk = RiskController(
             self.engine,
@@ -261,19 +264,32 @@ class FullSystemSimulator:
         for i in range(start, end):
             row = self.df.row(i, named=True)
             ts = row["timestamp"]
-            price = float(row["close"])
-            signal = int(self.signals[i]) if self.signals[i] is not None else 0
+            price = float(row["open"])
+            signal_index = i - 1
+            decision_row = self.df.row(signal_index, named=True) if i > start else row
+            decision_ts = decision_row["timestamp"]
+            signal = (
+                int(self.signals[signal_index])
+                if i > start and self.signals[signal_index] is not None
+                else 0
+            )
 
-            # Đồng hồ giả lập theo bar hiện tại
+            # The prior closed bar may execute only at this bar's open.
             bar_open_at = datetime.fromisoformat(str(ts))
             if bar_open_at.tzinfo is None:
                 bar_open_at = bar_open_at.replace(tzinfo=UTC)
             else:
                 bar_open_at = bar_open_at.astimezone(UTC)
             bar_close_at = bar_open_at + self.timeframe_delta
-            _SimClock.current = bar_close_at
+            decision_bar_open_at = datetime.fromisoformat(str(decision_ts))
+            if decision_bar_open_at.tzinfo is None:
+                decision_bar_open_at = decision_bar_open_at.replace(tzinfo=UTC)
+            else:
+                decision_bar_open_at = decision_bar_open_at.astimezone(UTC)
+            decision_bar_close_at = decision_bar_open_at + self.timeframe_delta
+            _SimClock.current = bar_open_at
 
-            # 1. Cập nhật giá → unrealized PnL + stop-loss trigger
+            # 1. Mark at the next tradable open before any decision.
             self.engine.update_prices({self.symbol: price})
 
             # 2. Risk checks (max DD, daily loss, circuit breaker)
@@ -290,7 +306,8 @@ class FullSystemSimulator:
 
             # 3. Execute signal theo chu kỳ (chỉ khi chưa bị chặn)
             if (
-                i % freq == 0
+                i > start
+                and signal_index % freq == 0
                 and not breaker_on
                 and not any("Cooldown" in a for a in alerts)
             ):
@@ -301,15 +318,19 @@ class FullSystemSimulator:
                 if signal != 0:
                     # Calculate position size using risk controller dynamic sizing
                     # Get ATR for this bar
-                    atr = float(row.get("atr", 0)) if row.get("atr") else None
+                    atr = (
+                        float(decision_row.get("atr", 0))
+                        if decision_row.get("atr")
+                        else None
+                    )
 
                     # Get regime info
                     regime_info = {
-                        "vol_regime": row.get("vol_regime"),
-                        "trend_regime": row.get("trend_regime"),
-                        "trend_dir": row.get("trend_dir"),
-                        "adx": row.get("adx"),
-                        "atr_pctl": row.get("atr_pctl"),
+                        "vol_regime": decision_row.get("vol_regime"),
+                        "trend_regime": decision_row.get("trend_regime"),
+                        "trend_dir": decision_row.get("trend_dir"),
+                        "adx": decision_row.get("adx"),
+                        "atr_pctl": decision_row.get("atr_pctl"),
                     }
 
                     position = self.engine.exchange.get_position(self.symbol)
@@ -334,7 +355,11 @@ class FullSystemSimulator:
                                     pos_size * price / equity,
                                 )
                     elif signal == -1:  # SELL (exit to flat)
-                        if not position or not position.is_active or position.quantity <= 0:
+                        if (
+                            not position
+                            or not position.is_active
+                            or position.quantity <= 0
+                        ):
                             # No position to exit, skip SELL signal
                             signal = 0
                         else:
@@ -342,106 +367,105 @@ class FullSystemSimulator:
                             max_target_exposure = 0.0  # target 0 exposure
 
                     if signal != 0:
-                            msg = AgentMessage(
-                                role="trader",
-                                signal="BUY" if signal == 1 else "SELL",
-                                confidence=0.65,
-                                reasoning=f"enhanced_ma: MA{FAST_MA}/{SLOW_MA} crossover with ADX>{ADX_THRESHOLD}",
-                                details={
-                                    "symbol": self.symbol,
-                                    "strategy": "enhanced_ma",
-                                },
-                                max_position_size_pct=max_target_exposure,
-                                risk_level="medium",
-                            )
+                        msg = AgentMessage(
+                            role="trader",
+                            signal="BUY" if signal == 1 else "SELL",
+                            confidence=0.65,
+                            reasoning=f"enhanced_ma: MA{FAST_MA}/{SLOW_MA} crossover with ADX>{ADX_THRESHOLD}",
+                            details={
+                                "symbol": self.symbol,
+                                "strategy": "enhanced_ma",
+                            },
+                            max_position_size_pct=max_target_exposure,
+                            risk_level="medium",
+                        )
 
-                            self.signal_log.append(
-                                {
-                                    "timestamp": str(ts),
+                        self.signal_log.append(
+                            {
+                                "timestamp": str(decision_ts),
+                                "executed_at": str(ts),
+                                "price": price,
+                                "position_pct": pos_pct,
+                                "signal": msg.signal,
+                                "confidence": msg.confidence,
+                                "risk": msg.risk_level,
+                                "max_pos": msg.max_position_size_pct,
+                            }
+                        )
+
+                        # Build observation from current bar for canonical pipeline
+                        observation = EnrichedMarketObservation(
+                            observation_id=f"obs-{self.symbol}-{signal_index}",
+                            symbol=self.symbol,
+                            observed_at=decision_bar_close_at,
+                            open=float(decision_row["open"]),
+                            high=float(decision_row["high"]),
+                            low=float(decision_row["low"]),
+                            close=float(decision_row["close"]),
+                            volume=float(decision_row.get("volume", 0.0)),
+                            features={
+                                k: float(decision_row[k])
+                                for k in ["fast_ma", "slow_ma", "adx", "atr"]
+                                if k in decision_row and decision_row[k] is not None
+                            },
+                            venue=self.exchange,
+                            source="historical_parquet",
+                            timeframe=self.timeframe,
+                            bar_open_at=decision_bar_open_at,
+                            bar_close_at=decision_bar_close_at,
+                            is_closed=True,
+                            data_manifest_id=self.data_manifest_id,
+                            feature_artifact_id=self.feature_artifact_id,
+                        )
+
+                        # Execute
+                        for order in self.engine.execute_signal(
+                            msg, observation=observation
+                        ):
+                            pos = self.engine.exchange.get_position(self.symbol)
+                            side = order.side.value
+                            amount = float(order.filled_amount or order.amount)
+                            if side == "buy":
+                                self._entry_state[self.symbol] = {
                                     "price": price,
-                                    "position_pct": pos_pct,
-                                    "signal": msg.signal,
-                                    "confidence": msg.confidence,
-                                    "risk": msg.risk_level,
-                                    "max_pos": msg.max_position_size_pct,
+                                    "amount": amount,
                                 }
-                            )
-
-                            # Build observation from current bar for canonical pipeline
-                            observation = EnrichedMarketObservation(
-                                observation_id=f"obs-{self.symbol}-{i}",
-                                symbol=self.symbol,
-                                observed_at=bar_close_at,
-                                open=float(row["open"]),
-                                high=float(row["high"]),
-                                low=float(row["low"]),
-                                close=price,
-                                volume=float(row.get("volume", 0.0)),
-                                features={
-                                    k: float(row[k])
-                                    for k in ["fast_ma", "slow_ma", "adx", "atr"]
-                                    if k in row and row[k] is not None
-                                },
-                                venue=self.exchange,
-                                source="historical_parquet",
-                                timeframe=self.timeframe,
-                                bar_open_at=bar_open_at,
-                                bar_close_at=bar_close_at,
-                                is_closed=True,
-                                data_manifest_id=self.data_manifest_id,
-                                feature_artifact_id=self.feature_artifact_id,
-                            )
-
-                            # Execute
-                            for order in self.engine.execute_signal(
-                                msg, observation=observation
-                            ):
-                                pos = self.engine.exchange.get_position(self.symbol)
-                                side = order.side.value
-                                amount = float(order.filled_amount or order.amount)
-                                if side == "buy":
-                                    self._entry_state[self.symbol] = {
-                                        "price": price,
-                                        "amount": amount,
-                                    }
-                                    pnl = 0.0
-                                elif side == "sell":
-                                    entry = self._entry_state.pop(self.symbol, None)
-                                    if entry:
-                                        pnl = (price - entry["price"]) * entry["amount"]
-                                    else:
-                                        pnl = 0.0
+                                pnl = 0.0
+                            elif side == "sell":
+                                entry = self._entry_state.pop(self.symbol, None)
+                                if entry:
+                                    pnl = (price - entry["price"]) * entry["amount"]
                                 else:
                                     pnl = 0.0
-                                self.trade_log.append(
-                                    {
-                                        "timestamp": str(ts),
-                                        "side": side,
-                                        "amount": amount,
-                                        "price": price,
-                                        "pnl": pnl,
-                                        "equity": float(
-                                            self.engine.exchange.get_total_equity()
-                                        ),
-                                    }
-                                )
-                                side = (
-                                    "🟢 BUY" if order.side.value == "buy" else "🔴 SELL"
-                                )
-                                print(
-                                    f"   {side} {order.filled_amount or order.amount:.4f} @ ${price:,.2f} @ {ts}"
-                                )
-                                # The canonical lifecycle owns the protective stop.
-                                # Paper-side TP/trailing behavior remains optional.
-                                self.risk.set_take_profit_on_all_positions(
-                                    TAKE_PROFIT_PCT
-                                )
-                                self.risk.set_trailing_stop_on_all_positions(
-                                    TRAILING_STOP_PCT
-                                )
+                            else:
+                                pnl = 0.0
+                            self.trade_log.append(
+                                {
+                                    "timestamp": str(ts),
+                                    "side": side,
+                                    "amount": amount,
+                                    "price": price,
+                                    "pnl": pnl,
+                                    "equity": float(
+                                        self.engine.exchange.get_total_equity()
+                                    ),
+                                }
+                            )
+                            side = "🟢 BUY" if order.side.value == "buy" else "🔴 SELL"
+                            print(
+                                f"   {side} {order.filled_amount or order.amount:.4f} @ ${price:,.2f} @ {ts}"
+                            )
 
-            # 4. Equity tracking
-            self.equity_curve.append((ts, self.engine.exchange.get_total_equity()))
+            # 4. Simulate adverse excursion, then mark at this bar's close.
+            _SimClock.current = bar_close_at
+            low_price = float(row["low"])
+            close_price = float(row["close"])
+            if low_price < price:
+                self.engine.update_prices({self.symbol: low_price})
+            self.engine.update_prices({self.symbol: close_price})
+            self.equity_curve.append(
+                (bar_close_at.isoformat(), self.engine.exchange.get_total_equity())
+            )
 
             # Progress
             if (i - start) % 2000 == 0 and i > start:
@@ -461,27 +485,39 @@ class FullSystemSimulator:
             print("❌ No data")
             return {}
 
+        self.trade_log = [
+            trade.to_dict()
+            for trade in self.engine.exchange.get_trade_history(limit=1_000_000)
+        ]
         eq_values = np.array([e[1] for e in self.equity_curve])
-        returns = np.diff(eq_values) / eq_values[:-1]
-        returns = returns[~np.isnan(returns)]
+        equity_with_initial = np.concatenate(([INITIAL_CAPITAL], eq_values))
+        prior_equity = equity_with_initial[:-1]
+        returns = np.diff(equity_with_initial) / prior_equity
+        returns = returns[np.isfinite(returns)]
 
-        total_return = (eq_values[-1] / eq_values[0] - 1) * 100
+        total_return = (eq_values[-1] / INITIAL_CAPITAL - 1) * 100
+        periods_per_year = timedelta(days=365).total_seconds() / (
+            self.timeframe_delta.total_seconds()
+        )
         sharpe = (
-            (returns.mean() / returns.std() * np.sqrt(24 * 252))
+            (returns.mean() / returns.std() * np.sqrt(periods_per_year))
             if len(returns) > 1 and returns.std() > 0
             else 0
         )
-        max_dd = ((eq_values.max() - eq_values) / eq_values.max()).max() * 100
+        running_peak = np.maximum.accumulate(equity_with_initial)
+        max_dd = float(
+            np.max((running_peak - equity_with_initial) / running_peak) * 100
+        )
 
         wins = [t for t in self.trade_log if t.get("pnl", 0) > 0]
-        losses = [t for t in self.trade_log if t.get("pnl", 0) <= 0]
+        losses = [t for t in self.trade_log if t.get("pnl", 0) < 0]
         win_rate = len(wins) / len(self.trade_log) * 100 if self.trade_log else 0
         avg_win = np.mean([t["pnl"] for t in wins]) if wins else 0
         avg_loss = abs(np.mean([t["pnl"] for t in losses])) if losses else 0
-        profit_factor = (
-            (sum(t["pnl"] for t in wins) / abs(sum(t["pnl"] for t in losses)))
-            if losses and sum(t["pnl"] for t in losses) != 0
-            else (float("inf") if wins else 0)
+        gross_profit = float(sum(t["pnl"] for t in wins))
+        gross_loss = float(abs(sum(t["pnl"] for t in losses)))
+        profit_factor: float | None = (
+            gross_profit / gross_loss if gross_loss > 0 else None
         )
 
         print(f"\n{'=' * 55}")
@@ -498,7 +534,10 @@ class FullSystemSimulator:
         print(f"   Win rate:         {win_rate:.1f}%")
         print(f"   Avg win:          ${avg_win:,.2f}")
         print(f"   Avg loss:         ${avg_loss:,.2f}")
-        print(f"   Profit factor:    {profit_factor:.2f}")
+        profit_factor_display = (
+            f"{profit_factor:.2f}" if profit_factor is not None else "N/A"
+        )
+        print(f"   Profit factor:    {profit_factor_display}")
         print(f"   Circuit breakers: {len(self.circuit_breakers)}")
 
         # Phân bố theo năm
@@ -516,15 +555,61 @@ class FullSystemSimulator:
             print(f"   {year}: ${eqs[0]:,.2f} → ${eqs[-1]:,.2f}  ({ret:+.2f}%)")
 
         # 10 trades gần nhất
+        open_positions = self.engine.exchange.get_all_positions()
+        open_orders = self.engine.exchange.get_open_orders()
+        protected_symbols = {
+            order.symbol
+            for order in open_orders
+            if order.side.value == "sell"
+            and order.type.value in {"stop_loss", "stop_loss_limit"}
+        }
+        unprotected_positions = sorted(
+            position.symbol
+            for position in open_positions
+            if position.quantity > 0 and position.symbol not in protected_symbols
+        )
+        lifecycle_state = self.engine.lifecycle.state
+        manual_intent_ids = sorted(lifecycle_state.unresolved_manual_intents)
+        unknown_order_ids = sorted(
+            intent_id
+            for intent_id, order in lifecycle_state.orders.items()
+            if order.status.value == "manual"
+        )
+        execution_health = {
+            "status": lifecycle_state.execution_health.value,
+            "unknown_orders": len(unknown_order_ids),
+            "unknown_order_ids": unknown_order_ids,
+            "manual_interventions": len(manual_intent_ids),
+            "manual_intent_ids": manual_intent_ids,
+            "active_sell_reservations": float(
+                self.engine.lifecycle.active_sell_reservations()
+            ),
+            "unprotected_positions": unprotected_positions,
+        }
+        run_passed = (
+            execution_health["status"] == "normal"
+            and not unknown_order_ids
+            and not manual_intent_ids
+            and not unprotected_positions
+        )
+
         print("\n🧾 10 TRADES GẦN NHẤT")
         for t in self.trade_log[-10:]:
             pnl = t.get("pnl", 0)
             side = "🟢" if pnl > 0 else "🔴"
+            exit_price = float(t.get("exit_price") or 0.0)
             print(
-                f"   {side} {t['side']}  {t['amount']:.4f} @ ${t['price']:,.2f} pnl ${pnl:+.2f} ({pnl / t['price'] / t['amount'] * 100:+.1f}%) [{t.get('exit_reason', 'signal')}] {t['timestamp'][:19]}"
+                f"   {side} {t['side']} {t['quantity']:.4f} "
+                f"${t['entry_price']:,.2f} → ${exit_price:,.2f} "
+                f"pnl ${pnl:+.2f} ({t.get('pnl_pct', 0.0):+.1f}%) "
+                f"[{t.get('reason') or 'signal'}] "
+                f"{str(t.get('exit_time') or '')[:19]}"
             )
 
         report: dict[str, object] = {
+            "schema_version": 1,
+            "run_id": self.run_id,
+            "status": "passed" if run_passed else "failed",
             "symbol": self.symbol,
             "timeframe": self.timeframe,
             "exchange": EXCHANGE,
@@ -535,20 +620,23 @@ class FullSystemSimulator:
             "max_drawdown_pct": float(max_dd),
             "total_trades": len(self.trade_log),
             "win_rate_pct": float(win_rate),
-            "profit_factor": float(profit_factor),
+            "profit_factor": profit_factor,
             "circuit_breakers": len(self.circuit_breakers),
             "signals_seen": len(self.signal_log),
-            "open_positions": len(self.engine.exchange.get_all_positions()),
-            "open_orders": len(self.engine.exchange.get_open_orders()),
+            "open_positions": len(open_positions),
+            "open_orders": len(open_orders),
+            "execution_timing": "decision_on_closed_bar_execute_next_bar_open",
+            "execution_health": execution_health,
             "data_manifest_id": self.data_manifest_id,
             "feature_artifact_id": self.feature_artifact_id,
             "state_dir": str(self.state_dir),
+            "report_path": str(self.report_path),
             "equity_curve": [[str(ts), float(eq)] for ts, eq in self.equity_curve],
             "trades": self.trade_log,
         }
         self.report_path.parent.mkdir(parents=True, exist_ok=True)
-        with self.report_path.open("w") as output:
-            json.dump(report, output, indent=2)
+        with self.report_path.open("w", encoding="utf-8") as output:
+            json.dump(report, output, indent=2, allow_nan=False)
         print(f"\n💾 Saved → {self.report_path}")
         return report
 
@@ -567,7 +655,9 @@ def main():
     )
     parser.add_argument("--symbol", default=None, help="Symbol, vd BTC/USDT")
     parser.add_argument("--timeframe", default=None, help="Timeframe, vd 1h/4h")
-    parser.add_argument("--state-dir", default=None, help="Isolated paper state directory")
+    parser.add_argument(
+        "--state-dir", default=None, help="Isolated paper state directory"
+    )
     parser.add_argument("--report-path", default=None, help="Output JSON report path")
     parser.add_argument("--run-id", default=None, help="Stable identifier for this run")
     parser.add_argument(
@@ -607,7 +697,9 @@ def main():
         if args.start != 0 or args.end is not None:
             parser.error("--tail-bars cannot be combined with --start/--end")
         start = max(0, sim.df.height - args.tail_bars)
-    sim.run(start=start, end=args.end, freq=args.freq)
+    report = sim.run(start=start, end=args.end, freq=args.freq)
+    if report.get("status") != "passed":
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

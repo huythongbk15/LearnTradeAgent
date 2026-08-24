@@ -349,7 +349,10 @@ class TestOrderPlanner:
             target=target,
             risk_decision=decision,
             observation=sample_observation("BTCUSDT"),
-            portfolio=sample_portfolio("BTCUSDT", 0.5),
+            portfolio=replace(
+                sample_portfolio("BTCUSDT", 0.5),
+                existing_quantity=0.1,
+            ),
             price=sample_price("BTCUSDT", 50000.0),
             existing_reservations=0.0,
         )
@@ -461,8 +464,235 @@ class TestOrderPlanner:
         assert result.status is OrderPlanningStatus.BLOCKED
         assert result.intent is None
 
+    def test_btc_blocks_when_qty_step_makes_notional_range_infeasible(self):
+        rules = InstrumentRules(
+            symbol="BTCUSDT",
+            min_order_qty=0.0001,
+            max_order_qty=1.0,
+            qty_step=0.0001,
+            min_notional=10.0,
+            max_notional=10.0,
+        )
+        planner = OrderPlanner(instrument_rules=rules)
+        decision = sample_unified_decision(
+            allowed_target_exposure=0.01,
+            max_new_exposure=0.01,
+        )
+        target = sample_target_exposure(
+            symbol="BTCUSDT",
+            exposure=0.01,
+            horizon=14400,
+            decision_id="decision-1",
+        )
 
-# ── 3. BrokerGateway only allows capital-changing calls through itself ──
+        result = planner.plan(
+            target=target,
+            risk_decision=decision,
+            observation=sample_observation("BTCUSDT"),
+            portfolio=sample_portfolio("BTCUSDT", 0.0),
+            price=sample_price("BTCUSDT", 30_000.0),
+        )
+
+        assert result.status is OrderPlanningStatus.BLOCKED
+        assert result.intent is None
+        assert "NO_FEASIBLE_QUANTITY" in result.reason_codes
+
+    def test_xrp_quantity_satisfies_min_notional_and_qty_step(self):
+        rules = InstrumentRules(
+            symbol="XRPUSDT",
+            min_order_qty=19.2,
+            max_order_qty=10_000.0,
+            qty_step=1.0,
+            min_notional=10.0,
+            max_notional=1_000.0,
+        )
+        planner = OrderPlanner(instrument_rules=rules)
+        price = 0.53
+        equity = 10_000.0
+        requested_quantity = 19.3
+        exposure = requested_quantity * price / equity
+        decision = sample_unified_decision(
+            allowed_target_exposure=exposure,
+            max_new_exposure=exposure,
+        )
+        target = sample_target_exposure(
+            symbol="XRPUSDT",
+            exposure=exposure,
+            horizon=14400,
+            decision_id="decision-1",
+        )
+
+        result = planner.plan(
+            target=target,
+            risk_decision=decision,
+            observation=sample_observation("XRPUSDT"),
+            portfolio=sample_portfolio("XRPUSDT", 0.0, equity=equity),
+            price=MarketPrice(
+                symbol="XRPUSDT",
+                mid=price,
+                bid=price * 0.999,
+                ask=price * 1.001,
+                last=price,
+            ),
+        )
+
+        assert result.status is OrderPlanningStatus.ORDER_REQUIRED
+        assert result.intent is not None
+        assert result.intent.quantity == pytest.approx(20.0)
+        assert result.intent.quantity % rules.qty_step == pytest.approx(0.0)
+        assert result.intent.quantity * price >= rules.min_notional
+        assert result.intent.quantity * price <= rules.max_notional
+
+    @pytest.mark.parametrize(
+        ("max_order_qty", "max_notional", "expected_quantity"),
+        [(1_000_000.0, 50.0, 406.0), (405.5, 1_000.0, 405.0)],
+    )
+    def test_doge_quantity_respects_stepped_upper_bounds(
+        self, max_order_qty, max_notional, expected_quantity
+    ):
+        rules = InstrumentRules(
+            symbol="DOGEUSDT",
+            min_order_qty=1.0,
+            max_order_qty=max_order_qty,
+            qty_step=1.0,
+            min_notional=10.0,
+            max_notional=max_notional,
+        )
+        planner = OrderPlanner(instrument_rules=rules)
+        price = 0.123
+        equity = 10_000.0
+        exposure = 500.0 * price / equity
+        decision = sample_unified_decision(
+            allowed_target_exposure=exposure,
+            max_new_exposure=exposure,
+        )
+        target = sample_target_exposure(
+            symbol="DOGEUSDT",
+            exposure=exposure,
+            horizon=14400,
+            decision_id="decision-1",
+        )
+
+        result = planner.plan(
+            target=target,
+            risk_decision=decision,
+            observation=sample_observation("DOGEUSDT"),
+            portfolio=sample_portfolio("DOGEUSDT", 0.0, equity=equity),
+            price=MarketPrice(
+                symbol="DOGEUSDT",
+                mid=price,
+                bid=price * 0.999,
+                ask=price * 1.001,
+                last=price,
+            ),
+        )
+
+        assert result.status is OrderPlanningStatus.ORDER_REQUIRED
+        assert result.intent is not None
+        assert result.intent.quantity == pytest.approx(expected_quantity)
+        assert result.intent.quantity % rules.qty_step == pytest.approx(0.0)
+        assert result.intent.quantity <= rules.max_order_qty
+        assert result.intent.quantity * price <= rules.max_notional
+
+    def test_sell_quantity_never_exceeds_unreserved_inventory(self):
+        rules = InstrumentRules(
+            symbol="XRPUSDT",
+            min_order_qty=1.0,
+            max_order_qty=10_000.0,
+            qty_step=1.0,
+            min_notional=10.0,
+        )
+        planner = OrderPlanner(instrument_rules=rules)
+        decision = sample_unified_decision(
+            allowed_target_exposure=0.0,
+            max_new_exposure=0.0,
+            reduce_only=True,
+        )
+        target = sample_target_exposure(
+            symbol="XRPUSDT",
+            exposure=0.0,
+            horizon=14400,
+            decision_id="decision-1",
+        )
+        portfolio = replace(
+            sample_portfolio("XRPUSDT", 0.2),
+            existing_quantity=25.75,
+        )
+
+        result = planner.plan(
+            target=target,
+            risk_decision=decision,
+            observation=sample_observation("XRPUSDT"),
+            portfolio=portfolio,
+            price=MarketPrice(
+                symbol="XRPUSDT",
+                mid=0.5,
+                bid=0.499,
+                ask=0.501,
+                last=0.5,
+            ),
+            existing_reservations=5.25,
+        )
+
+        assert result.status is OrderPlanningStatus.ORDER_REQUIRED
+        assert result.intent is not None
+        assert result.intent.side == "sell"
+        assert result.intent.quantity == pytest.approx(20.0)
+        assert result.intent.quantity <= 25.75 - 5.25
+
+    # ── 3. BrokerGateway only allows capital-changing calls through itself ──
+    def test_reduce_to_flat_does_not_leave_one_step_of_dust(self):
+        rules = InstrumentRules(
+            symbol="NEARUSDT",
+            min_order_qty=0.01,
+            max_order_qty=1_000_000.0,
+            qty_step=0.01,
+            min_notional=10.0,
+        )
+        planner = OrderPlanner(instrument_rules=rules)
+        quantity = 6875.67
+        price = 3.5767875
+        equity = 100_000.0
+        current_exposure = quantity * price / equity
+        decision = sample_unified_decision(
+            allowed_target_exposure=0.0,
+            max_new_exposure=0.0,
+            reduce_only=True,
+        )
+        target = sample_target_exposure(
+            symbol="NEARUSDT",
+            exposure=0.0,
+            horizon=14400,
+            decision_id="decision-1",
+        )
+        portfolio = replace(
+            sample_portfolio(
+                "NEARUSDT",
+                current_exposure=current_exposure,
+                equity=equity,
+            ),
+            existing_quantity=quantity,
+        )
+
+        result = planner.plan(
+            target=target,
+            risk_decision=decision,
+            observation=sample_observation("NEARUSDT"),
+            portfolio=portfolio,
+            price=MarketPrice(
+                symbol="NEARUSDT",
+                mid=price,
+                bid=price * 0.999,
+                ask=price * 1.001,
+                last=price,
+            ),
+        )
+
+        assert result.status is OrderPlanningStatus.ORDER_REQUIRED
+        assert result.intent is not None
+        assert result.intent.side == "sell"
+        assert result.intent.quantity == pytest.approx(quantity, abs=1e-12)
+        assert quantity - result.intent.quantity == pytest.approx(0.0, abs=1e-12)
 
 
 class TestBrokerGateway:
@@ -768,7 +998,10 @@ class TestSpotLongOnlySemantics:
             target=target,
             risk_decision=decision,
             observation=sample_observation("BTCUSDT"),
-            portfolio=sample_portfolio("BTCUSDT", 0.5),
+            portfolio=replace(
+                sample_portfolio("BTCUSDT", 0.5),
+                existing_quantity=0.1,
+            ),
             price=sample_price("BTCUSDT", 50000.0),
             existing_reservations=0.0,
         )

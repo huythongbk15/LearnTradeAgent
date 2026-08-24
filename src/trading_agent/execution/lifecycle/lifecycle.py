@@ -1797,7 +1797,11 @@ class ExecutionLifecycle:
                 "no_replay_creating_synthetic_extra_fill",
                 f"fill for unknown intent {intent_id}",
             )
-        if order.status not in LIVE_STATUSES | {IntentStatus.APPROVED}:
+        if order.status not in LIVE_STATUSES | {
+            IntentStatus.APPROVED,
+            IntentStatus.CANCEL_REQUESTED,
+            IntentStatus.MANUAL,
+        }:
             raise InvariantViolation(
                 "no_replay_creating_synthetic_extra_fill",
                 f"fill for intent {intent_id} in {order.status.value}",
@@ -1894,6 +1898,11 @@ class ExecutionLifecycle:
             raise LifecycleError(
                 f"cancel evidence state {evidence.state.value} is not terminal; "
                 f"reservation remains locked for {intent_id}"
+            )
+        if evidence.state == CancelState.FILLED and order.remaining > 1e-9:
+            raise LifecycleError(
+                "FILLED-during-cancel must be recorded with receive_fill before "
+                f"terminalizing {intent_id}"
             )
         return self._emit(
             ExecutionEventType.CANCEL_CONFIRMED,

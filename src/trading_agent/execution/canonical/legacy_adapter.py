@@ -8,7 +8,6 @@ entire ExecutionEngine.
 from __future__ import annotations
 
 import math
-import os
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -55,14 +54,8 @@ class LegacyDecisionAdapter:
         self.allow_new_exposure = allow_new_exposure
 
     def _new_exposure_allowed(self) -> bool:
-        """Return explicit backtest authorization, falling back to legacy env config."""
-        if self.allow_new_exposure is not None:
-            return self.allow_new_exposure
-        return os.getenv("BACKTEST_ALLOW_NEW_EXPOSURE", "").lower() in {
-            "1",
-            "true",
-            "yes",
-        }
+        """Return only the explicit capability supplied by the engine."""
+        return self.allow_new_exposure is True
 
     def adapt(
         self, signal: Any, observation: EnrichedMarketObservation
@@ -71,17 +64,36 @@ class LegacyDecisionAdapter:
         if hasattr(signal, "signal"):
             signal_str = str(signal.signal).upper()
             details = getattr(signal, "details", {}) or {}
-            confidence = float(getattr(signal, "confidence", 0.5) or 0.5)
-            max_pos_pct = float(getattr(signal, "max_position_size_pct", 0.25) or 0.25)
+            confidence = float(
+                0.5
+                if getattr(signal, "confidence", None) is None
+                else signal.confidence
+            )
+            max_pos_pct = float(
+                0.25
+                if getattr(signal, "max_position_size_pct", None) is None
+                else signal.max_position_size_pct
+            )
         else:
             signal_str = str(signal.get("signal", "HOLD")).upper()
             details = signal.get("details", {}) or {}
-            confidence = float(signal.get("confidence", 0.5) or 0.5)
-            max_pos_pct = float(signal.get("max_position_size_pct", 0.25) or 0.25)
+            confidence = float(
+                0.5 if signal.get("confidence") is None else signal["confidence"]
+            )
+            max_pos_pct = float(
+                0.25
+                if signal.get("max_position_size_pct") is None
+                else signal["max_position_size_pct"]
+            )
 
         if not math.isfinite(max_pos_pct):
             raise ValueError("max_position_size_pct must be finite")
-        max_pos_pct = max(0.0, min(1.0, max_pos_pct))
+        if not 0.0 <= max_pos_pct <= 1.0:
+            raise ValueError("max_position_size_pct must be between 0.0 and 1.0")
+        if not math.isfinite(confidence):
+            raise ValueError("confidence must be finite")
+        if not 0.0 <= confidence <= 1.0:
+            raise ValueError("confidence must be between 0.0 and 1.0")
 
         side = (
             "buy" if signal_str == "BUY" else "sell" if signal_str == "SELL" else "hold"
@@ -92,6 +104,8 @@ class LegacyDecisionAdapter:
         atr = None
         if details.get("atr") is not None:
             atr = float(details["atr"])
+            if not math.isfinite(atr) or atr <= 0:
+                raise ValueError("atr must be finite and positive")
         elif signal_str in ("BUY", "SELL"):
             # ATR will be computed upstream in canonical path if needed
             pass

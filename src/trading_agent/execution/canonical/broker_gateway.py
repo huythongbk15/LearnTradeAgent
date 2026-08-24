@@ -404,15 +404,25 @@ class BrokerGateway:
                 "REQUEST_ACCEPTED": CancelState.REQUEST_ACCEPTED,
                 "PENDING": CancelState.PENDING,
                 "CANCELED": CancelState.CANCELED,
+                "FILLED": CancelState.FILLED,
                 "REJECTED": CancelState.REJECTED,
                 "EXPIRED": CancelState.EXPIRED,
                 "UNKNOWN": CancelState.UNKNOWN,
                 "FAILED": CancelState.FAILED,
             }
-            mapped_state = state_map.get(cancel_fact.state, CancelState.UNKNOWN)
+            cancel_state = (
+                cancel_fact.state.value
+                if hasattr(cancel_fact.state, "value")
+                else str(cancel_fact.state)
+            )
+            mapped_state = state_map.get(cancel_state, CancelState.UNKNOWN)
             return CancelResult(
                 success=mapped_state
-                in {CancelState.REQUEST_ACCEPTED, CancelState.CANCELED},
+                in {
+                    CancelState.REQUEST_ACCEPTED,
+                    CancelState.CANCELED,
+                    CancelState.FILLED,
+                },
                 evidence=CancelEvidence(
                     broker_order_id=order_id,
                     state=mapped_state,

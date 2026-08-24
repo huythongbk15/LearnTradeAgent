@@ -130,6 +130,7 @@ class CancelState(StrEnum):
     REQUEST_ACCEPTED = "REQUEST_ACCEPTED"
     PENDING = "PENDING"
     CANCELED = "CANCELED"
+    FILLED = "FILLED"
     REJECTED = "REJECTED"
     EXPIRED = "EXPIRED"
     UNKNOWN = "UNKNOWN"
@@ -235,11 +236,12 @@ class PaperExecutionAdapter:
         broker_order_id = order_result.id
         broker_status = order_result.status.value
         state = {
+            "pending": BrokerSubmitState.ACCEPTED,
             "open": BrokerSubmitState.OPEN,
-            "partial": BrokerSubmitState.PARTIALLY_FILLED,
+            "partially_filled": BrokerSubmitState.PARTIALLY_FILLED,
             "filled": BrokerSubmitState.FILLED,
             "rejected": BrokerSubmitState.REJECTED,
-            "cancelled": BrokerSubmitState.REJECTED,
+            "canceled": BrokerSubmitState.REJECTED,
             "expired": BrokerSubmitState.REJECTED,
         }.get(broker_status, BrokerSubmitState.UNKNOWN)
         return BrokerSubmitFact(
@@ -271,14 +273,41 @@ class PaperExecutionAdapter:
 
     def request_cancel(self, request: BrokerCancelRequest) -> BrokerCancelFact:
         result = self._exchange.cancel_order(request.broker_order_id)
+        error: str | None
+        if result is None:
+            state = CancelState.UNKNOWN
+            error = "paper exchange did not find the order"
+            broker_status = "missing"
+        else:
+            broker_status = result.status.value
+            state = {
+                "canceled": CancelState.CANCELED,
+                "filled": CancelState.FILLED,
+                "rejected": CancelState.REJECTED,
+                "expired": CancelState.EXPIRED,
+                "open": CancelState.PENDING,
+                "pending": CancelState.PENDING,
+                "partially_filled": CancelState.PENDING,
+            }.get(broker_status, CancelState.UNKNOWN)
+            error = (
+                None
+                if state
+                in {
+                    CancelState.CANCELED,
+                    CancelState.FILLED,
+                    CancelState.REJECTED,
+                    CancelState.EXPIRED,
+                }
+                else f"paper order remains non-terminal: {broker_status}"
+            )
         return BrokerCancelFact(
-            state=CancelState.CANCELED if result else CancelState.UNKNOWN,
+            state=state,
             broker_order_id=request.broker_order_id,
             venue="paper",
             confirmed_at=datetime.now(UTC),
             source="BROKER",
-            error=None if result else "paper exchange did not confirm cancellation",
-            raw_response={"canceled": bool(result)},
+            error=error,
+            raw_response={"status": broker_status},
         )
 
     def fetch_order(self, order_id: str) -> BrokerOrderFact:
@@ -315,13 +344,18 @@ class PaperExecutionAdapter:
             client_order_id=getattr(order, "client_order_id", None),
             symbol=symbol_obj,
             side=OrderSide.BUY if order.side.value == "buy" else OrderSide.SELL,
-            order_type=OrderType.MARKET
-            if order.type.value == "market"
-            else OrderType.LIMIT,
+            order_type={
+                "market": OrderType.MARKET,
+                "limit": OrderType.LIMIT,
+                "stop_loss": OrderType.STOP,
+                "stop_loss_limit": OrderType.STOP_LIMIT,
+            }.get(order.type.value, OrderType.LIMIT),
             quantity=Decimal(str(order.amount)),
             filled_quantity=Decimal(str(order.filled_amount)),
             price=Decimal(str(order.price)) if order.price is not None else None,
-            stop_price=None,
+            stop_price=Decimal(str(order.stop_price))
+            if order.stop_price is not None
+            else None,
             status=order.status.value,
             venue="paper",
             created_at=order.timestamp
@@ -337,6 +371,12 @@ class PaperExecutionAdapter:
                 "amount": float(order.amount),
                 "filled_amount": float(order.filled_amount),
                 "price": float(order.price) if order.price is not None else None,
+                "stop_price": float(order.stop_price)
+                if order.stop_price is not None
+                else None,
+                "avg_fill_price": float(order.avg_fill_price)
+                if order.avg_fill_price is not None
+                else None,
                 "cost": float(order.cost),
             },
         )

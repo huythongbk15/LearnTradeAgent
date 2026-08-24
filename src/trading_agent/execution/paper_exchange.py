@@ -16,7 +16,7 @@ import uuid
 from datetime import UTC, datetime
 from functools import wraps
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from trading_agent.execution.types import (
     Order,
@@ -124,6 +124,61 @@ def _log_equity_snapshot(
         logger.warning("Failed to log equity snapshot: %s", e)
 
 
+class PaperExchangeTelemetrySink(Protocol):
+    """Per-exchange telemetry boundary.
+
+    A sink is deliberately instance-scoped so paper/backtest runs can either inject
+    an isolated recorder or disable monitoring persistence with ``telemetry=None``.
+    """
+
+    def record_trade(self, trade: Trade) -> None:
+        """Record one completed paper trade."""
+
+    def record_equity_snapshot(
+        self,
+        *,
+        equity: float,
+        cash: float,
+        position_value: float,
+        drawdown: float,
+        peak_equity: float,
+    ) -> None:
+        """Record one portfolio equity snapshot."""
+
+
+class MonitoringDatabaseTelemetrySink:
+    """Compatibility sink backed by the existing global monitoring database."""
+
+    def record_trade(self, trade: Trade) -> None:
+        _log_trade_to_db(
+            trade,
+            action="close",
+            pnl=trade.pnl,
+            pnl_pct=trade.pnl_pct,
+            reason=trade.reason,
+        )
+
+    def record_equity_snapshot(
+        self,
+        *,
+        equity: float,
+        cash: float,
+        position_value: float,
+        drawdown: float,
+        peak_equity: float,
+    ) -> None:
+        _log_equity_snapshot(
+            equity,
+            cash,
+            position_value,
+            drawdown,
+            peak_equity,
+        )
+
+
+_DEFAULT_TELEMETRY: PaperExchangeTelemetrySink = MonitoringDatabaseTelemetrySink()
+
+
 # ── Defaults ──────────────────────────────────────────────────────────────
 
 DEFAULT_COMMISSION = 0.001  # 0.1% (Binance spot)
@@ -162,6 +217,7 @@ class PaperExchange:
         state_dir: str | Path = STATE_DIR,
         max_price_age_seconds: float = 300.0,
         price_persist_interval: int = 1,
+        telemetry: PaperExchangeTelemetrySink | None = _DEFAULT_TELEMETRY,
     ):
         if initial_balance <= 0:
             raise ValueError("initial_balance must be positive")
@@ -181,6 +237,7 @@ class PaperExchange:
         self.initial_balance = float(initial_balance)
         self.max_price_age_seconds = float(max_price_age_seconds)
         self.price_persist_interval = int(price_persist_interval)
+        self.telemetry = telemetry
         self._state_lock = threading.RLock()
 
         # In-memory state
@@ -458,7 +515,13 @@ class PaperExchange:
         # Log to SQLite every ~20 updates (throttled)
         self._equity_snapshot_counter = getattr(self, "_equity_snapshot_counter", 0) + 1
         if self._equity_snapshot_counter % 20 == 0:
-            _log_equity_snapshot(equity, cash, pos_value, drawdown, peak)
+            self._record_equity_telemetry(
+                equity=equity,
+                cash=cash,
+                position_value=pos_value,
+                drawdown=drawdown,
+                peak_equity=peak,
+            )
 
         if self._equity_snapshot_counter % self.price_persist_interval == 0:
             self._save_state()
@@ -668,7 +731,13 @@ class PaperExchange:
                 quantity=fill_amount,
                 entry_fee=entry_fee_alloc,
                 exit_fee=fee_amount,
-                reason="signal" if is_full_close else "partial_exit",
+                reason=(
+                    "stop_loss"
+                    if order.type in {OrderType.STOP_LOSS, OrderType.STOP_LOSS_LIMIT}
+                    else "signal"
+                    if is_full_close
+                    else "partial_exit"
+                ),
             )
 
             # Reduce position
@@ -784,10 +853,42 @@ class PaperExchange:
             metadata={"sizing_method": sizing_method},
         )
         self.trades.append(trade)
-        _log_trade_to_db(trade, action="close", pnl=pnl, pnl_pct=pnl_pct, reason=reason)
+        self._record_trade_telemetry(trade)
         logger.info(
             f"Trade closed: {pos.symbol} P&L={pnl:+.2f} ({pnl_pct:+.2f}%) sizing={sizing_method}"
         )
+
+    def _record_trade_telemetry(self, trade: Trade) -> None:
+        """Best-effort telemetry must never affect order/accounting state."""
+        if self.telemetry is None:
+            return
+        try:
+            self.telemetry.record_trade(trade)
+        except Exception as exc:
+            logger.warning("Failed to record paper trade telemetry: %s", exc)
+
+    def _record_equity_telemetry(
+        self,
+        *,
+        equity: float,
+        cash: float,
+        position_value: float,
+        drawdown: float,
+        peak_equity: float,
+    ) -> None:
+        """Best-effort telemetry must never affect market-price processing."""
+        if self.telemetry is None:
+            return
+        try:
+            self.telemetry.record_equity_snapshot(
+                equity=equity,
+                cash=cash,
+                position_value=position_value,
+                drawdown=drawdown,
+                peak_equity=peak_equity,
+            )
+        except Exception as exc:
+            logger.warning("Failed to record paper equity telemetry: %s", exc)
 
     # ── Order Reconciliation ──────────────────────────────────────────────
 

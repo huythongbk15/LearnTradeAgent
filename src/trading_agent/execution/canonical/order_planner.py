@@ -97,14 +97,21 @@ class InstrumentRules:
     max_notional: float | None = None  # optional max notional
 
     def __post_init__(self) -> None:
-        if self.min_order_qty <= 0.0:
+        if not math.isfinite(self.min_order_qty) or self.min_order_qty <= 0.0:
             raise ValueError("min_order_qty must be positive")
+        if not math.isfinite(self.max_order_qty):
+            raise ValueError("max_order_qty must be finite")
         if self.max_order_qty < self.min_order_qty:
             raise ValueError("max_order_qty must be >= min_order_qty")
-        if self.qty_step <= 0.0:
+        if not math.isfinite(self.qty_step) or self.qty_step <= 0.0:
             raise ValueError("qty_step must be positive")
-        if self.min_notional <= 0.0:
+        if not math.isfinite(self.min_notional) or self.min_notional <= 0.0:
             raise ValueError("min_notional must be positive")
+        if self.max_notional is not None:
+            if not math.isfinite(self.max_notional):
+                raise ValueError("max_notional must be finite")
+            if self.max_notional < self.min_notional:
+                raise ValueError("max_notional must be >= min_notional")
 
 
 @dataclass(frozen=True)
@@ -368,70 +375,119 @@ class OrderPlanner:
         raw_quantity = abs(delta_notional) / execution_price
 
         # ── Apply exchange feasibility (P0 §3) ──────────────────────────
-        quantity = raw_quantity
+        # All constraints form one intersection on the qty_step lattice. Applying
+        # them independently can make a later adjustment invalidate an earlier
+        # one (for example min_notional can push quantity above max_notional).
         adjustment_reasons: list[AdjustmentReason] = []
 
-        # Round to qty_step — floor to avoid overspending cash
-        if self._rules.qty_step > 0:
-            stepped_qty = (
-                math.floor(quantity / self._rules.qty_step) * self._rules.qty_step
-            )
-            if abs(stepped_qty - quantity) > 1e-12:
-                adjustment_reasons.append(AdjustmentReason.QTY_STEP)
-            quantity = stepped_qty
+        def add_reason(reason: AdjustmentReason) -> None:
+            if reason not in adjustment_reasons:
+                adjustment_reasons.append(reason)
 
-        # min_order_qty
-        if quantity < self._rules.min_order_qty:
-            adjustment_reasons.append(AdjustmentReason.MIN_QTY)
-            quantity = self._rules.min_order_qty
+        step = self._rules.qty_step
+        rounding_epsilon = max(step * 1e-12, math.ulp(step) * 8)
 
-        # max_order_qty
-        if quantity > self._rules.max_order_qty:
-            adjustment_reasons.append(AdjustmentReason.MAX_QTY)
-            quantity = self._rules.max_order_qty
+        def step_units(value: float) -> float:
+            units = value / step
+            nearest = round(units)
+            ulp_tolerance = max(math.ulp(units) * 8, 1e-12)
+            if abs(units - nearest) <= ulp_tolerance:
+                return float(nearest)
+            return units
 
-        # min_notional
-        notional = quantity * execution_price
-        if notional < self._rules.min_notional:
-            min_qty_for_notional = self._rules.min_notional / execution_price
-            if min_qty_for_notional > quantity:
-                adjustment_reasons.append(AdjustmentReason.MIN_NOTIONAL)
-                quantity = min_qty_for_notional
+        def ceil_to_step(value: float) -> float:
+            return math.ceil(step_units(value)) * step
 
-        # max_notional
+        def floor_to_step(value: float) -> float:
+            return math.floor(step_units(value)) * step
+
+        min_qty_from_notional = self._rules.min_notional / execution_price
+        lower_bound = max(self._rules.min_order_qty, min_qty_from_notional)
+        min_feasible_qty = ceil_to_step(lower_bound)
+
+        upper_bound = self._rules.max_order_qty
         if self._rules.max_notional is not None:
-            if notional > self._rules.max_notional:
-                max_qty_for_notional = self._rules.max_notional / execution_price
-                if max_qty_for_notional < quantity:
-                    adjustment_reasons.append(AdjustmentReason.MAX_NOTIONAL)
-                    quantity = max_qty_for_notional
+            upper_bound = min(upper_bound, self._rules.max_notional / execution_price)
 
-        # Available cash check (for BUY) — cash feasibility intersection
+        available_inventory = math.inf
         if executable_delta > 0:
-            required_cash = quantity * execution_price
-            if required_cash > portfolio.available_cash + 1e-9:
-                adjustment_reasons.append(AdjustmentReason.INSUFFICIENT_CASH)
-                cash_feasible_qty = portfolio.available_cash / execution_price
-                # Round DOWN to qty_step, never up (mathematically safe floor)
-                if self._rules.qty_step > 0:
-                    cash_feasible_qty = (
-                        math.floor(cash_feasible_qty / self._rules.qty_step)
-                        * self._rules.qty_step
-                    )
-                # If cash cannot even cover min_order_qty after rounding down, BLOCK
-                if cash_feasible_qty < self._rules.min_order_qty - 1e-12:
-                    return OrderPlanningResult(
-                        status=OrderPlanningStatus.BLOCKED,
-                        intent=None,
-                        reason_codes=("INSUFFICIENT_CASH_FOR_MIN_ORDER",)
-                        + tuple(str(r) for r in adjustment_reasons),
-                        requested_delta=requested_delta,
-                        executable_delta=0.0,
-                    )
-                quantity = cash_feasible_qty
-                # Clamp to [min, max]
-                quantity = max(self._rules.min_order_qty, quantity)
-                quantity = min(self._rules.max_order_qty, quantity)
+            side = "buy"
+            effect = ExposureEffect.INCREASE
+            upper_bound = min(upper_bound, portfolio.available_cash / execution_price)
+        elif executable_delta < 0:
+            side = "sell"
+            effect = ExposureEffect.REDUCE
+            reserved_inventory = max(
+                existing_reservations, portfolio.existing_reservations
+            )
+            available_inventory = max(
+                0.0, portfolio.existing_quantity - reserved_inventory
+            )
+            upper_bound = min(upper_bound, available_inventory)
+            # A reduce-to-flat request is inventory-bound. Reconstructing it from
+            # exposure/notional can land one lattice step low through float error.
+            if abs(resulting_exposure) <= tolerance:
+                raw_quantity = available_inventory
+
+        else:
+            return OrderPlanningResult(
+                status=OrderPlanningStatus.NOOP,
+                intent=None,
+                reason_codes=("ZERO_DELTA_AFTER_CLAMP",),
+                requested_delta=requested_delta,
+                executable_delta=0.0,
+            )
+
+        max_feasible_qty = floor_to_step(max(0.0, upper_bound))
+
+        if min_feasible_qty > max_feasible_qty + rounding_epsilon:
+            cash_capacity = portfolio.available_cash / execution_price
+            if side == "buy" and cash_capacity < lower_bound:
+                add_reason(AdjustmentReason.INSUFFICIENT_CASH)
+                blocked_reason = "INSUFFICIENT_CASH_FOR_MIN_ORDER"
+            elif side == "sell" and available_inventory < lower_bound:
+                add_reason(AdjustmentReason.INSUFFICIENT_INVENTORY)
+                blocked_reason = "INSUFFICIENT_INVENTORY_FOR_MIN_ORDER"
+            else:
+                blocked_reason = "NO_FEASIBLE_QUANTITY"
+            return OrderPlanningResult(
+                status=OrderPlanningStatus.BLOCKED,
+                intent=None,
+                reason_codes=(blocked_reason,)
+                + tuple(str(r) for r in adjustment_reasons),
+                requested_delta=requested_delta,
+                executable_delta=0.0,
+            )
+
+        # Floor the requested quantity first so a step adjustment never
+        # overspends cash or overshoots the requested exposure.
+        quantity = floor_to_step(raw_quantity)
+        notional = quantity * execution_price
+        if abs(quantity - raw_quantity) > rounding_epsilon:
+            add_reason(AdjustmentReason.QTY_STEP)
+
+        if quantity < self._rules.min_order_qty - rounding_epsilon:
+            add_reason(AdjustmentReason.MIN_QTY)
+        if notional < self._rules.min_notional - 1e-9:
+            add_reason(AdjustmentReason.MIN_NOTIONAL)
+        if quantity < min_feasible_qty:
+            quantity = min_feasible_qty
+            notional = quantity * execution_price
+
+        if quantity > self._rules.max_order_qty + rounding_epsilon:
+            add_reason(AdjustmentReason.MAX_QTY)
+        if (
+            self._rules.max_notional is not None
+            and notional > self._rules.max_notional + 1e-9
+        ):
+            add_reason(AdjustmentReason.MAX_NOTIONAL)
+        if side == "buy" and notional > portfolio.available_cash + 1e-9:
+            add_reason(AdjustmentReason.INSUFFICIENT_CASH)
+        if side == "sell" and quantity > available_inventory + rounding_epsilon:
+            add_reason(AdjustmentReason.INSUFFICIENT_INVENTORY)
+        if quantity > max_feasible_qty:
+            quantity = max_feasible_qty
+            notional = quantity * execution_price
 
         # Final check: if quantity became zero or negative after constraints
         if quantity <= 1e-12:
@@ -444,19 +500,22 @@ class OrderPlanner:
                 executable_delta=0.0,
             )
 
-        # ── Determine side and effect ────────────────────────────────────
-        if executable_delta > 1e-12:
-            side = "buy"
-            effect = ExposureEffect.INCREASE
-        elif executable_delta < -1e-12:
-            side = "sell"
-            effect = ExposureEffect.REDUCE
-        else:
-            # Should not reach here due to NOOP check above, but defensive
+        # Defensive final invariants after every quantity adjustment.
+        notional = quantity * execution_price
+        if quantity < min_feasible_qty - rounding_epsilon:
             return OrderPlanningResult(
-                status=OrderPlanningStatus.NOOP,
+                status=OrderPlanningStatus.BLOCKED,
                 intent=None,
-                reason_codes=("ZERO_DELTA_AFTER_CLAMP",),
+                reason_codes=("NO_FEASIBLE_QUANTITY",)
+                + tuple(str(r) for r in adjustment_reasons),
+                requested_delta=requested_delta,
+                executable_delta=0.0,
+            )
+        if side == "sell" and quantity > available_inventory + rounding_epsilon:
+            return OrderPlanningResult(
+                status=OrderPlanningStatus.BLOCKED,
+                intent=None,
+                reason_codes=("SELL_QUANTITY_EXCEEDS_AVAILABLE_INVENTORY",),
                 requested_delta=requested_delta,
                 executable_delta=0.0,
             )

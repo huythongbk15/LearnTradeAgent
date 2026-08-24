@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Multi-pair 1h full system backtest — last 1 year only for fast comparison."""
+"""Compatibility entrypoint for the canonical 10-pair 1h runner (last 8,760 bars)."""
 
 from __future__ import annotations
 
@@ -13,15 +13,9 @@ from pathlib import Path
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
-PAIRS = [
-    "BTC/USDT",
-    "ETH/USDT",
-    "SOL/USDT",
-    "XRP/USDT",
-    "BNB/USDT",
-    "DOGE/USDT",
-    "AVAX/USDT",
-]
+from trading_agent.execution.canonical.instrument_registry import TEN_PAIR_1H_SYMBOLS
+
+PAIRS = list(TEN_PAIR_1H_SYMBOLS)
 
 EXCHANGE = os.getenv("EXCHANGE", "binance")
 TIMEFRAME = "1h"
@@ -102,7 +96,7 @@ def run_backtest(symbol: str) -> dict:
     return metrics
 
 
-def main() -> None:
+def _legacy_main() -> None:
     timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     results = []
     for symbol in PAIRS:
@@ -173,6 +167,14 @@ def main() -> None:
             )
 
     print(f"\n✅ Saved to {out_file}")
+
+
+def main() -> None:
+    """Delegate to the single fail-closed runner with a one-year bar window."""
+    os.environ.setdefault("BARS", "8760")
+    from scripts.multi_pair_1h_backtest import main as canonical_main
+
+    canonical_main()
 
 
 if __name__ == "__main__":

@@ -35,7 +35,11 @@ from trading_agent.execution.canonical import (
     ProtectionQuantityMode,
 )
 from trading_agent.execution.lifecycle.lifecycle import IntentStatus
-from trading_agent.execution.canonical.broker_gateway import BrokerSubmitState
+from trading_agent.execution.canonical.broker_gateway import (
+    BrokerSubmitState,
+    CancelEvidence,
+    CancelState,
+)
 from trading_agent.execution.canonical.adapters import PaperExecutionAdapter
 from trading_agent.execution.application import (
     CanonicalExecutionService,
@@ -134,6 +138,7 @@ class ExecutionEngine:
         event_store_path: str | Path | None = None,
         allow_backtest_new_exposure: bool | None = None,
         paper_price_persist_interval: int = 1,
+        disable_paper_telemetry: bool = False,
     ):
         # ── Constructor strictness: validate inputs early ─────────────
         if exchange is not None:
@@ -166,6 +171,9 @@ class ExecutionEngine:
                 )
 
         # ── Paper exchange (broker adapter) ───────────────────────────
+        paper_exchange_kwargs: dict[str, Any] = {}
+        if disable_paper_telemetry:
+            paper_exchange_kwargs["telemetry"] = None
         self.exchange = exchange or PaperExchange(
             exchange_name=self.exchange_name,
             initial_balance=(
@@ -175,6 +183,7 @@ class ExecutionEngine:
             slippage=config.slippage if slippage is None else slippage,
             state_dir=state_dir or STATE_DIR,
             price_persist_interval=paper_price_persist_interval,
+            **paper_exchange_kwargs,
         )
 
         # ── Canonical execution stack ─────────────────────────────────
@@ -204,6 +213,8 @@ class ExecutionEngine:
         self.gateway = BrokerGateway(
             adapter=paper_adapter, store=self.store, lifecycle=self.lifecycle
         )
+        self.planner: OrderPlanner | None
+        self.execution_service: CanonicalExecutionService | None
         if instrument_rules is not None:
             self.planner = OrderPlanner(
                 instrument_rules=instrument_rules,
@@ -281,17 +292,10 @@ class ExecutionEngine:
         # Sync protective orders with actual positions (handles internal closes)
         self._sync_protective_orders()
 
-        symbol = (
-            signal.details.get("symbol", "BTC/USDT") if signal.details else "BTC/USDT"
-        )
-        # For SELL signals (exits), cancel any resting protective order first
-        # to release its inventory reservation before authorizing the exit.
-        if signal_str == "SELL":
-            self._cancel_resting_protection(symbol)
-
-        symbol = (
-            signal.details.get("symbol", "BTC/USDT") if signal.details else "BTC/USDT"
-        )
+        symbol = signal.details.get("symbol") if signal.details else None
+        if not isinstance(symbol, str) or not symbol:
+            logger.warning("Cannot execute: signal is missing an explicit symbol")
+            return orders
         price_info = self._get_current_price(symbol)
         if price_info is None:
             logger.warning(f"Cannot execute: no price data for {symbol}")
@@ -348,7 +352,9 @@ class ExecutionEngine:
             observation=observation,
             portfolio=portfolio,
             price=price,
-            existing_reservations=self.lifecycle.active_sell_reservations(symbol),
+            existing_reservations=0.0
+            if signal_str == "SELL"
+            else self.lifecycle.active_sell_reservations(symbol),
         )
         if plan_result.status != OrderPlanningStatus.ORDER_REQUIRED:
             logger.info(f"Planner returned {plan_result.status.value} — no order")
@@ -363,7 +369,7 @@ class ExecutionEngine:
             ExposureEffect.INCREASE if intent.side == "buy" else ExposureEffect.REDUCE
         )
         permission_ctx = PermissionContext(
-            execution_health=ExecutionHealth.NORMAL,
+            execution_health=self.lifecycle.state.execution_health,
             exposure_effect=exposure_effect,
             risk_decision=risk_decision,
             trusted_price=TrustedPrice(
@@ -372,9 +378,11 @@ class ExecutionEngine:
                 received_at=datetime.now(UTC),
             ),
             max_price_age_seconds=60.0,
-            reconciliation_state="none",
-            protection_state="none",
-            manual_blocked=False,
+            reconciliation_state=self.lifecycle.state.reconciliation.value,
+            protection_state=self.lifecycle.state.protection_state.get(
+                symbol, ProtectionState.NONE
+            ).value,
+            manual_blocked=self.lifecycle.state.manual_blocked,
             kill_switch_active=False,
             data_trust="trusted",
             inventory_state="known",
@@ -389,6 +397,22 @@ class ExecutionEngine:
             broker_state=None,
             draft=False,
         )
+        permission = self.execution_service.evaluate_permission(permission_ctx)
+        if not permission.allowed():
+            logger.warning(
+                "Order blocked by canonical permission: %s: %s",
+                permission.reason.value,
+                permission.detail,
+            )
+            return orders
+
+        canceled_protection_intents: list[str] = []
+        if intent.side.lower() == "sell":
+            cancel_ok, canceled_protection_intents = self._cancel_resting_protection(
+                symbol
+            )
+            if not cancel_ok:
+                return orders
         try:
             submission = self.execution_service.submit_planned(
                 planning=plan_result,
@@ -398,28 +422,48 @@ class ExecutionEngine:
             )
         except ExecutionBlockedError as exc:
             logger.warning(f"Order blocked by canonical execution service: {exc}")
+            if canceled_protection_intents:
+                self._mark_protection_gap(
+                    symbol,
+                    canceled_protection_intents,
+                    "exit submission was blocked after protective cancellation",
+                )
             return orders
+        except Exception:
+            if canceled_protection_intents:
+                self._mark_protection_gap(
+                    symbol,
+                    canceled_protection_intents,
+                    "exit submission raised after protective cancellation",
+                )
+            raise
         result = submission.result
         broker_event = submission.broker_event
 
         orders.append(
             self._result_to_order(result, symbol, intent.side, intent.quantity)
         )
-        fill_received = (
-            broker_event is not None
-            and broker_event.event_type
-            in {
-                ExecutionEventType.FILL_RECEIVED,
-                ExecutionEventType.PARTIAL_FILL_RECEIVED,
-            }
-        )
-        if fill_received and intent.side.lower() == "sell":
-            self._cancel_resting_protection(symbol)
+        fill_received = broker_event is not None and broker_event.event_type in {
+            ExecutionEventType.FILL_RECEIVED,
+            ExecutionEventType.PARTIAL_FILL_RECEIVED,
+        }
+        if (
+            intent.side.lower() == "sell"
+            and canceled_protection_intents
+            and not fill_received
+        ):
+            self._mark_protection_gap(
+                symbol,
+                canceled_protection_intents,
+                "exit was not filled after protective cancellation",
+            )
         if fill_received and intent.side.lower() == "buy":
             # Use actual paper exchange position quantity for protective order
             # (accounts for fees, slippage, partial fills)
             position = self.exchange.get_position(symbol)
-            protected_quantity = position.quantity if position and position.is_active else 0.0
+            protected_quantity = (
+                position.quantity if position and position.is_active else 0.0
+            )
             if protected_quantity <= 0:
                 self.lifecycle.require_manual_intervention(
                     intent.intent_id,
@@ -474,82 +518,225 @@ class ExecutionEngine:
 
         return orders
 
-    def _cancel_resting_protection(self, symbol: str) -> None:
-        """Cancel paper stop orders and their lifecycle intents after an explicit exit."""
-        # Cancel paper exchange order
-        for order in list(self.exchange.get_open_orders(symbol)):
-            if order.side == OrderSide.SELL and order.type in {
-                OrderType.STOP_LOSS,
-                OrderType.STOP_LOSS_LIMIT,
-            }:
-                self.exchange.cancel_order(order.id)
-        # Cancel associated lifecycle protective order intent to release reservation
-        for intent_id, order_state in self.lifecycle.state.orders.items():
-            if not intent_id.startswith("prot_") or not intent_id.endswith("_submit"):
-                continue
-            if order_state.symbol != symbol:
-                continue
-            if order_state.status not in {IntentStatus.AUTHORIZED, IntentStatus.ACKNOWLEDGED}:
-                continue
-            # Cancel the protective order intent
-            self._cancel_protective_intent(intent_id, "explicit_exit_signal")
+    @staticmethod
+    def _is_protective_intent(intent_id: str) -> bool:
+        return intent_id.startswith("prot_") and intent_id.endswith("_submit")
 
-    def _sync_protective_orders(self) -> None:
-        """Sync protective orders with actual paper exchange positions.
-        
-        The paper exchange may close positions internally (stop_loss/take_profit)
-        without notifying the lifecycle. This method detects such closures and
-        cancels the associated protective order intents to release reservations.
-        """
-        # Get all positions from paper exchange
-        current_positions = {}
-        for pos in self.exchange.get_all_positions():
-            if pos.is_active and pos.quantity > 0:
-                current_positions[pos.symbol] = pos.quantity
-        
-        # Check lifecycle orders for protective orders
-        for intent_id, order_state in self.lifecycle.state.orders.items():
-            if not intent_id.startswith("prot_") or not intent_id.endswith("_submit"):
-                continue
-            if order_state.status not in {IntentStatus.AUTHORIZED, IntentStatus.ACKNOWLEDGED}:
-                continue
-            symbol = order_state.symbol
-            protected_qty = order_state.size  # the quantity the protective order tries to sell
-            
-            # If position is closed or reduced, cancel the protective order
-            current_qty = current_positions.get(symbol, 0.0)
-            if current_qty <= 0:
-                # Position fully closed - cancel protective order
-                logger.info(f"Position {symbol} closed, cancelling protective order {intent_id}")
-                self._cancel_protective_intent(intent_id, "position_closed_externally")
-            elif current_qty < protected_qty:
-                # Position reduced - adjust protective order quantity
-                # For now, cancel and let new one be created on next fill
-                logger.warning(
-                    f"Position {symbol} reduced from {protected_qty} to {current_qty}, "
-                    f"cancelling protective order {intent_id}"
-                )
-                self._cancel_protective_intent(intent_id, "position_reduced_externally")
+    def _protective_intents(self, symbol: str | None = None):
+        return [
+            (intent_id, order_state)
+            for intent_id, order_state in list(self.lifecycle.state.orders.items())
+            if self._is_protective_intent(intent_id)
+            and (symbol is None or order_state.symbol == symbol)
+            and order_state.remaining_reserved_quantity > 1e-12
+        ]
 
-    def _cancel_protective_intent(self, intent_id: str, reason: str) -> None:
-        """Cancel a protective order intent and release its reservation."""
+    def _record_protective_fill(self, intent_id: str, broker_order_id: str) -> bool:
+        """Record an asynchronous paper stop fill in the canonical lifecycle."""
         order_state = self.lifecycle.state.orders.get(intent_id)
         if order_state is None:
-            return
-        # Emit CANCEL_CONFIRMED event to release store reservation
-        # CANCEL_CONFIRMED requires payload['order_id'] (broker/exchange order ID)
-        # and payload['state'] = 'CANCELED' (uppercase, per CancelState enum) to trigger reservation release
-        order_id = order_state.exchange_order_id or order_state.broker_order_id
-        payload = {"reason": reason, "state": "CANCELED"}
-        if order_id:
-            payload["order_id"] = order_id
-        self.lifecycle._emit(
-            ExecutionEventType.CANCEL_CONFIRMED,
-            intent_id,
-            payload,
+            return False
+        try:
+            fact = self.gateway.fetch_order(
+                broker_order_id,
+                correlation_id=f"reconcile-{intent_id}",
+            )
+        except Exception as exc:
+            logger.error("Failed to fetch protective order %s: %s", intent_id, exc)
+            return False
+        status = str(fact.get("status", "")).lower()
+        filled_total = float(fact.get("filled_quantity", 0.0) or 0.0)
+        fill_delta = min(
+            order_state.remaining,
+            max(0.0, filled_total - order_state.filled_size),
         )
-        # Cancel paper exchange order
-        self._cancel_resting_protection(order_state.symbol)
+        if fill_delta <= 1e-12:
+            return status != "filled" or order_state.remaining <= 1e-12
+        raw = fact.get("raw_response") or {}
+        fill_price = float(
+            raw.get("avg_fill_price")
+            or fact.get("price")
+            or self.exchange._last_price_cache.get(order_state.symbol, 0.0)
+            or 0.0
+        )
+        if not math.isfinite(fill_price) or fill_price <= 0:
+            logger.error("Protective fill %s has no valid fill price", intent_id)
+            return False
+        try:
+            self.lifecycle.receive_fill(
+                intent_id,
+                size=fill_delta,
+                price=fill_price,
+            )
+        except Exception as exc:
+            logger.error("Failed to record protective fill %s: %s", intent_id, exc)
+            return False
+        updated = self.lifecycle.state.orders[intent_id]
+        return status != "filled" or updated.remaining <= 1e-12
+
+    def _mark_protection_gap(
+        self,
+        symbol: str,
+        intent_ids: list[str],
+        reason: str,
+    ) -> None:
+        position = self.exchange.get_position(symbol)
+        if not position or not position.is_active or position.quantity <= 0:
+            return
+        self.lifecycle.state.execution_health = ExecutionHealth.PROTECTION_GAP
+        for intent_id in intent_ids:
+            self.lifecycle.require_manual_intervention(intent_id, reason=reason)
+
+    def _cancel_resting_protection(self, symbol: str) -> tuple[bool, list[str]]:
+        """Cancel protective orders using typed broker evidence."""
+        self._sync_protective_orders(symbol)
+        canceled_intents: list[str] = []
+        for intent_id, order_state in self._protective_intents(symbol):
+            broker_order_id = (
+                order_state.exchange_order_id or order_state.broker_order_id
+            )
+            if not broker_order_id:
+                self.lifecycle.require_manual_intervention(
+                    intent_id,
+                    reason="protective order has no broker identity during cancel",
+                )
+                self._mark_protection_gap(
+                    symbol,
+                    canceled_intents,
+                    "protective cancellation lacked broker identity",
+                )
+                return False, canceled_intents
+            try:
+                if order_state.status != IntentStatus.CANCEL_REQUESTED:
+                    self.lifecycle.request_cancel(
+                        intent_id,
+                        reason="explicit_exit_signal",
+                    )
+                cancel_result = self.gateway.cancel(
+                    broker_order_id,
+                    correlation_id=f"cancel-{intent_id}",
+                    symbol=symbol,
+                )
+            except Exception as exc:
+                self.lifecycle.require_manual_intervention(
+                    intent_id,
+                    reason=f"protective cancellation failed: {exc}",
+                )
+                self._mark_protection_gap(
+                    symbol,
+                    canceled_intents,
+                    "protective cancellation raised",
+                )
+                return False, canceled_intents
+            evidence = cancel_result.evidence
+            if evidence is None:
+                self.lifecycle.require_manual_intervention(
+                    intent_id,
+                    reason=cancel_result.error
+                    or "protective cancel returned no broker evidence",
+                )
+                self._mark_protection_gap(
+                    symbol,
+                    canceled_intents,
+                    "protective cancellation was unknown",
+                )
+                return False, canceled_intents
+            if evidence.state == CancelState.FILLED:
+                if not self._record_protective_fill(intent_id, broker_order_id):
+                    self.lifecycle.require_manual_intervention(
+                        intent_id,
+                        reason="filled-during-cancel lacked complete fill evidence",
+                    )
+                    return False, canceled_intents
+                continue
+            if evidence.state in {
+                CancelState.CANCELED,
+                CancelState.REJECTED,
+                CancelState.EXPIRED,
+            }:
+                self.lifecycle.confirm_cancel(intent_id, evidence)
+                canceled_intents.append(intent_id)
+                continue
+            self.lifecycle.require_manual_intervention(
+                intent_id,
+                reason=f"protective cancel is non-terminal: {evidence.state.value}",
+            )
+            self._mark_protection_gap(
+                symbol,
+                canceled_intents,
+                "protective cancel remained non-terminal",
+            )
+            return False, canceled_intents
+        return True, canceled_intents
+
+    def _sync_protective_orders(self, symbol: str | None = None) -> None:
+        """Reconcile asynchronous protective broker facts into lifecycle state."""
+        terminal_cancel_states = {
+            "canceled": CancelState.CANCELED,
+            "cancelled": CancelState.CANCELED,
+            "rejected": CancelState.REJECTED,
+            "expired": CancelState.EXPIRED,
+        }
+        for intent_id, order_state in self._protective_intents(symbol):
+            broker_order_id = (
+                order_state.exchange_order_id or order_state.broker_order_id
+            )
+            if not broker_order_id:
+                if order_state.status != IntentStatus.MANUAL:
+                    self.lifecycle.require_manual_intervention(
+                        intent_id,
+                        reason="protective order cannot be reconciled without broker identity",
+                    )
+                continue
+            try:
+                fact = self.gateway.fetch_order(
+                    broker_order_id,
+                    correlation_id=f"reconcile-{intent_id}",
+                )
+            except Exception as exc:
+                if order_state.status != IntentStatus.MANUAL:
+                    self.lifecycle.require_manual_intervention(
+                        intent_id,
+                        reason=f"protective broker lookup failed: {exc}",
+                    )
+                continue
+            status = str(fact.get("status", "")).lower()
+            if status in {"partially_filled", "filled"}:
+                if not self._record_protective_fill(intent_id, broker_order_id):
+                    self.lifecycle.require_manual_intervention(
+                        intent_id,
+                        reason="protective fill reconciliation lacked valid evidence",
+                    )
+                continue
+            cancel_state = terminal_cancel_states.get(status)
+            if cancel_state is None:
+                if (
+                    status not in {"pending", "open"}
+                    and order_state.status != IntentStatus.MANUAL
+                ):
+                    self.lifecycle.require_manual_intervention(
+                        intent_id,
+                        reason=f"unrecognized protective broker status: {status or 'missing'}",
+                    )
+                continue
+            if order_state.status == IntentStatus.MANUAL:
+                continue
+            if order_state.status != IntentStatus.CANCEL_REQUESTED:
+                self.lifecycle.request_cancel(
+                    intent_id,
+                    reason="broker_terminal_reconciliation",
+                )
+            self.lifecycle.confirm_cancel(
+                intent_id,
+                CancelEvidence(
+                    broker_order_id=broker_order_id,
+                    state=cancel_state,
+                    venue=str(fact.get("venue") or "paper"),
+                    confirmed_at=datetime.now(UTC).isoformat(),
+                    source="RECONCILIATION",
+                    raw_response=dict(fact.get("raw_response") or {}),
+                ),
+            )
 
     def _graceful_shutdown(self) -> None:
         """Called on SIGTERM/SIGINT to close positions and persist state."""
@@ -564,6 +751,7 @@ class ExecutionEngine:
     def update_prices(self, prices: dict[str, float]):
         """Update price data for internal tracking."""
         self.exchange.update_prices(prices)
+        self._sync_protective_orders()
 
     # ── Position management ────────────────────────────────────────────
 
