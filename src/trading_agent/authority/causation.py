@@ -10,6 +10,7 @@ Design goals:
 
 from __future__ import annotations
 
+import enum
 import hashlib
 import json
 import uuid
@@ -76,6 +77,8 @@ def _canonicalize_inputs(inputs: dict[str, Any]) -> dict[str, Any]:
             return [_convert(item) for item in v]
         if isinstance(v, (datetime, uuid.UUID)):
             return str(v)
+        if isinstance(v, enum.Enum):
+            return v.value
         if hasattr(v, "model_dump"):  # Pydantic models
             return _convert(v.model_dump())
         if hasattr(v, "__dict__"):  # dataclasses

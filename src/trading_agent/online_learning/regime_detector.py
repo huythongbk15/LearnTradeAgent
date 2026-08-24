@@ -317,6 +317,71 @@ class RegimeDetector:
         # Default: sideways
         return MarketRegime.SIDEWAYS, 0.5
 
+    def get_regime_probabilities(self, df: pl.DataFrame) -> dict[MarketRegime, float]:
+        """Get probability distribution over all regimes."""
+        features = self.compute_features(df)
+        adx = features.adx
+        sma_slope = features.sma_slope
+        atr_pct = features.atr_pct
+        hurst = features.hurst_exponent
+
+        ADX_TREND_THRESHOLD = 25.0
+        ADX_STRONG_TREND = 40.0
+        VOLATILITY_HIGH = 0.03
+        HURST_TRENDING = 0.6
+        HURST_MEAN_REVERT = 0.4
+
+        # Compute raw scores for each regime
+        scores = {regime: 0.0 for regime in MarketRegime}
+
+        # Volatile
+        if atr_pct > VOLATILITY_HIGH:
+            scores[MarketRegime.VOLATILE] = min(
+                1.0, atr_pct / VOLATILITY_HIGH * 0.5 + 0.4
+            )
+        else:
+            scores[MarketRegime.VOLATILE] = 0.1
+
+        # Trending up
+        if adx > ADX_STRONG_TREND and sma_slope > 0:
+            scores[MarketRegime.TRENDING_UP] = min(1.0, adx / 60.0)
+        elif adx > ADX_TREND_THRESHOLD and sma_slope > 0.001:
+            scores[MarketRegime.TRENDING_UP] = min(0.8, adx / 40.0)
+        elif hurst > HURST_TRENDING and sma_slope >= 0:
+            scores[MarketRegime.TRENDING_UP] = 0.6
+        else:
+            scores[MarketRegime.TRENDING_UP] = 0.1
+
+        # Trending down
+        if adx > ADX_STRONG_TREND and sma_slope < 0:
+            scores[MarketRegime.TRENDING_DOWN] = min(1.0, adx / 60.0)
+        elif adx > ADX_TREND_THRESHOLD and sma_slope < -0.001:
+            scores[MarketRegime.TRENDING_DOWN] = min(0.8, adx / 40.0)
+        elif hurst > HURST_TRENDING and sma_slope < 0:
+            scores[MarketRegime.TRENDING_DOWN] = 0.6
+        else:
+            scores[MarketRegime.TRENDING_DOWN] = 0.1
+
+        # Sideways
+        if hurst < HURST_MEAN_REVERT:
+            scores[MarketRegime.SIDEWAYS] = 0.6
+        elif adx <= ADX_TREND_THRESHOLD and atr_pct <= VOLATILITY_HIGH:
+            scores[MarketRegime.SIDEWAYS] = 0.5
+        else:
+            scores[MarketRegime.SIDEWAYS] = 0.2
+
+        # Unknown gets small score
+        scores[MarketRegime.UNKNOWN] = 0.05
+
+        # Normalize to probabilities
+        total = sum(scores.values())
+        if total > 0:
+            probs = {k: v / total for k, v in scores.items()}
+        else:
+            probs = {k: 0.25 for k in MarketRegime}
+
+        return probs
+
     def get_recommended_params(self, regime: MarketRegime, strategy: str) -> dict:
         """Get recommended parameters for regime and strategy."""
         return self.REGIME_PARAMS.get(

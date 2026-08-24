@@ -1,5 +1,5 @@
 """
-DecisionAuthority — Converts agent signals / research artifacts into UnifiedRiskDecision + TargetExposure.
+DecisionAuthority — Converts StrategyOutput (from promoted strategy) into UnifiedRiskDecision + TargetExposure.
 
 This is the FIRST authority in the chain. It is fail-closed:
 - No signal → HOLD (no exposure)
@@ -13,14 +13,13 @@ The authority_chain field on UnifiedRiskDecision is populated here and propagate
 from __future__ import annotations
 
 import logging
-import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
-from trading_agent.agents.base import AgentMessage
 from trading_agent.authority.causation import CausationChain, new_chain
 from trading_agent.authority.config import AuthorityConfig, get_authority_config
+from trading_agent.authority.resolver import StrategyOutput
 from trading_agent.execution.canonical.risk_decision import (
     EvidenceState,
     RiskLevel,
@@ -46,8 +45,6 @@ class TargetExposure:
                 raise ValueError(f"{name} must be in [0, 1], got {val}")
 
 
-from trading_agent.research.artifact import StrategyArtifact
-
 logger = logging.getLogger(__name__)
 
 
@@ -56,15 +53,15 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True, slots=True)
 class DecisionInput:
-    """Input to DecisionAuthority — one of these must be provided."""
+    """Input to DecisionAuthority — StrategyOutput from promoted strategy runtime."""
 
-    # Option 1: Agent ensemble signal (legacy path)
-    agent_message: AgentMessage | None = None
+    # StrategyOutput from RuntimeStrategyResolver (promoted strategy path)
+    strategy_output: StrategyOutput | None = None
 
-    # Option 2: Promoted strategy artifact (research path)
-    strategy_artifact: StrategyArtifact | None = None
+    # Legacy: AgentMessage (will be converted to StrategyOutput)
+    agent_message: Any | None = None
 
-    # Option 3: Direct risk decision (bypass, for testing)
+    # Option: Direct risk decision (bypass, for testing)
     risk_decision: UnifiedRiskDecision | None = None
 
     # Context (required for all paths)
@@ -84,12 +81,12 @@ class DecisionInput:
     def __post_init__(self) -> None:
         provided = sum(
             1
-            for f in (self.agent_message, self.strategy_artifact, self.risk_decision)
+            for f in (self.strategy_output, self.agent_message, self.risk_decision)
             if f is not None
         )
         if provided != 1:
             raise ValueError(
-                "Exactly one of agent_message, strategy_artifact, risk_decision must be provided"
+                "Exactly one of strategy_output, agent_message, risk_decision must be provided"
             )
         if not self.symbol:
             raise ValueError("symbol is required")
@@ -114,10 +111,10 @@ class DecisionOutput:
 
 class DecisionAuthority:
     """
-    Authority 1: Signal → UnifiedRiskDecision + TargetExposure.
+    Authority 1: StrategyOutput → UnifiedRiskDecision + TargetExposure.
 
     Responsibilities:
-    1. Validate input (agent message, artifact, or direct decision)
+    1. Validate StrategyOutput from promoted strategy runtime
     2. Apply risk profile scaling (from AuthorityConfig)
     3. Enforce exposure caps (from AuthorityConfig)
     4. Produce UnifiedRiskDecision with authority_chain
@@ -127,7 +124,6 @@ class DecisionAuthority:
 
     def __init__(self, config: AuthorityConfig | None = None):
         self.config = config or get_authority_config()
-        self._chain: CausationChain | None = None
 
     def decide(self, input_: DecisionInput) -> DecisionOutput:
         """
@@ -149,12 +145,12 @@ class DecisionAuthority:
 
         try:
             # Route to appropriate handler
-            if input_.agent_message is not None:
-                risk_decision, target = self._from_agent_message(input_, chain)
-            elif input_.strategy_artifact is not None:
-                risk_decision, target = self._from_strategy_artifact(input_, chain)
+            if input_.strategy_output is not None:
+                risk_decision, target, chain = self._from_strategy_output(input_, chain)
+            elif input_.agent_message is not None:
+                risk_decision, target, chain = self._from_agent_message(input_, chain)
             else:  # input_.risk_decision is not None
-                risk_decision, target = self._from_direct_decision(input_, chain)
+                risk_decision, target, chain = self._from_direct_decision(input_, chain)
 
             # Final validation & enforcement
             risk_decision, target = self._enforce_limits(
@@ -172,109 +168,58 @@ class DecisionAuthority:
             return self._fail_closed(input_, chain, str(e))
 
     def _input_type(self, input_: DecisionInput) -> str:
+        if input_.strategy_output:
+            return "strategy_output"
         if input_.agent_message:
             return "agent_message"
-        if input_.strategy_artifact:
-            return "strategy_artifact"
         return "risk_decision"
 
-    # ── Handler: AgentMessage path (legacy multi-agent) ────────────────
+    # ── Handler: StrategyOutput path (promoted strategy runtime) ────────
 
-    def _from_agent_message(
+    def _from_strategy_output(
         self, input_: DecisionInput, chain: CausationChain
-    ) -> tuple[UnifiedRiskDecision, TargetExposure]:
-        msg = input_.agent_message
+    ) -> tuple[UnifiedRiskDecision, TargetExposure, CausationChain]:
+        output = input_.strategy_output
 
-        # Extract risk decision from agent message details
-        details = msg.details or {}
-        risk_level = details.get("risk_level", "MEDIUM")
-        target_exposure_pct = details.get("target_exposure_pct", 0.0)
-        max_new_exposure_pct = details.get("max_new_exposure_pct", 0.0)
-        reduce_only = details.get("reduce_only", False)
-        calibration_state = details.get("calibration_state", "MISSING")
-        calibration_ece = details.get("calibration_ece", 1.0)
-        ood_state = details.get("ood_state", "UNKNOWN")
-        ood_score = details.get("ood_score", 1.0)
-        regime_state = details.get("regime_state", "UNKNOWN")
-        regime_entropy = details.get("regime_entropy", 1.0)
+        # Extract signal and confidence from StrategyOutput
+        signal = output.signal
 
-        # Build UnifiedRiskDecision from agent ensemble output
-        risk_decision = UnifiedRiskDecision(
-            decision_id=f"agent_{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:8]}",
-            forecast_fingerprint="",
-            model_artifact_id="",
-            requested_target_exposure=target_exposure_pct,
-            allowed_target_exposure=min(
-                target_exposure_pct, self.config.exposure.max_single_strategy_exposure
-            ),
-            max_new_exposure=min(
-                max_new_exposure_pct, self.config.exposure.max_single_strategy_exposure
-            ),
-            reduce_only=reduce_only,
-            risk_level=RiskLevel(risk_level.upper()),
-            reason_codes=(),
-            calibration_state=EvidenceState(calibration_state),
-            calibration_artifact_id=None,
-            calibration_ece=calibration_ece,
-            ood_state=EvidenceState(ood_state),
-            ood_score=ood_score,
-            regime_state=EvidenceState(regime_state),
-            regime_entropy=regime_entropy,
-            interval_width=1.0,
-            created_at=datetime.now(UTC),
-            metadata={},
-            warnings=(),
-        )
+        # Handle polars Series (from generate_signals)
+        if hasattr(signal, "to_numpy"):
+            values = signal.to_numpy()
+            last_val = float(values[-1]) if len(values) > 0 else 0.0
+            signal_str = "BUY" if last_val > 0 else ("SELL" if last_val < 0 else "HOLD")
+            reduce_only = last_val < 0
+        elif hasattr(signal, "upper"):
+            signal_str = signal.upper()
+            reduce_only = getattr(signal, "reduce_only", False)
+        else:
+            signal_str = str(signal).upper() if signal else "HOLD"
+            reduce_only = False
 
-        # Determine target exposure
-        target = self._compute_target_exposure(
-            signal=msg.signal,
-            risk_decision=risk_decision,
-            current_exposure=input_.current_exposure,
-            equity=input_.equity,
-            available_cash=input_.available_cash,
-        )
+        confidence = output.confidence
+        target_exposure_pct = output.target_exposure_pct
 
-        # Append to causation chain
-        chain = chain.append(
-            authority="DecisionAuthority.agent_ensemble",
-            inputs={
-                "signal": msg.signal,
-                "confidence": msg.confidence,
-                "risk_level": risk_level,
-                "details": details,
-            },
-            outputs={
-                "allowed_target_exposure": risk_decision.allowed_target_exposure,
-                "max_new_exposure": risk_decision.max_new_exposure,
-                "reduce_only": risk_decision.reduce_only,
-            },
-        )
-
-        return risk_decision, target
-
-    # ── Handler: StrategyArtifact path (research-promoted) ──────────────
-
-    def _from_strategy_artifact(
-        self, input_: DecisionInput, chain: CausationChain
-    ) -> tuple[UnifiedRiskDecision, TargetExposure]:
-        artifact = input_.strategy_artifact
-
-        # Load strategy parameters from artifact metadata
-        params = artifact.metadata.get("parameters", {})
-        target_exposure_pct = params.get("target_exposure_pct", 0.10)
-        max_new_exposure_pct = params.get("max_new_exposure_pct", 0.10)
-        reduce_only = params.get("reduce_only", False)
-        confidence = params.get("confidence", 0.5)
+        # Evidence states from artifact metadata (set during promotion)
+        metadata = output.metadata
+        calibration_state = metadata.get("calibration_state", "UNKNOWN")
+        calibration_ece = metadata.get("calibration_ece", 1.0)
+        ood_state = metadata.get("ood_state", "UNKNOWN")
+        ood_score = metadata.get("ood_score", 1.0)
+        regime_state = metadata.get("regime_state", "UNKNOWN")
+        regime_entropy = metadata.get("regime_entropy", 1.0)
 
         # Apply risk profile scaling
         scaled_target = self._apply_risk_scaling(target_exposure_pct, input_)
-        scaled_max_new = self._apply_risk_scaling(max_new_exposure_pct, input_)
+        scaled_max_new = self._apply_risk_scaling(
+            target_exposure_pct, input_
+        )  # Same base
 
+        # Build UnifiedRiskDecision from StrategyOutput
         risk_decision = UnifiedRiskDecision(
-            decision_id=f"artifact_{artifact.artifact_id[:16]}",
-            forecast_fingerprint=artifact.code_sha[:32],
-            model_artifact_id=artifact.artifact_id,
+            decision_id=f"strategy_{output.artifact_id[:16]}",
+            forecast_fingerprint=metadata.get("forecast_fingerprint", ""),
+            model_artifact_id=output.artifact_id,
             requested_target_exposure=target_exposure_pct,
             allowed_target_exposure=min(
                 scaled_target, self.config.exposure.max_single_strategy_exposure
@@ -285,38 +230,43 @@ class DecisionAuthority:
             reduce_only=reduce_only,
             risk_level=RiskLevel.MEDIUM,
             reason_codes=(),
-            calibration_state=EvidenceState(params.get("calibration_state", "UNKNOWN")),
-            calibration_artifact_id=params.get("calibration_artifact_id"),
-            calibration_ece=params.get("calibration_ece", 1.0),
-            ood_state=EvidenceState(params.get("ood_state", "UNKNOWN")),
-            ood_score=params.get("ood_score", 1.0),
-            regime_state=EvidenceState(params.get("regime_state", "UNKNOWN")),
-            regime_entropy=params.get("regime_entropy", 1.0),
-            interval_width=params.get("interval_width", 1.0),
+            calibration_state=EvidenceState(calibration_state),
+            calibration_artifact_id=metadata.get("calibration_artifact_id"),
+            calibration_ece=calibration_ece,
+            ood_state=EvidenceState(ood_state),
+            ood_score=ood_score,
+            regime_state=EvidenceState(regime_state),
+            regime_entropy=regime_entropy,
+            interval_width=metadata.get("interval_width", 1.0),
             created_at=datetime.now(UTC),
             metadata={
-                "artifact_id": artifact.artifact_id,
-                "strategy_name": artifact.strategy_name,
+                "artifact_id": output.artifact_id,
+                "strategy_name": output.strategy_name,
+                "symbol": output.symbol,
+                "timeframe": output.timeframe,
             },
             warnings=(),
         )
 
+        # Compute target exposure
         target = self._compute_target_exposure(
-            signal="BUY" if scaled_target > 0 else "HOLD",
+            signal=signal_str,
             risk_decision=risk_decision,
             current_exposure=input_.current_exposure,
             equity=input_.equity,
             available_cash=input_.available_cash,
         )
 
+        # Append to causation chain
         chain = chain.append(
             authority="DecisionAuthority.promoted_strategy",
             inputs={
-                "artifact_id": artifact.artifact_id,
-                "strategy_name": artifact.strategy_name,
-                "code_sha": artifact.code_sha[:16],
-                "parameter_hash": artifact.parameter_hash[:16],
-                "params": params,
+                "artifact_id": output.artifact_id,
+                "strategy_name": output.strategy_name,
+                "signal": signal_str,
+                "confidence": confidence,
+                "target_exposure_pct": target_exposure_pct,
+                "reduce_only": reduce_only,
             },
             outputs={
                 "allowed_target_exposure": risk_decision.allowed_target_exposure,
@@ -325,13 +275,117 @@ class DecisionAuthority:
             },
         )
 
-        return risk_decision, target
+        return risk_decision, target, chain
+
+    # ── Handler: AgentMessage (legacy path) ────────────────────────────
+
+    def _from_agent_message(
+        self, input_: DecisionInput, chain: CausationChain
+    ) -> tuple[UnifiedRiskDecision, TargetExposure, CausationChain]:
+        """Convert legacy AgentMessage to StrategyOutput and process."""
+        msg = input_.agent_message
+
+        # Extract signal details from AgentMessage
+        signal_str = getattr(msg, "signal", "HOLD").upper()
+        confidence = getattr(msg, "confidence", 0.5)
+        details = getattr(msg, "details", {}) or {}
+        target_exposure_pct = details.get("target_exposure_pct", 0.0)
+        reduce_only = details.get("reduce_only", False)
+
+        # Build StrategyOutput from AgentMessage
+        strategy_output = StrategyOutput(
+            artifact_id="legacy_agent_message",
+            strategy_name="legacy_ensemble",
+            symbol=input_.symbol,
+            timeframe=input_.timeframe,
+            signal=msg,
+            confidence=confidence,
+            target_exposure_pct=target_exposure_pct,
+            metadata={
+                "source": "legacy_agent_message",
+                "signal": signal_str,
+                "details": details,
+            },
+            generated_at=datetime.now(UTC),
+        )
+
+        # Process as StrategyOutput
+        output = strategy_output
+        metadata = output.metadata
+        calibration_state = metadata.get("calibration_state", "UNKNOWN")
+        calibration_ece = metadata.get("calibration_ece", 1.0)
+        ood_state = metadata.get("ood_state", "UNKNOWN")
+        ood_score = metadata.get("ood_score", 1.0)
+        regime_state = metadata.get("regime_state", "UNKNOWN")
+        regime_entropy = metadata.get("regime_entropy", 1.0)
+
+        # Apply risk profile scaling
+        scaled_target = self._apply_risk_scaling(target_exposure_pct, input_)
+        scaled_max_new = self._apply_risk_scaling(target_exposure_pct, input_)
+
+        # Build UnifiedRiskDecision from StrategyOutput
+        risk_decision = UnifiedRiskDecision(
+            decision_id=f"legacy_{input_.symbol.replace('/', '_')}",
+            forecast_fingerprint="",
+            model_artifact_id="legacy_agent_message",
+            requested_target_exposure=target_exposure_pct,
+            allowed_target_exposure=min(
+                scaled_target, self.config.exposure.max_single_strategy_exposure
+            ),
+            max_new_exposure=min(
+                scaled_max_new, self.config.exposure.max_single_strategy_exposure
+            ),
+            reduce_only=reduce_only,
+            risk_level=RiskLevel.MEDIUM,
+            reason_codes=(),
+            calibration_state=EvidenceState.KNOWN,  # Legacy path: no research evidence yet
+            calibration_artifact_id=None,
+            calibration_ece=0.0,
+            ood_state=EvidenceState.KNOWN,
+            ood_score=0.0,
+            regime_state=EvidenceState.KNOWN,
+            regime_entropy=0.0,
+            interval_width=1.0,
+            created_at=datetime.now(UTC),
+            metadata={
+                "artifact_id": "legacy_agent_message",
+                "strategy_name": "legacy_ensemble",
+                "symbol": input_.symbol,
+                "timeframe": input_.timeframe,
+            },
+            warnings=(),
+        )
+
+        target = self._compute_target_exposure(
+            signal=signal_str,
+            risk_decision=risk_decision,
+            current_exposure=input_.current_exposure,
+            equity=input_.equity,
+            available_cash=input_.available_cash,
+        )
+
+        chain = chain.append(
+            authority="DecisionAuthority.legacy_agent_message",
+            inputs={
+                "signal": signal_str,
+                "confidence": confidence,
+                "target_exposure_pct": target_exposure_pct,
+                "reduce_only": reduce_only,
+            },
+            outputs={
+                "allowed_target_exposure": risk_decision.allowed_target_exposure,
+                "max_new_exposure": risk_decision.max_new_exposure,
+                "reduce_only": risk_decision.reduce_only,
+            },
+        )
+
+        return risk_decision, target, chain
 
     # ── Handler: Direct UnifiedRiskDecision (testing/bypass) ────────────
 
     def _from_direct_decision(
         self, input_: DecisionInput, chain: CausationChain
-    ) -> tuple[UnifiedRiskDecision, TargetExposure]:
+    ) -> tuple[UnifiedRiskDecision, TargetExposure, CausationChain]:
         risk_decision = input_.risk_decision
 
         # Apply config caps
@@ -367,12 +421,16 @@ class DecisionAuthority:
             warnings=risk_decision.warnings,
         )
 
-        target = self._compute_target_exposure(
-            signal="BUY"
+        signal_str = (
+            "BUY"
             if capped_target > input_.current_exposure
             else "SELL"
             if capped_target < input_.current_exposure
-            else "HOLD",
+            else "HOLD"
+        )
+
+        target = self._compute_target_exposure(
+            signal=signal_str,
             risk_decision=risk_decision,
             current_exposure=input_.current_exposure,
             equity=input_.equity,
@@ -392,15 +450,9 @@ class DecisionAuthority:
             },
         )
 
-        return risk_decision, target
+        return risk_decision, target, chain
 
     # ── Core logic ──────────────────────────────────────────────────────
-
-    def _signal_to_score(self, signal: str, confidence: float) -> float:
-        """Convert agent signal to calibrated score [-1, 1]."""
-        signal_map = {"BUY": 1.0, "SELL": -1.0, "HOLD": 0.0}
-        base = signal_map.get(signal.upper(), 0.0)
-        return base * confidence
 
     def _apply_risk_scaling(self, base_exposure: float, input_: DecisionInput) -> float:
         """Apply risk profile and volatility scaling."""
@@ -447,7 +499,7 @@ class DecisionAuthority:
             target_exposure_pct=target_pct,
             max_new_exposure_pct=max_new_pct,
             reduce_only=risk_decision.reduce_only,
-            confidence=0.5,  # Not directly available in UnifiedRiskDecision
+            confidence=0.5,
             authority_chain=(),  # Filled by caller
         )
 
@@ -461,11 +513,6 @@ class DecisionAuthority:
         """Final enforcement of all limits."""
 
         warnings = []
-
-        # Portfolio-level exposure cap
-        max_portfolio = self.config.exposure.max_portfolio_exposure
-        # Note: In single-pair mode, this equals single-strategy cap
-        # Multi-pair enforcement happens in PortfolioAllocator (Milestone C)
 
         # Symbol-level cap
         target_exposure = min(

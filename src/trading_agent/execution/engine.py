@@ -72,7 +72,11 @@ from trading_agent.authority import (
     TargetExposure,
     get_authority_config,
     AuthorityConfig,
+    PortfolioAllocator,
+    AllocationRequest,
 )
+from trading_agent.authority.causation import CausationChain
+from trading_agent.config.loader import config as legacy_config
 from trading_agent.execution.canonical.risk_decision import (
     UnifiedRiskDecision,
 )
@@ -157,7 +161,7 @@ class ExecutionEngine:
                 exchange, "exchange_name", "injected"
             )
         else:
-            resolved_exchange_name = exchange_name or config.default_exchange
+            resolved_exchange_name = exchange_name or legacy_config.default_exchange
         if not isinstance(resolved_exchange_name, str) or not resolved_exchange_name:
             raise ValueError(
                 f"exchange_name must be a non-empty string, got {exchange_name!r}"
@@ -189,8 +193,8 @@ class ExecutionEngine:
             initial_balance=(
                 config.initial_capital if initial_capital is None else initial_capital
             ),
-            commission=config.commission if commission is None else commission,
-            slippage=config.slippage if slippage is None else slippage,
+            commission=legacy_config.commission if commission is None else commission,
+            slippage=legacy_config.slippage if slippage is None else slippage,
             state_dir=state_dir or STATE_DIR,
             price_persist_interval=paper_price_persist_interval,
             **paper_exchange_kwargs,
@@ -243,6 +247,7 @@ class ExecutionEngine:
         self.authority_config = authority_config or get_authority_config()
         self.decision_authority = DecisionAuthority(config=self.authority_config)
         self.exposure_authority = ExposureAuthority(config=self.authority_config)
+        self.portfolio_allocator = PortfolioAllocator(config=self.authority_config)
         self.execution_authority = (
             ExecutionAuthority(
                 lifecycle=self.lifecycle,
@@ -398,8 +403,8 @@ class ExecutionEngine:
             authority_chain=decision_output.causation_chain.links,
         )
 
-        # ── Authority Chain: ExposureAuthority ──────────────────────────
-        # Build portfolio exposure context
+        # ── Authority Chain: PortfolioAllocator (single-pair N=1) ───────
+        # Even for single pair, go through allocator for consistent flow
         total_portfolio_exposure = (
             sum(
                 (pos.quantity * self.exchange._last_price_cache.get(pos.symbol, 0.0))
@@ -411,10 +416,37 @@ class ExecutionEngine:
             else 0.0
         )
 
-        # Strategy exposure (single strategy for now, extend for multi-strategy)
         strategy_id = "legacy_agent_ensemble"
         strategy_exposure = current_exposure  # Single symbol single strategy
 
+        allocation_request = AllocationRequest(
+            strategy_id=strategy_id,
+            symbol=symbol,
+            risk_decision=risk_decision,
+            current_exposure=current_exposure,
+            equity=equity,
+            available_cash=available_cash,
+            portfolio_exposure=total_portfolio_exposure,
+            correlation_cluster=None,  # Single pair, no cluster
+            causation_chain=decision_output.causation_chain,
+        )
+
+        allocation_result = self.portfolio_allocator.allocate(allocation_request)
+        if allocation_result.allocation_pct <= 0:
+            logger.info(
+                f"PortfolioAllocator returned zero allocation for {symbol}: {allocation_result.reason}"
+            )
+            return orders
+
+        # Update target with allocation result
+        target = allocation_result.target_exposure
+        # Propagate allocation causation chain
+        combined_chain = CausationChain(
+            links=decision_output.causation_chain.links
+            + allocation_result.causation_chain.links
+        )
+
+        # ── Authority Chain: ExposureAuthority ──────────────────────────
         exposure_input = ExposureValidationInput(
             target_exposure=target,
             symbol=symbol,
@@ -424,8 +456,8 @@ class ExecutionEngine:
             strategy_exposure=strategy_exposure,
             equity=equity,
             available_cash=available_cash,
-            correlation_exposure=0.0,  # TODO: compute correlated exposure
-            causation_chain=decision_output.causation_chain,
+            correlation_exposure=0.0,
+            causation_chain=combined_chain,
         )
 
         exposure_output = self.exposure_authority.validate(exposure_input)

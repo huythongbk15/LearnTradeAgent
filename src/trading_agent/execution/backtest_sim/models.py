@@ -105,6 +105,7 @@ class OrderBookSnapshot:
     spread_bps: float
     volume_24h: float = 0.0
     volatility: float = 0.0
+    bar_duration_hours: float = 1.0  # Duration of bar in hours (e.g., 1h, 4h, 24h)
 
 
 @dataclass(frozen=True, slots=True)
@@ -116,25 +117,25 @@ class SimulatorConfig:
 
     # Impact model
     impact_model: ImpactModel = ImpactModel.SQUARE_ROOT
-    impact_coefficient: float = 0.1  # Base impact coefficient
+    impact_coefficient: float = 0.02  # Base impact coefficient (calibrated to V2)
     impact_volatility_factor: float = 1.0  # Scale by volatility
 
-    # Latency
-    base_latency_ms: float = 50.0
-    latency_jitter_ms: float = 20.0
+    # Latency (calibrated to V2: avg 20ms)
+    base_latency_ms: float = 20.0
+    latency_jitter_ms: float = 10.0
     latency_distribution: str = "lognormal"  # lognormal, normal, uniform
 
-    # Fees
-    maker_fee_bps: float = 1.0
+    # Fees (Binance spot: maker 1-2bps, taker 4-5bps)
+    maker_fee_bps: float = 2.0
     taker_fee_bps: float = 5.0
 
-    # Slippage
-    base_slippage_bps: float = 2.0
+    # Slippage (calibrated to V2: ~4-5 bps)
+    base_slippage_bps: float = 5.0
     slippage_volatility_factor: float = 1.0
 
     # Queue model
     queue_fill_probability: float = 0.3  # Probability of being at front of queue
-    partial_fill_prob: float = 0.1  # Probability of partial fill
+    partial_fill_prob: float = 0.0  # Probability of partial fill
     max_partial_fills: int = 3
 
     # Market hours (24/7 for crypto)
@@ -475,10 +476,19 @@ class ExecutionSimulator:
         if self.config.impact_model == ImpactModel.NONE:
             return 0.0
 
-        # Normalize quantity by daily volume
-        adv = book.volume_24h / 24  # Rough hourly volume
+        # Normalize quantity by volume in BASE currency over bar duration
+        # volume_24h is in quote currency, convert to base
+        if book.volume_24h > 0 and book.mid_price > 0:
+            daily_volume_base = book.volume_24h / book.mid_price
+            # Volume over the bar duration (e.g., 4h bar -> daily/6)
+            bars_per_day = 24.0 / max(book.bar_duration_hours, 0.25)
+            volume_per_bar = daily_volume_base / bars_per_day
+            adv = volume_per_bar
+        else:
+            adv = book.bid_size + book.ask_size  # Fallback to book depth
+
         if adv <= 0:
-            adv = book.bid_size + book.ask_size
+            adv = 1.0
         participation = quantity / max(adv, 1.0)
 
         base_impact = self.config.impact_coefficient
@@ -525,13 +535,13 @@ class ExecutionSimulator:
 def create_execution_simulator(
     fill_model: FillModel = FillModel.QUEUE,
     impact_model: ImpactModel = ImpactModel.SQUARE_ROOT,
-    impact_coefficient: float = 0.1,
-    maker_fee_bps: float = 1.0,
+    impact_coefficient: float = 0.02,
+    maker_fee_bps: float = 2.0,
     taker_fee_bps: float = 5.0,
-    base_latency_ms: float = 50.0,
-    latency_jitter_ms: float = 20.0,
-    base_slippage_bps: float = 2.0,
-    partial_fill_prob: float = 0.1,
+    base_latency_ms: float = 20.0,
+    latency_jitter_ms: float = 10.0,
+    base_slippage_bps: float = 5.0,
+    partial_fill_prob: float = 0.0,
     seed: int | None = None,
 ) -> ExecutionSimulator:
     """Factory function for ExecutionSimulator."""

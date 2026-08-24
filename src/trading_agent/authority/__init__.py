@@ -87,6 +87,13 @@ from trading_agent.authority.loader import (
     on_promotion_to_production,
 )
 
+from trading_agent.authority.resolver import (
+    RuntimeStrategyResolver,
+    StrategyType,
+    StrategyRuntime,
+    StrategyOutput,
+)
+
 from trading_agent.authority.decision import TargetExposure
 from trading_agent.authority.audit import (
     CausationLogEntry,
@@ -143,6 +150,11 @@ __all__ = [
     "PromotedStrategyManifest",
     "RuntimeLoader",
     "on_promotion_to_production",
+    # Resolver
+    "RuntimeStrategyResolver",
+    "StrategyType",
+    "StrategyRuntime",
+    "StrategyOutput",
     # Audit
     "CausationLogEntry",
     "DecisionAuditRecord",

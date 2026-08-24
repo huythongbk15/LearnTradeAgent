@@ -95,7 +95,7 @@ class SimulatorBacktestEngine:
         return f"ord_{self._order_counter:06d}"
 
     def _create_order_book_snapshot(
-        self, row: dict, symbol: str, timestamp: datetime
+        self, row: dict, symbol: str, timestamp: datetime, bar_duration_hours: float
     ) -> OrderBookSnapshot:
         """Create order book snapshot from OHLCV row."""
         close = row["close"]
@@ -141,12 +141,30 @@ class SimulatorBacktestEngine:
             spread_bps=spread_bps,
             volume_24h=daily_volume_quote,
             volatility=volatility,
+            bar_duration_hours=bar_duration_hours,
         )
+
+    def _parse_timeframe_hours(self, timeframe: str) -> float:
+        """Parse timeframe string to hours."""
+        timeframe = timeframe.lower()
+        if timeframe.endswith("m"):
+            return int(timeframe[:-1]) / 60.0
+        elif timeframe.endswith("h"):
+            return float(timeframe[:-1])
+        elif timeframe.endswith("d"):
+            return float(timeframe[:-1]) * 24.0
+        elif timeframe.endswith("w"):
+            return float(timeframe[:-1]) * 24.0 * 7.0
+        else:
+            return 1.0  # Default 1 hour
 
     def run(
         self, df: pl.DataFrame, symbol: str, timeframe: str
     ) -> SimulatorBacktestResult:
         """Run backtest with execution simulation."""
+
+        # Parse timeframe to bar duration in hours
+        tf_hours = self._parse_timeframe_hours(timeframe)
 
         # Generate signals from strategy
         df_with_indicators = self.strategy.compute_indicators(df)
@@ -173,7 +191,7 @@ class SimulatorBacktestEngine:
             signal = row["signal"]
 
             # Update order book
-            book = self._create_order_book_snapshot(row, symbol, timestamp)
+            book = self._create_order_book_snapshot(row, symbol, timestamp, tf_hours)
             self.simulator.update_order_book(book)
 
             # Advance simulator (process fills)

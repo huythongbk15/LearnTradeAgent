@@ -1728,9 +1728,22 @@ def validate_order_risk(
     )
     if trusted_price is not None and not isinstance(trusted_price, TrustedPrice):
         raise TypeError("trusted_price must be a TrustedPrice")
-    authorized_notional = (
-        current_symbol_notional * 1.01 if normalized_side == "SELL" else 0.0
-    )
+
+    # Wire data_trust from actual TrustedPrice freshness
+    data_trust = "trusted"
+    if trusted_price is not None:
+        if not trusted_price.is_fresh(60.0):
+            data_trust = "untrusted"
+
+    # Determine inventory_state from available inventory
+    inventory_state = "known"
+    if normalized_side == "SELL":
+        authorized_notional = current_symbol_notional * 1.01
+        if not math.isfinite(authorized_notional) or authorized_notional < 0:
+            inventory_state = "unknown"
+    else:
+        authorized_notional = 0.0
+
     permission = evaluate_order_permission(
         PermissionContext(
             execution_health=ExecutionHealth.NORMAL,
@@ -1738,7 +1751,8 @@ def validate_order_risk(
             risk_decision=risk_decision,
             trusted_price=trusted_price,
             kill_switch_active=bool(locked_reason),
-            inventory_state="known",
+            data_trust=data_trust,
+            inventory_state=inventory_state,
             free_inventory=authorized_notional,
             authorized_sellable_inventory=authorized_notional,
             order_size=notional_usd,

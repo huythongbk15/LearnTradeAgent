@@ -315,6 +315,18 @@ class ExecutionAuthority:
             ExposureEffect.INCREASE if intent.side == "buy" else ExposureEffect.REDUCE
         )
 
+        # Build trusted price data_trust from actual price freshness
+        data_trust = "trusted"
+        if trusted_price is not None:
+            if not trusted_price.is_fresh(self.config.execution.max_price_age_seconds):
+                data_trust = "untrusted"
+
+        # Determine inventory_state from lifecycle reconciliation
+        reconciliation_state = self.lifecycle.state.reconciliation.value
+        inventory_state = (
+            "known" if reconciliation_state in ("none", "completed") else "unknown"
+        )
+
         # Build permission context
         perm_ctx = PermissionContext(
             execution_health=self.lifecycle.state.execution_health,
@@ -322,16 +334,16 @@ class ExecutionAuthority:
             risk_decision=None,  # Already validated upstream
             trusted_price=trusted_price,
             max_price_age_seconds=self.config.execution.max_price_age_seconds,
-            reconciliation_state=self.lifecycle.state.reconciliation.value,
+            reconciliation_state=reconciliation_state,
             protection_state=self.lifecycle.state.protection_state.get(
                 intent.symbol, None
             ).value
             if self.lifecycle.state.protection_state.get(intent.symbol)
             else "none",
             manual_blocked=self.lifecycle.state.manual_blocked,
-            kill_switch_active=False,  # TODO: wire from config
-            data_trust="trusted",
-            inventory_state="known",
+            kill_switch_active=self.config.live.kill_switch_enabled,
+            data_trust=data_trust,
+            inventory_state=inventory_state,
             free_inventory=portfolio.available_cash
             if intent.side == "buy"
             else portfolio.existing_quantity - portfolio.existing_reservations,
