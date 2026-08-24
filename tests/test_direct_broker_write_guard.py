@@ -72,7 +72,7 @@ def _is_forbidden_call(node: ast.Call, file_path: Path) -> tuple[bool, str | Non
             child = attrs[1]
 
             # Canonical lifecycle/gateway/storage calls are safe
-            if root in ("lifecycle", "store", "gateway", "lc", "engine"):
+            if root in ("lifecycle", "store", "gateway", "lc", "engine", "simulator"):
                 return False, None
 
             # Canonical self.* calls are safe (lifecycle, gateway, store, engine)
@@ -82,6 +82,7 @@ def _is_forbidden_call(node: ast.Call, file_path: Path) -> tuple[bool, str | Non
                 "store",
                 "engine",
                 "planner",
+                "simulator",
             ):
                 return False, None
 

@@ -9,15 +9,14 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import threading
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
-from trading_agent.authority.causation import CausationChain, CausationChainModel
-from trading_agent.authority.config import AuthorityConfig, LoggingConfig, get_authority_config
+from trading_agent.authority.causation import CausationChain
+from trading_agent.authority.config import LoggingConfig, get_authority_config
 
 logger = logging.getLogger(__name__)
 
@@ -118,7 +117,11 @@ class CausationLogger:
             raise ValueError("Cannot log empty causation chain")
 
         latest_link = causation_chain.links[-1]
-        prev_id = causation_chain.links[-2].causation_id if len(causation_chain.links) > 1 else None
+        prev_id = (
+            causation_chain.links[-2].causation_id
+            if len(causation_chain.links) > 1
+            else None
+        )
 
         entry = CausationLogEntry(
             timestamp=datetime.now(UTC),
@@ -281,7 +284,10 @@ class DecisionAuditCLI:
         # Verify each link's inputs/outputs match log entries
         for i, (link, entry) in enumerate(zip(record.chain.links, record.log_entries)):
             if link.causation_id != entry.causation_id:
-                return False, f"Link {i} causation_id mismatch: {link.causation_id} != {entry.causation_id}"
+                return (
+                    False,
+                    f"Link {i} causation_id mismatch: {link.causation_id} != {entry.causation_id}",
+                )
             if link.inputs_hash != entry.inputs_hash:
                 return False, f"Link {i} inputs_hash mismatch"
             if link.outputs_hash != entry.outputs_hash:
@@ -324,7 +330,9 @@ class DecisionAuditCLI:
                 # Match by causation_id or chain membership
                 if entry.causation_id == causation_id:
                     entries.append(entry)
-                elif entry.causation_id.startswith("chain_") and causation_id in entry.decision.get("authorities", []):
+                elif entry.causation_id.startswith(
+                    "chain_"
+                ) and causation_id in entry.decision.get("authorities", []):
                     entries.append(entry)
 
         # Sort by timestamp

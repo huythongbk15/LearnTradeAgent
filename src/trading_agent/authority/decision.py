@@ -19,7 +19,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from trading_agent.agents.base import AgentMessage
-from trading_agent.authority.causation import CausationChain, generate_causation_id, new_chain
+from trading_agent.authority.causation import CausationChain, new_chain
 from trading_agent.authority.config import AuthorityConfig, get_authority_config
 from trading_agent.execution.canonical.risk_decision import (
     EvidenceState,
@@ -27,8 +27,6 @@ from trading_agent.execution.canonical.risk_decision import (
     UnifiedRiskDecision,
 )
 # Define TargetExposure locally for the authority chain
-from dataclasses import dataclass, field
-from typing import Any
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,6 +44,8 @@ class TargetExposure:
             val = float(getattr(self, name))
             if not (0.0 <= val <= 1.0):
                 raise ValueError(f"{name} must be in [0, 1], got {val}")
+
+
 from trading_agent.research.artifact import StrategyArtifact
 
 logger = logging.getLogger(__name__)
@@ -88,7 +88,9 @@ class DecisionInput:
             if f is not None
         )
         if provided != 1:
-            raise ValueError("Exactly one of agent_message, strategy_artifact, risk_decision must be provided")
+            raise ValueError(
+                "Exactly one of agent_message, strategy_artifact, risk_decision must be provided"
+            )
         if not self.symbol:
             raise ValueError("symbol is required")
         if self.current_price <= 0:
@@ -155,7 +157,9 @@ class DecisionAuthority:
                 risk_decision, target = self._from_direct_decision(input_, chain)
 
             # Final validation & enforcement
-            risk_decision, target = self._enforce_limits(risk_decision, target, input_, chain)
+            risk_decision, target = self._enforce_limits(
+                risk_decision, target, input_, chain
+            )
 
             return DecisionOutput(
                 risk_decision=risk_decision,
@@ -187,6 +191,12 @@ class DecisionAuthority:
         target_exposure_pct = details.get("target_exposure_pct", 0.0)
         max_new_exposure_pct = details.get("max_new_exposure_pct", 0.0)
         reduce_only = details.get("reduce_only", False)
+        calibration_state = details.get("calibration_state", "MISSING")
+        calibration_ece = details.get("calibration_ece", 1.0)
+        ood_state = details.get("ood_state", "UNKNOWN")
+        ood_score = details.get("ood_score", 1.0)
+        regime_state = details.get("regime_state", "UNKNOWN")
+        regime_entropy = details.get("regime_entropy", 1.0)
 
         # Build UnifiedRiskDecision from agent ensemble output
         risk_decision = UnifiedRiskDecision(
@@ -194,18 +204,22 @@ class DecisionAuthority:
             forecast_fingerprint="",
             model_artifact_id="",
             requested_target_exposure=target_exposure_pct,
-            allowed_target_exposure=min(target_exposure_pct, self.config.exposure.max_single_strategy_exposure),
-            max_new_exposure=min(max_new_exposure_pct, self.config.exposure.max_single_strategy_exposure),
+            allowed_target_exposure=min(
+                target_exposure_pct, self.config.exposure.max_single_strategy_exposure
+            ),
+            max_new_exposure=min(
+                max_new_exposure_pct, self.config.exposure.max_single_strategy_exposure
+            ),
             reduce_only=reduce_only,
             risk_level=RiskLevel(risk_level.upper()),
             reason_codes=(),
-            calibration_state=EvidenceState.MISSING,
+            calibration_state=EvidenceState(calibration_state),
             calibration_artifact_id=None,
-            calibration_ece=1.0,
-            ood_state=EvidenceState.UNKNOWN,
-            ood_score=1.0,
-            regime_state=EvidenceState.UNKNOWN,
-            regime_entropy=1.0,
+            calibration_ece=calibration_ece,
+            ood_state=EvidenceState(ood_state),
+            ood_score=ood_score,
+            regime_state=EvidenceState(regime_state),
+            regime_entropy=regime_entropy,
             interval_width=1.0,
             created_at=datetime.now(UTC),
             metadata={},
@@ -262,8 +276,12 @@ class DecisionAuthority:
             forecast_fingerprint=artifact.code_sha[:32],
             model_artifact_id=artifact.artifact_id,
             requested_target_exposure=target_exposure_pct,
-            allowed_target_exposure=min(scaled_target, self.config.exposure.max_single_strategy_exposure),
-            max_new_exposure=min(scaled_max_new, self.config.exposure.max_single_strategy_exposure),
+            allowed_target_exposure=min(
+                scaled_target, self.config.exposure.max_single_strategy_exposure
+            ),
+            max_new_exposure=min(
+                scaled_max_new, self.config.exposure.max_single_strategy_exposure
+            ),
             reduce_only=reduce_only,
             risk_level=RiskLevel.MEDIUM,
             reason_codes=(),
@@ -276,7 +294,10 @@ class DecisionAuthority:
             regime_entropy=params.get("regime_entropy", 1.0),
             interval_width=params.get("interval_width", 1.0),
             created_at=datetime.now(UTC),
-            metadata={"artifact_id": artifact.artifact_id, "strategy_name": artifact.strategy_name},
+            metadata={
+                "artifact_id": artifact.artifact_id,
+                "strategy_name": artifact.strategy_name,
+            },
             warnings=(),
         )
 
@@ -314,8 +335,14 @@ class DecisionAuthority:
         risk_decision = input_.risk_decision
 
         # Apply config caps
-        capped_target = min(risk_decision.allowed_target_exposure, self.config.exposure.max_single_strategy_exposure)
-        capped_max_new = min(risk_decision.max_new_exposure, self.config.exposure.max_single_strategy_exposure)
+        capped_target = min(
+            risk_decision.allowed_target_exposure,
+            self.config.exposure.max_single_strategy_exposure,
+        )
+        capped_max_new = min(
+            risk_decision.max_new_exposure,
+            self.config.exposure.max_single_strategy_exposure,
+        )
 
         risk_decision = UnifiedRiskDecision(
             decision_id=risk_decision.decision_id,
@@ -341,7 +368,11 @@ class DecisionAuthority:
         )
 
         target = self._compute_target_exposure(
-            signal="BUY" if capped_target > input_.current_exposure else "SELL" if capped_target < input_.current_exposure else "HOLD",
+            signal="BUY"
+            if capped_target > input_.current_exposure
+            else "SELL"
+            if capped_target < input_.current_exposure
+            else "HOLD",
             risk_decision=risk_decision,
             current_exposure=input_.current_exposure,
             equity=input_.equity,
@@ -437,18 +468,25 @@ class DecisionAuthority:
         # Multi-pair enforcement happens in PortfolioAllocator (Milestone C)
 
         # Symbol-level cap
-        target_exposure = min(target.target_exposure_pct, self.config.exposure.max_single_symbol_exposure)
-        max_new_exposure = min(target.max_new_exposure_pct, self.config.exposure.max_single_symbol_exposure)
+        target_exposure = min(
+            target.target_exposure_pct, self.config.exposure.max_single_symbol_exposure
+        )
+        max_new_exposure = min(
+            target.max_new_exposure_pct, self.config.exposure.max_single_symbol_exposure
+        )
 
         # Notional caps
         target_notional = target_exposure * input_.equity
         if target_notional > self.config.exposure.max_trade_notional:
             target_exposure = self.config.exposure.max_trade_notional / input_.equity
-            warnings.append(f"target_notional capped at max_trade_notional")
-        if target_notional < self.config.exposure.min_trade_notional and target_exposure > 0:
+            warnings.append("target_notional capped at max_trade_notional")
+        if (
+            target_notional < self.config.exposure.min_trade_notional
+            and target_exposure > 0
+        ):
             target_exposure = 0.0
             max_new_exposure = 0.0
-            warnings.append(f"target_notional below min_trade_notional → HOLD")
+            warnings.append("target_notional below min_trade_notional → HOLD")
 
         # Rebuild with capped values
         risk_decision = UnifiedRiskDecision(

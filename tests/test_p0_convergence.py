@@ -1111,13 +1111,25 @@ class TestEnginePaperE2E:
             data_manifest_id="manifest-test",
         )
 
-        # Build a BUY signal
+        # Build a BUY signal with required exposure details for DecisionAuthority
         signal = AgentMessage(
             role="trader",
             signal="BUY",
             confidence=0.9,
             reasoning="test",
-            details={"symbol": "BTC/USDT"},
+            details={
+                "symbol": "BTC/USDT",
+                "target_exposure_pct": 0.05,  # 5% target exposure
+                "max_new_exposure_pct": 0.05,
+                "risk_level": "LOW",
+                "reduce_only": False,
+                "calibration_state": "KNOWN",
+                "calibration_ece": 0.01,
+                "ood_state": "KNOWN",
+                "ood_score": 0.0,
+                "regime_state": "KNOWN",
+                "regime_entropy": 0.5,
+            },
         )
         orders = engine.execute_signal(signal, observation=observation)
         assert len(orders) == 1

@@ -2,7 +2,7 @@
 Execution Engine — canonical interface to trade.
 
 Kết nối Phase 2 (signals) với Phase 3 (execution) qua canonical pipeline:
-AgentMessage → LegacyDecisionAdapter → UnifiedRiskDecision → TargetExposure
+AgentMessage → DecisionAuthority → ExposureAuthority → ExecutionAuthority
 → OrderPlanner → OrderPermission → ExecutionLifecycle → BrokerGateway.
 """
 
@@ -24,7 +24,6 @@ from trading_agent.config.loader import config
 from trading_agent.execution.paper_exchange import STATE_DIR, PaperExchange
 from trading_agent.execution.canonical import (
     BrokerGateway,
-    LegacyDecisionAdapter,
     OrderPlanner,
     EnrichedMarketObservation,
     CurrentPortfolioState,
@@ -43,20 +42,14 @@ from trading_agent.execution.canonical.broker_gateway import (
 from trading_agent.execution.canonical.adapters import PaperExecutionAdapter
 from trading_agent.execution.application import (
     CanonicalExecutionService,
-    ExecutionBlockedError,
 )
 from trading_agent.execution.canonical.order_planner import (
     OrderPlanningStatus,
 )
-from trading_agent.execution.permission import (
-    PermissionContext,
-)
 from trading_agent.execution.lifecycle import (
     ExecutionLifecycle,
     ExecutionEventStore,
-    ExecutionEventType,
     ExecutionHealth,
-    ExposureEffect,
     TrustedPrice,
     PortfolioRiskSnapshot,
 )
@@ -66,6 +59,22 @@ from trading_agent.execution.types import (
     OrderSide,
     OrderStatus,
     OrderType,
+)
+
+# ── Authority Chain (Milestone B) ────────────────────────────────────
+from trading_agent.authority import (
+    DecisionAuthority,
+    DecisionInput,
+    ExposureAuthority,
+    ExposureValidationInput,
+    ExecutionAuthority,
+    ExecutionValidationInput,
+    TargetExposure,
+    get_authority_config,
+    AuthorityConfig,
+)
+from trading_agent.execution.canonical.risk_decision import (
+    UnifiedRiskDecision,
 )
 
 logger = logging.getLogger(__name__)
@@ -120,7 +129,7 @@ class ExecutionEngine:
 
     Currently supports paper trading only (safe, no real money).
     All capital-changing orders flow through the canonical pipeline:
-    AgentMessage → LegacyDecisionAdapter → UnifiedRiskDecision → TargetExposure
+    AgentMessage → DecisionAuthority → ExposureAuthority → ExecutionAuthority
     → OrderPlanner → OrderPermission → ExecutionLifecycle → BrokerGateway.
     """
 
@@ -139,6 +148,7 @@ class ExecutionEngine:
         allow_backtest_new_exposure: bool | None = None,
         paper_price_persist_interval: int = 1,
         disable_paper_telemetry: bool = False,
+        authority_config: AuthorityConfig | None = None,
     ):
         # ── Constructor strictness: validate inputs early ─────────────
         if exchange is not None:
@@ -218,7 +228,7 @@ class ExecutionEngine:
         if instrument_rules is not None:
             self.planner = OrderPlanner(
                 instrument_rules=instrument_rules,
-                strategy_version="legacy-engine-v1",
+                strategy_version="authority-chain-v1",
             )
             self.execution_service = CanonicalExecutionService(
                 lifecycle=self.lifecycle,
@@ -228,8 +238,20 @@ class ExecutionEngine:
         else:
             self.planner = None
             self.execution_service = None
-        self.legacy_adapter = LegacyDecisionAdapter(
-            allow_new_exposure=allow_backtest_new_exposure
+
+        # ── Authority Chain (Milestone B) ─────────────────────────────
+        self.authority_config = authority_config or get_authority_config()
+        self.decision_authority = DecisionAuthority(config=self.authority_config)
+        self.exposure_authority = ExposureAuthority(config=self.authority_config)
+        self.execution_authority = (
+            ExecutionAuthority(
+                lifecycle=self.lifecycle,
+                gateway=self.gateway,
+                planner=self.planner,
+                config=self.authority_config,
+            )
+            if self.planner is not None
+            else None
         )
 
         # Register graceful shutdown handler
@@ -274,9 +296,9 @@ class ExecutionEngine:
         """Execute a trading signal from the multi-agent system.
 
         Takes the final ``Trader`` agent signal and converts it to orders
-        through the canonical pipeline:
-        AgentMessage → LegacyDecisionAdapter → UnifiedRiskDecision → TargetExposure
-        → OrderPlanner → PermissionContext → ExecutionLifecycle → BrokerGateway.
+        through the authority chain pipeline:
+        AgentMessage → DecisionAuthority → ExposureAuthority → ExecutionAuthority
+        → OrderPlanner → OrderPermission → ExecutionLifecycle → BrokerGateway.
         """
         if self.execution_service is None:
             raise RuntimeError(
@@ -317,25 +339,149 @@ class ExecutionEngine:
             )
             return orders
 
-        # ── Canonical legacy adapter: AgentMessage → risk + target ─────
-        try:
-            risk_decision, target = self.legacy_adapter.adapt(signal, observation)
-        except ValueError as exc:
-            logger.warning(f"Legacy adapter rejected signal: {exc}")
-            return orders
-
-        # ── Portfolio state (canonical fields) ──────────────────────────
+        # ── Authority Chain: DecisionAuthority ─────────────────────────
+        # Build DecisionInput from AgentMessage
         existing_pos = self.exchange.get_position(symbol)
         current_qty = existing_pos.quantity if existing_pos else 0.0
         current_notional = current_qty * current_price
         equity = self.exchange.get_total_equity()
         current_exposure = current_notional / equity if equity > 0 else 0.0
+        available_cash = self.exchange.get_balance("USDT")
+
+        decision_input = DecisionInput(
+            agent_message=signal,
+            symbol=symbol,
+            timeframe=observation.timeframe if observation else "1h",
+            current_price=current_price,
+            current_exposure=current_exposure,
+            equity=equity,
+            available_cash=available_cash,
+            portfolio_value=equity,
+            observation_id=observation.observation_id if observation else None,
+            regime=getattr(observation, "regime", None),
+            volatility_pct=getattr(observation, "volatility_pct", None),
+        )
+
+        decision_output = self.decision_authority.decide(decision_input)
+        risk_decision = decision_output.risk_decision
+        target = decision_output.target_exposure
+        # Attach causation chain to risk_decision for downstream propagation
+        risk_decision = UnifiedRiskDecision(
+            decision_id=risk_decision.decision_id,
+            forecast_fingerprint=risk_decision.forecast_fingerprint,
+            model_artifact_id=risk_decision.model_artifact_id,
+            requested_target_exposure=risk_decision.requested_target_exposure,
+            allowed_target_exposure=risk_decision.allowed_target_exposure,
+            max_new_exposure=risk_decision.max_new_exposure,
+            reduce_only=risk_decision.reduce_only,
+            risk_level=risk_decision.risk_level,
+            reason_codes=risk_decision.reason_codes,
+            calibration_state=risk_decision.calibration_state,
+            calibration_artifact_id=risk_decision.calibration_artifact_id,
+            calibration_ece=risk_decision.calibration_ece,
+            ood_state=risk_decision.ood_state,
+            ood_score=risk_decision.ood_score,
+            regime_state=risk_decision.regime_state,
+            regime_entropy=risk_decision.regime_entropy,
+            interval_width=risk_decision.interval_width,
+            created_at=risk_decision.created_at,
+            metadata=risk_decision.metadata,
+            warnings=risk_decision.warnings,
+            authority_chain=decision_output.causation_chain.links,
+        )
+        # Also attach chain to TargetExposure
+        target = TargetExposure(
+            target_exposure_pct=target.target_exposure_pct,
+            max_new_exposure_pct=target.max_new_exposure_pct,
+            reduce_only=target.reduce_only,
+            confidence=target.confidence,
+            authority_chain=decision_output.causation_chain.links,
+        )
+
+        # ── Authority Chain: ExposureAuthority ──────────────────────────
+        # Build portfolio exposure context
+        total_portfolio_exposure = (
+            sum(
+                (pos.quantity * self.exchange._last_price_cache.get(pos.symbol, 0.0))
+                / equity
+                for pos in self.exchange.get_all_positions()
+                if pos.is_active
+            )
+            if equity > 0
+            else 0.0
+        )
+
+        # Strategy exposure (single strategy for now, extend for multi-strategy)
+        strategy_id = "legacy_agent_ensemble"
+        strategy_exposure = current_exposure  # Single symbol single strategy
+
+        exposure_input = ExposureValidationInput(
+            target_exposure=target,
+            symbol=symbol,
+            strategy_id=strategy_id,
+            current_exposure=current_exposure,
+            portfolio_exposure=total_portfolio_exposure,
+            strategy_exposure=strategy_exposure,
+            equity=equity,
+            available_cash=available_cash,
+            correlation_exposure=0.0,  # TODO: compute correlated exposure
+            causation_chain=decision_output.causation_chain,
+        )
+
+        exposure_output = self.exposure_authority.validate(exposure_input)
+        if not exposure_output.allowed:
+            logger.warning(
+                "Order blocked by ExposureAuthority: %s",
+                exposure_output.reason,
+            )
+            return orders
+
+        # Update risk_decision and target with exposure-capped values
+        risk_decision = UnifiedRiskDecision(
+            decision_id=risk_decision.decision_id,
+            forecast_fingerprint=risk_decision.forecast_fingerprint,
+            model_artifact_id=risk_decision.model_artifact_id,
+            requested_target_exposure=risk_decision.requested_target_exposure,
+            allowed_target_exposure=exposure_output.allowed_target_exposure,
+            max_new_exposure=exposure_output.allowed_max_new_exposure,
+            reduce_only=risk_decision.reduce_only,
+            risk_level=risk_decision.risk_level,
+            reason_codes=risk_decision.reason_codes,
+            calibration_state=risk_decision.calibration_state,
+            calibration_artifact_id=risk_decision.calibration_artifact_id,
+            calibration_ece=risk_decision.calibration_ece,
+            ood_state=risk_decision.ood_state,
+            ood_score=risk_decision.ood_score,
+            regime_state=risk_decision.regime_state,
+            regime_entropy=risk_decision.regime_entropy,
+            interval_width=risk_decision.interval_width,
+            created_at=risk_decision.created_at,
+            metadata=risk_decision.metadata,
+            warnings=risk_decision.warnings + exposure_output.warnings,
+            authority_chain=exposure_output.causation_chain.links,
+        )
+        target = TargetExposure(
+            target_exposure_pct=exposure_output.allowed_target_exposure,
+            max_new_exposure_pct=exposure_output.allowed_max_new_exposure,
+            reduce_only=risk_decision.reduce_only,
+            confidence=target.confidence,
+            authority_chain=exposure_output.causation_chain.links,
+        )
+
+        # If target exposure equals current (no change), return early
+        if abs(target.target_exposure_pct - current_exposure) < 1e-9:
+            logger.info(
+                f"Target exposure equals current ({current_exposure:.4f}) — no action"
+            )
+            return orders
+
+        # ── Portfolio state (canonical fields) ──────────────────────────
         portfolio = CurrentPortfolioState(
             symbol=symbol,
             current_exposure=current_exposure,
             equity=equity,
             existing_quantity=current_qty,
-            available_cash=self.exchange.get_balance("USDT"),
+            available_cash=available_cash,
         )
         price = MarketPrice(
             symbol=symbol,
@@ -345,9 +491,23 @@ class ExecutionEngine:
             last=current_price,
         )
 
+        # ── Convert authority TargetExposure to canonical TargetExposure ──
+        from trading_agent.research.forecast import (
+            TargetExposure as CanonicalTargetExposure,
+        )
+
+        canonical_target = CanonicalTargetExposure(
+            symbol=symbol,
+            exposure=target.target_exposure_pct,
+            horizon=1,  # Single bar horizon
+            forecast_fingerprint=risk_decision.forecast_fingerprint,
+            model_artifact_id=risk_decision.model_artifact_id,
+            risk_decision_id=risk_decision.decision_id,
+        )
+
         # ── Order planning (canonical sizing) ──────────────────────────
         plan_result = self.execution_service.plan(
-            target=target,
+            target=canonical_target,
             risk_decision=risk_decision,
             observation=observation,
             portfolio=portfolio,
@@ -364,48 +524,54 @@ class ExecutionEngine:
 
         intent = plan_result.intent
 
-        # ── Permission check (canonical PermissionContext with actual intent) ──
-        exposure_effect = (
-            ExposureEffect.INCREASE if intent.side == "buy" else ExposureEffect.REDUCE
-        )
-        permission_ctx = PermissionContext(
-            execution_health=self.lifecycle.state.execution_health,
-            exposure_effect=exposure_effect,
+        # ── Authority Chain: ExecutionAuthority ────────────────────────
+        exec_input = ExecutionValidationInput(
+            intent=intent,
+            observation=observation,
+            portfolio_state=portfolio,
+            price=price,
+            instrument_rules=self.planner._rules,
+            existing_reservations=0.0
+            if signal_str == "SELL"
+            else self.lifecycle.active_sell_reservations(symbol),
+            causation_chain=exposure_output.causation_chain,
             risk_decision=risk_decision,
-            trusted_price=TrustedPrice(
-                price=current_price,
-                exchange_timestamp=exchange_timestamp,
-                received_at=datetime.now(UTC),
-            ),
-            max_price_age_seconds=60.0,
-            reconciliation_state=self.lifecycle.state.reconciliation.value,
-            protection_state=self.lifecycle.state.protection_state.get(
-                symbol, ProtectionState.NONE
-            ).value,
-            manual_blocked=self.lifecycle.state.manual_blocked,
-            kill_switch_active=False,
-            data_trust="trusted",
-            inventory_state="known",
-            free_inventory=portfolio.available_cash
-            if intent.side == "buy"
-            else current_qty,
-            authorized_sellable_inventory=current_qty,
-            order_size=intent.quantity,
-            order_side=intent.side,
-            require_fresh_market_data=True,
-            enforce_inventory=True,
-            broker_state=None,
-            draft=False,
         )
-        permission = self.execution_service.evaluate_permission(permission_ctx)
-        if not permission.allowed():
+
+        exec_output = self.execution_authority.execute(exec_input)
+        if not exec_output.allowed:
             logger.warning(
-                "Order blocked by canonical permission: %s: %s",
-                permission.reason.value,
-                permission.detail,
+                "Order blocked by ExecutionAuthority: %s",
+                exec_output.reason,
             )
             return orders
 
+        # Attach full authority chain to risk_decision for audit
+        risk_decision = UnifiedRiskDecision(
+            decision_id=risk_decision.decision_id,
+            forecast_fingerprint=risk_decision.forecast_fingerprint,
+            model_artifact_id=risk_decision.model_artifact_id,
+            requested_target_exposure=risk_decision.requested_target_exposure,
+            allowed_target_exposure=risk_decision.allowed_target_exposure,
+            max_new_exposure=risk_decision.max_new_exposure,
+            reduce_only=risk_decision.reduce_only,
+            risk_level=risk_decision.risk_level,
+            reason_codes=risk_decision.reason_codes,
+            calibration_state=risk_decision.calibration_state,
+            calibration_artifact_id=risk_decision.calibration_artifact_id,
+            calibration_ece=risk_decision.calibration_ece,
+            ood_state=risk_decision.ood_state,
+            ood_score=risk_decision.ood_score,
+            regime_state=risk_decision.regime_state,
+            regime_entropy=risk_decision.regime_entropy,
+            interval_width=risk_decision.interval_width,
+            created_at=risk_decision.created_at,
+            metadata=risk_decision.metadata,
+            warnings=risk_decision.warnings,
+            authority_chain=exec_output.causation_chain.links,
+        )
+
+        # ── Protective order handling (sell signals) ───────────────────
         canceled_protection_intents: list[str] = []
         if intent.side.lower() == "sell":
             cancel_ok, canceled_protection_intents = self._cancel_resting_protection(
@@ -413,40 +579,20 @@ class ExecutionEngine:
             )
             if not cancel_ok:
                 return orders
-        try:
-            submission = self.execution_service.submit_planned(
-                planning=plan_result,
-                risk_decision=risk_decision,
-                permission_context=permission_ctx,
-                correlation_id=intent.intent_id,
-            )
-        except ExecutionBlockedError as exc:
-            logger.warning(f"Order blocked by canonical execution service: {exc}")
-            if canceled_protection_intents:
-                self._mark_protection_gap(
-                    symbol,
-                    canceled_protection_intents,
-                    "exit submission was blocked after protective cancellation",
-                )
-            return orders
-        except Exception:
-            if canceled_protection_intents:
-                self._mark_protection_gap(
-                    symbol,
-                    canceled_protection_intents,
-                    "exit submission raised after protective cancellation",
-                )
-            raise
-        result = submission.result
-        broker_event = submission.broker_event
+
+        broker_result = exec_output.broker_result
+        broker_event = (
+            None  # ExecutionAuthority doesn't return event, get from lifecycle
+        )
 
         orders.append(
-            self._result_to_order(result, symbol, intent.side, intent.quantity)
+            self._result_to_order(broker_result, symbol, intent.side, intent.quantity)
         )
-        fill_received = broker_event is not None and broker_event.event_type in {
-            ExecutionEventType.FILL_RECEIVED,
-            ExecutionEventType.PARTIAL_FILL_RECEIVED,
-        }
+
+        # Check if fill was received (from lifecycle state)
+        order_state = self.lifecycle.state.orders.get(intent.intent_id)
+        fill_received = order_state is not None and order_state.filled_size > 1e-12
+
         if (
             intent.side.lower() == "sell"
             and canceled_protection_intents
@@ -459,7 +605,6 @@ class ExecutionEngine:
             )
         if fill_received and intent.side.lower() == "buy":
             # Use actual paper exchange position quantity for protective order
-            # (accounts for fees, slippage, partial fills)
             position = self.exchange.get_position(symbol)
             protected_quantity = (
                 position.quantity if position and position.is_active else 0.0

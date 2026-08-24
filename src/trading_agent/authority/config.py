@@ -14,7 +14,7 @@ import os
 from pathlib import Path
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, model_validator
 from pydantic.types import PositiveFloat, PositiveInt
 
 
@@ -32,6 +32,7 @@ from enum import Enum
 
 class Environment(str, Enum):
     """Deployment environment — drives defaults and safety rails."""
+
     RESEARCH = "research"
     PAPER = "paper"
     TESTNET = "testnet"
@@ -42,6 +43,7 @@ class Environment(str, Enum):
 
 class RiskProfile(str, Enum):
     """Pre-calibrated risk parameter sets."""
+
     CONSERVATIVE = "conservative"
     MODERATE = "moderate"
     AGGRESSIVE = "aggressive"
@@ -89,17 +91,25 @@ class ExposureConfig(BaseModel):
     @model_validator(mode="after")
     def validate_hierarchy(self) -> "ExposureConfig":
         if self.max_single_strategy_exposure > self.max_portfolio_exposure:
-            raise ValueError("max_single_strategy_exposure cannot exceed max_portfolio_exposure")
+            raise ValueError(
+                "max_single_strategy_exposure cannot exceed max_portfolio_exposure"
+            )
         if self.max_single_symbol_exposure > self.max_single_strategy_exposure:
-            raise ValueError("max_single_symbol_exposure cannot exceed max_single_strategy_exposure")
+            raise ValueError(
+                "max_single_symbol_exposure cannot exceed max_single_strategy_exposure"
+            )
         if self.max_correlated_exposure > self.max_portfolio_exposure:
-            raise ValueError("max_correlated_exposure cannot exceed max_portfolio_exposure")
+            raise ValueError(
+                "max_correlated_exposure cannot exceed max_portfolio_exposure"
+            )
         if self.min_trade_notional > self.max_trade_notional:
             raise ValueError("min_trade_notional cannot exceed max_trade_notional")
         if self.risk_scale_min > self.risk_scale_max:
             raise ValueError("risk_scale_min cannot exceed risk_scale_max")
         if not (self.risk_scale_min <= self.risk_scale_default <= self.risk_scale_max):
-            raise ValueError("risk_scale_default must be between risk_scale_min and risk_scale_max")
+            raise ValueError(
+                "risk_scale_default must be between risk_scale_min and risk_scale_max"
+            )
         return self
 
 
@@ -184,7 +194,9 @@ class SimulatorConfig(BaseModel):
     taker_fee_bps: PositiveFloat = Field(default=5.0)
 
     # Impact model
-    impact_model: Literal["square_root", "linear", "almgren_chriss"] = Field(default="square_root")
+    impact_model: Literal["square_root", "linear", "almgren_chriss"] = Field(
+        default="square_root"
+    )
     impact_coefficient: PositiveFloat = Field(default=0.1)
 
     # Fill model
@@ -203,7 +215,9 @@ class LiveConfig(BaseModel):
     """Live trading specific parameters."""
 
     # Broker
-    broker_type: Literal["paper", "ccxt_binance", "ccxt_bybit", "alpaca", "oanda"] = Field(default="paper")
+    broker_type: Literal["paper", "ccxt_binance", "ccxt_bybit", "alpaca", "oanda"] = (
+        Field(default="paper")
+    )
     exchange_name: str = Field(default="binance")
 
     # Connection
@@ -364,7 +378,11 @@ class AuthorityConfig(BaseModel):
         """Deep merge override into base."""
         result = base.copy()
         for key, value in override.items():
-            if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+            if (
+                key in result
+                and isinstance(result[key], dict)
+                and isinstance(value, dict)
+            ):
                 result[key] = AuthorityConfig._deep_merge(result[key], value)
             else:
                 result[key] = value
@@ -419,13 +437,17 @@ class AuthorityConfig(BaseModel):
             try:
                 get_instrument_rules(symbol)
             except UnsupportedInstrumentError as exc:
-                raise ValueError(f"Symbol {symbol!r} not in instrument registry: {exc}") from exc
+                raise ValueError(
+                    f"Symbol {symbol!r} not in instrument registry: {exc}"
+                ) from exc
 
         # Ensure all registry symbols are covered if we claim to support them
         configured_set = set(self.symbols)
         registry_set = set(TEN_PAIR_1H_SYMBOLS)
         if not configured_set.issubset(registry_set):
-            raise ValueError(f"Configured symbols {configured_set - registry_set} not in registry")
+            raise ValueError(
+                f"Configured symbols {configured_set - registry_set} not in registry"
+            )
 
         return self
 

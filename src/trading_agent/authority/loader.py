@@ -16,16 +16,14 @@ from __future__ import annotations
 import json
 import logging
 import threading
-import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from trading_agent.authority.causation import CausationChain, new_chain
 from trading_agent.authority.config import AuthorityConfig, get_authority_config
 from trading_agent.research.artifact import PersistentArtifactStore, StrategyArtifact
-from trading_agent.research.promotion import ResearchLifecycle, ResearchStage
+from trading_agent.research.promotion import ResearchLifecycle
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +48,9 @@ class PromotedStrategyManifest:
     metadata: dict[str, Any]
 
     @classmethod
-    def from_artifact(cls, artifact: StrategyArtifact, promotion_event: Any) -> "PromotedStrategyManifest":
+    def from_artifact(
+        cls, artifact: StrategyArtifact, promotion_event: Any
+    ) -> "PromotedStrategyManifest":
         return cls(
             artifact_id=artifact.artifact_id,
             strategy_name=artifact.strategy_name,
@@ -58,9 +58,15 @@ class PromotedStrategyManifest:
             parameter_hash=artifact.parameter_hash,
             execution_model_version=artifact.execution_model_version,
             framework_version=artifact.framework_version,
-            promoted_at=promotion_event.timestamp if hasattr(promotion_event, "timestamp") else datetime.now(UTC),
-            promoted_by=promotion_event.actor if hasattr(promotion_event, "actor") else "system",
-            promotion_stage=promotion_event.to_stage.value if hasattr(promotion_event, "to_stage") else "production",
+            promoted_at=promotion_event.timestamp
+            if hasattr(promotion_event, "timestamp")
+            else datetime.now(UTC),
+            promoted_by=promotion_event.actor
+            if hasattr(promotion_event, "actor")
+            else "system",
+            promotion_stage=promotion_event.to_stage.value
+            if hasattr(promotion_event, "to_stage")
+            else "production",
             parameters=artifact.metadata.get("parameters", {}),
             metadata=artifact.metadata,
         )
@@ -179,7 +185,9 @@ class RuntimeLoader:
         self.config = config or get_authority_config()
         self.poll_interval = poll_interval_seconds
 
-        self._loaded: dict[str, PromotedStrategy] = {}  # artifact_id -> PromotedStrategy
+        self._loaded: dict[
+            str, PromotedStrategy
+        ] = {}  # artifact_id -> PromotedStrategy
         self._lock = threading.RLock()
         self._watcher_thread: threading.Thread | None = None
         self._stop_event = threading.Event()
@@ -315,7 +323,9 @@ class RuntimeLoader:
                 except Exception as e:
                     logger.error(f"RuntimeLoader callback failed: {e}")
 
-            logger.info(f"Loaded promoted strategy: {artifact.strategy_name} ({artifact.artifact_id[:8]})")
+            logger.info(
+                f"Loaded promoted strategy: {artifact.strategy_name} ({artifact.artifact_id[:8]})"
+            )
             return strategy
 
     def _write_manifest(self, manifest: PromotedStrategyManifest) -> None:

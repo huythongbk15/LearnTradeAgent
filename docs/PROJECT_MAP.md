@@ -232,6 +232,16 @@
 │       │   ├── methodology.py
 │       │   ├── pipeline.py
 │       │   └── stats.py
+│       ├── authority
+│       │   ├── __init__.py
+│       │   ├── audit.py
+│       │   ├── causation.py
+│       │   ├── config.py
+│       │   ├── decision.py
+│       │   ├── execution.py
+│       │   ├── exposure.py
+│       │   ├── loader.py
+│       │   └── portfolio.py
 │       ├── backtest
 │       │   ├── __init__.py
 │       │   └── engine.py
@@ -291,6 +301,10 @@
 │       │   │   ├── liquidity_aware_twap.py
 │       │   │   ├── mpc.py
 │       │   │   └── pov.py
+│       │   ├── backtest_sim
+│       │   │   ├── __init__.py
+│       │   │   ├── backtest_integration.py
+│       │   │   └── models.py
 │       │   ├── canonical
 │       │   │   ├── __init__.py
 │       │   │   ├── adapters.py
@@ -559,6 +573,7 @@
 ├── P0_STATUS.md
 ├── PROJECT_SCORE.md
 ├── README.md
+├── SYSTEM_MAP.md
 ├── TIER1_TIER2_PLAN.md
 ├── TRADE_FLOW.md
 ├── TRADING_SYSTEM_OVERVIEW.md

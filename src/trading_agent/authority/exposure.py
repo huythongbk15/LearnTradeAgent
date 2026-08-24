@@ -15,10 +15,13 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any
 
 from trading_agent.authority.causation import CausationChain
-from trading_agent.authority.config import AuthorityConfig, ExposureConfig, get_authority_config
+from trading_agent.authority.config import (
+    AuthorityConfig,
+    ExposureConfig,
+    get_authority_config,
+)
 from trading_agent.authority.decision import TargetExposure
 from trading_agent.execution.canonical.order_planner import ExposureEffect
 
@@ -153,7 +156,9 @@ class ExposureAuthority:
 
         except Exception as e:
             logger.error(f"ExposureAuthority failed: {e}", exc_info=True)
-            return self._deny(input_, chain, [f"Internal error: {e}"], ("internal_error",))
+            return self._deny(
+                input_, chain, [f"Internal error: {e}"], ("internal_error",)
+            )
 
     def _classify_effect(self, delta: float) -> ExposureEffect:
         """Classify exposure change direction."""
@@ -262,7 +267,10 @@ class ExposureAuthority:
                 f"max_notional_breach: {trade_notional:.2f} > {self.exposure_config.max_trade_notional}",
             )
 
-        if effect == ExposureEffect.INCREASE and trade_notional < self.exposure_config.min_trade_notional:
+        if (
+            effect == ExposureEffect.INCREASE
+            and trade_notional < self.exposure_config.min_trade_notional
+        ):
             return (
                 False,
                 f"trade_notional {trade_notional:.2f} < min {self.exposure_config.min_trade_notional}",
@@ -290,41 +298,67 @@ class ExposureAuthority:
         target = input_.target_exposure.target_exposure_pct
 
         # Portfolio cap
-        max_by_portfolio = self.exposure_config.max_portfolio_exposure - input_.portfolio_exposure + input_.current_exposure
+        max_by_portfolio = (
+            self.exposure_config.max_portfolio_exposure
+            - input_.portfolio_exposure
+            + input_.current_exposure
+        )
         target = min(target, max_by_portfolio)
 
         # Strategy cap
-        max_by_strategy = self.exposure_config.max_single_strategy_exposure - input_.strategy_exposure + input_.current_exposure
+        max_by_strategy = (
+            self.exposure_config.max_single_strategy_exposure
+            - input_.strategy_exposure
+            + input_.current_exposure
+        )
         target = min(target, max_by_strategy)
 
         # Symbol cap
         target = min(target, self.exposure_config.max_single_symbol_exposure)
 
         # Correlation cap
-        max_by_corr = self.exposure_config.max_correlated_exposure - input_.correlation_exposure + input_.current_exposure
+        max_by_corr = (
+            self.exposure_config.max_correlated_exposure
+            - input_.correlation_exposure
+            + input_.current_exposure
+        )
         target = min(target, max_by_corr)
 
         # Cash cap
-        max_by_cash = input_.available_cash / input_.equity if input_.equity > 0 else 0.0
+        max_by_cash = (
+            input_.available_cash / input_.equity if input_.equity > 0 else 0.0
+        )
         target = min(target, max_by_cash)
 
         # Notional caps
-        max_notional = self.exposure_config.max_trade_notional / input_.equity if input_.equity > 0 else 0.0
+        max_notional = (
+            self.exposure_config.max_trade_notional / input_.equity
+            if input_.equity > 0
+            else 0.0
+        )
         target = min(target, max_notional)
 
-        min_notional = self.exposure_config.min_trade_notional / input_.equity if input_.equity > 0 else 0.0
+        min_notional = (
+            self.exposure_config.min_trade_notional / input_.equity
+            if input_.equity > 0
+            else 0.0
+        )
         if target > 0 and target < min_notional:
             target = 0.0
 
         return max(0.0, target)
 
-    def _cap_max_new(self, input_: ExposureValidationInput, capped_target: float) -> float:
+    def _cap_max_new(
+        self, input_: ExposureValidationInput, capped_target: float
+    ) -> float:
         """Compute capped max_new_exposure."""
         max_new = input_.target_exposure.max_new_exposure_pct
         max_new = min(max_new, capped_target)  # Can't exceed target
         max_new = min(max_new, self.exposure_config.max_single_symbol_exposure)
         max_new = min(max_new, self.exposure_config.max_single_strategy_exposure)
-        max_new = min(max_new, input_.available_cash / input_.equity if input_.equity > 0 else 0.0)
+        max_new = min(
+            max_new, input_.available_cash / input_.equity if input_.equity > 0 else 0.0
+        )
         return max(0.0, max_new)
 
     # ── Deny helper ────────────────────────────────────────────────────

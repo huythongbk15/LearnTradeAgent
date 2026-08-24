@@ -68,7 +68,10 @@ def _canonicalize_inputs(inputs: dict[str, Any]) -> dict[str, Any]:
 
     def _convert(v: Any) -> Any:
         if isinstance(v, dict):
-            return {str(k): _convert(v) for k, v in sorted(v.items(), key=lambda kv: str(kv[0]))}
+            return {
+                str(k): _convert(v)
+                for k, v in sorted(v.items(), key=lambda kv: str(kv[0]))
+            }
         if isinstance(v, (list, tuple)):
             return [_convert(item) for item in v]
         if isinstance(v, (datetime, uuid.UUID)):
@@ -151,9 +154,15 @@ class CausationChain:
         metadata: dict[str, Any] | None = None,
     ) -> "CausationChain":
         """Append a new authority link, returning a new chain."""
-        prev_outputs_hash = self.links[-1].outputs_hash if self.links else self.root_inputs_hash
-        inputs_hash = _sha256_base64url(json.dumps(_canonicalize_inputs(inputs), sort_keys=True).encode())
-        outputs_hash = _sha256_base64url(json.dumps(_canonicalize_inputs(outputs), sort_keys=True).encode())
+        prev_outputs_hash = (
+            self.links[-1].outputs_hash if self.links else self.root_inputs_hash
+        )
+        inputs_hash = _sha256_base64url(
+            json.dumps(_canonicalize_inputs(inputs), sort_keys=True).encode()
+        )
+        outputs_hash = _sha256_base64url(
+            json.dumps(_canonicalize_inputs(outputs), sort_keys=True).encode()
+        )
 
         causation_id = generate_causation_id(
             authority=authority,
@@ -224,7 +233,10 @@ class CausationChain:
         prev_outputs = self.root_inputs_hash
         for i, link in enumerate(self.links):
             if link.inputs_hash != prev_outputs:
-                return False, f"Link {i} ({link.authority}): inputs_hash {link.inputs_hash} != prev_outputs {prev_outputs}"
+                return (
+                    False,
+                    f"Link {i} ({link.authority}): inputs_hash {link.inputs_hash} != prev_outputs {prev_outputs}",
+                )
             # Note: We can't verify causation_id without re-hashing (would need original inputs/outputs)
             prev_outputs = link.outputs_hash
 
@@ -304,11 +316,15 @@ class CausationChainModel(BaseModel):
 
 def new_chain(root_inputs: dict[str, Any]) -> CausationChain:
     """Create a new causation chain with root inputs hash."""
-    root_hash = _sha256_base64url(json.dumps(_canonicalize_inputs(root_inputs), sort_keys=True).encode())
+    root_hash = _sha256_base64url(
+        json.dumps(_canonicalize_inputs(root_inputs), sort_keys=True).encode()
+    )
     return CausationChain(links=(), root_inputs_hash=root_hash)
 
 
-def authority_id(authority: str, inputs: dict[str, Any], prev_chain: CausationChain | None = None) -> str:
+def authority_id(
+    authority: str, inputs: dict[str, Any], prev_chain: CausationChain | None = None
+) -> str:
     """Generate a causation ID for an authority decision."""
     prev = prev_chain.latest_id if prev_chain else None
     return generate_causation_id(authority=authority, inputs=inputs, prev_id=prev)

@@ -86,6 +86,9 @@ class UnifiedRiskDecision:
     created_at: datetime
     metadata: dict[str, Any] = field(default_factory=dict)
     warnings: tuple[str, ...] = ()
+    authority_chain: tuple[Any, ...] = field(
+        default_factory=tuple
+    )  # CausationLink chain
 
     def __post_init__(self) -> None:
         # Validate numeric ranges without mutating the frozen instance.
@@ -187,6 +190,17 @@ class UnifiedRiskDecision:
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "metadata": self.metadata,
             "warnings": list(self.warnings),
+            "authority_chain": [
+                {
+                    "authority": link.authority,
+                    "causation_id": link.causation_id,
+                    "inputs_hash": link.inputs_hash,
+                    "outputs_hash": link.outputs_hash,
+                    "timestamp": link.timestamp.isoformat(),
+                    "metadata": link.metadata,
+                }
+                for link in self.authority_chain
+            ],
         }
 
     @classmethod
@@ -195,6 +209,24 @@ class UnifiedRiskDecision:
         created_at = data.get("created_at")
         if isinstance(created_at, str):
             created_at = datetime.fromisoformat(created_at)
+
+        # Parse authority_chain if present
+        authority_chain = ()
+        if "authority_chain" in data and data["authority_chain"]:
+            from trading_agent.authority.causation import CausationLink
+
+            authority_chain = tuple(
+                CausationLink(
+                    authority=link["authority"],
+                    causation_id=link["causation_id"],
+                    inputs_hash=link["inputs_hash"],
+                    outputs_hash=link["outputs_hash"],
+                    timestamp=datetime.fromisoformat(link["timestamp"]),
+                    metadata=link.get("metadata", {}),
+                )
+                for link in data["authority_chain"]
+            )
+
         return cls(
             decision_id=data["decision_id"],
             forecast_fingerprint=data.get("forecast_fingerprint", ""),
@@ -219,6 +251,7 @@ class UnifiedRiskDecision:
             created_at=created_at or datetime.now(UTC),
             metadata=data.get("metadata", {}),
             warnings=tuple(data.get("warnings", [])),
+            authority_chain=authority_chain,
         )
 
 
@@ -239,6 +272,7 @@ class RiskDecisionAdapter:
         regime_state: EvidenceState = EvidenceState.UNKNOWN,
         regime_entropy: float = 1.0,
         interval_width: float = 1.0,
+        authority_chain: tuple[Any, ...] = (),
     ) -> UnifiedRiskDecision:
         """Build a UnifiedRiskDecision from a legacy RiskDecision.
 
@@ -282,6 +316,7 @@ class RiskDecisionAdapter:
             interval_width=interval_width,
             created_at=now,
             warnings=legacy.warnings,
+            authority_chain=authority_chain,
         )
 
     @staticmethod
@@ -299,6 +334,7 @@ class RiskDecisionAdapter:
         regime_entropy: float = 1.0,
         interval_width: float = 1.0,
         warnings: tuple[str, ...] = (),
+        authority_chain: tuple[Any, ...] = (),
     ) -> UnifiedRiskDecision:
         """Build a UnifiedRiskDecision from the canonical forecast RiskDecision.
 
@@ -336,6 +372,7 @@ class RiskDecisionAdapter:
             interval_width=interval_width,
             created_at=now,
             warnings=warnings,
+            authority_chain=authority_chain,
         )
 
     @staticmethod
@@ -351,6 +388,7 @@ class RiskDecisionAdapter:
         regime_state: EvidenceState = EvidenceState.UNKNOWN,
         regime_entropy: float = 1.0,
         interval_width: float = 1.0,
+        authority_chain: tuple[Any, ...] = (),
     ) -> UnifiedRiskDecision:
         """Merge both legacy and forecast decisions into one unified type.
 
@@ -371,6 +409,7 @@ class RiskDecisionAdapter:
             regime_state=regime_state,
             regime_entropy=regime_entropy,
             interval_width=interval_width,
+            authority_chain=authority_chain,
         )
         forecast_unified = RiskDecisionAdapter.from_forecast(
             forecast,
@@ -384,6 +423,8 @@ class RiskDecisionAdapter:
             regime_state=regime_state,
             regime_entropy=regime_entropy,
             interval_width=interval_width,
+            warnings=legacy_unified.warnings,
+            authority_chain=authority_chain,
         )
         # Apply blocking reasons from forecast
         if not forecast.approved:
@@ -407,6 +448,7 @@ class RiskDecisionAdapter:
                 interval_width=forecast_unified.interval_width,
                 created_at=forecast_unified.created_at,
                 warnings=forecast_unified.warnings + legacy_unified.warnings,
+                authority_chain=authority_chain,
             )
         return forecast_unified
 

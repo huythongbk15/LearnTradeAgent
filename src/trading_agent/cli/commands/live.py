@@ -234,8 +234,19 @@ def execution_risk_status():
     help="Stop-loss distance (e.g. 0.05 = 5%)",
 )
 @click.option("--confirm/--auto", default=False, help="Prompt before executing trade")
+@click.option(
+    "--authority-config",
+    type=click.Path(exists=True, dir_okay=False),
+    default=None,
+    help="Path to authority config YAML (environment preset: research|paper|staging|production)",
+)
 def execution_run(
-    symbol: str, timeframe: str, capital: float | None, stop_loss: float, confirm: bool
+    symbol: str,
+    timeframe: str,
+    capital: float | None,
+    stop_loss: float,
+    confirm: bool,
+    authority_config: str | None,
 ):
     """Run agents → execute signal → paper trade.
 
@@ -246,7 +257,14 @@ def execution_run(
     from trading_agent.execution.risk_controller import RiskController
 
     # 1. Get current position if any
-    engine = ExecutionEngine(initial_capital=capital)
+    authority_cfg = None
+    if authority_config:
+        from trading_agent.authority import AuthorityConfig, set_authority_config
+
+        authority_cfg = AuthorityConfig.from_yaml(authority_config)
+        set_authority_config(authority_cfg)
+
+    engine = ExecutionEngine(initial_capital=capital, authority_config=authority_cfg)
     rc = RiskController(engine)
     existing_pos = engine.exchange.get_position(symbol)
     current_pos_pct = (
@@ -419,19 +437,33 @@ def execution_reset(yes: bool):
 @click.option("--capital", "-c", default=None, type=float, help="Portfolio value")
 @click.option("--stop-loss", "-s", default=0.05, type=float, help="Stop-loss %")
 @click.option("--parallel/--sequential", default=True, help="Run agents in parallel")
+@click.option(
+    "--authority-config",
+    type=click.Path(exists=True, dir_okay=False),
+    default=None,
+    help="Path to authority config YAML (environment preset: research|paper|staging|production)",
+)
 def execution_run_multi(
     symbols: tuple[str],
     timeframe: str,
     capital: float | None,
     stop_loss: float,
     parallel: bool,
+    authority_config: str | None,
 ):
     """Run execution cycle for multiple symbols."""
     from trading_agent.agents.orchestrator import Orchestrator
     from trading_agent.execution.engine import ExecutionEngine
     from trading_agent.execution.risk_controller import RiskController
 
-    engine = ExecutionEngine(initial_capital=capital)
+    authority_cfg = None
+    if authority_config:
+        from trading_agent.authority import AuthorityConfig, set_authority_config
+
+        authority_cfg = AuthorityConfig.from_yaml(authority_config)
+        set_authority_config(authority_cfg)
+
+    engine = ExecutionEngine(initial_capital=capital, authority_config=authority_cfg)
     rc = RiskController(engine)
     console.print(
         f"[bold]Running multi-symbol execution for: {', '.join(symbols)}[/bold]"
@@ -520,10 +552,52 @@ def execution_run_multi(
 
 # ── live trading subcommands ─────────────────────────────────────────────
 
+from trading_agent.authority.config import (
+    AuthorityConfig,
+    Environment,
+    set_authority_config,
+)
+
+
+def _load_authority_config(ctx, param, value):
+    """Load AuthorityConfig from environment preset or YAML file."""
+    if value is None:
+        return None
+    # Try as environment preset first
+    try:
+        env = Environment(value.lower())
+        config = AuthorityConfig.for_environment(env)
+        set_authority_config(config)
+        return config
+    except ValueError:
+        pass
+    # Try as YAML file path
+    from pathlib import Path
+
+    path = Path(value)
+    if path.exists():
+        config = AuthorityConfig.load(path)
+        set_authority_config(config)
+        return config
+    raise click.BadParameter(
+        f"Invalid authority config: '{value}'. Must be one of: "
+        f"{', '.join([e.value for e in Environment])} or a path to a YAML config file."
+    )
+
 
 @click.group()
-def live():
+@click.option(
+    "--authority-config",
+    type=str,
+    default=None,
+    callback=_load_authority_config,
+    help="Authority config: environment preset (research/paper/testnet/shadow/canary/production) or path to YAML config file",
+)
+@click.pass_context
+def live(ctx, authority_config):
     """Broker monitoring; execution is restricted to Alpaca Paper."""
+    ctx.ensure_object(dict)
+    ctx.obj["authority_config"] = authority_config
 
 
 def _paper_execution_error(broker: str, broker_facade: Any) -> str | None:

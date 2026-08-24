@@ -19,7 +19,11 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from trading_agent.authority.causation import CausationChain, new_chain
-from trading_agent.authority.config import AuthorityConfig, ExposureConfig, get_authority_config
+from trading_agent.authority.config import (
+    AuthorityConfig,
+    ExposureConfig,
+    get_authority_config,
+)
 from trading_agent.authority.decision import TargetExposure
 
 logger = logging.getLogger(__name__)
@@ -117,7 +121,9 @@ class PositionSizer:
             target = self._fixed_fraction_sizing(target, **method_kwargs)
 
         # Instrument rules caps
-        target = min(target, instrument_rules.max_notional / equity if equity > 0 else 0.0)
+        target = min(
+            target, instrument_rules.max_notional / equity if equity > 0 else 0.0
+        )
         target = min(target, available_cash / equity if equity > 0 else 0.0)
 
         # Min notional floor
@@ -171,7 +177,9 @@ class PositionSizer:
         # Use half-Kelly for safety
         return base_target * (kelly_fraction * 0.5)
 
-    def _fixed_fraction_sizing(self, base_target: float, fraction: float = 1.0) -> float:
+    def _fixed_fraction_sizing(
+        self, base_target: float, fraction: float = 1.0
+    ) -> float:
         """Fixed fraction of allocated budget."""
         return base_target * fraction
 
@@ -216,7 +224,9 @@ class PortfolioAllocator:
             strategy_budget_available = budget.max_exposure - budget.allocated_exposure
 
             # Portfolio-level available budget
-            portfolio_available = self.exposure_config.max_portfolio_exposure - request.portfolio_exposure
+            portfolio_available = (
+                self.exposure_config.max_portfolio_exposure - request.portfolio_exposure
+            )
 
             # Correlation cluster adjustment
             cluster_adjustment = self._cluster_adjustment(request.correlation_cluster)
@@ -232,10 +242,14 @@ class PortfolioAllocator:
             allocation = max(0.0, allocation)
 
             # Symbol-level cap
-            allocation = min(allocation, self.exposure_config.max_single_symbol_exposure)
+            allocation = min(
+                allocation, self.exposure_config.max_single_symbol_exposure
+            )
 
             # Cash availability
-            max_by_cash = request.available_cash / request.equity if request.equity > 0 else 0.0
+            max_by_cash = (
+                request.available_cash / request.equity if request.equity > 0 else 0.0
+            )
             allocation = min(allocation, max_by_cash)
 
             # Convert to TargetExposure via PositionSizer
@@ -243,7 +257,9 @@ class PortfolioAllocator:
             # For now, create basic TargetExposure
             target = TargetExposure(
                 target_exposure_pct=allocation,
-                max_new_exposure_pct=min(allocation, request.risk_decision.max_new_exposure),
+                max_new_exposure_pct=min(
+                    allocation, request.risk_decision.max_new_exposure
+                ),
                 reduce_only=request.risk_decision.reduce_only,
                 confidence=0.5,
                 authority_chain=(),
@@ -252,7 +268,9 @@ class PortfolioAllocator:
             # Update budget tracking
             if allocation > 0:
                 budget.allocated_exposure += allocation
-                budget.symbols[request.symbol] = budget.symbols.get(request.symbol, 0.0) + allocation
+                budget.symbols[request.symbol] = (
+                    budget.symbols.get(request.symbol, 0.0) + allocation
+                )
 
             # Causation chain
             chain = chain.append(
@@ -267,7 +285,8 @@ class PortfolioAllocator:
                 },
                 outputs={
                     "allocated": allocation,
-                    "allocation_pct": allocation / self.exposure_config.max_portfolio_exposure
+                    "allocation_pct": allocation
+                    / self.exposure_config.max_portfolio_exposure
                     if self.exposure_config.max_portfolio_exposure > 0
                     else 0.0,
                 },
@@ -303,7 +322,9 @@ class PortfolioAllocator:
                 warnings=("allocation_error",),
             )
 
-    def _get_or_create_budget(self, strategy_id: str, request: AllocationRequest) -> StrategyBudget:
+    def _get_or_create_budget(
+        self, strategy_id: str, request: AllocationRequest
+    ) -> StrategyBudget:
         """Get or create strategy budget."""
         if strategy_id not in self._strategy_budgets:
             self._strategy_budgets[strategy_id] = StrategyBudget(
@@ -341,7 +362,9 @@ class PortfolioAllocator:
     def get_portfolio_snapshot(self) -> dict[str, Any]:
         """Get current portfolio allocation snapshot."""
         return {
-            "total_allocated": sum(b.allocated_exposure for b in self._strategy_budgets.values()),
+            "total_allocated": sum(
+                b.allocated_exposure for b in self._strategy_budgets.values()
+            ),
             "strategies": {
                 sid: {
                     "max_exposure": b.max_exposure,

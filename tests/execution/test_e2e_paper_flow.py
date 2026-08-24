@@ -1352,9 +1352,32 @@ class TestExecutionEngineE2E:
             CanonicalExecutionService,
             ExecutionSubmission,
         )
+        from trading_agent.authority import (
+            DecisionOutput,
+            ExposureValidationOutput,
+            ExecutionValidationOutput,
+            TargetExposure,
+        )
+        from trading_agent.authority.causation import new_chain
 
         event_store = ExecutionEventStore(tmp_path / "engine-unknown.db").connect()
-        engine = ExecutionEngine(exchange_name="paper", store=event_store)
+        # Need instrument_rules for execution_authority to be created
+        from trading_agent.execution.canonical import InstrumentRules
+
+        rules = InstrumentRules(
+            symbol="BTC/USDT",
+            asset_class=AssetClass.CRYPTO,
+            min_order_qty=0.0001,
+            max_order_qty=1000.0,
+            qty_step=0.0001,
+            price_precision=2,
+            min_notional=10.0,
+            max_notional=1000000.0,
+            spot_long_only=True,
+        )
+        engine = ExecutionEngine(
+            exchange_name="paper", store=event_store, instrument_rules=rules
+        )
 
         # Mock execution_service since engine is created without instrument_rules
         engine.execution_service = MagicMock(spec=CanonicalExecutionService)
@@ -1425,7 +1448,10 @@ class TestExecutionEngineE2E:
             broker_event=None,
         )
 
-        # Mock legacy_adapter to return our risk decision
+        # Build authority chain mock outputs
+        chain = new_chain({"authority": "DecisionAuthority", "symbol": "BTC/USDT"})
+
+        # DecisionAuthority output
         risk_decision = UnifiedRiskDecision(
             decision_id="rd-unknown-1",
             forecast_fingerprint="fp-unknown-1",
@@ -1445,6 +1471,49 @@ class TestExecutionEngineE2E:
             regime_entropy=0.0,
             interval_width=0.0,
             created_at=datetime.now(UTC),
+            authority_chain=chain.links,
+        )
+        target = TargetExposure(
+            target_exposure_pct=0.05,
+            max_new_exposure_pct=0.05,
+            reduce_only=False,
+            confidence=0.5,
+            authority_chain=chain.links,
+        )
+        decision_output = DecisionOutput(
+            risk_decision=risk_decision,
+            target_exposure=target,
+            causation_chain=chain,
+        )
+
+        # ExposureAuthority output
+        exposure_chain = chain.append(
+            authority="ExposureAuthority",
+            inputs={"requested_target": 0.05, "current_exposure": 0.0},
+            outputs={"allowed": True, "allowed_target": 0.05, "allowed_max_new": 0.05},
+        )
+        exposure_output = ExposureValidationOutput(
+            allowed=True,
+            exposure_effect=ExposureEffect.INCREASE,
+            allowed_target_exposure=0.05,
+            allowed_max_new_exposure=0.05,
+            allowed_delta=0.05,
+            reason="All exposure checks passed",
+            causation_chain=exposure_chain,
+        )
+
+        # ExecutionAuthority output
+        exec_chain = exposure_chain.append(
+            authority="ExecutionAuthority",
+            inputs={"intent_id": "intent-unknown-1", "symbol": "BTC/USDT"},
+            outputs={"claim_status": "CLAIMED", "broker_state": "UNKNOWN"},
+        )
+        exec_output = ExecutionValidationOutput(
+            allowed=True,
+            intent_status=MagicMock(value="CLAIMED"),
+            broker_result=unknown_result,
+            causation_chain=exec_chain,
+            reason="Order submitted successfully",
         )
 
         engine.execution_service.plan.return_value = OrderPlanningResult(
@@ -1456,19 +1525,16 @@ class TestExecutionEngineE2E:
         )
         engine.execution_service.submit_planned.return_value = mock_submission_result
 
-        with patch.object(
-            engine.legacy_adapter,
-            "adapt",
-            return_value=(
-                risk_decision,
-                TargetExposure(
-                    symbol="BTC/USDT",
-                    exposure=0.05,
-                    horizon=1,
-                    forecast_fingerprint="fp-unknown-1",
-                    model_artifact_id="m-unknown-1",
-                    risk_decision_id="rd-unknown-1",
-                ),
+        # Mock the authority chain
+        with (
+            patch.object(
+                engine.decision_authority, "decide", return_value=decision_output
+            ),
+            patch.object(
+                engine.exposure_authority, "validate", return_value=exposure_output
+            ),
+            patch.object(
+                engine.execution_authority, "execute", return_value=exec_output
             ),
         ):
             orders = engine.execute_signal(signal, observation=observation)
@@ -2225,11 +2291,33 @@ class TestP1ConvergenceProofs:
         from trading_agent.execution.lifecycle.lifecycle import ExposureEffect
         from trading_agent.execution.application import (
             CanonicalExecutionService,
-            ExecutionSubmission,
         )
+        from trading_agent.authority import (
+            DecisionOutput,
+            ExposureValidationOutput,
+            ExecutionValidationOutput,
+            TargetExposure,
+        )
+        from trading_agent.authority.causation import new_chain
+        from trading_agent.execution.canonical import InstrumentRules
+        from trading_agent.exchanges.models import AssetClass
 
         store = ExecutionEventStore(str(tmp_path / "events.db")).connect()
-        engine = ExecutionEngine(exchange_name="paper", store=store)
+        # Need instrument_rules for execution_authority to be created
+        rules = InstrumentRules(
+            symbol="BTC/USDT",
+            asset_class=AssetClass.CRYPTO,
+            min_order_qty=0.0001,
+            max_order_qty=1000.0,
+            qty_step=0.0001,
+            price_precision=2,
+            min_notional=10.0,
+            max_notional=1000000.0,
+            spot_long_only=True,
+        )
+        engine = ExecutionEngine(
+            exchange_name="paper", store=store, instrument_rules=rules
+        )
         engine.execution_service = MagicMock(spec=CanonicalExecutionService)
         engine.exchange._last_price_cache["BTC/USDT"] = 50000.0
         engine.exchange._last_price_timestamps["BTC/USDT"] = datetime.now(
@@ -2264,11 +2352,10 @@ class TestP1ConvergenceProofs:
             },
         )
 
-        # Track submission calls
-        submit_calls = []
+        # Track ExecutionAuthority.execute calls
+        exec_auth_calls = []
 
         # Mock intent that passes permission check
-        # PaperExchange default initial_balance is 10_000, so 0.01 BTC @ 50k = 0.05 exposure ratio
         mock_intent = OrderIntent(
             intent_id="intent-unknown-engine",
             decision_id="rd-unknown-engine",
@@ -2310,12 +2397,10 @@ class TestP1ConvergenceProofs:
         )
 
         mock_target = TargetExposure(
-            symbol="BTC/USDT",
-            exposure=0.05,
-            horizon=14400,
-            forecast_fingerprint="fp-unknown-engine",
-            model_artifact_id="m-unknown-engine",
-            risk_decision_id="rd-unknown-engine",
+            target_exposure_pct=0.05,
+            max_new_exposure_pct=0.05,
+            reduce_only=False,
+            confidence=0.5,
         )
 
         # Mock execution_service.plan to return ORDER_REQUIRED
@@ -2327,43 +2412,104 @@ class TestP1ConvergenceProofs:
             executable_delta=0.01,
         )
 
-        # Mock execution_service.submit_planned to return UNKNOWN broker state
-        def mock_submit_planned(
-            planning, risk_decision, permission_context, correlation_id=None
-        ):
-            submit_calls.append(correlation_id)
+        # Build authority chain mock outputs
+        chain = new_chain({"authority": "DecisionAuthority", "symbol": "BTC/USDT"})
+
+        # DecisionAuthority output
+        risk_decision = UnifiedRiskDecision(
+            decision_id="rd-unknown-engine",
+            forecast_fingerprint="fp-unknown-engine",
+            model_artifact_id="m-unknown-engine",
+            requested_target_exposure=0.06,
+            allowed_target_exposure=0.06,
+            max_new_exposure=0.06,
+            reduce_only=False,
+            risk_level=RiskLevel.LOW,
+            reason_codes=(),
+            calibration_state=EvidenceState.KNOWN,
+            calibration_artifact_id="cal-unknown-engine",
+            calibration_ece=0.0,
+            ood_state=EvidenceState.KNOWN,
+            ood_score=0.0,
+            regime_state=EvidenceState.KNOWN,
+            regime_entropy=0.0,
+            interval_width=0.0,
+            created_at=datetime.now(UTC),
+            authority_chain=chain.links,
+        )
+        target = TargetExposure(
+            target_exposure_pct=0.05,
+            max_new_exposure_pct=0.05,
+            reduce_only=False,
+            confidence=0.5,
+            authority_chain=chain.links,
+        )
+        decision_output = DecisionOutput(
+            risk_decision=risk_decision,
+            target_exposure=target,
+            causation_chain=chain,
+        )
+
+        # ExposureAuthority output
+        exposure_chain = chain.append(
+            authority="ExposureAuthority",
+            inputs={"requested_target": 0.05, "current_exposure": 0.0},
+            outputs={"allowed": True, "allowed_target": 0.05, "allowed_max_new": 0.05},
+        )
+        exposure_output = ExposureValidationOutput(
+            allowed=True,
+            exposure_effect=ExposureEffect.INCREASE,
+            allowed_target_exposure=0.05,
+            allowed_max_new_exposure=0.05,
+            allowed_delta=0.05,
+            reason="All exposure checks passed",
+            causation_chain=exposure_chain,
+        )
+
+        # ExecutionAuthority output - track calls
+        def mock_execute(input_):
+            exec_auth_calls.append(input_)
+            exec_chain = exposure_chain.append(
+                authority="ExecutionAuthority",
+                inputs={"intent_id": "intent-unknown-engine", "symbol": "BTC/USDT"},
+                outputs={"claim_status": "CLAIMED", "broker_state": "UNKNOWN"},
+            )
             unknown_result = BrokerSubmitResult(
                 success=True,
                 broker_order_id="broker-unknown-engine",
                 state=BrokerSubmitState.UNKNOWN,
                 error=None,
             )
-            return ExecutionSubmission(
-                intent_id=correlation_id,
-                result=unknown_result,
-                broker_event=None,
+            return ExecutionValidationOutput(
+                allowed=True,
+                intent_status=MagicMock(value="CLAIMED"),
+                broker_result=unknown_result,
+                causation_chain=exec_chain,
+                reason="Order submitted successfully",
             )
-
-        engine.execution_service.submit_planned.side_effect = mock_submit_planned
 
         with (
             patch.object(
-                engine.legacy_adapter,
-                "adapt",
-                return_value=(mock_risk_decision, mock_target),
+                engine.decision_authority, "decide", return_value=decision_output
+            ),
+            patch.object(
+                engine.exposure_authority, "validate", return_value=exposure_output
+            ),
+            patch.object(
+                engine.execution_authority, "execute", side_effect=mock_execute
             ),
         ):
             orders = engine.execute_signal(signal, observation=observation)
 
-        # Engine should have called submit exactly once (no resubmit on UNKNOWN)
-        assert len(submit_calls) == 1
+        # Engine should have called ExecutionAuthority.execute exactly once (no resubmit on UNKNOWN)
+        assert len(exec_auth_calls) == 1
         # Engine should not raise; UNKNOWN is handled gracefully
         assert isinstance(orders, list)
 
     def test_engine_full_state_restart_preserves_orders(self):
         """P0-9: Engine full-state restart must preserve in-flight orders."""
         import os
-        from unittest.mock import patch
+        from unittest.mock import patch, MagicMock
         from trading_agent.execution.engine import ExecutionEngine
         from trading_agent.execution.canonical.broker_gateway import (
             BrokerSubmitResult,
@@ -2372,6 +2518,14 @@ class TestP1ConvergenceProofs:
         from trading_agent.execution.canonical.order_planner import (
             InstrumentRules,
         )
+        from trading_agent.authority import (
+            DecisionOutput,
+            ExposureValidationOutput,
+            ExecutionValidationOutput,
+            TargetExposure,
+        )
+        from trading_agent.authority.causation import new_chain
+        from trading_agent.execution.lifecycle.lifecycle import ExposureEffect
 
         with tempfile.TemporaryDirectory() as tmpdir:
             # Use tmpdir as cwd so engine's relative DB path resolves here
@@ -2426,11 +2580,11 @@ class TestP1ConvergenceProofs:
                     },
                 )
 
-                # Track submission calls
-                submit_calls = []
+                # Track gateway submit calls
+                gateway_submit_calls = []
 
-                def mock_submit(authorized, correlation_id=None):
-                    submit_calls.append(correlation_id)
+                def mock_gateway_submit(authorized, correlation_id=None):
+                    gateway_submit_calls.append(correlation_id)
                     return BrokerSubmitResult(
                         success=True,
                         broker_order_id="broker-restart",
@@ -2438,10 +2592,18 @@ class TestP1ConvergenceProofs:
                         error=None,
                     )
 
-                # Mock risk decision that allows new exposure
-                mock_risk_decision = UnifiedRiskDecision(
+                # Build authority chain mock outputs
+                chain = new_chain(
+                    {"authority": "DecisionAuthority", "symbol": "BTC/USDT"}
+                )
+
+                # DecisionAuthority output - use chain link fingerprint for consistency
+                chain_link_fp = (
+                    chain.links[0].inputs_hash if chain.links else "fp-restart"
+                )
+                risk_decision = UnifiedRiskDecision(
                     decision_id="rd-restart",
-                    forecast_fingerprint="fp-restart",
+                    forecast_fingerprint=chain_link_fp,
                     model_artifact_id="m-restart",
                     requested_target_exposure=0.06,
                     allowed_target_exposure=0.06,
@@ -2457,26 +2619,81 @@ class TestP1ConvergenceProofs:
                     regime_state=EvidenceState.KNOWN,
                     regime_entropy=0.0,
                     interval_width=0.0,
-                    created_at=now,
+                    created_at=datetime.now(UTC),
+                    authority_chain=chain.links,
+                )
+                target = TargetExposure(
+                    target_exposure_pct=0.05,
+                    max_new_exposure_pct=0.05,
+                    reduce_only=False,
+                    confidence=0.5,
+                    authority_chain=chain.links,
+                )
+                decision_output = DecisionOutput(
+                    risk_decision=risk_decision,
+                    target_exposure=target,
+                    causation_chain=chain,
                 )
 
-                mock_target = TargetExposure(
-                    symbol="BTC/USDT",
-                    exposure=0.05,
-                    horizon=14400,
-                    forecast_fingerprint="fp-restart",
-                    model_artifact_id="m-restart",
-                    risk_decision_id="rd-restart",
+                # ExposureAuthority output
+                exposure_chain = chain.append(
+                    authority="ExposureAuthority",
+                    inputs={"requested_target": 0.05, "current_exposure": 0.0},
+                    outputs={
+                        "allowed": True,
+                        "allowed_target": 0.05,
+                        "allowed_max_new": 0.05,
+                    },
+                )
+                exposure_output = ExposureValidationOutput(
+                    allowed=True,
+                    exposure_effect=ExposureEffect.INCREASE,
+                    allowed_target_exposure=0.05,
+                    allowed_max_new_exposure=0.05,
+                    allowed_delta=0.05,
+                    reason="All exposure checks passed",
+                    causation_chain=exposure_chain,
                 )
 
-                # Use real execution_service but mock the gateway submit
+                # ExecutionAuthority output - let it call the real gateway.submit (which is mocked)
+                def mock_execute(input_):
+                    exec_chain = exposure_chain.append(
+                        authority="ExecutionAuthority",
+                        inputs={
+                            "intent_id": "intent-unknown-engine",
+                            "symbol": "BTC/USDT",
+                        },
+                        outputs={"claim_status": "CLAIMED", "broker_state": "FILLED"},
+                    )
+                    filled_result = BrokerSubmitResult(
+                        success=True,
+                        broker_order_id="broker-restart",
+                        state=BrokerSubmitState.FILLED,
+                        error=None,
+                    )
+                    return ExecutionValidationOutput(
+                        allowed=True,
+                        intent_status=MagicMock(value="CLAIMED"),
+                        broker_result=filled_result,
+                        causation_chain=exec_chain,
+                        reason="Order submitted successfully",
+                    )
+
+                # Mock DecisionAuthority and ExposureAuthority, but let ExecutionAuthority call real gateway
                 with (
                     patch.object(
-                        engine1.legacy_adapter,
-                        "adapt",
-                        return_value=(mock_risk_decision, mock_target),
+                        engine1.decision_authority,
+                        "decide",
+                        return_value=decision_output,
                     ),
-                    patch.object(engine1.gateway, "submit", side_effect=mock_submit),
+                    patch.object(
+                        engine1.exposure_authority,
+                        "validate",
+                        return_value=exposure_output,
+                    ),
+                    patch.object(
+                        engine1.gateway, "submit", side_effect=mock_gateway_submit
+                    ),
                 ):
                     orders1 = engine1.execute_signal(signal, observation=observation)
 

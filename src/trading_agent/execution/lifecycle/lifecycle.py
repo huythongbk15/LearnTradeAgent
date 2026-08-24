@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import hashlib
 import math
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
 from typing import Any, Callable, Mapping
@@ -1242,7 +1242,8 @@ class ExecutionLifecycle:
         payload: dict[str, Any] = {"rationale": rationale}
         if risk_decision is not None:
             # Persist full risk decision evidence for audit/replay
-            payload["risk_decision"] = asdict(risk_decision)
+            # Use to_dict() to properly serialize authority_chain with datetime
+            payload["risk_decision"] = risk_decision.to_dict()
         return self._emit(
             ExecutionEventType.RISK_APPROVED,
             intent_id,
