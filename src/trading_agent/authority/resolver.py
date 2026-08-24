@@ -13,6 +13,7 @@ from typing import Any, Dict
 
 from trading_agent.authority.config import AuthorityConfig, Environment
 from trading_agent.authority.loader import PromotedStrategy
+from trading_agent.authority.promotion_store import PromotionStateStore
 from trading_agent.strategies.base import Strategy
 from trading_agent.strategies.ma_crossover import MaCrossover
 from trading_agent.strategies.rsi import RsiStrategy
@@ -51,7 +52,11 @@ class StrategyRuntime:
     promotion_stage: str
     loaded_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
-    def execute(self, market_data: Any, portfolio_state: Any) -> "StrategyOutput":
+    def execute(
+        self, market_data: Any, portfolio_state: Any, observation_id: str | None = None,
+        data_manifest_id: str | None = None, feature_artifact_id: str | None = None,
+        research_run_id: str | None = None
+    ) -> "StrategyOutput":
         """Execute strategy on current market data → StrategyOutput."""
         # Try both singular and plural method names for backward compatibility
         if hasattr(self.strategy, "generate_signal"):
@@ -101,6 +106,10 @@ class StrategyRuntime:
                 "reduce_only": reduce_only,
             },
             generated_at=datetime.now(UTC),
+            observation_id=observation_id,
+            data_manifest_id=data_manifest_id,
+            feature_artifact_id=feature_artifact_id,
+            research_run_id=research_run_id,
         )
 
 
@@ -122,6 +131,10 @@ class StrategyOutput:
     target_exposure_pct: float  # 0-1 fraction of equity
     metadata: Dict[str, Any]
     generated_at: datetime
+    observation_id: str | None = None
+    data_manifest_id: str | None = None
+    feature_artifact_id: str | None = None
+    research_run_id: str | None = None
 
 
 class RuntimeStrategyResolver:
@@ -155,8 +168,15 @@ class RuntimeStrategyResolver:
     # Allowed promotion stages for runtime loading
     _ALLOWED_STAGES = frozenset({"production", "canary", "testnet"})
 
-    def __init__(self, config: AuthorityConfig):
+    def __init__(
+        self,
+        config: AuthorityConfig,
+        promotion_store: PromotionStateStore | None = None,
+        artifact_store: Any | None = None,
+    ):
         self.config = config
+        self.promotion_store = promotion_store
+        self._artifact_store = artifact_store
         self._cache: Dict[str, StrategyRuntime] = {}  # key -> StrategyRuntime
 
     def _make_key(self, symbol: str, timeframe: str, environment: Environment) -> str:
@@ -182,11 +202,24 @@ class RuntimeStrategyResolver:
         Returns:
             StrategyRuntime if resolution successful, None otherwise
         """
-        # Verify promotion stage is authoritative
-        if promoted.manifest.promotion_stage not in self._ALLOWED_STAGES:
+        # Verify promotion stage from AUTHORITATIVE store, not manifest metadata
+        if self.promotion_store is not None:
+            stage = self.promotion_store.get_stage(promoted.artifact_id)
+            if stage is None:
+                logger.warning(
+                    f"Strategy {promoted.artifact_id} has no promotion record in authoritative store"
+                )
+                return None
+            promotion_stage = stage.value
+        else:
+            # Fallback for tests without promotion store — manifest is NOT authoritative
+            promotion_stage = promoted.manifest.promotion_stage
+
+        # Verify promotion stage is allowed
+        if promotion_stage not in self._ALLOWED_STAGES:
             logger.warning(
                 f"Strategy {promoted.artifact_id} not in allowed stage "
-                f"({promoted.manifest.promotion_stage}), skipping"
+                f"({promotion_stage}), skipping"
             )
             return None
 
@@ -207,11 +240,9 @@ class RuntimeStrategyResolver:
             return None
 
         # Verify environment is compatible with promotion stage
-        if not self._is_stage_compatible(
-            promoted.manifest.promotion_stage, environment
-        ):
+        if not self._is_stage_compatible(promotion_stage, environment):
             logger.warning(
-                f"Promotion stage {promoted.manifest.promotion_stage} not compatible "
+                f"Promotion stage {promotion_stage} not compatible "
                 f"with environment {environment.value}"
             )
             return None
@@ -260,7 +291,7 @@ class RuntimeStrategyResolver:
             environment=environment,
             parameters=promoted.manifest.parameters,
             promoted_at=promoted.manifest.promoted_at,
-            promotion_stage=promoted.manifest.promotion_stage,
+            promotion_stage=promotion_stage,
         )
 
         # Cache and return
@@ -277,6 +308,64 @@ class RuntimeStrategyResolver:
         key = self._make_key(symbol, timeframe, environment)
         return self._cache.get(key)
 
+    def resolve_for(
+        self,
+        symbol: str,
+        timeframe: str,
+        environment: Environment,
+    ) -> StrategyRuntime | None:
+        """Resolve the promoted strategy for (symbol, timeframe, environment).
+
+        This is the primary production API. It looks up the authoritative
+        promotion store for the artifact, loads it, and resolves a StrategyRuntime.
+        """
+        if self.promotion_store is None:
+            logger.error("resolve_for requires a PromotionStateStore")
+            return None
+
+        # Find eligible artifacts for this environment
+        env_value = environment.value.lower()
+        eligible = self.promotion_store.list_eligible(env_value)
+
+        if not eligible:
+            logger.warning(f"No eligible promoted artifacts for {symbol} {timeframe} {environment.value}")
+            return None
+
+        # For now, take the most recently promoted eligible artifact
+        # In production, this would query by symbol/timeframe binding
+        latest = max(eligible, key=lambda r: r.updated_at)
+        artifact_id = latest.artifact_id
+
+        # Load artifact — requires artifact store to be set on resolver
+        store = getattr(self, "_artifact_store", None)
+        if store is None:
+            logger.error("resolve_for requires an artifact store on resolver")
+            return None
+
+        artifact = store.get(artifact_id)
+        if artifact is None:
+            logger.warning(f"Eligible artifact {artifact_id} not found in store")
+            return None
+
+        # Create PromotedStrategy from store data
+        from trading_agent.authority.loader import PromotedStrategy, PromotedStrategyManifest
+        manifest = PromotedStrategyManifest(
+            artifact_id=artifact.artifact_id,
+            strategy_name=artifact.strategy_name,
+            code_sha=artifact.code_sha,
+            parameter_hash=artifact.parameter_hash,
+            execution_model_version=artifact.execution_model_version,
+            framework_version=artifact.framework_version,
+            promoted_at=latest.latest_event.timestamp if latest.latest_event else artifact.created_at,
+            promoted_by=latest.latest_event.actor if latest.latest_event else "system",
+            promotion_stage=latest.stage.value,
+            parameters=artifact.metadata.get("parameters", {}),
+            metadata=artifact.metadata,
+        )
+        promoted = PromotedStrategy(artifact=artifact, manifest=manifest)
+
+        return self.resolve(promoted, symbol, timeframe, environment)
+
     def clear_cache(self) -> None:
         """Clear all cached runtimes (e.g., on config reload)."""
         self._cache.clear()
@@ -288,19 +377,91 @@ class RuntimeStrategyResolver:
         stage_env_map = {
             "testnet": {Environment.TESTNET, Environment.RESEARCH},
             "canary": {Environment.CANARY, Environment.SHADOW, Environment.TESTNET},
+            "paper": {Environment.PAPER, Environment.RESEARCH},
             "production": {Environment.PRODUCTION, Environment.PAPER},
         }
         allowed = stage_env_map.get(promotion_stage, set())
         return environment in allowed
 
     def _verify_artifact_integrity(self, promoted: PromotedStrategy) -> bool:
-        """Verify artifact integrity (placeholder - integrate with store)."""
-        # TODO: Integrate with PersistentArtifactStore.verify_integrity
+        """Verify artifact integrity against the artifact store.
+
+        Fail-closed when a store is configured: any mismatch returns False.
+        If no store is configured (test mode), warn but allow resolution.
+        """
+        artifact = promoted.artifact
+        store = getattr(self, "_artifact_store", None)
+        if store is None:
+            logger.warning("Artifact integrity verification skipped: no artifact store configured (test mode)")
+            return True
+
+        # 1. Artifact exists in store
+        stored = store.get(artifact.artifact_id)
+        if stored is None:
+            logger.warning(f"Artifact {artifact.artifact_id} not found in store")
+            return False
+
+        # 2. Content hash matches artifact_id
+        if stored.artifact_id != artifact.artifact_id:
+            logger.warning(f"Artifact ID mismatch: stored={stored.artifact_id}, expected={artifact.artifact_id}")
+            return False
+
+        # 3. Canonical parameter hash matches
+        if stored.parameter_hash != artifact.parameter_hash:
+            logger.warning(f"Parameter hash mismatch for {artifact.artifact_id}")
+            return False
+
+        # 4. Code SHA is valid (non-empty)
+        if not stored.code_sha or stored.code_sha != artifact.code_sha:
+            logger.warning(f"Code SHA mismatch for {artifact.artifact_id}")
+            return False
+
+        # 5. Required fields exist
+        required = ["strategy_name", "code_sha", "data_manifest_sha", "parameter_hash"]
+        for field_name in required:
+            if not getattr(stored, field_name, None):
+                logger.warning(f"Artifact {artifact.artifact_id} missing required field: {field_name}")
+                return False
+
+        # 6. Symbol/timeframe binding valid (if present in metadata)
+        metadata = stored.metadata or {}
+        if "symbol" in metadata and not metadata["symbol"]:
+            logger.warning(f"Artifact {artifact.artifact_id} has empty symbol binding")
+            return False
+        if "timeframe" in metadata and not metadata["timeframe"]:
+            logger.warning(f"Artifact {artifact.artifact_id} has empty timeframe binding")
+            return False
+
+        # 7. Manifest artifact_id matches artifact
+        if promoted.manifest.artifact_id != artifact.artifact_id:
+            logger.warning(f"Manifest artifact_id mismatch: {promoted.manifest.artifact_id} != {artifact.artifact_id}")
+            return False
+
         return True
 
     def _has_param_drift(self, promoted: PromotedStrategy) -> bool:
-        """Check for parameter drift between live and artifact."""
-        # TODO: Compare live params with artifact.parameter_hash
+        """Check for parameter drift between manifest and artifact.
+
+        Compares canonical hash of manifest parameters against artifact.parameter_hash.
+        """
+        from trading_agent.research.artifact import canonical_params, sha256_hex
+
+        # Canonical hash of manifest parameters
+        manifest_params = promoted.manifest.parameters or {}
+        try:
+            manifest_hash = sha256_hex(canonical_params(manifest_params))
+        except Exception as e:
+            logger.warning(f"Failed to hash manifest parameters: {e}")
+            return True  # Fail closed
+
+        # Compare against artifact parameter_hash
+        if manifest_hash != promoted.artifact.parameter_hash:
+            logger.warning(
+                f"Parameter drift detected for {promoted.artifact_id}: "
+                f"manifest_hash={manifest_hash[:16]}... != artifact_hash={promoted.artifact.parameter_hash[:16]}..."
+            )
+            return True
+
         return False
 
     def _bind_strategy(
@@ -339,11 +500,13 @@ class RuntimeStrategyResolver:
                 raise ValueError(f"Timeframe {timeframe} not supported")
         return params
 
-    def get_strategy_class(self, strategy_type: StrategyType) -> type[Strategy]:
+    def get_strategy_class(self, strategy_type: StrategyType) -> type[Strategy] | None:
         return self._STRATEGY_CLASSES.get(strategy_type)
 
     def get_strategy_class_by_name(self, strategy_name: str) -> type[Strategy] | None:
         strategy_type = self._STRATEGY_MAP.get(strategy_name)
+        if strategy_type is None:
+            return None
         return self._STRATEGY_CLASSES.get(strategy_type)
 
     def _is_symbol_allowed(self, symbol: str) -> bool:

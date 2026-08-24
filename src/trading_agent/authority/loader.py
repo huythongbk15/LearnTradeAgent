@@ -22,8 +22,9 @@ from pathlib import Path
 from typing import Any
 
 from trading_agent.authority.config import AuthorityConfig, get_authority_config
+from trading_agent.authority.promotion_store import PromotionStateStore
 from trading_agent.research.artifact import PersistentArtifactStore, StrategyArtifact
-from trading_agent.research.promotion import ResearchLifecycle
+from trading_agent.research.promotion import ResearchLifecycle, ResearchStage
 
 logger = logging.getLogger(__name__)
 
@@ -178,12 +179,14 @@ class RuntimeLoader:
         manifest_dir: str | Path = "data/promoted_strategies",
         config: AuthorityConfig | None = None,
         poll_interval_seconds: float = 30.0,
+        promotion_store: PromotionStateStore | None = None,
     ):
         self.artifact_store = artifact_store
         self.manifest_dir = Path(manifest_dir)
         self.manifest_dir.mkdir(parents=True, exist_ok=True)
         self.config = config or get_authority_config()
         self.poll_interval = poll_interval_seconds
+        self.promotion_store = promotion_store
 
         self._loaded: dict[
             str, PromotedStrategy
@@ -275,9 +278,24 @@ class RuntimeLoader:
         return has_drift, details
 
     def _is_production_ready(self, artifact: StrategyArtifact) -> bool:
-        """Check if artifact has been promoted to PRODUCTION stage."""
-        # In practice, this would query the promotion lifecycle
-        # For now, check metadata for promotion stage
+        """Check if artifact has been promoted to an eligible stage.
+
+        Uses the authoritative PromotionStateStore when available.
+        Falls back to artifact metadata only if no store is configured
+        (test/research scenarios only).
+        """
+        if self.promotion_store is not None:
+            stage = self.promotion_store.get_stage(artifact.artifact_id)
+            if stage is None:
+                return False
+            # Map stage to legacy "production_ready" boolean
+            # Any stage >= PAPER_ELIGIBLE is considered ready for runtime
+            from trading_agent.authority.promotion_store import _STAGE_RANK, _ENV_MIN_STAGE
+            min_rank = _STAGE_RANK.get(_ENV_MIN_STAGE.get("paper", ResearchStage.PAPER_ELIGIBLE), 0)
+            return _STAGE_RANK.get(stage, -1) >= min_rank
+
+        # Fallback for tests without promotion store
+        # In production this path must NOT be used
         promo_stage = artifact.metadata.get("promotion_stage", "")
         return promo_stage in ("production", "canary", "testnet")
 
@@ -289,8 +307,24 @@ class RuntimeLoader:
             if existing and existing.verify_param_hash():
                 return existing
 
-            # Create manifest (would normally get promotion event from lifecycle)
-            # For now, create minimal manifest
+            # Get promotion stage from authoritative store (not metadata)
+            promotion_stage = "paper"  # default fallback
+            if self.promotion_store is not None:
+                stage = self.promotion_store.get_stage(artifact.artifact_id)
+                if stage is not None:
+                    promotion_stage = stage.value
+                else:
+                    # Not promoted — fail closed
+                    logger.warning(f"Artifact {artifact.artifact_id} has no promotion record")
+                    raise ValueError(f"Artifact {artifact.artifact_id} is not promoted")
+            else:
+                # Fallback for tests without promotion store
+                promotion_stage = artifact.metadata.get("promotion_stage", "paper")
+                if promotion_stage not in ("production", "canary", "testnet", "paper"):
+                    logger.warning(f"Artifact {artifact.artifact_id} has invalid promotion stage in metadata: {promotion_stage}")
+                    promotion_stage = "paper"
+
+            # Create manifest with authoritative promotion stage
             manifest = PromotedStrategyManifest(
                 artifact_id=artifact.artifact_id,
                 strategy_name=artifact.strategy_name,
@@ -300,7 +334,7 @@ class RuntimeLoader:
                 framework_version=artifact.framework_version,
                 promoted_at=artifact.created_at,
                 promoted_by=artifact.metadata.get("promoted_by", "system"),
-                promotion_stage=artifact.metadata.get("promotion_stage", "production"),
+                promotion_stage=promotion_stage,
                 parameters=artifact.metadata.get("parameters", {}),
                 metadata=artifact.metadata,
             )
@@ -347,12 +381,41 @@ class RuntimeLoader:
             self._stop_event.wait(self.poll_interval)
 
     def _poll_for_new(self) -> None:
-        """Poll artifact store for new PRODUCTION artifacts."""
-        # Get all unique strategy names
-        # Note: PersistentArtifactStore doesn't expose unique_strategies directly
-        # We'd need to query the DB or maintain a registry
-        # For now, this is a placeholder for the polling logic
-        pass
+        """Poll promotion store for newly eligible artifacts.
+
+        For each artifact in the store that is eligible for the current
+        environment but not yet loaded, load and verify it.
+        """
+        if self.promotion_store is None:
+            return  # No store configured — polling not possible
+
+        env = self.config.environment.value.lower()
+        try:
+            eligible = self.promotion_store.list_eligible(env)
+        except Exception as e:
+            logger.error(f"RuntimeLoader poll: failed to list eligible artifacts: {e}")
+            return
+
+        for record in eligible:
+            artifact_id = record.artifact_id
+            with self._lock:
+                if artifact_id in self._loaded:
+                    continue
+
+            # Load from artifact store
+            artifact = self.artifact_store.get(artifact_id)
+            if artifact is None:
+                logger.warning(f"RuntimeLoader poll: promoted artifact {artifact_id} not found in store")
+                continue
+
+            try:
+                promoted = self._load_artifact(artifact)
+                logger.info(
+                    f"RuntimeLoader poll: loaded newly eligible artifact {artifact_id} "
+                    f"(stage={record.stage.value})"
+                )
+            except Exception as e:
+                logger.error(f"RuntimeLoader poll: failed to load {artifact_id}: {e}")
 
 
 # ── PromotionHook ───────────────────────────────────────────────────────

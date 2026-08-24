@@ -331,7 +331,7 @@ class ExecutionAuthority:
         perm_ctx = PermissionContext(
             execution_health=self.lifecycle.state.execution_health,
             exposure_effect=exposure_effect,
-            risk_decision=None,  # Already validated upstream
+            risk_decision=input_.risk_decision,  # Real risk decision from upstream
             trusted_price=trusted_price,
             max_price_age_seconds=self.config.execution.max_price_age_seconds,
             reconciliation_state=reconciliation_state,
@@ -341,7 +341,7 @@ class ExecutionAuthority:
             if self.lifecycle.state.protection_state.get(intent.symbol)
             else "none",
             manual_blocked=self.lifecycle.state.manual_blocked,
-            kill_switch_active=self.config.live.kill_switch_enabled,
+            kill_switch_active=self.lifecycle.is_kill_switch_active() if hasattr(self.lifecycle, 'is_kill_switch_active') else self.config.live.kill_switch_enabled,
             data_trust=data_trust,
             inventory_state=inventory_state,
             free_inventory=portfolio.available_cash

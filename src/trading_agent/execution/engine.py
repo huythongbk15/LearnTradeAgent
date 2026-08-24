@@ -74,6 +74,8 @@ from trading_agent.authority import (
     AuthorityConfig,
     PortfolioAllocator,
     AllocationRequest,
+    RuntimeStrategyResolver,
+    PromotionStateStore,
 )
 from trading_agent.authority.causation import CausationChain
 from trading_agent.config.loader import config as legacy_config
@@ -153,6 +155,8 @@ class ExecutionEngine:
         paper_price_persist_interval: int = 1,
         disable_paper_telemetry: bool = False,
         authority_config: AuthorityConfig | None = None,
+        promotion_store: PromotionStateStore | None = None,
+        artifact_store: Any | None = None,
     ):
         # ── Constructor strictness: validate inputs early ─────────────
         if exchange is not None:
@@ -256,6 +260,19 @@ class ExecutionEngine:
                 config=self.authority_config,
             )
             if self.planner is not None
+            else None
+        )
+
+        # ── Artifact-driven resolver (Milestone B) ────────────────────
+        self.promotion_store = promotion_store
+        self.artifact_store = artifact_store
+        self.resolver = (
+            RuntimeStrategyResolver(
+                config=self.authority_config,
+                promotion_store=promotion_store,
+                artifact_store=artifact_store,
+            )
+            if promotion_store is not None
             else None
         )
 
@@ -416,7 +433,7 @@ class ExecutionEngine:
             else 0.0
         )
 
-        strategy_id = "legacy_agent_ensemble"
+        strategy_id = risk_decision.model_artifact_id or "legacy_agent_ensemble"
         strategy_exposure = current_exposure  # Single symbol single strategy
 
         allocation_request = AllocationRequest(

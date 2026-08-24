@@ -173,27 +173,29 @@ class TestDriftDetection:
             PromotedStrategy,
             PromotedStrategyManifest,
         )
-        from trading_agent.research.artifact import StrategyArtifact
+        from trading_agent.research.artifact import StrategyArtifact, canonical_params, sha256_hex
         from datetime import datetime, UTC
 
+        params = {}
+        param_hash = sha256_hex(canonical_params(params))
         artifact = StrategyArtifact(
             strategy_name="ma_crossover",
             code_sha="abc123",
             data_manifest_sha="data_sha",
-            parameter_hash="expected_hash_123",
-            metadata={},
+            parameter_hash=param_hash,
+            metadata={"parameters": params},
         )
         manifest = PromotedStrategyManifest(
             artifact_id=artifact.artifact_id,
             strategy_name="ma_crossover",
             code_sha="abc123",
-            parameter_hash="expected_hash_123",
+            parameter_hash=param_hash,
             execution_model_version="",
             framework_version="",
             promoted_at=datetime.now(UTC),
             promoted_by="test",
             promotion_stage="production",
-            parameters={},
+            parameters=params,
             metadata={},
         )
         promoted = PromotedStrategy(artifact=artifact, manifest=manifest)
@@ -206,27 +208,29 @@ class TestDriftDetection:
             PromotedStrategy,
             PromotedStrategyManifest,
         )
-        from trading_agent.research.artifact import StrategyArtifact
+        from trading_agent.research.artifact import StrategyArtifact, canonical_params, sha256_hex
         from datetime import datetime, UTC
 
+        params = {}
+        param_hash = sha256_hex(canonical_params(params))
         artifact = StrategyArtifact(
             strategy_name="rsi",
             code_sha="sha1",
             data_manifest_sha="data_sha",
-            parameter_hash="hash_a",
-            metadata={},
+            parameter_hash=param_hash,
+            metadata={"parameters": params},
         )
         manifest = PromotedStrategyManifest(
             artifact_id=artifact.artifact_id,
             strategy_name="rsi",
             code_sha="sha1",
-            parameter_hash="hash_a",
+            parameter_hash=param_hash,
             execution_model_version="",
             framework_version="",
             promoted_at=datetime.now(UTC),
             promoted_by="test",
             promotion_stage="production",
-            parameters={},
+            parameters=params,
             metadata={},
         )
         promoted = PromotedStrategy(artifact=artifact, manifest=manifest)

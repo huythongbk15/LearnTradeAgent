@@ -94,14 +94,13 @@ from trading_agent.authority.resolver import (
     StrategyOutput,
 )
 
-from trading_agent.authority.decision import TargetExposure
-from trading_agent.authority.audit import (
-    CausationLogEntry,
-    DecisionAuditRecord,
-    CausationLogger,
-    DecisionAuditCLI,
-    get_causation_logger,
-    log_authority_decision,
+from trading_agent.authority.decision import (
+    TargetExposure,
+)
+
+from trading_agent.authority.promotion_store import (
+    PromotionStateStore,
+    PromotionRecord,
 )
 
 __all__ = [
@@ -155,6 +154,9 @@ __all__ = [
     "StrategyType",
     "StrategyRuntime",
     "StrategyOutput",
+    # Promotion store
+    "PromotionStateStore",
+    "PromotionRecord",
     # Audit
     "CausationLogEntry",
     "DecisionAuditRecord",

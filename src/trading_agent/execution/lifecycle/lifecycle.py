@@ -523,6 +523,13 @@ class ExecutionLifecycle:
         self._in_replay = False
         self.state = LifecycleState()
 
+    def is_kill_switch_active(self) -> bool:
+        """Return the current runtime kill-switch state.
+
+        This queries the actual kill-switch authority, not just config.
+        """
+        return bool(self._kill_switch())
+
     # ── Helpers ──────────────────────────────────────────────────────────
 
     def active_sell_reservations(

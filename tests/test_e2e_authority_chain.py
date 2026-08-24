@@ -79,15 +79,17 @@ class TestE2EAuthorityChain:
 
     @pytest.fixture
     def btc_artifact(self) -> StrategyArtifact:
+        from trading_agent.research.artifact import canonical_params, sha256_hex
+        params = {"fast_period": 10, "slow_period": 30}
         return StrategyArtifact(
             strategy_name="ma_crossover",
             code_sha="abc123",
             data_manifest_sha="data_sha",
-            parameter_hash="param_hash_001",
+            parameter_hash=sha256_hex(canonical_params(params)),
             metadata={
                 "symbol": "BTC/USDT",
                 "timeframe": "1h",
-                "parameters": {"fast_period": 10, "slow_period": 30},
+                "parameters": params,
                 "calibration_state": "KNOWN",
                 "ood_state": "KNOWN",
                 "regime_state": "KNOWN",
@@ -96,17 +98,19 @@ class TestE2EAuthorityChain:
 
     @pytest.fixture
     def promoted_btc(self, btc_artifact: StrategyArtifact) -> PromotedStrategy:
+        from trading_agent.research.artifact import canonical_params, sha256_hex
+        params = {"fast_period": 10, "slow_period": 30}
         manifest = PromotedStrategyManifest(
             artifact_id=btc_artifact.artifact_id,
             strategy_name="ma_crossover",
             code_sha="abc123",
-            parameter_hash="param_hash_001",
+            parameter_hash=sha256_hex(canonical_params(params)),
             execution_model_version="1.0",
             framework_version="1.0",
             promoted_at=datetime.now(UTC),
             promoted_by="test",
             promotion_stage="testnet",
-            parameters={"fast_period": 10, "slow_period": 30},
+            parameters=params,
             metadata={"symbol": "BTC/USDT", "timeframe": "1h"},
         )
         return PromotedStrategy(artifact=btc_artifact, manifest=manifest)
