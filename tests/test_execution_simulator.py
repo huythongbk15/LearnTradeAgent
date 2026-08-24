@@ -20,6 +20,11 @@ from trading_agent.execution.backtest_sim import (
 )
 from trading_agent.strategies.ma_crossover import MaCrossover
 from trading_agent.data.storage import load_ohlcv
+from trading_agent.data.storage import _table_path as _ohlcv_table_path
+
+
+def _btc_usdt_1d_exists() -> bool:
+    return _ohlcv_table_path("binance", "BTC_USDT", "1d").exists()
 
 
 class TestExecutionSimulator:
@@ -311,6 +316,10 @@ class TestExecutionSimulator:
 class TestSimulatorBacktestEngine:
     """Tests for SimulatorBacktestEngine integration."""
 
+    @pytest.mark.skipif(
+        not _btc_usdt_1d_exists(),
+        reason="requires data/raw/binance/BTC_USDT/1d.parquet",
+    )
     def test_backtest_runs(self):
         """Backtest should complete without errors."""
         df = load_ohlcv("binance", "BTC_USDT", "1d").head(200)
@@ -337,6 +346,10 @@ class TestSimulatorBacktestEngine:
         assert result.avg_latency_ms >= 0
         assert len(result.equity_curve) == len(df)
 
+    @pytest.mark.skipif(
+        not _btc_usdt_1d_exists(),
+        reason="requires data/raw/binance/BTC_USDT/1d.parquet",
+    )
     def test_simulator_vs_standard(self):
         """Simulator should produce different (more conservative) results."""
         df = load_ohlcv("binance", "BTC_USDT", "1d").head(500)
