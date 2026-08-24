@@ -524,6 +524,10 @@ class ExecutionEngine:
 
         intent = plan_result.intent
 
+        # Type checker: execution_service check above guarantees planner/authority are not None
+        assert self.planner is not None
+        assert self.execution_authority is not None
+
         # ── Authority Chain: ExecutionAuthority ────────────────────────
         exec_input = ExecutionValidationInput(
             intent=intent,
