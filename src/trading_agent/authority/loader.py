@@ -290,8 +290,14 @@ class RuntimeLoader:
                 return False
             # Map stage to legacy "production_ready" boolean
             # Any stage >= PAPER_ELIGIBLE is considered ready for runtime
-            from trading_agent.authority.promotion_store import _STAGE_RANK, _ENV_MIN_STAGE
-            min_rank = _STAGE_RANK.get(_ENV_MIN_STAGE.get("paper", ResearchStage.PAPER_ELIGIBLE), 0)
+            from trading_agent.authority.promotion_store import (
+                _STAGE_RANK,
+                _ENV_MIN_STAGE,
+            )
+
+            min_rank = _STAGE_RANK.get(
+                _ENV_MIN_STAGE.get("paper", ResearchStage.PAPER_ELIGIBLE), 0
+            )
             return _STAGE_RANK.get(stage, -1) >= min_rank
 
         # Fallback for tests without promotion store
@@ -315,13 +321,17 @@ class RuntimeLoader:
                     promotion_stage = stage.value
                 else:
                     # Not promoted — fail closed
-                    logger.warning(f"Artifact {artifact.artifact_id} has no promotion record")
+                    logger.warning(
+                        f"Artifact {artifact.artifact_id} has no promotion record"
+                    )
                     raise ValueError(f"Artifact {artifact.artifact_id} is not promoted")
             else:
                 # Fallback for tests without promotion store
                 promotion_stage = artifact.metadata.get("promotion_stage", "paper")
                 if promotion_stage not in ("production", "canary", "testnet", "paper"):
-                    logger.warning(f"Artifact {artifact.artifact_id} has invalid promotion stage in metadata: {promotion_stage}")
+                    logger.warning(
+                        f"Artifact {artifact.artifact_id} has invalid promotion stage in metadata: {promotion_stage}"
+                    )
                     promotion_stage = "paper"
 
             # Create manifest with authoritative promotion stage
@@ -405,7 +415,9 @@ class RuntimeLoader:
             # Load from artifact store
             artifact = self.artifact_store.get(artifact_id)
             if artifact is None:
-                logger.warning(f"RuntimeLoader poll: promoted artifact {artifact_id} not found in store")
+                logger.warning(
+                    f"RuntimeLoader poll: promoted artifact {artifact_id} not found in store"
+                )
                 continue
 
             try:

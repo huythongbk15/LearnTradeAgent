@@ -145,7 +145,9 @@ class PromotionStateStore:
 
     def upsert(self, record: PromotionRecord) -> None:
         """Insert or update a promotion record."""
-        latest_event_json = json.dumps(record.latest_event.to_dict()) if record.latest_event else None
+        latest_event_json = (
+            json.dumps(record.latest_event.to_dict()) if record.latest_event else None
+        )
         with self._connect() as conn:
             conn.execute(
                 _INSERT_SQL,
@@ -214,7 +216,9 @@ class PromotionStateStore:
         min_rank = _STAGE_RANK[min_stage]
         eligible: list[PromotionRecord] = []
         with self._connect() as conn:
-            cur = conn.execute("SELECT artifact_id, stage, latest_event, updated_at FROM promotion_registry")
+            cur = conn.execute(
+                "SELECT artifact_id, stage, latest_event, updated_at FROM promotion_registry"
+            )
             for row in cur.fetchall():
                 stage = ResearchStage(row["stage"])
                 if _STAGE_RANK.get(stage, -1) >= min_rank:

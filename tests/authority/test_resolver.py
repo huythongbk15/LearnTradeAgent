@@ -173,7 +173,11 @@ class TestDriftDetection:
             PromotedStrategy,
             PromotedStrategyManifest,
         )
-        from trading_agent.research.artifact import StrategyArtifact, canonical_params, sha256_hex
+        from trading_agent.research.artifact import (
+            StrategyArtifact,
+            canonical_params,
+            sha256_hex,
+        )
         from datetime import datetime, UTC
 
         params = {}
@@ -208,7 +212,11 @@ class TestDriftDetection:
             PromotedStrategy,
             PromotedStrategyManifest,
         )
-        from trading_agent.research.artifact import StrategyArtifact, canonical_params, sha256_hex
+        from trading_agent.research.artifact import (
+            StrategyArtifact,
+            canonical_params,
+            sha256_hex,
+        )
         from datetime import datetime, UTC
 
         params = {}

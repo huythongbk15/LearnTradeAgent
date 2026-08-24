@@ -253,6 +253,7 @@
 │       │   ├── exposure.py
 │       │   ├── loader.py
 │       │   ├── portfolio.py
+│       │   ├── promotion_store.py
 │       │   └── resolver.py
 │       ├── backtest
 │       │   ├── __init__.py

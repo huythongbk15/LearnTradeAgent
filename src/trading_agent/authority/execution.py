@@ -341,7 +341,9 @@ class ExecutionAuthority:
             if self.lifecycle.state.protection_state.get(intent.symbol)
             else "none",
             manual_blocked=self.lifecycle.state.manual_blocked,
-            kill_switch_active=self.lifecycle.is_kill_switch_active() if hasattr(self.lifecycle, 'is_kill_switch_active') else self.config.live.kill_switch_enabled,
+            kill_switch_active=self.lifecycle.is_kill_switch_active()
+            if hasattr(self.lifecycle, "is_kill_switch_active")
+            else self.config.live.kill_switch_enabled,
             data_trust=data_trust,
             inventory_state=inventory_state,
             free_inventory=portfolio.available_cash

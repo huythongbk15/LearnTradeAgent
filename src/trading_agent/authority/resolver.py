@@ -53,9 +53,13 @@ class StrategyRuntime:
     loaded_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     def execute(
-        self, market_data: Any, portfolio_state: Any, observation_id: str | None = None,
-        data_manifest_id: str | None = None, feature_artifact_id: str | None = None,
-        research_run_id: str | None = None
+        self,
+        market_data: Any,
+        portfolio_state: Any,
+        observation_id: str | None = None,
+        data_manifest_id: str | None = None,
+        feature_artifact_id: str | None = None,
+        research_run_id: str | None = None,
     ) -> "StrategyOutput":
         """Execute strategy on current market data → StrategyOutput."""
         # Try both singular and plural method names for backward compatibility
@@ -328,7 +332,9 @@ class RuntimeStrategyResolver:
         eligible = self.promotion_store.list_eligible(env_value)
 
         if not eligible:
-            logger.warning(f"No eligible promoted artifacts for {symbol} {timeframe} {environment.value}")
+            logger.warning(
+                f"No eligible promoted artifacts for {symbol} {timeframe} {environment.value}"
+            )
             return None
 
         # For now, take the most recently promoted eligible artifact
@@ -348,7 +354,11 @@ class RuntimeStrategyResolver:
             return None
 
         # Create PromotedStrategy from store data
-        from trading_agent.authority.loader import PromotedStrategy, PromotedStrategyManifest
+        from trading_agent.authority.loader import (
+            PromotedStrategy,
+            PromotedStrategyManifest,
+        )
+
         manifest = PromotedStrategyManifest(
             artifact_id=artifact.artifact_id,
             strategy_name=artifact.strategy_name,
@@ -356,7 +366,9 @@ class RuntimeStrategyResolver:
             parameter_hash=artifact.parameter_hash,
             execution_model_version=artifact.execution_model_version,
             framework_version=artifact.framework_version,
-            promoted_at=latest.latest_event.timestamp if latest.latest_event else artifact.created_at,
+            promoted_at=latest.latest_event.timestamp
+            if latest.latest_event
+            else artifact.created_at,
             promoted_by=latest.latest_event.actor if latest.latest_event else "system",
             promotion_stage=latest.stage.value,
             parameters=artifact.metadata.get("parameters", {}),
@@ -392,7 +404,9 @@ class RuntimeStrategyResolver:
         artifact = promoted.artifact
         store = getattr(self, "_artifact_store", None)
         if store is None:
-            logger.warning("Artifact integrity verification skipped: no artifact store configured (test mode)")
+            logger.warning(
+                "Artifact integrity verification skipped: no artifact store configured (test mode)"
+            )
             return True
 
         # 1. Artifact exists in store
@@ -403,7 +417,9 @@ class RuntimeStrategyResolver:
 
         # 2. Content hash matches artifact_id
         if stored.artifact_id != artifact.artifact_id:
-            logger.warning(f"Artifact ID mismatch: stored={stored.artifact_id}, expected={artifact.artifact_id}")
+            logger.warning(
+                f"Artifact ID mismatch: stored={stored.artifact_id}, expected={artifact.artifact_id}"
+            )
             return False
 
         # 3. Canonical parameter hash matches
@@ -420,7 +436,9 @@ class RuntimeStrategyResolver:
         required = ["strategy_name", "code_sha", "data_manifest_sha", "parameter_hash"]
         for field_name in required:
             if not getattr(stored, field_name, None):
-                logger.warning(f"Artifact {artifact.artifact_id} missing required field: {field_name}")
+                logger.warning(
+                    f"Artifact {artifact.artifact_id} missing required field: {field_name}"
+                )
                 return False
 
         # 6. Symbol/timeframe binding valid (if present in metadata)
@@ -429,12 +447,16 @@ class RuntimeStrategyResolver:
             logger.warning(f"Artifact {artifact.artifact_id} has empty symbol binding")
             return False
         if "timeframe" in metadata and not metadata["timeframe"]:
-            logger.warning(f"Artifact {artifact.artifact_id} has empty timeframe binding")
+            logger.warning(
+                f"Artifact {artifact.artifact_id} has empty timeframe binding"
+            )
             return False
 
         # 7. Manifest artifact_id matches artifact
         if promoted.manifest.artifact_id != artifact.artifact_id:
-            logger.warning(f"Manifest artifact_id mismatch: {promoted.manifest.artifact_id} != {artifact.artifact_id}")
+            logger.warning(
+                f"Manifest artifact_id mismatch: {promoted.manifest.artifact_id} != {artifact.artifact_id}"
+            )
             return False
 
         return True

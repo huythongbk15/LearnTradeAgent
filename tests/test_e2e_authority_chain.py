@@ -80,6 +80,7 @@ class TestE2EAuthorityChain:
     @pytest.fixture
     def btc_artifact(self) -> StrategyArtifact:
         from trading_agent.research.artifact import canonical_params, sha256_hex
+
         params = {"fast_period": 10, "slow_period": 30}
         return StrategyArtifact(
             strategy_name="ma_crossover",
@@ -99,6 +100,7 @@ class TestE2EAuthorityChain:
     @pytest.fixture
     def promoted_btc(self, btc_artifact: StrategyArtifact) -> PromotedStrategy:
         from trading_agent.research.artifact import canonical_params, sha256_hex
+
         params = {"fast_period": 10, "slow_period": 30}
         manifest = PromotedStrategyManifest(
             artifact_id=btc_artifact.artifact_id,
