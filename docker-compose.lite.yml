@@ -1,0 +1,36 @@
+# =============================================================================
+# LITE deployment profile — small VPS (1 vCPU / 1GB RAM, e.g. Oracle E2.1.Micro)
+# =============================================================================
+# Cron model: containers ONLY run when the host cron fires
+#   `docker compose run --rm trading-agent python scripts/live_cron_runner.py --execute`
+# and exit immediately afterwards → idle RAM ≈ 0. No TimescaleDB/Redis/monitoring:
+# the paper-trading loop talks to Alpaca REST + local files and needs none of them.
+#
+# Usage (on the VPS, inside /opt/trading-agent-staging):
+#   docker compose --env-file .env.image \
+#     -f docker-compose.yml -f docker-compose.lite.yml \
+#     run --rm trading-agent python scripts/live_cron_runner.py --execute
+#
+# NEVER use `up -d` with this profile — nothing is meant to stay running.
+# =============================================================================
+
+services:
+  trading-agent:
+    # base service declares profiles: [app] — clear it so explicit targeting
+    # works without passing --profile app on every cron invocation.
+    profiles: []
+    image: ${TRADING_AGENT_IMAGE:?TRADING_AGENT_IMAGE must be pinned (see .env.image)}
+    mem_limit: 700m
+    environment:
+      - TRADING_EXECUTION_ENABLED=${TRADING_EXECUTION_ENABLED:-true}
+      - TRADING_MODE=paper
+      - PYTHONUNBUFFERED=1
+      - LOG_LEVEL=INFO
+      - TZ=Asia/Ho_Chi_Minh
+    env_file:
+      - .env.local            # TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID / ALPACA_*
+    volumes:
+      - ./config:/app/config:ro
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./scripts:/app/scripts:ro
