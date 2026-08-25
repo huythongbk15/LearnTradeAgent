@@ -541,6 +541,7 @@ class PortfolioAllocator:
         capped: dict[tuple[str, str], float] = {}
         raw_ask: dict[tuple[str, str], float] = {}
         reasons: dict[tuple[str, str], str] = {}
+        req_by_key: dict[tuple[str, str], AllocationRequest] = {}
 
         for req in ordered:
             chain = self._batch_chain(req)
@@ -568,6 +569,7 @@ class PortfolioAllocator:
                 c = max(0.0, c)
                 capped[(req.strategy_id, req.symbol)] = c
                 raw_ask[(req.strategy_id, req.symbol)] = asked
+                req_by_key[(req.strategy_id, req.symbol)] = req
                 reasons[(req.strategy_id, req.symbol)] = (
                     f"capped_from_{asked:.6f}_"
                     f"strat_{max(0.0, strat_available):.6f}_"
@@ -629,7 +631,11 @@ class PortfolioAllocator:
         # ── Step 4: commit strategy budgets atomically post-computation ─
         for entry in entries:
             if entry.approved > 0:
-                budget = self._get_or_create_budget(entry.strategy_id, entry.symbol)
+                key = (entry.strategy_id, entry.symbol)
+                budget = self._get_or_create_budget(
+                    entry.strategy_id,
+                    req_by_key[key],
+                )
                 budget.allocated_exposure += entry.approved
                 budget.symbols[entry.symbol] = (
                     budget.symbols.get(entry.symbol, 0.0) + entry.approved

@@ -925,6 +925,11 @@ class ExecutionEngine:
 
         assert self.planner is not None
         assert self.execution_authority is not None
+        if self.execution_service is None:
+            raise RuntimeError(
+                "submit_planned_order requires execution_service "
+                "(engine must be constructed with instrument_rules)"
+            )
 
         pair_rules = self.planner.rules_for(symbol)
 
