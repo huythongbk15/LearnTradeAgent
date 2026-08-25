@@ -14,8 +14,11 @@ Responsibilities:
 
 from __future__ import annotations
 
+import enum
 import logging
+import math
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any
 
 from trading_agent.authority.causation import CausationChain, new_chain
@@ -27,6 +30,121 @@ from trading_agent.authority.config import (
 from trading_agent.authority.decision import TargetExposure
 
 logger = logging.getLogger(__name__)
+
+
+# ── Shared portfolio snapshot / batch target vector (Milestone C) ───────
+
+
+class ReconciliationState(str, enum.Enum):
+    RECONCILED = "RECONCILED"
+    DEGRADED = "DEGRADED"  # reconciled but untracked exposure could not be valued
+    FAILED = "FAILED"
+    NOT_RUN = "NOT_RUN"
+
+
+@dataclass(frozen=True)
+class PortfolioSnapshot:
+    """Authoritative shared portfolio truth for ONE decision batch.
+
+    Every pair decision in a cycle references this same snapshot. After the
+    reduction stage a REFRESHED snapshot is built before BUY revalidation.
+    """
+
+    equity: float
+    available_cash: float
+    positions: dict[str, float]  # symbol -> quantity
+    symbol_exposures: dict[str, float]  # symbol -> notional/equity (incl. untracked)
+    gross_exposure: float
+    untracked_symbols: tuple[str, ...] = ()
+    untracked_exposure: float = 0.0  # valued notional/equity of untracked holdings
+    untracked_valued: bool = True  # False ⇒ portfolio truth incomplete
+    reserved_cash: float = 0.0
+    reserved_inventory: float = 0.0
+    observed_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    reconciliation_state: ReconciliationState = ReconciliationState.NOT_RUN
+
+    def __post_init__(self) -> None:
+        for name in (
+            "equity",
+            "available_cash",
+            "gross_exposure",
+            "untracked_exposure",
+        ):
+            v = float(getattr(self, name))
+            if not math.isfinite(v) or v < 0:
+                raise ValueError(
+                    f"PortfolioSnapshot.{name} must be finite ≥ 0, got {v}"
+                )
+
+    @property
+    def new_exposure_allowed(self) -> bool:
+        """Fail-closed gate: unvalued holdings or failed reconciliation mean
+        portfolio truth is UNKNOWN — unknown truth is not zero risk."""
+        return (
+            self.untracked_valued
+            and self.reconciliation_state is ReconciliationState.RECONCILED
+        )
+
+
+@dataclass(frozen=True)
+class PortfolioTargetVector:
+    """Canonical portfolio allocation result for one cycle.
+
+    Deterministic function of the request SET + snapshot: permuting the
+    input order MUST produce an identical vector (enforced by tests).
+    """
+
+    cycle_id: str
+    equity: float
+    available_cash: float
+    targets: dict[str, float]  # symbol -> approved target exposure pct
+    gross_target_exposure: float
+    cash_reserve_pct: float
+    allocation_reasons: dict[str, str]
+    rejected_symbols: tuple[str, ...] = ()
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+
+    def __post_init__(self) -> None:
+        gross = 0.0
+        for sym, tgt in self.targets.items():
+            if not math.isfinite(tgt) or tgt < 0:
+                raise ValueError(f"target[{sym}] must be finite ≥ 0, got {tgt}")
+            gross += tgt
+        if abs(gross - self.gross_target_exposure) > 1e-9:
+            raise ValueError(
+                f"gross_target_exposure {self.gross_target_exposure} != "
+                f"sum(targets) {gross}"
+            )
+
+    def target_for(self, symbol: str) -> float | None:
+        return self.targets.get(symbol)
+
+
+@dataclass(frozen=False)
+class BatchAllocationEntry:
+    """Per-symbol outcome of allocate_batch (allocation-level, pre-exposure)."""
+
+    symbol: str
+    strategy_id: str
+    requested: float
+    approved: float
+    reason: str
+    causation_chain: CausationChain | None = None
+
+
+@dataclass(frozen=False)
+class BatchAllocationOutcome:
+    """Whole-batch allocation result → assembled into PortfolioTargetVector."""
+
+    entries: tuple[BatchAllocationEntry, ...]
+    scale_factor: float  # 1.0 when everything fits; <1.0 when pro-rata scaled
+    total_requested: float
+    total_approved: float
+    budget_available: float
+
+    @property
+    def approved_by_symbol(self) -> dict[str, float]:
+        return {e.symbol: e.approved for e in self.entries}
 
 
 # ── Types ───────────────────────────────────────────────────────────────
@@ -362,6 +480,223 @@ class PortfolioAllocator:
 
         return cluster_caps.get(cluster, 1.0)
 
+    def allocate_batch(
+        self,
+        requests: list[AllocationRequest],
+        snapshot: PortfolioSnapshot,
+        *,
+        cash_reserve_pct: float | None = None,
+    ) -> BatchAllocationOutcome:
+        """Allocate ONE portfolio batch across all candidates deterministically.
+
+        V1 policy (deterministic, documented):
+        1. Requests are processed in sorted (strategy_id, symbol) order —
+           input permutation cannot change the result.
+        2. Each request's raw ask = min(allowed_target_exposure, max_new_exposure).
+        3. Individual caps are applied first (per-strategy budget, per-symbol
+           headroom vs TOTAL symbol exposure, correlation-cluster adjustment).
+        4. Global increase budget = min(
+               max_portfolio_exposure − gross_exposure(snapshot),
+               available_cash/equity − cash_reserve_pct )
+           where snapshot.gross_exposure INCLUDES valued untracked exposure.
+        5. If Σ capped asks > budget: every candidate scales down PRO-RATA
+           by a single factor s = budget / Σ asks (never alphabetical
+           first-come-first-served).
+        6. Strategy-budget bookkeeping commits only AFTER the whole batch
+           computes successfully (all-or-nothing accounting).
+
+        This method performs NO broker I/O and NO exchange access.
+        """
+        if cash_reserve_pct is None:
+            # Implicit reserve: at full gross allocation, (1 - max_portfolio)
+            # of equity remains uninvested.
+            cash_reserve_pct = max(
+                0.0, 1.0 - float(self.exposure_config.max_portfolio_exposure)
+            )
+
+        equity = float(snapshot.equity)
+        if equity <= 0:
+            zero_entries = tuple(
+                BatchAllocationEntry(
+                    symbol=r.symbol,
+                    strategy_id=r.strategy_id,
+                    requested=0.0,
+                    approved=0.0,
+                    reason="non_positive_equity",
+                    causation_chain=self._batch_chain(r),
+                )
+                for r in sorted(requests, key=lambda x: (x.strategy_id, x.symbol))
+            )
+            return BatchAllocationOutcome(
+                entries=zero_entries,
+                scale_factor=0.0,
+                total_requested=0.0,
+                total_approved=0.0,
+                budget_available=0.0,
+            )
+
+        ordered = sorted(requests, key=lambda x: (x.strategy_id, x.symbol))
+
+        # ── Step 1: individual caps per request ────────────────────────
+        capped: dict[tuple[str, str], float] = {}
+        raw_ask: dict[tuple[str, str], float] = {}
+        reasons: dict[tuple[str, str], str] = {}
+
+        for req in ordered:
+            chain = self._batch_chain(req)
+            try:
+                budget = self._get_or_create_budget(req.strategy_id, req)
+                strat_available = (
+                    budget.max_exposure - budget.allocated_exposure
+                ) * self._cluster_adjustment(req.correlation_cluster)
+                asked = min(
+                    float(req.risk_decision.allowed_target_exposure),
+                    float(req.risk_decision.max_new_exposure),
+                )
+                asked = max(0.0, asked)
+                symbol_total = (
+                    req.symbol_total_exposure
+                    if req.symbol_total_exposure is not None
+                    else req.current_exposure
+                )
+                symbol_headroom = max(
+                    0.0,
+                    float(self.exposure_config.max_single_symbol_exposure)
+                    - float(symbol_total),
+                )
+                c = min(asked, max(0.0, strat_available), symbol_headroom)
+                c = max(0.0, c)
+                capped[(req.strategy_id, req.symbol)] = c
+                raw_ask[(req.strategy_id, req.symbol)] = asked
+                reasons[(req.strategy_id, req.symbol)] = (
+                    f"capped_from_{asked:.6f}_"
+                    f"strat_{max(0.0, strat_available):.6f}_"
+                    f"sym_headroom_{symbol_headroom:.6f}"
+                )
+            except Exception as e:  # fail-closed per request, never raise upward
+                logger.error("allocate_batch: cap computation failed: %s", e)
+                capped[(req.strategy_id, req.symbol)] = 0.0
+                raw_ask[(req.strategy_id, req.symbol)] = 0.0
+                reasons[(req.strategy_id, req.symbol)] = f"cap_error:{e}"
+
+        # ── Step 2: global increase budget from SHARED snapshot ────────
+        gross_now = float(snapshot.gross_exposure)
+        gross_budget = max(
+            0.0, float(self.exposure_config.max_portfolio_exposure) - gross_now
+        )
+        cash_budget = max(
+            0.0, float(snapshot.available_cash) / equity - float(cash_reserve_pct)
+        )
+        if not snapshot.new_exposure_allowed:
+            # Unknown portfolio truth (unvalued holdings / failed reconcile):
+            # UNKNOWN TRUTH IS NOT ZERO RISK → zero new exposure.
+            gross_budget = 0.0
+            cash_budget = 0.0
+        budget_available = min(gross_budget, cash_budget)
+
+        total_ask = sum(raw_ask.values())
+        total_capped = sum(capped.values())
+
+        # ── Step 3: pro-rata scaling when over budget ──────────────────
+        if total_capped > budget_available and total_capped > 0:
+            scale = budget_available / total_capped
+        else:
+            scale = 1.0
+
+        entries: list[BatchAllocationEntry] = []
+        for req in ordered:
+            key = (req.strategy_id, req.symbol)
+            c = capped[key]
+            approved = c * scale
+            reason = reasons[key]
+            if scale < 1.0 and c > 0:
+                reason += f"|pro_rata_scale_{scale:.6f}"
+            elif c == 0 and raw_ask[key] > 0:
+                reason += "|rejected_cap_zero"
+            entries.append(
+                BatchAllocationEntry(
+                    symbol=req.symbol,
+                    strategy_id=req.strategy_id,
+                    requested=raw_ask[key],
+                    approved=approved,
+                    reason=reason,
+                    causation_chain=self._append_batch_link(req, approved, scale),
+                )
+            )
+
+        total_approved = sum(e.approved for e in entries)
+
+        # ── Step 4: commit strategy budgets atomically post-computation ─
+        for entry in entries:
+            if entry.approved > 0:
+                budget = self._get_or_create_budget(entry.strategy_id, entry.symbol)
+                budget.allocated_exposure += entry.approved
+                budget.symbols[entry.symbol] = (
+                    budget.symbols.get(entry.symbol, 0.0) + entry.approved
+                )
+
+        return BatchAllocationOutcome(
+            entries=tuple(entries),
+            scale_factor=scale,
+            total_requested=total_ask,
+            total_approved=total_approved,
+            budget_available=budget_available,
+        )
+
+    def build_target_vector(
+        self,
+        outcome: BatchAllocationOutcome,
+        snapshot: PortfolioSnapshot,
+        cycle_id: str,
+    ) -> PortfolioTargetVector:
+        """Assemble the canonical PortfolioTargetVector from a batch outcome."""
+        targets = {e.symbol: round(e.approved, 12) for e in outcome.entries}
+        reasons = {e.symbol: e.reason for e in outcome.entries}
+        rejected = tuple(
+            e.symbol for e in outcome.entries if e.approved <= 0 and e.requested > 0
+        )
+        reserve_pct = max(0.0, 1.0 - float(self.exposure_config.max_portfolio_exposure))
+        return PortfolioTargetVector(
+            cycle_id=cycle_id,
+            equity=float(snapshot.equity),
+            available_cash=float(snapshot.available_cash),
+            targets=targets,
+            gross_target_exposure=sum(targets.values()),
+            cash_reserve_pct=reserve_pct,
+            allocation_reasons=reasons,
+            rejected_symbols=rejected,
+        )
+
+    def _batch_chain(self, request: AllocationRequest) -> CausationChain:
+        return request.causation_chain or new_chain(
+            {
+                "authority": "PortfolioAllocator",
+                "stage": "allocate_batch",
+                "strategy_id": request.strategy_id,
+                "symbol": request.symbol,
+            }
+        )
+
+    def _append_batch_link(
+        self, request: AllocationRequest, approved: float, scale: float
+    ) -> CausationChain:
+        chain = self._batch_chain(request)
+        return chain.append(
+            authority="PortfolioAllocator",
+            inputs={
+                "stage": "allocate_batch",
+                "strategy_id": request.strategy_id,
+                "symbol": request.symbol,
+                "requested": float(
+                    min(
+                        request.risk_decision.allowed_target_exposure,
+                        request.risk_decision.max_new_exposure,
+                    )
+                ),
+            },
+            outputs={"approved": approved, "batch_scale": scale},
+        )
+
     def release_allocation(self, strategy_id: str, symbol: str, amount: float) -> None:
         """Release allocation when position is closed."""
         if strategy_id in self._strategy_budgets:
@@ -462,4 +797,9 @@ __all__ = [
     "AllocationRequest",
     "AllocationResult",
     "StrategyBudget",
+    "PortfolioSnapshot",
+    "ReconciliationState",
+    "PortfolioTargetVector",
+    "BatchAllocationEntry",
+    "BatchAllocationOutcome",
 ]

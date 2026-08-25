@@ -8,6 +8,7 @@ AgentMessage → DecisionAuthority → ExposureAuthority → ExecutionAuthority
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 import math
 import signal
@@ -80,7 +81,17 @@ from trading_agent.authority import (
 )
 from trading_agent.authority.config import Environment
 from trading_agent.authority.causation import CausationChain
+from trading_agent.authority.portfolio import PortfolioSnapshot
 from trading_agent.config.loader import config as legacy_config
+from trading_agent.execution.batch_models import (
+    FinalizedPairDecision,
+    is_execution_barrier,
+    MarketDataInput,
+    PairOrderPlan,
+    PairPreparedDecision,
+    PlannedAction,
+    PlannedSubmissionOutcome,
+)
 from trading_agent.execution.canonical.risk_decision import (
     UnifiedRiskDecision,
 )
@@ -327,38 +338,34 @@ class ExecutionEngine:
         snapshot = self._build_portfolio_snapshot(symbol)
         return snapshot.available_quantity if snapshot is not None else float("nan")
 
-    # ── Execute signals from Phase 2 agents ────────────────────────────
+    # ── Milestone C: staged preparation/planning/submission ────────────
+    #
+    # execute_strategy() is now a THIN COMPOSITION of the same no-I/O stages
+    # that MultiPairRuntime uses for batches. Single-pair == batch with N=1.
 
-    def execute_strategy(
+    def _prepare_from_runtime(
         self,
         strategy_runtime: StrategyRuntime,
         market_data: Any,
-        observation: EnrichedMarketObservation | None = None,
-    ) -> list[Order]:
-        """Execute a promoted strategy through the full authority chain.
+        observation: EnrichedMarketObservation | None,
+    ) -> PairPreparedDecision:
+        """Resolve → StrategyOutput → DecisionAuthority. NO allocation,
+        NO exposure validation, NO broker I/O after this point in prepare."""
+        symbol = strategy_runtime.symbol
+        timeframe = strategy_runtime.timeframe
 
-        This is the PRIMARY production API for artifact-driven execution:
-        StrategyRuntime → StrategyOutput → DecisionAuthority → ExposureAuthority
-        → PortfolioAllocator → ExecutionAuthority → OrderPlanner → Lifecycle → BrokerGateway
-
-        Args:
-            strategy_runtime: Resolved StrategyRuntime from RuntimeStrategyResolver
-            market_data: Market data for strategy execution (e.g., OHLCV DataFrame)
-            observation: Market observation for planning (must be closed candle)
-
-        Returns:
-            List of executed Orders
-        """
-        if self.execution_service is None:
-            raise RuntimeError(
-                "execute_strategy requires instrument_rules to be provided at engine construction"
+        def _no_action(status: str, signal: str = "HOLD") -> PairPreparedDecision:
+            return PairPreparedDecision(
+                symbol=symbol,
+                timeframe=timeframe,
+                artifact_id=strategy_runtime.artifact_id,
+                strategy_name=strategy_runtime.strategy_name,
+                observation=observation,
+                strategy_output=None,
+                risk_decision=None,
+                signal=signal,
+                prepare_status=status,
             )
-        if self.resolver is None:
-            raise RuntimeError(
-                "execute_strategy requires RuntimeStrategyResolver (promotion_store + artifact_store)"
-            )
-
-        orders: list[Order] = []
 
         # Execute strategy to get signal
         strategy_output = strategy_runtime.execute(
@@ -373,35 +380,33 @@ class ExecutionEngine:
         signal_value = str(strategy_output.signal).upper()
         if signal_value == "HOLD":
             logger.info(f"Strategy {strategy_runtime.strategy_name}: HOLD — no action")
-            return orders
+            return _no_action("hold")
 
         # Sync protective orders with actual positions
         self._sync_protective_orders()
-
-        symbol = strategy_runtime.symbol
-        timeframe = strategy_runtime.timeframe
 
         # Get current price
         price_info = self._get_current_price(symbol)
         if price_info is None:
             logger.warning(f"Cannot execute strategy: no price data for {symbol}")
-            return orders
+            return _no_action("no_price")
         current_price, exchange_timestamp = price_info
         if current_price <= 0:
             logger.warning(f"Cannot execute strategy: no price data for {symbol}")
-            return orders
+            return _no_action("no_price")
 
         # Observation: must come from market data layer
         if observation is None:
             logger.warning(
                 "execute_strategy requires a market observation from the data layer"
             )
-            return orders
+            return _no_action("bad_observation")
         if not observation.is_closed:
             logger.warning(
-                f"Refusing to execute from unclosed observation {observation.observation_id}"
+                f"Refusing to execute from unclosed observation "
+                f"{observation.observation_id}"
             )
-            return orders
+            return _no_action("bad_observation")
 
         # ── Build DecisionInput from StrategyOutput ──────────────────
         existing_pos = self.exchange.get_position(symbol)
@@ -411,7 +416,6 @@ class ExecutionEngine:
         current_exposure = current_notional / equity if equity > 0 else 0.0
         available_cash = self.exchange.get_balance("USDT")
 
-        # Convert StrategyOutput to DecisionInput using the canonical path
         decision_input = DecisionInput(
             strategy_output=strategy_output,  # Direct StrategyOutput path
             symbol=symbol,
@@ -426,45 +430,45 @@ class ExecutionEngine:
             volatility_pct=getattr(observation, "volatility_pct", None),
         )
 
-        # Run DecisionAuthority
         decision_output = self.decision_authority.decide(decision_input)
-        risk_decision = decision_output.risk_decision
-        target = decision_output.target_exposure
-
-        # Attach causation chain to risk_decision
         risk_decision = UnifiedRiskDecision(
-            decision_id=risk_decision.decision_id,
-            forecast_fingerprint=risk_decision.forecast_fingerprint,
-            model_artifact_id=risk_decision.model_artifact_id
-            or strategy_runtime.artifact_id,
-            requested_target_exposure=risk_decision.requested_target_exposure,
-            allowed_target_exposure=risk_decision.allowed_target_exposure,
-            max_new_exposure=risk_decision.max_new_exposure,
-            reduce_only=risk_decision.reduce_only,
-            risk_level=risk_decision.risk_level,
-            reason_codes=risk_decision.reason_codes,
-            calibration_state=risk_decision.calibration_state,
-            calibration_artifact_id=risk_decision.calibration_artifact_id,
-            calibration_ece=risk_decision.calibration_ece,
-            ood_state=risk_decision.ood_state,
-            ood_score=risk_decision.ood_score,
-            regime_state=risk_decision.regime_state,
-            regime_entropy=risk_decision.regime_entropy,
-            interval_width=risk_decision.interval_width,
-            created_at=risk_decision.created_at,
-            metadata=risk_decision.metadata,
-            warnings=risk_decision.warnings,
+            decision_id=decision_output.risk_decision.decision_id,
+            forecast_fingerprint=decision_output.risk_decision.forecast_fingerprint,
+            model_artifact_id=(
+                decision_output.risk_decision.model_artifact_id
+                or strategy_runtime.artifact_id
+            ),
+            requested_target_exposure=(
+                decision_output.risk_decision.requested_target_exposure
+            ),
+            allowed_target_exposure=decision_output.risk_decision.allowed_target_exposure,
+            max_new_exposure=decision_output.risk_decision.max_new_exposure,
+            reduce_only=decision_output.risk_decision.reduce_only,
+            risk_level=decision_output.risk_decision.risk_level,
+            reason_codes=decision_output.risk_decision.reason_codes,
+            calibration_state=decision_output.risk_decision.calibration_state,
+            calibration_artifact_id=(
+                decision_output.risk_decision.calibration_artifact_id
+            ),
+            calibration_ece=decision_output.risk_decision.calibration_ece,
+            ood_state=decision_output.risk_decision.ood_state,
+            ood_score=decision_output.risk_decision.ood_score,
+            regime_state=decision_output.risk_decision.regime_state,
+            regime_entropy=decision_output.risk_decision.regime_entropy,
+            interval_width=decision_output.risk_decision.interval_width,
+            created_at=decision_output.risk_decision.created_at,
+            metadata=decision_output.risk_decision.metadata,
+            warnings=decision_output.risk_decision.warnings,
             authority_chain=decision_output.causation_chain.links,
         )
         target = TargetExposure(
-            target_exposure_pct=target.target_exposure_pct,
-            max_new_exposure_pct=target.max_new_exposure_pct,
-            reduce_only=target.reduce_only,
-            confidence=target.confidence,
+            target_exposure_pct=decision_output.target_exposure.target_exposure_pct,
+            max_new_exposure_pct=(decision_output.target_exposure.max_new_exposure_pct),
+            reduce_only=decision_output.target_exposure.reduce_only,
+            confidence=decision_output.target_exposure.confidence,
             authority_chain=decision_output.causation_chain.links,
         )
 
-        # ── PortfolioAllocator ──────────────────────────────────────
         total_portfolio_exposure = (
             sum(
                 (pos.quantity * self.exchange._last_price_cache.get(pos.symbol, 0.0))
@@ -476,45 +480,160 @@ class ExecutionEngine:
             else 0.0
         )
 
-        strategy_id = strategy_runtime.artifact_id
-        strategy_exposure = current_exposure  # Single symbol single strategy
-
-        allocation_request = AllocationRequest(
-            strategy_id=strategy_id,
+        return PairPreparedDecision(
             symbol=symbol,
+            timeframe=timeframe,
+            artifact_id=strategy_runtime.artifact_id,
+            strategy_name=strategy_runtime.strategy_name,
+            observation=observation,
+            strategy_output=strategy_output,
             risk_decision=risk_decision,
+            requested_target_exposure=target.target_exposure_pct,
             current_exposure=current_exposure,
+            signal=signal_value,
+            causation_chain=decision_output.causation_chain,
+            current_price=current_price,
+            equity=equity,
+            available_cash=available_cash,
+            current_quantity=current_qty,
+            total_portfolio_exposure=total_portfolio_exposure,
+            prepare_status="ok",
+        )
+
+    def prepare_promoted_strategy(
+        self,
+        symbol: str,
+        timeframe: str,
+        environment: str | Environment,
+        market_data_input: MarketDataInput,
+    ) -> PairPreparedDecision | None:
+        """No-I/O preparation of ONE promoted binding (batch stage).
+
+        Resolves the promoted artifact, runs the strategy, seeds the price,
+        and runs DecisionAuthority. Performs NO allocation, NO exposure
+        validation, NO order planning, NO broker I/O.
+
+        Returns None when no eligible promotion record exists (fail-closed
+        upstream: required-universe policy treats None as a failed binding).
+        """
+        if self.resolver is None:
+            raise RuntimeError(
+                "prepare_promoted_strategy requires RuntimeStrategyResolver "
+                "(promotion_store + artifact_store at engine construction)"
+            )
+        env = (
+            Environment(environment.lower())
+            if isinstance(environment, str)
+            else environment
+        )
+        strategy_runtime = self.resolver.resolve_for(symbol, timeframe, env)
+        if strategy_runtime is None:
+            logger.warning(
+                f"No promoted strategy resolved for {symbol} {timeframe} {env.value}"
+            )
+            return None
+
+        observation = self.build_observation(market_data_input)
+        # Seed fresh price so DecisionAuthority sees a tradable quote
+        try:
+            close_price = float(market_data_input.data.tail(1).to_dicts()[0]["close"])
+            self.update_prices({symbol: close_price})
+        except Exception as e:
+            logger.warning(
+                "prepare_promoted_strategy[%s]: cannot seed price: %s", symbol, e
+            )
+
+        return self._prepare_from_runtime(
+            strategy_runtime, market_data_input.data, observation
+        )
+
+    def build_observation(self, market_data_input: MarketDataInput) -> Any:
+        """EnrichedMarketObservation from the LAST CLOSED bar, carrying REAL
+        provenance from the MarketDataInput (never fabricated IDs)."""
+        tail = market_data_input.data.tail(1).to_dicts()[0]
+        observed_at = datetime.now(UTC)
+
+        bar_ts = tail.get("timestamp")
+        if isinstance(bar_ts, datetime):
+            bar_close_at = bar_ts if bar_ts.tzinfo else bar_ts.replace(tzinfo=UTC)
+        else:
+            bar_close_at = observed_at
+
+        return EnrichedMarketObservation(
+            symbol=market_data_input.symbol,
+            observed_at=observed_at,
+            open=float(tail["open"]),
+            high=float(tail["high"]),
+            low=float(tail["low"]),
+            close=float(tail["close"]),
+            volume=float(tail.get("volume", 0.0)),
+            features={},
+            timeframe=market_data_input.timeframe,
+            bar_close_at=bar_close_at,
+            is_closed=True,
+            data_manifest_id=market_data_input.data_manifest_id,
+            feature_artifact_id=market_data_input.feature_artifact_id,
+        )
+
+    def build_allocation_request(
+        self,
+        prepared: PairPreparedDecision,
+        snapshot: PortfolioSnapshot | None = None,
+    ) -> AllocationRequest:
+        """AllocationRequest for one prepared pair against SHARED truth.
+
+        When ``snapshot`` is given (batch mode), equity/cash/exposures come
+        from the authoritative shared PortfolioSnapshot; otherwise from the
+        values captured at prepare time (single-pair parity path).
+        """
+        if snapshot is not None:
+            equity = float(snapshot.equity)
+            available_cash = float(snapshot.available_cash)
+            total_portfolio_exposure = float(snapshot.gross_exposure)
+            symbol_total: float | None = float(
+                snapshot.symbol_exposures.get(prepared.symbol, 0.0)
+            )
+        else:
+            equity = prepared.equity
+            available_cash = prepared.available_cash
+            total_portfolio_exposure = prepared.total_portfolio_exposure
+            symbol_total = None  # falls back to current_exposure (legacy parity)
+
+        return AllocationRequest(
+            strategy_id=prepared.artifact_id,
+            symbol=prepared.symbol,
+            risk_decision=prepared.risk_decision,
+            current_exposure=prepared.current_exposure,
             equity=equity,
             available_cash=available_cash,
             portfolio_exposure=total_portfolio_exposure,
             correlation_cluster=None,
-            causation_chain=decision_output.causation_chain,
+            symbol_total_exposure=symbol_total,
+            causation_chain=prepared.causation_chain,
         )
 
-        allocation_result = self.portfolio_allocator.allocate(allocation_request)
-        if allocation_result.allocation_pct <= 0:
-            logger.info(
-                f"PortfolioAllocator returned zero allocation for {symbol}: {allocation_result.reason}"
-            )
-            return orders
+    def finalize_prepared_decision(
+        self,
+        prepared: PairPreparedDecision,
+        *,
+        approved_target: TargetExposure,
+        combined_chain: CausationChain,
+    ) -> FinalizedPairDecision | None:
+        """ExposureAuthority validation of an ALLOCATED target (no broker I/O).
 
-        # Update target with allocation result
-        target = allocation_result.target_exposure
-        combined_chain = CausationChain(
-            links=decision_output.causation_chain.links
-            + allocation_result.causation_chain.links
-        )
-
-        # ── ExposureAuthority ──────────────────────────────────────
+        ``approved_target`` carries the allocation result (single-pair:
+        PortfolioAllocator.allocate; batch: allocate_batch via the target
+        vector). Returns None when ExposureAuthority blocks the pair.
+        """
         exposure_input = ExposureValidationInput(
-            target_exposure=target,
-            symbol=symbol,
-            strategy_id=strategy_id,
-            current_exposure=current_exposure,
-            portfolio_exposure=total_portfolio_exposure,
-            strategy_exposure=strategy_exposure,
-            equity=equity,
-            available_cash=available_cash,
+            target_exposure=approved_target,
+            symbol=prepared.symbol,
+            strategy_id=prepared.artifact_id,
+            current_exposure=prepared.current_exposure,
+            portfolio_exposure=prepared.total_portfolio_exposure,
+            strategy_exposure=prepared.current_exposure,
+            equity=prepared.equity,
+            available_cash=prepared.available_cash,
             correlation_exposure=0.0,
             causation_chain=combined_chain,
         )
@@ -522,64 +641,122 @@ class ExecutionEngine:
         exposure_output = self.exposure_authority.validate(exposure_input)
         if not exposure_output.allowed:
             logger.warning(
-                "Order blocked by ExposureAuthority: %s",
+                "Order blocked by ExposureAuthority [%s %s]: %s",
+                prepared.symbol,
+                prepared.timeframe,
                 exposure_output.reason,
             )
-            return orders
+            return None
 
-        # Update risk_decision and target with exposure-capped values
+        base_rd = prepared.risk_decision
+        assert base_rd is not None
         risk_decision = UnifiedRiskDecision(
-            decision_id=risk_decision.decision_id,
-            forecast_fingerprint=risk_decision.forecast_fingerprint,
-            model_artifact_id=risk_decision.model_artifact_id,
-            requested_target_exposure=risk_decision.requested_target_exposure,
+            decision_id=base_rd.decision_id,
+            forecast_fingerprint=base_rd.forecast_fingerprint,
+            model_artifact_id=base_rd.model_artifact_id,
+            requested_target_exposure=base_rd.requested_target_exposure,
             allowed_target_exposure=exposure_output.allowed_target_exposure,
             max_new_exposure=exposure_output.allowed_max_new_exposure,
-            reduce_only=risk_decision.reduce_only,
-            risk_level=risk_decision.risk_level,
-            reason_codes=risk_decision.reason_codes,
-            calibration_state=risk_decision.calibration_state,
-            calibration_artifact_id=risk_decision.calibration_artifact_id,
-            calibration_ece=risk_decision.calibration_ece,
-            ood_state=risk_decision.ood_state,
-            ood_score=risk_decision.ood_score,
-            regime_state=risk_decision.regime_state,
-            regime_entropy=risk_decision.regime_entropy,
-            interval_width=risk_decision.interval_width,
-            created_at=risk_decision.created_at,
-            metadata=risk_decision.metadata,
-            warnings=risk_decision.warnings + exposure_output.warnings,
+            reduce_only=base_rd.reduce_only,
+            risk_level=base_rd.risk_level,
+            reason_codes=base_rd.reason_codes,
+            calibration_state=base_rd.calibration_state,
+            calibration_artifact_id=base_rd.calibration_artifact_id,
+            calibration_ece=base_rd.calibration_ece,
+            ood_state=base_rd.ood_state,
+            ood_score=base_rd.ood_score,
+            regime_state=base_rd.regime_state,
+            regime_entropy=base_rd.regime_entropy,
+            interval_width=base_rd.interval_width,
+            created_at=base_rd.created_at,
+            metadata=base_rd.metadata,
+            warnings=base_rd.warnings + exposure_output.warnings,
             authority_chain=exposure_output.causation_chain.links,
         )
         target = TargetExposure(
             target_exposure_pct=exposure_output.allowed_target_exposure,
             max_new_exposure_pct=exposure_output.allowed_max_new_exposure,
             reduce_only=risk_decision.reduce_only,
-            confidence=target.confidence,
+            confidence=approved_target.confidence,
             authority_chain=exposure_output.causation_chain.links,
         )
 
-        # If target exposure equals current (no change), return early
-        if abs(target.target_exposure_pct - current_exposure) < 1e-9:
+        no_change = abs(target.target_exposure_pct - prepared.current_exposure) < 1e-9
+        if no_change:
             logger.info(
-                f"Target exposure equals current ({current_exposure:.4f}) — no action"
+                "[%s %s] Target exposure equals current (%.4f) — no action",
+                prepared.symbol,
+                prepared.timeframe,
+                prepared.current_exposure,
             )
-            return orders
+        return FinalizedPairDecision(
+            prepared=prepared,
+            approved_target_exposure=target.target_exposure_pct,
+            risk_decision=risk_decision,
+            target=target,
+            causation_chain=exposure_output.causation_chain,
+            no_change=no_change,
+        )
 
-        # ── Portfolio state (canonical fields) ──────────────────────
+    def plan_pair_order(self, finalized: FinalizedPairDecision) -> PairOrderPlan:
+        """Plan the order for one finalized pair. NO broker I/O."""
+        prepared = finalized.prepared
+        symbol = prepared.symbol
+        timeframe = prepared.timeframe
+
+        if finalized.no_change:
+            return PairOrderPlan(
+                symbol=symbol,
+                timeframe=timeframe,
+                action=PlannedAction.NO_ORDER,
+                finalized=finalized,
+                intent=None,
+                intent_id=None,
+                side=None,
+                quantity=0.0,
+                limit_price=None,
+                instrument_rule_id=None,
+                idempotency_key=None,
+                detail="target equals current exposure",
+            )
+
+        assert self.execution_service is not None
+        assert self.planner is not None
+
+        pair_rules = self.planner.rules_for(symbol)
+        rule_id = getattr(pair_rules, "rule_id", None) or (
+            getattr(pair_rules, "name", None)
+        )
+        if pair_rules is None:
+            logger.error("No instrument rules registered for %s — cannot plan", symbol)
+            return PairOrderPlan(
+                symbol=symbol,
+                timeframe=timeframe,
+                action=PlannedAction.BLOCKED,
+                finalized=finalized,
+                intent=None,
+                intent_id=None,
+                side=None,
+                quantity=0.0,
+                limit_price=None,
+                instrument_rule_id=None,
+                idempotency_key=None,
+                detail="missing instrument rules",
+            )
+
         portfolio = CurrentPortfolioState(
             symbol=symbol,
-            current_exposure=current_exposure,
-            equity=equity,
-            existing_quantity=current_qty,
-            available_cash=available_cash,
+            current_exposure=prepared.current_exposure,
+            equity=prepared.equity,
+            existing_quantity=prepared.current_quantity,
+            available_cash=prepared.available_cash,
         )
         price = MarketPrice(
             symbol=symbol,
-            mid=current_price,
-            bid=current_price,
-            ask=current_price,
-            last=current_price,
+            mid=prepared.current_price,
+            bid=prepared.current_price,
+            ask=prepared.current_price,
+            last=prepared.current_price,
         )
 
         # ── Convert authority TargetExposure to canonical TargetExposure ──
@@ -589,89 +766,211 @@ class ExecutionEngine:
 
         canonical_target = CanonicalTargetExposure(
             symbol=symbol,
-            exposure=target.target_exposure_pct,
+            exposure=finalized.target.target_exposure_pct,
             horizon=1,
-            forecast_fingerprint=risk_decision.forecast_fingerprint,
-            model_artifact_id=risk_decision.model_artifact_id,
-            risk_decision_id=risk_decision.decision_id,
+            forecast_fingerprint=finalized.risk_decision.forecast_fingerprint,
+            model_artifact_id=finalized.risk_decision.model_artifact_id,
+            risk_decision_id=finalized.risk_decision.decision_id,
         )
 
-        # ── Order planning ──────────────────────────────────────────
+        reservations_for_side = (
+            0.0
+            if prepared.signal == "SELL"
+            else self.lifecycle.active_sell_reservations(symbol)
+        )
         plan_result = self.execution_service.plan(
             target=canonical_target,
-            risk_decision=risk_decision,
-            observation=observation,
+            risk_decision=finalized.risk_decision,
+            observation=prepared.observation,
             portfolio=portfolio,
             price=price,
-            existing_reservations=0.0
-            if signal_value == "SELL"
-            else self.lifecycle.active_sell_reservations(symbol),
+            existing_reservations=reservations_for_side,
         )
         if plan_result.status != OrderPlanningStatus.ORDER_REQUIRED:
-            logger.info(f"Planner returned {plan_result.status.value} — no order")
-            return orders
+            return PairOrderPlan(
+                symbol=symbol,
+                timeframe=timeframe,
+                action=PlannedAction.NO_ORDER,
+                finalized=finalized,
+                intent=None,
+                intent_id=None,
+                side=None,
+                quantity=0.0,
+                limit_price=None,
+                instrument_rule_id=rule_id,
+                idempotency_key=None,
+                detail=f"planner status {plan_result.status.value}",
+            )
         if plan_result.intent is None:
-            return orders
+            return PairOrderPlan(
+                symbol=symbol,
+                timeframe=timeframe,
+                action=PlannedAction.NO_ORDER,
+                finalized=finalized,
+                intent=None,
+                intent_id=None,
+                side=None,
+                quantity=0.0,
+                limit_price=None,
+                instrument_rule_id=rule_id,
+                idempotency_key=None,
+                detail="planner produced no intent",
+            )
 
         intent = plan_result.intent
+        side_lower = intent.side.lower()
+        action = (
+            PlannedAction.REDUCTION if side_lower == "sell" else PlannedAction.INCREASE
+        )
+        return PairOrderPlan(
+            symbol=symbol,
+            timeframe=timeframe,
+            action=action,
+            finalized=finalized,
+            intent=intent,
+            intent_id=intent.intent_id,
+            side=intent.side,
+            quantity=float(intent.quantity),
+            limit_price=getattr(intent, "limit_price", None),
+            instrument_rule_id=rule_id,
+            idempotency_key=getattr(intent, "idempotency_key", None),
+        )
 
-        # Type checker: execution_service check above guarantees planner/authority are not None
+    def replan_pair_with_live_truth(self, plan: PairOrderPlan) -> PairOrderPlan:
+        """Re-quantize a planned INCREASE against LIVE broker truth.
+
+        Batch plans are built on ONE shared snapshot; sibling fills shift
+        equity/cash (fees, slippage) before later BUYs reach the broker.
+        The canonical invariant at authorize time checks against LIVE truth,
+        so quantities must be re-floored on fresh numbers. Allocation caps,
+        authority approvals and causation chains are NOT changed here — only
+        the executable quantity.
+        """
+        finalized = plan.finalized
+        if finalized is None or plan.action is not PlannedAction.INCREASE:
+            return plan
+        prepared = finalized.prepared
+
+        live_equity = float(self.exchange.get_total_equity())
+        live_cash = float(self.exchange.get_balance("USDT"))
+        pos = self.exchange.get_position(prepared.symbol)
+        live_qty = float(pos.quantity) if pos else 0.0
+        price_info = self._get_current_price(prepared.symbol)
+        if price_info is None:
+            return plan
+        live_price, _ts = price_info
+
+        drift_eps = max(1e-9, abs(prepared.equity) * 1e-12)
+        unchanged = (
+            abs(live_equity - prepared.equity) <= drift_eps
+            and abs(live_cash - prepared.available_cash) <= drift_eps
+            and abs(live_qty - prepared.current_quantity) <= drift_eps
+            and abs(live_price - prepared.current_price) <= drift_eps
+        )
+        if unchanged:
+            return plan
+
+        live_exposure = live_qty * live_price / live_equity if live_equity > 0 else 0.0
+        total_exposure = self._portfolio_gross_exposure_ratio(live_equity)
+        prepared2 = dataclasses.replace(
+            prepared,
+            current_price=live_price,
+            equity=live_equity,
+            available_cash=live_cash,
+            current_quantity=live_qty,
+            current_exposure=live_exposure,
+            total_portfolio_exposure=total_exposure,
+        )
+        finalized2 = FinalizedPairDecision(
+            prepared=prepared2,
+            approved_target_exposure=finalized.approved_target_exposure,
+            risk_decision=finalized.risk_decision,
+            target=finalized.target,
+            causation_chain=finalized.causation_chain,
+            no_change=False,
+        )
+        logger.info(
+            "[%s] replan against live truth: equity %.4f→%.4f",
+            prepared.symbol,
+            prepared.equity,
+            live_equity,
+        )
+        return self.plan_pair_order(finalized2)
+
+    def _portfolio_gross_exposure_ratio(self, equity: float) -> float:
+        """Gross open exposure / equity from exchange positions."""
+        if equity <= 0:
+            return 0.0
+        gross = 0.0
+        for p in self.exchange.get_all_positions():
+            if not p.is_active or p.quantity <= 0:
+                continue
+            px = float(self.exchange._last_price_cache.get(p.symbol, 0.0))
+            gross += p.quantity * px / equity
+        return gross
+
+    def submit_planned_order(self, plan: PairOrderPlan) -> PlannedSubmissionOutcome:
+        """THE ONLY stage that performs broker I/O for one planned order.
+
+        Mirrors the legacy single-pair submission sequence exactly:
+        ExecutionAuthority validate → sell-protection cancel → gateway result
+        → fill handling → BUY protective stop.
+        """
+        finalized = plan.finalized
+        assert finalized is not None
+        prepared = finalized.prepared
+        intent = plan.intent
+        assert intent is not None
+        symbol = prepared.symbol
+
         assert self.planner is not None
         assert self.execution_authority is not None
 
         pair_rules = self.planner.rules_for(symbol)
-        if pair_rules is None:
-            logger.error(
-                "No instrument rules registered for %s — cannot execute", symbol
-            )
-            return orders
 
-        # ── ExecutionAuthority ──────────────────────────────────────
+        def _outcome(**kwargs: Any) -> PlannedSubmissionOutcome:
+            return PlannedSubmissionOutcome(plan=plan, **kwargs)
+
         exec_input = ExecutionValidationInput(
             intent=intent,
-            observation=observation,
-            portfolio_state=portfolio,
-            price=price,
+            observation=prepared.observation,
+            portfolio_state=CurrentPortfolioState(
+                symbol=symbol,
+                current_exposure=prepared.current_exposure,
+                equity=prepared.equity,
+                existing_quantity=prepared.current_quantity,
+                available_cash=prepared.available_cash,
+            ),
+            price=MarketPrice(
+                symbol=symbol,
+                mid=prepared.current_price,
+                bid=prepared.current_price,
+                ask=prepared.current_price,
+                last=prepared.current_price,
+            ),
             instrument_rules=pair_rules,
-            existing_reservations=0.0
-            if signal_value == "SELL"
-            else self.lifecycle.active_sell_reservations(symbol),
-            causation_chain=exposure_output.causation_chain,
-            risk_decision=risk_decision,
+            existing_reservations=(
+                0.0
+                if prepared.signal == "SELL"
+                else self.lifecycle.active_sell_reservations(symbol)
+            ),
+            causation_chain=finalized.causation_chain,
+            risk_decision=finalized.risk_decision,
         )
 
         exec_output = self.execution_authority.execute(exec_input)
         if not exec_output.allowed:
             logger.warning(
-                "Order blocked by ExecutionAuthority: %s",
+                "Order blocked by ExecutionAuthority [%s]: %s",
+                symbol,
                 exec_output.reason,
             )
-            return orders
-
-        # Attach full authority chain to risk_decision for audit
-        risk_decision = UnifiedRiskDecision(
-            decision_id=risk_decision.decision_id,
-            forecast_fingerprint=risk_decision.forecast_fingerprint,
-            model_artifact_id=risk_decision.model_artifact_id,
-            requested_target_exposure=risk_decision.requested_target_exposure,
-            allowed_target_exposure=risk_decision.allowed_target_exposure,
-            max_new_exposure=risk_decision.max_new_exposure,
-            reduce_only=risk_decision.reduce_only,
-            risk_level=risk_decision.risk_level,
-            reason_codes=risk_decision.reason_codes,
-            calibration_state=risk_decision.calibration_state,
-            calibration_artifact_id=risk_decision.calibration_artifact_id,
-            calibration_ece=risk_decision.calibration_ece,
-            ood_state=risk_decision.ood_state,
-            ood_score=risk_decision.ood_score,
-            regime_state=risk_decision.regime_state,
-            regime_entropy=risk_decision.regime_entropy,
-            interval_width=risk_decision.interval_width,
-            created_at=risk_decision.created_at,
-            metadata=risk_decision.metadata,
-            warnings=risk_decision.warnings,
-            authority_chain=exec_output.causation_chain.links,
-        )
+            return _outcome(
+                order=None,
+                submit_state="BLOCKED_AUTHORITY",
+                barrier=False,
+                submitted=False,
+            )
 
         # ── Protective order handling (sell signals) ────────────────
         canceled_protection_intents: list[str] = []
@@ -680,18 +979,34 @@ class ExecutionEngine:
                 symbol
             )
             if not cancel_ok:
-                return orders
+                # Legacy parity: submission already happened inside
+                # ExecutionAuthority; report it without an Order wrapper so
+                # lifecycle reconciliation owns the follow-up.
+                broker_result_pre = exec_output.broker_result
+                return _outcome(
+                    order=self._result_to_order(
+                        broker_result_pre, symbol, intent.side, intent.quantity
+                    ),
+                    submit_state=str(
+                        getattr(
+                            broker_result_pre.state, "value", broker_result_pre.state
+                        )
+                    ),
+                    barrier=is_execution_barrier(broker_result_pre),
+                    submitted=True,
+                )
 
         broker_result = exec_output.broker_result
 
-        orders.append(
-            self._result_to_order(broker_result, symbol, intent.side, intent.quantity)
+        order = self._result_to_order(
+            broker_result, symbol, intent.side, intent.quantity
         )
 
         # Check if fill was received
         order_state = self.lifecycle.state.orders.get(intent.intent_id)
         fill_received = order_state is not None and order_state.filled_size > 1e-12
 
+        protection_submitted = False
         if (
             intent.side.lower() == "sell"
             and canceled_protection_intents
@@ -712,10 +1027,19 @@ class ExecutionEngine:
                     intent.intent_id,
                     reason="broker fill did not produce a positive protected quantity",
                 )
-                return orders
-            plan = ProtectionPlan(
+                return _outcome(
+                    order=order,
+                    submit_state=str(
+                        getattr(broker_result.state, "value", broker_result.state)
+                    ),
+                    barrier=is_execution_barrier(broker_result),
+                    submitted=True,
+                    protection_submitted=False,
+                )
+            current_price = prepared.current_price
+            plan_protection = ProtectionPlan(
                 plan_id=f"prot_{intent.intent_id}",
-                model_risk_decision_id=risk_decision.decision_id,
+                model_risk_decision_id=finalized.risk_decision.decision_id,
                 symbol=intent.symbol,
                 stop_type="stop_loss",
                 stop_trigger=current_price * 0.95,
@@ -725,24 +1049,24 @@ class ExecutionEngine:
                 protected_quantity=protected_quantity,
             )
             protective_event = self.lifecycle.create_protective_order(
-                symbol=plan.symbol,
-                kind=plan.stop_type,
-                trigger_price=plan.stop_trigger,
+                symbol=plan_protection.symbol,
+                kind=plan_protection.stop_type,
+                trigger_price=plan_protection.stop_trigger,
                 parent_intent_id=intent.intent_id,
             )
             protection_intent_id = f"{protective_event.aggregate_id}_submit"
             protection_result = self.execution_service.emergency_protection(
                 EmergencyReduceRequest(
                     intent_id=protection_intent_id,
-                    symbol=plan.symbol,
+                    symbol=plan_protection.symbol,
                     side="sell",
-                    quantity=plan.protected_quantity,
+                    quantity=plan_protection.protected_quantity,
                     reason="PROTECTIVE_STOP",
                     parent_intent_id=intent.intent_id,
                     idempotency_key=protection_intent_id,
                     metadata={
                         "order_type": "stop",
-                        "stop_price": plan.stop_trigger,
+                        "stop_price": plan_protection.stop_trigger,
                         "time_in_force": "gtc",
                     },
                 ),
@@ -753,13 +1077,86 @@ class ExecutionEngine:
                     protective_order_id=protective_event.aggregate_id,
                     evidence=protection_result.evidence,
                 )
+                protection_submitted = True
             else:
                 self.lifecycle.require_manual_intervention(
                     intent.intent_id,
                     reason="broker did not acknowledge the required protective order",
                 )
 
-        return orders
+        return _outcome(
+            order=order,
+            submit_state=str(
+                getattr(broker_result.state, "value", broker_result.state)
+            ),
+            barrier=is_execution_barrier(broker_result),
+            submitted=True,
+            protection_submitted=protection_submitted,
+        )
+
+    # ── Execute signals from Phase 2 agents ────────────────────────────
+
+    def execute_strategy(
+        self,
+        strategy_runtime: StrategyRuntime,
+        market_data: Any,
+        observation: EnrichedMarketObservation | None = None,
+    ) -> list[Order]:
+        """Execute a promoted strategy through the full authority chain.
+
+        N=1 composition over the SAME staged APIs MultiPairRuntime uses:
+        _prepare_from_runtime → build_allocation_request → allocate
+        → finalize_prepared_decision → plan_pair_order → submit_planned_order
+        """
+        if self.execution_service is None:
+            raise RuntimeError(
+                "execute_strategy requires instrument_rules to be provided at engine construction"
+            )
+        if self.resolver is None:
+            raise RuntimeError(
+                "execute_strategy requires RuntimeStrategyResolver (promotion_store + artifact_store)"
+            )
+
+        # Stage 1: resolve + StrategyOutput + DecisionAuthority (no I/O)
+        prepared = self._prepare_from_runtime(
+            strategy_runtime, market_data, observation
+        )
+        if prepared.prepare_status != "ok":
+            return []
+
+        # Stage 2: single-pair allocation (batch runtime uses allocate_batch)
+        allocation_request = self.build_allocation_request(prepared)
+        allocation_result = self.portfolio_allocator.allocate(allocation_request)
+        if allocation_result.allocation_pct <= 0:
+            logger.info(
+                f"PortfolioAllocator returned zero allocation for "
+                f"{prepared.symbol}: {allocation_result.reason}"
+            )
+            return []
+
+        approved_target = allocation_result.target_exposure
+        combined_chain = CausationChain(
+            links=prepared.causation_chain.links
+            + allocation_result.causation_chain.links
+        )
+
+        # Stage 3: ExposureAuthority validation of the allocated target
+        finalized = self.finalize_prepared_decision(
+            prepared,
+            approved_target=approved_target,
+            combined_chain=combined_chain,
+        )
+        if finalized is None:
+            return []
+
+        # Stage 4: planning (no broker I/O)
+        plan = self.plan_pair_order(finalized)
+        if plan.action not in (PlannedAction.REDUCTION, PlannedAction.INCREASE):
+            return []
+
+        # Stage 5: THE broker I/O step (+ inline post-fill protection)
+        outcome = self.submit_planned_order(plan)
+        return [outcome.order] if outcome.order is not None else []
 
     # ── Legacy adapter: AgentMessage → StrategyRuntime ──────────────
 
