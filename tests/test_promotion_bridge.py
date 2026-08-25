@@ -350,9 +350,7 @@ class TestConcurrentStoreAccess:
                 actor="race-test",
             )
             store.upsert_from_event(event)
-            assert (
-                store.get_stage(artifact_id) is ResearchStage.PAPER_ELIGIBLE
-            )
+            assert store.get_stage(artifact_id) is ResearchStage.PAPER_ELIGIBLE
 
         with ThreadPoolExecutor(max_workers=8) as pool:
             list(pool.map(worker, range(n)))

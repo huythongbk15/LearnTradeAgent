@@ -169,9 +169,7 @@ class PromotionStateStore:
     def _connect(self) -> Iterator[sqlite3.Connection]:
         # Unique tmp per connection — a shared fixed name breaks under the
         # concurrent connections introduced by the hot-reload watcher thread.
-        temp_path = self.db_path.with_suffix(
-            f".{uuid.uuid4().hex[:12]}.tmp"
-        )
+        temp_path = self.db_path.with_suffix(f".{uuid.uuid4().hex[:12]}.tmp")
         try:
             with self._file_lock:
                 if self.db_path.exists():
