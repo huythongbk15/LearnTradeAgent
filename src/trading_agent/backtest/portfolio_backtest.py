@@ -109,9 +109,7 @@ class HistoricalMarketClock:
                 if isinstance(ts, datetime):
                     ts = ts if ts.tzinfo else ts.replace(tzinfo=UTC)
                 else:
-                    raise ValueError(
-                        f"{binding}: bar timestamp missing/not datetime"
-                    )
+                    raise ValueError(f"{binding}: bar timestamp missing/not datetime")
                 rows.append(
                     _Bar(
                         open_ts=ts,
@@ -148,15 +146,11 @@ class HistoricalMarketClock:
                 "high": [b.high for b in rows],
                 "low": [b.low for b in rows],
                 "close": [b.close for b in rows],
-                "volume": [
-                    self.bars_raw_volume(binding, b.open_ts) for b in rows
-                ],
+                "volume": [self.bars_raw_volume(binding, b.open_ts) for b in rows],
             }
         )
 
-    def bars_raw_volume(
-        self, binding: tuple[str, str], open_ts: datetime
-    ) -> float:
+    def bars_raw_volume(self, binding: tuple[str, str], open_ts: datetime) -> float:
         df = self.bars_raw[binding]
         try:
             match = df.filter(pl.col("timestamp") == open_ts)
@@ -264,9 +258,7 @@ class HistoricalSimulationBroker:
         """Fill every queued order eligible at ``now`` (earliest t+1)."""
         filled: list[SimFill] = []
         remaining: list[QueuedOrder] = []
-        for order in sorted(
-            self._queued, key=lambda o: (o.symbol, o.decision_time)
-        ):
+        for order in sorted(self._queued, key=lambda o: (o.symbol, o.decision_time)):
             binding = None
             for b in bindings:
                 if b[0] == order.symbol:
@@ -494,13 +486,9 @@ class PortfolioBacktestEngine:
             else:
                 unvalued.append(sym)
         tracked_symbols = {s for s, _tf in self.bindings}
-        untracked_symbols = tuple(
-            sorted(set(symbol_exposures) - tracked_symbols)
-        )
+        untracked_symbols = tuple(sorted(set(symbol_exposures) - tracked_symbols))
         state = (
-            ReconciliationState.DEGRADED
-            if unvalued
-            else ReconciliationState.RECONCILED
+            ReconciliationState.DEGRADED if unvalued else ReconciliationState.RECONCILED
         )
         return PortfolioSnapshot(
             equity=max(equity, 0.0),
@@ -594,8 +582,7 @@ class PortfolioBacktestEngine:
             # need enough history before strategies can emit signals
             min_needed = 2
             all_have_history = all(
-                len(self.clock.closed_bars(b, now)) >= min_needed
-                for b in self.bindings
+                len(self.clock.closed_bars(b, now)) >= min_needed for b in self.bindings
             )
             if not all_have_history:
                 warmup_ok = False
@@ -704,9 +691,7 @@ class PortfolioBacktestEngine:
                     symbol, _timeframe = binding
                     entry = entries_by_symbol.get(symbol)
                     approved_pct = float(targets.get(symbol, 0.0))
-                    if approved_pct <= 0 and (
-                        entry is None or entry.requested <= 0
-                    ):
+                    if approved_pct <= 0 and (entry is None or entry.requested <= 0):
                         continue
                     if (
                         not new_exposure_allowed
@@ -714,9 +699,7 @@ class PortfolioBacktestEngine:
                     ):
                         continue
                     alloc_chain = (
-                        getattr(entry, "causation_chain", None)
-                        if entry
-                        else None
+                        getattr(entry, "causation_chain", None) if entry else None
                     )
                     links = tuple(prepared.causation_chain.links) + (
                         tuple(alloc_chain.links) if alloc_chain is not None else ()
@@ -750,12 +733,9 @@ class PortfolioBacktestEngine:
                 executable = [
                     p
                     for p in plans
-                    if p.action
-                    in (PlannedAction.REDUCTION, PlannedAction.INCREASE)
+                    if p.action in (PlannedAction.REDUCTION, PlannedAction.INCREASE)
                 ]
-                preflight = self.multipair.preflight_batch(
-                    executable, snapshot, vector
-                )
+                preflight = self.multipair.preflight_batch(executable, snapshot, vector)
                 reductions, increases, atomic_status = (
                     self.multipair._apply_atomic_buy_policy(preflight, {})
                 )
@@ -770,25 +750,29 @@ class PortfolioBacktestEngine:
                     key = plan.idempotency_key or (
                         f"pbt_{now.strftime('%Y%m%d%H%M%S')}_{plan.symbol}"
                     )
-                    queued_now += 1 if broker.queue(
-                        QueuedOrder(
-                            idempotency_key=key,
-                            symbol=plan.symbol,
-                            side=side,
-                            quantity=float(plan.quantity),
-                            reference_price=float(plan.finalized.prepared.current_price),
-                            decision_time=now,
+                    queued_now += (
+                        1
+                        if broker.queue(
+                            QueuedOrder(
+                                idempotency_key=key,
+                                symbol=plan.symbol,
+                                side=side,
+                                quantity=float(plan.quantity),
+                                reference_price=float(
+                                    plan.finalized.prepared.current_price
+                                ),
+                                decision_time=now,
+                            )
                         )
-                    ) else 0
+                        else 0
+                    )
 
             # expire stuck orders that can never fill past data end? handled
             # naturally: they stay queued until timeline ends.
             equity_now = broker.equity(prices_now)
             result.equity_curve.append((now, equity_now))
             peak_equity = max(peak_equity, equity_now)
-            dd = (
-                (peak_equity - equity_now) / peak_equity if peak_equity > 0 else 0.0
-            )
+            dd = (peak_equity - equity_now) / peak_equity if peak_equity > 0 else 0.0
             result.drawdown_series.append((now, dd))
             result.exposure_history.append(
                 (now, snapshot.gross_exposure, dict(snapshot.symbol_exposures))
@@ -821,9 +805,7 @@ class PortfolioBacktestEngine:
         # ⇒ Σ_sym contribution ≡ final_equity − initial_cash (identity holds
         #   to float precision; enforced by tests).
         for f in broker.fills:
-            flow = -(f.notional + f.fee) if f.side == "buy" else (
-                f.notional - f.fee
-            )
+            flow = -(f.notional + f.fee) if f.side == "buy" else (f.notional - f.fee)
             result.per_symbol_contribution[f.symbol] = (
                 result.per_symbol_contribution.get(f.symbol, 0.0) + flow
             )
@@ -837,14 +819,11 @@ class PortfolioBacktestEngine:
             if pos["qty"] > 0:
                 px = prices_final.get(sym, pos["avg_px"])
                 result.per_symbol_contribution[sym] = (
-                    result.per_symbol_contribution.get(sym, 0.0)
-                    + pos["qty"] * px
+                    result.per_symbol_contribution.get(sym, 0.0) + pos["qty"] * px
                 )
 
         result.trades = list(broker.fills)
-        result.turnover_history = [
-            (f.fill_time, f.notional) for f in broker.fills
-        ]
+        result.turnover_history = [(f.fill_time, f.notional) for f in broker.fills]
         result.cost_history = [
             (f.fill_time, f.fee + f.slippage_cost) for f in broker.fills
         ]

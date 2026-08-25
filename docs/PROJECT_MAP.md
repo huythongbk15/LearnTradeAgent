@@ -260,7 +260,8 @@
 │       │   └── resolver.py
 │       ├── backtest
 │       │   ├── __init__.py
-│       │   └── engine.py
+│       │   ├── engine.py
+│       │   └── portfolio_backtest.py
 │       ├── cli
 │       │   ├── commands
 │       │   │   ├── __init__.py
@@ -538,6 +539,7 @@
 │   ├── test_phase3_audit.py
 │   ├── test_phase6.py
 │   ├── test_phase6_integration.py
+│   ├── test_portfolio_backtest.py
 │   ├── test_post_trade_impact.py
 │   ├── test_promotion_bridge.py
 │   ├── test_quant_methodology.py

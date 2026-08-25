@@ -65,8 +65,10 @@ def _trend_df(
 
 def _first_cross_index(df: pl.DataFrame, fast: int = 10, slow: int = 30) -> int:
     closes = df["close"].to_list()
+
     def ma(i: int, w: int) -> float:
         return sum(closes[i - w + 1 : i + 1]) / w
+
     for i in range(slow - 1, len(closes)):
         f_now, s_now = ma(i, fast), ma(i, slow)
         f_prev, s_prev = ma(i - 1, fast), ma(i - 1, slow)
@@ -194,10 +196,9 @@ class TestN1Parity:
 
             # ── no lookahead: decision uses close[t], fill = open[t+1] ──
             cross_i = _first_cross_index(df)
-            decision_expected = (
-                df["timestamp"][cross_i].replace(tzinfo=UTC)
-                + timedelta(seconds=TF_SEC)
-            )
+            decision_expected = df["timestamp"][cross_i].replace(
+                tzinfo=UTC
+            ) + timedelta(seconds=TF_SEC)
             assert buy.decision_time == decision_expected
 
             open_next = float(df["open"][cross_i + 1])
@@ -223,10 +224,7 @@ class TestN1Parity:
             # contribution: mtm gain − costs, matches final−initial for N=1
             contrib = result.per_symbol_contribution.get("BTC/USDT")
             assert contrib is not None
-            assert (
-                result.final_equity - 100_000.0
-                == pytest.approx(contrib, rel=1e-6)
-            )
+            assert result.final_equity - 100_000.0 == pytest.approx(contrib, rel=1e-6)
         finally:
             eng._graceful_shutdown()
 
@@ -247,13 +245,11 @@ class TestN1Parity:
             _promote(None, promotion_store, art)
             df = _trend_df(60_000.0)
             clock_bars = {("BTC/USDT", "1h"): df}
-            pbt = PortfolioBacktestEngine(
-                eng, bars=clock_bars, initial_cash=100_000.0
-            )
+            pbt = PortfolioBacktestEngine(eng, bars=clock_bars, initial_cash=100_000.0)
             cross_i = _first_cross_index(df)
-            decision_close_ts = (
-                df["timestamp"][cross_i].replace(tzinfo=UTC) + timedelta(hours=1)
-            )
+            decision_close_ts = df["timestamp"][cross_i].replace(
+                tzinfo=UTC
+            ) + timedelta(hours=1)
             sl = pbt.clock.slice_upto(("BTC/USDT", "1h"), decision_close_ts)
             # last row IS the signal bar (closed at t); nothing beyond it
             assert sl["timestamp"][-1] == df["timestamp"][cross_i]
@@ -280,19 +276,29 @@ class TestSharedCapitalMultiPair:
         try:
             promotion_store, artifact_store = stores
             btc = _make_artifact(
-                artifact_store, promotion_store,
-                symbol="BTC/USDT", timeframe="1h", fast=10, slow=30,
+                artifact_store,
+                promotion_store,
+                symbol="BTC/USDT",
+                timeframe="1h",
+                fast=10,
+                slow=30,
             )
             eth = _make_artifact(
-                artifact_store, promotion_store,
-                symbol="ETH/USDT", timeframe="1h", fast=10, slow=30,
+                artifact_store,
+                promotion_store,
+                symbol="ETH/USDT",
+                timeframe="1h",
+                fast=10,
+                slow=30,
             )
             _promote(None, promotion_store, btc)
             _promote(None, promotion_store, eth)
 
             bars = {
                 ("BTC/USDT", "1h"): _trend_df(60_000.0),
-                ("ETH/USDT", "1h"): _trend_df(3_000.0, start=datetime(2024, 1, 1, tzinfo=UTC)),
+                ("ETH/USDT", "1h"): _trend_df(
+                    3_000.0, start=datetime(2024, 1, 1, tzinfo=UTC)
+                ),
             }
             pbt = PortfolioBacktestEngine(eng, bars=bars, initial_cash=200_000.0)
             result = pbt.run("paper")
@@ -344,26 +350,23 @@ class TestDeterminism:
                 arts = {}
                 for sym, base in (("BTC/USDT", 60_000.0), ("ETH/USDT", 3_000.0)):
                     a = _make_artifact(
-                        artifact_store, promotion_store,
-                        symbol=sym, timeframe="1h", fast=10, slow=30,
+                        artifact_store,
+                        promotion_store,
+                        symbol=sym,
+                        timeframe="1h",
+                        fast=10,
+                        slow=30,
                     )
                     _promote(None, promotion_store, a)
                     arts[sym] = (a, base)
-                bars = {
-                    (sym, "1h"): _trend_df(base)
-                    for sym, (_, base) in arts.items()
-                }
+                bars = {(sym, "1h"): _trend_df(base) for sym, (_, base) in arts.items()}
                 ordered = {b: bars[b] for b in order}
-                pbt = PortfolioBacktestEngine(
-                    eng, bars=ordered, initial_cash=150_000.0
-                )
+                pbt = PortfolioBacktestEngine(eng, bars=ordered, initial_cash=150_000.0)
                 return pbt.run("paper").to_dict()
             finally:
                 eng._graceful_shutdown()
 
-    def test_binding_permutation_produces_identical_results(
-        self, config
-    ):
+    def test_binding_permutation_produces_identical_results(self, config):
         fwd = self._run_with_order(
             config,
             [("BTC/USDT", "1h"), ("ETH/USDT", "1h")],
@@ -380,17 +383,25 @@ class TestDeterminism:
         try:
             promotion_store, artifact_store = stores
             art = _make_artifact(
-                artifact_store, promotion_store,
-                symbol="BTC/USDT", timeframe="1h", fast=10, slow=30,
+                artifact_store,
+                promotion_store,
+                symbol="BTC/USDT",
+                timeframe="1h",
+                fast=10,
+                slow=30,
             )
             _promote(None, promotion_store, art)
             bars = {("BTC/USDT", "1h"): _trend_df(60_000.0)}
-            r1 = PortfolioBacktestEngine(
-                eng, bars=bars, initial_cash=100_000.0
-            ).run("paper").to_dict()
-            r2 = PortfolioBacktestEngine(
-                eng, bars=bars, initial_cash=100_000.0
-            ).run("paper").to_dict()
+            r1 = (
+                PortfolioBacktestEngine(eng, bars=bars, initial_cash=100_000.0)
+                .run("paper")
+                .to_dict()
+            )
+            r2 = (
+                PortfolioBacktestEngine(eng, bars=bars, initial_cash=100_000.0)
+                .run("paper")
+                .to_dict()
+            )
             assert r1 == r2
         finally:
             eng._graceful_shutdown()
