@@ -10,6 +10,7 @@ import math
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
+from collections.abc import Mapping
 from typing import Any
 
 from trading_agent.execution.canonical.events import IdempotencyKeys
@@ -211,20 +212,59 @@ class OrderPlanner:
     Parameters
     ----------
     instrument_rules:
-        Static per-symbol constraints (min qty, step, long-only, etc.)
+        Static per-symbol constraints (min qty, step, long-only, etc.).
+        Either a single InstrumentRules (single-symbol engines) or a mapping
+        symbol -> InstrumentRules (multi-pair runtime). Unknown symbols are
+        rejected fail-closed at plan() time.
     strategy_version:
         Used in idempotency key derivation.
     """
 
     def __init__(
         self,
-        instrument_rules: InstrumentRules,
+        instrument_rules: InstrumentRules | Mapping[str, InstrumentRules],
         strategy_version: str = "v1",
     ) -> None:
-        if not isinstance(instrument_rules, InstrumentRules):
-            raise TypeError("instrument_rules must be an InstrumentRules")
-        self._rules = instrument_rules
+        if isinstance(instrument_rules, InstrumentRules):
+            self._rules_map: dict[str, InstrumentRules] = {
+                instrument_rules.symbol: instrument_rules
+            }
+            # Backward-compat handle for single-rule planners.
+            self._rules = instrument_rules
+        elif isinstance(instrument_rules, Mapping):
+            self._rules_map = dict(instrument_rules)
+            if not self._rules_map:
+                raise ValueError("instrument_rules mapping is empty")
+            for sym, rules in self._rules_map.items():
+                if not isinstance(rules, InstrumentRules):
+                    raise TypeError(
+                        f"instrument_rules[{sym}] must be an InstrumentRules"
+                    )
+                if rules.symbol != sym:
+                    raise ValueError(
+                        f"rule key {sym!r} does not match rules.symbol "
+                        f"{rules.symbol!r}"
+                    )
+            self._rules = (
+                next(iter(self._rules_map.values()))
+                if len(self._rules_map) == 1
+                else None  # type: ignore[assignment]
+            )
+        else:
+            raise TypeError(
+                "instrument_rules must be an InstrumentRules or a "
+                "symbol -> InstrumentRules mapping"
+            )
         self._strategy_version = strategy_version
+
+    def rules_for(self, symbol: str) -> InstrumentRules | None:
+        """Per-symbol instrument rules; None if symbol is not registered."""
+        return self._rules_map.get(symbol)
+
+    @property
+    def symbols(self) -> tuple[str, ...]:
+        """Symbols this planner can trade."""
+        return tuple(sorted(self._rules_map))
 
     def plan(
         self,
@@ -276,11 +316,16 @@ class OrderPlanner:
             raise ValueError("target symbol must match portfolio symbol")
         if target.symbol != price.symbol:
             raise ValueError("target symbol must match price symbol")
-        if target.symbol != self._rules.symbol:
-            raise ValueError("target symbol must match instrument rules")
+        rules = self._rules_map.get(target.symbol)
+        if rules is None:
+            # Fail-closed: no instrument rules registered for this symbol
+            raise ValueError(
+                f"no instrument rules registered for symbol {target.symbol} "
+                f"(registered: {', '.join(sorted(self._rules_map))})"
+            )
 
         # Spot-long-only: reject negative target
-        if self._rules.spot_long_only and target.exposure < 0.0:
+        if rules.spot_long_only and target.exposure < 0.0:
             raise ValueError(
                 f"spot-long-only instrument rejected negative target exposure "
                 f"{target.exposure}"
@@ -338,7 +383,7 @@ class OrderPlanner:
             )
 
         # Determine resulting exposure (clamped to instrument limits and risk decision)
-        max_allowed_by_leverage = self._rules.max_leverage
+        max_allowed_by_leverage = rules.max_leverage
         max_allowed_by_risk = risk_decision.allowed_target_exposure
         resulting_exposure = max(
             -max_allowed_by_leverage,
@@ -384,7 +429,7 @@ class OrderPlanner:
             if reason not in adjustment_reasons:
                 adjustment_reasons.append(reason)
 
-        step = self._rules.qty_step
+        step = rules.qty_step
         rounding_epsilon = max(step * 1e-12, math.ulp(step) * 8)
 
         def step_units(value: float) -> float:
@@ -401,13 +446,13 @@ class OrderPlanner:
         def floor_to_step(value: float) -> float:
             return math.floor(step_units(value)) * step
 
-        min_qty_from_notional = self._rules.min_notional / execution_price
-        lower_bound = max(self._rules.min_order_qty, min_qty_from_notional)
+        min_qty_from_notional = rules.min_notional / execution_price
+        lower_bound = max(rules.min_order_qty, min_qty_from_notional)
         min_feasible_qty = ceil_to_step(lower_bound)
 
-        upper_bound = self._rules.max_order_qty
-        if self._rules.max_notional is not None:
-            upper_bound = min(upper_bound, self._rules.max_notional / execution_price)
+        upper_bound = rules.max_order_qty
+        if rules.max_notional is not None:
+            upper_bound = min(upper_bound, rules.max_notional / execution_price)
 
         available_inventory = math.inf
         if executable_delta > 0:
@@ -466,19 +511,19 @@ class OrderPlanner:
         if abs(quantity - raw_quantity) > rounding_epsilon:
             add_reason(AdjustmentReason.QTY_STEP)
 
-        if quantity < self._rules.min_order_qty - rounding_epsilon:
+        if quantity < rules.min_order_qty - rounding_epsilon:
             add_reason(AdjustmentReason.MIN_QTY)
-        if notional < self._rules.min_notional - 1e-9:
+        if notional < rules.min_notional - 1e-9:
             add_reason(AdjustmentReason.MIN_NOTIONAL)
         if quantity < min_feasible_qty:
             quantity = min_feasible_qty
             notional = quantity * execution_price
 
-        if quantity > self._rules.max_order_qty + rounding_epsilon:
+        if quantity > rules.max_order_qty + rounding_epsilon:
             add_reason(AdjustmentReason.MAX_QTY)
         if (
-            self._rules.max_notional is not None
-            and notional > self._rules.max_notional + 1e-9
+            rules.max_notional is not None
+            and notional > rules.max_notional + 1e-9
         ):
             add_reason(AdjustmentReason.MAX_NOTIONAL)
         if side == "buy" and notional > portfolio.available_cash + 1e-9:
@@ -531,8 +576,8 @@ class OrderPlanner:
         # After all feasibility adjustments, revalidate against risk decision.
         # Use a tolerance of at least one qty_step to allow rounding.
         qty_step_tolerance = (
-            self._rules.qty_step * execution_price / portfolio.equity
-            if self._rules.qty_step > 0 and portfolio.equity > 0
+            rules.qty_step * execution_price / portfolio.equity
+            if rules.qty_step > 0 and portfolio.equity > 0
             else 1e-9
         )
         tolerance = max(qty_step_tolerance, 1e-9)
@@ -603,7 +648,7 @@ class OrderPlanner:
             forecast_fingerprint=risk_decision.forecast_fingerprint,
             model_artifact_id=risk_decision.model_artifact_id,
             symbol=target.symbol,
-            asset_class=self._rules.asset_class,
+            asset_class=rules.asset_class,
             side=side,
             quantity=quantity,
             current_exposure=portfolio.current_exposure,

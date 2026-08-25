@@ -44,6 +44,9 @@ class AllocationRequest:
     available_cash: float
     portfolio_exposure: float
     correlation_cluster: str | None = None  # e.g., "BTC_ETH", "MAJORS"
+    # Total exposure already held on this symbol across ALL strategies.
+    # None → falls back to current_exposure (single-strategy-per-symbol case).
+    symbol_total_exposure: float | None = None
     causation_chain: CausationChain | None = None
 
 
@@ -241,10 +244,18 @@ class PortfolioAllocator:
             allocation = min(requested, strategy_budget_available, portfolio_available)
             allocation = max(0.0, allocation)
 
-            # Symbol-level cap
-            allocation = min(
-                allocation, self.exposure_config.max_single_symbol_exposure
+            # Symbol-level cap: remaining headroom under max_single_symbol_exposure
+            # measured against TOTAL exposure on this symbol across all strategies
+            symbol_total = (
+                request.symbol_total_exposure
+                if request.symbol_total_exposure is not None
+                else request.current_exposure
             )
+            symbol_headroom = max(
+                0.0,
+                self.exposure_config.max_single_symbol_exposure - symbol_total,
+            )
+            allocation = min(allocation, symbol_headroom)
 
             # Cash availability
             max_by_cash = (
@@ -358,6 +369,76 @@ class PortfolioAllocator:
             budget.allocated_exposure = max(0.0, budget.allocated_exposure - amount)
             if symbol in budget.symbols:
                 budget.symbols[symbol] = max(0.0, budget.symbols[symbol] - amount)
+
+    def reconcile(
+        self, live_symbol_exposures: dict[str, float]
+    ) -> dict[str, Any]:
+        """Reconcile strategy budgets against LIVE exchange positions.
+
+        The exchange is the single exposure truth. Budget bookkeeping is
+        advisory and MUST be corrected every cycle BEFORE any new allocation:
+        closed positions release their budget automatically; over-held
+        positions consume it. This replaces the old write-only accounting
+        where allocated_exposure only ever grew.
+
+        Args:
+            live_symbol_exposures: symbol -> notional/equity from the exchange.
+
+        Returns:
+            Audit dict with released/consumed amounts per (strategy, symbol).
+        """
+        audit: dict[str, Any] = {"released": {}, "consumed": {}, "untracked": []}
+
+        # Symbols tracked by at least one budget
+        tracked_symbols: set[str] = set()
+        for budget in self._strategy_budgets.values():
+            tracked_symbols.update(budget.symbols.keys())
+
+        # Attribution: live exposure of a symbol is split across its trackers
+        # proportionally to their last recorded shares.
+        attributed: dict[str, dict[str, float]] = {
+            sid: {} for sid in self._strategy_budgets
+        }
+        for sym in sorted(tracked_symbols):
+            trackers = [
+                (sid, b)
+                for sid, b in self._strategy_budgets.items()
+                if sym in b.symbols
+            ]
+            live = float(live_symbol_exposures.get(sym, 0.0))
+            recorded_total = sum(b.symbols[sym] for _sid, b in trackers)
+
+            if recorded_total <= 0.0 or live <= 0.0:
+                # Nothing held (or nothing recorded): clear stale entries
+                for sid, b in trackers:
+                    before = b.symbols.get(sym, 0.0)
+                    b.symbols[sym] = 0.0
+                    if before > 0.0:
+                        audit["released"][f"{sid}:{sym}"] = round(before, 10)
+                continue
+
+            for sid, b in trackers:
+                share = b.symbols[sym] / recorded_total
+                attributed[sid][sym] = live * share
+
+        # Untracked live exposure — visible, not silently ignored
+        for sym in sorted(live_symbol_exposures):
+            if sym not in tracked_symbols and live_symbol_exposures[sym] > 1e-12:
+                audit["untracked"].append(sym)
+
+        # Commit truth back into budgets
+        for sid, budget in self._strategy_budgets.items():
+            new_current = sum(attributed.get(sid, {}).values())
+            for sym, val in attributed.get(sid, {}).items():
+                budget.symbols[sym] = val
+            delta = new_current - budget.current_exposure
+            if delta > 1e-12:
+                audit["consumed"][sid] = round(delta, 10)
+            budget.current_exposure = new_current
+            # Committed budget == actually held exposure (exchange truth)
+            budget.allocated_exposure = new_current
+
+        return audit
 
     def get_portfolio_snapshot(self) -> dict[str, Any]:
         """Get current portfolio allocation snapshot."""

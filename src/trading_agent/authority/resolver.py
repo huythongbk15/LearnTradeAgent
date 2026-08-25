@@ -308,6 +308,63 @@ class RuntimeStrategyResolver:
         key = self._make_key(symbol, timeframe, environment)
         return self._cache.get(key)
 
+    def _eligible_with_artifacts(
+        self, environment: Environment
+    ) -> list[tuple[Any, Any]]:
+        """Load all (record, artifact) pairs eligible for this environment.
+
+        Single source for binding enumeration — used by both list_bindings()
+        and resolve_for().
+        """
+        if self.promotion_store is None:
+            logger.error("resolver requires a PromotionStateStore")
+            return []
+        store = getattr(self, "_artifact_store", None)
+        if store is None:
+            logger.error("resolver requires an artifact store")
+            return []
+
+        env_value = environment.value.lower()
+        eligible = self.promotion_store.list_eligible(env_value)
+
+        pairs: list[tuple[Any, Any]] = []
+        for record in eligible:
+            artifact = store.get(record.artifact_id)
+            if artifact is None:
+                logger.warning(
+                    f"Eligible artifact {record.artifact_id} not found in store"
+                )
+                continue
+            pairs.append((record, artifact))
+        return pairs
+
+    def list_bindings(
+        self, environment: Environment | str
+    ) -> list[tuple[str, str]]:
+        """Enumerate distinct (symbol, timeframe) bindings eligible for environment.
+
+        This is how the multi-pair runtime discovers WHAT to trade: every
+        promoted artifact carries its (symbol, timeframe) in metadata; a binding
+        exists iff at least one eligible artifact declares it.
+        Returns sorted, deduplicated tuples.
+        """
+        if isinstance(environment, str):
+            try:
+                env = Environment(environment.lower())
+            except ValueError:
+                logger.error(f"Unknown environment: {environment}")
+                return []
+        else:
+            env = environment
+
+        bindings: set[tuple[str, str]] = set()
+        for _record, artifact in self._eligible_with_artifacts(env):
+            symbol = artifact.metadata.get("symbol", "")
+            timeframe = artifact.metadata.get("timeframe", "")
+            if symbol and timeframe:
+                bindings.add((symbol, timeframe))
+        return sorted(bindings)
+
     def resolve_for(
         self,
         symbol: str,
@@ -320,39 +377,24 @@ class RuntimeStrategyResolver:
         promotion store for the artifact, loads it, and resolves a StrategyRuntime.
         Filters by (symbol, timeframe) BEFORE selecting the latest eligible artifact.
         """
-        if self.promotion_store is None:
-            logger.error("resolve_for requires a PromotionStateStore")
-            return None
+        if isinstance(environment, str):
+            environment = Environment(environment.lower())
 
-        # Find eligible artifacts for this environment
-        env_value = environment.value.lower()
-        eligible = self.promotion_store.list_eligible(env_value)
-
-        if not eligible:
+        # All eligible (record, artifact) pairs for this environment
+        pairs = self._eligible_with_artifacts(environment)
+        if not pairs:
             logger.warning(
                 f"No eligible promoted artifacts for {symbol} {timeframe} {environment.value}"
             )
             return None
 
         # Filter by (symbol, timeframe) BEFORE selecting latest
-        # Load each artifact to check its metadata
-        store = getattr(self, "_artifact_store", None)
-        if store is None:
-            logger.error("resolve_for requires an artifact store on resolver")
-            return None
-
-        symbol_timeframe_matches = []
-        for record in eligible:
-            artifact = store.get(record.artifact_id)
-            if artifact is None:
-                logger.warning(
-                    f"Eligible artifact {record.artifact_id} not found in store"
-                )
-                continue
-            artifact_symbol = artifact.metadata.get("symbol", "")
-            artifact_timeframe = artifact.metadata.get("timeframe", "")
-            if artifact_symbol == symbol and artifact_timeframe == timeframe:
-                symbol_timeframe_matches.append((record, artifact))
+        symbol_timeframe_matches = [
+            (record, artifact)
+            for record, artifact in pairs
+            if artifact.metadata.get("symbol", "") == symbol
+            and artifact.metadata.get("timeframe", "") == timeframe
+        ]
 
         if not symbol_timeframe_matches:
             logger.warning(

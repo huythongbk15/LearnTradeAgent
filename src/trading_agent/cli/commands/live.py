@@ -550,6 +550,122 @@ def execution_run_multi(
     execution_status.callback()
 
 
+@execution.command("run-promoted")
+@click.argument("symbols", nargs=-1, required=False)
+@click.option("--timeframe", "-t", default=None, help="Filter to one timeframe")
+@click.option(
+    "--environment",
+    "-e",
+    default="paper",
+    help="Runtime environment preset (research|shadow|testnet|paper|production)",
+)
+@click.option(
+    "--authority-config",
+    type=click.Path(exists=True, dir_okay=False),
+    default=None,
+    help="Path to authority config YAML",
+)
+@click.option("--exchange", default=None, help="Data source exchange (default: config)")
+def execution_run_promoted(
+    symbols: tuple[str],
+    timeframe: str | None,
+    environment: str,
+    authority_config: str | None,
+    exchange: str | None,
+):
+    """Run ONE multi-pair cycle over PROMOTED artifacts via the authority chain.
+
+    Discovers (symbol, timeframe) bindings from the promotion store
+    (optionally restricted to SYMBOLS args), reconciles shared portfolio
+    budgets against live positions, then executes each pair through the
+    canonical one-call API execute_promoted_strategy().
+    """
+    from rich.console import Console as RichConsole
+    from rich.table import Table as RichTable
+
+    from trading_agent.data.storage import load_ohlcv
+    from trading_agent.execution.engine import ExecutionEngine
+    from trading_agent.execution.multi_pair_runtime import MultiPairRuntime
+
+    console = RichConsole()
+    authority_cfg = None
+    if authority_config:
+        from trading_agent.authority import AuthorityConfig, set_authority_config
+
+        authority_cfg = AuthorityConfig.from_yaml(authority_config)
+        set_authority_config(authority_cfg)
+
+    engine = ExecutionEngine(authority_config=authority_cfg)
+
+    if engine.resolver is None:
+        console.print(
+            "[bold red]No resolver configured — pass promotion_store + "
+            "artifact_store to ExecutionEngine.[/bold red]"
+        )
+        raise SystemExit(1)
+
+    runtime = MultiPairRuntime(engine)
+
+    # Data provider: project OHLCV store; fail-closed on missing data.
+    if exchange is None:
+        from trading_agent.config.loader import config as app_config
+
+        exchange = app_config.default_exchange
+
+    def provider(symbol: str, tf: str):
+        try:
+            return load_ohlcv(exchange, symbol, tf).sort("timestamp")
+        except FileNotFoundError:
+            return None
+
+    bindings_override = (
+        [(s, timeframe or "1h") for s in symbols] if symbols else None
+    )
+    discovered = runtime.discover_bindings(environment)
+    if bindings_override is not None:
+        missing = [b for b in bindings_override if b not in discovered]
+        for sym, tf in missing:
+            console.print(
+                f"[yellow]⚠ {sym} {tf}: no eligible promotion record — skipped[/yellow]"
+            )
+        bindings_override = [b for b in bindings_override if b in discovered]
+        if not bindings_override:
+            console.print("[red]Nothing to run.[/red]")
+            raise SystemExit(1)
+    else:
+        if timeframe is not None:
+            bindings_override = [b for b in discovered if b[1] == timeframe]
+
+    console.print(
+        f"[bold]Multi-pair promoted cycle[/bold] env={environment} "
+        f"bindings={bindings_override or discovered}"
+    )
+    report = runtime.run_cycle(
+        environment=environment,
+        market_data_provider=provider,
+        bindings_override=bindings_override,
+    )
+
+    t = RichTable("Symbol", "TF", "Status", "Orders", "Detail")
+    for r in report.results:
+        style = {
+            "ok": "green",
+            "error": "red",
+            "no_data": "yellow",
+            "zero_allocation": "yellow",
+            "blocked": "yellow",
+        }.get(r.status, "white")
+        t.add_row(
+            r.symbol, r.timeframe, f"[{style}]{r.status}[/{style}]",
+            str(r.orders_count), r.detail,
+        )
+    console.print(t)
+    console.print(
+        f"Equity: ${report.equity_before:,.2f} → ${report.equity_after:,.2f} · "
+        f"orders: {report.total_orders}"
+    )
+
+
 # ── live trading subcommands ─────────────────────────────────────────────
 
 from trading_agent.authority.config import (

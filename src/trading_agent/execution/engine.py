@@ -604,13 +604,20 @@ class ExecutionEngine:
         assert self.planner is not None
         assert self.execution_authority is not None
 
+        pair_rules = self.planner.rules_for(symbol)
+        if pair_rules is None:
+            logger.error(
+                "No instrument rules registered for %s — cannot execute", symbol
+            )
+            return orders
+
         # ── ExecutionAuthority ──────────────────────────────────────
         exec_input = ExecutionValidationInput(
             intent=intent,
             observation=observation,
             portfolio_state=portfolio,
             price=price,
-            instrument_rules=self.planner._rules,
+            instrument_rules=pair_rules,
             existing_reservations=0.0
             if signal_value == "SELL"
             else self.lifecycle.active_sell_reservations(symbol),
