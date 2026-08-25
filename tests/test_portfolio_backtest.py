@@ -172,9 +172,6 @@ class TestN1Parity:
     def test_single_binding_full_ledger_math_and_no_lookahead(
         self, config, stores, temp_dir
     ):
-        from trading_agent.backtest.portfolio_backtest import (
-            HistoricalSimulationBroker,
-        )
 
         rules = {"BTC/USDT": _instrument_rules("BTC/USDT")}
         eng = _build_engine(config, stores, temp_dir, rules)
@@ -237,9 +234,6 @@ class TestN1Parity:
 
     def test_signal_uses_closed_bar_not_forming_bar(self, config, stores, temp_dir):
         """The decision at time t must never see bar t itself (only < t)."""
-        from trading_agent.backtest.portfolio_backtest import (
-            HistoricalSimulationBroker,
-        )
 
         rules = {"BTC/USDT": _instrument_rules("BTC/USDT")}
         eng = _build_engine(config, stores, temp_dir, rules)
@@ -389,9 +383,6 @@ class TestDeterminism:
         assert fwd == rev
 
     def test_replay_produces_identical_result(self, config, stores, temp_dir):
-        from trading_agent.backtest.portfolio_backtest import (
-            HistoricalSimulationBroker,
-        )
 
         rules = {"BTC/USDT": _instrument_rules("BTC/USDT")}
         eng = _build_engine(config, stores, temp_dir, rules)
@@ -578,10 +569,6 @@ class TestParityLiveCycleVsBacktest:
             ReconciliationState,
         )
 
-        from trading_agent.backtest.portfolio_backtest import (
-            HistoricalSimulationBroker,
-        )
-
         rules = {"BTC/USDT": _instrument_rules("BTC/USDT")}
         eng = _build_engine(config, stores, temp_dir, rules)
         try:
@@ -727,10 +714,6 @@ class TestBrokerPhaseAndReservations:
             HistoricalSimulationBroker,
         )
 
-        from trading_agent.backtest.portfolio_backtest import (
-            HistoricalSimulationBroker,
-        )
-
         rules = {"BTC/USDT": _instrument_rules("BTC/USDT")}
         eng = _build_engine(config, stores, temp_dir, rules)
         try:
@@ -821,9 +804,7 @@ class TestBrokerFillSafetyGuards:
         eng, pbt, broker = self._setup(config, stores, temp_dir, df, cash=105.0)
         try:
             # reserve-based estimate ~100.15 fit; ACTUAL gap open=200 ⇒ cost ~201
-            broker.queue(
-                self._q("buy1", "buy", 1.0, df["timestamp"][2], ref=100.0)
-            )
+            broker.queue(self._q("buy1", "buy", 1.0, df["timestamp"][2], ref=100.0))
             fills = broker.settle(df["timestamp"][3], pbt.clock, [("BTC/USDT", "1h")])
             assert fills == []
             assert broker.cash == pytest.approx(105.0)  # untouched
