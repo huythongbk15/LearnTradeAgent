@@ -27,7 +27,11 @@ from tests.test_multi_pair_runtime import (
     _make_artifact,
 )
 from trading_agent.authority.config import AuthorityConfig, Environment
-from trading_agent.backtest.portfolio_backtest import PortfolioBacktestEngine
+from trading_agent.backtest.portfolio_backtest import (
+    PortfolioBacktestEngine,
+    HistoricalSimulationBroker,
+    QueuedOrder,
+)
 from trading_agent.execution.batch_models import wrap_market_data
 from trading_agent.execution.multi_pair_runtime import MultiPairRuntime
 from trading_agent.research.promotion import ResearchStage
@@ -806,9 +810,10 @@ class TestBrokerFillSafetyGuards:
             # reserve-based estimate ~100.15 fit; ACTUAL gap open=200 ⇒ cost ~201
             broker.queue(self._q("buy1", "buy", 1.0, df["timestamp"][2], ref=100.0))
             fills = broker.settle(df["timestamp"][3], pbt.clock, [("BTC/USDT", "1h")])
-            assert fills == []
+            assert fills == []  # rejected
             assert broker.cash == pytest.approx(105.0)  # untouched
-            assert broker.pending_count == 1  # stays queued (not dropped)
+            assert broker.pending_count == 0  # DROPPED permanently
+            assert broker.reserved_cash() == 0.0
             assert broker.cash >= 0.0
         finally:
             eng._graceful_shutdown()
@@ -855,7 +860,7 @@ class TestBrokerFillSafetyGuards:
             expected_cash = cash - one_buy_cost
             assert broker.cash == pytest.approx(expected_cash, abs=1e-9)
             assert broker.cash >= 0.0
-            assert broker.pending_count == 1  # second stayed queued
+            assert broker.pending_count == 0  # second DROPPED permanently
         finally:
             eng._graceful_shutdown()
 
@@ -878,5 +883,146 @@ class TestBrokerFillSafetyGuards:
             assert fills == []
             assert broker.cash == pytest.approx(101.0)
             assert broker.positions.get("BTC/USDT", {}).get("qty", 0.0) == 0.0
+        finally:
+            eng._graceful_shutdown()
+
+
+# ── Order rejection = permanent drop (P0 safety) ─────────────────────────
+
+
+class TestBrokerRejectionDrop:
+    """Rejected orders are DROPPED permanently, not re-queued.
+    Covers: gap-up BUY drop, stale rejected BUY never fills on price drop,
+    zero-inventory SELL drop, stale rejected SELL never touches new inventory."""
+
+    def _df_flat(self, n: int = 8, price: float = 100.0) -> pl.DataFrame:
+        start = datetime(2024, 1, 1, tzinfo=UTC)
+        stamps = [start + timedelta(hours=i) for i in range(n)]
+        return pl.DataFrame(
+            {
+                "timestamp": stamps,
+                "open": [price] * n,
+                "high": [price] * n,
+                "low": [price] * n,
+                "close": [price] * n,
+                "volume": [10.0] * n,
+            }
+        )
+
+    def _df_gap(self, levels, n_gap=2, base_open=100.0):
+        start = datetime(2024, 1, 1, tzinfo=UTC)
+        prices = [base_open] * n_gap + levels
+        stamps = [start + timedelta(hours=i) for i in range(len(prices))]
+        return pl.DataFrame(
+            {
+                "timestamp": stamps,
+                "open": prices,
+                "high": prices,
+                "low": prices,
+                "close": prices,
+                "volume": [10.0] * len(prices),
+            }
+        )
+
+    def _setup(self, config, stores, temp_dir, df, cash):
+        rules = {"BTC/USDT": _instrument_rules("BTC/USDT")}
+        eng = _build_engine(config, stores, temp_dir, rules)
+        pbt = PortfolioBacktestEngine(
+            eng, bars={("BTC/USDT", "1h"): df}, initial_cash=100.0
+        )
+        broker = HistoricalSimulationBroker(cash, fee_bps=10.0, slippage_bps=5.0)
+        return eng, pbt, broker
+
+    def _q(self, key, side, qty, dt, phase=None, ref=100.0):
+        return QueuedOrder(
+            idempotency_key=key,
+            symbol="BTC/USDT",
+            side=side,
+            quantity=qty,
+            reference_price=ref,
+            decision_time=dt,
+            phase=phase,
+        )
+
+    def test_gap_up_buy_dropped_not_queued(self, config, stores, temp_dir):
+        """Gap-up BUY rejected → pending_count == 0, reserved_cash == 0."""
+        # flat 100 then GAP to 200 at bar[2]
+        df = self._df_gap(levels=[200.0, 200.0], n_gap=2, base_open=100.0)
+        # cash only ~105, actual cost ~201
+        eng, pbt, broker = self._setup(config, stores, temp_dir, df, cash=105.0)
+        try:
+            # decision at bar[2] (gap bar open), fill would be at bar[2] open=200
+            broker.queue(self._q("buy1", "buy", 1.0, df["timestamp"][2], ref=100.0))
+            assert broker.pending_count == 1
+            fills = broker.settle(df["timestamp"][3], pbt.clock, [("BTC/USDT", "1h")])
+            assert fills == []  # rejected
+            assert broker.pending_count == 0  # DROPPED
+            assert broker.reserved_cash() == 0.0
+            assert broker.cash == pytest.approx(105.0)
+        finally:
+            eng._graceful_shutdown()
+
+    def test_rejected_buy_never_fills_on_price_drop(self, config, stores, temp_dir):
+        """Rejected BUY + later price drop → old order NEVER fills."""
+        df = self._df_gap(levels=[200.0, 90.0, 90.0, 90.0], n_gap=2, base_open=100.0)
+        # first gap UP to 200 (rejects), then drop to 90
+        eng, pbt, broker = self._setup(config, stores, temp_dir, df, cash=105.0)
+        try:
+            # decision at bar[2] (gap bar open=200), fill at bar[2] → rejected
+            broker.queue(self._q("buy1", "buy", 1.0, df["timestamp"][2], ref=100.0))
+            fills = broker.settle(df["timestamp"][3], pbt.clock, [("BTC/USDT", "1h")])
+            assert fills == []
+            assert broker.pending_count == 0  # dropped
+
+            # later: price dropped to 90 at bar[3]; old order must NOT fill
+            fills2 = broker.settle(df["timestamp"][4], pbt.clock, [("BTC/USDT", "1h")])
+            assert fills2 == []
+            assert broker.positions.get("BTC/USDT", {}).get("qty", 0.0) == 0.0
+            assert broker.cash == pytest.approx(105.0)
+        finally:
+            eng._graceful_shutdown()
+
+    def test_zero_inventory_sell_dropped(self, config, stores, temp_dir):
+        """SELL with zero inventory rejected → pending_count == 0."""
+        df = self._df_flat()
+        eng, pbt, broker = self._setup(config, stores, temp_dir, df, cash=1.0)
+        try:
+            broker.queue(self._q("s1", "sell", 5.0, df["timestamp"][1], phase="reduction"))
+            assert broker.pending_count == 1
+            fills = broker.settle(df["timestamp"][2], pbt.clock, [("BTC/USDT", "1h")])
+            assert fills == []
+            assert broker.pending_count == 0  # DROPPED
+            assert broker.reserved_inventory("BTC/USDT") == 0.0
+            assert broker.cash == pytest.approx(1.0)
+        finally:
+            eng._graceful_shutdown()
+
+    def test_rejected_sell_never_touches_new_inventory(self, config, stores, temp_dir):
+        """Rejected old SELL + later new BUY position → stale SELL NEVER touches new inventory."""
+        df = self._df_flat()
+        eng, pbt, broker = self._setup(config, stores, temp_dir, df, cash=500.0)
+        try:
+            # queue SELL with NO inventory → rejected & dropped
+            broker.queue(self._q("s1", "sell", 5.0, df["timestamp"][1], phase="reduction"))
+            fills = broker.settle(df["timestamp"][2], pbt.clock, [("BTC/USDT", "1h")])
+            assert fills == []
+            assert broker.pending_count == 0  # dropped
+
+            # later: BUY builds a new position
+            broker.queue(self._q("b1", "buy", 3.0, df["timestamp"][2]))
+            fills = broker.settle(df["timestamp"][3], pbt.clock, [("BTC/USDT", "1h")])
+            assert len(fills) == 1
+            assert fills[0].side == "buy"
+            assert fills[0].quantity == pytest.approx(3.0)
+
+            # old rejected SELL must NOT touch the new 3.0 inventory
+            # (it was dropped, so no more orders queued)
+            assert broker.pending_count == 0
+            assert broker.positions["BTC/USDT"]["qty"] == pytest.approx(3.0)
+
+            # even if we manually settle again, nothing happens
+            fills2 = broker.settle(df["timestamp"][4], pbt.clock, [("BTC/USDT", "1h")])
+            assert fills2 == []
+            assert broker.positions["BTC/USDT"]["qty"] == pytest.approx(3.0)
         finally:
             eng._graceful_shutdown()

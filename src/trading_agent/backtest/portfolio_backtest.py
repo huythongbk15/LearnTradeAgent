@@ -324,7 +324,12 @@ class HistoricalSimulationBroker:
                 held = self.positions.get(order.symbol, {}).get("qty", 0.0)
                 if held <= 0:
                     # nothing to sell — never fabricate synthetic proceeds
-                    remaining.append(order)
+                    # REJECTED ORDER DROPPED permanently (not re-queued).
+                    logger.warning(
+                        "settle SELL rejected: zero inventory for %s; "
+                        "order dropped.",
+                        order.symbol,
+                    )
                     continue
                 # cap at real inventory (oversized/reduce-only safety)
                 qty = min(order.quantity, held)
@@ -332,7 +337,7 @@ class HistoricalSimulationBroker:
                 qty = order.quantity
 
             if qty <= 0:
-                remaining.append(order)
+                # nothing to fill — drop
                 continue
 
             notional = qty * price
@@ -348,11 +353,11 @@ class HistoricalSimulationBroker:
                 if self.cash < total_cost:
                     logger.warning(
                         "settle BUY rejected: cash %.4f < cost %.4f "
-                        "(gap-up / overspend guard); order kept queued.",
+                        "(gap-up / overspend guard); order dropped.",
                         self.cash,
                         total_cost,
                     )
-                    remaining.append(order)
+                    # REJECTED ORDER DROPPED permanently (not re-queued).
                     continue
                 self.cash -= total_cost
                 pos = self.positions.setdefault(
