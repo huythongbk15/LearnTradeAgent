@@ -15,7 +15,7 @@ import sys
 import threading
 import uuid
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -130,6 +130,21 @@ def setup_graceful_shutdown() -> None:
     signal.signal(signal.SIGTERM, _signal_handler)
     signal.signal(signal.SIGINT, _signal_handler)
     logger.debug("Graceful shutdown handlers installed (SIGTERM, SIGINT)")
+
+
+def _timeframe_duration_seconds(timeframe: str) -> int:
+    """Parse a timeframe string ('15m', '1h', '4h', '1d') to seconds."""
+    units = {"m": 60, "h": 3600, "d": 86400, "w": 604800}
+    tf = str(timeframe).lower().strip()
+    if len(tf) < 2 or tf[-1] not in units:
+        raise ValueError(f"Unsupported timeframe: {timeframe!r}")
+    try:
+        amount = int(tf[:-1])
+    except ValueError as exc:
+        raise ValueError(f"Unsupported timeframe: {timeframe!r}") from exc
+    if amount <= 0:
+        raise ValueError(f"Unsupported timeframe: {timeframe!r}")
+    return amount * units[tf[-1]]
 
 
 class ExecutionEngine:
@@ -1035,6 +1050,57 @@ class ExecutionEngine:
     def update_prices(self, prices: dict[str, float]):
         """Update price data for internal tracking."""
         self.exchange.update_prices(prices)
+        self._sync_protective_orders()
+
+    def update_market_price(
+        self,
+        symbol: str,
+        price: float,
+        data_timestamp: datetime,
+        timeframe: str,
+    ) -> None:
+        """Seed the exchange price cache from an OHLCV bar timestamp.
+
+        Timestamp-guarded (fail-closed):
+        - ``data_timestamp`` is the OPEN time of the last closed candle.
+          If close (= open + duration) is in the future → "incomplete" candle.
+        - If the candle closed too long ago (> 2× its duration) → "stale".
+        Only then is the price pushed into the exchange cache.
+
+        This restores the guard that was lost when the canonical engine
+        replaced the legacy feed API; callers (CLI live paths) pass the
+        orchestrator's data timestamp so stale/incomplete bars can never
+        silently become fill prices.
+        """
+        if not isinstance(price, (int, float)) or not math.isfinite(float(price)):
+            raise ValueError(f"invalid price for {symbol}: {price!r}")
+        duration_s = _timeframe_duration_seconds(timeframe)
+        if not isinstance(data_timestamp, datetime):
+            raise ValueError(
+                f"data_timestamp for {symbol} must be a datetime, "
+                f"got {type(data_timestamp).__name__}"
+            )
+        ts = (
+            data_timestamp
+            if data_timestamp.tzinfo is not None
+            else data_timestamp.replace(tzinfo=UTC)
+        )
+        bar_close_at = ts + timedelta(seconds=duration_s)
+        now = datetime.now(UTC)
+
+        if bar_close_at > now:
+            raise ValueError(
+                f"incomplete candle for {symbol} {timeframe}: "
+                f"closes at {bar_close_at.isoformat()} in the future"
+            )
+        staleness_limit = timedelta(seconds=2 * duration_s)
+        if now - bar_close_at > staleness_limit:
+            raise ValueError(
+                f"stale candle for {symbol} {timeframe}: closed at "
+                f"{bar_close_at.isoformat()}, older than {staleness_limit}"
+            )
+
+        self.exchange.update_prices({symbol: float(price)})
         self._sync_protective_orders()
 
     # ── Position management ────────────────────────────────────────────

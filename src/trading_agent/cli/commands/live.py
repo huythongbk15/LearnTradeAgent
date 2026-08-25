@@ -309,8 +309,16 @@ def execution_run(
 
     if signal_str == "HOLD":
         console.print("[yellow]Signal: HOLD — no trade[/yellow]")
-        # Still update prices for P&L tracking
-        engine.update_from_dataframe(symbol, orchestrator._last_df, timeframe)
+        # Still update prices for P&L tracking (timestamp-guarded)
+        try:
+            engine.update_market_price(
+                symbol,
+                report.current_price,
+                report.data_timestamp,
+                timeframe,
+            )
+        except ValueError as e:
+            console.print(f"[dim]Price not updated ({e})[/dim]")
         return
 
     # Confirm if requested
@@ -322,12 +330,18 @@ def execution_run(
             return
 
     # 4. Place order
-    engine.update_market_price(
-        symbol,
-        report.current_price,
-        report.data_timestamp,
-        timeframe,
-    )
+    try:
+        engine.update_market_price(
+            symbol,
+            report.current_price,
+            report.data_timestamp,
+            timeframe,
+        )
+    except ValueError as e:
+        console.print(
+            f"[red]Refusing to trade {symbol}: price feed rejected — {e}[/red]"
+        )
+        return
     orders = engine.execute_signal(decision)
 
     if orders:
@@ -486,12 +500,23 @@ def execution_run_multi(
                 return {"symbol": symbol, "signal": "HOLD", "orders": 0, "status": "ok"}
 
             # Execute
-            engine.update_market_price(
-                symbol,
-                report.current_price,
-                report.data_timestamp,
-                timeframe,
-            )
+            try:
+                engine.update_market_price(
+                    symbol,
+                    report.current_price,
+                    report.data_timestamp,
+                    timeframe,
+                )
+            except ValueError as e:
+                console.print(
+                    f"  [red]Refusing to trade {symbol}: price feed rejected — {e}[/red]"
+                )
+                return {
+                    "symbol": symbol,
+                    "signal": decision.signal,
+                    "orders": 0,
+                    "status": "stale_data",
+                }
             orders = engine.execute_signal(decision)
 
             if orders:

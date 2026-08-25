@@ -157,13 +157,14 @@ def test_execution_engine_preserves_explicit_zero_costs():
     assert engine.exchange.slippage == 0
 
 
-@pytest.mark.skip(reason="Legacy timestamp guard API not in canonical engine")
 def test_execution_engine_accepts_only_recently_closed_candle():
     engine = ExecutionEngine(exchange_name="timestamp_guard_test")
     now = datetime.now(UTC)
 
+    # Candle stamped "now" for 1h timeframe has not closed yet
     with pytest.raises(ValueError, match="incomplete"):
         engine.update_market_price("BTC/USDT", 100, now, "1h")
+    # 4h-old open time on 1h timeframe → closed 3h ago > 2× duration
     with pytest.raises(ValueError, match="stale"):
         engine.update_market_price(
             "BTC/USDT",
@@ -172,10 +173,28 @@ def test_execution_engine_accepts_only_recently_closed_candle():
             "1h",
         )
 
+    # Closed one second ago → acceptable
     engine.update_market_price(
         "BTC/USDT",
         100,
         now - timedelta(hours=1, seconds=1),
         "1h",
     )
+    assert engine.exchange._fresh_price("BTC/USDT") == 100
+
+
+def test_update_market_price_rejects_bad_inputs():
+    engine = ExecutionEngine(exchange_name="timestamp_guard_test2")
+    now = datetime.now(UTC)
+
+    with pytest.raises(ValueError, match="Unsupported timeframe"):
+        engine.update_market_price("BTC/USDT", 100, now, "banana")
+    with pytest.raises(ValueError, match="invalid price"):
+        engine.update_market_price("BTC/USDT", float("nan"), now, "1h")
+
+    # Naive timestamp is interpreted as UTC and accepted when closed recently
+    naive = datetime.now(UTC).replace(tzinfo=None) - timedelta(
+        hours=1, seconds=1
+    )
+    engine.update_market_price("BTC/USDT", 100, naive, "1h")
     assert engine.exchange._fresh_price("BTC/USDT") == 100
