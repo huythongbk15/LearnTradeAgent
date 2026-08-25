@@ -1281,8 +1281,14 @@ class TestExecutionEngineE2E:
             OrderPlanningStatus,
         )
         from trading_agent.execution.application import CanonicalExecutionService
-        from trading_agent.authority.promotion_store import PromotionStateStore, PromotionRecord
-        from trading_agent.research.artifact import PersistentArtifactStore, StrategyArtifact
+        from trading_agent.authority.promotion_store import (
+            PromotionStateStore,
+            PromotionRecord,
+        )
+        from trading_agent.research.artifact import (
+            PersistentArtifactStore,
+            StrategyArtifact,
+        )
         from trading_agent.research.artifact import canonical_params, sha256_hex
         from trading_agent.research.promotion import ResearchStage
 
@@ -1365,12 +1371,14 @@ class TestExecutionEngineE2E:
                 "symbol": "BTC/USDT",
                 "quantity": 0.01,
                 "price": 50000.0,
-                "market_data": pl.DataFrame({
-                    "close": [50000.0] * 40,
-                    "high": [51000.0] * 40,
-                    "low": [49000.0] * 40,
-                    "volume": [100.0] * 40,
-                }),
+                "market_data": pl.DataFrame(
+                    {
+                        "close": [50000.0] * 40,
+                        "high": [51000.0] * 40,
+                        "low": [49000.0] * 40,
+                        "volume": [100.0] * 40,
+                    }
+                ),
             },
         )
 
@@ -1405,7 +1413,10 @@ class TestExecutionEngineE2E:
         )
         from trading_agent.authority.causation import new_chain
         from trading_agent.authority.promotion_store import PromotionStateStore
-        from trading_agent.research.artifact import PersistentArtifactStore, StrategyArtifact
+        from trading_agent.research.artifact import (
+            PersistentArtifactStore,
+            StrategyArtifact,
+        )
         from trading_agent.research.artifact import canonical_params, sha256_hex
         from trading_agent.authority.promotion_store import PromotionRecord
         from trading_agent.research.promotion import ResearchStage
@@ -1498,12 +1509,14 @@ class TestExecutionEngineE2E:
                 "symbol": "BTC/USDT",
                 "quantity": 0.01,
                 "price": 50000.0,
-                "market_data": pl.DataFrame({
-                    "close": [50000.0] * 40,
-                    "high": [51000.0] * 40,
-                    "low": [49000.0] * 40,
-                    "volume": [100.0] * 40,
-                }),
+                "market_data": pl.DataFrame(
+                    {
+                        "close": [50000.0] * 40,
+                        "high": [51000.0] * 40,
+                        "low": [49000.0] * 40,
+                        "volume": [100.0] * 40,
+                    }
+                ),
             },
         )
 
@@ -2393,7 +2406,10 @@ class TestP1ConvergenceProofs:
         from trading_agent.execution.canonical import InstrumentRules
         from trading_agent.exchanges.models import AssetClass
         from trading_agent.authority.promotion_store import PromotionStateStore
-        from trading_agent.research.artifact import PersistentArtifactStore, StrategyArtifact
+        from trading_agent.research.artifact import (
+            PersistentArtifactStore,
+            StrategyArtifact,
+        )
         from trading_agent.research.artifact import canonical_params, sha256_hex
         from trading_agent.authority.promotion_store import PromotionRecord
         from trading_agent.research.promotion import ResearchStage
@@ -2480,12 +2496,14 @@ class TestP1ConvergenceProofs:
                 "symbol": "BTC/USDT",
                 "quantity": 0.01,
                 "price": 50000.0,
-                "market_data": pl.DataFrame({
-                    "close": [50000.0] * 40,
-                    "high": [51000.0] * 40,
-                    "low": [49000.0] * 40,
-                    "volume": [100.0] * 40,
-                }),
+                "market_data": pl.DataFrame(
+                    {
+                        "close": [50000.0] * 40,
+                        "high": [51000.0] * 40,
+                        "low": [49000.0] * 40,
+                        "volume": [100.0] * 40,
+                    }
+                ),
             },
         )
 
@@ -2664,7 +2682,10 @@ class TestP1ConvergenceProofs:
         from trading_agent.authority.causation import new_chain
         from trading_agent.execution.lifecycle.lifecycle import ExposureEffect
         from trading_agent.authority.promotion_store import PromotionStateStore
-        from trading_agent.research.artifact import PersistentArtifactStore, StrategyArtifact
+        from trading_agent.research.artifact import (
+            PersistentArtifactStore,
+            StrategyArtifact,
+        )
         from trading_agent.research.artifact import canonical_params, sha256_hex
         from trading_agent.authority.promotion_store import PromotionRecord
         from trading_agent.research.promotion import ResearchStage
@@ -2752,12 +2773,14 @@ class TestP1ConvergenceProofs:
                         "symbol": "BTC/USDT",
                         "quantity": 0.01,
                         "price": 50000.0,
-                        "market_data": pl.DataFrame({
-                            "close": [50000.0] * 40,
-                            "high": [51000.0] * 40,
-                            "low": [49000.0] * 40,
-                            "volume": [100.0] * 40,
-                        }),
+                        "market_data": pl.DataFrame(
+                            {
+                                "close": [50000.0] * 40,
+                                "high": [51000.0] * 40,
+                                "low": [49000.0] * 40,
+                                "volume": [100.0] * 40,
+                            }
+                        ),
                     },
                 )
 

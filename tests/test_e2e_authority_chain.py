@@ -19,7 +19,7 @@ Promoted BTC StrategyArtifact
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 from pathlib import Path
 import tempfile
 
@@ -31,7 +31,7 @@ from trading_agent.authority.execution import (
     ExecutionAuthority,
     ExecutionValidationInput,
 )
-from trading_agent.authority.loader import PromotedStrategy, PromotedStrategyManifest, TestRuntimeLoader
+from trading_agent.authority.loader import PromotedStrategy, PromotedStrategyManifest
 from trading_agent.authority.portfolio import PortfolioAllocator, AllocationRequest
 from trading_agent.authority.resolver import (
     RuntimeStrategyResolver,
@@ -135,7 +135,10 @@ class TestE2EAuthorityChain:
         btc_artifact: StrategyArtifact,
         promotion_store: PromotionStateStore,
     ) -> PromotedStrategy:
-        from trading_agent.research.promotion import ResearchPromotionEvent, ResearchStage
+        from trading_agent.research.promotion import (
+            ResearchPromotionEvent,
+            ResearchStage,
+        )
 
         params = {"fast_period": 10, "slow_period": 30}
         # Promote to TESTNET_ELIGIBLE
@@ -149,6 +152,7 @@ class TestE2EAuthorityChain:
         )
         # Manually create record since ResearchPromotionEvent doesn't have to_dict
         from trading_agent.authority.promotion_store import PromotionRecord
+
         record = PromotionRecord(
             artifact_id=btc_artifact.artifact_id,
             stage=ResearchStage.TESTNET_ELIGIBLE,
@@ -435,7 +439,10 @@ class TestE2EAuthorityChain:
 
         # Create and promote a BTC artifact
         from trading_agent.research.artifact import canonical_params, sha256_hex
-        from trading_agent.research.promotion import ResearchPromotionEvent, ResearchStage
+        from trading_agent.research.promotion import (
+            ResearchPromotionEvent,
+            ResearchStage,
+        )
 
         params = {"fast_period": 10, "slow_period": 30}
         artifact = StrategyArtifact(
@@ -465,6 +472,7 @@ class TestE2EAuthorityChain:
             timestamp=datetime.now(UTC),
         )
         from trading_agent.authority.promotion_store import PromotionRecord
+
         record = PromotionRecord(
             artifact_id=artifact.artifact_id,
             stage=ResearchStage.TESTNET_ELIGIBLE,
@@ -509,19 +517,25 @@ class TestE2EAuthorityChain:
 
         # Create market data that generates BUY signal
         import polars as pl
-        df = pl.DataFrame({
-            "close": [50000.0] * 5 + [51000.0] * 5 + [52000.0] * 5 + [53000.0] * 15,
-            "high": [50500.0] * 5 + [51500.0] * 5 + [52500.0] * 5 + [53500.0] * 15,
-            "low": [49500.0] * 5 + [50500.0] * 5 + [51500.0] * 5 + [52500.0] * 15,
-            "volume": [100.0] * 30,
-        })
-        market_data = df.with_columns([
-            pl.col("close").rolling_mean(window_size=10).alias("ma_10"),
-            pl.col("close").rolling_mean(window_size=30).alias("ma_30"),
-        ]).drop_nulls()
+
+        df = pl.DataFrame(
+            {
+                "close": [50000.0] * 5 + [51000.0] * 5 + [52000.0] * 5 + [53000.0] * 15,
+                "high": [50500.0] * 5 + [51500.0] * 5 + [52500.0] * 5 + [53500.0] * 15,
+                "low": [49500.0] * 5 + [50500.0] * 5 + [51500.0] * 5 + [52500.0] * 15,
+                "volume": [100.0] * 30,
+            }
+        )
+        market_data = df.with_columns(
+            [
+                pl.col("close").rolling_mean(window_size=10).alias("ma_10"),
+                pl.col("close").rolling_mean(window_size=30).alias("ma_30"),
+            ]
+        ).drop_nulls()
 
         # Create observation
         from trading_agent.execution.canonical import EnrichedMarketObservation
+
         observation = EnrichedMarketObservation(
             observation_id="obs_001",
             symbol="BTC/USDT",
@@ -770,7 +784,6 @@ class TestGoldenPathPaperTrading:
         from trading_agent.execution.engine import ExecutionEngine
         from trading_agent.execution.paper_exchange import PaperExchange
         from trading_agent.execution.canonical import InstrumentRules
-        from trading_agent.execution.lifecycle import ExecutionEventStore
         from trading_agent.authority.config import AuthorityConfig, Environment
         from trading_agent.authority.resolver import RuntimeStrategyResolver
         from trading_agent.research.artifact import (
@@ -779,7 +792,6 @@ class TestGoldenPathPaperTrading:
             canonical_params,
             sha256_hex,
         )
-        from trading_agent.authority.loader import PromotedStrategy, PromotedStrategyManifest
         from trading_agent.authority.promotion_store import PromotionStateStore
         from trading_agent.execution.canonical import EnrichedMarketObservation
         import polars as pl
@@ -814,7 +826,11 @@ class TestGoldenPathPaperTrading:
         artifact_store.add(artifact)
 
         # Promote to TESTNET_ELIGIBLE
-        from trading_agent.research.promotion import ResearchPromotionEvent, ResearchStage
+        from trading_agent.research.promotion import (
+            ResearchPromotionEvent,
+            ResearchStage,
+        )
+
         promo_event = ResearchPromotionEvent(
             subject_artifact_id=artifact.artifact_id,
             from_stage=ResearchStage.RESEARCH_VALIDATED,
@@ -922,26 +938,35 @@ class TestGoldenPathPaperTrading:
 
         # ── Assert 4: fill exists ──
         assert order.status.value == "filled", f"Expected FILLED, got {order.status}"
-        assert order.filled_amount > 0, f"Expected filled_amount > 0, got {order.filled_amount}"
+        assert order.filled_amount > 0, (
+            f"Expected filled_amount > 0, got {order.filled_amount}"
+        )
 
         # ── Assert 5: position > 0 ──
         position = exchange.get_position("BTC/USDT")
         assert position is not None, "Position should exist after fill"
         assert position.is_active, "Position should be active"
-        assert position.quantity > 0, f"Expected position quantity > 0, got {position.quantity}"
+        assert position.quantity > 0, (
+            f"Expected position quantity > 0, got {position.quantity}"
+        )
 
         # ── Assert 6: protective coverage exists ──
         # Check lifecycle has protective order for this position
         protective_intents = [
-            (oid, ost) for oid, ost in engine.lifecycle.state.orders.items()
+            (oid, ost)
+            for oid, ost in engine.lifecycle.state.orders.items()
             if oid.startswith("prot_") and ost.symbol == "BTC/USDT"
         ]
-        assert len(protective_intents) >= 1, "Protective order should exist for the position"
+        assert len(protective_intents) >= 1, (
+            "Protective order should exist for the position"
+        )
 
         protective_oid, protective_state = protective_intents[0]
         assert protective_state.symbol == "BTC/USDT"
         assert protective_state.side == "sell", "Protective order should be SELL"
-        assert protective_state.remaining_reserved_quantity > 0, "Protective order should reserve quantity"
+        assert protective_state.remaining_reserved_quantity > 0, (
+            "Protective order should reserve quantity"
+        )
 
         # Record initial order count
         initial_order_count = len(exchange.orders)
@@ -957,7 +982,8 @@ class TestGoldenPathPaperTrading:
             instrument_rules=instrument_rules,
             promotion_store=promotion_store,
             artifact_store=artifact_store,
-            event_store_path=tmp_path / "execution_events.db",  # SAME path for restart simulation
+            event_store_path=tmp_path
+            / "execution_events.db",  # SAME path for restart simulation
         )
 
         # Replay lifecycle events (simulating crash recovery)
@@ -989,10 +1015,13 @@ class TestGoldenPathPaperTrading:
 
         # Protective coverage should still exist (reloaded from event store)
         protective_intents2 = [
-            (oid, ost) for oid, ost in engine2.lifecycle.state.orders.items()
+            (oid, ost)
+            for oid, ost in engine2.lifecycle.state.orders.items()
             if oid.startswith("prot_") and ost.symbol == "BTC/USDT"
         ]
-        assert len(protective_intents2) >= 1, "Protective order should persist after restart"
+        assert len(protective_intents2) >= 1, (
+            "Protective order should persist after restart"
+        )
 
 
 __all__ = [

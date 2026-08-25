@@ -1059,7 +1059,10 @@ class TestEnginePaperE2E:
         from trading_agent.execution.types import OrderStatus
         from trading_agent.execution.canonical.order_planner import InstrumentRules
         from trading_agent.authority.promotion_store import PromotionStateStore
-        from trading_agent.research.artifact import PersistentArtifactStore, StrategyArtifact
+        from trading_agent.research.artifact import (
+            PersistentArtifactStore,
+            StrategyArtifact,
+        )
         from trading_agent.research.artifact import canonical_params, sha256_hex
         from trading_agent.authority.promotion_store import PromotionRecord
         from trading_agent.research.promotion import ResearchStage
@@ -1170,12 +1173,14 @@ class TestEnginePaperE2E:
                 "ood_score": 0.0,
                 "regime_state": "KNOWN",
                 "regime_entropy": 0.5,
-                "market_data": pl.DataFrame({
-                    "close": prices,
-                    "high": [p * 1.01 for p in prices],
-                    "low": [p * 0.99 for p in prices],
-                    "volume": [100.0] * len(prices),
-                }),
+                "market_data": pl.DataFrame(
+                    {
+                        "close": prices,
+                        "high": [p * 1.01 for p in prices],
+                        "low": [p * 0.99 for p in prices],
+                        "volume": [100.0] * len(prices),
+                    }
+                ),
             },
         )
         orders = engine.execute_signal(signal, observation=observation)
@@ -1201,7 +1206,10 @@ class TestEnginePaperE2E:
         from trading_agent.execution.paper_exchange import PaperExchange
         from trading_agent.execution.canonical.order_planner import InstrumentRules
         from trading_agent.authority.promotion_store import PromotionStateStore
-        from trading_agent.research.artifact import PersistentArtifactStore, StrategyArtifact
+        from trading_agent.research.artifact import (
+            PersistentArtifactStore,
+            StrategyArtifact,
+        )
         from trading_agent.research.artifact import canonical_params, sha256_hex
         from trading_agent.authority.promotion_store import PromotionRecord
         from trading_agent.research.promotion import ResearchStage
@@ -1287,12 +1295,14 @@ class TestEnginePaperE2E:
             reasoning="test",
             details={
                 "symbol": "BTC/USDT",
-                "market_data": pl.DataFrame({
-                    "close": [50000.0] * 40,
-                    "high": [51000.0] * 40,
-                    "low": [49000.0] * 40,
-                    "volume": [100.0] * 40,
-                }),
+                "market_data": pl.DataFrame(
+                    {
+                        "close": [50000.0] * 40,
+                        "high": [51000.0] * 40,
+                        "low": [49000.0] * 40,
+                        "volume": [100.0] * 40,
+                    }
+                ),
             },
         )
         orders = engine.execute_signal(signal, observation=observation)

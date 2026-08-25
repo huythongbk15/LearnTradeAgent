@@ -313,7 +313,6 @@ class ExecutionEngine:
 
     # ── Execute signals from Phase 2 agents ────────────────────────────
 
-
     def execute_strategy(
         self,
         strategy_runtime: StrategyRuntime,

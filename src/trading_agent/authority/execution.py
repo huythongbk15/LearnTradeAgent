@@ -31,7 +31,10 @@ from trading_agent.execution.canonical import (
     OrderIntent,
     OrderPlanner,
 )
-from trading_agent.execution.canonical.broker_gateway import BrokerSubmitResult, BrokerSubmitState
+from trading_agent.execution.canonical.broker_gateway import (
+    BrokerSubmitResult,
+    BrokerSubmitState,
+)
 from trading_agent.execution.lifecycle import ExecutionLifecycle
 from trading_agent.execution.permission import (
     PermissionContext,
