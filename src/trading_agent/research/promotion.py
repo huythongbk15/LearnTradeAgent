@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
 from types import MappingProxyType
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 from trading_agent.research.lifecycle import PromotionError
 
@@ -426,7 +426,16 @@ class ResearchLifecycle:
         *,
         evidence: tuple[EvidenceArtifact, ...] | list[EvidenceArtifact],
         actor: str,
+        on_event: Callable[[ResearchPromotionEvent], Any] | None = None,
     ) -> ResearchPromotionEvent:
+        """Advance one stage and optionally bridge the event to runtime.
+
+        ``on_event`` is the Milestone D research→runtime hook (see
+        ``authority/promotion_hook.PromotionHook``). It runs AFTER the gate
+        passes but BEFORE this lifecycle mutates its stage — so if the hook
+        raises, the promotion is aborted atomically: stage and events are
+        unchanged and :class:`PromotionError` propagates.
+        """
         current_index = _STAGE_ORDER.index(self.stage)
         if (
             current_index + 1 >= len(_STAGE_ORDER)
@@ -462,6 +471,15 @@ class ResearchLifecycle:
             evidence_ids=tuple(sorted(proposed)),
             actor=actor,
         )
+        # Bridge BEFORE mutating state — atomic on hook failure (Milestone D).
+        if on_event is not None:
+            try:
+                on_event(event)
+            except Exception as exc:
+                raise PromotionError(
+                    f"promotion bridge failed for {self.subject_artifact_id}: "
+                    f"{exc}; stage remains {self.stage.value}"
+                ) from exc
         self._evidence = proposed
         self.stage = to_stage
         self.events.append(event)

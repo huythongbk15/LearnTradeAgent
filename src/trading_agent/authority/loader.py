@@ -24,7 +24,7 @@ from typing import Any
 from trading_agent.authority.config import AuthorityConfig, get_authority_config
 from trading_agent.authority.promotion_store import PromotionStateStore
 from trading_agent.research.artifact import PersistentArtifactStore, StrategyArtifact
-from trading_agent.research.promotion import ResearchLifecycle, ResearchStage
+from trading_agent.research.promotion import ResearchLifecycle
 
 logger = logging.getLogger(__name__)
 
@@ -296,14 +296,10 @@ class RuntimeLoader:
         stage = self.promotion_store.get_stage(artifact.artifact_id)
         if stage is None:
             return False
-        # Map stage to legacy "production_ready" boolean
         # Any stage >= PAPER_ELIGIBLE is considered ready for runtime
-        from trading_agent.authority.promotion_store import _STAGE_RANK, _ENV_MIN_STAGE
+        from trading_agent.authority.promotion_store import is_stage_compatible
 
-        min_rank = _STAGE_RANK.get(
-            _ENV_MIN_STAGE.get("paper", ResearchStage.PAPER_ELIGIBLE), 0
-        )
-        return _STAGE_RANK.get(stage, -1) >= min_rank
+        return is_stage_compatible(stage, "paper")
 
     def _load_artifact(self, artifact: StrategyArtifact) -> PromotedStrategy:
         """Load artifact into memory and write manifest."""
@@ -514,14 +510,10 @@ class TestRuntimeLoader(RuntimeLoader):
             stage = self.promotion_store.get_stage(artifact.artifact_id)
             if stage is not None:
                 from trading_agent.authority.promotion_store import (
-                    _STAGE_RANK,
-                    _ENV_MIN_STAGE,
+                    is_stage_compatible,
                 )
 
-                min_rank = _STAGE_RANK.get(
-                    _ENV_MIN_STAGE.get("paper", ResearchStage.PAPER_ELIGIBLE), 0
-                )
-                return _STAGE_RANK.get(stage, -1) >= min_rank
+                return is_stage_compatible(stage, "paper")
 
         # Test mode: allow metadata fallback
         promo_stage = artifact.metadata.get("promotion_stage", "")

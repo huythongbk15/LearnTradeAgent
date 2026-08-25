@@ -592,12 +592,18 @@ def execution_run_multi(
     help="Path to authority config YAML",
 )
 @click.option("--exchange", default=None, help="Data source exchange (default: config)")
+@click.option(
+    "--hot-reload/--no-hot-reload",
+    default=True,
+    help="Watch the promotion store so newly promoted artifacts are picked up mid-run",
+)
 def execution_run_promoted(
     symbols: tuple[str],
     timeframe: str | None,
     environment: str,
     authority_config: str | None,
     exchange: str | None,
+    hot_reload: bool,
 ):
     """Run ONE multi-pair cycle over PROMOTED artifacts via the authority chain.
 
@@ -661,6 +667,29 @@ def execution_run_promoted(
         )
         raise SystemExit(1)
 
+    # ── Milestone D: hot-reload watcher (manifest + callbacks) ──
+    # The resolver already re-reads the authoritative store every cycle, so
+    # this watcher is an enhancement (manifests + load callbacks), not a
+    # safety dependency — degrade gracefully on failure.
+    runtime_loader = None
+    if hot_reload:
+        try:
+            from trading_agent.authority.config import get_authority_config
+            from trading_agent.authority.loader import RuntimeLoader
+
+            runtime_loader = RuntimeLoader(
+                artifact_store=artifact_store,
+                manifest_dir=state_dir / "promoted_strategies",
+                config=authority_cfg or get_authority_config(),
+                promotion_store=promotion_store,
+                poll_interval_seconds=15.0,
+            )
+            runtime_loader.start()
+            console.print("[dim]Hot-reload watcher started[/dim]")
+        except Exception as exc:
+            runtime_loader = None
+            console.print(f"[yellow]⚠ Hot-reload disabled: {exc}[/yellow]")
+
     runtime = MultiPairRuntime(
         engine,
         required_universe_policy=RequiredUniversePolicy(
@@ -698,11 +727,15 @@ def execution_run_promoted(
         f"[bold]Multi-pair promoted cycle[/bold] env={environment} "
         f"bindings={bindings_override or discovered}"
     )
-    report = runtime.run_cycle(
-        environment=environment,
-        market_data_provider=provider,
-        bindings_override=bindings_override,
-    )
+    try:
+        report = runtime.run_cycle(
+            environment=environment,
+            market_data_provider=provider,
+            bindings_override=bindings_override,
+        )
+    finally:
+        if runtime_loader is not None:
+            runtime_loader.stop()
 
     t = RichTable("Symbol", "TF", "Status", "Orders", "Detail")
     for r in report.results:
