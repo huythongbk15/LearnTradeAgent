@@ -370,9 +370,7 @@ class PortfolioAllocator:
             if symbol in budget.symbols:
                 budget.symbols[symbol] = max(0.0, budget.symbols[symbol] - amount)
 
-    def reconcile(
-        self, live_symbol_exposures: dict[str, float]
-    ) -> dict[str, Any]:
+    def reconcile(self, live_symbol_exposures: dict[str, float]) -> dict[str, Any]:
         """Reconcile strategy budgets against LIVE exchange positions.
 
         The exchange is the single exposure truth. Budget bookkeeping is

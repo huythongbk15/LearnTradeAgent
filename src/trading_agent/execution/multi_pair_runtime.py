@@ -143,9 +143,7 @@ class MultiPairRuntime:
         equity = float(self.engine.exchange.get_total_equity())
         live = self._live_symbol_exposures(equity)
         audit = self.engine.portfolio_allocator.reconcile(live)
-        logger.info(
-            "Portfolio reconcile: %d symbols held, audit=%s", len(live), audit
-        )
+        logger.info("Portfolio reconcile: %d symbols held, audit=%s", len(live), audit)
         return audit
 
     # ── Observation building ───────────────────────────────────────────
@@ -199,9 +197,7 @@ class MultiPairRuntime:
         """
         started_at = datetime.now(UTC)
         env_name = (
-            environment.lower()
-            if isinstance(environment, str)
-            else environment.value
+            environment.lower() if isinstance(environment, str) else environment.value
         )
 
         if market_data_provider is None:
@@ -284,9 +280,7 @@ class MultiPairRuntime:
                 orders_count=len(orders),
             )
         except Exception as e:
-            logger.error(
-                "Pair %s %s failed: %s", symbol, timeframe, e, exc_info=True
-            )
+            logger.error("Pair %s %s failed: %s", symbol, timeframe, e, exc_info=True)
             return PairCycleResult(
                 symbol=symbol,
                 timeframe=timeframe,

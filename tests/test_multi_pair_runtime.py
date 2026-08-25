@@ -18,13 +18,11 @@ import polars as pl
 import pytest
 
 from trading_agent.authority.config import AuthorityConfig, Environment
-from trading_agent.authority.loader import PromotedStrategy, PromotedStrategyManifest
 from trading_agent.authority.portfolio import AllocationRequest, PortfolioAllocator
 from trading_agent.authority.promotion_store import (
     PromotionRecord,
     PromotionStateStore,
 )
-from trading_agent.authority.resolver import RuntimeStrategyResolver
 from trading_agent.authority.causation import new_chain
 from trading_agent.execution.canonical.order_planner import InstrumentRules
 from trading_agent.execution.engine import ExecutionEngine
@@ -146,12 +144,20 @@ def btc_eth_artifacts(stores):
     # NOTE: both use fast=10/slow=30 because _buy_at_last_bar_df() provides
     # exactly 50 bars — a slower MA than 30 would never produce a signal.
     btc = _make_artifact(
-        artifact_store, promotion_store,
-        symbol="BTC/USDT", timeframe="1h", fast=10, slow=30,
+        artifact_store,
+        promotion_store,
+        symbol="BTC/USDT",
+        timeframe="1h",
+        fast=10,
+        slow=30,
     )
     eth = _make_artifact(
-        artifact_store, promotion_store,
-        symbol="ETH/USDT", timeframe="1h", fast=10, slow=30,
+        artifact_store,
+        promotion_store,
+        symbol="ETH/USDT",
+        timeframe="1h",
+        fast=10,
+        slow=30,
     )
     return btc, eth
 
@@ -174,9 +180,7 @@ def _build_engine(config, stores, temp_dir: Path, rules) -> ExecutionEngine:
 
 @pytest.fixture
 def engine(config, stores, temp_dir):
-    eng = _build_engine(
-        config, stores, temp_dir, _instrument_rules("BTC/USDT")
-    )
+    eng = _build_engine(config, stores, temp_dir, _instrument_rules("BTC/USDT"))
     yield eng
     eng._graceful_shutdown()
 
@@ -185,7 +189,9 @@ def engine(config, stores, temp_dir):
 
 
 class TestListBindings:
-    def test_discovers_distinct_symbol_timeframe_bindings(self, engine, btc_eth_artifacts):
+    def test_discovers_distinct_symbol_timeframe_bindings(
+        self, engine, btc_eth_artifacts
+    ):
         bindings = engine.resolver.list_bindings(Environment.PAPER)
         assert ("BTC/USDT", "1h") in bindings
         assert ("ETH/USDT", "1h") in bindings

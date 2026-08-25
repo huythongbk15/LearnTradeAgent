@@ -338,9 +338,7 @@ class RuntimeStrategyResolver:
             pairs.append((record, artifact))
         return pairs
 
-    def list_bindings(
-        self, environment: Environment | str
-    ) -> list[tuple[str, str]]:
+    def list_bindings(self, environment: Environment | str) -> list[tuple[str, str]]:
         """Enumerate distinct (symbol, timeframe) bindings eligible for environment.
 
         This is how the multi-pair runtime discovers WHAT to trade: every

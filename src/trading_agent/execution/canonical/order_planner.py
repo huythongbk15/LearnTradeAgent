@@ -242,8 +242,7 @@ class OrderPlanner:
                     )
                 if rules.symbol != sym:
                     raise ValueError(
-                        f"rule key {sym!r} does not match rules.symbol "
-                        f"{rules.symbol!r}"
+                        f"rule key {sym!r} does not match rules.symbol {rules.symbol!r}"
                     )
             self._rules = (
                 next(iter(self._rules_map.values()))
@@ -521,10 +520,7 @@ class OrderPlanner:
 
         if quantity > rules.max_order_qty + rounding_epsilon:
             add_reason(AdjustmentReason.MAX_QTY)
-        if (
-            rules.max_notional is not None
-            and notional > rules.max_notional + 1e-9
-        ):
+        if rules.max_notional is not None and notional > rules.max_notional + 1e-9:
             add_reason(AdjustmentReason.MAX_NOTIONAL)
         if side == "buy" and notional > portfolio.available_cash + 1e-9:
             add_reason(AdjustmentReason.INSUFFICIENT_CASH)

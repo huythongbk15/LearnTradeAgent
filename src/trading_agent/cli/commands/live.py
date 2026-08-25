@@ -618,9 +618,7 @@ def execution_run_promoted(
         except FileNotFoundError:
             return None
 
-    bindings_override = (
-        [(s, timeframe or "1h") for s in symbols] if symbols else None
-    )
+    bindings_override = [(s, timeframe or "1h") for s in symbols] if symbols else None
     discovered = runtime.discover_bindings(environment)
     if bindings_override is not None:
         missing = [b for b in bindings_override if b not in discovered]
@@ -656,8 +654,11 @@ def execution_run_promoted(
             "blocked": "yellow",
         }.get(r.status, "white")
         t.add_row(
-            r.symbol, r.timeframe, f"[{style}]{r.status}[/{style}]",
-            str(r.orders_count), r.detail,
+            r.symbol,
+            r.timeframe,
+            f"[{style}]{r.status}[/{style}]",
+            str(r.orders_count),
+            r.detail,
         )
     console.print(t)
     console.print(
