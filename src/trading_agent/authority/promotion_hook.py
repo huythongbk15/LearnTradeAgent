@@ -147,9 +147,7 @@ class PromotionHook:
             if env_value is not None and is_stage_compatible(
                 event.to_stage, str(env_value).lower()
             ):
-                loaded_strategy = self.runtime_loader.load_by_artifact_id(
-                    artifact_id
-                )
+                loaded_strategy = self.runtime_loader.load_by_artifact_id(artifact_id)
                 if loaded_strategy is None:
                     raise BridgeError(
                         f"promotion bridge failed: RuntimeLoader could not "

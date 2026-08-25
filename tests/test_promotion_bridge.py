@@ -68,9 +68,7 @@ def _make_artifact(
     return artifact
 
 
-def _evidence(
-    kind: EvidenceKind, artifact_id: str, payload: dict
-) -> EvidenceArtifact:
+def _evidence(kind: EvidenceKind, artifact_id: str, payload: dict) -> EvidenceArtifact:
     return EvidenceArtifact.create(
         kind=kind,
         subject_artifact_id=artifact_id,
@@ -86,13 +84,9 @@ def _research_evidence(artifact_id: str) -> list[EvidenceArtifact]:
     return [
         _evidence(EvidenceKind.OUTER_OOS, artifact_id, {"net_return": 0.12}),
         _evidence(EvidenceKind.MINIMUM_TRADES, artifact_id, {"trade_count": 120}),
-        _evidence(
-            EvidenceKind.DEFLATED_SHARPE, artifact_id, {"dsr_probability": 0.98}
-        ),
+        _evidence(EvidenceKind.DEFLATED_SHARPE, artifact_id, {"dsr_probability": 0.98}),
         _evidence(EvidenceKind.PBO, artifact_id, {"pbo": 0.10}),
-        _evidence(
-            EvidenceKind.COST_STRESS, artifact_id, {"stressed_net_return": 0.04}
-        ),
+        _evidence(EvidenceKind.COST_STRESS, artifact_id, {"stressed_net_return": 0.04}),
         _evidence(
             EvidenceKind.PARAMETER_STABILITY, artifact_id, {"stability_score": 0.82}
         ),
@@ -141,9 +135,7 @@ def paper_config() -> AuthorityConfig:
 
 
 class TestGoldenBridge:
-    def test_promote_with_hook_is_immediately_resolvable(
-        self, tmp_path, paper_config
-    ):
+    def test_promote_with_hook_is_immediately_resolvable(self, tmp_path, paper_config):
         store = PersistentArtifactStore(tmp_path / "artifacts")
         promo = PromotionStateStore(tmp_path / "promotion.db")
         hook = PromotionHook(artifact_store=store, promotion_store=promo)
@@ -157,9 +149,7 @@ class TestGoldenBridge:
         resolver = RuntimeStrategyResolver(
             config=paper_config, promotion_store=promo, artifact_store=store
         )
-        runtime = resolver.resolve_for(
-            "BTC/USDT", "1h", Environment.PAPER
-        )
+        runtime = resolver.resolve_for("BTC/USDT", "1h", Environment.PAPER)
         assert runtime is not None
         assert runtime.strategy_name == "ma_crossover"
         assert ("BTC/USDT", "1h") in resolver.list_bindings(Environment.PAPER)
@@ -270,17 +260,25 @@ class TestHotSwap:
             config=paper_config, promotion_store=promo, artifact_store=store
         )
 
-        v1 = _make_artifact(tmp_path, store, params={"fast_period": 10, "slow_period": 30})
-        _promote_to_paper(ResearchLifecycle(v1.artifact_id), v1.artifact_id, hook.handle)
+        v1 = _make_artifact(
+            tmp_path, store, params={"fast_period": 10, "slow_period": 30}
+        )
+        _promote_to_paper(
+            ResearchLifecycle(v1.artifact_id), v1.artifact_id, hook.handle
+        )
 
         rt1 = resolver.resolve_for("BTC/USDT", "1h", Environment.PAPER)
         assert rt1 is not None
         assert rt1.artifact_id == v1.artifact_id
 
         # v2: different parameters → different content-addressed id, same binding.
-        v2 = _make_artifact(tmp_path, store, params={"fast_period": 20, "slow_period": 60})
+        v2 = _make_artifact(
+            tmp_path, store, params={"fast_period": 20, "slow_period": 60}
+        )
         assert v2.artifact_id != v1.artifact_id
-        _promote_to_paper(ResearchLifecycle(v2.artifact_id), v2.artifact_id, hook.handle)
+        _promote_to_paper(
+            ResearchLifecycle(v2.artifact_id), v2.artifact_id, hook.handle
+        )
 
         # NO restart: next resolve picks the newest eligible artifact.
         rt2 = resolver.resolve_for("BTC/USDT", "1h", Environment.PAPER)

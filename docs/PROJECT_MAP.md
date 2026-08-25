@@ -255,6 +255,7 @@
 │       │   ├── exposure.py
 │       │   ├── loader.py
 │       │   ├── portfolio.py
+│       │   ├── promotion_hook.py
 │       │   ├── promotion_store.py
 │       │   └── resolver.py
 │       ├── backtest
@@ -538,6 +539,7 @@
 │   ├── test_phase6.py
 │   ├── test_phase6_integration.py
 │   ├── test_post_trade_impact.py
+│   ├── test_promotion_bridge.py
 │   ├── test_quant_methodology.py
 │   ├── test_realtime_data.py
 │   ├── test_research_governance.py

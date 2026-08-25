@@ -252,9 +252,18 @@ tests/test_legacy_cutover_migration.py # Legacy migration tests
 - `PortfolioPermission`: cross-symbol exposure caps, correlation limits
 - Integration with `PortfolioAllocator` in live loop
 
-### ⏳ MILESTONE D — Research → Runtime Bridge (PENDING)
-- `PromotionHook` in `research/promotion.py` on PRODUCTION promotion
-- Hot-reload manifest in live trading
+### ⏳ MILESTONE D — Research → Runtime Bridge (COMPLETED)
+- `authority/promotion_hook.py` — `PromotionHook.handle(event)`: persists event to
+  authoritative `PromotionStateStore`, verifies stage, optionally loads into
+  `RuntimeLoader` (manifest + callbacks). Fail-closed (`BridgeError`), idempotent,
+  stage-aware for every stage ≥ PAPER_ELIGIBLE.
+- `ResearchLifecycle.promote(on_event=...)` — ATOMIC bridge: hook failure raises
+  `PromotionError` and leaves stage/events unchanged.
+- Hot-reload in live trading: `execution run-promoted` starts a `RuntimeLoader`
+  watcher (`--hot-reload/--no-hot-reload`, default on); resolver already re-reads
+  the store every cycle so newer promotions win without restart.
+- Tests: `tests/test_promotion_bridge.py` (8) — golden bridge, idempotency,
+  atomic fail-closed, hot-swap v1→v2, loader manifest.
 
 ### ⏳ MILESTONE E — Observability & Replay (PENDING)
 - Deterministic replay from event store
