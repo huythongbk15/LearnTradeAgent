@@ -75,6 +75,7 @@
 │   ├── RUNTIME_RESOLVER.md
 │   ├── SECURITY.md
 │   ├── SYSTEM_GUIDE.md
+│   ├── VPS_LITE_DEPLOY.md
 │   ├── demo.md
 │   ├── getting-started.md
 │   ├── optimization.md
@@ -613,6 +614,7 @@
 ├── TRADE_FLOW.md
 ├── TRADING_SYSTEM_OVERVIEW.md
 ├── credentials.example.yaml
+├── docker-compose.lite.yml
 ├── docker-compose.oracle.yml
 ├── docker-compose.prod.yml
 ├── docker-compose.yml
