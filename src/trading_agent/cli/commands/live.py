@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import time
 import uuid
+from pathlib import Path
 from typing import Any
 
 import click
@@ -608,9 +609,13 @@ def execution_run_promoted(
     from rich.console import Console as RichConsole
     from rich.table import Table as RichTable
 
+    from trading_agent.config.loader import config as app_config
     from trading_agent.data.storage import load_ohlcv
     from trading_agent.execution.engine import ExecutionEngine
-    from trading_agent.execution.multi_pair_runtime import MultiPairRuntime
+    from trading_agent.execution.multi_pair_runtime import (
+        MultiPairRuntime,
+        RequiredUniversePolicy,
+    )
 
     console = RichConsole()
     authority_cfg = None
@@ -620,7 +625,34 @@ def execution_run_promoted(
         authority_cfg = AuthorityConfig.from_yaml(authority_config)
         set_authority_config(authority_cfg)
 
-    engine = ExecutionEngine(authority_config=authority_cfg)
+    # ── Wire promotion + artifact stores (default project locations) ──
+    from trading_agent.authority.promotion_store import PromotionStateStore
+    from trading_agent.research.artifact import PersistentArtifactStore
+
+    state_dir = Path(app_config.storage_abs_path).parent / "state"
+    promotion_store = PromotionStateStore(state_dir / "promotion.db")
+    artifact_store = PersistentArtifactStore(state_dir / "artifacts.db")
+
+    env_name = environment.strip().lower()
+    instrument_rules = None
+    if env_name == "production":
+        console.print(
+            "[bold red]production requires venue-verified instrument rules — "
+            "auto-rules are rejected. Configure a rules source first.[/bold red]"
+        )
+        raise SystemExit(1)
+    from trading_agent.execution.canonical.instrument_registry import (
+        INSTRUMENT_RULES_1H,
+    )
+
+    instrument_rules = INSTRUMENT_RULES_1H
+
+    engine = ExecutionEngine(
+        authority_config=authority_cfg,
+        promotion_store=promotion_store,
+        artifact_store=artifact_store,
+        instrument_rules=instrument_rules,
+    )
 
     if engine.resolver is None:
         console.print(
@@ -629,12 +661,15 @@ def execution_run_promoted(
         )
         raise SystemExit(1)
 
-    runtime = MultiPairRuntime(engine)
+    runtime = MultiPairRuntime(
+        engine,
+        required_universe_policy=RequiredUniversePolicy(
+            require_closed_last_bar=True, max_staleness_bars=3
+        ),
+    )
 
     # Data provider: project OHLCV store; fail-closed on missing data.
     if exchange is None:
-        from trading_agent.config.loader import config as app_config
-
         exchange = app_config.default_exchange
 
     def provider(symbol: str, tf: str):
@@ -677,7 +712,8 @@ def execution_run_promoted(
             "no_data": "yellow",
             "zero_allocation": "yellow",
             "blocked": "yellow",
-        }.get(r.status, "white")
+            "hold": "yellow",
+        }.get(r.status, ("red" if "failed" in report.status else "white"))
         t.add_row(
             r.symbol,
             r.timeframe,
@@ -688,7 +724,8 @@ def execution_run_promoted(
     console.print(t)
     console.print(
         f"Equity: ${report.equity_before:,.2f} → ${report.equity_after:,.2f} · "
-        f"orders: {report.total_orders}"
+        f"orders: {report.total_orders} · status: {report.status} · "
+        f"reconcile: {report.reconciliation_status}"
     )
 
 

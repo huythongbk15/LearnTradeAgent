@@ -66,13 +66,80 @@ class RequiredUniversePolicy:
     REQUIRED. If any required binding lacks market data / closed observation
     / resolver result / instrument rules → NO new exposure for the cycle.
     Risk-reducing operations may still proceed when safe.
+
+    Candle validation:
+    - ``require_closed_last_bar``: the latest bar must be a CLOSED candle
+      (open-time labeled: bar_open + timeframe ≤ now). Bars labeled in the
+      future or still forming are rejected.
+    - ``max_staleness_bars``: the last CLOSED bar may lag "now" by at most
+      this many timeframe periods. None disables the staleness bound (the
+      closed check alone remains mandatory).
     """
 
     mode: str = "all_promoted"
+    require_closed_last_bar: bool = True
+    max_staleness_bars: int | None = 3
 
     @property
     def blocks_on_any_failure(self) -> bool:
         return self.mode == "all_promoted"
+
+
+_TIMEFRAME_UNITS: dict[str, float] = {
+    "m": 60.0,
+    "h": 3600.0,
+    "d": 86400.0,
+    "w": 604800.0,
+}
+
+
+def timeframe_seconds(timeframe: str) -> float | None:
+    """Parse a ccxt-style timeframe ("15m", "1h", "4h", "1d") to seconds."""
+    tf = str(timeframe).strip().lower()
+    if len(tf) < 2:
+        return None
+    unit = tf[-1]
+    if unit not in _TIMEFRAME_UNITS:
+        return None
+    try:
+        n = int(tf[:-1])
+    except ValueError:
+        return None
+    if n <= 0:
+        return None
+    return n * _TIMEFRAME_UNITS[unit]
+
+
+def validate_candle_closed(
+    bar_open_ts: datetime,
+    timeframe: str,
+    *,
+    now: datetime,
+    max_staleness_bars: int | None = None,
+) -> str | None:
+    """Validate the LAST bar of an OHLCV series is closed and fresh.
+
+    Bars are open-time labeled (ccxt convention): a bar is closed once
+    ``bar_open + timeframe <= now``. Returns a failure reason string, or
+    None when the bar is provably closed (and within the staleness bound
+    when one is configured).
+    """
+    tf_secs = timeframe_seconds(timeframe)
+    if tf_secs is None:
+        return "unknown_timeframe_duration"
+    bar_ts_utc = bar_open_ts if bar_open_ts.tzinfo else bar_open_ts.replace(tzinfo=UTC)
+    # 2s tolerance for provider clock/rounding jitter
+    eps = 2.0
+    age_seconds = (now - bar_ts_utc).total_seconds() - tf_secs
+    if age_seconds < -eps:
+        return "bar_not_closed"
+    if max_staleness_bars is not None:
+        if max_staleness_bars < 0:
+            return "invalid_staleness_policy"
+        stale_bound = max_staleness_bars * tf_secs
+        if age_seconds > stale_bound + eps:
+            return "stale_last_bar"
+    return None
 
 
 # ── Per-pair and cycle reports ───────────────────────────────────────────
@@ -204,6 +271,7 @@ class MultiPairRuntime:
         required_universe_policy: RequiredUniversePolicy | None = None,
         cash_reserve_pct: float | None = None,
         max_observation_age_seconds: float | None = None,
+        atomic_buy_preflight: bool = True,
     ):
         """
         Args:
@@ -211,6 +279,9 @@ class MultiPairRuntime:
             required_universe_policy: default = ALL_PROMOTED (fail-closed).
             cash_reserve_pct: min uninvested equity fraction for BUY budget;
                 None → allocator default (1 − max_portfolio_exposure).
+            atomic_buy_preflight: ATOMIC BUY policy — when ANY planned BUY
+                fails batch preflight, ZERO BUY broker submissions happen
+                this cycle (reductions unaffected). Default True.
             max_observation_age_seconds: staleness bound used in preflight;
                 None → 3× the pair timeframe duration.
         """
@@ -230,6 +301,7 @@ class MultiPairRuntime:
         )
         self.cash_reserve_pct = cash_reserve_pct
         self.max_observation_age_seconds = max_observation_age_seconds
+        self.atomic_buy_preflight = atomic_buy_preflight
 
     # ── Binding discovery ──────────────────────────────────────────────
 
@@ -278,15 +350,26 @@ class MultiPairRuntime:
     def build_shared_snapshot(
         self,
         *,
+        environment: str | Any,
         reconciliation_state: ReconciliationState = ReconciliationState.RECONCILED,
     ) -> PortfolioSnapshot:
         """Build THE authoritative shared PortfolioSnapshot for this cycle.
 
-        Untracked live exposure (symbols with no eligible promoted binding)
-        is VALUED AT TRUSTED PRICE and included in gross exposure — reducing
-        BUY headroom. If valuation is impossible the snapshot degrades and
-        new exposure is blocked portfolio-wide.
+        Untracked live exposure (symbols with no eligible promoted binding
+        FOR THE GIVEN ENVIRONMENT) is VALUED AT TRUSTED PRICE and included in
+        gross exposure — reducing BUY headroom. If valuation is impossible
+        the snapshot degrades and new exposure is blocked portfolio-wide.
         """
+        if environment is None:
+            raise ValueError(
+                "build_shared_snapshot requires an explicit environment "
+                "(no implicit PAPER default)"
+            )
+        env = (
+            environment
+            if isinstance(environment, Environment)
+            else Environment(str(environment).lower())
+        )
         exchange = self.engine.exchange
         equity = float(exchange.get_total_equity())
         available_cash = float(exchange.get_balance("USDT"))
@@ -307,12 +390,9 @@ class MultiPairRuntime:
             else:
                 unvalued.append(pos.symbol)
 
-        # Which live symbols does a promoted strategy own?
+        # Which live symbols does a promoted strategy own (this environment)?
         try:
-            env_default = Environment("paper")
-            owned_symbols: set[str] = {
-                sym for sym, _tf in self.discover_bindings(env_default)
-            }
+            owned_symbols: set[str] = {sym for sym, _tf in self.discover_bindings(env)}
         except Exception:
             owned_symbols = set()
 
@@ -430,6 +510,16 @@ class MultiPairRuntime:
                 if bar_ts_utc > datetime.now(UTC):
                     failed[binding] = "future_bar_timestamp"
                     continue
+                if self.required_universe_policy.require_closed_last_bar:
+                    closed_reason = validate_candle_closed(
+                        bar_ts_utc,
+                        timeframe,
+                        now=datetime.now(UTC),
+                        max_staleness_bars=self.required_universe_policy.max_staleness_bars,
+                    )
+                    if closed_reason is not None:
+                        failed[binding] = closed_reason
+                        continue
             else:
                 # No parseable timestamp → cannot prove the bar is closed
                 failed[binding] = "missing_bar_timestamp"
@@ -660,6 +750,75 @@ class MultiPairRuntime:
             checks_run=tuple(checks),
         )
 
+    # ── Atomic BUY preflight policy ─────────────────────────────────────
+
+    def _apply_atomic_buy_policy(
+        self,
+        preflight: BatchPreflightResult,
+        pair_meta: dict[str, PairCycleResult],
+    ) -> tuple[list[PairOrderPlan], list[PairOrderPlan], str]:
+        """Enforce ATOMIC BUY semantics on a preflight result.
+
+        One required BUY failing preflight ⇒ ZERO BUY broker submissions
+        this cycle. Reductions are risk-reducing and unaffected. Returns
+        (reductions, increases, preflight_status).
+        """
+        blocked_increases = [
+            p for p in preflight.blocked_plans if p.action is PlannedAction.INCREASE
+        ]
+        reductions = list(preflight.reduction_plans)
+        increases = list(preflight.increase_plans)
+        status = "passed" if preflight.passed else "partial_rejected"
+
+        if not blocked_increases:
+            return reductions, increases, status
+
+        trigger = sorted(blocked_increases, key=lambda p: (p.symbol, p.timeframe))[0]
+        reason = preflight.reasons.get(trigger.symbol, "preflight_failed")
+        logger.error(
+            "ATOMIC BUY PREFLIGHT: %s %s failed (%s) — cancelling ALL %d "
+            "planned BUY submissions this cycle",
+            trigger.symbol,
+            trigger.timeframe,
+            reason,
+            len(blocked_increases) + len(increases),
+        )
+        for p in increases:
+            key = f"{p.symbol}|{p.timeframe}"
+            pair_meta[key] = PairCycleResult(
+                symbol=p.symbol,
+                timeframe=p.timeframe,
+                status="blocked",
+                orders_count=0,
+                detail=f"atomic_preflight_cancelled_by_{trigger.symbol}:{reason}",
+                planned_action="INCREASE",
+            )
+        # Blocked BUYs already carry their own reason; surviving ones get the
+        # atomic-cancel detail above.
+        return reductions, [], "atomic_blocked"
+
+    def _atomic_block_survivors(
+        self,
+        survivors: list[PairOrderPlan],
+        trigger_symbol: str,
+        reason: str,
+        results: list[PairCycleResult],
+    ) -> None:
+        """Record atomic cancellation of surviving BUYs at revalidation."""
+        for p in survivors:
+            results.append(
+                PairCycleResult(
+                    symbol=p.symbol,
+                    timeframe=p.timeframe,
+                    status="blocked",
+                    orders_count=0,
+                    detail=(
+                        f"atomic_revalidation_cancelled_by_{trigger_symbol}:{reason}"
+                    ),
+                    planned_action="INCREASE",
+                )
+            )
+
     # ── The cycle ──────────────────────────────────────────────────────
 
     def run_cycle(
@@ -702,7 +861,7 @@ class MultiPairRuntime:
             )
 
         # Shared snapshot BEFORE the batch (one authoritative truth)
-        snapshot = self.build_shared_snapshot()
+        snapshot = self.build_shared_snapshot(environment=environment)
         gross_before = snapshot.gross_exposure
 
         # ── STAGE 1: discover + load ALL market data ──────────────────
@@ -969,9 +1128,17 @@ class MultiPairRuntime:
                 detail=f"preflight:{reason}",
                 planned_action=p.action.value,
             )
-
-        reductions = list(preflight.reduction_plans)
-        increases = list(preflight.increase_plans)
+        if self.atomic_buy_preflight:
+            reductions_a, increases_a, atomic_status = self._apply_atomic_buy_policy(
+                preflight, pair_meta
+            )
+            if atomic_status == "atomic_blocked":
+                preflight_status = "atomic_blocked"
+            reductions = reductions_a
+            increases = increases_a
+        else:
+            reductions = list(preflight.reduction_plans)
+            increases = list(preflight.increase_plans)
         reductions_planned_count = len(reductions)
         increases_planned_count = len(increases)
 
@@ -1038,7 +1205,7 @@ class MultiPairRuntime:
         if reductions and barrier_symbol is None:
             try:
                 self.reconcile_portfolio()
-                refreshed_snapshot = self.build_shared_snapshot()
+                refreshed_snapshot = self.build_shared_snapshot(environment=environment)
                 recon_status = refreshed_snapshot.reconciliation_state.value
             except Exception as e:
                 logger.error(
@@ -1068,7 +1235,38 @@ class MultiPairRuntime:
                             planned_action="INCREASE",
                         )
                     )
-            increases = list(revalidation.increase_plans)
+            if (
+                self.atomic_buy_preflight
+                and revalidation.blocked_plans
+                and kept_symbols
+            ):
+                # Atomic policy holds at revalidation too: one BUY losing
+                # headroom ⇒ zero remaining BUY submissions.
+                trigger = sorted(
+                    (
+                        p
+                        for p in revalidation.blocked_plans
+                        if p.action is PlannedAction.INCREASE
+                    ),
+                    key=lambda x: (x.symbol, x.timeframe),
+                )[0]
+                reason = revalidation.reasons.get(trigger.symbol, "headroom_lost")
+                self._atomic_block_survivors(
+                    list(revalidation.increase_plans),
+                    trigger.symbol,
+                    reason,
+                    results,
+                )
+                logger.error(
+                    "ATOMIC REVALIDATION: %s lost headroom (%s) — cancelling "
+                    "%d surviving BUY submissions",
+                    trigger.symbol,
+                    reason,
+                    len(revalidation.increase_plans),
+                )
+                increases = []
+            else:
+                increases = list(revalidation.increase_plans)
 
         # BUYS sequentially — UNKNOWN anywhere stops the remaining batch
         for buy_idx, original_plan in enumerate(list(increases)):
@@ -1144,16 +1342,42 @@ class MultiPairRuntime:
                 results.append(meta)
         results.sort(key=lambda r: (r.symbol, r.timeframe))
 
+        # ── STAGE 8: MANDATORY FINAL RECONCILE ────────────────────────
+        # The cycle is not complete until broker/portfolio truth has been
+        # re-observed after ALL submissions. Failure here is a cycle-level
+        # failure regardless of how well the orders themselves went.
+        final_reconciled = True
+        try:
+            self.reconcile_portfolio()
+            final_snapshot = self.build_shared_snapshot(environment=environment)
+            if final_snapshot.reconciliation_state is ReconciliationState.FAILED:
+                final_reconciled = False
+            else:
+                recon_status = final_snapshot.reconciliation_state.value
+        except Exception as e:
+            final_reconciled = False
+            logger.error(
+                "FINAL reconciliation FAILED — cycle truth unknown: %s",
+                e,
+                exc_info=True,
+            )
+        if not final_reconciled:
+            recon_status = ReconciliationState.FAILED.value
+
         finished_at_dt = datetime.now(UTC)
         equity_after = float(self.engine.exchange.get_total_equity())
 
         status = "completed"
         if cycle_block_reason:
             status = "completed_blocked_new_exposure"
-        if barrier_symbol is not None:
-            status = "stopped_execution_barrier"
         if preflight_status == "all_blocked" and not reductions:
             status = "blocked_preflight"
+        if preflight_status == "atomic_blocked":
+            status = "completed_atomic_buy_blocked"
+        if not final_reconciled:
+            status = "final_reconciliation_failed"
+        if barrier_symbol is not None:
+            status = "stopped_execution_barrier"
 
         return CycleReport(
             cycle_id=cycle_id,

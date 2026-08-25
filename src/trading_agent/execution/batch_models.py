@@ -93,19 +93,21 @@ def wrap_market_data(
 ) -> MarketDataInput | None:
     """Wrap a legacy provider dataframe into a typed MarketDataInput.
 
-    Provenance is derived from the DATA ITSELF (symbol/timeframe/last closed
-    bar timestamp) — real, content-addressed identity of what was loaded,
-    never a magic constant like ``"multipair_runtime"``.
+    Provenance is CONTENT-ADDRESSED: the manifest id is a sha256 over the
+    full OHLCV payload (symbol/timeframe/frame dimensions/every bar), so
+    the same data always yields the SAME identity regardless of when it
+    was loaded, and any change in any candle yields a DIFFERENT identity.
+    Wall-clock timestamps are metadata (``loaded_at``), never identity.
 
     Returns None when the frame is empty/unusable (fail-closed upstream).
     """
     if df is None or len(df) == 0:
         return None
     try:
-        tail_ts = df.tail(1).to_dicts()[0].get("timestamp")
+        digest = compute_market_data_manifest_id(symbol, timeframe, df)
     except Exception:
-        tail_ts = None
-    manifest = f"{source}:{symbol}:{timeframe}:{tail_ts}"
+        return None
+    manifest = f"{source}:{symbol}:{timeframe}:sha256-{digest}"
     return MarketDataInput(
         symbol=symbol,
         timeframe=timeframe,
@@ -115,6 +117,101 @@ def wrap_market_data(
         loaded_at=datetime.now(UTC),
         source=source,
     )
+
+
+def compute_market_data_manifest_id(
+    symbol: str,
+    timeframe: str,
+    df: Any,
+) -> str:
+    """Deterministic sha256 identity of an OHLCV frame's CONTENT.
+
+    Hashed fields (in order): schema marker, symbol, timeframe, row count,
+    column names, first/last timestamp, then every bar's
+    (timestamp, open, high, low, close, volume). Raises when the frame has
+    no usable OHLCV columns — callers must treat that as fail-closed.
+    """
+    import hashlib
+    import struct
+
+    if hasattr(df, "to_dicts"):  # polars
+        rows = list(df.to_dicts())
+    elif hasattr(df, "to_dict"):  # pandas
+        rows = list(df.to_dict("records"))
+    else:
+        raise ValueError("unsupported frame type")
+    if not rows:
+        raise ValueError("empty frame")
+    columns = tuple(str(c) for c in rows[0].keys())
+
+    h = hashlib.sha256()
+    h.update(b"ohlcv-manifest-v1\x00")
+    h.update(symbol.encode("utf-8"))
+    h.update(b"\x00")
+    h.update(timeframe.encode("utf-8"))
+    h.update(b"\x00")
+    h.update(struct.pack("<Q", len(rows)))
+    for c in columns:
+        h.update(c.encode("utf-8"))
+        h.update(b"\x1f")
+
+    first_ts = _hashable_ts(rows[0])
+    last_ts = _hashable_ts(rows[-1])
+    if first_ts is None or last_ts is None:
+        raise ValueError("missing timestamp column")
+    h.update(first_ts.encode("utf-8"))
+    h.update(b"\x00")
+    h.update(last_ts.encode("utf-8"))
+
+    for row in rows:
+        ts = _hashable_ts(row)
+        ohlcv = _row_floats(row, columns)
+        if ts is None or ohlcv is None:
+            raise ValueError("row missing timestamp/OHLCV fields")
+        h.update(ts.encode("utf-8"))
+        # pack exactly the floats that define the bar
+        h.update(struct.pack(f"<{len(ohlcv)}d", *ohlcv))
+    return h.hexdigest()[:32]
+
+
+def _hashable_ts(row: Any) -> str | None:
+    """Extract a stable UTC ISO string from a row's timestamp field."""
+    try:
+        mapping = row if isinstance(row, dict) else None
+        ts = mapping.get("timestamp") if mapping is not None else row[0]
+    except Exception:
+        return None
+    if ts is None:
+        return None
+    if isinstance(ts, datetime):
+        ts_utc = ts if ts.tzinfo else ts.replace(tzinfo=UTC)
+        return ts_utc.astimezone(UTC).isoformat()
+    return str(ts)
+
+
+def _row_floats(row: Any, columns: tuple[str, ...]) -> tuple[float, ...] | None:
+    """Return (open, high, low, close, volume) floats from a row."""
+    import math
+
+    names = ("open", "high", "low", "close", "volume")
+    get = (
+        (lambda n: row.get(n))
+        if isinstance(row, dict)
+        else (lambda n: row[columns.index(n)])
+    )
+    try:
+        values = []
+        for n in names:
+            v = get(n)
+            if v is None:
+                return None
+            fv = float(v)
+            if not math.isfinite(fv):
+                return None
+            values.append(fv)
+        return tuple(values)
+    except Exception:
+        return None
 
 
 # ── Shared portfolio snapshot / target vector live in authority.portfolio ──

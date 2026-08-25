@@ -9,7 +9,7 @@ Covers:
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 import tempfile
@@ -87,14 +87,24 @@ def _make_artifact(
 
 
 def _buy_at_last_bar_df(price_level: float) -> pl.DataFrame:
-    """Deterministic OHLCV: MA crossover BUY lands EXACTLY on the last bar."""
+    """Deterministic OHLCV: MA crossover BUY lands EXACTLY on the last bar.
+
+    Timestamps are FRESH CLOSED hourly bars ending at the last fully
+    completed hour boundary — required by the required-universe candle
+    validation (closed + staleness-bounded).
+    """
     n = 50
     flat = [price_level] * (n - 1)
     spike = price_level * 1.10
     prices = flat + [spike]
+    now = datetime.now(UTC)
+    last_closed_open = now.replace(minute=0, second=0, microsecond=0) - timedelta(
+        hours=1
+    )
+    timestamps = [last_closed_open - timedelta(hours=(n - 1 - i)) for i in range(n)]
     return pl.DataFrame(
         {
-            "timestamp": [datetime(2024, 1, 1, tzinfo=UTC) for _ in range(n)],
+            "timestamp": timestamps,
             "open": prices,
             "high": prices,
             "low": prices,
