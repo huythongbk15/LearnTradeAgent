@@ -318,12 +318,43 @@ class HistoricalSimulationBroker:
                 price = raw_open * (1.0 + slip)
             else:
                 price = raw_open * (1.0 - slip)
-            qty = order.quantity  # full deterministic fill
+
+            # ── ACTUAL-FILL SAFETY GUARDS (deterministic, no negatives) ──
+            if order.side == "sell":
+                held = self.positions.get(order.symbol, {}).get("qty", 0.0)
+                if held <= 0:
+                    # nothing to sell — never fabricate synthetic proceeds
+                    remaining.append(order)
+                    continue
+                # cap at real inventory (oversized/reduce-only safety)
+                qty = min(order.quantity, held)
+            else:
+                qty = order.quantity
+
+            if qty <= 0:
+                remaining.append(order)
+                continue
+
             notional = qty * price
             fee = notional * self.fee_bps / 10_000.0
             slip_cost = qty * raw_open * slip
+
             if order.side == "buy":
-                self.cash -= notional + fee
+                total_cost = notional + fee
+                # Actual-fill cash guard: never let aggregate fills drive cash
+                # negative. Because fills settle sequentially in phase order,
+                # this check is ALREADY aggregate-aware (earlier fills reduced
+                # self.cash for later ones). Covers gap-up + multi-BUY cases.
+                if self.cash < total_cost:
+                    logger.warning(
+                        "settle BUY rejected: cash %.4f < cost %.4f "
+                        "(gap-up / overspend guard); order kept queued.",
+                        self.cash,
+                        total_cost,
+                    )
+                    remaining.append(order)
+                    continue
+                self.cash -= total_cost
                 pos = self.positions.setdefault(
                     order.symbol, {"qty": 0.0, "avg_px": 0.0}
                 )
@@ -335,14 +366,14 @@ class HistoricalSimulationBroker:
                 )
                 pos["qty"] = total_qty
             else:
+                # oversized SELL → filled partial (qty capped above); the
+                # remainder is DISCARDED (do not re-queue → no infinite
+                # sell pressure on vanished inventory).
                 proceeds = notional - fee
                 self.cash += proceeds
-                pos = self.positions.get(order.symbol)
-                if pos is None:
-                    pos = self.positions[order.symbol] = {
-                        "qty": 0.0,
-                        "avg_px": 0.0,
-                    }
+                pos = self.positions.setdefault(
+                    order.symbol, {"qty": 0.0, "avg_px": 0.0}
+                )
                 pos["qty"] = max(0.0, pos["qty"] - qty)
                 if pos["qty"] <= 1e-12:
                     pos["qty"] = 0.0

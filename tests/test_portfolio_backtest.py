@@ -172,6 +172,10 @@ class TestN1Parity:
     def test_single_binding_full_ledger_math_and_no_lookahead(
         self, config, stores, temp_dir
     ):
+        from trading_agent.backtest.portfolio_backtest import (
+            HistoricalSimulationBroker,
+        )
+
         rules = {"BTC/USDT": _instrument_rules("BTC/USDT")}
         eng = _build_engine(config, stores, temp_dir, rules)
         try:
@@ -233,6 +237,10 @@ class TestN1Parity:
 
     def test_signal_uses_closed_bar_not_forming_bar(self, config, stores, temp_dir):
         """The decision at time t must never see bar t itself (only < t)."""
+        from trading_agent.backtest.portfolio_backtest import (
+            HistoricalSimulationBroker,
+        )
+
         rules = {"BTC/USDT": _instrument_rules("BTC/USDT")}
         eng = _build_engine(config, stores, temp_dir, rules)
         try:
@@ -381,6 +389,10 @@ class TestDeterminism:
         assert fwd == rev
 
     def test_replay_produces_identical_result(self, config, stores, temp_dir):
+        from trading_agent.backtest.portfolio_backtest import (
+            HistoricalSimulationBroker,
+        )
+
         rules = {"BTC/USDT": _instrument_rules("BTC/USDT")}
         eng = _build_engine(config, stores, temp_dir, rules)
         try:
@@ -566,6 +578,10 @@ class TestParityLiveCycleVsBacktest:
             ReconciliationState,
         )
 
+        from trading_agent.backtest.portfolio_backtest import (
+            HistoricalSimulationBroker,
+        )
+
         rules = {"BTC/USDT": _instrument_rules("BTC/USDT")}
         eng = _build_engine(config, stores, temp_dir, rules)
         try:
@@ -650,9 +666,12 @@ class TestBrokerPhaseAndReservations:
             pbt = PortfolioBacktestEngine(
                 eng, bars={("BTC/USDT", "1h"): df}, initial_cash=100.0
             )
-            broker = HistoricalSimulationBroker(100.0)
+            broker = HistoricalSimulationBroker(100.0, fee_bps=10.0, slippage_bps=5.0)
             clock = pbt.clock
             dt = df["timestamp"][2]  # fills at bar[3] open
+
+            # seed a long so the reduction SELL is fillable + frees cash
+            broker.positions["BTC/USDT"] = {"qty": 1.0, "avg_px": 100.0}
 
             # INCREASE queued EARLIER but must settle AFTER the reduction
             broker.queue(self._q("b1", "buy", 1.0, dt))
@@ -708,6 +727,10 @@ class TestBrokerPhaseAndReservations:
             HistoricalSimulationBroker,
         )
 
+        from trading_agent.backtest.portfolio_backtest import (
+            HistoricalSimulationBroker,
+        )
+
         rules = {"BTC/USDT": _instrument_rules("BTC/USDT")}
         eng = _build_engine(config, stores, temp_dir, rules)
         try:
@@ -738,5 +761,141 @@ class TestBrokerPhaseAndReservations:
                 1.5 * 200.0 / snap.equity
             )
             assert snap.reconciliation_state is RS.RECONCILED
+        finally:
+            eng._graceful_shutdown()
+
+
+# ── Actual-fill safety guards (P0 execution safety) ──────────────────────
+
+
+class TestBrokerFillSafetyGuards:
+    """Guarantees on ACTUAL fills (not planning reservations):
+    no negative cash, no synthetic proceeds, aggregate-spend safety,
+    reservation-estimate < actual-cost determinism."""
+
+    def _df(self, levels, n_gap=2, base_open=100.0):
+        """Bars: flat at 100 then GAP to ``levels`` on bar[gap_index]."""
+        start = datetime(2024, 1, 1, tzinfo=UTC)
+        prices = [base_open] * n_gap + levels
+        # ensure unique open timestamps, ascending
+        stamps = [start + timedelta(hours=i) for i in range(len(prices))]
+        return pl.DataFrame(
+            {
+                "timestamp": stamps,
+                "open": prices,
+                "high": prices,
+                "low": prices,
+                "close": prices,
+                "volume": [10.0] * len(prices),
+            }
+        )
+
+    def _setup(self, config, stores, temp_dir, prices_df, cash):
+        from trading_agent.backtest.portfolio_backtest import (
+            HistoricalSimulationBroker,
+        )
+
+        rules = {"BTC/USDT": _instrument_rules("BTC/USDT")}
+        eng = _build_engine(config, stores, temp_dir, rules)
+        pbt = PortfolioBacktestEngine(
+            eng, bars={("BTC/USDT", "1h"): prices_df}, initial_cash=100.0
+        )
+        broker = HistoricalSimulationBroker(cash, fee_bps=10.0, slippage_bps=5.0)
+        return eng, pbt, broker
+
+    def _q(self, key, side, qty, dt, phase=None, ref=100.0):
+        from trading_agent.backtest.portfolio_backtest import QueuedOrder
+
+        return QueuedOrder(
+            idempotency_key=key,
+            symbol="BTC/USDT",
+            side=side,
+            quantity=qty,
+            reference_price=ref,
+            decision_time=dt,
+            phase=phase,
+        )
+
+    def test_gap_up_buy_never_negative_cash(self, config, stores, temp_dir):
+        df = self._df(levels=[200.0, 200.0], n_gap=2, base_open=100.0)
+        eng, pbt, broker = self._setup(config, stores, temp_dir, df, cash=105.0)
+        try:
+            # reserve-based estimate ~100.15 fit; ACTUAL gap open=200 ⇒ cost ~201
+            broker.queue(
+                self._q("buy1", "buy", 1.0, df["timestamp"][2], ref=100.0)
+            )
+            fills = broker.settle(df["timestamp"][3], pbt.clock, [("BTC/USDT", "1h")])
+            assert fills == []
+            assert broker.cash == pytest.approx(105.0)  # untouched
+            assert broker.pending_count == 1  # stays queued (not dropped)
+            assert broker.cash >= 0.0
+        finally:
+            eng._graceful_shutdown()
+
+    def test_oversized_sell_no_synthetic_proceeds(self, config, stores, temp_dir):
+        # 4 flat bars at 100; SELL 5 lots but only hold 1
+        df = self._df(levels=[100.0, 100.0, 100.0, 100.0], n_gap=0, base_open=100.0)
+        eng, pbt, broker = self._setup(config, stores, temp_dir, df, cash=1.0)
+        try:
+            broker.positions["BTC/USDT"] = {"qty": 1.0, "avg_px": 100.0}
+            # queue SELL 5.0 at bar[2] open (decision_time=bar1)
+            broker.queue(
+                self._q("s1", "sell", 5.0, df["timestamp"][1], phase="reduction")
+            )
+            fills = broker.settle(df["timestamp"][2], pbt.clock, [("BTC/USDT", "1h")])
+            assert len(fills) == 1
+            f = fills[0]
+            assert f.quantity == pytest.approx(1.0)  # capped to held
+            # proceeds ONLY from 1 lot (sell proceeds minus fee), no synthetic
+            raw = 100.0
+            price = raw * (1 - 0.0005)
+            expected_proceeds = price - price * 0.001
+            assert broker.cash == pytest.approx(1.0 + expected_proceeds)
+            assert broker.positions["BTC/USDT"]["qty"] == pytest.approx(0.0)
+            assert broker.pending_count == 0  # remainder discarded
+        finally:
+            eng._graceful_shutdown()
+
+    def test_two_buys_same_fill_timestamp_aggregate(self, config, stores, temp_dir):
+        # df: [100,100,100], 3 hourly bars; fill at ts[2]
+        df = self._df(levels=[100.0, 100.0], n_gap=1, base_open=100.0)
+        # cost each: 1*100*1.0005 + fee(1*100*1.0005*0.001) ≈ 100.15005
+        cash = 100.15005 + 0.01  # covers exactly one
+        eng, pbt, broker = self._setup(config, stores, temp_dir, df, cash=cash)
+        try:
+            broker.queue(self._q("b1", "buy", 1.0, df["timestamp"][1], ref=100.0))
+            broker.queue(self._q("b2", "buy", 1.0, df["timestamp"][1], ref=100.0))
+            fills = broker.settle(df["timestamp"][2], pbt.clock, [("BTC/USDT", "1h")])
+            assert len(fills) == 1
+            assert fills[0].idempotency_key == "b1"
+            raw = 100.0
+            price = raw * (1 + 0.0005)  # BUY slips up
+            one_buy_cost = price + price * 0.001  # notional + fee
+            expected_cash = cash - one_buy_cost
+            assert broker.cash == pytest.approx(expected_cash, abs=1e-9)
+            assert broker.cash >= 0.0
+            assert broker.pending_count == 1  # second stayed queued
+        finally:
+            eng._graceful_shutdown()
+
+    def test_reservation_undershoot_actual_cost_deterministic(
+        self, config, stores, temp_dir
+    ):
+        """Reservation estimate (ref price based) < actual fill cost (gap)
+        ⇒ guard rejects deterministically, cash never negative."""
+        df = self._df(levels=[105.0, 105.0], n_gap=2, base_open=100.0)
+        eng, pbt, broker = self._setup(config, stores, temp_dir, df, cash=101.0)
+        try:
+            # reservation estimate: 1*100*(1+slip+fee) ≈ 100.15 → snapshot
+            # available_cash = 101 − 100.15 > 0 ⇒ planning APPROVES.
+            # ACTUAL: 1*105*1.005 + fee ≈ 105.78 > 101 ⇒ guard rejects.
+            broker.queue(self._q("buy1", "buy", 1.0, df["timestamp"][2], ref=100.0))
+            reserved = broker.reserved_cash()
+            assert reserved == pytest.approx(100.0 * 1.0015)  # ~100.15
+            assert (101.0 - reserved) > 0  # planning approves
+            fills = broker.settle(df["timestamp"][3], pbt.clock, [("BTC/USDT", "1h")])
+            assert fills == []
+            assert broker.cash == pytest.approx(101.0)
+            assert broker.positions.get("BTC/USDT", {}).get("qty", 0.0) == 0.0
         finally:
             eng._graceful_shutdown()
