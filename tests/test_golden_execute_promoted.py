@@ -24,10 +24,8 @@ from trading_agent.authority.promotion_store import (
     PromotionStateStore,
     PromotionRecord,
 )
-from trading_agent.authority.resolver import RuntimeStrategyResolver
 from trading_agent.execution.canonical.order_planner import InstrumentRules
 from trading_agent.execution.engine import ExecutionEngine
-from trading_agent.execution.lifecycle.lifecycle import ExecutionEventStore
 from trading_agent.research.artifact import (
     StrategyArtifact,
     PersistentArtifactStore,
@@ -36,7 +34,6 @@ from trading_agent.research.artifact import (
 )
 from trading_agent.research.promotion import ResearchPromotionEvent, ResearchStage
 from trading_agent.strategies.ma_crossover import MaCrossover
-from trading_agent.execution.canonical.adapters import PaperExecutionAdapter
 
 
 class TestGoldenExecutePromotedStrategy:
@@ -60,7 +57,11 @@ class TestGoldenExecutePromotedStrategy:
         return PersistentArtifactStore(temp_dir / "artifacts")
 
     @pytest.fixture
-    def btc_artifact(self, artifact_store: PersistentArtifactStore, promotion_store: PromotionStateStore) -> StrategyArtifact:
+    def btc_artifact(
+        self,
+        artifact_store: PersistentArtifactStore,
+        promotion_store: PromotionStateStore,
+    ) -> StrategyArtifact:
         """Create a BTC MA Crossover artifact and promote it to PAPER_ELIGIBLE."""
         params = {"fast_period": 10, "slow_period": 30}
         artifact = StrategyArtifact(
@@ -239,9 +240,9 @@ class TestGoldenExecutePromotedStrategy:
         # Seed paper exchange with current price
         last_price = float(market_data.tail(1)["close"][0])
         execution_engine.exchange._last_price_cache["BTC/USDT"] = last_price
-        execution_engine.exchange._last_price_timestamps["BTC/USDT"] = (
-            datetime.now(UTC).timestamp()
-        )
+        execution_engine.exchange._last_price_timestamps["BTC/USDT"] = datetime.now(
+            UTC
+        ).timestamp()
 
         # Spy on the adapter's submit_order method
         original_submit_order = execution_engine.gateway._adapter.submit_order
@@ -321,7 +322,9 @@ class TestGoldenExecutePromotedStrategy:
         )
 
         # Verify cache was populated
-        runtime = execution_engine.resolver.get_cached("BTC/USDT", "1h", Environment.PAPER)
+        runtime = execution_engine.resolver.get_cached(
+            "BTC/USDT", "1h", Environment.PAPER
+        )
         assert runtime is not None
         assert runtime.symbol == "BTC/USDT"
         assert runtime.timeframe == "1h"

@@ -504,6 +504,7 @@
 │   ├── test_execution_simulator_property.py
 │   ├── test_experiment_registry.py
 │   ├── test_forecast_promotion_contract.py
+│   ├── test_golden_execute_promoted.py
 │   ├── test_holdout_manifest.py
 │   ├── test_legacy_cutover_migration.py
 │   ├── test_live_audit_watchdog.py
