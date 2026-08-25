@@ -151,6 +151,7 @@
 │   ├── compare_baseline_vs_new.py
 │   ├── cron_wrapper.sh
 │   ├── db_stats.py
+│   ├── debug_golden_c.py
 │   ├── debug_signals.py
 │   ├── debug_trades.py
 │   ├── deep_dive_binance.py
@@ -184,6 +185,7 @@
 │   ├── pin_image_digests.py
 │   ├── portfolio_holdout.py
 │   ├── portfolio_holdout_adaptive.py
+│   ├── refactor_engine_c13.py
 │   ├── research_deep_analysis.py
 │   ├── research_evaluate.py
 │   ├── research_pipeline_multi_asset.py
@@ -351,6 +353,7 @@
 │       │   │   └── versions.py
 │       │   ├── __init__.py
 │       │   ├── application.py
+│       │   ├── batch_models.py
 │       │   ├── chaos_invariants.py
 │       │   ├── correlation.py
 │       │   ├── data_trust.py
