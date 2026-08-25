@@ -987,7 +987,9 @@ class TestBrokerRejectionDrop:
         df = self._df_flat()
         eng, pbt, broker = self._setup(config, stores, temp_dir, df, cash=1.0)
         try:
-            broker.queue(self._q("s1", "sell", 5.0, df["timestamp"][1], phase="reduction"))
+            broker.queue(
+                self._q("s1", "sell", 5.0, df["timestamp"][1], phase="reduction")
+            )
             assert broker.pending_count == 1
             fills = broker.settle(df["timestamp"][2], pbt.clock, [("BTC/USDT", "1h")])
             assert fills == []
@@ -1003,7 +1005,9 @@ class TestBrokerRejectionDrop:
         eng, pbt, broker = self._setup(config, stores, temp_dir, df, cash=500.0)
         try:
             # queue SELL with NO inventory → rejected & dropped
-            broker.queue(self._q("s1", "sell", 5.0, df["timestamp"][1], phase="reduction"))
+            broker.queue(
+                self._q("s1", "sell", 5.0, df["timestamp"][1], phase="reduction")
+            )
             fills = broker.settle(df["timestamp"][2], pbt.clock, [("BTC/USDT", "1h")])
             assert fills == []
             assert broker.pending_count == 0  # dropped

@@ -326,8 +326,7 @@ class HistoricalSimulationBroker:
                     # nothing to sell — never fabricate synthetic proceeds
                     # REJECTED ORDER DROPPED permanently (not re-queued).
                     logger.warning(
-                        "settle SELL rejected: zero inventory for %s; "
-                        "order dropped.",
+                        "settle SELL rejected: zero inventory for %s; order dropped.",
                         order.symbol,
                     )
                     continue
