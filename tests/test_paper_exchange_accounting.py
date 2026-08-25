@@ -193,8 +193,6 @@ def test_update_market_price_rejects_bad_inputs():
         engine.update_market_price("BTC/USDT", float("nan"), now, "1h")
 
     # Naive timestamp is interpreted as UTC and accepted when closed recently
-    naive = datetime.now(UTC).replace(tzinfo=None) - timedelta(
-        hours=1, seconds=1
-    )
+    naive = datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=1, seconds=1)
     engine.update_market_price("BTC/USDT", 100, naive, "1h")
     assert engine.exchange._fresh_price("BTC/USDT") == 100
