@@ -12,6 +12,7 @@ Covers:
 
 from __future__ import annotations
 
+import threading
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -320,3 +321,75 @@ class TestLoaderIntegration:
         final_outcome = outcomes[-1]
         assert final_outcome.persisted is True
         assert final_outcome.loaded_into_runtime is True
+
+
+class TestConcurrentStoreAccess:
+    """Regression: hot-reload watcher thread + main thread sharing one db path.
+
+    Before the per-path lock + unique tmp names, two interleaved connections
+    crashed with FileNotFoundError on os.replace(promotion.tmp → promotion.db)
+    and could lose updates via stale snapshot replacement.
+    """
+
+    def test_parallel_instances_no_crash_no_lost_update(self, tmp_path):
+        from concurrent.futures import ThreadPoolExecutor
+
+        promo_a = PromotionStateStore(tmp_path / "promotion.db")
+        promo_b = PromotionStateStore(tmp_path / "promotion.db")
+
+        n = 48
+
+        def worker(i: int) -> None:
+            store = promo_a if i % 2 else promo_b
+            artifact_id = f"artifact_{i}"
+            event = ResearchPromotionEvent(
+                subject_artifact_id=artifact_id,
+                from_stage=ResearchStage.EXPLORATORY,
+                to_stage=ResearchStage.PAPER_ELIGIBLE,
+                evidence_ids=(),
+                actor="race-test",
+            )
+            store.upsert_from_event(event)
+            assert (
+                store.get_stage(artifact_id) is ResearchStage.PAPER_ELIGIBLE
+            )
+
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            list(pool.map(worker, range(n)))
+
+        # Every write survived — no lost updates from stale snapshots.
+        assert promo_a.count() == n
+        assert promo_b.count() == n
+
+    def test_reader_writer_interleave_keeps_all_writes(self, tmp_path):
+        import time
+        from concurrent.futures import ThreadPoolExecutor
+
+        promo_writer = PromotionStateStore(tmp_path / "promotion.db")
+        promo_reader = PromotionStateStore(tmp_path / "promotion.db")
+
+        stop = threading.Event()
+
+        def reader() -> None:
+            while not stop.is_set():
+                promo_reader.list_eligible("paper")
+
+        def writer(i: int) -> None:
+            event = ResearchPromotionEvent(
+                subject_artifact_id=f"w_{i}",
+                from_stage=ResearchStage.RESEARCH_VALIDATED,
+                to_stage=ResearchStage.PAPER_ELIGIBLE,
+                evidence_ids=(),
+                actor="race-test",
+            )
+            promo_writer.upsert_from_event(event)
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            reader_future = pool.submit(reader)
+            time.sleep(0.05)
+            with ThreadPoolExecutor(max_workers=8) as writers:
+                list(writers.map(writer, range(24)))
+            stop.set()
+            reader_future.result()
+
+        assert promo_writer.count() == 24

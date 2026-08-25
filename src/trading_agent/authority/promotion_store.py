@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
+import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -126,6 +128,26 @@ _LOOKUP_SQL = "SELECT artifact_id, stage, latest_event, updated_at FROM promotio
 _STAGE_LOOKUP_SQL = "SELECT artifact_id, stage, latest_event, updated_at FROM promotion_registry WHERE stage = ?"
 
 
+# One lock per resolved db path: the copy→modify→atomic-replace cycle in
+# _connect() must be serialized across ALL store instances sharing that file
+# (e.g. engine resolver + RuntimeLoader watcher thread), otherwise two
+# interleaved connections can consume each other's shared tmp file
+# (FileNotFoundError on os.replace) or a stale snapshot can overwrite a newer
+# write (lost update). RLock allows same-thread reentry from nested calls.
+_PATH_LOCKS: dict[str, threading.RLock] = {}
+_PATH_LOCKS_GUARD = threading.Lock()
+
+
+def _lock_for(db_path: Path) -> threading.RLock:
+    key = str(db_path.resolve())
+    with _PATH_LOCKS_GUARD:
+        lock = _PATH_LOCKS.get(key)
+        if lock is None:
+            lock = threading.RLock()
+            _PATH_LOCKS[key] = lock
+    return lock
+
+
 class PromotionStateStore:
     """Durable promotion state registry.
 
@@ -136,6 +158,7 @@ class PromotionStateStore:
     def __init__(self, db_path: str | Path) -> None:
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._file_lock = _lock_for(self.db_path)
         self._init_db()
 
     def _init_db(self) -> None:
@@ -144,20 +167,25 @@ class PromotionStateStore:
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
-        temp_path = self.db_path.with_suffix(".tmp")
+        # Unique tmp per connection — a shared fixed name breaks under the
+        # concurrent connections introduced by the hot-reload watcher thread.
+        temp_path = self.db_path.with_suffix(
+            f".{uuid.uuid4().hex[:12]}.tmp"
+        )
         try:
-            if self.db_path.exists():
-                import shutil
+            with self._file_lock:
+                if self.db_path.exists():
+                    import shutil
 
-                shutil.copy2(self.db_path, temp_path)
-            conn = sqlite3.connect(temp_path)
-            conn.row_factory = sqlite3.Row
-            conn.execute("PRAGMA synchronous=FULL")
-            conn.executescript(_SCHEMA_SQL)
-            yield conn
-            conn.commit()
-            conn.close()
-            _os_replace(temp_path, self.db_path)
+                    shutil.copy2(self.db_path, temp_path)
+                conn = sqlite3.connect(temp_path)
+                conn.row_factory = sqlite3.Row
+                conn.execute("PRAGMA synchronous=FULL")
+                conn.executescript(_SCHEMA_SQL)
+                yield conn
+                conn.commit()
+                conn.close()
+                _os_replace(temp_path, self.db_path)
         except Exception:
             if temp_path.exists():
                 temp_path.unlink(missing_ok=True)
