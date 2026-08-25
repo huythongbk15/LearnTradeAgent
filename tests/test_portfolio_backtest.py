@@ -424,9 +424,7 @@ class TestParityLiveCycleVsBacktest:
     the SAME starting portfolio truth (flat, $100k).
     """
 
-    def test_authority_outputs_identical_before_broker(
-        self, config, stores, temp_dir
-    ):
+    def test_authority_outputs_identical_before_broker(self, config, stores, temp_dir):
         from tests.test_multi_pair_runtime import _buy_at_last_bar_df
         from trading_agent.execution.batch_models import (
             PlannedAction,
@@ -480,7 +478,9 @@ class TestParityLiveCycleVsBacktest:
             def provider(symbol: str, timeframe: str):
                 return df if (symbol, timeframe) == binding else None
 
-            report = runtime.run_cycle(environment="paper", market_data_provider=provider)
+            report = runtime.run_cycle(
+                environment="paper", market_data_provider=provider
+            )
         finally:
             eng_live._graceful_shutdown()
 
@@ -527,9 +527,13 @@ class TestParityLiveCycleVsBacktest:
         bp_prep = bp.finalized.prepared
 
         # decision inputs from portfolio truth
-        assert lp_prep.current_exposure == pytest.approx(bp_prep.current_exposure, abs=1e-12)
+        assert lp_prep.current_exposure == pytest.approx(
+            bp_prep.current_exposure, abs=1e-12
+        )
         assert lp_prep.equity == pytest.approx(bp_prep.equity, rel=1e-12)
-        assert lp_prep.available_cash == pytest.approx(bp_prep.available_cash, rel=1e-12)
+        assert lp_prep.available_cash == pytest.approx(
+            bp_prep.available_cash, rel=1e-12
+        )
         assert lp_prep.total_portfolio_exposure == pytest.approx(
             bp_prep.total_portfolio_exposure, abs=1e-12
         )
@@ -552,9 +556,7 @@ class TestParityLiveCycleVsBacktest:
         assert lp.quantity == pytest.approx(bp.quantity, rel=1e-9)
         assert float(lp.quantity) > 0
 
-    def test_snapshot_injection_changes_decision_inputs(
-        self, config, stores, temp_dir
-    ):
+    def test_snapshot_injection_changes_decision_inputs(self, config, stores, temp_dir):
         """prepare_promoted_strategy(portfolio_snapshot=...) must derive
         current position / equity / cash from the snapshot, NOT live state.
         """
@@ -579,8 +581,8 @@ class TestParityLiveCycleVsBacktest:
             df = _buy_at_last_bar_df(60_000.0)
 
             snapshot = PortfolioSnapshot(
-                equity=250_000.0,           # ≠ live paper equity (100k)
-                available_cash=40_000.0,    # ≠ live paper cash
+                equity=250_000.0,  # ≠ live paper equity (100k)
+                available_cash=40_000.0,  # ≠ live paper cash
                 positions={"ETH/USDT": 3.0},  # ≠ live positions ({})
                 symbol_exposures={"ETH/USDT": 0.36},
                 gross_exposure=0.36,
@@ -678,17 +680,13 @@ class TestBrokerPhaseAndReservations:
             pbt = PortfolioBacktestEngine(
                 eng, bars={("BTC/USDT", "1h"): df}, initial_cash=100.0
             )
-            broker = HistoricalSimulationBroker(
-                100.0, fee_bps=10.0, slippage_bps=5.0
-            )
+            broker = HistoricalSimulationBroker(100.0, fee_bps=10.0, slippage_bps=5.0)
             dt = df["timestamp"][2]
             broker.queue(self._q("b1", "buy", 2.0, dt, ref=50.0))
             broker.queue(self._q("s1", "sell", 0.5, dt))
 
             est_notional = 2.0 * 50.0
-            expected_reserved = est_notional * (
-                1 + 10.0 / 10_000.0 + 5.0 / 10_000.0
-            )
+            expected_reserved = est_notional * (1 + 10.0 / 10_000.0 + 5.0 / 10_000.0)
             assert broker.reserved_cash() == pytest.approx(expected_reserved)
             assert broker.reserved_inventory("BTC/USDT") == pytest.approx(0.5)
             assert broker.reserved_inventory("ETH/USDT") == 0.0
@@ -732,9 +730,7 @@ class TestBrokerPhaseAndReservations:
             assert snap.equity == pytest.approx(50_000.0 + 2.0 * 200.0)
             # available cash net of pending-buy reservation
             expected_reserved = 1.0 * 200.0 * (1 + 10e-4 + 5e-4)
-            assert snap.available_cash == pytest.approx(
-                50_000.0 - expected_reserved
-            )
+            assert snap.available_cash == pytest.approx(50_000.0 - expected_reserved)
             assert snap.reserved_cash == pytest.approx(expected_reserved)
             assert snap.reserved_inventory == pytest.approx(0.5)
             # exposure computed off EFFECTIVE qty

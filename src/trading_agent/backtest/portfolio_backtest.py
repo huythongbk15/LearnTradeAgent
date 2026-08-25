@@ -277,9 +277,7 @@ class HistoricalSimulationBroker:
         already spoken for (prevents duplicate-reduction drift).
         """
         return sum(
-            o.quantity
-            for o in self._queued
-            if o.symbol == symbol and o.side == "sell"
+            o.quantity for o in self._queued if o.symbol == symbol and o.side == "sell"
         )
 
     def settle(
