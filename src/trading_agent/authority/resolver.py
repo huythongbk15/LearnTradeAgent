@@ -13,11 +13,7 @@ from typing import Any, Dict
 
 from trading_agent.authority.config import AuthorityConfig, Environment
 from trading_agent.authority.loader import PromotedStrategy
-from trading_agent.authority.promotion_store import (
-    PromotionStateStore,
-    is_stage_compatible,
-)
-from trading_agent.research.promotion import ResearchStage
+from trading_agent.authority.promotion_store import PromotionStateStore
 from trading_agent.strategies.base import Strategy
 from trading_agent.strategies.ma_crossover import MaCrossover
 from trading_agent.strategies.rsi import RsiStrategy
@@ -191,11 +187,6 @@ class RuntimeStrategyResolver:
         StrategyType.REGIME_SWITCHING: RegimeSwitchingStrategy,
     }
 
-    # Allowed promotion stages for runtime loading
-    _ALLOWED_STAGES = frozenset(
-        {"production", "canary", "testnet", "testnet_eligible", "paper_eligible"}
-    )
-
     def __init__(
         self,
         config: AuthorityConfig,
@@ -245,39 +236,17 @@ class RuntimeStrategyResolver:
             return None
         promotion_stage = stage.value
 
-        # Verify promotion stage is allowed
-        if promotion_stage not in self._ALLOWED_STAGES:
+        # Verify promotion stage is compatible with environment (authoritative store)
+        if not self.promotion_store.is_stage_compatible(
+            promotion_stage, environment.value
+        ):
             logger.warning(
-                f"Strategy {promoted.artifact_id} not in allowed stage "
-                f"({promotion_stage}), skipping"
+                f"Strategy {promoted.artifact_id} promotion stage {promotion_stage} "
+                f"not compatible with environment {environment.value}"
             )
             return None
 
         # Verify symbol matches
-        artifact_symbol = promoted.artifact.metadata.get("symbol", "")
-        if artifact_symbol and artifact_symbol != symbol:
-            logger.warning(
-                f"Symbol mismatch: artifact={artifact_symbol}, requested={symbol}"
-            )
-            return None
-
-        # Verify timeframe matches
-        artifact_timeframe = promoted.artifact.metadata.get("timeframe", "")
-        if artifact_timeframe and artifact_timeframe != timeframe:
-            logger.warning(
-                f"Timeframe mismatch: artifact={artifact_timeframe}, requested={timeframe}"
-            )
-            return None
-
-        # Verify environment is compatible with promotion stage
-        if not self._is_stage_compatible(promotion_stage, environment):
-            logger.warning(
-                f"Promotion stage {promotion_stage} not compatible "
-                f"with environment {environment.value}"
-            )
-            return None
-
-        # Check cache
         key = self._make_key(symbol, timeframe, environment)
         if key in self._cache:
             cached = self._cache[key]
@@ -349,6 +318,7 @@ class RuntimeStrategyResolver:
 
         This is the primary production API. It looks up the authoritative
         promotion store for the artifact, loads it, and resolves a StrategyRuntime.
+        Filters by (symbol, timeframe) BEFORE selecting the latest eligible artifact.
         """
         if self.promotion_store is None:
             logger.error("resolve_for requires a PromotionStateStore")
@@ -364,21 +334,37 @@ class RuntimeStrategyResolver:
             )
             return None
 
-        # For now, take the most recently promoted eligible artifact
-        # In production, this would query by symbol/timeframe binding
-        latest = max(eligible, key=lambda r: r.updated_at)
-        artifact_id = latest.artifact_id
-
-        # Load artifact — requires artifact store to be set on resolver
+        # Filter by (symbol, timeframe) BEFORE selecting latest
+        # Load each artifact to check its metadata
         store = getattr(self, "_artifact_store", None)
         if store is None:
             logger.error("resolve_for requires an artifact store on resolver")
             return None
 
-        artifact = store.get(artifact_id)
-        if artifact is None:
-            logger.warning(f"Eligible artifact {artifact_id} not found in store")
+        symbol_timeframe_matches = []
+        for record in eligible:
+            artifact = store.get(record.artifact_id)
+            if artifact is None:
+                logger.warning(
+                    f"Eligible artifact {record.artifact_id} not found in store"
+                )
+                continue
+            artifact_symbol = artifact.metadata.get("symbol", "")
+            artifact_timeframe = artifact.metadata.get("timeframe", "")
+            if artifact_symbol == symbol and artifact_timeframe == timeframe:
+                symbol_timeframe_matches.append((record, artifact))
+
+        if not symbol_timeframe_matches:
+            logger.warning(
+                f"No eligible artifacts match symbol={symbol} timeframe={timeframe}"
+            )
             return None
+
+        # Take the most recently promoted eligible artifact for this symbol/timeframe
+        latest_record, latest_artifact = max(
+            symbol_timeframe_matches, key=lambda x: x[0].updated_at
+        )
+        artifact_id = latest_record.artifact_id
 
         # Create PromotedStrategy from store data
         from trading_agent.authority.loader import (
@@ -387,36 +373,29 @@ class RuntimeStrategyResolver:
         )
 
         manifest = PromotedStrategyManifest(
-            artifact_id=artifact.artifact_id,
-            strategy_name=artifact.strategy_name,
-            code_sha=artifact.code_sha,
-            parameter_hash=artifact.parameter_hash,
-            execution_model_version=artifact.execution_model_version,
-            framework_version=artifact.framework_version,
-            promoted_at=latest.latest_event.timestamp
-            if latest.latest_event
-            else artifact.created_at,
-            promoted_by=latest.latest_event.actor if latest.latest_event else "system",
-            promotion_stage=latest.stage.value,
-            parameters=artifact.metadata.get("parameters", {}),
-            metadata=artifact.metadata,
+            artifact_id=latest_artifact.artifact_id,
+            strategy_name=latest_artifact.strategy_name,
+            code_sha=latest_artifact.code_sha,
+            parameter_hash=latest_artifact.parameter_hash,
+            execution_model_version=latest_artifact.execution_model_version,
+            framework_version=latest_artifact.framework_version,
+            promoted_at=latest_record.latest_event.timestamp
+            if latest_record.latest_event
+            else latest_artifact.created_at,
+            promoted_by=latest_record.latest_event.actor
+            if latest_record.latest_event
+            else "system",
+            promotion_stage=latest_record.stage.value,
+            parameters=latest_artifact.metadata.get("parameters", {}),
+            metadata=latest_artifact.metadata,
         )
-        promoted = PromotedStrategy(artifact=artifact, manifest=manifest)
+        promoted = PromotedStrategy(artifact=latest_artifact, manifest=manifest)
 
         return self.resolve(promoted, symbol, timeframe, environment)
 
     def clear_cache(self) -> None:
         """Clear all cached runtimes (e.g., on config reload)."""
         self._cache.clear()
-
-    def _is_stage_compatible(
-        self, promotion_stage: str, environment: Environment
-    ) -> bool:
-        """Check if promotion stage is compatible with runtime environment.
-
-        Uses the single authoritative mapping from PromotionStateStore.
-        """
-        return is_stage_compatible(ResearchStage(promotion_stage), environment)
 
     def _verify_artifact_integrity(self, promoted: PromotedStrategy) -> bool:
         """Verify artifact integrity against the artifact store.

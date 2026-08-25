@@ -78,6 +78,7 @@ from trading_agent.authority import (
     StrategyRuntime,
     PromotionStateStore,
 )
+from trading_agent.authority.config import Environment
 from trading_agent.authority.causation import CausationChain
 from trading_agent.config.loader import config as legacy_config
 from trading_agent.execution.canonical.risk_decision import (
@@ -1177,6 +1178,68 @@ class ExecutionEngine:
             return None
         except Exception:
             return None
+
+    # ── Canonical One-Call API ────────────────────────────────────────
+
+    def execute_promoted_strategy(
+        self,
+        symbol: str,
+        timeframe: str,
+        environment: str | Environment,
+        observation: EnrichedMarketObservation | None = None,
+        market_data: Any | None = None,
+    ) -> list[Order]:
+        """
+        Canonical one-call API: Execute a promoted strategy end-to-end.
+
+        This is the SINGLE ENTRY POINT for artifact-driven execution.
+        Internally calls:
+        1. resolver.resolve_for(symbol, timeframe, environment) → StrategyRuntime
+        2. execute_strategy(runtime, market_data, observation) → orders
+
+        Args:
+            symbol: Trading symbol (e.g., "BTC/USDT")
+            timeframe: Timeframe (e.g., "1h")
+            environment: Runtime environment (testnet/paper/production or Environment enum)
+            observation: Market observation (required for execution)
+            market_data: OHLCV data with indicators (required for strategy execution)
+
+        Returns:
+            List of submitted orders (may be empty if no action)
+        """
+        if self.resolver is None:
+            raise RuntimeError(
+                "execute_promoted_strategy requires RuntimeStrategyResolver "
+                "(promotion_store + artifact_store at engine construction)"
+            )
+        if self.execution_service is None:
+            raise RuntimeError(
+                "execute_promoted_strategy requires instrument_rules "
+                "for canonical execution pipeline"
+            )
+
+        # Normalize environment
+        if isinstance(environment, str):
+            env = Environment(environment.lower())
+        else:
+            env = environment
+
+        # Resolve promoted strategy for this symbol/timeframe/environment
+        strategy_runtime = self.resolver.resolve_for(symbol, timeframe, env)
+        if strategy_runtime is None:
+            logger.warning(
+                f"No promoted strategy resolved for {symbol} {timeframe} {env.value}"
+            )
+            return []
+
+        # Execute via authority-driven pipeline
+        if market_data is None:
+            logger.warning(
+                "execute_promoted_strategy: market_data is required for strategy execution"
+            )
+            return []
+
+        return self.execute_strategy(strategy_runtime, market_data, observation)
 
     @staticmethod
     def _result_to_order(

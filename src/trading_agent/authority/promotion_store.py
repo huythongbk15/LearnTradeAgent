@@ -219,6 +219,17 @@ class PromotionStateStore:
             return False
         return is_stage_compatible(stage, environment)
 
+    def is_stage_compatible(self, stage_str: str, environment: str) -> bool:
+        """Check if a promotion stage string is compatible with an environment.
+
+        This is the single authoritative method for stage-environment compatibility.
+        """
+        try:
+            stage = ResearchStage(stage_str)
+        except ValueError:
+            return False
+        return is_stage_compatible(stage, environment)
+
     def list_by_stage(self, stage: ResearchStage) -> list[PromotionRecord]:
         """List all artifacts at a given stage."""
         with self._connect() as conn:
