@@ -526,6 +526,7 @@
 │   ├── test_measure_tracking_error.py
 │   ├── test_methodology_benchmark.py
 │   ├── test_multi_pair_backtest_contract.py
+│   ├── test_multi_pair_batch_adversarial.py
 │   ├── test_multi_pair_runtime.py
 │   ├── test_online_methodology.py
 │   ├── test_order_permission.py
