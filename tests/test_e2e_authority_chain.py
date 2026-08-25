@@ -20,6 +20,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
+from pathlib import Path
+import tempfile
 
 import pytest
 
@@ -29,13 +31,14 @@ from trading_agent.authority.execution import (
     ExecutionAuthority,
     ExecutionValidationInput,
 )
-from trading_agent.authority.loader import PromotedStrategy, PromotedStrategyManifest
+from trading_agent.authority.loader import PromotedStrategy, PromotedStrategyManifest, TestRuntimeLoader
 from trading_agent.authority.portfolio import PortfolioAllocator, AllocationRequest
 from trading_agent.authority.resolver import (
     RuntimeStrategyResolver,
     StrategyRuntime,
     StrategyOutput,
 )
+from trading_agent.authority.promotion_store import PromotionStateStore
 from trading_agent.execution.canonical.order_planner import InstrumentRules
 from trading_agent.execution.engine import ExecutionEngine
 from trading_agent.execution.canonical.risk_decision import (
@@ -54,7 +57,12 @@ from trading_agent.execution.permission import (
     PermissionContext,
     evaluate_order_permission,
 )
-from trading_agent.research.artifact import StrategyArtifact
+from trading_agent.research.artifact import (
+    StrategyArtifact,
+    PersistentArtifactStore,
+    canonical_params,
+    sha256_hex,
+)
 from trading_agent.strategies.ma_crossover import MaCrossover
 
 
@@ -66,8 +74,30 @@ class TestE2EAuthorityChain:
         return AuthorityConfig.for_environment(Environment.TESTNET)
 
     @pytest.fixture
-    def resolver(self, config: AuthorityConfig) -> RuntimeStrategyResolver:
-        return RuntimeStrategyResolver(config)
+    def temp_dir(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            yield Path(tmp)
+
+    @pytest.fixture
+    def promotion_store(self, temp_dir: Path) -> PromotionStateStore:
+        return PromotionStateStore(temp_dir / "promotion.db")
+
+    @pytest.fixture
+    def artifact_store(self, temp_dir: Path) -> PersistentArtifactStore:
+        return PersistentArtifactStore(temp_dir / "artifacts")
+
+    @pytest.fixture
+    def resolver(
+        self,
+        config: AuthorityConfig,
+        promotion_store: PromotionStateStore,
+        artifact_store: PersistentArtifactStore,
+    ) -> RuntimeStrategyResolver:
+        return RuntimeStrategyResolver(
+            config=config,
+            promotion_store=promotion_store,
+            artifact_store=artifact_store,
+        )
 
     @pytest.fixture
     def decision_authority(self, config: AuthorityConfig) -> DecisionAuthority:
@@ -78,15 +108,15 @@ class TestE2EAuthorityChain:
         return PortfolioAllocator(config)
 
     @pytest.fixture
-    def btc_artifact(self) -> StrategyArtifact:
-        from trading_agent.research.artifact import canonical_params, sha256_hex
-
+    def btc_artifact(self, artifact_store: PersistentArtifactStore) -> StrategyArtifact:
         params = {"fast_period": 10, "slow_period": 30}
-        return StrategyArtifact(
+        artifact = StrategyArtifact(
             strategy_name="ma_crossover",
             code_sha="abc123",
             data_manifest_sha="data_sha",
             parameter_hash=sha256_hex(canonical_params(params)),
+            execution_model_version="1.0",
+            framework_version="1.0",
             metadata={
                 "symbol": "BTC/USDT",
                 "timeframe": "1h",
@@ -96,12 +126,37 @@ class TestE2EAuthorityChain:
                 "regime_state": "KNOWN",
             },
         )
+        artifact_store.add(artifact)
+        return artifact
 
     @pytest.fixture
-    def promoted_btc(self, btc_artifact: StrategyArtifact) -> PromotedStrategy:
-        from trading_agent.research.artifact import canonical_params, sha256_hex
+    def promoted_btc(
+        self,
+        btc_artifact: StrategyArtifact,
+        promotion_store: PromotionStateStore,
+    ) -> PromotedStrategy:
+        from trading_agent.research.promotion import ResearchPromotionEvent, ResearchStage
 
         params = {"fast_period": 10, "slow_period": 30}
+        # Promote to TESTNET_ELIGIBLE
+        promo_event = ResearchPromotionEvent(
+            subject_artifact_id=btc_artifact.artifact_id,
+            from_stage=ResearchStage.RESEARCH_VALIDATED,
+            to_stage=ResearchStage.TESTNET_ELIGIBLE,
+            evidence_ids=("wfo_sha",),
+            actor="test",
+            timestamp=datetime.now(UTC),
+        )
+        # Manually create record since ResearchPromotionEvent doesn't have to_dict
+        from trading_agent.authority.promotion_store import PromotionRecord
+        record = PromotionRecord(
+            artifact_id=btc_artifact.artifact_id,
+            stage=ResearchStage.TESTNET_ELIGIBLE,
+            latest_event=promo_event,
+            updated_at=datetime.now(UTC),
+        )
+        promotion_store.upsert(record)
+
         manifest = PromotedStrategyManifest(
             artifact_id=btc_artifact.artifact_id,
             strategy_name="ma_crossover",
@@ -301,12 +356,11 @@ class TestE2EAuthorityChain:
         assert risk_decision.model_artifact_id == promoted_btc.artifact_id
         assert risk_decision.allowed_target_exposure >= 0
         assert risk_decision.max_new_exposure >= 0
-        # Note: calibration/ood/regime states come from StrategyOutput.metadata
-        # which currently only includes strategy_type, parameters, signal_value, reduce_only
-        # So they default to UNKNOWN unless explicitly set
-        assert risk_decision.calibration_state == EvidenceState.UNKNOWN
-        assert risk_decision.ood_state == EvidenceState.UNKNOWN
-        assert risk_decision.regime_state == EvidenceState.UNKNOWN
+        # Calibration/ood/regime states come from StrategyOutput.metadata
+        # which now includes artifact metadata (calibration_state, etc.)
+        assert risk_decision.calibration_state == EvidenceState.KNOWN
+        assert risk_decision.ood_state == EvidenceState.KNOWN
+        assert risk_decision.regime_state == EvidenceState.KNOWN
         assert len(decision_output.causation_chain.links) > 0
 
     def test_permission_context_from_authorities(
@@ -368,18 +422,65 @@ class TestE2EAuthorityChain:
         permission = evaluate_order_permission(perm_ctx)
         assert permission.permission.value in ("ALLOW", "REDUCE_ONLY", "BLOCK")
 
-    def test_e2e_paper_buy_and_fill(self, config: AuthorityConfig):
+    def test_e2e_paper_buy_and_fill(
+        self,
+        config: AuthorityConfig,
+        promotion_store: PromotionStateStore,
+        artifact_store: PersistentArtifactStore,
+        tmp_path: Path,
+    ):
         """Step 6-7: Full E2E — Paper BUY → fill → protective order."""
-        # This is a simplified E2E that verifies the chain runs without exceptions
-        # Full integration would require a live paper exchange
+        # Use real paper exchange for actual fill verification
+        from trading_agent.execution.paper_exchange import PaperExchange
 
-        # Create mock exchange
-        exchange = MagicMock()
-        exchange.get_total_equity.return_value = 100000.0
-        exchange.get_balance.return_value = 50000.0
-        exchange.get_position.return_value = None
-        exchange._last_price_cache = {"BTC/USDT": 50000.0}
-        exchange.get_all_positions.return_value = []
+        # Create and promote a BTC artifact
+        from trading_agent.research.artifact import canonical_params, sha256_hex
+        from trading_agent.research.promotion import ResearchPromotionEvent, ResearchStage
+
+        params = {"fast_period": 10, "slow_period": 30}
+        artifact = StrategyArtifact(
+            strategy_name="ma_crossover",
+            code_sha="abc123",
+            data_manifest_sha="data_sha",
+            parameter_hash=sha256_hex(canonical_params(params)),
+            execution_model_version="1.0",
+            framework_version="1.0",
+            metadata={
+                "symbol": "BTC/USDT",
+                "timeframe": "1h",
+                "parameters": params,
+                "calibration_state": "KNOWN",
+                "ood_state": "KNOWN",
+                "regime_state": "KNOWN",
+            },
+        )
+        artifact_store.add(artifact)
+
+        promo_event = ResearchPromotionEvent(
+            subject_artifact_id=artifact.artifact_id,
+            from_stage=ResearchStage.RESEARCH_VALIDATED,
+            to_stage=ResearchStage.TESTNET_ELIGIBLE,
+            evidence_ids=("wfo_sha",),
+            actor="test",
+            timestamp=datetime.now(UTC),
+        )
+        from trading_agent.authority.promotion_store import PromotionRecord
+        record = PromotionRecord(
+            artifact_id=artifact.artifact_id,
+            stage=ResearchStage.TESTNET_ELIGIBLE,
+            latest_event=promo_event,
+            updated_at=datetime.now(UTC),
+        )
+        promotion_store.upsert(record)
+
+        # Create real paper exchange
+        exchange = PaperExchange(
+            exchange_name="testnet",
+            initial_balance=100000.0,
+            commission=0.001,
+            slippage=0.0,
+            state_dir=tmp_path / "paper_state",
+        )
 
         # Create ExecutionEngine with authority chain
         instrument_rules = InstrumentRules(
@@ -394,26 +495,51 @@ class TestE2EAuthorityChain:
             exchange=exchange,
             authority_config=config,
             instrument_rules=instrument_rules,
+            promotion_store=promotion_store,
+            artifact_store=artifact_store,
         )
 
-        # Create a simple BUY signal
-        signal = MagicMock()
-        signal.signal = "BUY"
-        signal.confidence = 0.8
-        signal.details = {"symbol": "BTC/USDT", "quantity": 0.01, "price": 50000.0}
+        # Resolve strategy
+        runtime = engine.resolver.resolve_for(
+            symbol="BTC/USDT",
+            timeframe="1h",
+            environment=Environment.TESTNET,
+        )
+        assert runtime is not None
+
+        # Create market data that generates BUY signal
+        import polars as pl
+        df = pl.DataFrame({
+            "close": [50000.0] * 5 + [51000.0] * 5 + [52000.0] * 5 + [53000.0] * 15,
+            "high": [50500.0] * 5 + [51500.0] * 5 + [52500.0] * 5 + [53500.0] * 15,
+            "low": [49500.0] * 5 + [50500.0] * 5 + [51500.0] * 5 + [52500.0] * 15,
+            "volume": [100.0] * 30,
+        })
+        market_data = df.with_columns([
+            pl.col("close").rolling_mean(window_size=10).alias("ma_10"),
+            pl.col("close").rolling_mean(window_size=30).alias("ma_30"),
+        ]).drop_nulls()
 
         # Create observation
-        observation = MagicMock()
-        observation.is_closed = True
-        observation.observation_id = "obs_001"
-        observation.timeframe = "1h"
-        observation.bar_close_at = datetime.now(UTC)
+        from trading_agent.execution.canonical import EnrichedMarketObservation
+        observation = EnrichedMarketObservation(
+            observation_id="obs_001",
+            symbol="BTC/USDT",
+            timeframe="1h",
+            observed_at=datetime.now(UTC),
+            open=50000.0,
+            high=53500.0,
+            low=49500.0,
+            close=53000.0,
+            volume=100.0,
+            is_closed=True,
+            bar_close_at=datetime.now(UTC),
+            data_manifest_id="manifest_001",
+            feature_artifact_id="feature_001",
+        )
 
-        # Execute signal (should go through full authority chain)
-        with patch.object(
-            engine, "_get_current_price", return_value=(50000.0, datetime.now(UTC))
-        ):
-            orders = engine.execute_signal(signal, observation=observation)
+        # Execute strategy through full chain
+        orders = engine.execute_strategy(runtime, market_data, observation)
 
         # Engine may return orders or empty list depending on risk/permission
         # The important thing is no exception was raised
@@ -622,7 +748,255 @@ class TestE2EAuthorityChainIntegration:
         assert result is not None
 
 
+class TestGoldenPathPaperTrading:
+    """
+    Single Golden Path Test — full paper trading flow.
+
+    Asserts:
+    1. broker submit count == 1
+    2. order BUY
+    3. quantity > 0
+    4. fill exists
+    5. position > 0
+    4. protective coverage exists
+    5. restart → broker submit count remains 1
+    """
+
+    def test_golden_path_paper_buy_fill_protect_restart(
+        self,
+        tmp_path,
+    ):
+        """Complete golden path: BUY → fill → protective → restart → no duplicate submit."""
+        from trading_agent.execution.engine import ExecutionEngine
+        from trading_agent.execution.paper_exchange import PaperExchange
+        from trading_agent.execution.canonical import InstrumentRules
+        from trading_agent.execution.lifecycle import ExecutionEventStore
+        from trading_agent.authority.config import AuthorityConfig, Environment
+        from trading_agent.authority.resolver import RuntimeStrategyResolver
+        from trading_agent.research.artifact import (
+            StrategyArtifact,
+            PersistentArtifactStore,
+            canonical_params,
+            sha256_hex,
+        )
+        from trading_agent.authority.loader import PromotedStrategy, PromotedStrategyManifest
+        from trading_agent.authority.promotion_store import PromotionStateStore
+        from trading_agent.execution.canonical import EnrichedMarketObservation
+        import polars as pl
+
+        # Setup: config, stores, promotion
+        config = AuthorityConfig.for_environment(Environment.TESTNET)
+        config.exposure.max_single_strategy_exposure = 0.2
+        config.exposure.max_portfolio_exposure = 1.0
+
+        # Persistent artifact store
+        artifact_store = PersistentArtifactStore(tmp_path / "artifacts")
+        promotion_store = PromotionStateStore(tmp_path / "promotion.db")
+
+        # Create and promote a BTC MA crossover artifact
+        params = {"fast_period": 10, "slow_period": 30}
+        artifact = StrategyArtifact(
+            strategy_name="ma_crossover",
+            code_sha="abc123",
+            data_manifest_sha="data_sha",
+            parameter_hash=sha256_hex(canonical_params(params)),
+            execution_model_version="1.0",
+            framework_version="1.0",
+            metadata={
+                "symbol": "BTC/USDT",
+                "timeframe": "1h",
+                "parameters": params,
+                "calibration_state": "KNOWN",
+                "ood_state": "KNOWN",
+                "regime_state": "KNOWN",
+            },
+        )
+        artifact_store.add(artifact)
+
+        # Promote to TESTNET_ELIGIBLE
+        from trading_agent.research.promotion import ResearchPromotionEvent, ResearchStage
+        promo_event = ResearchPromotionEvent(
+            subject_artifact_id=artifact.artifact_id,
+            from_stage=ResearchStage.RESEARCH_VALIDATED,
+            to_stage=ResearchStage.TESTNET_ELIGIBLE,
+            evidence_ids=("wfo_sha",),
+            actor="test",
+            timestamp=datetime.now(UTC),
+        )
+        promotion_store.upsert_from_event(promo_event)
+
+        # Resolver
+        resolver = RuntimeStrategyResolver(
+            config=config,
+            promotion_store=promotion_store,
+            artifact_store=artifact_store,
+        )
+
+        # Resolve StrategyRuntime
+        runtime = resolver.resolve_for(
+            symbol="BTC/USDT",
+            timeframe="1h",
+            environment=Environment.TESTNET,
+        )
+        assert runtime is not None
+
+        # Paper exchange with initial capital
+        exchange = PaperExchange(
+            exchange_name="testnet",
+            initial_balance=100000.0,
+            commission=0.001,
+            slippage=0.0,
+            state_dir=tmp_path / "paper_state",
+        )
+
+        # Instrument rules
+        instrument_rules = InstrumentRules(
+            symbol="BTC/USDT",
+            min_order_qty=0.001,
+            max_order_qty=10.0,
+            qty_step=0.001,
+            min_notional=10.0,
+        )
+
+        # Execution engine with full authority chain
+        engine = ExecutionEngine(
+            exchange_name="testnet",
+            exchange=exchange,
+            authority_config=config,
+            instrument_rules=instrument_rules,
+            promotion_store=promotion_store,
+            artifact_store=artifact_store,
+            event_store_path=tmp_path / "execution_events.db",
+        )
+
+        # Create market data that generates BUY signal (ma_10 crosses above ma_30 at the LAST bar)
+        # Need enough raw OHLCV data for the strategy's compute_indicators to work
+        # Crossover at last bar: 30 bars at 50000, 10 bars at 50000, 1 bar at 55000
+        # At last bar: fast MA = 50500, slow MA = 50166 -> BUY crossover
+        prices = [50000.0] * 30 + [50000.0] * 10 + [55000.0]
+        df = pl.DataFrame(
+            {
+                "close": prices,
+                "high": [p * 1.01 for p in prices],
+                "low": [p * 0.99 for p in prices],
+                "volume": [100.0] * len(prices),
+            }
+        )
+        market_data = df
+
+        # Create observation
+        observation = EnrichedMarketObservation(
+            observation_id="obs_golden_001",
+            symbol="BTC/USDT",
+            timeframe="1h",
+            observed_at=datetime.now(UTC),
+            open=50000.0,
+            high=55550.0,
+            low=49500.0,
+            close=55000.0,
+            volume=100.0,
+            is_closed=True,
+            bar_close_at=datetime.now(UTC),
+            data_manifest_id="manifest_001",
+            feature_artifact_id="feature_001",
+        )
+
+        # Set price in paper exchange (required for _get_current_price)
+        exchange._last_price_cache["BTC/USDT"] = 55000.0
+        exchange._last_price_timestamps["BTC/USDT"] = datetime.now(UTC).timestamp()
+
+        # Execute strategy — this should go through full chain and produce a BUY order
+        orders = engine.execute_strategy(runtime, market_data, observation)
+
+        # ── Assert 1: broker submit count == 1 ──
+        # The execution engine submits exactly one order
+        assert len(orders) == 1, f"Expected 1 order, got {len(orders)}"
+
+        order = orders[0]
+
+        # ── Assert 2: order BUY ──
+        assert order.side.value == "buy", f"Expected BUY order, got {order.side}"
+
+        # ── Assert 3: quantity > 0 ──
+        assert order.amount > 0, f"Expected quantity > 0, got {order.amount}"
+
+        # ── Assert 4: fill exists ──
+        assert order.status.value == "filled", f"Expected FILLED, got {order.status}"
+        assert order.filled_amount > 0, f"Expected filled_amount > 0, got {order.filled_amount}"
+
+        # ── Assert 5: position > 0 ──
+        position = exchange.get_position("BTC/USDT")
+        assert position is not None, "Position should exist after fill"
+        assert position.is_active, "Position should be active"
+        assert position.quantity > 0, f"Expected position quantity > 0, got {position.quantity}"
+
+        # ── Assert 6: protective coverage exists ──
+        # Check lifecycle has protective order for this position
+        protective_intents = [
+            (oid, ost) for oid, ost in engine.lifecycle.state.orders.items()
+            if oid.startswith("prot_") and ost.symbol == "BTC/USDT"
+        ]
+        assert len(protective_intents) >= 1, "Protective order should exist for the position"
+
+        protective_oid, protective_state = protective_intents[0]
+        assert protective_state.symbol == "BTC/USDT"
+        assert protective_state.side == "sell", "Protective order should be SELL"
+        assert protective_state.remaining_reserved_quantity > 0, "Protective order should reserve quantity"
+
+        # Record initial order count
+        initial_order_count = len(exchange.orders)
+
+        # ── Assert 7: restart → broker submit count remains 1 ──
+        # Simulate restart by creating new engine with same exchange state
+        # (In real restart, exchange state is reloaded from persistence)
+        # Use SAME event store path to simulate crash recovery
+        engine2 = ExecutionEngine(
+            exchange_name="testnet",
+            exchange=exchange,
+            authority_config=config,
+            instrument_rules=instrument_rules,
+            promotion_store=promotion_store,
+            artifact_store=artifact_store,
+            event_store_path=tmp_path / "execution_events.db",  # SAME path for restart simulation
+        )
+
+        # Replay lifecycle events (simulating crash recovery)
+        engine2.lifecycle.load()
+
+        # Re-resolve runtime
+        runtime2 = resolver.resolve_for(
+            symbol="BTC/USDT",
+            timeframe="1h",
+            environment=Environment.TESTNET,
+        )
+        assert runtime2 is not None
+
+        # Execute again — should NOT submit another order (position already exists)
+        orders2 = engine2.execute_strategy(runtime2, market_data, observation)
+
+        # No new orders should be submitted (position already at target)
+        assert len(orders2) == 0, f"Expected 0 orders on restart, got {len(orders2)}"
+
+        # Verify order count didn't increase
+        final_order_count = len(exchange.orders)
+        assert final_order_count == initial_order_count, (
+            f"Order count increased on restart: {initial_order_count} -> {final_order_count}"
+        )
+
+        # Position should still exist and be > 0
+        position2 = exchange.get_position("BTC/USDT")
+        assert position2 is not None and position2.quantity > 0
+
+        # Protective coverage should still exist (reloaded from event store)
+        protective_intents2 = [
+            (oid, ost) for oid, ost in engine2.lifecycle.state.orders.items()
+            if oid.startswith("prot_") and ost.symbol == "BTC/USDT"
+        ]
+        assert len(protective_intents2) >= 1, "Protective order should persist after restart"
+
+
 __all__ = [
     "TestE2EAuthorityChain",
     "TestE2EAuthorityChainIntegration",
+    "TestGoldenPathPaperTrading",
 ]

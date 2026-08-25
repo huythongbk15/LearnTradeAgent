@@ -75,6 +75,7 @@ from trading_agent.authority import (
     PortfolioAllocator,
     AllocationRequest,
     RuntimeStrategyResolver,
+    StrategyRuntime,
     PromotionStateStore,
 )
 from trading_agent.authority.causation import CausationChain
@@ -312,47 +313,73 @@ class ExecutionEngine:
 
     # ── Execute signals from Phase 2 agents ────────────────────────────
 
-    def execute_signal(
-        self, signal: AgentMessage, observation: EnrichedMarketObservation | None = None
-    ) -> list[Order]:
-        """Execute a trading signal from the multi-agent system.
 
-        Takes the final ``Trader`` agent signal and converts it to orders
-        through the authority chain pipeline:
-        AgentMessage → DecisionAuthority → ExposureAuthority → ExecutionAuthority
-        → OrderPlanner → OrderPermission → ExecutionLifecycle → BrokerGateway.
+    def execute_strategy(
+        self,
+        strategy_runtime: StrategyRuntime,
+        market_data: Any,
+        observation: EnrichedMarketObservation | None = None,
+    ) -> list[Order]:
+        """Execute a promoted strategy through the full authority chain.
+
+        This is the PRIMARY production API for artifact-driven execution:
+        StrategyRuntime → StrategyOutput → DecisionAuthority → ExposureAuthority
+        → PortfolioAllocator → ExecutionAuthority → OrderPlanner → Lifecycle → BrokerGateway
+
+        Args:
+            strategy_runtime: Resolved StrategyRuntime from RuntimeStrategyResolver
+            market_data: Market data for strategy execution (e.g., OHLCV DataFrame)
+            observation: Market observation for planning (must be closed candle)
+
+        Returns:
+            List of executed Orders
         """
         if self.execution_service is None:
             raise RuntimeError(
-                "execute_signal requires instrument_rules to be provided at engine construction"
+                "execute_strategy requires instrument_rules to be provided at engine construction"
             )
-        signal_str = signal.signal.upper()
+        if self.resolver is None:
+            raise RuntimeError(
+                "execute_strategy requires RuntimeStrategyResolver (promotion_store + artifact_store)"
+            )
+
         orders: list[Order] = []
 
-        if signal_str == "HOLD":
-            logger.info("Signal: HOLD — no action")
+        # Execute strategy to get signal
+        strategy_output = strategy_runtime.execute(
+            market_data=market_data,
+            portfolio_state=None,  # Portfolio state injected by authority chain
+            observation_id=observation.observation_id if observation else None,
+            data_manifest_id=getattr(observation, "data_manifest_id", None),
+            feature_artifact_id=getattr(observation, "feature_artifact_id", None),
+            research_run_id=getattr(observation, "research_run_id", None),
+        )
+
+        signal_value = str(strategy_output.signal).upper()
+        if signal_value == "HOLD":
+            logger.info(f"Strategy {strategy_runtime.strategy_name}: HOLD — no action")
             return orders
 
-        # Sync protective orders with actual positions (handles internal closes)
+        # Sync protective orders with actual positions
         self._sync_protective_orders()
 
-        symbol = signal.details.get("symbol") if signal.details else None
-        if not isinstance(symbol, str) or not symbol:
-            logger.warning("Cannot execute: signal is missing an explicit symbol")
-            return orders
+        symbol = strategy_runtime.symbol
+        timeframe = strategy_runtime.timeframe
+
+        # Get current price
         price_info = self._get_current_price(symbol)
         if price_info is None:
-            logger.warning(f"Cannot execute: no price data for {symbol}")
+            logger.warning(f"Cannot execute strategy: no price data for {symbol}")
             return orders
         current_price, exchange_timestamp = price_info
         if current_price <= 0:
-            logger.warning(f"Cannot execute: no price data for {symbol}")
+            logger.warning(f"Cannot execute strategy: no price data for {symbol}")
             return orders
 
-        # ── Observation: must come from market data layer ───────────────
+        # Observation: must come from market data layer
         if observation is None:
             logger.warning(
-                "execute_signal requires a market observation from the data layer"
+                "execute_strategy requires a market observation from the data layer"
             )
             return orders
         if not observation.is_closed:
@@ -361,8 +388,7 @@ class ExecutionEngine:
             )
             return orders
 
-        # ── Authority Chain: DecisionAuthority ─────────────────────────
-        # Build DecisionInput from AgentMessage
+        # ── Build DecisionInput from StrategyOutput ──────────────────
         existing_pos = self.exchange.get_position(symbol)
         current_qty = existing_pos.quantity if existing_pos else 0.0
         current_notional = current_qty * current_price
@@ -370,10 +396,11 @@ class ExecutionEngine:
         current_exposure = current_notional / equity if equity > 0 else 0.0
         available_cash = self.exchange.get_balance("USDT")
 
+        # Convert StrategyOutput to DecisionInput using the canonical path
         decision_input = DecisionInput(
-            agent_message=signal,
+            strategy_output=strategy_output,  # Direct StrategyOutput path
             symbol=symbol,
-            timeframe=observation.timeframe if observation else "1h",
+            timeframe=timeframe,
             current_price=current_price,
             current_exposure=current_exposure,
             equity=equity,
@@ -384,14 +411,17 @@ class ExecutionEngine:
             volatility_pct=getattr(observation, "volatility_pct", None),
         )
 
+        # Run DecisionAuthority
         decision_output = self.decision_authority.decide(decision_input)
         risk_decision = decision_output.risk_decision
         target = decision_output.target_exposure
-        # Attach causation chain to risk_decision for downstream propagation
+
+        # Attach causation chain to risk_decision
         risk_decision = UnifiedRiskDecision(
             decision_id=risk_decision.decision_id,
             forecast_fingerprint=risk_decision.forecast_fingerprint,
-            model_artifact_id=risk_decision.model_artifact_id,
+            model_artifact_id=risk_decision.model_artifact_id
+            or strategy_runtime.artifact_id,
             requested_target_exposure=risk_decision.requested_target_exposure,
             allowed_target_exposure=risk_decision.allowed_target_exposure,
             max_new_exposure=risk_decision.max_new_exposure,
@@ -411,7 +441,6 @@ class ExecutionEngine:
             warnings=risk_decision.warnings,
             authority_chain=decision_output.causation_chain.links,
         )
-        # Also attach chain to TargetExposure
         target = TargetExposure(
             target_exposure_pct=target.target_exposure_pct,
             max_new_exposure_pct=target.max_new_exposure_pct,
@@ -420,8 +449,7 @@ class ExecutionEngine:
             authority_chain=decision_output.causation_chain.links,
         )
 
-        # ── Authority Chain: PortfolioAllocator (single-pair N=1) ───────
-        # Even for single pair, go through allocator for consistent flow
+        # ── PortfolioAllocator ──────────────────────────────────────
         total_portfolio_exposure = (
             sum(
                 (pos.quantity * self.exchange._last_price_cache.get(pos.symbol, 0.0))
@@ -433,7 +461,7 @@ class ExecutionEngine:
             else 0.0
         )
 
-        strategy_id = risk_decision.model_artifact_id or "legacy_agent_ensemble"
+        strategy_id = strategy_runtime.artifact_id
         strategy_exposure = current_exposure  # Single symbol single strategy
 
         allocation_request = AllocationRequest(
@@ -444,7 +472,7 @@ class ExecutionEngine:
             equity=equity,
             available_cash=available_cash,
             portfolio_exposure=total_portfolio_exposure,
-            correlation_cluster=None,  # Single pair, no cluster
+            correlation_cluster=None,
             causation_chain=decision_output.causation_chain,
         )
 
@@ -457,13 +485,12 @@ class ExecutionEngine:
 
         # Update target with allocation result
         target = allocation_result.target_exposure
-        # Propagate allocation causation chain
         combined_chain = CausationChain(
             links=decision_output.causation_chain.links
             + allocation_result.causation_chain.links
         )
 
-        # ── Authority Chain: ExposureAuthority ──────────────────────────
+        # ── ExposureAuthority ──────────────────────────────────────
         exposure_input = ExposureValidationInput(
             target_exposure=target,
             symbol=symbol,
@@ -524,7 +551,7 @@ class ExecutionEngine:
             )
             return orders
 
-        # ── Portfolio state (canonical fields) ──────────────────────────
+        # ── Portfolio state (canonical fields) ──────────────────────
         portfolio = CurrentPortfolioState(
             symbol=symbol,
             current_exposure=current_exposure,
@@ -548,13 +575,13 @@ class ExecutionEngine:
         canonical_target = CanonicalTargetExposure(
             symbol=symbol,
             exposure=target.target_exposure_pct,
-            horizon=1,  # Single bar horizon
+            horizon=1,
             forecast_fingerprint=risk_decision.forecast_fingerprint,
             model_artifact_id=risk_decision.model_artifact_id,
             risk_decision_id=risk_decision.decision_id,
         )
 
-        # ── Order planning (canonical sizing) ──────────────────────────
+        # ── Order planning ──────────────────────────────────────────
         plan_result = self.execution_service.plan(
             target=canonical_target,
             risk_decision=risk_decision,
@@ -562,7 +589,7 @@ class ExecutionEngine:
             portfolio=portfolio,
             price=price,
             existing_reservations=0.0
-            if signal_str == "SELL"
+            if signal_value == "SELL"
             else self.lifecycle.active_sell_reservations(symbol),
         )
         if plan_result.status != OrderPlanningStatus.ORDER_REQUIRED:
@@ -577,7 +604,7 @@ class ExecutionEngine:
         assert self.planner is not None
         assert self.execution_authority is not None
 
-        # ── Authority Chain: ExecutionAuthority ────────────────────────
+        # ── ExecutionAuthority ──────────────────────────────────────
         exec_input = ExecutionValidationInput(
             intent=intent,
             observation=observation,
@@ -585,7 +612,7 @@ class ExecutionEngine:
             price=price,
             instrument_rules=self.planner._rules,
             existing_reservations=0.0
-            if signal_str == "SELL"
+            if signal_value == "SELL"
             else self.lifecycle.active_sell_reservations(symbol),
             causation_chain=exposure_output.causation_chain,
             risk_decision=risk_decision,
@@ -624,7 +651,7 @@ class ExecutionEngine:
             authority_chain=exec_output.causation_chain.links,
         )
 
-        # ── Protective order handling (sell signals) ───────────────────
+        # ── Protective order handling (sell signals) ────────────────
         canceled_protection_intents: list[str] = []
         if intent.side.lower() == "sell":
             cancel_ok, canceled_protection_intents = self._cancel_resting_protection(
@@ -634,15 +661,12 @@ class ExecutionEngine:
                 return orders
 
         broker_result = exec_output.broker_result
-        broker_event = (
-            None  # ExecutionAuthority doesn't return event, get from lifecycle
-        )
 
         orders.append(
             self._result_to_order(broker_result, symbol, intent.side, intent.quantity)
         )
 
-        # Check if fill was received (from lifecycle state)
+        # Check if fill was received
         order_state = self.lifecycle.state.orders.get(intent.intent_id)
         fill_received = order_state is not None and order_state.filled_size > 1e-12
 
@@ -657,7 +681,6 @@ class ExecutionEngine:
                 "exit was not filled after protective cancellation",
             )
         if fill_received and intent.side.lower() == "buy":
-            # Use actual paper exchange position quantity for protective order
             position = self.exchange.get_position(symbol)
             protected_quantity = (
                 position.quantity if position and position.is_active else 0.0
@@ -715,6 +738,62 @@ class ExecutionEngine:
                 )
 
         return orders
+
+    # ── Legacy adapter: AgentMessage → StrategyRuntime ──────────────
+
+    def execute_signal(
+        self, signal: AgentMessage, observation: EnrichedMarketObservation | None = None
+    ) -> list[Order]:
+        """Legacy adapter: Execute a trading signal from the multi-agent system.
+
+        This method is DEPRECATED. Use execute_strategy() with a resolved
+        StrategyRuntime for artifact-driven execution.
+
+        Takes the final ``Trader`` agent signal and converts it to orders
+        through the authority chain pipeline.
+        """
+        if self.execution_service is None:
+            raise RuntimeError(
+                "execute_signal requires instrument_rules to be provided at engine construction"
+            )
+        if self.resolver is None:
+            raise RuntimeError(
+                "execute_signal requires RuntimeStrategyResolver (promotion_store + artifact_store)"
+            )
+
+        signal_str = signal.signal.upper()
+        orders: list[Order] = []
+
+        if signal_str == "HOLD":
+            logger.info("Signal: HOLD — no action")
+            return orders
+
+        # Sync protective orders
+        self._sync_protective_orders()
+
+        symbol = signal.details.get("symbol") if signal.details else None
+        if not isinstance(symbol, str) or not symbol:
+            logger.warning("Cannot execute: signal is missing an explicit symbol")
+            return orders
+
+        # Resolve strategy for this symbol/timeframe/environment
+        env = self.authority_config.environment
+        timeframe = signal.details.get("timeframe", "1h") if signal.details else "1h"
+
+        strategy_runtime = self.resolver.resolve_for(symbol, timeframe, env)
+        if strategy_runtime is None:
+            logger.warning(
+                f"No promoted strategy resolved for {symbol} {timeframe} {env.value}"
+            )
+            return orders
+
+        # Execute via new authority-driven pipeline
+        market_data = signal.details.get("market_data") if signal.details else None
+        if market_data is None:
+            logger.warning("execute_signal: signal.details missing market_data")
+            return orders
+
+        return self.execute_strategy(strategy_runtime, market_data, observation)
 
     @staticmethod
     def _is_protective_intent(intent_id: str) -> bool:

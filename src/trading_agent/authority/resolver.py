@@ -13,7 +13,11 @@ from typing import Any, Dict
 
 from trading_agent.authority.config import AuthorityConfig, Environment
 from trading_agent.authority.loader import PromotedStrategy
-from trading_agent.authority.promotion_store import PromotionStateStore
+from trading_agent.authority.promotion_store import (
+    PromotionStateStore,
+    is_stage_compatible,
+)
+from trading_agent.research.promotion import ResearchStage
 from trading_agent.strategies.base import Strategy
 from trading_agent.strategies.ma_crossover import MaCrossover
 from trading_agent.strategies.rsi import RsiStrategy
@@ -50,6 +54,7 @@ class StrategyRuntime:
     parameters: Dict[str, Any]
     promoted_at: datetime
     promotion_stage: str
+    artifact_metadata: Dict[str, Any] = field(default_factory=dict)
     loaded_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     def execute(
@@ -62,6 +67,10 @@ class StrategyRuntime:
         research_run_id: str | None = None,
     ) -> "StrategyOutput":
         """Execute strategy on current market data → StrategyOutput."""
+        # First compute indicators, then generate signals
+        if hasattr(self.strategy, "compute_indicators"):
+            market_data = self.strategy.compute_indicators(market_data)
+
         # Try both singular and plural method names for backward compatibility
         if hasattr(self.strategy, "generate_signal"):
             signal = self.strategy.generate_signal(market_data)
@@ -108,6 +117,19 @@ class StrategyRuntime:
                 "parameters": self.parameters,
                 "signal_value": signal_value,
                 "reduce_only": reduce_only,
+                # Include artifact metadata for evidence states
+                "calibration_state": self.artifact_metadata.get(
+                    "calibration_state", "UNKNOWN"
+                ),
+                "ood_state": self.artifact_metadata.get("ood_state", "UNKNOWN"),
+                "regime_state": self.artifact_metadata.get("regime_state", "UNKNOWN"),
+                "calibration_ece": self.artifact_metadata.get("calibration_ece", 1.0),
+                "ood_score": self.artifact_metadata.get("ood_score", 1.0),
+                "regime_entropy": self.artifact_metadata.get("regime_entropy", 1.0),
+                "calibration_artifact_id": self.artifact_metadata.get(
+                    "calibration_artifact_id"
+                ),
+                "interval_width": self.artifact_metadata.get("interval_width", 1.0),
             },
             generated_at=datetime.now(UTC),
             observation_id=observation_id,
@@ -170,7 +192,9 @@ class RuntimeStrategyResolver:
     }
 
     # Allowed promotion stages for runtime loading
-    _ALLOWED_STAGES = frozenset({"production", "canary", "testnet"})
+    _ALLOWED_STAGES = frozenset(
+        {"production", "canary", "testnet", "testnet_eligible", "paper_eligible"}
+    )
 
     def __init__(
         self,
@@ -206,18 +230,20 @@ class RuntimeStrategyResolver:
         Returns:
             StrategyRuntime if resolution successful, None otherwise
         """
-        # Verify promotion stage from AUTHORITATIVE store, not manifest metadata
-        if self.promotion_store is not None:
-            stage = self.promotion_store.get_stage(promoted.artifact_id)
-            if stage is None:
-                logger.warning(
-                    f"Strategy {promoted.artifact_id} has no promotion record in authoritative store"
-                )
-                return None
-            promotion_stage = stage.value
-        else:
-            # Fallback for tests without promotion store — manifest is NOT authoritative
-            promotion_stage = promoted.manifest.promotion_stage
+        # Verify promotion stage from AUTHORITATIVE store — REQUIRED
+        if self.promotion_store is None:
+            logger.error(
+                "resolve() requires PromotionStateStore for authoritative promotion lookup"
+            )
+            return None
+
+        stage = self.promotion_store.get_stage(promoted.artifact_id)
+        if stage is None:
+            logger.warning(
+                f"Strategy {promoted.artifact_id} has no promotion record in authoritative store"
+            )
+            return None
+        promotion_stage = stage.value
 
         # Verify promotion stage is allowed
         if promotion_stage not in self._ALLOWED_STAGES:
@@ -296,6 +322,7 @@ class RuntimeStrategyResolver:
             parameters=promoted.manifest.parameters,
             promoted_at=promoted.manifest.promoted_at,
             promotion_stage=promotion_stage,
+            artifact_metadata=promoted.artifact.metadata,
         )
 
         # Cache and return
@@ -385,15 +412,11 @@ class RuntimeStrategyResolver:
     def _is_stage_compatible(
         self, promotion_stage: str, environment: Environment
     ) -> bool:
-        """Check if promotion stage is compatible with runtime environment."""
-        stage_env_map = {
-            "testnet": {Environment.TESTNET, Environment.RESEARCH},
-            "canary": {Environment.CANARY, Environment.SHADOW, Environment.TESTNET},
-            "paper": {Environment.PAPER, Environment.RESEARCH},
-            "production": {Environment.PRODUCTION, Environment.PAPER},
-        }
-        allowed = stage_env_map.get(promotion_stage, set())
-        return environment in allowed
+        """Check if promotion stage is compatible with runtime environment.
+
+        Uses the single authoritative mapping from PromotionStateStore.
+        """
+        return is_stage_compatible(ResearchStage(promotion_stage), environment)
 
     def _verify_artifact_integrity(self, promoted: PromotedStrategy) -> bool:
         """Verify artifact integrity against the artifact store.

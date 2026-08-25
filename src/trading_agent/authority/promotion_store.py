@@ -36,13 +36,14 @@ def _sha256_hex(payload: str | bytes) -> str:
 
 # ── Environment ↔ Stage mapping ────────────────────────────────────────
 
-_ENV_MIN_STAGE: dict[str, ResearchStage] = {
+# Single source of truth for environment → minimum stage mapping
+# Production intentionally absent — maintain NO-GO
+ENV_MIN_STAGE: dict[str, ResearchStage] = {
     "research": ResearchStage.EXPLORATORY,
     "paper": ResearchStage.PAPER_ELIGIBLE,
     "testnet": ResearchStage.TESTNET_ELIGIBLE,
     "shadow": ResearchStage.SHADOW_ELIGIBLE,
     "canary": ResearchStage.CANARY_ELIGIBLE,
-    # production intentionally absent — keep NO-GO
 }
 
 _STAGE_ORDER = (
@@ -57,6 +58,25 @@ _STAGE_ORDER = (
 )
 
 _STAGE_RANK: dict[ResearchStage, int] = {s: i for i, s in enumerate(_STAGE_ORDER)}
+
+
+def get_min_stage_for_environment(environment: str) -> ResearchStage | None:
+    """Get minimum ResearchStage required for an environment.
+
+    Returns None if environment is not recognized (e.g., 'production').
+    """
+    return ENV_MIN_STAGE.get(environment.lower())
+
+
+def is_stage_compatible(stage: ResearchStage, environment: str) -> bool:
+    """Check if a promotion stage is compatible with a runtime environment.
+
+    Uses the single authoritative mapping from PromotionStateStore.
+    """
+    min_stage = get_min_stage_for_environment(environment)
+    if min_stage is None:
+        return False
+    return _STAGE_RANK.get(stage, -1) >= _STAGE_RANK.get(min_stage, -1)
 
 
 # ── Data model ─────────────────────────────────────────────────────────
@@ -132,9 +152,9 @@ class PromotionStateStore:
                 shutil.copy2(self.db_path, temp_path)
             conn = sqlite3.connect(temp_path)
             conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA synchronous=FULL")
             conn.executescript(_SCHEMA_SQL)
             yield conn
-            conn.execute("PRAGMA synchronous=FULL")
             conn.commit()
             conn.close()
             _os_replace(temp_path, self.db_path)
@@ -197,10 +217,7 @@ class PromotionStateStore:
         stage = self.get_stage(artifact_id)
         if stage is None:
             return False
-        min_stage = _ENV_MIN_STAGE.get(environment.lower())
-        if min_stage is None:
-            return False
-        return _STAGE_RANK.get(stage, -1) >= _STAGE_RANK.get(min_stage, -1)
+        return is_stage_compatible(stage, environment)
 
     def list_by_stage(self, stage: ResearchStage) -> list[PromotionRecord]:
         """List all artifacts at a given stage."""
@@ -210,7 +227,7 @@ class PromotionStateStore:
 
     def list_eligible(self, environment: str) -> list[PromotionRecord]:
         """List all artifacts eligible for the given environment."""
-        min_stage = _ENV_MIN_STAGE.get(environment.lower())
+        min_stage = get_min_stage_for_environment(environment)
         if min_stage is None:
             return []
         min_rank = _STAGE_RANK[min_stage]

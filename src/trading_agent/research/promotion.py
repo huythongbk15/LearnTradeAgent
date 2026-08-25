@@ -194,6 +194,17 @@ class ResearchPromotionEvent:
     actor: str
     timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return {
+            "subject_artifact_id": self.subject_artifact_id,
+            "from_stage": self.from_stage.value,
+            "to_stage": self.to_stage.value,
+            "evidence_ids": list(self.evidence_ids),
+            "actor": self.actor,
+            "timestamp": self.timestamp.isoformat(),
+        }
+
 
 _TARGET_REQUIREMENTS: dict[ResearchStage, tuple[EvidenceKind, ...]] = {
     ResearchStage.EXPLORATORY: (),

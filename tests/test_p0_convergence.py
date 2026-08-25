@@ -1058,6 +1058,12 @@ class TestEnginePaperE2E:
         from trading_agent.execution.paper_exchange import PaperExchange
         from trading_agent.execution.types import OrderStatus
         from trading_agent.execution.canonical.order_planner import InstrumentRules
+        from trading_agent.authority.promotion_store import PromotionStateStore
+        from trading_agent.research.artifact import PersistentArtifactStore, StrategyArtifact
+        from trading_agent.research.artifact import canonical_params, sha256_hex
+        from trading_agent.authority.promotion_store import PromotionRecord
+        from trading_agent.research.promotion import ResearchStage
+        import polars as pl
 
         # Use isolated state dir to avoid cross-test pollution
         state_dir = tmp_path / "paper_state"
@@ -1079,11 +1085,44 @@ class TestEnginePaperE2E:
             price_precision=2,
             min_notional=10.0,
         )
+
+        # Create stores
+        promotion_store = PromotionStateStore(tmp_path / "promotion.db")
+        artifact_store = PersistentArtifactStore(tmp_path / "artifacts")
+
+        # Add a dummy promoted artifact
+        params = {"fast_period": 10, "slow_period": 30}
+        artifact = StrategyArtifact(
+            strategy_name="ma_crossover",
+            code_sha="abc123",
+            data_manifest_sha="data_sha",
+            parameter_hash=sha256_hex(canonical_params(params)),
+            execution_model_version="1.0",
+            framework_version="1.0",
+            metadata={
+                "symbol": "BTC/USDT",
+                "timeframe": "1h",
+                "parameters": params,
+                "calibration_state": "KNOWN",
+                "ood_state": "KNOWN",
+                "regime_state": "KNOWN",
+            },
+        )
+        artifact_store.add(artifact)
+        record = PromotionRecord(
+            artifact_id=artifact.artifact_id,
+            stage=ResearchStage.TESTNET_ELIGIBLE,
+            updated_at=datetime.now(UTC),
+        )
+        promotion_store.upsert(record)
+
         engine = ExecutionEngine(
             exchange=exchange,
             store=store,
             instrument_rules=instrument_rules,
             allow_backtest_new_exposure=True,
+            promotion_store=promotion_store,
+            artifact_store=artifact_store,
         )
         # Seed a price so the engine has a valid market observation
         engine.exchange.update_prices({"BTC/USDT": 50_000.0})
@@ -1112,6 +1151,8 @@ class TestEnginePaperE2E:
         )
 
         # Build a BUY signal with required exposure details for DecisionAuthority
+        # Need market data that generates BUY signal: flat at 50000 for 30 bars, then 10 bars at 50000, then 1 bar at 55000
+        prices = [50000.0] * 30 + [50000.0] * 10 + [55000.0]
         signal = AgentMessage(
             role="trader",
             signal="BUY",
@@ -1129,6 +1170,12 @@ class TestEnginePaperE2E:
                 "ood_score": 0.0,
                 "regime_state": "KNOWN",
                 "regime_entropy": 0.5,
+                "market_data": pl.DataFrame({
+                    "close": prices,
+                    "high": [p * 1.01 for p in prices],
+                    "low": [p * 0.99 for p in prices],
+                    "volume": [100.0] * len(prices),
+                }),
             },
         )
         orders = engine.execute_signal(signal, observation=observation)
@@ -1153,6 +1200,12 @@ class TestEnginePaperE2E:
         from trading_agent.execution.engine import ExecutionEngine
         from trading_agent.execution.paper_exchange import PaperExchange
         from trading_agent.execution.canonical.order_planner import InstrumentRules
+        from trading_agent.authority.promotion_store import PromotionStateStore
+        from trading_agent.research.artifact import PersistentArtifactStore, StrategyArtifact
+        from trading_agent.research.artifact import canonical_params, sha256_hex
+        from trading_agent.authority.promotion_store import PromotionRecord
+        from trading_agent.research.promotion import ResearchStage
+        import polars as pl
 
         state_dir = tmp_path / "paper_state"
         state_dir.mkdir()
@@ -1172,7 +1225,43 @@ class TestEnginePaperE2E:
             price_precision=2,
             min_notional=10.0,
         )
-        engine = ExecutionEngine(exchange=exchange, instrument_rules=instrument_rules)
+
+        # Create stores
+        promotion_store = PromotionStateStore(tmp_path / "promotion.db")
+        artifact_store = PersistentArtifactStore(tmp_path / "artifacts")
+
+        # Add a dummy promoted artifact
+        params = {"fast_period": 10, "slow_period": 30}
+        artifact = StrategyArtifact(
+            strategy_name="ma_crossover",
+            code_sha="abc123",
+            data_manifest_sha="data_sha",
+            parameter_hash=sha256_hex(canonical_params(params)),
+            execution_model_version="1.0",
+            framework_version="1.0",
+            metadata={
+                "symbol": "BTC/USDT",
+                "timeframe": "1h",
+                "parameters": params,
+                "calibration_state": "KNOWN",
+                "ood_state": "KNOWN",
+                "regime_state": "KNOWN",
+            },
+        )
+        artifact_store.add(artifact)
+        record = PromotionRecord(
+            artifact_id=artifact.artifact_id,
+            stage=ResearchStage.TESTNET_ELIGIBLE,
+            updated_at=datetime.now(UTC),
+        )
+        promotion_store.upsert(record)
+
+        engine = ExecutionEngine(
+            exchange=exchange,
+            instrument_rules=instrument_rules,
+            promotion_store=promotion_store,
+            artifact_store=artifact_store,
+        )
         # Use the symbol governed by the supplied instrument rules.
         engine.exchange.update_prices({"BTC/USDT": 50_000.0})
         now = datetime.now(UTC)
@@ -1196,7 +1285,15 @@ class TestEnginePaperE2E:
             signal="SELL",
             confidence=0.8,
             reasoning="test",
-            details={"symbol": "BTC/USDT"},
+            details={
+                "symbol": "BTC/USDT",
+                "market_data": pl.DataFrame({
+                    "close": [50000.0] * 40,
+                    "high": [51000.0] * 40,
+                    "low": [49000.0] * 40,
+                    "volume": [100.0] * 40,
+                }),
+            },
         )
         orders = engine.execute_signal(signal, observation=observation)
         # No order should be created because there's no position to sell

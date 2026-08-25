@@ -10,6 +10,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
+import polars as pl
 import pytest
 
 from trading_agent.agents.base import AgentMessage
@@ -1272,7 +1273,7 @@ class TestTwoConnectionConcurrency:
 class TestExecutionEngineE2E:
     """Actual ExecutionEngine end-to-end flow: signal → execution → fill → state."""
 
-    def test_engine_execute_signal_full_flow(self):
+    def test_engine_execute_signal_full_flow(self, tmp_path):
         from unittest.mock import MagicMock
         from trading_agent.execution.engine import ExecutionEngine
         from trading_agent.execution.canonical.order_planner import (
@@ -1280,8 +1281,46 @@ class TestExecutionEngineE2E:
             OrderPlanningStatus,
         )
         from trading_agent.execution.application import CanonicalExecutionService
+        from trading_agent.authority.promotion_store import PromotionStateStore, PromotionRecord
+        from trading_agent.research.artifact import PersistentArtifactStore, StrategyArtifact
+        from trading_agent.research.artifact import canonical_params, sha256_hex
+        from trading_agent.research.promotion import ResearchStage
 
-        engine = ExecutionEngine(exchange_name="paper")
+        # Create stores
+        promotion_store = PromotionStateStore(tmp_path / "promotion.db")
+        artifact_store = PersistentArtifactStore(tmp_path / "artifacts")
+
+        # Add a dummy promoted artifact
+        params = {"fast_period": 10, "slow_period": 30}
+        artifact = StrategyArtifact(
+            strategy_name="ma_crossover",
+            code_sha="abc123",
+            data_manifest_sha="data_sha",
+            parameter_hash=sha256_hex(canonical_params(params)),
+            execution_model_version="1.0",
+            framework_version="1.0",
+            metadata={
+                "symbol": "BTC/USDT",
+                "timeframe": "1h",
+                "parameters": params,
+                "calibration_state": "KNOWN",
+                "ood_state": "KNOWN",
+                "regime_state": "KNOWN",
+            },
+        )
+        artifact_store.add(artifact)
+        record = PromotionRecord(
+            artifact_id=artifact.artifact_id,
+            stage=ResearchStage.TESTNET_ELIGIBLE,
+            updated_at=datetime.now(UTC),
+        )
+        promotion_store.upsert(record)
+
+        engine = ExecutionEngine(
+            exchange_name="paper",
+            promotion_store=promotion_store,
+            artifact_store=artifact_store,
+        )
 
         # Seed price cache so engine can build TrustedPrice with exchange_timestamp
         engine.exchange._last_price_cache["BTC/USDT"] = 50000.0
@@ -1326,6 +1365,12 @@ class TestExecutionEngineE2E:
                 "symbol": "BTC/USDT",
                 "quantity": 0.01,
                 "price": 50000.0,
+                "market_data": pl.DataFrame({
+                    "close": [50000.0] * 40,
+                    "high": [51000.0] * 40,
+                    "low": [49000.0] * 40,
+                    "volume": [100.0] * 40,
+                }),
             },
         )
 
@@ -1359,6 +1404,11 @@ class TestExecutionEngineE2E:
             TargetExposure,
         )
         from trading_agent.authority.causation import new_chain
+        from trading_agent.authority.promotion_store import PromotionStateStore
+        from trading_agent.research.artifact import PersistentArtifactStore, StrategyArtifact
+        from trading_agent.research.artifact import canonical_params, sha256_hex
+        from trading_agent.authority.promotion_store import PromotionRecord
+        from trading_agent.research.promotion import ResearchStage
 
         event_store = ExecutionEventStore(tmp_path / "engine-unknown.db").connect()
         # Need instrument_rules for execution_authority to be created
@@ -1375,8 +1425,43 @@ class TestExecutionEngineE2E:
             max_notional=1000000.0,
             spot_long_only=True,
         )
+
+        # Create stores
+        promotion_store = PromotionStateStore(tmp_path / "promotion.db")
+        artifact_store = PersistentArtifactStore(tmp_path / "artifacts")
+
+        # Add a dummy promoted artifact
+        params = {"fast_period": 10, "slow_period": 30}
+        artifact = StrategyArtifact(
+            strategy_name="ma_crossover",
+            code_sha="abc123",
+            data_manifest_sha="data_sha",
+            parameter_hash=sha256_hex(canonical_params(params)),
+            execution_model_version="1.0",
+            framework_version="1.0",
+            metadata={
+                "symbol": "BTC/USDT",
+                "timeframe": "1h",
+                "parameters": params,
+                "calibration_state": "KNOWN",
+                "ood_state": "KNOWN",
+                "regime_state": "KNOWN",
+            },
+        )
+        artifact_store.add(artifact)
+        record = PromotionRecord(
+            artifact_id=artifact.artifact_id,
+            stage=ResearchStage.TESTNET_ELIGIBLE,
+            updated_at=datetime.now(UTC),
+        )
+        promotion_store.upsert(record)
+
         engine = ExecutionEngine(
-            exchange_name="paper", store=event_store, instrument_rules=rules
+            exchange_name="paper",
+            store=event_store,
+            instrument_rules=rules,
+            promotion_store=promotion_store,
+            artifact_store=artifact_store,
         )
 
         # Mock execution_service since engine is created without instrument_rules
@@ -1413,6 +1498,12 @@ class TestExecutionEngineE2E:
                 "symbol": "BTC/USDT",
                 "quantity": 0.01,
                 "price": 50000.0,
+                "market_data": pl.DataFrame({
+                    "close": [50000.0] * 40,
+                    "high": [51000.0] * 40,
+                    "low": [49000.0] * 40,
+                    "volume": [100.0] * 40,
+                }),
             },
         )
 
@@ -2301,6 +2392,11 @@ class TestP1ConvergenceProofs:
         from trading_agent.authority.causation import new_chain
         from trading_agent.execution.canonical import InstrumentRules
         from trading_agent.exchanges.models import AssetClass
+        from trading_agent.authority.promotion_store import PromotionStateStore
+        from trading_agent.research.artifact import PersistentArtifactStore, StrategyArtifact
+        from trading_agent.research.artifact import canonical_params, sha256_hex
+        from trading_agent.authority.promotion_store import PromotionRecord
+        from trading_agent.research.promotion import ResearchStage
 
         store = ExecutionEventStore(str(tmp_path / "events.db")).connect()
         # Need instrument_rules for execution_authority to be created
@@ -2315,8 +2411,43 @@ class TestP1ConvergenceProofs:
             max_notional=1000000.0,
             spot_long_only=True,
         )
+
+        # Create stores
+        promotion_store = PromotionStateStore(tmp_path / "promotion.db")
+        artifact_store = PersistentArtifactStore(tmp_path / "artifacts")
+
+        # Add a dummy promoted artifact
+        params = {"fast_period": 10, "slow_period": 30}
+        artifact = StrategyArtifact(
+            strategy_name="ma_crossover",
+            code_sha="abc123",
+            data_manifest_sha="data_sha",
+            parameter_hash=sha256_hex(canonical_params(params)),
+            execution_model_version="1.0",
+            framework_version="1.0",
+            metadata={
+                "symbol": "BTC/USDT",
+                "timeframe": "1h",
+                "parameters": params,
+                "calibration_state": "KNOWN",
+                "ood_state": "KNOWN",
+                "regime_state": "KNOWN",
+            },
+        )
+        artifact_store.add(artifact)
+        record = PromotionRecord(
+            artifact_id=artifact.artifact_id,
+            stage=ResearchStage.TESTNET_ELIGIBLE,
+            updated_at=datetime.now(UTC),
+        )
+        promotion_store.upsert(record)
+
         engine = ExecutionEngine(
-            exchange_name="paper", store=store, instrument_rules=rules
+            exchange_name="paper",
+            store=store,
+            instrument_rules=rules,
+            promotion_store=promotion_store,
+            artifact_store=artifact_store,
         )
         engine.execution_service = MagicMock(spec=CanonicalExecutionService)
         engine.exchange._last_price_cache["BTC/USDT"] = 50000.0
@@ -2349,6 +2480,12 @@ class TestP1ConvergenceProofs:
                 "symbol": "BTC/USDT",
                 "quantity": 0.01,
                 "price": 50000.0,
+                "market_data": pl.DataFrame({
+                    "close": [50000.0] * 40,
+                    "high": [51000.0] * 40,
+                    "low": [49000.0] * 40,
+                    "volume": [100.0] * 40,
+                }),
             },
         )
 
@@ -2506,7 +2643,7 @@ class TestP1ConvergenceProofs:
         # Engine should not raise; UNKNOWN is handled gracefully
         assert isinstance(orders, list)
 
-    def test_engine_full_state_restart_preserves_orders(self):
+    def test_engine_full_state_restart_preserves_orders(self, tmp_path):
         """P0-9: Engine full-state restart must preserve in-flight orders."""
         import os
         from unittest.mock import patch, MagicMock
@@ -2526,6 +2663,11 @@ class TestP1ConvergenceProofs:
         )
         from trading_agent.authority.causation import new_chain
         from trading_agent.execution.lifecycle.lifecycle import ExposureEffect
+        from trading_agent.authority.promotion_store import PromotionStateStore
+        from trading_agent.research.artifact import PersistentArtifactStore, StrategyArtifact
+        from trading_agent.research.artifact import canonical_params, sha256_hex
+        from trading_agent.authority.promotion_store import PromotionRecord
+        from trading_agent.research.promotion import ResearchStage
 
         with tempfile.TemporaryDirectory() as tmpdir:
             # Use tmpdir as cwd so engine's relative DB path resolves here
@@ -2543,9 +2685,42 @@ class TestP1ConvergenceProofs:
                     min_notional=10.0,
                 )
 
+                # Create stores
+                promotion_store = PromotionStateStore(tmp_path / "promotion.db")
+                artifact_store = PersistentArtifactStore(tmp_path / "artifacts")
+
+                # Add a dummy promoted artifact
+                params = {"fast_period": 10, "slow_period": 30}
+                artifact = StrategyArtifact(
+                    strategy_name="ma_crossover",
+                    code_sha="abc123",
+                    data_manifest_sha="data_sha",
+                    parameter_hash=sha256_hex(canonical_params(params)),
+                    execution_model_version="1.0",
+                    framework_version="1.0",
+                    metadata={
+                        "symbol": "BTC/USDT",
+                        "timeframe": "1h",
+                        "parameters": params,
+                        "calibration_state": "KNOWN",
+                        "ood_state": "KNOWN",
+                        "regime_state": "KNOWN",
+                    },
+                )
+                artifact_store.add(artifact)
+                record = PromotionRecord(
+                    artifact_id=artifact.artifact_id,
+                    stage=ResearchStage.TESTNET_ELIGIBLE,
+                    updated_at=datetime.now(UTC),
+                )
+                promotion_store.upsert(record)
+
                 # Phase 1: Create engine, submit an order, then "crash"
                 engine1 = ExecutionEngine(
-                    exchange_name="paper", instrument_rules=instrument_rules
+                    exchange_name="paper",
+                    instrument_rules=instrument_rules,
+                    promotion_store=promotion_store,
+                    artifact_store=artifact_store,
                 )
                 engine1.exchange._last_price_cache["BTC/USDT"] = 50000.0
                 engine1.exchange._last_price_timestamps["BTC/USDT"] = datetime.now(
@@ -2577,6 +2752,12 @@ class TestP1ConvergenceProofs:
                         "symbol": "BTC/USDT",
                         "quantity": 0.01,
                         "price": 50000.0,
+                        "market_data": pl.DataFrame({
+                            "close": [50000.0] * 40,
+                            "high": [51000.0] * 40,
+                            "low": [49000.0] * 40,
+                            "volume": [100.0] * 40,
+                        }),
                     },
                 )
 

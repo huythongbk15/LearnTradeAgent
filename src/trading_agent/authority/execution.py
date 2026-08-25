@@ -31,7 +31,7 @@ from trading_agent.execution.canonical import (
     OrderIntent,
     OrderPlanner,
 )
-from trading_agent.execution.canonical.broker_gateway import BrokerSubmitResult
+from trading_agent.execution.canonical.broker_gateway import BrokerSubmitResult, BrokerSubmitState
 from trading_agent.execution.lifecycle import ExecutionLifecycle
 from trading_agent.execution.permission import (
     PermissionContext,
@@ -186,6 +186,23 @@ class ExecutionAuthority:
                 authorization_id=authorization_id,
                 correlation_id=intent_id,
             )
+
+            # Record broker submission result in lifecycle (for fill tracking)
+            from trading_agent.execution.canonical.broker_gateway import (
+                BrokerSubmitFact,
+            )
+
+            broker_fact = BrokerSubmitFact(
+                state=broker_result.state or BrokerSubmitState.UNKNOWN,
+                broker_order_id=broker_result.broker_order_id,
+                client_order_id=intent_id,
+                venue=broker_result.venue,
+                broker_status=broker_result.broker_status,
+                observed_at=broker_result.observed_at or datetime.now(UTC),
+                error=broker_result.error,
+                raw_response=dict(broker_result.raw_response or {}),
+            )
+            self.lifecycle.record_broker_submit_result(intent_id, broker_fact)
 
             # 5. Build causation chain
             chain = chain.append(

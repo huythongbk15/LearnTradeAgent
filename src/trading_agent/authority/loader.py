@@ -171,6 +171,10 @@ class RuntimeLoader:
 
     Watches artifact store for new PRODUCTION promotions and loads them
     without process restart. Emits causation chain for audit.
+
+    PRODUCTION REQUIREMENT: PromotionStateStore MUST be provided.
+    Without it, the loader cannot authoritatively determine promotion status.
+    Use TestRuntimeLoader for tests that need metadata fallback.
     """
 
     def __init__(
@@ -181,6 +185,13 @@ class RuntimeLoader:
         poll_interval_seconds: float = 30.0,
         promotion_store: PromotionStateStore | None = None,
     ):
+        # Production requires authoritative promotion store
+        if promotion_store is None:
+            raise ValueError(
+                "RuntimeLoader requires PromotionStateStore for authoritative promotion lookup. "
+                "For tests, use TestRuntimeLoader(allow_unverified_test_metadata=True)."
+            )
+
         self.artifact_store = artifact_store
         self.manifest_dir = Path(manifest_dir)
         self.manifest_dir.mkdir(parents=True, exist_ok=True)
@@ -280,30 +291,19 @@ class RuntimeLoader:
     def _is_production_ready(self, artifact: StrategyArtifact) -> bool:
         """Check if artifact has been promoted to an eligible stage.
 
-        Uses the authoritative PromotionStateStore when available.
-        Falls back to artifact metadata only if no store is configured
-        (test/research scenarios only).
+        Uses the authoritative PromotionStateStore — REQUIRED in production.
         """
-        if self.promotion_store is not None:
-            stage = self.promotion_store.get_stage(artifact.artifact_id)
-            if stage is None:
-                return False
-            # Map stage to legacy "production_ready" boolean
-            # Any stage >= PAPER_ELIGIBLE is considered ready for runtime
-            from trading_agent.authority.promotion_store import (
-                _STAGE_RANK,
-                _ENV_MIN_STAGE,
-            )
+        stage = self.promotion_store.get_stage(artifact.artifact_id)
+        if stage is None:
+            return False
+        # Map stage to legacy "production_ready" boolean
+        # Any stage >= PAPER_ELIGIBLE is considered ready for runtime
+        from trading_agent.authority.promotion_store import _STAGE_RANK, _ENV_MIN_STAGE
 
-            min_rank = _STAGE_RANK.get(
-                _ENV_MIN_STAGE.get("paper", ResearchStage.PAPER_ELIGIBLE), 0
-            )
-            return _STAGE_RANK.get(stage, -1) >= min_rank
-
-        # Fallback for tests without promotion store
-        # In production this path must NOT be used
-        promo_stage = artifact.metadata.get("promotion_stage", "")
-        return promo_stage in ("production", "canary", "testnet")
+        min_rank = _STAGE_RANK.get(
+            _ENV_MIN_STAGE.get("paper", ResearchStage.PAPER_ELIGIBLE), 0
+        )
+        return _STAGE_RANK.get(stage, -1) >= min_rank
 
     def _load_artifact(self, artifact: StrategyArtifact) -> PromotedStrategy:
         """Load artifact into memory and write manifest."""
@@ -313,26 +313,21 @@ class RuntimeLoader:
             if existing and existing.verify_param_hash():
                 return existing
 
-            # Get promotion stage from authoritative store (not metadata)
-            promotion_stage = "paper"  # default fallback
-            if self.promotion_store is not None:
-                stage = self.promotion_store.get_stage(artifact.artifact_id)
-                if stage is not None:
-                    promotion_stage = stage.value
-                else:
-                    # Not promoted — fail closed
-                    logger.warning(
-                        f"Artifact {artifact.artifact_id} has no promotion record"
-                    )
-                    raise ValueError(f"Artifact {artifact.artifact_id} is not promoted")
-            else:
-                # Fallback for tests without promotion store
-                promotion_stage = artifact.metadata.get("promotion_stage", "paper")
-                if promotion_stage not in ("production", "canary", "testnet", "paper"):
-                    logger.warning(
-                        f"Artifact {artifact.artifact_id} has invalid promotion stage in metadata: {promotion_stage}"
-                    )
-                    promotion_stage = "paper"
+            # Get promotion stage from authoritative store (REQUIRED)
+            stage = self.promotion_store.get_stage(artifact.artifact_id)
+            if stage is None:
+                logger.warning(
+                    f"Artifact {artifact.artifact_id} has no promotion record"
+                )
+                raise ValueError(f"Artifact {artifact.artifact_id} is not promoted")
+            promotion_stage = stage.value
+
+            # Get promotion event for promoted_at/promoted_by
+            latest_event = self.promotion_store.get_latest_event(artifact.artifact_id)
+            promoted_at = (
+                latest_event.timestamp if latest_event else artifact.created_at
+            )
+            promoted_by = latest_event.actor if latest_event else "system"
 
             # Create manifest with authoritative promotion stage
             manifest = PromotedStrategyManifest(
@@ -342,8 +337,8 @@ class RuntimeLoader:
                 parameter_hash=artifact.parameter_hash,
                 execution_model_version=artifact.execution_model_version,
                 framework_version=artifact.framework_version,
-                promoted_at=artifact.created_at,
-                promoted_by=artifact.metadata.get("promoted_by", "system"),
+                promoted_at=promoted_at,
+                promoted_by=promoted_by,
                 promotion_stage=promotion_stage,
                 parameters=artifact.metadata.get("parameters", {}),
                 metadata=artifact.metadata,
@@ -471,9 +466,72 @@ def on_promotion_to_production(
     return strategy
 
 
+# ── TestRuntimeLoader ───────────────────────────────────────────────────
+
+
+class TestRuntimeLoader(RuntimeLoader):
+    """
+    Test-only RuntimeLoader that allows unverified metadata fallback.
+
+    WARNING: This class MUST NOT be used in production.
+    It exists solely for unit/integration tests where a full
+    PromotionStateStore is not available.
+
+    Usage:
+        loader = TestRuntimeLoader(
+            artifact_store=store,
+            allow_unverified_test_metadata=True,
+        )
+    """
+
+    def __init__(
+        self,
+        artifact_store: PersistentArtifactStore,
+        manifest_dir: str | Path = "data/promoted_strategies",
+        config: AuthorityConfig | None = None,
+        poll_interval_seconds: float = 30.0,
+        promotion_store: PromotionStateStore | None = None,
+        allow_unverified_test_metadata: bool = False,
+    ):
+        if not allow_unverified_test_metadata:
+            raise ValueError(
+                "TestRuntimeLoader requires allow_unverified_test_metadata=True. "
+                "This is a TEST-ONLY class — do not use in production."
+            )
+        super().__init__(
+            artifact_store=artifact_store,
+            manifest_dir=manifest_dir,
+            config=config,
+            poll_interval_seconds=poll_interval_seconds,
+            promotion_store=promotion_store,
+        )
+        self._allow_unverified = True
+
+    def _is_production_ready(self, artifact: StrategyArtifact) -> bool:
+        """Test mode: allow metadata fallback."""
+        # First try authoritative store
+        if self.promotion_store is not None:
+            stage = self.promotion_store.get_stage(artifact.artifact_id)
+            if stage is not None:
+                from trading_agent.authority.promotion_store import (
+                    _STAGE_RANK,
+                    _ENV_MIN_STAGE,
+                )
+
+                min_rank = _STAGE_RANK.get(
+                    _ENV_MIN_STAGE.get("paper", ResearchStage.PAPER_ELIGIBLE), 0
+                )
+                return _STAGE_RANK.get(stage, -1) >= min_rank
+
+        # Test mode: allow metadata fallback
+        promo_stage = artifact.metadata.get("promotion_stage", "")
+        return promo_stage in ("production", "canary", "testnet", "paper")
+
+
 __all__ = [
     "PromotedStrategy",
     "PromotedStrategyManifest",
     "RuntimeLoader",
+    "TestRuntimeLoader",
     "on_promotion_to_production",
 ]

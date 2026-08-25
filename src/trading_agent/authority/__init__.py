@@ -84,6 +84,7 @@ from trading_agent.authority.loader import (
     PromotedStrategy,
     PromotedStrategyManifest,
     RuntimeLoader,
+    TestRuntimeLoader,
     on_promotion_to_production,
 )
 
@@ -148,6 +149,7 @@ __all__ = [
     "PromotedStrategy",
     "PromotedStrategyManifest",
     "RuntimeLoader",
+    "TestRuntimeLoader",
     "on_promotion_to_production",
     # Resolver
     "RuntimeStrategyResolver",
