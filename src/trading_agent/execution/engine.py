@@ -348,9 +348,17 @@ class ExecutionEngine:
         strategy_runtime: StrategyRuntime,
         market_data: Any,
         observation: EnrichedMarketObservation | None,
+        *,
+        portfolio_snapshot: PortfolioSnapshot | None = None,
     ) -> PairPreparedDecision:
         """Resolve → StrategyOutput → DecisionAuthority. NO allocation,
-        NO exposure validation, NO broker I/O after this point in prepare."""
+        NO exposure validation, NO broker I/O after this point in prepare.
+
+        When ``portfolio_snapshot`` is provided (batch/backtest mode),
+        current position / equity / cash / total portfolio exposure are
+        taken from that authoritative snapshot INSTEAD of live broker
+        state — this is what makes historical replay decision-identical.
+        """
         symbol = strategy_runtime.symbol
         timeframe = strategy_runtime.timeframe
 
@@ -409,12 +417,19 @@ class ExecutionEngine:
             return _no_action("bad_observation")
 
         # ── Build DecisionInput from StrategyOutput ──────────────────
-        existing_pos = self.exchange.get_position(symbol)
-        current_qty = existing_pos.quantity if existing_pos else 0.0
+        # Portfolio truth: historical snapshot when injected (backtest /
+        # batch replay), live broker state otherwise (live trading).
+        if portfolio_snapshot is not None:
+            current_qty = float(portfolio_snapshot.positions.get(symbol, 0.0))
+            equity = float(portfolio_snapshot.equity)
+            available_cash = float(portfolio_snapshot.available_cash)
+        else:
+            existing_pos = self.exchange.get_position(symbol)
+            current_qty = existing_pos.quantity if existing_pos else 0.0
+            equity = self.exchange.get_total_equity()
+            available_cash = self.exchange.get_balance("USDT")
         current_notional = current_qty * current_price
-        equity = self.exchange.get_total_equity()
         current_exposure = current_notional / equity if equity > 0 else 0.0
-        available_cash = self.exchange.get_balance("USDT")
 
         decision_input = DecisionInput(
             strategy_output=strategy_output,  # Direct StrategyOutput path
@@ -469,16 +484,22 @@ class ExecutionEngine:
             authority_chain=decision_output.causation_chain.links,
         )
 
-        total_portfolio_exposure = (
-            sum(
-                (pos.quantity * self.exchange._last_price_cache.get(pos.symbol, 0.0))
-                / equity
-                for pos in self.exchange.get_all_positions()
-                if pos.is_active
+        if portfolio_snapshot is not None:
+            total_portfolio_exposure = float(portfolio_snapshot.gross_exposure)
+        else:
+            total_portfolio_exposure = (
+                sum(
+                    (
+                        pos.quantity
+                        * self.exchange._last_price_cache.get(pos.symbol, 0.0)
+                    )
+                    / equity
+                    for pos in self.exchange.get_all_positions()
+                    if pos.is_active
+                )
+                if equity > 0
+                else 0.0
             )
-            if equity > 0
-            else 0.0
-        )
 
         return PairPreparedDecision(
             symbol=symbol,
@@ -506,12 +527,18 @@ class ExecutionEngine:
         timeframe: str,
         environment: str | Environment,
         market_data_input: MarketDataInput,
+        *,
+        portfolio_snapshot: PortfolioSnapshot | None = None,
     ) -> PairPreparedDecision | None:
         """No-I/O preparation of ONE promoted binding (batch stage).
 
         Resolves the promoted artifact, runs the strategy, seeds the price,
         and runs DecisionAuthority. Performs NO allocation, NO exposure
         validation, NO order planning, NO broker I/O.
+
+        When ``portfolio_snapshot`` is given, DecisionInput / current
+        position / cash / equity come from that snapshot (historical
+        ledger in backtest mode) instead of live broker state.
 
         Returns None when no eligible promotion record exists (fail-closed
         upstream: required-universe policy treats None as a failed binding).
@@ -544,7 +571,10 @@ class ExecutionEngine:
             )
 
         return self._prepare_from_runtime(
-            strategy_runtime, market_data_input.data, observation
+            strategy_runtime,
+            market_data_input.data,
+            observation,
+            portfolio_snapshot=portfolio_snapshot,
         )
 
     def build_observation(self, market_data_input: MarketDataInput) -> Any:

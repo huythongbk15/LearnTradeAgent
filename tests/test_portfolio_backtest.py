@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 import polars as pl
 import pytest
@@ -27,6 +28,8 @@ from tests.test_multi_pair_runtime import (
 )
 from trading_agent.authority.config import AuthorityConfig, Environment
 from trading_agent.backtest.portfolio_backtest import PortfolioBacktestEngine
+from trading_agent.execution.batch_models import wrap_market_data
+from trading_agent.execution.multi_pair_runtime import MultiPairRuntime
 from trading_agent.research.promotion import ResearchStage
 
 TF_SEC = 3600
@@ -403,5 +406,341 @@ class TestDeterminism:
                 .to_dict()
             )
             assert r1 == r2
+        finally:
+            eng._graceful_shutdown()
+
+
+# ── Milestone D: MultiPairRuntime N=1 vs PortfolioBacktestEngine N=1 ─────
+
+
+class TestParityLiveCycleVsBacktest:
+    """REAL parity: the LIVE batch cycle (MultiPairRuntime.run_cycle with
+    broker submission stubbed out) and the historical backtest must produce
+    IDENTICAL authority outputs BEFORE the broker boundary — same prepared
+    decision inputs, same approved target, same plan quantity.
+
+    Both sides run resolver → strategy → DecisionAuthority → batch
+    allocation → ExposureAuthority → planner on the SAME market frame and
+    the SAME starting portfolio truth (flat, $100k).
+    """
+
+    def test_authority_outputs_identical_before_broker(
+        self, config, stores, temp_dir
+    ):
+        from tests.test_multi_pair_runtime import _buy_at_last_bar_df
+        from trading_agent.execution.batch_models import (
+            PlannedAction,
+            PlannedSubmissionOutcome,
+        )
+
+        binding = ("BTC/USDT", "1h")
+        rules = {"BTC/USDT": _instrument_rules("BTC/USDT")}
+        df = _buy_at_last_bar_df(60_000.0)  # crossover lands on LAST bar
+
+        # ONE promoted artifact shared by BOTH engines (immutable store)
+        promotion_store, artifact_store = stores
+        art = _make_artifact(
+            artifact_store,
+            promotion_store,
+            symbol="BTC/USDT",
+            timeframe="1h",
+            fast=10,
+            slow=30,
+        )
+
+        # ── LIVE side: MultiPairRuntime with broker boundary stubbed ──
+        eng_live = _build_engine(config, stores, temp_dir, rules)
+        live_plans: list[Any] = []
+        live_prepared: dict[str, Any] = {}
+        try:
+            original_prepare = eng_live.prepare_promoted_strategy
+
+            def spy_prepare(**kw):
+                out = original_prepare(**kw)
+                if out is not None and out.prepare_status == "ok":
+                    live_prepared[kw["symbol"]] = out
+                return out
+
+            eng_live.prepare_promoted_strategy = spy_prepare
+
+            def stub_submit(plan):
+                live_plans.append(plan)
+                return PlannedSubmissionOutcome(
+                    plan=plan,
+                    order=object(),  # sentinel: "reached broker"
+                    submit_state="ACCEPTED",
+                    barrier=False,
+                    submitted=True,
+                )
+
+            eng_live.submit_planned_order = stub_submit
+
+            runtime = MultiPairRuntime(eng_live)
+
+            def provider(symbol: str, timeframe: str):
+                return df if (symbol, timeframe) == binding else None
+
+            report = runtime.run_cycle(environment="paper", market_data_provider=provider)
+        finally:
+            eng_live._graceful_shutdown()
+
+        assert len(live_plans) == 1, (
+            f"expected exactly one live plan, got {len(live_plans)}; "
+            f"report={report.to_dict()}"
+        )
+        live_plan = live_plans[0]
+        assert live_plan.action is PlannedAction.INCREASE
+        assert "BTC/USDT" in live_prepared
+        assert live_prepared["BTC/USDT"].current_exposure == pytest.approx(0.0)
+        assert live_prepared["BTC/USDT"].equity == pytest.approx(100_000.0)
+
+        # ── BACKTEST side: same chain over the historical clock ──
+        eng_bt = _build_engine(config, stores, temp_dir, rules)
+        bt_plans: list[Any] = []
+        try:
+            original_plan = eng_bt.plan_pair_order
+
+            def spy_plan(finalized):
+                plan = original_plan(finalized)
+                bt_plans.append(plan)
+                return plan
+
+            eng_bt.plan_pair_order = spy_plan
+
+            pbt = PortfolioBacktestEngine(
+                eng_bt, bars={binding: df}, initial_cash=100_000.0
+            )
+            result = pbt.run("paper")
+        finally:
+            eng_bt._graceful_shutdown()
+
+        # The signal bar is the LAST bar ⇒ the queued order can never fill;
+        # parity is asserted on PLAN outputs (pre-broker), not fills.
+        assert len(bt_plans) == 1, f"expected one backtest plan, got {bt_plans}"
+        bt_plan = bt_plans[0]
+        assert bt_plan.action is PlannedAction.INCREASE
+        assert result.expired_orders == 1  # stayed queued past data end
+
+        # ── PARITY: authority outputs identical before broker boundary ──
+        lp, bp = live_plan, bt_plan
+        lp_prep = lp.finalized.prepared
+        bp_prep = bp.finalized.prepared
+
+        # decision inputs from portfolio truth
+        assert lp_prep.current_exposure == pytest.approx(bp_prep.current_exposure, abs=1e-12)
+        assert lp_prep.equity == pytest.approx(bp_prep.equity, rel=1e-12)
+        assert lp_prep.available_cash == pytest.approx(bp_prep.available_cash, rel=1e-12)
+        assert lp_prep.total_portfolio_exposure == pytest.approx(
+            bp_prep.total_portfolio_exposure, abs=1e-12
+        )
+        assert lp_prep.current_price == pytest.approx(bp_prep.current_price, rel=1e-12)
+
+        # risk decision semantics
+        assert bool(lp_prep.risk_decision.reduce_only) == bool(
+            bp_prep.risk_decision.reduce_only
+        )
+        assert lp_prep.risk_decision.requested_target_exposure == pytest.approx(
+            bp_prep.risk_decision.requested_target_exposure, rel=1e-12
+        )
+
+        # approved target after batch allocation
+        assert lp.finalized.approved_target_exposure == pytest.approx(
+            bp.finalized.approved_target_exposure, rel=1e-12
+        )
+
+        # planned order quantity (same math both sides ⇒ near-exact)
+        assert lp.quantity == pytest.approx(bp.quantity, rel=1e-9)
+        assert float(lp.quantity) > 0
+
+    def test_snapshot_injection_changes_decision_inputs(
+        self, config, stores, temp_dir
+    ):
+        """prepare_promoted_strategy(portfolio_snapshot=...) must derive
+        current position / equity / cash from the snapshot, NOT live state.
+        """
+        from tests.test_multi_pair_runtime import _buy_at_last_bar_df
+        from trading_agent.authority.portfolio import (
+            PortfolioSnapshot,
+            ReconciliationState,
+        )
+
+        rules = {"BTC/USDT": _instrument_rules("BTC/USDT")}
+        eng = _build_engine(config, stores, temp_dir, rules)
+        try:
+            promotion_store, artifact_store = stores
+            art = _make_artifact(
+                artifact_store,
+                promotion_store,
+                symbol="BTC/USDT",
+                timeframe="1h",
+                fast=10,
+                slow=30,
+            )
+            df = _buy_at_last_bar_df(60_000.0)
+
+            snapshot = PortfolioSnapshot(
+                equity=250_000.0,           # ≠ live paper equity (100k)
+                available_cash=40_000.0,    # ≠ live paper cash
+                positions={"ETH/USDT": 3.0},  # ≠ live positions ({})
+                symbol_exposures={"ETH/USDT": 0.36},
+                gross_exposure=0.36,
+                reconciliation_state=ReconciliationState.RECONCILED,
+            )
+
+            prepared = eng.prepare_promoted_strategy(
+                symbol="BTC/USDT",
+                timeframe="1h",
+                environment="paper",
+                market_data_input=wrap_market_data(
+                    "BTC/USDT", "1h", df, source="parity-test"
+                ),
+                portfolio_snapshot=snapshot,
+            )
+            assert prepared is not None and prepared.prepare_status == "ok"
+            assert prepared.equity == pytest.approx(250_000.0)
+            assert prepared.available_cash == pytest.approx(40_000.0)
+            assert prepared.total_portfolio_exposure == pytest.approx(0.36)
+            assert prepared.current_quantity == pytest.approx(0.0)  # BTC flat in snap
+        finally:
+            eng._graceful_shutdown()
+
+
+# ── Broker execution phases + queued reservations ────────────────────────
+
+
+class TestBrokerPhaseAndReservations:
+    def _flat_df(self, n: int = 8, price: float = 100.0) -> pl.DataFrame:
+        start = datetime(2024, 1, 1, tzinfo=UTC)
+        stamps = [start + timedelta(hours=i) for i in range(n)]
+        return pl.DataFrame(
+            {
+                "timestamp": stamps,
+                "open": [price] * n,
+                "high": [price] * n,
+                "low": [price] * n,
+                "close": [price] * n,
+                "volume": [10.0] * n,
+            }
+        )
+
+    def _q(self, key, side, qty, dt, phase=None, ref=100.0, symbol="BTC/USDT"):
+        from trading_agent.backtest.portfolio_backtest import QueuedOrder
+
+        return QueuedOrder(
+            idempotency_key=key,
+            symbol=symbol,
+            side=side,
+            quantity=qty,
+            reference_price=ref,
+            decision_time=dt,
+            **({"phase": phase} if phase else {}),
+        )
+
+    def test_reduction_settles_before_increase(self, config, stores, temp_dir):
+        from trading_agent.backtest.portfolio_backtest import (
+            HistoricalSimulationBroker,
+        )
+
+        rules = {"BTC/USDT": _instrument_rules("BTC/USDT")}
+        eng = _build_engine(config, stores, temp_dir, rules)
+        try:
+            df = self._flat_df()
+            pbt = PortfolioBacktestEngine(
+                eng, bars={("BTC/USDT", "1h"): df}, initial_cash=100.0
+            )
+            broker = HistoricalSimulationBroker(100.0)
+            clock = pbt.clock
+            dt = df["timestamp"][2]  # fills at bar[3] open
+
+            # INCREASE queued EARLIER but must settle AFTER the reduction
+            broker.queue(self._q("b1", "buy", 1.0, dt))
+            broker.queue(self._q("s1", "sell", 1.0, dt, phase="reduction"))
+
+            fills = broker.settle(df["timestamp"][3], clock, [("BTC/USDT", "1h")])
+            assert [f.side for f in fills] == ["sell", "buy"], (
+                "REDUCTION must settle before INCREASE"
+            )
+            # freed sell cash made the buy affordable: cash stays positive
+            assert broker.cash > 0
+            assert broker.pending_count == 0
+        finally:
+            eng._graceful_shutdown()
+
+    def test_reserved_cash_and_inventory_count_pending(self, config, stores, temp_dir):
+        from trading_agent.backtest.portfolio_backtest import (
+            HistoricalSimulationBroker,
+        )
+
+        rules = {"BTC/USDT": _instrument_rules("BTC/USDT")}
+        eng = _build_engine(config, stores, temp_dir, rules)
+        try:
+            df = self._flat_df()
+            pbt = PortfolioBacktestEngine(
+                eng, bars={("BTC/USDT", "1h"): df}, initial_cash=100.0
+            )
+            broker = HistoricalSimulationBroker(
+                100.0, fee_bps=10.0, slippage_bps=5.0
+            )
+            dt = df["timestamp"][2]
+            broker.queue(self._q("b1", "buy", 2.0, dt, ref=50.0))
+            broker.queue(self._q("s1", "sell", 0.5, dt))
+
+            est_notional = 2.0 * 50.0
+            expected_reserved = est_notional * (
+                1 + 10.0 / 10_000.0 + 5.0 / 10_000.0
+            )
+            assert broker.reserved_cash() == pytest.approx(expected_reserved)
+            assert broker.reserved_inventory("BTC/USDT") == pytest.approx(0.5)
+            assert broker.reserved_inventory("ETH/USDT") == 0.0
+
+            # nothing eligible to fill yet (settle BEFORE dt's next bar)
+            fills = broker.settle(df["timestamp"][2], pbt.clock, [("BTC/USDT", "1h")])
+            assert fills == []
+            # reservations persist while orders stay queued
+            assert broker.reserved_cash() == pytest.approx(expected_reserved)
+        finally:
+            eng._graceful_shutdown()
+
+    def test_snapshot_reflects_reservations(self, config, stores, temp_dir):
+        """Snapshot must hide reserved inventory/cash from decisions while
+        marking equity on FULL holdings."""
+        from trading_agent.authority.config import Environment
+        from trading_agent.authority.portfolio import ReconciliationState as RS
+        from trading_agent.backtest.portfolio_backtest import (
+            HistoricalSimulationBroker,
+        )
+
+        rules = {"BTC/USDT": _instrument_rules("BTC/USDT")}
+        eng = _build_engine(config, stores, temp_dir, rules)
+        try:
+            df = self._flat_df(price=200.0)
+            pbt = PortfolioBacktestEngine(
+                eng, bars={("BTC/USDT", "1h"): df}, initial_cash=100.0
+            )
+            broker = HistoricalSimulationBroker(100.0)
+            broker.cash = 50_000.0
+            broker.positions["BTC/USDT"] = {"qty": 2.0, "avg_px": 200.0}
+            dt = df["timestamp"][2]
+            broker.queue(self._q("s1", "sell", 0.5, dt, phase="reduction"))
+            broker.queue(self._q("b1", "buy", 1.0, dt, ref=200.0))
+
+            snap = pbt._build_snapshot(df["timestamp"][4], broker, Environment.PAPER)
+
+            # effective inventory = held − pending sell
+            assert snap.positions["BTC/USDT"] == pytest.approx(1.5)
+            # equity marked on FULL held qty at last close
+            assert snap.equity == pytest.approx(50_000.0 + 2.0 * 200.0)
+            # available cash net of pending-buy reservation
+            expected_reserved = 1.0 * 200.0 * (1 + 10e-4 + 5e-4)
+            assert snap.available_cash == pytest.approx(
+                50_000.0 - expected_reserved
+            )
+            assert snap.reserved_cash == pytest.approx(expected_reserved)
+            assert snap.reserved_inventory == pytest.approx(0.5)
+            # exposure computed off EFFECTIVE qty
+            assert snap.symbol_exposures["BTC/USDT"] == pytest.approx(
+                1.5 * 200.0 / snap.equity
+            )
+            assert snap.reconciliation_state is RS.RECONCILED
         finally:
             eng._graceful_shutdown()

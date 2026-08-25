@@ -210,6 +210,9 @@ class QueuedOrder:
     quantity: float
     reference_price: float
     decision_time: datetime
+    # Execution phase: "reduction" (risk-reducing) settles BEFORE any
+    # "increase" so freed cash/inventory is usable in the same batch.
+    phase: str = "increase"
 
 
 class HistoricalSimulationBroker:
@@ -249,16 +252,58 @@ class HistoricalSimulationBroker:
     def pending_count(self) -> int:
         return len(self._queued)
 
+    # ── queued reservations (orders awaiting earliest-t+1 fills) ────────
+
+    def reserved_cash(self) -> float:
+        """Cash committed to pending BUYs (notional + fee + slippage est.
+
+        Decisions made while a BUY is unfilled must not double-spend the
+        same cash — mirrors live broker reserved-balance semantics.
+        """
+        total = 0.0
+        for o in self._queued:
+            if o.side != "buy":
+                continue
+            est_notional = o.quantity * o.reference_price
+            fee = est_notional * self.fee_bps / 10_000.0
+            slip = est_notional * self.slippage_bps / 10_000.0
+            total += est_notional + fee + slip
+        return total
+
+    def reserved_inventory(self, symbol: str) -> float:
+        """Quantity committed to pending SELLs for ``symbol``.
+
+        While a SELL is unfilled the planner must treat that inventory as
+        already spoken for (prevents duplicate-reduction drift).
+        """
+        return sum(
+            o.quantity
+            for o in self._queued
+            if o.symbol == symbol and o.side == "sell"
+        )
+
     def settle(
         self,
         now: datetime,
         clock: HistoricalMarketClock,
         bindings: list[tuple[str, str]],
     ) -> list[SimFill]:
-        """Fill every queued order eligible at ``now`` (earliest t+1)."""
+        """Fill every queued order eligible at ``now`` (earliest t+1).
+
+        Fill priority: REDUCTION before INCREASE (risk reduction is never
+        starved by new exposure), then per-symbol FIFO by decision time.
+        """
         filled: list[SimFill] = []
         remaining: list[QueuedOrder] = []
-        for order in sorted(self._queued, key=lambda o: (o.symbol, o.decision_time)):
+
+        def _sort_key(o: QueuedOrder) -> tuple:
+            return (
+                0 if o.phase == "reduction" else 1,
+                o.symbol,
+                o.decision_time,
+            )
+
+        for order in sorted(self._queued, key=_sort_key):
             binding = None
             for b in bindings:
                 if b[0] == order.symbol:
@@ -474,13 +519,20 @@ class PortfolioBacktestEngine:
         symbol_exposures: dict[str, float] = {}
         gross = 0.0
         equity = broker.equity(prices)
+        reserved_inventory_total = 0.0
         for sym, pos in broker.positions.items():
             if pos["qty"] <= 0:
                 continue
-            positions[sym] = pos["qty"]
+            # Effective inventory = held − pending SELLs (reservation-aware).
+            # Equity above is marked on FULL held qty (correct money value);
+            # decision inputs see the effective qty so a queued reduction is
+            # never double-counted by the planner.
+            effective_qty = max(pos["qty"] - broker.reserved_inventory(sym), 0.0)
+            reserved_inventory_total += pos["qty"] - effective_qty
+            positions[sym] = effective_qty
             px = prices.get(sym)
             if px is not None and equity > 0:
-                expo = pos["qty"] * px / equity
+                expo = effective_qty * px / equity
                 symbol_exposures[sym] = expo
                 gross += expo
             else:
@@ -490,15 +542,18 @@ class PortfolioBacktestEngine:
         state = (
             ReconciliationState.DEGRADED if unvalued else ReconciliationState.RECONCILED
         )
+        reserved_cash = broker.reserved_cash()
         return PortfolioSnapshot(
             equity=max(equity, 0.0),
-            available_cash=max(broker.cash, 0.0),
+            available_cash=max(broker.cash - reserved_cash, 0.0),
             positions=positions,
             symbol_exposures=symbol_exposures,
             gross_exposure=gross,
             untracked_symbols=untracked_symbols,
             untracked_exposure=0.0,
             untracked_valued=all(s not in unvalued for s in untracked_symbols),
+            reserved_cash=reserved_cash,
+            reserved_inventory=reserved_inventory_total,
             observed_at=now,
             reconciliation_state=state,
         )
@@ -632,6 +687,7 @@ class PortfolioBacktestEngine:
                             timeframe=timeframe,
                             environment=env,
                             market_data_input=market_batch[binding],
+                            portfolio_snapshot=snapshot,
                         )
                     except Exception as e:
                         logger.error("prepare[%s %s]: %s", symbol, timeframe, e)
@@ -762,6 +818,11 @@ class PortfolioBacktestEngine:
                                     plan.finalized.prepared.current_price
                                 ),
                                 decision_time=now,
+                                phase=(
+                                    "reduction"
+                                    if plan.action is PlannedAction.REDUCTION
+                                    else "increase"
+                                ),
                             )
                         )
                         else 0
