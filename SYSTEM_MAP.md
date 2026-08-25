@@ -262,8 +262,17 @@ tests/test_legacy_cutover_migration.py # Legacy migration tests
 - Hot-reload in live trading: `execution run-promoted` starts a `RuntimeLoader`
   watcher (`--hot-reload/--no-hot-reload`, default on); resolver already re-reads
   the store every cycle so newer promotions win without restart.
-- Tests: `tests/test_promotion_bridge.py` (8) — golden bridge, idempotency,
-  atomic fail-closed, hot-swap v1→v2, loader manifest.
+- Tests: `tests/test_promotion_bridge.py` (10) — golden bridge, idempotency,
+  atomic fail-closed, hot-swap v1→v2, loader manifest, concurrency regression.
+- **PortfolioBacktestEngine** (`backtest/portfolio_backtest.py`) — portfolio-level
+  backtest that swaps ONLY clock+broker: HistoricalMarketClock (union bar-close
+  timeline, no lookahead) + HistoricalSimulationBroker (deterministic fills at
+  earliest t+1, shared cash/positions ledger) while reusing resolver →
+  StrategyRuntime → StrategyOutput → allocate_batch → PortfolioTargetVector →
+  risk/planner/preflight verbatim. Metrics: equity curve, drawdown, exposure/
+  turnover/cost history, per-symbol contribution (exact cash-flow identity).
+  Tests `test_portfolio_backtest.py` (5): N=1 parity, N>1 shared-cap,
+  permutation determinism, replay identity.
 
 ### ⏳ MILESTONE E — Observability & Replay (PENDING)
 - Deterministic replay from event store
