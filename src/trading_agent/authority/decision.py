@@ -183,6 +183,7 @@ class DecisionAuthority:
 
         # Extract signal and confidence from StrategyOutput
         signal = output.signal
+        metadata = output.metadata
 
         # Handle polars Series (from generate_signals)
         if hasattr(signal, "to_numpy"):
@@ -192,7 +193,9 @@ class DecisionAuthority:
             reduce_only = last_val < 0
         elif hasattr(signal, "upper"):
             signal_str = signal.upper()
-            reduce_only = getattr(signal, "reduce_only", False)
+            reduce_only = signal_str == "SELL" or bool(
+                metadata.get("reduce_only", False)
+            )
         else:
             signal_str = str(signal).upper() if signal else "HOLD"
             reduce_only = False
@@ -201,7 +204,6 @@ class DecisionAuthority:
         target_exposure_pct = output.target_exposure_pct
 
         # Evidence states from artifact metadata (set during promotion)
-        metadata = output.metadata
         calibration_state = metadata.get("calibration_state", "UNKNOWN")
         calibration_ece = metadata.get("calibration_ece", 1.0)
         ood_state = metadata.get("ood_state", "UNKNOWN")

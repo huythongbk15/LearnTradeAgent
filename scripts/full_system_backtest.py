@@ -31,10 +31,20 @@ os.environ["USE_LLM"] = os.environ.get("USE_LLM", "false")
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
-import numpy as np
 import polars as pl
 
-from trading_agent.agents.base import AgentMessage
+from trading_agent.authority.config import AuthorityConfig, Environment
+from trading_agent.authority.promotion_store import PromotionStateStore
+from trading_agent.backtest.reporting import (
+    DataQualityReport,
+    GapPolicy,
+    assess_ohlcv,
+    calculate_cost_attribution,
+    calculate_performance_metrics,
+    calendar_returns,
+    fingerprint_payload,
+    fixed_allocation_buy_and_hold,
+)
 from trading_agent.config.loader import config
 from trading_agent.data.storage import load_ohlcv
 from trading_agent.execution import risk_controller as rc_module
@@ -46,6 +56,13 @@ from trading_agent.execution.canonical.instrument_registry import (
 )
 from trading_agent.execution.engine import ExecutionEngine
 from trading_agent.execution.risk_controller import RiskController
+from trading_agent.research.artifact import (
+    PersistentArtifactStore,
+    StrategyArtifact,
+    canonical_params,
+    sha256_hex,
+)
+from trading_agent.research.promotion import ResearchPromotionEvent, ResearchStage
 from trading_agent.strategies.enhanced_ma import EnhancedMaCrossover
 
 
@@ -68,8 +85,6 @@ MAX_DRAWDOWN_PCT = float(os.getenv("MAX_DRAWDOWN_PCT", "0.15"))
 DAILY_LOSS_LIMIT_PCT = float(os.getenv("DAILY_LOSS_LIMIT_PCT", "0.08"))
 MAX_POSITION_PCT = float(os.getenv("MAX_POSITION_PCT", "0.50"))
 STOP_LOSS_PCT = float(os.getenv("STOP_LOSS_PCT", "0.05"))
-TAKE_PROFIT_PCT = float(os.getenv("TAKE_PROFIT_PCT", "0.15"))
-TRAILING_STOP_PCT = float(os.getenv("TRAILING_STOP_PCT", "0.07"))
 COOLDOWN_HOURS = float(os.getenv("COOLDOWN_HOURS", "24"))
 MAX_POS_SIZE_PCT = float(os.getenv("MAX_POS_SIZE_PCT", "0.25"))
 
@@ -116,11 +131,13 @@ class FullSystemSimulator:
         allow_new_exposure: bool = True,
         state_flush_bars: int = 100,
         data_manifest_id: str | None = None,
+        gap_policy: GapPolicy = "record",
     ):
         self.symbol = symbol or os.getenv("SYMBOL", SYMBOL)
         self.timeframe = timeframe or os.getenv("TIMEFRAME", TIMEFRAME)
         self.exchange = EXCHANGE
         self.timeframe_delta = _timeframe_delta(self.timeframe)
+        self.gap_policy = gap_policy
 
         safe_symbol = self.symbol.replace("/", "_").replace(":", "_")
         resolved_run_id = (
@@ -167,27 +184,32 @@ class FullSystemSimulator:
 
         # Load data
         print(f"📥 Loading {self.symbol} {self.timeframe} from {self.exchange}...")
-        self.df = load_ohlcv(self.exchange, self.symbol, self.timeframe).sort(
-            "timestamp"
+        source_df = load_ohlcv(self.exchange, self.symbol, self.timeframe)
+        self.source_data_quality = assess_ohlcv(
+            source_df,
+            expected_interval=self.timeframe_delta,
+            gap_policy=self.gap_policy,
         )
+        self.df = source_df.sort("timestamp")
         print(
             f"   {self.df.height} bars: {self.df['timestamp'].min()} → {self.df['timestamp'].max()}"
         )
 
         # Initialize strategy
-        strategy_params = {
+        self.strategy_params = {
             "fast_period": FAST_MA,
             "slow_period": SLOW_MA,
             "adx_threshold": ADX_THRESHOLD,
             "atr_sl_mult": ATR_SL_MULT,
             "atr_tp_mult": ATR_TP_MULT,
+            "target_exposure_pct": MAX_POS_SIZE_PCT,
         }
-        self.strategy = EnhancedMaCrossover(strategy_params)
+        self.strategy = EnhancedMaCrossover(self.strategy_params)
         feature_identity = json.dumps(
             {
                 "data_manifest_id": self.data_manifest_id,
                 "strategy": "enhanced_ma",
-                "params": strategy_params,
+                "params": self.strategy_params,
             },
             sort_keys=True,
             separators=(",", ":"),
@@ -195,6 +217,41 @@ class FullSystemSimulator:
         self.feature_artifact_id = (
             f"sha256:{hashlib.sha256(feature_identity).hexdigest()}"
         )
+
+        # Bind the backtest to a local, immutable, paper-eligible strategy artifact.
+        self.artifact_store = PersistentArtifactStore(self.state_dir / "artifacts")
+        self.promotion_store = PromotionStateStore(self.state_dir / "promotion.db")
+        strategy_artifact = StrategyArtifact(
+            strategy_name="enhanced_ma",
+            code_sha=_sha256_file(
+                ROOT / "src" / "trading_agent" / "strategies" / "enhanced_ma.py"
+            ),
+            data_manifest_sha=self.data_manifest_id,
+            parameter_hash=sha256_hex(canonical_params(self.strategy_params)),
+            execution_model_version="full-system-v2",
+            framework_version="authority-chain-v1",
+            metadata={
+                "symbol": self.symbol,
+                "timeframe": self.timeframe,
+                "parameters": self.strategy_params,
+                "calibration_state": "KNOWN",
+                "ood_state": "KNOWN",
+                "regime_state": "KNOWN",
+                "source": "full_system_backtest",
+            },
+        )
+        self.artifact_store.add(strategy_artifact)
+        self.promotion_store.upsert_from_event(
+            ResearchPromotionEvent(
+                subject_artifact_id=strategy_artifact.artifact_id,
+                from_stage=ResearchStage.RESEARCH_VALIDATED,
+                to_stage=ResearchStage.PAPER_ELIGIBLE,
+                evidence_ids=(self.data_manifest_id, self.feature_artifact_id),
+                actor="full_system_backtest",
+                timestamp=datetime.now(UTC),
+            )
+        )
+        self.strategy_artifact_id = strategy_artifact.artifact_id
 
         # Pre-compute indicators on full dataset
         print("🔧 Computing strategy indicators...")
@@ -208,6 +265,9 @@ class FullSystemSimulator:
         self.signals = self.df.select(pl.col("signal")).to_series().to_list()
 
         # Khởi tạo execution engine + risk controller
+        authority_config = AuthorityConfig.for_environment(Environment.PAPER)
+        authority_config.exposure.max_single_strategy_exposure = MAX_POS_SIZE_PCT
+        authority_config.exposure.max_portfolio_exposure = MAX_POSITION_PCT
         self.engine = ExecutionEngine(
             exchange_name=EXCHANGE,
             initial_capital=INITIAL_CAPITAL,
@@ -217,7 +277,22 @@ class FullSystemSimulator:
             allow_backtest_new_exposure=allow_new_exposure,
             paper_price_persist_interval=state_flush_bars,
             disable_paper_telemetry=True,
+            protective_stop_loss_pct=STOP_LOSS_PCT,
+            authority_config=authority_config,
+            promotion_store=self.promotion_store,
+            artifact_store=self.artifact_store,
         )
+        if self.engine.resolver is None:
+            raise RuntimeError("paper strategy resolver was not initialized")
+        self.strategy_runtime = self.engine.resolver.resolve_for(
+            self.symbol,
+            self.timeframe,
+            Environment.PAPER,
+        )
+        if self.strategy_runtime is None:
+            raise RuntimeError(
+                "paper-eligible enhanced_ma artifact could not be resolved"
+            )
         self.risk = RiskController(
             self.engine,
             max_drawdown_pct=MAX_DRAWDOWN_PCT,
@@ -237,6 +312,10 @@ class FullSystemSimulator:
         self.circuit_breakers: list[str] = []
         self._breaker_active = False
         self._entry_state: dict[str, dict] = {}
+        self._stamped_trade_ids: set[str] = set()
+        self._run_start = 0
+        self._run_end = 0
+        self._run_data_quality: DataQualityReport | None = None
 
     def _position_pct(self, price: float) -> float:
         """% portfolio đang nằm trong vị thế."""
@@ -245,6 +324,146 @@ class FullSystemSimulator:
             return 0.0
         equity = self.engine.exchange.get_total_equity()
         return (pos.quantity * price) / equity if equity > 0 else 0.0
+
+    def _attach_entry_context(
+        self,
+        *,
+        at: datetime,
+        bar_index: int,
+        reference_price: float,
+        regime_info: dict[str, object],
+    ) -> None:
+        """Attach deterministic simulation evidence to the active position."""
+        position = self.engine.exchange.get_position(self.symbol)
+        if not position or not position.is_active:
+            return
+        position.opened_at = at
+        position.updated_at = at
+        position.metadata["sizing_method"] = "artifact_target_authority_capped"
+        position.metadata["simulation"] = {
+            "time_source": "simulated_bar",
+            "entry_time": at.isoformat(),
+            "entry_bar_index": bar_index,
+            "entry_reference_price": reference_price,
+            "entry_reference_type": "bar_open",
+            "min_reference_price": reference_price,
+            "max_reference_price": reference_price,
+            "entry_regime": regime_info,
+        }
+
+    def _update_position_excursion(self, reference_price: float) -> None:
+        position = self.engine.exchange.get_position(self.symbol)
+        if not position or not position.is_active:
+            return
+        simulation = position.metadata.get("simulation")
+        if not isinstance(simulation, dict):
+            return
+        simulation["min_reference_price"] = min(
+            float(simulation.get("min_reference_price", reference_price)),
+            reference_price,
+        )
+        simulation["max_reference_price"] = max(
+            float(simulation.get("max_reference_price", reference_price)),
+            reference_price,
+        )
+
+    def _stamp_new_trades(
+        self,
+        *,
+        at: datetime,
+        bar_index: int,
+        reference_price: float,
+        reference_type: str,
+    ) -> None:
+        """Replace wall-clock broker timestamps with simulated-bar evidence."""
+        for trade in self.engine.exchange.get_trade_history(limit=1_000_000):
+            if trade.id in self._stamped_trade_ids:
+                continue
+            metadata = trade.metadata
+            simulation = metadata.get("simulation")
+            if not isinstance(simulation, dict):
+                simulation = {}
+                metadata["simulation"] = simulation
+            entry_time_value = simulation.get("entry_time")
+            if isinstance(entry_time_value, str):
+                entry_time = datetime.fromisoformat(entry_time_value)
+            else:
+                entry_time = trade.entry_time or at
+            if entry_time.tzinfo is None:
+                entry_time = entry_time.replace(tzinfo=UTC)
+            else:
+                entry_time = entry_time.astimezone(UTC)
+            trade.entry_time = entry_time
+            trade.exit_time = at
+            duration_seconds = max(0.0, (at - entry_time).total_seconds())
+            holding_bars = int(
+                round(duration_seconds / self.timeframe_delta.total_seconds())
+            )
+            entry_price = float(trade.entry_price)
+            minimum = float(simulation.get("min_reference_price", entry_price))
+            maximum = float(simulation.get("max_reference_price", entry_price))
+            simulation.update(
+                {
+                    "time_source": "simulated_bar",
+                    "entry_time": entry_time.isoformat(),
+                    "exit_time": at.isoformat(),
+                    "exit_bar_index": bar_index,
+                    "exit_reference_price": reference_price,
+                    "exit_reference_type": reference_type,
+                    "exit_time_precision": (
+                        "exact_bar_open"
+                        if reference_type == "bar_open"
+                        else "bar_close_proxy"
+                    ),
+                    "holding_bars": holding_bars,
+                    "mae_pct": (minimum / entry_price - 1.0) * 100,
+                    "mfe_pct": (maximum / entry_price - 1.0) * 100,
+                }
+            )
+            self._stamped_trade_ids.add(trade.id)
+
+    def _active_config(self) -> dict[str, object]:
+        exchange = self.engine.exchange
+        payload: dict[str, object] = {
+            "strategy": {
+                "strategy_id": "enhanced_ma",
+                "strategy_artifact_id": self.strategy_artifact_id,
+                "parameters": self.strategy_params,
+                "feature_artifact_id": self.feature_artifact_id,
+            },
+            "protection": {
+                "stop_loss": {"enabled": True, "distance_pct": STOP_LOSS_PCT * 100},
+                "take_profit": {"enabled": False},
+                "trailing_stop": {"enabled": False},
+            },
+            "sizing": {
+                "method": "artifact_target_authority_capped",
+                "requested_target_exposure_pct": MAX_POS_SIZE_PCT * 100,
+                "max_target_exposure_pct": MAX_POS_SIZE_PCT * 100,
+                "max_position_pct": MAX_POSITION_PCT * 100,
+            },
+            "risk": {
+                "max_drawdown_pct": MAX_DRAWDOWN_PCT * 100,
+                "daily_loss_limit_pct": DAILY_LOSS_LIMIT_PCT * 100,
+                "cooldown_hours": COOLDOWN_HOURS,
+            },
+            "cost_model": {
+                "commission_rate": float(exchange.commission),
+                "slippage_rate": float(exchange.slippage),
+                "spread_rate": 0.0,
+                "market_impact_rate": 0.0,
+                "estimated_round_trip_cost_bps": float(
+                    2.0 * (exchange.commission + exchange.slippage) * 10_000
+                ),
+            },
+            "data_policy": {
+                "gap_policy": self.gap_policy,
+                "imputation": "disabled",
+            },
+            "execution_timing": "decision_on_closed_bar_execute_next_bar_open",
+            "intrabar_price_path": "open_then_low_then_close",
+        }
+        return {"config_id": fingerprint_payload(payload), **payload}
 
     def run(
         self, start: int = 0, end: int | None = None, freq: int = 1
@@ -256,9 +475,17 @@ class FullSystemSimulator:
         if end <= start:
             raise ValueError(f"Invalid bar window: start={start}, end={end}")
         n = end - start
+        self._run_start = start
+        self._run_end = end
+        self._run_data_quality = assess_ohlcv(
+            self.df.slice(start, n),
+            expected_interval=self.timeframe_delta,
+            gap_policy=self.gap_policy,
+        )
         print(f"🚀 Simulating bars {start}→{end} ({n} bars, decision mỗi {freq}h)")
         print(
-            f"   SL={STOP_LOSS_PCT:.0%} TP={TAKE_PROFIT_PCT:.0%} Trail={TRAILING_STOP_PCT:.0%} | Cooldown={COOLDOWN_HOURS:.0f}h\n"
+            f"   SL={STOP_LOSS_PCT:.0%} | TP=off | Trail=off | "
+            f"Position cap={MAX_POS_SIZE_PCT:.0%} | Cooldown={COOLDOWN_HOURS:.0f}h\n"
         )
 
         for i in range(start, end):
@@ -290,7 +517,14 @@ class FullSystemSimulator:
             _SimClock.current = bar_open_at
 
             # 1. Mark at the next tradable open before any decision.
+            self._update_position_excursion(price)
             self.engine.update_prices({self.symbol: price})
+            self._stamp_new_trades(
+                at=bar_open_at,
+                bar_index=i,
+                reference_price=price,
+                reference_type="bar_open",
+            )
 
             # 2. Risk checks (max DD, daily loss, circuit breaker)
             alerts = self.risk.check_all()
@@ -311,19 +545,10 @@ class FullSystemSimulator:
                 and not breaker_on
                 and not any("Cooldown" in a for a in alerts)
             ):
-                equity = self.engine.exchange.get_total_equity()
                 pos_pct = self._position_pct(price)
 
                 # Only act on crossover signals (non-zero)
                 if signal != 0:
-                    # Calculate position size using risk controller dynamic sizing
-                    # Get ATR for this bar
-                    atr = (
-                        float(decision_row.get("atr", 0))
-                        if decision_row.get("atr")
-                        else None
-                    )
-
                     # Get regime info
                     regime_info = {
                         "vol_regime": decision_row.get("vol_regime"),
@@ -334,26 +559,9 @@ class FullSystemSimulator:
                     }
 
                     position = self.engine.exchange.get_position(self.symbol)
-                    max_target_exposure = 0.0
                     if signal == 1:  # BUY
                         if position and position.is_active and position.quantity > 0:
                             signal = 0  # Already long, skip
-                        else:
-                            pos_size = self.risk.calculate_position_size(
-                                symbol=self.symbol,
-                                price=price,
-                                atr=atr,
-                                regime_info=regime_info
-                                if any(v is not None for v in regime_info.values())
-                                else None,
-                            )
-                            if pos_size <= 0:
-                                signal = 0
-                            else:
-                                max_target_exposure = min(
-                                    MAX_POS_SIZE_PCT,
-                                    pos_size * price / equity,
-                                )
                     elif signal == -1:  # SELL (exit to flat)
                         if (
                             not position
@@ -362,23 +570,9 @@ class FullSystemSimulator:
                         ):
                             # No position to exit, skip SELL signal
                             signal = 0
-                        else:
-                            # Exit signal - use full position size to flatten
-                            max_target_exposure = 0.0  # target 0 exposure
 
                     if signal != 0:
-                        msg = AgentMessage(
-                            role="trader",
-                            signal="BUY" if signal == 1 else "SELL",
-                            confidence=0.65,
-                            reasoning=f"enhanced_ma: MA{FAST_MA}/{SLOW_MA} crossover with ADX>{ADX_THRESHOLD}",
-                            details={
-                                "symbol": self.symbol,
-                                "strategy": "enhanced_ma",
-                            },
-                            max_position_size_pct=max_target_exposure,
-                            risk_level="medium",
-                        )
+                        signal_name = "BUY" if signal == 1 else "SELL"
 
                         self.signal_log.append(
                             {
@@ -386,10 +580,12 @@ class FullSystemSimulator:
                                 "executed_at": str(ts),
                                 "price": price,
                                 "position_pct": pos_pct,
-                                "signal": msg.signal,
-                                "confidence": msg.confidence,
-                                "risk": msg.risk_level,
-                                "max_pos": msg.max_position_size_pct,
+                                "signal": signal_name,
+                                "confidence": 0.5,
+                                "risk": "authority_chain",
+                                "max_pos": MAX_POS_SIZE_PCT
+                                if signal == 1
+                                else 0.0,
                             }
                         )
 
@@ -419,13 +615,27 @@ class FullSystemSimulator:
                         )
 
                         # Execute
-                        for order in self.engine.execute_signal(
-                            msg, observation=observation
-                        ):
-                            pos = self.engine.exchange.get_position(self.symbol)
+                        market_data = self.df.slice(0, signal_index + 1).select(
+                            "timestamp", "open", "high", "low", "close", "volume"
+                        )
+                        orders = self.engine.execute_strategy(
+                            self.strategy_runtime,
+                            market_data,
+                            observation,
+                        )
+                        self.signal_log[-1]["authority_trace"] = dict(
+                            self.engine.last_strategy_execution
+                        )
+                        for order in orders:
                             side = order.side.value
                             amount = float(order.filled_amount or order.amount)
                             if side == "buy":
+                                self._attach_entry_context(
+                                    at=bar_open_at,
+                                    bar_index=i,
+                                    reference_price=price,
+                                    regime_info=regime_info,
+                                )
                                 self._entry_state[self.symbol] = {
                                     "price": price,
                                     "amount": amount,
@@ -455,14 +665,34 @@ class FullSystemSimulator:
                             print(
                                 f"   {side} {order.filled_amount or order.amount:.4f} @ ${price:,.2f} @ {ts}"
                             )
+                        self._stamp_new_trades(
+                            at=bar_open_at,
+                            bar_index=i,
+                            reference_price=price,
+                            reference_type="bar_open",
+                        )
 
             # 4. Simulate adverse excursion, then mark at this bar's close.
             _SimClock.current = bar_close_at
             low_price = float(row["low"])
             close_price = float(row["close"])
             if low_price < price:
+                self._update_position_excursion(low_price)
                 self.engine.update_prices({self.symbol: low_price})
+                self._stamp_new_trades(
+                    at=bar_close_at,
+                    bar_index=i,
+                    reference_price=low_price,
+                    reference_type="bar_low",
+                )
+            self._update_position_excursion(close_price)
             self.engine.update_prices({self.symbol: close_price})
+            self._stamp_new_trades(
+                at=bar_close_at,
+                bar_index=i,
+                reference_price=close_price,
+                reference_type="bar_close",
+            )
             self.equity_curve.append(
                 (bar_close_at.isoformat(), self.engine.exchange.get_total_equity())
             )
@@ -489,36 +719,39 @@ class FullSystemSimulator:
             trade.to_dict()
             for trade in self.engine.exchange.get_trade_history(limit=1_000_000)
         ]
-        eq_values = np.array([e[1] for e in self.equity_curve])
-        equity_with_initial = np.concatenate(([INITIAL_CAPITAL], eq_values))
-        prior_equity = equity_with_initial[:-1]
-        returns = np.diff(equity_with_initial) / prior_equity
-        returns = returns[np.isfinite(returns)]
-
-        total_return = (eq_values[-1] / INITIAL_CAPITAL - 1) * 100
-        periods_per_year = timedelta(days=365).total_seconds() / (
-            self.timeframe_delta.total_seconds()
+        metrics = calculate_performance_metrics(
+            self.equity_curve,
+            initial_capital=INITIAL_CAPITAL,
+            timeframe_delta=self.timeframe_delta,
+            trades=self.trade_log,
         )
-        sharpe = (
-            (returns.mean() / returns.std() * np.sqrt(periods_per_year))
-            if len(returns) > 1 and returns.std() > 0
-            else 0
+        cost_attribution = calculate_cost_attribution(self.trade_log)
+        window = self.df.slice(self._run_start, self._run_end - self._run_start)
+        benchmark = fixed_allocation_buy_and_hold(
+            [float(value) for value in window["close"].to_list()],
+            entry_reference_price=float(window["open"][0]),
+            initial_capital=INITIAL_CAPITAL,
+            allocation_pct=MAX_POS_SIZE_PCT,
+            commission_rate=float(self.engine.exchange.commission),
+            slippage_rate=float(self.engine.exchange.slippage),
+            timeframe_delta=self.timeframe_delta,
         )
-        running_peak = np.maximum.accumulate(equity_with_initial)
-        max_dd = float(
-            np.max((running_peak - equity_with_initial) / running_peak) * 100
+        yearly_returns = calendar_returns(
+            self.equity_curve, initial_capital=INITIAL_CAPITAL
         )
-
-        wins = [t for t in self.trade_log if t.get("pnl", 0) > 0]
-        losses = [t for t in self.trade_log if t.get("pnl", 0) < 0]
-        win_rate = len(wins) / len(self.trade_log) * 100 if self.trade_log else 0
-        avg_win = np.mean([t["pnl"] for t in wins]) if wins else 0
-        avg_loss = abs(np.mean([t["pnl"] for t in losses])) if losses else 0
-        gross_profit = float(sum(t["pnl"] for t in wins))
-        gross_loss = float(abs(sum(t["pnl"] for t in losses)))
-        profit_factor: float | None = (
-            gross_profit / gross_loss if gross_loss > 0 else None
-        )
+        active_config = self._active_config()
+        first_bar_at = datetime.fromisoformat(str(window["timestamp"][0]))
+        last_bar_at = datetime.fromisoformat(str(window["timestamp"][-1]))
+        if first_bar_at.tzinfo is None:
+            first_bar_at = first_bar_at.replace(tzinfo=UTC)
+        if last_bar_at.tzinfo is None:
+            last_bar_at = last_bar_at.replace(tzinfo=UTC)
+        simulation_window = {
+            "start_at": first_bar_at.astimezone(UTC).isoformat(),
+            "end_at": (last_bar_at.astimezone(UTC) + self.timeframe_delta).isoformat(),
+            "bar_count": len(window),
+            "timeframe_seconds": int(self.timeframe_delta.total_seconds()),
+        }
 
         print(f"\n{'=' * 55}")
         print(
@@ -526,33 +759,28 @@ class FullSystemSimulator:
         )
         print(f"{'=' * 55}")
         print(f"   Vốn ban đầu:      ${INITIAL_CAPITAL:,.2f}")
-        print(f"   Vốn cuối:         ${eq_values[-1]:,.2f}")
-        print(f"   Tổng lợi nhuận:   {total_return:+.2f}%")
-        print(f"   Sharpe (hourly):  {sharpe:.2f}")
-        print(f"   Max Drawdown:     {max_dd:.2f}%")
-        print(f"   Tổng trades:      {len(self.trade_log)}")
-        print(f"   Win rate:         {win_rate:.1f}%")
-        print(f"   Avg win:          ${avg_win:,.2f}")
-        print(f"   Avg loss:         ${avg_loss:,.2f}")
+        print(f"   Vốn cuối:         ${metrics['final_equity']:,.2f}")
+        print(f"   Tổng lợi nhuận:   {metrics['total_return_pct']:+.2f}%")
+        print(f"   CAGR:             {metrics['cagr_pct']:+.2f}%")
+        print(f"   Sharpe năm hóa:   {metrics['sharpe']:.2f}")
+        print(f"   Sortino:          {metrics['sortino']:.2f}")
+        print(f"   Max Drawdown:     {metrics['max_drawdown_pct']:.2f}%")
+        print(f"   Tổng trades:      {metrics['total_trades']}")
+        print(f"   Win rate:         {metrics['win_rate_pct']:.1f}%")
+        print(f"   Avg win:          ${metrics['average_win']:,.2f}")
+        print(f"   Avg loss:         ${abs(metrics['average_loss']):,.2f}")
+        profit_factor = metrics["profit_factor"]
         profit_factor_display = (
             f"{profit_factor:.2f}" if profit_factor is not None else "N/A"
         )
         print(f"   Profit factor:    {profit_factor_display}")
+        print(f"   Chi phí mô hình:  ${cost_attribution['total_cost']:,.2f}")
         print(f"   Circuit breakers: {len(self.circuit_breakers)}")
 
         # Phân bố theo năm
         print("\n📅 PHÂN BỐ THEO NĂM")
-        from collections import defaultdict
-
-        yearly = defaultdict(list)
-        for ts, eq in self.equity_curve:
-            year = datetime.fromisoformat(str(ts)).year
-            yearly[year].append(eq)
-
-        for year in sorted(yearly.keys()):
-            eqs = yearly[year]
-            ret = (eqs[-1] / eqs[0] - 1) * 100
-            print(f"   {year}: ${eqs[0]:,.2f} → ${eqs[-1]:,.2f}  ({ret:+.2f}%)")
+        for year, value in yearly_returns.items():
+            print(f"   {year}: {value:+.2f}%")
 
         # 10 trades gần nhất
         open_positions = self.engine.exchange.get_all_positions()
@@ -575,6 +803,17 @@ class FullSystemSimulator:
             for intent_id, order in lifecycle_state.orders.items()
             if order.status.value == "manual"
         )
+        trade_evidence_complete = all(
+            isinstance(trade.get("metadata"), dict)
+            and isinstance(trade["metadata"].get("simulation"), dict)
+            and trade["metadata"]["simulation"].get("time_source")
+            == "simulated_bar"
+            and trade["metadata"]["simulation"].get("entry_reference_price")
+            is not None
+            and trade["metadata"]["simulation"].get("exit_reference_price")
+            is not None
+            for trade in self.trade_log
+        )
         execution_health = {
             "status": lifecycle_state.execution_health.value,
             "unknown_orders": len(unknown_order_ids),
@@ -585,12 +824,19 @@ class FullSystemSimulator:
                 self.engine.lifecycle.active_sell_reservations()
             ),
             "unprotected_positions": unprotected_positions,
+            "trade_evidence_complete": trade_evidence_complete,
         }
+        if self._run_data_quality is None:
+            raise RuntimeError("run data-quality evidence was not initialized")
         run_passed = (
             execution_health["status"] == "normal"
             and not unknown_order_ids
             and not manual_intent_ids
             and not unprotected_positions
+            and trade_evidence_complete
+            and self._run_data_quality.accepted
+            and bool(cost_attribution["complete"])
+            and abs(float(cost_attribution["reconciliation_error"])) <= 1e-8
         )
 
         print("\n🧾 10 TRADES GẦN NHẤT")
@@ -607,26 +853,40 @@ class FullSystemSimulator:
             )
 
         report: dict[str, object] = {
-            "schema_version": 1,
+            "schema_version": 2,
+            "report_type": "full_system_backtest",
             "run_id": self.run_id,
             "status": "passed" if run_passed else "failed",
             "symbol": self.symbol,
             "timeframe": self.timeframe,
             "exchange": EXCHANGE,
             "initial_capital": INITIAL_CAPITAL,
-            "final_equity": float(eq_values[-1]),
-            "total_return_pct": float(total_return),
-            "sharpe": float(sharpe),
-            "max_drawdown_pct": float(max_dd),
-            "total_trades": len(self.trade_log),
-            "win_rate_pct": float(win_rate),
+            "final_equity": metrics["final_equity"],
+            "total_return_pct": metrics["total_return_pct"],
+            "sharpe": metrics["sharpe"],
+            "max_drawdown_pct": metrics["max_drawdown_pct"],
+            "total_trades": metrics["total_trades"],
+            "win_rate_pct": metrics["win_rate_pct"],
             "profit_factor": profit_factor,
             "circuit_breakers": len(self.circuit_breakers),
             "signals_seen": len(self.signal_log),
+            "signals": self.signal_log,
             "open_positions": len(open_positions),
             "open_orders": len(open_orders),
             "execution_timing": "decision_on_closed_bar_execute_next_bar_open",
             "execution_health": execution_health,
+            "simulation_window": simulation_window,
+            "active_config": active_config,
+            "data_quality": {
+                "source": self.source_data_quality.to_dict(),
+                "window": self._run_data_quality.to_dict(),
+            },
+            "metrics": metrics,
+            "cost_attribution": cost_attribution,
+            "benchmarks": {
+                "fixed_allocation_buy_and_hold": benchmark,
+            },
+            "calendar_returns_pct": yearly_returns,
             "data_manifest_id": self.data_manifest_id,
             "feature_artifact_id": self.feature_artifact_id,
             "state_dir": str(self.state_dir),
@@ -678,6 +938,12 @@ def main():
         default=True,
         help="Explicitly authorize new exposure for this paper backtest only",
     )
+    parser.add_argument(
+        "--gap-policy",
+        choices=("record", "reject"),
+        default=os.getenv("BACKTEST_GAP_POLICY", "record"),
+        help="Record timestamp gaps as evidence or reject the run",
+    )
     args = parser.parse_args()
 
     sim = FullSystemSimulator(
@@ -689,6 +955,7 @@ def main():
         run_id=args.run_id,
         allow_new_exposure=args.allow_new_exposure,
         state_flush_bars=args.state_flush_bars,
+        gap_policy=args.gap_policy,
     )
     start = args.start
     if args.tail_bars is not None:

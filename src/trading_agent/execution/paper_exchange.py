@@ -830,6 +830,10 @@ class PaperExchange:
     ):
         """Record a completed trade."""
         sizing_method = pos.metadata.get("sizing_method", "unknown")
+        trade_metadata: dict[str, Any] = {"sizing_method": sizing_method}
+        simulation = pos.metadata.get("simulation")
+        if isinstance(simulation, dict):
+            trade_metadata["simulation"] = dict(simulation)
         trade = Trade(
             id=self._next_id("trade"),
             symbol=pos.symbol,
@@ -850,7 +854,7 @@ class PaperExchange:
             entry_order_id=(pos.metadata.get("entry_order_ids") or [None])[0],
             exit_order_id=order.id,
             reason=reason or "signal",
-            metadata={"sizing_method": sizing_method},
+            metadata=trade_metadata,
         )
         self.trades.append(trade)
         self._record_trade_telemetry(trade)

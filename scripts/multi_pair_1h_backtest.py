@@ -31,6 +31,9 @@ RUNS_DIR = ROOT / "data" / "backtests" / "multi_pair_1h"
 
 
 REQUIRED_METRICS = {
+    "schema_version",
+    "report_type",
+    "status",
     "symbol",
     "timeframe",
     "final_equity",
@@ -42,6 +45,12 @@ REQUIRED_METRICS = {
     "data_manifest_id",
     "feature_artifact_id",
     "execution_health",
+    "simulation_window",
+    "active_config",
+    "data_quality",
+    "metrics",
+    "cost_attribution",
+    "benchmarks",
 }
 FINITE_METRICS = {
     "final_equity",
@@ -82,6 +91,12 @@ def _validate_report(symbol: str, report: object) -> dict[str, object]:
     missing = sorted(REQUIRED_METRICS.difference(report))
     if missing:
         raise ValueError(f"child report missing required fields: {', '.join(missing)}")
+    if report["schema_version"] != 2:
+        raise ValueError("child report must use schema_version=2")
+    if report["report_type"] != "full_system_backtest":
+        raise ValueError("child report_type is not full_system_backtest")
+    if report["status"] != "passed":
+        raise ValueError(f"child report status is not passed: {report['status']}")
     if report["symbol"] != symbol or report["timeframe"] != TIMEFRAME:
         raise ValueError(
             "child report identity does not match requested symbol/timeframe"
@@ -109,9 +124,40 @@ def _validate_report(symbol: str, report: object) -> dict[str, object]:
         or bool(health.get("unknown_orders", 0))
         or bool(health.get("manual_interventions", 0))
         or bool(health.get("unprotected_positions", []))
+        or health.get("trade_evidence_complete") is not True
     )
     if unsafe_health:
         raise ValueError(f"unsafe terminal execution state: {health}")
+
+    data_quality = report["data_quality"]
+    if not isinstance(data_quality, dict):
+        raise ValueError("child data_quality is not an object")
+    window_quality = data_quality.get("window")
+    if not isinstance(window_quality, dict) or window_quality.get("accepted") is not True:
+        raise ValueError("child backtest window did not pass the data-quality gate")
+
+    cost_attribution = report["cost_attribution"]
+    if not isinstance(cost_attribution, dict):
+        raise ValueError("child cost_attribution is not an object")
+    reconciliation_error = cost_attribution.get("reconciliation_error")
+    if (
+        cost_attribution.get("complete") is not True
+        or isinstance(reconciliation_error, bool)
+        or not isinstance(reconciliation_error, (int, float))
+        or not math.isfinite(float(reconciliation_error))
+        or abs(float(reconciliation_error)) > 1e-8
+    ):
+        raise ValueError("child cost attribution is incomplete or does not reconcile")
+
+    active_config = report["active_config"]
+    if not isinstance(active_config, dict) or not active_config.get("config_id"):
+        raise ValueError("child active_config is missing its immutable config_id")
+    if not isinstance(report["metrics"], dict):
+        raise ValueError("child metrics is not an object")
+    if not isinstance(report["benchmarks"], dict):
+        raise ValueError("child benchmarks is not an object")
+    if not isinstance(report["simulation_window"], dict):
+        raise ValueError("child simulation_window is not an object")
     return report
 
 
@@ -214,7 +260,8 @@ def main() -> None:
     with out_file.open("w", encoding="utf-8") as f:
         json.dump(
             {
-                "schema_version": 1,
+                "schema_version": 2,
+                "report_type": "multi_pair_1h_backtest",
                 "run_id": run_id,
                 "status": "passed"
                 if not failures and len(results) == len(PAIRS)

@@ -18,6 +18,7 @@ from trading_agent.strategies.base import Strategy
 from trading_agent.strategies.ma_crossover import MaCrossover
 from trading_agent.strategies.rsi import RsiStrategy
 from trading_agent.strategies.bbands import BBandsStrategy
+from trading_agent.strategies.enhanced_ma import EnhancedMaCrossover
 from trading_agent.strategies.online_learning_strategy import OnlineLearningStrategy
 from trading_agent.strategies.regime_switching import RegimeSwitchingStrategy
 
@@ -26,6 +27,7 @@ logger = __import__("logging").getLogger(__name__)
 
 class StrategyType(str, Enum):
     MA_CROSSOVER = "ma_crossover"
+    ENHANCED_MA = "enhanced_ma"
     RSI = "rsi"
     BBANDS = "bbands"
     ONLINE_LEARNING = "online_learning"
@@ -92,7 +94,8 @@ class StrategyRuntime:
                 "BUY" if last_val > 0 else ("SELL" if last_val < 0 else "HOLD")
             )
             confidence = 0.5
-            target_exposure = abs(last_val) * 0.1  # Scale by signal magnitude
+            target_scale = float(self.parameters.get("target_exposure_pct", 0.1))
+            target_exposure = abs(last_val) * target_scale
             reduce_only = last_val < 0
         else:
             signal_value = str(signal)
@@ -105,7 +108,7 @@ class StrategyRuntime:
             strategy_name=self.strategy_name,
             symbol=self.symbol,
             timeframe=self.timeframe,
-            signal=signal,
+            signal=signal_value,
             confidence=float(confidence),
             target_exposure_pct=float(target_exposure),
             metadata={
@@ -173,6 +176,7 @@ class RuntimeStrategyResolver:
 
     _STRATEGY_MAP: Dict[str, StrategyType] = {
         "ma_crossover": StrategyType.MA_CROSSOVER,
+        "enhanced_ma": StrategyType.ENHANCED_MA,
         "rsi": StrategyType.RSI,
         "bbands": StrategyType.BBANDS,
         "online_learning": StrategyType.ONLINE_LEARNING,
@@ -181,6 +185,7 @@ class RuntimeStrategyResolver:
 
     _STRATEGY_CLASSES: Dict[StrategyType, type[Strategy]] = {
         StrategyType.MA_CROSSOVER: MaCrossover,
+        StrategyType.ENHANCED_MA: EnhancedMaCrossover,
         StrategyType.RSI: RsiStrategy,
         StrategyType.BBANDS: BBandsStrategy,
         StrategyType.ONLINE_LEARNING: OnlineLearningStrategy,

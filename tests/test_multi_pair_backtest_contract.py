@@ -17,12 +17,15 @@ from trading_agent.execution.canonical.instrument_registry import TEN_PAIR_1H_SY
 @pytest.fixture
 def valid_report() -> dict[str, object]:
     return {
+        "schema_version": 2,
+        "report_type": "full_system_backtest",
+        "status": "passed",
         "symbol": "BTC/USDT",
         "timeframe": "1h",
         "final_equity": 101_250.0,
         "total_return_pct": 1.25,
         "sharpe": 0.42,
-        "max_drawdown_pct": -2.5,
+        "max_drawdown_pct": 2.5,
         "total_trades": 3,
         "win_rate_pct": 50.0,
         "data_manifest_id": "sha256:data",
@@ -32,7 +35,17 @@ def valid_report() -> dict[str, object]:
             "unknown_orders": 0,
             "manual_interventions": 0,
             "unprotected_positions": [],
+            "trade_evidence_complete": True,
         },
+        "simulation_window": {"bar_count": 100},
+        "active_config": {"config_id": "sha256:config"},
+        "data_quality": {"window": {"accepted": True}},
+        "metrics": {"cagr_pct": 1.0},
+        "cost_attribution": {
+            "complete": True,
+            "reconciliation_error": 0.0,
+        },
+        "benchmarks": {"fixed_allocation_buy_and_hold": {}},
     }
 
 
@@ -102,6 +115,7 @@ def test_validate_report_rejects_invalid_total_trade_count(
         ({"unknown_orders": 1}, "unsafe terminal execution state"),
         ({"manual_interventions": 1}, "unsafe terminal execution state"),
         ({"unprotected_positions": ["BTC/USDT"]}, "unsafe terminal execution state"),
+        ({"trade_evidence_complete": False}, "unsafe terminal execution state"),
     ],
 )
 def test_validate_report_rejects_unsafe_terminal_execution_health(

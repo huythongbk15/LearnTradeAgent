@@ -1,6 +1,6 @@
 # 📘 Trading Agent System — Tài Liệu Kỹ Thuật
 
-> Cập nhật: 2026-08-14 · **Mainnet status: `NO-GO`** — xem [LIVE_TRADING_TODO.md](LIVE_TRADING_TODO.md)
+> Cập nhật: 2026-08-26 · **Mainnet status: `NO-GO`** — xem [LIVE_TRADING_TODO.md](LIVE_TRADING_TODO.md)
 
 ---
 
@@ -21,6 +21,9 @@
 | Tài liệu | Mô tả |
 |----------|-------|
 | [🏛 **Architecture**](ARCHITECTURE.md) | Kiến trúc 5 planes theo code thực tế |
+| [🧪 **Portfolio Backtest Engine**](BACKTEST_ENGINE.md) | True portfolio backtest: chỉ thay broker+clock, safety guards, rejection-drop, parity với live |
+| [🔗 **Promotion Binding**](PROMOTION_BINDING.md) | Research→Runtime bridge (PromotionHook), artifact integrity, fail-closed resolution |
+| [🧭 **Adaptive Strategy Roadmap**](ADAPTIVE_STRATEGY_SELECTION_ROADMAP.md) | Lộ trình strategy tournament, per-pair/regime selection, runtime routing và portfolio gates |
 | [📁 Cấu trúc mã nguồn](project-structure.md) | Từng module làm gì, nằm ở đâu |
 | [⚡ Development](DEVELOPMENT.md) | Môi trường, test, lint, CI, quy tắc |
 | [🚀 Deployment](DEPLOYMENT.md) | Topology single leader, fail-closed, rollback |

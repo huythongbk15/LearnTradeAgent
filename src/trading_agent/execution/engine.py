@@ -182,6 +182,7 @@ class ExecutionEngine:
         allow_backtest_new_exposure: bool | None = None,
         paper_price_persist_interval: int = 1,
         disable_paper_telemetry: bool = False,
+        protective_stop_loss_pct: float = 0.05,
         authority_config: AuthorityConfig | None = None,
         promotion_store: PromotionStateStore | None = None,
         artifact_store: Any | None = None,
@@ -215,6 +216,16 @@ class ExecutionEngine:
                 raise ValueError(
                     f"slippage must be finite and non-negative, got {slippage}"
                 )
+        if (
+            not math.isfinite(protective_stop_loss_pct)
+            or protective_stop_loss_pct <= 0
+            or protective_stop_loss_pct >= 1
+        ):
+            raise ValueError(
+                "protective_stop_loss_pct must be finite and in (0, 1), "
+                f"got {protective_stop_loss_pct}"
+            )
+        self.protective_stop_loss_pct = float(protective_stop_loss_pct)
 
         # ── Paper exchange (broker adapter) ───────────────────────────
         paper_exchange_kwargs: dict[str, Any] = {}
@@ -303,6 +314,7 @@ class ExecutionEngine:
             if promotion_store is not None
             else None
         )
+        self.last_strategy_execution: dict[str, Any] = {}
 
         # Register graceful shutdown handler
         register_shutdown_handler(self._graceful_shutdown)
@@ -995,6 +1007,7 @@ class ExecutionEngine:
 
         exec_output = self.execution_authority.execute(exec_input)
         if not exec_output.allowed:
+            self.last_strategy_execution["authority_block_reason"] = exec_output.reason
             logger.warning(
                 "Order blocked by ExecutionAuthority [%s]: %s",
                 symbol,
@@ -1077,8 +1090,8 @@ class ExecutionEngine:
                 model_risk_decision_id=finalized.risk_decision.decision_id,
                 symbol=intent.symbol,
                 stop_type="stop_loss",
-                stop_trigger=current_price * 0.95,
-                take_profit=current_price * 1.10,
+                stop_trigger=current_price * (1.0 - self.protective_stop_loss_pct),
+                take_profit=None,
                 state=ProtectionState.PROTECTION_REQUIRED,
                 quantity_mode=ProtectionQuantityMode.EXPLICIT_QUANTITY,
                 protected_quantity=protected_quantity,
@@ -1151,22 +1164,50 @@ class ExecutionEngine:
             raise RuntimeError(
                 "execute_strategy requires RuntimeStrategyResolver (promotion_store + artifact_store)"
             )
+        self.last_strategy_execution = {"result": "started"}
 
         # Stage 1: resolve + StrategyOutput + DecisionAuthority (no I/O)
         prepared = self._prepare_from_runtime(
             strategy_runtime, market_data, observation
         )
+        self.last_strategy_execution.update(
+            {
+                "prepare_status": prepared.prepare_status,
+                "signal": prepared.signal,
+                "current_exposure": prepared.current_exposure,
+                "requested_target_exposure": prepared.requested_target_exposure,
+                "reduce_only": (
+                    prepared.risk_decision.reduce_only
+                    if prepared.risk_decision is not None
+                    else None
+                ),
+            }
+        )
         if prepared.prepare_status != "ok":
+            self.last_strategy_execution["result"] = "not_prepared"
             return []
 
         # Stage 2: single-pair allocation (batch runtime uses allocate_batch)
         allocation_request = self.build_allocation_request(prepared)
         allocation_result = self.portfolio_allocator.allocate(allocation_request)
-        if allocation_result.allocation_pct <= 0:
+        self.last_strategy_execution.update(
+            {
+                "allocation_pct": allocation_result.allocation_pct,
+                "allocated_target_exposure": (
+                    allocation_result.target_exposure.target_exposure_pct
+                ),
+                "allocation_reason": allocation_result.reason,
+            }
+        )
+        if (
+            allocation_result.allocation_pct <= 0
+            and not prepared.risk_decision.reduce_only
+        ):
             logger.info(
                 f"PortfolioAllocator returned zero allocation for "
                 f"{prepared.symbol}: {allocation_result.reason}"
             )
+            self.last_strategy_execution["result"] = "zero_allocation"
             return []
 
         approved_target = allocation_result.target_exposure
@@ -1182,15 +1223,28 @@ class ExecutionEngine:
             combined_chain=combined_chain,
         )
         if finalized is None:
+            self.last_strategy_execution["result"] = "exposure_blocked"
             return []
+        self.last_strategy_execution["approved_target_exposure"] = (
+            finalized.approved_target_exposure
+        )
 
         # Stage 4: planning (no broker I/O)
         plan = self.plan_pair_order(finalized)
+        self.last_strategy_execution["planned_action"] = plan.action.value
         if plan.action not in (PlannedAction.REDUCTION, PlannedAction.INCREASE):
+            self.last_strategy_execution["result"] = "no_action"
             return []
 
         # Stage 5: THE broker I/O step (+ inline post-fill protection)
         outcome = self.submit_planned_order(plan)
+        self.last_strategy_execution.update(
+            {
+                "result": "submitted" if outcome.order is not None else "not_submitted",
+                "submit_state": outcome.submit_state,
+                "protection_submitted": outcome.protection_submitted,
+            }
+        )
         return [outcome.order] if outcome.order is not None else []
 
     # ── Legacy adapter: AgentMessage → StrategyRuntime ──────────────
