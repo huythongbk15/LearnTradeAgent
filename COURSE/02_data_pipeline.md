@@ -1,5 +1,7 @@
 # Bài 2: Data Pipeline — nến đi vào hệ thống như thế nào
 
+> ⚠️ **HISTORICAL:** Bài V1 dùng một số đường dẫn/API cũ. Học theo [Course V2](../docs/tutorials/README.md); không dùng trang này làm tài liệu vận hành.
+
 > **Trạng thái:** ✅ Đầy đủ
 > **File gốc:** `trading/data/pipeline.py` (654 dòng)
 

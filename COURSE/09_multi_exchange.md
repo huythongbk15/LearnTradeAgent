@@ -1,5 +1,7 @@
 # Bài 9: Multi-Exchange — 8 sàn, 1 API
 
+> ⚠️ **HISTORICAL DRAFT:** Không dùng các tuyên bố năng lực ở đây để quyết định triển khai. Xem [Capability Matrix](../docs/CAPABILITY_MATRIX.md).
+
 > **Trạng thái:** 📝 DRAFT (chưa học — điền sau khi học xong)
 > **File gốc:** `trading/exchanges/order_router.py` + adapters
 

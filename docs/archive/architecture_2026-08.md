@@ -273,7 +273,7 @@ trading-agent/
 
 ---
 
-> 📖 Xem chi tiết từng file trong [project-structure.md](project-structure.md)
-> 🧠 Xem quy trình suy luận trong [reasoning.md](reasoning.md)
-> 🎮 Xem demo từng bước trong [demo.md](demo.md)
-> ⚡ Xem tối ưu hóa trong [optimization.md](optimization.md)
+> 📖 Xem chi tiết từng file trong [project-structure.md](../project-structure.md)
+> 🧠 Xem quy trình suy luận trong [reasoning.md](../reasoning.md)
+> 🎮 Xem demo từng bước trong [demo.md](../demo.md)
+> ⚡ Xem tối ưu hóa trong [optimization.md](../optimization.md)

@@ -1,65 +1,28 @@
-# 📚 Khóa học: Bóc tách Trading Agent System
+# Course V1 — Historical Material
 
-> Học lại toàn bộ hệ thống từ gốc — hiểu **từng phần nhỏ**: đọc code thật, hiểu *vì sao* thiết kế như vậy, chạy demo, rồi tự tay viết lại.
+> Status: **HISTORICAL / SUPERSEDED** · Frozen: 2026-08-26
 
-## 🎯 Cách học (4 bước)
+This directory contains the original code-walkthrough course. It is retained for
+traceability but is no longer an authoritative learning path.
 
-1. **Đọc** file gốc được chỉ định (có đường dẫn + số dòng)
-2. **Hiểu vì sao** — mỗi thiết kế đều có lý do (chỉ ra trong bài)
-3. **Demo** — chạy đoạn code mẫu, quan sát output
-4. **Tự kiểm tra** — trả lời câu hỏi cuối bài, tự viết lại mini-version
+Use [Trading System Course V2](../docs/tutorials/README.md) instead.
 
-> Quy tắc vàng: **không đọc trước khi hiểu mục tiêu**. Mỗi bài đều bắt đầu bằng "dùng để làm gì".
+## Why V1 was retired
 
-## 🗺 Bản đồ hệ thống
+- seven of ten lessons were only draft outlines;
+- most paths used the removed top-level `trading/` package rather than
+  `src/trading_agent/`;
+- content predated the canonical strategy contract, tournament artifacts and
+  adaptive-selection roadmap;
+- examples used fixed line numbers and unbound performance figures that age quickly;
+- implementation, target design and historical phase notes were mixed together.
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│  PHASE 0-3 (core loop)                                      │
-│  data/pipeline ─→ backtest/engine ─→ agents ─→ execution    │
-│   (654 dòng)       (370 dòng)       (4 agents)   (paper)    │
-├─────────────────────────────────────────────────────────────┤
-│  PHASE 4-5 (ops): monitoring · events · infra · CI/CD    │
-├─────────────────────────────────────────────────────────────┤
-│  PHASE 6 (scale): exchanges/ (8 sàn + DEX + stocks + forex) │
-│                   portfolio/ (7 module) · ml/ · strategies/ │
-│                   messaging/ · infrastructure/              │
-└─────────────────────────────────────────────────────────────┘
-```
+## Reuse policy
 
-## 📋 Lộ trình 10 bài
+Lessons 1–3 may still help explain basic data and backtest concepts, but commands,
+paths, reported metrics and capability claims must be verified against current
+documentation before use. Lessons 4–10 are incomplete drafts.
 
-| # | Bài | File gốc | Trạng thái |
-|---|-----|----------|------------|
-| [1](01_data_model.md) | Data Model | `trading/exchanges/models.py` | ✅ Đầy đủ |
-| [2](02_data_pipeline.md) | Data Pipeline | `trading/data/pipeline.py` (654d) | ✅ Đầy đủ |
-| [3](03_backtest_engine.md) | Backtest Engine | `trading/backtest/engine.py` (370d) + `src/trading_agent/backtest/engine.py` | ✅ Đầy đủ |
-| [4](04_strategies_plugins.md) | Strategies & Plugins | `trading/strategies/` | 📝 DRAFT |
-| [5](05_llm_layer.md) | LLM Layer | `trading/llm/client.py` (255d) | 📝 DRAFT |
-| [6](06_agents.md) | Agents | `trading/agents/base.py` (134d) | 📝 DRAFT |
-| [7](07_execution_risk.md) | Execution & Risk | `scripts/trade_local.py` | 📝 DRAFT |
-| [8](08_portfolio.md) | Portfolio | `trading/portfolio/` (7 file) | 📝 DRAFT |
-| [9](09_multi_exchange.md) | Multi-Exchange | `trading/exchanges/order_router.py` | 📝 DRAFT |
-| [10](10_ml_infra.md) | ML + Infra | `trading/ml/`, `events/`, `messaging/` | 📝 DRAFT |
-
-## 🖥 Yêu cầu môi trường
-
-```bash
-# Từ thư mục gốc của project
-cd <repo-root>
-
-# Môi trường Python đã cài sẵn các dependency của project
-python3 -c "import trading; print('OK')"
-
-# Chạy demo một bài
-python3 -c "..."        # xem từng bài
-python3 -m pytest tests/ -q   # chạy toàn bộ test (81 tests)
-```
-
-## 📝 Cách cập nhật
-
-- Học xong bài nào → điền nội dung đầy đủ vào file tương ứng, đổi `📝 DRAFT` → `✅ DONE` ở bảng trên
-- Commit + push:
-```bash
-git add COURSE/ && git commit -m "course: add lesson N" && git push origin master
-```
+Do not add new content here. New learning material belongs under
+[`docs/tutorials/`](../docs/tutorials/), following the
+[Documentation Standard](../docs/DOCUMENTATION_STANDARD.md).

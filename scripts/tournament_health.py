@@ -109,14 +109,23 @@ def main() -> None:
         age_min = (time.time() - newest.stat().st_mtime) / 60
         notes.append(f"newest report: {newest.parent.name[:48]} ({age_min:.0f}m old)")
         if age_min > args.stall_minutes and completed < args.total_cells:
-            problems.append(f"STALL: no new report for {age_min:.0f}m (> {args.stall_minutes:.0f}m)")
-    elif completed < args.total_cells and index_path.exists() and len(reports) == 0 and completed == 0:
+            problems.append(
+                f"STALL: no new report for {age_min:.0f}m (> {args.stall_minutes:.0f}m)"
+            )
+    elif (
+        completed < args.total_cells
+        and index_path.exists()
+        and len(reports) == 0
+        and completed == 0
+    ):
         # Index empty AND no reports at all — only alarming once warm-up passed.
         first_dir = min(args.out.glob("*/"), key=lambda p: p.mtime(), default=None)
         if first_dir:
             age_min = (time.time() - first_dir.stat().st_mtime) / 60
             if age_min > args.stall_minutes:
-                problems.append(f"STALL: running {age_min:.0f}m without a single finished cell")
+                problems.append(
+                    f"STALL: running {age_min:.0f}m without a single finished cell"
+                )
 
     # ── 4. Log scan (works because runs use python -u) ──────────────────
     log_path = logs_dir / "baseline_run2.log"

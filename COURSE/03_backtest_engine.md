@@ -1,5 +1,7 @@
 # Bài 3: Backtest Engine — đo lường chiến lược trước khi mạo hiểm vốn
 
+> ⚠️ **HISTORICAL:** Kiến trúc engine và artifact đã thay đổi. Xem [Backtest Engine hiện hành](../docs/BACKTEST_ENGINE.md) và [Course V2](../docs/tutorials/README.md).
+
 > File gốc: `src/trading_agent/backtest/engine.py` (370d) + `trading/backtest/engine.py` (370d)
 > Bài này đọc **cả hai engine** — hệ thống có 2 thế hệ, hiểu vì sao là chìa khóa.
 

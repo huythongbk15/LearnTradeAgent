@@ -1,5 +1,7 @@
 # Bài 8: Portfolio — tổng tư lệnh vốn
 
+> ⚠️ **HISTORICAL DRAFT:** Được thay thế bởi lộ trình shared-capital trong [Course V2](../docs/tutorials/README.md).
+
 > **Trạng thái:** 📝 DRAFT (chưa học — điền sau khi học xong)
 > **File gốc:** `trading/portfolio/` (7 file)
 

@@ -1,5 +1,7 @@
 # Bài 7: Execution & Risk — paper trade full cycle
 
+> ⚠️ **HISTORICAL DRAFT:** Dùng [Authority Chain](../docs/AUTHORITY_CHAIN_OPS.md), [Backtest Engine](../docs/BACKTEST_ENGINE.md) và [Course V2](../docs/tutorials/README.md).
+
 > **Trạng thái:** 📝 DRAFT (chưa học — điền sau khi học xong)
 > **File gốc:** `scripts/trade_local.py`
 

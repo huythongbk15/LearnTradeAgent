@@ -1,5 +1,7 @@
 # Bài 6: Agents — Technical · Sentiment · Risk · Trader
 
+> ⚠️ **HISTORICAL DRAFT:** Được giữ để truy vết, không mô tả authority chain hiện hành. Xem [Course V2](../docs/tutorials/README.md).
+
 > **Trạng thái:** 📝 DRAFT (chưa học — điền sau khi học xong)
 > **File gốc:** `trading/agents/base.py` (134 dòng) + `trading/agents/swarm/`
 

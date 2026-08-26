@@ -1,5 +1,7 @@
 # Bài 1: Data Model — "Bảng chữ cái" của hệ thống
 
+> ⚠️ **HISTORICAL:** Bài V1 dùng một số đường dẫn/API cũ. Học theo [Course V2](../docs/tutorials/README.md); không dùng trang này làm tài liệu vận hành.
+
 > **Trạng thái:** ✅ Đầy đủ
 > **File gốc:** `trading/exchanges/models.py` (483 dòng)
 

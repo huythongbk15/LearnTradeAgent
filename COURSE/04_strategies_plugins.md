@@ -1,5 +1,7 @@
 # Bài 4: Strategies & Plugins — chiến lược như app store
 
+> ⚠️ **HISTORICAL DRAFT:** Được thay thế bởi [Strategy Lifecycle](../docs/architecture/STRATEGY_LIFECYCLE.md) và [Course V2](../docs/tutorials/README.md).
+
 > **Trạng thái:** 📝 DRAFT (chưa học — điền sau khi học xong)
 > **File gốc:** `trading/strategies/` + `trading/strategies/plugins/adapters.py` (269 dòng)
 

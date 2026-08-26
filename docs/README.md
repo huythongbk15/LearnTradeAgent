@@ -1,82 +1,115 @@
-# 📘 Trading Agent System — Tài Liệu Kỹ Thuật
+# Trading Agent System — Documentation Hub
 
-> Cập nhật: 2026-08-26 · **Mainnet status: `NO-GO`** — xem [LIVE_TRADING_TODO.md](LIVE_TRADING_TODO.md)
+> **Verified:** 2026-08-26 · **Mainnet:** `NO-GO` until the evidence in
+> [Live Readiness](LIVE_TRADING_TODO.md) and
+> [Capability Matrix](CAPABILITY_MATRIX.md) says otherwise.
 
----
+This page is the canonical entry point for project documentation. Documents are
+classified so that implemented behavior, target architecture and historical
+plans cannot be confused.
 
-## 🧭 Mục lục tài liệu
+## Document status
 
-### Trạng thái & bằng chứng (đọc trước)
+| Label | Meaning |
+| --- | --- |
+| **CURRENT** | Describes code or an operational path that exists. Claims still require the linked evidence. |
+| **TARGET** | Desired design or backlog. It must not be used as proof of implementation. |
+| **HISTORICAL** | A completed phase, old report or superseded design retained for traceability. |
 
-| Tài liệu | Mô tả |
-|----------|-------|
-| [📋 **Live Readiness**](LIVE_TRADING_TODO.md) | Gates P0-P3, readiness matrix, **mainnet NO-GO** |
-| [🧩 **Capability Matrix**](CAPABILITY_MATRIX.md) | Mức độ trưởng thành từng capability (implemented → production validated) |
-| [🔬 **Research Evidence**](RESEARCH_EVIDENCE.md) | Bằng chứng backtest: in-sample/OOS/WFO/holdout, không gọi research là production |
-| [📊 Tổng kết dự án](PROJECT_SUMMARY.md) | Tính năng, ưu/nhược, vận hành |
-| [📁 Project Map (generated)](PROJECT_MAP.md) | ⚠️ Auto-generated — cây thư mục thật |
+The rules for maintaining these labels are in
+[Documentation Standard](DOCUMENTATION_STANDARD.md).
 
-### Kiến trúc & phát triển
+## Start here
 
-| Tài liệu | Mô tả |
-|----------|-------|
-| [🏛 **Architecture**](ARCHITECTURE.md) | Kiến trúc 5 planes theo code thực tế |
-| [🧪 **Portfolio Backtest Engine**](BACKTEST_ENGINE.md) | True portfolio backtest: chỉ thay broker+clock, safety guards, rejection-drop, parity với live |
-| [🔗 **Promotion Binding**](PROMOTION_BINDING.md) | Research→Runtime bridge (PromotionHook), artifact integrity, fail-closed resolution |
-| [🧭 **Adaptive Strategy Roadmap**](ADAPTIVE_STRATEGY_SELECTION_ROADMAP.md) | Lộ trình strategy tournament, per-pair/regime selection, runtime routing và portfolio gates |
-| [📁 Cấu trúc mã nguồn](project-structure.md) | Từng module làm gì, nằm ở đâu |
-| [⚡ Development](DEVELOPMENT.md) | Môi trường, test, lint, CI, quy tắc |
-| [🚀 Deployment](DEPLOYMENT.md) | Topology single leader, fail-closed, rollback |
-| [🔐 Security](SECURITY.md) | Credentials, supply chain, live safety |
-| [🏗 Kiến trúc cũ (archive)](archive/architecture_2026-08.md) | Bản kiến trúc trước khi rewrite — chỉ để tham khảo |
+| Reader | First document | Then read |
+| --- | --- | --- |
+| New developer | [Getting Started](getting-started.md) | [Architecture](ARCHITECTURE.md), [Development](DEVELOPMENT.md) |
+| Strategy researcher | [Research-to-Production Guide](guides/RESEARCH_TO_PRODUCTION.md) | [Research Methodology](RESEARCH_METHODOLOGY.md), [Evidence Artifacts](reference/EVIDENCE_ARTIFACTS.md) |
+| Runtime/execution engineer | [Strategy Lifecycle](architecture/STRATEGY_LIFECYCLE.md) | [Backtest Engine](BACKTEST_ENGINE.md), [Authority Chain](AUTHORITY_CHAIN_OPS.md) |
+| Operator | [Main-flow Validation](operations/MAIN_FLOW_VALIDATION.md) | [Live Runbook](LIVE_TRADING_RUNBOOK.md), [Operational Drills](OPERATIONAL_DRILLS.md) |
+| Auditor/reviewer | [Capability Matrix](CAPABILITY_MATRIX.md) | [Research Evidence](RESEARCH_EVIDENCE.md), [Promotion Binding](PROMOTION_BINDING.md) |
+| Learner | [Course V2](tutorials/README.md) | Follow the modules in order |
 
-### Hướng dẫn sử dụng
+## Canonical system flow
 
-| Tài liệu | Mô tả |
-|----------|-------|
-| [📘 Tài liệu tổng hợp hệ thống](SYSTEM_GUIDE.md) | Tính năng, cách dùng, trade options, UI/UX, Telegram |
-| [⚡ Quick Start](getting-started.md) | Lệnh nhanh để bắt đầu |
-| [🎮 Demo hướng dẫn chạy](demo.md) | Tutorial A→Z |
-| [🧠 Quy trình suy luận & Ra quyết định](reasoning.md) | Cách agent suy luận, phối hợp |
-| [🤖 Phase 2: AI Agents](phase2-agents.md) | Chi tiết 4 agent, weighted voting, LLM fallback |
-
-### Phase 6 & vận hành
-
-| Tài liệu | Mô tả |
-|----------|-------|
-| [🌐 Phase 6: Scale & Multi-Asset](phase6-scale.md) | Multi-exchange, multi-asset, portfolio, ML |
-| [📋 Phase 6 P3 Report](PHASE6_P3_REPORT.md) | Integration tests, hardening, benchmarks |
-| [📋 Phase 6 P2 Completion](phase6-p2-completion.md) | K8s multi-region, event sourcing, chaos |
-| [⚡ Tối ưu hóa hệ thống](optimization.md) | CLI startup, parameter sweep, LLM cost |
-| [🚑 Runbook Production](RUNBOOK.md) · [🚑 Runbook Local](RUNBOOK_LOCAL.md) | Vận hành |
-| [🚑 Live Trading Runbook](LIVE_TRADING_RUNBOOK.md) | Vận hành live path (fail-closed) |
-
-> 🎓 **Khóa học deep-dive:** [`COURSE/`](../COURSE/) — 10 bài bóc tách hệ thống
-
----
-
-## Trạng thái hiện tại
-
-| Mặt | Trạng thái |
-|-----|-----------|
-| Research / backtest | Hoạt động — xem [Research Evidence](RESEARCH_EVIDENCE.md) |
-| Paper trading | Hoạt động (Alpaca paper) |
-| Testnet (Binance) | Partial (P0.3 execute) |
-| Mainnet | **NO-GO** |
-| CI status | Xem [GitHub Actions](https://github.com/huythongbk15/LearnTradeAgent/actions) — không claim cố định |
-| Production validated | Chưa — xem [Capability Matrix](CAPABILITY_MATRIX.md) |
-
-## 🛠 Stack công nghệ
-
+```text
+Market data
+   ↓ quality gate + point-in-time features
+Canonical strategy registry
+   ↓ deterministic evaluation cells
+Tournament + realistic execution simulation
+   ↓ statistical/OOS selection evidence
+Selection policy + immutable promotion artifact
+   ↓ fail-closed authority resolution
+Runtime strategy/router
+   ↓ portfolio + risk constraints
+Order intent → lifecycle → broker → fills → reconciliation
+   ↓
+Attribution, monitoring, rollback and audit evidence
 ```
-Language:    Python 3.12 (>=3.12,<3.13)
-CLI:         Click + Rich
-Data:        CCXT → Polars → PyArrow/Parquet · SQLite/TimescaleDB
-Backtest:    Custom engine vectorized (Polars)
-Agents:      DeepSeek V4 Flash (primary, $0) → OpenAI → DeepSeek → Ollama (fallback)
-Execution:   Paper exchange (simulated) · LiveBroker (Alpaca paper) · Binance testnet
-Exchanges:   CCXT (8 CEX) · Web3.py (DEX) · Alpaca (stocks) · OANDA (forex)
-Portfolio:   Risk parity · HRP · Black-Litterman · Kelly
-ML:          HMM/GMM regime · online learning · meta-learning
-Infra:       Docker · GitHub Actions · K8s kustomize · Chaos
-```
+
+No stage may silently substitute missing evidence, missing data or an unknown
+strategy. The safe fallback is abstention, rejection or reduced exposure.
+
+## Source-of-truth map
+
+### Current state and evidence
+
+| Document | Status | Authority |
+| --- | --- | --- |
+| [Capability Matrix](CAPABILITY_MATRIX.md) | **CURRENT** | Maturity of each capability; distinguishes implemented from production-validated |
+| [Live Readiness](LIVE_TRADING_TODO.md) | **CURRENT** | P0–P3 gates and current mainnet decision |
+| [Research Evidence](RESEARCH_EVIDENCE.md) | **CURRENT** | Accepted research evidence and known limitations |
+| [Research Holdout](RESEARCH_HOLDOUT.md) | **CURRENT** | Holdout isolation and locked evaluation rules |
+| [Project Map](PROJECT_MAP.md) | **CURRENT / generated** | Physical repository layout; never edit manually |
+
+### Architecture and contracts
+
+| Document | Status | Scope |
+| --- | --- | --- |
+| [Architecture](ARCHITECTURE.md) | **CURRENT** | Five-plane system architecture |
+| [Strategy Lifecycle](architecture/STRATEGY_LIFECYCLE.md) | **CURRENT + TARGET boundaries** | Research, selection, promotion and runtime authority |
+| [Backtest Engine](BACKTEST_ENGINE.md) | **CURRENT** | Portfolio simulation, fill safety and parity boundary |
+| [Promotion Binding](PROMOTION_BINDING.md) | **CURRENT** | Artifact integrity and research-to-runtime binding |
+| [Runtime Resolver](RUNTIME_RESOLVER.md) | **CURRENT** | Fail-closed runtime strategy resolution |
+| [Production Policy](PRODUCTION_POLICY.md) | **CURRENT** | Production eligibility rules |
+| [Evidence Artifacts](reference/EVIDENCE_ARTIFACTS.md) | **CURRENT** | Artifact ownership, minimum fields and consumers |
+
+### How-to guides and operations
+
+| Document | Status | Scope |
+| --- | --- | --- |
+| [Research-to-Production](guides/RESEARCH_TO_PRODUCTION.md) | **CURRENT + TARGET boundaries** | End-to-end strategy lifecycle |
+| [Main-flow Validation](operations/MAIN_FLOW_VALIDATION.md) | **CURRENT** | Reproducible checks from smoke to release evidence |
+| [Live Trading Runbook](LIVE_TRADING_RUNBOOK.md) | **CURRENT** | Live-path operation and emergency response |
+| [Runbook](RUNBOOK.md) | **CURRENT** | Service operations |
+| [Local Runbook](RUNBOOK_LOCAL.md) | **CURRENT** | Local-only operation |
+| [Deployment](DEPLOYMENT.md) | **CURRENT** | Deployment topology and rollback |
+| [Security](SECURITY.md) | **CURRENT** | Credentials, release provenance and hardening |
+
+### Learning material
+
+| Document | Status | Scope |
+| --- | --- | --- |
+| [Course V2](tutorials/README.md) | **CURRENT syllabus** | Contract-first learning path tied to evidence |
+| [`COURSE/`](../COURSE/) | **HISTORICAL** | Course V1; retained only for traceability |
+
+## Target and historical material
+
+[Adaptive Strategy Selection Roadmap](ADAPTIVE_STRATEGY_SELECTION_ROADMAP.md)
+contains both implemented phase notes and future design. Treat unchecked work as
+**TARGET**. After all S0–S7 exit gates close, freeze it as a completion record;
+do not use it as the runtime manual.
+
+Phase reports, old architecture snapshots and superseded plans belong under
+[`archive/`](archive/). A completed TODO is evidence of project history, not the
+canonical description of current behavior.
+
+## Truth rules
+
+1. Code and tests establish behavior; documents explain it.
+2. A passing historical run is not a standing production claim.
+3. Backtest numbers are meaningful only with data, code, config and cost-model identity.
+4. `Implemented`, `tested`, `paper-validated` and `production-validated` are different states.
+5. Mainnet remains `NO-GO` unless the current release evidence explicitly closes every gate.
+6. Never place real secrets, private account identifiers or unredacted broker payloads in docs.

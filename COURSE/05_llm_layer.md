@@ -1,5 +1,7 @@
 # Bài 5: LLM Layer — 4 agents suy nghĩ bằng AI
 
+> ⚠️ **HISTORICAL DRAFT:** Được giữ để truy vết, không mô tả authority chain hiện hành. Xem [Course V2](../docs/tutorials/README.md).
+
 > **Trạng thái:** 📝 DRAFT (chưa học — điền sau khi học xong)
 > **File gốc:** `trading/llm/client.py` (255 dòng)
 

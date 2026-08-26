@@ -211,6 +211,7 @@
 │   ├── sweep_slow_quick.py
 │   ├── test_fetch_api.py
 │   ├── testnet_soak_tracker.py
+│   ├── tournament_health.py
 │   ├── trade_local.py
 │   ├── trading-bot.env.example
 │   ├── trading-bot.service

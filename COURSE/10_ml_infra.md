@@ -1,5 +1,7 @@
 # Bài 10: ML + Infra — tự thích nghi & chạy ổn định
 
+> ⚠️ **HISTORICAL DRAFT:** Được thay thế bởi tài liệu CURRENT/TARGET trong [Course V2](../docs/tutorials/README.md).
+
 > **Trạng thái:** 📝 DRAFT (chưa học — điền sau khi học xong)
 > **File gốc:** `trading/ml/`, `trading/events/`, `trading/messaging/`, `trading/infrastructure/`
 

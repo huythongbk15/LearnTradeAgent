@@ -87,6 +87,9 @@ Chi tiết: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 
 | Tài liệu | Nội dung |
 | --- | --- |
+| [`docs/README.md`](docs/README.md) | Cổng tài liệu chuẩn, phân biệt CURRENT / TARGET / HISTORICAL |
+| [`docs/tutorials/README.md`](docs/tutorials/README.md) | Course V2 theo luồng evidence-first |
+| [`docs/guides/RESEARCH_TO_PRODUCTION.md`](docs/guides/RESEARCH_TO_PRODUCTION.md) | Luồng strategy từ research đến production gate |
 | [`docs/LIVE_TRADING_TODO.md`](docs/LIVE_TRADING_TODO.md) | Live readiness — gates P0-P3, mainnet NO-GO |
 | [`docs/CAPABILITY_MATRIX.md`](docs/CAPABILITY_MATRIX.md) | Mức độ trưởng thành từng capability |
 | [`docs/RESEARCH_EVIDENCE.md`](docs/RESEARCH_EVIDENCE.md) | Bằng chứng research (in-sample/OOS/WF/holdout) |
