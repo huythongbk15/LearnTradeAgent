@@ -156,6 +156,11 @@ class FullSystemSimulator:
         state_flush_bars: int = 100,
         data_manifest_id: str | None = None,
         gap_policy: GapPolicy = "record",
+        strategy_name: str = "enhanced_ma",
+        strategy_params_override: dict[str, object] | None = None,
+        signal_series: list[int] | None = None,
+        commission: float | None = None,
+        slippage: float | None = None,
     ):
         self.symbol = symbol or os.getenv("SYMBOL", SYMBOL)
         self.timeframe = timeframe or os.getenv("TIMEFRAME", TIMEFRAME)
@@ -220,7 +225,10 @@ class FullSystemSimulator:
             f"   {self.df.height} bars: {self.df['timestamp'].min()} → {self.df['timestamp'].max()}"
         )
 
-        # Initialize strategy
+        # Initialize strategy (canonical tournament cells may override both
+        # the artifact identity and the signal series; defaults keep the
+        # historical enhanced_ma behaviour byte-identical).
+        self.strategy_name = strategy_name
         self.strategy_params = {
             "fast_period": FAST_MA,
             "slow_period": SLOW_MA,
@@ -229,11 +237,16 @@ class FullSystemSimulator:
             "atr_tp_mult": ATR_TP_MULT,
             "target_exposure_pct": MAX_POS_SIZE_PCT,
         }
+        if strategy_params_override:
+            self.strategy_params.update(strategy_params_override)
+        self._injected_signals = signal_series
+        self.commission = commission
+        self.slippage = slippage
         self.strategy = EnhancedMaCrossover(self.strategy_params)
         feature_identity = json.dumps(
             {
                 "data_manifest_id": self.data_manifest_id,
-                "strategy": "enhanced_ma",
+                "strategy": self.strategy_name,
                 "params": self.strategy_params,
             },
             sort_keys=True,
@@ -247,7 +260,7 @@ class FullSystemSimulator:
         self.artifact_store = PersistentArtifactStore(self.state_dir / "artifacts")
         self.promotion_store = PromotionStateStore(self.state_dir / "promotion.db")
         strategy_artifact = StrategyArtifact(
-            strategy_name="enhanced_ma",
+            strategy_name=self.strategy_name,
             code_sha=_sha256_file(
                 ROOT / "src" / "trading_agent" / "strategies" / "enhanced_ma.py"
             ),
@@ -282,12 +295,17 @@ class FullSystemSimulator:
         print("🔧 Computing strategy indicators...")
         self.df = self.strategy.compute_indicators(self.df)
 
-        # Generate all signals upfront
-        print("🔧 Generating signals...")
-        signal_series = self.strategy.generate_signals(self.df).rename("signal")
-        if "signal" not in self.df.columns:
-            self.df = self.df.with_columns(signal_series)
-        self.signals = self.df.select(pl.col("signal")).to_series().to_list()
+        # Generate all signals upfront (tournament cells inject their own
+        # canonical per-bar signal series instead).
+        if self._injected_signals is not None:
+            print("🔧 Using injected canonical signal series...")
+            self.signals = list(self._injected_signals)
+        else:
+            print("🔧 Generating signals...")
+            signal_series = self.strategy.generate_signals(self.df).rename("signal")
+            if "signal" not in self.df.columns:
+                self.df = self.df.with_columns(signal_series)
+            self.signals = self.df.select(pl.col("signal")).to_series().to_list()
 
         # Khởi tạo execution engine + risk controller
         authority_config = AuthorityConfig.for_environment(Environment.PAPER)
@@ -296,6 +314,8 @@ class FullSystemSimulator:
         self.engine = ExecutionEngine(
             exchange_name=EXCHANGE,
             initial_capital=INITIAL_CAPITAL,
+            commission=self.commission,
+            slippage=self.slippage,
             instrument_rules=get_instrument_rules(self.symbol),
             state_dir=self.state_dir,
             event_store_path=self.state_dir / "events.db",
