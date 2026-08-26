@@ -165,7 +165,7 @@ from trading_agent.authority.promotion_hook import PromotionHook
 hook = PromotionHook(
     promotion_store=promotion_store,
     artifact_store=artifact_store,
-    runtime_loader=loader,          # optional — None nếu không cần watcher
+    runtime_loader=loader,  # optional — None nếu không cần watcher
 )
 lifecycle = ResearchLifecycle(..., on_event=hook.handle)
 ```

@@ -583,9 +583,7 @@ class FullSystemSimulator:
                                 "signal": signal_name,
                                 "confidence": 0.5,
                                 "risk": "authority_chain",
-                                "max_pos": MAX_POS_SIZE_PCT
-                                if signal == 1
-                                else 0.0,
+                                "max_pos": MAX_POS_SIZE_PCT if signal == 1 else 0.0,
                             }
                         )
 
@@ -806,12 +804,9 @@ class FullSystemSimulator:
         trade_evidence_complete = all(
             isinstance(trade.get("metadata"), dict)
             and isinstance(trade["metadata"].get("simulation"), dict)
-            and trade["metadata"]["simulation"].get("time_source")
-            == "simulated_bar"
-            and trade["metadata"]["simulation"].get("entry_reference_price")
-            is not None
-            and trade["metadata"]["simulation"].get("exit_reference_price")
-            is not None
+            and trade["metadata"]["simulation"].get("time_source") == "simulated_bar"
+            and trade["metadata"]["simulation"].get("entry_reference_price") is not None
+            and trade["metadata"]["simulation"].get("exit_reference_price") is not None
             for trade in self.trade_log
         )
         execution_health = {

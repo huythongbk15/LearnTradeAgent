@@ -227,7 +227,7 @@ prepared = engine.prepare_promoted_strategy(
     timeframe=timeframe,
     environment=env,
     market_data_input=mdi,
-    portfolio_snapshot=snapshot,     # ← NEW (optional)
+    portfolio_snapshot=snapshot,  # ← NEW (optional)
 )
 ```
 
@@ -297,39 +297,43 @@ pbt = PortfolioBacktestEngine(
     engine,
     bars={("BTC/USDT", "1h"): df_btc, ("ETH/USDT", "1h"): df_eth},
     initial_cash=100_000.0,
-    fee_bps=10.0,          # qua broker defaults
-    slippage_bps=5.0,      # adverse
+    fee_bps=10.0,  # qua broker defaults
+    slippage_bps=5.0,  # adverse
 )
 result = pbt.run(environment="paper")
 
-result.final_equity                 # equity cuối
-result.equity_curve                 # [(t, equity), ...]
-result.drawdown_series              # [(t, dd), ...]
-result.per_symbol_contribution      # exact cash-flow per symbol
-result.trades                       # list[SimFill]
-result.blocked_cycles               # số cycle bị preflight/atomic block
-result.expired_orders               # order không bao giờ fill (data kết thúc)
+result.final_equity  # equity cuối
+result.equity_curve  # [(t, equity), ...]
+result.drawdown_series  # [(t, dd), ...]
+result.per_symbol_contribution  # exact cash-flow per symbol
+result.trades  # list[SimFill]
+result.blocked_cycles  # số cycle bị preflight/atomic block
+result.expired_orders  # order không bao giờ fill (data kết thúc)
 ```
 
 ### Broker độc lập (unit testing)
 
 ```python
 from trading_agent.backtest.portfolio_backtest import (
-    HistoricalSimulationBroker, QueuedOrder,
+    HistoricalSimulationBroker,
+    QueuedOrder,
 )
 
 broker = HistoricalSimulationBroker(100_000.0, fee_bps=10.0, slippage_bps=5.0)
-broker.queue(QueuedOrder(
-    idempotency_key="plan_abc",       # duplicate key sẽ bị bỏ qua
-    symbol="BTC/USDT",
-    side="buy",
-    quantity=0.5,
-    reference_price=79_000.0,
-    decision_time=decision_dt,
-    phase="increase",                 # hoặc "reduction"
-))
+broker.queue(
+    QueuedOrder(
+        idempotency_key="plan_abc",  # duplicate key sẽ bị bỏ qua
+        symbol="BTC/USDT",
+        side="buy",
+        quantity=0.5,
+        reference_price=79_000.0,
+        decision_time=decision_dt,
+        phase="increase",  # hoặc "reduction"
+    )
+)
 fills = broker.settle(now, clock, [("BTC/USDT", "1h")])
-broker.reserved_cash(); broker.reserved_inventory("BTC/USDT")
+broker.reserved_cash()
+broker.reserved_inventory("BTC/USDT")
 ```
 
 ### Invariants khi viết code mới quanh broker

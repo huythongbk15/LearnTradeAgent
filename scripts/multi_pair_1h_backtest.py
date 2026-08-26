@@ -133,7 +133,10 @@ def _validate_report(symbol: str, report: object) -> dict[str, object]:
     if not isinstance(data_quality, dict):
         raise ValueError("child data_quality is not an object")
     window_quality = data_quality.get("window")
-    if not isinstance(window_quality, dict) or window_quality.get("accepted") is not True:
+    if (
+        not isinstance(window_quality, dict)
+        or window_quality.get("accepted") is not True
+    ):
         raise ValueError("child backtest window did not pass the data-quality gate")
 
     cost_attribution = report["cost_attribution"]

@@ -49,8 +49,10 @@
 │   │   │   └── BACKTEST_SUMMARY_2026-08-06.md
 │   │   └── architecture_2026-08.md
 │   ├── ACCOUNT_HARDENING.md
+│   ├── ADAPTIVE_STRATEGY_SELECTION_ROADMAP.md
 │   ├── ARCHITECTURE.md
 │   ├── AUTHORITY_CHAIN_OPS.md
+│   ├── BACKTEST_ENGINE.md
 │   ├── CAPABILITY_MATRIX.md
 │   ├── DEPLOYMENT.md
 │   ├── DEPLOY_ORACLE.md
@@ -262,7 +264,8 @@
 │       ├── backtest
 │       │   ├── __init__.py
 │       │   ├── engine.py
-│       │   └── portfolio_backtest.py
+│       │   ├── portfolio_backtest.py
+│       │   └── reporting.py
 │       ├── cli
 │       │   ├── commands
 │       │   │   ├── __init__.py
@@ -488,6 +491,7 @@
 │   ├── test_audit_correlation.py
 │   ├── test_audit_ship_offhost.py
 │   ├── test_backtest_accounting.py
+│   ├── test_backtest_reporting.py
 │   ├── test_binance_live_runner.py
 │   ├── test_binance_testnet_acceptance.py
 │   ├── test_calibrated_decision.py

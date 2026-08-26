@@ -143,7 +143,10 @@ def assess_ohlcv(
     invalid_price_rows = int(
         df.select(
             pl.any_horizontal(
-                [(pl.col(column) <= 0).fill_null(False) for column in ("open", "high", "low", "close")]
+                [
+                    (pl.col(column) <= 0).fill_null(False)
+                    for column in ("open", "high", "low", "close")
+                ]
             )
             .sum()
             .alias("invalid")
@@ -235,7 +238,9 @@ def _equity_statistics(
         else 0.0
     )
     downside = np.minimum(returns, 0.0)
-    downside_deviation = float(math.sqrt(float(np.mean(downside**2)))) if returns.size else 0.0
+    downside_deviation = (
+        float(math.sqrt(float(np.mean(downside**2)))) if returns.size else 0.0
+    )
     sortino = (
         mean_return / downside_deviation * math.sqrt(periods_per_year)
         if downside_deviation > 0
@@ -291,7 +296,9 @@ def calculate_cost_attribution(
             trade.get("exit_fee") or 0.0
         )
         metadata = trade.get("metadata")
-        simulation = metadata.get("simulation") if isinstance(metadata, Mapping) else None
+        simulation = (
+            metadata.get("simulation") if isinstance(metadata, Mapping) else None
+        )
         if not isinstance(simulation, Mapping):
             missing_reference_trades += 1
             continue
@@ -330,7 +337,9 @@ def calculate_performance_metrics(
     trades: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
     """Calculate report-v2 portfolio and trade statistics."""
-    periods_per_year = timedelta(days=365).total_seconds() / timeframe_delta.total_seconds()
+    periods_per_year = (
+        timedelta(days=365).total_seconds() / timeframe_delta.total_seconds()
+    )
     values = np.asarray([equity for _, equity in equity_curve], dtype=np.float64)
     metrics: dict[str, Any] = _equity_statistics(
         values,
@@ -353,11 +362,15 @@ def calculate_performance_metrics(
         reason = str(trade.get("reason") or "unknown")
         reason_counts[reason] = reason_counts.get(reason, 0) + 1
         metadata = trade.get("metadata")
-        simulation = metadata.get("simulation") if isinstance(metadata, Mapping) else None
+        simulation = (
+            metadata.get("simulation") if isinstance(metadata, Mapping) else None
+        )
         if isinstance(simulation, Mapping):
             holding_bars += int(simulation.get("holding_bars") or 0)
             entry_reference = float(
-                simulation.get("entry_reference_price") or trade.get("entry_price") or 0.0
+                simulation.get("entry_reference_price")
+                or trade.get("entry_price")
+                or 0.0
             )
             exit_reference = float(
                 simulation.get("exit_reference_price") or trade.get("exit_price") or 0.0
@@ -458,7 +471,9 @@ def fixed_allocation_buy_and_hold(
     exit_fill = exit_reference * (1.0 - slippage_rate)
     exit_fee = quantity * exit_fill * commission_rate
     values[-1] = cash + quantity * exit_fill - exit_fee
-    periods_per_year = timedelta(days=365).total_seconds() / timeframe_delta.total_seconds()
+    periods_per_year = (
+        timedelta(days=365).total_seconds() / timeframe_delta.total_seconds()
+    )
     result: dict[str, Any] = _equity_statistics(
         values,
         initial_capital=initial_capital,
