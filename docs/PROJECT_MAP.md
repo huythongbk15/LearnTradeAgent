@@ -29,6 +29,9 @@
 │   ├── 09_multi_exchange.md
 │   ├── 10_ml_infra.md
 │   └── README.md
+├── artifacts
+│   └── golden
+│       └── golden_replay_s0.json
 ├── config
 │   ├── grafana
 │   │   ├── dashboards
@@ -212,6 +215,7 @@
 │   ├── update_deps.sh
 │   ├── verify_account_hardening.py
 │   ├── verify_github_controls.py
+│   ├── verify_golden_replay.py
 │   ├── verify_image.sh
 │   ├── verify_provenance.py
 │   ├── walk_forward_optimize.py
@@ -262,9 +266,12 @@
 │       │   ├── promotion_store.py
 │       │   └── resolver.py
 │       ├── backtest
+│       │   ├── schemas
+│       │   │   └── backtest_report_v2.schema.json
 │       │   ├── __init__.py
 │       │   ├── engine.py
 │       │   ├── portfolio_backtest.py
+│       │   ├── report_v2.py
 │       │   └── reporting.py
 │       ├── cli
 │       │   ├── commands
@@ -491,6 +498,7 @@
 │   ├── test_audit_correlation.py
 │   ├── test_audit_ship_offhost.py
 │   ├── test_backtest_accounting.py
+│   ├── test_backtest_report_v2.py
 │   ├── test_backtest_reporting.py
 │   ├── test_binance_live_runner.py
 │   ├── test_binance_testnet_acceptance.py

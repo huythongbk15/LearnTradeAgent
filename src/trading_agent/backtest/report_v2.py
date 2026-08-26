@@ -120,7 +120,11 @@ def _check_trade_evidence(trade: Any, index: int, violations: list[str]) -> None
         if not _is_tz_aware_iso(simulation.get(key)):
             violations.append(f"{label}: {key} must be a tz-aware ISO timestamp")
     holding_bars = simulation.get("holding_bars")
-    if not isinstance(holding_bars, int) or isinstance(holding_bars, bool) or holding_bars < 0:
+    if (
+        not isinstance(holding_bars, int)
+        or isinstance(holding_bars, bool)
+        or holding_bars < 0
+    ):
         violations.append(f"{label}: holding_bars must be a non-negative integer")
     for key in ("mae_pct", "mfe_pct"):
         if not _is_finite_number(simulation.get(key)):
@@ -201,7 +205,10 @@ def validate_report_v2(report: Mapping[str, Any]) -> list[str]:
     _check_cost_reconciliation(report.get("cost_attribution"), violations)
 
     benchmarks = report.get("benchmarks")
-    if not isinstance(benchmarks, Mapping) or "fixed_allocation_buy_and_hold" not in benchmarks:
+    if (
+        not isinstance(benchmarks, Mapping)
+        or "fixed_allocation_buy_and_hold" not in benchmarks
+    ):
         violations.append("benchmarks.fixed_allocation_buy_and_hold is required")
 
     numeric_scalars = (
@@ -399,8 +406,14 @@ def report_json_schema() -> dict[str, Any]:
                                         },
                                         "mae_pct": {"type": "number"},
                                         "mfe_pct": {"type": "number"},
-                                        "entry_time": {"type": "string", "format": "date-time"},
-                                        "exit_time": {"type": "string", "format": "date-time"},
+                                        "entry_time": {
+                                            "type": "string",
+                                            "format": "date-time",
+                                        },
+                                        "exit_time": {
+                                            "type": "string",
+                                            "format": "date-time",
+                                        },
                                     },
                                 }
                             },

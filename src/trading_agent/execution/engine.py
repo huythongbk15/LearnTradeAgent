@@ -988,9 +988,7 @@ class ExecutionEngine:
         # position is never silently unprotected.
         pre_canceled_intents: list[str] = []
         if intent.side.lower() == "sell":
-            cancel_ok, pre_canceled_intents = self._cancel_resting_protection(
-                symbol
-            )
+            cancel_ok, pre_canceled_intents = self._cancel_resting_protection(symbol)
             if not cancel_ok:
                 self.last_strategy_execution["authority_block_reason"] = (
                     "resting protection could not be cancelled before exit"
@@ -1065,11 +1063,7 @@ class ExecutionEngine:
         fill_received = order_state is not None and order_state.filled_size > 1e-12
 
         protection_submitted = False
-        if (
-            intent.side.lower() == "sell"
-            and pre_canceled_intents
-            and not fill_received
-        ):
+        if intent.side.lower() == "sell" and pre_canceled_intents and not fill_received:
             self._mark_protection_gap(
                 symbol,
                 pre_canceled_intents,

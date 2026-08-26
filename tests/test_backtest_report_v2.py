@@ -170,9 +170,10 @@ def test_missing_required_keys_are_listed_once_each() -> None:
 
 
 def test_exported_json_schema_matches_committed_artifact() -> None:
-    assert json.dumps(export_json_schema(), indent=2) + "\n" == json.dumps(
-        load_json_schema(), indent=2
-    ) + "\n"
+    assert (
+        json.dumps(export_json_schema(), indent=2) + "\n"
+        == json.dumps(load_json_schema(), indent=2) + "\n"
+    )
 
 
 def test_json_schema_validates_the_reference_report() -> None:
