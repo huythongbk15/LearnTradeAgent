@@ -62,6 +62,23 @@
 │   ├── tutorials
 │   │   └── README.md
 │   ├── vi
+│   │   ├── khoa-hoc
+│   │   │   ├── 00_CHUAN_BI.md
+│   │   │   ├── 01_KIEN_TRUC.md
+│   │   │   ├── 02_DU_LIEU.md
+│   │   │   ├── 03_CANONICAL_STRATEGY.md
+│   │   │   ├── 04_BACKTEST_REPORT.md
+│   │   │   ├── 05_TOURNAMENT.md
+│   │   │   ├── 06_SELECTION_WFO.md
+│   │   │   ├── 07_PROMOTION_RUNTIME.md
+│   │   │   ├── 08_EXECUTION_RISK.md
+│   │   │   ├── 09_PORTFOLIO_ROUTER.md
+│   │   │   ├── 10_VAN_HANH.md
+│   │   │   ├── 11_CAPSTONE.md
+│   │   │   ├── DAP_AN_GOI_Y.md
+│   │   │   ├── MAU_BAI_LAM.md
+│   │   │   ├── README.md
+│   │   │   └── RUBRIC.md
 │   │   ├── BANG_CHUNG_VA_ARTIFACT.md
 │   │   ├── KHOA_HOC_V2.md
 │   │   ├── KIEM_TRA_LUONG_CHINH.md
