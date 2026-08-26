@@ -97,15 +97,172 @@ DEFAULT_SCENARIOS = (
 )
 
 
+# ── STR-0206 fault scenarios ───────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class FaultProfile:
+    """Deterministic execution-fault injection for one tournament cell.
+
+    Every field is an independent knob; the runner applies the combined
+    schedule to the SAME execution path so fault runs measure resilience,
+    never a different code path.
+    """
+
+    name: str = "none"
+    #: Drop every k-th bar from the source frame (data gaps).
+    drop_gap_bars_every: int = 0
+    #: Number of stale-price windows; each freezes the venue feed for
+    #  ``stale_window_bars`` consecutive bars starting at multiples of
+    #  ``stale_window_stride``.
+    stale_windows: int = 0
+    stale_window_bars: int = 5
+    stale_window_stride: int = 200
+    #: Reject the first N order placements with a broker error.
+    reject_first_n_orders: int = 0
+    #: Market orders fill only this fraction of the requested amount.
+    partial_fill_fraction: float = 1.0
+    #: First protective-order cancel is silently missed (cancel race).
+    cancel_miss_first: bool = False
+    #: Every stop-loss placement fails (protection outage).
+    break_protection: bool = False
+
+    def __post_init__(self) -> None:
+        if self.drop_gap_bars_every < 0 or self.stale_windows < 0:
+            raise ValueError("fault counts must be non-negative")
+        if not 0.0 < self.partial_fill_fraction <= 1.0:
+            raise ValueError("partial_fill_fraction must be in (0, 1]")
+        if self.reject_first_n_orders < 0:
+            raise ValueError("reject_first_n_orders must be non-negative")
+
+    @property
+    def active(self) -> bool:
+        return self != FAULT_NONE
+
+
+FAULT_NONE = FaultProfile()
+FAULT_GAP_EVERY_50 = FaultProfile("gap50", drop_gap_bars_every=50)
+FAULT_STALE_FEED = FaultProfile("stale", stale_windows=3)
+FAULT_REJECT_FIRST_2 = FaultProfile("reject2", reject_first_n_orders=2)
+FAULT_PARTIAL_HALF = FaultProfile("partial_half", partial_fill_fraction=0.5)
+FAULT_CANCEL_RACE = FaultProfile("cancel_race", cancel_miss_first=True)
+FAULT_PROTECTION_OUTAGE = FaultProfile("protect_outage", break_protection=True)
+
+ALL_FAULT_PROFILES = (
+    FAULT_NONE,
+    FAULT_GAP_EVERY_50,
+    FAULT_STALE_FEED,
+    FAULT_REJECT_FIRST_2,
+    FAULT_PARTIAL_HALF,
+    FAULT_CANCEL_RACE,
+    FAULT_PROTECTION_OUTAGE,
+)
+
+
+def apply_faults(simulator: Any, profile: FaultProfile) -> None:
+    """Wrap exchange/engine hooks on a constructed simulator (in place)."""
+    if not profile.active:
+        return
+
+    exchange = simulator.engine.exchange
+
+    if profile.reject_first_n_orders or profile.break_protection:
+        original_place = exchange.place_order
+        state = {"rejected": 0}
+
+        def placing(*args: Any, **kwargs: Any):
+            order_type = str(kwargs.get("order_type", args[2] if len(args) > 2 else ""))
+            if profile.break_protection and "stop" in order_type.lower():
+                raise ValueError(
+                    f"[fault:{profile.name}] injected protection placement failure"
+                )
+            if state["rejected"] < profile.reject_first_n_orders:
+                state["rejected"] += 1
+                raise ValueError(
+                    f"[fault:{profile.name}] injected broker rejection "
+                    f"{state['rejected']}/{profile.reject_first_n_orders}"
+                )
+            return original_place(*args, **kwargs)
+
+        exchange.place_order = placing  # type: ignore[method-assign]
+
+    if profile.partial_fill_fraction < 1.0:
+        original_fill = exchange._fill_market_order
+
+        def partial_fill(order_id: str):
+            order = exchange.orders.get(order_id)
+            if order is None:
+                return original_fill(order_id)
+            real_amount = order.amount
+            try:
+                order.amount = real_amount * profile.partial_fill_fraction
+                return original_fill(order_id)
+            finally:
+                # The unfilled remainder stays as the (cancelled) order size;
+                # accounting used exactly what was filled.
+                order.amount = real_amount
+
+        exchange._fill_market_order = partial_fill  # type: ignore[method-assign]
+
+    if profile.cancel_miss_first:
+        original_cancel = exchange.cancel_order
+        state = {"missed": False}
+
+        def cancelling(order_id: str):
+            result = original_cancel(order_id)
+            if not state["missed"] and result is not None:
+                # Simulate the race: venue reports the cancel as lost even
+                # though it was accepted locally. Restore the resting order.
+                state["missed"] = True
+                order = exchange.orders.get(order_id)
+                if order is not None:
+                    from trading_agent.execution.paper_exchange import OrderStatus
+
+                    order.status = OrderStatus.OPEN
+                return None
+            return result
+
+        exchange.cancel_order = cancelling  # type: ignore[method-assign]
+
+    if profile.stale_windows:
+        original_update = simulator.engine.update_prices
+
+        def stale_update(prices: dict[str, float]):
+            now = getattr(rc_clock(), "current", None)
+            if now is None:
+                return original_update(prices)
+            for start in simulator._stale_starts:
+                if (
+                    start
+                    <= now
+                    < start + simulator.timeframe_delta * profile.stale_window_bars
+                ):
+                    return  # feed frozen
+            return original_update(prices)
+
+        simulator.engine.update_prices = stale_update  # type: ignore[method-assign]
+
+
+def rc_clock():
+    """Access the simulator's fake clock class (monkeypatched in scripts)."""
+    import sys
+
+    module = sys.modules.get("scripts.full_system_backtest")
+    if module is None:
+        raise RuntimeError("full_system_backtest module is not imported")
+    return module._SimClock
+
+
 @dataclass(frozen=True)
 class EvaluationCellSpec:
-    """One tournament cell: strategy × symbol × params × cost scenario."""
+    """One tournament cell: strategy × symbol × params × cost × faults."""
 
     strategy_id: str
     symbol: str
     timeframe: str = "1h"
     params: Mapping[str, Any] = field(default_factory=dict)
     cost_scenario: CostScenario = SCENARIO_BASE
+    fault: FaultProfile = FAULT_NONE
 
     def __post_init__(self) -> None:
         if not self.strategy_id or not self.symbol:
@@ -122,10 +279,13 @@ class EvaluationCellSpec:
     @property
     def cell_id(self) -> str:
         safe_symbol = self.symbol.replace("/", "")
-        return (
+        base = (
             f"{self.strategy_id}__{safe_symbol}__{self.timeframe}"
             f"__{self.cost_scenario.name}__p{self.params_hash}"
         )
+        if self.fault.active:
+            base += f"__f{self.fault.name}"
+        return base
 
 
 def canonical_signal_series(
@@ -196,6 +356,7 @@ class EvaluationArtifact:
     timeframe: str
     params_hash: str
     cost_scenario: str
+    fault_profile: str
     commission: float
     slippage: float
     data_manifest_sha: str
@@ -214,6 +375,7 @@ class EvaluationArtifact:
                 "descriptor_id": self.descriptor_id,
                 "params_hash": self.params_hash,
                 "cost_scenario": self.cost_scenario,
+                "fault_profile": self.fault_profile,
                 "data_manifest_sha": self.data_manifest_sha,
                 "commit_sha": self.commit_sha,
                 "metrics": dict(self.metrics),
@@ -234,6 +396,7 @@ class EvaluationArtifact:
             "timeframe": self.timeframe,
             "params_hash": self.params_hash,
             "cost_scenario": self.cost_scenario,
+            "fault_profile": self.fault_profile,
             "commission": self.commission,
             "slippage": self.slippage,
             "data_manifest_sha": self.data_manifest_sha,
@@ -292,6 +455,12 @@ def run_cell(
     # Data + manifest + quality gate (identical loader as the baseline sim;
     # gaps are RECORDED into the cell manifest, never silently dropped).
     source_df = load_ohlcv("binance", spec.symbol, spec.timeframe)
+    if spec.fault.drop_gap_bars_every:
+        source_df = (
+            source_df.with_row_index("_row")
+            .filter(pl.col("_row") % spec.fault.drop_gap_bars_every != 0)
+            .drop("_row")
+        )
     quality = assess_ohlcv(
         source_df.sort("timestamp"),
         expected_interval=timedelta(hours=1),
@@ -350,7 +519,26 @@ def run_cell(
         commission=spec.cost_scenario.commission,
         slippage=spec.cost_scenario.slippage,
     )
-    report = sim.run(start=start, end=end)
+    if spec.fault.stale_windows:
+        # Stale windows are index-based; translate them into clock windows
+        # for the update_prices wrapper (bar i open → close).
+        times = frame["time"].to_list()
+        if getattr(times[0], "tzinfo", None) is None:
+            times = [value.replace(tzinfo=UTC) for value in times]
+        sim._stale_starts = [
+            times[min(spec.fault.stale_window_stride * w + 1, len(times) - 1)]
+            for w in range(spec.fault.stale_windows)
+        ]
+    apply_faults(sim, spec.fault)
+    try:
+        report = sim.run(start=start, end=end)
+    except Exception as exc:  # noqa: BLE001 - a broken cell is evidence, not a crash
+        return _failed_artifact(
+            spec,
+            descriptor,
+            f"execution_crash:{type(exc).__name__}:{exc}",
+            data_manifest_sha=data_manifest_sha,
+        )
 
     return _artifact_from_report(spec, descriptor, cell_dir, report, data_manifest_sha)
 
@@ -369,6 +557,8 @@ def _failed_artifact(
     spec: EvaluationCellSpec,
     descriptor: StrategyDescriptor | None,
     reason: str,
+    *,
+    data_manifest_sha: str = "unknown",
 ) -> EvaluationArtifact:
     return EvaluationArtifact(
         cell_id=spec.cell_id,
@@ -379,9 +569,10 @@ def _failed_artifact(
         timeframe=spec.timeframe,
         params_hash=spec.params_hash,
         cost_scenario=spec.cost_scenario.name,
+        fault_profile=spec.fault.name,
         commission=spec.cost_scenario.commission,
         slippage=spec.cost_scenario.slippage,
-        data_manifest_sha="unknown",
+        data_manifest_sha=data_manifest_sha,
         commit_sha="unknown",
         report_path=None,
         metrics={},
@@ -450,6 +641,7 @@ def _artifact_from_report(
         timeframe=spec.timeframe,
         params_hash=spec.params_hash,
         cost_scenario=spec.cost_scenario.name,
+        fault_profile=spec.fault.name,
         commission=spec.cost_scenario.commission,
         slippage=spec.cost_scenario.slippage,
         data_manifest_sha=data_manifest_sha,
