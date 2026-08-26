@@ -71,9 +71,7 @@ class CanonicalRuntimeBridge:
         for alias in _TIME_COL_ALIASES:
             if alias in frame.columns:
                 return alias
-        raise ValueError(
-            f"frame must carry a time column (one of {_TIME_COL_ALIASES})"
-        )
+        raise ValueError(f"frame must carry a time column (one of {_TIME_COL_ALIASES})")
 
     def _decide_last_bar(self, frame: pl.DataFrame) -> int:
         """Decide exactly like ``canonical_signal_series`` does at bar j.
@@ -101,9 +99,7 @@ class CanonicalRuntimeBridge:
                     pl.col("time").str.to_datetime(time_zone="UTC")
                 )
             elif t_dtype.time_zone is None:
-                canon = canon.with_columns(
-                    pl.col("time").dt.replace_time_zone("UTC")
-                )
+                canon = canon.with_columns(pl.col("time").dt.replace_time_zone("UTC"))
             window = build_ohlcv_window(
                 canon.head(-1),  # exclude the decision bar itself
                 observed_at=observed_at,
