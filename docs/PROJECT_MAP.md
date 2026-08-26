@@ -47,10 +47,28 @@
 │   ├── __init__.py
 │   └── app.py
 ├── docs
+│   ├── architecture
+│   │   └── STRATEGY_LIFECYCLE.md
 │   ├── archive
 │   │   ├── research
 │   │   │   └── BACKTEST_SUMMARY_2026-08-06.md
 │   │   └── architecture_2026-08.md
+│   ├── guides
+│   │   └── RESEARCH_TO_PRODUCTION.md
+│   ├── operations
+│   │   └── MAIN_FLOW_VALIDATION.md
+│   ├── reference
+│   │   └── EVIDENCE_ARTIFACTS.md
+│   ├── tutorials
+│   │   └── README.md
+│   ├── vi
+│   │   ├── BANG_CHUNG_VA_ARTIFACT.md
+│   │   ├── KHOA_HOC_V2.md
+│   │   ├── KIEM_TRA_LUONG_CHINH.md
+│   │   ├── NGHIEN_CUU_DEN_VAN_HANH.md
+│   │   ├── README.md
+│   │   ├── THUAT_NGU.md
+│   │   └── VONG_DOI_CHIEN_LUOC.md
 │   ├── ACCOUNT_HARDENING.md
 │   ├── ADAPTIVE_STRATEGY_SELECTION_ROADMAP.md
 │   ├── ARCHITECTURE.md
@@ -60,6 +78,7 @@
 │   ├── DEPLOYMENT.md
 │   ├── DEPLOY_ORACLE.md
 │   ├── DEVELOPMENT.md
+│   ├── DOCUMENTATION_STANDARD.md
 │   ├── ENVIRONMENT_MAPPING.md
 │   ├── LIVE_TRADING_OPTIMIZATION_PLAN.md
 │   ├── LIVE_TRADING_RUNBOOK.md
