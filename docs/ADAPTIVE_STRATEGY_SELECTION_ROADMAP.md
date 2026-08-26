@@ -7,7 +7,9 @@
 > [RESEARCH_EVIDENCE.md](RESEARCH_EVIDENCE.md),
 > [P0_EXECUTION_MAP.md](P0_EXECUTION_MAP.md),
 > [LIVE_TRADING_TODO.md](LIVE_TRADING_TODO.md),
-> [ARCHITECTURE.md](ARCHITECTURE.md)
+> [ARCHITECTURE.md](ARCHITECTURE.md),
+> [BACKTEST_ENGINE.md](BACKTEST_ENGINE.md) (chuẩn `PortfolioBacktestEngine`),
+> [PROMOTION_BINDING.md](PROMOTION_BINDING.md) (cầu Research→Runtime)
 
 ## 1. Executive decision
 
@@ -85,6 +87,42 @@ Run `20260824T015629_295078Z_ef084b08`:
 - nếu bỏ TRX, chín pair còn lại lỗ khoảng 14.056 USDT;
 - 2025–2026 không có bằng chứng edge ổn định;
 - kết luận: execution evidence tốt, strategy evidence chưa đủ.
+
+### 2.4 Cập nhật hạ tầng đo lường & promotion (2026-08-26)
+
+Các tài liệu và cơ chế mới bổ sung trực tiếp nền tảng cho S0 (baseline truth) và
+S4 (promotion/provenance):
+
+- **[BACKTEST_ENGINE.md](BACKTEST_ENGINE.md)** — tài liệu chuẩn của
+  `PortfolioBacktestEngine`, engine backtest portfolio thật đầu tiên của hệ thống:
+  nguyên tắc thiết kế "chỉ thay clock + broker, không bao giờ thay decision
+  authority"; kiến trúc luồng 8 bước với snapshot injection; bảng **9 bảo đảm**
+  (G1–G9: no-lookahead, earliest t+1, shared capital, determinism, idempotency,
+  never-negative-cash, no-synthetic-proceeds, rejected=dropped, parity với live);
+  kế toán đặt chỗ với pha REDUCTION→INCREASE; actual-fill safety guards +
+  permanent rejection drop semantics (**R1–R4**); parity testing tại pre-broker
+  boundary (rel 1e-12/1e-9, so plans chứ không so fills); usage examples và ma
+  trận 14 tests.
+- **MILESTONE_D_TODO.md — Wave D4** (bổ sung còn thiếu): permanent rejection
+  drop + adversarial tests (commits `5df8360`, `3a46813`, `167f479`; 1085 tests
+  pass).
+- **[PROMOTION_BINDING.md](PROMOTION_BINDING.md) — Research→Runtime Bridge**:
+  PromotionHook được wire atomic + fail-closed vào
+  `ResearchLifecycle.promote(on_event)`; idempotent theo artifact ID; hot-reload
+  qua resolver-per-resolve lookup + RuntimeLoader watcher trong run-promoted;
+  golden flow kiểm chứng trong `tests/test_promotion_bridge.py`.
+- **docs/README.md**: index hai tài liệu trên vào mục "Kiến trúc & phát triển".
+
+Ý nghĩa đối với lộ trình này:
+
+- Exit gate S0 ("hai lần replay cùng quyết định") đã có hạ tầng cốt lõi: engine
+  deterministic tuyệt đối + parity live-vs-backtest đã pass từ Milestone D — phần
+  còn lại chỉ là đóng gói golden manifest (STR-0001) và BacktestReportV2 (STR-0002).
+- R1–R4 bảo đảm trade ledger không chứa synthetic proceeds và mọi rejection bị
+  drop vĩnh viễn — điều kiện cần để cost attribution (STR-0005) reconcile được.
+- Cầu PromotionBinding khép một phần GAP-13: PromotionHook là wire điểm duy nhất
+  từ research promotion sang runtime artifact loading (kèm hot-reload); việc hợp
+  nhất/deprecate các state machine trùng nghĩa vẫn thuộc STR-0403.
 
 ## 3. Kiến trúc đích
 
@@ -203,6 +241,13 @@ active config. Nếu lớp đo sai, selector sẽ tối ưu sai mục tiêu.
 - Tổng net PnL reconcile được với gross PnL trừ toàn bộ cost attribution.
 - Active protection trong report khớp order ledger.
 - Gap dữ liệu được fail/accept bằng policy có evidence.
+
+> **Ghi chú 2026-08-26:** điều kiện "hai lần replay cùng quyết định" đã có nền:
+> determinism + parity của engine được chứng minh và tài liệu hóa trong
+> [BACKTEST_ENGINE.md](BACKTEST_ENGINE.md) (parity testing §8, ma trận 14 tests).
+> Còn thiếu để đóng gate: golden manifest đóng gói (STR-0001 — hiện đã có data/
+> feature/config/code SHA trong `full_system_backtest.py`, chưa bind git commit
+> SHA), BacktestReportV2 + validator (STR-0002) và golden 10-pair run replayable.
 
 ## 7. Phase S1 — Canonical strategy contract và registry
 
@@ -361,6 +406,12 @@ Biến evidence thành một policy bất biến mà runtime có thể đọc nh
 - Không thể skip promotion stage.
 - Runtime không load policy ngoài allowlist hoặc policy hết hạn.
 - Rollback replay được và không tăng exposure ngoài approved cap.
+
+> **Ghi chú 2026-08-26:** cầu nối Research→Runtime đã được wire sẵn từ Milestone
+> D — PromotionHook atomic + fail-closed vào `ResearchLifecycle.promote(on_event)`,
+> idempotent, hot-reload qua RuntimeLoader watcher; chi tiết và golden flow xem
+> [PROMOTION_BINDING.md](PROMOTION_BINDING.md). STR-0403 còn lại phần hợp nhất/
+> deprecate các state machine promotion cũ.
 
 ## 11. Phase S5 — Runtime regime router và safe switching
 
