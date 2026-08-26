@@ -182,7 +182,14 @@ def trailing_stop_price(entry_price: float, df: pl.DataFrame) -> float | None:
 
 def get_recent_df(symbol: str) -> pl.DataFrame:
     """Fetch only fully closed 1h candles from Binance via CCXT."""
-    exchange = ccxt.binance({"enableRateLimit": True})
+    exchange = ccxt.binance(
+        {
+            "enableRateLimit": True,
+            # dapi (COIN-M inverse) is unreachable from this host; restricting
+            # to spot markets keeps load_markets() off the blocked endpoint.
+            "options": {"fetchMarkets": ["spot"]},
+        }
+    )
     ohlcv = exchange.fetch_ohlcv(symbol, "1h", limit=LOOKBACK)
     now_ms = int(datetime.now(UTC).timestamp() * 1000)
     ohlcv = [bar for bar in ohlcv if int(bar[0]) + 3_600_000 <= now_ms]
