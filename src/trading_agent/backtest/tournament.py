@@ -518,11 +518,13 @@ def run_cell(
         signal_series=signals,
         commission=spec.cost_scenario.commission,
         slippage=spec.cost_scenario.slippage,
-        runtime_factory=(
-            _bridge_runtime_factory(spec, adapter, descriptor)
-            if not _has_legacy_resolver(spec.strategy_id)
-            else None
-        ),
+        # EVERY strategy goes through the canonical runtime bridge so the
+        # engine decides at the exact same point-in-time as the injected
+        # series. Legacy resolver classes (e.g. EnhancedMaCrossover) apply
+        # cooldown/vectorized semantics on the FULL slice and return 0 at
+        # the decision bar — a mixed convention that silently drops ~all
+        # orders (verified: 414 signals → 1 trade over full history).
+        runtime_factory=_bridge_runtime_factory(spec, adapter, descriptor),
     )
     if spec.fault.stale_windows:
         # Stale windows are index-based; translate them into clock windows
@@ -552,13 +554,6 @@ def _research_env():
     from trading_agent.authority.config import Environment
 
     return Environment.RESEARCH
-
-
-def _has_legacy_resolver(strategy_id: str) -> bool:
-    """True when the engine resolver knows a legacy class for this id."""
-    from trading_agent.authority.resolver import RuntimeStrategyResolver
-
-    return strategy_id in RuntimeStrategyResolver._STRATEGY_MAP
 
 
 def _bridge_runtime_factory(spec: EvaluationCellSpec, adapter, descriptor):

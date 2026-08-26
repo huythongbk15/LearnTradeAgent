@@ -331,6 +331,7 @@ class FullSystemSimulator:
         )
         if self.engine.resolver is None:
             raise RuntimeError("paper strategy resolver was not initialized")
+        self.strategy_runtime = None
         if strategy_runtime is not None:
             # Tournament cells with canonical-only strategies bring their
             # own runtime (bridge over the canonical contract); the artifact
