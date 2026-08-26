@@ -2781,13 +2781,13 @@ class TestP1ConvergenceProofs:
                         "price": 50000.0,
                         "market_data": pl.DataFrame(
                             {
-                            # Rising close at the end so ma_crossover(fast=10,
-                            # slow=30) emits BUY: since Milestone B, execute_signal
-                            # runs the real resolved strategy before the mocked authorities.
-                            "close": [50000.0] * 39 + [60000.0],
-                            "high": [51000.0] * 39 + [61000.0],
-                            "low": [49000.0] * 39 + [59000.0],
-                            "volume": [100.0] * 40,
+                                # Rising close at the end so ma_crossover(fast=10,
+                                # slow=30) emits BUY: since Milestone B, execute_signal
+                                # runs the real resolved strategy before the mocked authorities.
+                                "close": [50000.0] * 39 + [60000.0],
+                                "high": [51000.0] * 39 + [61000.0],
+                                "low": [49000.0] * 39 + [59000.0],
+                                "volume": [100.0] * 40,
                             }
                         ),
                     },
