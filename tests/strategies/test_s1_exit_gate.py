@@ -144,11 +144,11 @@ class TestNoTradePipeline:
         from trading_agent.execution.canonical.market_observation import (
             EnrichedMarketObservation,
         )
-        from trading_agent.execution.canonical import (
+        from trading_agent.execution.canonical.risk_decision import (
             EvidenceState,
+            RiskLevel,
             UnifiedRiskDecision,
         )
-        from trading_agent.agents.risk_decision import RiskLevel
         from trading_agent.research.forecast import RiskReason
 
         # 1) Research layer: abstain forecast → zero allowed exposure.
