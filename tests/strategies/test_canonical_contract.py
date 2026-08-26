@@ -68,10 +68,9 @@ def _window(
     )
     if with_time:
         frame = frame.with_columns(
-            (
-                pl.lit(end)
-                - pl.duration(hours=pl.len() - pl.int_range(pl.len()))
-            ).alias("time")
+            (pl.lit(end) - pl.duration(hours=pl.len() - pl.int_range(pl.len()))).alias(
+                "time"
+            )
         )
     return frame.select(
         *(["time"] if with_time else []), "open", "high", "low", "close", "volume"
@@ -116,12 +115,18 @@ class TestStrategyDescriptor:
             research_only=True,
         )
         assert StrategyDescriptor.from_dict(d.to_dict()) == d
-        assert d.descriptor_id == StrategyDescriptor.from_dict(d.to_dict()).descriptor_id
+        assert (
+            d.descriptor_id == StrategyDescriptor.from_dict(d.to_dict()).descriptor_id
+        )
 
     @pytest.mark.parametrize(
         "kwargs",
         [
-            {"strategy_id": "Bad-Id", "semantic_version": "1.0.0", "code_sha": "a" * 64},
+            {
+                "strategy_id": "Bad-Id",
+                "semantic_version": "1.0.0",
+                "code_sha": "a" * 64,
+            },
             {"strategy_id": "ok", "semantic_version": "1.0", "code_sha": "a" * 64},
             {"strategy_id": "ok", "semantic_version": "1.0.0", "code_sha": "xyz"},
             {
@@ -217,9 +222,12 @@ class TestLegacyDataFrameAdapter:
         assert forecast.expected_excess_return > 0
         assert forecast.metadata["research_only"] is True
         # Determinism on identical observation.
-        assert forecast.fingerprint == adapter.forecast(
-            _observation(features={OHLCV_WINDOW_FEATURE: _window(falling)})
-        ).fingerprint
+        assert (
+            forecast.fingerprint
+            == adapter.forecast(
+                _observation(features={OHLCV_WINDOW_FEATURE: _window(falling)})
+            ).fingerprint
+        )
 
     def test_overbought_window_emits_sell(self):
         rising = [50.0 + i for i in range(40)]
@@ -229,7 +237,11 @@ class TestLegacyDataFrameAdapter:
         )
         assert forecast.metadata["canonical_action"] == "SELL"
         assert forecast.expected_excess_return < 0
-        assert forecast.lower_bound <= forecast.expected_excess_return <= forecast.upper_bound
+        assert (
+            forecast.lower_bound
+            <= forecast.expected_excess_return
+            <= forecast.upper_bound
+        )
 
     def test_flat_window_emits_no_trade(self):
         # ma_crossover on a flat window: fast MA == slow MA → signal 0.
@@ -252,9 +264,7 @@ class TestLegacyDataFrameAdapter:
     def test_fail_closed_missing_columns(self):
         bad = pl.DataFrame({"close": [1.0, 2.0]})
         with pytest.raises(LegacyAdapterError, match="missing columns"):
-            self._adapter().forecast(
-                _observation(features={OHLCV_WINDOW_FEATURE: bad})
-            )
+            self._adapter().forecast(_observation(features={OHLCV_WINDOW_FEATURE: bad}))
 
     def test_fail_closed_insufficient_warmup(self):
         short = [100.0 - i for i in range(10)]
@@ -330,9 +340,7 @@ class TestCanonicalStrategyRegistry:
 
     def test_research_only_blocked_outside_research(self):
         registry = CanonicalStrategyRegistry()
-        registry.register(
-            self._descriptor(research_only=True), _make_abstain_factory
-        )
+        registry.register(self._descriptor(research_only=True), _make_abstain_factory)
         with pytest.raises(RegistryIntegrityError, match="research_only"):
             registry.get("abstain_test", environment=Environment.PAPER)
         # RESEARCH admits it.

@@ -114,9 +114,7 @@ class TestStrategyEventLedger:
 
     def test_empty_event_id_rejected(self):
         with pytest.raises(ValueError):
-            StrategyEventLedger().observe(
-                StrategyStateKey("a", "B/USDT"), ""
-            )
+            StrategyEventLedger().observe(StrategyStateKey("a", "B/USDT"), "")
 
 
 # ── Default candidate registry (deliverable: 5 adapters) ──────────────────
@@ -163,12 +161,8 @@ class TestDefaultCandidateRegistry:
             features=obs_features,
         )
         for strategy_id in registry.list_ids():
-            _, adapter_a = registry.get(
-                strategy_id, environment=Environment.RESEARCH
-            )
-            _, adapter_b = registry.get(
-                strategy_id, environment=Environment.RESEARCH
-            )
+            _, adapter_a = registry.get(strategy_id, environment=Environment.RESEARCH)
+            _, adapter_b = registry.get(strategy_id, environment=Environment.RESEARCH)
             f_a = adapter_a.forecast(observation)
             f_b = adapter_b.forecast(observation)
             assert f_a.fingerprint == f_b.fingerprint

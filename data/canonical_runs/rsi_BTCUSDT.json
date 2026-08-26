@@ -1,0 +1,20 @@
+{
+  "descriptor_id": "bb306641cc64c6b5a3b49281",
+  "strategy_id": "rsi",
+  "semantic_version": "1.0.0",
+  "symbol": "BTC/USDT",
+  "data_sha256": "6b7bb64760b6162fd52915ae17fb67b559a30e3b897a984e8a9ad4215c7f274e",
+  "commit_sha": "5fc854bdd13d4965b347aecbc049fe37af200390",
+  "n_observations": 5004,
+  "fingerprints": null,
+  "action_counts": {
+    "NO_TRADE": 3759,
+    "SELL": 585,
+    "BUY": 660
+  },
+  "first_fingerprint": "dccdd83e6c7ed284acc9a110d060f87f4a0771e72e2371e0a18fed755c431169",
+  "last_fingerprint": "8ee1ef7a23815a7cb73f24553dc15e3e114dffd247d3b20fff42056b1dcaae24",
+  "run_manifest_sha256": "d2318b7b8d87121f2fc14fdbaeba3233172568c42518a3e2341112a7f5ff7920",
+  "environment": "research",
+  "research_only": true
+}

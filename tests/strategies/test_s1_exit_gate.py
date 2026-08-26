@@ -41,12 +41,14 @@ def _synthetic_frame(n_flat_head: int = 60) -> pl.DataFrame:
     seg_up = [40.0 + 3 * i for i in range(1, 61)]
     seg_flat_b = [220.0] * 60
     closes = seg_flat_a + seg_down + seg_up + seg_flat_b
-    frame = pl.DataFrame({"close": closes}).with_columns(
-        open=pl.col("close").shift(1).fill_null(pl.col("close"))
-    ).with_columns(
-        high=pl.max_horizontal("open", "close") * 1.002,
-        low=pl.min_horizontal("open", "close") * 0.998,
-        volume=pl.lit(10.0),
+    frame = (
+        pl.DataFrame({"close": closes})
+        .with_columns(open=pl.col("close").shift(1).fill_null(pl.col("close")))
+        .with_columns(
+            high=pl.max_horizontal("open", "close") * 1.002,
+            low=pl.min_horizontal("open", "close") * 0.998,
+            volume=pl.lit(10.0),
+        )
     )
     start = _OBS_AT - timedelta(hours=len(closes))
     return frame.with_columns(
@@ -160,9 +162,7 @@ class TestNoTradePipeline:
             volume=10.0,
         )
         forecast = AbstainStrategy().forecast(obs_research)
-        decision = ForecastRiskPolicy().evaluate(
-            forecast, requested_exposure=0.40
-        )
+        decision = ForecastRiskPolicy().evaluate(forecast, requested_exposure=0.40)
         assert float(decision.allowed_exposure) == 0.0
 
         # 2) Execution layer: zero-exposure target → no order intent.
@@ -201,7 +201,9 @@ class TestNoTradePipeline:
             existing_reservations=0.0,
             available_cash=10_000.0,
         )
-        price = MarketPrice(symbol="BTCUSDT", mid=50000.0, bid=49990.0, ask=50010.0, last=50000.0)
+        price = MarketPrice(
+            symbol="BTCUSDT", mid=50000.0, bid=49990.0, ask=50010.0, last=50000.0
+        )
         target = TargetExposure(
             symbol="BTCUSDT",
             exposure=0.0,

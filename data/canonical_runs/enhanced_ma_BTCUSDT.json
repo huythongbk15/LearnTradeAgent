@@ -1,0 +1,20 @@
+{
+  "descriptor_id": "2e1a328e1cc886879e43a4e1",
+  "strategy_id": "enhanced_ma",
+  "semantic_version": "1.0.0",
+  "symbol": "BTC/USDT",
+  "data_sha256": "6b7bb64760b6162fd52915ae17fb67b559a30e3b897a984e8a9ad4215c7f274e",
+  "commit_sha": "5fc854bdd13d4965b347aecbc049fe37af200390",
+  "n_observations": 4920,
+  "fingerprints": null,
+  "action_counts": {
+    "NO_TRADE": 4860,
+    "SELL": 34,
+    "BUY": 26
+  },
+  "first_fingerprint": "15932de7f73ba8ba6e469c68c37704373ef63334a5a14fa31050bd65dcf50608",
+  "last_fingerprint": "5ce97bc1aed77bad6bd7843e518c16c3f7d4ab41346589d78838b301a082c442",
+  "run_manifest_sha256": "ae3005b6e0b9bd2729f904c92cf98e6ef303bc21c841e67dcebec2b1875e2204",
+  "environment": "research",
+  "research_only": true
+}

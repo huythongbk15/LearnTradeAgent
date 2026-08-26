@@ -200,6 +200,7 @@
 │   ├── research_walkforward.py
 │   ├── restore.sh
 │   ├── review_wave_ef.py
+│   ├── run_canonical_strategy.py
 │   ├── sign_and_verify.sh
 │   ├── simulate_execution.py
 │   ├── stress_evidence_costs.py
@@ -454,6 +455,15 @@
 │       │   ├── portfolio_risk.py
 │       │   └── position_sizer.py
 │       ├── strategies
+│       │   ├── canonical
+│       │   │   ├── __init__.py
+│       │   │   ├── abstain.py
+│       │   │   ├── adapter.py
+│       │   │   ├── candidates.py
+│       │   │   ├── descriptor.py
+│       │   │   ├── features.py
+│       │   │   ├── registry.py
+│       │   │   └── state.py
 │       │   ├── plugins
 │       │   │   ├── __init__.py
 │       │   │   ├── adapters.py
@@ -487,6 +497,10 @@
 │   │   ├── test_e2e_paper_flow.py
 │   │   ├── test_instrument_registry.py
 │   │   └── test_paper_exchange_telemetry.py
+│   ├── strategies
+│   │   ├── test_canonical_contract.py
+│   │   ├── test_canonical_wave_c.py
+│   │   └── test_s1_exit_gate.py
 │   ├── __init__.py
 │   ├── conftest.py
 │   ├── test_agent_correlation.py

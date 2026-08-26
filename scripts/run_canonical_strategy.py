@@ -49,16 +49,13 @@ EXPECTED_INTERVAL = timedelta(hours=1)  # 1h canonical pairs
 
 def _git_commit_sha() -> str:
     try:
-        return (
-            subprocess.run(
-                ["git", "rev-parse", "HEAD"],
-                cwd=ROOT,
-                capture_output=True,
-                text=True,
-                check=True,
-            )
-            .stdout.strip()
-        )
+        return subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
     except Exception:  # pragma: no cover - git unavailable
         return "unknown"
 
@@ -114,13 +111,24 @@ def run_pass(adapter, frame: pl.DataFrame, warmup_bars: int):
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--strategy-id", required=True,
-                        help="allowlisted canonical strategy id (see registry)")
+    parser.add_argument(
+        "--strategy-id",
+        required=True,
+        help="allowlisted canonical strategy id (see registry)",
+    )
     parser.add_argument("--symbol", required=True, help="BASE/QUOTE, e.g. BTC/USDT")
-    parser.add_argument("--data", required=True, type=Path,
-                        help="OHLCV .csv/.parquet with time/open/high/low/close/volume")
-    parser.add_argument("--out", type=Path, default=None,
-                        help="output JSON path (default: data/canonical_runs/<id>_<symbol>.json)")
+    parser.add_argument(
+        "--data",
+        required=True,
+        type=Path,
+        help="OHLCV .csv/.parquet with time/open/high/low/close/volume",
+    )
+    parser.add_argument(
+        "--out",
+        type=Path,
+        default=None,
+        help="output JSON path (default: data/canonical_runs/<id>_<symbol>.json)",
+    )
     args = parser.parse_args()
 
     registry = build_default_registry()
@@ -146,7 +154,9 @@ def main() -> None:
 
     # ── Data quality gate ─────────────────────────────────────────────
     frame = load_ohlcv(args.data)
-    quality_frame = frame.rename({"time": "timestamp"}) if "time" in frame.columns else frame
+    quality_frame = (
+        frame.rename({"time": "timestamp"}) if "time" in frame.columns else frame
+    )
     quality = assess_ohlcv(
         quality_frame, expected_interval=EXPECTED_INTERVAL, gap_policy="reject"
     )
@@ -191,7 +201,9 @@ def main() -> None:
     }
 
     out_path = args.out or (
-        ROOT / "data" / "canonical_runs"
+        ROOT
+        / "data"
+        / "canonical_runs"
         / f"{args.strategy_id}_{args.symbol.replace('/', '')}.json"
     )
     out_path.parent.mkdir(parents=True, exist_ok=True)
