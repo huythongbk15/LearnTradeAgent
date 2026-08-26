@@ -5,7 +5,7 @@ LegacyDataFrameAdapter / CanonicalStrategyRegistry (STR-0101/0103/0104/0107
 from __future__ import annotations
 
 import hashlib
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 import polars as pl
 import pytest
@@ -141,7 +141,7 @@ class TestStrategyDescriptor:
                 "semantic_version": "1.0.0",
                 "code_sha": "a" * 64,
                 "horizon_bars": 3,
-                "warmup_bars": 3,
+                "warmup_bars": -1,
             },
         ],
     )

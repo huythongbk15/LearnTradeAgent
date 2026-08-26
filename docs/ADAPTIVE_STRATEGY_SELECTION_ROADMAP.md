@@ -295,6 +295,32 @@ hoặc tự đặt lệnh.
 - `NO_TRADE` đi xuyên toàn pipeline mà không tạo order intent.
 - Legacy adapter và canonical strategy có parity test trên golden fixture.
 
+#### Cập nhật triển khai S1 (2026-08-26) — exit gate ĐÃ ĐÓNG
+
+Package `src/trading_agent/strategies/canonical/` (commits `5fc854b`, `d62ea18` + wave D):
+
+| STR | Deliverable |
+| --- | --- |
+| STR-0101 | `descriptor.py` — StrategyDescriptor frozen content-addressed (`descriptor_id` = sha256[:24]), fail-closed validation |
+| STR-0102 | Contract duy nhất: `ForecastStrategy.forecast(MarketObservation) -> Forecast` (từ Milestone D); toàn bộ surface mới target contract này |
+| STR-0103 | `adapter.py` — LegacyDataFrameAdapter fail-closed: window qua `features["ohlcv_window"]`, point-in-time check, warm-up gate, finite-signal check; research_only=True cho đến khi parity pass |
+| STR-0104 | `abstain.py` — AbstainStrategy NO_TRADE canonical; zero-interval forecast buộc allowed_exposure=0 qua ForecastRiskPolicy; determinism per observation |
+| STR-0105 | `features.py` — FeatureSpec + `build_ohlcv_window()` chỉ giữ bar đã đóng (< observed_at), fail-closed future-leak/thiếu history |
+| STR-0107 | `registry.py` + `candidates.py` — allowlist-only, verify sha256 file nguồn class tại registration; 5 candidates đầu (enhanced_ma, ma_adx, ma_vol_target, rsi, bbands) pre-registered research_only |
+| STR-0108 | `state.py` — StrategyEventLedger key strategy_id × symbol; duplicate event → False (idempotent) |
+| STR-0109 | 77 contract tests (descriptor/abstain/adapter/registry/features/state/parity/NO_TRADE-pipeline) |
+
+Exit gate verification:
+- ✅ Cùng observation + artifact → cùng forecast fingerprint (determinism tests)
+- ✅ Strategy không import/call broker hay execution engine (contract protocol không có capability)
+- ✅ Artifact hash sai bị block (registry code_sha mismatch → RegistryIntegrityError)
+- ✅ NO_TRADE xuyên pipeline không tạo order intent (Abstain → RiskPolicy → exposure 0 → OrderPlanner NOOP, intent None)
+- ✅ Parity legacy vs canonical trên fixture synthetic deterministic: từng bar khớp sign legacy signal cho MaCrossover/RSI/BBands (window ≥ indicator span → exact)
+
+CLI forecast harness: `scripts/run_canonical_strategy.py --strategy-id <allowlist> --symbol BASE/QUOTE --data <csv|parquet>` — chỉ nhận id trong allowlist (cấm arbitrary class/module), double-pass determinism gate, manifest `run_manifest_sha256` bind descriptor + data sha + commit sha. Verified live trên BTC_USDT_1h.csv: rsi 5004 obs / enhanced_ma 4920 obs.
+
+Suite: 1154 passed / 9 skipped. Backlog S1 còn mở (không chặn exit gate): tích hợp runner vào `full_system_backtest.py` thay hard-coded EnhancedMaCrossover (thuộc STR-0201 CanonicalEvaluationRunner của S2), hợp nhất 2 class `StrategyRuntime` trùng tên (research/forecast.py vs authority/resolver.py).
+
 ## 8. Phase S2 — Canonical strategy tournament
 
 ### Mục tiêu

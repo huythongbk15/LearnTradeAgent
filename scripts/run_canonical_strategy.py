@@ -33,7 +33,7 @@ sys.path.insert(0, str(ROOT))
 
 import polars as pl
 
-from trading_agent.backtest.reporting import GapPolicy, assess_ohlcv
+from trading_agent.backtest.reporting import assess_ohlcv
 from trading_agent.authority.config import Environment
 from trading_agent.research.forecast import MarketObservation
 from trading_agent.strategies.canonical import (
