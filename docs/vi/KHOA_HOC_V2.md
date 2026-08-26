@@ -4,6 +4,9 @@
 >
 > Syllabus đối chiếu: [Trading System Course V2](../tutorials/README.md)
 
+> **Bản khóa học thực hành đầy đủ:** [12 bài + lab + capstone](khoa-hoc/README.md).
+> Trang hiện tại chỉ là syllabus tóm tắt.
+
 Khóa học này thay Course V1 dựa trên việc đọc từng file. Người học tập trung vào
 contract, invariant, failure path và artifact. Mục tiêu không phải “chạy ra lợi
 nhuận”, mà là biết kết luận khi nào evidence đủ hoặc chưa đủ.
@@ -110,4 +113,3 @@ Người học nộp:
 - một quyết định có hard gates và limitation rõ ràng.
 
 `INSUFFICIENT EVIDENCE` là đáp án hợp lệ và thường là đáp án chuyên nghiệp nhất.
-

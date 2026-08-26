@@ -30,7 +30,7 @@ The rules for maintaining these labels are in
 | Runtime/execution engineer | [Strategy Lifecycle](architecture/STRATEGY_LIFECYCLE.md) | [Backtest Engine](BACKTEST_ENGINE.md), [Authority Chain](AUTHORITY_CHAIN_OPS.md) |
 | Operator | [Main-flow Validation](operations/MAIN_FLOW_VALIDATION.md) | [Live Runbook](LIVE_TRADING_RUNBOOK.md), [Operational Drills](OPERATIONAL_DRILLS.md) |
 | Auditor/reviewer | [Capability Matrix](CAPABILITY_MATRIX.md) | [Research Evidence](RESEARCH_EVIDENCE.md), [Promotion Binding](PROMOTION_BINDING.md) |
-| Learner | [Course V2](tutorials/README.md) | Follow the modules in order |
+| Learner | [Khóa học thực hành tiếng Việt](vi/khoa-hoc/README.md) | 12 bài, labs, rubric và capstone |
 
 ## Canonical system flow
 
@@ -94,6 +94,7 @@ strategy. The safe fallback is abstention, rejection or reduced exposure.
 | Document | Status | Scope |
 | --- | --- | --- |
 | [Course V2](tutorials/README.md) | **CURRENT syllabus** | Contract-first learning path tied to evidence |
+| [Khóa học thực hành tiếng Việt](vi/khoa-hoc/README.md) | **CURRENT course** | 12 bài chi tiết với lab, bài tập, đáp án và capstone |
 | [`COURSE/`](../COURSE/) | **HISTORICAL** | Course V1; retained only for traceability |
 
 ## Target and historical material

@@ -89,6 +89,7 @@ Chi tiết: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 | --- | --- |
 | [`docs/README.md`](docs/README.md) | Cổng tài liệu chuẩn, phân biệt CURRENT / TARGET / HISTORICAL |
 | [`docs/vi/README.md`](docs/vi/README.md) | Trung tâm tài liệu tiếng Việt và thuật ngữ song ngữ |
+| [`docs/vi/khoa-hoc/README.md`](docs/vi/khoa-hoc/README.md) | Khóa học thực hành 12 bài, rubric và capstone |
 | [`docs/tutorials/README.md`](docs/tutorials/README.md) | Course V2 theo luồng evidence-first |
 | [`docs/guides/RESEARCH_TO_PRODUCTION.md`](docs/guides/RESEARCH_TO_PRODUCTION.md) | Luồng strategy từ research đến production gate |
 | [`docs/LIVE_TRADING_TODO.md`](docs/LIVE_TRADING_TODO.md) | Live readiness — gates P0-P3, mainnet NO-GO |

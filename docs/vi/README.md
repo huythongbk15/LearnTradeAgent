@@ -25,7 +25,7 @@ trong code là nguồn quyết định. Hãy cập nhật lại cả hai bản t
 | Đánh giá một strategy | [Từ nghiên cứu đến vận hành](NGHIEN_CUU_DEN_VAN_HANH.md) | Chạy đúng baseline/tournament và biết khi nào không được promote |
 | Hiểu report và artifact | [Bằng chứng và artifact](BANG_CHUNG_VA_ARTIFACT.md) | Truy được data, code, params, cost và promotion identity |
 | Kiểm tra luồng chính | [Runbook kiểm tra luồng chính](KIEM_TRA_LUONG_CHINH.md) | Thực hiện kiểm tra L0–L5 theo mức rủi ro |
-| Tự học có thứ tự | [Khóa học V2 tiếng Việt](KHOA_HOC_V2.md) | Học theo contract và bằng chứng, không học thuộc số dòng code |
+| Tự học và tự thực hành | [Khóa học thực hành đầy đủ](khoa-hoc/README.md) | 12 bài, lab, bài tập, rubric, đáp án và capstone |
 | Tra thuật ngữ | [Thuật ngữ song ngữ](THUAT_NGU.md) | Dùng thống nhất từ chuyên môn trong code và tài liệu |
 
 ## Luồng hệ thống chuẩn
@@ -58,6 +58,7 @@ promotion hợp lệ phải dẫn đến từ chối, giảm exposure hoặc `NO
 - [Research Evidence](../RESEARCH_EVIDENCE.md)
 - [Live Readiness](../LIVE_TRADING_TODO.md)
 - [Quy chuẩn tài liệu](../DOCUMENTATION_STANDARD.md)
+- [Khóa học thực hành đầy đủ](khoa-hoc/README.md)
 
 ## Nguyên tắc an toàn
 
@@ -66,4 +67,3 @@ promotion hợp lệ phải dẫn đến từ chối, giảm exposure hoặc `NO
 3. Hoàn thành phase phát triển không tự động cho phép mainnet.
 4. Không đưa secret, account ID hoặc broker payload riêng tư vào tài liệu.
 5. Không chạy lệnh live chỉ vì nó xuất hiện trong ví dụ; luôn kiểm tra environment và approval gate.
-

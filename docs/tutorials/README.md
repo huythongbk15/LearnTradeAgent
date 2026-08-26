@@ -6,7 +6,7 @@ This course replaces the code-walkthrough material in top-level [`COURSE/`](../.
 It teaches stable contracts and evidence flows instead of memorizing source line
 numbers. The legacy course remains available only for historical context.
 
-**Tiếng Việt:** [Khóa học V2 tiếng Việt](../vi/KHOA_HOC_V2.md)
+**Tiếng Việt:** [Khóa học thực hành đầy đủ — 12 bài, lab và capstone](../vi/khoa-hoc/README.md)
 
 ## Learning outcome
 
