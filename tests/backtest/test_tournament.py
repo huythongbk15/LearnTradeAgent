@@ -12,16 +12,13 @@ import pytest
 from trading_agent.backtest.tournament import (
     BASE_COMMISSION,
     BASE_SLIPPAGE,
-    DEFAULT_SCENARIOS,
     SCENARIO_DOUBLE,
     SCENARIO_SLIPPAGE_STRESS,
     CostScenario,
-    EvaluationArtifact,
     EvaluationCellSpec,
     canonical_signal_series,
 )
 from trading_agent.strategies.canonical import (
-    FEATURE_OHLCV_WINDOW,
     LegacyDataFrameAdapter,
 )
 from trading_agent.strategies.rsi import RsiStrategy
@@ -34,12 +31,14 @@ def _synthetic_frame() -> pl.DataFrame:
     seg_down = [100.0 - 2 * i for i in range(1, 31)]
     seg_up = [40.0 + 3 * i for i in range(1, 61)]
     closes = seg_flat + seg_down + seg_up + [220.0] * 60
-    frame = pl.DataFrame({"close": closes}).with_columns(
-        open=pl.col("close").shift(1).fill_null(pl.col("close"))
-    ).with_columns(
-        high=pl.max_horizontal("open", "close") * 1.002,
-        low=pl.min_horizontal("open", "close") * 0.998,
-        volume=pl.lit(10.0),
+    frame = (
+        pl.DataFrame({"close": closes})
+        .with_columns(open=pl.col("close").shift(1).fill_null(pl.col("close")))
+        .with_columns(
+            high=pl.max_horizontal("open", "close") * 1.002,
+            low=pl.min_horizontal("open", "close") * 0.998,
+            volume=pl.lit(10.0),
+        )
     )
     start = _OBS_AT - timedelta(hours=len(closes))
     return frame.with_columns(
@@ -64,9 +63,7 @@ class TestEvaluationCellSpec:
 
     def test_cost_scenario_multipliers(self):
         assert SCENARIO_DOUBLE.commission == pytest.approx(BASE_COMMISSION * 2)
-        assert SCENARIO_SLIPPAGE_STRESS.slippage == pytest.approx(
-            BASE_SLIPPAGE * 5
-        )
+        assert SCENARIO_SLIPPAGE_STRESS.slippage == pytest.approx(BASE_SLIPPAGE * 5)
         assert SCENARIO_SLIPPAGE_STRESS.commission == pytest.approx(BASE_COMMISSION)
 
     def test_invalid_cost_multiplier_rejected(self):
@@ -196,7 +193,9 @@ class TestFailClosedArtifacts:
         report = _report({"sharpe": float("nan")})
         artifact = self._artifact(report)
         assert artifact.status == "FAILED"
-        assert any(r.startswith("nonfinite_metric:sharpe") for r in artifact.failure_reasons)
+        assert any(
+            r.startswith("nonfinite_metric:sharpe") for r in artifact.failure_reasons
+        )
 
     @pytest.mark.parametrize(
         "health_overrides",

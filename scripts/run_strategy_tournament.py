@@ -90,7 +90,7 @@ def main() -> None:
     parser.add_argument(
         "--params",
         default="",
-        help='JSON object of strategy parameters applied to every cell, e.g. \'{"period": 21}\'',
+        help="JSON object of strategy parameters applied to every cell, e.g. '{\"period\": 21}'",
     )
     parser.add_argument(
         "--out",
@@ -106,9 +106,7 @@ def main() -> None:
     parser.add_argument(
         "--rerun", action="store_true", help="re-run cells already COMPLETED"
     )
-    parser.add_argument(
-        "--dry-run", action="store_true", help="list cells and exit"
-    )
+    parser.add_argument("--dry-run", action="store_true", help="list cells and exit")
     args = parser.parse_args()
 
     strategies = [s.strip() for s in args.strategies.split(",") if s.strip()]
@@ -130,8 +128,10 @@ def main() -> None:
     done = set() if args.rerun else _load_completed(args.out)
     pending = [spec for spec in specs if spec.cell_id not in done]
 
-    print(f"Tournament: {len(specs)} cells | {len(done)} already completed "
-          f"| {len(pending)} to run")
+    print(
+        f"Tournament: {len(specs)} cells | {len(done)} already completed "
+        f"| {len(pending)} to run"
+    )
     for spec in specs[:10]:
         mark = "✓" if spec.cell_id in done else "·"
         print(f"  {mark} {spec.cell_id}")
@@ -165,8 +165,10 @@ def main() -> None:
             failures += 1
             print(f"   ❌ FAILED: {artifact.failure_reasons}")
 
-    print(f"\nDone. failures={failures}/{len(pending)} — index: "
-          f"{args.out / 'tournament_index.json'}")
+    print(
+        f"\nDone. failures={failures}/{len(pending)} — index: "
+        f"{args.out / 'tournament_index.json'}"
+    )
     sys.exit(1 if failures else 0)
 
 

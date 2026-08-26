@@ -201,6 +201,7 @@
 │   ├── restore.sh
 │   ├── review_wave_ef.py
 │   ├── run_canonical_strategy.py
+│   ├── run_strategy_tournament.py
 │   ├── sign_and_verify.sh
 │   ├── simulate_execution.py
 │   ├── stress_evidence_costs.py
@@ -273,7 +274,8 @@
 │       │   ├── engine.py
 │       │   ├── portfolio_backtest.py
 │       │   ├── report_v2.py
-│       │   └── reporting.py
+│       │   ├── reporting.py
+│       │   └── tournament.py
 │       ├── cli
 │       │   ├── commands
 │       │   │   ├── __init__.py
@@ -491,6 +493,8 @@
 ├── tests
 │   ├── authority
 │   │   └── test_resolver.py
+│   ├── backtest
+│   │   └── test_tournament.py
 │   ├── execution
 │   │   ├── test_cancel_stop_regressions.py
 │   │   ├── test_canonical_pipeline.py
