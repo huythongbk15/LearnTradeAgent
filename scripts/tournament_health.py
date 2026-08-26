@@ -103,9 +103,7 @@ def main() -> None:
     state_path.write_text(json.dumps({"completed": completed, "ts": time.time()}))
 
     # ── 3. Stall: newest report.json on disk ────────────────────────────
-    reports = sorted(
-        args.out.glob("*/report.json"), key=lambda p: p.stat().st_mtime
-    )
+    reports = sorted(args.out.glob("*/report.json"), key=lambda p: p.stat().st_mtime)
     if reports:
         newest = reports[0]
         age_min = (time.time() - newest.stat().st_mtime) / 60
