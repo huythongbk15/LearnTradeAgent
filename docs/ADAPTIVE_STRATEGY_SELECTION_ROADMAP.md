@@ -242,12 +242,17 @@ active config. Nếu lớp đo sai, selector sẽ tối ưu sai mục tiêu.
 - Active protection trong report khớp order ledger.
 - Gap dữ liệu được fail/accept bằng policy có evidence.
 
-> **Ghi chú 2026-08-26:** điều kiện "hai lần replay cùng quyết định" đã có nền:
-> determinism + parity của engine được chứng minh và tài liệu hóa trong
-> [BACKTEST_ENGINE.md](BACKTEST_ENGINE.md) (parity testing §8, ma trận 14 tests).
-> Còn thiếu để đóng gate: golden manifest đóng gói (STR-0001 — hiện đã có data/
-> feature/config/code SHA trong `full_system_backtest.py`, chưa bind git commit
-> SHA), BacktestReportV2 + validator (STR-0002) và golden 10-pair run replayable.
+> **Ghi chú 2026-08-26 (cập nhật lần 2):** ✅ Exit gate S0 ĐÃ ĐÓNG.
+> Determinism được chứng minh bằng hai golden replay chạy liên tiếp cùng code:
+> `20260826T024519_809759Z_478c58dc` vs `20260826T025838_974197Z_bc901eec` —
+> **10/10 symbol reports byte-identical** (modulo volatile identity fields),
+> golden manifest `sha256:4840581ae99eb90f...` tại
+> `artifacts/golden/golden_replay_s0.json`. BacktestReportV2 đã có schema +
+> validator chuẩn (`trading_agent.backtest.report_v2` + JSON Schema artifact,
+> wire vào runner `_validate_report`); manifest bind đủ data/feature/config/
+> **commit SHA** (`full_system_backtest.py`). Ba regression blocking exit
+> flow đã sửa: protective-cancel trước submit SELL, decision_id theo
+> observation_id, budget release khi exit-to-flat.
 
 ## 7. Phase S1 — Canonical strategy contract và registry
 

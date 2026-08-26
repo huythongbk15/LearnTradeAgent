@@ -978,6 +978,34 @@ class ExecutionEngine:
         def _outcome(**kwargs: Any) -> PlannedSubmissionOutcome:
             return PlannedSubmissionOutcome(plan=plan, **kwargs)
 
+        # ── Protective order handling (sell signals) ────────────────
+        # A resting protective stop locks the sellable inventory at the
+        # venue: the exit order can only claim that inventory AFTER the
+        # stop is cancelled. Venue-true sequence: cancel stop → submit
+        # exit → re-arm/mark gap when unfilled. Cancellation therefore
+        # happens BEFORE authority validation; any later denial or
+        # non-fill is recorded as an explicit protection gap so the
+        # position is never silently unprotected.
+        pre_canceled_intents: list[str] = []
+        if intent.side.lower() == "sell":
+            cancel_ok, pre_canceled_intents = self._cancel_resting_protection(
+                symbol
+            )
+            if not cancel_ok:
+                self.last_strategy_execution["authority_block_reason"] = (
+                    "resting protection could not be cancelled before exit"
+                )
+                logger.warning(
+                    "Exit blocked [%s]: resting protection cancel failed",
+                    symbol,
+                )
+                return _outcome(
+                    order=None,
+                    submit_state="BLOCKED_PROTECTION_CANCEL",
+                    barrier=False,
+                    submitted=False,
+                )
+
         exec_input = ExecutionValidationInput(
             intent=intent,
             observation=prepared.observation,
@@ -1007,6 +1035,12 @@ class ExecutionEngine:
 
         exec_output = self.execution_authority.execute(exec_input)
         if not exec_output.allowed:
+            if pre_canceled_intents:
+                self._mark_protection_gap(
+                    symbol,
+                    pre_canceled_intents,
+                    "authority denied exit after protective cancellation",
+                )
             self.last_strategy_execution["authority_block_reason"] = exec_output.reason
             logger.warning(
                 "Order blocked by ExecutionAuthority [%s]: %s",
@@ -1019,30 +1053,6 @@ class ExecutionEngine:
                 barrier=False,
                 submitted=False,
             )
-
-        # ── Protective order handling (sell signals) ────────────────
-        canceled_protection_intents: list[str] = []
-        if intent.side.lower() == "sell":
-            cancel_ok, canceled_protection_intents = self._cancel_resting_protection(
-                symbol
-            )
-            if not cancel_ok:
-                # Legacy parity: submission already happened inside
-                # ExecutionAuthority; report it without an Order wrapper so
-                # lifecycle reconciliation owns the follow-up.
-                broker_result_pre = exec_output.broker_result
-                return _outcome(
-                    order=self._result_to_order(
-                        broker_result_pre, symbol, intent.side, intent.quantity
-                    ),
-                    submit_state=str(
-                        getattr(
-                            broker_result_pre.state, "value", broker_result_pre.state
-                        )
-                    ),
-                    barrier=is_execution_barrier(broker_result_pre),
-                    submitted=True,
-                )
 
         broker_result = exec_output.broker_result
 
@@ -1057,12 +1067,12 @@ class ExecutionEngine:
         protection_submitted = False
         if (
             intent.side.lower() == "sell"
-            and canceled_protection_intents
+            and pre_canceled_intents
             and not fill_received
         ):
             self._mark_protection_gap(
                 symbol,
-                canceled_protection_intents,
+                pre_canceled_intents,
                 "exit was not filled after protective cancellation",
             )
         if fill_received and intent.side.lower() == "buy":

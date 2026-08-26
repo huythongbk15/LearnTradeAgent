@@ -400,6 +400,15 @@ class PortfolioAllocator:
                 budget.symbols[request.symbol] = (
                     budget.symbols.get(request.symbol, 0.0) + allocation
                 )
+            elif request.risk_decision.reduce_only and request.symbol in budget.symbols:
+                # Exit-to-flat (or reduce) frees the previously allocated
+                # budget for this symbol. Without this release the strategy
+                # budget leaks upward on every close and all later entries
+                # get starved to zero allocation.
+                released = budget.symbols.pop(request.symbol)
+                budget.allocated_exposure = max(
+                    0.0, budget.allocated_exposure - released
+                )
 
             # Causation chain
             chain = chain.append(

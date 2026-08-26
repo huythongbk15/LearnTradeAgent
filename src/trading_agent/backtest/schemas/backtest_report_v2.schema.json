@@ -1,0 +1,302 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://learntradeagent.local/schemas/backtest_report_v2.schema.json",
+  "title": "BacktestReportV2",
+  "description": "Canonical machine-readable full-system backtest report (Phase S0: baseline truth & report correctness).",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "report_type",
+    "status",
+    "symbol",
+    "timeframe",
+    "final_equity",
+    "total_return_pct",
+    "sharpe",
+    "max_drawdown_pct",
+    "total_trades",
+    "win_rate_pct",
+    "data_manifest_id",
+    "feature_artifact_id",
+    "active_config",
+    "execution_health",
+    "simulation_window",
+    "data_quality",
+    "cost_attribution",
+    "benchmarks"
+  ],
+  "additionalProperties": true,
+  "properties": {
+    "schema_version": {
+      "const": 2
+    },
+    "report_type": {
+      "type": "string",
+      "enum": [
+        "full_system_backtest"
+      ]
+    },
+    "run_id": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "failed",
+        "passed"
+      ]
+    },
+    "symbol": {
+      "type": "string",
+      "minLength": 1
+    },
+    "timeframe": {
+      "type": "string",
+      "minLength": 1
+    },
+    "exchange": {
+      "type": "string"
+    },
+    "final_equity": {
+      "type": "number"
+    },
+    "total_return_pct": {
+      "type": "number"
+    },
+    "sharpe": {
+      "type": "number"
+    },
+    "max_drawdown_pct": {
+      "type": "number"
+    },
+    "total_trades": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "win_rate_pct": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100
+    },
+    "profit_factor": {
+      "type": "number",
+      "description": "gross profit / gross loss"
+    },
+    "circuit_breakers": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "signals_seen": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "open_positions": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "open_orders": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "execution_timing": {
+      "type": "string"
+    },
+    "commit_sha": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Exact source commit (git rev-parse HEAD or override)."
+    },
+    "data_manifest_id": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "feature_artifact_id": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "state_dir": {
+      "type": "string"
+    },
+    "report_path": {
+      "type": "string"
+    },
+    "active_config": {
+      "type": "object",
+      "required": [
+        "config_id"
+      ],
+      "properties": {
+        "config_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "provenance": {
+          "type": "object",
+          "properties": {
+            "commit_sha": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "execution_health": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string"
+        },
+        "unknown_orders": {
+          "type": "integer"
+        },
+        "manual_interventions": {
+          "type": "integer"
+        },
+        "unprotected_positions": {
+          "type": "array"
+        },
+        "trade_evidence_complete": {
+          "type": "boolean"
+        }
+      }
+    },
+    "simulation_window": {
+      "type": "object"
+    },
+    "data_quality": {
+      "type": "object",
+      "required": [
+        "window"
+      ],
+      "properties": {
+        "window": {
+          "type": "object",
+          "required": [
+            "accepted"
+          ],
+          "properties": {
+            "accepted": {
+              "const": true
+            }
+          }
+        }
+      }
+    },
+    "cost_attribution": {
+      "type": "object",
+      "required": [
+        "complete",
+        "reconciliation_error"
+      ],
+      "properties": {
+        "complete": {
+          "const": true
+        },
+        "reconciliation_error": {
+          "type": "number"
+        },
+        "gross_alpha": {
+          "type": "number"
+        }
+      }
+    },
+    "benchmarks": {
+      "type": "object",
+      "required": [
+        "fixed_allocation_buy_and_hold"
+      ]
+    },
+    "metrics": {
+      "type": "object"
+    },
+    "calendar_returns_pct": {},
+    "equity_curve": {
+      "type": "array",
+      "items": {
+        "type": "array",
+        "prefixItems": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "number"
+          }
+        ],
+        "minItems": 2,
+        "maxItems": 2
+      }
+    },
+    "trades": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "metadata"
+        ],
+        "properties": {
+          "metadata": {
+            "type": "object",
+            "required": [
+              "simulation"
+            ],
+            "properties": {
+              "simulation": {
+                "type": "object",
+                "required": [
+                  "time_source",
+                  "entry_reference_price",
+                  "exit_reference_price",
+                  "entry_bar_index",
+                  "exit_bar_index",
+                  "holding_bars",
+                  "mae_pct",
+                  "mfe_pct",
+                  "entry_time",
+                  "exit_time"
+                ],
+                "properties": {
+                  "time_source": {
+                    "const": "simulated_bar"
+                  },
+                  "entry_reference_price": {
+                    "type": "number"
+                  },
+                  "exit_reference_price": {
+                    "type": "number"
+                  },
+                  "entry_bar_index": {
+                    "type": "integer"
+                  },
+                  "exit_bar_index": {
+                    "type": "integer"
+                  },
+                  "holding_bars": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "mae_pct": {
+                    "type": "number"
+                  },
+                  "mfe_pct": {
+                    "type": "number"
+                  },
+                  "entry_time": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "exit_time": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "signals": {
+      "type": "array"
+    }
+  }
+}

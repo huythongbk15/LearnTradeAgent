@@ -18,6 +18,7 @@ import hashlib
 import json
 import logging
 import os
+import subprocess
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -119,6 +120,29 @@ def _sha256_file(path: Path) -> str:
     return f"sha256:{digest.hexdigest()}"
 
 
+def _git_commit_sha() -> str:
+    """Resolve the exact source commit for golden-run provenance.
+
+    Precedence: GIT_COMMIT_SHA env override > `git rev-parse HEAD`.
+    Fails open to "unknown" (e.g. running from a tarball) but never fabricates.
+    """
+    override = os.getenv("GIT_COMMIT_SHA", "").strip()
+    if override:
+        return override
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=str(ROOT),
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=True,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return "unknown"
+    return result.stdout.strip() or "unknown"
+
+
 class FullSystemSimulator:
     def __init__(
         self,
@@ -138,6 +162,7 @@ class FullSystemSimulator:
         self.exchange = EXCHANGE
         self.timeframe_delta = _timeframe_delta(self.timeframe)
         self.gap_policy = gap_policy
+        self.commit_sha = _git_commit_sha()
 
         safe_symbol = self.symbol.replace("/", "_").replace(":", "_")
         resolved_run_id = (
@@ -462,6 +487,9 @@ class FullSystemSimulator:
             },
             "execution_timing": "decision_on_closed_bar_execute_next_bar_open",
             "intrabar_price_path": "open_then_low_then_close",
+            "provenance": {
+                "commit_sha": self.commit_sha,
+            },
         }
         return {"config_id": fingerprint_payload(payload), **payload}
 
@@ -884,6 +912,7 @@ class FullSystemSimulator:
             "calendar_returns_pct": yearly_returns,
             "data_manifest_id": self.data_manifest_id,
             "feature_artifact_id": self.feature_artifact_id,
+            "commit_sha": self.commit_sha,
             "state_dir": str(self.state_dir),
             "report_path": str(self.report_path),
             "equity_curve": [[str(ts), float(eq)] for ts, eq in self.equity_curve],

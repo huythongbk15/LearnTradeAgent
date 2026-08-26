@@ -16,6 +16,7 @@ from pathlib import Path
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
+from trading_agent.backtest.report_v2 import validate_report_v2
 from trading_agent.execution.canonical.instrument_registry import TEN_PAIR_1H_SYMBOLS
 
 PAIRS = list(TEN_PAIR_1H_SYMBOLS)
@@ -161,6 +162,13 @@ def _validate_report(symbol: str, report: object) -> dict[str, object]:
         raise ValueError("child benchmarks is not an object")
     if not isinstance(report["simulation_window"], dict):
         raise ValueError("child simulation_window is not an object")
+    # Canonical BacktestReportV2 gate — runs last as a comprehensive backstop
+    # after the targeted human-readable checks above.
+    schema_violations = validate_report_v2(report)
+    if schema_violations:
+        raise ValueError(
+            f"child report violates BacktestReportV2: {'; '.join(schema_violations[:5])}"
+        )
     return report
 
 

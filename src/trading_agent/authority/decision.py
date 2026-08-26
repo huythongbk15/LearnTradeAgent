@@ -218,8 +218,21 @@ class DecisionAuthority:
         )  # Same base
 
         # Build UnifiedRiskDecision from StrategyOutput
+        #
+        # decision_id MUST vary per observation: it feeds intent_id and the
+        # idempotency key downstream. A constant id would make every new
+        # bar collide with the first claimed intent ("submission already
+        # claimed by another connection"). observation_id is deterministic
+        # (venue+symbol+timeframe+bar_close+data_manifest) so backtest
+        # replays stay reproducible.
+        if input_.observation_id:
+            decision_id = (
+                f"strategy_{output.artifact_id[:16]}_{input_.observation_id[:24]}"
+            )
+        else:
+            decision_id = f"strategy_{output.artifact_id[:16]}"
         risk_decision = UnifiedRiskDecision(
-            decision_id=f"strategy_{output.artifact_id[:16]}",
+            decision_id=decision_id,
             forecast_fingerprint=metadata.get("forecast_fingerprint", ""),
             model_artifact_id=output.artifact_id,
             requested_target_exposure=target_exposure_pct,

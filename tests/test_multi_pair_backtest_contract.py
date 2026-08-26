@@ -28,8 +28,8 @@ def valid_report() -> dict[str, object]:
         "max_drawdown_pct": 2.5,
         "total_trades": 3,
         "win_rate_pct": 50.0,
-        "data_manifest_id": "sha256:data",
-        "feature_artifact_id": "sha256:features",
+        "data_manifest_id": "sha256:" + "11" * 32,
+        "feature_artifact_id": "sha256:" + "22" * 32,
         "execution_health": {
             "status": "normal",
             "unknown_orders": 0,
