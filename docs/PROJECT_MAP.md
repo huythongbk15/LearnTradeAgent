@@ -494,7 +494,8 @@
 │   ├── authority
 │   │   └── test_resolver.py
 │   ├── backtest
-│   │   └── test_tournament.py
+│   │   ├── test_tournament.py
+│   │   └── test_tournament_faults.py
 │   ├── execution
 │   │   ├── test_cancel_stop_regressions.py
 │   │   ├── test_canonical_pipeline.py
