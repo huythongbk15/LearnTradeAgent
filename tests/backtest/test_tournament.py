@@ -110,6 +110,62 @@ class TestCanonicalSignalSeries:
         assert signals == again
 
 
+# ── STR-0201 bridge: engine runtime == injected series convention ─────────
+
+
+class TestCanonicalRuntimeBridge:
+    def test_bridge_matches_series_convention(self):
+        """The bridge must decide at the SAME point-in-time as the
+        per-bar signal series — decision window ends strictly before the
+        last (decision) bar of the slice."""
+        from datetime import timedelta
+
+        from trading_agent.strategies.canonical.bridge import CanonicalRuntimeBridge
+
+        adapter = LegacyDataFrameAdapter(
+            RsiStrategy({"period": 8, "oversold": 35, "overbought": 65}),
+            model_artifact_id="m",
+            warmup_bars=10,
+            strategy_id="rsi_test",
+        )
+        frame = _synthetic_frame()
+        signals = canonical_signal_series(
+            adapter, frame, warmup_bars=10, symbol="BTC/USDT"
+        )
+        nonzero = [j for j, v in enumerate(signals) if v != 0]
+        assert nonzero, "fixture must produce signals"
+        bridge = CanonicalRuntimeBridge(
+            adapter,
+            warmup_bars=10,
+            symbol="BTC/USDT",
+            timeframe_delta=timedelta(hours=1),
+        )
+        for j in nonzero[:5]:
+            # Engine slice includes the decision bar as its last row.
+            out = bridge.generate_signals(frame.head(j + 1))
+            assert out.to_list()[0] == signals[j], f"mismatch at bar {j}"
+
+    def test_bridge_flat_when_insufficient_history(self):
+        from datetime import timedelta
+
+        from trading_agent.strategies.canonical.bridge import CanonicalRuntimeBridge
+
+        adapter = LegacyDataFrameAdapter(
+            RsiStrategy({"period": 8, "oversold": 35, "overbought": 65}),
+            model_artifact_id="m",
+            warmup_bars=10,
+            strategy_id="rsi_test",
+        )
+        frame = _synthetic_frame().head(5)  # below warm-up
+        bridge = CanonicalRuntimeBridge(
+            adapter,
+            warmup_bars=10,
+            symbol="BTC/USDT",
+            timeframe_delta=timedelta(hours=1),
+        )
+        assert bridge.generate_signals(frame).to_list() == [0]
+
+
 # ── STR-0209 fail-closed artifact contract ────────────────────────────────
 
 

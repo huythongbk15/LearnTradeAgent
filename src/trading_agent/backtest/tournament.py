@@ -518,6 +518,11 @@ def run_cell(
         signal_series=signals,
         commission=spec.cost_scenario.commission,
         slippage=spec.cost_scenario.slippage,
+        runtime_factory=(
+            _bridge_runtime_factory(spec, adapter, descriptor)
+            if not _has_legacy_resolver(spec.strategy_id)
+            else None
+        ),
     )
     if spec.fault.stale_windows:
         # Stale windows are index-based; translate them into clock windows
@@ -547,6 +552,44 @@ def _research_env():
     from trading_agent.authority.config import Environment
 
     return Environment.RESEARCH
+
+
+def _has_legacy_resolver(strategy_id: str) -> bool:
+    """True when the engine resolver knows a legacy class for this id."""
+    from trading_agent.authority.resolver import RuntimeStrategyResolver
+
+    return strategy_id in RuntimeStrategyResolver._STRATEGY_MAP
+
+
+def _bridge_runtime_factory(spec: EvaluationCellSpec, adapter, descriptor):
+    """Build the canonical→legacy bridge runtime inside the simulator.
+
+    The factory receives (artifact_id, artifact_metadata) AFTER the
+    simulator registered + promoted the cell's artifact through the same
+    stores used by production resolution.
+    """
+
+    def factory(artifact_id: str, artifact_metadata: dict[str, Any]):
+        from trading_agent.strategies.canonical.bridge import (
+            build_canonical_runtime,
+        )
+
+        metadata = dict(artifact_metadata)
+        metadata["canonical_strategy_id"] = spec.strategy_id
+        return build_canonical_runtime(
+            strategy_id=spec.strategy_id,
+            spec_params=dict(spec.params),
+            artifact_id=artifact_id,
+            artifact_metadata=metadata,
+            adapter=adapter,
+            descriptor_warmup_bars=descriptor.warmup_bars,
+            symbol=spec.symbol,
+            timeframe=spec.timeframe,
+            timeframe_delta=timedelta(hours=1),
+            default_target_exposure_pct=0.25,
+        )
+
+    return factory
 
 
 def _now_iso() -> str:

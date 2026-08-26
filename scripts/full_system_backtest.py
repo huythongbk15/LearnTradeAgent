@@ -161,6 +161,8 @@ class FullSystemSimulator:
         signal_series: list[int] | None = None,
         commission: float | None = None,
         slippage: float | None = None,
+        strategy_runtime: object | None = None,
+        runtime_factory=None,
     ):
         self.symbol = symbol or os.getenv("SYMBOL", SYMBOL)
         self.timeframe = timeframe or os.getenv("TIMEFRAME", TIMEFRAME)
@@ -329,11 +331,23 @@ class FullSystemSimulator:
         )
         if self.engine.resolver is None:
             raise RuntimeError("paper strategy resolver was not initialized")
-        self.strategy_runtime = self.engine.resolver.resolve_for(
-            self.symbol,
-            self.timeframe,
-            Environment.PAPER,
-        )
+        if strategy_runtime is not None:
+            # Tournament cells with canonical-only strategies bring their
+            # own runtime (bridge over the canonical contract); the artifact
+            # above was registered + promoted through the same stores, so
+            # every authority check still applies.
+            self.strategy_runtime = strategy_runtime
+        elif runtime_factory is not None:
+            self.strategy_runtime = runtime_factory(
+                self.strategy_artifact_id,
+                dict(strategy_artifact.metadata),
+            )
+        if self.strategy_runtime is None:
+            self.strategy_runtime = self.engine.resolver.resolve_for(
+                self.symbol,
+                self.timeframe,
+                Environment.PAPER,
+            )
         if self.strategy_runtime is None:
             raise RuntimeError(
                 "paper-eligible enhanced_ma artifact could not be resolved"
