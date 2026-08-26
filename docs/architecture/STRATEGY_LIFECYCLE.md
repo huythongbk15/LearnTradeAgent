@@ -7,6 +7,8 @@ This document defines how a strategy moves from source code to an authorized
 runtime decision. It is a contract map, not a claim that every target stage is
 already production-validated.
 
+**Tiếng Việt:** [Vòng đời chiến lược và ranh giới authority](../vi/VONG_DOI_CHIEN_LUOC.md)
+
 ## Lifecycle
 
 ```text
@@ -102,4 +104,3 @@ This separation limits overfitting and makes rollback deterministic.
 - [Runtime Resolver](../RUNTIME_RESOLVER.md)
 - [Evidence Artifacts](../reference/EVIDENCE_ARTIFACTS.md)
 - [Adaptive Strategy Selection Roadmap](../ADAPTIVE_STRATEGY_SELECTION_ROADMAP.md)
-

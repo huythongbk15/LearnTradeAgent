@@ -8,6 +8,8 @@ This page is the canonical entry point for project documentation. Documents are
 classified so that implemented behavior, target architecture and historical
 plans cannot be confused.
 
+**Tiếng Việt:** [Trung tâm tài liệu tiếng Việt](vi/README.md)
+
 ## Document status
 
 | Label | Meaning |

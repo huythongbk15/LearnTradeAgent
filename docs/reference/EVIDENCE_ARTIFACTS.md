@@ -6,6 +6,8 @@
 Artifacts are the boundary between claims and evidence. Filenames are navigation;
 artifact identity must come from canonical content.
 
+**Tiếng Việt:** [Bằng chứng, artifact và provenance](../vi/BANG_CHUNG_VA_ARTIFACT.md)
+
 ## Catalog
 
 | Artifact | Producer | Primary consumer | Current contract |
@@ -100,4 +102,3 @@ EvaluationArtifact[]
 - Are failed cells visible?
 - Can runtime prove which promotion authorized a decision?
 - Is rollback possible without editing historical artifacts?
-

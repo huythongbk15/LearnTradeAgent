@@ -7,6 +7,8 @@ This guide is the end-to-end route for evaluating and promoting strategy logic.
 It deliberately separates available tooling from stages that still require a
 closed exit gate.
 
+**Tiếng Việt:** [Từ nghiên cứu đến vận hành strategy](../vi/NGHIEN_CUU_DEN_VAN_HANH.md)
+
 ## 1. Establish a reproducible baseline
 
 Before comparing strategies, prove that repeated runs with the same inputs agree.

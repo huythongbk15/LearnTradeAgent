@@ -6,6 +6,8 @@ This course replaces the code-walkthrough material in top-level [`COURSE/`](../.
 It teaches stable contracts and evidence flows instead of memorizing source line
 numbers. The legacy course remains available only for historical context.
 
+**Tiếng Việt:** [Khóa học V2 tiếng Việt](../vi/KHOA_HOC_V2.md)
+
 ## Learning outcome
 
 After completing the course, a learner should be able to explain and verify how a
@@ -96,4 +98,3 @@ A learner submits:
 
 The correct answer is allowed to be “insufficient evidence”. A course about trading
 systems is incomplete if every exercise is designed to produce a winner.
-

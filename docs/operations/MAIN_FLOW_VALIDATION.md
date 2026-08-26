@@ -5,6 +5,8 @@
 Purpose: validate the critical research and execution path without turning a smoke
 test into an unsafe production action.
 
+**Tiếng Việt:** [Runbook kiểm tra luồng chính](../vi/KIEM_TRA_LUONG_CHINH.md)
+
 ## Safety envelope
 
 - Commands below use local data and isolated output directories unless explicitly stated.
