@@ -23,15 +23,31 @@ from trading_agent.strategies.canonical.adapter import (
     LegacyAdapterError,
     LegacyDataFrameAdapter,
 )
+from trading_agent.strategies.canonical.candidates import (
+    FIRST_WAVE_DESCRIPTORS,
+    build_default_registry,
+)
 from trading_agent.strategies.canonical.descriptor import (
     CONTRACT_VERSION,
     StrategyDescriptor,
+)
+from trading_agent.strategies.canonical.features import (
+    CORE_FEATURE_SPECS,
+    FEATURE_OHLCV_WINDOW,
+    FeatureSpec,
+    FeatureUnavailableError,
+    build_ohlcv_window,
+    validate_point_in_time,
 )
 from trading_agent.strategies.canonical.registry import (
     CanonicalStrategyRegistry,
     RegistryEntry,
     RegistryIntegrityError,
     UnknownStrategyError,
+)
+from trading_agent.strategies.canonical.state import (
+    StrategyEventLedger,
+    StrategyStateKey,
 )
 
 __all__ = [
@@ -41,13 +57,23 @@ __all__ = [
     "ACTION_SELL",
     "CANONICAL_ACTION_NO_TRADE",
     "CONTRACT_VERSION",
+    "CORE_FEATURE_SPECS",
+    "FEATURE_OHLCV_WINDOW",
+    "FIRST_WAVE_DESCRIPTORS",
     "OHLCV_WINDOW_FEATURE",
     "AbstainStrategy",
     "CanonicalStrategyRegistry",
+    "FeatureSpec",
+    "FeatureUnavailableError",
     "LegacyAdapterError",
     "LegacyDataFrameAdapter",
     "RegistryEntry",
     "RegistryIntegrityError",
     "StrategyDescriptor",
+    "StrategyEventLedger",
+    "StrategyStateKey",
     "UnknownStrategyError",
+    "build_default_registry",
+    "build_ohlcv_window",
+    "validate_point_in_time",
 ]

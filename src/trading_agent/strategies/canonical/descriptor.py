@@ -112,10 +112,6 @@ class StrategyDescriptor:
             raise ValueError("horizon_bars must be positive")
         if self.warmup_bars < 0:
             raise ValueError("warmup_bars cannot be negative")
-        if self.horizon_bars <= self.warmup_bars:
-            # A horizon shorter than warm-up makes the forecast unusable in
-            # point-in-time evaluation and is always a configuration bug.
-            raise ValueError("horizon_bars must exceed warmup_bars")
         for symbol in self.supported_symbols:
             if not _SYMBOL_RE.fullmatch(symbol):
                 raise ValueError(

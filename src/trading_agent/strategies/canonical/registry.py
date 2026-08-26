@@ -48,18 +48,29 @@ class RegistryEntry:
         return instance
 
 
-def _source_code_sha(factory: Callable[[], ForecastStrategy]) -> str:
-    """sha256 of the source file that defines *factory*'s underlying class."""
-    target = factory
-    fn = getattr(target, "__code__", None)
-    if fn is None and hasattr(target, "func"):  # functools.partial-ish safety
-        target = target.func
+def _source_code_sha(
+    factory: Callable[[], ForecastStrategy],
+    code_source: object | None = None,
+) -> str:
+    """sha256 of the source file defining *code_source* (or the factory)."""
+    target = code_source if code_source is not None else factory
+    if inspect.ismodule(target):
+        path = getattr(target, "__file__", None)
+    elif isinstance(target, type):
+        path = inspect.getsourcefile(target)
+    elif callable(target):
         fn = getattr(target, "__code__", None)
-    if fn is None:
-        raise RegistryIntegrityError("factory must be a plain function")
-    path = inspect.getsourcefile(fn)
+        if fn is None and hasattr(target, "func"):
+            inner = target.func
+            fn = getattr(inner, "__code__", None)
+            target = inner
+        if fn is None:
+            raise RegistryIntegrityError("factory must be a plain function")
+        path = inspect.getsourcefile(fn)
+    else:
+        raise RegistryIntegrityError("code_source must be a module, class or function")
     if not path:
-        raise RegistryIntegrityError("cannot locate factory source file")
+        raise RegistryIntegrityError("cannot locate source file for verification")
     with open(path, "rb") as handle:
         return hashlib.sha256(handle.read()).hexdigest()
 
@@ -77,7 +88,15 @@ class CanonicalStrategyRegistry:
         factory: Callable[[], ForecastStrategy],
         *,
         verify_code_hash: bool = True,
+        code_source: object | None = None,
     ) -> None:
+        """Register one strategy.
+
+        ``code_source`` optionally points at the module/class/function whose
+        source file the descriptor's ``code_sha`` describes — use it when the
+        factory lives in a different file than the strategy implementation.
+        Defaults to hashing the factory's own source file.
+        """
         if not callable(factory):
             raise TypeError("factory must be callable")
         existing = self._entries.get(descriptor.strategy_id)
@@ -90,7 +109,7 @@ class CanonicalStrategyRegistry:
                 f"!= {descriptor.descriptor_id})"
             )
         if verify_code_hash:
-            actual = _source_code_sha(factory)
+            actual = _source_code_sha(factory, code_source)
             if actual != descriptor.code_sha:
                 raise RegistryIntegrityError(
                     f"code_sha mismatch for {descriptor.strategy_id!r}: "
