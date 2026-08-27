@@ -19,10 +19,13 @@ if str(ROOT) not in sys.path:
 
 from trading_agent.backtest.nested_wfo import (
     WFOSpec,
-    run_nested_wfo,
     run_nested_wfo_portfolio,
 )
-from trading_agent.backtest.tournament import CostScenario, SCENARIO_BASE, SCENARIO_DOUBLE, SCENARIO_SLIPPAGE_STRESS
+from trading_agent.backtest.tournament import (
+    SCENARIO_BASE,
+    SCENARIO_DOUBLE,
+    SCENARIO_SLIPPAGE_STRESS,
+)
 
 
 # Default param grids for strategies
@@ -102,22 +105,38 @@ def build_wfo_spec(
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Nested Walk-Forward Optimization (S3)")
+    parser = argparse.ArgumentParser(
+        description="Nested Walk-Forward Optimization (S3)"
+    )
     parser.add_argument("--strategy", required=False, help="Strategy ID (e.g., ma_adx)")
     parser.add_argument("--symbol", required=False, help="Symbol (e.g., SOL/USDT)")
     parser.add_argument("--timeframe", default="1h", help="Timeframe (1h, 4h, 1d)")
-    parser.add_argument("--portfolio", action="store_true", help="Run for all paper-eligible symbols")
-    parser.add_argument("--train-months", type=int, default=12, help="Train window months")
-    parser.add_argument("--val-months", type=int, default=3, help="Validation window months")
+    parser.add_argument(
+        "--portfolio", action="store_true", help="Run for all paper-eligible symbols"
+    )
+    parser.add_argument(
+        "--train-months", type=int, default=12, help="Train window months"
+    )
+    parser.add_argument(
+        "--val-months", type=int, default=3, help="Validation window months"
+    )
     parser.add_argument("--test-months", type=int, default=3, help="Test window months")
     parser.add_argument("--step-months", type=int, default=3, help="Step months")
-    parser.add_argument("--cost", choices=["1x", "2x", "slip_stress", "all"], default="all")
-    parser.add_argument("--out", default="data/backtests/wfo", help="Output root directory")
-    parser.add_argument("--registry", default="data/wfo/experiments.sqlite3", help="Registry path")
+    parser.add_argument(
+        "--cost", choices=["1x", "2x", "slip_stress", "all"], default="all"
+    )
+    parser.add_argument(
+        "--out", default="data/backtests/wfo", help="Output root directory"
+    )
+    parser.add_argument(
+        "--registry", default="data/wfo/experiments.sqlite3", help="Registry path"
+    )
     parser.add_argument("--search-family", default="s3_wfo", help="Search family name")
     parser.add_argument("--evaluator-version", default="v1", help="Evaluator version")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
-    parser.add_argument("--dry-run", action="store_true", help="Show what would run without executing")
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Show what would run without executing"
+    )
 
     args = parser.parse_args()
 
@@ -180,9 +199,13 @@ def main():
             param_combos = 1
             for v in spec.param_grid.values():
                 param_combos *= len(v)
-            n_folds = max(1, (1000 - spec.train_months * 720) // (spec.step_months * 720))
+            n_folds = max(
+                1, (1000 - spec.train_months * 720) // (spec.step_months * 720)
+            )
             print(f"  {spec.strategy_id} × {spec.symbol} × {spec.timeframe}")
-            print(f"    Param combos: {param_combos} × {len(cost_scenarios)} cost scenarios = {param_combos * len(cost_scenarios)} trials/fold")
+            print(
+                f"    Param combos: {param_combos} × {len(cost_scenarios)} cost scenarios = {param_combos * len(cost_scenarios)} trials/fold"
+            )
             print(f"    Expected folds: ~{n_folds}")
             print(f"    Total cells: ~{param_combos * len(cost_scenarios) * n_folds}")
         return
@@ -215,11 +238,13 @@ def main():
     print("\n=== RESULTS ===")
     for r in results:
         status = "✅ PASS" if r.passes_hard_gates else "❌ FAIL"
-        print(f"{status} {r.spec.strategy_id} {r.spec.symbol}: "
-              f"Sharpe={r.aggregate_metrics.get('median_test_sharpe', 0):.3f} "
-              f"Return={r.aggregate_metrics.get('median_test_return_pct', 0):.2f}% "
-              f"Trades={r.aggregate_metrics.get('total_test_trades', 0)} "
-              f"Folds={r.aggregate_metrics.get('n_outer_folds', 0)}")
+        print(
+            f"{status} {r.spec.strategy_id} {r.spec.symbol}: "
+            f"Sharpe={r.aggregate_metrics.get('median_test_sharpe', 0):.3f} "
+            f"Return={r.aggregate_metrics.get('median_test_return_pct', 0):.2f}% "
+            f"Trades={r.aggregate_metrics.get('total_test_trades', 0)} "
+            f"Folds={r.aggregate_metrics.get('n_outer_folds', 0)}"
+        )
         if r.gate_failures:
             for gf in r.gate_failures:
                 print(f"    Gate fail: {gf}")
@@ -231,4 +256,5 @@ def main():
 
 if __name__ == "__main__":
     from datetime import datetime
+
     main()

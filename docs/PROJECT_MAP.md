@@ -237,6 +237,7 @@
 │   ├── restore.sh
 │   ├── review_wave_ef.py
 │   ├── run_canonical_strategy.py
+│   ├── run_nested_wfo.py
 │   ├── run_strategy_tournament.py
 │   ├── sign_and_verify.sh
 │   ├── simulate_execution.py
@@ -309,6 +310,7 @@
 │       │   │   └── backtest_report_v2.schema.json
 │       │   ├── __init__.py
 │       │   ├── engine.py
+│       │   ├── nested_wfo.py
 │       │   ├── portfolio_backtest.py
 │       │   ├── report_v2.py
 │       │   ├── reporting.py
