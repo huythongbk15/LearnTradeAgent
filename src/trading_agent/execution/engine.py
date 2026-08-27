@@ -1067,7 +1067,10 @@ class ExecutionEngine:
             # Retry by re-creating the plan with a new intent (new idempotency key)
             # The execution authority generates new authorization on each execute call
             retry_exec_output = self.execution_authority.execute(exec_input)
-            if retry_exec_output.allowed and retry_exec_output.broker_result.state != BrokerSubmitState.REJECTED:
+            if (
+                retry_exec_output.allowed
+                and retry_exec_output.broker_result.state != BrokerSubmitState.REJECTED
+            ):
                 broker_result = retry_exec_output.broker_result
                 logger.info("Order retry succeeded for %s", symbol)
             else:

@@ -2115,7 +2115,12 @@ class ExecutionLifecycle:
         instead of requiring manual intervention.
         """
         self.start_reconciliation()
-        report: dict[str, Any] = {"unknown": [], "synced": [], "manual": [], "auto_reconciled": []}
+        report: dict[str, Any] = {
+            "unknown": [],
+            "synced": [],
+            "manual": [],
+            "auto_reconciled": [],
+        }
         for intent_id, order in self.state.orders.items():
             if not order.is_live:
                 continue
@@ -2135,7 +2140,8 @@ class ExecutionLifecycle:
                 if (
                     auto_reconcile_cancel_race
                     and broker_status == "open"
-                    and order.status in {IntentStatus.CANCEL_REQUESTED, IntentStatus.CANCELED}
+                    and order.status
+                    in {IntentStatus.CANCEL_REQUESTED, IntentStatus.CANCELED}
                 ):
                     # Cancel race detected: venue missed our cancel, order is still open.
                     # Auto-reconcile by updating local state to match broker.

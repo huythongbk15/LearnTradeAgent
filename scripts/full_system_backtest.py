@@ -859,7 +859,8 @@ class FullSystemSimulator:
         unprotected_positions = sorted(
             position.symbol
             for position in open_positions
-            if position.quantity > MIN_POSITION_QTY and position.symbol not in protected_symbols
+            if position.quantity > MIN_POSITION_QTY
+            and position.symbol not in protected_symbols
         )
         lifecycle_state = self.engine.lifecycle.state
         manual_intent_ids = sorted(lifecycle_state.unresolved_manual_intents)

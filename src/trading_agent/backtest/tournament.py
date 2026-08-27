@@ -193,15 +193,27 @@ def apply_faults(simulator: Any, profile: FaultProfile) -> None:
     if profile.break_protection:
         original_place = exchange.place_order
 
-        def placing(symbol: str, side: Any, order_type: Any, amount: float = 0.0,
-                    price: float | None = None, stop_price: float | None = None,
-                    idempotency_key: str | None = None, client_order_id: str | None = None):
+        def placing(
+            symbol: str,
+            side: Any,
+            order_type: Any,
+            amount: float = 0.0,
+            price: float | None = None,
+            stop_price: float | None = None,
+            idempotency_key: str | None = None,
+            client_order_id: str | None = None,
+        ):
             order_type_str = str(order_type).lower()
             is_stop = "stop" in order_type_str
             order = original_place(
-                symbol=symbol, side=side, order_type=order_type, amount=amount,
-                price=price, stop_price=stop_price,
-                idempotency_key=idempotency_key, client_order_id=client_order_id
+                symbol=symbol,
+                side=side,
+                order_type=order_type,
+                amount=amount,
+                price=price,
+                stop_price=stop_price,
+                idempotency_key=idempotency_key,
+                client_order_id=client_order_id,
             )
             if is_stop:
                 # Stop order placed but broker rejects it
@@ -225,6 +237,7 @@ def apply_faults(simulator: Any, profile: FaultProfile) -> None:
             # Only partially fill BUY orders (entry); SELL orders fill fully
             # to close positions cleanly and avoid residual unprotected qty.
             from trading_agent.execution.paper_exchange import OrderSide
+
             if order.side == OrderSide.BUY:
                 real_amount = order.amount
                 try:
