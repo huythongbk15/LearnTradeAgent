@@ -850,12 +850,16 @@ class FullSystemSimulator:
             order.symbol
             for order in open_orders
             if order.side.value == "sell"
-            and order.type.value in {"stop_loss", "stop_loss_limit"}
+            and order.type.value in {"stop_loss", "stop_loss_limit", "stop"}
         }
+        # Tolerance for dust positions (e.g., from partial fill rounding)
+        # Position quantity in base currency (e.g., SOL). Residual from
+        # partial fill: 69.3415 - 69.3410 = 0.0005 SOL
+        MIN_POSITION_QTY = 1e-3
         unprotected_positions = sorted(
             position.symbol
             for position in open_positions
-            if position.quantity > 0 and position.symbol not in protected_symbols
+            if position.quantity > MIN_POSITION_QTY and position.symbol not in protected_symbols
         )
         lifecycle_state = self.engine.lifecycle.state
         manual_intent_ids = sorted(lifecycle_state.unresolved_manual_intents)

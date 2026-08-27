@@ -313,6 +313,12 @@ class ExecutionEventStore:
             event_type == ExecutionEventType.ORDER_SUBMITTED
             and str(payload.get("side", "")).lower() == "sell"
         ):
+            intent_id = event.aggregate_id
+            # Skip reservation for protective stop orders (intent_id starts with "prot_")
+            # Protective stops don't consume sellable inventory - they are safety nets
+            # that trigger only on adverse price movement.
+            if intent_id.startswith("prot_"):
+                return
             symbol = str(payload.get("symbol") or "")
             authorized = float(payload.get("authorized_quantity", 0.0))
             reserved = float(payload.get("reserved_quantity", 0.0))

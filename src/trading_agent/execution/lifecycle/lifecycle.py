@@ -538,13 +538,20 @@ class ExecutionLifecycle:
         *,
         exclude_intent_id: str | None = None,
     ) -> float:
-        """Return active SELL locks reconstructed from lifecycle events."""
+        """Return active SELL locks reconstructed from lifecycle events.
+
+        Excludes protective stop orders (intent_id starting with "prot_")
+        because they reserve inventory for protection, not for active
+        position reduction. The protective stop quantity is already
+        accounted for in the position quantity itself.
+        """
         return sum(
             order.remaining_reserved_quantity
             for intent_id, order in self.state.orders.items()
             if order.side == "sell"
             and (symbol is None or order.symbol == symbol)
             and intent_id != exclude_intent_id
+            and not intent_id.startswith("prot_")
         )
 
     def _available_sell_inventory(
@@ -1948,21 +1955,25 @@ class ExecutionLifecycle:
         trigger_price: float,
         *,
         parent_intent_id: str | None = None,
+        metadata: dict | None = None,
     ) -> ExecutionEvent:
         if trigger_price <= 0:
             raise LifecycleError("trigger_price must be positive")
         order_id = (
             f"prot_{parent_intent_id or symbol}_{len(self.state.protective_orders)}"
         )
+        event_data = {
+            "symbol": symbol,
+            "kind": kind,
+            "trigger_price": trigger_price,
+            "parent_intent_id": parent_intent_id or "",
+        }
+        if metadata:
+            event_data["metadata"] = metadata
         return self._emit(
             ExecutionEventType.PROTECTIVE_ORDER_CREATED,
             order_id,
-            {
-                "symbol": symbol,
-                "kind": kind,
-                "trigger_price": trigger_price,
-                "parent_intent_id": parent_intent_id or "",
-            },
+            event_data,
         )
 
     def acknowledge_protective_order(
@@ -2091,14 +2102,20 @@ class ExecutionLifecycle:
         known_states: frozenset[str] = frozenset(
             {"open", "closed", "canceled", "rejected", "partial"}
         ),
+        auto_reconcile_cancel_race: bool = True,
     ) -> dict[str, Any]:
         """Reconcile open orders against broker state (invariant 9).
 
         Every open order must be present with a *known* broker status.
         Unknown status → MANUAL_INTERVENTION_REQUIRED (never normalized).
+
+        With auto_reconcile_cancel_race=True (default), cancel races are
+        automatically resolved: if broker reports "open" for an order we
+        have as CANCEL_REQUESTED or CANCELED, we re-sync to broker state
+        instead of requiring manual intervention.
         """
         self.start_reconciliation()
-        report: dict[str, Any] = {"unknown": [], "synced": [], "manual": []}
+        report: dict[str, Any] = {"unknown": [], "synced": [], "manual": [], "auto_reconciled": []}
         for intent_id, order in self.state.orders.items():
             if not order.is_live:
                 continue
@@ -2114,6 +2131,28 @@ class ExecutionLifecycle:
                 report["unknown"].append(intent_id)
                 continue
             if broker_status not in known_states:
+                # Check for cancel race: broker says "open" but we have CANCEL_REQUESTED/CANCELED
+                if (
+                    auto_reconcile_cancel_race
+                    and broker_status == "open"
+                    and order.status in {IntentStatus.CANCEL_REQUESTED, IntentStatus.CANCELED}
+                ):
+                    # Cancel race detected: venue missed our cancel, order is still open.
+                    # Auto-reconcile by updating local state to match broker.
+                    order.status = IntentStatus.OPEN
+                    order.exchange_order_id = order.exchange_order_id or intent_id
+                    self._emit(
+                        ExecutionEventType.BROKER_STATE_RECONCILED,
+                        intent_id,
+                        {
+                            "previous_status": order.status.value,
+                            "broker_status": broker_status,
+                            "reason": "cancel_race_auto_reconciled",
+                        },
+                    )
+                    report["auto_reconciled"].append(intent_id)
+                    report["synced"].append(intent_id)
+                    continue
                 self.require_manual_intervention(
                     intent_id,
                     reason=f"unknown broker status '{broker_status}' for {intent_id}",
@@ -2126,6 +2165,8 @@ class ExecutionLifecycle:
             self.state.execution_health = ExecutionHealth.MANUAL_BLOCKED
             # Do NOT auto-resolve when manual issues remain — operator must act.
             return report
+        if report["auto_reconciled"]:
+            self.state.execution_health = ExecutionHealth.NORMAL
         self.resolve_reconciliation(outcome="audited")
         return report
 

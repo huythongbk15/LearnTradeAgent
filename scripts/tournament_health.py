@@ -105,7 +105,7 @@ def main() -> None:
     # ── 3. Stall: newest report.json on disk ────────────────────────────
     reports = sorted(args.out.glob("*/report.json"), key=lambda p: p.stat().st_mtime)
     if reports:
-        newest = reports[0]
+        newest = reports[-1]
         age_min = (time.time() - newest.stat().st_mtime) / 60
         notes.append(f"newest report: {newest.parent.name[:48]} ({age_min:.0f}m old)")
         if age_min > args.stall_minutes and completed < args.total_cells:
