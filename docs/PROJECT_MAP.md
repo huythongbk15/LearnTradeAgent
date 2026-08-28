@@ -205,6 +205,7 @@
 │   ├── full_system_backtest.py
 │   ├── generate_holdout_manifest.py
 │   ├── generate_live_strategy_evidence.py
+│   ├── generate_policy.py
 │   ├── generate_project_map.py
 │   ├── health_check.sh
 │   ├── holdout_fast_test.py
@@ -489,6 +490,7 @@
 │       │   ├── forecast.py
 │       │   ├── lifecycle.py
 │       │   ├── promotion.py
+│       │   ├── selection_policy.py
 │       │   ├── trials.py
 │       │   └── uncertainty.py
 │       ├── risk

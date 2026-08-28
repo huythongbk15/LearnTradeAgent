@@ -13,26 +13,18 @@ from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
-from types import MappingProxyType
 from typing import Any, Mapping, Optional
-
-from trading_agent.research.promotion import (
-    EvidenceArtifact,
-    EvidenceKind,
-    EvidenceSource,
-    ResearchStage,
-)
 
 
 class PolicyStatus(str, Enum):
     """Lifecycle status of a policy artifact."""
 
-    DRAFT = "draft"                    # Created, not yet validated
-    VALIDATED = "validated"            # Evidence verified, ready for promotion
-    ACTIVE = "active"                  # Currently deployed to runtime
-    EXPIRED = "expired"                # Validity window ended
-    ROLLED_BACK = "rolled_back"        # Superseded by rollback
-    DEPRECATED = "deprecated"          # Superseded by new policy
+    DRAFT = "draft"  # Created, not yet validated
+    VALIDATED = "validated"  # Evidence verified, ready for promotion
+    ACTIVE = "active"  # Currently deployed to runtime
+    EXPIRED = "expired"  # Validity window ended
+    ROLLED_BACK = "rolled_back"  # Superseded by rollback
+    DEPRECATED = "deprecated"  # Superseded by new policy
 
 
 @dataclass(frozen=True)
@@ -146,7 +138,9 @@ class SelectionPolicyArtifact:
             "scores": dict(self.scores),
             "evidence_ids": list(self.evidence_ids),
             "validity_start": self.validity_start.isoformat(),
-            "validity_end": self.validity_end.isoformat() if self.validity_end else None,
+            "validity_end": self.validity_end.isoformat()
+            if self.validity_end
+            else None,
             "fallback": self.fallback,
             "risk_cap": self.risk_cap,
             "policy_commit_sha": self.policy_commit_sha,
@@ -155,7 +149,9 @@ class SelectionPolicyArtifact:
             "policy_release_digest": self.policy_release_digest,
             "previous_policy_id": self.previous_policy_id,
         }
-        encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
+        encoded = json.dumps(
+            payload, sort_keys=True, separators=(",", ":"), allow_nan=False
+        ).encode("utf-8")
         object.__setattr__(self, "policy_id", hashlib.sha256(encoded).hexdigest()[:24])
 
     def is_valid(self, now: Optional[datetime] = None) -> bool:
@@ -175,7 +171,9 @@ class SelectionPolicyArtifact:
         age = (now - self.created_at).days
         return age > max_age_days
 
-    def activate(self, actor: str, ticket: str, now: Optional[datetime] = None) -> SelectionPolicyArtifact:
+    def activate(
+        self, actor: str, ticket: str, now: Optional[datetime] = None
+    ) -> SelectionPolicyArtifact:
         """Return new policy with ACTIVE status."""
         now = now or datetime.now(UTC)
         return replace(
@@ -191,7 +189,12 @@ class SelectionPolicyArtifact:
         now = now or datetime.now(UTC)
         return replace(self, status=PolicyStatus.EXPIRED)
 
-    def rollback(self, reason: str, previous: SelectionPolicyArtifact, now: Optional[datetime] = None) -> SelectionPolicyArtifact:
+    def rollback(
+        self,
+        reason: str,
+        previous: SelectionPolicyArtifact,
+        now: Optional[datetime] = None,
+    ) -> SelectionPolicyArtifact:
         """Return new policy representing rollback to previous."""
         now = now or datetime.now(UTC)
         return replace(
@@ -203,42 +206,50 @@ class SelectionPolicyArtifact:
 
     def to_json(self) -> str:
         """Serialize to JSON with all fields."""
-        return json.dumps({
-            "policy_id": self.policy_id,
-            "symbol": self.symbol,
-            "timeframe": self.timeframe,
-            "regime": self.regime,
-            "incumbent": {
-                "strategy_id": self.incumbent.strategy_id,
-                "params": dict(self.incumbent.params),
-                "param_hash": self.incumbent.param_hash,
+        return json.dumps(
+            {
+                "policy_id": self.policy_id,
+                "symbol": self.symbol,
+                "timeframe": self.timeframe,
+                "regime": self.regime,
+                "incumbent": {
+                    "strategy_id": self.incumbent.strategy_id,
+                    "params": dict(self.incumbent.params),
+                    "param_hash": self.incumbent.param_hash,
+                },
+                "challengers": [
+                    {
+                        "strategy_id": c.strategy_id,
+                        "params": dict(c.params),
+                        "param_hash": c.param_hash,
+                    }
+                    for c in self.challengers
+                ],
+                "scores": dict(self.scores),
+                "evidence_ids": list(self.evidence_ids),
+                "validity_start": self.validity_start.isoformat(),
+                "validity_end": self.validity_end.isoformat()
+                if self.validity_end
+                else None,
+                "fallback": self.fallback,
+                "risk_cap": self.risk_cap,
+                "status": self.status.value,
+                "created_at": self.created_at.isoformat(),
+                "activated_at": self.activated_at.isoformat()
+                if self.activated_at
+                else None,
+                "activated_by": self.activated_by,
+                "activation_ticket": self.activation_ticket,
+                "policy_commit_sha": self.policy_commit_sha,
+                "policy_data_manifest_sha": self.policy_data_manifest_sha,
+                "policy_feature_manifest_sha": self.policy_feature_manifest_sha,
+                "policy_release_digest": self.policy_release_digest,
+                "previous_policy_id": self.previous_policy_id,
+                "rollback_reason": self.rollback_reason,
             },
-            "challengers": [
-                {
-                    "strategy_id": c.strategy_id,
-                    "params": dict(c.params),
-                    "param_hash": c.param_hash,
-                }
-                for c in self.challengers
-            ],
-            "scores": dict(self.scores),
-            "evidence_ids": list(self.evidence_ids),
-            "validity_start": self.validity_start.isoformat(),
-            "validity_end": self.validity_end.isoformat() if self.validity_end else None,
-            "fallback": self.fallback,
-            "risk_cap": self.risk_cap,
-            "status": self.status.value,
-            "created_at": self.created_at.isoformat(),
-            "activated_at": self.activated_at.isoformat() if self.activated_at else None,
-            "activated_by": self.activated_by,
-            "activation_ticket": self.activation_ticket,
-            "policy_commit_sha": self.policy_commit_sha,
-            "policy_data_manifest_sha": self.policy_data_manifest_sha,
-            "policy_feature_manifest_sha": self.policy_feature_manifest_sha,
-            "policy_release_digest": self.policy_release_digest,
-            "previous_policy_id": self.previous_policy_id,
-            "rollback_reason": self.rollback_reason,
-        }, separators=(",", ":"), allow_nan=False)
+            separators=(",", ":"),
+            allow_nan=False,
+        )
 
     @classmethod
     def from_json(cls, data: str) -> SelectionPolicyArtifact:
@@ -261,12 +272,16 @@ class SelectionPolicyArtifact:
             scores=d.get("scores", {}),
             evidence_ids=tuple(d.get("evidence_ids", [])),
             validity_start=datetime.fromisoformat(d["validity_start"]),
-            validity_end=datetime.fromisoformat(d["validity_end"]) if d.get("validity_end") else None,
+            validity_end=datetime.fromisoformat(d["validity_end"])
+            if d.get("validity_end")
+            else None,
             fallback=d.get("fallback", "NO_TRADE"),
             risk_cap=d.get("risk_cap", 0.25),
             status=PolicyStatus(d.get("status", "draft")),
             created_at=datetime.fromisoformat(d["created_at"]),
-            activated_at=datetime.fromisoformat(d["activated_at"]) if d.get("activated_at") else None,
+            activated_at=datetime.fromisoformat(d["activated_at"])
+            if d.get("activated_at")
+            else None,
             activated_by=d.get("activated_by"),
             activation_ticket=d.get("activation_ticket"),
             policy_commit_sha=d.get("policy_commit_sha", "unknown"),
@@ -356,12 +371,16 @@ class SelectionPolicyRegistry:
             "strategy_id": policy.incumbent.strategy_id,
             "created_at": policy.created_at.isoformat(),
             "validity_start": policy.validity_start.isoformat(),
-            "validity_end": policy.validity_end.isoformat() if policy.validity_end else None,
+            "validity_end": policy.validity_end.isoformat()
+            if policy.validity_end
+            else None,
         }
         self._save_index()
         return policy.policy_id
 
-    def get(self, policy_id: str, *, verify: bool = True) -> Optional[SelectionPolicyArtifact]:
+    def get(
+        self, policy_id: str, *, verify: bool = True
+    ) -> Optional[SelectionPolicyArtifact]:
         """Get policy by ID.
 
         Args:
@@ -382,7 +401,9 @@ class SelectionPolicyRegistry:
             )
         return policy
 
-    def get_active(self, symbol: str, timeframe: str, regime: str, now: Optional[datetime] = None) -> Optional[SelectionPolicyArtifact]:
+    def get_active(
+        self, symbol: str, timeframe: str, regime: str, now: Optional[datetime] = None
+    ) -> Optional[SelectionPolicyArtifact]:
         """Get currently active policy for symbol/timeframe/regime."""
         key = f"{symbol}:{timeframe}:{regime}"
         if key not in self._index:
@@ -397,7 +418,12 @@ class SelectionPolicyRegistry:
                     best = policy
         return best
 
-    def list_all(self, symbol: Optional[str] = None, timeframe: Optional[str] = None, regime: Optional[str] = None) -> list[SelectionPolicyArtifact]:
+    def list_all(
+        self,
+        symbol: Optional[str] = None,
+        timeframe: Optional[str] = None,
+        regime: Optional[str] = None,
+    ) -> list[SelectionPolicyArtifact]:
         """List all policies, optionally filtered."""
         results = []
         for key, policies in self._index.items():

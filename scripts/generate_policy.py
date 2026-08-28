@@ -130,7 +130,9 @@ def create_policy_from_wfo(
             fallback="NO_TRADE",
             risk_cap=0.25,
             status=PolicyStatus.VALIDATED,  # Ready for activation
-            policy_commit_sha=commit_sha if commit_sha != "auto" else os.getenv("GITHUB_SHA", "unknown"),
+            policy_commit_sha=commit_sha
+            if commit_sha != "auto"
+            else os.getenv("GITHUB_SHA", "unknown"),
             policy_data_manifest_sha=data_manifest_sha,
             policy_feature_manifest_sha=feature_manifest_sha,
             policy_release_digest=release_digest,
@@ -154,7 +156,9 @@ def create_policy_from_wfo(
             fallback="NO_TRADE",
             risk_cap=0.0,
             status=PolicyStatus.VALIDATED,
-            policy_commit_sha=commit_sha if commit_sha != "auto" else os.getenv("GITHUB_SHA", "unknown"),
+            policy_commit_sha=commit_sha
+            if commit_sha != "auto"
+            else os.getenv("GITHUB_SHA", "unknown"),
             policy_data_manifest_sha=data_manifest_sha,
             policy_feature_manifest_sha=feature_manifest_sha,
             policy_release_digest=release_digest,
@@ -164,20 +168,32 @@ def create_policy_from_wfo(
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Generate SelectionPolicyArtifacts from WFO results")
-    parser.add_argument("--wfo-root", default="data/backtests/wfo", help="WFO results root directory")
+    parser = argparse.ArgumentParser(
+        description="Generate SelectionPolicyArtifacts from WFO results"
+    )
+    parser.add_argument(
+        "--wfo-root", default="data/backtests/wfo", help="WFO results root directory"
+    )
     parser.add_argument("--out", default="data/policies", help="Output registry path")
     parser.add_argument("--regime", default="TRENDING_UP", help="Regime for policy")
     parser.add_argument("--timeframe", default="1h", help="Timeframe")
-    parser.add_argument("--validity-days", type=int, default=30, help="Policy validity window in days")
+    parser.add_argument(
+        "--validity-days", type=int, default=30, help="Policy validity window in days"
+    )
     parser.add_argument("--commit-sha", default="auto", help="Git commit SHA")
     parser.add_argument("--data-manifest", default="auto", help="Data manifest SHA")
-    parser.add_argument("--feature-manifest", default="auto", help="Feature manifest SHA")
+    parser.add_argument(
+        "--feature-manifest", default="auto", help="Feature manifest SHA"
+    )
     parser.add_argument("--release-digest", default="auto", help="Release image digest")
     parser.add_argument("--actor", default="system", help="Activating actor")
     parser.add_argument("--ticket", default="auto", help="Approval ticket")
-    parser.add_argument("--activate", action="store_true", help="Activate policies immediately")
-    parser.add_argument("--dry-run", action="store_true", help="Show what would be created")
+    parser.add_argument(
+        "--activate", action="store_true", help="Activate policies immediately"
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Show what would be created"
+    )
 
     args = parser.parse_args()
 
@@ -224,7 +240,9 @@ def main():
 
         # Add to registry
         policy_id = registry.add(policy)
-        print(f"  ✅ {policy.symbol} {policy.timeframe} {policy.regime} → {policy_id} [{policy.incumbent.strategy_id}]")
+        print(
+            f"  ✅ {policy.symbol} {policy.timeframe} {policy.regime} → {policy_id} [{policy.incumbent.strategy_id}]"
+        )
 
         # Activate if requested
         if args.activate and policy.incumbent.strategy_id != "NO_TRADE":
