@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
@@ -77,6 +78,7 @@ class EvidenceKind(str, Enum):
     OPERATOR_APPROVAL = "operator_approval"
     CANARY_OPERATIONAL = "canary_operational"
     PRODUCTION_APPROVAL = "production_approval"
+    RELEASE_ATTESTATION = "release_attestation"
 
 
 class EvidenceSource(str, Enum):
@@ -239,6 +241,7 @@ _TARGET_REQUIREMENTS: dict[ResearchStage, tuple[EvidenceKind, ...]] = {
     ResearchStage.PRODUCTION: (
         EvidenceKind.CANARY_OPERATIONAL,
         EvidenceKind.PRODUCTION_APPROVAL,
+        EvidenceKind.RELEASE_ATTESTATION,
     ),
 }
 
@@ -283,10 +286,10 @@ class ResearchPromotionGate:
         missing = tuple(kind for kind in required if kind not in by_kind)
         satisfied: list[EvidenceKind] = []
         for kind in required:
-            item = by_kind.get(kind)
-            if item is None:
+            candidate = by_kind.get(kind)
+            if candidate is None:
                 continue
-            failure = self._failure(item)
+            failure = self._failure(candidate)
             if failure is None:
                 satisfied.append(kind)
             else:
@@ -374,7 +377,11 @@ class ResearchPromotionGate:
             if kind == EvidenceKind.TESTNET_OPERATIONAL:
                 if evidence.source != EvidenceSource.TESTNET:
                     return "wrong_source"
-                if number("days") < 30.0 or number("unresolved_orders") != 0.0:
+                if (
+                    number("days") < 30.0
+                    or number("complete_order_lifecycles") < 100.0
+                    or number("unresolved_orders") != 0.0
+                ):
                     return "testnet_soak_failed"
             if kind == EvidenceKind.SHADOW_OPERATIONAL:
                 if evidence.source != EvidenceSource.SHADOW:
@@ -392,10 +399,37 @@ class ResearchPromotionGate:
                     or not str(payload.get("ticket", "")).strip()
                 ):
                     return "approval_identity_missing"
+            if kind == EvidenceKind.RELEASE_ATTESTATION:
+                if evidence.source != EvidenceSource.SYSTEM:
+                    return "wrong_source"
+                commit_sha = payload.get("commit_sha")
+                image_digest = payload.get("image_digest")
+                if not isinstance(commit_sha, str) or not re.fullmatch(
+                    r"[0-9a-f]{40}", commit_sha
+                ):
+                    return "commit_sha_invalid"
+                if not isinstance(image_digest, str) or not re.fullmatch(
+                    r"sha256:[0-9a-f]{64}", image_digest
+                ):
+                    return "image_digest_invalid"
+                required_verifications = (
+                    "cosign_verified",
+                    "sbom_verified",
+                    "slsa_verified",
+                    "provenance_verified",
+                )
+                if any(payload.get(name) is not True for name in required_verifications):
+                    return "supply_chain_verification_failed"
+                if not str(payload.get("verification_run_id", "")).strip():
+                    return "verification_run_missing"
             if kind == EvidenceKind.CANARY_OPERATIONAL:
                 if evidence.source != EvidenceSource.CANARY:
                     return "wrong_source"
-                if number("days") < 30.0 or number("safety_breaches") != 0.0:
+                if (
+                    number("days") < 30.0
+                    or number("safety_breaches") != 0.0
+                    or number("loss_budget_breaches") != 0.0
+                ):
                     return "canary_gate_failed"
         except ValueError as exc:
             return str(exc)

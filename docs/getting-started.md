@@ -34,7 +34,7 @@ poetry run trading-agent execution risk
 poetry run trading-agent info
 ```
 
-📍 **Hướng dẫn chi tiết từng bước:** [🎮 Demo](demo.md)
+📍 **Mô hình và luồng chuẩn:** [Core System](CORE_SYSTEM.md) · [Main-flow Validation](operations/MAIN_FLOW_VALIDATION.md)
 
 ---
 
@@ -113,7 +113,7 @@ make shell                # Python shell
 | File | Nội dung |
 |------|---------|
 | [🏛 Kiến trúc](ARCHITECTURE.md) | Sơ đồ tổng quan, các layer |
-| [🧠 Suy luận](reasoning.md) | Cách agent ra quyết định |
-| [🎮 Demo](demo.md) | Hướng dẫn từng bước chi tiết |
-| [📁 Cấu trúc](project-structure.md) | Mỗi module làm gì |
-| [⚡ Tối ưu hóa](optimization.md) | Các optimization đã thực hiện |
+| [🧭 Core System](CORE_SYSTEM.md) | Luồng cốt lõi và invariant |
+| [🗺 Documentation Map](DOCUMENTATION_MAP.md) | Taxonomy và thứ tự đọc |
+| [🏛 Kiến trúc](ARCHITECTURE.md) | Các plane và boundary |
+| [✅ Main-flow Validation](operations/MAIN_FLOW_VALIDATION.md) | Kiểm tra reproducible |

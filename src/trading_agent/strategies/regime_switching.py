@@ -22,7 +22,9 @@ FIXES applied:
 
 from __future__ import annotations
 
+import json
 import logging
+import pathlib
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -180,6 +182,7 @@ class RegimeSwitchingStrategy(Strategy):
         self._regime_stable_count = 0
         self._detector_fitted = False
         self._bars_since_refit = 0
+        self._state_path: str | None = params.get("detector_state_path")
 
         # Pre-instantiate all possible sub-strategies
         self._init_sub_strategies()
@@ -188,6 +191,89 @@ class RegimeSwitchingStrategy(Strategy):
         """Instantiate all sub-strategies with default params."""
         for name, cls in STRATEGY_MAP.items():
             self._sub_strategies[name] = cls({})
+
+    def _get_detector(self):
+        """Lazy-initialize regime detector."""
+        if self._detector is not None:
+            return self._detector
+
+        method = RegimeMethod(self.regime_method)
+        if method == RegimeMethod.HYBRID:
+            self._detector = HybridRegimeDetector()
+        elif method == RegimeMethod.HMM:
+            self._detector = HMMStrategy(lookback=self.lookback)
+        elif method == RegimeMethod.GMM:
+            self._detector = GMMStrategy()
+        elif method == RegimeMethod.RULE_BASED:
+            self._detector = RuleBasedStrategy()
+        else:
+            self._detector = HybridRegimeDetector()
+
+        return self._detector
+
+    def save_detector_state(self, path: str | None = None) -> str | None:
+        """Persist detector state to disk if supported by the detector."""
+        if not self._detector_fitted or self._detector is None:
+            return None
+        target = path or self._state_path
+        if not target:
+            return None
+        try:
+            payload = {
+                "regime_method": self.regime_method,
+                "lookback": self.lookback,
+                "detector_fitted": self._detector_fitted,
+                "bars_since_refit": self._bars_since_refit,
+                "current_regime": self._current_regime.value if self._current_regime else None,
+                "regime_confidence": self._regime_confidence,
+                "regime_history": [r.value for r in self._regime_history],
+            }
+            if hasattr(self._detector, "to_dict"):
+                payload["detector"] = self._detector.to_dict()
+            elif hasattr(self._detector, "__getstate__"):
+                payload["detector"] = self._detector.__getstate__()
+            else:
+                payload["detector"] = None
+            pathlib.Path(target).write_text(json.dumps(payload, sort_keys=True, indent=2))
+            return target
+        except Exception as exc:
+            logger.debug(f"Failed to save detector state: {exc}")
+            return None
+
+    def restore_detector_state(self, path: str | None = None) -> bool:
+        """Restore detector state from disk if available and compatible."""
+        target = path or self._state_path
+        if not target:
+            return False
+        try:
+            if not pathlib.Path(target).exists():
+                return False
+            payload = json.loads(pathlib.Path(target).read_text())
+            if payload.get("regime_method") != self.regime_method:
+                return False
+            self._detector_fitted = bool(payload.get("detector_fitted", False))
+            self._bars_since_refit = int(payload.get("bars_since_refit", 0))
+            self._regime_confidence = float(payload.get("regime_confidence", 0.0))
+            history = payload.get("regime_history") or []
+            try:
+                self._regime_history = [MarketRegime(v) for v in history]
+            except ValueError:
+                self._regime_history = []
+            if payload.get("current_regime") is not None:
+                try:
+                    self._current_regime = MarketRegime(payload["current_regime"])
+                except ValueError:
+                    self._current_regime = MarketRegime.UNKNOWN
+            detector_payload = payload.get("detector")
+            if detector_payload and self._detector is not None:
+                if hasattr(self._detector, "from_dict"):
+                    self._detector = self._detector.from_dict(detector_payload)
+                elif hasattr(self._detector, "__setstate__"):
+                    self._detector.__setstate__(detector_payload)
+            return True
+        except Exception as exc:
+            logger.debug(f"Failed to restore detector state: {exc}")
+            return False
 
     def _get_detector(self):
         """Lazy-initialize regime detector."""

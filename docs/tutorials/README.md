@@ -2,9 +2,9 @@
 
 > Status: **CURRENT syllabus** · Owner: project maintainers · Verified: 2026-08-26
 
-This course replaces the code-walkthrough material in top-level [`COURSE/`](../../COURSE/).
+This course replaces the former V1 code-walkthrough material.
 It teaches stable contracts and evidence flows instead of memorizing source line
-numbers. The legacy course remains available only for historical context.
+numbers. The V1 material has been removed from the repository.
 
 **Tiếng Việt:** [Khóa học thực hành đầy đủ — 12 bài, lab và capstone](../vi/khoa-hoc/README.md)
 

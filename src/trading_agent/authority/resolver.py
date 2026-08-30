@@ -18,7 +18,11 @@ from trading_agent.strategies.base import Strategy
 from trading_agent.strategies.ma_crossover import MaCrossover
 from trading_agent.strategies.rsi import RsiStrategy
 from trading_agent.strategies.bbands import BBandsStrategy
-from trading_agent.strategies.enhanced_ma import EnhancedMaCrossover
+from trading_agent.strategies.enhanced_ma import (
+    EnhancedMaCrossover,
+    MaAdxCrossover,
+    MaVolTargetCrossover,
+)
 from trading_agent.strategies.online_learning_strategy import OnlineLearningStrategy
 from trading_agent.strategies.regime_switching import RegimeSwitchingStrategy
 
@@ -28,6 +32,8 @@ logger = __import__("logging").getLogger(__name__)
 class StrategyType(str, Enum):
     MA_CROSSOVER = "ma_crossover"
     ENHANCED_MA = "enhanced_ma"
+    MA_ADX = "ma_adx"
+    MA_VOL_TARGET = "ma_vol_target"
     RSI = "rsi"
     BBANDS = "bbands"
     ONLINE_LEARNING = "online_learning"
@@ -177,6 +183,8 @@ class RuntimeStrategyResolver:
     _STRATEGY_MAP: Dict[str, StrategyType] = {
         "ma_crossover": StrategyType.MA_CROSSOVER,
         "enhanced_ma": StrategyType.ENHANCED_MA,
+        "ma_adx": StrategyType.MA_ADX,
+        "ma_vol_target": StrategyType.MA_VOL_TARGET,
         "rsi": StrategyType.RSI,
         "bbands": StrategyType.BBANDS,
         "online_learning": StrategyType.ONLINE_LEARNING,
@@ -186,6 +194,8 @@ class RuntimeStrategyResolver:
     _STRATEGY_CLASSES: Dict[StrategyType, type[Strategy]] = {
         StrategyType.MA_CROSSOVER: MaCrossover,
         StrategyType.ENHANCED_MA: EnhancedMaCrossover,
+        StrategyType.MA_ADX: MaAdxCrossover,
+        StrategyType.MA_VOL_TARGET: MaVolTargetCrossover,
         StrategyType.RSI: RsiStrategy,
         StrategyType.BBANDS: BBandsStrategy,
         StrategyType.ONLINE_LEARNING: OnlineLearningStrategy,

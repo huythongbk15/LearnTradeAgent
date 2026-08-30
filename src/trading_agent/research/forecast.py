@@ -361,7 +361,14 @@ class EnvironmentAdapter(Protocol):
     def publish(self, decision: DecisionBundle) -> None: ...
 
 
-class StrategyRuntime:
+class ResearchStrategyRuntime:
+    """Research-only forecast pipeline runtime.
+
+    This name is intentionally distinct from the authority-bound execution
+    ``StrategyRuntime``.  ``StrategyRuntime`` remains a compatibility alias so
+    existing research callers do not silently change behavior.
+    """
+
     def __init__(
         self, pipeline: StrategyRiskPipeline, adapter: EnvironmentAdapter
     ) -> None:
@@ -372,6 +379,12 @@ class StrategyRuntime:
         decision = self._pipeline.evaluate(observation)
         self._adapter.publish(decision)
         return decision
+
+
+# Backward-compatible import surface for research clients.  New code should
+# use ``ResearchStrategyRuntime`` to avoid confusing it with the authority
+# runtime that can submit orders.
+StrategyRuntime = ResearchStrategyRuntime
 
 
 def utc_now() -> datetime:

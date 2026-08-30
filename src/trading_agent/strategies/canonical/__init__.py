@@ -26,6 +26,8 @@ from trading_agent.strategies.canonical.adapter import (
 from trading_agent.strategies.canonical.candidates import (
     FIRST_WAVE_DESCRIPTORS,
     build_default_registry,
+    build_legacy_candidate,
+    build_parameterized_adapter,
 )
 from trading_agent.strategies.canonical.descriptor import (
     CONTRACT_VERSION,
@@ -74,6 +76,8 @@ __all__ = [
     "StrategyStateKey",
     "UnknownStrategyError",
     "build_default_registry",
+    "build_legacy_candidate",
+    "build_parameterized_adapter",
     "build_ohlcv_window",
     "validate_point_in_time",
 ]

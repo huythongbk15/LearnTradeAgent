@@ -33,6 +33,12 @@ class TestStrategyMapping:
         strategy = resolver.get_strategy_class_by_name("rsi")
         assert strategy is RsiStrategy
 
+    def test_first_wave_ma_variant_mappings(self, resolver: RuntimeStrategyResolver):
+        from trading_agent.strategies.enhanced_ma import MaAdxCrossover, MaVolTargetCrossover
+
+        assert resolver.get_strategy_class_by_name("ma_adx") is MaAdxCrossover
+        assert resolver.get_strategy_class_by_name("ma_vol_target") is MaVolTargetCrossover
+
     def test_bbands_mapping(self, resolver: RuntimeStrategyResolver):
         strategy = resolver.get_strategy_class_by_name("bbands")
         assert strategy is BBandsStrategy

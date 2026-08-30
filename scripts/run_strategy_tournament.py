@@ -108,6 +108,8 @@ def main() -> None:
     )
     parser.add_argument("--dry-run", action="store_true", help="list cells and exit")
     args = parser.parse_args()
+    if args.tail_bars is not None and args.tail_bars <= 0:
+        parser.error("--tail-bars must be positive")
 
     strategies = [s.strip() for s in args.strategies.split(",") if s.strip()]
     symbols = [s.strip() for s in args.symbols.split(",") if s.strip()]
@@ -147,7 +149,11 @@ def main() -> None:
     for i, spec in enumerate(pending, 1):
         print(f"\n[{i}/{len(pending)}] {spec.cell_id}")
         try:
-            artifact = run_cell(spec, out_root=args.out)
+            artifact = run_cell(
+                spec,
+                out_root=args.out,
+                tail_bars=args.tail_bars,
+            )
         except Exception as exc:  # noqa: BLE001 - a broken cell must not kill the matrix
             print(f"   💥 EXCEPTION: {exc}")
             failures += 1

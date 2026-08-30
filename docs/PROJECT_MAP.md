@@ -17,18 +17,6 @@
 │   └── dependabot.yml
 ├── .qwenpaw
 │   └── fork_registry.json.lock
-├── COURSE
-│   ├── 01_data_model.md
-│   ├── 02_data_pipeline.md
-│   ├── 03_backtest_engine.md
-│   ├── 04_strategies_plugins.md
-│   ├── 05_llm_layer.md
-│   ├── 06_agents.md
-│   ├── 07_execution_risk.md
-│   ├── 08_portfolio.md
-│   ├── 09_multi_exchange.md
-│   ├── 10_ml_infra.md
-│   └── README.md
 ├── artifacts
 │   └── golden
 │       └── golden_replay_s0.json
@@ -101,11 +89,8 @@
 │   ├── LIVE_TRADING_RUNBOOK.md
 │   ├── LIVE_TRADING_TODO.md
 │   ├── OPERATIONAL_DRILLS.md
-│   ├── P0_EXECUTION_MAP.md
-│   ├── PHASE6_P3_REPORT.md
 │   ├── PRODUCTION_POLICY.md
 │   ├── PROJECT_MAP.md
-│   ├── PROJECT_SUMMARY.md
 │   ├── PROMOTION_BINDING.md
 │   ├── README.md
 │   ├── RESEARCH_EVIDENCE.md
@@ -115,16 +100,8 @@
 │   ├── RUNBOOK_LOCAL.md
 │   ├── RUNTIME_RESOLVER.md
 │   ├── SECURITY.md
-│   ├── SYSTEM_GUIDE.md
 │   ├── VPS_LITE_DEPLOY.md
-│   ├── demo.md
-│   ├── getting-started.md
-│   ├── optimization.md
-│   ├── phase2-agents.md
-│   ├── phase6-p2-completion.md
-│   ├── phase6-scale.md
-│   ├── project-structure.md
-│   └── reasoning.md
+│   └── getting-started.md
 ├── drivers
 │   ├── mcp
 │   │   └── tavily_search.yaml

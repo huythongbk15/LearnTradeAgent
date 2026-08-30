@@ -1,118 +1,61 @@
-# Trading Agent System — Documentation Hub
+# Trading Agent — Documentation Hub
 
-> **Verified:** 2026-08-26 · **Mainnet:** `NO-GO` until the evidence in
-> [Live Readiness](LIVE_TRADING_TODO.md) and
-> [Capability Matrix](CAPABILITY_MATRIX.md) says otherwise.
+> **Status:** CURRENT
+> **Verified:** 2026-08-31
+> **Mainnet:** `NO-GO` cho tới khi các release gate có evidence thực tế.
 
-This page is the canonical entry point for project documentation. Documents are
-classified so that implemented behavior, target architecture and historical
-plans cannot be confused.
+Nếu chỉ đọc một trang, hãy đọc [CORE_SYSTEM.md](CORE_SYSTEM.md). Trang đó mô tả sản phẩm cốt lõi, đường lệnh duy nhất, invariant và ranh giới với các tính năng mở rộng.
 
-**Tiếng Việt:** [Trung tâm tài liệu tiếng Việt](vi/README.md)
+Nhãn `CURRENT` mô tả behavior hoặc quy trình đang tồn tại; `TARGET` là mục tiêu chưa đủ evidence; `HISTORICAL` chỉ giữ để truy vết. Xem [Documentation Standard](DOCUMENTATION_STANDARD.md) để biết quy ước đầy đủ.
 
-## Document status
+## Bắt đầu nhanh
 
-| Label | Meaning |
-| --- | --- |
-| **CURRENT** | Describes code or an operational path that exists. Claims still require the linked evidence. |
-| **TARGET** | Desired design or backlog. It must not be used as proof of implementation. |
-| **HISTORICAL** | A completed phase, old report or superseded design retained for traceability. |
-
-The rules for maintaining these labels are in
-[Documentation Standard](DOCUMENTATION_STANDARD.md).
-
-## Start here
-
-| Reader | First document | Then read |
+| Bạn muốn | Đọc trước | Sau đó |
 | --- | --- | --- |
-| New developer | [Getting Started](getting-started.md) | [Architecture](ARCHITECTURE.md), [Development](DEVELOPMENT.md) |
-| Strategy researcher | [Research-to-Production Guide](guides/RESEARCH_TO_PRODUCTION.md) | [Research Methodology](RESEARCH_METHODOLOGY.md), [Evidence Artifacts](reference/EVIDENCE_ARTIFACTS.md) |
-| Runtime/execution engineer | [Strategy Lifecycle](architecture/STRATEGY_LIFECYCLE.md) | [Backtest Engine](BACKTEST_ENGINE.md), [Authority Chain](AUTHORITY_CHAIN_OPS.md) |
-| Operator | [Main-flow Validation](operations/MAIN_FLOW_VALIDATION.md) | [Live Runbook](LIVE_TRADING_RUNBOOK.md), [Operational Drills](OPERATIONAL_DRILLS.md) |
-| Auditor/reviewer | [Capability Matrix](CAPABILITY_MATRIX.md) | [Research Evidence](RESEARCH_EVIDENCE.md), [Promotion Binding](PROMOTION_BINDING.md) |
-| Learner | [Khóa học thực hành tiếng Việt](vi/khoa-hoc/README.md) | 12 bài, labs, rubric và capstone |
+| Hiểu toàn hệ thống | [Core System](CORE_SYSTEM.md) | [Architecture](ARCHITECTURE.md) |
+| Chạy/kiểm tra local | [Getting Started](getting-started.md) | [Main-flow Validation](operations/MAIN_FLOW_VALIDATION.md) |
+| Nghiên cứu/chọn strategy | [Research-to-Production](guides/RESEARCH_TO_PRODUCTION.md) | [Research Methodology](RESEARCH_METHODOLOGY.md), [Evidence Artifacts](reference/EVIDENCE_ARTIFACTS.md) |
+| Vận hành paper/testnet | [Live Trading Runbook](LIVE_TRADING_RUNBOOK.md) | [S7 Evidence Runbook](S7_OPERATIONAL_EVIDENCE_RUNBOOK.md) |
+| Đánh giá mức hoàn thiện | [Capability Matrix](CAPABILITY_MATRIX.md) | [Adaptive Roadmap Status](ADAPTIVE_ROADMAP_STATUS.md), [Live Readiness](LIVE_TRADING_TODO.md) |
+| Học bằng tiếng Việt | [Khóa học thực hành](vi/khoa-hoc/README.md) | 12 bài, lab, rubric và capstone |
 
-## Canonical system flow
+## Luồng chuẩn
 
 ```text
-Market data
-   ↓ quality gate + point-in-time features
-Canonical strategy registry
-   ↓ deterministic evaluation cells
-Tournament + realistic execution simulation
-   ↓ statistical/OOS selection evidence
-Selection policy + immutable promotion artifact
-   ↓ fail-closed authority resolution
-Runtime strategy/router
-   ↓ portfolio + risk constraints
-Order intent → lifecycle → broker → fills → reconciliation
-   ↓
-Attribution, monitoring, rollback and audit evidence
+data quality + point-in-time features
+  → canonical strategy / frozen forecast
+  → risk decision / target exposure
+  → authority + shared capital
+  → order permission / execution plan
+  → lifecycle / broker / fills / reconciliation
+  → attribution / monitoring / promotion evidence
 ```
 
-No stage may silently substitute missing evidence, missing data or an unknown
-strategy. The safe fallback is abstention, rejection or reduced exposure.
+Không có bước nào được tự thay thế strategy, dữ liệu hoặc evidence bị thiếu. Kết quả an toàn là abstain, `NO_TRADE`, `BLOCK` hoặc `REDUCE_ONLY`.
 
-## Source-of-truth map
+## Bản đồ tài liệu
 
-### Current state and evidence
+Xem [DOCUMENTATION_MAP.md](DOCUMENTATION_MAP.md) để biết taxonomy, thứ tự đọc theo vai trò, nguồn sự thật và quy tắc gộp/lưu trữ. [DOCUMENTATION_STANDARD.md](DOCUMENTATION_STANDARD.md) quy định cách viết command, status và evidence.
 
-| Document | Status | Authority |
-| --- | --- | --- |
-| [Capability Matrix](CAPABILITY_MATRIX.md) | **CURRENT** | Maturity of each capability; distinguishes implemented from production-validated |
-| [Live Readiness](LIVE_TRADING_TODO.md) | **CURRENT** | P0–P3 gates and current mainnet decision |
-| [Research Evidence](RESEARCH_EVIDENCE.md) | **CURRENT** | Accepted research evidence and known limitations |
-| [Research Holdout](RESEARCH_HOLDOUT.md) | **CURRENT** | Holdout isolation and locked evaluation rules |
-| [Project Map](PROJECT_MAP.md) | **CURRENT / generated** | Physical repository layout; never edit manually |
+## Các hợp đồng quan trọng
 
-### Architecture and contracts
+- [Strategy Lifecycle](architecture/STRATEGY_LIFECYCLE.md) — research → selection → promotion → runtime.
+- [Backtest Engine](BACKTEST_ENGINE.md) — cell accounting, execution simulation và attribution.
+- [Promotion Binding](PROMOTION_BINDING.md) — content identity và provenance.
+- [Runtime Resolver](RUNTIME_RESOLVER.md) — authority fail-closed.
+- [Production Policy](PRODUCTION_POLICY.md) — điều kiện đủ để được xét production.
+- [Capability Matrix](CAPABILITY_MATRIX.md) — `Implemented` khác `Tested`, `Paper`, `Testnet`, `Production`.
 
-| Document | Status | Scope |
-| --- | --- | --- |
-| [Architecture](ARCHITECTURE.md) | **CURRENT** | Five-plane system architecture |
-| [Strategy Lifecycle](architecture/STRATEGY_LIFECYCLE.md) | **CURRENT + TARGET boundaries** | Research, selection, promotion and runtime authority |
-| [Backtest Engine](BACKTEST_ENGINE.md) | **CURRENT** | Portfolio simulation, fill safety and parity boundary |
-| [Promotion Binding](PROMOTION_BINDING.md) | **CURRENT** | Artifact integrity and research-to-runtime binding |
-| [Runtime Resolver](RUNTIME_RESOLVER.md) | **CURRENT** | Fail-closed runtime strategy resolution |
-| [Production Policy](PRODUCTION_POLICY.md) | **CURRENT** | Production eligibility rules |
-| [Evidence Artifacts](reference/EVIDENCE_ARTIFACTS.md) | **CURRENT** | Artifact ownership, minimum fields and consumers |
+## Roadmap và tài liệu lịch sử
 
-### How-to guides and operations
+[ADAPTIVE_STRATEGY_SELECTION_ROADMAP.md](ADAPTIVE_STRATEGY_SELECTION_ROADMAP.md) là roadmap pha trộn ghi chú đã làm và mục tiêu tương lai; không dùng làm runtime manual. Đọc [ADAPTIVE_ROADMAP_STATUS.md](ADAPTIVE_ROADMAP_STATUS.md) để xem phần code-complete và evidence còn thiếu.
 
-| Document | Status | Scope |
-| --- | --- | --- |
-| [Research-to-Production](guides/RESEARCH_TO_PRODUCTION.md) | **CURRENT + TARGET boundaries** | End-to-end strategy lifecycle |
-| [Main-flow Validation](operations/MAIN_FLOW_VALIDATION.md) | **CURRENT** | Reproducible checks from smoke to release evidence |
-| [Live Trading Runbook](LIVE_TRADING_RUNBOOK.md) | **CURRENT** | Live-path operation and emergency response |
-| [Runbook](RUNBOOK.md) | **CURRENT** | Service operations |
-| [Local Runbook](RUNBOOK_LOCAL.md) | **CURRENT** | Local-only operation |
-| [Deployment](DEPLOYMENT.md) | **CURRENT** | Deployment topology and rollback |
-| [Security](SECURITY.md) | **CURRENT** | Credentials, release provenance and hardening |
+Các phase report còn lại trong `docs/` là reference/historical. `docs/wsl-guide/` và `COURSE/` đã được loại khỏi cây tài liệu chính vì không thuộc hoặc đã được thay thế trong hệ thống hiện tại.
 
-### Learning material
+## Quy tắc sự thật
 
-| Document | Status | Scope |
-| --- | --- | --- |
-| [Course V2](tutorials/README.md) | **CURRENT syllabus** | Contract-first learning path tied to evidence |
-| [Khóa học thực hành tiếng Việt](vi/khoa-hoc/README.md) | **CURRENT course** | 12 bài chi tiết với lab, bài tập, đáp án và capstone |
-| [`COURSE/`](../COURSE/) | **HISTORICAL** | Course V1; retained only for traceability |
-
-## Target and historical material
-
-[Adaptive Strategy Selection Roadmap](ADAPTIVE_STRATEGY_SELECTION_ROADMAP.md)
-contains both implemented phase notes and future design. Treat unchecked work as
-**TARGET**. After all S0–S7 exit gates close, freeze it as a completion record;
-do not use it as the runtime manual.
-
-Phase reports, old architecture snapshots and superseded plans belong under
-[`archive/`](archive/). A completed TODO is evidence of project history, not the
-canonical description of current behavior.
-
-## Truth rules
-
-1. Code and tests establish behavior; documents explain it.
-2. A passing historical run is not a standing production claim.
-3. Backtest numbers are meaningful only with data, code, config and cost-model identity.
-4. `Implemented`, `tested`, `paper-validated` and `production-validated` are different states.
-5. Mainnet remains `NO-GO` unless the current release evidence explicitly closes every gate.
-6. Never place real secrets, private account identifiers or unredacted broker payloads in docs.
+1. Code và tests xác lập behavior; docs chỉ giải thích và trỏ tới evidence.
+2. Backtest phải có data/code/config/cost identity; số không có identity chỉ là minh họa.
+3. `Implemented`, `Tested`, `Research/Paper/Testnet Validated` và `Production Validated` là các mức khác nhau.
+4. Không đưa secrets, private identifiers hoặc payload broker chưa redacted vào tài liệu.
+5. Thay đổi core phải cập nhật trang core hoặc contract tương ứng; không tạo thêm summary trùng lặp.

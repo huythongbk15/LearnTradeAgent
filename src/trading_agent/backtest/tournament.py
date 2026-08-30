@@ -558,6 +558,7 @@ def run_cell(
     out_root: Path | None = None,
     start: int = 0,
     end: int | None = None,
+    tail_bars: int | None = None,
     fresh: bool = True,
     simulation_start: int | None = None,
     measurement_start: int | None = None,
@@ -565,6 +566,12 @@ def run_cell(
     signal_delay_bars: int = 0,
 ) -> EvaluationArtifact:
     """Run one tournament cell through the full execution path."""
+    if tail_bars is not None and tail_bars <= 0:
+        raise ValueError("tail_bars must be positive")
+    if tail_bars is not None and (
+        start != 0 or end is not None or simulation_start is not None
+    ):
+        raise ValueError("tail_bars cannot be combined with start/end/simulation_start")
     # Import here so module import stays cheap for tests that only need specs.
     from scripts.full_system_backtest import FullSystemSimulator
 
@@ -605,6 +612,7 @@ def run_cell(
         "measurement_start": measurement_start,
         "measurement_end": measurement_end,
         "signal_delay_bars": signal_delay_bars,
+        "tail_bars": tail_bars,
     }
     is_default_window = run_identity == {
         "simulation_start": 0,
@@ -612,6 +620,7 @@ def run_cell(
         "measurement_start": None,
         "measurement_end": None,
         "signal_delay_bars": 0,
+        "tail_bars": None,
     }
     run_suffix = hashlib.sha256(
         json.dumps(run_identity, sort_keys=True, separators=(",", ":")).encode()
@@ -623,6 +632,11 @@ def run_cell(
     # Data + manifest + quality gate (identical loader as the baseline sim;
     # gaps are RECORDED into the cell manifest, never silently dropped).
     source_df = load_ohlcv("binance", spec.symbol, spec.timeframe)
+    if tail_bars is not None:
+        # Resolve the tail only after loading the authoritative frame.  Signal
+        # generation still sees the full history (indicator warm-up remains
+        # causal), while execution is bounded to the requested smoke window.
+        sim_start = max(0, source_df.height - tail_bars)
     # Gap fault: instead of dropping bars (breaks simulator), record the
     # intended gap bars in the quality assessment. The simulator's gap_policy
     # "record" will handle missing data gracefully.

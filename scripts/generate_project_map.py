@@ -42,7 +42,10 @@ def tracked_files(root: Path) -> list[str]:
         ["git", "-C", str(root), "ls-files", "-z"], text=False
     )
     files = [f.decode("utf-8", "replace") for f in out.split(b"\0") if f]
-    return sorted(files)
+    # Respect worktree deletions while they are still unstaged. This keeps the
+    # generated map useful during a cleanup branch instead of listing files
+    # that no longer exist on disk but remain in the index until commit.
+    return sorted(f for f in files if (root / f).exists())
 
 
 def render_tree(files: list[str]) -> list[str]:

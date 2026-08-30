@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trading-agent.local/schemas/routing-decision.v1.json",
+  "title": "RoutingDecision",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "decision_id", "symbol", "timeframe", "observed_at", "posterior_fingerprint",
+    "policy_ids", "incumbent_strategy_id", "challenger_strategy_id", "chosen_strategy_id",
+    "chosen_policy_id", "chosen_params", "handover_state", "reason", "allow_new_exposure",
+    "exposure_multiplier", "candidate_score", "incumbent_score", "position_owner_strategy_id"
+  ],
+  "properties": {
+    "decision_id": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "symbol": {"type": "string", "minLength": 1},
+    "timeframe": {"type": "string", "minLength": 1},
+    "observed_at": {"type": "string", "format": "date-time"},
+    "posterior_fingerprint": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "policy_ids": {"type": "array", "items": {"type": "string", "pattern": "^[0-9a-f]{64}$"}},
+    "incumbent_strategy_id": {"type": ["string", "null"]},
+    "challenger_strategy_id": {"type": ["string", "null"]},
+    "chosen_strategy_id": {"type": ["string", "null"]},
+    "chosen_policy_id": {"type": ["string", "null"]},
+    "chosen_params": {"type": "object"},
+    "handover_state": {"enum": ["STABLE", "SWITCH_PENDING", "WAIT_FLAT", "ACTIVATE"]},
+    "reason": {"type": "string", "minLength": 1},
+    "allow_new_exposure": {"type": "boolean"},
+    "exposure_multiplier": {"type": "number", "minimum": 0, "maximum": 1},
+    "candidate_score": {"type": ["number", "null"]},
+    "incumbent_score": {"type": ["number", "null"]},
+    "position_owner_strategy_id": {"type": ["string", "null"]}
+  }
+}

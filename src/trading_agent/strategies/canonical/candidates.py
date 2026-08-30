@@ -15,8 +15,11 @@ so any tampering or stale build is blocked before a strategy can run.
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
+from typing import Any, Mapping
 
+from trading_agent.strategies.base import Strategy
 from trading_agent.strategies.bbands import BBandsStrategy
 from trading_agent.strategies.canonical.adapter import LegacyDataFrameAdapter
 from trading_agent.strategies.canonical.descriptor import StrategyDescriptor
@@ -101,6 +104,22 @@ FIRST_WAVE_DESCRIPTORS: dict[str, StrategyDescriptor] = {
     )
 }
 
+_CANDIDATE_CLASSES: dict[str, type[Strategy]] = {
+    "enhanced_ma": EnhancedMaCrossover,
+    "ma_adx": MaAdxCrossover,
+    "ma_vol_target": MaVolTargetCrossover,
+    "rsi": RsiStrategy,
+    "bbands": BBandsStrategy,
+}
+
+_CANDIDATE_WARMUPS = {
+    "enhanced_ma": _ENHANCED_MA_WARMUP,
+    "ma_adx": _ENHANCED_MA_WARMUP,
+    "ma_vol_target": _ENHANCED_MA_WARMUP,
+    "rsi": _RSI_WARMUP,
+    "bbands": _BBANDS_WARMUP,
+}
+
 
 def _adapter_factory(desc: StrategyDescriptor, strategy_cls, warmup_bars: int):
     """Build a registry factory producing a research-only legacy adapter."""
@@ -144,3 +163,50 @@ def build_default_registry() -> CanonicalStrategyRegistry:
             code_source=source_cls,
         )
     return registry
+
+
+def build_legacy_candidate(
+    strategy_id: str,
+    params: Mapping[str, Any] | None = None,
+) -> tuple[StrategyDescriptor, Strategy]:
+    """Build an exact parameterized legacy strategy after allowlist verification."""
+
+    registry = build_default_registry()
+    descriptor = registry.describe(strategy_id)
+    strategy_cls = _CANDIDATE_CLASSES[strategy_id]
+    return descriptor, strategy_cls(dict(params or {}))
+
+
+def build_parameterized_adapter(
+    strategy_id: str,
+    params: Mapping[str, Any] | None = None,
+) -> tuple[StrategyDescriptor, LegacyDataFrameAdapter]:
+    """Build a canonical research adapter bound to exact parameter content."""
+
+    descriptor, strategy = build_legacy_candidate(strategy_id, params)
+    encoded = json.dumps(
+        dict(params or {}), sort_keys=True, separators=(",", ":"), allow_nan=False
+    ).encode()
+    param_digest = hashlib.sha256(encoded).hexdigest()
+    adapter = LegacyDataFrameAdapter(
+        strategy,
+        model_artifact_id=f"legacy.{strategy_id}.{param_digest}",
+        warmup_bars=_CANDIDATE_WARMUPS[strategy_id],
+        horizon_bars=descriptor.horizon_bars,
+        research_only=True,
+        strategy_id=strategy_id,
+    )
+    return descriptor, adapter
+
+
+__all__ = [
+    "BBANDS_DESCRIPTOR",
+    "ENHANCED_MA_DESCRIPTOR",
+    "FIRST_WAVE_DESCRIPTORS",
+    "MA_ADX_DESCRIPTOR",
+    "MA_VOL_TARGET_DESCRIPTOR",
+    "RSI_DESCRIPTOR",
+    "build_default_registry",
+    "build_legacy_candidate",
+    "build_parameterized_adapter",
+]

@@ -11,10 +11,12 @@ Implements:
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import warnings
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from enum import Enum
 from typing import Mapping, Optional
@@ -72,6 +74,12 @@ class RegimePosterior:
     p_high_vol: float
     p_crisis: float
     p_other: float
+    model_id: str = "unknown"
+    fitted_start: datetime | None = None
+    fitted_end: datetime | None = None
+    generated_at: datetime | None = None
+    ood_score: float = 1.0
+    fingerprint: str = field(init=False)
 
     def __post_init__(self) -> None:
         values = self.values
@@ -79,6 +87,29 @@ class RegimePosterior:
             raise ValueError("regime probabilities must be finite and non-negative")
         if not np.isclose(sum(values), 1.0, atol=1e-9):
             raise ValueError("regime probabilities must sum to one")
+        if not np.isfinite(self.ood_score) or not 0.0 <= self.ood_score <= 1.0:
+            raise ValueError("ood_score must be finite and in [0, 1]")
+        for timestamp in (self.fitted_start, self.fitted_end, self.generated_at):
+            if timestamp is not None and (
+                timestamp.tzinfo is None or timestamp.utcoffset() is None
+            ):
+                raise ValueError("regime posterior timestamps must be timezone-aware")
+        if (
+            self.fitted_start is not None
+            and self.fitted_end is not None
+            and self.fitted_end <= self.fitted_start
+        ):
+            raise ValueError("fitted_end must be after fitted_start")
+        payload = {
+            "probabilities": self.as_mapping,
+            "model_id": self.model_id,
+            "fitted_start": self.fitted_start.isoformat() if self.fitted_start else None,
+            "fitted_end": self.fitted_end.isoformat() if self.fitted_end else None,
+            "generated_at": self.generated_at.isoformat() if self.generated_at else None,
+            "ood_score": self.ood_score,
+        }
+        encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+        object.__setattr__(self, "fingerprint", hashlib.sha256(encoded).hexdigest())
 
     @property
     def values(self) -> tuple[float, float, float, float, float]:
@@ -91,8 +122,42 @@ class RegimePosterior:
         )
 
     @property
+    def as_mapping(self) -> dict[str, float]:
+        return {
+            "trend": self.p_trend,
+            "mean_reversion": self.p_mean_reversion,
+            "high_vol": self.p_high_vol,
+            "crisis": self.p_crisis,
+            "other": self.p_other,
+        }
+
+    def is_fresh(self, *, now: datetime | None = None, max_age_seconds: int = 7200) -> bool:
+        now = now or datetime.now(UTC)
+        if self.generated_at is None or max_age_seconds <= 0:
+            return False
+        age = (now - self.generated_at).total_seconds()
+        return 0.0 <= age <= max_age_seconds
+
+    def is_production_ready(
+        self,
+        *,
+        now: datetime | None = None,
+        max_age_seconds: int = 7200,
+        max_ood_score: float = 0.5,
+    ) -> bool:
+        if self.model_id in {"", "unknown"}:
+            return False
+        if self.fitted_start is None or self.fitted_end is None:
+            return False
+        if self.generated_at is None or self.fitted_end > self.generated_at:
+            return False
+        if self.ood_score > max_ood_score:
+            return False
+        return self.is_fresh(now=now, max_age_seconds=max_age_seconds)
+
+    @property
     def entropy(self) -> float:
-        probabilities = np.asarray(self.values, dtype=float)
+        probabilities: np.ndarray = np.asarray(self.values, dtype=float)
         positive = probabilities[probabilities > 0.0]
         return float(-np.sum(positive * np.log(positive)))
 
@@ -291,6 +356,8 @@ class HMMStrategy:
     def _assign_regime_names(self, features: np.ndarray) -> None:
         """Assign meaningful names to regimes based on characteristics"""
         # Get regime means
+        if self.model is None:
+            raise ValueError("Model not fitted. Call fit() first.")
         means = self.model.means_
         # First feature is returns, second is volatility
         avg_returns = means[:, 0]
@@ -323,6 +390,8 @@ class HMMStrategy:
     ) -> RegimeState:
         """Predict current regime"""
         if not self._fitted:
+            raise ValueError("Model not fitted. Call fit() first.")
+        if self.model is None:
             raise ValueError("Model not fitted. Call fit() first.")
 
         features = self._prepare_features(prices, volume)
@@ -431,6 +500,8 @@ class GMMStrategy:
 
     def _assign_regime_names(self, features: np.ndarray) -> None:
         """Assign names based on cluster centers"""
+        if self.model is None:
+            raise ValueError("Model not fitted")
         centers = self.model.means_
         names = []
 
@@ -454,6 +525,8 @@ class GMMStrategy:
     def predict(self, returns: pd.Series) -> RegimeState:
         """Predict current regime"""
         if not self._fitted:
+            raise ValueError("Model not fitted")
+        if self.model is None:
             raise ValueError("Model not fitted")
 
         features = self._prepare_features(returns)
@@ -559,8 +632,8 @@ class HybridRegimeDetector:
 
     def __init__(
         self,
-        methods: list[RegimeMethod] = None,
-        weights: dict[RegimeMethod, float] = None,
+        methods: list[RegimeMethod] | None = None,
+        weights: dict[RegimeMethod, float] | None = None,
     ):
         self.methods = methods or [RegimeMethod.HMM, RegimeMethod.RULE_BASED]
         self.weights = weights or {
@@ -615,7 +688,7 @@ class HybridRegimeDetector:
             probs = {r: 1.0 / len(MarketRegime) for r in MarketRegime}
 
         # Get top regime
-        final_regime = max(probs, key=probs.get)
+        final_regime = max(probs, key=lambda regime: probs[regime])
         confidence = probs[final_regime]
 
         state = RegimeState(
@@ -647,7 +720,7 @@ class AdaptivePositionSizer:
         kelly_fraction: float = 0.5,  # Half-Kelly
         min_position: float = 0.01,
         max_position: float = 1.0,
-        regime_scalers: dict[MarketRegime, float] = None,
+        regime_scalers: dict[MarketRegime, float] | None = None,
     ):
         self.target_vol = target_vol
         self.max_leverage = max_leverage

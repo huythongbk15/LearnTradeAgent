@@ -1,11 +1,14 @@
 # Adaptive Strategy Selection & Routing Roadmap
 
-> Cập nhật: 2026-08-26  
-> Phạm vi: research → strategy selection → regime routing → portfolio → canonical execution  
-> Trạng thái mainnet: **NO-GO** cho tới khi toàn bộ evidence/release gate được thỏa mãn  
+> **Status:** TARGET + HISTORICAL PHASE RECORD
+> Không dùng file này làm runtime manual. Đọc [Core System](CORE_SYSTEM.md), [Documentation Map](DOCUMENTATION_MAP.md) và [Adaptive Roadmap Status](ADAPTIVE_ROADMAP_STATUS.md) trước; các checkbox chỉ phản ánh kế hoạch/evidence của phase.
+
+> Cập nhật: 2026-08-26
+> Phạm vi: research → strategy selection → regime routing → portfolio → canonical execution
+> Trạng thái mainnet: **NO-GO** cho tới khi toàn bộ evidence/release gate được thỏa mãn
 > Tài liệu liên quan: [RESEARCH_METHODOLOGY.md](RESEARCH_METHODOLOGY.md),
 > [RESEARCH_EVIDENCE.md](RESEARCH_EVIDENCE.md),
-> [P0_EXECUTION_MAP.md](P0_EXECUTION_MAP.md),
+> [Core System](CORE_SYSTEM.md),
 > [LIVE_TRADING_TODO.md](LIVE_TRADING_TODO.md),
 > [ARCHITECTURE.md](ARCHITECTURE.md),
 > [BACKTEST_ENGINE.md](BACKTEST_ENGINE.md) (chuẩn `PortfolioBacktestEngine`),
@@ -206,25 +209,25 @@ active config. Nếu lớp đo sai, selector sẽ tối ưu sai mục tiêu.
 
 ### Backlog
 
-- [ ] **STR-0001** Freeze canonical golden run bằng commit SHA, data manifest,
+- [x] **STR-0001** Freeze canonical golden run bằng commit SHA, data manifest,
   feature artifact, config hash và command hash.
-- [ ] **STR-0002** Nâng report lên schema v2: simulated entry/exit timestamp,
+- [x] **STR-0002** Nâng report lên schema v2: simulated entry/exit timestamp,
   entry/exit bar ID, holding bars/time, MAE, MFE, time-in-market.
-- [ ] **STR-0003** Hợp nhất stop/TP/trailing thành một immutable `RiskPolicyConfig`;
+- [x] **STR-0003** Hợp nhất stop/TP/trailing thành một immutable `RiskPolicyConfig`;
   report chỉ hiển thị protection thực sự được submit.
-- [ ] **STR-0004** Hợp nhất position-sizing source; loại bỏ trường
+- [x] **STR-0004** Hợp nhất position-sizing source; loại bỏ trường
   `sizing_method=unknown`.
-- [ ] **STR-0005** Tách PnL attribution: gross alpha, commission, slippage, spread,
+- [x] **STR-0005** Tách PnL attribution: gross alpha, commission, slippage, spread,
   impact, rounding/dust và net PnL.
-- [ ] **STR-0006** Bổ sung CAGR, annual volatility, Sharpe, Sortino, Calmar, PF,
+- [x] **STR-0006** Bổ sung CAGR, annual volatility, Sharpe, Sortino, Calmar, PF,
   turnover, exposure, longest drawdown, streak, best-trade concentration.
-- [ ] **STR-0007** Thêm benchmark: cash, fixed-allocation buy-and-hold, incumbent
+- [x] **STR-0007** Thêm benchmark: cash, fixed-allocation buy-and-hold, incumbent
   strategy và equal-risk baseline.
-- [ ] **STR-0008** Data-quality gate cho duplicate, gap, null, non-positive OHLC,
+- [x] **STR-0008** Data-quality gate cho duplicate, gap, null, non-positive OHLC,
   timestamp order, outlier và manifest mismatch.
-- [ ] **STR-0009** Định nghĩa gap policy: reject, explicitly impute hoặc preserve
+- [x] **STR-0009** Định nghĩa gap policy: reject, explicitly impute hoặc preserve
   with missing-bar evidence; tuyệt đối không silently forward-fill.
-- [ ] **STR-0010** Đồng bộ docs/evidence với exact strategy params và run ID hiện hành.
+- [x] **STR-0010** Đồng bộ docs/evidence với exact strategy params và run ID hiện hành.
 
 ### Deliverables
 
@@ -263,21 +266,21 @@ hoặc tự đặt lệnh.
 
 ### Backlog
 
-- [ ] **STR-0101** Định nghĩa `StrategyDescriptor`: strategy ID, semantic version,
+- [x] **STR-0101** Định nghĩa `StrategyDescriptor`: strategy ID, semantic version,
   code SHA, params schema, required features, horizon, warm-up và supported symbols.
-- [ ] **STR-0102** Chọn `ForecastStrategy.forecast(MarketObservation)` làm contract
+- [x] **STR-0102** Chọn `ForecastStrategy.forecast(MarketObservation)` làm contract
   canonical duy nhất.
-- [ ] **STR-0103** Viết adapter fail-closed cho strategy DataFrame cũ; đánh dấu rõ
+- [x] **STR-0103** Viết adapter fail-closed cho strategy DataFrame cũ; đánh dấu rõ
   research-only cho strategy chưa chứng minh parity.
-- [ ] **STR-0104** Thêm canonical `AbstainStrategy`/`NO_TRADE`.
-- [ ] **STR-0105** Chuẩn hóa feature names và point-in-time availability; không dùng
+- [x] **STR-0104** Thêm canonical `AbstainStrategy`/`NO_TRADE`.
+- [x] **STR-0105** Chuẩn hóa feature names và point-in-time availability; không dùng
   cột không tồn tại hoặc feature tạo sau observation time.
-- [ ] **STR-0106** Parameterize full runner bằng `--strategy-artifact`; không nhận
+- [x] **STR-0106** Parameterize full runner bằng `--strategy-artifact`; không nhận
   arbitrary class/module từ runtime input.
-- [ ] **STR-0107** Registry chỉ load allowlisted, hash-verified artifacts.
-- [ ] **STR-0108** Tách state theo `strategy_id × symbol`; duplicate market event
+- [x] **STR-0107** Registry chỉ load allowlisted, hash-verified artifacts.
+- [x] **STR-0108** Tách state theo `strategy_id × symbol`; duplicate market event
   không được update indicator/allocator hai lần.
-- [ ] **STR-0109** Contract tests cho determinism, finite forecast, horizon,
+- [x] **STR-0109** Contract tests cho determinism, finite forecast, horizon,
   calibration state, OOD score và immutable metadata.
 
 ### Deliverables
@@ -319,7 +322,12 @@ Exit gate verification:
 
 CLI forecast harness: `scripts/run_canonical_strategy.py --strategy-id <allowlist> --symbol BASE/QUOTE --data <csv|parquet>` — chỉ nhận id trong allowlist (cấm arbitrary class/module), double-pass determinism gate, manifest `run_manifest_sha256` bind descriptor + data sha + commit sha. Verified live trên BTC_USDT_1h.csv: rsi 5004 obs / enhanced_ma 4920 obs.
 
-Suite: 1154 passed / 9 skipped. Backlog S1 còn mở (không chặn exit gate): tích hợp runner vào `full_system_backtest.py` thay hard-coded EnhancedMaCrossover (thuộc STR-0201 CanonicalEvaluationRunner của S2), hợp nhất 2 class `StrategyRuntime` trùng tên (research/forecast.py vs authority/resolver.py).
+Historical S1 suite: 1154 passed / 9 skipped. S1-0106 hiện đã được đóng: `full_system_backtest.py`
+nhận `--strategy-artifact` và kiểm tra content-id/code/data/params trước khi chạy.
+Backlog chất lượng còn lại (không chặn exit gate) là deprecate dần alias
+`StrategyRuntime` ở research; lớp này đã được tách tên rõ thành
+`ResearchStrategyRuntime` để không nhầm với authority runtime. Adaptive runtime trong full-system
+là opt-in và fail-closed nếu thiếu router/posterior/runtime provider.
 
 ## 8. Phase S2 — Canonical strategy tournament
 
@@ -329,17 +337,24 @@ Chạy `pair × strategy × parameter set × cost scenario` bằng cùng executi
 
 ### Backlog
 
-- [ ] **STR-0201** Xây `CanonicalEvaluationRunner` dùng full execution path hiện có.
-- [ ] **STR-0202** Mở rộng multi-runner thành matrix runner, mỗi cell có state dir,
+- [x] **STR-0201** Xây `CanonicalEvaluationRunner` dùng full execution path hiện có.
+- [x] **STR-0202** Mở rộng multi-runner thành matrix runner, mỗi cell có state dir,
   report path, manifest và timeout riêng.
-- [ ] **STR-0203** Giữ decision-on-closed-bar/execute-next-open cho mọi strategy.
-- [ ] **STR-0204** Dùng cùng instrument rules, cost model, sizing, risk và protection.
-- [ ] **STR-0205** Chạy cost scenarios 1×/2×/3× và liquidity/slippage stress.
-- [ ] **STR-0206** Thêm gap, stale price, rejected order, partial fill, cancel race và
+- [x] **STR-0203** Giữ decision-on-closed-bar/execute-next-open cho mọi strategy.
+- [x] **STR-0204** Dùng cùng instrument rules, cost model, sizing, risk và protection.
+- [x] **STR-0205** Chạy cost scenarios 1×/2×/3× và liquidity/slippage stress.
+- [x] **STR-0206** Thêm gap, stale price, rejected order, partial fill, cancel race và
   protection failure scenarios.
-- [ ] **STR-0207** Tạo `EvaluationArtifact` content-addressed cho từng cell.
+- [x] **STR-0207** Tạo `EvaluationArtifact` content-addressed cho từng cell.
 - [ ] **STR-0208** Resource limits, retry policy và fail-closed report contract.
-- [ ] **STR-0209** Không default missing metric về 0; cell thiếu evidence phải `FAILED`.
+- [x] **STR-0209** Không default missing metric về 0; cell thiếu evidence phải `FAILED`.
+
+#### Cập nhật triển khai S2 (2026-08-31)
+
+`run_strategy_tournament.py` đã nối `--tail-bars` vào `run_cell()`; giá trị dương
+giới hạn simulation window ở N bar cuối, vẫn giữ full history cho indicator warm-up.
+`STR-0208` còn mở vì resource timeout/retry policy cần được đưa vào runner thay vì
+phụ thuộc lớp điều phối bên ngoài.
 
 ### Deliverables
 
@@ -440,18 +455,18 @@ Biến evidence thành một policy bất biến mà runtime có thể đọc nh
 
 ### Backlog
 
-- [ ] **STR-0401** Định nghĩa `SelectionPolicyArtifact` cho `symbol × timeframe × regime`.
-- [ ] **STR-0402** Policy chứa incumbent, challengers, params artifacts, scores,
+- [x] **STR-0401** Định nghĩa `SelectionPolicyArtifact` cho `symbol × timeframe × regime`.
+- [x] **STR-0402** Policy chứa incumbent, challengers, params artifacts, scores,
   evidence IDs, validity window, fallback và risk cap.
 - [ ] **STR-0403** Hợp nhất promotion logic về một canonical lifecycle trong
   `research.promotion`; deprecate state machine trùng nghĩa.
-- [ ] **STR-0404** Promotion theo ladder:
+- [x] **STR-0404** Promotion theo ladder:
   `EXPLORATORY → RESEARCH_VALIDATED → PAPER → TESTNET → SHADOW → CANARY → PRODUCTION`.
-- [ ] **STR-0405** Hash/sign policy artifact; bind vào code SHA, data/feature manifests
+- [x] **STR-0405** Hash/sign policy artifact; bind vào code SHA, data/feature manifests
   và release image digest.
-- [ ] **STR-0406** Policy activation cần named actor, approval/ticket và audit event.
-- [ ] **STR-0407** Rollback là kích hoạt previous known-good policy; không mutate policy cũ.
-- [ ] **STR-0408** Policy stale/expired/missing evidence → `NO_TRADE`.
+- [x] **STR-0406** Policy activation cần named actor, approval/ticket và audit event.
+- [x] **STR-0407** Rollback là kích hoạt previous known-good policy; không mutate policy cũ.
+- [x] **STR-0408** Policy stale/expired/missing evidence → `NO_TRADE`.
 
 ### Deliverables
 
@@ -480,20 +495,20 @@ mất ownership/protection của vị thế đang mở.
 
 ### Backlog
 
-- [ ] **STR-0501** Chuẩn hóa `RegimePosterior`: probabilities, entropy, model ID,
+- [x] **STR-0501** Chuẩn hóa `RegimePosterior`: probabilities, entropy, model ID,
   fitted window, generated-at và fingerprint.
-- [ ] **STR-0502** Router dùng full posterior; không chỉ argmax regime label.
-- [ ] **STR-0503** High entropy/OOD/stale regime → abstain hoặc giảm exposure.
-- [ ] **STR-0504** Hysteresis: regime mới phải tồn tại 3–5 closed bars.
-- [ ] **STR-0505** Score margin: challenger phải hơn incumbent tối thiểu 10–15%.
-- [ ] **STR-0506** Minimum dwell/cooldown để chống strategy churn.
-- [ ] **STR-0507** Pin `position_owner_strategy_id` tới khi vị thế flat.
-- [ ] **STR-0508** Handover state machine:
+- [x] **STR-0502** Router dùng full posterior; không chỉ argmax regime label.
+- [x] **STR-0503** High entropy/OOD/stale regime → abstain hoặc giảm exposure.
+- [x] **STR-0504** Hysteresis: regime mới phải tồn tại 3–5 closed bars.
+- [x] **STR-0505** Score margin: challenger phải hơn incumbent tối thiểu 10–15%.
+- [x] **STR-0506** Minimum dwell/cooldown để chống strategy churn.
+- [x] **STR-0507** Pin `position_owner_strategy_id` tới khi vị thế flat.
+- [x] **STR-0508** Handover state machine:
   `STABLE → SWITCH_PENDING → FLATTENING/WAIT_FLAT → ACTIVATE → STABLE`.
-- [ ] **STR-0509** Trong `SWITCH_PENDING`, block new exposure; protection/reduce-only vẫn chạy.
-- [ ] **STR-0510** Ghi `RoutingDecision`: observation, policy, posterior, incumbent,
+- [x] **STR-0509** Trong `SWITCH_PENDING`, block new exposure; protection/reduce-only vẫn chạy.
+- [x] **STR-0510** Ghi `RoutingDecision`: observation, policy, posterior, incumbent,
   challenger, reason, hysteresis state và chosen strategy.
-- [ ] **STR-0511** Router restart/replay phải khôi phục đúng owner và pending switch.
+- [x] **STR-0511** Router restart/replay phải khôi phục đúng owner và pending switch.
 
 ### Exit gate
 
@@ -511,15 +526,15 @@ Chuyển từ 10 backtest độc lập sang một portfolio thực với shared 
 
 ### Backlog
 
-- [ ] **STR-0601** Mỗi strategy phát forecast/desired exposure, không phát order quantity.
-- [ ] **STR-0602** Portfolio allocator net các forecast trùng hoặc đối nghịch.
-- [ ] **STR-0603** Risk budgets theo strategy, symbol, regime và portfolio.
-- [ ] **STR-0604** Correlation/concentration constraints và gross/net exposure caps.
-- [ ] **STR-0605** Turnover/cost-aware optimization; no-trade band cho thay đổi nhỏ.
-- [ ] **STR-0606** Cash reserve, liquidity/capacity và max order participation.
-- [ ] **STR-0607** Portfolio circuit breaker, daily loss, drawdown và correlated stress.
-- [ ] **STR-0608** Portfolio attribution theo strategy/pair/regime/factor/execution cost.
-- [ ] **STR-0609** Shared-capital event-driven backtest và deterministic replay.
+- [x] **STR-0601** Mỗi strategy phát forecast/desired exposure, không phát order quantity.
+- [x] **STR-0602** Portfolio allocator net các forecast trùng hoặc đối nghịch.
+- [x] **STR-0603** Risk budgets theo strategy, symbol, regime và portfolio.
+- [x] **STR-0604** Correlation/concentration constraints và gross/net exposure caps.
+- [x] **STR-0605** Turnover/cost-aware optimization; no-trade band cho thay đổi nhỏ.
+- [x] **STR-0606** Cash reserve, liquidity/capacity và max order participation.
+- [x] **STR-0607** Portfolio circuit breaker, daily loss, drawdown và correlated stress.
+- [x] **STR-0608** Portfolio attribution theo strategy/pair/regime/factor/execution cost.
+- [x] **STR-0609** Shared-capital event-driven backtest và deterministic replay.
 
 ### Exit gate
 
@@ -537,13 +552,13 @@ Chứng minh selector/router hoạt động trên dữ liệu và execution cond
 
 ### Backlog
 
-- [ ] **STR-0701** Shadow mode chạy incumbent và challengers, nhưng chỉ incumbent được
+- [x] **STR-0701** Shadow mode chạy incumbent và challengers, nhưng chỉ incumbent được
   phép tạo target executable.
-- [ ] **STR-0702** Ghi counterfactual forecasts và delayed outcomes, không dùng outcome
+- [x] **STR-0702** Ghi counterfactual forecasts và delayed outcomes, không dùng outcome
   chưa đến hạn để update allocator.
-- [ ] **STR-0703** Tracking error/reality gap giữa simulator, paper, testnet và shadow.
-- [ ] **STR-0704** Drift: feature, regime, calibration, forecast, PnL và execution quality.
-- [ ] **STR-0705** Alert policy stale, router abstain spike, switch spike, owner mismatch,
+- [x] **STR-0703** Tracking error/reality gap giữa simulator, paper, testnet và shadow.
+- [x] **STR-0704** Drift: feature, regime, calibration, forecast, PnL và execution quality.
+- [x] **STR-0705** Alert policy stale, router abstain spike, switch spike, owner mismatch,
   exposure drift và attribution mismatch.
 - [ ] **STR-0706** Testnet ≥30 ngày, ≥100 complete order lifecycles, zero safety breach.
 - [ ] **STR-0707** Shadow ≥30 ngày, empirical calibration ≥30 observations, ECE ≤0,10.

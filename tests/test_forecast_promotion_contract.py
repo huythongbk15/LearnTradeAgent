@@ -281,7 +281,11 @@ def test_full_ladder_requires_structured_stage_specific_evidence() -> None:
         evidence=[
             evidence(
                 EvidenceKind.TESTNET_OPERATIONAL,
-                {"days": 35, "unresolved_orders": 0},
+                {
+                    "days": 35,
+                    "complete_order_lifecycles": 120,
+                    "unresolved_orders": 0,
+                },
                 EvidenceSource.TESTNET,
             ),
             evidence(
@@ -303,13 +307,30 @@ def test_full_ladder_requires_structured_stage_specific_evidence() -> None:
         evidence=[
             evidence(
                 EvidenceKind.CANARY_OPERATIONAL,
-                {"days": 31, "safety_breaches": 0},
+                {
+                    "days": 31,
+                    "safety_breaches": 0,
+                    "loss_budget_breaches": 0,
+                },
                 EvidenceSource.CANARY,
             ),
             evidence(
                 EvidenceKind.PRODUCTION_APPROVAL,
                 {"approver": "operator-b", "ticket": "OPS-202"},
                 EvidenceSource.OPERATOR,
+            ),
+            evidence(
+                EvidenceKind.RELEASE_ATTESTATION,
+                {
+                    "commit_sha": "a" * 40,
+                    "image_digest": "sha256:" + "b" * 64,
+                    "cosign_verified": True,
+                    "sbom_verified": True,
+                    "slsa_verified": True,
+                    "provenance_verified": True,
+                    "verification_run_id": "run-202",
+                },
+                EvidenceSource.SYSTEM,
             ),
         ],
         actor="operator-b",
@@ -326,6 +347,94 @@ def test_promotion_cannot_skip_a_stage() -> None:
             evidence=research_evidence(),
             actor="reviewer",
         )
+
+
+def test_production_release_attestation_requires_all_supply_chain_checks() -> None:
+    gate = ResearchPromotionGate()
+    assessment = gate.assess(
+        SUBJECT,
+        ResearchStage.PRODUCTION,
+        [
+            evidence(
+                EvidenceKind.RELEASE_ATTESTATION,
+                {
+                    "commit_sha": "a" * 40,
+                    "image_digest": "sha256:" + "b" * 64,
+                    "cosign_verified": True,
+                    "sbom_verified": True,
+                    "slsa_verified": False,
+                    "provenance_verified": True,
+                    "verification_run_id": "run-failed",
+                },
+                EvidenceSource.SYSTEM,
+            )
+        ],
+    )
+    assert not assessment.passed
+    assert "release_attestation:supply_chain_verification_failed" in assessment.failed
+
+
+def test_operational_gates_require_lifecycle_count_and_loss_budget() -> None:
+    gate = ResearchPromotionGate()
+    testnet = gate.assess(
+        SUBJECT,
+        ResearchStage.CANARY_ELIGIBLE,
+        [
+            evidence(
+                EvidenceKind.TESTNET_OPERATIONAL,
+                {
+                    "days": 35,
+                    "complete_order_lifecycles": 99,
+                    "unresolved_orders": 0,
+                },
+                EvidenceSource.TESTNET,
+            ),
+            evidence(
+                EvidenceKind.SHADOW_OPERATIONAL,
+                {"days": 35, "critical_alerts": 0},
+                EvidenceSource.SHADOW,
+            ),
+            evidence(
+                EvidenceKind.OPERATOR_APPROVAL,
+                {"approver": "operator-a", "ticket": "OPS-303"},
+                EvidenceSource.OPERATOR,
+            ),
+        ],
+    )
+    assert not testnet.passed
+    assert "testnet_operational:testnet_soak_failed" in testnet.failed
+
+    canary = gate.assess(
+        SUBJECT,
+        ResearchStage.PRODUCTION,
+        [
+            evidence(
+                EvidenceKind.CANARY_OPERATIONAL,
+                {"days": 31, "safety_breaches": 0, "loss_budget_breaches": 1},
+                EvidenceSource.CANARY,
+            ),
+            evidence(
+                EvidenceKind.PRODUCTION_APPROVAL,
+                {"approver": "operator-b", "ticket": "OPS-304"},
+                EvidenceSource.OPERATOR,
+            ),
+            evidence(
+                EvidenceKind.RELEASE_ATTESTATION,
+                {
+                    "commit_sha": "a" * 40,
+                    "image_digest": "sha256:" + "b" * 64,
+                    "cosign_verified": True,
+                    "sbom_verified": True,
+                    "slsa_verified": True,
+                    "provenance_verified": True,
+                    "verification_run_id": "run-304",
+                },
+                EvidenceSource.SYSTEM,
+            ),
+        ],
+    )
+    assert not canary.passed
+    assert "canary_operational:canary_gate_failed" in canary.failed
 
 
 def test_legacy_plugin_adapter_fails_explicitly_instead_of_silent_empty_output() -> (

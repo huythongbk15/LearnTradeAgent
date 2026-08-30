@@ -3,12 +3,13 @@
 Full System Real-Time Simulation — chạy toàn bộ hệ thống như thật trên dữ liệu lịch sử.
 
 Mô phỏng đầy đủ pipeline production:
-  data → enhanced_ma strategy (MA+ADX+ATR) → ExecutionEngine (paper) → RiskController
+  data → canonical strategy (fixed or injected adaptive router) → ExecutionEngine (paper) → RiskController
 
 Cách dùng:
   python3 scripts/full_system_backtest.py                 # full 3 năm
   python3 scripts/full_system_backtest.py --freq 1        # phân tích mỗi bar (1h)
   python3 scripts/full_system_backtest.py --fresh         # reset paper state trước khi chạy
+  python3 scripts/full_system_backtest.py --strategy-artifact path/to/artifact.json
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ import json
 import os
 import subprocess
 import sys
+from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -65,7 +67,10 @@ from trading_agent.research.artifact import (
     sha256_hex,
 )
 from trading_agent.research.promotion import ResearchPromotionEvent, ResearchStage
-from trading_agent.strategies.enhanced_ma import EnhancedMaCrossover
+from trading_agent.strategies.canonical.candidates import (
+    FIRST_WAVE_DESCRIPTORS,
+    build_legacy_candidate,
+)
 
 
 class _SimClock(datetime):
@@ -121,6 +126,48 @@ def _sha256_file(path: Path) -> str:
     return f"sha256:{digest.hexdigest()}"
 
 
+def _load_strategy_artifact(path: str | Path) -> StrategyArtifact:
+    """Load and integrity-check a persisted StrategyArtifact manifest.
+
+    The CLI must consume the exact artifact produced by research/WFO.  It is
+    therefore not enough to read ``strategy_name`` and silently rebuild the
+    parameters: the content-addressed id, code hash and parameter hash are
+    checked before the simulator is allowed to start.
+    """
+
+    manifest_path = Path(path).expanduser().resolve()
+    try:
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"invalid strategy artifact manifest: {manifest_path}: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("strategy artifact manifest must be a JSON object")
+    metadata = payload.get("metadata", {})
+    if not isinstance(metadata, dict):
+        raise ValueError("strategy artifact metadata must be a JSON object")
+    try:
+        created_at = datetime.fromisoformat(str(payload["created_at"]))
+        artifact = StrategyArtifact(
+            strategy_name=str(payload["strategy_name"]),
+            code_sha=str(payload["code_sha"]),
+            data_manifest_sha=str(payload["data_manifest_sha"]),
+            parameter_hash=str(payload["parameter_hash"]),
+            execution_model_version=str(payload.get("execution_model_version", "")),
+            framework_version=str(payload.get("framework_version", "")),
+            created_at=created_at,
+            prev_artifact_id=payload.get("prev_artifact_id"),
+            metadata=dict(metadata),
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError(f"strategy artifact manifest is incomplete: {exc}") from exc
+    supplied_id = payload.get("artifact_id")
+    if supplied_id is not None and str(supplied_id) != artifact.artifact_id:
+        raise ValueError(
+            "strategy artifact integrity failure: artifact_id does not match content"
+        )
+    return artifact
+
+
 def _git_commit_sha() -> str:
     """Resolve the exact source commit for golden-run provenance.
 
@@ -164,13 +211,38 @@ class FullSystemSimulator:
         slippage: float | None = None,
         strategy_runtime: object | None = None,
         runtime_factory=None,
+        strategy_artifact: StrategyArtifact | None = None,
+        adaptive_router=None,
+        adaptive_posterior_provider=None,
+        adaptive_runtime_provider=None,
     ):
-        self.symbol = symbol or os.getenv("SYMBOL", SYMBOL)
-        self.timeframe = timeframe or os.getenv("TIMEFRAME", TIMEFRAME)
+        resolved_symbol = symbol or os.getenv("SYMBOL", SYMBOL)
+        resolved_timeframe = timeframe or os.getenv("TIMEFRAME", TIMEFRAME)
+        if not resolved_symbol or not resolved_timeframe:
+            raise ValueError("symbol and timeframe are required")
+        self.symbol: str = resolved_symbol
+        self.timeframe: str = resolved_timeframe
         self.exchange = EXCHANGE
         self.timeframe_delta = _timeframe_delta(self.timeframe)
         self.gap_policy = gap_policy
         self.commit_sha = _git_commit_sha()
+        adaptive_parts = (
+            adaptive_router,
+            adaptive_posterior_provider,
+            adaptive_runtime_provider,
+        )
+        if any(part is not None for part in adaptive_parts) and not all(
+            part is not None for part in adaptive_parts
+        ):
+            raise ValueError(
+                "adaptive_router, adaptive_posterior_provider and "
+                "adaptive_runtime_provider must be provided together"
+            )
+        self._adaptive_router = adaptive_router
+        self._adaptive_posterior_provider = adaptive_posterior_provider
+        self._adaptive_runtime_provider = adaptive_runtime_provider
+        self.adaptive_enabled = adaptive_router is not None
+        self.routing_decisions: list[dict[str, object]] = []
 
         safe_symbol = self.symbol.replace("/", "_").replace(":", "_")
         resolved_run_id = (
@@ -231,21 +303,62 @@ class FullSystemSimulator:
         # Initialize strategy (canonical tournament cells may override both
         # the artifact identity and the signal series; defaults keep the
         # historical enhanced_ma behaviour byte-identical).
+        if strategy_artifact is not None:
+            artifact_symbol = strategy_artifact.metadata.get("symbol")
+            artifact_timeframe = strategy_artifact.metadata.get("timeframe")
+            if artifact_symbol not in (None, self.symbol):
+                raise ValueError("strategy artifact symbol does not match simulator symbol")
+            if artifact_timeframe not in (None, self.timeframe):
+                raise ValueError(
+                    "strategy artifact timeframe does not match simulator timeframe"
+                )
+            strategy_name = strategy_artifact.strategy_name
+            artifact_params = strategy_artifact.metadata.get("parameters", {})
+            if not isinstance(artifact_params, Mapping):
+                raise ValueError("strategy artifact metadata.parameters must be an object")
+            if strategy_params_override is not None and dict(strategy_params_override) != dict(
+                artifact_params
+            ):
+                raise ValueError(
+                    "strategy params override conflicts with the supplied strategy artifact"
+                )
+            strategy_params_override = dict(artifact_params)
         self.strategy_name = strategy_name
-        self.strategy_params = {
-            "fast_period": FAST_MA,
-            "slow_period": SLOW_MA,
-            "adx_threshold": ADX_THRESHOLD,
-            "atr_sl_mult": ATR_SL_MULT,
-            "atr_tp_mult": ATR_TP_MULT,
+        self.strategy_params: dict[str, object] = {
             "target_exposure_pct": MAX_POS_SIZE_PCT,
         }
+        if strategy_name in {"enhanced_ma", "ma_adx", "ma_vol_target"}:
+            self.strategy_params.update(
+                {
+                    "fast_period": FAST_MA,
+                    "slow_period": SLOW_MA,
+                    "adx_threshold": ADX_THRESHOLD,
+                    "atr_sl_mult": ATR_SL_MULT,
+                    "atr_tp_mult": ATR_TP_MULT,
+                }
+            )
         if strategy_params_override:
             self.strategy_params.update(strategy_params_override)
         self._injected_signals = signal_series
         self.commission = commission
         self.slippage = slippage
-        self.strategy = EnhancedMaCrossover(self.strategy_params)
+        self.strategy_descriptor, self.strategy = build_legacy_candidate(
+            self.strategy_name, self.strategy_params
+        )
+        if strategy_artifact is not None:
+            expected_parameter_hash = sha256_hex(canonical_params(self.strategy_params))
+            if strategy_artifact.code_sha != self.strategy_descriptor.code_sha:
+                raise ValueError(
+                    "strategy artifact code_sha does not match the allowlisted strategy"
+                )
+            if strategy_artifact.data_manifest_sha != self.data_manifest_id:
+                raise ValueError(
+                    "strategy artifact data_manifest_sha does not match the loaded dataset"
+                )
+            if strategy_artifact.parameter_hash != expected_parameter_hash:
+                raise ValueError(
+                    "strategy artifact parameter_hash does not match its parameters"
+                )
         feature_identity = json.dumps(
             {
                 "data_manifest_id": self.data_manifest_id,
@@ -262,25 +375,24 @@ class FullSystemSimulator:
         # Bind the backtest to a local, immutable, paper-eligible strategy artifact.
         self.artifact_store = PersistentArtifactStore(self.state_dir / "artifacts")
         self.promotion_store = PromotionStateStore(self.state_dir / "promotion.db")
-        strategy_artifact = StrategyArtifact(
-            strategy_name=self.strategy_name,
-            code_sha=_sha256_file(
-                ROOT / "src" / "trading_agent" / "strategies" / "enhanced_ma.py"
-            ),
-            data_manifest_sha=self.data_manifest_id,
-            parameter_hash=sha256_hex(canonical_params(self.strategy_params)),
-            execution_model_version="full-system-v2",
-            framework_version="authority-chain-v1",
-            metadata={
-                "symbol": self.symbol,
-                "timeframe": self.timeframe,
-                "parameters": self.strategy_params,
-                "calibration_state": "KNOWN",
-                "ood_state": "KNOWN",
-                "regime_state": "KNOWN",
-                "source": "full_system_backtest",
-            },
-        )
+        if strategy_artifact is None:
+            strategy_artifact = StrategyArtifact(
+                strategy_name=self.strategy_name,
+                code_sha=self.strategy_descriptor.code_sha,
+                data_manifest_sha=self.data_manifest_id,
+                parameter_hash=sha256_hex(canonical_params(self.strategy_params)),
+                execution_model_version="full-system-v2",
+                framework_version="authority-chain-v1",
+                metadata={
+                    "symbol": self.symbol,
+                    "timeframe": self.timeframe,
+                    "parameters": self.strategy_params,
+                    "calibration_state": "KNOWN",
+                    "ood_state": "KNOWN",
+                    "regime_state": "KNOWN",
+                    "source": "full_system_backtest",
+                },
+            )
         self.artifact_store.add(strategy_artifact)
         self.promotion_store.upsert_from_event(
             ResearchPromotionEvent(
@@ -352,7 +464,7 @@ class FullSystemSimulator:
             )
         if self.strategy_runtime is None:
             raise RuntimeError(
-                "paper-eligible enhanced_ma artifact could not be resolved"
+                f"paper-eligible {self.strategy_name} artifact could not be resolved"
             )
         self.risk = RiskController(
             self.engine,
@@ -393,6 +505,7 @@ class FullSystemSimulator:
         bar_index: int,
         reference_price: float,
         regime_info: dict[str, object],
+        strategy_id: str | None = None,
     ) -> None:
         """Attach deterministic simulation evidence to the active position."""
         position = self.engine.exchange.get_position(self.symbol)
@@ -401,6 +514,8 @@ class FullSystemSimulator:
         position.opened_at = at
         position.updated_at = at
         position.metadata["sizing_method"] = "artifact_target_authority_capped"
+        if strategy_id:
+            position.metadata["strategy_id"] = strategy_id
         position.metadata["simulation"] = {
             "time_source": "simulated_bar",
             "entry_time": at.isoformat(),
@@ -487,10 +602,11 @@ class FullSystemSimulator:
         exchange = self.engine.exchange
         payload: dict[str, object] = {
             "strategy": {
-                "strategy_id": "enhanced_ma",
+                "strategy_id": self.strategy_name,
                 "strategy_artifact_id": self.strategy_artifact_id,
                 "parameters": self.strategy_params,
                 "feature_artifact_id": self.feature_artifact_id,
+                "routing_mode": "adaptive" if self.adaptive_enabled else "fixed",
             },
             "protection": {
                 "stop_loss": {"enabled": True, "distance_pct": STOP_LOSS_PCT * 100},
@@ -602,6 +718,72 @@ class FullSystemSimulator:
                 print(f"   ✅ CIRCUIT BREAKER OFF @ {ts} — giao dịch trở lại")
             self._breaker_active = breaker_on
 
+            active_runtime = self.strategy_runtime
+            routing_decision = None
+            adaptive_manage_existing = False
+            if (
+                self.adaptive_enabled
+                and i > start
+                and signal_index % freq == 0
+                and not breaker_on
+            ):
+                position = self.engine.exchange.get_position(self.symbol)
+                position_is_flat = not (position and position.is_active and position.quantity > 0)
+                position_owner = None
+                if not position_is_flat and position is not None:
+                    owner_value = position.metadata.get("strategy_id")
+                    if owner_value is None:
+                        owner_value = position.metadata.get("strategy_name")
+                    position_owner = str(owner_value) if owner_value else None
+                if self._adaptive_posterior_provider is None or self._adaptive_router is None:
+                    raise RuntimeError("adaptive routing providers are not initialized")
+                posterior = self._adaptive_posterior_provider(
+                    self.symbol,
+                    self.timeframe,
+                    decision_row,
+                    decision_bar_close_at,
+                )
+                routing_decision = self._adaptive_router.route(
+                    symbol=self.symbol,
+                    timeframe=self.timeframe,
+                    posterior=posterior,
+                    observed_at=decision_bar_close_at,
+                    position_is_flat=position_is_flat,
+                    position_owner_strategy_id=position_owner,
+                )
+                self.routing_decisions.append(routing_decision.to_dict())
+                chosen = routing_decision.chosen_strategy_id
+                can_manage_existing_position = (
+                    not position_is_flat and chosen is not None and chosen == position_owner
+                )
+                adaptive_manage_existing = can_manage_existing_position
+                if chosen is not None and (
+                    routing_decision.allow_new_exposure or can_manage_existing_position
+                ):
+                    if self._adaptive_runtime_provider is None:
+                        raise RuntimeError("adaptive runtime provider is not initialized")
+                    active_runtime = self._adaptive_runtime_provider(routing_decision)
+                    if active_runtime is None:
+                        raise RuntimeError(
+                            f"no executable runtime for routed strategy {chosen}"
+                        )
+                    if getattr(active_runtime, "strategy_name", None) != chosen:
+                        raise RuntimeError(
+                            "adaptive runtime strategy does not match routing decision"
+                        )
+                    if getattr(active_runtime, "symbol", self.symbol) != self.symbol:
+                        raise RuntimeError("adaptive runtime symbol does not match simulator")
+                    if getattr(active_runtime, "timeframe", self.timeframe) != self.timeframe:
+                        raise RuntimeError(
+                            "adaptive runtime timeframe does not match simulator"
+                        )
+                    # The selected runtime is the authority for the actual
+                    # BUY/SELL forecast.  A non-zero sentinel only opens the
+                    # existing execution path; HOLD remains a no-op.
+                    signal = 1
+                else:
+                    signal = 0
+
             # 3. Execute signal theo chu kỳ (chỉ khi chưa bị chặn)
             if (
                 i > start
@@ -624,7 +806,12 @@ class FullSystemSimulator:
 
                     position = self.engine.exchange.get_position(self.symbol)
                     if signal == 1:  # BUY
-                        if position and position.is_active and position.quantity > 0:
+                        if (
+                            position
+                            and position.is_active
+                            and position.quantity > 0
+                            and not adaptive_manage_existing
+                        ):
                             signal = 0  # Already long, skip
                     elif signal == -1:  # SELL (exit to flat)
                         if (
@@ -648,6 +835,12 @@ class FullSystemSimulator:
                                 "confidence": 0.5,
                                 "risk": "authority_chain",
                                 "max_pos": MAX_POS_SIZE_PCT if signal == 1 else 0.0,
+                                "adaptive": self.adaptive_enabled,
+                                "routing_decision_id": (
+                                    routing_decision.decision_id
+                                    if routing_decision is not None
+                                    else None
+                                ),
                             }
                         )
 
@@ -681,7 +874,7 @@ class FullSystemSimulator:
                             "timestamp", "open", "high", "low", "close", "volume"
                         )
                         orders = self.engine.execute_strategy(
-                            self.strategy_runtime,
+                            active_runtime,
                             market_data,
                             observation,
                         )
@@ -697,10 +890,16 @@ class FullSystemSimulator:
                                     bar_index=i,
                                     reference_price=price,
                                     regime_info=regime_info,
+                                    strategy_id=getattr(
+                                        active_runtime, "strategy_name", self.strategy_name
+                                    ),
                                 )
                                 self._entry_state[self.symbol] = {
                                     "price": price,
-                                    "amount": amount,
+                                "amount": amount,
+                                "strategy_id": getattr(
+                                    active_runtime, "strategy_name", self.strategy_name
+                                ),
                                 }
                                 pnl = 0.0
                             elif side == "sell":
@@ -935,6 +1134,7 @@ class FullSystemSimulator:
             "circuit_breakers": len(self.circuit_breakers),
             "signals_seen": len(self.signal_log),
             "signals": self.signal_log,
+            "routing_decisions": self.routing_decisions,
             "open_positions": len(open_positions),
             "open_orders": len(open_orders),
             "execution_timing": "decision_on_closed_bar_execute_next_bar_open",
@@ -981,6 +1181,22 @@ def main():
     parser.add_argument("--symbol", default=None, help="Symbol, vd BTC/USDT")
     parser.add_argument("--timeframe", default=None, help="Timeframe, vd 1h/4h")
     parser.add_argument(
+        "--strategy",
+        choices=tuple(sorted(FIRST_WAVE_DESCRIPTORS)),
+        default="enhanced_ma",
+        help="Canonical strategy candidate to run",
+    )
+    parser.add_argument(
+        "--strategy-params-json",
+        default=None,
+        help="JSON object overriding the selected strategy parameters",
+    )
+    parser.add_argument(
+        "--strategy-artifact",
+        default=None,
+        help="Path to an immutable StrategyArtifact JSON manifest",
+    )
+    parser.add_argument(
         "--state-dir", default=None, help="Isolated paper state directory"
     )
     parser.add_argument("--report-path", default=None, help="Output JSON report path")
@@ -1011,6 +1227,30 @@ def main():
     )
     args = parser.parse_args()
 
+    strategy_params = None
+    if args.strategy_params_json is not None:
+        try:
+            strategy_params = json.loads(args.strategy_params_json)
+        except json.JSONDecodeError as exc:
+            parser.error(f"--strategy-params-json is invalid JSON: {exc}")
+        if not isinstance(strategy_params, dict):
+            parser.error("--strategy-params-json must decode to a JSON object")
+
+    strategy_artifact = None
+    if args.strategy_artifact is not None:
+        try:
+            strategy_artifact = _load_strategy_artifact(args.strategy_artifact)
+        except ValueError as exc:
+            parser.error(str(exc))
+        if args.strategy != "enhanced_ma" and args.strategy != strategy_artifact.strategy_name:
+            parser.error("--strategy conflicts with --strategy-artifact")
+        artifact_parameters = strategy_artifact.metadata.get("parameters", {})
+        if not isinstance(artifact_parameters, dict):
+            parser.error("strategy artifact metadata.parameters must be a JSON object")
+        if strategy_params is not None and strategy_params != artifact_parameters:
+            parser.error("--strategy-params-json conflicts with --strategy-artifact")
+        strategy_params = dict(artifact_parameters)
+
     sim = FullSystemSimulator(
         fresh=args.fresh,
         symbol=args.symbol,
@@ -1021,6 +1261,9 @@ def main():
         allow_new_exposure=args.allow_new_exposure,
         state_flush_bars=args.state_flush_bars,
         gap_policy=args.gap_policy,
+        strategy_name=(strategy_artifact.strategy_name if strategy_artifact else args.strategy),
+        strategy_params_override=strategy_params,
+        strategy_artifact=strategy_artifact,
     )
     start = args.start
     if args.tail_bars is not None:

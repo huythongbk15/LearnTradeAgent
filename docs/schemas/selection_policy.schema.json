@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trading-agent.local/schemas/selection-policy.v1.json",
+  "title": "SelectionPolicyArtifact",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "policy_id", "symbol", "timeframe", "regime", "incumbent", "challengers",
+    "scores", "evidence_ids", "validity_start", "validity_end", "fallback",
+    "risk_cap", "status", "created_at", "activated_at", "activated_by",
+    "activation_ticket", "policy_commit_sha", "policy_data_manifest_sha",
+    "policy_feature_manifest_sha", "policy_release_digest", "promotion_stage",
+    "previous_policy_id", "rollback_reason"
+  ],
+  "properties": {
+    "policy_id": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "symbol": {"type": "string", "minLength": 1},
+    "timeframe": {"type": "string", "minLength": 1},
+    "regime": {"type": "string", "minLength": 1},
+    "incumbent": {"$ref": "#/$defs/paramArtifact"},
+    "challengers": {"type": "array", "items": {"$ref": "#/$defs/paramArtifact"}},
+    "scores": {"type": "object", "additionalProperties": {"type": "number"}},
+    "evidence_ids": {"type": "array", "items": {"type": "string"}},
+    "validity_start": {"type": "string", "format": "date-time"},
+    "validity_end": {"type": ["string", "null"], "format": "date-time"},
+    "fallback": {"type": "string", "minLength": 1},
+    "risk_cap": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+    "status": {"enum": ["draft", "validated", "active", "expired", "rolled_back", "deprecated"]},
+    "created_at": {"type": "string", "format": "date-time"},
+    "activated_at": {"type": ["string", "null"], "format": "date-time"},
+    "activated_by": {"type": ["string", "null"]},
+    "activation_ticket": {"type": ["string", "null"]},
+    "policy_commit_sha": {"type": "string", "minLength": 1},
+    "policy_data_manifest_sha": {"type": "string", "minLength": 1},
+    "policy_feature_manifest_sha": {"type": "string", "minLength": 1},
+    "policy_release_digest": {"type": "string", "minLength": 1},
+    "promotion_stage": {"enum": ["exploratory", "research_validated", "paper_eligible", "testnet_eligible", "shadow_eligible", "canary_eligible", "canary", "production"]},
+    "previous_policy_id": {"type": ["string", "null"]},
+    "rollback_reason": {"type": ["string", "null"]}
+  },
+  "$defs": {
+    "paramArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["strategy_id", "params", "code_sha", "param_hash"],
+      "properties": {
+        "strategy_id": {"type": "string", "minLength": 1},
+        "params": {"type": "object"},
+        "code_sha": {"type": "string", "minLength": 1},
+        "param_hash": {"type": "string", "pattern": "^[0-9a-f]{16}$"}
+      }
+    }
+  }
+}

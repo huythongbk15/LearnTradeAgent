@@ -47,6 +47,7 @@ import math
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from collections.abc import Mapping
 from typing import Any
 
 import polars as pl
@@ -200,6 +201,11 @@ class SimFill:
     notional: float
     decision_time: datetime
     fill_time: datetime
+    # Immutable attribution carried from the prepared decision through the
+    # simulated broker.  Empty/unknown values are explicit, never guessed.
+    strategy_id: str = "unknown"
+    regime: str = "unknown"
+    factor_exposures: tuple[tuple[str, float], ...] = ()
 
 
 @dataclass
@@ -213,6 +219,9 @@ class QueuedOrder:
     # Execution phase: "reduction" (risk-reducing) settles BEFORE any
     # "increase" so freed cash/inventory is usable in the same batch.
     phase: str = "increase"
+    strategy_id: str = "unknown"
+    regime: str = "unknown"
+    factor_exposures: tuple[tuple[str, float], ...] = ()
 
 
 class HistoricalSimulationBroker:
@@ -393,6 +402,9 @@ class HistoricalSimulationBroker:
                 notional=notional,
                 decision_time=order.decision_time,
                 fill_time=info[0],
+                strategy_id=order.strategy_id,
+                regime=order.regime,
+                factor_exposures=order.factor_exposures,
             )
             self.fills.append(fill)
             self.turnover_history.append(notional)
@@ -428,6 +440,46 @@ class StepRecord:
     cycle_status: str
 
 
+@dataclass(frozen=True, slots=True)
+class AttributionRecord:
+    """Deterministic PnL attribution for one strategy/pair/regime slice.
+
+    ``gross_pnl`` is marked-to-market after excluding execution slippage and
+    fees from the cash-flow leg.  ``net_pnl`` subtracts both costs.  Factor
+    contributions are a transparent allocation of the slice's net PnL using
+    the absolute factor exposures supplied by the point-in-time observation;
+    missing factors are recorded as ``unattributed`` rather than fabricated.
+    """
+
+    strategy_id: str
+    symbol: str
+    regime: str
+    factor_contributions: tuple[tuple[str, float], ...]
+    gross_pnl: float
+    fees: float
+    slippage_cost: float
+    net_pnl: float
+    turnover: float
+    trades: int
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "strategy_id": self.strategy_id,
+            "symbol": self.symbol,
+            "regime": self.regime,
+            "factor_contributions": {
+                name: round(value, 10)
+                for name, value in self.factor_contributions
+            },
+            "gross_pnl": round(self.gross_pnl, 10),
+            "fees": round(self.fees, 10),
+            "slippage_cost": round(self.slippage_cost, 10),
+            "net_pnl": round(self.net_pnl, 10),
+            "turnover": round(self.turnover, 10),
+            "trades": self.trades,
+        }
+
+
 @dataclass
 class PortfolioBacktestResult:
     initial_capital: float
@@ -440,6 +492,11 @@ class PortfolioBacktestResult:
     turnover_history: list[tuple[datetime, float]] = field(default_factory=list)
     cost_history: list[tuple[datetime, float]] = field(default_factory=list)
     per_symbol_contribution: dict[str, float] = field(default_factory=dict)
+    attribution: list[AttributionRecord] = field(default_factory=list)
+    attribution_by_strategy: dict[str, float] = field(default_factory=dict)
+    attribution_by_regime: dict[str, float] = field(default_factory=dict)
+    attribution_by_factor: dict[str, float] = field(default_factory=dict)
+    execution_cost_by_strategy: dict[str, float] = field(default_factory=dict)
     trades: list[SimFill] = field(default_factory=list)
     steps: list[StepRecord] = field(default_factory=list)
     target_vectors: list[PortfolioTargetVector] = field(default_factory=list)
@@ -475,6 +532,23 @@ class PortfolioBacktestResult:
             "per_symbol_contribution": {
                 k: round(v, 8) for k, v in sorted(self.per_symbol_contribution.items())
             },
+            "attribution": [item.to_dict() for item in self.attribution],
+            "attribution_by_strategy": {
+                k: round(v, 8)
+                for k, v in sorted(self.attribution_by_strategy.items())
+            },
+            "attribution_by_regime": {
+                k: round(v, 8)
+                for k, v in sorted(self.attribution_by_regime.items())
+            },
+            "attribution_by_factor": {
+                k: round(v, 8)
+                for k, v in sorted(self.attribution_by_factor.items())
+            },
+            "execution_cost_by_strategy": {
+                k: round(v, 8)
+                for k, v in sorted(self.execution_cost_by_strategy.items())
+            },
             "trades": [
                 {
                     "symbol": f.symbol,
@@ -484,6 +558,9 @@ class PortfolioBacktestResult:
                     "fee": round(f.fee, 10),
                     "decision_time": f.decision_time.isoformat(),
                     "fill_time": f.fill_time.isoformat(),
+                    "strategy_id": f.strategy_id,
+                    "regime": f.regime,
+                    "factor_exposures": dict(f.factor_exposures),
                 }
                 for f in self.trades
             ],
@@ -497,6 +574,122 @@ class PortfolioBacktestResult:
 
 
 # ── Engine ───────────────────────────────────────────────────────────────
+
+
+def _plan_attribution(plan: Any) -> tuple[str, str, tuple[tuple[str, float], ...]]:
+    """Extract point-in-time attribution metadata from a planned order."""
+
+    prepared = getattr(getattr(plan, "finalized", None), "prepared", None)
+    strategy_id = str(
+        getattr(prepared, "strategy_name", None)
+        or getattr(prepared, "artifact_id", None)
+        or "unknown"
+    ).strip() or "unknown"
+    observation = getattr(prepared, "observation", None)
+    features = getattr(observation, "features", {}) or {}
+    if not isinstance(features, Mapping):
+        features = {}
+    regime_value = (
+        features.get("regime")
+        or features.get("regime_state")
+        or getattr(observation, "regime", None)
+        or "unknown"
+    )
+    regime = str(getattr(regime_value, "value", regime_value)).strip() or "unknown"
+
+    raw_factors = features.get("factor_exposures")
+    factor_values: dict[str, float] = {}
+    if isinstance(raw_factors, Mapping):
+        candidates = list(raw_factors.items())
+    else:
+        candidates = [
+            (str(key), value)
+            for key, value in features.items()
+            if str(key).startswith(("factor:", "factor_"))
+        ]
+    for key, value in candidates:
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(parsed) and abs(parsed) > 0.0:
+            name = str(key).strip()
+            if name.startswith("factor:"):
+                name = name[7:]
+            elif name.startswith("factor_"):
+                name = name[7:]
+            if name:
+                factor_values[name] = parsed
+    return strategy_id, regime, tuple(sorted(factor_values.items()))
+
+
+def _build_attribution(
+    fills: list[SimFill], prices_final: Mapping[str, float]
+) -> list[AttributionRecord]:
+    """Reconstruct deterministic strategy/pair/regime attribution from fills."""
+
+    grouped: dict[tuple[str, str, str], dict[str, Any]] = {}
+    for fill in fills:
+        key = (fill.strategy_id or "unknown", fill.symbol, fill.regime or "unknown")
+        state = grouped.setdefault(
+            key,
+            {
+                "qty": 0.0,
+                "gross_cash": 0.0,
+                "net_cash": 0.0,
+                "fees": 0.0,
+                "slippage": 0.0,
+                "turnover": 0.0,
+                "trades": 0,
+                "factors": {},
+            },
+        )
+        if fill.side == "buy":
+            state["qty"] += fill.quantity
+            state["gross_cash"] -= fill.notional - fill.slippage_cost
+            state["net_cash"] -= fill.notional + fill.fee
+        else:
+            state["qty"] = max(0.0, state["qty"] - fill.quantity)
+            state["gross_cash"] += fill.notional + fill.slippage_cost
+            state["net_cash"] += fill.notional - fill.fee
+        state["fees"] += fill.fee
+        state["slippage"] += fill.slippage_cost
+        state["turnover"] += fill.notional
+        state["trades"] += 1
+        for name, value in fill.factor_exposures:
+            state["factors"][name] = state["factors"].get(name, 0.0) + (
+                abs(float(value)) * fill.notional
+            )
+
+    records: list[AttributionRecord] = []
+    for (strategy_id, symbol, regime), state in sorted(grouped.items()):
+        mark = state["qty"] * float(prices_final.get(symbol, 0.0))
+        gross_pnl = state["gross_cash"] + mark
+        net_pnl = state["net_cash"] + mark
+        factors: dict[str, float] = dict(state["factors"])
+        if factors:
+            total_weight = sum(factors.values())
+            factor_contributions = tuple(
+                (name, net_pnl * weight / total_weight)
+                for name, weight in sorted(factors.items())
+            )
+        else:
+            factor_contributions = (("unattributed", net_pnl),)
+        records.append(
+            AttributionRecord(
+                strategy_id=strategy_id,
+                symbol=symbol,
+                regime=regime,
+                factor_contributions=factor_contributions,
+                gross_pnl=gross_pnl,
+                fees=state["fees"],
+                slippage_cost=state["slippage"],
+                net_pnl=net_pnl,
+                turnover=state["turnover"],
+                trades=state["trades"],
+            )
+        )
+    return records
 
 
 class PortfolioBacktestEngine:
@@ -839,6 +1032,7 @@ class PortfolioBacktestEngine:
                     key = plan.idempotency_key or (
                         f"pbt_{now.strftime('%Y%m%d%H%M%S')}_{plan.symbol}"
                     )
+                    strategy_id, regime, factor_exposures = _plan_attribution(plan)
                     queued_now += (
                         1
                         if broker.queue(
@@ -856,6 +1050,9 @@ class PortfolioBacktestEngine:
                                     if plan.action is PlannedAction.REDUCTION
                                     else "increase"
                                 ),
+                                strategy_id=strategy_id,
+                                regime=regime,
+                                factor_exposures=factor_exposures,
                             )
                         )
                         else 0
@@ -917,6 +1114,24 @@ class PortfolioBacktestEngine:
                 )
 
         result.trades = list(broker.fills)
+        result.attribution = _build_attribution(result.trades, prices_final)
+        for item in result.attribution:
+            result.attribution_by_strategy[item.strategy_id] = (
+                result.attribution_by_strategy.get(item.strategy_id, 0.0)
+                + item.net_pnl
+            )
+            result.attribution_by_regime[item.regime] = (
+                result.attribution_by_regime.get(item.regime, 0.0) + item.net_pnl
+            )
+            result.execution_cost_by_strategy[item.strategy_id] = (
+                result.execution_cost_by_strategy.get(item.strategy_id, 0.0)
+                + item.fees
+                + item.slippage_cost
+            )
+            for factor, contribution in item.factor_contributions:
+                result.attribution_by_factor[factor] = (
+                    result.attribution_by_factor.get(factor, 0.0) + contribution
+                )
         result.turnover_history = [(f.fill_time, f.notional) for f in broker.fills]
         result.cost_history = [
             (f.fill_time, f.fee + f.slippage_cost) for f in broker.fills

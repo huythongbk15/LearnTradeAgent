@@ -130,6 +130,7 @@ class BatchAllocationEntry:
     approved: float
     reason: str
     causation_chain: CausationChain | None = None
+    signed_approved: float | None = None
 
 
 @dataclass(frozen=False)
@@ -144,7 +145,28 @@ class BatchAllocationOutcome:
 
     @property
     def approved_by_symbol(self) -> dict[str, float]:
-        return {e.symbol: e.approved for e in self.entries}
+        approved: dict[str, float] = {}
+        for entry in self.entries:
+            approved[entry.symbol] = approved.get(entry.symbol, 0.0) + entry.approved
+        return approved
+
+    @property
+    def approved_by_strategy(self) -> dict[str, float]:
+        approved: dict[str, float] = {}
+        for entry in self.entries:
+            approved[entry.strategy_id] = (
+                approved.get(entry.strategy_id, 0.0) + entry.approved
+            )
+        return approved
+
+    @property
+    def net_by_symbol(self) -> dict[str, float]:
+        """Net signed forecast target by symbol (long-only output clamps later)."""
+        net: dict[str, float] = {}
+        for entry in self.entries:
+            signed = entry.approved if entry.signed_approved is None else entry.signed_approved
+            net[entry.symbol] = net.get(entry.symbol, 0.0) + signed
+        return net
 
 
 # ── Types ───────────────────────────────────────────────────────────────
@@ -166,6 +188,33 @@ class AllocationRequest:
     # None → falls back to current_exposure (single-strategy-per-symbol case).
     symbol_total_exposure: float | None = None
     causation_chain: CausationChain | None = None
+    desired_exposure: float | None = None
+    regime_risk_multiplier: float = 1.0
+    no_trade_band: float = 0.0
+    average_daily_notional: float | None = None
+    max_order_participation: float = 0.01
+
+    def __post_init__(self) -> None:
+        for name in ("regime_risk_multiplier", "no_trade_band"):
+            value = float(getattr(self, name))
+            if not math.isfinite(value) or value < 0.0:
+                raise ValueError(f"{name} must be finite and non-negative")
+        if self.regime_risk_multiplier > 1.0:
+            raise ValueError("regime_risk_multiplier cannot exceed 1")
+        if self.desired_exposure is not None and (
+            not math.isfinite(self.desired_exposure)
+            or abs(self.desired_exposure) > 1.0
+        ):
+            raise ValueError("desired_exposure must be finite and in [-1, 1]")
+        if not math.isfinite(self.max_order_participation) or not (
+            0.0 < self.max_order_participation <= 1.0
+        ):
+            raise ValueError("max_order_participation must be in (0, 1]")
+        if self.average_daily_notional is not None and (
+            not math.isfinite(self.average_daily_notional)
+            or self.average_daily_notional <= 0.0
+        ):
+            raise ValueError("average_daily_notional must be finite and positive")
 
 
 @dataclass(frozen=True, slots=True)
@@ -545,12 +594,16 @@ class PortfolioAllocator:
             )
 
         ordered = sorted(requests, key=lambda x: (x.strategy_id, x.symbol))
+        request_keys = [(request.strategy_id, request.symbol) for request in ordered]
+        if len(request_keys) != len(set(request_keys)):
+            raise ValueError("duplicate strategy_id/symbol allocation request")
 
         # ── Step 1: individual caps per request ────────────────────────
         capped: dict[tuple[str, str], float] = {}
         raw_ask: dict[tuple[str, str], float] = {}
         reasons: dict[tuple[str, str], str] = {}
         req_by_key: dict[tuple[str, str], AllocationRequest] = {}
+        direction: dict[tuple[str, str], float] = {}
 
         for req in ordered:
             chain = self._batch_chain(req)
@@ -563,7 +616,17 @@ class PortfolioAllocator:
                     float(req.risk_decision.allowed_target_exposure),
                     float(req.risk_decision.max_new_exposure),
                 )
-                asked = max(0.0, asked)
+                signed_desired = req.desired_exposure
+                if signed_desired is not None:
+                    direction[(req.strategy_id, req.symbol)] = (
+                        -1.0 if signed_desired < 0.0 else 1.0
+                    )
+                    asked = min(asked, abs(signed_desired))
+                else:
+                    direction[(req.strategy_id, req.symbol)] = 1.0
+                asked = max(0.0, asked) * req.regime_risk_multiplier
+                if asked < req.no_trade_band:
+                    asked = 0.0
                 symbol_total = (
                     req.symbol_total_exposure
                     if req.symbol_total_exposure is not None
@@ -574,7 +637,19 @@ class PortfolioAllocator:
                     float(self.exposure_config.max_single_symbol_exposure)
                     - float(symbol_total),
                 )
-                c = min(asked, max(0.0, strat_available), symbol_headroom)
+                liquidity_headroom = float("inf")
+                if req.average_daily_notional is not None:
+                    liquidity_headroom = (
+                        req.average_daily_notional
+                        * req.max_order_participation
+                        / equity
+                    )
+                c = min(
+                    asked,
+                    max(0.0, strat_available),
+                    symbol_headroom,
+                    liquidity_headroom,
+                )
                 c = max(0.0, c)
                 capped[(req.strategy_id, req.symbol)] = c
                 raw_ask[(req.strategy_id, req.symbol)] = asked
@@ -582,13 +657,71 @@ class PortfolioAllocator:
                 reasons[(req.strategy_id, req.symbol)] = (
                     f"capped_from_{asked:.6f}_"
                     f"strat_{max(0.0, strat_available):.6f}_"
-                    f"sym_headroom_{symbol_headroom:.6f}"
+                    f"sym_headroom_{symbol_headroom:.6f}_"
+                    f"liquidity_{liquidity_headroom:.6f}"
                 )
             except Exception as e:  # fail-closed per request, never raise upward
                 logger.error("allocate_batch: cap computation failed: %s", e)
                 capped[(req.strategy_id, req.symbol)] = 0.0
                 raw_ask[(req.strategy_id, req.symbol)] = 0.0
                 reasons[(req.strategy_id, req.symbol)] = f"cap_error:{e}"
+
+        # Aggregate constraints must be applied to the SET, not independently.
+        # Without this stage, two requests can each consume the same strategy,
+        # symbol, or correlation headroom and jointly exceed the configured cap.
+        group_factors: dict[tuple[str, str], float] = {
+            key: 1.0 for key in capped
+        }
+
+        def apply_group_factor(keys: list[tuple[str, str]], available: float) -> None:
+            total = sum(capped[key] for key in keys)
+            factor = min(1.0, max(0.0, available) / total) if total > 0.0 else 1.0
+            for key in keys:
+                group_factors[key] = min(group_factors[key], factor)
+
+        for strategy_id in sorted({key[0] for key in capped}):
+            keys = [key for key in capped if key[0] == strategy_id]
+            budget = self._strategy_budgets[strategy_id]
+            apply_group_factor(keys, budget.max_exposure - budget.allocated_exposure)
+
+        for symbol in sorted({key[1] for key in capped}):
+            keys = [key for key in capped if key[1] == symbol]
+            current = max(
+                float(snapshot.symbol_exposures.get(symbol, 0.0)),
+                *(float(req_by_key[key].symbol_total_exposure or 0.0) for key in keys),
+            )
+            apply_group_factor(
+                keys,
+                float(self.exposure_config.max_single_symbol_exposure) - current,
+            )
+
+        clusters = sorted(
+            {
+                request.correlation_cluster
+                for request in ordered
+                if request.correlation_cluster is not None
+            }
+        )
+        for cluster in clusters:
+            keys = [
+                key
+                for key in capped
+                if req_by_key[key].correlation_cluster == cluster
+            ]
+            cluster_symbols = {key[1] for key in keys}
+            current = sum(
+                float(snapshot.symbol_exposures.get(symbol, 0.0))
+                for symbol in cluster_symbols
+            )
+            apply_group_factor(
+                keys,
+                float(self.exposure_config.max_correlated_exposure) - current,
+            )
+
+        for key, factor in group_factors.items():
+            if factor < 1.0 and capped[key] > 0.0:
+                capped[key] *= factor
+                reasons[key] += f"|aggregate_constraint_scale_{factor:.6f}"
 
         # ── Step 2: global increase budget from SHARED snapshot ────────
         gross_now = float(snapshot.gross_exposure)
@@ -632,6 +765,7 @@ class PortfolioAllocator:
                     approved=approved,
                     reason=reason,
                     causation_chain=self._append_batch_link(req, approved, scale),
+                    signed_approved=approved * direction[key],
                 )
             )
 
@@ -665,10 +799,26 @@ class PortfolioAllocator:
         cycle_id: str,
     ) -> PortfolioTargetVector:
         """Assemble the canonical PortfolioTargetVector from a batch outcome."""
-        targets = {e.symbol: round(e.approved, 12) for e in outcome.entries}
-        reasons = {e.symbol: e.reason for e in outcome.entries}
+        # Net opposing strategy forecasts before emitting the long-only target
+        # vector. A negative net target means reduce to flat, never open a short.
+        targets = {
+            symbol: round(max(0.0, approved), 12)
+            for symbol, approved in outcome.net_by_symbol.items()
+        }
+        reasons: dict[str, str] = {}
+        for entry in outcome.entries:
+            existing = reasons.get(entry.symbol)
+            item = f"{entry.strategy_id}:{entry.reason}"
+            reasons[entry.symbol] = f"{existing}|{item}" if existing else item
+        requested_by_symbol: dict[str, float] = {}
+        for entry in outcome.entries:
+            requested_by_symbol[entry.symbol] = (
+                requested_by_symbol.get(entry.symbol, 0.0) + entry.requested
+            )
         rejected = tuple(
-            e.symbol for e in outcome.entries if e.approved <= 0 and e.requested > 0
+            symbol
+            for symbol, requested in sorted(requested_by_symbol.items())
+            if requested > 0.0 and targets.get(symbol, 0.0) <= 0.0
         )
         reserve_pct = max(0.0, 1.0 - float(self.exposure_config.max_portfolio_exposure))
         return PortfolioTargetVector(

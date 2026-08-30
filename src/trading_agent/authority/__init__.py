@@ -104,6 +104,16 @@ from trading_agent.authority.promotion_store import (
     PromotionRecord,
 )
 
+from trading_agent.authority.adaptive_router import (
+    AdaptiveForecastResult,
+    AdaptiveForecastRuntime,
+    AdaptiveRouterConfig,
+    AdaptiveStrategyRouter,
+    HandoverState,
+    RouterStateStore,
+    RoutingDecision,
+)
+
 __all__ = [
     # Config
     "AuthorityConfig",
@@ -159,6 +169,14 @@ __all__ = [
     # Promotion store
     "PromotionStateStore",
     "PromotionRecord",
+    # Adaptive routing
+    "AdaptiveForecastResult",
+    "AdaptiveForecastRuntime",
+    "AdaptiveRouterConfig",
+    "AdaptiveStrategyRouter",
+    "HandoverState",
+    "RouterStateStore",
+    "RoutingDecision",
     # Audit
     "CausationLogEntry",
     "DecisionAuditRecord",
