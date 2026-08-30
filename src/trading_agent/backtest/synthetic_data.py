@@ -10,6 +10,7 @@ reproducible. The produced schema mirrors ``load_ohlcv`` output exactly
 (timestamp, open, high, low, close, volume, exchange, symbol, timeframe, atr,
 is_closed) so the production backtest path runs unmodified.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -55,7 +56,11 @@ def generate_synthetic_ohlcv(
     if start_ts is None:
         start_ts = datetime(2025, 1, 1, 0, 0, tzinfo=UTC)
     else:
-        start_ts = start_ts.astimezone(UTC) if start_ts.tzinfo else start_ts.replace(tzinfo=UTC)
+        start_ts = (
+            start_ts.astimezone(UTC)
+            if start_ts.tzinfo
+            else start_ts.replace(tzinfo=UTC)
+        )
 
     timestamps = [start_ts + timedelta(hours=i) for i in range(n_bars)]
     # Build a price path with regime switches.
@@ -80,7 +85,9 @@ def generate_synthetic_ohlcv(
     opens = np.empty(n_bars)
     opens[0] = prices_arr[0] * (1.0 - rng.normal(0, 0.001))
     opens[1:] = prices_arr[:-1]
-    highs = np.maximum(prices_arr, opens) * (1.0 + np.abs(rng.normal(0, 0.0015, n_bars)))
+    highs = np.maximum(prices_arr, opens) * (
+        1.0 + np.abs(rng.normal(0, 0.0015, n_bars))
+    )
     lows = np.minimum(prices_arr, opens) * (1.0 - np.abs(rng.normal(0, 0.0015, n_bars)))
     closes = prices_arr
     volumes = rng.integers(50, 500, n_bars).astype(float) * 100.0

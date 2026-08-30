@@ -589,7 +589,9 @@ def run_cell(
     sim_start = simulation_start if simulation_start is not None else start
     if measurement_start is not None or measurement_end is not None:
         if measurement_start is None or measurement_end is None:
-            raise ValueError("measurement_start and measurement_end must be provided together")
+            raise ValueError(
+                "measurement_start and measurement_end must be provided together"
+            )
         if not (sim_start <= measurement_start < measurement_end):
             raise ValueError(
                 "measurement window must be non-empty and contained after simulation_start"
@@ -758,7 +760,7 @@ def run_cell(
         def _trade_bar(t: Mapping[str, Any], field: str) -> int:
             # exit_bar_index lives in metadata.simulation for simulator trades;
             # fall back to a top-level key for other trade representations.
-            sim = (t.get("metadata") if isinstance(t.get("metadata"), Mapping) else None)
+            sim = t.get("metadata") if isinstance(t.get("metadata"), Mapping) else None
             sim_value = (
                 sim.get("simulation", {}).get(field)
                 if isinstance(sim, Mapping)
@@ -816,14 +818,22 @@ def run_cell(
             quantity = float(trade.get("quantity") or 0.0)
             exit_price = float(trade.get("exit_price") or 0.0)
             side = str(trade.get("side") or "").lower()
-            if boundary_price is None or quantity <= 0 or exit_price <= 0 or side not in {
-                "buy",
-                "sell",
-            }:
+            if (
+                boundary_price is None
+                or quantity <= 0
+                or exit_price <= 0
+                or side
+                not in {
+                    "buy",
+                    "sell",
+                }
+            ):
                 unattributed_cross_boundary += 1
                 continue
             gross = quantity * (
-                exit_price - boundary_price if side == "buy" else boundary_price - exit_price
+                exit_price - boundary_price
+                if side == "buy"
+                else boundary_price - exit_price
             )
             exit_fee = float(trade.get("exit_fee") or 0.0)
             trade["pnl"] = gross - exit_fee
@@ -993,7 +1003,10 @@ def _artifact_from_report(
             # average loss makes profit factor literally infinite; that is
             # evidence of success, not missing evidence.
             avg_loss = metrics_block.get("average_loss")
-            if key == "profit_factor" and int(metrics_block.get("total_trades") or 0) == 0:
+            if (
+                key == "profit_factor"
+                and int(metrics_block.get("total_trades") or 0) == 0
+            ):
                 # A no-trade window is valid evidence. The PF gate will receive
                 # None and fail INVALID; the evaluation itself still completed.
                 metrics[key] = None
@@ -1022,7 +1035,9 @@ def _artifact_from_report(
             metrics[key] = value
 
     measurement_evidence = report.get("measurement_evidence", {}) if report else {}
-    unattributed = int(measurement_evidence.get("unattributed_cross_boundary_trades", 0))
+    unattributed = int(
+        measurement_evidence.get("unattributed_cross_boundary_trades", 0)
+    )
     if unattributed != 0:
         reasons.append(f"unattributed_cross_boundary_trades={unattributed}")
 

@@ -417,7 +417,9 @@ class FormalNoTradeArtifact:
             # it deterministically as "Infinity" so the content hash is stable.
             allow_nan=True,
         ).encode("utf-8")
-        object.__setattr__(self, "no_trade_id", f"sha256:{hashlib.sha256(payload).hexdigest()}")
+        object.__setattr__(
+            self, "no_trade_id", f"sha256:{hashlib.sha256(payload).hexdigest()}"
+        )
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -545,7 +547,9 @@ class FinalHoldoutManifest:
             separators=(",", ":"),
             allow_nan=False,
         ).encode("utf-8")
-        object.__setattr__(self, "holdout_id", f"sha256:{hashlib.sha256(payload).hexdigest()}")
+        object.__setattr__(
+            self, "holdout_id", f"sha256:{hashlib.sha256(payload).hexdigest()}"
+        )
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -638,7 +642,9 @@ class FinalHoldoutManifest:
             notes=d.get("notes", ""),
         )
         if not manifest.verify_integrity():
-            raise ValueError(f"Holdout manifest integrity check failed: {manifest.holdout_id}")
+            raise ValueError(
+                f"Holdout manifest integrity check failed: {manifest.holdout_id}"
+            )
         return manifest
 
 
@@ -671,7 +677,9 @@ def _create_final_holdout_manifest(
 
     holdout_start = n_bars - holdout_bars
     if holdout_start <= 0:
-        raise ValueError(f"Not enough data for holdout: n_bars={n_bars}, holdout_bars={holdout_bars}")
+        raise ValueError(
+            f"Not enough data for holdout: n_bars={n_bars}, holdout_bars={holdout_bars}"
+        )
 
     commit_sha = _compute_commit_sha()
 
@@ -713,9 +721,7 @@ def _last_bar_le_or_before(df, ts: datetime) -> int:
     return max(0, min(idx, df.height - 1))
 
 
-def _resolve_frozen_holdout_window(
-    df, spec: WFOSpec
-) -> tuple[int, int] | None:
+def _resolve_frozen_holdout_window(df, spec: WFOSpec) -> tuple[int, int] | None:
     """Resolve the frozen holdout window (STR-0309) from research_manifest.json.
 
     Returns (holdout_start_bar, holdout_end_bar) mapped into the loaded dataset,
@@ -839,6 +845,7 @@ def run_final_holdout(
     # Get cost scenario (use default or from selected params)
     cost_scenario_name = selected_params.get("cost_scenario", "1x")
     from trading_agent.backtest.tournament import SCENARIO_BASE
+
     cost_scenario = SCENARIO_BASE  # Use base scenario for holdout
 
     test_params = {k: v for k, v in selected_params.items() if k != "cost_scenario"}
@@ -924,16 +931,22 @@ class WFOResult:
                 }
                 for r in self.outer_results
             ],
-            "inner_selection_freezes": [f.to_dict() for f in self.inner_selection_freezes],
+            "inner_selection_freezes": [
+                f.to_dict() for f in self.inner_selection_freezes
+            ],
             "aggregate_metrics": self.aggregate_metrics,
             "statistical_hardening": self.statistical_hardening,
             "gate_results": [asdict(g) for g in self.gate_results],
             "passes_hard_gates": self.passes_hard_gates,
             "gate_failures": self.gate_failures,
-            "no_trade_artifact": self.no_trade_artifact.to_dict() if self.no_trade_artifact else None,
+            "no_trade_artifact": self.no_trade_artifact.to_dict()
+            if self.no_trade_artifact
+            else None,
             "final_holdout": self.final_holdout,
             "trial_counts": self.trial_counts,
-            "study_manifest": self.study_manifest.to_dict() if self.study_manifest else None,
+            "study_manifest": self.study_manifest.to_dict()
+            if self.study_manifest
+            else None,
             "created_at": self.created_at,
         }
 
@@ -960,7 +973,11 @@ class WFOPortfolioResult:
     def artifact_id(self) -> str:
         payload = {
             "result_artifacts": [
-                [outer.artifact.artifact_id for outer in result.outer_results if outer.artifact]
+                [
+                    outer.artifact.artifact_id
+                    for outer in result.outer_results
+                    if outer.artifact
+                ]
                 for result in self.results
             ],
             "aggregate_metrics": self.aggregate_metrics,
@@ -1262,6 +1279,7 @@ def _compute_parameter_stability(inner_results: list[WFOInnerResult]) -> float |
 
         # Find mode (most common value)
         from collections import Counter
+
         counter = Counter(values)
         mode_value, mode_count = counter.most_common(1)[0]
         stability = mode_count / len(values)
@@ -1306,7 +1324,10 @@ def _build_pbo_candidate_returns(
                 "reason": "overlapping validation windows cannot be concatenated for CSCV",
             }
         previous_end = result.val_end
-        by_key = {_candidate_key(candidate): candidate for candidate in result.candidate_metrics}
+        by_key = {
+            _candidate_key(candidate): candidate
+            for candidate in result.candidate_metrics
+        }
         current_keys = sorted(by_key)
         if candidate_keys is None:
             candidate_keys = current_keys
@@ -1326,7 +1347,9 @@ def _build_pbo_candidate_returns(
         expected_len: int | None = None
         for key in candidate_keys:
             metrics = by_key[key].get("val_metrics", {})
-            raw_series = metrics.get("return_series") if isinstance(metrics, dict) else None
+            raw_series = (
+                metrics.get("return_series") if isinstance(metrics, dict) else None
+            )
             if not isinstance(raw_series, list) or not raw_series:
                 return None, {
                     "status": "INVALID",
@@ -1410,7 +1433,9 @@ def _persist_study_manifest(out_root: Path, manifest: WFOStudyManifest) -> Path:
     if path.exists():
         existing = json.loads(path.read_text(encoding="utf-8"))
         if existing != manifest.to_dict():
-            raise ValueError(f"study manifest already exists with different content: {path}")
+            raise ValueError(
+                f"study manifest already exists with different content: {path}"
+            )
         return path
     tmp_path = path.with_suffix(".json.tmp")
     tmp_path.write_text(encoded, encoding="utf-8")
@@ -1447,7 +1472,9 @@ def _inner_freeze_path(out_root: Path, freeze_id: str) -> Path:
     return Path(out_root) / "inner_selection_freezes" / f"{digest}.json"
 
 
-def _find_existing_inner_freeze(out_root: Path, freeze_id: str) -> InnerSelectionFreeze | None:
+def _find_existing_inner_freeze(
+    out_root: Path, freeze_id: str
+) -> InnerSelectionFreeze | None:
     """Load an existing inner selection freeze, or return None if missing."""
     path = _inner_freeze_path(out_root, freeze_id)
     if not path.exists():
@@ -1469,9 +1496,13 @@ def _persist_inner_selection_freeze(
             existing_identity = {
                 k: v for k, v in existing.to_dict().items() if k != "created_at"
             }
-            new_identity = {k: v for k, v in freeze.to_dict().items() if k != "created_at"}
+            new_identity = {
+                k: v for k, v in freeze.to_dict().items() if k != "created_at"
+            }
             if existing_identity != new_identity:
-                raise ValueError(f"inner freeze already exists with different content: {path}")
+                raise ValueError(
+                    f"inner freeze already exists with different content: {path}"
+                )
         return existing or freeze
     tmp_path = path.with_suffix(".json.tmp")
     tmp_path.write_text(
@@ -1495,7 +1526,9 @@ def _persist_outer_artifact(
     if path.exists():
         existing = _find_existing_outer_artifact(out_root, freeze_id, fold_id)
         if existing is None or existing.artifact_id != bound.artifact_id:
-            raise ValueError(f"outer artifact already exists with different content: {path}")
+            raise ValueError(
+                f"outer artifact already exists with different content: {path}"
+            )
         return existing
     tmp_path = path.with_suffix(".json.tmp")
     tmp_path.write_text(
@@ -1581,6 +1614,7 @@ def _compute_multi_dimensional_evaluation(
         # Load trade-level data from artifact report
         import json
         from pathlib import Path
+
         report_path = Path(r.artifact.report_path)
         if not report_path.exists():
             continue
@@ -1605,10 +1639,15 @@ def _compute_multi_dimensional_evaluation(
             exit_ts = exit_time
             if isinstance(exit_ts, str):
                 from datetime import datetime
+
                 exit_ts = datetime.fromisoformat(exit_ts.replace("Z", "+00:00"))
 
             # Match regime row by timestamp (nearest prior)
-            regime_row = pdf[pdf[time_col] <= exit_ts].iloc[-1] if len(pdf[pdf[time_col] <= exit_ts]) > 0 else None
+            regime_row = (
+                pdf[pdf[time_col] <= exit_ts].iloc[-1]
+                if len(pdf[pdf[time_col] <= exit_ts]) > 0
+                else None
+            )
             if regime_row is None:
                 continue
 
@@ -1626,13 +1665,21 @@ def _compute_multi_dimensional_evaluation(
             all_trades.append(trade_rec)
 
     if not all_trades:
-        multi_dim["note"] = "No trade-level data available for multi-dimensional evaluation"
+        multi_dim["note"] = (
+            "No trade-level data available for multi-dimensional evaluation"
+        )
         return multi_dim
 
     # --- Compute metrics helper ---
     def _metrics_for(trades_list: list[dict]) -> dict:
         if not trades_list:
-            return {"trades": 0, "net_pnl": 0.0, "win_rate": 0.0, "profit_factor": 0.0, "avg_return_pct": 0.0}
+            return {
+                "trades": 0,
+                "net_pnl": 0.0,
+                "win_rate": 0.0,
+                "profit_factor": 0.0,
+                "avg_return_pct": 0.0,
+            }
         pnls = [t["pnl"] for t in trades_list]
         returns = [t.get("return_pct", 0.0) for t in trades_list]
         wins = [p for p in pnls if p > 0]
@@ -1643,7 +1690,9 @@ def _compute_multi_dimensional_evaluation(
             "trades": len(trades_list),
             "net_pnl": float(sum(pnls)),
             "win_rate": len(wins) / len(pnls) if pnls else 0.0,
-            "profit_factor": gross_profit / gross_loss if gross_loss > 0 else float("inf"),
+            "profit_factor": gross_profit / gross_loss
+            if gross_loss > 0
+            else float("inf"),
             "avg_return_pct": float(np.mean(returns)),
         }
 
@@ -1728,10 +1777,14 @@ def _run_outer_eval_with_params(
     Uses the same warmup/buffer convention as the inner trial so indicator
     initialization is consistent. Returns the completed EvaluationArtifact.
     """
-    return _run_outer_eval(spec, params, cost_scenario, fold, out_root, descriptor, signal_delay_bars=0)
+    return _run_outer_eval(
+        spec, params, cost_scenario, fold, out_root, descriptor, signal_delay_bars=0
+    )
 
 
-def _compute_drop_best_trade(artifact: EvaluationArtifact | None) -> dict[str, float] | None:
+def _compute_drop_best_trade(
+    artifact: EvaluationArtifact | None,
+) -> dict[str, float] | None:
     """Compute net PnL before/after dropping the single best trade (STR-0308).
 
     Reads trade-level data from the artifact's report JSON. Returns None if no
@@ -1809,7 +1862,9 @@ def _compute_sensitivity_analysis(
     delay_1_bar_returns: list[float] = []
     delay_1_bar_pfs: list[float] = []
 
-    rerun_root = Path(out_root) if out_root is not None and descriptor is not None else None
+    rerun_root = (
+        Path(out_root) if out_root is not None and descriptor is not None else None
+    )
 
     # For each outer fold, run sensitivity tests on the selected params
     for r in outer_results:
@@ -1936,24 +1991,45 @@ def _compute_sensitivity_analysis(
     # --- Aggregates ---
     if rerun_root is not None:
         sensitivity["cost_2x"]["aggregate"] = {
-            "median_net_pnl": float(np.median(cost_2x_net_pnls)) if cost_2x_net_pnls else None,
-            "median_profit_factor": float(np.median(cost_2x_pfs)) if cost_2x_pfs else None,
-            "median_return_pct": float(np.median(cost_2x_returns)) if cost_2x_returns else None,
+            "median_net_pnl": float(np.median(cost_2x_net_pnls))
+            if cost_2x_net_pnls
+            else None,
+            "median_profit_factor": float(np.median(cost_2x_pfs))
+            if cost_2x_pfs
+            else None,
+            "median_return_pct": float(np.median(cost_2x_returns))
+            if cost_2x_returns
+            else None,
         }
         sensitivity["slippage_stress"]["aggregate"] = {
-            "median_return_pct": float(np.median(slip_returns)) if slip_returns else None,
+            "median_return_pct": float(np.median(slip_returns))
+            if slip_returns
+            else None,
             "median_profit_factor": float(np.median(slip_pfs)) if slip_pfs else None,
         }
         sensitivity["drop_best_trade"]["aggregate"] = {
-            "total_net_pnl_after_drop": float(sum(drop_best_net_pnls)) if drop_best_net_pnls else None,
+            "total_net_pnl_after_drop": float(sum(drop_best_net_pnls))
+            if drop_best_net_pnls
+            else None,
             "n_folds": len(drop_best_net_pnls),
         }
         sensitivity["delay_1_bar"]["aggregate"] = {
-            "median_net_pnl": float(np.median(delay_1_bar_net_pnls)) if delay_1_bar_net_pnls else None,
-            "median_return_pct": float(np.median(delay_1_bar_returns)) if delay_1_bar_returns else None,
-            "median_profit_factor": float(np.median(delay_1_bar_pfs)) if delay_1_bar_pfs else None,
+            "median_net_pnl": float(np.median(delay_1_bar_net_pnls))
+            if delay_1_bar_net_pnls
+            else None,
+            "median_return_pct": float(np.median(delay_1_bar_returns))
+            if delay_1_bar_returns
+            else None,
+            "median_profit_factor": float(np.median(delay_1_bar_pfs))
+            if delay_1_bar_pfs
+            else None,
         }
-        sensitivity["real_computed"] = ["cost_2x", "slippage_stress", "drop_best_trade", "delay_1_bar"]
+        sensitivity["real_computed"] = [
+            "cost_2x",
+            "slippage_stress",
+            "drop_best_trade",
+            "delay_1_bar",
+        ]
     else:
         sensitivity["note"] = (
             "Real re-evaluation skipped (out_root/descriptor not provided). "
@@ -1965,11 +2041,15 @@ def _compute_sensitivity_analysis(
         for outer in outer_results:
             if not outer.artifact or not outer.test_metrics:
                 continue
-            outer_fold = next((item for item in folds if item.fold_id == outer.fold_id), None)
+            outer_fold = next(
+                (item for item in folds if item.fold_id == outer.fold_id), None
+            )
             if outer_fold is None:
                 continue
             selected_params = {
-                key: value for key, value in outer.params.items() if key != "cost_scenario"
+                key: value
+                for key, value in outer.params.items()
+                if key != "cost_scenario"
             }
             for param_name, param_values in spec.param_grid.items():
                 if len(param_values) < 3:
@@ -2004,7 +2084,10 @@ def _compute_sensitivity_analysis(
                         "value": param_values[neighbor_idx],
                         "direction": direction,
                     }
-                    if neighbor_artifact is not None and neighbor_artifact.status == "COMPLETED":
+                    if (
+                        neighbor_artifact is not None
+                        and neighbor_artifact.status == "COMPLETED"
+                    ):
                         metrics = neighbor_artifact.metrics
                         trade_stats = _compute_drop_best_trade(neighbor_artifact)
                         net_pnl = (
@@ -2014,8 +2097,12 @@ def _compute_sensitivity_analysis(
                         )
                         record.update(
                             {
-                                "return_pct": _coerce_num(metrics.get("total_return_pct")),
-                                "profit_factor": _coerce_num(metrics.get("profit_factor")),
+                                "return_pct": _coerce_num(
+                                    metrics.get("total_return_pct")
+                                ),
+                                "profit_factor": _coerce_num(
+                                    metrics.get("profit_factor")
+                                ),
                                 "net_pnl": net_pnl,
                                 "trades": metrics.get("total_trades"),
                                 "artifact_id": neighbor_artifact.artifact_id,
@@ -2053,26 +2140,32 @@ def _compute_sensitivity_analysis(
 
             neighbor_results = []
             if idx > 0:
-                neighbor_results.append({
-                    "param": param_name,
-                    "value": param_values[idx - 1],
-                    "direction": "left",
-                    "note": "Requires re-running backtest with this param value",
-                })
+                neighbor_results.append(
+                    {
+                        "param": param_name,
+                        "value": param_values[idx - 1],
+                        "direction": "left",
+                        "note": "Requires re-running backtest with this param value",
+                    }
+                )
             if idx < len(param_values) - 1:
-                neighbor_results.append({
-                    "param": param_name,
-                    "value": param_values[idx + 1],
-                    "direction": "right",
-                    "note": "Requires re-running backtest with this param value",
-                })
+                neighbor_results.append(
+                    {
+                        "param": param_name,
+                        "value": param_values[idx + 1],
+                        "direction": "right",
+                        "note": "Requires re-running backtest with this param value",
+                    }
+                )
 
             if neighbor_results:
-                sensitivity["parameter_neighbors"].append({
-                    "param": param_name,
-                    "best_value": best_val,
-                    "neighbors": neighbor_results,
-                })
+                sensitivity["parameter_neighbors"].append(
+                    {
+                        "param": param_name,
+                        "best_value": best_val,
+                        "neighbors": neighbor_results,
+                    }
+                )
 
     return sensitivity
 
@@ -2301,7 +2394,11 @@ def run_nested_wfo(
         # but this is defense-in-depth before any expensive backtest runs.)
         if holdout_start_bar is not None:
             _guard_fold_against_holdout(
-                fold, df, descriptor, holdout_start_bar, holdout_end_bar  # type: ignore[arg-type]
+                fold,
+                df,
+                descriptor,
+                holdout_start_bar,
+                holdout_end_bar,  # type: ignore[arg-type]
             )
 
         # Compute the environment hash for this fold once (identical for the
@@ -2366,10 +2463,14 @@ def run_nested_wfo(
                 # no-trade and non-finite trials remain in the append-only burden
                 # instead of disappearing from multiple-testing accounting.
                 if not registry.has_trial_phase(
-                    stored_candidate.experiment_id, fold_id, TRIAL_PHASE_INNER_VALIDATION
+                    stored_candidate.experiment_id,
+                    fold_id,
+                    TRIAL_PHASE_INNER_VALIDATION,
                 ):
                     metric_available = bool(np.isfinite(val_sharpe))
-                    artifact_status = artifact.status if artifact is not None else "FAILED"
+                    artifact_status = (
+                        artifact.status if artifact is not None else "FAILED"
+                    )
                     registry.append_evaluation(
                         experiment_id=stored_candidate.experiment_id,
                         fold_id=fold_id,
@@ -2457,7 +2558,9 @@ def run_nested_wfo(
                     for c in spec.cost_scenarios
                     if c.name == best_params.get("cost_scenario", "1x")
                 )
-                test_params = {k: v for k, v in best_params.items() if k != "cost_scenario"}
+                test_params = {
+                    k: v for k, v in best_params.items() if k != "cost_scenario"
+                }
 
                 spec_test = EvaluationCellSpec(
                     strategy_id=spec.strategy_id,
@@ -2496,7 +2599,9 @@ def run_nested_wfo(
                     params=best_params,
                     test_metrics=test_metrics,
                     execution_health=execution_health,
-                    artifact=artifact if artifact and artifact.status == "COMPLETED" else None,
+                    artifact=artifact
+                    if artifact and artifact.status == "COMPLETED"
+                    else None,
                 )
             )
 
@@ -2515,7 +2620,9 @@ def run_nested_wfo(
                     experiment_id=best_candidate_experiment_id,
                     fold_id=fold_id,
                     metric_name=(
-                        "outer_oos_sharpe" if metric_available else "outer_oos_trial_failed"
+                        "outer_oos_sharpe"
+                        if metric_available
+                        else "outer_oos_trial_failed"
                     ),
                     metric_value=float(test_sharpe) if metric_available else 0.0,
                     environment_hash=env_hash,
@@ -2701,7 +2808,9 @@ def run_nested_wfo(
     # Trial count info — all sourced from the append-only registry (S3-2)
     statistical_hardening["effective_trial_count"] = trial_counts.effective_trial_count
     statistical_hardening["raw_trial_count"] = trial_counts.unique_experiments
-    statistical_hardening["inner_validation_trials"] = trial_counts.inner_validation_trials
+    statistical_hardening["inner_validation_trials"] = (
+        trial_counts.inner_validation_trials
+    )
     statistical_hardening["outer_oos_trials"] = trial_counts.outer_oos_trials
     statistical_hardening["total_trial_runs"] = trial_counts.total_trial_runs
     statistical_hardening["dsr_trials"] = trial_counts.unique_experiments
@@ -2728,7 +2837,10 @@ def run_nested_wfo(
         evidence_artifact: str | None = None,
     ) -> GateResult:
         """Evaluate a gate and return GateResult."""
-        if observed_value is None or (isinstance(observed_value, float) and (np.isnan(observed_value) or np.isinf(observed_value))):
+        if observed_value is None or (
+            isinstance(observed_value, float)
+            and (np.isnan(observed_value) or np.isinf(observed_value))
+        ):
             verdict = "INVALID"
             passed = False
         else:
@@ -2873,7 +2985,9 @@ def run_nested_wfo(
 
     # Gate 9: Positive outer folds ≥ 60%
     positive_folds = sum(1 for s in test_sharpes if s > 0)
-    positive_folds_pct = (positive_folds / len(test_sharpes) * 100) if test_sharpes else 0.0
+    positive_folds_pct = (
+        (positive_folds / len(test_sharpes) * 100) if test_sharpes else 0.0
+    )
     add_gate(
         gate_id="positive_outer_folds_ge_60pct",
         observed_value=positive_folds_pct,
@@ -2923,7 +3037,9 @@ def run_nested_wfo(
         sensitivity_eval.get("cost_2x", {}).get("aggregate", {}).get("median_net_pnl")
     )
     cost_2x_pf = (
-        sensitivity_eval.get("cost_2x", {}).get("aggregate", {}).get("median_profit_factor")
+        sensitivity_eval.get("cost_2x", {})
+        .get("aggregate", {})
+        .get("median_profit_factor")
     )
     add_gate(
         gate_id="cost_2x_net_pnl_positive",
@@ -2944,10 +3060,14 @@ def run_nested_wfo(
 
     # Gate 13: Delay 1 bar — net PnL > 0 and PF > 1
     delay_1_bar_pnl = (
-        sensitivity_eval.get("delay_1_bar", {}).get("aggregate", {}).get("median_net_pnl")
+        sensitivity_eval.get("delay_1_bar", {})
+        .get("aggregate", {})
+        .get("median_net_pnl")
     )
     delay_1_bar_pf = (
-        sensitivity_eval.get("delay_1_bar", {}).get("aggregate", {}).get("median_profit_factor")
+        sensitivity_eval.get("delay_1_bar", {})
+        .get("aggregate", {})
+        .get("median_profit_factor")
     )
     add_gate(
         gate_id="delay_1_bar_net_pnl_positive",
@@ -3076,7 +3196,9 @@ def run_nested_wfo(
         else:
             try:
                 if holdout_end_bar is None:
-                    raise ValueError("frozen holdout manifest is missing holdout_end_bar")
+                    raise ValueError(
+                        "frozen holdout manifest is missing holdout_end_bar"
+                    )
                 # Use only the FROZEN holdout window from research_manifest.json;
                 # a dataset-derived last-10% fallback is forbidden.
                 # Inside run_holdout=True branch, holdout_start_bar is guaranteed non-None
@@ -3118,7 +3240,9 @@ def run_nested_wfo(
         # S3-7: holdout FAILED / ERROR / missing-manifest → the entire WFO run
         # is fail-closed. The holdout is the only truly independent confirmation,
         # so a failed holdout means the candidate does NOT pass hard gates.
-        fh: dict[str, Any] = final_holdout_result if isinstance(final_holdout_result, dict) else {}
+        fh: dict[str, Any] = (
+            final_holdout_result if isinstance(final_holdout_result, dict) else {}
+        )
         holdout_status = fh.get("status")
         holdout_metrics: dict[str, Any] = fh.get("metrics") or {}
         holdout_sharpe = holdout_metrics.get("sharpe")
@@ -3150,9 +3274,7 @@ def run_nested_wfo(
         # Holdout is only meaningful if it actually ran on a frozen window.
         # A last-10% fallback window would reuse selection data, so the gate is
         # INVALID (not just FAIL) when the manifest was not frozen.
-        frozen_window_used = bool(
-            (final_holdout_result or {}).get("holdout_window")
-        )
+        frozen_window_used = bool((final_holdout_result or {}).get("holdout_window"))
         holdout_gates.append(
             GateResult(
                 gate_id="final_holdout_frozen_window",
@@ -3266,7 +3388,9 @@ def _build_portfolio_selection_result(
                 "return_pct": _coerce_num(
                     result.aggregate_metrics.get("median_test_return_pct")
                 ),
-                "net_pnl": _coerce_num(result.aggregate_metrics.get("total_oos_net_pnl")),
+                "net_pnl": _coerce_num(
+                    result.aggregate_metrics.get("total_oos_net_pnl")
+                ),
                 "trades": int(result.aggregate_metrics.get("total_test_trades") or 0),
                 "individual_pass": result.passes_hard_gates,
             }
@@ -3280,7 +3404,11 @@ def _build_portfolio_selection_result(
     median_pair_return = (
         float(np.median(valid_returns)) if len(valid_returns) == len(rows) else None
     )
-    positive_pnls = [row["net_pnl"] for row in rows if row["net_pnl"] is not None and row["net_pnl"] > 0]
+    positive_pnls = [
+        row["net_pnl"]
+        for row in rows
+        if row["net_pnl"] is not None and row["net_pnl"] > 0
+    ]
     contribution_concentration = (
         max(positive_pnls) / sum(positive_pnls) * 100.0 if positive_pnls else None
     )
@@ -3359,8 +3487,7 @@ def _build_portfolio_selection_result(
 
     passes = all(gate.is_pass() for gate in gate_results)
     holdout_failed = run_holdout and any(
-        not result.final_holdout
-        or result.final_holdout.get("status") != "COMPLETED"
+        not result.final_holdout or result.final_holdout.get("status") != "COMPLETED"
         for result in results
     )
     if passes and run_holdout:

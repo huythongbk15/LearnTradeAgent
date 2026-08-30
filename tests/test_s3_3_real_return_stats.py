@@ -14,6 +14,7 @@ Sharpe aggregates.  This module exercises the new real-return-series path:
 These integration tests run on the synthetic evidence pipeline so they stay CI-
 safe (no multi-year real data, no heavy backtest timeout).
 """
+
 from __future__ import annotations
 
 import sys
@@ -63,14 +64,26 @@ def _fake_folds():
     # proper measurement-window isolation (S3-1).
     return [
         NestedFold(
-            fold_id="f1", inner_train_start=0, inner_train_end=400,
-            inner_val_start=400, inner_val_end=620,
-            outer_test_start=620, outer_test_end=800, purge=0, embargo=0,
+            fold_id="f1",
+            inner_train_start=0,
+            inner_train_end=400,
+            inner_val_start=400,
+            inner_val_end=620,
+            outer_test_start=620,
+            outer_test_end=800,
+            purge=0,
+            embargo=0,
         ),
         NestedFold(
-            fold_id="f2", inner_train_start=200, inner_train_end=600,
-            inner_val_start=600, inner_val_end=720,
-            outer_test_start=720, outer_test_end=800, purge=0, embargo=0,
+            fold_id="f2",
+            inner_train_start=200,
+            inner_train_end=600,
+            inner_val_start=600,
+            inner_val_end=720,
+            outer_test_start=720,
+            outer_test_end=800,
+            purge=0,
+            embargo=0,
         ),
     ]
 
@@ -106,7 +119,9 @@ def test_calculate_performance_metrics_emits_real_return_series():
     per-bar return series, not just aggregate metrics."""
     from trading_agent.backtest.reporting import calculate_performance_metrics
 
-    equity = [(f"2025-01-01T{i:02d}:00:00+00:00", 100_000.0 + i * 10.0) for i in range(20)]
+    equity = [
+        (f"2025-01-01T{i:02d}:00:00+00:00", 100_000.0 + i * 10.0) for i in range(20)
+    ]
     metrics = calculate_performance_metrics(
         equity,
         initial_capital=100_000.0,
@@ -222,7 +237,9 @@ def test_pbo_matrix_uses_aligned_chronological_candidate_returns():
 
 
 def test_pbo_rejects_insufficient_evidence():
-    with pytest.raises(ValueError, match="at least 24 finite chronological observations"):
+    with pytest.raises(
+        ValueError, match="at least 24 finite chronological observations"
+    ):
         probability_of_backtest_overfitting(np.ones((16, 2)), n_slices=8)
     with pytest.raises(ValueError, match="2 candidate columns"):
         probability_of_backtest_overfitting(np.ones((32, 1)), n_slices=8)
@@ -244,9 +261,7 @@ def test_s3_3_statistical_hardening_on_synthetic(patched, tmp_path):
     )
     spec = replace(spec, registry_path=str(tmp_path / "wfo.sqlite3"))
 
-    result = run_nested_wfo(
-        spec, out_root=tmp_path / "wfo_evidence", run_holdout=False
-    )
+    result = run_nested_wfo(spec, out_root=tmp_path / "wfo_evidence", run_holdout=False)
 
     sh = result.statistical_hardening
     # Real return series must have been collected from outer fold artifacts.

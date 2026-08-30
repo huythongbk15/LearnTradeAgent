@@ -28,6 +28,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from itertools import combinations
+from typing import Any, Iterable, Protocol
 
 import numpy as np
 from scipy import stats
@@ -45,6 +46,12 @@ class SharpeStats:
     skew: float
     excess_kurtosis: float
     n: int
+
+
+class ExperimentRegistryLike(Protocol):
+    """Minimal registry surface needed for registry-derived DSR accounting."""
+
+    def trial_counts(self, *, experiment_ids: Iterable[str] | None = None) -> Any: ...
 
 
 def series_stats(
@@ -238,12 +245,10 @@ def combinatorially_symmetric_cross_validation(
     values = values[finite_rows]
     n_observations, n_candidates = values.shape
     if n_candidates < 2 or n_observations < 24:
-        return {
-            "pbo": 0.0,
-            "logit_ranks": [],
-            "oos_degradation": [],
-            "n_splits": 0,
-        }
+        raise ValueError(
+            "CSCV requires at least 24 finite chronological observations and "
+            "2 candidate columns"
+        )
 
     n_slices = max(4, min(int(n_slices), n_observations // 4))
     if n_slices % 2:
@@ -255,12 +260,7 @@ def combinatorially_symmetric_cross_validation(
     ]
     n_slices = len(slices)
     if n_slices < 4 or n_slices % 2:
-        return {
-            "pbo": 0.0,
-            "logit_ranks": [],
-            "oos_degradation": [],
-            "n_splits": 0,
-        }
+        raise ValueError("CSCV could not construct at least four symmetric slices")
 
     def score(sample: np.ndarray) -> np.ndarray:
         mean = np.mean(sample, axis=0)
@@ -295,7 +295,9 @@ def combinatorially_symmetric_cross_validation(
         logits.append(float(math.log(relative_rank / (1.0 - relative_rank))))
         degradations.append(float(test_scores[selected] - np.max(test_scores)))
 
-    pbo = float(np.mean(np.asarray(logits) <= 0.0)) if logits else 0.0
+    if not logits:
+        raise ValueError("CSCV produced no valid symmetric splits")
+    pbo = float(np.mean(np.asarray(logits) <= 0.0))
     return {
         "pbo": pbo,
         "logit_ranks": logits,
@@ -311,12 +313,13 @@ def probability_of_backtest_overfitting(
 ) -> float:
     """Convenience wrapper returning CSCV's PBO estimate."""
 
-    return float(
-        combinatorially_symmetric_cross_validation(
-            candidate_returns,
-            n_slices=n_slices,
-        )["pbo"]
-    )
+    value = combinatorially_symmetric_cross_validation(
+        candidate_returns,
+        n_slices=n_slices,
+    )["pbo"]
+    if not isinstance(value, (int, float, np.integer, np.floating)):
+        raise TypeError("CSCV returned a non-numeric PBO value")
+    return float(value)
 
 
 def min_trades_check(
@@ -346,7 +349,8 @@ def summarize_sharpe(
     *,
     periods_per_year: float,
     trials: int | None = None,
-    experiment_registry: object | None = None,
+    experiment_registry: ExperimentRegistryLike | None = None,
+    experiment_ids: Iterable[str] | None = None,
     bootstrap_iters: int = 1_000,
     block_len: int | None = None,
     seed: int = 42,
@@ -355,9 +359,18 @@ def summarize_sharpe(
     """One-call summary: point Sharpe, bootstrap CI, PSR and DSR."""
     trial_count_source = "manual"
     if experiment_registry is not None:
-        trial_counts = experiment_registry.trial_counts()
+        if experiment_ids is None:
+            trial_counts = experiment_registry.trial_counts()
+        else:
+            trial_counts = experiment_registry.trial_counts(
+                experiment_ids=experiment_ids
+            )
         trials = int(trial_counts.effective_trial_count)
-        trial_count_source = "experiment_registry"
+        trial_count_source = (
+            "experiment_registry_scoped"
+            if experiment_ids is not None
+            else "experiment_registry"
+        )
     if trials is None:
         raise ValueError("trials or experiment_registry is required")
     if trials < 1:

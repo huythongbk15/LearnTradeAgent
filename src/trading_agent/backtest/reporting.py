@@ -340,7 +340,9 @@ def calculate_performance_metrics(
     periods_per_year = (
         timedelta(days=365).total_seconds() / timeframe_delta.total_seconds()
     )
-    values = np.asarray([equity for _, equity in equity_curve], dtype=np.float64)
+    values: np.ndarray = np.asarray(
+        [equity for _, equity in equity_curve], dtype=np.float64
+    )
     metrics: dict[str, Any] = _equity_statistics(
         values,
         initial_capital=initial_capital,
@@ -415,6 +417,17 @@ def calculate_performance_metrics(
             "exit_reason_counts": reason_counts,
         }
     )
+
+    # S3-3: expose the ACTUAL per-bar return series of the measurement window so
+    # downstream statistical hardening (block-bootstrap / PSR / DSR) runs on real
+    # OOS returns instead of a single fold-level Sharpe aggregate.
+    if values.size >= 2:
+        with np.errstate(divide="ignore", invalid="ignore"):
+            period_returns = values[1:] / values[:-1] - 1.0
+        period_returns = period_returns[np.isfinite(period_returns)]
+    else:
+        period_returns = np.array([], dtype=np.float64)
+    metrics["return_series"] = [float(r) for r in period_returns]
     return metrics
 
 

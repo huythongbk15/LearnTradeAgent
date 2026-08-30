@@ -18,6 +18,7 @@ warning), which fails the gate and fail-closes the run.
 
 These tests run on the synthetic evidence pipeline so they stay CI-safe.
 """
+
 from __future__ import annotations
 
 import sys
@@ -58,14 +59,26 @@ def _synthetic_df():
 def _fake_folds():
     return [
         NestedFold(
-            fold_id="f1", inner_train_start=0, inner_train_end=400,
-            inner_val_start=400, inner_val_end=620,
-            outer_test_start=620, outer_test_end=800, purge=0, embargo=0,
+            fold_id="f1",
+            inner_train_start=0,
+            inner_train_end=400,
+            inner_val_start=400,
+            inner_val_end=620,
+            outer_test_start=620,
+            outer_test_end=800,
+            purge=0,
+            embargo=0,
         ),
         NestedFold(
-            fold_id="f2", inner_train_start=200, inner_train_end=600,
-            inner_val_start=600, inner_val_end=720,
-            outer_test_start=720, outer_test_end=800, purge=0, embargo=0,
+            fold_id="f2",
+            inner_train_start=200,
+            inner_train_end=600,
+            inner_val_start=600,
+            inner_val_end=720,
+            outer_test_start=720,
+            outer_test_end=800,
+            purge=0,
+            embargo=0,
         ),
     ]
 
@@ -104,12 +117,11 @@ def test_run_holdout_without_frozen_manifest_fail_closed(patched, tmp_path):
     _df, _folds = patched
     # Remove the frozen-manifest patch so no frozen window is resolved.
     import trading_agent.backtest.nested_wfo as nw
+
     nw._resolve_frozen_holdout_window = lambda *a, **kw: None
 
     spec = _make_spec(tmp_path)
-    result = run_nested_wfo(
-        spec, out_root=tmp_path / "wfo_ev", run_holdout=True
-    )
+    result = run_nested_wfo(spec, out_root=tmp_path / "wfo_ev", run_holdout=True)
 
     fh = result.final_holdout
     assert fh is not None
@@ -128,9 +140,7 @@ def test_run_holdout_with_frozen_manifest_runs_gates(patched, tmp_path):
     and the frozen-window gate is present in the gate set."""
     _df, _folds = patched
     spec = _make_spec(tmp_path)
-    result = run_nested_wfo(
-        spec, out_root=tmp_path / "wfo_ev", run_holdout=True
-    )
+    result = run_nested_wfo(spec, out_root=tmp_path / "wfo_ev", run_holdout=True)
 
     fh = result.final_holdout
     assert fh is not None
@@ -140,7 +150,8 @@ def test_run_holdout_with_frozen_manifest_runs_gates(patched, tmp_path):
     assert "final_holdout_frozen_window" in gate_ids, gate_ids
     # All holdout gates must be PASS when the holdout completed on a frozen window.
     holdout_gates = [
-        g for g in result.gate_results
+        g
+        for g in result.gate_results
         if g.gate_id in ("final_holdout_completed", "final_holdout_frozen_window")
     ]
     assert all(g.verdict == "PASS" for g in holdout_gates), holdout_gates
@@ -158,9 +169,7 @@ def test_holdout_failed_status_fail_closed(patched, monkeypatch, tmp_path):
         raise RuntimeError("simulated holdout failure")
 
     monkeypatch.setattr(nw, "run_final_holdout", _boom)
-    result = run_nested_wfo(
-        spec, out_root=tmp_path / "wfo_ev", run_holdout=True
-    )
+    result = run_nested_wfo(spec, out_root=tmp_path / "wfo_ev", run_holdout=True)
 
     fh = result.final_holdout
     assert fh is not None
@@ -179,9 +188,7 @@ def test_holdout_gate_not_added_when_run_holdout_false(patched, tmp_path):
     unchanged from the pre-S3-7 behaviour."""
     _df, _folds = patched
     spec = _make_spec(tmp_path)
-    result = run_nested_wfo(
-        spec, out_root=tmp_path / "wfo_ev", run_holdout=False
-    )
+    result = run_nested_wfo(spec, out_root=tmp_path / "wfo_ev", run_holdout=False)
 
     gate_ids = {g.gate_id for g in result.gate_results}
     assert "final_holdout_completed" not in gate_ids, gate_ids

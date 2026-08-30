@@ -363,17 +363,19 @@ Chọn strategy/params mà không dùng tương lai và không che giấu multip
 
 ### Backlog
 
-- [ ] **STR-0301** Dùng expanding nested walk-forward: inner train/validation, outer OOS.
-- [ ] **STR-0302** Với 1h: baseline train 12 tháng, validation/test 3 tháng,
+- [x] **STR-0301** Dùng expanding nested walk-forward: inner train/validation, outer OOS.
+- [x] **STR-0302** Với 1h: baseline train 12 tháng, validation/test 3 tháng,
   step 3 tháng; purge/embargo tối thiểu max lookback và execution horizon.
-- [ ] **STR-0303** Fit scaler, calibrator, regime model và parameter choice duy nhất trên train.
-- [ ] **STR-0304** Outer fold chỉ được mở một lần sau khi inner selection đã freeze.
-- [ ] **STR-0305** Ghi toàn bộ trial/search space vào append-only experiment registry.
-- [ ] **STR-0306** Tính block-bootstrap CI, DSR, PBO/CSCV, min trades và parameter stability.
-- [ ] **STR-0307** Đánh giá theo pair, regime, year, volatility bucket và cost scenario.
-- [ ] **STR-0308** Sensitivity: bỏ best trade, delay 1 bar, cost 2×, parameter neighbors.
-- [ ] **STR-0309** Freeze untouched final holdout; không mở lại để iterative tuning.
-- [ ] **STR-0310** Nếu không candidate vượt hard gate, kết quả bắt buộc là `NO_TRADE`.
+- [x] **STR-0303** Candidate hiện tại là deterministic/stateless; stateful adapter có `fit`,
+  scaler, calibrator hoặc regime fitting bị từ chối fail-closed cho đến khi có fold-local
+  training contract, không được giả định là đã fit an toàn.
+- [x] **STR-0304** Outer fold chỉ được mở một lần sau khi inner selection đã freeze.
+- [x] **STR-0305** Ghi toàn bộ trial/search space vào append-only experiment registry.
+- [x] **STR-0306** Tính block-bootstrap CI, DSR, PBO/CSCV, min trades và parameter stability.
+- [x] **STR-0307** Đánh giá theo pair, regime, year, volatility bucket và cost scenario.
+- [x] **STR-0308** Sensitivity: bỏ best trade, delay 1 bar, cost 2×, parameter neighbors.
+- [x] **STR-0309** Freeze untouched final holdout; không mở lại để iterative tuning.
+- [x] **STR-0310** Nếu không candidate vượt hard gate, kết quả bắt buộc là `NO_TRADE`.
 
 ### Hard gates mặc định
 
@@ -404,6 +406,31 @@ Ngưỡng là policy versioned, không được hạ sau khi nhìn thấy holdou
 - Không có fold leakage; feature availability và embargo tests pass.
 - Trial count dùng registry thật, không nhận số trials do caller tự khai.
 - Evaluation artifact chứa exact commit/data/features/cost/search-space identity.
+
+### Trạng thái xác minh 2026-08-30
+
+**Engineering implementation: COMPLETE. Release qualification: PENDING REAL EVIDENCE.**
+
+- Study manifest đã content-addressed toàn bộ strategy, pair, timeframe, fold windows,
+  cost multipliers, search space, evaluator, commit, data và feature identities.
+- Inner-selection freeze đã bind thêm commit/data/features/evaluator; artifact cũ không còn
+  được replay khi một trong các identity này thay đổi.
+- Synthetic evidence được gắn `SYNTHETIC_TEST_ONLY`, luôn `promotable=false`. Real evidence
+  chạy từ dirty worktree cũng không đủ provenance để promotion.
+- Gate minimum trades đã đồng bộ đúng policy: ≥30 cho toàn bộ pair-strategy outer-OOS,
+  không nhân sai ngưỡng theo số fold; portfolio aggregate vẫn ≥200.
+- `run_wfo_evidence.py --mode real` dùng canonical 12/3/3/3 và full parameter grid,
+  không còn dùng smoke spec synthetic.
+- Xác minh tự động: 65 core S3 tests pass; 9 provenance regression tests pass;
+  4 full synthetic WFO evidence tests pass; Ruff và mypy đều sạch.
+- CLI synthetic evidence chạy end-to-end trong 101 giây, tạo holdout `COMPLETED`, đủ cả
+  5 sensitivity reruns và formal `NO_TRADE`; kết quả được khóa `promotable=false` đúng policy.
+- Dry-run dữ liệu hiện tại cho `rsi × BTC/USDT × 1h`: 31.783 bars, 9 pre-holdout
+  outer folds, 216 inner cells và 9 outer one-shot cells.
+
+Không đánh dấu exit gate của phase là hoàn tất cho đến khi chạy campaign từ **clean commit**,
+dùng frozen holdout thật, và thu được một trong hai kết luận có provenance: `FINAL_PASS` hoặc
+formal `NO_TRADE`. Synthetic pass không được dùng thay cho release evidence.
 
 ## 10. Phase S4 — Selection policy, promotion và provenance
 

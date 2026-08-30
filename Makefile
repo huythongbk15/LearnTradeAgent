@@ -2,7 +2,7 @@
 # Trading Agent System — Makefile
 # =============================================================================
 
-.PHONY: help install clean format lint test run info fetch
+.PHONY: help install clean format lint test test-p0 test-fast test-slow test-full test-profile run info fetch
 
 help:           ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -25,8 +25,22 @@ format:         ## Format code
 lint:           ## Lint code
 	poetry run ruff check src/
 
-test:           ## Run tests
-	poetry run pytest tests/ -v
+test: test-fast ## Run the edit-time suite (all non-slow tests)
+
+test-p0:        ## Run critical execution/risk/authority/provenance tests
+	python scripts/run_test_suite.py p0
+
+test-fast:      ## Run deterministic tests excluding full-fidelity slow cells
+	python scripts/run_test_suite.py fast
+
+test-slow:      ## Run WFO/backtest/fault tests and report slowest cases
+	python scripts/run_test_suite.py slow
+
+test-full:      ## Run every test; parallel-safe lane then serial lane
+	python scripts/run_test_suite.py full
+
+test-profile:   ## Run every test and report the 50 slowest cases
+	python scripts/run_test_suite.py profile
 
 info:           ## Show system info
 	poetry run trading-agent info

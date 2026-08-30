@@ -317,6 +317,7 @@ class TestMultiPairCycle:
                 environment="paper",
                 market_data_provider=self._provider_all_buy(),
             )
+            cycle_calls = list(calls)
         finally:
             eng._graceful_shutdown()
 
@@ -328,8 +329,8 @@ class TestMultiPairCycle:
             iid = str(getattr(request, "intent_id", ""))
             return iid.startswith("prot_") and iid.endswith("_submit")
 
-        entries = [r for r in calls if not _is_protection(r)]
-        protections = [r for r in calls if _is_protection(r)]
+        entries = [r for r in cycle_calls if not _is_protection(r)]
+        protections = [r for r in cycle_calls if _is_protection(r)]
 
         # GOLDEN INVARIANT: exactly ONE entry per pair — never duplicated
         assert len(entries) == 2, f"expected 1 entry per pair, got {calls}"
@@ -337,7 +338,7 @@ class TestMultiPairCycle:
         # Deterministic protective bundle: 1 stop per filled BUY
         assert len(protections) == 2
 
-        idem = [str(r.idempotency_key) for r in calls]
+        idem = [str(r.idempotency_key) for r in cycle_calls]
         assert len(idem) == len(set(idem)), "duplicate idempotency keys"
 
         assert report.total_orders == 2
@@ -366,6 +367,14 @@ class TestMultiPairCycle:
                 environment="paper",
                 market_data_provider=self._provider_all_buy(),
             )
+            # Capture exposure while the cycle's positions are still open;
+            # graceful shutdown below intentionally liquidates them.
+            equity = float(eng.exchange.get_total_equity())
+            total_exposure = 0.0
+            for pos in eng.exchange.get_all_positions():
+                if pos.is_active and pos.quantity > 0:
+                    price = float(eng.exchange._last_price_cache[pos.symbol])
+                    total_exposure += pos.quantity * price / equity
         finally:
             eng._graceful_shutdown()
 
@@ -376,12 +385,6 @@ class TestMultiPairCycle:
         assert by_symbol["BTC/USDT"].orders_count >= 1
 
         # Post-cycle: total portfolio exposure must respect the shared cap
-        equity = float(eng.exchange.get_total_equity())
-        total_exposure = 0.0
-        for pos in eng.exchange.get_all_positions():
-            if pos.is_active and pos.quantity > 0:
-                price = float(eng.exchange._last_price_cache[pos.symbol])
-                total_exposure += pos.quantity * price / equity
         # Fees/slippage can push slightly over the nominal cap — allow slack
         assert total_exposure <= cfg.exposure.max_portfolio_exposure + 2e-3, (
             f"shared portfolio cap violated: {total_exposure:.4f} > "

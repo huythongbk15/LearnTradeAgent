@@ -848,6 +848,7 @@ class ExecutionLifecycle:
         ExecutionEventType.ORDER_REJECTED: "_on_order_rejected",
         ExecutionEventType.BROKER_ACKNOWLEDGED: "_on_broker_acknowledged",
         ExecutionEventType.BROKER_STATE_UNKNOWN: "_on_broker_state_unknown",
+        ExecutionEventType.BROKER_STATE_RECONCILED: "_on_broker_state_reconciled",
         ExecutionEventType.LOCAL_SUBMISSION_FAILED: "_on_local_submission_failed",
         ExecutionEventType.PARTIAL_FILL_RECEIVED: "_on_partial_fill_received",
         ExecutionEventType.FILL_RECEIVED: "_on_fill_received",
@@ -989,6 +990,18 @@ class ExecutionLifecycle:
         state.reconciliation = ReconciliationState.STARTED
         if state.execution_health != ExecutionHealth.PROTECTION_GAP:
             state.execution_health = ExecutionHealth.RECONCILING
+
+    def _on_broker_state_reconciled(
+        self, state: LifecycleState, event: ExecutionEvent
+    ) -> None:
+        """Apply a durable broker fact that resolves a recoverable divergence."""
+        order = state.orders.get(event.aggregate_id)
+        if order is not None:
+            order.broker_order_id = (
+                event.payload.get("broker_order_id") or order.broker_order_id
+            )
+            order.status = IntentStatus.ACKNOWLEDGED
+            self._resolve_manual_intent(state, event.aggregate_id)
 
     def _on_local_submission_failed(
         self, state: LifecycleState, event: ExecutionEvent
@@ -2122,11 +2135,37 @@ class ExecutionLifecycle:
             "auto_reconciled": [],
         }
         for intent_id, order in self.state.orders.items():
-            if not order.is_live:
-                continue
             broker_status = broker_states.get(intent_id) or broker_states.get(
                 order.exchange_order_id or ""
             )
+            # A cancel race is a known, recoverable divergence: the venue still
+            # has an open order after local CANCEL_REQUESTED/CANCELED.  Handle
+            # it before the generic live-order and known-state branches;
+            # otherwise "open" is accepted without restoring local liveness,
+            # and CANCELED orders are skipped entirely.
+            if (
+                auto_reconcile_cancel_race
+                and broker_status == "open"
+                and order.status
+                in {IntentStatus.CANCEL_REQUESTED, IntentStatus.CANCELED}
+            ):
+                previous_status = order.status
+                order.status = IntentStatus.ACKNOWLEDGED
+                order.exchange_order_id = order.exchange_order_id or intent_id
+                self._emit(
+                    ExecutionEventType.BROKER_STATE_RECONCILED,
+                    intent_id,
+                    {
+                        "previous_status": previous_status.value,
+                        "broker_status": broker_status,
+                        "reason": "cancel_race_auto_reconciled",
+                    },
+                )
+                report["auto_reconciled"].append(intent_id)
+                report["synced"].append(intent_id)
+                continue
+            if not order.is_live:
+                continue
             if broker_status is None:
                 self.require_manual_intervention(
                     intent_id,
@@ -2136,29 +2175,6 @@ class ExecutionLifecycle:
                 report["unknown"].append(intent_id)
                 continue
             if broker_status not in known_states:
-                # Check for cancel race: broker says "open" but we have CANCEL_REQUESTED/CANCELED
-                if (
-                    auto_reconcile_cancel_race
-                    and broker_status == "open"
-                    and order.status
-                    in {IntentStatus.CANCEL_REQUESTED, IntentStatus.CANCELED}
-                ):
-                    # Cancel race detected: venue missed our cancel, order is still open.
-                    # Auto-reconcile by updating local state to match broker.
-                    order.status = IntentStatus.OPEN
-                    order.exchange_order_id = order.exchange_order_id or intent_id
-                    self._emit(
-                        ExecutionEventType.BROKER_STATE_RECONCILED,
-                        intent_id,
-                        {
-                            "previous_status": order.status.value,
-                            "broker_status": broker_status,
-                            "reason": "cancel_race_auto_reconciled",
-                        },
-                    )
-                    report["auto_reconciled"].append(intent_id)
-                    report["synced"].append(intent_id)
-                    continue
                 self.require_manual_intervention(
                     intent_id,
                     reason=f"unknown broker status '{broker_status}' for {intent_id}",

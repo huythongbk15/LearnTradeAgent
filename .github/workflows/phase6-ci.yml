@@ -37,9 +37,10 @@ jobs:
           pip install -e ".[dev,web,infra,ml,research,portfolio]"
           pip install pytest
 
-      - name: Run full test suite
+      - name: Run Phase 6 integration suite
         run: |
-          python -m pytest tests/ -q
+          python -m pytest tests/test_phase6.py tests/test_phase6_integration.py \
+            -n auto --dist loadscope -q --tb=short
 
       - name: Verify multi-region dry-run (no cluster)
         run: |

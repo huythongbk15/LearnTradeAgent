@@ -79,9 +79,13 @@ class TestFoldGeometry:
         )
         for fold in folds:
             # Validation starts after train + purge + embargo
-            assert fold.inner_val_start >= fold.inner_train_end + fold.purge + fold.embargo
+            assert (
+                fold.inner_val_start >= fold.inner_train_end + fold.purge + fold.embargo
+            )
             # Test starts after validation + purge + embargo
-            assert fold.outer_test_start >= fold.inner_val_end + fold.purge + fold.embargo
+            assert (
+                fold.outer_test_start >= fold.inner_val_end + fold.purge + fold.embargo
+            )
 
     def test_no_future_leakage(self):
         """Validation and test windows must not overlap with train."""
@@ -233,7 +237,11 @@ class TestOuterFoldFreeze:
             strategy_id="ma_adx",
             symbol="BTC/USDT",
             timeframe="1h",
-            best_params={"fast_ma": 30, "slow_ma": 80, "cost_scenario": "1x"},  # Different params
+            best_params={
+                "fast_ma": 30,
+                "slow_ma": 80,
+                "cost_scenario": "1x",
+            },  # Different params
             best_val_sharpe=1.5,
             inner_train_end=8640,
             inner_val_start=8840,
@@ -368,8 +376,10 @@ class TestParameterStability:
         inner_results = [
             WFOInnerResult(
                 fold_id="fold_000",
-                train_start=0, train_end=8640,
-                val_start=8840, val_end=11000,
+                train_start=0,
+                train_end=8640,
+                val_start=8840,
+                val_end=11000,
                 best_params={"fast_ma": 20, "slow_ma": 60, "cost_scenario": "1x"},
                 best_val_sharpe=1.5,
                 val_metrics={"sharpe": 1.5},
@@ -378,8 +388,10 @@ class TestParameterStability:
             ),
             WFOInnerResult(
                 fold_id="fold_001",
-                train_start=0, train_end=11520,
-                val_start=11720, val_end=13880,
+                train_start=0,
+                train_end=11520,
+                val_start=11720,
+                val_end=13880,
                 best_params={"fast_ma": 20, "slow_ma": 60, "cost_scenario": "1x"},
                 best_val_sharpe=1.6,
                 val_metrics={"sharpe": 1.6},
@@ -388,8 +400,10 @@ class TestParameterStability:
             ),
             WFOInnerResult(
                 fold_id="fold_002",
-                train_start=0, train_end=14400,
-                val_start=14600, val_end=16760,
+                train_start=0,
+                train_end=14400,
+                val_start=14600,
+                val_end=16760,
                 best_params={"fast_ma": 20, "slow_ma": 60, "cost_scenario": "1x"},
                 best_val_sharpe=1.4,
                 val_metrics={"sharpe": 1.4},
@@ -407,8 +421,10 @@ class TestParameterStability:
         inner_results = [
             WFOInnerResult(
                 fold_id="fold_000",
-                train_start=0, train_end=8640,
-                val_start=8840, val_end=11000,
+                train_start=0,
+                train_end=8640,
+                val_start=8840,
+                val_end=11000,
                 best_params={"fast_ma": 20, "slow_ma": 60, "cost_scenario": "1x"},
                 best_val_sharpe=1.5,
                 val_metrics={"sharpe": 1.5},
@@ -417,9 +433,15 @@ class TestParameterStability:
             ),
             WFOInnerResult(
                 fold_id="fold_001",
-                train_start=0, train_end=11520,
-                val_start=11720, val_end=13880,
-                best_params={"fast_ma": 30, "slow_ma": 80, "cost_scenario": "1x"},  # Different
+                train_start=0,
+                train_end=11520,
+                val_start=11720,
+                val_end=13880,
+                best_params={
+                    "fast_ma": 30,
+                    "slow_ma": 80,
+                    "cost_scenario": "1x",
+                },  # Different
                 best_val_sharpe=1.6,
                 val_metrics={"sharpe": 1.6},
                 n_trials=100,
@@ -427,8 +449,10 @@ class TestParameterStability:
             ),
             WFOInnerResult(
                 fold_id="fold_002",
-                train_start=0, train_end=14400,
-                val_start=14600, val_end=16760,
+                train_start=0,
+                train_end=14400,
+                val_start=14600,
+                val_end=16760,
                 best_params={"fast_ma": 20, "slow_ma": 60, "cost_scenario": "1x"},
                 best_val_sharpe=1.4,
                 val_metrics={"sharpe": 1.4},
@@ -445,16 +469,21 @@ class TestParameterStability:
         assert _compute_parameter_stability([]) is None
 
         from trading_agent.backtest.nested_wfo import WFOInnerResult
-        single = [WFOInnerResult(
-            fold_id="fold_000",
-            train_start=0, train_end=8640,
-            val_start=8840, val_end=11000,
-            best_params={"fast_ma": 20, "slow_ma": 60, "cost_scenario": "1x"},
-            best_val_sharpe=1.5,
-            val_metrics={"sharpe": 1.5},
-            n_trials=100,
-            candidate_metrics=[],
-        )]
+
+        single = [
+            WFOInnerResult(
+                fold_id="fold_000",
+                train_start=0,
+                train_end=8640,
+                val_start=8840,
+                val_end=11000,
+                best_params={"fast_ma": 20, "slow_ma": 60, "cost_scenario": "1x"},
+                best_val_sharpe=1.5,
+                val_metrics={"sharpe": 1.5},
+                n_trials=100,
+                candidate_metrics=[],
+            )
+        ]
         assert _compute_parameter_stability(single) is None
 
 
@@ -464,26 +493,33 @@ class TestStatisticalHardening:
     def test_block_bootstrap_ci_import(self):
         """Block bootstrap CI function available."""
         from trading_agent.alpha_research.stats import block_bootstrap_sharpe_ci
+
         assert callable(block_bootstrap_sharpe_ci)
 
     def test_psr_import(self):
         """PSR function available."""
         from trading_agent.alpha_research.stats import probabilistic_sharpe_ratio
+
         assert callable(probabilistic_sharpe_ratio)
 
     def test_dsr_import(self):
         """DSR function available."""
         from trading_agent.alpha_research.stats import deflated_sharpe_ratio
+
         assert callable(deflated_sharpe_ratio)
 
     def test_pbo_import(self):
         """PBO/CSCV function available."""
-        from trading_agent.alpha_research.stats import probability_of_backtest_overfitting
+        from trading_agent.alpha_research.stats import (
+            probability_of_backtest_overfitting,
+        )
+
         assert callable(probability_of_backtest_overfitting)
 
     def test_summarize_sharpe_import(self):
         """summarize_sharpe function available."""
         from trading_agent.alpha_research.stats import summarize_sharpe
+
         assert callable(summarize_sharpe)
 
     def test_block_bootstrap_reproducible(self):
@@ -498,7 +534,10 @@ class TestStatisticalHardening:
 
     def test_dsr_uses_registry_trials(self):
         """DSR uses effective trial count from registry."""
-        from trading_agent.alpha_research.stats import deflated_sharpe_ratio, series_stats
+        from trading_agent.alpha_research.stats import (
+            deflated_sharpe_ratio,
+            series_stats,
+        )
 
         returns = np.random.default_rng(42).normal(0.001, 0.01, 200)
         s = series_stats(returns, periods_per_year=252)
@@ -511,14 +550,20 @@ class TestStatisticalHardening:
         )
         # DSR should be <= PSR (deflated)
         from trading_agent.alpha_research.stats import probabilistic_sharpe_ratio
+
         psr = probabilistic_sharpe_ratio(
-            s.sharpe, sr_benchmark=0.0, skew=s.skew, excess_kurtosis=s.excess_kurtosis, n=s.n
+            s.sharpe,
+            sr_benchmark=0.0,
+            skew=s.skew,
+            excess_kurtosis=s.excess_kurtosis,
+            n=s.n,
         )
         assert dsr <= psr + 1e-10  # Allow tiny numerical diff
 
     def test_min_trades_check_import(self):
         """Min trades check function available."""
         from trading_agent.alpha_research.stats import min_trades_check
+
         assert callable(min_trades_check)
 
     def test_invalid_returns_raises(self):
@@ -542,7 +587,9 @@ class TestMultiDimensionalEvaluation:
     """Test multi-dimensional evaluation (STR-0307)."""
 
     def test_multidimensional_evaluator_is_exposed(self):
-        from trading_agent.backtest.nested_wfo import _compute_multi_dimensional_evaluation
+        from trading_agent.backtest.nested_wfo import (
+            _compute_multi_dimensional_evaluation,
+        )
 
         assert callable(_compute_multi_dimensional_evaluation)
 
@@ -615,7 +662,9 @@ class TestGateResult:
                 verdict="PASS" if expected else "FAIL",
                 reason="test",
             )
-            assert gate.is_pass() == expected, f"Failed for {comp}: {obs} {comp} {thresh}"
+            assert gate.is_pass() == expected, (
+                f"Failed for {comp}: {obs} {comp} {thresh}"
+            )
 
 
 class TestFormalNoTradeArtifact:
@@ -778,10 +827,14 @@ class TestFinalHoldout:
 
         overlap = NestedFold(
             fold_id="overlap",
-            inner_train_start=h_start - 500, inner_train_end=h_start - 100,
-            inner_val_start=h_start - 100, inner_val_end=h_start,
-            outer_test_start=h_start, outer_test_end=h_start + 200,
-            purge=0, embargo=0,
+            inner_train_start=h_start - 500,
+            inner_train_end=h_start - 100,
+            inner_val_start=h_start - 100,
+            inner_val_end=h_start,
+            outer_test_start=h_start,
+            outer_test_end=h_start + 200,
+            purge=0,
+            embargo=0,
         )
         with pytest.raises(HoldoutError):
             _guard_fold_against_holdout(overlap, df, descriptor, h_start, h_end)
@@ -803,10 +856,14 @@ class TestFinalHoldout:
 
         safe = NestedFold(
             fold_id="safe",
-            inner_train_start=1000, inner_train_end=5000,
-            inner_val_start=5000, inner_val_end=7000,
-            outer_test_start=7000, outer_test_end=9000,
-            purge=0, embargo=0,
+            inner_train_start=1000,
+            inner_train_end=5000,
+            inner_val_start=5000,
+            inner_val_end=7000,
+            outer_test_start=7000,
+            outer_test_end=9000,
+            purge=0,
+            embargo=0,
         )
         # Should not raise
         _guard_fold_against_holdout(safe, df, descriptor, h_start, h_end)
@@ -838,10 +895,15 @@ class TestFinalHoldout:
         from trading_agent.backtest.nested_wfo import FinalHoldoutManifest
 
         m = FinalHoldoutManifest(
-            strategy_id="enhanced_ma", symbol="BTC/USDT", timeframe="1h",
-            holdout_start_bar=100, holdout_end_bar=200,
-            data_manifest_sha="abc", feature_schema_hash="def",
-            freeze_timestamp="2026-01-01T00:00:00+00:00", commit_sha_at_freeze="xyz",
+            strategy_id="enhanced_ma",
+            symbol="BTC/USDT",
+            timeframe="1h",
+            holdout_start_bar=100,
+            holdout_end_bar=200,
+            data_manifest_sha="abc",
+            feature_schema_hash="def",
+            freeze_timestamp="2026-01-01T00:00:00+00:00",
+            commit_sha_at_freeze="xyz",
         )
         assert m.holdout_id.startswith("sha256:")
         assert m.verify_integrity()
@@ -851,8 +913,11 @@ class TestFinalHoldout:
         assert opened.opened_by == "research_system"
         # Re-opening a already-opened manifest raises
         import pytest
+
         with pytest.raises(ValueError):
             opened.open(actor="x")
+
+
 class TestFormalNoTrade:
     """Test formal NO_TRADE result (STR-0310)."""
 
@@ -897,16 +962,20 @@ class TestSensitivityAnalysis:
 
         report = tmp_path / "report.json"
         report.parent.mkdir(parents=True, exist_ok=True)
-        report.write_text(json.dumps({
-            "status": "COMPLETED",
-            "metrics": {
-                "total_return_pct": 1.0,
-                "profit_factor": 1.3,
-                "total_trades": len(trades),
-                "sharpe": 0.5,
-            },
-            "trades": trades,
-        }))
+        report.write_text(
+            json.dumps(
+                {
+                    "status": "COMPLETED",
+                    "metrics": {
+                        "total_return_pct": 1.0,
+                        "profit_factor": 1.3,
+                        "total_trades": len(trades),
+                        "sharpe": 0.5,
+                    },
+                    "trades": trades,
+                }
+            )
+        )
         return report
 
     def test_real_drop_best_and_cost2x(self, tmp_path):
@@ -920,7 +989,9 @@ class TestSensitivityAnalysis:
         reg = build_default_registry()
         descriptor = reg.describe("rsi")
         spec = WFOSpec(
-            strategy_id="rsi", symbol="BTC/USDT", timeframe="1h",
+            strategy_id="rsi",
+            symbol="BTC/USDT",
+            timeframe="1h",
             param_grid={"period": [14], "oversold": [30], "overbought": [70]},
         )
 
@@ -932,35 +1003,84 @@ class TestSensitivityAnalysis:
                 self.artifact_id = "fake"
 
         fold = NestedFold(
-            fold_id="f1", inner_train_start=1000, inner_train_end=5000,
-            inner_val_start=5000, inner_val_end=7000,
-            outer_test_start=7000, outer_test_end=9000, purge=0, embargo=0,
+            fold_id="f1",
+            inner_train_start=1000,
+            inner_train_end=5000,
+            inner_val_start=5000,
+            inner_val_end=7000,
+            outer_test_start=7000,
+            outer_test_end=9000,
+            purge=0,
+            embargo=0,
         )
         outer = WFOOuterResult(
-            fold_id="f1", test_start=7000, test_end=9000,
-            params={"period": 14, "oversold": 30, "overbought": 70, "cost_scenario": "1x"},
-            test_metrics={
-                "sharpe": 0.5, "total_return_pct": 1.2, "total_trades": 3,
-                "profit_factor": 1.3, "max_drawdown_pct": 5.0,
+            fold_id="f1",
+            test_start=7000,
+            test_end=9000,
+            params={
+                "period": 14,
+                "oversold": 30,
+                "overbought": 70,
+                "cost_scenario": "1x",
             },
-            execution_health={}, artifact=_Art(base_report),
+            test_metrics={
+                "sharpe": 0.5,
+                "total_return_pct": 1.2,
+                "total_trades": 3,
+                "profit_factor": 1.3,
+                "max_drawdown_pct": 5.0,
+            },
+            execution_health={},
+            artifact=_Art(base_report),
         )
 
-        def fake_run(spec_, params, cost_scenario, fold_, out_root, descriptor_, signal_delay_bars=0):
+        def fake_run(
+            spec_,
+            params,
+            cost_scenario,
+            fold_,
+            out_root,
+            descriptor_,
+            signal_delay_bars=0,
+        ):
             if cost_scenario is SCENARIO_DOUBLE:
-                return _Art(cost2_report, metrics={
-                    "total_return_pct": -0.1, "profit_factor": 0.82,
-                    "total_trades": 2, "sharpe": -0.05})
-            return _Art(cost2_report, metrics={
-                "total_return_pct": -0.2, "profit_factor": 0.70,
-                "total_trades": 2, "sharpe": -0.1})
-
-        with patch("trading_agent.backtest.nested_wfo._run_outer_eval", side_effect=fake_run):
-            sens = _compute_sensitivity_analysis(
-                spec, [outer], [fold], out_root=tmp_path / "out", descriptor=descriptor,
+                return _Art(
+                    cost2_report,
+                    metrics={
+                        "total_return_pct": -0.1,
+                        "profit_factor": 0.82,
+                        "total_trades": 2,
+                        "sharpe": -0.05,
+                    },
+                )
+            return _Art(
+                cost2_report,
+                metrics={
+                    "total_return_pct": -0.2,
+                    "profit_factor": 0.70,
+                    "total_trades": 2,
+                    "sharpe": -0.1,
+                },
             )
 
-        assert sens["real_computed"] == ["cost_2x", "slippage_stress", "drop_best_trade", "delay_1_bar", "parameter_neighbors"]
+        with patch(
+            "trading_agent.backtest.nested_wfo._run_outer_eval", side_effect=fake_run
+        ):
+            sens = _compute_sensitivity_analysis(
+                spec,
+                [outer],
+                [fold],
+                out_root=tmp_path / "out",
+                descriptor=descriptor,
+            )
+
+        assert sens["real_computed"] == [
+            "cost_2x",
+            "slippage_stress",
+            "drop_best_trade",
+            "delay_1_bar",
+            "parameter_neighbors",
+        ]
         # Real trade-level drop-best: net 12.0, drop best (10.0) -> 2.0
         assert sens["drop_best_trade"]["folds"]["f1"]["net_pnl"] == 12.0
         assert sens["drop_best_trade"]["folds"]["f1"]["net_pnl_after_drop"] == 2.0
@@ -974,14 +1094,24 @@ class TestSensitivityAnalysis:
         descriptor = reg.describe("rsi")
         spec = WFOSpec(strategy_id="rsi", symbol="BTC/USDT", timeframe="1h")
         fold = NestedFold(
-            fold_id="f1", inner_train_start=1000, inner_train_end=5000,
-            inner_val_start=5000, inner_val_end=7000,
-            outer_test_start=7000, outer_test_end=9000, purge=0, embargo=0,
+            fold_id="f1",
+            inner_train_start=1000,
+            inner_train_end=5000,
+            inner_val_start=5000,
+            inner_val_end=7000,
+            outer_test_start=7000,
+            outer_test_end=9000,
+            purge=0,
+            embargo=0,
         )
         outer = WFOOuterResult(
-            fold_id="f1", test_start=7000, test_end=9000,
-            params={"cost_scenario": "1x"}, test_metrics={"sharpe": 0.5},
-            execution_health={}, artifact=None,
+            fold_id="f1",
+            test_start=7000,
+            test_end=9000,
+            params={"cost_scenario": "1x"},
+            test_metrics={"sharpe": 0.5},
+            execution_health={},
+            artifact=None,
         )
         sens = _compute_sensitivity_analysis(spec, [outer], [fold])
         assert sens["real_computed"] == []

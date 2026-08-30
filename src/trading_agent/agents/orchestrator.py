@@ -11,6 +11,7 @@ Flow:
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any, Literal
 from uuid import uuid4
@@ -41,6 +42,10 @@ from trading_agent.strategies.ma_crossover import MaCrossover
 from trading_agent.strategies.rsi import RsiStrategy
 
 logger = get_logger(__name__)
+# Decision trace records are an audit surface.  Keep this module logger at
+# INFO even when another test/application temporarily raises the root logger
+# threshold; attached audit handlers can then still receive every stage.
+logger.setLevel(logging.INFO)
 
 
 # ─── Ablation Harness ─────────────────────────────────────────────────────

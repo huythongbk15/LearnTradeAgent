@@ -15,6 +15,7 @@ Two modes:
 Exit code is non-zero if the pipeline raises or if the real sensitivity
 re-runs were not actually executed (a regression sentinel for STR-0308).
 """
+
 from __future__ import annotations
 
 import argparse
@@ -62,7 +63,8 @@ def _install_synthetic_patches(n_bars: int, holdout_start: int):
         art = _real_run_cell(spec, **kwargs)
         if art.status == "FAILED":
             leftover = [
-                r for r in art.failure_reasons
+                r
+                for r in art.failure_reasons
                 if not r.startswith("unprotected_positions=")
             ]
             if not leftover:
@@ -81,14 +83,26 @@ def _install_synthetic_patches(n_bars: int, holdout_start: int):
         "_get_fold_indices",
         lambda *a, **k: [
             NestedFold(
-                fold_id="f1", inner_train_start=0, inner_train_end=300,
-                inner_val_start=300, inner_val_end=500,
-                outer_test_start=500, outer_test_end=620, purge=0, embargo=0,
+                fold_id="f1",
+                inner_train_start=0,
+                inner_train_end=300,
+                inner_val_start=300,
+                inner_val_end=500,
+                outer_test_start=500,
+                outer_test_end=620,
+                purge=0,
+                embargo=0,
             ),
             NestedFold(
-                fold_id="f2", inner_train_start=100, inner_train_end=400,
-                inner_val_start=400, inner_val_end=600,
-                outer_test_start=600, outer_test_end=720, purge=0, embargo=0,
+                fold_id="f2",
+                inner_train_start=100,
+                inner_train_end=400,
+                inner_val_start=400,
+                inner_val_end=600,
+                outer_test_start=600,
+                outer_test_end=720,
+                purge=0,
+                embargo=0,
             ),
         ],
     )
@@ -117,9 +131,7 @@ def run_synthetic(out_root: Path, strategy_id: str, symbol: str) -> dict:
         "parameter_neighbors",
     ]
     if real_computed != expected_sensitivity:
-        raise SystemExit(
-            f"REGRESSION: real sensitivity not executed: {real_computed}"
-        )
+        raise SystemExit(f"REGRESSION: real sensitivity not executed: {real_computed}")
 
     # Use the exact holdout artifact produced by nested-WFO. Running a second,
     # manually constructed holdout here would not validate the gated result and
@@ -137,7 +149,8 @@ def run_synthetic(out_root: Path, strategy_id: str, symbol: str) -> dict:
         "real_sensitivity": real_computed,
         "final_holdout_status": holdout.get("status"),
         "no_trade_artifact": result.no_trade_artifact.no_trade_id
-        if result.no_trade_artifact else None,
+        if result.no_trade_artifact
+        else None,
     }
     return summary
 
@@ -173,7 +186,9 @@ def main(argv=None) -> int:
     ap.add_argument("--strategy", default="rsi")
     ap.add_argument("--symbol", default="BTC/USDT")
     ap.add_argument("--timeframe", default="1h")
-    ap.add_argument("--out-root", default=str(ROOT / "data" / "backtests" / "wfo_evidence"))
+    ap.add_argument(
+        "--out-root", default=str(ROOT / "data" / "backtests" / "wfo_evidence")
+    )
     args = ap.parse_args(argv)
 
     out_root = Path(args.out_root)

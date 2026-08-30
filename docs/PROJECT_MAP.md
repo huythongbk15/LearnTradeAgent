@@ -240,6 +240,7 @@
 │   ├── run_canonical_strategy.py
 │   ├── run_nested_wfo.py
 │   ├── run_strategy_tournament.py
+│   ├── run_wfo_evidence.py
 │   ├── sign_and_verify.sh
 │   ├── simulate_execution.py
 │   ├── stress_evidence_costs.py
@@ -315,6 +316,7 @@
 │       │   ├── portfolio_backtest.py
 │       │   ├── report_v2.py
 │       │   ├── reporting.py
+│       │   ├── synthetic_data.py
 │       │   └── tournament.py
 │       ├── cli
 │       │   ├── commands
@@ -604,6 +606,8 @@
 │   ├── test_multi_pair_backtest_contract.py
 │   ├── test_multi_pair_batch_adversarial.py
 │   ├── test_multi_pair_runtime.py
+│   ├── test_nested_wfo.py
+│   ├── test_nested_wfo_evidence.py
 │   ├── test_online_methodology.py
 │   ├── test_order_permission.py
 │   ├── test_p0_convergence.py
@@ -621,6 +625,8 @@
 │   ├── test_research_governance.py
 │   ├── test_research_stats.py
 │   ├── test_risk_decision.py
+│   ├── test_s3_3_real_return_stats.py
+│   ├── test_s3_7_holdout_fail_closed.py
 │   ├── test_shadow_mainnet.py
 │   ├── test_simulator_calibration.py
 │   ├── test_simulator_provenance_distribution.py

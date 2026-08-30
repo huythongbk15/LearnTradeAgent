@@ -52,6 +52,7 @@ class ExecutionEventType(str, Enum):
     ORDER_REJECTED = "exec.order_rejected"
     BROKER_ACKNOWLEDGED = "exec.broker_acknowledged"
     BROKER_STATE_UNKNOWN = "exec.broker_state_unknown"
+    BROKER_STATE_RECONCILED = "exec.broker_state_reconciled"
     LOCAL_SUBMISSION_FAILED = "exec.local_submission_failed"
     PARTIAL_FILL_RECEIVED = "exec.partial_fill_received"
     FILL_RECEIVED = "exec.fill_received"

@@ -1136,7 +1136,14 @@ class ExecutionEngine:
             # without requiring manual intervention.
             protection_submitted = False
             for attempt in range(2):  # 2 attempts: initial + 1 retry
-                retry_intent_id = f"{protection_intent_id}_retry{attempt}"
+                # Preserve the canonical ``*_submit`` identity for the first
+                # attempt.  Retry attempts receive a distinct suffix while
+                # remaining visibly part of the same protective-order bundle.
+                retry_intent_id = (
+                    protection_intent_id
+                    if attempt == 0
+                    else f"{protection_intent_id}_retry{attempt}"
+                )
                 protection_result = self.execution_service.emergency_protection(
                     EmergencyReduceRequest(
                         intent_id=retry_intent_id,

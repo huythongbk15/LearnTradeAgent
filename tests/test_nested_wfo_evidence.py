@@ -5,6 +5,7 @@ re-runs (cost 2x / slippage / drop-best-trade), multi-dimensional evaluation and
 the final holdout one-shot end-to-end WITHOUT pulling multi-year real data or
 timing out on heavy backtests. Deterministic via a seeded synthetic generator.
 """
+
 from __future__ import annotations
 
 import sys
@@ -57,14 +58,26 @@ def _fake_folds():
     # still contains real trades. Holdout = [800, 999] (trades 815/845/864).
     return [
         NestedFold(
-            fold_id="f1", inner_train_start=0, inner_train_end=400,
-            inner_val_start=400, inner_val_end=620,
-            outer_test_start=620, outer_test_end=800, purge=0, embargo=0,
+            fold_id="f1",
+            inner_train_start=0,
+            inner_train_end=400,
+            inner_val_start=400,
+            inner_val_end=620,
+            outer_test_start=620,
+            outer_test_end=800,
+            purge=0,
+            embargo=0,
         ),
         NestedFold(
-            fold_id="f2", inner_train_start=200, inner_train_end=600,
-            inner_val_start=600, inner_val_end=720,
-            outer_test_start=720, outer_test_end=800, purge=0, embargo=0,
+            fold_id="f2",
+            inner_train_start=200,
+            inner_train_end=600,
+            inner_val_start=600,
+            inner_val_end=720,
+            outer_test_start=720,
+            outer_test_end=800,
+            purge=0,
+            embargo=0,
         ),
     ]
 
@@ -85,12 +98,8 @@ def patched(monkeypatch):
     # nested_wfo imports load_ohlcv lazily from storage inside functions, so we
     # must patch the source module; tournament imports it at module level,
     # so patch both.
-    monkeypatch.setattr(
-        "trading_agent.data.storage.load_ohlcv", _load
-    )
-    monkeypatch.setattr(
-        "trading_agent.backtest.tournament.load_ohlcv", _load
-    )
+    monkeypatch.setattr("trading_agent.data.storage.load_ohlcv", _load)
+    monkeypatch.setattr("trading_agent.backtest.tournament.load_ohlcv", _load)
 
     def _wrapped_run_cell(spec, **kwargs):
         """Run the REAL backtest, but treat an end-of-window open position
@@ -103,16 +112,15 @@ def patched(monkeypatch):
         art = _real_run_cell(spec, **kwargs)
         if art.status == "FAILED":
             leftover = [
-                r for r in art.failure_reasons
+                r
+                for r in art.failure_reasons
                 if not r.startswith("unprotected_positions=")
             ]
             if not leftover:
                 return replace(art, status="COMPLETED", failure_reasons=())
         return art
 
-    monkeypatch.setattr(
-        "trading_agent.backtest.nested_wfo.run_cell", _wrapped_run_cell
-    )
+    monkeypatch.setattr("trading_agent.backtest.nested_wfo.run_cell", _wrapped_run_cell)
     monkeypatch.setattr(
         "trading_agent.backtest.nested_wfo._resolve_frozen_holdout_window",
         _fake_holdout,
@@ -143,7 +151,10 @@ def test_full_pipeline_on_synthetic(patched, tmp_path):
     assert result.aggregate_metrics["provenance_eligible"] is False
     assert result.aggregate_metrics["promotable"] is False
     assert result.study_manifest is not None
-    assert result.study_manifest.manifest_id == result.aggregate_metrics["study_manifest_id"]
+    assert (
+        result.study_manifest.manifest_id
+        == result.aggregate_metrics["study_manifest_id"]
+    )
 
     # REAL sensitivity values were computed (not framework placeholders)
     sens = result.aggregate_metrics.get("sensitivity", {})
@@ -212,18 +223,26 @@ def test_final_holdout_one_shot_on_synthetic(patched, tmp_path):
         strategy_id="rsi", symbol="BTC/USDT", timeframe="1h", n_bars=N_BARS
     )
     manifest = FinalHoldoutManifest(
-        strategy_id="rsi", symbol="BTC/USDT", timeframe="1h",
-        holdout_start_bar=HOLDOUT_START, holdout_end_bar=N_BARS - 1,
-        data_manifest_sha="synthetic", feature_schema_hash="synthetic",
-        freeze_timestamp="2025-01-01T00:00:00+00:00", frozen_by="evidence_test",
+        strategy_id="rsi",
+        symbol="BTC/USDT",
+        timeframe="1h",
+        holdout_start_bar=HOLDOUT_START,
+        holdout_end_bar=N_BARS - 1,
+        data_manifest_sha="synthetic",
+        feature_schema_hash="synthetic",
+        freeze_timestamp="2025-01-01T00:00:00+00:00",
+        frozen_by="evidence_test",
         commit_sha_at_freeze="synthetic",
         notes="Phase 10 evidence holdout",
     )
     selected_params = {"period": 14, "oversold": 30, "overbought": 70}
 
     out = run_final_holdout(
-        spec, selected_params, manifest,
-        out_root=tmp_path / "holdout_evidence", actor="evidence_test",
+        spec,
+        selected_params,
+        manifest,
+        out_root=tmp_path / "holdout_evidence",
+        actor="evidence_test",
     )
     assert out is not None
     # One-shot ran and was persisted (manifest.save() wrote the opened copy).

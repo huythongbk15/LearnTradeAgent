@@ -972,6 +972,30 @@ def test_manual_intervention_blocks_new_exposure(store):
     # Existing live orders untouched
 
 
+def test_cancel_race_auto_reconciles_to_acknowledged(store):
+    lc = ExecutionLifecycle(
+        store,
+        price_source=lambda s: TrustedPrice(
+            price=100.0,
+            exchange_timestamp=datetime.now(UTC),
+            received_at=datetime.now(UTC),
+        ),
+    )
+    lc.create_order_intent("cancel-race", "BTC/USDT", "buy", 1.0)
+    lc.approve_risk("cancel-race", risk_decision=sample_unified_decision())
+    lc.request_broker_submission("cancel-race", claimed_by="cancel-race")
+    lc.submit_order("cancel-race", exchange_order_id="ex-cancel-race")
+    lc.acknowledge_broker("cancel-race", broker_order_id="br-cancel-race")
+    lc.request_cancel("cancel-race", reason="test")
+
+    report = lc.reconcile_broker_state({"ex-cancel-race": "open"})
+
+    assert report["auto_reconciled"] == ["cancel-race"]
+    assert report["manual"] == []
+    assert lc.order("cancel-race").status is IntentStatus.ACKNOWLEDGED
+    assert lc.state.reconciliation is ReconciliationState.RESOLVED
+
+
 def test_resolve_reconciliation_requires_no_manual_issues(store):
     lc = ExecutionLifecycle(
         store,

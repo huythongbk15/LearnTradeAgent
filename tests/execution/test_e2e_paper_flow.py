@@ -1326,6 +1326,8 @@ class TestExecutionEngineE2E:
             exchange_name="paper",
             promotion_store=promotion_store,
             artifact_store=artifact_store,
+            state_dir=tmp_path / "paper_state",
+            event_store_path=tmp_path / "engine_events.db",
         )
 
         # Seed price cache so engine can build TrustedPrice with exchange_timestamp

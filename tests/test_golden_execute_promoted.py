@@ -332,7 +332,9 @@ class TestGoldenExecutePromotedStrategy:
         assert runtime.strategy_name == "ma_crossover"
         assert isinstance(runtime.strategy, MaCrossover)
 
-    def test_execute_promoted_strategy_fails_gracefully_without_resolver(self):
+    def test_execute_promoted_strategy_fails_gracefully_without_resolver(
+        self, tmp_path: Path
+    ):
         """Test that API fails gracefully when resolver not configured."""
         from trading_agent.execution.canonical.order_planner import InstrumentRules
 
@@ -349,6 +351,8 @@ class TestGoldenExecutePromotedStrategy:
                 min_notional=10.0,
                 max_leverage=1.0,
             ),
+            state_dir=tmp_path / "paper_state_no_resolver",
+            event_store_path=tmp_path / "events_no_resolver.db",
             # No promotion_store or artifact_store → no resolver
         )
 
@@ -375,6 +379,8 @@ class TestGoldenExecutePromotedStrategy:
             authority_config=config,
             promotion_store=promotion_store,
             artifact_store=artifact_store,
+            state_dir=temp_dir / "paper_state_no_rules",
+            event_store_path=temp_dir / "events_no_rules.db",
             # No instrument_rules → no execution_service
         )
 

@@ -843,7 +843,8 @@ class TestCliOrderE2E:
         assert broker.calls[0].side == OrderSide.SELL
         assert float(broker.calls[0].size) == 0.5
 
-    def test_e2e_sell_without_inventory_is_blocked(self):
+    def test_e2e_sell_without_inventory_is_blocked(self, monkeypatch, tmp_path):
+        monkeypatch.chdir(tmp_path)
         broker = self._MockLiveBroker()
         order = Order(
             id="cli-test-sell-no-inv",
@@ -855,7 +856,8 @@ class TestCliOrderE2E:
         with pytest.raises(LifecycleError, match="insufficient_inventory"):
             _place_order_via_gateway(broker, order)
 
-    def test_e2e_limit_order_preserves_type(self):
+    def test_e2e_limit_order_preserves_type(self, monkeypatch, tmp_path):
+        monkeypatch.chdir(tmp_path)
         broker = self._MockLiveBroker()
         order = Order(
             id="cli-test-limit",
@@ -903,6 +905,7 @@ def _sample_risk_decision():
 # ── Additional P1 convergence tests ──────────────────────────────────
 
 
+@pytest.mark.slow
 class TestConcurrentSameDB:
     """Prove same-database concurrent access does not corrupt state."""
 
@@ -1269,6 +1272,8 @@ class TestEnginePaperE2E:
             instrument_rules=instrument_rules,
             promotion_store=promotion_store,
             artifact_store=artifact_store,
+            state_dir=tmp_path / "paper_state_sell_without_position",
+            event_store_path=tmp_path / "events_sell_without_position.db",
         )
         # Use the symbol governed by the supplied instrument rules.
         engine.exchange.update_prices({"BTC/USDT": 50_000.0})

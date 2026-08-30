@@ -11,7 +11,9 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
@@ -19,9 +21,12 @@ if str(ROOT) not in sys.path:
 
 from trading_agent.backtest.nested_wfo import (
     WFOSpec,
+    _default_purge_embargo,
+    _get_fold_indices,
     run_nested_wfo_portfolio,
 )
 from trading_agent.backtest.tournament import (
+    CostScenario,
     SCENARIO_BASE,
     SCENARIO_DOUBLE,
     SCENARIO_SLIPPAGE_STRESS,
@@ -29,7 +34,7 @@ from trading_agent.backtest.tournament import (
 
 
 # Default param grids for strategies
-DEFAULT_PARAM_GRIDS = {
+DEFAULT_PARAM_GRIDS: dict[str, dict[str, list[Any]]] = {
     "ma_adx": {
         "fast_ma": [10, 20, 30],
         "slow_ma": [40, 60, 80],
@@ -80,7 +85,11 @@ def build_wfo_spec(
     val_months: int = 3,
     test_months: int = 3,
     step_months: int = 3,
-    cost_scenarios: tuple = (SCENARIO_BASE, SCENARIO_DOUBLE, SCENARIO_SLIPPAGE_STRESS),
+    cost_scenarios: tuple[CostScenario, ...] = (
+        SCENARIO_BASE,
+        SCENARIO_DOUBLE,
+        SCENARIO_SLIPPAGE_STRESS,
+    ),
     registry_path: str = "data/wfo/experiments.sqlite3",
     search_family: str = "s3_wfo",
     evaluator_version: str = "v1",
@@ -101,6 +110,8 @@ def build_wfo_spec(
         search_family=search_family,
         evaluator_version=evaluator_version,
         seed=seed,
+        min_oos_trades=30,
+        evidence_class="REAL_MARKET",
     )
 
 
@@ -137,9 +148,20 @@ def main():
     parser.add_argument(
         "--dry-run", action="store_true", help="Show what would run without executing"
     )
+    parser.add_argument(
+        "--run-holdout",
+        action="store_true",
+        help="After gates pass, run the independent frozen holdout one-shot (STR-0309)",
+    )
+    parser.add_argument(
+        "--no-real-sensitivity",
+        action="store_true",
+        help="Skip real cost-2x/slippage/drop-best re-evaluations (STR-0308 framework only)",
+    )
 
     args = parser.parse_args()
 
+    cost_scenarios: tuple[CostScenario, ...]
     if args.cost == "1x":
         cost_scenarios = (SCENARIO_BASE,)
     elif args.cost == "2x":
@@ -195,29 +217,56 @@ def main():
 
     if args.dry_run:
         print("DRY RUN - would execute:")
+        from trading_agent.data.storage import load_ohlcv
+        from trading_agent.strategies.canonical.candidates import build_default_registry
+
+        canonical_registry = build_default_registry()
         for spec in specs:
             param_combos = 1
             for v in spec.param_grid.values():
                 param_combos *= len(v)
-            n_folds = max(
-                1, (1000 - spec.train_months * 720) // (spec.step_months * 720)
+            descriptor = canonical_registry.describe(spec.strategy_id)
+            purge, embargo = _default_purge_embargo(descriptor)
+            df = load_ohlcv("binance", spec.symbol, spec.timeframe)
+            folds = _get_fold_indices(
+                n_bars=df.height,
+                timeframe=spec.timeframe,
+                train_months=spec.train_months,
+                val_months=spec.val_months,
+                test_months=spec.test_months,
+                step_months=spec.step_months,
+                purge=spec.purge_bars or purge,
+                embargo=spec.embargo_bars or embargo,
             )
+            n_folds = len(folds)
             print(f"  {spec.strategy_id} × {spec.symbol} × {spec.timeframe}")
+            print(f"    Data bars: {df.height}; pre-holdout outer folds: {n_folds}")
             print(
                 f"    Param combos: {param_combos} × {len(cost_scenarios)} cost scenarios = {param_combos * len(cost_scenarios)} trials/fold"
             )
-            print(f"    Expected folds: ~{n_folds}")
-            print(f"    Total cells: ~{param_combos * len(cost_scenarios) * n_folds}")
+            print(
+                f"    Inner cells: {param_combos * len(cost_scenarios) * n_folds}; "
+                f"outer one-shot cells: {n_folds}"
+            )
         return
 
     print(f"Running nested WFO for {len(specs)} spec(s)...")
-    results = run_nested_wfo_portfolio(specs, out_root=out_root)
+    results = run_nested_wfo_portfolio(
+        specs,
+        out_root=out_root,
+        run_holdout=args.run_holdout,
+        real_sensitivity=not args.no_real_sensitivity,
+    )
 
     # Save summary
     summary_path = out_root / "wfo_summary.json"
     summary = {
         "timestamp": datetime.now().isoformat(),
         "specs": [vars(s) for s in specs],
+        "portfolio_verdict": results.verdict,
+        "portfolio_passes": results.passes_hard_gates,
+        "portfolio_aggregate": results.aggregate_metrics,
+        "portfolio_gates": [vars(gate) for gate in results.gate_results],
         "results": [
             {
                 "strategy": r.spec.strategy_id,
@@ -227,6 +276,10 @@ def main():
                 "aggregate": r.aggregate_metrics,
                 "statistical": r.statistical_hardening,
                 "n_folds": len(r.outer_results),
+                "final_holdout": r.final_holdout,
+                "sensitivity_real_computed": r.aggregate_metrics.get(
+                    "sensitivity", {}
+                ).get("real_computed"),
             }
             for r in results
         ],
@@ -236,6 +289,7 @@ def main():
 
     # Print final results
     print("\n=== RESULTS ===")
+    print(f"Portfolio decision: {results.verdict}")
     for r in results:
         status = "✅ PASS" if r.passes_hard_gates else "❌ FAIL"
         print(
@@ -250,11 +304,8 @@ def main():
                 print(f"    Gate fail: {gf}")
 
     # Exit code
-    any_pass = any(r.passes_hard_gates for r in results)
-    sys.exit(0 if any_pass else 1)
+    sys.exit(0 if results.passes_hard_gates else 1)
 
 
 if __name__ == "__main__":
-    from datetime import datetime
-
     main()

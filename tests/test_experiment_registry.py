@@ -93,6 +93,54 @@ def test_sqlite_wal_and_triggers_enforce_append_only(tmp_path) -> None:
     connection.close()
 
 
+def test_trial_phase_counting_and_guard(tmp_path) -> None:
+    """Registry partitions trial runs by phase and exposes an idempotency guard."""
+    from trading_agent.research.trials import (
+        ExperimentRegistry,
+        TRIAL_PHASE_INNER_VALIDATION,
+        TRIAL_PHASE_OUTER_OOS,
+    )
+
+    registry = ExperimentRegistry(tmp_path / "exp.sqlite3")
+    spec = registry.register_experiment(_spec())
+    registry.append_evaluation(
+        experiment_id=spec.experiment_id,
+        fold_id="f1",
+        metric_name="inner_val_sharpe",
+        metric_value=0.5,
+        environment_hash="env",
+        trial_phase=TRIAL_PHASE_INNER_VALIDATION,
+    )
+    registry.append_evaluation(
+        experiment_id=spec.experiment_id,
+        fold_id="f2",
+        metric_name="inner_val_sharpe",
+        metric_value=0.6,
+        environment_hash="env",
+        trial_phase=TRIAL_PHASE_INNER_VALIDATION,
+    )
+    registry.append_evaluation(
+        experiment_id=spec.experiment_id,
+        fold_id="f1",
+        metric_name="outer_oos_sharpe",
+        metric_value=0.4,
+        environment_hash="env",
+        trial_phase=TRIAL_PHASE_OUTER_OOS,
+    )
+    counts = registry.trial_counts()
+    # Phase-partitioned trial-run accounting comes from the registry.
+    assert counts.inner_validation_trials == 2
+    assert counts.outer_oos_trials == 1
+    assert counts.total_trial_runs == 3
+    # Guard supports caller-side idempotent append.
+    assert registry.has_trial_phase(
+        spec.experiment_id, "f1", TRIAL_PHASE_INNER_VALIDATION
+    )
+    assert not registry.has_trial_phase(
+        spec.experiment_id, "f3", TRIAL_PHASE_INNER_VALIDATION
+    )
+
+
 def test_registry_derived_effective_trial_count_and_dsr_source(tmp_path) -> None:
     registry = ExperimentRegistry(tmp_path / "experiments.sqlite3")
     for seed in (1, 2):
@@ -116,6 +164,12 @@ def test_registry_derived_effective_trial_count_and_dsr_source(tmp_path) -> None
     assert counts.raw_trial_count == counts.effective_trial_count == 2
     assert counts.unique_experiments == 2
     assert counts.evaluation_count == 3
+    first_id = registry.experiments()[0].experiment_id
+    scoped = registry.trial_counts(experiment_ids={first_id})
+    assert scoped.raw_trial_count == scoped.effective_trial_count == 1
+    assert scoped.unique_experiments == 1
+    assert scoped.evaluation_count == 2
+    assert "scoped" in scoped.methodology
     correlated = registry.trial_counts(empirical_trial_correlation=np.ones((2, 2)))
     assert correlated.effective_trial_count == 1
 
@@ -129,6 +183,16 @@ def test_registry_derived_effective_trial_count_and_dsr_source(tmp_path) -> None
     )
     assert summary["trials"] == 2
     assert summary["trial_count_source"] == "experiment_registry"
+
+    scoped_summary = summarize_sharpe(
+        rng.normal(0.001, 0.01, 200),
+        periods_per_year=252,
+        experiment_registry=registry,
+        experiment_ids={first_id},
+        bootstrap_iters=100,
+    )
+    assert scoped_summary["trials"] == 1
+    assert scoped_summary["trial_count_source"] == "experiment_registry_scoped"
 
 
 def test_feature_artifact_identity_binds_data_and_provenance(tmp_path) -> None:

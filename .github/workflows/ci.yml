@@ -59,17 +59,6 @@ jobs:
         run: |
           python -c "import trading_agent; from trading_agent.exchanges import WebSocketManager, HealthMonitor; from trading_agent.data import DataPipeline, DataPipeline; print('Imports OK')"
 
-      - name: Unit tests
-        run: pytest tests/ -v --tb=short
-
-      - name: Critical live-trading coverage gate
-        run: |
-          pytest tests/test_live_safety.py tests/test_binance_live_runner.py tests/test_ccxt_order_filters.py \
-            tests/test_live_broker_balances.py \
-            --cov=trading_agent.execution.live_safety \
-            --cov-report=term-missing \
-            --cov-fail-under=75
-
       - name: Validate YAML workflows
         run: |
           python3 -c "import pathlib, yaml; [yaml.safe_load(p.read_text()) for p in pathlib.Path('.github/workflows').glob('*.yml')]" && echo "All YAML valid"
@@ -88,11 +77,47 @@ jobs:
           docker compose --profile '*' -f docker-compose.yml -f docker-compose.prod.yml config --quiet
           docker compose -f docker-compose.oracle.yml config --quiet
 
+  test-suite:
+    name: Tests (${{ matrix.profile }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        # These three non-overlapping shards cover every collected test once.
+        profile: [ci-p0, ci-fast, slow]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,web,infra,ml,research,portfolio]"
+
+      - name: Run test shard
+        run: python scripts/run_test_suite.py "${{ matrix.profile }}" --workers 2 -- -q --tb=short
+
+      - name: Critical live-trading coverage gate
+        if: matrix.profile == 'ci-p0'
+        run: |
+          pytest tests/test_live_safety.py tests/test_binance_live_runner.py tests/test_ccxt_order_filters.py \
+            tests/test_live_broker_balances.py \
+            --cov=trading_agent.execution.live_safety \
+            --cov-report=term-missing \
+            --cov-fail-under=75
+
   build-and-scan:
     name: Build, Test & Security Scan
     runs-on: ubuntu-latest
     timeout-minutes: 25
-    needs: lint-and-test
+    needs: [lint-and-test, test-suite]
     permissions:
       contents: read
       packages: write

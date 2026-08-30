@@ -16,15 +16,16 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import logging
 import os
 import subprocess
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-# Tắt toàn bộ log INFO/WARNING của thư viện (giữ console output sạch)
-logging.disable(logging.CRITICAL)
+# Do not disable logging process-wide at import time.  The simulator is also
+# imported as a library by tournament/WFO runs, where INFO-level decision trace
+# records are audit evidence.  CLI noise can be controlled by normal handler
+# levels without suppressing those records globally.
 
 # TẮT LLM — dùng rule-based fallback cho tốc độ
 os.environ["USE_LLM"] = os.environ.get("USE_LLM", "false")

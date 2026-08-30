@@ -461,6 +461,10 @@ class TestCliRunPromoted:
         from trading_agent.cli.commands.live import execution
         from trading_agent.config.loader import config as app_config
 
+        # The CLI intentionally uses production-like relative default stores.
+        # Give every xdist worker a private working directory so those defaults
+        # cannot contend on data/execution/events.db.
+        monkeypatch.chdir(tmp_path)
         monkeypatch.setattr(
             type(app_config),
             "storage_abs_path",

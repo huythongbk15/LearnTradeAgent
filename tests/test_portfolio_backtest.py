@@ -21,6 +21,11 @@ from typing import Any
 import polars as pl
 import pytest
 
+pytestmark = [
+    pytest.mark.slow,
+    pytest.mark.backtest,
+]
+
 from tests.test_multi_pair_runtime import (
     _build_engine,
     _instrument_rules,

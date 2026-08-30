@@ -323,6 +323,7 @@ class TestLoaderIntegration:
         assert final_outcome.loaded_into_runtime is True
 
 
+@pytest.mark.slow
 class TestConcurrentStoreAccess:
     """Regression: hot-reload watcher thread + main thread sharing one db path.
 

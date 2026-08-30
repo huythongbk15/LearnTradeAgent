@@ -70,6 +70,7 @@ dev = [
     "pytest (>=9.1.1,<10.0.0)",
     "pytest-asyncio (>=1.4.0,<2.0.0)",
     "pytest-cov (>=5.0)",
+    "pytest-xdist (>=3.8,<4.0)",
     "ruff (>=0.6)",
     "mypy (>=1.11,<2.0)",
     "hypothesis (>=6.100,<7.0)",
@@ -96,7 +97,12 @@ include = ["trading_agent*"]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 markers = [
-    "slow: integration cells hitting real market data (deselect with '-m \"not slow\"')",
+    "p0: critical execution, risk, authority, and supply-chain safety gate",
+    "slow: deterministic tests too expensive for the edit-time feedback loop",
+    "wfo: nested walk-forward or holdout evaluation",
+    "backtest: full-fidelity backtest or fault simulation",
+    "fault: isolated fault-injection cell; scheduled separately from WFO load",
+    "serial: shared filesystem/process state; never run concurrently",
 ]
 # Bộ lọc warning có chủ đích (P1 cleanup):
 # - Deprecation của thư viện / Python stdlib — không phải bug dự án
