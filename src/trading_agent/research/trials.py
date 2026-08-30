@@ -32,6 +32,16 @@ def search_space_hash(spaces: dict[str, Any]) -> str:
     return _sha256(spaces)[:24]
 
 
+# Trial phases recorded by the append-only registry. Each (params, cost, fold)
+# candidate backtest on the validation window is an INNER_VALIDATION trial; the
+# selected-candidate backtest on the outer test window is an OUTER_OOS trial.
+# Counting real trial runs by phase is how nested-WFO derives its trial count
+# from the registry instead of a hand-maintained counter.
+TRIAL_PHASE_INNER_VALIDATION = "INNER_VALIDATION"
+TRIAL_PHASE_OUTER_OOS = "OUTER_OOS"
+TRIAL_PHASE_UNKNOWN = "UNKNOWN"
+
+
 @dataclass(frozen=True)
 class ExperimentSpec:
     experiment_id: str
@@ -98,6 +108,7 @@ class EvaluationRecord:
     metric_value: float
     created_at: datetime
     environment_hash: str
+    trial_phase: str = field(default=TRIAL_PHASE_UNKNOWN)
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
@@ -108,7 +119,10 @@ class TrialCounts:
     evaluation_count: int
     unique_experiments: int
     search_family_counts: dict[str, int]
-    methodology: str
+    inner_validation_trials: int = 0
+    outer_oos_trials: int = 0
+    total_trial_runs: int = 0
+    methodology: str = ""
 
 
 class ExperimentRegistry:
@@ -181,6 +195,7 @@ class ExperimentRegistry:
                         metric_value REAL NOT NULL,
                         created_at TEXT NOT NULL,
                         environment_hash TEXT NOT NULL,
+                        trial_phase TEXT NOT NULL DEFAULT 'UNKNOWN',
                         metadata_json TEXT NOT NULL,
                         FOREIGN KEY (experiment_id) REFERENCES experiment_specs(experiment_id)
                     );
@@ -214,6 +229,16 @@ class ExperimentRegistry:
                     END;
                     """
                 )
+                # Backfill the trial_phase column for registries created before
+                # the phase column existed. Safe to skip if already present.
+                try:
+                    connection.execute(
+                        "ALTER TABLE evaluation_records "
+                        "ADD COLUMN trial_phase TEXT NOT NULL DEFAULT 'UNKNOWN'"
+                    )
+                except sqlite3.OperationalError:
+                    # Column already exists in this (fresh) schema.
+                    pass
                 connection.commit()
             finally:
                 self._close(connection)
@@ -314,6 +339,7 @@ class ExperimentRegistry:
         metadata: dict[str, Any] | None = None,
         evaluation_id: str | None = None,
         created_at: datetime | None = None,
+        trial_phase: str = TRIAL_PHASE_UNKNOWN,
     ) -> EvaluationRecord:
         if not math.isfinite(float(metric_value)):
             raise ValueError("metric_value must be finite")
@@ -325,6 +351,7 @@ class ExperimentRegistry:
             metric_value=float(metric_value),
             created_at=created_at or datetime.now(UTC),
             environment_hash=str(environment_hash),
+            trial_phase=str(trial_phase),
             metadata=dict(metadata or {}),
         )
         with self._lock:
@@ -333,7 +360,11 @@ class ExperimentRegistry:
                 connection.execute("BEGIN IMMEDIATE")
                 connection.execute(
                     """
-                    INSERT INTO evaluation_records VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO evaluation_records
+                        (evaluation_id, experiment_id, fold_id, metric_name,
+                         metric_value, created_at, environment_hash, trial_phase,
+                         metadata_json)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         record.evaluation_id,
@@ -343,6 +374,7 @@ class ExperimentRegistry:
                         record.metric_value,
                         record.created_at.isoformat(),
                         record.environment_hash,
+                        record.trial_phase,
                         _canonical_json(record.metadata),
                     ),
                 )
@@ -353,6 +385,26 @@ class ExperimentRegistry:
                 raise
             finally:
                 self._close(connection)
+
+    def has_trial_phase(
+        self, experiment_id: str, fold_id: str, trial_phase: str
+    ) -> bool:
+        """Return True if a trial record with this (experiment, fold, phase) exists.
+
+        Used by the nested-WFO driver to keep the append-only registry
+        idempotent: re-running the same (params, cost, fold, phase) does not
+        create a duplicate trial record.
+        """
+        connection = self._connect()
+        try:
+            row = connection.execute(
+                "SELECT 1 FROM evaluation_records "
+                "WHERE experiment_id = ? AND fold_id = ? AND trial_phase = ? LIMIT 1",
+                (experiment_id, str(fold_id), trial_phase),
+            ).fetchone()
+            return row is not None
+        finally:
+            self._close(connection)
 
     def experiments(self) -> list[ExperimentSpec]:
         connection = self._connect()
@@ -401,9 +453,18 @@ class ExperimentRegistry:
         self,
         *,
         empirical_trial_correlation: np.ndarray | None = None,
+        experiment_ids: Iterable[str] | None = None,
     ) -> TrialCounts:
         specs = self.experiments()
         evaluations = self.evaluations()
+        if experiment_ids is not None:
+            selected_ids = set(experiment_ids)
+            specs = [spec for spec in specs if spec.experiment_id in selected_ids]
+            evaluations = [
+                evaluation
+                for evaluation in evaluations
+                if evaluation.experiment_id in selected_ids
+            ]
         raw = len(specs)
         families: dict[str, int] = {}
         for spec in specs:
@@ -414,6 +475,8 @@ class ExperimentRegistry:
             "unique canonical ExperimentSpecs; exact reruns are evaluations, not new trials; "
             "without an empirical trial-correlation matrix, effective equals raw (conservative)"
         )
+        if experiment_ids is not None:
+            methodology += "; scoped to the supplied experiment ids"
         effective = raw
         if empirical_trial_correlation is not None:
             matrix = np.asarray(empirical_trial_correlation, dtype=float)
@@ -437,12 +500,28 @@ class ExperimentRegistry:
                 "unique canonical ExperimentSpecs with effective trials estimated by the "
                 "eigenvalue participation ratio of the supplied empirical trial-correlation matrix"
             )
+
+        # Real trial-run accounting: count actual backtest executions recorded in
+        # the append-only registry, partitioned by phase. This is the source of
+        # truth for nested-WFO trial counts (inner validation + outer OOS), not a
+        # hand-maintained counter.
+        inner_validation_trials = sum(
+            1 for e in evaluations if e.trial_phase == TRIAL_PHASE_INNER_VALIDATION
+        )
+        outer_oos_trials = sum(
+            1 for e in evaluations if e.trial_phase == TRIAL_PHASE_OUTER_OOS
+        )
+        total_trial_runs = inner_validation_trials + outer_oos_trials
+
         return TrialCounts(
             raw_trial_count=raw,
             effective_trial_count=effective,
             evaluation_count=len(evaluations),
             unique_experiments=raw,
             search_family_counts=families,
+            inner_validation_trials=inner_validation_trials,
+            outer_oos_trials=outer_oos_trials,
+            total_trial_runs=total_trial_runs,
             methodology=methodology,
         )
 
@@ -473,6 +552,7 @@ class ExperimentRegistry:
             metric_value=float(row["metric_value"]),
             created_at=datetime.fromisoformat(row["created_at"]),
             environment_hash=row["environment_hash"],
+            trial_phase=row["trial_phase"],
             metadata=json.loads(row["metadata_json"]),
         )
 

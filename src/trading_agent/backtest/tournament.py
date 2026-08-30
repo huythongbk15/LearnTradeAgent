@@ -37,7 +37,11 @@ if str(ROOT) not in sys.path:
 
 import polars as pl
 
-from trading_agent.backtest.reporting import assess_ohlcv
+from trading_agent.backtest.reporting import (
+    assess_ohlcv,
+    calculate_cost_attribution,
+    calendar_returns,
+)
 from trading_agent.data.storage import load_ohlcv
 from trading_agent.strategies.canonical.adapter import (
     ACTION_BUY,
@@ -81,6 +85,13 @@ class CostScenario:
     @property
     def slippage(self) -> float:
         return BASE_SLIPPAGE * self.slippage_multiplier
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "fee_multiplier": self.fee_multiplier,
+            "slippage_multiplier": self.slippage_multiplier,
+        }
 
 
 #: Canonical scenario set (STR-0205).
@@ -187,7 +198,7 @@ def apply_faults(simulator: Any, profile: FaultProfile) -> None:
                 return
             return original_fill_market(order_id)
 
-        exchange._fill_market_order = rejecting_fill  # type: ignore[method-assign]
+        exchange._fill_market_order = rejecting_fill
 
     # ── Break protection (stop-loss placement fails) ────────────────────────
     if profile.break_protection:
@@ -221,7 +232,7 @@ def apply_faults(simulator: Any, profile: FaultProfile) -> None:
                 exchange._save_state()
             return order
 
-        exchange.place_order = placing  # type: ignore[method-assign]
+        exchange.place_order = placing
 
     # ── Partial fills (market orders only fill fraction) ────────────────────
     # Apply only to BUY (entry) orders — SELL (exit) orders fill fully to
@@ -247,7 +258,7 @@ def apply_faults(simulator: Any, profile: FaultProfile) -> None:
                     order.amount = real_amount
             return original_fill(order_id)
 
-        exchange._fill_market_order = partial_fill  # type: ignore[method-assign]
+        exchange._fill_market_order = partial_fill
 
     # ── Cancel race (first cancel reported as lost by venue) ───────────────
     if profile.cancel_miss_first:
@@ -264,7 +275,7 @@ def apply_faults(simulator: Any, profile: FaultProfile) -> None:
                 return None
             return result
 
-        exchange.cancel_order = cancelling  # type: ignore[method-assign]
+        exchange.cancel_order = cancelling
 
     # ── Stale price feed (already works correctly) ─────────────────────────
     if profile.stale_windows:
@@ -283,7 +294,7 @@ def apply_faults(simulator: Any, profile: FaultProfile) -> None:
                     return
             return original_update(prices)
 
-        simulator.engine.update_prices = stale_update  # type: ignore[method-assign]
+        simulator.engine.update_prices = stale_update
 
     # ── Data gaps: record in manifest, don't drop bars (breaks simulator) ───
     if profile.drop_gap_bars_every:
@@ -413,19 +424,36 @@ class EvaluationArtifact:
     execution_health: Mapping[str, Any]
     failure_reasons: tuple[str, ...] = ()
     created_at: str = ""
+    measurement_window: tuple[int, int] | None = None
+    simulation_window: tuple[int, int | None] | None = None
+    signal_delay_bars: int = 0
+    selection_freeze_id: str | None = None
 
     @property
     def artifact_id(self) -> str:
         payload = json.dumps(
             {
                 "cell_id": self.cell_id,
+                "status": self.status,
                 "descriptor_id": self.descriptor_id,
+                "strategy_id": self.strategy_id,
+                "symbol": self.symbol,
+                "timeframe": self.timeframe,
                 "params_hash": self.params_hash,
                 "cost_scenario": self.cost_scenario,
                 "fault_profile": self.fault_profile,
+                "commission": self.commission,
+                "slippage": self.slippage,
                 "data_manifest_sha": self.data_manifest_sha,
                 "commit_sha": self.commit_sha,
+                "report_path": self.report_path,
+                "measurement_window": self.measurement_window,
+                "simulation_window": self.simulation_window,
+                "signal_delay_bars": self.signal_delay_bars,
+                "selection_freeze_id": self.selection_freeze_id,
                 "metrics": dict(self.metrics),
+                "execution_health": dict(self.execution_health),
+                "failure_reasons": self.failure_reasons,
             },
             sort_keys=True,
             separators=(",", ":"),
@@ -453,7 +481,50 @@ class EvaluationArtifact:
             "execution_health": dict(self.execution_health),
             "failure_reasons": list(self.failure_reasons),
             "created_at": self.created_at,
+            "measurement_window": list(self.measurement_window)
+            if self.measurement_window is not None
+            else None,
+            "simulation_window": list(self.simulation_window)
+            if self.simulation_window is not None
+            else None,
+            "signal_delay_bars": self.signal_delay_bars,
+            "selection_freeze_id": self.selection_freeze_id,
         }
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> "EvaluationArtifact":
+        """Rebuild and verify an artifact loaded from persistent evidence."""
+
+        measurement = data.get("measurement_window")
+        simulation = data.get("simulation_window")
+        artifact = cls(
+            cell_id=str(data.get("cell_id", "")),
+            status=str(data.get("status", "FAILED")),
+            descriptor_id=str(data.get("descriptor_id", "")),
+            strategy_id=str(data.get("strategy_id", "")),
+            symbol=str(data.get("symbol", "")),
+            timeframe=str(data.get("timeframe", "")),
+            params_hash=str(data.get("params_hash", "")),
+            cost_scenario=str(data.get("cost_scenario", "")),
+            fault_profile=str(data.get("fault_profile", "none")),
+            commission=float(data.get("commission", 0.0)),
+            slippage=float(data.get("slippage", 0.0)),
+            data_manifest_sha=str(data.get("data_manifest_sha", "")),
+            commit_sha=str(data.get("commit_sha", "")),
+            report_path=data.get("report_path"),
+            metrics=dict(data.get("metrics", {})),
+            execution_health=dict(data.get("execution_health", {})),
+            failure_reasons=tuple(data.get("failure_reasons", ())),
+            created_at=str(data.get("created_at", "")),
+            measurement_window=tuple(measurement) if measurement is not None else None,
+            simulation_window=tuple(simulation) if simulation is not None else None,
+            signal_delay_bars=int(data.get("signal_delay_bars", 0)),
+            selection_freeze_id=data.get("selection_freeze_id"),
+        )
+        expected_id = data.get("artifact_id")
+        if expected_id is not None and expected_id != artifact.artifact_id:
+            raise ValueError("evaluation artifact content hash mismatch")
+        return artifact
 
 
 _REQUIRED_METRICS = (
@@ -465,6 +536,21 @@ _REQUIRED_METRICS = (
     "profit_factor",
 )
 
+# S3-3: ``return_series`` is the real per-bar return series of the measurement
+# window. It is NOT a completion gate — an artifact with zero trades but a valid
+# equity curve still carries its return series for downstream statistical
+# hardening. It is propagated through the artifact so nested_wfo can consume it.
+_OPTIONAL_METRICS = (
+    "return_series",
+    "net_pnl",
+    "gross_profit",
+    "gross_loss",
+    "calmar",
+    "sortino",
+    "cagr_pct",
+    "final_equity",
+)
+
 
 def run_cell(
     spec: EvaluationCellSpec,
@@ -473,6 +559,10 @@ def run_cell(
     start: int = 0,
     end: int | None = None,
     fresh: bool = True,
+    simulation_start: int | None = None,
+    measurement_start: int | None = None,
+    measurement_end: int | None = None,
+    signal_delay_bars: int = 0,
 ) -> EvaluationArtifact:
     """Run one tournament cell through the full execution path."""
     # Import here so module import stays cheap for tests that only need specs.
@@ -496,7 +586,36 @@ def run_cell(
     out_root = (
         Path(out_root) if out_root else ROOT / "data" / "backtests" / "tournament"
     )
-    cell_dir = out_root / spec.cell_id
+    sim_start = simulation_start if simulation_start is not None else start
+    if measurement_start is not None or measurement_end is not None:
+        if measurement_start is None or measurement_end is None:
+            raise ValueError("measurement_start and measurement_end must be provided together")
+        if not (sim_start <= measurement_start < measurement_end):
+            raise ValueError(
+                "measurement window must be non-empty and contained after simulation_start"
+            )
+        if end is not None and measurement_end > end:
+            raise ValueError("measurement_end must not exceed simulation end")
+
+    run_identity = {
+        "simulation_start": sim_start,
+        "end": end,
+        "measurement_start": measurement_start,
+        "measurement_end": measurement_end,
+        "signal_delay_bars": signal_delay_bars,
+    }
+    is_default_window = run_identity == {
+        "simulation_start": 0,
+        "end": None,
+        "measurement_start": None,
+        "measurement_end": None,
+        "signal_delay_bars": 0,
+    }
+    run_suffix = hashlib.sha256(
+        json.dumps(run_identity, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()[:16]
+    storage_id = spec.cell_id if is_default_window else f"{spec.cell_id}__w{run_suffix}"
+    cell_dir = out_root / storage_id
     cell_dir.mkdir(parents=True, exist_ok=True)
 
     # Data + manifest + quality gate (identical loader as the baseline sim;
@@ -563,13 +682,23 @@ def run_cell(
         symbol=spec.symbol,
     )
 
+    # Apply signal delay: shift signals forward by signal_delay_bars positions.
+    # Signal at index j currently means "decide at close of bar j, execute at open of bar j+1".
+    # With delay=1: signal at index j means "decide at close of bar j-1, execute at open of bar j".
+    # This is equivalent to shifting the signal array right by 1 (prepending 0).
+    if signal_delay_bars > 0:
+        if signal_delay_bars >= len(signals):
+            signals = [0] * len(signals)
+        else:
+            signals = [0] * signal_delay_bars + signals[:-signal_delay_bars]
+
     sim = FullSystemSimulator(
         fresh=fresh,
         symbol=spec.symbol,
         timeframe=spec.timeframe,
         state_dir=cell_dir / "execution",
         report_path=cell_dir / "report.json",
-        run_id=f"tourney_{spec.cell_id}",
+        run_id=f"tourney_{storage_id}",
         data_manifest_id=data_manifest_sha,
         gap_policy="record",
         strategy_name=spec.strategy_id,
@@ -597,16 +726,172 @@ def run_cell(
         ]
     apply_faults(sim, spec.fault)
     try:
-        report = sim.run(start=start, end=end)
+        report = sim.run(start=sim_start, end=end)
     except Exception as exc:  # noqa: BLE001 - a broken cell is evidence, not a crash
         return _failed_artifact(
             spec,
             descriptor,
             f"execution_crash:{type(exc).__name__}:{exc}",
             data_manifest_sha=data_manifest_sha,
+            measurement_window=(measurement_start, measurement_end)
+            if measurement_start is not None and measurement_end is not None
+            else None,
+            simulation_window=(sim_start, end),
+            signal_delay_bars=signal_delay_bars,
         )
 
-    return _artifact_from_report(spec, descriptor, cell_dir, report, data_manifest_sha)
+    if spec.fault.reject_first_n_orders:
+        # Retries may leave the account flat, but a broker rejection is still
+        # execution evidence that must block promotion of this fault cell.
+        report = dict(report)
+        fault_health = dict(report.get("execution_health", {}))
+        fault_health["rejected_orders"] = int(spec.fault.reject_first_n_orders)
+        report["execution_health"] = fault_health
+
+    # S3-1: measurement-window isolation. Metrics are computed ONLY over
+    # [measurement_start, measurement_end); warm-up/train bars before
+    # measurement_start only initialize indicator state and must not enter
+    # the reported validation/OOS metrics.
+    if measurement_start is not None and measurement_end is not None:
+        from trading_agent.backtest.reporting import calculate_performance_metrics
+
+        def _trade_bar(t: Mapping[str, Any], field: str) -> int:
+            # exit_bar_index lives in metadata.simulation for simulator trades;
+            # fall back to a top-level key for other trade representations.
+            sim = (t.get("metadata") if isinstance(t.get("metadata"), Mapping) else None)
+            sim_value = (
+                sim.get("simulation", {}).get(field)
+                if isinstance(sim, Mapping)
+                else None
+            )
+            raw = t.get(field, sim_value)
+            try:
+                return int(raw)
+            except (TypeError, ValueError):
+                return -1
+
+        full_eq = report.get("equity_curve", [])
+        offset = measurement_start - sim_start
+        end_offset = measurement_end - sim_start
+        if offset > len(full_eq) or end_offset > len(full_eq):
+            raise ValueError("measurement window exceeds produced equity curve")
+
+        # equity_curve[k] is bar (sim_start + k) close. Include the preceding
+        # close as the opening mark so the first measurement-bar return is not
+        # lost and warm-up PnL is never treated as OOS PnL.
+        if offset > 0:
+            m_eq = full_eq[offset - 1 : end_offset]
+            opening_equity = float(full_eq[offset - 1][1])
+        else:
+            opening_equity = float(report.get("initial_capital", 100_000.0))
+            opening_marker = ["measurement_open", opening_equity]
+            m_eq = [opening_marker, *full_eq[offset:end_offset]]
+
+        boundary_price = None
+        if measurement_start > 0 and "close" in frame.columns:
+            boundary_price = float(frame[measurement_start - 1, "close"])
+
+        m_trades: list[dict[str, Any]] = []
+        unattributed_cross_boundary = 0
+        for original in report.get("trades", []):
+            exit_bar = _trade_bar(original, "exit_bar_index")
+            if not (measurement_start <= exit_bar < measurement_end):
+                continue
+            trade = dict(original)
+            entry_bar = _trade_bar(original, "entry_bar_index")
+            if entry_bar < 0:
+                # An exit inside the measurement window is not sufficient to
+                # prove how much of its PnL belongs to that window.  Keep the
+                # run fail-closed instead of silently charging the full trade
+                # to OOS performance.
+                unattributed_cross_boundary += 1
+                continue
+            if entry_bar >= measurement_start:
+                m_trades.append(trade)
+                continue
+
+            # Clip a position carried from train/warm-up to its mark at the
+            # measurement boundary. Entry fees belong to the pre-measurement
+            # period; only the price move after the boundary and exit fee count.
+            quantity = float(trade.get("quantity") or 0.0)
+            exit_price = float(trade.get("exit_price") or 0.0)
+            side = str(trade.get("side") or "").lower()
+            if boundary_price is None or quantity <= 0 or exit_price <= 0 or side not in {
+                "buy",
+                "sell",
+            }:
+                unattributed_cross_boundary += 1
+                continue
+            gross = quantity * (
+                exit_price - boundary_price if side == "buy" else boundary_price - exit_price
+            )
+            exit_fee = float(trade.get("exit_fee") or 0.0)
+            trade["pnl"] = gross - exit_fee
+            trade["entry_price"] = boundary_price
+            trade["entry_fee"] = 0.0
+            trade["measurement_attribution"] = "marked_at_window_open"
+            m_trades.append(trade)
+
+        m_metrics = calculate_performance_metrics(
+            m_eq,
+            initial_capital=opening_equity,
+            timeframe_delta=sim.timeframe_delta,
+            trades=m_trades,
+        )
+        report = dict(report)
+        report["initial_capital"] = opening_equity
+        report["equity_curve"] = m_eq
+        report["trades"] = m_trades
+        report["metrics"] = m_metrics
+        report["cost_attribution"] = calculate_cost_attribution(m_trades)
+        report["calendar_returns_pct"] = calendar_returns(
+            m_eq, initial_capital=opening_equity
+        )
+        # Signals and benchmark curves from the warm-up/full simulation are not
+        # measurement evidence.  Remove them rather than leaving a consumer to
+        # accidentally treat pre-window observations as OOS data.
+        report["signals"] = []
+        report["signals_seen"] = 0
+        report["benchmarks"] = {}
+        # Keep the legacy top-level summary consistent with the authoritative
+        # measurement-only metrics.  Downstream consumers must never observe a
+        # full-simulation headline next to an isolated OOS metrics block.
+        for metric_name in (
+            "final_equity",
+            "total_return_pct",
+            "sharpe",
+            "max_drawdown_pct",
+            "total_trades",
+            "win_rate_pct",
+            "profit_factor",
+        ):
+            report[metric_name] = m_metrics.get(metric_name)
+        report["measurement_window"] = (measurement_start, measurement_end)
+        report["measurement_evidence"] = {
+            "opening_equity": opening_equity,
+            "equity_points": len(m_eq),
+            "attributed_closed_trades": len(m_trades),
+            "unattributed_cross_boundary_trades": unattributed_cross_boundary,
+            "trade_attribution": "mark_to_market_at_measurement_open",
+        }
+        # The simulator persisted the full-window report before returning. Store
+        # the isolated evidence as the authoritative report for this run.
+        (cell_dir / "report.json").write_text(
+            json.dumps(report, indent=2, allow_nan=False), encoding="utf-8"
+        )
+
+    return _artifact_from_report(
+        spec,
+        descriptor,
+        cell_dir,
+        report,
+        data_manifest_sha,
+        measurement_window=(measurement_start, measurement_end)
+        if measurement_start is not None and measurement_end is not None
+        else None,
+        simulation_window=(sim_start, end),
+        signal_delay_bars=signal_delay_bars,
+    )
 
 
 def _research_env():
@@ -656,6 +941,9 @@ def _failed_artifact(
     reason: str,
     *,
     data_manifest_sha: str = "unknown",
+    measurement_window: tuple[int, int] | None = None,
+    simulation_window: tuple[int, int | None] | None = None,
+    signal_delay_bars: int = 0,
 ) -> EvaluationArtifact:
     return EvaluationArtifact(
         cell_id=spec.cell_id,
@@ -676,6 +964,9 @@ def _failed_artifact(
         execution_health={},
         failure_reasons=(reason,),
         created_at=_now_iso(),
+        measurement_window=measurement_window,
+        simulation_window=simulation_window,
+        signal_delay_bars=signal_delay_bars,
     )
 
 
@@ -685,12 +976,15 @@ def _artifact_from_report(
     cell_dir: Path,
     report: Mapping[str, Any],
     data_manifest_sha: str,
+    measurement_window: tuple[int, int] | None = None,
+    simulation_window: tuple[int, int | None] | None = None,
+    signal_delay_bars: int = 0,
 ) -> EvaluationArtifact:
     reasons: list[str] = []
     metrics_block = report.get("metrics", {}) if report else {}
     health = report.get("execution_health", {}) if report else {}
 
-    metrics = {}
+    metrics: dict[str, Any] = {}
     for key in _REQUIRED_METRICS:
         value = metrics_block.get(key)
         if value is None:
@@ -699,6 +993,11 @@ def _artifact_from_report(
             # average loss makes profit factor literally infinite; that is
             # evidence of success, not missing evidence.
             avg_loss = metrics_block.get("average_loss")
+            if key == "profit_factor" and int(metrics_block.get("total_trades") or 0) == 0:
+                # A no-trade window is valid evidence. The PF gate will receive
+                # None and fail INVALID; the evaluation itself still completed.
+                metrics[key] = None
+                continue
             if (
                 key == "profit_factor"
                 and int(metrics_block.get("total_trades") or 0) > 0
@@ -714,6 +1013,19 @@ def _artifact_from_report(
         else:
             metrics[key] = value
 
+    # S3-3: propagate the real return series (never a gate — see
+    # _OPTIONAL_METRICS) so downstream statistical hardening can run on actual
+    # per-bar OOS returns rather than fold-level Sharpe proxies.
+    for key in _OPTIONAL_METRICS:
+        value = metrics_block.get(key)
+        if value is not None:
+            metrics[key] = value
+
+    measurement_evidence = report.get("measurement_evidence", {}) if report else {}
+    unattributed = int(measurement_evidence.get("unattributed_cross_boundary_trades", 0))
+    if unattributed != 0:
+        reasons.append(f"unattributed_cross_boundary_trades={unattributed}")
+
     unknown_orders = int(health.get("unknown_orders", -1))
     manual = int(health.get("manual_interventions", -1))
     unprotected = (
@@ -727,8 +1039,15 @@ def _artifact_from_report(
         reasons.append(f"manual_interventions={manual}")
     if unprotected != 0:
         reasons.append(f"unprotected_positions={unprotected}")
+    rejected_orders = int(health.get("rejected_orders", 0))
+    if rejected_orders != 0:
+        reasons.append(f"rejected_orders={rejected_orders}")
+        if int(metrics_block.get("total_trades") or 0) == 0:
+            reasons.append("missing_metric:profit_factor")
 
     status = "COMPLETED" if not reasons and report else "FAILED"
+    if measurement_window is None and report and report.get("measurement_window"):
+        measurement_window = tuple(report["measurement_window"])
     return EvaluationArtifact(
         cell_id=spec.cell_id,
         status=status,
@@ -748,6 +1067,9 @@ def _artifact_from_report(
         execution_health=dict(health),
         failure_reasons=tuple(reasons),
         created_at=_now_iso(),
+        measurement_window=measurement_window,
+        simulation_window=simulation_window,
+        signal_delay_bars=signal_delay_bars,
     )
 
 
