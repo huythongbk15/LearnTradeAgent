@@ -240,6 +240,7 @@
 │   ├── run_canonical_strategy.py
 │   ├── run_nested_wfo.py
 │   ├── run_strategy_tournament.py
+│   ├── run_test_suite.py
 │   ├── run_wfo_evidence.py
 │   ├── sign_and_verify.sh
 │   ├── simulate_execution.py
@@ -627,6 +628,8 @@
 │   ├── test_risk_decision.py
 │   ├── test_s3_3_real_return_stats.py
 │   ├── test_s3_7_holdout_fail_closed.py
+│   ├── test_s3_evidence_integrity.py
+│   ├── test_s3_study_provenance.py
 │   ├── test_shadow_mainnet.py
 │   ├── test_simulator_calibration.py
 │   ├── test_simulator_provenance_distribution.py
