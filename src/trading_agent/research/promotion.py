@@ -418,7 +418,9 @@ class ResearchPromotionGate:
                     "slsa_verified",
                     "provenance_verified",
                 )
-                if any(payload.get(name) is not True for name in required_verifications):
+                if any(
+                    payload.get(name) is not True for name in required_verifications
+                ):
                     return "supply_chain_verification_failed"
                 if not str(payload.get("verification_run_id", "")).strip():
                     return "verification_run_missing"

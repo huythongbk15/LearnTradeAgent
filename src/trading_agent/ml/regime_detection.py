@@ -103,9 +103,13 @@ class RegimePosterior:
         payload = {
             "probabilities": self.as_mapping,
             "model_id": self.model_id,
-            "fitted_start": self.fitted_start.isoformat() if self.fitted_start else None,
+            "fitted_start": self.fitted_start.isoformat()
+            if self.fitted_start
+            else None,
             "fitted_end": self.fitted_end.isoformat() if self.fitted_end else None,
-            "generated_at": self.generated_at.isoformat() if self.generated_at else None,
+            "generated_at": self.generated_at.isoformat()
+            if self.generated_at
+            else None,
             "ood_score": self.ood_score,
         }
         encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
@@ -131,7 +135,9 @@ class RegimePosterior:
             "other": self.p_other,
         }
 
-    def is_fresh(self, *, now: datetime | None = None, max_age_seconds: int = 7200) -> bool:
+    def is_fresh(
+        self, *, now: datetime | None = None, max_age_seconds: int = 7200
+    ) -> bool:
         now = now or datetime.now(UTC)
         if self.generated_at is None or max_age_seconds <= 0:
             return False

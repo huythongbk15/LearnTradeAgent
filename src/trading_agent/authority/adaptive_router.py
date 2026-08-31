@@ -681,7 +681,9 @@ class AdaptiveStrategyRouter:
             handover=HandoverState.ACTIVATE,
             reason="CHALLENGER_ACTIVATED",
             allow_new_exposure=True,
-            exposure_multiplier=min(best_policy.risk_cap, posterior.conviction_multiplier),
+            exposure_multiplier=min(
+                best_policy.risk_cap, posterior.conviction_multiplier
+            ),
             candidate_score=best_score,
             incumbent_score=incumbent_score,
             position_owner_strategy_id=None,
@@ -731,9 +733,7 @@ class AdaptiveForecastRuntime:
         self.verification_key = verification_key
         self.key_id = key_id
         self.environment = environment
-        self._cache: dict[
-            str, tuple[StrategyDescriptor, LegacyDataFrameAdapter]
-        ] = {}
+        self._cache: dict[str, tuple[StrategyDescriptor, LegacyDataFrameAdapter]] = {}
 
     def _resolve(
         self, decision: RoutingDecision
@@ -763,7 +763,9 @@ class AdaptiveForecastRuntime:
             from trading_agent.strategies.canonical.candidates import (
                 build_parameterized_adapter,
             )
-            from trading_agent.strategies.canonical.registry import RegistryIntegrityError
+            from trading_agent.strategies.canonical.registry import (
+                RegistryIntegrityError,
+            )
 
             try:
                 descriptor, adapter = build_parameterized_adapter(
@@ -772,8 +774,13 @@ class AdaptiveForecastRuntime:
             except (KeyError, RegistryIntegrityError, ValueError) as exc:
                 raise ValueError(f"chosen strategy cannot be resolved: {exc}") from exc
             if descriptor.code_sha != policy.incumbent.code_sha:
-                raise ValueError("policy strategy code_sha does not match allowlisted code")
-            if descriptor.research_only and self.environment is not Environment.RESEARCH:
+                raise ValueError(
+                    "policy strategy code_sha does not match allowlisted code"
+                )
+            if (
+                descriptor.research_only
+                and self.environment is not Environment.RESEARCH
+            ):
                 raise ValueError(
                     "research_only strategy is blocked outside the research environment"
                 )

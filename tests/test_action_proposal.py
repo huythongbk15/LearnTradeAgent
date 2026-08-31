@@ -16,7 +16,6 @@ from trading_agent.execution.proposal import (
 )
 from trading_agent.execution.contract import (
     BudgetEnvelope,
-    ExecutionContractRegistry,
     ExecutionResult,
     SkillManifest,
     get_registry,
@@ -220,6 +219,7 @@ class TestBudgetEnvelope:
         # Simulate time passing by monkeypatching datetime
         import datetime as dt
         from unittest.mock import patch
+
         future = dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=2)
         with patch("trading_agent.execution.contract.datetime") as mock_dt:
             mock_dt.now.return_value = future
@@ -312,6 +312,7 @@ class TestProposalExecutionContext:
             )
 
         from trading_agent.execution.contract import register_skill
+
         register_skill(
             skill_name="test_skill",
             action_types=[ActionType.HOLD],
@@ -348,6 +349,7 @@ class TestProposalExecutionContext:
             )
 
         from trading_agent.execution.contract import register_skill
+
         register_skill(
             skill_name="test_skill",
             action_types=[ActionType.HOLD],

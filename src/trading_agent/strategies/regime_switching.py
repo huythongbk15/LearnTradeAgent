@@ -224,7 +224,9 @@ class RegimeSwitchingStrategy(Strategy):
                 "lookback": self.lookback,
                 "detector_fitted": self._detector_fitted,
                 "bars_since_refit": self._bars_since_refit,
-                "current_regime": self._current_regime.value if self._current_regime else None,
+                "current_regime": self._current_regime.value
+                if self._current_regime
+                else None,
                 "regime_confidence": self._regime_confidence,
                 "regime_history": [r.value for r in self._regime_history],
             }
@@ -234,7 +236,9 @@ class RegimeSwitchingStrategy(Strategy):
                 payload["detector"] = self._detector.__getstate__()
             else:
                 payload["detector"] = None
-            pathlib.Path(target).write_text(json.dumps(payload, sort_keys=True, indent=2))
+            pathlib.Path(target).write_text(
+                json.dumps(payload, sort_keys=True, indent=2)
+            )
             return target
         except Exception as exc:
             logger.debug(f"Failed to save detector state: {exc}")

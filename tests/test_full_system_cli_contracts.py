@@ -7,7 +7,11 @@ import pytest
 
 from scripts.full_system_backtest import _load_strategy_artifact
 from scripts.full_system_backtest import FullSystemSimulator
-from trading_agent.research.artifact import StrategyArtifact, canonical_params, sha256_hex
+from trading_agent.research.artifact import (
+    StrategyArtifact,
+    canonical_params,
+    sha256_hex,
+)
 from trading_agent.strategies.canonical.candidates import build_legacy_candidate
 from trading_agent.backtest.tournament import EvaluationCellSpec, run_cell
 from trading_agent.research.forecast import ResearchStrategyRuntime, StrategyRuntime

@@ -109,15 +109,9 @@ def test_liquidity_participation_and_no_trade_band_are_enforced():
 
 def test_opposing_forecasts_are_netted_before_long_only_target_emission():
     allocator = _allocator()
-    long_request = _request(
-        "strategy_a", "BTC/USDT", 0.30, desired_exposure=0.30
-    )
-    opposing_request = _request(
-        "strategy_b", "BTC/USDT", 0.20, desired_exposure=-0.20
-    )
-    outcome = allocator.allocate_batch(
-        [long_request, opposing_request], _snapshot()
-    )
+    long_request = _request("strategy_a", "BTC/USDT", 0.30, desired_exposure=0.30)
+    opposing_request = _request("strategy_b", "BTC/USDT", 0.20, desired_exposure=-0.20)
+    outcome = allocator.allocate_batch([long_request, opposing_request], _snapshot())
     vector = allocator.build_target_vector(outcome, _snapshot(), "cycle-net")
 
     assert outcome.approved_by_symbol["BTC/USDT"] == pytest.approx(0.50)

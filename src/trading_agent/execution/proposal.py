@@ -147,13 +147,26 @@ class ActionProposal:
 class ActionProposalModel(BaseModel):
     """Pydantic model for validated LLM structured output."""
 
-    action_type: str = Field(..., description="One of: observe, propose, execute, cancel, hold, reduce, increase, close, modify, noop")
+    action_type: str = Field(
+        ...,
+        description="One of: observe, propose, execute, cancel, hold, reduce, increase, close, modify, noop",
+    )
     symbol: str = Field(..., description="Trading symbol, e.g. BTC/USDT")
-    params: dict[str, Any] = Field(default_factory=dict, description="Action-specific parameters")
-    budget: dict[str, Any] = Field(default_factory=dict, description="Budget envelope for this action")
-    idempotency_key: str = Field(..., description="Deterministic idempotency key for deduplication")
-    context_delta: dict[str, Any] = Field(default_factory=dict, description="Context changes that prompted this proposal")
-    justification: str = Field(..., description="Human-readable justification for this action")
+    params: dict[str, Any] = Field(
+        default_factory=dict, description="Action-specific parameters"
+    )
+    budget: dict[str, Any] = Field(
+        default_factory=dict, description="Budget envelope for this action"
+    )
+    idempotency_key: str = Field(
+        ..., description="Deterministic idempotency key for deduplication"
+    )
+    context_delta: dict[str, Any] = Field(
+        default_factory=dict, description="Context changes that prompted this proposal"
+    )
+    justification: str = Field(
+        ..., description="Human-readable justification for this action"
+    )
 
     def to_canonical(self) -> ActionProposal:
         """Convert validated model to canonical ActionProposal dataclass."""
@@ -173,6 +186,7 @@ class ActionProposalModel(BaseModel):
 
 class ActionProposalValidationError(Exception):
     """Raised when an ActionProposal fails validation."""
+
     pass
 
 
@@ -218,9 +232,7 @@ def validate_structured_output(raw_output: str) -> ActionProposal:
     try:
         data = json.loads(raw_output)
     except json.JSONDecodeError as exc:
-        raise ActionProposalValidationError(
-            f"Failed to parse JSON: {exc}"
-        ) from exc
+        raise ActionProposalValidationError(f"Failed to parse JSON: {exc}") from exc
     if not isinstance(data, dict):
         raise ActionProposalValidationError(
             f"Expected JSON object, got {type(data).__name__}"

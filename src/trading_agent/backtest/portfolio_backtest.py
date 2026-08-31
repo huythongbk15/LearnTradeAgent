@@ -468,8 +468,7 @@ class AttributionRecord:
             "symbol": self.symbol,
             "regime": self.regime,
             "factor_contributions": {
-                name: round(value, 10)
-                for name, value in self.factor_contributions
+                name: round(value, 10) for name, value in self.factor_contributions
             },
             "gross_pnl": round(self.gross_pnl, 10),
             "fees": round(self.fees, 10),
@@ -534,16 +533,13 @@ class PortfolioBacktestResult:
             },
             "attribution": [item.to_dict() for item in self.attribution],
             "attribution_by_strategy": {
-                k: round(v, 8)
-                for k, v in sorted(self.attribution_by_strategy.items())
+                k: round(v, 8) for k, v in sorted(self.attribution_by_strategy.items())
             },
             "attribution_by_regime": {
-                k: round(v, 8)
-                for k, v in sorted(self.attribution_by_regime.items())
+                k: round(v, 8) for k, v in sorted(self.attribution_by_regime.items())
             },
             "attribution_by_factor": {
-                k: round(v, 8)
-                for k, v in sorted(self.attribution_by_factor.items())
+                k: round(v, 8) for k, v in sorted(self.attribution_by_factor.items())
             },
             "execution_cost_by_strategy": {
                 k: round(v, 8)
@@ -580,11 +576,14 @@ def _plan_attribution(plan: Any) -> tuple[str, str, tuple[tuple[str, float], ...
     """Extract point-in-time attribution metadata from a planned order."""
 
     prepared = getattr(getattr(plan, "finalized", None), "prepared", None)
-    strategy_id = str(
-        getattr(prepared, "strategy_name", None)
-        or getattr(prepared, "artifact_id", None)
+    strategy_id = (
+        str(
+            getattr(prepared, "strategy_name", None)
+            or getattr(prepared, "artifact_id", None)
+            or "unknown"
+        ).strip()
         or "unknown"
-    ).strip() or "unknown"
+    )
     observation = getattr(prepared, "observation", None)
     features = getattr(observation, "features", {}) or {}
     if not isinstance(features, Mapping):
@@ -1117,8 +1116,7 @@ class PortfolioBacktestEngine:
         result.attribution = _build_attribution(result.trades, prices_final)
         for item in result.attribution:
             result.attribution_by_strategy[item.strategy_id] = (
-                result.attribution_by_strategy.get(item.strategy_id, 0.0)
-                + item.net_pnl
+                result.attribution_by_strategy.get(item.strategy_id, 0.0) + item.net_pnl
             )
             result.attribution_by_regime[item.regime] = (
                 result.attribution_by_regime.get(item.regime, 0.0) + item.net_pnl

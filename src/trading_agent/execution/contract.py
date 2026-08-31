@@ -14,7 +14,11 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Callable, Optional
 
-from trading_agent.execution.proposal import ActionProposal, ActionType, ActionProposalValidationError
+from trading_agent.execution.proposal import (
+    ActionProposal,
+    ActionType,
+    ActionProposalValidationError,
+)
 
 
 # ── Execution contract ──────────────────────────────────────────────────
@@ -110,7 +114,10 @@ class BudgetEnvelope:
         """Check if budget can afford estimated cost."""
         if self.category == "read_only":
             return True
-        return self.remaining_hourly >= estimated_cost and self.remaining_daily >= estimated_cost
+        return (
+            self.remaining_hourly >= estimated_cost
+            and self.remaining_daily >= estimated_cost
+        )
 
     def consume(self, cost: float) -> None:
         """Consume budget. Raises ValueError if insufficient."""
@@ -146,7 +153,9 @@ class ExecutionContractRegistry:
 
     def __init__(self) -> None:
         self._manifests: dict[str, SkillManifest] = {}
-        self._handlers: dict[str, Callable[[ActionProposal, dict[str, Any]], ExecutionResult]] = {}
+        self._handlers: dict[
+            str, Callable[[ActionProposal, dict[str, Any]], ExecutionResult]
+        ] = {}
 
     def register(
         self,
@@ -161,7 +170,9 @@ class ExecutionContractRegistry:
         """Get manifest for a skill/tool."""
         return self._manifests.get(skill_name)
 
-    def get_handler(self, skill_name: str) -> Optional[Callable[[ActionProposal, dict[str, Any]], ExecutionResult]]:
+    def get_handler(
+        self, skill_name: str
+    ) -> Optional[Callable[[ActionProposal, dict[str, Any]], ExecutionResult]]:
         """Get handler for a skill/tool."""
         return self._handlers.get(skill_name)
 

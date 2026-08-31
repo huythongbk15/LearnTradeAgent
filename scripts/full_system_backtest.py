@@ -139,7 +139,9 @@ def _load_strategy_artifact(path: str | Path) -> StrategyArtifact:
     try:
         payload = json.loads(manifest_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
-        raise ValueError(f"invalid strategy artifact manifest: {manifest_path}: {exc}") from exc
+        raise ValueError(
+            f"invalid strategy artifact manifest: {manifest_path}: {exc}"
+        ) from exc
     if not isinstance(payload, dict):
         raise ValueError("strategy artifact manifest must be a JSON object")
     metadata = payload.get("metadata", {})
@@ -307,7 +309,9 @@ class FullSystemSimulator:
             artifact_symbol = strategy_artifact.metadata.get("symbol")
             artifact_timeframe = strategy_artifact.metadata.get("timeframe")
             if artifact_symbol not in (None, self.symbol):
-                raise ValueError("strategy artifact symbol does not match simulator symbol")
+                raise ValueError(
+                    "strategy artifact symbol does not match simulator symbol"
+                )
             if artifact_timeframe not in (None, self.timeframe):
                 raise ValueError(
                     "strategy artifact timeframe does not match simulator timeframe"
@@ -315,10 +319,12 @@ class FullSystemSimulator:
             strategy_name = strategy_artifact.strategy_name
             artifact_params = strategy_artifact.metadata.get("parameters", {})
             if not isinstance(artifact_params, Mapping):
-                raise ValueError("strategy artifact metadata.parameters must be an object")
-            if strategy_params_override is not None and dict(strategy_params_override) != dict(
-                artifact_params
-            ):
+                raise ValueError(
+                    "strategy artifact metadata.parameters must be an object"
+                )
+            if strategy_params_override is not None and dict(
+                strategy_params_override
+            ) != dict(artifact_params):
                 raise ValueError(
                     "strategy params override conflicts with the supplied strategy artifact"
                 )
@@ -728,14 +734,19 @@ class FullSystemSimulator:
                 and not breaker_on
             ):
                 position = self.engine.exchange.get_position(self.symbol)
-                position_is_flat = not (position and position.is_active and position.quantity > 0)
+                position_is_flat = not (
+                    position and position.is_active and position.quantity > 0
+                )
                 position_owner = None
                 if not position_is_flat and position is not None:
                     owner_value = position.metadata.get("strategy_id")
                     if owner_value is None:
                         owner_value = position.metadata.get("strategy_name")
                     position_owner = str(owner_value) if owner_value else None
-                if self._adaptive_posterior_provider is None or self._adaptive_router is None:
+                if (
+                    self._adaptive_posterior_provider is None
+                    or self._adaptive_router is None
+                ):
                     raise RuntimeError("adaptive routing providers are not initialized")
                 posterior = self._adaptive_posterior_provider(
                     self.symbol,
@@ -754,14 +765,18 @@ class FullSystemSimulator:
                 self.routing_decisions.append(routing_decision.to_dict())
                 chosen = routing_decision.chosen_strategy_id
                 can_manage_existing_position = (
-                    not position_is_flat and chosen is not None and chosen == position_owner
+                    not position_is_flat
+                    and chosen is not None
+                    and chosen == position_owner
                 )
                 adaptive_manage_existing = can_manage_existing_position
                 if chosen is not None and (
                     routing_decision.allow_new_exposure or can_manage_existing_position
                 ):
                     if self._adaptive_runtime_provider is None:
-                        raise RuntimeError("adaptive runtime provider is not initialized")
+                        raise RuntimeError(
+                            "adaptive runtime provider is not initialized"
+                        )
                     active_runtime = self._adaptive_runtime_provider(routing_decision)
                     if active_runtime is None:
                         raise RuntimeError(
@@ -772,8 +787,13 @@ class FullSystemSimulator:
                             "adaptive runtime strategy does not match routing decision"
                         )
                     if getattr(active_runtime, "symbol", self.symbol) != self.symbol:
-                        raise RuntimeError("adaptive runtime symbol does not match simulator")
-                    if getattr(active_runtime, "timeframe", self.timeframe) != self.timeframe:
+                        raise RuntimeError(
+                            "adaptive runtime symbol does not match simulator"
+                        )
+                    if (
+                        getattr(active_runtime, "timeframe", self.timeframe)
+                        != self.timeframe
+                    ):
                         raise RuntimeError(
                             "adaptive runtime timeframe does not match simulator"
                         )
@@ -891,15 +911,19 @@ class FullSystemSimulator:
                                     reference_price=price,
                                     regime_info=regime_info,
                                     strategy_id=getattr(
-                                        active_runtime, "strategy_name", self.strategy_name
+                                        active_runtime,
+                                        "strategy_name",
+                                        self.strategy_name,
                                     ),
                                 )
                                 self._entry_state[self.symbol] = {
                                     "price": price,
-                                "amount": amount,
-                                "strategy_id": getattr(
-                                    active_runtime, "strategy_name", self.strategy_name
-                                ),
+                                    "amount": amount,
+                                    "strategy_id": getattr(
+                                        active_runtime,
+                                        "strategy_name",
+                                        self.strategy_name,
+                                    ),
                                 }
                                 pnl = 0.0
                             elif side == "sell":
@@ -1242,7 +1266,10 @@ def main():
             strategy_artifact = _load_strategy_artifact(args.strategy_artifact)
         except ValueError as exc:
             parser.error(str(exc))
-        if args.strategy != "enhanced_ma" and args.strategy != strategy_artifact.strategy_name:
+        if (
+            args.strategy != "enhanced_ma"
+            and args.strategy != strategy_artifact.strategy_name
+        ):
             parser.error("--strategy conflicts with --strategy-artifact")
         artifact_parameters = strategy_artifact.metadata.get("parameters", {})
         if not isinstance(artifact_parameters, dict):
@@ -1261,7 +1288,9 @@ def main():
         allow_new_exposure=args.allow_new_exposure,
         state_flush_bars=args.state_flush_bars,
         gap_policy=args.gap_policy,
-        strategy_name=(strategy_artifact.strategy_name if strategy_artifact else args.strategy),
+        strategy_name=(
+            strategy_artifact.strategy_name if strategy_artifact else args.strategy
+        ),
         strategy_params_override=strategy_params,
         strategy_artifact=strategy_artifact,
     )

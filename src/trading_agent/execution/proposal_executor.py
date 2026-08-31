@@ -67,7 +67,9 @@ class ProposalExecutionContext:
         validate_action_proposal(proposal.to_dict())
         return self._registry.validate_proposal(proposal)
 
-    def enforce_budget(self, proposal: ActionProposal, estimated_cost: float = 1.0) -> None:
+    def enforce_budget(
+        self, proposal: ActionProposal, estimated_cost: float = 1.0
+    ) -> None:
         """Enforce budget limits for the proposal's category."""
         budget = self._budget_for(proposal)
         budget.reset_if_needed()

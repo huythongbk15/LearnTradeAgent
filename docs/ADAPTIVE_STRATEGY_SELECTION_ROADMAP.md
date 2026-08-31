@@ -106,9 +106,9 @@ S4 (promotion/provenance):
   permanent rejection drop semantics (**R1–R4**); parity testing tại pre-broker
   boundary (rel 1e-12/1e-9, so plans chứ không so fills); usage examples và ma
   trận 14 tests.
-- **MILESTONE_D_TODO.md — Wave D4** (bổ sung còn thiếu): permanent rejection
-  drop + adversarial tests (commits `5df8360`, `3a46813`, `167f479`; 1085 tests
-  pass).
+- **Wave D4**: permanent rejection drop + adversarial tests (commits
+  `5df8360`, `3a46813`, `167f479`; 1085 tests pass). Chi tiết phase cũ không
+  còn được duy trì ở một TODO riêng.
 - **[PROMOTION_BINDING.md](PROMOTION_BINDING.md) — Research→Runtime Bridge**:
   PromotionHook được wire atomic + fail-closed vào
   `ResearchLifecycle.promote(on_event)`; idempotent theo artifact ID; hot-reload

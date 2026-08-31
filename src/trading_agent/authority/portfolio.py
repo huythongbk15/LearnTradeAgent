@@ -164,7 +164,11 @@ class BatchAllocationOutcome:
         """Net signed forecast target by symbol (long-only output clamps later)."""
         net: dict[str, float] = {}
         for entry in self.entries:
-            signed = entry.approved if entry.signed_approved is None else entry.signed_approved
+            signed = (
+                entry.approved
+                if entry.signed_approved is None
+                else entry.signed_approved
+            )
             net[entry.symbol] = net.get(entry.symbol, 0.0) + signed
         return net
 
@@ -202,8 +206,7 @@ class AllocationRequest:
         if self.regime_risk_multiplier > 1.0:
             raise ValueError("regime_risk_multiplier cannot exceed 1")
         if self.desired_exposure is not None and (
-            not math.isfinite(self.desired_exposure)
-            or abs(self.desired_exposure) > 1.0
+            not math.isfinite(self.desired_exposure) or abs(self.desired_exposure) > 1.0
         ):
             raise ValueError("desired_exposure must be finite and in [-1, 1]")
         if not math.isfinite(self.max_order_participation) or not (
@@ -669,9 +672,7 @@ class PortfolioAllocator:
         # Aggregate constraints must be applied to the SET, not independently.
         # Without this stage, two requests can each consume the same strategy,
         # symbol, or correlation headroom and jointly exceed the configured cap.
-        group_factors: dict[tuple[str, str], float] = {
-            key: 1.0 for key in capped
-        }
+        group_factors: dict[tuple[str, str], float] = {key: 1.0 for key in capped}
 
         def apply_group_factor(keys: list[tuple[str, str]], available: float) -> None:
             total = sum(capped[key] for key in keys)
@@ -704,9 +705,7 @@ class PortfolioAllocator:
         )
         for cluster in clusters:
             keys = [
-                key
-                for key in capped
-                if req_by_key[key].correlation_cluster == cluster
+                key for key in capped if req_by_key[key].correlation_cluster == cluster
             ]
             cluster_symbols = {key[1] for key in keys}
             current = sum(

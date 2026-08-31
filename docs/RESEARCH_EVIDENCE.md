@@ -5,7 +5,8 @@
 > *candidate research configuration* cho tới khi có statistical validation + testnet/paper
 > evidence.
 >
-> Snapshot cũ (2026-08-06): [`docs/archive/research/BACKTEST_SUMMARY_2026-08-06.md`](archive/research/BACKTEST_SUMMARY_2026-08-06.md)
+> Snapshot historical cũ đã được loại khỏi repository; không dùng số liệu cũ làm
+> evidence hiện tại. Mọi kết luận mới phải trỏ tới artifact có manifest và identity đầy đủ.
 
 ## Phân loại bằng chứng
 

@@ -128,22 +128,28 @@ def test_activation_requires_compare_and_swap_and_verified_signature(tmp_path):
         expected_previous_policy_id=None,
     )
 
-    assert registry.get_active_verified(
-        "BTC/USDT",
-        "1h",
-        "trend",
-        key=KEY,
-        key_id="release-key",
-        now=NOW + timedelta(minutes=2),
-    ) == active
-    assert registry.get_active_verified(
-        "BTC/USDT",
-        "1h",
-        "trend",
-        key=b"wrong",
-        key_id="release-key",
-        now=NOW + timedelta(minutes=2),
-    ) is None
+    assert (
+        registry.get_active_verified(
+            "BTC/USDT",
+            "1h",
+            "trend",
+            key=KEY,
+            key_id="release-key",
+            now=NOW + timedelta(minutes=2),
+        )
+        == active
+    )
+    assert (
+        registry.get_active_verified(
+            "BTC/USDT",
+            "1h",
+            "trend",
+            key=b"wrong",
+            key_id="release-key",
+            now=NOW + timedelta(minutes=2),
+        )
+        is None
+    )
     with pytest.raises(ValueError, match="active policy changed"):
         service.activate(
             validated.policy_id,
@@ -217,9 +223,7 @@ def test_rollback_activates_new_copy_of_previous_known_good_policy(tmp_path):
         ticket="TICKET-1",
         now=NOW + timedelta(minutes=1),
     )
-    second = _validated(
-        "bbands", now=NOW + timedelta(minutes=2), params={"period": 20}
-    )
+    second = _validated("bbands", now=NOW + timedelta(minutes=2), params={"period": 20})
     registry.add(second)
     second_active = service.activate(
         second.policy_id,
@@ -257,9 +261,7 @@ def test_wfo_builder_rejects_non_promotable_and_builds_validated_policy():
     )
     artifact = SimpleNamespace(artifact_id="sha256:outer")
     result = SimpleNamespace(
-        spec=SimpleNamespace(
-            strategy_id="rsi", symbol="BTC/USDT", timeframe="1h"
-        ),
+        spec=SimpleNamespace(strategy_id="rsi", symbol="BTC/USDT", timeframe="1h"),
         passes_hard_gates=True,
         aggregate_metrics={
             "promotable": True,
@@ -270,7 +272,9 @@ def test_wfo_builder_rejects_non_promotable_and_builds_validated_policy():
         final_holdout={"status": "COMPLETED", "holdout_id": "sha256:holdout"},
         study_manifest=manifest,
         outer_results=[
-            SimpleNamespace(params={"period": 14, "cost_scenario": "1x"}, artifact=artifact)
+            SimpleNamespace(
+                params={"period": 14, "cost_scenario": "1x"}, artifact=artifact
+            )
         ],
     )
 

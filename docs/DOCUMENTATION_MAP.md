@@ -63,7 +63,7 @@ Các file khác là reference chuyên biệt hoặc historical; không cần đ�
 | Operations chuyên biệt | `deployment/`, `security/`, `operations/`, các runbook | Chỉ đọc khi thực hiện đúng tác vụ; phải ghi environment, evidence và rollback. |
 | Optional surfaces | agents/LLM, options, DEX/futures, portfolio, web, infra/K8s | Không thuộc core; không thêm vào đường order nếu chưa có contract/evidence. |
 | External knowledge | `wsl-guide/` | Hướng dẫn WSL độc lập, không phải tài liệu trading-system. |
-| Historical archive | `archive/`, phase reports đã đóng | Giữ để traceability; không cập nhật như current docs. |
+| Historical material | Git history và phase record đã đóng | Chỉ truy vết khi cần; không cập nhật như current docs. |
 
 ## 4. Quy tắc hợp nhất và lưu trữ
 

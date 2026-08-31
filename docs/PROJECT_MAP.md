@@ -37,16 +37,15 @@
 ├── docs
 │   ├── architecture
 │   │   └── STRATEGY_LIFECYCLE.md
-│   ├── archive
-│   │   ├── research
-│   │   │   └── BACKTEST_SUMMARY_2026-08-06.md
-│   │   └── architecture_2026-08.md
 │   ├── guides
 │   │   └── RESEARCH_TO_PRODUCTION.md
 │   ├── operations
 │   │   └── MAIN_FLOW_VALIDATION.md
 │   ├── reference
 │   │   └── EVIDENCE_ARTIFACTS.md
+│   ├── schemas
+│   │   ├── routing_decision.schema.json
+│   │   └── selection_policy.schema.json
 │   ├── tutorials
 │   │   └── README.md
 │   ├── vi
@@ -68,24 +67,24 @@
 │   │   │   ├── README.md
 │   │   │   └── RUBRIC.md
 │   │   ├── BANG_CHUNG_VA_ARTIFACT.md
-│   │   ├── KHOA_HOC_V2.md
 │   │   ├── KIEM_TRA_LUONG_CHINH.md
 │   │   ├── NGHIEN_CUU_DEN_VAN_HANH.md
 │   │   ├── README.md
 │   │   ├── THUAT_NGU.md
 │   │   └── VONG_DOI_CHIEN_LUOC.md
 │   ├── ACCOUNT_HARDENING.md
+│   ├── ADAPTIVE_ROADMAP_STATUS.md
 │   ├── ADAPTIVE_STRATEGY_SELECTION_ROADMAP.md
 │   ├── ARCHITECTURE.md
 │   ├── AUTHORITY_CHAIN_OPS.md
 │   ├── BACKTEST_ENGINE.md
 │   ├── CAPABILITY_MATRIX.md
+│   ├── CORE_SYSTEM.md
 │   ├── DEPLOYMENT.md
-│   ├── DEPLOY_ORACLE.md
 │   ├── DEVELOPMENT.md
+│   ├── DOCUMENTATION_MAP.md
 │   ├── DOCUMENTATION_STANDARD.md
 │   ├── ENVIRONMENT_MAPPING.md
-│   ├── LIVE_TRADING_OPTIMIZATION_PLAN.md
 │   ├── LIVE_TRADING_RUNBOOK.md
 │   ├── LIVE_TRADING_TODO.md
 │   ├── OPERATIONAL_DRILLS.md
@@ -99,8 +98,8 @@
 │   ├── RUNBOOK.md
 │   ├── RUNBOOK_LOCAL.md
 │   ├── RUNTIME_RESOLVER.md
+│   ├── S7_OPERATIONAL_EVIDENCE_RUNBOOK.md
 │   ├── SECURITY.md
-│   ├── VPS_LITE_DEPLOY.md
 │   └── getting-started.md
 ├── drivers
 │   ├── mcp
@@ -274,6 +273,7 @@
 │       │   └── stats.py
 │       ├── authority
 │       │   ├── __init__.py
+│       │   ├── adaptive_router.py
 │       │   ├── audit.py
 │       │   ├── causation.py
 │       │   ├── config.py
@@ -390,7 +390,9 @@
 │       │   ├── __init__.py
 │       │   ├── application.py
 │       │   ├── batch_models.py
+│       │   ├── boundaries.py
 │       │   ├── chaos_invariants.py
+│       │   ├── contract.py
 │       │   ├── correlation.py
 │       │   ├── data_trust.py
 │       │   ├── engine.py
@@ -400,6 +402,8 @@
 │       │   ├── multi_pair_runtime.py
 │       │   ├── paper_exchange.py
 │       │   ├── permission.py
+│       │   ├── proposal.py
+│       │   ├── proposal_executor.py
 │       │   ├── risk_controller.py
 │       │   ├── shadow.py
 │       │   └── types.py
@@ -525,11 +529,14 @@
 │   │   ├── test_instrument_registry.py
 │   │   └── test_paper_exchange_telemetry.py
 │   ├── strategies
+│   │   ├── test_candidate_factory.py
 │   │   ├── test_canonical_contract.py
 │   │   ├── test_canonical_wave_c.py
 │   │   └── test_s1_exit_gate.py
 │   ├── __init__.py
 │   ├── conftest.py
+│   ├── test_action_proposal.py
+│   ├── test_adaptive_strategy_router.py
 │   ├── test_agent_correlation.py
 │   ├── test_agent_interop.py
 │   ├── test_agent_safety.py
@@ -564,6 +571,7 @@
 │   ├── test_execution_simulator_property.py
 │   ├── test_experiment_registry.py
 │   ├── test_forecast_promotion_contract.py
+│   ├── test_full_system_cli_contracts.py
 │   ├── test_golden_execute_promoted.py
 │   ├── test_holdout_manifest.py
 │   ├── test_legacy_cutover_migration.py
@@ -595,6 +603,7 @@
 │   ├── test_phase3_audit.py
 │   ├── test_phase6.py
 │   ├── test_phase6_integration.py
+│   ├── test_portfolio_attribution.py
 │   ├── test_portfolio_backtest.py
 │   ├── test_post_trade_impact.py
 │   ├── test_promotion_bridge.py
@@ -607,7 +616,9 @@
 │   ├── test_s3_7_holdout_fail_closed.py
 │   ├── test_s3_evidence_integrity.py
 │   ├── test_s3_study_provenance.py
+│   ├── test_selection_policy_lifecycle.py
 │   ├── test_shadow_mainnet.py
+│   ├── test_shared_capital_allocator.py
 │   ├── test_simulator_calibration.py
 │   ├── test_simulator_provenance_distribution.py
 │   ├── test_storage.py
@@ -653,25 +664,10 @@
 ├── .gitignore
 ├── .mcp
 ├── .trivyignore
-├── AUDIT_REPORT.md
-├── BACKTEST_3Y_REVIEW.md
 ├── Caddyfile.oracle
 ├── Dockerfile
-├── EXPERT_ROADMAP.md
-├── FINAL_REPORT.md
-├── HARDEN_OUTPUT.md
-├── IMPROVEMENT_ROADMAP.md
-├── LIVE_TEST_GUIDE.md
-├── MILESTONE_B_COMPLETE.md
 ├── Makefile
-├── P0_STATUS.md
-├── PROJECT_SCORE.md
 ├── README.md
-├── REGIME_SWITCH_SUMMARY.md
-├── SYSTEM_MAP.md
-├── TIER1_TIER2_PLAN.md
-├── TRADE_FLOW.md
-├── TRADING_SYSTEM_OVERVIEW.md
 ├── credentials.example.yaml
 ├── docker-compose.lite.yml
 ├── docker-compose.oracle.yml

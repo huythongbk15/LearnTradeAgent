@@ -20,7 +20,10 @@ from trading_agent.authority.config import Environment
 from trading_agent.ml.regime_detection import RegimePosterior
 from trading_agent.research.forecast import MarketObservation
 from trading_agent.strategies.canonical.candidates import FIRST_WAVE_DESCRIPTORS
-from trading_agent.strategies.canonical.features import FEATURE_OHLCV_WINDOW, build_ohlcv_window
+from trading_agent.strategies.canonical.features import (
+    FEATURE_OHLCV_WINDOW,
+    build_ohlcv_window,
+)
 from trading_agent.research.selection_policy import (
     ParamArtifact,
     PolicyActivationService,
@@ -337,7 +340,9 @@ def test_forecast_runtime_resolves_signed_policy_to_parameterized_adapter(tmp_pa
         key_id="release-key",
         audit_path=tmp_path / "policy-activation.jsonl",
     )
-    for index, regime in enumerate(("trend", "mean_reversion", "high_vol", "crisis", "other")):
+    for index, regime in enumerate(
+        ("trend", "mean_reversion", "high_vol", "crisis", "other")
+    ):
         descriptor = FIRST_WAVE_DESCRIPTORS["rsi"]
         created_at = NOW - timedelta(days=1, minutes=index)
         policy = SelectionPolicyArtifact(
@@ -403,9 +408,7 @@ def test_forecast_runtime_resolves_signed_policy_to_parameterized_adapter(tmp_pa
         close=102.5,
         volume=10.0,
         features={
-            FEATURE_OHLCV_WINDOW: build_ohlcv_window(
-                frame, observed_at=NOW, bars=17
-            )
+            FEATURE_OHLCV_WINDOW: build_ohlcv_window(frame, observed_at=NOW, bars=17)
         },
     )
     result = AdaptiveForecastRuntime(

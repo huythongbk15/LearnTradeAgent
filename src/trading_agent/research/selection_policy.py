@@ -139,7 +139,11 @@ class SelectionPolicyArtifact:
     rollback_reason: Optional[str] = None
 
     def __post_init__(self) -> None:
-        if not self.symbol.strip() or not self.timeframe.strip() or not self.regime.strip():
+        if (
+            not self.symbol.strip()
+            or not self.timeframe.strip()
+            or not self.regime.strip()
+        ):
             raise ValueError("symbol, timeframe and regime are required")
         if not math.isfinite(self.risk_cap) or not 0.0 < self.risk_cap <= 1.0:
             raise ValueError("risk_cap must be finite and in (0, 1]")
@@ -172,9 +176,10 @@ class SelectionPolicyArtifact:
         if self.status is PolicyStatus.ACTIVE:
             if self.activated_at is None:
                 raise ValueError("active policy requires activated_at")
-            if not (self.activated_by or "").strip() or not (
-                self.activation_ticket or ""
-            ).strip():
+            if (
+                not (self.activated_by or "").strip()
+                or not (self.activation_ticket or "").strip()
+            ):
                 raise ValueError("active policy requires actor and activation ticket")
         object.__setattr__(self, "policy_id", self.compute_policy_id())
 
@@ -385,7 +390,9 @@ class PolicySignatureEnvelope:
         if self.algorithm != "HMAC-SHA256" or self.policy_id != policy.policy_id:
             return False
         expected = hmac.new(key, policy.to_json().encode(), hashlib.sha256).hexdigest()
-        return policy.verify_integrity() and hmac.compare_digest(expected, self.signature)
+        return policy.verify_integrity() and hmac.compare_digest(
+            expected, self.signature
+        )
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -476,10 +483,14 @@ class SelectionPolicyRegistry:
         if self.get(envelope.policy_id) is None:
             raise ValueError("cannot sign a policy that is not in the registry")
         path = self.root / f"{envelope.policy_id}.{envelope.key_id}.sig.json"
-        serialized = json.dumps(envelope.to_dict(), sort_keys=True, separators=(",", ":"))
+        serialized = json.dumps(
+            envelope.to_dict(), sort_keys=True, separators=(",", ":")
+        )
         if path.exists():
             if path.read_text() != serialized:
-                raise ValueError("signature envelope already exists with different content")
+                raise ValueError(
+                    "signature envelope already exists with different content"
+                )
             return path
         tmp = path.with_suffix(".json.tmp")
         tmp.write_text(serialized)
@@ -616,7 +627,9 @@ class SelectionPolicyBuilder:
         if holdout.get("status") != "COMPLETED":
             raise ValueError("completed frozen holdout is required")
         manifest = getattr(result, "study_manifest", None)
-        if manifest is None or not bool(getattr(manifest, "provenance_eligible", False)):
+        if manifest is None or not bool(
+            getattr(manifest, "provenance_eligible", False)
+        ):
             raise ValueError("complete real-market study provenance is required")
         outer_results = list(getattr(result, "outer_results", ()))
         if not outer_results:
@@ -715,9 +728,9 @@ class PolicyActivationService:
         policy = self.registry.get(policy_id)
         if policy is None:
             raise ValueError(f"policy not found: {policy_id}")
-        if PROMOTION_STAGE_ORDER.index(policy.promotion_stage) < PROMOTION_STAGE_ORDER.index(
-            "paper_eligible"
-        ):
+        if PROMOTION_STAGE_ORDER.index(
+            policy.promotion_stage
+        ) < PROMOTION_STAGE_ORDER.index("paper_eligible"):
             raise ValueError(
                 "policy must pass canonical promotion lifecycle through paper_eligible "
                 "before activation"
@@ -730,7 +743,9 @@ class PolicyActivationService:
             raise ValueError(
                 f"active policy changed: expected {expected_previous_policy_id}, got {current_id}"
             )
-        active = replace(policy, previous_policy_id=current_id).activate(actor, ticket, now)
+        active = replace(policy, previous_policy_id=current_id).activate(
+            actor, ticket, now
+        )
         self.registry.add(active)
         envelope = PolicySignatureEnvelope.sign(
             active, key=self.signing_key, key_id=self.key_id, signed_at=now
