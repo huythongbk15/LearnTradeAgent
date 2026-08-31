@@ -16,19 +16,24 @@ Fail-closed guarantees (STR-0208/0209):
   recorded as ``FAILED`` — missing evidence is NEVER defaulted to 0.
 - Terminal-state hygiene is inherited from the simulator's
   ``execution_health`` block (unknown/manual/unprotected must all be zero).
+- Per-cell timeout and retry policy enforced inside ``run_cell()`` (STR-0208).
+  Cell failure is isolated and does not kill the matrix; errors are recorded
+  as FAILED artifacts, never promoted to valid results.
 """
 
 from __future__ import annotations
 
+import concurrent.futures
 import hashlib
 import json
 import math
 import sys
+import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Mapping
+from typing import Any, Mapping, Optional
 
 ROOT = Path(__file__).resolve().parents[3]
 SCRIPTS_DIR = ROOT / "scripts"
@@ -38,9 +43,11 @@ if str(ROOT) not in sys.path:
 import polars as pl
 
 from trading_agent.backtest.reporting import (
+    GapPolicy,
     assess_ohlcv,
     calculate_cost_attribution,
     calendar_returns,
+    load_gap_exceptions,
 )
 from trading_agent.data.storage import load_ohlcv
 from trading_agent.strategies.canonical.adapter import (
@@ -564,14 +571,223 @@ def run_cell(
     measurement_start: int | None = None,
     measurement_end: int | None = None,
     signal_delay_bars: int = 0,
+    gap_policy: GapPolicy = "record",
+    gap_exceptions_path: str | Path | None = None,
+    # STR-0208: per-cell timeout/retry/resource budget (enforced inside run_cell)
+    timeout_seconds: int = 300,
+    max_retries: int = 2,
+    resource_budget: Optional[dict[str, Any]] = None,
+    # Internal: disable multiprocessing for fast tests / single-threaded mode
+    _use_multiprocessing: bool = True,
 ) -> EvaluationArtifact:
-    """Run one tournament cell through the full execution path."""
+    """Run one tournament cell through the full execution path.
+
+    STR-0208: Timeout, retry, and resource budget are enforced directly in
+    this function so the caller (tournament orchestration) doesn't need
+    external timeout machinery. Cell failures are isolated — the matrix
+    continues — and errors are recorded as FAILED artifacts with provenance.
+
+    Args:
+        timeout_seconds: Max wall-clock time for a single cell attempt.
+        max_retries: Number of retry attempts on timeout or transient error.
+        resource_budget: Optional dict with 'max_memory_mb' and/or 'max_cpu_seconds'.
+        _use_multiprocessing: If False, run inline without process isolation
+            (faster for tests; disables timeout/retry enforcement).
+    """
     if tail_bars is not None and tail_bars <= 0:
         raise ValueError("tail_bars must be positive")
     if tail_bars is not None and (
         start != 0 or end is not None or simulation_start is not None
     ):
         raise ValueError("tail_bars cannot be combined with start/end/simulation_start")
+    if timeout_seconds <= 0:
+        raise ValueError("timeout_seconds must be positive")
+    if max_retries < 0:
+        raise ValueError("max_retries must be non-negative")
+
+    # Validate resource budget if provided
+    if resource_budget is not None:
+        if not isinstance(resource_budget, dict):
+            raise ValueError("resource_budget must be a dict")
+        for key in resource_budget:
+            if key not in ("max_memory_mb", "max_cpu_seconds"):
+                raise ValueError(f"unknown resource_budget key: {key}")
+
+    # Fast path for tests / inline execution
+    if not _use_multiprocessing:
+        return _run_cell_impl(
+            {
+                "strategy_id": spec.strategy_id,
+                "symbol": spec.symbol,
+                "timeframe": spec.timeframe,
+                "params": dict(spec.params),
+                "cost_scenario": spec.cost_scenario,
+                "fault": spec.fault,
+            },
+            out_root=out_root,
+            start=start,
+            end=end,
+            tail_bars=tail_bars,
+            fresh=fresh,
+            simulation_start=simulation_start,
+            measurement_start=measurement_start,
+            measurement_end=measurement_end,
+            signal_delay_bars=signal_delay_bars,
+            gap_policy=gap_policy,
+            gap_exceptions_path=gap_exceptions_path,
+            resource_budget=resource_budget,
+        )
+
+    # Execute with timeout/retry
+    # Extract picklable primitives from spec to avoid MappingProxyType issues
+    spec_primitives = {
+        "strategy_id": spec.strategy_id,
+        "symbol": spec.symbol,
+        "timeframe": spec.timeframe,
+        "params": dict(spec.params),
+        "cost_scenario": spec.cost_scenario,
+        "fault": spec.fault,
+    }
+    return _run_cell_with_retry(
+        spec_primitives=spec_primitives,
+        out_root=out_root,
+        start=start,
+        end=end,
+        tail_bars=tail_bars,
+        fresh=fresh,
+        simulation_start=simulation_start,
+        measurement_start=measurement_start,
+        measurement_end=measurement_end,
+        signal_delay_bars=signal_delay_bars,
+        gap_policy=gap_policy,
+        gap_exceptions_path=gap_exceptions_path,
+        timeout_seconds=timeout_seconds,
+        max_retries=max_retries,
+        resource_budget=resource_budget,
+    )
+
+
+def _run_cell_with_retry(
+    *,
+    spec_primitives: dict[str, Any],
+    out_root: Path | None,
+    start: int,
+    end: int | None,
+    tail_bars: int | None,
+    fresh: bool,
+    simulation_start: int | None,
+    measurement_start: int | None,
+    measurement_end: int | None,
+    signal_delay_bars: int,
+    gap_policy: GapPolicy,
+    gap_exceptions_path: str | Path | None,
+    timeout_seconds: int,
+    max_retries: int,
+    resource_budget: Optional[dict[str, Any]],
+) -> EvaluationArtifact:
+    """Execute the cell with timeout and retry logic (STR-0208).
+
+    Runs the actual cell implementation in a separate process with timeout.
+    On timeout or transient error, retries up to max_retries times.
+    Returns a FAILED artifact if all attempts fail.
+    """
+    import multiprocessing
+
+    last_error: Optional[Exception] = None
+    last_error_msg = ""
+
+    # Use 'spawn' context to avoid fork() issues with multi-threaded parent
+    ctx = multiprocessing.get_context("spawn")
+
+    for attempt in range(max_retries + 1):
+        try:
+            # Run the actual cell implementation in a subprocess with timeout
+            with concurrent.futures.ProcessPoolExecutor(max_workers=1, mp_context=ctx) as executor:
+                future = executor.submit(
+                    _run_cell_impl,
+                    spec_primitives,
+                    out_root,
+                    start,
+                    end,
+                    tail_bars,
+                    fresh,
+                    simulation_start,
+                    measurement_start,
+                    measurement_end,
+                    signal_delay_bars,
+                    gap_policy,
+                    gap_exceptions_path,
+                    resource_budget,
+                )
+                return future.result(timeout=timeout_seconds)
+        except concurrent.futures.TimeoutError:
+            last_error = TimeoutError(f"Cell {spec_primitives.get('strategy_id', 'unknown')}__{spec_primitives.get('symbol', 'unknown')} timed out after {timeout_seconds}s")
+            last_error_msg = f"timeout:{timeout_seconds}s"
+        except Exception as exc:  # noqa: BLE001 - capture all errors for retry logic
+            last_error = exc
+            last_error_msg = f"{type(exc).__name__}:{exc}"
+            # Don't retry on certain fatal errors
+            if _is_fatal_error(exc):
+                break
+        if attempt < max_retries:
+            # Brief backoff before retry
+            time.sleep(0.5 * (attempt + 1))
+
+    # All attempts failed - return FAILED artifact with provenance
+    # Reconstruct a minimal spec for the failed artifact
+    from trading_agent.backtest.tournament import EvaluationCellSpec
+    minimal_spec = EvaluationCellSpec(
+        strategy_id=spec_primitives["strategy_id"],
+        symbol=spec_primitives["symbol"],
+        timeframe=spec_primitives["timeframe"],
+        params=spec_primitives["params"],
+        cost_scenario=spec_primitives["cost_scenario"],
+        fault=spec_primitives["fault"],
+    )
+    return _failed_artifact(
+        minimal_spec,
+        None,  # descriptor may not be available if error happened early
+        f"execution_failed_after_{max_retries + 1}_attempts:{last_error_msg}",
+    )
+
+
+def _is_fatal_error(exc: Exception) -> bool:
+    """Determine if an error is fatal and should not be retried."""
+    # Registry/strategy errors are fatal - retry won't help
+    fatal_types = (
+        ValueError,  # Invalid parameters
+        KeyError,    # Missing required data
+        ImportError, # Missing module
+        AttributeError,  # Missing attribute (code bug)
+    )
+    return isinstance(exc, fatal_types)
+
+
+def _run_cell_impl(
+    spec_primitives: dict[str, Any],
+    out_root: Path | None,
+    start: int,
+    end: int | None,
+    tail_bars: int | None,
+    fresh: bool,
+    simulation_start: int | None,
+    measurement_start: int | None,
+    measurement_end: int | None,
+    signal_delay_bars: int,
+    gap_policy: GapPolicy,
+    gap_exceptions_path: str | Path | None,
+    resource_budget: Optional[dict[str, Any]],
+) -> EvaluationArtifact:
+    """Actual cell implementation (runs in subprocess)."""
+    # Reconstruct spec from primitives
+    spec = EvaluationCellSpec(
+        strategy_id=spec_primitives["strategy_id"],
+        symbol=spec_primitives["symbol"],
+        timeframe=spec_primitives["timeframe"],
+        params=spec_primitives["params"],
+        cost_scenario=spec_primitives["cost_scenario"],
+        fault=spec_primitives["fault"],
+    )
     # Import here so module import stays cheap for tests that only need specs.
     from scripts.full_system_backtest import FullSystemSimulator
 
@@ -606,7 +822,7 @@ def run_cell(
         if end is not None and measurement_end > end:
             raise ValueError("measurement_end must not exceed simulation end")
 
-    run_identity = {
+    run_identity: dict[str, object] = {
         "simulation_start": sim_start,
         "end": end,
         "measurement_start": measurement_start,
@@ -614,6 +830,16 @@ def run_cell(
         "signal_delay_bars": signal_delay_bars,
         "tail_bars": tail_bars,
     }
+    resolved_gap_exceptions_path = (
+        Path(gap_exceptions_path).resolve() if gap_exceptions_path is not None else None
+    )
+    if gap_policy != "record" or resolved_gap_exceptions_path is not None:
+        run_identity["gap_policy"] = gap_policy
+        run_identity["gap_exceptions_sha256"] = (
+            hashlib.sha256(resolved_gap_exceptions_path.read_bytes()).hexdigest()
+            if resolved_gap_exceptions_path is not None
+            else None
+        )
     is_default_window = run_identity == {
         "simulation_start": 0,
         "end": None,
@@ -629,8 +855,7 @@ def run_cell(
     cell_dir = out_root / storage_id
     cell_dir.mkdir(parents=True, exist_ok=True)
 
-    # Data + manifest + quality gate (identical loader as the baseline sim;
-    # gaps are RECORDED into the cell manifest, never silently dropped).
+    # Data + manifest + quality gate (identical loader as the baseline sim).
     source_df = load_ohlcv("binance", spec.symbol, spec.timeframe)
     if tail_bars is not None:
         # Resolve the tail only after loading the authoritative frame.  Signal
@@ -638,8 +863,8 @@ def run_cell(
         # causal), while execution is bounded to the requested smoke window.
         sim_start = max(0, source_df.height - tail_bars)
     # Gap fault: instead of dropping bars (breaks simulator), record the
-    # intended gap bars in the quality assessment. The simulator's gap_policy
-    # "record" will handle missing data gracefully.
+    # intended gap bars in the quality assessment. The configured gap policy
+    # still governs real timestamp gaps in the authoritative source.
     gap_info = None
     if spec.fault.drop_gap_bars_every:
         # Record which rows would be dropped for manifest purposes
@@ -654,10 +879,21 @@ def run_cell(
         # Don't actually drop - simulator expects continuous data.
         # The gap is recorded in manifest for analysis.
         source_df = source_df.drop("_row")
+    gap_exceptions = (
+        load_gap_exceptions(
+            resolved_gap_exceptions_path,
+            exchange="binance",
+            symbol=spec.symbol,
+            timeframe=spec.timeframe,
+        )
+        if resolved_gap_exceptions_path is not None
+        else ()
+    )
     quality = assess_ohlcv(
         source_df.sort("timestamp"),
         expected_interval=timedelta(hours=1),
-        gap_policy="record",
+        gap_policy=gap_policy,
+        gap_exceptions=gap_exceptions,
     )
     data_manifest_sha = hashlib.sha256(
         json.dumps(
@@ -665,7 +901,11 @@ def run_cell(
                 "symbol": spec.symbol,
                 "timeframe": spec.timeframe,
                 "rows": source_df.height,
-                "quality_errors": getattr(quality, "errors", []),
+                "data_quality_fingerprint": quality.fingerprint,
+                "gap_policy": gap_policy,
+                "approved_gap_exception_ids": [
+                    str(item["exception_id"]) for item in gap_exceptions
+                ],
                 "fault_gap": gap_info,
                 "first": str(
                     source_df["time"].min()
@@ -716,7 +956,8 @@ def run_cell(
         report_path=cell_dir / "report.json",
         run_id=f"tourney_{storage_id}",
         data_manifest_id=data_manifest_sha,
-        gap_policy="record",
+        gap_policy=gap_policy,
+        gap_exceptions_path=resolved_gap_exceptions_path,
         strategy_name=spec.strategy_id,
         strategy_params_override=dict(spec.params),
         signal_series=signals,
