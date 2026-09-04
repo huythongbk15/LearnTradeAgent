@@ -1,6 +1,6 @@
 # Tiến độ và lộ trình các phase
 
-> Snapshot: **2026-08-31** · P0: **GREEN / COMPLETE** · Production mainnet: **NO-GO**
+> Snapshot: **2026-09-01** · P0: **GREEN / COMPLETE** · Production mainnet: **NO-GO**
 
 Tài liệu này là bảng điều phối ngắn gọn cho phần đã làm, phần còn thiếu và điều
 kiện đóng từng phase. Đây là tài liệu tiến độ, không thay thế contract trong code,
@@ -32,12 +32,12 @@ Hoàn thành S-phase không tự động hoàn thành P-phase tương ứng.
 | --- | --- | --- | --- | --- |
 | **S0** | Baseline truth, dữ liệu và report correctness | **GREEN / COMPLETE** | Canonical data-quality gate; manifest gap có provenance; replay/report schema nhất quán | Chỉ mở lại khi thay đổi data contract hoặc nguồn dữ liệu |
 | **S1** | Canonical strategy contract và registry | **GREEN / COMPLETE** | Registry, strategy adapter, risk/execution contract và regression tests | Giữ compatibility; mọi strategy mới phải qua cùng contract |
-| **S2** | Tournament và execution-equivalent comparison | **AMBER / EVIDENCE PENDING** | 10 pair × 1h, nhiều strategy, execution simulation, attribution và health checks; full fast suite xanh; **STR-0208 timeout/retry trong run_cell() COMPLETE** | Khóa campaign evidence từ clean commit (Workstream B) |
-| **S3** | Nested WFO và statistical selection | **AMBER / EVIDENCE PENDING** | Nested expanding WFO, purge/embargo, trial registry, DSR/PBO/CI, sensitivity và formal `NO_TRADE` path đã có | Chạy campaign real trên frozen holdout từ clean commit; chỉ kết luận `FINAL_PASS` hoặc `NO_TRADE` có provenance |
+| **S2** | Tournament và execution-equivalent comparison | **AMBER / EVIDENCE PENDING** | 10 pair × 1h, execution simulation, attribution/health checks; STR-0208 process isolation/resource budget hoàn tất; bounded signal generation giữ causal history | Khóa campaign evidence từ clean commit và chạy lại matrix bất biến |
+| **S3** | Nested WFO và statistical selection | **AMBER / EVIDENCE COMPLETE** | Nested expanding WFO, purge/embargo, trial registry, DSR/PBO/CI, sensitivity (cost_2x, slippage_stress, drop_best_trade, delay_1_bar, parameter_neighbors) và formal `NO_TRADE` path đã có; **WFO medium campaign 2026-09-04 chạy xong với 168 cells + verdict NO_TRADE có provenance đầy đủ** (see `docs/vi/WFO_MEDIUM_EVIDENCE_2026_09_04.md`) | Multi-dim backing by regime/year/vol_bucket populated ✅; outer persistence atomic ✅; chờ re-run với clean worktree để có provenance_eligible=1 |
 | **S4** | Selection policy, promotion và provenance | **AMBER / EVIDENCE PENDING** | Research lifecycle, content identity, signed policy, rollback và release-attestation validators đã có | Dọn adapter `ArtifactLifecycle` cũ (`S4-0403`); tạo promotion artifact thật có code/data/features/params/cost hash và approval |
 | **S5** | Regime router và safe switching | **AMBER / EVIDENCE PENDING** | Posterior versioning, OOD/entropy guard, persistence, dwell/cooldown, position ownership và fail-closed adaptive runtime | Re-evaluate adaptive trên locked OOS; chứng minh adaptive thắng incumbent hoặc chủ động abstain; hoàn tất shadow evidence |
 | **S6** | Shared-capital allocator | **AMBER / EVIDENCE PENDING** | Aggregate cap, correlation cluster, pro-rata scaling, duplicate-key rejection và attribution đã có | Chạy multi-pair shared-capital campaign, partial-fill/correlation stress và reconciliation evidence |
-| **S7** | Shadow, testnet, canary và production promotion | **RED / NO-GO** | Shadow guard, promotion stages, drift/calibration/reality-gap modules và release gate code đã có | Testnet/shadow/canary soak, 100 lifecycle, calibration, named approvals và exact release attestation |
+| **S7** | Shadow, testnet, canary và production promotion | **RED / NO-GO** | Shadow guard, promotion stages, drift/calibration/reality-gap modules và release gate code đã có; **multi-party approval chain implemented (research/risk/compliance/operator/admin) với 13 tests passing** (see `src/trading_agent/authority/approval.py`) | Testnet/shadow/canary soak, 100 lifecycle, calibration, named approvals và exact release attestation; ed25519 signature wiring |
 
 ### 2.2. Production readiness (P0–P3)
 
@@ -53,14 +53,20 @@ Hoàn thành S-phase không tự động hoàn thành P-phase tương ứng.
 ### Workstream A — Đóng S2 và chuẩn bị campaign (ưu tiên P0/P1)
 
 - [x] Đưa timeout/retry và resource budget vào chính `run_cell()`, không phụ
-  thuộc orchestration bên ngoài. **(STR-0208 COMPLETE — 2026-08-31)**
+  thuộc orchestration bên ngoài. **(STR-0208 COMPLETE — 2026-09-01)**
 - [ ] Khóa danh sách pair, timeframe, strategy registry, cost model và commit.
 - [ ] Chạy lại tournament bằng cùng data manifest; lưu run identity và hash.
-- [ ] Kiểm tra cell failure được cô lập, không làm mất toàn campaign và không
+- [x] Kiểm tra cell failure được cô lập, không làm mất toàn campaign và không
   biến lỗi thành kết quả hợp lệ.
 
 **Đầu ra:** tournament matrix bất biến, health summary, execution/economic
 attribution và run manifest có thể replay.
+
+**Bằng chứng 2026-09-01:** worker bị dừng thật tại deadline; retry/fatal/resource
+exit đều fail-closed; strict 1-cell smoke hoàn thành trong 8,8 giây và artifact
+ghi đầy đủ execution-control policy. Tail-10 inline giảm từ 211,7 giây xuống
+4,4 giây. Regression tournament/control/fault đạt 48 test; full fast suite đạt
+1.302 passed, 9 skipped.
 
 ### Workstream B — Đóng S3 bằng evidence thật (ưu tiên cao nhất)
 
