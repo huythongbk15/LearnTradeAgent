@@ -104,7 +104,7 @@ def run_backtest_cmd(
     from trading_agent.backtest.engine import run_backtest
 
     # Parse params
-    param_dict = {}
+    param_dict: dict[str, float | int | str | bool] = {}
     for p in params:
         if "=" not in p:
             console.print(f"[red]Invalid param format: {p} (expected key=value)[/red]")
@@ -125,7 +125,7 @@ def run_backtest_cmd(
         param_dict["llm_provider"] = llm_provider
         param_dict["llm_model"] = llm_model
 
-    engine_kwargs = {}
+    engine_kwargs: dict[str, float | int | str] = {}
     if capital is not None:
         engine_kwargs["initial_capital"] = capital
     engine_kwargs["position_sizing_method"] = position_sizing

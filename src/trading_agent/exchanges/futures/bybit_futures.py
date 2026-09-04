@@ -230,7 +230,7 @@ class BybitFuturesAdapter(CCXTAdapter):
         """Create futures order."""
         ccxt_symbol = self._convert_symbol(order.symbol)
 
-        params = {"type": "swap", "subType": self._market_type}
+        params: dict[str, object] = {"type": "swap", "subType": self._market_type}
         if order.reduce_only:
             params["reduceOnly"] = True
         if order.post_only:

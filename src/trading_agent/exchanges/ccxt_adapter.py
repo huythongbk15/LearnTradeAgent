@@ -842,7 +842,7 @@ class CCXTAdapter(ExchangeAdapter):
         return order.type.value.lower()
 
     def _order_to_ccxt_params(self, order: Order) -> dict:
-        params = {}
+        params: dict[str, object] = {}
         # Binance chỉ chấp nhận timeInForce cho limit orders; market orders
         # sẽ bị reject (-1106) nếu gửi kèm.
         if order.time_in_force and order.type in {
