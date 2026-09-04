@@ -813,9 +813,9 @@ def run(
     sym_obj = ExSymbol(base, quote, AssetClass.CRYPTO, MarketType.SPOT, exchange)
 
     signals = []
-    equity = capital
-    position = 0
-    entry_price = 0
+    equity: float = capital
+    position: float = 0
+    entry_price: float = 0
     trades = []
 
     from trading_agent.strategies.plugins import StrategyContext

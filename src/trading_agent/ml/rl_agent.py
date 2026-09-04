@@ -181,7 +181,7 @@ class DQNAgent:
         self.epsilon = epsilon_start
         self.epsilon_end = epsilon_end
         self.epsilon_decay = epsilon_decay
-        self.memory = deque(maxlen=memory_size)
+        self.memory: deque = deque(maxlen=memory_size)
 
         # Linear Q approximation: Q(s,a) = s @ W_a + b_a
         self.W = np.random.randn(state_dim, action_dim) * 0.01
@@ -377,7 +377,7 @@ if __name__ == "__main__":
     # Synthetic data
     np.random.seed(42)
     n = 2000
-    close = 100 + np.cumsum(np.random.randn(n) * 0.5)
+    close: np.ndarray = 100 + np.cumsum(np.random.randn(n) * 0.5)
     import pandas as pd
 
     df = pd.DataFrame(

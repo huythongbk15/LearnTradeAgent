@@ -146,7 +146,7 @@ class RegimeSwitchStrategy(Strategy):
         self, regime: MarketRegime, strategy_name: str
     ) -> dict[str, Any]:
         """Get params for regime/strategy combination."""
-        regime_params = self.custom_params.get(regime, {})
+        regime_params: dict = self.custom_params.get(regime, {})
         return regime_params.get(strategy_name, {})
 
     def _switch_strategy(

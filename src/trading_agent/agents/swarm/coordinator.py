@@ -208,8 +208,8 @@ class CoordinatorAgent(Agent):
             }
 
         # Weight votes by confidence and agent weight
-        votes = {"buy": 0, "sell": 0, "hold": 0, "close_long": 0, "close_short": 0}
-        total_weight = 0
+        votes: dict[str, float] = {"buy": 0.0, "sell": 0.0, "hold": 0.0, "close_long": 0.0, "close_short": 0.0}
+        total_weight: float = 0.0
 
         for s in signals:
             weight = s.confidence * s.metadata.get("weight", 1.0)
@@ -371,8 +371,8 @@ class CoordinatorAgent(Agent):
         if not fund_confirm or not sent_align:
             # Conflicting signals -> hold
             action = "hold"
-            confidence = 0.3
-            size_pct = 0
+            confidence: float = 0.3
+            size_pct: float = 0
         else:
             action = tech_action
             confidence = tech_conf
@@ -473,7 +473,7 @@ class CompetitiveSwarm(CoordinatorAgent):
 # Signal aggregation utilities
 def majority_vote(signals: list[AgentSignal]) -> tuple[str, float]:
     """Simple majority vote."""
-    votes = {}
+    votes: dict[str, float] = {}
     for s in signals:
         votes[s.action] = votes.get(s.action, 0) + s.confidence
 
@@ -487,9 +487,9 @@ def majority_vote(signals: list[AgentSignal]) -> tuple[str, float]:
 
 def weighted_average(signals: list[AgentSignal], weights: dict[str, float]) -> dict:
     """Weighted average of signals."""
-    action_weights = {}
-    size_weights = {}
-    total_weight = 0
+    action_weights: dict[str, float] = {}
+    size_weights: dict[str, float] = {}
+    total_weight: float = 0.0
 
     for s in signals:
         w = weights.get(s.metadata.get("agent_role", ""), 1.0) * s.confidence

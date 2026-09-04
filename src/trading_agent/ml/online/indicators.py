@@ -40,7 +40,8 @@ class OnlineEMA(OnlineIndicator):
             self.value = value
             self._initialized = True
         else:
-            self.value = self.alpha * value + (1 - self.alpha) * self.value
+            prev = self.value if self.value is not None else 0.0
+            self.value = self.alpha * value + (1 - self.alpha) * prev
         return self.value
 
     def reset(self) -> None:
@@ -60,7 +61,7 @@ class OnlineSMA(OnlineIndicator):
             raise ValueError("period must be >= 1")
         self.period = period
         # Manage eviction explicitly so the outgoing value is subtracted first.
-        self.values = deque()
+        self.values: deque[float] = deque()
         self._sum = 0.0
 
     def update(self, value: float) -> float:
@@ -91,8 +92,8 @@ class OnlineRSI(OnlineIndicator):
 
     def __init__(self, period: int = 14):
         self.period = period
-        self.gains = deque(maxlen=period)
-        self.losses = deque(maxlen=period)
+        self.gains: deque[float] = deque(maxlen=period)
+        self.losses: deque[float] = deque(maxlen=period)
         self.prev_close: Optional[float] = None
         self._avg_gain: Optional[float] = None
         self._avg_loss: Optional[float] = None
@@ -114,7 +115,7 @@ class OnlineRSI(OnlineIndicator):
             return 50.0
 
         # Wilder's smoothing
-        if self._avg_gain is None:
+        if self._avg_gain is None or self._avg_loss is None:
             self._avg_gain = sum(self.gains) / self.period
             self._avg_loss = sum(self.losses) / self.period
         else:
@@ -158,7 +159,8 @@ class OnlineBollingerBands(OnlineIndicator):
         if not self.sma.is_ready:
             return middle, middle, middle
 
-        variance = self.squared_sma.value - middle * middle
+        sq_val = self.squared_sma.value if self.squared_sma.value is not None else 0.0
+        variance = sq_val - middle * middle
         std = math.sqrt(max(variance, 0))
 
         upper = middle + self.num_std * std
@@ -181,7 +183,8 @@ class OnlineBollingerBands(OnlineIndicator):
         middle = self.sma.value
         if not self.is_ready:
             return middle, middle, middle
-        variance = self.squared_sma.value - middle * middle
+        sq_val = self.squared_sma.value if self.squared_sma.value is not None else 0.0
+        variance = sq_val - middle * middle
         std = math.sqrt(max(variance, 0))
         upper = middle + self.num_std * std
         lower = middle - self.num_std * std
@@ -240,7 +243,7 @@ class OnlineATR(OnlineIndicator):
 
     def __init__(self, period: int = 14):
         self.period = period
-        self.tr_values = deque(maxlen=period)
+        self.tr_values: deque[float] = deque(maxlen=period)
         self.prev_high: Optional[float] = None
         self.prev_low: Optional[float] = None
         self.prev_close: Optional[float] = None
@@ -328,7 +331,7 @@ class OnlineStandardDeviation(OnlineIndicator):
         self.count = 0
         self.mean = 0.0
         self.m2 = 0.0  # Sum of squared differences
-        self.values = deque(maxlen=period) if period else None
+        self.values: Optional[deque[float]] = deque(maxlen=period) if period else None
 
     def update(self, value: float) -> float:
         if self.values is not None:
@@ -386,11 +389,11 @@ class OnlineCorrelation(OnlineIndicator):
         self.var_x = 0.0
         self.var_y = 0.0
 
-        self.values_x = deque(maxlen=period) if period else None
-        self.values_y = deque(maxlen=period) if period else None
+        self.values_x: Optional[deque[float]] = deque(maxlen=period) if period else None
+        self.values_y: Optional[deque[float]] = deque(maxlen=period) if period else None
 
     def update(self, x: float, y: float) -> float:
-        if self.values_x is not None:
+        if self.values_x is not None and self.values_y is not None:
             if len(self.values_x) == self.period:
                 old_x = self.values_x.popleft()
                 old_y = self.values_y.popleft()

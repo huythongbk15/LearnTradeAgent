@@ -81,7 +81,7 @@ class TradeCloner:
         profit_factor = gross_profit / gross_loss if gross_loss > 0 else float("inf")
 
         # Max drawdown
-        equity = np.cumsum(pnls)
+        equity: np.ndarray = np.cumsum(pnls)
         running_max = np.maximum.accumulate(equity)
         drawdown = running_max - equity
         max_dd = float(np.max(drawdown)) if len(drawdown) > 0 else 0
@@ -112,7 +112,7 @@ class TradeCloner:
             risk = "aggressive"
 
         # Preferred assets
-        asset_counts = {}
+        asset_counts: dict = {}
         for t in trades:
             a = t.get("asset", "unknown")
             asset_counts[a] = asset_counts.get(a, 0) + 1
@@ -156,7 +156,7 @@ class TradeCloner:
         """Extract common entry conditions from trade metadata."""
         patterns = []
         # Group by entry signal if available
-        signal_counts = {}
+        signal_counts: dict = {}
         for t in trades:
             sig = t.get("entry_signal", "unknown")
             signal_counts[sig] = signal_counts.get(sig, 0) + 1
@@ -177,7 +177,7 @@ class TradeCloner:
 
     def _extract_exit_patterns(self, trades: list[dict]) -> list[dict]:
         patterns = []
-        signal_counts = {}
+        signal_counts: dict = {}
         for t in trades:
             sig = t.get("exit_signal", "unknown")
             signal_counts[sig] = signal_counts.get(sig, 0) + 1

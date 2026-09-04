@@ -1100,9 +1100,9 @@ class LiveRiskStateStore:
                 f"{previous_status} -> {normalized}"
             )
 
-        previous_filled = float(record.get("filled_quantity") or 0.0)
-        previous_average = float(record.get("average_fill_price") or 0.0)
-        previous_quote_cost = float(record.get("quote_cost") or 0.0)
+        previous_filled = float(str(record.get("filled_quantity") or 0.0))
+        previous_average = float(str(record.get("average_fill_price") or 0.0))
+        previous_quote_cost = float(str(record.get("quote_cost") or 0.0))
         next_filled = previous_filled if filled_quantity is None else filled_quantity
         next_average = (
             previous_average if average_fill_price is None else average_fill_price
@@ -1118,7 +1118,7 @@ class LiveRiskStateStore:
         if next_quote_cost + 1e-9 < previous_quote_cost:
             raise LiveSafetyError("cumulative quote cost cannot decrease")
         try:
-            intended_quantity = float(record.get("quantity") or 0.0)
+            intended_quantity = float(str(record.get("quantity") or 0.0))
         except (TypeError, ValueError) as exc:
             raise LiveSafetyError("order ledger contains an invalid quantity") from exc
         if intended_quantity > 0 and next_filled > intended_quantity + 1e-12:
@@ -1255,8 +1255,8 @@ class LiveRiskStateStore:
         previous_stop = 0.0
         if isinstance(record, dict):
             try:
-                previous_peak = float(record.get("peak_price", 0.0))
-                previous_stop = float(record.get("trailing_stop", 0.0))
+                previous_peak = float(str(record.get("peak_price", 0.0)))
+                previous_stop = float(str(record.get("trailing_stop", 0.0)))
             except (TypeError, ValueError) as exc:
                 raise LiveSafetyError(
                     f"invalid position risk state for {symbol}"

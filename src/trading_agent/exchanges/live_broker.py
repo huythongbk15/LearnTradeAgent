@@ -76,11 +76,11 @@ class LiveBroker:
         """Return validated total, free and locked spot quantities."""
 
         try:
-            total = float(amounts.get("total", 0) or 0)
+            total = float(str(amounts.get("total", 0)) or 0)
             raw_free = amounts.get("free")
             raw_used = amounts.get("used")
-            free = float(raw_free) if raw_free is not None else None
-            locked = float(raw_used) if raw_used is not None else None
+            free = float(str(raw_free)) if raw_free is not None else None
+            locked = float(str(raw_used)) if raw_used is not None else None
         except (TypeError, ValueError) as exc:
             raise RuntimeError("spot balance quantities must be numeric") from exc
         values = [total]
@@ -96,6 +96,7 @@ class LiveBroker:
         elif locked is None:
             locked = max(0.0, total - free)
         tolerance = max(1e-12, total * 1e-8)
+        assert free is not None and locked is not None
         if (
             free > total + tolerance
             or locked > total + tolerance
@@ -214,7 +215,7 @@ class LiveBroker:
             balance = _run(self.adapter.fetch_balance())
             assets = balance.get(AssetClass.CRYPTO, None)
             main_quote = "USDT" if self.broker == "binance" else "USDT"
-            out = []
+            out: list = []
             if not assets:
                 return out
             need = self._need_coins(

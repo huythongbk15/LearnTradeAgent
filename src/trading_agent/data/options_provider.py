@@ -313,7 +313,8 @@ class OptionChainProvider:
         ]
         strikes = [round(s, 2) for s in strikes]
 
-        calls, puts = [], []
+        calls: list = []
+        puts: list = []
         for k in strikes:
             moneyness = math.log(spot / k)
             smile_iv = base_iv * (1 + 0.3 * moneyness**2 + 0.1 * moneyness)

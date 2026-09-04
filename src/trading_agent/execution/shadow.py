@@ -383,11 +383,12 @@ class ShadowMainnetEngine:
         slippage_bps: list[float] = []
         for order in fills:
             mid = order.mid_at_intent
-            if mid > 0:
+            if mid is not None and mid > 0:
+                fill = order.simulated_fill_price if order.simulated_fill_price is not None else mid
                 bps = (
-                    (order.simulated_fill_price - mid) / mid * 10_000
+                    (fill - mid) / mid * 10_000
                     if order.side == "buy"
-                    else (mid - order.simulated_fill_price) / mid * 10_000
+                    else (mid - fill) / mid * 10_000
                 )
                 slippage_bps.append(bps)
         return {

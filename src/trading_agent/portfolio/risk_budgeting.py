@@ -97,7 +97,7 @@ class CorrelationMatrix:
         link = linkage(dist, method="ward")
         labels = fcluster(link, n_clusters, criterion="maxclust")
 
-        clusters = {}
+        clusters: dict = {}
         for idx, label in enumerate(labels):
             clusters.setdefault(label, []).append(self.symbols[idx])
         return clusters

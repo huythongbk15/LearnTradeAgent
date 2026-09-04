@@ -739,7 +739,7 @@ def strategy_run(
     from trading_agent.strategies.plugins import StrategyContext, get_registry
 
     # Parse params
-    param_dict = {}
+    param_dict: dict[str, float | int | str] = {}
     for p in params:
         if "=" not in p:
             console.print(f"[red]Invalid param: {p}[/red]")
@@ -840,7 +840,7 @@ def strategy_validate(
     from trading_agent.strategies.plugins import get_registry
 
     # Parse params
-    param_dict = {}
+    param_dict: dict[str, float | int | str] = {}
     for p in params:
         if "=" not in p:
             console.print(f"[red]Invalid param: {p}[/red]")

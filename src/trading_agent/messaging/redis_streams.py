@@ -23,7 +23,7 @@ try:
 
     REDIS_AVAILABLE = True
 except ImportError:  # pragma: no cover - depends on environment
-    redis = None  # type: ignore
+    redis = None
     REDIS_AVAILABLE = False
 
 

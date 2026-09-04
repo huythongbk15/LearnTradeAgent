@@ -56,7 +56,7 @@ class HistoricalVaR:
     def compute(self, returns: Sequence[float]) -> RiskMetrics:
         if len(returns) < 20:
             return RiskMetrics("hist", self.confidence, 0.0, 0.0, 0.0, len(returns))
-        arr = np.asarray(returns, dtype=float)
+        arr: np.ndarray = np.asarray(returns, dtype=float)
         arr = np.sort(arr)[::-1]  # descending
         # VaR at confidence: quantile of losses
         q = 1 - self.confidence
@@ -85,7 +85,7 @@ class ParametricVaR:
             return RiskMetrics(
                 "parametric", self.confidence, 0.0, 0.0, 0.0, len(returns)
             )
-        arr = np.asarray(returns, dtype=float)
+        arr: np.ndarray = np.asarray(returns, dtype=float)
         mu, sigma = arr.mean(), arr.std(ddof=1)
         if sigma <= 0:
             return RiskMetrics("parametric", self.confidence, 0.0, 0.0, 0.0, len(arr))
@@ -219,7 +219,7 @@ def compute_portfolio_cvar(
     port_returns = returns_matrix.T @ weights
     var = np.quantile(port_returns, 1 - confidence)
     tail = port_returns[port_returns <= var]
-    return -tail.mean()
+    return float(-tail.mean())
 
 
 def max_drawdown(equity_curve: Sequence[float]) -> float:
@@ -234,14 +234,11 @@ def max_drawdown(equity_curve: Sequence[float]) -> float:
     return mdd
 
 
-# Fix dataclass import for field default_factory
-from dataclasses import field
-
 if __name__ == "__main__":
     import random
 
     pm = PortfolioRiskManager()
-    eq = 10000
+    eq = 10000.0
     rng = random.Random(42)
     for i in range(300):
         ret = rng.gauss(0.001, 0.02)

@@ -466,7 +466,7 @@ if __name__ == "__main__":
     # Synthetic data
     np.random.seed(42)
     n = 500
-    close = 100 + np.cumsum(np.random.randn(n) * 0.5)
+    close: np.ndarray = 100 + np.cumsum(np.random.randn(n) * 0.5)
     df = pd.DataFrame(
         {
             "open": close + np.random.randn(n) * 0.1,

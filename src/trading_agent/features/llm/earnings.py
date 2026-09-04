@@ -2,7 +2,7 @@
 
 import json
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
 
@@ -57,22 +57,16 @@ class EarningsFeatures:
     # Sentiment
     management_tone: float = 0.0  # -1 to 1
     sentiment_confidence: float = 0.0
-    key_topics: list[str] = None
+    key_topics: list[str] = field(default_factory=list)
 
     # Risk factors
-    risk_factors: list[str] = None
+    risk_factors: list[str] = field(default_factory=list)
     growth_outlook: str = "neutral"  # bullish, neutral, bearish
     margin_outlook: str = "neutral"
 
     # Price reaction
     expected_move: float = 0.0  # expected % move
     implied_volatility: float = 0.0
-
-    def __post_init__(self):
-        if self.key_topics is None:
-            self.key_topics = []
-        if self.risk_factors is None:
-            self.risk_factors = []
 
 
 class EarningsFeatureExtractor:

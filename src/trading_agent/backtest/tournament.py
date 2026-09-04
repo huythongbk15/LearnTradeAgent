@@ -23,13 +23,12 @@ Fail-closed guarantees (STR-0208/0209):
 
 from __future__ import annotations
 
-import concurrent.futures
 import hashlib
 import json
 import math
 import sys
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import MappingProxyType
@@ -359,6 +358,8 @@ def canonical_signal_series(
     *,
     warmup_bars: int,
     symbol: str,
+    start_index: int = 0,
+    end_index: int | None = None,
 ) -> list[int]:
     """Per-bar deterministic signals from the canonical contract.
 
@@ -372,8 +373,14 @@ def canonical_signal_series(
     # Storage timestamps may be tz-naive; the contract requires awareness.
     if times and getattr(times[0], "tzinfo", None) is None:
         times = [value.replace(tzinfo=UTC) for value in times]
+    if start_index < 0:
+        raise ValueError("start_index must be non-negative")
+    resolved_end = frame.height if end_index is None else min(end_index, frame.height)
+    if resolved_end < 0:
+        raise ValueError("end_index must be non-negative")
     signals = [0] * frame.height
-    for j in range(warmup_bars + 1, len(frame)):
+    first_signal = max(warmup_bars + 1, start_index)
+    for j in range(first_signal, resolved_end):
         observed_at = times[j]
         try:
             window = build_ohlcv_window(
@@ -435,33 +442,40 @@ class EvaluationArtifact:
     simulation_window: tuple[int, int | None] | None = None
     signal_delay_bars: int = 0
     selection_freeze_id: str | None = None
+    execution_control: Mapping[str, Any] = field(default_factory=dict)
 
     @property
     def artifact_id(self) -> str:
+        identity: dict[str, Any] = {
+            "cell_id": self.cell_id,
+            "status": self.status,
+            "descriptor_id": self.descriptor_id,
+            "strategy_id": self.strategy_id,
+            "symbol": self.symbol,
+            "timeframe": self.timeframe,
+            "params_hash": self.params_hash,
+            "cost_scenario": self.cost_scenario,
+            "fault_profile": self.fault_profile,
+            "commission": self.commission,
+            "slippage": self.slippage,
+            "data_manifest_sha": self.data_manifest_sha,
+            "commit_sha": self.commit_sha,
+            "report_path": self.report_path,
+            "measurement_window": self.measurement_window,
+            "simulation_window": self.simulation_window,
+            "signal_delay_bars": self.signal_delay_bars,
+            "selection_freeze_id": self.selection_freeze_id,
+            "metrics": dict(self.metrics),
+            "execution_health": dict(self.execution_health),
+            "failure_reasons": self.failure_reasons,
+        }
+        # Preserve content IDs of artifacts created before STR-0208. New
+        # isolated runs bind their execution-control policy and actual attempt
+        # count into the evidence identity.
+        if self.execution_control:
+            identity["execution_control"] = dict(self.execution_control)
         payload = json.dumps(
-            {
-                "cell_id": self.cell_id,
-                "status": self.status,
-                "descriptor_id": self.descriptor_id,
-                "strategy_id": self.strategy_id,
-                "symbol": self.symbol,
-                "timeframe": self.timeframe,
-                "params_hash": self.params_hash,
-                "cost_scenario": self.cost_scenario,
-                "fault_profile": self.fault_profile,
-                "commission": self.commission,
-                "slippage": self.slippage,
-                "data_manifest_sha": self.data_manifest_sha,
-                "commit_sha": self.commit_sha,
-                "report_path": self.report_path,
-                "measurement_window": self.measurement_window,
-                "simulation_window": self.simulation_window,
-                "signal_delay_bars": self.signal_delay_bars,
-                "selection_freeze_id": self.selection_freeze_id,
-                "metrics": dict(self.metrics),
-                "execution_health": dict(self.execution_health),
-                "failure_reasons": self.failure_reasons,
-            },
+            identity,
             sort_keys=True,
             separators=(",", ":"),
         )
@@ -496,6 +510,7 @@ class EvaluationArtifact:
             else None,
             "signal_delay_bars": self.signal_delay_bars,
             "selection_freeze_id": self.selection_freeze_id,
+            "execution_control": dict(self.execution_control),
         }
 
     @classmethod
@@ -527,6 +542,7 @@ class EvaluationArtifact:
             simulation_window=tuple(simulation) if simulation is not None else None,
             signal_delay_bars=int(data.get("signal_delay_bars", 0)),
             selection_freeze_id=data.get("selection_freeze_id"),
+            execution_control=dict(data.get("execution_control", {})),
         )
         expected_id = data.get("artifact_id")
         if expected_id is not None and expected_id != artifact.artifact_id:
@@ -574,7 +590,7 @@ def run_cell(
     gap_policy: GapPolicy = "record",
     gap_exceptions_path: str | Path | None = None,
     # STR-0208: per-cell timeout/retry/resource budget (enforced inside run_cell)
-    timeout_seconds: int = 300,
+    timeout_seconds: float = 300,
     max_retries: int = 2,
     resource_budget: Optional[dict[str, Any]] = None,
     # Internal: disable multiprocessing for fast tests / single-threaded mode
@@ -600,7 +616,7 @@ def run_cell(
         start != 0 or end is not None or simulation_start is not None
     ):
         raise ValueError("tail_bars cannot be combined with start/end/simulation_start")
-    if timeout_seconds <= 0:
+    if isinstance(timeout_seconds, bool) or timeout_seconds <= 0:
         raise ValueError("timeout_seconds must be positive")
     if max_retries < 0:
         raise ValueError("max_retries must be non-negative")
@@ -609,12 +625,16 @@ def run_cell(
     if resource_budget is not None:
         if not isinstance(resource_budget, dict):
             raise ValueError("resource_budget must be a dict")
-        for key in resource_budget:
+        for key, value in resource_budget.items():
             if key not in ("max_memory_mb", "max_cpu_seconds"):
                 raise ValueError(f"unknown resource_budget key: {key}")
+            if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+                raise ValueError(f"resource_budget {key} must be a positive integer")
 
     # Fast path for tests / inline execution
     if not _use_multiprocessing:
+        if resource_budget:
+            raise ValueError("resource_budget requires multiprocessing isolation")
         return _run_cell_impl(
             {
                 "strategy_id": spec.strategy_id,
@@ -635,7 +655,6 @@ def run_cell(
             signal_delay_bars=signal_delay_bars,
             gap_policy=gap_policy,
             gap_exceptions_path=gap_exceptions_path,
-            resource_budget=resource_budget,
         )
 
     # Execute with timeout/retry
@@ -681,61 +700,66 @@ def _run_cell_with_retry(
     signal_delay_bars: int,
     gap_policy: GapPolicy,
     gap_exceptions_path: str | Path | None,
-    timeout_seconds: int,
+    timeout_seconds: float,
     max_retries: int,
     resource_budget: Optional[dict[str, Any]],
 ) -> EvaluationArtifact:
     """Execute the cell with timeout and retry logic (STR-0208).
 
-    Runs the actual cell implementation in a separate process with timeout.
-    On timeout or transient error, retries up to max_retries times.
-    Returns a FAILED artifact if all attempts fail.
+    Each attempt owns a dedicated process. A timed-out process is terminated
+    before the next attempt starts, so a hung cell cannot continue mutating its
+    state directory in the background.
     """
-    import multiprocessing
-
-    last_error: Optional[Exception] = None
     last_error_msg = ""
-
-    # Use 'spawn' context to avoid fork() issues with multi-threaded parent
-    ctx = multiprocessing.get_context("spawn")
+    attempts_made = 0
 
     for attempt in range(max_retries + 1):
-        try:
-            # Run the actual cell implementation in a subprocess with timeout
-            with concurrent.futures.ProcessPoolExecutor(max_workers=1, mp_context=ctx) as executor:
-                future = executor.submit(
-                    _run_cell_impl,
-                    spec_primitives,
-                    out_root,
-                    start,
-                    end,
-                    tail_bars,
-                    fresh,
-                    simulation_start,
-                    measurement_start,
-                    measurement_end,
-                    signal_delay_bars,
-                    gap_policy,
-                    gap_exceptions_path,
-                    resource_budget,
-                )
-                return future.result(timeout=timeout_seconds)
-        except concurrent.futures.TimeoutError:
-            last_error = TimeoutError(f"Cell {spec_primitives.get('strategy_id', 'unknown')}__{spec_primitives.get('symbol', 'unknown')} timed out after {timeout_seconds}s")
+        attempts_made = attempt + 1
+        outcome = _run_isolated_process(
+            target=_cell_process_entry,
+            target_args=(
+                spec_primitives,
+                out_root,
+                start,
+                end,
+                tail_bars,
+                fresh,
+                simulation_start,
+                measurement_start,
+                measurement_end,
+                signal_delay_bars,
+                gap_policy,
+                gap_exceptions_path,
+                resource_budget,
+            ),
+            timeout_seconds=timeout_seconds,
+        )
+        kind = outcome.get("kind")
+        if kind == "result":
+            artifact = EvaluationArtifact.from_dict(outcome["artifact"])
+            return replace(
+                artifact,
+                execution_control=_execution_control_evidence(
+                    timeout_seconds=timeout_seconds,
+                    max_retries=max_retries,
+                    resource_budget=resource_budget,
+                    attempts_made=attempts_made,
+                    outcome="completed",
+                ),
+            )
+        if kind == "timeout":
             last_error_msg = f"timeout:{timeout_seconds}s"
-        except Exception as exc:  # noqa: BLE001 - capture all errors for retry logic
-            last_error = exc
-            last_error_msg = f"{type(exc).__name__}:{exc}"
-            # Don't retry on certain fatal errors
-            if _is_fatal_error(exc):
+        else:
+            error_type = str(outcome.get("error_type", "WorkerError"))
+            error_message = str(outcome.get("message", "no result payload"))
+            last_error_msg = f"{error_type}:{error_message}"
+            if bool(outcome.get("fatal", False)) or (
+                error_type == "WorkerExit" and resource_budget
+            ):
                 break
         if attempt < max_retries:
-            # Brief backoff before retry
             time.sleep(0.5 * (attempt + 1))
 
-    # All attempts failed - return FAILED artifact with provenance
-    # Reconstruct a minimal spec for the failed artifact
-    from trading_agent.backtest.tournament import EvaluationCellSpec
     minimal_spec = EvaluationCellSpec(
         strategy_id=spec_primitives["strategy_id"],
         symbol=spec_primitives["symbol"],
@@ -744,11 +768,177 @@ def _run_cell_with_retry(
         cost_scenario=spec_primitives["cost_scenario"],
         fault=spec_primitives["fault"],
     )
-    return _failed_artifact(
+    artifact = _failed_artifact(
         minimal_spec,
-        None,  # descriptor may not be available if error happened early
-        f"execution_failed_after_{max_retries + 1}_attempts:{last_error_msg}",
+        None,
+        f"execution_failed_after_{attempts_made}_attempts:{last_error_msg}",
     )
+    return replace(
+        artifact,
+        execution_control=_execution_control_evidence(
+            timeout_seconds=timeout_seconds,
+            max_retries=max_retries,
+            resource_budget=resource_budget,
+            attempts_made=attempts_made,
+            outcome="failed",
+        ),
+    )
+
+
+def _execution_control_evidence(
+    *,
+    timeout_seconds: float,
+    max_retries: int,
+    resource_budget: Optional[dict[str, Any]],
+    attempts_made: int,
+    outcome: str,
+) -> dict[str, Any]:
+    return {
+        "isolation": "spawned_process",
+        "timeout_seconds": timeout_seconds,
+        "max_retries": max_retries,
+        "resource_budget": dict(resource_budget or {}),
+        "attempts_made": attempts_made,
+        "outcome": outcome,
+    }
+
+
+def _run_isolated_process(
+    *, target: Any, target_args: tuple[Any, ...], timeout_seconds: float
+) -> dict[str, Any]:
+    """Run one process attempt and forcibly stop it when the deadline expires."""
+    import multiprocessing
+    from multiprocessing.connection import wait
+
+    ctx = multiprocessing.get_context("spawn")
+    receive_conn, send_conn = ctx.Pipe(duplex=False)
+    process = ctx.Process(target=target, args=(send_conn, *target_args))
+    try:
+        process.start()
+        send_conn.close()
+        ready = wait((receive_conn, process.sentinel), timeout_seconds)
+        if receive_conn in ready or receive_conn.poll(0):
+            try:
+                payload = receive_conn.recv()
+            except EOFError:
+                process.join(timeout=1.0)
+                if process.is_alive():
+                    _stop_process(process)
+                return {
+                    "kind": "error",
+                    "error_type": "WorkerExit",
+                    "message": f"worker closed result pipe (exitcode={process.exitcode})",
+                    "fatal": False,
+                }
+            process.join(timeout=1.0)
+            if process.is_alive():
+                _stop_process(process)
+            return dict(payload)
+
+        if process.sentinel in ready:
+            process.join(timeout=1.0)
+            if receive_conn.poll(0.1):
+                return dict(receive_conn.recv())
+            return {
+                "kind": "error",
+                "error_type": "WorkerExit",
+                "message": f"worker exited without result (exitcode={process.exitcode})",
+                "fatal": False,
+            }
+
+        _stop_process(process)
+        return {"kind": "timeout"}
+    finally:
+        if process.pid is not None and process.is_alive():
+            _stop_process(process)
+        send_conn.close()
+        receive_conn.close()
+
+
+def _stop_process(process: Any) -> None:
+    """Terminate a cell worker and escalate to kill if it ignores termination."""
+    if not process.is_alive():
+        process.join(timeout=0.1)
+        return
+    process.terminate()
+    process.join(timeout=1.0)
+    if process.is_alive():
+        process.kill()
+        process.join(timeout=1.0)
+
+
+def _cell_process_entry(
+    send_conn: Any,
+    spec_primitives: dict[str, Any],
+    out_root: Path | None,
+    start: int,
+    end: int | None,
+    tail_bars: int | None,
+    fresh: bool,
+    simulation_start: int | None,
+    measurement_start: int | None,
+    measurement_end: int | None,
+    signal_delay_bars: int,
+    gap_policy: GapPolicy,
+    gap_exceptions_path: str | Path | None,
+    resource_budget: Optional[dict[str, Any]],
+) -> None:
+    """Apply the budget in the child, execute the cell and return plain data."""
+    try:
+        _apply_resource_budget(resource_budget)
+        artifact = _run_cell_impl(
+            spec_primitives,
+            out_root,
+            start,
+            end,
+            tail_bars,
+            fresh,
+            simulation_start,
+            measurement_start,
+            measurement_end,
+            signal_delay_bars,
+            gap_policy,
+            gap_exceptions_path,
+        )
+        send_conn.send({"kind": "result", "artifact": artifact.to_dict()})
+    except Exception as exc:  # noqa: BLE001 - serialized for parent retry policy
+        send_conn.send(
+            {
+                "kind": "error",
+                "error_type": type(exc).__name__,
+                "message": str(exc),
+                "fatal": _is_fatal_error(exc),
+            }
+        )
+    finally:
+        send_conn.close()
+
+
+def _apply_resource_budget(resource_budget: Optional[dict[str, Any]]) -> None:
+    """Apply hard OS limits inside the disposable cell worker."""
+    if not resource_budget:
+        return
+    try:
+        import resource
+    except ImportError as exc:  # pragma: no cover - Windows fail-closed path
+        raise RuntimeError("resource limits are unsupported on this platform") from exc
+
+    def set_limit(kind: int, requested: int) -> None:
+        _, current_hard = resource.getrlimit(kind)
+        limit = requested
+        if current_hard != resource.RLIM_INFINITY:
+            limit = min(limit, int(current_hard))
+        resource.setrlimit(kind, (limit, limit))
+
+    max_memory_mb = resource_budget.get("max_memory_mb")
+    if max_memory_mb is not None:
+        if not hasattr(resource, "RLIMIT_DATA"):
+            raise RuntimeError("data-memory limits are unsupported on this platform")
+        set_limit(resource.RLIMIT_DATA, int(max_memory_mb) * 1024 * 1024)
+
+    max_cpu_seconds = resource_budget.get("max_cpu_seconds")
+    if max_cpu_seconds is not None:
+        set_limit(resource.RLIMIT_CPU, int(max_cpu_seconds))
 
 
 def _is_fatal_error(exc: Exception) -> bool:
@@ -756,8 +946,8 @@ def _is_fatal_error(exc: Exception) -> bool:
     # Registry/strategy errors are fatal - retry won't help
     fatal_types = (
         ValueError,  # Invalid parameters
-        KeyError,    # Missing required data
-        ImportError, # Missing module
+        KeyError,  # Missing required data
+        ImportError,  # Missing module
         AttributeError,  # Missing attribute (code bug)
     )
     return isinstance(exc, fatal_types)
@@ -776,7 +966,6 @@ def _run_cell_impl(
     signal_delay_bars: int,
     gap_policy: GapPolicy,
     gap_exceptions_path: str | Path | None,
-    resource_budget: Optional[dict[str, Any]],
 ) -> EvaluationArtifact:
     """Actual cell implementation (runs in subprocess)."""
     # Reconstruct spec from primitives
@@ -931,11 +1120,21 @@ def _run_cell_impl(
         # Storage keeps naive-UTC timestamps; make them explicitly UTC.
         frame = frame.with_columns(pl.col("time").dt.replace_time_zone("UTC"))
 
+    resolved_end = min(end if end is not None else frame.height, frame.height)
+    # Only signals consumed by the requested simulation window need to be
+    # evaluated. The full frame remains available to every selected bar, so
+    # indicator warm-up and point-in-time causality are unchanged.
+    signal_generation_start = max(0, sim_start - signal_delay_bars)
+    signal_generation_end = max(
+        signal_generation_start, resolved_end - 1 - signal_delay_bars
+    )
     signals = canonical_signal_series(
         adapter,
         frame,
         warmup_bars=descriptor.warmup_bars,
         symbol=spec.symbol,
+        start_index=signal_generation_start,
+        end_index=signal_generation_end,
     )
 
     # Apply signal delay: shift signals forward by signal_delay_bars positions.

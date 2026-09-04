@@ -381,7 +381,7 @@ class ExecutionAuthority:
 
         permission = evaluate_order_permission(perm_ctx)
 
-        if not permission.allowed:
+        if not permission.allowed():
             return False, permission.reason, (permission.reason,)
 
         return True, "", ()

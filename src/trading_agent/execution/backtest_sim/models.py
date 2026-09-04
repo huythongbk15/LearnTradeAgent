@@ -295,10 +295,10 @@ class ExecutionSimulator:
             return None
 
         # Check if price is marketable
-        if order.side == OrderSide.BUY and order.price >= book.ask_price:
+        if order.side == OrderSide.BUY and order.price is not None and book.ask_price is not None and order.price >= book.ask_price:
             # Crosses spread - immediate fill (taker)
             return self._fill_limit_as_taker(order, book)
-        elif order.side == OrderSide.SELL and order.price <= book.bid_price:
+        elif order.side == OrderSide.SELL and order.price is not None and book.bid_price is not None and order.price <= book.bid_price:
             return self._fill_limit_as_taker(order, book)
 
         # Check queue position
@@ -324,11 +324,13 @@ class ExecutionSimulator:
 
         if order.side == OrderSide.BUY:
             # Buy: fill at ask + slippage + impact, capped at limit price
-            market_price = book.ask_price * (1 + slippage) * (1 + impact)
+            ask = book.ask_price if book.ask_price is not None else 0.0
+            market_price = ask * (1 + slippage) * (1 + impact)
             fill_price = min(market_price, order.price)
         else:
             # Sell: fill at bid - slippage - impact, floored at limit price
-            market_price = book.bid_price * (1 - slippage) * (1 - impact)
+            bid = book.bid_price if book.bid_price is not None else 0.0
+            market_price = bid * (1 - slippage) * (1 - impact)
             fill_price = max(market_price, order.price)
 
         fill_qty = order.quantity
@@ -365,7 +367,8 @@ class ExecutionSimulator:
         """Fill limit order as maker (provides liquidity)."""
         latency = self._sample_latency()
 
-        fill_price = order.price  # Filled at limit price
+        base_price = order.price if order.price is not None else 0.0
+        fill_price = base_price  # Filled at limit price
         is_maker = True
 
         # No slippage for maker, but still impact

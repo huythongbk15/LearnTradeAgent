@@ -257,7 +257,7 @@ class OnlineWeightAllocator:
         self.min_observations = max(1, int(min_observations))
         self.uncertainty_shrinkage = max(0.0, float(uncertainty_shrinkage))
         self.weights = np.full(len(self.experts), 1.0 / len(self.experts))
-        self.scores = np.zeros(len(self.experts), dtype=float)
+        self.scores: np.ndarray = np.zeros(len(self.experts), dtype=float)
         self._pending: deque[tuple[int, np.ndarray]] = deque()
         self._next_observation_id = 0
         self.outcome_count = 0
@@ -265,7 +265,7 @@ class OnlineWeightAllocator:
 
     def _project_capped_simplex(self, values: np.ndarray) -> np.ndarray:
         result = np.zeros_like(values, dtype=float)
-        remaining = np.ones(len(values), dtype=bool)
+        remaining: np.ndarray = np.ones(len(values), dtype=bool)
         remaining_mass = 1.0
         source = np.maximum(values, 0.0)
         while np.any(remaining):
@@ -288,7 +288,7 @@ class OnlineWeightAllocator:
         return result / np.sum(result)
 
     def observe_market(self, value: float) -> AllocationForecast:
-        forecasts = np.asarray(
+        forecasts: np.ndarray = np.asarray(
             [expert.observe_market(float(value)) for expert in self.experts],
             dtype=float,
         )

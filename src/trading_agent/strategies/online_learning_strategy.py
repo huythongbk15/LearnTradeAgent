@@ -385,14 +385,14 @@ class OnlineLearningStrategy(BaseStrategy):
     def _update_performance(self, close: float) -> None:
         """Update current position performance."""
         if self.position and self.position.size != 0:
-            if self.position.size > 0:  # Long
-                self.current_performance = float(
-                    (close - self.entry_price) / self.entry_price
-                )
-            else:  # Short
-                self.current_performance = float(
-                    (self.entry_price - close) / self.entry_price
-                )
+            entry = float(self.entry_price) if self.entry_price is not None else 0.0
+            if entry > 0:
+                if self.position.size > 0:  # Long
+                    self.current_performance = float((close - entry) / entry)
+                else:  # Short
+                    self.current_performance = float((entry - close) / entry)
+            else:
+                self.current_performance = 0.0
         else:
             self.current_performance = 0.0
 

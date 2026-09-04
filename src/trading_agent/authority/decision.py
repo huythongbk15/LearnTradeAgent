@@ -168,9 +168,9 @@ class DecisionAuthority:
             return self._fail_closed(input_, chain, str(e))
 
     def _input_type(self, input_: DecisionInput) -> str:
-        if input_.strategy_output:
+        if input_.strategy_output is not None:
             return "strategy_output"
-        if input_.agent_message:
+        if input_.agent_message is not None:
             return "agent_message"
         return "risk_decision"
 
@@ -180,6 +180,10 @@ class DecisionAuthority:
         self, input_: DecisionInput, chain: CausationChain
     ) -> tuple[UnifiedRiskDecision, TargetExposure, CausationChain]:
         output = input_.strategy_output
+        if output is None:
+            raise ValueError(
+                "strategy_output is required for the promoted strategy path"
+            )
 
         # Extract signal and confidence from StrategyOutput
         signal = output.signal
@@ -402,6 +406,8 @@ class DecisionAuthority:
         self, input_: DecisionInput, chain: CausationChain
     ) -> tuple[UnifiedRiskDecision, TargetExposure, CausationChain]:
         risk_decision = input_.risk_decision
+        if risk_decision is None:
+            raise ValueError("risk_decision is required for the direct decision path")
 
         # Apply config caps
         capped_target = min(

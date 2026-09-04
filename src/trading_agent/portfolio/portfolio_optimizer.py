@@ -854,16 +854,18 @@ class PortfolioOptimizer:
         w = np.array([float(weights.get(s, Decimal("0"))) for s in self._symbols])
         mu = self._mean_returns
         cov = self._cov_matrix
+        mu_arr = mu if mu is not None else np.array([])
+        cov_arr = cov if cov is not None else np.array([])
 
-        simulations = []
-        final_values = []
+        simulations: list = []
+        final_values: list = []
 
         for _ in range(n_simulations):
             random_returns = np.random.multivariate_normal(
-                mu / 252, cov / 252, time_horizon
+                mu_arr / 252, cov_arr / 252, time_horizon
             )
             port_returns = random_returns @ w
-            cum_returns = np.cumprod(1 + port_returns)
+            cum_returns: np.ndarray = np.cumprod(1 + port_returns)
             portfolio_values = initial_value * cum_returns
             simulations.append(portfolio_values)
             final_values.append(portfolio_values[-1])

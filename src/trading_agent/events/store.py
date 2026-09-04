@@ -94,7 +94,7 @@ class RedisEventStore(EventStoreBackend):
     def __init__(self, config: EventStoreConfig):
         self.config = config
         self._client = None
-        self._subscriptions = {}
+        self._subscriptions: dict = {}
 
     async def connect(self) -> None:
         import redis.asyncio as redis
@@ -210,7 +210,7 @@ class FileEventStore(EventStoreBackend):
         self.config = config
         self._file = None
         self._lock = asyncio.Lock()
-        self._subscriptions = {}
+        self._subscriptions: dict = {}
 
     async def connect(self) -> None:
         import os
@@ -241,7 +241,7 @@ class FileEventStore(EventStoreBackend):
     async def read_stream(
         self, stream_name: str, start: str | int = "0", count: int = 100
     ) -> list[Event]:
-        events = []
+        events: list[Event] = []
         self._file.seek(0)
         for line in self._file:
             if len(events) >= count:
@@ -252,7 +252,7 @@ class FileEventStore(EventStoreBackend):
         return events
 
     async def read_all(self, start: str | int = "0", count: int = 100) -> list[Event]:
-        events = []
+        events: list[Event] = []
         self._file.seek(0)
         for line in self._file:
             if len(events) >= count:
@@ -276,7 +276,7 @@ class EventStore:
     def __init__(self, config: EventStoreConfig | None = None):
         self.config = config or EventStoreConfig()
         self._backend: EventStoreBackend | None = None
-        self._projections = {}
+        self._projections: dict = {}
 
     async def connect(self, backend: str = "file") -> None:
         if backend == "redis":

@@ -355,12 +355,12 @@ class StrategyParameterTask(Task):
     def gradient(self, params: dict, X: np.ndarray, y: np.ndarray) -> dict:
         """Finite difference gradient."""
         eps = 1e-4
-        grad = {}
+        grad: dict[str, float] = {}
         base_loss = self.evaluate(params, X, y)
 
         for key in params:
             if key not in self.param_bounds:
-                grad[key] = 0
+                grad[key] = 0.0
                 continue
 
             params_plus = params.copy()

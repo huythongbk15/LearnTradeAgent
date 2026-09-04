@@ -10,7 +10,8 @@ import hashlib
 import json
 import math
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any, Literal, Mapping, Sequence
 
 import numpy as np
@@ -46,6 +47,10 @@ class DataQualityReport:
     out_of_order_rows: int
     gap_count: int
     missing_bar_count: int
+    approved_gap_count: int
+    approved_missing_bar_count: int
+    unapproved_gap_count: int
+    unapproved_missing_bar_count: int
     gaps: tuple[dict[str, Any], ...]
     null_counts: dict[str, int]
     invalid_price_rows: int
@@ -67,6 +72,10 @@ class DataQualityReport:
             "out_of_order_rows": self.out_of_order_rows,
             "gap_count": self.gap_count,
             "missing_bar_count": self.missing_bar_count,
+            "approved_gap_count": self.approved_gap_count,
+            "approved_missing_bar_count": self.approved_missing_bar_count,
+            "unapproved_gap_count": self.unapproved_gap_count,
+            "unapproved_missing_bar_count": self.unapproved_missing_bar_count,
             "gaps": [dict(gap) for gap in self.gaps],
             "null_counts": dict(self.null_counts),
             "invalid_price_rows": self.invalid_price_rows,
@@ -84,6 +93,7 @@ class DataQualityError(ValueError):
         super().__init__(
             "OHLCV data-quality gate failed: "
             f"status={report.status}, gaps={report.gap_count}, "
+            f"unapproved_gaps={report.unapproved_gap_count}, "
             f"duplicates={report.duplicate_timestamps}, "
             f"out_of_order={report.out_of_order_rows}, "
             f"invalid_prices={report.invalid_price_rows}, "
@@ -91,11 +101,109 @@ class DataQualityError(ValueError):
         )
 
 
+def _canonical_gap_timestamp(value: object) -> str:
+    """Normalize an ISO timestamp to naive UTC for exact exception matching."""
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("gap exception timestamps must be non-empty ISO strings")
+    normalized = value.strip()
+    if normalized.endswith(("Z", "z")):
+        normalized = normalized[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError as exc:
+        raise ValueError(f"invalid gap exception timestamp: {value!r}") from exc
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone(UTC).replace(tzinfo=None)
+    return parsed.isoformat()
+
+
+def load_gap_exceptions(
+    path: str | Path,
+    *,
+    exchange: str,
+    symbol: str,
+    timeframe: str,
+) -> tuple[dict[str, Any], ...]:
+    """Load narrowly-scoped, reviewed market-data gap exceptions.
+
+    Loading is fail-closed: malformed manifests, duplicate IDs, broad/missing
+    scope, or incomplete provenance raise ``ValueError``.  The returned
+    records are already filtered to one exact dataset identity.
+    """
+    manifest_path = Path(path)
+    try:
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(
+            f"cannot load gap exception manifest {manifest_path}: {exc}"
+        ) from exc
+    if not isinstance(payload, dict) or payload.get("schema_version") != 1:
+        raise ValueError("gap exception manifest must be a schema_version=1 object")
+    raw_exceptions = payload.get("exceptions")
+    if not isinstance(raw_exceptions, list):
+        raise ValueError("gap exception manifest exceptions must be a list")
+
+    selected: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    for raw in raw_exceptions:
+        if not isinstance(raw, dict):
+            raise ValueError("each gap exception must be an object")
+        exception_id = raw.get("id")
+        if not isinstance(exception_id, str) or not exception_id.strip():
+            raise ValueError("each gap exception requires a non-empty id")
+        if exception_id in seen_ids:
+            raise ValueError(f"duplicate gap exception id: {exception_id}")
+        seen_ids.add(exception_id)
+
+        symbols = raw.get("symbols")
+        if (
+            not isinstance(symbols, list)
+            or not symbols
+            or not all(isinstance(item, str) and item for item in symbols)
+        ):
+            raise ValueError(f"gap exception {exception_id} requires explicit symbols")
+        reason = raw.get("reason")
+        source = raw.get("source")
+        if not isinstance(reason, str) or not reason.strip():
+            raise ValueError(f"gap exception {exception_id} requires a reason")
+        if not isinstance(source, dict) or not source.get("url"):
+            raise ValueError(
+                f"gap exception {exception_id} requires source.url provenance"
+            )
+
+        normalized: dict[str, Any] = {
+            "exception_id": exception_id,
+            "previous_at": _canonical_gap_timestamp(raw.get("previous_at")),
+            "current_at": _canonical_gap_timestamp(raw.get("current_at")),
+            "expected_interval_seconds": int(raw.get("expected_interval_seconds", 0)),
+            "estimated_missing_bars": int(raw.get("estimated_missing_bars", -1)),
+            "reason": reason.strip(),
+            "source": dict(source),
+        }
+        if normalized["expected_interval_seconds"] <= 0:
+            raise ValueError(
+                f"gap exception {exception_id} has invalid expected_interval_seconds"
+            )
+        if normalized["estimated_missing_bars"] <= 0:
+            raise ValueError(
+                f"gap exception {exception_id} has invalid estimated_missing_bars"
+            )
+
+        if (
+            raw.get("exchange") == exchange
+            and raw.get("timeframe") == timeframe
+            and symbol in symbols
+        ):
+            selected.append(normalized)
+    return tuple(selected)
+
+
 def assess_ohlcv(
     df: pl.DataFrame,
     *,
     expected_interval: timedelta,
     gap_policy: GapPolicy = "record",
+    gap_exceptions: Sequence[Mapping[str, Any]] = (),
 ) -> DataQualityReport:
     """Validate OHLCV and either record or reject positive timestamp gaps.
 
@@ -116,6 +224,25 @@ def assess_ohlcv(
     if expected_seconds <= 0:
         raise ValueError("expected_interval must be positive")
 
+    exception_lookup: dict[tuple[str, str, int], dict[str, Any]] = {}
+    for raw_exception in gap_exceptions:
+        exception = dict(raw_exception)
+        exception_id = exception.get("exception_id")
+        if not isinstance(exception_id, str) or not exception_id:
+            raise ValueError("normalized gap exceptions require exception_id")
+        if int(exception.get("expected_interval_seconds", 0)) != expected_seconds:
+            raise ValueError(
+                f"gap exception {exception_id} does not match expected interval"
+            )
+        key = (
+            _canonical_gap_timestamp(exception.get("previous_at")),
+            _canonical_gap_timestamp(exception.get("current_at")),
+            int(exception.get("estimated_missing_bars", -1)),
+        )
+        if key in exception_lookup:
+            raise ValueError(f"multiple gap exceptions match the same interval: {key}")
+        exception_lookup[key] = exception
+
     timestamps = df["timestamp"].to_list()
     duplicate_timestamps = len(timestamps) - len(set(timestamps))
     out_of_order_rows = 0
@@ -130,14 +257,24 @@ def assess_ohlcv(
             continue
         estimated_missing = max(0, math.ceil(delta_seconds / expected_seconds) - 1)
         missing_bar_count += estimated_missing
-        gaps.append(
-            {
-                "previous_at": previous.isoformat(),
-                "current_at": current.isoformat(),
-                "delta_seconds": delta_seconds,
-                "estimated_missing_bars": estimated_missing,
-            }
+        gap: dict[str, Any] = {
+            "previous_at": previous.isoformat(),
+            "current_at": current.isoformat(),
+            "delta_seconds": delta_seconds,
+            "estimated_missing_bars": estimated_missing,
+        }
+        matched_exception = exception_lookup.get(
+            (
+                _canonical_gap_timestamp(previous.isoformat()),
+                _canonical_gap_timestamp(current.isoformat()),
+                estimated_missing,
+            )
         )
+        if matched_exception is not None:
+            gap["approved_exception_id"] = matched_exception["exception_id"]
+            gap["exception_reason"] = matched_exception.get("reason", "")
+            gap["exception_source"] = matched_exception.get("source", {})
+        gaps.append(gap)
 
     null_counts = {column: int(df[column].null_count()) for column in required}
     invalid_price_rows = int(
@@ -175,12 +312,22 @@ def assess_ohlcv(
         or invalid_volume_rows
         or invalid_ohlc_rows
     )
-    gap_failure = bool(gaps and gap_policy == "reject")
+    approved_gaps = [gap for gap in gaps if gap.get("approved_exception_id")]
+    unapproved_gaps = [gap for gap in gaps if not gap.get("approved_exception_id")]
+    approved_missing_bar_count = sum(
+        int(gap["estimated_missing_bars"]) for gap in approved_gaps
+    )
+    unapproved_missing_bar_count = sum(
+        int(gap["estimated_missing_bars"]) for gap in unapproved_gaps
+    )
+    gap_failure = bool(unapproved_gaps and gap_policy == "reject")
     accepted = not hard_failure and not gap_failure
     if hard_failure:
         status = "failed_invalid_ohlcv"
     elif gap_failure:
         status = "failed_gap_policy"
+    elif gaps and not unapproved_gaps:
+        status = "passed_with_approved_gaps"
     elif gaps:
         status = "accepted_with_recorded_gaps"
     else:
@@ -198,6 +345,10 @@ def assess_ohlcv(
         "out_of_order_rows": out_of_order_rows,
         "gap_count": len(gaps),
         "missing_bar_count": missing_bar_count,
+        "approved_gap_count": len(approved_gaps),
+        "approved_missing_bar_count": approved_missing_bar_count,
+        "unapproved_gap_count": len(unapproved_gaps),
+        "unapproved_missing_bar_count": unapproved_missing_bar_count,
         "gaps": gaps,
         "null_counts": null_counts,
         "invalid_price_rows": invalid_price_rows,

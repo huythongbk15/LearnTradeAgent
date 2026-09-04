@@ -25,11 +25,11 @@ try:
 except ImportError:
     # Optional SDK — adapter stays importable without ccxt (e.g. light env/CI).
     # Runtime methods raise a clear error via CCXTAdapter.__init__.
-    ccxt = None  # type: ignore[assignment]
-    ccxtpro = None  # type: ignore[assignment]
-    AuthenticationError = None  # type: ignore[assignment,misc]
-    InsufficientFunds = None  # type: ignore[assignment,misc]
-    InvalidOrder = None  # type: ignore[assignment,misc]
+    ccxt = None
+    ccxtpro = None
+    AuthenticationError = None
+    InsufficientFunds = None
+    InvalidOrder = None
 
 from trading_agent.exchanges.models import (
     AssetClass,

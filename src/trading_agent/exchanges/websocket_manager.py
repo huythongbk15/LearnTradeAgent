@@ -28,7 +28,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Awaitable, Callable, Optional
+from typing import Any, Awaitable, Callable, Optional
 
 from trading_agent.exchanges.models import Symbol
 from trading_agent.execution.data_trust import DiffStreamState, SequenceGapError
@@ -469,7 +469,7 @@ class BinanceDepthProvider(StreamProvider):
         self.timeout_s = timeout_s
         self._books: dict[str, DiffStreamState] = {}
         self._local: dict[str, dict[str, dict[float, float]]] = {}
-        self._ws: Optional[object] = None
+        self._ws: Optional[Any] = None
         self._pump_task: Optional[asyncio.Task] = None
         self._next_id = 1
 

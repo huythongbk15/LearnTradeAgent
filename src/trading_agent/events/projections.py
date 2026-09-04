@@ -199,7 +199,7 @@ class OrderProjection(Projection):
             self.fill_rate = filled / total if total > 0 else 0
 
     async def get_state(self) -> dict:
-        status_counts = {}
+        status_counts: dict[str, int] = {}
         for o in self.orders.values():
             status_counts[o.status] = status_counts.get(o.status, 0) + 1
 
@@ -249,7 +249,7 @@ class SignalProjection(Projection):
         recent = sorted(self.signals, key=lambda x: x.timestamp, reverse=True)[:20]
 
         # Signal distribution
-        type_counts = {}
+        type_counts: dict[str, int] = {}
         for s in self.signals:
             type_counts[s.signal_type] = type_counts.get(s.signal_type, 0) + 1
 

@@ -114,8 +114,8 @@ class LLMFeaturePipeline:
         self.social_extractor = SocialSentimentExtractor(llm_client)
 
         # Aggregators
-        self._news_aggregators = {}
-        self._social_aggregators = {}
+        self._news_aggregators: dict = {}
+        self._social_aggregators: dict = {}
 
     async def extract_all(
         self,
@@ -168,8 +168,8 @@ class LLMFeaturePipeline:
         news_weight = self.news_weight * (news_conf if news else 0)
 
         # Earnings component
-        earn_sent = 0
-        earn_conf = 0
+        earn_sent: float = 0
+        earn_conf: float = 0
         if earnings:
             # Convert surprise to sentiment
             earn_sent = np.clip(

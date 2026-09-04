@@ -5,7 +5,7 @@ import json
 import logging
 import re
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 
 from trading_agent.llm.client import LLMClient
@@ -26,13 +26,9 @@ class SocialPost:
     content: str
     timestamp: datetime
     symbol: str
-    engagement: dict = None  # likes, retweets, replies, etc.
+    engagement: dict = field(default_factory=dict)  # likes, retweets, replies, etc.
     followers: int = 0
     verified: bool = False
-
-    def __post_init__(self):
-        if self.engagement is None:
-            self.engagement = {}
 
 
 @dataclass
@@ -59,8 +55,8 @@ class SocialFeatures:
     top_influencers_sentiment: float = 0.0
 
     # Topics
-    trending_topics: list[str] = None
-    topic_sentiment: dict[str, float] = None
+    trending_topics: list[str] = field(default_factory=list)
+    topic_sentiment: dict[str, float] = field(default_factory=dict)
 
     # Anomalies
     bot_score: float = 0.0  # 0 to 1, likelihood of bot activity
@@ -70,12 +66,6 @@ class SocialFeatures:
     # Momentum
     sentiment_momentum: float = 0.0  # rate of change
     volume_momentum: float = 0.0
-
-    def __post_init__(self):
-        if self.trending_topics is None:
-            self.trending_topics = []
-        if self.topic_sentiment is None:
-            self.topic_sentiment = {}
 
 
 class SocialSentimentExtractor:
@@ -213,8 +203,8 @@ For each post, output JSON with:
         total_weight = sum(1 for _ in posts)  # Simplified
 
         # Topics
-        all_topics = []
-        topic_sentiments = {}
+        all_topics: list = []
+        topic_sentiments: dict = {}
         for a in analyses:
             for topic in a.get("topics", []):
                 all_topics.append(topic)
@@ -275,7 +265,7 @@ For each post, output JSON with:
             return 0.0
 
         # Check for similar content posted within short time
-        content_groups = {}
+        content_groups: dict = {}
         for p, a in zip(posts, analyses):
             # Simple content fingerprint
             words = set(re.findall(r"\w+", p.content.lower()))
@@ -325,11 +315,11 @@ class SocialFeatureAggregator:
 
         # Weight by recency
         now = datetime.utcnow()
-        total_weight = 0
-        weighted_sentiment = 0
-        weighted_bullish = 0
-        weighted_bearish = 0
-        weighted_volume = 0
+        total_weight: float = 0.0
+        weighted_sentiment: float = 0.0
+        weighted_bullish: float = 0
+        weighted_bearish: float = 0
+        weighted_volume: float = 0
 
         for f in feats:
             age = (now - f.timestamp).total_seconds() / 60

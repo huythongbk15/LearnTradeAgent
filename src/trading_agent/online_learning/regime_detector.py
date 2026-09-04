@@ -255,7 +255,7 @@ class RegimeDetector:
         # Simplified: ratio of range to std dev
         n = len(log_rets)
         mean_ret = np.mean(log_rets)
-        cum_dev = np.cumsum(log_rets - mean_ret)
+        cum_dev: np.ndarray = np.cumsum(log_rets - mean_ret)
         r = np.max(cum_dev) - np.min(cum_dev)
         s = np.std(log_rets)
 

@@ -205,7 +205,7 @@ class ABIVerifier:
     @staticmethod
     def verify(old_abi: StrategyABI, new_abi: StrategyABI) -> dict:
         """Verify compatibility between two ABIs."""
-        result = {
+        result: dict = {
             "compatible": True,
             "breaking_changes": [],
             "warnings": [],

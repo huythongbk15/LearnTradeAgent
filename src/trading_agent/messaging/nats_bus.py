@@ -26,11 +26,11 @@ try:
     NATS_AVAILABLE = True
 except ImportError:  # pragma: no cover - depends on environment
     nats = None
-    JetStreamContext = None  # type: ignore
-    StreamConfig = None  # type: ignore
-    ConsumerConfig = None  # type: ignore
-    AckPolicy = None  # type: ignore
-    RetentionPolicy = None  # type: ignore
+    JetStreamContext = None
+    StreamConfig = None
+    ConsumerConfig = None
+    AckPolicy = None
+    RetentionPolicy = None
     NATS_AVAILABLE = False
 
 

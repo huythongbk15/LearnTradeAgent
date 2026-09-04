@@ -4,7 +4,7 @@ import asyncio
 import hashlib
 import json
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
 from trading_agent.llm.client import LLMClient
@@ -25,16 +25,10 @@ class NewsArticle:
     url: str
     source: str
     published_at: datetime
-    symbols: list[str] = None
+    symbols: list[str] = field(default_factory=list)
     sentiment: float = 0.0  # -1 to 1
     relevance: float = 0.0  # 0 to 1
-    topics: list[str] = None
-
-    def __post_init__(self):
-        if self.symbols is None:
-            self.symbols = []
-        if self.topics is None:
-            self.topics = []
+    topics: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -76,7 +70,7 @@ For each article, output JSON with:
     def __init__(self, llm_client: LLMBackend, cache_ttl: int = 3600):
         self.llm = llm_client
         self.cache_ttl = cache_ttl
-        self._cache = {}
+        self._cache: dict = {}
 
     def _cache_key(self, articles: list[NewsArticle]) -> str:
         content = "".join(a.title + a.content[:200] for a in articles)
@@ -244,15 +238,15 @@ class NewsFeatureAggregator:
 
         # Weight by recency and confidence
         now = datetime.utcnow()
-        total_weight = 0
-        weighted_sentiment = 0
-        weighted_impact = 0
-        weighted_urgency = 0
-        total_confidence = 0
-        total_relevance = 0
-        all_topics = []
-        all_sources = set()
-        total_articles = 0
+        total_weight: float = 0.0
+        weighted_sentiment: float = 0.0
+        weighted_impact: float = 0.0
+        weighted_urgency: float = 0.0
+        total_confidence: float = 0.0
+        total_relevance: float = 0.0
+        all_topics: list[str] = []
+        all_sources: set[str] = set()
+        total_articles: int = 0
 
         for f in symbol_features:
             age = (now - f.timestamp).total_seconds() / 60  # minutes

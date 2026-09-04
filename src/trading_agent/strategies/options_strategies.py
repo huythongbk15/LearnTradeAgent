@@ -17,6 +17,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
+from typing import Any
 
 from trading_agent.data.options_provider import (
     OptionChain,
@@ -76,7 +77,7 @@ class OptionsStrategy:
     spot: float = 0
     positions: list[Position] = field(default_factory=list)
     cash: float = 0
-    config: dict = field(default_factory=dict)
+    config: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self):
         if self.spot <= 0:
@@ -149,16 +150,16 @@ class CoveredCallStrategy(OptionsStrategy):
         self,
         underlying: str,
         provider: OptionChainProvider,
-        config: dict | None = None,
+        config: dict[str, Any] | None = None,
         spot: float = 0,
     ):
-        super().__init__("CoveredCall", underlying, provider, spot, config=config)
+        super().__init__("CoveredCall", underlying, provider, spot, config=config or {})
         self.cash = self.config.get("initial_capital", 100_000)
         self.shares = self.config.get("initial_shares", 0)
 
     def generate_signals(self, chain: OptionChain) -> list[dict]:
         """Find best OTM call to sell."""
-        signals = []
+        signals: list[dict] = []
         dte = self._dte(chain.expiry)
         if not (self.config.get("dte_min", 7) <= dte <= self.config.get("dte_max", 45)):
             return signals
@@ -219,14 +220,14 @@ class CashSecuredPutStrategy(OptionsStrategy):
         self,
         underlying: str,
         provider: OptionChainProvider,
-        config: dict | None = None,
+        config: dict[str, Any] | None = None,
         spot: float = 0,
     ):
-        super().__init__("CashSecuredPut", underlying, provider, spot, config=config)
+        super().__init__("CashSecuredPut", underlying, provider, spot, config=config or {})
         self.cash = self.config.get("initial_capital", 100_000)
 
     def generate_signals(self, chain: OptionChain) -> list[dict]:
-        signals = []
+        signals: list[dict] = []
         dte = self._dte(chain.expiry)
         if not (self.config.get("dte_min", 7) <= dte <= self.config.get("dte_max", 45)):
             return signals
@@ -275,13 +276,13 @@ class ShortStraddleStrategy(OptionsStrategy):
         self,
         underlying: str,
         provider: OptionChainProvider,
-        config: dict | None = None,
+        config: dict[str, Any] | None = None,
         spot: float = 0,
     ):
-        super().__init__("ShortStraddle", underlying, provider, spot, config=config)
+        super().__init__("ShortStraddle", underlying, provider, spot, config=config or {})
 
     def generate_signals(self, chain: OptionChain) -> list[dict]:
-        signals = []
+        signals: list[dict] = []
         dte = self._dte(chain.expiry)
         if not (self.config.get("dte_min", 7) <= dte <= self.config.get("dte_max", 30)):
             return signals
@@ -325,13 +326,13 @@ class ShortStrangleStrategy(OptionsStrategy):
         self,
         underlying: str,
         provider: OptionChainProvider,
-        config: dict | None = None,
+        config: dict[str, Any] | None = None,
         spot: float = 0,
     ):
-        super().__init__("ShortStrangle", underlying, provider, spot, config=config)
+        super().__init__("ShortStrangle", underlying, provider, spot, config=config or {})
 
     def generate_signals(self, chain: OptionChain) -> list[dict]:
-        signals = []
+        signals: list[dict] = []
         dte = self._dte(chain.expiry)
         if not (self.config.get("dte_min", 7) <= dte <= self.config.get("dte_max", 45)):
             return signals
@@ -391,13 +392,13 @@ class IronCondorStrategy(OptionsStrategy):
         self,
         underlying: str,
         provider: OptionChainProvider,
-        config: dict | None = None,
+        config: dict[str, Any] | None = None,
         spot: float = 0,
     ):
-        super().__init__("IronCondor", underlying, provider, spot, config=config)
+        super().__init__("IronCondor", underlying, provider, spot, config=config or {})
 
     def generate_signals(self, chain: OptionChain) -> list[dict]:
-        signals = []
+        signals: list[dict] = []
         dte = self._dte(chain.expiry)
         if not (
             self.config.get("dte_min", 14) <= dte <= self.config.get("dte_max", 60)
@@ -488,10 +489,10 @@ class GammaScalpStrategy(OptionsStrategy):
         self,
         underlying: str,
         provider: OptionChainProvider,
-        config: dict | None = None,
+        config: dict[str, Any] | None = None,
         spot: float = 0,
     ):
-        super().__init__("GammaScalp", underlying, provider, spot, config=config)
+        super().__init__("GammaScalp", underlying, provider, spot, config=config or {})
         self.hedge_qty = 0.0
         self.last_spot = self.spot
         self.total_scalp_pnl = 0.0
@@ -586,10 +587,10 @@ class CalendarSpreadStrategy(OptionsStrategy):
         self,
         underlying: str,
         provider: OptionChainProvider,
-        config: dict | None = None,
+        config: dict[str, Any] | None = None,
         spot: float = 0,
     ):
-        super().__init__("CalendarSpread", underlying, provider, spot, config=config)
+        super().__init__("CalendarSpread", underlying, provider, spot, config=config or {})
 
     def generate_signals(self, spot: float) -> list[dict]:
         signals = []
@@ -685,12 +686,12 @@ class DispersionStrategy(OptionsStrategy):
         index_underlying: str,
         component_underlyings: list[str],
         provider: OptionChainProvider,
-        config: dict | None = None,
+        config: dict[str, Any] | None = None,
     ):
-        super().__init__("Dispersion", index_underlying, provider, config=config)
+        super().__init__("Dispersion", index_underlying, provider, config=config or {})
         self.components = component_underlyings
-        self.index_spot = 0
-        self.component_spots = {}
+        self.index_spot: float = 0.0
+        self.component_spots: dict[str, float] = {}
 
     def generate_signals(
         self, index_spot: float, component_spots: dict[str, float]

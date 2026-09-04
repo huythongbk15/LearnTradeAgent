@@ -115,10 +115,10 @@ class BestPriceRouter(ExecutionAlgorithm):
         # Find best price
         if side == OrderSide.BUY:
             best = min(venues, key=lambda v: v.ticker.ask or float("inf"))
-            price = best.ticker.ask
+            price = best.ticker.ask or Decimal("0")
         else:
             best = max(venues, key=lambda v: v.ticker.bid or 0)
-            price = best.ticker.bid
+            price = best.ticker.bid or Decimal("0")
 
         # Estimate slippage from order book
         ob = best.order_book

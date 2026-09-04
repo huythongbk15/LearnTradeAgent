@@ -456,24 +456,30 @@ class DiffStreamState:
         if self.needs_resync:
             return "gap"
 
-        if self.last_u is None:
+        last_u = self.last_u
+        if last_u is None:
             # First realtime payload: must straddle the snapshot boundary.
-            if first_update_id <= self.last_update_id + 1 <= final_update_id:
+            snapshot_update_id = self.last_update_id
+            if snapshot_update_id is None:
+                self.needs_resync = True
+                self.gap_count += 1
+                return "gap"
+            if first_update_id <= snapshot_update_id + 1 <= final_update_id:
                 self.last_u = final_update_id
                 self.buffered_first = True
                 return "ready_first"
             # Snapshot already covers this diff → stale.
-            if final_update_id <= self.last_update_id:
+            if final_update_id <= snapshot_update_id:
                 self.stale_count += 1
                 return "stale"
             self.needs_resync = True
             self.gap_count += 1
             return "gap"
 
-        if final_update_id <= self.last_u:
+        if final_update_id <= last_u:
             self.stale_count += 1
             return "stale"
-        if previous_update_id is None or previous_update_id != self.last_u:
+        if previous_update_id is None or previous_update_id != last_u:
             self.needs_resync = True
             self.gap_count += 1
             return "gap"
@@ -532,8 +538,9 @@ class DataTrustMonitor:
         self._fetch_count += 1
         if fetch.exchange_timestamp is not None:
             age = quote_age_s(fetch)
-            self._age_samples.setdefault(symbol, []).append(age)
-            self._age_samples[symbol] = self._age_samples[symbol][-self._window :]
+            if age is not None:
+                self._age_samples.setdefault(symbol, []).append(age)
+                self._age_samples[symbol] = self._age_samples[symbol][-self._window :]
         self._latency_samples.setdefault(symbol, []).append(fetch.latency_s)
         self._latency_samples[symbol] = self._latency_samples[symbol][-self._window :]
         self._last_fetch[symbol] = fetch

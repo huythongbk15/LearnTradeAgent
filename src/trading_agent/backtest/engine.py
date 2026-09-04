@@ -236,7 +236,7 @@ class BacktestEngine:
         - SL/TP/trailing evaluated intrabar using high/low
         """
         n = len(df)
-        float_columns = {
+        float_columns: dict[str, np.ndarray] = {
             "position": np.zeros(n, dtype=np.float64),
             "net_return": np.zeros(n, dtype=np.float64),
             "entry_price": np.zeros(n, dtype=np.float64),

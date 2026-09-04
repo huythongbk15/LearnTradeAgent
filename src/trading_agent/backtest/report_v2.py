@@ -87,6 +87,13 @@ def _is_finite_number(value: Any) -> bool:
     )
 
 
+def _as_float(value: Any) -> float | None:
+    """Safely convert value to float, returning None if not a finite number."""
+    if not _is_finite_number(value):
+        return None
+    return float(value)
+
+
 def _is_tz_aware_iso(value: Any) -> bool:
     if not isinstance(value, str):
         return False
@@ -113,8 +120,8 @@ def _check_trade_evidence(trade: Any, index: int, violations: list[str]) -> None
             f"(got {simulation.get('time_source')!r})"
         )
     for key in ("entry_reference_price", "exit_reference_price"):
-        value = simulation.get(key)
-        if not _is_finite_number(value) or float(value) <= 0.0:
+        value = _as_float(simulation.get(key))
+        if value is None or value <= 0.0:
             violations.append(f"{label}: {key} must be a positive finite number")
     for key in ("entry_time", "exit_time"):
         if not _is_tz_aware_iso(simulation.get(key)):
@@ -127,7 +134,7 @@ def _check_trade_evidence(trade: Any, index: int, violations: list[str]) -> None
     ):
         violations.append(f"{label}: holding_bars must be a non-negative integer")
     for key in ("mae_pct", "mfe_pct"):
-        if not _is_finite_number(simulation.get(key)):
+        if _as_float(simulation.get(key)) is None:
             violations.append(f"{label}: {key} must be a finite number")
 
 
@@ -137,16 +144,16 @@ def _check_cost_reconciliation(costs: Any, violations: list[str]) -> None:
         return
     if costs.get("complete") is not True:
         violations.append("cost_attribution.complete must be true")
-    error = costs.get("reconciliation_error")
-    if not _is_finite_number(error):
+    error = _as_float(costs.get("reconciliation_error"))
+    if error is None:
         violations.append("cost_attribution.reconciliation_error must be finite")
         return
-    gross = costs.get("gross_alpha")
-    scale = abs(float(gross)) if _is_finite_number(gross) else 0.0
+    gross = _as_float(costs.get("gross_alpha"))
+    scale = abs(gross) if gross is not None else 0.0
     tolerance = max(_RECONCILIATION_ABS_TOL, _RECONCILIATION_REL_TOL * scale)
-    if abs(float(error)) > tolerance:
+    if abs(error) > tolerance:
         violations.append(
-            f"cost_attribution.reconciliation_error {float(error):.3e} exceeds "
+            f"cost_attribution.reconciliation_error {error:.3e} exceeds "
             f"tolerance {tolerance:.3e}"
         )
 
@@ -228,10 +235,10 @@ def validate_report_v2(report: Mapping[str, Any]) -> list[str]:
     ):
         violations.append("total_trades must be a non-negative integer")
     win_rate = report.get("win_rate_pct")
-    if win_rate is not None and (
-        not _is_finite_number(win_rate) or not 0.0 <= float(win_rate) <= 100.0
-    ):
-        violations.append("win_rate_pct must be within [0, 100]")
+    if win_rate is not None:
+        win_rate_f = _as_float(win_rate)
+        if win_rate_f is None or not 0.0 <= win_rate_f <= 100.0:
+            violations.append("win_rate_pct must be within [0, 100]")
 
     trades = report.get("trades")
     if trades is not None:

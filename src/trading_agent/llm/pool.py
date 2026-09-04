@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 # OpenAI-compatible providers (dùng chung /chat/completions)
 # priority thấp = ưu tiên cao hơn. No key = không cần api_key.
-DEFAULT_PROVIDERS = [
+DEFAULT_PROVIDERS: list[dict] = [
     {
         "name": "opencode",
         "base_url": "https://opencode.ai/zen/v1",
