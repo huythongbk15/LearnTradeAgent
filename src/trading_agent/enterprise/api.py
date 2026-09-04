@@ -190,13 +190,13 @@ class TenantManager:
     def upgrade_plan(self, tenant_id: str, new_plan: str) -> Tenant | None:
         tenant = self._tenants.get(tenant_id)
         if tenant and new_plan in self.PLANS:
-            plan_config = self.PLANS[new_plan]
+            plan_config: dict = self.PLANS[new_plan]
             tenant.plan = new_plan
-            tenant.max_symbols = plan_config["max_symbols"]
-            tenant.max_strategies = plan_config["max_strategies"]
-            tenant.max_orders_per_day = plan_config["max_orders_per_day"]
-            tenant.max_api_calls_per_minute = plan_config["rpm"]
-            tenant.features = plan_config["features"]
+            tenant.max_symbols = int(plan_config["max_symbols"])
+            tenant.max_strategies = int(plan_config["max_strategies"])
+            tenant.max_orders_per_day = int(plan_config["max_orders_per_day"])
+            tenant.max_api_calls_per_minute = int(plan_config["rpm"])
+            tenant.features = list(plan_config["features"])
             return tenant
         return None
 

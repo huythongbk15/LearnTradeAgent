@@ -3,7 +3,7 @@
 import hashlib
 import inspect
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import Any, Optional, get_args, get_origin, get_type_hints
 
 
@@ -16,7 +16,7 @@ class ParameterSpec:
     default: Any = None
     required: bool = True
     description: str = ""
-    constraints: dict = None
+    constraints: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass

@@ -194,7 +194,7 @@ class BaseStrategy(ABC):
     """
 
     # Class-level metadata (override in subclasses)
-    metadata: StrategyMetadata = None
+    metadata: Optional[StrategyMetadata] = None
 
     def __init__(self, config: dict | None = None):
         self.config = config or {}

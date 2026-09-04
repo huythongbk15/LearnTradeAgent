@@ -48,7 +48,7 @@ class ExecutionResult:
     execution_time_ms: float = 0
     memory_used_mb: float = 0
     cpu_used_percent: float = 0
-    logs: list[str] = None
+    logs: list[str] = field(default_factory=list)
 
 
 class StrategySandbox(ABC):
