@@ -133,7 +133,6 @@ def _run_cell_inline(
     Takes primitives dict to avoid MappingProxyType pickle issues when
     used with ProcessPoolExecutor.
     """
-    from trading_agent.backtest.tournament import EvaluationCellSpec
 
     spec = EvaluationCellSpec(
         strategy_id=spec_primitives["strategy_id"],
