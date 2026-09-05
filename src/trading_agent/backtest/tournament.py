@@ -1156,7 +1156,6 @@ def _run_cell_impl(
         run_id=f"tourney_{storage_id}",
         data_manifest_id=data_manifest_sha,
         gap_policy=gap_policy,
-        gap_exceptions_path=resolved_gap_exceptions_path,
         strategy_name=spec.strategy_id,
         strategy_params_override=dict(spec.params),
         signal_series=signals,
