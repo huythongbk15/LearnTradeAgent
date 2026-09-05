@@ -119,13 +119,34 @@ filterwarnings = [
 [tool.mypy]
 python_version = "3.12"
 files = [
+    "src/trading_agent/backtest/reporting.py",
+    "src/trading_agent/backtest/tournament.py",
+    "src/trading_agent/authority/resolver.py",
+    "src/trading_agent/authority/adaptive_router.py",
+    "src/trading_agent/authority/decision.py",
+    "src/trading_agent/authority/execution.py",
+    "src/trading_agent/authority/exposure.py",
+    "src/trading_agent/authority/portfolio.py",
+    "src/trading_agent/authority/promotion_hook.py",
+    "src/trading_agent/authority/promotion_store.py",
     "src/trading_agent/execution/canonical/broker_gateway.py",
     "src/trading_agent/execution/canonical/adapters.py",
     "src/trading_agent/execution/application.py",
+    "src/trading_agent/execution/data_trust.py",
     "src/trading_agent/execution/lifecycle/lifecycle.py",
     "src/trading_agent/execution/lifecycle/store.py",
     "src/trading_agent/execution/engine.py",
+    "src/trading_agent/execution/permission.py",
+    "src/trading_agent/execution/proposal.py",
+    "src/trading_agent/execution/proposal_executor.py",
+    "src/trading_agent/execution/risk_controller.py",
+    "src/trading_agent/risk/portfolio_risk.py",
+    "src/trading_agent/risk/position_sizer.py",
+    "scripts/full_system_backtest.py",
     "scripts/migrate_global_seq.py",
+    "scripts/run_canonical_strategy.py",
+    "scripts/run_strategy_tournament.py",
+    "scripts/verify_data_quality.py",
 ]
 follow_imports = "skip"
 ignore_missing_imports = true

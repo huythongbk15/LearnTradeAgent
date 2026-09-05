@@ -102,7 +102,8 @@ Các nhóm kiểm thử trực tiếp sau thay đổi:
 | Promotion + release-attestation gates | 21 passed |
 | Supply-chain provenance verifier | 15 passed |
 | Latest targeted regression (simulator/CLI/runtime contracts) | 94 passed |
-| Full fast suite (last completed baseline before final CLI/runtime contract patch) | 1.243 passed, 9 skipped |
+| Full fast suite sau STR-0208 và bounded signal generation | 1.302 passed, 9 skipped |
+| S2 tournament/control/fault regression | 48 passed |
 | Ruff trên các module thay đổi | clean |
 | Mypy các module thay đổi | clean |
 
@@ -113,8 +114,9 @@ adaptive đã thay đổi. Đây là backlog chất lượng riêng, chưa đư�
 
 Các mục code còn mở có chủ đích:
 
-- S2-0208: timeout/retry độc lập cho từng tournament cell chưa được đưa vào runner;
-  hiện lỗi cell vẫn fail-closed và lớp điều phối ngoài chịu trách nhiệm timeout.
+- S2-0208 đã đóng ngày 2026-09-01: dedicated spawned process, hard timeout,
+  bounded retry, OS memory/CPU limits, CLI configuration và execution-control
+  provenance đã có regression test.
 - S4-0403: `ArtifactLifecycle` cũ vẫn giữ để tương thích test/client; mọi promotion
   mới dùng `ResearchLifecycle` canonical và không được dùng state machine cũ cho release.
 

@@ -305,6 +305,22 @@ def test_diff_stream_unsynced_returns_gap():
     )
 
 
+def test_diff_stream_without_snapshot_id_fails_closed_even_if_flag_is_corrupt():
+    state = DiffStreamState("BTC/USDT", needs_resync=False)
+
+    status = state.apply_diff(
+        first_update_id=1,
+        final_update_id=2,
+        previous_update_id=None,
+        bids=[],
+        asks=[],
+    )
+
+    assert status == "gap"
+    assert state.needs_resync is True
+    assert state.gap_count == 1
+
+
 # ── monitor metrics export ─────────────────────────────────────────────
 
 

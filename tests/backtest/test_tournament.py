@@ -145,6 +145,30 @@ class TestCanonicalRuntimeBridge:
             out = bridge.generate_signals(frame.head(j + 1))
             assert out.to_list()[0] == signals[j], f"mismatch at bar {j}"
 
+    def test_bounded_generation_matches_full_series_inside_window(self):
+        adapter = LegacyDataFrameAdapter(
+            RsiStrategy({"period": 8, "oversold": 35, "overbought": 65}),
+            model_artifact_id="m",
+            warmup_bars=10,
+            strategy_id="rsi_test",
+        )
+        frame = _synthetic_frame()
+        full = canonical_signal_series(
+            adapter, frame, warmup_bars=10, symbol="BTC/USDT"
+        )
+        bounded = canonical_signal_series(
+            adapter,
+            frame,
+            warmup_bars=10,
+            symbol="BTC/USDT",
+            start_index=80,
+            end_index=130,
+        )
+
+        assert bounded[80:130] == full[80:130]
+        assert not any(bounded[:80])
+        assert not any(bounded[130:])
+
     def test_bridge_flat_when_insufficient_history(self):
         from datetime import timedelta
 

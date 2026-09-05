@@ -71,6 +71,7 @@
 │   │   ├── NGHIEN_CUU_DEN_VAN_HANH.md
 │   │   ├── README.md
 │   │   ├── THUAT_NGU.md
+│   │   ├── TIEN_DO_VA_LO_TRINH_PHASE.md
 │   │   └── VONG_DOI_CHIEN_LUOC.md
 │   ├── ACCOUNT_HARDENING.md
 │   ├── ADAPTIVE_ROADMAP_STATUS.md
@@ -226,6 +227,7 @@
 │   ├── sweep_momentum_quick.py
 │   ├── sweep_slow_quick.py
 │   ├── test_fetch_api.py
+│   ├── test_phase2.py
 │   ├── testnet_soak_tracker.py
 │   ├── tournament_health.py
 │   ├── trade_local.py
@@ -233,6 +235,7 @@
 │   ├── trading-bot.service
 │   ├── update_deps.sh
 │   ├── verify_account_hardening.py
+│   ├── verify_data_quality.py
 │   ├── verify_github_controls.py
 │   ├── verify_golden_replay.py
 │   ├── verify_image.sh
@@ -521,6 +524,7 @@
 │   │   └── test_resolver.py
 │   ├── backtest
 │   │   ├── test_tournament.py
+│   │   ├── test_tournament_cell_control.py
 │   │   └── test_tournament_faults.py
 │   ├── execution
 │   │   ├── test_cancel_stop_regressions.py
@@ -599,7 +603,7 @@
 │   ├── test_p0_convergence.py
 │   ├── test_p4_p7.py
 │   ├── test_paper_exchange_accounting.py
-│   ├── test_phase2.py
+│   ├── test_llm_mode_contract.py
 │   ├── test_phase3_audit.py
 │   ├── test_phase6.py
 │   ├── test_phase6_integration.py
@@ -679,4 +683,3 @@
 ├── smoke_p0.py
 └── uv.lock
 ```
-

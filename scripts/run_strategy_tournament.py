@@ -104,12 +104,65 @@ def main() -> None:
         help="evaluate only the most recent N bars (smoke runs)",
     )
     parser.add_argument(
+        "--gap-policy",
+        choices=("record", "reject"),
+        default="record",
+        help="Record timestamp gaps or reject gaps without a reviewed exception",
+    )
+    parser.add_argument(
+        "--gap-exceptions",
+        type=Path,
+        default=None,
+        help="Reviewed schema-v1 gap exception manifest",
+    )
+    parser.add_argument(
+        "--cell-timeout-seconds",
+        type=float,
+        default=300.0,
+        help="wall-clock deadline for each isolated cell attempt",
+    )
+    parser.add_argument(
+        "--cell-max-retries",
+        type=int,
+        default=2,
+        help="retry count after timeout or transient worker failure",
+    )
+    parser.add_argument(
+        "--cell-max-memory-mb",
+        type=int,
+        default=None,
+        help="optional hard data-memory limit for each cell worker",
+    )
+    parser.add_argument(
+        "--cell-max-cpu-seconds",
+        type=int,
+        default=None,
+        help="optional hard aggregate CPU-time limit across worker threads",
+    )
+    parser.add_argument(
         "--rerun", action="store_true", help="re-run cells already COMPLETED"
     )
     parser.add_argument("--dry-run", action="store_true", help="list cells and exit")
     args = parser.parse_args()
     if args.tail_bars is not None and args.tail_bars <= 0:
         parser.error("--tail-bars must be positive")
+    if args.cell_timeout_seconds <= 0:
+        parser.error("--cell-timeout-seconds must be positive")
+    if args.cell_max_retries < 0:
+        parser.error("--cell-max-retries must be non-negative")
+    if args.cell_max_memory_mb is not None and args.cell_max_memory_mb <= 0:
+        parser.error("--cell-max-memory-mb must be positive")
+    if args.cell_max_cpu_seconds is not None and args.cell_max_cpu_seconds <= 0:
+        parser.error("--cell-max-cpu-seconds must be positive")
+
+    resource_budget = {
+        key: value
+        for key, value in {
+            "max_memory_mb": args.cell_max_memory_mb,
+            "max_cpu_seconds": args.cell_max_cpu_seconds,
+        }.items()
+        if value is not None
+    }
 
     strategies = [s.strip() for s in args.strategies.split(",") if s.strip()]
     symbols = [s.strip() for s in args.symbols.split(",") if s.strip()]
@@ -153,6 +206,11 @@ def main() -> None:
                 spec,
                 out_root=args.out,
                 tail_bars=args.tail_bars,
+                gap_policy=args.gap_policy,
+                gap_exceptions_path=args.gap_exceptions,
+                timeout_seconds=args.cell_timeout_seconds,
+                max_retries=args.cell_max_retries,
+                resource_budget=resource_budget or None,
             )
         except Exception as exc:  # noqa: BLE001 - a broken cell must not kill the matrix
             print(f"   💥 EXCEPTION: {exc}")

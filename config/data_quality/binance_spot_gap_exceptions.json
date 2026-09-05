@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "exceptions": [
+    {
+      "id": "binance-spot-maintenance-2023-03-24T13:00Z",
+      "exchange": "binance",
+      "symbols": [
+        "BTC/USDT",
+        "ETH/USDT",
+        "SOL/USDT",
+        "XRP/USDT",
+        "BNB/USDT",
+        "ZEC/USDT",
+        "DOGE/USDT",
+        "TRX/USDT",
+        "ADA/USDT",
+        "NEAR/USDT"
+      ],
+      "timeframe": "1h",
+      "previous_at": "2023-03-24T12:00:00Z",
+      "current_at": "2023-03-24T14:00:00Z",
+      "expected_interval_seconds": 3600,
+      "estimated_missing_bars": 1,
+      "reason": "Binance spot trading was halted after a matching-engine issue and resumed at 14:00 UTC. The public kline API returns 12:00 followed by 14:00 for every scoped symbol; no synthetic 13:00 candle may be inserted.",
+      "source": {
+        "type": "exchange_api_and_maintenance_notice",
+        "url": "https://api.binance.com/api/v3/klines",
+        "announcement_url": "https://mondovisione.com/media-and-resources/news/binance-temporary-system-maintenance-complete-2023-03-24-2023326/",
+        "verified_at_utc": "2026-08-31T03:29:59Z",
+        "observed_open_times_ms": [
+          1679659200000,
+          1679666400000,
+          1679670000000
+        ]
+      }
+    }
+  ]
+}

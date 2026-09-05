@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 """
-Test Phase 2: Multi-Agent System
+Phase 2 executable diagnostic: Multi-Agent System.
+
+This module intentionally lives under ``scripts/`` because it executes a full
+integration diagnostic at import time. Pytest coverage for the LLM mode
+contract lives in ``tests/test_llm_mode_contract.py`` and runs in an isolated
+child process so worker import order cannot leak environment state.
 
 Chạy test cho từng component trong Phase 2:
   1. LLM client (chat completion)

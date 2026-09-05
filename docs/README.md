@@ -17,6 +17,7 @@ Nhãn `CURRENT` mô tả behavior hoặc quy trình đang tồn tại; `TARGET` 
 | Nghiên cứu/chọn strategy | [Research-to-Production](guides/RESEARCH_TO_PRODUCTION.md) | [Research Methodology](RESEARCH_METHODOLOGY.md), [Evidence Artifacts](reference/EVIDENCE_ARTIFACTS.md) |
 | Vận hành paper/testnet | [Live Trading Runbook](LIVE_TRADING_RUNBOOK.md) | [S7 Evidence Runbook](S7_OPERATIONAL_EVIDENCE_RUNBOOK.md) |
 | Đánh giá mức hoàn thiện | [Capability Matrix](CAPABILITY_MATRIX.md) | [Adaptive Roadmap Status](ADAPTIVE_ROADMAP_STATUS.md), [Live Readiness](LIVE_TRADING_TODO.md) |
+| Theo dõi tiến độ và phase còn lại | [Tiến độ và lộ trình phase](vi/TIEN_DO_VA_LO_TRINH_PHASE.md) | Bảng trạng thái, backlog, dependency và exit gate |
 | Học bằng tiếng Việt | [Khóa học thực hành](vi/khoa-hoc/README.md) | 12 bài, lab, rubric và capstone |
 
 ## Luồng chuẩn

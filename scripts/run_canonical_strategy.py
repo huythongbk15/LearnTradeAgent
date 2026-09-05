@@ -33,7 +33,7 @@ sys.path.insert(0, str(ROOT))
 
 import polars as pl
 
-from trading_agent.backtest.reporting import assess_ohlcv
+from trading_agent.backtest.reporting import assess_ohlcv, load_gap_exceptions
 from trading_agent.authority.config import Environment
 from trading_agent.research.forecast import MarketObservation
 from trading_agent.strategies.canonical import (
@@ -129,6 +129,17 @@ def main() -> None:
         default=None,
         help="output JSON path (default: data/canonical_runs/<id>_<symbol>.json)",
     )
+    parser.add_argument(
+        "--exchange",
+        default="binance",
+        help="Dataset venue used to scope reviewed gap exceptions",
+    )
+    parser.add_argument(
+        "--gap-exceptions",
+        type=Path,
+        default=None,
+        help="Reviewed schema-v1 gap exception manifest",
+    )
     args = parser.parse_args()
 
     registry = build_default_registry()
@@ -157,12 +168,22 @@ def main() -> None:
     quality_frame = (
         frame.rename({"time": "timestamp"}) if "time" in frame.columns else frame
     )
-    quality = assess_ohlcv(
-        quality_frame, expected_interval=EXPECTED_INTERVAL, gap_policy="reject"
+    gap_exceptions = (
+        load_gap_exceptions(
+            args.gap_exceptions,
+            exchange=args.exchange,
+            symbol=args.symbol,
+            timeframe="1h",
+        )
+        if args.gap_exceptions is not None
+        else ()
     )
-    if getattr(quality, "errors", None):
-        raise SystemExit(f"data quality gate failed: {quality.errors}")
-
+    quality = assess_ohlcv(
+        quality_frame,
+        expected_interval=EXPECTED_INTERVAL,
+        gap_policy="reject",
+        gap_exceptions=gap_exceptions,
+    )
     # ── Deterministic double pass ─────────────────────────────────────
     pass_a = run_pass(adapter, frame, descriptor.warmup_bars)
     pass_b = run_pass(adapter, frame, descriptor.warmup_bars)
@@ -182,6 +203,7 @@ def main() -> None:
         "symbol": args.symbol,
         "data_sha256": hashlib.sha256(args.data.read_bytes()).hexdigest(),
         "commit_sha": _git_commit_sha(),
+        "data_quality": quality.to_dict(),
         "n_observations": len(pass_a),
         "fingerprints": fingerprints_a,
     }

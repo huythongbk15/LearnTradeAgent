@@ -25,6 +25,7 @@ trong code là nguồn quyết định. Hãy cập nhật lại cả hai bản t
 | Đánh giá một strategy | [Từ nghiên cứu đến vận hành](NGHIEN_CUU_DEN_VAN_HANH.md) | Chạy đúng baseline/tournament và biết khi nào không được promote |
 | Hiểu report và artifact | [Bằng chứng và artifact](BANG_CHUNG_VA_ARTIFACT.md) | Truy được data, code, params, cost và promotion identity |
 | Kiểm tra luồng chính | [Runbook kiểm tra luồng chính](KIEM_TRA_LUONG_CHINH.md) | Thực hiện kiểm tra L0–L5 theo mức rủi ro |
+| Theo dõi tiến độ phase | [Tiến độ và lộ trình phase](TIEN_DO_VA_LO_TRINH_PHASE.md) | Biết phần nào đã đạt, phần nào còn thiếu và điều kiện đóng phase |
 | Tự học và tự thực hành | [Khóa học thực hành đầy đủ](khoa-hoc/README.md) | 12 bài, lab, bài tập, rubric, đáp án và capstone |
 | Tra thuật ngữ | [Thuật ngữ song ngữ](THUAT_NGU.md) | Dùng thống nhất từ chuyên môn trong code và tài liệu |
 

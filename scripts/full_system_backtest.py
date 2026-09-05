@@ -48,6 +48,7 @@ from trading_agent.backtest.reporting import (
     calendar_returns,
     fingerprint_payload,
     fixed_allocation_buy_and_hold,
+    load_gap_exceptions,
 )
 from trading_agent.config.loader import config
 from trading_agent.data.storage import load_ohlcv
@@ -206,6 +207,7 @@ class FullSystemSimulator:
         state_flush_bars: int = 100,
         data_manifest_id: str | None = None,
         gap_policy: GapPolicy = "record",
+        gap_exceptions_path: str | Path | None = None,
         strategy_name: str = "enhanced_ma",
         strategy_params_override: dict[str, object] | None = None,
         signal_series: list[int] | None = None,
@@ -227,6 +229,21 @@ class FullSystemSimulator:
         self.exchange = EXCHANGE
         self.timeframe_delta = _timeframe_delta(self.timeframe)
         self.gap_policy = gap_policy
+        self.gap_exceptions_path = (
+            Path(gap_exceptions_path).resolve()
+            if gap_exceptions_path is not None
+            else None
+        )
+        self.gap_exceptions = (
+            load_gap_exceptions(
+                self.gap_exceptions_path,
+                exchange=self.exchange,
+                symbol=self.symbol,
+                timeframe=self.timeframe,
+            )
+            if self.gap_exceptions_path is not None
+            else ()
+        )
         self.commit_sha = _git_commit_sha()
         adaptive_parts = (
             adaptive_router,
@@ -296,6 +313,7 @@ class FullSystemSimulator:
             source_df,
             expected_interval=self.timeframe_delta,
             gap_policy=self.gap_policy,
+            gap_exceptions=self.gap_exceptions,
         )
         self.df = source_df.sort("timestamp")
         print(
@@ -482,7 +500,7 @@ class FullSystemSimulator:
         )
 
         # Thay datetime.now(UTC) trong risk_controller bằng đồng hồ giả lập
-        rc_module.datetime = _SimClock
+        setattr(rc_module, "datetime", _SimClock)
 
         # Tracking
         self.equity_curve: list[tuple] = []
@@ -642,6 +660,9 @@ class FullSystemSimulator:
             "data_policy": {
                 "gap_policy": self.gap_policy,
                 "imputation": "disabled",
+                "approved_gap_exception_ids": [
+                    str(item["exception_id"]) for item in self.gap_exceptions
+                ],
             },
             "execution_timing": "decision_on_closed_bar_execute_next_bar_open",
             "intrabar_price_path": "open_then_low_then_close",
@@ -667,6 +688,7 @@ class FullSystemSimulator:
             self.df.slice(start, n),
             expected_interval=self.timeframe_delta,
             gap_policy=self.gap_policy,
+            gap_exceptions=self.gap_exceptions,
         )
         print(f"🚀 Simulating bars {start}→{end} ({n} bars, decision mỗi {freq}h)")
         print(
@@ -1249,6 +1271,14 @@ def main():
         default=os.getenv("BACKTEST_GAP_POLICY", "record"),
         help="Record timestamp gaps as evidence or reject the run",
     )
+    parser.add_argument(
+        "--gap-exceptions",
+        default=os.getenv("BACKTEST_GAP_EXCEPTIONS"),
+        help=(
+            "Reviewed schema-v1 gap exception manifest; required to admit a "
+            "known exchange outage under --gap-policy reject"
+        ),
+    )
     args = parser.parse_args()
 
     strategy_params = None
@@ -1288,6 +1318,7 @@ def main():
         allow_new_exposure=args.allow_new_exposure,
         state_flush_bars=args.state_flush_bars,
         gap_policy=args.gap_policy,
+        gap_exceptions_path=args.gap_exceptions,
         strategy_name=(
             strategy_artifact.strategy_name if strategy_artifact else args.strategy
         ),

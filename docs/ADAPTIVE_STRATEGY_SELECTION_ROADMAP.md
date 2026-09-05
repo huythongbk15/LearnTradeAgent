@@ -346,15 +346,21 @@ Chạy `pair × strategy × parameter set × cost scenario` bằng cùng executi
 - [x] **STR-0206** Thêm gap, stale price, rejected order, partial fill, cancel race và
   protection failure scenarios.
 - [x] **STR-0207** Tạo `EvaluationArtifact` content-addressed cho từng cell.
-- [ ] **STR-0208** Resource limits, retry policy và fail-closed report contract.
+- [x] **STR-0208** Resource limits, retry policy và fail-closed report contract.
 - [x] **STR-0209** Không default missing metric về 0; cell thiếu evidence phải `FAILED`.
 
-#### Cập nhật triển khai S2 (2026-08-31)
+#### Cập nhật triển khai S2 (2026-09-01)
 
 `run_strategy_tournament.py` đã nối `--tail-bars` vào `run_cell()`; giá trị dương
 giới hạn simulation window ở N bar cuối, vẫn giữ full history cho indicator warm-up.
-`STR-0208` còn mở vì resource timeout/retry policy cần được đưa vào runner thay vì
-phụ thuộc lớp điều phối bên ngoài.
+Signal generation chỉ đánh giá các bar mà simulation thực sự tiêu thụ, nhưng mỗi
+bar vẫn nhìn thấy đúng full causal history. Smoke tail 10 giảm từ 211,7 giây xuống
+4,4 giây mà giữ nguyên kết quả kinh tế.
+
+`STR-0208` đã đóng: mỗi attempt chạy trong spawned process riêng; deadline sẽ
+terminate/kill worker trước khi retry; memory/aggregate CPU budget được áp trong
+child; CLI cho cấu hình toàn bộ policy. `EvaluationArtifact.execution_control`
+bind timeout, retry, resource budget, attempt count và outcome vào content ID.
 
 ### Deliverables
 

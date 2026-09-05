@@ -102,7 +102,9 @@ Mọi lệnh dài phải chạy qua controlled execution của workspace; xem [D
 
 - P0 và capability code S0–S6 đã có contract/test tương ứng; điều đó không tự đóng S7.
 - Adaptive routing là opt-in và phải có router, posterior provider và runtime provider; không được fallback im lặng về strategy khác.
-- S2-0208 (timeout/retry độc lập cho từng tournament cell) và S4-0403 (dọn compatibility adapter `ArtifactLifecycle`) vẫn là nợ kỹ thuật đã ghi nhận.
+- S2-0208 đã đóng: tournament cell có process isolation, hard timeout/retry,
+  resource limits và execution-control provenance. S4-0403 (dọn compatibility
+  adapter `ArtifactLifecycle`) vẫn là nợ kỹ thuật đã ghi nhận.
 - S7 cần testnet/shadow/canary thực tế, calibration, lifecycle evidence và release attestation (cosign/SBOM/SLSA); không thay bằng fixture hay số tổng hợp.
 - Full-repo mypy còn nợ legacy; chỉ các module đã nêu trong status report được kiểm tra sạch.
 

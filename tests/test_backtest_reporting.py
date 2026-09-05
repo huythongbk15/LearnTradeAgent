@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import polars as pl
 import pytest
@@ -14,7 +15,11 @@ from trading_agent.backtest.reporting import (
     calculate_performance_metrics,
     calendar_returns,
     fixed_allocation_buy_and_hold,
+    load_gap_exceptions,
 )
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _ohlcv(hours: list[int]) -> pl.DataFrame:
@@ -56,6 +61,50 @@ def test_data_quality_rejects_gaps_when_policy_requires_continuity() -> None:
 
     assert raised.value.report.status == "failed_gap_policy"
     assert raised.value.report.accepted is False
+
+
+def test_data_quality_accepts_only_an_exact_reviewed_gap_under_reject_policy() -> None:
+    approved = {
+        "exception_id": "fixture-maintenance-window",
+        "previous_at": "2024-01-01T01:00:00Z",
+        "current_at": "2024-01-01T03:00:00Z",
+        "expected_interval_seconds": 3600,
+        "estimated_missing_bars": 1,
+        "reason": "test fixture",
+        "source": {"url": "https://example.invalid/evidence"},
+    }
+
+    report = assess_ohlcv(
+        _ohlcv([0, 1, 3]),
+        expected_interval=timedelta(hours=1),
+        gap_policy="reject",
+        gap_exceptions=(approved,),
+    )
+
+    assert report.accepted is True
+    assert report.status == "passed_with_approved_gaps"
+    assert report.approved_gap_count == 1
+    assert report.unapproved_gap_count == 0
+    assert report.gaps[0]["approved_exception_id"] == approved["exception_id"]
+
+
+def test_checked_in_gap_manifest_is_narrowly_scoped() -> None:
+    path = PROJECT_ROOT / "config" / "data_quality" / "binance_spot_gap_exceptions.json"
+
+    btc = load_gap_exceptions(
+        path, exchange="binance", symbol="BTC/USDT", timeframe="1h"
+    )
+    wrong_symbol = load_gap_exceptions(
+        path, exchange="binance", symbol="DOT/USDT", timeframe="1h"
+    )
+    wrong_exchange = load_gap_exceptions(
+        path, exchange="other", symbol="BTC/USDT", timeframe="1h"
+    )
+
+    assert len(btc) == 1
+    assert btc[0]["exception_id"] == "binance-spot-maintenance-2023-03-24T13:00Z"
+    assert wrong_symbol == ()
+    assert wrong_exchange == ()
 
 
 def test_data_quality_rejects_duplicate_timestamps_under_record_policy() -> None:
