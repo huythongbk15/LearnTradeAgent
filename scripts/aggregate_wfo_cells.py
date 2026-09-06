@@ -12,6 +12,7 @@ and produces:
 Usage:
     python scripts/aggregate_wfo_cells.py --in data/backtests/wfo_parallel --out data/backtests/wfo_parallel_summary
 """
+
 from __future__ import annotations
 
 import argparse
@@ -148,18 +149,26 @@ def evaluate_gate(observed: Any, comparison: str, threshold: Any) -> str:
 
 def get_git_commit_sha() -> str:
     try:
-        return subprocess.check_output(
-            ["git", "rev-parse", "HEAD"], cwd=ROOT, stderr=subprocess.DEVNULL
-        ).decode().strip()
+        return (
+            subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=ROOT, stderr=subprocess.DEVNULL
+            )
+            .decode()
+            .strip()
+        )
     except Exception:
         return "unknown"
 
 
 def is_worktree_clean() -> bool:
     try:
-        out = subprocess.check_output(
-            ["git", "status", "--porcelain"], cwd=ROOT, stderr=subprocess.DEVNULL
-        ).decode().strip()
+        out = (
+            subprocess.check_output(
+                ["git", "status", "--porcelain"], cwd=ROOT, stderr=subprocess.DEVNULL
+            )
+            .decode()
+            .strip()
+        )
         return len(out) == 0
     except Exception:
         return False
@@ -199,9 +208,21 @@ def parse_cell_dir(cell_dir: Path) -> dict[str, Any] | None:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Aggregate WFO cells into wfo_decision.json")
-    parser.add_argument("--in", dest="input_dir", required=True, help="Cell directory (e.g. data/backtests/wfo_parallel)")
-    parser.add_argument("--out", dest="output_dir", required=True, help="Output dir for wfo_decision.json")
+    parser = argparse.ArgumentParser(
+        description="Aggregate WFO cells into wfo_decision.json"
+    )
+    parser.add_argument(
+        "--in",
+        dest="input_dir",
+        required=True,
+        help="Cell directory (e.g. data/backtests/wfo_parallel)",
+    )
+    parser.add_argument(
+        "--out",
+        dest="output_dir",
+        required=True,
+        help="Output dir for wfo_decision.json",
+    )
     parser.add_argument("--strategy", default="ma_adx")
     parser.add_argument("--symbol", default="SOL/USDT")
     parser.add_argument("--timeframe", default="1h")
@@ -241,14 +262,30 @@ def main():
         # Per-cost: median metrics (OOS)
         aggregate_metrics[cost] = {
             "n_cells": len(cost_cells),
-            "median_sharpe": statistics.median(c["sharpe"] for c in cost_cells if c["sharpe"] is not None),
-            "median_return_pct": statistics.median(c["total_return_pct"] for c in cost_cells if c["total_return_pct"] is not None),
-            "median_max_dd_pct": statistics.median(c["max_drawdown_pct"] for c in cost_cells if c["max_drawdown_pct"] is not None),
-            "median_profit_factor": statistics.median(c["profit_factor"] for c in cost_cells if c["profit_factor"] is not None),
-            "median_calmar": statistics.median(c["calmar"] for c in cost_cells if c["calmar"] is not None),
+            "median_sharpe": statistics.median(
+                c["sharpe"] for c in cost_cells if c["sharpe"] is not None
+            ),
+            "median_return_pct": statistics.median(
+                c["total_return_pct"]
+                for c in cost_cells
+                if c["total_return_pct"] is not None
+            ),
+            "median_max_dd_pct": statistics.median(
+                c["max_drawdown_pct"]
+                for c in cost_cells
+                if c["max_drawdown_pct"] is not None
+            ),
+            "median_profit_factor": statistics.median(
+                c["profit_factor"] for c in cost_cells if c["profit_factor"] is not None
+            ),
+            "median_calmar": statistics.median(
+                c["calmar"] for c in cost_cells if c["calmar"] is not None
+            ),
             "total_trades": sum(c["total_trades"] or 0 for c in cost_cells),
             "total_net_pnl": sum(c["net_pnl"] or 0 for c in cost_cells),
-            "positive_cells": sum(1 for c in cost_cells if (c["total_return_pct"] or 0) > 0),
+            "positive_cells": sum(
+                1 for c in cost_cells if (c["total_return_pct"] or 0) > 0
+            ),
         }
         # Positive cell percentage
         n = len(cost_cells)
@@ -264,24 +301,39 @@ def main():
     all_cells = [c for cells_in_cost in by_cost.values() for c in cells_in_cost]
     aggregate_metrics["overall"] = {
         "n_cells": len(all_cells),
-        "median_sharpe": statistics.median(c["sharpe"] for c in all_cells if c["sharpe"] is not None),
-        "median_return_pct": statistics.median(c["total_return_pct"] for c in all_cells if c["total_return_pct"] is not None),
-        "median_max_dd_pct": statistics.median(c["max_drawdown_pct"] for c in all_cells if c["max_drawdown_pct"] is not None),
-        "median_profit_factor": statistics.median(c["profit_factor"] for c in all_cells if c["profit_factor"] is not None),
-        "median_calmar": statistics.median(c["calmar"] for c in all_cells if c["calmar"] is not None),
+        "median_sharpe": statistics.median(
+            c["sharpe"] for c in all_cells if c["sharpe"] is not None
+        ),
+        "median_return_pct": statistics.median(
+            c["total_return_pct"]
+            for c in all_cells
+            if c["total_return_pct"] is not None
+        ),
+        "median_max_dd_pct": statistics.median(
+            c["max_drawdown_pct"]
+            for c in all_cells
+            if c["max_drawdown_pct"] is not None
+        ),
+        "median_profit_factor": statistics.median(
+            c["profit_factor"] for c in all_cells if c["profit_factor"] is not None
+        ),
+        "median_calmar": statistics.median(
+            c["calmar"] for c in all_cells if c["calmar"] is not None
+        ),
         "total_trades": sum(c["total_trades"] or 0 for c in all_cells),
         "total_net_pnl": sum(c["net_pnl"] or 0 for c in all_cells),
         "positive_cells": sum(1 for c in all_cells if (c["total_return_pct"] or 0) > 0),
     }
     n_all = len(all_cells)
     aggregate_metrics["overall"]["positive_cell_pct"] = (
-        100.0 * aggregate_metrics["overall"]["positive_cells"] / n_all if n_all > 0 else 0.0
+        100.0 * aggregate_metrics["overall"]["positive_cells"] / n_all
+        if n_all > 0
+        else 0.0
     )
 
     # Check consistency across costs (median return > 0 in all cost scenarios)
     consistent_across_costs = all(
-        aggregate_metrics[c]["median_return_pct"] > 0
-        for c in by_cost.keys()
+        aggregate_metrics[c]["median_return_pct"] > 0 for c in by_cost.keys()
     )
 
     # Provenance
@@ -416,7 +468,8 @@ def main():
         "inner_validation_trials": len(all_cells),
         "outer_oos_trials": len(all_cells),
         "total_trial_runs": len(all_cells),
-        "methodology": "aggregated from parallel-run cells; primary cost = " + primary_cost,
+        "methodology": "aggregated from parallel-run cells; primary cost = "
+        + primary_cost,
     }
 
     wfo_decision = {
@@ -430,8 +483,14 @@ def main():
             "primary_cost": primary_cost,
             "median_test_sharpe": primary["median_sharpe"],
             "median_test_return_pct": primary["median_return_pct"],
-            "mean_test_sharpe": statistics.mean(c["sharpe"] for c in all_cells if c["sharpe"] is not None),
-            "mean_test_return_pct": statistics.mean(c["total_return_pct"] for c in all_cells if c["total_return_pct"] is not None),
+            "mean_test_sharpe": statistics.mean(
+                c["sharpe"] for c in all_cells if c["sharpe"] is not None
+            ),
+            "mean_test_return_pct": statistics.mean(
+                c["total_return_pct"]
+                for c in all_cells
+                if c["total_return_pct"] is not None
+            ),
             "total_test_trades": primary["total_trades"],
             "total_oos_net_pnl": aggregate_metrics["overall"]["total_net_pnl"],
             "positive_cell_pct": primary["positive_cell_pct"],
@@ -471,7 +530,9 @@ def main():
     print(f"  Provenance eligible: {provenance_eligible}")
     print("\n  Gate results:")
     for g in gate_results:
-        print(f"    [{g['verdict']}] {g['gate_id']}: {g['observed_value']} {g['comparison']} {g['threshold']}")
+        print(
+            f"    [{g['verdict']}] {g['gate_id']}: {g['observed_value']} {g['comparison']} {g['threshold']}"
+        )
     print(f"\n  Saved: {out_path}")
 
 

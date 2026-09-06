@@ -384,7 +384,11 @@ class ShadowMainnetEngine:
         for order in fills:
             mid = order.mid_at_intent
             if mid is not None and mid > 0:
-                fill = order.simulated_fill_price if order.simulated_fill_price is not None else mid
+                fill = (
+                    order.simulated_fill_price
+                    if order.simulated_fill_price is not None
+                    else mid
+                )
                 bps = (
                     (fill - mid) / mid * 10_000
                     if order.side == "buy"

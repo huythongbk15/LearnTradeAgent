@@ -4,6 +4,7 @@
 Usage:
     python scripts/run_wfo_minimal.py [--symbol SOL/USDT] [--strategy ma_adx]
 """
+
 from __future__ import annotations
 
 import argparse
@@ -19,7 +20,6 @@ from trading_agent.backtest.nested_wfo import (
     run_nested_wfo_portfolio,
 )
 from trading_agent.backtest.tournament import (
-    CostScenario,
     SCENARIO_BASE,
     SCENARIO_DOUBLE,
 )
@@ -92,8 +92,12 @@ def main():
     result = run_nested_wfo_portfolio([spec], out_root=Path(args.out))
     print(f"\nDone. Verdict: {result.verdict}")
     print(f"  Passes gates: {result.passes_hard_gates}")
-    print(f"  Median Sharpe: {result.aggregate_metrics.get('median_test_sharpe', 'N/A')}")
-    print(f"  Median Return: {result.aggregate_metrics.get('median_test_return_pct', 'N/A')}%")
+    print(
+        f"  Median Sharpe: {result.aggregate_metrics.get('median_test_sharpe', 'N/A')}"
+    )
+    print(
+        f"  Median Return: {result.aggregate_metrics.get('median_test_return_pct', 'N/A')}%"
+    )
     print(f"  Artifact ID: {result.artifact_id}")
 
 

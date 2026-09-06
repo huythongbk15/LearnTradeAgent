@@ -291,9 +291,7 @@ class ApprovalChain:
         # Filter by approval window
         cutoff = datetime.now(UTC) - timedelta(hours=self.approval_window_hours)
         fresh_approvals = [
-            a
-            for a in stage_approvals
-            if datetime.fromisoformat(a.timestamp) >= cutoff
+            a for a in stage_approvals if datetime.fromisoformat(a.timestamp) >= cutoff
         ]
         # Most recent per role
         latest_per_role: dict[str, Approval] = {}
@@ -317,19 +315,14 @@ class ApprovalChain:
         missing_roles = {role.value for role in required} - {
             r for r in approved_roles | rejected_roles
         }
-        passed = (
-            len(rejected_roles) == 0
-            and required == {ApprovalRole(r) for r in approved_roles}
-        )
+        passed = len(rejected_roles) == 0 and required == {
+            ApprovalRole(r) for r in approved_roles
+        }
         reasons: list[str] = []
         if rejected_roles:
-            reasons.append(
-                f"Promotion blocked: rejected by {sorted(rejected_roles)}"
-            )
+            reasons.append(f"Promotion blocked: rejected by {sorted(rejected_roles)}")
         if missing_roles:
-            reasons.append(
-                f"Missing approvals from roles: {sorted(missing_roles)}"
-            )
+            reasons.append(f"Missing approvals from roles: {sorted(missing_roles)}")
         # Detect role separation violation: one approver with multiple roles
         # Must check ALL stage approvals (including earlier ones) to catch violations
         # where an approver held multiple roles across the chain

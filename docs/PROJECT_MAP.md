@@ -21,6 +21,8 @@
 │   └── golden
 │       └── golden_replay_s0.json
 ├── config
+│   ├── data_quality
+│   │   └── binance_spot_gap_exceptions.json
 │   ├── grafana
 │   │   ├── dashboards
 │   │   │   └── trading-overview.json
@@ -66,13 +68,19 @@
 │   │   │   ├── MAU_BAI_LAM.md
 │   │   │   ├── README.md
 │   │   │   └── RUBRIC.md
+│   │   ├── APPROVAL_CHAIN_SCHEMA.md
 │   │   ├── BANG_CHUNG_VA_ARTIFACT.md
 │   │   ├── KIEM_TRA_LUONG_CHINH.md
+│   │   ├── MULTI_STRATEGY_WFO_2026_09_05.md
 │   │   ├── NGHIEN_CUU_DEN_VAN_HANH.md
+│   │   ├── PHASE_6_PLAN.md
 │   │   ├── README.md
 │   │   ├── THUAT_NGU.md
 │   │   ├── TIEN_DO_VA_LO_TRINH_PHASE.md
-│   │   └── VONG_DOI_CHIEN_LUOC.md
+│   │   ├── VONG_DOI_CHIEN_LUOC.md
+│   │   ├── WFO_MEDIUM_EVIDENCE_2026_09_04.md
+│   │   ├── WFO_PARALLEL_2026_09_05.md
+│   │   └── WFO_PARALLEL_VERDICT_2026_09_05.md
 │   ├── ACCOUNT_HARDENING.md
 │   ├── ADAPTIVE_ROADMAP_STATUS.md
 │   ├── ADAPTIVE_STRATEGY_SELECTION_ROADMAP.md
@@ -151,6 +159,7 @@
 │   │   ├── process_registry.py
 │   │   └── tracked_subagent.py
 │   ├── _probe_config.py
+│   ├── aggregate_wfo_cells.py
 │   ├── alert_pager.py
 │   ├── audit_retention.py
 │   ├── audit_ship_offhost.py
@@ -219,6 +228,8 @@
 │   ├── run_strategy_tournament.py
 │   ├── run_test_suite.py
 │   ├── run_wfo_evidence.py
+│   ├── run_wfo_minimal.py
+│   ├── run_wfo_parallel.py
 │   ├── sign_and_verify.sh
 │   ├── simulate_execution.py
 │   ├── stress_evidence_costs.py
@@ -277,6 +288,7 @@
 │       ├── authority
 │       │   ├── __init__.py
 │       │   ├── adaptive_router.py
+│       │   ├── approval.py
 │       │   ├── audit.py
 │       │   ├── causation.py
 │       │   ├── config.py
@@ -521,6 +533,8 @@
 │       └── regime.py
 ├── tests
 │   ├── authority
+│   │   ├── test_approval_chain.py
+│   │   ├── test_execution_permission.py
 │   │   └── test_resolver.py
 │   ├── backtest
 │   │   ├── test_tournament.py
@@ -589,6 +603,7 @@
 │   ├── test_llm_backtest_mode.py
 │   ├── test_llm_comparison.py
 │   ├── test_llm_comparison_lite.py
+│   ├── test_llm_mode_contract.py
 │   ├── test_llm_pool.py
 │   ├── test_llm_schema.py
 │   ├── test_measure_tracking_error.py
@@ -603,7 +618,6 @@
 │   ├── test_p0_convergence.py
 │   ├── test_p4_p7.py
 │   ├── test_paper_exchange_accounting.py
-│   ├── test_llm_mode_contract.py
 │   ├── test_phase3_audit.py
 │   ├── test_phase6.py
 │   ├── test_phase6_integration.py
@@ -683,3 +697,4 @@
 ├── smoke_p0.py
 └── uv.lock
 ```
+

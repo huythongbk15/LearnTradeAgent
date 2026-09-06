@@ -223,7 +223,9 @@ class CashSecuredPutStrategy(OptionsStrategy):
         config: dict[str, Any] | None = None,
         spot: float = 0,
     ):
-        super().__init__("CashSecuredPut", underlying, provider, spot, config=config or {})
+        super().__init__(
+            "CashSecuredPut", underlying, provider, spot, config=config or {}
+        )
         self.cash = self.config.get("initial_capital", 100_000)
 
     def generate_signals(self, chain: OptionChain) -> list[dict]:
@@ -279,7 +281,9 @@ class ShortStraddleStrategy(OptionsStrategy):
         config: dict[str, Any] | None = None,
         spot: float = 0,
     ):
-        super().__init__("ShortStraddle", underlying, provider, spot, config=config or {})
+        super().__init__(
+            "ShortStraddle", underlying, provider, spot, config=config or {}
+        )
 
     def generate_signals(self, chain: OptionChain) -> list[dict]:
         signals: list[dict] = []
@@ -329,7 +333,9 @@ class ShortStrangleStrategy(OptionsStrategy):
         config: dict[str, Any] | None = None,
         spot: float = 0,
     ):
-        super().__init__("ShortStrangle", underlying, provider, spot, config=config or {})
+        super().__init__(
+            "ShortStrangle", underlying, provider, spot, config=config or {}
+        )
 
     def generate_signals(self, chain: OptionChain) -> list[dict]:
         signals: list[dict] = []
@@ -590,7 +596,9 @@ class CalendarSpreadStrategy(OptionsStrategy):
         config: dict[str, Any] | None = None,
         spot: float = 0,
     ):
-        super().__init__("CalendarSpread", underlying, provider, spot, config=config or {})
+        super().__init__(
+            "CalendarSpread", underlying, provider, spot, config=config or {}
+        )
 
     def generate_signals(self, spot: float) -> list[dict]:
         signals = []

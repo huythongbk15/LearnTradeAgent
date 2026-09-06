@@ -295,10 +295,20 @@ class ExecutionSimulator:
             return None
 
         # Check if price is marketable
-        if order.side == OrderSide.BUY and order.price is not None and book.ask_price is not None and order.price >= book.ask_price:
+        if (
+            order.side == OrderSide.BUY
+            and order.price is not None
+            and book.ask_price is not None
+            and order.price >= book.ask_price
+        ):
             # Crosses spread - immediate fill (taker)
             return self._fill_limit_as_taker(order, book)
-        elif order.side == OrderSide.SELL and order.price is not None and book.bid_price is not None and order.price <= book.bid_price:
+        elif (
+            order.side == OrderSide.SELL
+            and order.price is not None
+            and book.bid_price is not None
+            and order.price <= book.bid_price
+        ):
             return self._fill_limit_as_taker(order, book)
 
         # Check queue position

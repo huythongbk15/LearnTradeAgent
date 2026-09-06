@@ -21,15 +21,15 @@
 ```python
 @dataclass(frozen=True)
 class Approval:
-    role: str              # One of: research, risk, compliance, operator, admin
-    approver_id: str       # e.g. "user:huythong" or "agent:trading-bot"
-    artifact_id: str       # sha256 of the promotion artifact
-    stage: str             # shadow, testnet, canary, production
-    decision: str          # "approved" or "rejected"
-    reason: str            # Human-readable explanation
-    signature: str         # ed25519 signature of (role|approver_id|artifact_id|stage|decision|timestamp)
-    timestamp: str         # ISO 8601 UTC
-    metadata: dict         # Optional context (e.g., evidence IDs, run IDs)
+    role: str  # One of: research, risk, compliance, operator, admin
+    approver_id: str  # e.g. "user:huythong" or "agent:trading-bot"
+    artifact_id: str  # sha256 of the promotion artifact
+    stage: str  # shadow, testnet, canary, production
+    decision: str  # "approved" or "rejected"
+    reason: str  # Human-readable explanation
+    signature: str  # ed25519 signature of (role|approver_id|artifact_id|stage|decision|timestamp)
+    timestamp: str  # ISO 8601 UTC
+    metadata: dict  # Optional context (e.g., evidence IDs, run IDs)
 ```
 
 ## 4. Promotion Artifact Approval Flow

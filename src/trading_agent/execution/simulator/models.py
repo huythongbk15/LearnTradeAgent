@@ -235,10 +235,7 @@ class SimulationConfig:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "SimulationConfig":
-        allowed = {
-            f.name
-            for f in cls.__dataclass_fields__.values()
-        }
+        allowed = {f.name for f in cls.__dataclass_fields__.values()}
         kwargs = {k: v for k, v in d.items() if k in allowed}
         cfg = cls(**kwargs)
         cfg.validate()

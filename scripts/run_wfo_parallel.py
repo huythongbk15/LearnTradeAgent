@@ -10,6 +10,7 @@ Usage:
     python scripts/run_wfo_parallel.py --workers 4
     python scripts/run_wfo_parallel.py --strategy rsi --workers 6
 """
+
 from __future__ import annotations
 
 import argparse
@@ -164,9 +165,13 @@ def main():
     parser.add_argument("--strategy", default="ma_adx")
     parser.add_argument("--symbol", default="SOL/USDT")
     parser.add_argument("--timeframe", default="1h")
-    parser.add_argument("--cost", default="1x", choices=["1x", "2x", "slip_stress", "all"])
+    parser.add_argument(
+        "--cost", default="1x", choices=["1x", "2x", "slip_stress", "all"]
+    )
     parser.add_argument("--out", default="data/backtests/wfo_parallel")
-    parser.add_argument("--workers", type=int, default=4, help="Number of parallel workers")
+    parser.add_argument(
+        "--workers", type=int, default=4, help="Number of parallel workers"
+    )
     parser.add_argument("--train-months", type=int, default=12)
     parser.add_argument("--val-months", type=int, default=3)
     parser.add_argument("--test-months", type=int, default=3)
@@ -196,7 +201,10 @@ def main():
         evidence_class="REAL_MARKET",
     )
 
-    print(f"Building cells for {args.strategy} {args.symbol} {args.timeframe}...", flush=True)
+    print(
+        f"Building cells for {args.strategy} {args.symbol} {args.timeframe}...",
+        flush=True,
+    )
     cells = build_cells(spec, cost_scenarios)
     n_cells = len(cells)
     print(f"  Params: {MINIMAL_PARAM_GRIDS.get(args.strategy, {})}", flush=True)
@@ -213,8 +221,11 @@ def main():
 
     print(f"Submitting {n_cells} cells to {args.workers} workers...", flush=True)
     import multiprocessing as mp
+
     ctx = mp.get_context("spawn")
-    with concurrent.futures.ProcessPoolExecutor(max_workers=args.workers, mp_context=ctx) as executor:
+    with concurrent.futures.ProcessPoolExecutor(
+        max_workers=args.workers, mp_context=ctx
+    ) as executor:
         for cell_id, params, cost, fold in cells:
             spec_primitives = {
                 "cell_id": cell_id,
@@ -244,13 +255,15 @@ def main():
                 elapsed = time.time() - start_time
                 rate = (completed + failed) / max(elapsed, 0.1)
                 print(
-                    f"  [{completed+failed}/{n_cells}] cell={cell_id} "
+                    f"  [{completed + failed}/{n_cells}] cell={cell_id} "
                     f"status={result['status']} "
                     f"elapsed={elapsed:.0f}s rate={rate:.2f}cells/s"
                 )
             except Exception as exc:
                 failed += 1
-                print(f"  [{completed+failed}/{n_cells}] cell={cell_id} EXCEPTION: {exc}")
+                print(
+                    f"  [{completed + failed}/{n_cells}] cell={cell_id} EXCEPTION: {exc}"
+                )
 
     elapsed = time.time() - start_time
     print("\n=== Done ===")
@@ -258,7 +271,7 @@ def main():
     print(f"  Failed: {failed}/{n_cells}")
     print(f"  Elapsed: {elapsed:.0f}s")
     if n_cells > 0:
-        print(f"  Avg per cell: {elapsed/n_cells:.1f}s")
+        print(f"  Avg per cell: {elapsed / n_cells:.1f}s")
     # Save summary
     summary = {
         "strategy": args.strategy,

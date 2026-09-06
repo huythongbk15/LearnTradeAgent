@@ -208,7 +208,13 @@ class CoordinatorAgent(Agent):
             }
 
         # Weight votes by confidence and agent weight
-        votes: dict[str, float] = {"buy": 0.0, "sell": 0.0, "hold": 0.0, "close_long": 0.0, "close_short": 0.0}
+        votes: dict[str, float] = {
+            "buy": 0.0,
+            "sell": 0.0,
+            "hold": 0.0,
+            "close_long": 0.0,
+            "close_short": 0.0,
+        }
         total_weight: float = 0.0
 
         for s in signals:
