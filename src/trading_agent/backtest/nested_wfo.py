@@ -986,7 +986,7 @@ class WFOPortfolioResult:
             "verdict": self.verdict,
         }
         encoded = json.dumps(
-            payload, sort_keys=True, separators=(",", ":"), allow_nan=False
+            payload, sort_keys=True, separators=(",", ":"), allow_nan=True
         ).encode()
         return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
 
@@ -3352,12 +3352,17 @@ def run_nested_wfo(
 
 
 def _persist_wfo_result(out_root: Path, result: WFOResult) -> Path:
-    """Persist the composite WFO decision artifact atomically."""
+    """Persist the composite WFO decision artifact atomically.
+
+    Uses allow_nan=True to handle infinite values (e.g., profit factor when
+    there are no losing trades) — JSON serializes them as "Infinity" which is
+    deterministic and safe for content-addressing.
+    """
     path = Path(out_root) / "wfo_decision.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = path.with_suffix(".json.tmp")
     tmp_path.write_text(
-        json.dumps(result.to_dict(), indent=2, allow_nan=False, default=str),
+        json.dumps(result.to_dict(), indent=2, allow_nan=True, default=str),
         encoding="utf-8",
     )
     tmp_path.replace(path)
