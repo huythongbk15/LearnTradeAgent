@@ -352,7 +352,10 @@ class TestResearchLifecycle:
             "pbo": {"pbo": 0.1},
             "cost_stress": {"stressed_net_return": 0.02},
             "parameter_stability": {"stability_score": 0.8},
-            "artifact_integrity": {"verified_artifact_id": artifact_id, "integrity_failures": 0},
+            "artifact_integrity": {
+                "verified_artifact_id": artifact_id,
+                "integrity_failures": 0,
+            },
             "execution_simulation": {"scenarios": 200, "invariant_breaches": 0},
             "reality_gap": {"score": 0.1, "breach_count": 0},
         }
@@ -378,25 +381,39 @@ class TestResearchLifecycle:
         lc = ResearchLifecycle(artifact_id)
 
         # EXPLORATORY -> RESEARCH_VALIDATED requires 6 evidence kinds
-        evidence = tuple(self._make_evidence(artifact_id, k) for k in [
-            "outer_oos", "minimum_trades", "deflated_sharpe",
-            "pbo", "cost_stress", "parameter_stability"
-        ])
-        event = lc.promote(ResearchStage.RESEARCH_VALIDATED, evidence=evidence, actor="test")
+        evidence = tuple(
+            self._make_evidence(artifact_id, k)
+            for k in [
+                "outer_oos",
+                "minimum_trades",
+                "deflated_sharpe",
+                "pbo",
+                "cost_stress",
+                "parameter_stability",
+            ]
+        )
+        event = lc.promote(
+            ResearchStage.RESEARCH_VALIDATED, evidence=evidence, actor="test"
+        )
         assert lc.stage == ResearchStage.RESEARCH_VALIDATED
         assert event.from_stage == ResearchStage.EXPLORATORY
         assert event.to_stage == ResearchStage.RESEARCH_VALIDATED
 
         # RESEARCH_VALIDATED -> PAPER_ELIGIBLE requires artifact_integrity
         evidence = (self._make_evidence(artifact_id, "artifact_integrity"),)
-        event = lc.promote(ResearchStage.PAPER_ELIGIBLE, evidence=evidence, actor="test")
+        event = lc.promote(
+            ResearchStage.PAPER_ELIGIBLE, evidence=evidence, actor="test"
+        )
         assert lc.stage == ResearchStage.PAPER_ELIGIBLE
 
         # PAPER_ELIGIBLE -> TESTNET_ELIGIBLE requires execution_simulation + reality_gap
-        evidence = tuple(self._make_evidence(artifact_id, k) for k in [
-            "execution_simulation", "reality_gap"
-        ])
-        event = lc.promote(ResearchStage.TESTNET_ELIGIBLE, evidence=evidence, actor="test")
+        evidence = tuple(
+            self._make_evidence(artifact_id, k)
+            for k in ["execution_simulation", "reality_gap"]
+        )
+        event = lc.promote(
+            ResearchStage.TESTNET_ELIGIBLE, evidence=evidence, actor="test"
+        )
         assert lc.stage == ResearchStage.TESTNET_ELIGIBLE
 
         assert len(lc.events) == 3
@@ -419,11 +436,20 @@ class TestResearchLifecycle:
         lc = ResearchLifecycle(artifact_id)
 
         # Missing minimum_trades
-        evidence = tuple(self._make_evidence(artifact_id, k) for k in [
-            "outer_oos", "deflated_sharpe", "pbo", "cost_stress", "parameter_stability"
-        ])
+        evidence = tuple(
+            self._make_evidence(artifact_id, k)
+            for k in [
+                "outer_oos",
+                "deflated_sharpe",
+                "pbo",
+                "cost_stress",
+                "parameter_stability",
+            ]
+        )
         with pytest.raises(PromotionError):
-            lc.promote(ResearchStage.RESEARCH_VALIDATED, evidence=evidence, actor="test")
+            lc.promote(
+                ResearchStage.RESEARCH_VALIDATED, evidence=evidence, actor="test"
+            )
 
 
 class TestUncertainty:
