@@ -43,7 +43,6 @@ from trading_agent.research.calibration import (
     reliability_diagram,
 )
 from trading_agent.research.lifecycle import (
-    ArtifactLifecycle,
     PromotionError,
     PromotionEvent,
     PromotionEvidence,
@@ -113,7 +112,6 @@ __all__ = [
     "Abstention",
     "AbstentionReason",
     "Action",
-    "ArtifactLifecycle",
     "ArtifactStore",
     "CalibratedDecision",
     "CalibrationArtifact",

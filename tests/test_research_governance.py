@@ -13,13 +13,12 @@ import pytest
 
 from trading_agent.research import (
     AbstentionReason,
-    ArtifactLifecycle,
     ArtifactStore,
     DriftLevel,
     DriftMonitor,
+    EvidenceArtifact,
     PersistentArtifactStore,
     PromotionError,
-    PromotionState,
     StrategyHealthState,
     TrialsRegistry,
     UncertaintySignal,
@@ -334,31 +333,97 @@ class TestPersistentArtifactStore:
         assert ok
 
 
-class TestLifecycle:
-    def test_normal_path(self):
-        lc = ArtifactLifecycle("art-1")
-        lc.transition(PromotionState.REVIEWED, note="manual review")
-        lc.transition(PromotionState.CANARY_ELIGIBLE, note="gap gate passed")
-        lc.transition(PromotionState.CANARY_PROMOTED, note="canary start")
-        lc.transition(PromotionState.CANARY_LIVE, note="soak ok")
-        assert lc.state == PromotionState.CANARY_LIVE
-        assert len(lc.history) == 4
+class TestResearchLifecycle:
+    """Tests for the content-addressed ResearchLifecycle (replaces legacy ArtifactLifecycle)."""
 
-    def test_no_skip(self):
-        lc = ArtifactLifecycle("art-2")
-        with pytest.raises(PromotionError):
-            lc.transition(PromotionState.CANARY_ELIGIBLE)  # skip REVIEWED
+    def _make_evidence(self, artifact_id: str, kind: str) -> EvidenceArtifact:
+        """Create minimal passing evidence for a given kind."""
+        from trading_agent.research.promotion import (
+            EvidenceArtifact,
+            EvidenceKind,
+            EvidenceSource,
+        )
+        from datetime import datetime, UTC
 
-    def test_rejected_terminal(self):
-        lc = ArtifactLifecycle("art-3")
-        lc.transition(PromotionState.REJECTED, note="overfit")
-        with pytest.raises(PromotionError):
-            lc.transition(PromotionState.REVIEWED)
+        payloads = {
+            "outer_oos": {"net_return": 0.05, "trade_count": 50},
+            "minimum_trades": {"trade_count": 50},
+            "deflated_sharpe": {"dsr_probability": 0.98},
+            "pbo": {"pbo": 0.1},
+            "cost_stress": {"stressed_net_return": 0.02},
+            "parameter_stability": {"stability_score": 0.8},
+            "artifact_integrity": {"verified_artifact_id": artifact_id, "integrity_failures": 0},
+            "execution_simulation": {"scenarios": 200, "invariant_breaches": 0},
+            "reality_gap": {"score": 0.1, "breach_count": 0},
+        }
+        sources = {
+            "execution_simulation": EvidenceSource.SIMULATOR,
+            "reality_gap": EvidenceSource.TESTNET,
+        }
+        source = sources.get(kind, EvidenceSource.RESEARCH)
+        payload = payloads.get(kind, {})
+        return EvidenceArtifact.create(
+            kind=EvidenceKind(kind),
+            subject_artifact_id=artifact_id,
+            source=source,
+            payload=payload,
+            validator="test",
+            created_at=datetime.now(UTC),
+        )
 
-    def test_integrity_fail_closed(self):
-        lc = ArtifactLifecycle("art-4")
+    def test_normal_promotion_path(self):
+        from trading_agent.research import ResearchLifecycle, ResearchStage
+
+        artifact_id = "sha256:test123"
+        lc = ResearchLifecycle(artifact_id)
+
+        # EXPLORATORY -> RESEARCH_VALIDATED requires 6 evidence kinds
+        evidence = tuple(self._make_evidence(artifact_id, k) for k in [
+            "outer_oos", "minimum_trades", "deflated_sharpe",
+            "pbo", "cost_stress", "parameter_stability"
+        ])
+        event = lc.promote(ResearchStage.RESEARCH_VALIDATED, evidence=evidence, actor="test")
+        assert lc.stage == ResearchStage.RESEARCH_VALIDATED
+        assert event.from_stage == ResearchStage.EXPLORATORY
+        assert event.to_stage == ResearchStage.RESEARCH_VALIDATED
+
+        # RESEARCH_VALIDATED -> PAPER_ELIGIBLE requires artifact_integrity
+        evidence = (self._make_evidence(artifact_id, "artifact_integrity"),)
+        event = lc.promote(ResearchStage.PAPER_ELIGIBLE, evidence=evidence, actor="test")
+        assert lc.stage == ResearchStage.PAPER_ELIGIBLE
+
+        # PAPER_ELIGIBLE -> TESTNET_ELIGIBLE requires execution_simulation + reality_gap
+        evidence = tuple(self._make_evidence(artifact_id, k) for k in [
+            "execution_simulation", "reality_gap"
+        ])
+        event = lc.promote(ResearchStage.TESTNET_ELIGIBLE, evidence=evidence, actor="test")
+        assert lc.stage == ResearchStage.TESTNET_ELIGIBLE
+
+        assert len(lc.events) == 3
+
+    def test_no_stage_skipping(self):
+        from trading_agent.research import ResearchLifecycle, ResearchStage
+
+        artifact_id = "sha256:test456"
+        lc = ResearchLifecycle(artifact_id)
+
+        # Try to skip RESEARCH_VALIDATED
+        evidence = (self._make_evidence(artifact_id, "artifact_integrity"),)
         with pytest.raises(PromotionError):
-            lc.transition(PromotionState.REVIEWED, artifact_ok=False)
+            lc.promote(ResearchStage.PAPER_ELIGIBLE, evidence=evidence, actor="test")
+
+    def test_missing_evidence_blocks(self):
+        from trading_agent.research import ResearchLifecycle, ResearchStage
+
+        artifact_id = "sha256:test789"
+        lc = ResearchLifecycle(artifact_id)
+
+        # Missing minimum_trades
+        evidence = tuple(self._make_evidence(artifact_id, k) for k in [
+            "outer_oos", "deflated_sharpe", "pbo", "cost_stress", "parameter_stability"
+        ])
+        with pytest.raises(PromotionError):
+            lc.promote(ResearchStage.RESEARCH_VALIDATED, evidence=evidence, actor="test")
 
 
 class TestUncertainty:
@@ -412,7 +477,7 @@ class TestAbstention:
 
     def test_invalid_reason_rejected(self):
         with pytest.raises(ValueError):
-            should_abstain(symbol="X", strategy="y", reason="not-a-code")  # type: ignore[arg-type]
+            should_abstain(symbol="X", strategy="y", reason="not-a-code")
 
 
 class TestDrift:
