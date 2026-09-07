@@ -342,6 +342,34 @@ class GateResult:
     def is_fail(self) -> bool:
         return self.verdict in ("FAIL", "INVALID")  # INVALID treated as FAIL
 
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to JSON-compliant dict (no NaN/inf)."""
+        obs = self.observed_value
+        observed_value: str | float
+        if obs is None or not (isinstance(obs, float) and abs(obs) != float('inf')):
+            # Handle None, nan, inf
+            if obs is None:
+                observed_value = "null"
+            elif obs == float('inf'):
+                observed_value = "inf"
+            elif obs == float('-inf'):
+                observed_value = "-inf"
+            else:  # nan
+                observed_value = "nan"
+        else:
+            observed_value = obs
+
+        return {
+            "gate_id": self.gate_id,
+            "policy_version": self.policy_version,
+            "observed_value": observed_value,
+            "threshold": self.threshold,
+            "comparison": self.comparison,
+            "verdict": self.verdict,
+            "reason": self.reason,
+            "evidence_artifact": self.evidence_artifact,
+        }
+
 
 @dataclass(frozen=True)
 class FormalNoTradeArtifact:
@@ -981,7 +1009,7 @@ class WFOPortfolioResult:
                 for result in self.results
             ],
             "aggregate_metrics": self.aggregate_metrics,
-            "gate_results": [asdict(gate) for gate in self.gate_results],
+            "gate_results": [gate.to_dict() for gate in self.gate_results],
             "passes_hard_gates": self.passes_hard_gates,
             "verdict": self.verdict,
         }
@@ -996,7 +1024,7 @@ class WFOPortfolioResult:
             "verdict": self.verdict,
             "passes_hard_gates": self.passes_hard_gates,
             "aggregate_metrics": self.aggregate_metrics,
-            "gate_results": [asdict(gate) for gate in self.gate_results],
+            "gate_results": [gate.to_dict() for gate in self.gate_results],
             "members": [
                 {
                     "strategy_id": result.spec.strategy_id,
@@ -3504,6 +3532,30 @@ def _build_portfolio_selection_result(
     else:
         verdict = "NO_TRADE"
 
+    # Aggregate sensitivity from all pair results
+    all_sensitivities = []
+    for r in results:
+        sens = r.aggregate_metrics.get("sensitivity")
+        if sens:
+            all_sensitivities.append(sens)
+
+    # Combine sensitivity results (use first as template, aggregate real_computed)
+    combined_sensitivity = {}
+    if all_sensitivities:
+        combined_sensitivity = all_sensitivities[0].copy()
+        combined_real_computed = []
+        for sens in all_sensitivities:
+            if isinstance(sens.get("real_computed"), list):
+                combined_real_computed.extend(sens["real_computed"])
+        # Deduplicate while preserving order
+        seen: set[str] = set()
+        deduped: list[str] = []
+        for x in combined_real_computed:
+            if x not in seen:
+                seen.add(x)
+                deduped.append(x)
+        combined_sensitivity["real_computed"] = deduped
+
     aggregate_metrics = {
         "n_members": len(rows),
         "positive_pairs_pct": positive_pairs_pct,
@@ -3517,6 +3569,7 @@ def _build_portfolio_selection_result(
         ),
         "total_oos_trades": total_trades,
         "members": rows,
+        "sensitivity": combined_sensitivity,
     }
 
     data_identity = _combined_identity(
@@ -3590,6 +3643,26 @@ def _build_portfolio_selection_result(
             notes=f"Portfolio verdict {verdict}; no candidate portfolio passed every hard gate",
         )
 
+    def _sanitize_for_json(obj: Any) -> Any:
+        """Recursively convert non-JSON-compliant values to strings."""
+        import math
+        if isinstance(obj, float):
+            if math.isnan(obj):
+                return "nan"
+            if obj == float('inf'):
+                return "inf"
+            if obj == float('-inf'):
+                return "-inf"
+            return obj
+        if isinstance(obj, dict):
+            return {k: _sanitize_for_json(v) for k, v in obj.items()}
+        if isinstance(obj, list):
+            return [_sanitize_for_json(v) for v in obj]
+        if isinstance(obj, tuple):
+            return tuple(_sanitize_for_json(v) for v in obj)
+        return obj
+
+
     portfolio_result = WFOPortfolioResult(
         results=results,
         aggregate_metrics=aggregate_metrics,
@@ -3603,7 +3676,7 @@ def _build_portfolio_selection_result(
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(".json.tmp")
         tmp.write_text(
-            json.dumps(portfolio_result.to_dict(), indent=2, allow_nan=False),
+            json.dumps(_sanitize_for_json(portfolio_result.to_dict()), indent=2, allow_nan=False),
             encoding="utf-8",
         )
         tmp.replace(path)
