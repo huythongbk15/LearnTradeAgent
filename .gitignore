@@ -18,7 +18,9 @@ logs/
 
 # Session-local TODO files
 *_TODO.md
+REVIEW_*.md
 !docs/LIVE_TRADING_TODO.md
+REVIEW_*.md
 
 # Streamlit
 .streamlit/
@@ -149,12 +151,17 @@ SOUL.md
 # Drives
 drivers/
 PHASE2_TODO.md
+REVIEW_*.md
 PHASE3_TODO.md
+REVIEW_*.md
 PHASE5_TODO.md
+REVIEW_*.md
 docs/wsl-guide/
 data/demo_pipeline.db
 OPTIMIZE_TODO.md
+REVIEW_*.md
 _TODO.md
+REVIEW_*.md
 
 # Web UI
 webui/frontend/node_modules/
@@ -169,8 +176,10 @@ data/live_strategy_evidence.candidate.json
 data/live_strategy_evidence.rejected.json
 strategies_repo/
 P0P3_TODO.md
+REVIEW_*.md
 media/
 LIVE_TRADING_OPT_TODO.md
+REVIEW_*.md
 
 # Generated evidence reports (script artifacts)
 data/tracking_error_report.json
@@ -182,16 +191,25 @@ data/binance_testnet_risk_state_v2.json
 data/binance_testnet_risk_state_v2.json.lock
 data/binance_testnet_risk_state.json.lock
 CANONICAL_EXECUTION_REFACTOR_TODO.md
+REVIEW_*.md
 
 # Backtest output data
 data/backtests/
 data/benchmarks/
 MILESTONE_C_TODO.md
+REVIEW_*.md
 MILESTONE_C_BATCH_TODO.md
+REVIEW_*.md
 BATCH_HARDEN_TODO.md
+REVIEW_*.md
 PHASE_S0_TODO.md
+REVIEW_*.md
 ADAPTIVE_DOCS_NOTE_TODO.md
+REVIEW_*.md
 FIX_CONV_TESTS_TODO.md
+REVIEW_*.md
 PHASE_S1_TODO.md
+REVIEW_*.md
 data/canonical_runs/
 PHASE_S2_TODO.md
+REVIEW_*.md
