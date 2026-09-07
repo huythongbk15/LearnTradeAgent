@@ -229,6 +229,7 @@
 │   ├── review_wave_ef.py
 │   ├── run_canonical_strategy.py
 │   ├── run_nested_wfo.py
+│   ├── run_s3_campaign.py
 │   ├── run_s5_adaptive_campaign.py
 │   ├── run_s6_campaign.py
 │   ├── run_strategy_tournament.py
@@ -316,6 +317,7 @@
 │       │   ├── provenance.py
 │       │   ├── report_v2.py
 │       │   ├── reporting.py
+│       │   ├── scope_lock.py
 │       │   ├── synthetic_data.py
 │       │   └── tournament.py
 │       ├── cli
@@ -635,6 +637,7 @@
 │   ├── test_quant_methodology.py
 │   ├── test_r02_canonical_authority.py
 │   ├── test_r03_provenance_completeness.py
+│   ├── test_r04_scope_lock_campaign.py
 │   ├── test_realtime_data.py
 │   ├── test_research_governance.py
 │   ├── test_research_stats.py

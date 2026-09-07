@@ -119,7 +119,12 @@ class TestCampaignScope:
                 strategies=("rsi",),
                 timeframe="1h",
                 cost_scenarios=("1x",),
-                fold_geometry={"train_months": 12, "val_months": 3, "test_months": 3, "step_months": 3},
+                fold_geometry={
+                    "train_months": 12,
+                    "val_months": 3,
+                    "test_months": 3,
+                    "step_months": 3,
+                },
                 budget={},
             )
 
@@ -130,7 +135,12 @@ class TestCampaignScope:
                 strategies=(),
                 timeframe="1h",
                 cost_scenarios=("1x",),
-                fold_geometry={"train_months": 12, "val_months": 3, "test_months": 3, "step_months": 3},
+                fold_geometry={
+                    "train_months": 12,
+                    "val_months": 3,
+                    "test_months": 3,
+                    "step_months": 3,
+                },
                 budget={},
             )
 
@@ -141,7 +151,12 @@ class TestCampaignScope:
                 strategies=("rsi",),
                 timeframe="1h",
                 cost_scenarios=(),
-                fold_geometry={"train_months": 12, "val_months": 3, "test_months": 3, "step_months": 3},
+                fold_geometry={
+                    "train_months": 12,
+                    "val_months": 3,
+                    "test_months": 3,
+                    "step_months": 3,
+                },
                 budget={},
             )
 
@@ -409,10 +424,13 @@ class TestCampaignOrchestratorSmoke:
             [
                 "python",
                 "scripts/run_s3_campaign.py",
-                "--phase", "smoke",
+                "--phase",
+                "smoke",
                 "--synthetic",
-                "--n-bars", "200",
-                "--out", str(tmp_path / "smoke"),
+                "--n-bars",
+                "200",
+                "--out",
+                str(tmp_path / "smoke"),
             ],
             capture_output=True,
             text=True,
@@ -427,6 +445,7 @@ class TestCampaignOrchestratorSmoke:
             f"stderr={result.stderr[:500]}"
         )
         import json
+
         d = json.loads(summary_path.read_text())
         assert "scope" in d
         assert "phases" in d

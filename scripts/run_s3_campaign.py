@@ -79,14 +79,15 @@ def _make_smoke_specs(
     strategy = scope.strategies[0]
     cost = scope.cost_scenarios[0]
 
-
     spec, _, _ = synthetic_wfo_spec(
         strategy_id=strategy,
         symbol=pair,
         timeframe=scope.timeframe,
         n_bars=n_bars,
     )
-    return [replace(spec, cost_scenarios=(COST_MAP[cost],), evidence_class=evidence_class)]
+    return [
+        replace(spec, cost_scenarios=(COST_MAP[cost],), evidence_class=evidence_class)
+    ]
 
 
 def _make_scope_specs(
@@ -223,7 +224,9 @@ def _run_phase(
             continue
 
         try:
-            result = _run_one_spec(spec, out_root / spec.strategy_id, run_holdout=run_holdout)
+            result = _run_one_spec(
+                spec, out_root / spec.strategy_id, run_holdout=run_holdout
+            )
             verdict = "FINAL_PASS" if result.passes_hard_gates else "NO_TRADE"
             verdicts[spec.strategy_id + "@" + spec.symbol] = verdict
 
@@ -255,9 +258,7 @@ def _run_phase(
         "holdout_touched": list(holdout_guard.to_dict()["touched"]),
         "started_at": started_at,
     }
-    provenance_digest = (
-        f"sha256:{__import__('hashlib').sha256(json.dumps(prov_input, sort_keys=True, default=str).encode()).hexdigest()}"
-    )
+    provenance_digest = f"sha256:{__import__('hashlib').sha256(json.dumps(prov_input, sort_keys=True, default=str).encode()).hexdigest()}"
 
     pairs_run = len({s.symbol for s in specs})
     strategies_run = len({s.strategy_id for s in specs})
@@ -277,10 +278,7 @@ def _run_phase(
         provenance_digest=provenance_digest,
         enforcer=enforcer,
         holdout_guard=holdout_guard,
-        notes=(
-            f"Phase={phase}, scope_passed={scope_passed}, "
-            f"verdicts={len(verdicts)}"
-        ),
+        notes=(f"Phase={phase}, scope_passed={scope_passed}, verdicts={len(verdicts)}"),
     )
     return phase_result
 
@@ -323,18 +321,16 @@ def main() -> int:
     print(f"  Output: {out_root}")
 
     if args.synthetic:
-        _install_synthetic_patches(n_bars=args.n_bars, holdout_start=int(args.n_bars * 0.8))
+        _install_synthetic_patches(
+            n_bars=args.n_bars, holdout_start=int(args.n_bars * 0.8)
+        )
         evidence_class = "SYNTHETIC_TEST_ONLY"
         print(f"  Mode: synthetic (n_bars={args.n_bars})")
     else:
         evidence_class = "REAL_MARKET"
         print("  Mode: real market data")
 
-    phases_to_run = (
-        ["smoke", "scope", "final"]
-        if args.phase == "all"
-        else [args.phase]
-    )
+    phases_to_run = ["smoke", "scope", "final"] if args.phase == "all" else [args.phase]
 
     enforcer = ScopeEnforcer(scope)
     holdout_guard = HoldoutAccessGuard()

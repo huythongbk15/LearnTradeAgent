@@ -379,7 +379,9 @@ def campaign_phase_artifact(
         cells_executed=cells_executed,
         verdicts=verdicts or {},
         provenance_digest=provenance_digest,
-        scope_violations=tuple(v.to_dict() for v in (enforcer.violations if enforcer else [])),
+        scope_violations=tuple(
+            v.to_dict() for v in (enforcer.violations if enforcer else [])
+        ),
         holdout_accesses=tuple(
             a for a in (holdout_guard.to_dict()["touched"] if holdout_guard else [])
         ),
