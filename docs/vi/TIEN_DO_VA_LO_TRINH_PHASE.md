@@ -1,17 +1,23 @@
 # Tiến độ và lộ trình các phase
 
-> Snapshot rà soát: **2026-09-07** · P0: **cần tái xác nhận regression hiện tại** · Production mainnet: **NO-GO**
+> Snapshot rà soát: **2026-09-07** · P0: **R0–R3 (R00,R01,R02,R03) ✅ COMPLETE** · Production mainnet: **NO-GO**
 
 ## Cập nhật điều phối 07/09/2026 — đọc trước các bảng lịch sử
 
-[Kế hoạch củng cố và bàn giao agent](KE_HOACH_CUNG_CO_VA_BAN_GIAO_AGENT.md) là backlog thực hiện hiện hành cho đợt này: R00–R09, dependency, ownership, acceptance tests và mẫu giao việc. Chưa ticket nào được coi hoàn thành chỉ vì tài liệu đã được viết.
+[Kế hoạch củng cố và bàn giao agent](KE_HOACH_CUNG_CO_VA_BAN_GIAO_AGENT.md) là backlog thực hiện hiện hành cho đợt này: R00–R09, dependency, ownership, acceptance tests và mẫu giao việc.
 
-| Phase | Trạng thái sau rà soát | Điều kiện tiếp theo |
+**R0–R3 đã nghiệm thu** (commit `3cb4d81`→`b95fac1`):
+- **R00**: Baseline locked (commit `3cb4d81`, 167 tests baseline)
+- **R01**: Adapter LegacyDataFrameAdapter + CanonicalRegistry parity VERIFIED (signal 1000/1000 bars identical, equity 0.00% diff)
+- **R02**: Single S3 Validation Authority (canonical WFO + `cell_runner` callback, 13/13 equivalence tests PASS)
+- **R03**: Provenance, completeness, resume (28/28 tests PASS, every trial record carries `evaluation_identity`)
+
+| Phase | Trạng thái sau R0–R3 | Điều kiện tiếp theo |
 | --- | --- | --- |
-| S0–S1 | Nền tảng đã có; mở lại kiểm soát tham số thực thi | R01 schema/effective identity (**signal/equity parity VERIFIED**) |
-| S2 | Engineering có; evidence chưa đóng | R01–R03, matrix có completeness/provenance |
-| S3 | Canonical WFO là thẩm quyền duy nhất; 13 equivalence tests PASS | **R02 ✅** – R03 (provenance/resume) → R04 (real campaign) |
-| S4 | Có lifecycle/policy; chuỗi evidence thật chưa đóng | R03 + R05; approval tích hợp R08 |
+| S0–S1 | Nền tảng + R01 parity đã đóng | R01 schema/effective identity (signal/equity parity VERIFIED) ✅ |
+| S2 | Engineering có; evidence binding đã đóng (R03) | R01–R03 ✅; matrix có completeness/provenance |
+| S3 | Canonical WFO là thẩm quyền duy nhất (R02); 13 + 28 tests PASS | R02 ✅ + R03 ✅ → R04 (real campaign) |
+| S4 | Có lifecycle/policy; identity binding qua R03 | R03 ✅ + R05; approval tích hợp R08 |
 | S5 | Có routing; campaign hiện tại chưa chứng minh adaptive execution | R05–R06 |
 | S6 | Có allocator; campaign và tổng hợp stress còn thiếu | R07 với ledger chung, coverage từng pair |
 | S7 | NO-GO | R08–R09 và operational evidence theo policy |
