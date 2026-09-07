@@ -104,6 +104,7 @@ markers = [
     "fault: isolated fault-injection cell; scheduled separately from WFO load",
     "serial: shared filesystem/process state; never run concurrently",
     "r02: R02 canonical WFO authority equivalence tests",
+    "r03: R03 provenance, completeness, and resume tests",
 ]
 # Bộ lọc warning có chủ đích (P1 cleanup):
 # - Deprecation của thư viện / Python stdlib — không phải bug dự án

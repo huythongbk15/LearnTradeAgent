@@ -120,14 +120,35 @@ Trạng thái ticket: `TODO → IN_PROGRESS → REVIEW → DONE`; `BLOCKED` ph�
 
 **Evidence:** `tests/test_r02_canonical_authority.py` (13 tests, 113s, mock-based for speed; real WFO pipeline covered by `tests/test_nested_wfo.py` 51/51 and `tests/test_nested_wfo_evidence.py`)
 
-### R03 — Provenance, completeness và resume
+### R03 — Provenance, completeness và resume — **✅ COMPLETE**
 
-- **File chính:** tournament artifact/runner, trial registry và manifest validation hiện có; phối hợp owner R02 trước khi sửa `nested_wfo.py`.
-- Producer ghi identity ngay lúc chạy. Consumer kiểm code/data/features/effective params/cost/window/fold/seed và policy version. Phân biệt code tạo evidence với code chỉ đọc báo cáo.
-- So manifest dự kiến với cell thực tế: thiếu, failed, duplicated, stale, mixed-study hoặc bị sửa phải hiện rõ và fail-closed ở qualification.
-- Resume chỉ dùng cache khi toàn bộ evaluation identity tương thích; không dựa riêng cell ID hoặc tên folder. Tính đủ trial từ registry thật.
-- **Test bắt buộc:** tamper hash; trộn hai commit; dirty run rồi tổng hợp từ clean commit; mất cell; retry trùng; thay window/cost/data khi resume. Tất cả trường hợp không hợp lệ không được nâng thành PASS.
-- **Nghiệm thu:** evidence có thể truy ngược và replay; re-aggregation không nâng cấp nguồn gốc của dữ liệu cũ.
+**Đã hoàn thành:**
+- ✅ `src/trading_agent/backtest/provenance.py` — module mới với:
+  - `provenance_digest()` — content-addressed hash của evaluation identity
+  - `RESUME_IDENTITY_FIELDS` — 13 fields bắt buộc (strategy, code, data, feature, params, cost, window, seed, commit, policy_version, …)
+  - `evaluation_identity()` — canonical dict cho mỗi trial record
+  - `attach_evaluation_identity()` — gắn identity + digest vào metadata
+  - `ManifestValidator` — kiểm tra completeness (missing/mismatched/tampered)
+  - `ResumeGuard` — chỉ cho phép cache reuse khi identity khớp 100%; từ chối khi worktree dirty
+  - `CompletenessReport` / `ResumeDecision` — typed result
+  - `expected_cells_for_study()` — enumerate fold×cost×params
+- ✅ `nested_wfo.py` — mỗi trial record (INNER_VALIDATION + OUTER_OOS) gắn `evaluation_identity` + `provenance_digest`; `WFOResult` thêm `completeness_report` và `provenance_digest` fields
+- ✅ `tests/test_r03_provenance_completeness.py` — 28/28 PASS in 4.83s
+
+**Test coverage (R03 acceptance criteria):**
+- ✅ Producer ghi identity ngay lúc chạy (mỗi trial record có `evaluation_identity`)
+- ✅ So manifest dự kiến với cell thực tế (missing/failed/duplicated/stale/mixed-study/tampered)
+- ✅ Resume chỉ dùng cache khi identity tương thích (code, data, feature, params, cost, window, seed, commit, policy_version)
+- ✅ Tamper detection (outer artifact hỏng, identity field mismatch)
+- ✅ Dirty worktree → ResumeGuard từ chối
+- ✅ Missing evaluation_identity trong cache → ResumeGuard từ chối
+- ✅ WFOResult.provenance_digest binds decision to evidence
+
+**File chính:** `src/trading_agent/backtest/provenance.py`, `src/trading_agent/backtest/nested_wfo.py`, `tests/test_r03_provenance_completeness.py`.
+
+**Nghiệm thu:** evidence có thể truy ngược và replay; re-aggregation không nâng cấp nguồn gốc của dữ liệu cũ. 28/28 R03 tests pass.
+
+**Evidence:** `tests/test_r03_provenance_completeness.py` (28 tests, 4.83s).
 
 ### R04 — Chạy lại S3 với scope đã khóa
 

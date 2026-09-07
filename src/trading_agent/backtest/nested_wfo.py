@@ -74,6 +74,13 @@ from trading_agent.alpha_research.stats import (
     summarize_sharpe,
 )
 from trading_agent.regime import add_regime_indicators
+from trading_agent.backtest.provenance import (
+    CompletenessReport,
+    ManifestValidator,
+    attach_evaluation_identity,
+    evaluation_identity,
+    provenance_digest,
+)
 
 
 @dataclass(frozen=True)
@@ -965,6 +972,13 @@ class WFOResult:
     # Trial accounting
     trial_counts: dict[str, Any] = field(default_factory=dict)
     study_manifest: WFOStudyManifest | None = None
+    # R03: manifest validation result (completeness / tamper detection).
+    # ``None`` when the consumer did not request validation (e.g. synthetic
+    # evidence runs). When set, is_complete=False MUST be treated as fail-closed.
+    completeness_report: CompletenessReport | None = None
+    # R03: aggregate provenance digest, computed from the canonical evaluation
+    # identity. Binds the decision artifact to the evidence that produced it.
+    provenance_digest: str = ""
     created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
     def to_dict(self) -> dict[str, Any]:
@@ -2420,6 +2434,10 @@ def run_nested_wfo(
     )
     study_manifest_path = _persist_study_manifest(out_root, study_manifest)
 
+    # R03: gate policy version is the SAME for all evaluations under this
+    # study. Declared once and used in every evaluation identity record.
+    POLICY_VERSION = "v1"
+
     inner_results = []
     outer_results = []
     inner_selection_freezes = []
@@ -2532,6 +2550,41 @@ def run_nested_wfo(
                     artifact_status = (
                         artifact.status if artifact is not None else "FAILED"
                     )
+                    # R03: stamp the full evaluation identity on every trial
+                    # record so consumers (ResumeGuard) can verify resume
+                    # compatibility from any single registry entry.
+                    inner_identity = evaluation_identity(
+                        strategy_id=spec.strategy_id,
+                        symbol=spec.symbol,
+                        timeframe=spec.timeframe,
+                        strategy_code_sha=strategy_code_sha,
+                        data_manifest_sha=data_manifest_sha,
+                        feature_schema_hash=feature_schema_hash,
+                        search_space_hash=search_space_hash_val,
+                        evaluator_version=spec.evaluator_version,
+                        policy_version=POLICY_VERSION,
+                        cost_scenario=cost_scenario.name,
+                        window_kind=TRIAL_PHASE_INNER_VALIDATION,
+                        seed=spec.seed,
+                        commit_sha=commit_sha,
+                        extra={
+                            "params_hash": param_hash(params_with_cost),
+                            "study_manifest_id": study_manifest.manifest_id,
+                        },
+                    )
+                    inner_metadata = attach_evaluation_identity(
+                        {
+                            "params": params_with_cost,
+                            "cost_scenario": cost_scenario.name,
+                            "freeze_id": None,
+                            "status": artifact_status,
+                            "metric_available": metric_available,
+                            "failure_reasons": list(artifact.failure_reasons)
+                            if artifact is not None
+                            else ["missing_artifact"],
+                        },
+                        inner_identity,
+                    )
                     registry.append_evaluation(
                         experiment_id=stored_candidate.experiment_id,
                         fold_id=fold_id,
@@ -2543,16 +2596,7 @@ def run_nested_wfo(
                         metric_value=float(val_sharpe) if metric_available else 0.0,
                         environment_hash=env_hash,
                         trial_phase=TRIAL_PHASE_INNER_VALIDATION,
-                        metadata={
-                            "params": params_with_cost,
-                            "cost_scenario": cost_scenario.name,
-                            "freeze_id": None,
-                            "status": artifact_status,
-                            "metric_available": metric_available,
-                            "failure_reasons": list(artifact.failure_reasons)
-                            if artifact is not None
-                            else ["missing_artifact"],
-                        },
+                        metadata=inner_metadata,
                     )
                 if val_sharpe > best_val_sharpe:
                     best_val_sharpe = val_sharpe
@@ -2678,6 +2722,45 @@ def run_nested_wfo(
                 )
             ):
                 metric_available = bool(np.isfinite(test_sharpe))
+                # R03: stamp the full evaluation identity on OUTER_OOS too.
+                outer_cost = best_params.get("cost_scenario", "1x")
+                outer_identity = evaluation_identity(
+                    strategy_id=spec.strategy_id,
+                    symbol=spec.symbol,
+                    timeframe=spec.timeframe,
+                    strategy_code_sha=strategy_code_sha,
+                    data_manifest_sha=data_manifest_sha,
+                    feature_schema_hash=feature_schema_hash,
+                    search_space_hash=search_space_hash_val,
+                    evaluator_version=spec.evaluator_version,
+                    policy_version=POLICY_VERSION,
+                    cost_scenario=outer_cost,
+                    window_kind=TRIAL_PHASE_OUTER_OOS,
+                    seed=spec.seed,
+                    commit_sha=commit_sha,
+                    extra={
+                        "params_hash": param_hash(
+                            {k: v for k, v in best_params.items() if k != "cost_scenario"}
+                        ),
+                        "freeze_id": freeze.freeze_id,
+                        "study_manifest_id": study_manifest.manifest_id,
+                    },
+                )
+                outer_metadata = attach_evaluation_identity(
+                    {
+                        "params": {
+                            k: v for k, v in best_params.items() if k != "cost_scenario"
+                        },
+                        "cost_scenario": outer_cost,
+                        "freeze_id": freeze.freeze_id,
+                        "status": artifact.status if artifact is not None else "FAILED",
+                        "metric_available": metric_available,
+                        "failure_reasons": list(artifact.failure_reasons)
+                        if artifact is not None
+                        else ["missing_artifact"],
+                    },
+                    outer_identity,
+                )
                 registry.append_evaluation(
                     experiment_id=best_candidate_experiment_id,
                     fold_id=fold_id,
@@ -2689,18 +2772,7 @@ def run_nested_wfo(
                     metric_value=float(test_sharpe) if metric_available else 0.0,
                     environment_hash=env_hash,
                     trial_phase=TRIAL_PHASE_OUTER_OOS,
-                    metadata={
-                        "params": {
-                            k: v for k, v in best_params.items() if k != "cost_scenario"
-                        },
-                        "cost_scenario": best_params.get("cost_scenario", "1x"),
-                        "freeze_id": freeze.freeze_id,
-                        "status": artifact.status if artifact is not None else "FAILED",
-                        "metric_available": metric_available,
-                        "failure_reasons": list(artifact.failure_reasons)
-                        if artifact is not None
-                        else ["missing_artifact"],
-                    },
+                    metadata=outer_metadata,
                 )
 
     # Aggregate statistics
@@ -2880,11 +2952,10 @@ def run_nested_wfo(
 
     # ============================================================
     # HARD GATES — Full implementation per roadmap (STR-0306/0309/0310)
-    # Policy version: "v1"
+    # Policy version: "v1" (declared above so R03 identity records can use it)
     # Each gate returns structured GateResult with PASS/FAIL/INVALID
     # INVALID is treated as FAIL
     # ============================================================
-    POLICY_VERSION = "v1"
     gate_results: list[GateResult] = []
     gate_failures = []
     passes = True
@@ -3392,6 +3463,44 @@ def run_nested_wfo(
             ),
         )
 
+    # R03: aggregate provenance digest, computed from the canonical evaluation
+    # identity. Binds this decision to the evidence that produced it.
+    aggregate_provenance_identity = evaluation_identity(
+        strategy_id=spec.strategy_id,
+        symbol=spec.symbol,
+        timeframe=spec.timeframe,
+        strategy_code_sha=strategy_code_sha,
+        data_manifest_sha=data_manifest_sha,
+        feature_schema_hash=feature_schema_hash,
+        search_space_hash=search_space_hash_val,
+        evaluator_version=spec.evaluator_version,
+        policy_version=POLICY_VERSION,
+        cost_scenario="aggregate",
+        window_kind="AGGREGATE",
+        seed=spec.seed,
+        commit_sha=commit_sha,
+        extra={"study_manifest_id": study_manifest.manifest_id},
+    )
+    aggregate_provenance_digest = provenance_digest(aggregate_provenance_identity)
+
+    # R03: validate the manifest against evidence on disk so the consumer
+    # cannot silently re-aggregate a tampered/incomplete result. Only
+    # validated for REAL_MARKET studies (synthetic evidence does not need
+    # the same fail-closed gate).
+    completeness_report: CompletenessReport | None = None
+    if spec.evidence_class == "REAL_MARKET":
+        try:
+            validator = ManifestValidator(study_manifest, out_root)
+            completeness_report = validator.validate_manifest()
+        except Exception as exc:  # pragma: no cover - defensive
+            # If we cannot even validate, fail-closed.
+            completeness_report = CompletenessReport(
+                is_complete=False,
+                expected_count=len(folds),
+                found_count=0,
+                issues=(f"manifest validator raised: {exc!r}",),
+            )
+
     result = WFOResult(
         spec=spec,
         inner_results=inner_results,
@@ -3406,6 +3515,8 @@ def run_nested_wfo(
         final_holdout=final_holdout_result,
         trial_counts=trial_counts_dict,
         study_manifest=study_manifest,
+        completeness_report=completeness_report,
+        provenance_digest=aggregate_provenance_digest,
     )
     # S3-9: persist composite evidence artifact
     if out_root is not None:
