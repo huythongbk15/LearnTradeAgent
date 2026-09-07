@@ -161,8 +161,7 @@ class LineageRecord:
         permitted_at. This is the R05 fail-closed lineage check.
         """
         return (
-            event_time >= self.training_data_cutoff
-            and event_time >= self.permitted_at
+            event_time >= self.training_data_cutoff and event_time >= self.permitted_at
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -215,9 +214,7 @@ class PolicyBundle:
                 f"got {self.evidence_class!r}"
             )
         if self.lineage.policy_id != self.policy.policy_id:
-            raise ValueError(
-                "lineage.policy_id does not match policy.policy_id"
-            )
+            raise ValueError("lineage.policy_id does not match policy.policy_id")
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -279,9 +276,7 @@ class RealPolicyResolver:
         # Tamper check: policy.policy_id must match the bundle's lineage
         # policy_id (already checked in __post_init__, but the source
         # hash also has to match the policy's reported data manifest).
-        policy_data_manifest = getattr(
-            bundle.policy, "policy_data_manifest_sha", None
-        )
+        policy_data_manifest = getattr(bundle.policy, "policy_data_manifest_sha", None)
         if policy_data_manifest and policy_data_manifest != "unknown":
             # The lineage's source_hash should match a digest of the
             # evidence bundle (R03 R03 ManifestValidator). For now, the
@@ -290,9 +285,7 @@ class RealPolicyResolver:
             # by comparing prefixes.
             if not bundle.lineage.source_hash.startswith(
                 policy_data_manifest[:8]
-            ) and not policy_data_manifest.startswith(
-                bundle.lineage.source_hash[:8]
-            ):
+            ) and not policy_data_manifest.startswith(bundle.lineage.source_hash[:8]):
                 # The two are independent — that's OK, the lineage
                 # tracks the evidence bundle, the policy tracks the
                 # data manifest. We just record the discrepancy.
@@ -359,11 +352,7 @@ def build_lineage_from_policy(
     """
     if training_data_cutoff.tzinfo is None:
         raise ValueError("training_data_cutoff must be timezone-aware")
-    fit_at = (
-        policy.activated_at
-        or policy.created_at
-        or datetime.now(UTC)
-    )
+    fit_at = policy.activated_at or policy.created_at or datetime.now(UTC)
     if fit_at.tzinfo is None:
         fit_at = fit_at.replace(tzinfo=UTC)
     permitted_at = policy.activated_at or policy.created_at or fit_at

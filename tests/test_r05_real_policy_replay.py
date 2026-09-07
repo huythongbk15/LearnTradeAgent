@@ -319,7 +319,9 @@ class TestResolverSyntheticReal:
         require_real: bool = True,
     ) -> RealPolicyResolver:
         return RealPolicyResolver(
-            bundles={f"{bundle.policy.symbol}|{bundle.policy.timeframe}|{bundle.policy.regime}": bundle},
+            bundles={
+                f"{bundle.policy.symbol}|{bundle.policy.timeframe}|{bundle.policy.regime}": bundle
+            },
             require_real=require_real,
         )
 
@@ -524,7 +526,9 @@ class TestResolverLineage:
         )
         bundle = _make_bundle(policy=policy, lineage=lineage)
         resolver = RealPolicyResolver(
-            bundles={f"{bundle.policy.symbol}|{bundle.policy.timeframe}|{bundle.policy.regime}": bundle},
+            bundles={
+                f"{bundle.policy.symbol}|{bundle.policy.timeframe}|{bundle.policy.regime}": bundle
+            },
         )
         # event_time is before training_data_cutoff (2026-06-01)
         clock = EventClock(
@@ -554,7 +558,9 @@ class TestResolverLineage:
         )
         bundle = _make_bundle(policy=policy, lineage=lineage)
         resolver = RealPolicyResolver(
-            bundles={f"{bundle.policy.symbol}|{bundle.policy.timeframe}|{bundle.policy.regime}": bundle},
+            bundles={
+                f"{bundle.policy.symbol}|{bundle.policy.timeframe}|{bundle.policy.regime}": bundle
+            },
         )
         clock = EventClock(
             event_time=datetime(2026, 6, 1, tzinfo=UTC),
@@ -593,7 +599,9 @@ class TestResolverLineage:
         lineage = _make_lineage(policy_id=policy.policy_id)
         bundle = _make_bundle(policy=policy, lineage=lineage)
         resolver = RealPolicyResolver(
-            bundles={f"{bundle.policy.symbol}|{bundle.policy.timeframe}|{bundle.policy.regime}": bundle},
+            bundles={
+                f"{bundle.policy.symbol}|{bundle.policy.timeframe}|{bundle.policy.regime}": bundle
+            },
         )
         event_time = max(
             bundle.policy.validity_start,
@@ -754,9 +762,7 @@ class TestHelpers:
     def test_verify_bundle_integrity_mismatch(self):
         bundle = _make_bundle()
         assert (
-            verify_bundle_integrity(
-                bundle, expected_source_hash="sha256:wrong"
-            )
+            verify_bundle_integrity(bundle, expected_source_hash="sha256:wrong")
             is False
         )
 

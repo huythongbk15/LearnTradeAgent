@@ -497,6 +497,7 @@
 │       │   ├── drift.py
 │       │   ├── forecast.py
 │       │   ├── lifecycle.py
+│       │   ├── policy_resolver.py
 │       │   ├── promotion.py
 │       │   ├── selection_policy.py
 │       │   ├── trials.py
@@ -638,6 +639,7 @@
 │   ├── test_r02_canonical_authority.py
 │   ├── test_r03_provenance_completeness.py
 │   ├── test_r04_scope_lock_campaign.py
+│   ├── test_r05_real_policy_replay.py
 │   ├── test_realtime_data.py
 │   ├── test_research_governance.py
 │   ├── test_research_stats.py
