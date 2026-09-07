@@ -1,6 +1,6 @@
 # Tiến độ và lộ trình các phase
 
-> Snapshot rà soát: **2026-09-07** · P0: **R0–R4 (R00,R01,R02,R03,R04) ✅ COMPLETE** · Production mainnet: **NO-GO**
+> Snapshot rà soát: **2026-09-07** · P0: **R0–R5 (R00,R01,R02,R03,R04,R05) ✅ COMPLETE** · Production mainnet: **NO-GO**
 
 ## Cập nhật điều phối 07/09/2026 — đọc trước các bảng lịch sử
 
@@ -16,7 +16,7 @@
 | --- | --- | --- |
 | S0–S1 | Nền tảng + R01 parity đã đóng | R01 schema/effective identity (signal/equity parity VERIFIED) ✅ |
 | S2 | Engineering có; evidence binding đã đóng (R03) | R01–R03 ✅; matrix có completeness/provenance |
-| S3 | Canonical WFO là thẩm quyền duy nhất (R02); 13 + 28 + 33 tests PASS | R02 ✅ + R03 ✅ + R04 ✅ → R05 (real policy) |
+| S3 | Canonical WFO là thẩm quyền duy nhất (R02); 13 + 28 + 33 + 42 tests PASS | R02 ✅ + R03 ✅ + R04 ✅ + R05 ✅ → R06/R07 |
 | S4 | Có lifecycle/policy; identity binding qua R03 | R03 ✅ + R05; approval tích hợp R08 |
 | S5 | Có routing; campaign hiện tại chưa chứng minh adaptive execution | R05–R06 |
 | S6 | Có allocator; campaign và tổng hợp stress còn thiếu | R07 với ledger chung, coverage từng pair |

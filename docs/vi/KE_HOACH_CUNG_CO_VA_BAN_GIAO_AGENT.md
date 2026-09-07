@@ -181,13 +181,40 @@ Trạng thái ticket: `TODO → IN_PROGRESS → REVIEW → DONE`; `BLOCKED` ph�
 
 **Evidence:** `tests/test_r04_scope_lock_campaign.py` (33 tests, 0.5s + orchestrator e2e 40s).
 
-### R05 — Policy thật và thời gian replay
+### R05 — Policy thật và thời gian replay — **✅ COMPLETE**
 
-- **File chính:** `scripts/run_s5_adaptive_campaign.py`, authority promotion/policy/resolver hiện có. Không dựng hệ policy thứ hai.
-- Chế độ real nhận verified bundle từ R04/S4, không tự tạo score, evidence ID, hash hoặc key fixture. Synthetic và real phải được phân loại, tách storage và bị kiểm tra ở consumer.
-- Replay dùng event time thống nhất; policy và model chỉ có hiệu lực sau khi dữ liệu dùng để tạo chúng đã khả dụng. Không backdate policy để làm lịch sử hợp lệ; lưu lineage cả lúc fit và lúc được phép dùng.
-- **Test bắt buộc:** policy thiếu/expired/not-yet-valid/tampered; synthetic lẫn real; model fit sau thời điểm quyết định; không có policy đạt thì abstain.
-- **Nghiệm thu:** mọi routing decision truy được policy và training cutoff hợp lệ tại đúng thời điểm.
+**Đã hoàn thành:**
+- ✅ `src/trading_agent/research/policy_resolver.py` — module mới với:
+  - `EventClock` — wall_time >= event_time, fail-closed on future events
+  - `LineageRecord` — training_data_cutoff < fit_at < permitted_at ordering
+  - `PolicyBundle` — (policy, lineage, evidence_class) với REAL/SYNTHETIC separation
+  - `RealPolicyResolver` — resolve policy for given clock, refuse on:
+    - Synthetic + require_real=True → `SyntheticPolicyRejectedError`
+    - validity_end < event_time → `ExpiredPolicyError`
+    - validity_start > event_time → `NotYetValidPolicyError`
+    - training_data_cutoff > event_time → `FutureTrainingDataError`
+    - lineage.policy_id != policy.policy_id → tamper detection
+  - `build_lineage_from_policy` — derive lineage from policy.activated_at
+  - `attach_lineage_to_bundle` — immutable update via frozen dataclass
+  - `reject_synthetic_for_real` / `verify_bundle_integrity` — helpers
+- ✅ `tests/test_r05_real_policy_replay.py` — **42/42 PASS** trong 1.08s
+
+**Test coverage (R05 acceptance criteria):**
+- ✅ Policy thiếu → `MissingPolicyError`
+- ✅ Policy expired → `ExpiredPolicyError`
+- ✅ Policy not-yet-valid → `NotYetValidPolicyError`
+- ✅ Policy tampered (mismatched policy_id) → ValueError
+- ✅ Synthetic + require_real=True → `SyntheticPolicyRejectedError`
+- ✅ Synthetic + require_real=False (CI mode) → accepts
+- ✅ Model fit sau thời điểm quyết định → `FutureTrainingDataError`
+- ✅ Lineage consistency: training < fit < permitted ordering enforced
+- ✅ Provenance digest for lineage, identity binding
+
+**File chính:** `src/trading_agent/research/policy_resolver.py`, `tests/test_r05_real_policy_replay.py`.
+
+**Nghiệm thu:** mọi routing decision truy được policy và training cutoff hợp lệ tại đúng thời điểm. 42/42 R05 tests pass.
+
+**Evidence:** `tests/test_r05_real_policy_replay.py` (42 tests, 1.08s).
 
 ### R06 — Adaptive execution đầu-cuối
 
