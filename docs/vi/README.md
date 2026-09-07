@@ -31,6 +31,8 @@ trong code là nguồn quyết định. Hãy cập nhật lại cả hai bản t
 
 ## Luồng hệ thống chuẩn
 
+Để cùng triển khai phần còn thiếu, đọc [Kế hoạch củng cố và bàn giao agent](KE_HOACH_CUNG_CO_VA_BAN_GIAO_AGENT.md): thứ tự R00–R09, phân công file, test bắt buộc và mẫu giao việc. Đây là kế hoạch mục tiêu, không phải chứng nhận hoàn thành.
+
 ```text
 Dữ liệu thị trường
   ↓ kiểm tra chất lượng + đặc trưng point-in-time

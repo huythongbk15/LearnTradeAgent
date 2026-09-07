@@ -226,6 +226,7 @@
 │   ├── run_canonical_strategy.py
 │   ├── run_nested_wfo.py
 │   ├── run_s5_adaptive_campaign.py
+│   ├── run_s6_campaign.py
 │   ├── run_strategy_tournament.py
 │   ├── run_test_suite.py
 │   ├── run_wfo_evidence.py

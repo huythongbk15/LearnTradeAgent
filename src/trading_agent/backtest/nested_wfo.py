@@ -346,13 +346,13 @@ class GateResult:
         """Serialize to JSON-compliant dict (no NaN/inf)."""
         obs = self.observed_value
         observed_value: str | float
-        if obs is None or not (isinstance(obs, float) and abs(obs) != float('inf')):
+        if obs is None or not (isinstance(obs, float) and abs(obs) != float("inf")):
             # Handle None, nan, inf
             if obs is None:
                 observed_value = "null"
-            elif obs == float('inf'):
+            elif obs == float("inf"):
                 observed_value = "inf"
-            elif obs == float('-inf'):
+            elif obs == float("-inf"):
                 observed_value = "-inf"
             else:  # nan
                 observed_value = "nan"
@@ -3646,12 +3646,13 @@ def _build_portfolio_selection_result(
     def _sanitize_for_json(obj: Any) -> Any:
         """Recursively convert non-JSON-compliant values to strings."""
         import math
+
         if isinstance(obj, float):
             if math.isnan(obj):
                 return "nan"
-            if obj == float('inf'):
+            if obj == float("inf"):
                 return "inf"
-            if obj == float('-inf'):
+            if obj == float("-inf"):
                 return "-inf"
             return obj
         if isinstance(obj, dict):
@@ -3661,7 +3662,6 @@ def _build_portfolio_selection_result(
         if isinstance(obj, tuple):
             return tuple(_sanitize_for_json(v) for v in obj)
         return obj
-
 
     portfolio_result = WFOPortfolioResult(
         results=results,
@@ -3676,7 +3676,11 @@ def _build_portfolio_selection_result(
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(".json.tmp")
         tmp.write_text(
-            json.dumps(_sanitize_for_json(portfolio_result.to_dict()), indent=2, allow_nan=False),
+            json.dumps(
+                _sanitize_for_json(portfolio_result.to_dict()),
+                indent=2,
+                allow_nan=False,
+            ),
             encoding="utf-8",
         )
         tmp.replace(path)

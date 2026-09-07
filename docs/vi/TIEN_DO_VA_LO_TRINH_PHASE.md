@@ -1,6 +1,24 @@
 # Tiến độ và lộ trình các phase
 
-> Snapshot: **2026-09-01** · P0: **GREEN / COMPLETE** · Production mainnet: **NO-GO**
+> Snapshot rà soát: **2026-09-07** · P0: **cần tái xác nhận regression hiện tại** · Production mainnet: **NO-GO**
+
+## Cập nhật điều phối 07/09/2026 — đọc trước các bảng lịch sử
+
+[Kế hoạch củng cố và bàn giao agent](KE_HOACH_CUNG_CO_VA_BAN_GIAO_AGENT.md) là backlog thực hiện hiện hành cho đợt này: R00–R09, dependency, ownership, acceptance tests và mẫu giao việc. Chưa ticket nào được coi hoàn thành chỉ vì tài liệu đã được viết.
+
+| Phase | Trạng thái sau rà soát | Điều kiện tiếp theo |
+| --- | --- | --- |
+| S0–S1 | Nền tảng đã có; mở lại kiểm soát tham số thực thi | R01 schema/effective identity |
+| S2 | Engineering có; evidence chưa đóng | R01–R03, matrix có completeness/provenance |
+| S3 | Có canonical WFO; kết luận parallel cần tái thẩm định | R02–R04; không dùng proxy `FINAL_PASS` để promote |
+| S4 | Có lifecycle/policy; chuỗi evidence thật chưa đóng | R03 + R05; approval tích hợp R08 |
+| S5 | Có routing; campaign hiện tại chưa chứng minh adaptive execution | R05–R06 |
+| S6 | Có allocator; campaign và tổng hợp stress còn thiếu | R07 với ledger chung, coverage từng pair |
+| S7 | NO-GO | R08–R09 và operational evidence theo policy |
+
+24 test trọng điểm và mypy 28 file đạt ở lần audit; Ruff có 12 lỗi trong script S6 local. Đây không phải full regression. Trạng thái P0 GREEN ở snapshot cũ không chứng nhận checkout hiện tại. Chưa có kết luận live bypass; các lỗi evidence và approval mới phải được xử lý trước khi dùng để promotion.
+
+Các mục 1–3 bên dưới giữ bối cảnh/backlog cũ để truy vết; khi khác với cập nhật này, dùng bảng trên và kế hoạch R00–R09 cho điều phối, không dùng nhãn COMPLETE cũ để đóng việc. Artifact lịch sử không bị sửa hoặc xóa.
 
 Tài liệu này là bảng điều phối ngắn gọn cho phần đã làm, phần còn thiếu và điều
 kiện đóng từng phase. Đây là tài liệu tiến độ, không thay thế contract trong code,

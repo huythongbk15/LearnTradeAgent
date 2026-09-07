@@ -37,7 +37,12 @@ from trading_agent.backtest.synthetic_data import (  # noqa: E402
     generate_synthetic_ohlcv,
     synthetic_wfo_spec,
 )
-from trading_agent.backtest.tournament import CostScenario, SCENARIO_BASE, SCENARIO_DOUBLE, SCENARIO_SLIPPAGE_STRESS
+from trading_agent.backtest.tournament import (
+    CostScenario,
+    SCENARIO_BASE,
+    SCENARIO_DOUBLE,
+    SCENARIO_SLIPPAGE_STRESS,
+)
 
 # Paper-eligible universe (10 pairs for 1h timeframe)
 PAPER_ELIGIBLE = [
@@ -137,15 +142,17 @@ def _install_synthetic_patches(n_bars: int, holdout_start: int):
     # Also patch any cached references in nested_wfo module
     # (nested_wfo does lazy imports: `from trading_agent.data.storage import load_ohlcv`)
     # We need to ensure those lazy imports get the patched version
-    sys.modules['trading_agent.data.storage'].load_ohlcv = _load  # type: ignore[attr-defined]
+    sys.modules["trading_agent.data.storage"].load_ohlcv = _load  # type: ignore[attr-defined]
 
     # End-of-window open position is expected carry; treat as COMPLETED
     def _wrapped_run_cell(spec, **kwargs):
         from trading_agent.backtest.tournament import run_cell as _real_run_cell
+
         art = _real_run_cell(spec, **kwargs)
         if art.status == "FAILED":
             leftover = [
-                r for r in art.failure_reasons
+                r
+                for r in art.failure_reasons
                 if not r.startswith("unprotected_positions=")
             ]
             if not leftover:
@@ -189,7 +196,9 @@ def _install_synthetic_patches(n_bars: int, holdout_start: int):
     )
 
 
-def run_synthetic_mode(out_root: Path, strategy_id: str, core_only: bool = True) -> dict:
+def run_synthetic_mode(
+    out_root: Path, strategy_id: str, core_only: bool = True
+) -> dict:
     """Fast synthetic evidence run for CI."""
     n_bars = 1000
     holdout_start = 800
@@ -406,10 +415,14 @@ def main(argv=None) -> int:
     core_only = args.core_only and not args.all_pairs
 
     if args.mode == "synthetic":
-        print(f"Running S6 synthetic campaign for {args.strategy} (core_only={core_only})...")
+        print(
+            f"Running S6 synthetic campaign for {args.strategy} (core_only={core_only})..."
+        )
         summary = run_synthetic_mode(out_root, args.strategy, core_only=core_only)
     else:
-        print(f"Running S6 REAL campaign for {args.strategy} (core_only={core_only}, reduced_grid={args.reduced_grid})...")
+        print(
+            f"Running S6 REAL campaign for {args.strategy} (core_only={core_only}, reduced_grid={args.reduced_grid})..."
+        )
         summary = run_real_mode(
             out_root,
             args.strategy,
@@ -453,7 +466,9 @@ def main(argv=None) -> int:
 
     for gate in summary["portfolio_gates"]:
         status = "✅" if gate["verdict"] == "PASS" else "❌"
-        print(f"  {status} {gate['gate_id']}: observed={gate['observed']} threshold={gate['threshold']}")
+        print(
+            f"  {status} {gate['gate_id']}: observed={gate['observed']} threshold={gate['threshold']}"
+        )
 
     # Exit codes per spec
     if summary["portfolio_verdict"] == "FINAL_PASS":

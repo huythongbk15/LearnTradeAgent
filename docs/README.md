@@ -22,6 +22,8 @@ Nhãn `CURRENT` mô tả behavior hoặc quy trình đang tồn tại; `TARGET` 
 
 ## Luồng chuẩn
 
+Đợt củng cố sau audit 07/09/2026: [Kế hoạch thực hiện và bàn giao agent](vi/KE_HOACH_CUNG_CO_VA_BAN_GIAO_AGENT.md) — ticket R00–R09, dependency, phạm vi file và tiêu chí nghiệm thu. Đọc trước khi tiếp tục campaign S3–S7.
+
 ```text
 data quality + point-in-time features
   → canonical strategy / frozen forecast
