@@ -70,6 +70,7 @@
 │   │   │   └── RUBRIC.md
 │   │   ├── APPROVAL_CHAIN_SCHEMA.md
 │   │   ├── BANG_CHUNG_VA_ARTIFACT.md
+│   │   ├── KE_HOACH_CUNG_CO_VA_BAN_GIAO_AGENT.md
 │   │   ├── KIEM_TRA_LUONG_CHINH.md
 │   │   ├── MULTI_STRATEGY_WFO_2026_09_05.md
 │   │   ├── NGHIEN_CUU_DEN_VAN_HANH.md
@@ -688,6 +689,7 @@
 ├── Caddyfile.oracle
 ├── Dockerfile
 ├── Makefile
+├── R00_BASELINE.json
 ├── README.md
 ├── credentials.example.yaml
 ├── docker-compose.lite.yml
