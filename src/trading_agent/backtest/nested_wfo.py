@@ -17,9 +17,32 @@ from collections.abc import Iterator
 from dataclasses import asdict, dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 import numpy as np
+
+
+class CellRunner(Protocol):
+    """Protocol for cell execution callback.
+
+    Matches the signature of ``run_cell`` with keyword-only arguments.
+    Implementations may accept additional kwargs (e.g. ``signal_delay_bars``,
+    ``timeout_seconds``) that ``run_cell`` supports.
+    """
+
+    def __call__(
+        self,
+        spec: EvaluationCellSpec,
+        *,
+        out_root: Path | None = None,
+        start: int = 0,
+        end: int | None = None,
+        fresh: bool = True,
+        measurement_start: int | None = None,
+        measurement_end: int | None = None,
+        **kwargs: Any,
+    ) -> EvaluationArtifact: ...
+
 
 ROOT = Path(__file__).resolve().parents[3]
 if str(ROOT) not in sys.path:
@@ -2215,6 +2238,7 @@ def _run_parameter_trial(
     seed: int,
     descriptor,
     adapter,
+    cell_runner: CellRunner | None = None,
 ) -> tuple[float, dict[str, Any], EvaluationArtifact | None]:
     """Run one parameter combination: fit on train, evaluate on validation.
 
@@ -2240,7 +2264,8 @@ def _run_parameter_trial(
         params=params,
         cost_scenario=cost_scenario,
     )
-    artifact_val = run_cell(
+    runner = cell_runner or run_cell
+    artifact_val = runner(
         spec_val,
         out_root=out_root,
         start=sim_start,
@@ -2268,6 +2293,7 @@ def run_nested_wfo(
     run_holdout: bool = False,
     holdout_actor: str = "research_system",
     real_sensitivity: bool = True,
+    cell_runner: CellRunner | None = None,
 ) -> WFOResult:
     """Run nested walk-forward optimization for one strategy × symbol.
 
@@ -2279,6 +2305,12 @@ def run_nested_wfo(
 
     If run_holdout=True and all hard gates pass, also runs the independent
     final holdout (STR-0309) as a one-shot confirmation.
+
+    Args:
+        cell_runner: Optional callable to execute cells. If provided, used instead
+            of inline ``run_cell`` for both inner validation and outer OOS trials.
+            Enables parallel execution via external scheduler. Signature:
+            ``cell_runner(spec, out_root, start, end, fresh, measurement_start, measurement_end) -> EvaluationArtifact``
     """
     out_root = Path(out_root) if out_root else ROOT / "data" / "backtests" / "wfo"
     out_root.mkdir(parents=True, exist_ok=True)
@@ -2478,6 +2510,7 @@ def run_nested_wfo(
                     seed=spec.seed,
                     descriptor=descriptor,
                     adapter=adapter,
+                    cell_runner=cell_runner,
                 )
                 candidate_metrics.append(
                     {
@@ -2597,7 +2630,8 @@ def run_nested_wfo(
                     params=test_params,
                     cost_scenario=cost_scenario,
                 )
-                artifact = run_cell(
+                runner = cell_runner or run_cell
+                artifact = runner(
                     spec_test,
                     out_root=out_root,
                     start=fold.outer_test_start,
@@ -3694,6 +3728,7 @@ def run_nested_wfo_portfolio(
     run_holdout: bool = False,
     holdout_actor: str = "research_system",
     real_sensitivity: bool = True,
+    cell_runner: CellRunner | None = None,
 ) -> WFOPortfolioResult:
     """Run pair/strategy WFOs and produce one portfolio-level decision."""
     results: list[WFOResult] = []
@@ -3705,6 +3740,7 @@ def run_nested_wfo_portfolio(
             run_holdout=run_holdout,
             holdout_actor=holdout_actor,
             real_sensitivity=real_sensitivity,
+            cell_runner=cell_runner,
         )
         results.append(result)
         status = "PASS" if result.passes_hard_gates else "FAIL"

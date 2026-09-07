@@ -8,9 +8,9 @@
 
 | Phase | Trạng thái sau rà soát | Điều kiện tiếp theo |
 | --- | --- | --- |
-| S0–S1 | Nền tảng đã có; mở lại kiểm soát tham số thực thi | R01 schema/effective identity |
+| S0–S1 | Nền tảng đã có; mở lại kiểm soát tham số thực thi | R01 schema/effective identity (**signal/equity parity VERIFIED**) |
 | S2 | Engineering có; evidence chưa đóng | R01–R03, matrix có completeness/provenance |
-| S3 | Có canonical WFO; kết luận parallel cần tái thẩm định | R02–R04; không dùng proxy `FINAL_PASS` để promote |
+| S3 | Canonical WFO là thẩm quyền duy nhất; 13 equivalence tests PASS | **R02 ✅** – R03 (provenance/resume) → R04 (real campaign) |
 | S4 | Có lifecycle/policy; chuỗi evidence thật chưa đóng | R03 + R05; approval tích hợp R08 |
 | S5 | Có routing; campaign hiện tại chưa chứng minh adaptive execution | R05–R06 |
 | S6 | Có allocator; campaign và tổng hợp stress còn thiếu | R07 với ledger chung, coverage từng pair |

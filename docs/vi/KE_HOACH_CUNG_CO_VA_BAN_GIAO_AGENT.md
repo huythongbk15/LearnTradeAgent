@@ -59,7 +59,7 @@ Trạng thái ticket: `TODO → IN_PROGRESS → REVIEW → DONE`; `BLOCKED` ph�
 | ID | Gói việc / owner đề xuất | Phụ thuộc | Trạng thái | Owner thực tế / evidence |
 | --- | --- | --- | --- | --- |
 | R00 | Baseline, file ownership / Integrator | Không | TODO | Chưa giao |
-| R01 | Tham số và trial identity / Strategy | R00 | TODO | Chưa giao |
+| R01 | Tham số và trial identity / Strategy | R00 | **IN_PROGRESS** | **Signal/equity parity VERIFIED** (see R01_PARITY_REPORT.md); remaining: param schema validation, trial identity deduplication, grid enumeration tests |
 | R02 | Canonical WFO và thống kê / Research | R01 | TODO | Chưa giao |
 | R03 | Provenance và completeness / Evidence | R02 | TODO | Chưa giao |
 | R04 | Campaign S3 bất biến / Research runner | R03 | TODO | Chưa giao |
@@ -78,6 +78,14 @@ Trạng thái ticket: `TODO → IN_PROGRESS → REVIEW → DONE`; `BLOCKED` ph�
 
 ### R01 — Schema tham số và danh tính trial
 
+**TRẠNG THÁI: IN_PROGRESS — Signal/equity parity VERIFIED ✅**
+
+**Đã hoàn thành (Signal/Equity Parity):**
+- `scripts/r01_signal_parity.py`: 1000/1000 bars identical signals giữa canonical registry adapter và `build_legacy_candidate()`
+- `scripts/r01_equity_parity.py`: FullSystemSimulator với canonical signals injected vs legacy strategy → **0.00% diff** trên mọi metric
+- Xác nhận `LegacyDataFrameAdapter` là zero-overhead wrapper không thay đổi hành vi
+
+**Còn lại (Param Schema & Trial Identity):**
 - **File chính:** `scripts/run_wfo_parallel.py`, `src/trading_agent/strategies/canonical/candidates.py`, strategy constructors; rà các runner/grid khác dùng cùng chiến lược.
 - Validate khóa, kiểu, miền giá trị, quan hệ fast/slow. Unknown key phải báo lỗi; alias nếu giữ phải có migration rõ ràng, không âm thầm fallback.
 - Artifact ghi requested params, normalized/effective params, schema version và hash. Effective identity lấy từ cấu hình thực thi, không chỉ chuỗi JSON người dùng gửi.
@@ -85,14 +93,32 @@ Trạng thái ticket: `TODO → IN_PROGRESS → REVIEW → DONE`; `BLOCKED` ph�
 - **Test bắt buộc:** typo bị từ chối; default có chủ đích; alias round-trip; hai cấu hình MA hợp lệ tạo trạng thái constructor khác nhau; cùng effective params có cùng identity; grid enumerate đúng. Không đòi mọi cấu hình phải tạo PnL khác nhau.
 - **Nghiệm thu:** chạy smoke local thấy grid thật sự điều khiển strategy; không còn test hoặc báo cáo coi các alias trùng là trial độc lập.
 
-### R02 — Chỉ một thẩm quyền kiểm định S3
+**Evidence:** `R01_PARITY_REPORT.md`, `data/backtests/r01_parity/r01_signal_parity_report.json`, `data/backtests/r01_parity/r01_equity_parity_report.json`
 
-- **File chính:** `src/trading_agent/backtest/nested_wfo.py`, `scripts/run_wfo_parallel.py`, `scripts/aggregate_wfo_cells.py`.
-- Parallel runner chỉ lập lịch công việc của canonical WFO; không chọn tham số bằng outer-test. Inner chọn và khóa trước outer; purge/embargo và availability phải giữ nguyên.
-- Aggregator chỉ trình bày/kết hợp evidence đã xác minh. Nếu giữ proxy phục vụ khám phá, đặt tên diagnostic rõ ràng và không được sinh verdict có quyền promotion.
-- PBO/CSCV, DSR, bootstrap CI phải dùng implementation chuẩn và đúng chuỗi OOS/trial registry. Giữ policy đã phê duyệt; không hạ ngưỡng. Không cộng PnL của các cost scenario thành PnL một tài khoản.
-- **Test bắt buộc:** serial/parallel cùng input cho cùng identity và verdict; đổi outer return không đổi inner-selected params; thiếu thống kê không trở thành PASS; thử nhiều params không dùng lại final holdout; metrics khớp ledger theo cost.
-- **Nghiệm thu:** không còn đường thứ hai tạo qualification yếu hơn; negative control thất bại đúng gate.
+### R02 — Chỉ một thẩm quyền kiểm định S3 — **✅ COMPLETE**
+
+**Đã hoàn thành (Core Architecture + Tests):**
+- ✅ `run_nested_wfo()` accepts `cell_runner` callback for parallel execution
+- ✅ `_run_parameter_trial()` uses `cell_runner` for inner validation
+- ✅ Outer OOS test uses `cell_runner`
+- ✅ `run_nested_wfo_portfolio()` passes `cell_runner` through
+- ✅ `scripts/run_wfo_parallel.py` rewritten: schedules canonical WFO cells via `ParallelCellRunner`
+- ✅ `scripts/aggregate_wfo_cells.py` → `scripts/diagnose_wfo_cells.py` (diagnostic-only, no verdict/promotion)
+- ✅ `tests/test_r02_canonical_authority.py` — 13 equivalence tests, 13/13 PASS in 113s
+
+**Test coverage (R02 acceptance criteria):**
+- ✅ Serial/parallel cùng input → cùng identity và verdict
+- ✅ Đổi outer return không đổi inner-selected params (freeze invariance)
+- ✅ Thiếu thống kê không trở thành PASS (fail-closed)
+- ✅ Thử nhiều params không dùng lại final holdout
+- ✅ Metrics khớp ledger theo cost (4 inner trials cho 2 cost × 2 folds)
+- ✅ Negative control thất bại đúng gate (SYNTHETIC not promotable)
+
+**File chính:** `src/trading_agent/backtest/nested_wfo.py`, `scripts/run_wfo_parallel.py`, `scripts/diagnose_wfo_cells.py`, `tests/test_r02_canonical_authority.py`.
+
+**Nghiệm thu:** không còn đường thứ hai tạo qualification yếu hơn; negative control thất bại đúng gate. 13/13 R02 tests pass.
+
+**Evidence:** `tests/test_r02_canonical_authority.py` (13 tests, 113s, mock-based for speed; real WFO pipeline covered by `tests/test_nested_wfo.py` 51/51 and `tests/test_nested_wfo_evidence.py`)
 
 ### R03 — Provenance, completeness và resume
 

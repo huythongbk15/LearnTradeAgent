@@ -103,6 +103,7 @@ markers = [
     "backtest: full-fidelity backtest or fault simulation",
     "fault: isolated fault-injection cell; scheduled separately from WFO load",
     "serial: shared filesystem/process state; never run concurrently",
+    "r02: R02 canonical WFO authority equivalence tests",
 ]
 # Bộ lọc warning có chủ đích (P1 cleanup):
 # - Deprecation của thư viện / Python stdlib — không phải bug dự án

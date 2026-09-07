@@ -1,22 +1,17 @@
 #!/usr/bin/env python3
-"""Aggregate WFO cells into wfo_decision.json with verdict.
+"""Diagnostic WFO cell analyzer: reads per-cell reports and presents metrics for exploration.
 
-Reads per-cell report.json from a directory (e.g. data/backtests/wfo_parallel)
-and produces:
-- Aggregate metrics (median/mean across folds, per cost scenario)
-- 13 hard gates evaluation
-- Verdict: FINAL_PASS or NO_TRADE
-- Sensitivity analysis (cost stress, slippage stress, drop_best_trade)
-- Trial provenance
+This is a DIAGNOSTIC TOOL ONLY - it does NOT produce promotion-eligible verdicts.
+For canonical S3 validation, use `run_wfo_parallel.py` which runs the canonical WFO
+with inner-selection-freeze-before-outer and proper statistical hardening.
 
 Usage:
-    python scripts/aggregate_wfo_cells.py --in data/backtests/wfo_parallel --out data/backtests/wfo_parallel_summary
+    python scripts/diagnose_wfo_cells.py --in data/backtests/wfo_parallel
 """
 
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import statistics
 import subprocess
@@ -30,125 +25,8 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 
-# Hard gate thresholds (from S3 spec / WFO medium results)
-HARD_GATES: list[dict[str, Any]] = [
-    {
-        "gate_id": "outer_oos_net_return_positive",
-        "metric": "total_return_pct",
-        "comparison": ">",
-        "threshold": 0.0,
-        "policy_version": "v1",
-    },
-    {
-        "gate_id": "outer_oos_sharpe_ge_080",
-        "metric": "sharpe",
-        "comparison": ">=",
-        "threshold": 0.8,
-        "policy_version": "v1",
-    },
-    {
-        "gate_id": "outer_oos_profit_factor_ge_120",
-        "metric": "profit_factor",
-        "comparison": ">=",
-        "threshold": 1.2,
-        "policy_version": "v1",
-    },
-    {
-        "gate_id": "outer_oos_max_drawdown_le_10pct",
-        "metric": "max_drawdown_pct",
-        "comparison": "<=",
-        "threshold": 10.0,
-        "policy_version": "v1",
-    },
-    {
-        "gate_id": "outer_oos_calmar_ge_050",
-        "metric": "calmar",
-        "comparison": ">=",
-        "threshold": 0.5,
-        "policy_version": "v1",
-    },
-    {
-        "gate_id": "outer_oos_positive_folds_ge_60pct",
-        "metric": "positive_fold_pct",
-        "comparison": ">=",
-        "threshold": 60.0,
-        "policy_version": "v1",
-    },
-    {
-        "gate_id": "outer_oos_min_trades_ge_10",
-        "metric": "total_trades",
-        "comparison": ">=",
-        "threshold": 10,
-        "policy_version": "v1",
-    },
-    {
-        "gate_id": "outer_oos_calmar_positive",
-        "metric": "calmar",
-        "comparison": ">",
-        "threshold": 0.0,
-        "policy_version": "v1",
-    },
-    {
-        "gate_id": "outer_oos_sharpe_ci_lower_positive",
-        "metric": "sharpe_ci95_lo",
-        "comparison": ">",
-        "threshold": 0.0,
-        "policy_version": "v1",
-    },
-    {
-        "gate_id": "outer_oos_pbo_lt_050",
-        "metric": "pbo",
-        "comparison": "<",
-        "threshold": 0.5,
-        "policy_version": "v1",
-    },
-    {
-        "gate_id": "outer_oos_dsr_positive",
-        "metric": "dsr",
-        "comparison": ">",
-        "threshold": 0.0,
-        "policy_version": "v1",
-    },
-    {
-        "gate_id": "outer_oos_consistent_across_costs",
-        "metric": "consistent_across_costs",
-        "comparison": "==",
-        "threshold": True,
-        "policy_version": "v1",
-    },
-    {
-        "gate_id": "outer_oos_provenance_eligible",
-        "metric": "provenance_eligible",
-        "comparison": "==",
-        "threshold": True,
-        "policy_version": "v1",
-    },
-]
-
-
-def evaluate_gate(observed: Any, comparison: str, threshold: Any) -> str:
-    if observed is None:
-        return "INVALID"
-    try:
-        if comparison == ">":
-            verdict = "PASS" if observed > threshold else "FAIL"
-        elif comparison == ">=":
-            verdict = "PASS" if observed >= threshold else "FAIL"
-        elif comparison == "<":
-            verdict = "PASS" if observed < threshold else "FAIL"
-        elif comparison == "<=":
-            verdict = "PASS" if observed <= threshold else "FAIL"
-        elif comparison == "==":
-            verdict = "PASS" if observed == threshold else "FAIL"
-        else:
-            verdict = "INVALID"
-    except TypeError:
-        verdict = "INVALID"
-    return verdict
-
-
 def get_git_commit_sha() -> str:
-    try:
+    try: 
         return (
             subprocess.check_output(
                 ["git", "rev-parse", "HEAD"], cwd=ROOT, stderr=subprocess.DEVNULL
@@ -209,7 +87,7 @@ def parse_cell_dir(cell_dir: Path) -> dict[str, Any] | None:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Aggregate WFO cells into wfo_decision.json"
+        description="Diagnostic WFO cell analyzer (NO promotion verdict)"
     )
     parser.add_argument(
         "--in",
@@ -220,8 +98,8 @@ def main():
     parser.add_argument(
         "--out",
         dest="output_dir",
-        required=True,
-        help="Output dir for wfo_decision.json",
+        default=None,
+        help="Optional output dir for diagnostic report",
     )
     parser.add_argument("--strategy", default="ma_adx")
     parser.add_argument("--symbol", default="SOL/USDT")
@@ -229,10 +107,15 @@ def main():
     args = parser.parse_args()
 
     input_dir = Path(args.input_dir)
-    output_dir = Path(args.output_dir)
+    if args.output_dir:
+        output_dir = Path(args.output_dir)
+    else:
+        output_dir = input_dir / "diagnostic"
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"Aggregating cells from {input_dir}...")
+    print(f"DIAGNOSTIC: Analyzing cells from {input_dir}...")
+    print("  WARNING: This is a diagnostic tool only. Results are NOT promotion-eligible.")
+    print("  For canonical S3 validation, use run_wfo_parallel.py")
     cell_dirs = sorted([d for d in input_dir.iterdir() if d.is_dir()])
     cells: list[dict[str, Any]] = []
     for d in cell_dirs:
@@ -287,7 +170,6 @@ def main():
                 1 for c in cost_cells if (c["total_return_pct"] or 0) > 0
             ),
         }
-        # Positive cell percentage
         n = len(cost_cells)
         aggregate_metrics[cost]["positive_cell_pct"] = (
             100.0 * aggregate_metrics[cost]["positive_cells"] / n if n > 0 else 0.0
@@ -331,7 +213,7 @@ def main():
         else 0.0
     )
 
-    # Check consistency across costs (median return > 0 in all cost scenarios)
+    # Consistency across costs
     consistent_across_costs = all(
         aggregate_metrics[c]["median_return_pct"] > 0 for c in by_cost.keys()
     )
@@ -341,7 +223,7 @@ def main():
     worktree_clean = is_worktree_clean()
     provenance_eligible = worktree_clean and commit_sha != "unknown"
 
-    # Block-bootstrap CI on aggregated returns (simple: use Sharpe distribution)
+    # Simple statistics (NOT canonical - uses Sharpe distribution as proxy)
     sharpes = [c["sharpe"] for c in all_cells if c["sharpe"] is not None]
     if len(sharpes) >= 3:
         sharpe_mean = statistics.mean(sharpes)
@@ -352,11 +234,11 @@ def main():
         sharpe_ci95_lo = None
         sharpe_ci95_hi = None
 
-    # PBO proxy: % of cells with negative Sharpe
+    # PBO proxy (NOT canonical - uses % negative Sharpe)
     n_negative_sharpe = sum(1 for s in sharpes if s < 0)
     pbo = (n_negative_sharpe / len(sharpes)) if sharpes else None
 
-    # DSR proxy: avg(net_pnl) / std(net_pnl) * sqrt(N) if enough data
+    # DSR proxy (NOT canonical - uses net_pnl)
     pnls = [c["net_pnl"] for c in all_cells if c["net_pnl"] is not None]
     if len(pnls) >= 5:
         pnl_mean = statistics.mean(pnls)
@@ -381,13 +263,14 @@ def main():
         ],
     }
 
-    # Statistical hardening
+    # Statistical hardening (PROXY - not canonical)
     statistical_hardening = {
         "sharpe_ci95_lo": sharpe_ci95_lo,
         "sharpe_ci95_hi": sharpe_ci95_hi,
         "pbo": pbo,
         "dsr": dsr,
         "n_observations": len(sharpes),
+        "note": "PROXY statistics - uses Sharpe distribution as proxy. Canonical WFO uses real return series.",
     }
 
     # Sensitivity (cost_2x and slip_stress vs 1x)
@@ -405,78 +288,20 @@ def main():
                 stressed["median_sharpe"] - baseline["median_sharpe"]
             )
 
-    # Evaluate hard gates
-    gate_observed = {
-        "total_return_pct": primary["median_return_pct"],
-        "sharpe": primary["median_sharpe"],
-        "profit_factor": primary["median_profit_factor"],
-        "max_drawdown_pct": primary["median_max_dd_pct"],
-        "calmar": primary["median_calmar"],
-        "positive_fold_pct": primary["positive_cell_pct"],
-        "total_trades": primary["total_trades"],
-        "sharpe_ci95_lo": sharpe_ci95_lo,
-        "pbo": pbo,
-        "dsr": dsr,
-        "consistent_across_costs": consistent_across_costs,
-        "provenance_eligible": provenance_eligible,
-    }
-    gate_results: list[dict[str, Any]] = []
-    for gate in HARD_GATES:
-        observed = gate_observed.get(gate["metric"])
-        verdict = evaluate_gate(observed, gate["comparison"], gate["threshold"])
-        gate_results.append(
-            {
-                "gate_id": gate["gate_id"],
-                "policy_version": gate["policy_version"],
-                "observed_value": observed,
-                "threshold": gate["threshold"],
-                "comparison": gate["comparison"],
-                "verdict": verdict,
-                "reason": f"observed={observed} {gate['comparison']} {gate['threshold']}",
-            }
-        )
-    passes_hard_gates = all(g["verdict"] == "PASS" for g in gate_results)
-
-    # Verdict
-    verdict = "FINAL_PASS" if passes_hard_gates else "NO_TRADE"
-
-    # Build final artifact
-    artifact_id_payload = json.dumps(
-        {
+    # Build diagnostic report (NO verdict, NO promotion logic)
+    diagnostic_report = {
+        "meta": {
+            "tool": "diagnose_wfo_cells.py",
+            "purpose": "diagnostic_exploration_only",
+            "not_promotion_eligible": True,
+            "canonical_authority": "run_wfo_parallel.py (canonical WFO)",
             "strategy": args.strategy,
             "symbol": args.symbol,
             "timeframe": args.timeframe,
-            "n_cells": len(all_cells),
-            "primary_cost": primary_cost,
-            "verdict": verdict,
-            "passes_hard_gates": passes_hard_gates,
-        },
-        sort_keys=True,
-        separators=(",", ":"),
-    )
-    artifact_id = f"sha256:{hashlib.sha256(artifact_id_payload.encode()).hexdigest()}"
-
-    # Trial counts
-    trial_counts = {
-        "raw_trial_count": len(cell_dirs),
-        "effective_trial_count": len(all_cells),
-        "evaluation_count": len(cells),
-        "unique_experiments": len(set(c["cell_id"].split("__")[3] for c in all_cells)),
-        "search_family_counts": {
-            "wfo_parallel_aggregator": len(all_cells),
-        },
-        "inner_validation_trials": len(all_cells),
-        "outer_oos_trials": len(all_cells),
-        "total_trial_runs": len(all_cells),
-        "methodology": "aggregated from parallel-run cells; primary cost = "
-        + primary_cost,
-    }
-
-    wfo_decision = {
-        "spec": {
-            "strategy_id": args.strategy,
-            "symbol": args.symbol,
-            "timeframe": args.timeframe,
+            "commit_sha": commit_sha,
+            "worktree_clean": worktree_clean,
+            "provenance_eligible": provenance_eligible,
+            "created_at": datetime.now(UTC).isoformat(),
         },
         "aggregate_metrics": {
             "n_cells": len(all_cells),
@@ -502,25 +327,18 @@ def main():
         "statistical_hardening": statistical_hardening,
         "multi_dimensional": multi_dimensional,
         "sensitivity": sensitivity,
-        "gate_results": gate_results,
-        "passes_hard_gates": passes_hard_gates,
-        "verdict": verdict,
-        "artifact_id": artifact_id,
-        "trial_counts": trial_counts,
-        "commit_sha": commit_sha,
-        "worktree_clean": worktree_clean,
-        "provenance_eligible": provenance_eligible,
-        "evidence_class": "REAL_MARKET",
-        "created_at": datetime.now(UTC).isoformat(),
+        "consistency": {
+            "consistent_across_costs": consistent_across_costs,
+        },
     }
 
-    out_path = output_dir / "wfo_decision.json"
+    out_path = output_dir / "wfo_diagnostic.json"
     with open(out_path, "w") as f:
-        json.dump(wfo_decision, f, indent=2, allow_nan=False, default=str)
-    print("\n=== Aggregator Result ===")
-    print(f"  Verdict: {verdict}")
-    print(f"  Passes hard gates: {passes_hard_gates}")
-    print(f"  Artifact ID: {artifact_id}")
+        json.dump(diagnostic_report, f, indent=2, allow_nan=False, default=str)
+
+    print("\n=== DIAGNOSTIC Report ===")
+    print("  Tool: diagnose_wfo_cells.py (diagnostic only)")
+    print("  NOT promotion-eligible")
     print(f"  Primary cost: {primary_cost}")
     print(f"  Median Sharpe: {primary['median_sharpe']:.4f}")
     print(f"  Median Return: {primary['median_return_pct']:.4f}%")
@@ -528,12 +346,9 @@ def main():
     print(f"  Median Calmar: {primary['median_calmar']:.4f}")
     print(f"  Positive cells: {primary['positive_cell_pct']:.1f}%")
     print(f"  Provenance eligible: {provenance_eligible}")
-    print("\n  Gate results:")
-    for g in gate_results:
-        print(
-            f"    [{g['verdict']}] {g['gate_id']}: {g['observed_value']} {g['comparison']} {g['threshold']}"
-        )
     print(f"\n  Saved: {out_path}")
+    print("\n  For canonical S3 validation, run:")
+    print(f"    python scripts/run_wfo_parallel.py --strategy {args.strategy} --symbol {args.symbol} --timeframe {args.timeframe} --cost all --workers 4")
 
 
 if __name__ == "__main__":
