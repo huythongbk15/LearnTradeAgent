@@ -1,0 +1,199 @@
+{
+  "r00_baseline": {
+    "created_at": "2026-09-08T00:00:00+07:00",
+    "agent": "trading",
+    "description": "R00: Khóa baseline, không khóa nhầm kết luận. Baseline ghi nhận trạng thái trước khi bắt đầu R01–R03."
+  },
+  "git": {
+    "head_sha": "64d5fde03d1b3ce632d6d272bc981909a2bd0c32",
+    "branch": "master",
+    "remote_url": "https://github.com/huythongbk15/LearnTradeAgent",
+    "dirty_diff": "",
+    "worktree_clean": true,
+    "committed_at": "2026-09-07T23:55:12+07:00",
+    "commit_message": "S6: Multi-pair portfolio campaign runner with gates and holdout"
+  },
+  "environment": {
+    "os": "Linux 6.18.33.2-microsoft-standard-WSL2 (x86_64)",
+    "python_version": "3.12",
+    "venv_path": "/home/huythong/.qwenpaw/venv",
+    "key_packages": {
+      "polars": "1.16.0",
+      "numpy": "1.26.4",
+      "pydantic": "2.9.2",
+      "pytest": "8.3.3",
+      "ruff": "0.6.9",
+      "mypy": "1.11.2"
+    }
+  },
+  "test_baseline": {
+    "total_tests_collected": 167,
+    "multi_pair_backtest_contract": 38,
+    "multi_pair_runtime": 10,
+    "multi_pair_batch_adversarial": 19,
+    "nested_wfo": 51,
+    "action_proposal": 26,
+    "s3_evidence_integrity": 3,
+    "s3_study_provenance": 7,
+    "holdout_manifest": 6,
+    "portfolio_attribution": 1,
+    "shared_capital_allocator": 6,
+    "all_passed": true,
+    "run_time_seconds": 320,
+    "note": "Chạy toàn bộ test suite liên quan S6/S3/ACTION_PROPOSAL lúc baseline"
+  },
+  "file_ownership": {
+    "scripts/run_wfo_parallel.py": {
+      "owner": "trading",
+      "stakeholders": ["trading"],
+      "description": "Parallel WFO runner (params × cost × fold per pair). Used by S5/S6 campaigns.",
+      "shared_with_s5_s6": true
+    },
+    "scripts/aggregate_wfo_cells.py": {
+      "owner": "trading",
+      "stakeholders": ["trading"],
+      "description": "Aggregates per-cell report.json into wfo_decision.json with 13 hard gates.",
+      "shared_with_s5_s6": true
+    },
+    "scripts/run_s5_adaptive_campaign.py": {
+      "owner": "trading",
+      "stakeholders": ["trading"],
+      "description": "S5 Adaptive Routing + Shared-Capital OOS campaign (regime detection, router, allocator).",
+      "shared_with_s5_s6": false
+    },
+    "scripts/run_s6_campaign.py": {
+      "owner": "trading",
+      "stakeholders": ["trading"],
+      "description": "S6 Multi-pair portfolio campaign runner (nested WFO per pair, portfolio gates, holdout).",
+      "shared_with_s5_s6": false
+    },
+    "src/trading_agent/strategies/enhanced_ma.py": {
+      "owner": "trading",
+      "stakeholders": ["trading"],
+      "description": "Enhanced MA strategies (enhanced_ma, ma_adx, ma_vol_target, ensemble_ma_adx, ma_adx_regime). Shared by parallel runner, S5, S6.",
+      "shared_with_s5_s6": true
+    },
+    "src/trading_agent/strategies/canonical/candidates.py": {
+      "owner": "trading",
+      "stakeholders": ["trading"],
+      "description": "Canonical registry for first-wave candidates with code_sha verification. Shared by parallel runner, S5, S6.",
+      "shared_with_s5_s6": true
+    },
+    "src/trading_agent/authority/approval.py": {
+      "owner": "trading",
+      "stakeholders": ["trading"],
+      "description": "Multi-party approval chain for promotion (S7 gate). Not yet used by S5/S6.",
+      "shared_with_s5_s6": false
+    },
+    "src/trading_agent/backtest/nested_wfo.py": {
+      "owner": "trading",
+      "stakeholders": ["trading"],
+      "description": "Core nested WFO engine with portfolio gates, sensitivity, holdout. Used by S6.",
+      "shared_with_s5_s6": false
+    },
+    "src/trading_agent/authority/adaptive_router.py": {
+      "owner": "trading",
+      "stakeholders": ["trading"],
+      "description": "AdaptiveStrategyRouter used by S5 campaign.",
+      "shared_with_s5_s6": false
+    },
+    "src/trading_agent/authority/portfolio.py": {
+      "owner": "trading",
+      "stakeholders": ["trading"],
+      "description": "PortfolioAllocator used by S5 and S6 campaigns.",
+      "shared_with_s5_s6": true
+    }
+  },
+  "campaign_status": {
+    "parallel_wfo_report": {
+      "status": "NOT_RUN",
+      "note": "run_wfo_parallel.py exists but no full campaign executed. Not promotion-eligible."
+    },
+    "s5_adaptive_campaign": {
+      "status": "SYNTHETIC_ONLY",
+      "note": "run_s5_adaptive_campaign.py runs synthetic mode only. No real-data campaign executed. Not promotion-eligible.",
+      "last_synthetic_run": "not_recorded"
+    },
+    "s6_campaign": {
+      "status": "SYNTHETIC_PASSED",
+      "note": "run_s6_campaign.py synthetic mode runs and passes (NO_TRADE verdict as expected for RSI). No real campaign executed.",
+      "last_synthetic_run": "2026-09-07T23:50:00+07:00",
+      "artifact_id": "sha256:36e8f82c..."
+    }
+  },
+  "scope_campaign": {
+    "description": "Scope chiến dịch dự kiến cho R01–R03 (sau khi R00 xong)",
+    "pairs": [
+      "BTC/USDT",
+      "ETH/USDT",
+      "SOL/USDT",
+      "XRP/USDT",
+      "BNB/USDT",
+      "ADA/USDT",
+      "DOGE/USDT",
+      "TRX/USDT",
+      "NEAR/USDT",
+      "ZEC/USDT"
+    ],
+    "core_pairs_5": [
+      "BTC/USDT",
+      "ETH/USDT",
+      "SOL/USDT",
+      "XRP/USDT",
+      "BNB/USDT"
+    ],
+    "strategies": [
+      "ma_adx",
+      "enhanced_ma",
+      "rsi",
+      "bbands",
+      "ma_vol_target"
+    ],
+    "timeframe": "1h",
+    "cost_scenarios": [
+      "1x (SCENARIO_BASE)",
+      "2x (SCENARIO_DOUBLE)",
+      "slippage_stress (SCENARIO_SLIPPAGE_STRESS)"
+    ],
+    "wfo_config": {
+      "train_months": 12,
+      "val_months": 3,
+      "test_months": 3,
+      "step_months": 3,
+      "n_folds": "expanding window (approx 6-8 folds over 3y)"
+    },
+    "portfolio_gates": {
+      "positive_pairs_ge_60pct": true,
+      "portfolio_aggregate_trades_ge_200": true,
+      "pair_contribution_concentration_le_35pct": true,
+      "median_pair_net_return_positive": true,
+      "all_pair_strategy_candidates_pass": true
+    },
+    "holdout": {
+      "source": "data/research_manifest.json",
+      "window_months": 6,
+      "enforcement": "fail-closed (STR-0309)"
+    },
+    "sensitivity_required": [
+      "cost_2x",
+      "slippage_stress",
+      "drop_best_trade",
+      "delay_1_bar",
+      "parameter_neighbors"
+    ],
+    "provenance": {
+      "commit_sha_binding": true,
+      "worktree_clean_required": true,
+      "evidence_class": "REAL_MARKET"
+    }
+  },
+  "r00_checklist": {
+    "head_recorded": true,
+    "dirty_diff_recorded": true,
+    "environment_recorded": true,
+    "test_baseline_recorded": true,
+    "file_ownership_confirmed": true,
+    "campaign_reports_marked_ineligible": true,
+    "scope_campaign_locked": true
+  }
+}
