@@ -313,6 +313,7 @@
 │       │   ├── engine.py
 │       │   ├── nested_wfo.py
 │       │   ├── portfolio_backtest.py
+│       │   ├── provenance.py
 │       │   ├── report_v2.py
 │       │   ├── reporting.py
 │       │   ├── synthetic_data.py
@@ -633,6 +634,7 @@
 │   ├── test_promotion_bridge.py
 │   ├── test_quant_methodology.py
 │   ├── test_r02_canonical_authority.py
+│   ├── test_r03_provenance_completeness.py
 │   ├── test_realtime_data.py
 │   ├── test_research_governance.py
 │   ├── test_research_stats.py
@@ -694,6 +696,7 @@
 ├── Dockerfile
 ├── Makefile
 ├── R00_BASELINE.json
+├── R01_PARITY_REPORT.md
 ├── README.md
 ├── credentials.example.yaml
 ├── docker-compose.lite.yml

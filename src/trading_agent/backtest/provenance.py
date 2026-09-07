@@ -268,7 +268,9 @@ class ManifestValidator:
                 freeze_id = outer.get("selection_freeze_id")
                 if not freeze_id:
                     mismatched.append(fold_id)
-                    issues.append(f"{fold_id}: outer artifact has no selection_freeze_id")
+                    issues.append(
+                        f"{fold_id}: outer artifact has no selection_freeze_id"
+                    )
                     continue
 
                 # Inner freeze must exist
@@ -309,7 +311,11 @@ class ManifestValidator:
 
             if ok:
                 found += 1
-            elif fold_id not in missing and fold_id not in mismatched and fold_id not in tampered:
+            elif (
+                fold_id not in missing
+                and fold_id not in mismatched
+                and fold_id not in tampered
+            ):
                 mismatched.append(fold_id)
                 issues.append(f"{fold_id}: no matching outer/freeze pair found")
 

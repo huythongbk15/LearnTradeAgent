@@ -121,10 +121,19 @@ class TestProvenanceDigest:
     def test_resume_identity_fields_enumerated(self):
         """The set of identity fields is documented and stable."""
         expected_fields = {
-            "strategy_id", "symbol", "timeframe", "strategy_code_sha",
-            "data_manifest_sha", "feature_schema_hash", "search_space_hash",
-            "evaluator_version", "policy_version", "cost_scenario",
-            "window_kind", "seed", "commit_sha",
+            "strategy_id",
+            "symbol",
+            "timeframe",
+            "strategy_code_sha",
+            "data_manifest_sha",
+            "feature_schema_hash",
+            "search_space_hash",
+            "evaluator_version",
+            "policy_version",
+            "cost_scenario",
+            "window_kind",
+            "seed",
+            "commit_sha",
         }
         actual = set(RESUME_IDENTITY_FIELDS)
         assert actual == expected_fields, (
@@ -169,7 +178,11 @@ class TestResumeGuard:
         assert decision.mismatched_fields == ()
 
     def test_code_change_blocks_resume(self):
-        cached = {"metadata": {"evaluation_identity": self._identity(strategy_code_sha="code-OLD")}}
+        cached = {
+            "metadata": {
+                "evaluation_identity": self._identity(strategy_code_sha="code-OLD")
+            }
+        }
         proposed = self._identity(strategy_code_sha="code-NEW")
         guard = ResumeGuard(worktree_dirty=False)
         decision = guard.check_resume_compatibility(cached, proposed)
@@ -177,7 +190,11 @@ class TestResumeGuard:
         assert "strategy_code_sha" in decision.mismatched_fields
 
     def test_data_change_blocks_resume(self):
-        cached = {"metadata": {"evaluation_identity": self._identity(data_manifest_sha="data-OLD")}}
+        cached = {
+            "metadata": {
+                "evaluation_identity": self._identity(data_manifest_sha="data-OLD")
+            }
+        }
         proposed = self._identity(data_manifest_sha="data-NEW")
         guard = ResumeGuard(worktree_dirty=False)
         decision = guard.check_resume_compatibility(cached, proposed)
@@ -185,7 +202,9 @@ class TestResumeGuard:
         assert "data_manifest_sha" in decision.mismatched_fields
 
     def test_cost_change_blocks_resume(self):
-        cached = {"metadata": {"evaluation_identity": self._identity(cost_scenario="1x")}}
+        cached = {
+            "metadata": {"evaluation_identity": self._identity(cost_scenario="1x")}
+        }
         proposed = self._identity(cost_scenario="2x")
         guard = ResumeGuard(worktree_dirty=False)
         decision = guard.check_resume_compatibility(cached, proposed)
@@ -193,7 +212,11 @@ class TestResumeGuard:
         assert "cost_scenario" in decision.mismatched_fields
 
     def test_window_kind_change_blocks_resume(self):
-        cached = {"metadata": {"evaluation_identity": self._identity(window_kind="INNER_VALIDATION")}}
+        cached = {
+            "metadata": {
+                "evaluation_identity": self._identity(window_kind="INNER_VALIDATION")
+            }
+        }
         proposed = self._identity(window_kind="OUTER_OOS")
         guard = ResumeGuard(worktree_dirty=False)
         decision = guard.check_resume_compatibility(cached, proposed)
@@ -209,7 +232,9 @@ class TestResumeGuard:
         assert "seed" in decision.mismatched_fields
 
     def test_policy_version_change_blocks_resume(self):
-        cached = {"metadata": {"evaluation_identity": self._identity(policy_version="v1")}}
+        cached = {
+            "metadata": {"evaluation_identity": self._identity(policy_version="v1")}
+        }
         proposed = self._identity(policy_version="v2")
         guard = ResumeGuard(worktree_dirty=False)
         decision = guard.check_resume_compatibility(cached, proposed)
@@ -217,7 +242,9 @@ class TestResumeGuard:
         assert "policy_version" in decision.mismatched_fields
 
     def test_commit_change_blocks_resume(self):
-        cached = {"metadata": {"evaluation_identity": self._identity(commit_sha="abc123")}}
+        cached = {
+            "metadata": {"evaluation_identity": self._identity(commit_sha="abc123")}
+        }
         proposed = self._identity(commit_sha="def456")
         guard = ResumeGuard(worktree_dirty=False)
         decision = guard.check_resume_compatibility(cached, proposed)
@@ -252,9 +279,7 @@ class TestResumeGuard:
 # =============================================================================
 
 
-def _build_study_manifest(
-    fold_ids: list[str], **overrides: Any
-) -> Any:
+def _build_study_manifest(fold_ids: list[str], **overrides: Any) -> Any:
     """Build a WFOStudyManifest-shaped object for testing."""
     fold_windows = [
         {
@@ -318,17 +343,25 @@ class TestManifestValidator:
             # Use a fake freeze_id that we can compute
             freeze_id = f"sha256:{fid}-freeze"
             inner_path = inner_dir / f"{freeze_id.removeprefix('sha256:')}.json"
-            inner_path.write_text(json.dumps({
-                "fold_id": fid,
-                "commit_sha": "commit-abc",
-                "data_manifest_sha": "data-abc",
-                "feature_schema_hash": "feature-abc",
-            }))
+            inner_path.write_text(
+                json.dumps(
+                    {
+                        "fold_id": fid,
+                        "commit_sha": "commit-abc",
+                        "data_manifest_sha": "data-abc",
+                        "feature_schema_hash": "feature-abc",
+                    }
+                )
+            )
             outer_path = outer_dir / f"{freeze_id.removeprefix('sha256:')}.json"
-            outer_path.write_text(json.dumps({
-                "selection_freeze_id": freeze_id,
-                "status": "COMPLETED",
-            }))
+            outer_path.write_text(
+                json.dumps(
+                    {
+                        "selection_freeze_id": freeze_id,
+                        "status": "COMPLETED",
+                    }
+                )
+            )
         validator = ManifestValidator(manifest, tmp_path)
         report = validator.validate_manifest()
         assert report.is_complete is True
@@ -353,15 +386,23 @@ class TestManifestValidator:
         inner_dir.mkdir(parents=True, exist_ok=True)
         outer_dir.mkdir(parents=True, exist_ok=True)
         freeze_id = "sha256:old-freeze"
-        (inner_dir / "old-freeze.json").write_text(json.dumps({
-            "fold_id": "f1",
-            "commit_sha": "commit-OLD",  # mismatch
-            "data_manifest_sha": "data-abc",
-            "feature_schema_hash": "feature-abc",
-        }))
-        (outer_dir / "old-freeze.json").write_text(json.dumps({
-            "selection_freeze_id": freeze_id,
-        }))
+        (inner_dir / "old-freeze.json").write_text(
+            json.dumps(
+                {
+                    "fold_id": "f1",
+                    "commit_sha": "commit-OLD",  # mismatch
+                    "data_manifest_sha": "data-abc",
+                    "feature_schema_hash": "feature-abc",
+                }
+            )
+        )
+        (outer_dir / "old-freeze.json").write_text(
+            json.dumps(
+                {
+                    "selection_freeze_id": freeze_id,
+                }
+            )
+        )
         validator = ManifestValidator(manifest, tmp_path)
         report = validator.validate_manifest()
         assert report.is_complete is False
@@ -374,15 +415,23 @@ class TestManifestValidator:
         outer_dir = tmp_path / "outer_one_shot" / "f1"
         inner_dir.mkdir(parents=True, exist_ok=True)
         outer_dir.mkdir(parents=True, exist_ok=True)
-        (inner_dir / "f.json").write_text(json.dumps({
-            "fold_id": "f1",
-            "commit_sha": "commit-abc",
-            "data_manifest_sha": "data-OLD",  # mismatch
-            "feature_schema_hash": "feature-abc",
-        }))
-        (outer_dir / "f.json").write_text(json.dumps({
-            "selection_freeze_id": "sha256:f",
-        }))
+        (inner_dir / "f.json").write_text(
+            json.dumps(
+                {
+                    "fold_id": "f1",
+                    "commit_sha": "commit-abc",
+                    "data_manifest_sha": "data-OLD",  # mismatch
+                    "feature_schema_hash": "feature-abc",
+                }
+            )
+        )
+        (outer_dir / "f.json").write_text(
+            json.dumps(
+                {
+                    "selection_freeze_id": "sha256:f",
+                }
+            )
+        )
         validator = ManifestValidator(manifest, tmp_path)
         report = validator.validate_manifest()
         assert report.is_complete is False
@@ -404,10 +453,14 @@ class TestManifestValidator:
         manifest = _build_study_manifest(["f1"])
         outer_dir = tmp_path / "outer_one_shot" / "f1"
         outer_dir.mkdir(parents=True, exist_ok=True)
-        (outer_dir / "no-freeze.json").write_text(json.dumps({
-            "status": "COMPLETED",
-            # missing selection_freeze_id
-        }))
+        (outer_dir / "no-freeze.json").write_text(
+            json.dumps(
+                {
+                    "status": "COMPLETED",
+                    # missing selection_freeze_id
+                }
+            )
+        )
         validator = ManifestValidator(manifest, tmp_path)
         report = validator.validate_manifest()
         assert report.is_complete is False
@@ -459,6 +512,7 @@ class TestEndToEndIdentity:
         import trading_agent.data.storage as storage_mod
         import trading_agent.backtest.tournament as tournament_mod
         import trading_agent.backtest.nested_wfo as nwfo
+
         storage_mod.load_ohlcv = _load
         tournament_mod.load_ohlcv = _load
         nwfo._resolve_frozen_holdout_window = lambda *a, **k: (holdout_start, 399)
@@ -478,6 +532,7 @@ class TestEndToEndIdentity:
         ):
             import datetime
             from trading_agent.backtest.tournament import EvaluationArtifact
+
             return EvaluationArtifact(
                 cell_id=f"cell_{spec_cell.params.get('period')}_{spec_cell.cost_scenario.name}_{measurement_start}_{measurement_end}",
                 status="COMPLETED",
@@ -493,7 +548,15 @@ class TestEndToEndIdentity:
                 data_manifest_sha="synthetic",
                 commit_sha="synthetic",
                 report_path=None,
-                metrics={"sharpe": 1.0, "total_return_pct": 5.0, "total_trades": 5, "profit_factor": 1.5, "max_drawdown_pct": 2.0, "calmar": 1.0, "return_series": [0.001] * 30},
+                metrics={
+                    "sharpe": 1.0,
+                    "total_return_pct": 5.0,
+                    "total_trades": 5,
+                    "profit_factor": 1.5,
+                    "max_drawdown_pct": 2.0,
+                    "calmar": 1.0,
+                    "return_series": [0.001] * 30,
+                },
                 execution_health={},
                 failure_reasons=(),
                 created_at=datetime.datetime.now(datetime.UTC).isoformat(),
@@ -506,6 +569,7 @@ class TestEndToEndIdentity:
             strategy_id="rsi", symbol="BTC/USDT", timeframe="1h", n_bars=400
         )
         from dataclasses import replace
+
         spec = replace(spec, registry_path=str(tmp_path / "r03.sqlite3"))
 
         result = run_nested_wfo(spec, out_root=tmp_path / "wfo", run_holdout=False)
@@ -565,6 +629,7 @@ class TestEndToEndIdentity:
         import trading_agent.data.storage as storage_mod
         import trading_agent.backtest.tournament as tournament_mod
         import trading_agent.backtest.nested_wfo as nwfo
+
         storage_mod.load_ohlcv = _load
         tournament_mod.load_ohlcv = _load
         nwfo._resolve_frozen_holdout_window = lambda *a, **k: (holdout_start, 399)
@@ -583,6 +648,7 @@ class TestEndToEndIdentity:
         ):
             import datetime
             from trading_agent.backtest.tournament import EvaluationArtifact
+
             return EvaluationArtifact(
                 cell_id=f"c_{measurement_start}_{measurement_end}",
                 status="COMPLETED",
@@ -598,7 +664,15 @@ class TestEndToEndIdentity:
                 data_manifest_sha="synthetic",
                 commit_sha="synthetic",
                 report_path=None,
-                metrics={"sharpe": 1.0, "total_return_pct": 5.0, "total_trades": 5, "profit_factor": 1.5, "max_drawdown_pct": 2.0, "calmar": 1.0, "return_series": [0.001] * 30},
+                metrics={
+                    "sharpe": 1.0,
+                    "total_return_pct": 5.0,
+                    "total_trades": 5,
+                    "profit_factor": 1.5,
+                    "max_drawdown_pct": 2.0,
+                    "calmar": 1.0,
+                    "return_series": [0.001] * 30,
+                },
                 execution_health={},
                 failure_reasons=(),
                 created_at=datetime.datetime.now(datetime.UTC).isoformat(),
@@ -611,6 +685,7 @@ class TestEndToEndIdentity:
             strategy_id="rsi", symbol="BTC/USDT", timeframe="1h", n_bars=400
         )
         from dataclasses import replace
+
         spec = replace(spec, registry_path=str(tmp_path / "r03-d.sqlite3"))
 
         result = run_nested_wfo(spec, out_root=tmp_path / "wfo", run_holdout=False)
@@ -712,6 +787,7 @@ class TestWFOResultCompleteness:
         """WFOResult dataclass has the new R03 fields."""
         from trading_agent.backtest.nested_wfo import WFOResult
         from dataclasses import fields
+
         field_names = {f.name for f in fields(WFOResult)}
         assert "completeness_report" in field_names
         assert "provenance_digest" in field_names

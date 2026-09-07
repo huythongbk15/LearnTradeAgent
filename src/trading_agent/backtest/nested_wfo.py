@@ -2740,7 +2740,11 @@ def run_nested_wfo(
                     commit_sha=commit_sha,
                     extra={
                         "params_hash": param_hash(
-                            {k: v for k, v in best_params.items() if k != "cost_scenario"}
+                            {
+                                k: v
+                                for k, v in best_params.items()
+                                if k != "cost_scenario"
+                            }
                         ),
                         "freeze_id": freeze.freeze_id,
                         "study_manifest_id": study_manifest.manifest_id,
