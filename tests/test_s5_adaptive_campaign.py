@@ -47,6 +47,7 @@ def test_s5_synthetic_campaign_runs():
     stdout = result.stdout.strip()
     # Find the last complete JSON object
     import re
+
     json_matches = list(re.finditer(r"\{.*?\}", stdout, re.DOTALL))
     assert json_matches, "No JSON output found"
     summary = json.loads(json_matches[-1].group(0))
@@ -111,7 +112,9 @@ def test_s5_synthetic_campaign_runs():
 
     # Verify routing decisions audit logs
     routing_files = list((OUT_ROOT / "routing_decisions").glob("*.jsonl"))
-    assert len(routing_files) == 10, "Routing decisions log should exist for all 10 symbols"
+    assert len(routing_files) == 10, (
+        "Routing decisions log should exist for all 10 symbols"
+    )
 
 
 def test_s5_campaign_regime_coverage():

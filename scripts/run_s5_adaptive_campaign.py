@@ -148,7 +148,10 @@ def _resolve_holdout_bars(df: pl.DataFrame) -> tuple[int, int]:
 
 
 def _posterior_from_regime_signal(
-    signal: Any, recent_df: pl.DataFrame, observed_at: datetime, detector: RegimeDetector
+    signal: Any,
+    recent_df: pl.DataFrame,
+    observed_at: datetime,
+    detector: RegimeDetector,
 ) -> RegimePosterior:
     """Convert RegimeSignal (5-state) to RegimePosterior (5-state canonical)."""
     # Ensure observed_at is timezone-aware
@@ -188,7 +191,9 @@ def _posterior_from_regime_signal(
     )
 
 
-def _build_active_registry(tmp_path: Path, synthetic_start: datetime) -> SelectionPolicyRegistry:
+def _build_active_registry(
+    tmp_path: Path, synthetic_start: datetime
+) -> SelectionPolicyRegistry:
     """Build a registry with active signed policies for all regimes."""
     # Clean up any existing state
     if (tmp_path / "policies").exists():
@@ -207,7 +212,9 @@ def _build_active_registry(tmp_path: Path, synthetic_start: datetime) -> Selecti
     # Use synthetic_start as the reference for validity - policies valid from bar 0
     now = synthetic_start + timedelta(days=10)  # Reference time for validity_end
     validity_start = synthetic_start  # Valid from the very beginning
-    for index, (regime, (strategy_id, score)) in enumerate(REGIME_POLICY_PARAMS.items()):
+    for index, (regime, (strategy_id, score)) in enumerate(
+        REGIME_POLICY_PARAMS.items()
+    ):
         created_at = validity_start - timedelta(days=1, minutes=index)
         descriptor = FIRST_WAVE_DESCRIPTORS[strategy_id]
         policy = SelectionPolicyArtifact(
@@ -241,16 +248,16 @@ def _build_active_registry(tmp_path: Path, synthetic_start: datetime) -> Selecti
     return registry
 
 
-def _make_observation(
-    symbol: str, df: pl.DataFrame, idx: int
-) -> MarketObservation:
+def _make_observation(symbol: str, df: pl.DataFrame, idx: int) -> MarketObservation:
     """Build MarketObservation from DataFrame at index."""
     row = df.row(idx, named=True)
     observed_at = row["timestamp"]
     if observed_at.tzinfo is None:
         observed_at = observed_at.replace(tzinfo=UTC)
     # build_ohlcv_window expects "time" column; synthetic data has "timestamp"
-    df_for_window = df.rename({"timestamp": "time"}) if "timestamp" in df.columns else df
+    df_for_window = (
+        df.rename({"timestamp": "time"}) if "timestamp" in df.columns else df
+    )
     # Make time column timezone-aware
     if "time" in df_for_window.columns:
         df_for_window = df_for_window.with_columns(
@@ -305,7 +312,9 @@ def run_synthetic(out_root: Path, n_bars: int = 1000) -> dict:
             verification_key=SIGNING_KEY,
             key_id=KEY_ID,
             state_store=RouterStateStore(out_root / "router_state" / symbol),
-            audit_path=out_root / "routing_decisions" / f"{symbol.replace('/', '_')}.jsonl",
+            audit_path=out_root
+            / "routing_decisions"
+            / f"{symbol.replace('/', '_')}.jsonl",
             config=AdaptiveRouterConfig(
                 persistence_bars=1,
                 min_dwell_bars=1,
@@ -366,7 +375,9 @@ def run_synthetic(out_root: Path, n_bars: int = 1000) -> dict:
             if observed_at.tzinfo is None:
                 observed_at = observed_at.replace(tzinfo=UTC)
             signal = regime_detector.detect(recent_df)
-            posterior = _posterior_from_regime_signal(signal, recent_df, observed_at, regime_detector)
+            posterior = _posterior_from_regime_signal(
+                signal, recent_df, observed_at, regime_detector
+            )
 
             # Route
             decision = routers[symbol].route(
@@ -384,16 +395,19 @@ def run_synthetic(out_root: Path, n_bars: int = 1000) -> dict:
             result = runtimes[symbol].forecast(decision, observation)
             if result.executable and result.forecast is not None:
                 symbol_forecasts[symbol] = result.forecast
-                forecasts_log.append({
-                    "symbol": symbol,
-                    "observed_at": observed_at.isoformat(),
-                    "forecast": result.forecast.expected_excess_return,
-                    "strategy": result.strategy_descriptor_id,
-                    "policy_id": result.policy_id,
-                })
+                forecasts_log.append(
+                    {
+                        "symbol": symbol,
+                        "observed_at": observed_at.isoformat(),
+                        "forecast": result.forecast.expected_excess_return,
+                        "strategy": result.strategy_descriptor_id,
+                        "policy_id": result.policy_id,
+                    }
+                )
 
             # Build allocation request
             if result.executable:
+
                 @dataclass
                 class SimpleRiskDecision:
                     allowed_target_exposure: float
@@ -405,41 +419,48 @@ def run_synthetic(out_root: Path, n_bars: int = 1000) -> dict:
                     max_new_exposure=decision.exposure_multiplier,
                     reduce_only=False,
                 )
-                requests.append(AllocationRequest(
-                    strategy_id=result.strategy_descriptor_id or "unknown",
-                    symbol=symbol,
-                    risk_decision=risk_decision,
-                    current_exposure=0.0,
-                    equity=equity,
-                    available_cash=equity,
-                    portfolio_exposure=snapshot.gross_exposure,
-                    correlation_cluster="MAJORS" if symbol in ("BTC/USDT", "ETH/USDT") else "OTHER",
-                    desired_exposure=(
-                        result.forecast.expected_excess_return * decision.exposure_multiplier
-                    ),
-                    causation_chain=None,
-                ))
+                requests.append(
+                    AllocationRequest(
+                        strategy_id=result.strategy_descriptor_id or "unknown",
+                        symbol=symbol,
+                        risk_decision=risk_decision,
+                        current_exposure=0.0,
+                        equity=equity,
+                        available_cash=equity,
+                        portfolio_exposure=snapshot.gross_exposure,
+                        correlation_cluster="MAJORS"
+                        if symbol in ("BTC/USDT", "ETH/USDT")
+                        else "OTHER",
+                        desired_exposure=(
+                            result.forecast.expected_excess_return
+                            * decision.exposure_multiplier
+                        ),
+                        causation_chain=None,
+                    )
+                )
 
         # Allocate batch
         if requests:
             outcome = allocator.allocate_batch(requests, snapshot)
-            allocation_log.append({
-                "bar_idx": bar_idx,
-                "scale_factor": outcome.scale_factor,
-                "total_requested": outcome.total_requested,
-                "total_approved": outcome.total_approved,
-                "budget_available": outcome.budget_available,
-                "entries": [
-                    {
-                        "symbol": e.symbol,
-                        "strategy_id": e.strategy_id,
-                        "requested": e.requested,
-                        "approved": e.approved,
-                        "reason": e.reason,
-                    }
-                    for e in outcome.entries
-                ],
-            })
+            allocation_log.append(
+                {
+                    "bar_idx": bar_idx,
+                    "scale_factor": outcome.scale_factor,
+                    "total_requested": outcome.total_requested,
+                    "total_approved": outcome.total_approved,
+                    "budget_available": outcome.budget_available,
+                    "entries": [
+                        {
+                            "symbol": e.symbol,
+                            "strategy_id": e.strategy_id,
+                            "requested": e.requested,
+                            "approved": e.approved,
+                            "reason": e.reason,
+                        }
+                        for e in outcome.entries
+                    ],
+                }
+            )
             # Update snapshot (simplified - just track gross)
             snapshot = PortfolioSnapshot(
                 equity=equity,
@@ -564,8 +585,12 @@ def run_real(out_root: Path, symbols: list[str] | None = None) -> dict:
             registry,
             verification_key=SIGNING_KEY,
             key_id=KEY_ID,
-            state_store=RouterStateStore(out_root / "router_state" / symbol.replace("/", "_")),
-            audit_path=out_root / "routing_decisions" / f"{symbol.replace('/', '_')}.jsonl",
+            state_store=RouterStateStore(
+                out_root / "router_state" / symbol.replace("/", "_")
+            ),
+            audit_path=out_root
+            / "routing_decisions"
+            / f"{symbol.replace('/', '_')}.jsonl",
             config=AdaptiveRouterConfig(
                 persistence_bars=3,
                 min_dwell_bars=6,
@@ -604,7 +629,9 @@ def run_real(out_root: Path, symbols: list[str] | None = None) -> dict:
     oos_bars = min(oos_end, timeline_bars)
     warmup = 200
 
-    print(f"[S5] Running OOS campaign: bars {warmup} .. {oos_bars} (holdout starts at {holdout_start})")
+    print(
+        f"[S5] Running OOS campaign: bars {warmup} .. {oos_bars} (holdout starts at {holdout_start})"
+    )
 
     for bar_idx in range(warmup, oos_bars):
         symbol_forecasts = {}
@@ -619,7 +646,9 @@ def run_real(out_root: Path, symbols: list[str] | None = None) -> dict:
             recent = df.slice(max(0, bar_idx - 200), 200)
             signal = regime_detector.detect(recent)
             observed_at = df.row(bar_idx, named=True)["timestamp"]
-            posterior = _posterior_from_regime_signal(signal, recent, observed_at, regime_detector)
+            posterior = _posterior_from_regime_signal(
+                signal, recent, observed_at, regime_detector
+            )
 
             # Route
             decision = routers[symbol].route(
@@ -636,13 +665,15 @@ def run_real(out_root: Path, symbols: list[str] | None = None) -> dict:
             result = runtimes[symbol].forecast(decision, observation)
             if result.executable and result.forecast is not None:
                 symbol_forecasts[symbol] = result.forecast
-                forecasts_log.append({
-                    "symbol": symbol,
-                    "observed_at": observed_at.isoformat(),
-                    "forecast": result.forecast.expected_excess_return,
-                    "strategy": result.strategy_descriptor_id,
-                    "policy_id": result.policy_id,
-                })
+                forecasts_log.append(
+                    {
+                        "symbol": symbol,
+                        "observed_at": observed_at.isoformat(),
+                        "forecast": result.forecast.expected_excess_return,
+                        "strategy": result.strategy_descriptor_id,
+                        "policy_id": result.policy_id,
+                    }
+                )
 
                 # Build allocation request
                 from dataclasses import dataclass
@@ -658,36 +689,47 @@ def run_real(out_root: Path, symbols: list[str] | None = None) -> dict:
                     max_new_exposure=decision.exposure_multiplier,
                     reduce_only=False,
                 )
-                requests.append(AllocationRequest(
-                    strategy_id=result.strategy_descriptor_id or "unknown",
-                    symbol=symbol,
-                    risk_decision=risk_decision,
-                    current_exposure=0.0,
-                    equity=equity,
-                    available_cash=equity,
-                    portfolio_exposure=snapshot.gross_exposure,
-                    correlation_cluster="MAJORS" if symbol in ("BTC/USDT", "ETH/USDT") else "OTHER",
-                    desired_exposure=(
-                        result.forecast.expected_excess_return * decision.exposure_multiplier
-                    ),
-                ))
+                requests.append(
+                    AllocationRequest(
+                        strategy_id=result.strategy_descriptor_id or "unknown",
+                        symbol=symbol,
+                        risk_decision=risk_decision,
+                        current_exposure=0.0,
+                        equity=equity,
+                        available_cash=equity,
+                        portfolio_exposure=snapshot.gross_exposure,
+                        correlation_cluster="MAJORS"
+                        if symbol in ("BTC/USDT", "ETH/USDT")
+                        else "OTHER",
+                        desired_exposure=(
+                            result.forecast.expected_excess_return
+                            * decision.exposure_multiplier
+                        ),
+                    )
+                )
 
         # Allocate batch
         if requests:
             outcome = allocator.allocate_batch(requests, snapshot)
-            allocation_log.append({
-                "bar_idx": bar_idx,
-                "scale_factor": outcome.scale_factor,
-                "total_requested": outcome.total_requested,
-                "total_approved": outcome.total_approved,
-                "budget_available": outcome.budget_available,
-                "entries": [
-                    {"symbol": e.symbol, "strategy_id": e.strategy_id,
-                     "requested": e.requested, "approved": e.approved,
-                     "reason": e.reason}
-                    for e in outcome.entries
-                ],
-            })
+            allocation_log.append(
+                {
+                    "bar_idx": bar_idx,
+                    "scale_factor": outcome.scale_factor,
+                    "total_requested": outcome.total_requested,
+                    "total_approved": outcome.total_approved,
+                    "budget_available": outcome.budget_available,
+                    "entries": [
+                        {
+                            "symbol": e.symbol,
+                            "strategy_id": e.strategy_id,
+                            "requested": e.requested,
+                            "approved": e.approved,
+                            "reason": e.reason,
+                        }
+                        for e in outcome.entries
+                    ],
+                }
+            )
             snapshot = PortfolioSnapshot(
                 equity=equity,
                 available_cash=equity,
@@ -708,9 +750,7 @@ def run_real(out_root: Path, symbols: list[str] | None = None) -> dict:
 
     # Create signed policies for the selected strategies
     # (In production, this would be based on campaign results)
-    signed_policies = _create_campaign_policies(
-        registry, service, symbols, out_root
-    )
+    signed_policies = _create_campaign_policies(registry, service, symbols, out_root)
 
     # Save logs
     (out_root / "decisions.jsonl").write_text(
@@ -750,7 +790,9 @@ def _create_campaign_policies(
     now = datetime.now(UTC)
     for symbol in symbols:
         for regime in ("trend", "mean_reversion", "high_vol", "crisis", "other"):
-            policy_id = f"s5-{symbol.replace('/', '_')}-{regime}-{now.strftime('%Y%m%d')}"
+            policy_id = (
+                f"s5-{symbol.replace('/', '_')}-{regime}-{now.strftime('%Y%m%d')}"
+            )
             # In real implementation, this would come from campaign results
             signed.append(policy_id)
     (out_root / "campaign_policies.json").write_text(json.dumps(signed, indent=2))
@@ -758,8 +800,6 @@ def _create_campaign_policies(
 
 
 # ── Main ──────────────────────────────────────────────────────────────────
-
-
 
 
 def main(argv=None) -> int:
@@ -770,7 +810,9 @@ def main(argv=None) -> int:
         "--out-root",
         default=str(ROOT / "data" / "backtests" / "s5_adaptive_campaign"),
     )
-    ap.add_argument("--n-bars", type=int, default=1000, help="Synthetic bars (synthetic mode)")
+    ap.add_argument(
+        "--n-bars", type=int, default=1000, help="Synthetic bars (synthetic mode)"
+    )
     args = ap.parse_args(argv)
 
     out_root = Path(args.out_root)

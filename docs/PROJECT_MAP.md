@@ -225,6 +225,7 @@
 │   ├── review_wave_ef.py
 │   ├── run_canonical_strategy.py
 │   ├── run_nested_wfo.py
+│   ├── run_s5_adaptive_campaign.py
 │   ├── run_strategy_tournament.py
 │   ├── run_test_suite.py
 │   ├── run_wfo_evidence.py
@@ -634,6 +635,7 @@
 │   ├── test_s3_7_holdout_fail_closed.py
 │   ├── test_s3_evidence_integrity.py
 │   ├── test_s3_study_provenance.py
+│   ├── test_s5_adaptive_campaign.py
 │   ├── test_selection_policy_lifecycle.py
 │   ├── test_shadow_mainnet.py
 │   ├── test_shared_capital_allocator.py
