@@ -113,12 +113,8 @@ def _wrap_run_cell_tolerate_open(monkeypatch):
                 return replace(art, status="COMPLETED", failure_reasons=())
         return art
 
-    monkeypatch.setattr(
-        "trading_agent.backtest.nested_wfo.run_cell", _wrapped
-    )
-    monkeypatch.setattr(
-        "trading_agent.backtest.tournament.run_cell", _wrapped
-    )
+    monkeypatch.setattr("trading_agent.backtest.nested_wfo.run_cell", _wrapped)
+    monkeypatch.setattr("trading_agent.backtest.tournament.run_cell", _wrapped)
 
 
 @pytest.fixture
@@ -179,7 +175,7 @@ def _make_deterministic_cell_runner(
         mult = 2.0 if is_2x else cost_multiplier
         # Scale return by cost multiplier
         ret = (return_outer if is_outer else return_inner) / mult
-        sh = (sharpe_outer if is_outer else sharpe_inner) / (mult ** 0.5)
+        sh = (sharpe_outer if is_outer else sharpe_inner) / (mult**0.5)
         return EvaluationArtifact(
             cell_id=f"cell_{spec_cell.strategy_id}_{spec_cell.params.get('period', 'x')}_{spec_cell.cost_scenario.name}_{measurement_start}_{measurement_end}",
             status="COMPLETED",
@@ -215,7 +211,9 @@ def _make_deterministic_cell_runner(
             },
             failure_reasons=(),
             created_at=_dt.datetime.now(_dt.UTC).isoformat(),
-            measurement_window=(measurement_start, measurement_end) if measurement_start is not None else None,
+            measurement_window=(measurement_start, measurement_end)
+            if measurement_start is not None
+            else None,
         )
 
     return runner
@@ -245,12 +243,8 @@ def fast_patched(monkeypatch):
     # Replace run_cell with deterministic mock (the canonical WFO still
     # runs all its logic: inner selection, freeze, outer, gates, stats).
     runner = _make_deterministic_cell_runner()
-    monkeypatch.setattr(
-        "trading_agent.backtest.nested_wfo.run_cell", runner
-    )
-    monkeypatch.setattr(
-        "trading_agent.backtest.tournament.run_cell", runner
-    )
+    monkeypatch.setattr("trading_agent.backtest.nested_wfo.run_cell", runner)
+    monkeypatch.setattr("trading_agent.backtest.tournament.run_cell", runner)
     return df
 
 
@@ -275,9 +269,7 @@ class TestSerialParallelEquivalence:
         assert result.trial_counts["inner_validation_trials"] == 2
         assert result.trial_counts["outer_oos_trials"] == 2
 
-    def test_parallel_cell_runner_produces_same_artifact(
-        self, fast_patched, tmp_path
-    ):
+    def test_parallel_cell_runner_produces_same_artifact(self, fast_patched, tmp_path):
         """A ParallelCellRunner-like callback (sequential here) produces the
         same verdict and trial counts as serial. The CellRunner protocol
         accepts any callable with ``run_cell``'s signature."""
@@ -388,9 +380,7 @@ class TestSerialParallelEquivalence:
             == result_parallel.trial_counts["unique_experiments"]
         )
         # Same number of folds evaluated
-        assert len(result_serial.outer_results) == len(
-            result_parallel.outer_results
-        )
+        assert len(result_serial.outer_results) == len(result_parallel.outer_results)
         # Same set of fold_ids
         s_folds = {r.fold_id for r in result_serial.outer_results}
         p_folds = {r.fold_id for r in result_parallel.outer_results}
@@ -405,9 +395,7 @@ class TestInnerSelectionFreezeInvariance:
     outcomes, NOT outer test outcomes.
     """
 
-    def test_freeze_persists_before_outer_evaluation(
-        self, fast_patched, tmp_path
-    ):
+    def test_freeze_persists_before_outer_evaluation(self, fast_patched, tmp_path):
         """The inner selection freeze file is written BEFORE the outer test
         artifact, so even if outer evaluation fails, the freeze still exists
         with the selected params."""
@@ -425,9 +413,7 @@ class TestInnerSelectionFreezeInvariance:
             assert freeze.best_params, f"Fold {freeze.fold_id} has no best_params"
             assert freeze.fold_id == freeze.fold_id  # sanity
 
-    def test_freeze_id_deterministic_for_same_inner(
-        self, fast_patched, tmp_path
-    ):
+    def test_freeze_id_deterministic_for_same_inner(self, fast_patched, tmp_path):
         """Same inner validation outcome → same freeze_id, even if outer
         test data changes (verified by re-running on identical data)."""
         spec, _, _ = synthetic_wfo_spec(
@@ -455,9 +441,7 @@ class TestHoldoutNonReuse:
     confirmation. Parameter selection never sees it.
     """
 
-    def test_holdout_manifest_is_frozen_and_immutable(
-        self, fast_patched, tmp_path
-    ):
+    def test_holdout_manifest_is_frozen_and_immutable(self, fast_patched, tmp_path):
         """The FinalHoldoutManifest is a frozen dataclass — cannot be mutated."""
         manifest = FinalHoldoutManifest(
             strategy_id="rsi",
@@ -552,9 +536,7 @@ class TestPerCostMetricsReconcile:
     but not the per-trial PnL.
     """
 
-    def test_two_cost_scenarios_have_distinct_metrics(
-        self, fast_patched, tmp_path
-    ):
+    def test_two_cost_scenarios_have_distinct_metrics(self, fast_patched, tmp_path):
         """Two cost scenarios must produce distinct inner validation trials.
 
         With 2 cost scenarios × 2 folds × 1 param combo, the trial registry
@@ -604,9 +586,7 @@ class TestNegativeControlFailsCorrectGate:
     """R02.6: A known-bad scenario fails at the correct gate, not silently
     promoted to PASS."""
 
-    def test_synthetic_data_does_not_pass_promotion_gates(
-        self, fast_patched, tmp_path
-    ):
+    def test_synthetic_data_does_not_pass_promotion_gates(self, fast_patched, tmp_path):
         """SYNTHETIC_TEST_ONLY evidence must fail promotion eligibility."""
         spec, _, _ = synthetic_wfo_spec(
             strategy_id="rsi", symbol="BTC/USDT", timeframe="1h", n_bars=N_BARS

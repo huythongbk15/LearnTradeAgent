@@ -26,7 +26,7 @@ if str(ROOT) not in sys.path:
 
 
 def get_git_commit_sha() -> str:
-    try: 
+    try:
         return (
             subprocess.check_output(
                 ["git", "rev-parse", "HEAD"], cwd=ROOT, stderr=subprocess.DEVNULL
@@ -114,7 +114,9 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"DIAGNOSTIC: Analyzing cells from {input_dir}...")
-    print("  WARNING: This is a diagnostic tool only. Results are NOT promotion-eligible.")
+    print(
+        "  WARNING: This is a diagnostic tool only. Results are NOT promotion-eligible."
+    )
     print("  For canonical S3 validation, use run_wfo_parallel.py")
     cell_dirs = sorted([d for d in input_dir.iterdir() if d.is_dir()])
     cells: list[dict[str, Any]] = []
@@ -348,7 +350,9 @@ def main():
     print(f"  Provenance eligible: {provenance_eligible}")
     print(f"\n  Saved: {out_path}")
     print("\n  For canonical S3 validation, run:")
-    print(f"    python scripts/run_wfo_parallel.py --strategy {args.strategy} --symbol {args.symbol} --timeframe {args.timeframe} --cost all --workers 4")
+    print(
+        f"    python scripts/run_wfo_parallel.py --strategy {args.strategy} --symbol {args.symbol} --timeframe {args.timeframe} --cost all --workers 4"
+    )
 
 
 if __name__ == "__main__":

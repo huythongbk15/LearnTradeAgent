@@ -109,7 +109,10 @@ class ParallelCellRunner:
         self.max_retries = max_retries
         self._ctx = mp.get_context("spawn")
         self._executor: concurrent.futures.ProcessPoolExecutor | None = None
-        self._pending: dict[concurrent.futures.Future, tuple[EvaluationCellSpec, int, int, bool, int, int]] = {}
+        self._pending: dict[
+            concurrent.futures.Future,
+            tuple[EvaluationCellSpec, int, int, bool, int, int],
+        ] = {}
 
     def __enter__(self):
         self._executor = concurrent.futures.ProcessPoolExecutor(
@@ -152,7 +155,14 @@ class ParallelCellRunner:
             self.timeout_seconds,
             self.max_retries,
         )
-        self._pending[future] = (spec, start, end, fresh, measurement_start, measurement_end)
+        self._pending[future] = (
+            spec,
+            start,
+            end,
+            fresh,
+            measurement_start,
+            measurement_end,
+        )
         return future
 
     def run(
@@ -169,7 +179,9 @@ class ParallelCellRunner:
 
         This is the callback signature expected by `run_nested_wfo`.
         """
-        future = self._submit_cell(spec, start, end, fresh, measurement_start, measurement_end)
+        future = self._submit_cell(
+            spec, start, end, fresh, measurement_start, measurement_end
+        )
         return future.result(timeout=self.timeout_seconds)
 
     def run_batch(
@@ -291,14 +303,16 @@ def build_canonical_cells(
                     params=params,
                     cost_scenario=cost_scenario,
                 )
-                inner_cells.append((
-                    cell_spec,
-                    sim_start,
-                    fold.inner_val_end,
-                    True,  # fresh
-                    fold.inner_val_start,
-                    fold.inner_val_end,
-                ))
+                inner_cells.append(
+                    (
+                        cell_spec,
+                        sim_start,
+                        fold.inner_val_end,
+                        True,  # fresh
+                        fold.inner_val_start,
+                        fold.inner_val_end,
+                    )
+                )
 
     return inner_cells, folds
 
@@ -323,10 +337,16 @@ def main():
         "--run-holdout", action="store_true", help="Run final holdout if gates pass"
     )
     parser.add_argument(
-        "--real-sensitivity", action="store_true", default=True, help="Run real sensitivity analysis"
+        "--real-sensitivity",
+        action="store_true",
+        default=True,
+        help="Run real sensitivity analysis",
     )
     parser.add_argument(
-        "--no-real-sensitivity", action="store_false", dest="real_sensitivity", help="Disable real sensitivity"
+        "--no-real-sensitivity",
+        action="store_false",
+        dest="real_sensitivity",
+        help="Disable real sensitivity",
     )
     args = parser.parse_args()
 
@@ -385,8 +405,12 @@ def main():
     print(f"  Status: {'PASS' if result.passes_hard_gates else 'FAIL'}")
     print(f"  Verdict: {result.verdict}")
     print(f"  Folds: {result.aggregate_metrics.get('n_outer_folds', 0)}")
-    print(f"  Median Sharpe: {result.aggregate_metrics.get('median_test_sharpe', 0):.4f}")
-    print(f"  Median Return: {result.aggregate_metrics.get('median_test_return_pct', 0):.2f}%")
+    print(
+        f"  Median Sharpe: {result.aggregate_metrics.get('median_test_sharpe', 0):.4f}"
+    )
+    print(
+        f"  Median Return: {result.aggregate_metrics.get('median_test_return_pct', 0):.2f}%"
+    )
     print(f"  Elapsed: {elapsed:.0f}s")
 
     # Save summary
@@ -398,7 +422,9 @@ def main():
         "verdict": result.verdict,
         "passes_hard_gates": result.passes_hard_gates,
         "aggregate_metrics": result.aggregate_metrics,
-        "gate_results": [g.to_dict() if hasattr(g, 'to_dict') else g for g in result.gate_results],
+        "gate_results": [
+            g.to_dict() if hasattr(g, "to_dict") else g for g in result.gate_results
+        ],
         "elapsed_seconds": elapsed,
         "workers": args.workers,
         "run_holdout": args.run_holdout,

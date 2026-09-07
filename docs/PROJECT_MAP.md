@@ -160,7 +160,6 @@
 │   │   ├── process_registry.py
 │   │   └── tracked_subagent.py
 │   ├── _probe_config.py
-│   ├── aggregate_wfo_cells.py
 │   ├── alert_pager.py
 │   ├── audit_retention.py
 │   ├── audit_ship_offhost.py
@@ -187,6 +186,7 @@
 │   ├── demo_wave_ab_compare.py
 │   ├── demo_wave_c.py
 │   ├── demo_wave_ef.py
+│   ├── diagnose_wfo_cells.py
 │   ├── download_intraday.py
 │   ├── final_report_generator.py
 │   ├── full_system_backtest.py
@@ -215,6 +215,9 @@
 │   ├── pin_image_digests.py
 │   ├── portfolio_holdout.py
 │   ├── portfolio_holdout_adaptive.py
+│   ├── r01_equity_parity.py
+│   ├── r01_parity_check.py
+│   ├── r01_signal_parity.py
 │   ├── refactor_engine_c13.py
 │   ├── research_deep_analysis.py
 │   ├── research_evaluate.py
@@ -629,6 +632,7 @@
 │   ├── test_post_trade_impact.py
 │   ├── test_promotion_bridge.py
 │   ├── test_quant_methodology.py
+│   ├── test_r02_canonical_authority.py
 │   ├── test_realtime_data.py
 │   ├── test_research_governance.py
 │   ├── test_research_stats.py
