@@ -1,0 +1,18 @@
+[gc]
+gc_keep_count = 20
+gc_keep_days = 7
+pre_restore_retention_days = 7
+
+[auto]
+enabled = false
+debounce_seconds = 1.5
+
+[timeline]
+default_limit = 20
+max_limit = 200
+
+[display]
+query_preview_chars = 120
+
+[safety]
+include_memory_quiesce_timeout = 30.0

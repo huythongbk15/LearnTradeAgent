@@ -48,11 +48,11 @@ from trading_agent.data.storage import load_ohlcv
 from trading_agent.backtest.tournament import EvaluationArtifact
 
 
-# Param grids (same as run_wfo_minimal.py)
+# Param grids (aligned with R01 parameter schema in candidates.py)
 MINIMAL_PARAM_GRIDS: dict[str, dict[str, list]] = {
     "ma_adx": {
-        "fast_ma": [10, 20, 30],
-        "slow_ma": [40, 60, 80],
+        "fast_period": [10, 20, 30],
+        "slow_period": [40, 60, 80],
         "adx_period": [14],
         "adx_threshold": [30],
     },
@@ -66,14 +66,24 @@ MINIMAL_PARAM_GRIDS: dict[str, dict[str, list]] = {
         "std_dev": [2.0, 2.5],
     },
     "enhanced_ma": {
-        "fast": [10, 20],
-        "slow": [40, 60, 80],
-        "signal_ma": [20, 40],
+        "fast_period": [10, 20],
+        "slow_period": [40, 60, 80],
+        "adx_period": [14],
+        "adx_threshold": [30],
+        "require_close_above_slow": [False],
+        "momentum_period": [0],
+        "atr_period": [14],
+        "atr_sl_mult": [2.0],
+        "atr_tp_mult": [3.0],
+        "max_dd_pct": [0.15],
+        "dd_cooldown_bars": [0],
+        "dd_recovery_pct": [0.03],
+        "trailing_atr_mult": [0.0],
+        "risk_per_trade": [0.02],
     },
     "ma_vol_target": {
-        "fast_ma": [20, 30],
-        "slow_ma": [60, 80],
-        "vol_target": [0.15, 0.20, 0.25],
+        "fast_period": [20, 30],
+        "slow_period": [60, 80],
     },
 }
 

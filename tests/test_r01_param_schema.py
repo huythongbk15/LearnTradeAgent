@@ -29,10 +29,8 @@ from trading_agent.strategies.canonical.candidates import (
 from trading_agent.strategies.enhanced_ma import (
     EnhancedMaCrossover,
     MaAdxCrossover,
-    MaVolTargetCrossover,
 )
 from trading_agent.strategies.rsi import RsiStrategy
-from trading_agent.strategies.bbands import BBandsStrategy
 
 
 class TestR01ParamValidation:
@@ -44,10 +42,14 @@ class TestR01ParamValidation:
             validate_params("rsi", {"period": 14, "unknown_key": 123})
 
         with pytest.raises(ParamValidationError, match="Unknown parameter"):
-            validate_params("enhanced_ma", {"fast": 10, "slow_period": 60})  # typo: fast vs fast_period
+            validate_params(
+                "enhanced_ma", {"fast": 10, "slow_period": 60}
+            )  # typo: fast vs fast_period
 
         with pytest.raises(ParamValidationError, match="Unknown parameter"):
-            validate_params("ma_adx", {"fast_period": 10, "slow": 60})  # typo: slow vs slow_period
+            validate_params(
+                "ma_adx", {"fast_period": 10, "slow": 60}
+            )  # typo: slow vs slow_period
 
     def test_intentional_defaults_applied(self):
         """Missing optional keys get intentional defaults (not silent fallback)."""
@@ -77,7 +79,7 @@ class TestR01ParamValidation:
 
     def test_alias_roundtrip_if_exists(self):
         """If alias migration exists, it must round-trip explicitly (not implicit fallback).
-        
+
         Currently no aliases are defined, but this test documents the requirement.
         If aliases are added in future, they must be explicit in schema with migration path.
         """
@@ -104,9 +106,13 @@ class TestR01ParamValidation:
         assert strat2.slow == 60
 
         # Same for ma_adx
-        result3 = validate_params("ma_adx", {"fast_period": 10, "slow_period": 30, "adx_threshold": 20})
+        result3 = validate_params(
+            "ma_adx", {"fast_period": 10, "slow_period": 30, "adx_threshold": 20}
+        )
         strat3 = MaAdxCrossover(result3)
-        result4 = validate_params("ma_adx", {"fast_period": 20, "slow_period": 60, "adx_threshold": 30})
+        result4 = validate_params(
+            "ma_adx", {"fast_period": 20, "slow_period": 60, "adx_threshold": 30}
+        )
         strat4 = MaAdxCrossover(result4)
 
         assert strat3.fast == 10
@@ -119,16 +125,22 @@ class TestR01ParamValidation:
     def test_same_effective_params_same_identity(self):
         """Same effective params must have same canonical hash (identity)."""
         # Explicit params
-        hash1 = compute_effective_params_hash("rsi", {"period": 14, "oversold": 30, "overbought": 70})
+        hash1 = compute_effective_params_hash(
+            "rsi", {"period": 14, "oversold": 30, "overbought": 70}
+        )
         # Missing params (defaults applied)
         hash2 = compute_effective_params_hash("rsi", {})
         # Different order
-        hash3 = compute_effective_params_hash("rsi", {"overbought": 70, "period": 14, "oversold": 30})
+        hash3 = compute_effective_params_hash(
+            "rsi", {"overbought": 70, "period": 14, "oversold": 30}
+        )
 
         assert hash1 == hash2 == hash3, "Same effective params must have same hash"
 
         # Different params = different hash
-        hash4 = compute_effective_params_hash("rsi", {"period": 14, "oversold": 25, "overbought": 75})
+        hash4 = compute_effective_params_hash(
+            "rsi", {"period": 14, "oversold": 25, "overbought": 75}
+        )
         assert hash1 != hash4
 
     def test_grid_enumeration_correct(self):
@@ -170,16 +182,23 @@ class TestR01ParamValidation:
             "fast_period": [20, 30],
             "slow_period": [10, 20],  # fast >= slow for all combos
         }
-        with pytest.raises(ParamValidationError, match="fast_period.*must be < slow_period"):
+        with pytest.raises(
+            ParamValidationError, match="fast_period.*must be < slow_period"
+        ):
             enumerate_param_grid("ma_adx", grid)
 
     def test_type_coercion_works(self):
         """String numbers should be coerced to correct types."""
-        result = validate_params("rsi", {"period": "14", "oversold": "30", "overbought": "70"})
+        result = validate_params(
+            "rsi", {"period": "14", "oversold": "30", "overbought": "70"}
+        )
         assert result == {"period": 14, "oversold": 30, "overbought": 70}
         assert all(isinstance(v, int) for v in result.values())
 
-        result = validate_params("enhanced_ma", {"fast_period": "10", "slow_period": "60", "adx_threshold": "25.5"})
+        result = validate_params(
+            "enhanced_ma",
+            {"fast_period": "10", "slow_period": "60", "adx_threshold": "25.5"},
+        )
         assert result["fast_period"] == 10
         assert result["slow_period"] == 60
         assert result["adx_threshold"] == 25.5
@@ -220,13 +239,19 @@ class TestR01ParamValidation:
     def test_cross_param_validation(self):
         """Cross-parameter constraints must be validated."""
         # fast_period >= slow_period
-        with pytest.raises(ParamValidationError, match="fast_period.*must be < slow_period"):
+        with pytest.raises(
+            ParamValidationError, match="fast_period.*must be < slow_period"
+        ):
             validate_params("enhanced_ma", {"fast_period": 60, "slow_period": 30})
 
-        with pytest.raises(ParamValidationError, match="fast_period.*must be < slow_period"):
+        with pytest.raises(
+            ParamValidationError, match="fast_period.*must be < slow_period"
+        ):
             validate_params("ma_adx", {"fast_period": 60, "slow_period": 30})
 
-        with pytest.raises(ParamValidationError, match="fast_period.*must be < slow_period"):
+        with pytest.raises(
+            ParamValidationError, match="fast_period.*must be < slow_period"
+        ):
             validate_params("ma_vol_target", {"fast_period": 60, "slow_period": 30})
 
         # oversold >= overbought - this is caught by range validation first (oversold max 49, overbought min 51)
@@ -278,11 +303,19 @@ class TestR01TrialIdentity:
 
     def test_same_effective_params_same_artifact_id(self):
         """Same effective params must produce same artifact ID."""
-        _, adapter1 = build_parameterized_adapter("rsi", {"period": 14, "oversold": 30, "overbought": 70})
+        _, adapter1 = build_parameterized_adapter(
+            "rsi", {"period": 14, "oversold": 30, "overbought": 70}
+        )
         _, adapter2 = build_parameterized_adapter("rsi", {})  # defaults
-        _, adapter3 = build_parameterized_adapter("rsi", {"overbought": 70, "period": 14, "oversold": 30})
+        _, adapter3 = build_parameterized_adapter(
+            "rsi", {"overbought": 70, "period": 14, "oversold": 30}
+        )
 
-        assert adapter1._model_artifact_id == adapter2._model_artifact_id == adapter3._model_artifact_id
+        assert (
+            adapter1._model_artifact_id
+            == adapter2._model_artifact_id
+            == adapter3._model_artifact_id
+        )
 
     def test_different_effective_params_different_artifact_id(self):
         """Different effective params must produce different artifact ID."""
@@ -306,7 +339,10 @@ class TestR01SchemaCompleteness:
 
     def test_defaults_cover_all_schema_properties(self):
         """Defaults dict must cover all properties in schema."""
-        from trading_agent.strategies.canonical.candidates import _PARAM_DEFAULTS, _PARAM_SCHEMAS
+        from trading_agent.strategies.canonical.candidates import (
+            _PARAM_DEFAULTS,
+            _PARAM_SCHEMAS,
+        )
 
         for strategy_id, schema in _PARAM_SCHEMAS.items():
             defaults = _PARAM_DEFAULTS[strategy_id]
@@ -320,10 +356,73 @@ class TestR01SchemaCompleteness:
         for strategy_id, schema in _PARAM_SCHEMAS.items():
             for prop, spec in schema["properties"].items():
                 assert "type" in spec, f"{strategy_id}.{prop} missing type"
-                assert spec["type"] in ("integer", "number", "boolean"), f"{strategy_id}.{prop} invalid type"
+                assert spec["type"] in ("integer", "number", "boolean"), (
+                    f"{strategy_id}.{prop} invalid type"
+                )
                 if spec["type"] in ("integer", "number"):
                     assert "minimum" in spec, f"{strategy_id}.{prop} missing minimum"
                     assert "maximum" in spec, f"{strategy_id}.{prop} missing maximum"
+
+
+class TestR01TrialIdentityDeduplication:
+    """R01: Trial identity deduplication in evaluation context."""
+
+    def test_duplicate_effective_params_produce_same_identity(self):
+        hash_a = compute_effective_params_hash(
+            "enhanced_ma", {"fast_period": 10, "slow_period": 60, "adx_threshold": 30}
+        )
+        hash_b = compute_effective_params_hash(
+            "enhanced_ma", {"slow_period": 60, "fast_period": 10, "adx_threshold": 30}
+        )
+        assert hash_a == hash_b
+
+    def test_partial_params_derive_from_defaults(self):
+        hash_a = compute_effective_params_hash("enhanced_ma", {"fast_period": 10})
+        hash_b = compute_effective_params_hash("enhanced_ma", {"fast_period": 20})
+        assert hash_a != hash_b
+        assert compute_effective_params_hash(
+            "enhanced_ma", {}
+        ) == compute_effective_params_hash("enhanced_ma", None)
+
+    def test_distinct_configs_across_folds_are_distinct(self):
+        core_hash = compute_effective_params_hash("rsi", {"period": 14})
+        eval_a = f"{core_hash}_fold_0_cost_base"
+        eval_b = f"{core_hash}_fold_1_cost_2x"
+        assert eval_a != eval_b
+
+    def test_trial_count_from_grid_not_from_cells(self):
+        grid = {"fast_period": [10, 20, 30], "slow_period": [40, 60, 80]}
+        combos = enumerate_param_grid("ma_adx", grid)
+        unique_hashes = {compute_effective_params_hash("ma_adx", c) for c in combos}
+        assert len(unique_hashes) == 9
+        assert len(combos) == 9
+
+    def test_grid_enumeration_no_duplicate_identities(self):
+        grid = {"period": [14, 14], "oversold": [30, 30], "overbought": [70, 70]}
+        combos = enumerate_param_grid("rsi", grid)
+        hashes = [compute_effective_params_hash("rsi", c) for c in combos]
+        assert len(set(hashes)) == 1
+
+    def test_canonical_strategy_identity_is_content_addressed(self):
+        desc1, adapter1 = build_parameterized_adapter(
+            "enhanced_ma", {"fast_period": 10, "slow_period": 40}
+        )
+        desc2, adapter2 = build_parameterized_adapter(
+            "enhanced_ma", {"fast_period": 10, "slow_period": 40}
+        )
+        assert adapter1._model_artifact_id == adapter2._model_artifact_id
+        assert "legacy.enhanced_ma." in adapter1._model_artifact_id
+
+    def test_run_wfo_parallel_grid_uses_canonical_keys(self):
+        from scripts.run_wfo_parallel import MINIMAL_PARAM_GRIDS
+
+        for strategy_id, grid in MINIMAL_PARAM_GRIDS.items():
+            combos = enumerate_param_grid(strategy_id, grid)
+            assert len(combos) > 0, f"No valid combos for {strategy_id}"
+            for combo in combos:
+                validated = validate_params(strategy_id, combo)
+                if "fast_period" in validated and "slow_period" in validated:
+                    assert validated["fast_period"] < validated["slow_period"]
 
 
 if __name__ == "__main__":

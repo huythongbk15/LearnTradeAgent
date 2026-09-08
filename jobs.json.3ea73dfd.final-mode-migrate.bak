@@ -1,0 +1,58 @@
+{
+  "jobs": [
+    {
+      "dispatch": {
+        "channel": "console",
+        "meta": {},
+        "mode": "final",
+        "silent": false,
+        "target": {
+          "session_id": "1785294168130-raxm7n8",
+          "user_id": "default"
+        },
+        "type": "channel"
+      },
+      "enabled": true,
+      "id": "18f8216d-41db-4a44-b428-9f4264e7a7b5",
+      "meta": {},
+      "name": "Live EMA on Alpaca hourly",
+      "request": {
+        "input": [
+          {
+            "content": [
+              {
+                "text": "Chạy live trading paper: cd /home/huythong/.qwenpaw/workspaces/trading && python scripts/live_cron_runner.py --execute. Báo cáo ngắn gọn: có lệnh nào fill/fail không (Telegram sẽ tự gửi nếu có), equity và positions hiện tại. Nếu lỗi, in lỗi cụ thể và cách khắc phục.",
+                "type": "text"
+              }
+            ],
+            "role": "user",
+            "type": "message"
+          }
+        ],
+        "session_id": "1785294168130-raxm7n8",
+        "user_id": "default"
+      },
+      "runtime": {
+        "max_concurrency": 1,
+        "misfire_grace_seconds": 600,
+        "share_session": true,
+        "timeout_seconds": 300,
+        "tool_safety": false
+      },
+      "save_result_to_inbox": true,
+      "schedule": {
+        "cron": "0 * * * *",
+        "repeat_count": null,
+        "repeat_end_type": null,
+        "repeat_every_days": null,
+        "repeat_until": null,
+        "run_at": null,
+        "timezone": "Asia/Ho_Chi_Minh",
+        "type": "cron"
+      },
+      "task_type": "agent",
+      "text": null
+    }
+  ],
+  "version": 1
+}
