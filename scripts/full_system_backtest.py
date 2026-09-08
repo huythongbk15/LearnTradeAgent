@@ -348,9 +348,8 @@ class FullSystemSimulator:
                 )
             strategy_params_override = dict(artifact_params)
         self.strategy_name = strategy_name
-        self.strategy_params: dict[str, object] = {
-            "target_exposure_pct": MAX_POS_SIZE_PCT,
-        }
+        # Strategy-specific parameters (validated against schema)
+        self.strategy_params: dict[str, object] = {}
         if strategy_name in {"enhanced_ma", "ma_adx", "ma_vol_target"}:
             self.strategy_params.update(
                 {
@@ -361,6 +360,23 @@ class FullSystemSimulator:
                     "atr_tp_mult": ATR_TP_MULT,
                 }
             )
+        elif strategy_name == "rsi":
+            self.strategy_params.update(
+                {
+                    "period": 14,
+                    "oversold": 30,
+                    "overbought": 70,
+                }
+            )
+        elif strategy_name == "bbands":
+            self.strategy_params.update(
+                {
+                    "period": 20,
+                    "std_dev": 2.0,
+                }
+            )
+        # Runtime/execution parameters (NOT passed to strategy constructor)
+        self.target_exposure_pct = MAX_POS_SIZE_PCT
         if strategy_params_override:
             self.strategy_params.update(strategy_params_override)
         self._injected_signals = signal_series

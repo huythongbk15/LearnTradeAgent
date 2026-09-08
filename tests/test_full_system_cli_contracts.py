@@ -20,7 +20,7 @@ from trading_agent.research.forecast import ResearchStrategyRuntime, StrategyRun
 def _artifact() -> StrategyArtifact:
     descriptor, _ = build_legacy_candidate(
         "enhanced_ma",
-        {"fast_period": 15, "slow_period": 50, "target_exposure_pct": 0.25},
+        {"fast_period": 15, "slow_period": 50},
     )
     return StrategyArtifact(
         strategy_name="enhanced_ma",
@@ -28,7 +28,7 @@ def _artifact() -> StrategyArtifact:
         data_manifest_sha="sha256:" + "a" * 64,
         parameter_hash=sha256_hex(
             canonical_params(
-                {"fast_period": 15, "slow_period": 50, "target_exposure_pct": 0.25}
+                {"fast_period": 15, "slow_period": 50}
             )
         ),
         execution_model_version="full-system-v2",
@@ -40,7 +40,6 @@ def _artifact() -> StrategyArtifact:
             "parameters": {
                 "fast_period": 15,
                 "slow_period": 50,
-                "target_exposure_pct": 0.25,
             },
         },
     )

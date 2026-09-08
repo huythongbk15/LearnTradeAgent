@@ -126,19 +126,39 @@ def synthetic_wfo_spec(
     consumed by the evidence test which monkeypatches ``load_ohlcv`` to return
     ``generate_synthetic_ohlcv(n_bars)`` and ``_resolve_frozen_holdout_window``
     to return these bar indices.
+
+    The param_grid is automatically selected based on ``strategy_id`` to match
+    the strategy's expected parameters.
     """
     from trading_agent.backtest.nested_wfo import WFOSpec
     from trading_agent.backtest.tournament import SCENARIO_BASE
+
+    # Strategy-specific parameter grids (minimal smoke-test values)
+    if strategy_id in ("enhanced_ma", "ma_adx", "ma_vol_target"):
+        param_grid = {
+            "fast_period": [10],
+            "slow_period": [60],
+            "adx_threshold": [30],
+        }
+    elif strategy_id == "rsi":
+        param_grid = {
+            "period": [14],
+            "oversold": [30],
+            "overbought": [70],
+        }
+    elif strategy_id == "bbands":
+        param_grid = {
+            "period": [20],
+            "std_dev": [2.0],
+        }
+    else:
+        param_grid = {}
 
     spec = WFOSpec(
         strategy_id=strategy_id,
         symbol=symbol,
         timeframe=timeframe,
-        param_grid={
-            "fast_period": [10],
-            "slow_period": [60],
-            "trend_adx_threshold": [30],
-        },
+        param_grid=param_grid,
         cost_scenarios=(SCENARIO_BASE,),
         # These months-based values are valid but intentionally tiny; the
         # evidence test overrides fold geometry via a monkeypatched
