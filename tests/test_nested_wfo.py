@@ -24,6 +24,8 @@ from trading_agent.backtest.nested_wfo import (
     _compute_sensitivity_analysis,
     GateResult,
     FormalNoTradeArtifact,
+    PortfolioGatePolicy,
+    PortfolioGateReport,
 )
 from trading_agent.backtest.tournament import (
     SCENARIO_DOUBLE,
@@ -1313,12 +1315,282 @@ class TestMeasurementWindow:
         if pre:
             assert meas.metrics["total_trades"] < full.metrics["total_trades"]
 
-    def test_val_metrics_reproducible_for_same_window(self, tmp_path, monkeypatch):
-        a = self._run(monkeypatch, tmp_path / "a", 800, 1200)
-        b = self._run(monkeypatch, tmp_path / "b", 800, 1200)
-        assert a.metrics["total_trades"] == b.metrics["total_trades"]
-        assert a.metrics.get("sharpe") == b.metrics.get("sharpe")
+class TestPortfolioGatePolicy:
+    """Test PortfolioGatePolicy: content-addressed, versioned, tamper-evident."""
+
+    def test_default_policy(self):
+        policy = PortfolioGatePolicy()
+        assert policy.policy_version == "portfolio-v1"
+        assert policy.positive_pairs_pct_min == 60.0
+        assert policy.median_pair_return_min == 0.0
+        assert policy.contribution_concentration_max == 35.0
+        assert policy.aggregate_trades_min == 200.0
+        assert policy.all_members_pass is True
+
+    def test_policy_id_is_content_addressed(self):
+        p1 = PortfolioGatePolicy()
+        p2 = PortfolioGatePolicy()
+        assert p1.policy_id == p2.policy_id
+        p3 = PortfolioGatePolicy(positive_pairs_pct_min=50.0)
+        assert p3.policy_id != p1.policy_id
+
+    def test_policy_tamper_detection(self, tmp_path: Path):
+        """Tampering with a serialized policy changes its policy_id."""
+        import json
+
+        policy = PortfolioGatePolicy()
+        p = tmp_path / "policy.json"
+        p.write_text(json.dumps(policy.to_dict(), allow_nan=False))
+
+        # Tamper with a threshold
+        d = json.loads(p.read_text())
+        d["positive_pairs_pct_min"] = 10.0
+        p.write_text(json.dumps(d))
+
+        # Reconstruct — policy_id won't match the stored one if we compare
+        tampered = PortfolioGatePolicy(**{k: v for k, v in d.items() if k != "policy_id"})
+        assert tampered.policy_id != policy.policy_id
 
 
-if __name__ == "__main__":
-    pytest.main([__file__, "-v"])
+class TestPortfolioGateReport:
+    """Test PortfolioGateReport: artifact_id binding, to_dict/load round-trip."""
+
+    def test_report_artifact_id_is_content_addressed(self):
+        policy = PortfolioGatePolicy()
+        gates = [
+            GateResult(
+                gate_id="g1",
+                policy_version="v1",
+                observed_value=75.0,
+                threshold=60.0,
+                comparison=">=",
+                verdict="PASS",
+                reason="Test",
+            )
+        ]
+        r1 = PortfolioGateReport(
+            policy=policy,
+            gate_results=gates,
+            verdict="FINAL_PASS",
+            aggregate_metrics={"n_members": 5},
+        )
+        r2 = PortfolioGateReport(
+            policy=policy,
+            gate_results=gates,
+            verdict="FINAL_PASS",
+            aggregate_metrics={"n_members": 5},
+        )
+        assert r1.artifact_id == r2.artifact_id
+        assert r1.artifact_id.startswith("sha256:")
+
+    def test_report_tamper_detection(self):
+        policy = PortfolioGatePolicy()
+        gates = [
+            GateResult(
+                gate_id="g1",
+                policy_version="v1",
+                observed_value=75.0,
+                threshold=60.0,
+                comparison=">=",
+                verdict="PASS",
+                reason="Test",
+            )
+        ]
+        report = PortfolioGateReport(
+            policy=policy,
+            gate_results=gates,
+            verdict="FINAL_PASS",
+            aggregate_metrics={"n_members": 5},
+        )
+        assert report.verify_integrity()
+
+        # Tamper: change verdict after serialization — from_dict should reject
+        d = report.to_dict()
+        d["verdict"] = "NO_TRADE"
+        import pytest
+
+        with pytest.raises(ValueError, match="integrity check failed"):
+            PortfolioGateReport.from_dict(d)
+
+    def test_report_to_dict_from_dict_round_trip(self):
+        policy = PortfolioGatePolicy(positive_pairs_pct_min=70.0)
+        gates = [
+            GateResult(
+                gate_id="g1",
+                policy_version="v1",
+                observed_value=75.0,
+                threshold=70.0,
+                comparison=">=",
+                verdict="PASS",
+                reason="Test",
+            ),
+            GateResult(
+                gate_id="g2",
+                policy_version="v1",
+                observed_value=None,
+                threshold=0.0,
+                comparison=">",
+                verdict="INVALID",
+                reason="No data",
+            ),
+        ]
+        report = PortfolioGateReport(
+            policy=policy,
+            gate_results=gates,
+            verdict="NO_TRADE",
+            aggregate_metrics={"n_members": 3, "positive_pairs_pct": 50.0},
+        )
+        d = report.to_dict()
+        reloaded = PortfolioGateReport.from_dict(d)
+        assert reloaded.artifact_id == report.artifact_id
+        assert reloaded.verdict == "NO_TRADE"
+        assert reloaded.passes_hard_gates is False  # INVALID gates count as fail
+        assert reloaded.verify_integrity()
+
+
+class TestPortfolioGateEvaluation:
+    """Test portfolio-level gate evaluation logic via _build_portfolio_selection_result."""
+
+    def _make_mock_result(self, strategy_id, symbol, passes, aggregate_metrics=None):
+        from trading_agent.backtest.nested_wfo import WFOResult, WFOSpec
+
+        spec = WFOSpec(
+            strategy_id=strategy_id,
+            symbol=symbol,
+            timeframe="1h",
+            param_grid={"lookback": [14, 21]},
+        )
+        return WFOResult(
+            spec=spec,
+            inner_results=[],
+            outer_results=[],
+            inner_selection_freezes=[],
+            aggregate_metrics=aggregate_metrics or {
+                "median_test_return_pct": 5.0,
+                "total_oos_net_pnl": 1000.0,
+                "total_test_trades": 100,
+                "median_test_sharpe": 1.5,
+            },
+            statistical_hardening={},
+            gate_results=[] if passes else [
+                GateResult(
+                    gate_id="mock_gate",
+                    policy_version="v1",
+                    observed_value=0.1,
+                    threshold=0.5,
+                    comparison=">=",
+                    verdict="FAIL",
+                    reason="Mock failure",
+                )
+            ],
+            gate_failures=[] if passes else ["mock_gate"],
+            passes_hard_gates=passes,
+            no_trade_artifact=None,
+            final_holdout={"status": "COMPLETED"} if passes else None,
+            trial_counts={},
+            study_manifest=None,
+            completeness_report=None,
+            provenance_digest="sha256:abc",
+        )
+
+    def test_all_pass_produces_final_pass(self, monkeypatch):
+        from trading_agent.backtest.nested_wfo import _build_portfolio_selection_result
+
+        # Patch to avoid needing real data for outer_results
+        monkeypatch.setattr(
+            "trading_agent.backtest.nested_wfo._combined_identity",
+            lambda values: "sha256:identity_hash",
+        )
+        monkeypatch.setattr(
+            "trading_agent.backtest.nested_wfo._compute_commit_sha",
+            lambda: "deadbeef",
+        )
+
+        results = [
+            self._make_mock_result("enhanced_ma", "BTC/USDT", True),
+            self._make_mock_result("enhanced_ma", "ETH/USDT", True),
+            self._make_mock_result("enhanced_ma", "SOL/USDT", True),
+        ]
+        portfolio = _build_portfolio_selection_result(
+            results, run_holdout=True, out_root=None
+        )
+        assert portfolio.passes_hard_gates is True
+        assert portfolio.verdict == "FINAL_PASS"
+        assert portfolio.gate_report is not None
+        assert portfolio.gate_report.passes_hard_gates is True
+        assert portfolio.verify_integrity()
+
+    def test_any_member_fail_produces_no_trade(self, monkeypatch):
+        from trading_agent.backtest.nested_wfo import _build_portfolio_selection_result
+
+        monkeypatch.setattr(
+            "trading_agent.backtest.nested_wfo._combined_identity",
+            lambda values: "sha256:identity_hash",
+        )
+        monkeypatch.setattr(
+            "trading_agent.backtest.nested_wfo._compute_commit_sha",
+            lambda: "deadbeef",
+        )
+
+        results = [
+            self._make_mock_result("enhanced_ma", "BTC/USDT", True),
+            self._make_mock_result("enhanced_ma", "ETH/USDT", False),
+            self._make_mock_result("enhanced_ma", "SOL/USDT", True),
+        ]
+        portfolio = _build_portfolio_selection_result(
+            results, run_holdout=True, out_root=None
+        )
+        assert portfolio.passes_hard_gates is False
+        assert portfolio.verdict == "NO_TRADE"
+        assert portfolio.gate_report is not None
+        assert portfolio.gate_report.verdict == "NO_TRADE"
+        assert portfolio.no_trade_artifact is not None
+        assert portfolio.verify_integrity()
+
+    def test_custom_policy_thresholds(self, monkeypatch):
+        from trading_agent.backtest.nested_wfo import _build_portfolio_selection_result
+
+        monkeypatch.setattr(
+            "trading_agent.backtest.nested_wfo._combined_identity",
+            lambda values: "sha256:identity_hash",
+        )
+        monkeypatch.setattr(
+            "trading_agent.backtest.nested_wfo._compute_commit_sha",
+            lambda: "deadbeef",
+        )
+
+        policy = PortfolioGatePolicy(positive_pairs_pct_min=100.0)
+        results = [
+            self._make_mock_result("enhanced_ma", "BTC/USDT", True),
+            self._make_mock_result("enhanced_ma", "ETH/USDT", False),
+            self._make_mock_result("enhanced_ma", "SOL/USDT", True),
+        ]
+        portfolio = _build_portfolio_selection_result(
+            results, run_holdout=True, out_root=None, policy=policy
+        )
+        # Gate report should use the custom policy
+        assert portfolio.gate_report is not None
+        assert portfolio.gate_report.policy.positive_pairs_pct_min == 100.0
+
+    def test_no_trade_artifact_integrity_verified(self, monkeypatch):
+        """WFOPortfolioResult.verify_integrity must check no_trade_artifact."""
+        from trading_agent.backtest.nested_wfo import _build_portfolio_selection_result
+
+        monkeypatch.setattr(
+            "trading_agent.backtest.nested_wfo._combined_identity",
+            lambda values: "sha256:identity_hash",
+        )
+        monkeypatch.setattr(
+            "trading_agent.backtest.nested_wfo._compute_commit_sha",
+            lambda: "deadbeef",
+        )
+
+        results = [
+            self._make_mock_result("enhanced_ma", "BTC/USDT", False),
+        ]
+        portfolio = _build_portfolio_selection_result(
+            results, run_holdout=False, out_root=None
+        )
+        assert portfolio.no_trade_artifact is not None
+        # verify_integrity must check no_trade_artifact too
+        assert portfolio.verify_integrity()

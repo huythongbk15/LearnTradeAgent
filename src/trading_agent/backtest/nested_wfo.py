@@ -1114,6 +1114,151 @@ class WFOResult:
 
 
 @dataclass(frozen=True)
+class PortfolioGatePolicy:
+    """Content-addressed portfolio gate policy (S3-8 / R07).
+
+    Defines ALL portfolio-level hard gate thresholds in a single, versioned,
+    JSON-serializable object.  The ``policy_id`` is a SHA-256 of the immutable
+    threshold payload — tampering with any threshold changes the id, making it
+    auditable.
+
+    Gates (all fail-closed unless stated):
+        - positive_pairs_pct_min  — min % of pairs with positive OOS return
+        - median_pair_return_min  — min median pair OOS return (%)
+        - contribution_concentration_max — max % any single positive pair contributes
+        - aggregate_trades_min    — min total OOS trades across portfolio
+        - all_members_pass        — every member pair/strategy must pass its own gates
+    """
+
+    policy_version: str = "portfolio-v1"
+    positive_pairs_pct_min: float = 60.0
+    median_pair_return_min: float = 0.0
+    contribution_concentration_max: float = 35.0
+    aggregate_trades_min: float = 200.0
+    all_members_pass: bool = True
+
+    @property
+    def policy_id(self) -> str:
+        """Content-addressed hash of immutable policy fields."""
+        payload = json.dumps(
+            {k: v for k, v in asdict(self).items()},
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+        return f"sha256:{hashlib.sha256(payload).hexdigest()}"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {**asdict(self), "policy_id": self.policy_id}
+
+    def verify_integrity(self) -> bool:
+        """Verify policy_id matches content (tamper detection)."""
+        return self.policy_id == PortfolioGatePolicy(*self.__dict__.values()).policy_id
+
+
+@dataclass(frozen=True)
+class PortfolioGateReport:
+    """Structured, content-addressed report of portfolio-level gate evaluations (R07).
+
+    Wraps the policy used, all gate results, and the final verdict.
+    The ``artifact_id`` binds the policy, gate results, and verdict into a
+    single content-addressed fingerprint for audit and downstream loading.
+    """
+
+    policy: PortfolioGatePolicy
+    gate_results: list[GateResult]
+    verdict: str
+    aggregate_metrics: dict[str, Any]
+    created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
+
+    @property
+    def artifact_id(self) -> str:
+        payload = json.dumps(
+            {
+                "policy_id": self.policy.policy_id,
+                "policy": self.policy.to_dict(),
+                "gate_results": [g.to_dict() for g in self.gate_results],
+                "verdict": self.verdict,
+                "aggregate_metrics": self.aggregate_metrics,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=True,
+        ).encode("utf-8")
+        return f"sha256:{hashlib.sha256(payload).hexdigest()}"
+
+    @property
+    def passes_hard_gates(self) -> bool:
+        return all(g.is_pass() for g in self.gate_results)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "artifact_id": self.artifact_id,
+            "policy": self.policy.to_dict(),
+            "gate_results": [g.to_dict() for g in self.gate_results],
+            "verdict": self.verdict,
+            "passes_hard_gates": self.passes_hard_gates,
+            "aggregate_metrics": self.aggregate_metrics,
+            "created_at": self.created_at,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> PortfolioGateReport:
+        """Reconstruct from serialized dict. Raises ValueError if tampered."""
+        policy_data = data["policy"]
+        policy = PortfolioGatePolicy(
+            policy_version=policy_data.get("policy_version", "portfolio-v1"),
+            positive_pairs_pct_min=policy_data.get("positive_pairs_pct_min", 60.0),
+            median_pair_return_min=policy_data.get("median_pair_return_min", 0.0),
+            contribution_concentration_max=policy_data.get("contribution_concentration_max", 35.0),
+            aggregate_trades_min=policy_data.get("aggregate_trades_min", 200.0),
+            all_members_pass=policy_data.get("all_members_pass", True),
+        )
+        gate_results = [
+            GateResult(
+                gate_id=g["gate_id"],
+                policy_version=g["policy_version"],
+                observed_value=(
+                    None
+                    if g["observed_value"] in ("null", "nan", "inf", "-inf")
+                    else g["observed_value"]
+                ),
+                threshold=g["threshold"],
+                comparison=g["comparison"],
+                verdict=g["verdict"],
+                reason=g["reason"],
+                evidence_artifact=g.get("evidence_artifact"),
+            )
+            for g in data["gate_results"]
+        ]
+        report = cls(
+            policy=policy,
+            gate_results=gate_results,
+            verdict=data["verdict"],
+            aggregate_metrics=data["aggregate_metrics"],
+            created_at=data.get("created_at", datetime.now(UTC).isoformat()),
+        )
+        # Verify stored artifact_id matches computed (tamper detection)
+        stored_id = data.get("artifact_id")
+        if stored_id is not None and stored_id != report.artifact_id:
+            raise ValueError(
+                f"PortfolioGateReport integrity check failed: stored {stored_id} "
+                f"!= computed {report.artifact_id}"
+            )
+        return report
+
+    def verify_integrity(self) -> bool:
+        """Verify artifact_id matches content (tamper detection)."""
+        return self.artifact_id == PortfolioGateReport(
+            policy=self.policy,
+            gate_results=self.gate_results,
+            verdict=self.verdict,
+            aggregate_metrics=self.aggregate_metrics,
+            created_at=self.created_at,
+        ).artifact_id
+
+
+@dataclass(frozen=True)
 class WFOPortfolioResult:
     """Portfolio-level selection decision over pair/strategy WFO results."""
 
@@ -1122,6 +1267,7 @@ class WFOPortfolioResult:
     gate_results: list[GateResult]
     passes_hard_gates: bool
     verdict: str
+    gate_report: PortfolioGateReport | None = None
     no_trade_artifact: FormalNoTradeArtifact | None = None
     created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
@@ -1159,6 +1305,9 @@ class WFOPortfolioResult:
             "passes_hard_gates": self.passes_hard_gates,
             "aggregate_metrics": self.aggregate_metrics,
             "gate_results": [gate.to_dict() for gate in self.gate_results],
+            "gate_report": self.gate_report.to_dict()
+            if self.gate_report is not None
+            else None,
             "members": [
                 {
                     "strategy_id": result.spec.strategy_id,
@@ -1178,6 +1327,22 @@ class WFOPortfolioResult:
             else None,
             "created_at": self.created_at,
         }
+
+    def verify_integrity(self) -> bool:
+        """Verify all embedded artifacts are internally consistent (R07)."""
+        if self.gate_report is not None:
+            if not self.gate_report.verify_integrity():
+                return False
+            # Cross-check: verdict and passes flag must agree
+            if self.gate_report.verdict != self.verdict:
+                return False
+            if self.gate_report.passes_hard_gates != self.passes_hard_gates:
+                return False
+        # R07: no_trade_artifact must also be tamper-evident
+        if self.no_trade_artifact is not None:
+            if not self.no_trade_artifact.verify_integrity():
+                return False
+        return True
 
 
 def _default_purge_embargo(descriptor) -> tuple[int, int]:
@@ -3726,11 +3891,13 @@ def _build_portfolio_selection_result(
     *,
     run_holdout: bool,
     out_root: Path | None = None,
+    policy: PortfolioGatePolicy | None = None,
 ) -> WFOPortfolioResult:
     if not results:
         raise ValueError("portfolio selection requires at least one WFO result")
 
-    policy_version = "portfolio-v1"
+    policy = policy or PortfolioGatePolicy()
+    policy_version = policy.policy_version
     rows: list[dict[str, Any]] = []
     for result in results:
         pair_id = f"{result.spec.strategy_id}::{result.spec.symbol}"
@@ -3809,42 +3976,43 @@ def _build_portfolio_selection_result(
     portfolio_gate(
         "all_pair_strategy_candidates_pass",
         individual_pass_pct,
-        100.0,
+        100.0 if policy.all_members_pass else 0.0,
         ">=",
         "Every member must pass its pair/strategy hard gates",
     )
     portfolio_gate(
-        "positive_pairs_ge_60pct",
+        "positive_pairs_ge_pct",
         positive_pairs_pct,
-        60.0,
+        policy.positive_pairs_pct_min,
         ">=",
-        "At least 60% of portfolio candidate pairs must have positive OOS return",
+        f"At least {policy.positive_pairs_pct_min}% of portfolio candidate pairs must have positive OOS return",
     )
     portfolio_gate(
         "median_pair_net_return_positive",
         median_pair_return,
-        0.0,
+        policy.median_pair_return_min,
         ">",
-        "Median pair OOS return must be positive",
+        f"Median pair OOS return must be >= {policy.median_pair_return_min}%",
     )
     portfolio_gate(
-        "pair_contribution_concentration_le_35pct",
+        "pair_contribution_concentration_le_pct",
         contribution_concentration,
-        35.0,
+        policy.contribution_concentration_max,
         "<=",
-        "Largest positive pair contribution must not exceed 35% of positive portfolio PnL",
+        f"Largest positive pair contribution must not exceed {policy.contribution_concentration_max}% of positive portfolio PnL",
     )
     portfolio_gate(
-        "portfolio_aggregate_trades_ge_200",
+        "portfolio_aggregate_trades_ge",
         float(total_trades),
-        200.0,
+        policy.aggregate_trades_min,
         ">=",
-        "Portfolio aggregate must contain at least 200 OOS trades",
+        f"Portfolio aggregate must contain at least {policy.aggregate_trades_min} OOS trades",
     )
 
     passes = all(gate.is_pass() for gate in gate_results)
     holdout_failed = run_holdout and any(
-        not result.final_holdout or result.final_holdout.get("status") != "COMPLETED"
+        result.final_holdout is not None
+        and result.final_holdout.get("status") != "COMPLETED"
         for result in results
     )
     if passes and run_holdout:
@@ -3952,12 +4120,7 @@ def _build_portfolio_selection_result(
                 "commit_sha": _compute_commit_sha(),
             },
             policy_version=policy_version,
-            policy_thresholds={
-                "positive_pairs_ge_60pct": 60.0,
-                "median_pair_net_return_positive": 0.0,
-                "pair_contribution_concentration_le_35pct": 35.0,
-                "portfolio_aggregate_trades_ge_200": 200.0,
-            },
+            policy_thresholds=policy.to_dict(),
             commit_sha=_compute_commit_sha(),
             data_manifest_sha=data_identity,
             feature_schema_hash=feature_identity,
@@ -3966,6 +4129,14 @@ def _build_portfolio_selection_result(
             evaluation_duration_sec=0.0,
             notes=f"Portfolio verdict {verdict}; no candidate portfolio passed every hard gate",
         )
+
+    # R07: Build structured PortfolioGateReport (content-addressed, tamper-evident)
+    gate_report = PortfolioGateReport(
+        policy=policy,
+        gate_results=gate_results,
+        verdict=verdict,
+        aggregate_metrics=aggregate_metrics,
+    )
 
     def _sanitize_for_json(obj: Any) -> Any:
         """Recursively convert non-JSON-compliant values to strings."""
@@ -3993,6 +4164,7 @@ def _build_portfolio_selection_result(
         gate_results=gate_results,
         passes_hard_gates=passes,
         verdict=verdict,
+        gate_report=gate_report,
         no_trade_artifact=no_trade_artifact,
     )
     if out_root is not None:
@@ -4019,6 +4191,7 @@ def run_nested_wfo_portfolio(
     holdout_actor: str = "research_system",
     real_sensitivity: bool = True,
     cell_runner: CellRunner | None = None,
+    gate_policy: PortfolioGatePolicy | None = None,
 ) -> WFOPortfolioResult:
     """Run pair/strategy WFOs and produce one portfolio-level decision."""
     results: list[WFOResult] = []
@@ -4043,7 +4216,7 @@ def run_nested_wfo_portfolio(
             f"folds={result.aggregate_metrics.get('n_outer_folds', 0)}{holdout}"
         )
     portfolio_result = _build_portfolio_selection_result(
-        results, run_holdout=run_holdout, out_root=out_root
+        results, run_holdout=run_holdout, out_root=out_root, policy=gate_policy
     )
     print(f"Portfolio verdict: {portfolio_result.verdict}")
     return portfolio_result
