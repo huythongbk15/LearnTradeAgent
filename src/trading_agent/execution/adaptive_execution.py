@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Callable
@@ -29,7 +29,6 @@ from trading_agent.authority.adaptive_router import (
     HandoverState,
     RoutingDecision,
 )
-from trading_agent.authority.config import Environment
 from trading_agent.execution.canonical import (
     BrokerGateway,
     EnrichedMarketObservation,
@@ -37,7 +36,6 @@ from trading_agent.execution.canonical import (
     InstrumentRules,
     MarketPrice,
     OrderPlanner,
-    PaperExecutionAdapter,
     RiskLevel,
     UnifiedRiskDecision,
 )
@@ -45,45 +43,27 @@ from trading_agent.execution.canonical.order_planner import (
     CurrentPortfolioState,
     ExposureEffect,
     OrderIntent,
-    OrderPlanningResult,
-    OrderPlanningStatus,
-    TargetExposure,
 )
 from trading_agent.execution.canonical.broker_gateway import (
     BrokerGateway,
-    BrokerSubmitResult,
-    BrokerSubmitState,
 )
 from trading_agent.execution.canonical.market_observation import (
     BarState,
     EnrichedMarketObservation,
 )
 from trading_agent.execution.lifecycle import (
-    ExecutionEventStore,
     ExecutionLifecycle,
-    LifecycleState,
-    PortfolioRiskSnapshot,
     TrustedPrice,
 )
 from trading_agent.execution.simulator.engine import (
     MarketReplayEngine,
     OrderIntent as SimOrderIntent,
-    run_strategy_through_simulator,
     SimulatedExecutionResult,
     SimulationConfig,
     SimOrderType,
     SimSide,
 )
-from trading_agent.execution.simulator.ledger import ExecutionLedger
-from trading_agent.execution.simulator.metrics import compute_execution_metrics
 from trading_agent.research.forecast import Forecast, MarketObservation
-from trading_agent.research.selection_policy import (
-    SelectionPolicyRegistry,
-    SelectionPolicyArtifact,
-    ParamArtifact,
-    PolicyStatus,
-    PolicyActivationService,
-)
 
 
 @dataclass(frozen=True)
@@ -195,7 +175,6 @@ def _forecast_to_order_intent(
     config: AdaptiveExecutionConfig,
 ) -> list[OrderIntent]:
     """Convert a routed forecast into executable order intents."""
-    from trading_agent.execution.canonical.order_planner import ExposureEffect
 
     intents: list[OrderIntent] = []
 
@@ -365,7 +344,6 @@ class AdaptiveExecutionBridge:
         """
         from trading_agent.authority.execution import (
             ExecutionAuthority,
-            ExecutionValidationInput,
         )
 
         # 1. Route
@@ -671,27 +649,28 @@ class AdaptiveSimulatorBridge:
                     )
                     sim_intents.append(sim_intent)
 
-                    # Update execution state
-                    if intent.metadata.get("action") == "close_for_switch":
-                        exec_state.position_quantity = 0
-                    elif intent.metadata.get("action") == "open_new":
-                        exec_state.position_quantity = intent.quantity
-                        exec_state.position_entry_price = row["open"]
-                    elif intent.metadata.get("action") == "reduce_exposure":
-                        exec_state.position_quantity -= intent.quantity
+                    # R06: DO NOT update exec_state.position_quantity here.
+                    # Position must be reconciled from fill ledger AFTER simulation
+                    # completes — order intents can be rejected or partially filled.
 
-                    exec_state.current_strategy_id = decision.chosen_strategy_id
-                    exec_state.current_policy_id = decision.chosen_policy_id
+                exec_state.current_strategy_id = decision.chosen_strategy_id
+                exec_state.current_policy_id = decision.chosen_policy_id
 
             return sim_intents
 
         # Run simulation
         result = engine.run(provider, bars_per_year=bars_per_year)
 
-        # Update final equity from ledger
-        final_equity = engine.ledger.equity_at_mid(float(df["close"][-1]))
-        exec_state.equity = final_equity
+        # R06: Reconcile execution state from the FILL LEDGER — not from
+        # order intents. This ensures rejected/partial fills are reflected
+        # in position_quantity, cash_quote, and equity. Order intents are
+        # aspirational; the ledger is the source of truth.
+        exec_state.position_quantity = engine.ledger.inventory_base
+        exec_state.position_avg_price = engine.ledger.avg_cost()
         exec_state.cash_quote = engine.ledger.cash_quote
+        exec_state.equity = engine.ledger.equity_at_mid(float(df["close"][-1]))
+        exec_state.rejected_orders = engine.ledger.rejected_count
+        exec_state.partial_fills = engine.ledger.partial_fill_count
 
         return result
 

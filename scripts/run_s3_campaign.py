@@ -224,10 +224,24 @@ def _run_phase(
             continue
 
         try:
-            result = _run_one_spec(
-                spec, out_root / spec.strategy_id, run_holdout=run_holdout
+            # R04: isolate output per (pair, strategy) to prevent overwrite/mix
+            spec_out_root = out_root / spec.strategy_id / spec.symbol
+            result = _run_one_spec(spec, spec_out_root, run_holdout=run_holdout)
+            # R04: FINAL_PASS requires passes_hard_gates AND completeness AND holdout executed
+            _completeness_ok = (
+                result.completeness_report is None
+                or result.completeness_report.is_complete
             )
-            verdict = "FINAL_PASS" if result.passes_hard_gates else "NO_TRADE"
+            _holdout_ok = not run_holdout or (
+                result.final_holdout is not None
+                and result.final_holdout.get("status") == "COMPLETED"
+            )
+            if result.passes_hard_gates and _completeness_ok and _holdout_ok:
+                verdict = "FINAL_PASS"
+            elif result.passes_hard_gates and run_holdout and not _holdout_ok:
+                verdict = "NO_TRADE"  # holdout not executed or failed
+            else:
+                verdict = "NO_TRADE"
             verdicts[spec.strategy_id + "@" + spec.symbol] = verdict
 
             if run_holdout:
@@ -235,7 +249,7 @@ def _run_phase(
                     pair=spec.symbol,
                     strategy=spec.strategy_id,
                     outcome=verdict,
-                    result_artifact=str(out_root / spec.strategy_id),
+                    result_artifact=str(spec_out_root),
                 )
         except Exception as exc:
             verdicts[spec.strategy_id + "@" + spec.symbol] = "FAILED"
@@ -332,8 +346,10 @@ def main() -> int:
 
     phases_to_run = ["smoke", "scope", "final"] if args.phase == "all" else [args.phase]
 
+    out_root.mkdir(parents=True, exist_ok=True)
     enforcer = ScopeEnforcer(scope)
-    holdout_guard = HoldoutAccessGuard()
+    # R04: load persisted holdout access registry for cross-run protection
+    holdout_guard = HoldoutAccessGuard.load(out_root / "holdout_registry.json")
     all_results: list[PhaseResult] = []
 
     if "smoke" in phases_to_run:
@@ -402,6 +418,9 @@ def main() -> int:
         "synthetic": args.synthetic,
         "created_at": datetime.now(UTC).isoformat(),
     }
+    # R04: persist holdout access registry for cross-run protection
+    holdout_guard.save(out_root / "holdout_registry.json")
+
     summary_path = out_root / "campaign_summary.json"
     summary_path.write_text(
         json.dumps(summary, indent=2, default=str), encoding="utf-8"

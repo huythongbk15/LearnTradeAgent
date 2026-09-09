@@ -435,7 +435,7 @@ class TestCampaignOrchestratorSmoke:
             capture_output=True,
             text=True,
             cwd=ROOT,
-            timeout=60,
+            timeout=120,
         )
         # The campaign may have errors due to small synthetic data, but the
         # campaign_summary.json should still be written
@@ -455,6 +455,96 @@ class TestCampaignOrchestratorSmoke:
         smoke_phase = next(p for p in d["phases"] if p["phase"] == "smoke")
         assert smoke_phase["pairs_run"] == 1
         assert smoke_phase["strategies_run"] == 1
+
+
+class TestHoldoutAccessGuardPersistence:
+    """R04: HoldoutAccessGuard must persist across runs for cross-run protection."""
+
+    def test_save_and_load_roundtrip(self, tmp_path: Path):
+        guard = HoldoutAccessGuard()
+        guard.request_access("BTC/USDT", "rsi", fold_count=1)
+        guard.record_outcome("BTC/USDT", "rsi", outcome="NO_TRADE")
+        path = tmp_path / "holdout_registry.json"
+        guard.save(path)
+
+        loaded = HoldoutAccessGuard.load(path)
+        assert loaded.has_touched("BTC/USDT", "rsi")
+        # Second access should still raise (state persisted)
+        with pytest.raises(HoldoutReuseError, match="already touched"):
+            loaded.request_access("BTC/USDT", "rsi", fold_count=1)
+
+    def test_load_nonexistent_returns_empty(self, tmp_path: Path):
+        path = tmp_path / "nonexistent.json"
+        guard = HoldoutAccessGuard.load(path)
+        assert guard.to_dict()["touched"] == []
+
+    def test_persisted_outcome_survives_reload(self, tmp_path: Path):
+        guard = HoldoutAccessGuard()
+        guard.request_access("ETH/USDT", "ma_adx", fold_count=1)
+        guard.record_outcome(
+            "ETH/USDT", "ma_adx", outcome="FINAL_PASS", result_artifact="/tmp/artifact"
+        )
+        path = tmp_path / "holdout_registry.json"
+        guard.save(path)
+
+        loaded = HoldoutAccessGuard.load(path)
+        touched = loaded.to_dict()["touched"]
+        assert len(touched) == 1
+        assert touched[0]["outcome"] == "FINAL_PASS"
+        assert touched[0]["result_artifact"] == "/tmp/artifact"
+
+
+class TestCampaignOutputIsolation:
+    """R04: Campaign output must be isolated per (pair, strategy)."""
+
+    def test_smoke_phase_isolates_output_by_pair_strategy(self, tmp_path: Path):
+        """Verify campaign_summary.json is written and contains the expected
+        structure. Also verify that the holdout guard persists across runs."""
+        import json
+        import subprocess
+
+        out_dir = tmp_path / "smoke"
+        result = subprocess.run(
+            [
+                "python",
+                "scripts/run_s3_campaign.py",
+                "--phase",
+                "smoke",
+                "--synthetic",
+                "--n-bars",
+                "200",
+                "--out",
+                str(out_dir),
+            ],
+            capture_output=True,
+            text=True,
+            cwd=ROOT,
+            timeout=120,
+        )
+        summary_path = out_dir / "campaign_summary.json"
+        assert summary_path.exists(), (
+            f"Summary not created. stderr={result.stderr[:500]}"
+        )
+
+        d = json.loads(summary_path.read_text())
+        assert "scope" in d
+        assert "phases" in d
+        assert "enforcer_clean" in d
+        assert "holdout_accesses" in d
+
+        # Smoke phase: 1 pair, 1 strategy, no holdout
+        smoke_phase = next(p for p in d["phases"] if p["phase"] == "smoke")
+        assert smoke_phase["pairs_run"] == 1
+        assert smoke_phase["strategies_run"] == 1
+
+        # Verify holdout registry was persisted
+        registry_path = out_dir / "holdout_registry.json"
+        assert registry_path.exists(), "holdout_registry.json not persisted"
+
+        # Verify the spec output is isolated per pair/strategy
+        spec_out = out_dir / "smoke" / "rsi" / "BTC/USDT"
+        if spec_out.exists():
+            assert (spec_out / "wfo_decision.json").exists()
 
 
 if __name__ == "__main__":

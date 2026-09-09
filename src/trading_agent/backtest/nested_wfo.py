@@ -1012,6 +1012,15 @@ class WFOResult:
             "study_manifest": self.study_manifest.to_dict()
             if self.study_manifest
             else None,
+            # R03: completeness_report must be exported so consumers can verify
+            # the evidence passed manifest validation. When this field is
+            # absent or is_complete=False, the artifact MUST NOT be promoted.
+            "completeness_report": asdict(self.completeness_report)
+            if self.completeness_report
+            else None,
+            # R03: provenance_digest binds the decision to canonical evaluation
+            # identity — must be exported for content-addressed verification.
+            "provenance_digest": self.provenance_digest,
             "created_at": self.created_at,
         }
 
@@ -2490,12 +2499,20 @@ def run_nested_wfo(
         best_candidate_experiment_id = None
         candidate_metrics = []
 
+        # R02: Collect all inner-validation cells across (params × cost) and
+        # dispatch them in a single batch via run_batch() if the cell_runner
+        # supports batching. Previously each cell was submitted + awaited
+        # sequentially inside _run_parameter_trial, providing no parallelism.
+        batch_cells: list[tuple[EvaluationCellSpec, int, int, bool, int, int]] = []
+        cell_keys: list[tuple[dict, CostScenario, str, int]] = []  # (params, cost_scenario, cost_name, experiment_id)
+
+        warmup = descriptor.warmup_bars  # reuse descriptor warmup
+        buffer_bars = 100
+        sim_start = max(0, fold.inner_train_start - warmup - buffer_bars)
+
         for params in param_combos:
             for cost_scenario in spec.cost_scenarios:
                 params_with_cost = {**params, "cost_scenario": cost_scenario.name}
-                # S3-2: register one canonical experiment per distinct
-                # (params, cost) candidate so the registry trial count reflects
-                # the real search-space size, not a single search-space row.
                 candidate_spec = ExperimentSpec.build(
                     strategy_name=spec.strategy_id,
                     strategy_code_sha=strategy_code_sha,
@@ -2511,98 +2528,119 @@ def run_nested_wfo(
                 stored_candidate = registry.register_experiment(candidate_spec)
                 candidate_experiment_ids.add(stored_candidate.experiment_id)
 
-                val_sharpe, val_metrics, artifact = _run_parameter_trial(
+                spec_val = EvaluationCellSpec(
                     strategy_id=spec.strategy_id,
                     symbol=spec.symbol,
                     timeframe=spec.timeframe,
                     params=params,
                     cost_scenario=cost_scenario,
-                    inner_train_start=fold.inner_train_start,
-                    inner_train_end=fold.inner_train_end,
-                    inner_val_start=fold.inner_val_start,
-                    inner_val_end=fold.inner_val_end,
-                    out_root=out_root,
-                    registry=registry,
-                    search_family=spec.search_family,
-                    evaluator_version=spec.evaluator_version,
-                    seed=spec.seed,
-                    descriptor=descriptor,
-                    adapter=adapter,
-                    cell_runner=cell_runner,
                 )
-                candidate_metrics.append(
-                    {
-                        "params": params,
-                        "cost_scenario": cost_scenario.name,
-                        "val_sharpe": val_sharpe,
-                        "val_metrics": val_metrics,
-                    }
-                )
-                # S3-2: every attempted (params, cost, fold) is evidence. Failed,
-                # no-trade and non-finite trials remain in the append-only burden
-                # instead of disappearing from multiple-testing accounting.
-                if not registry.has_trial_phase(
-                    stored_candidate.experiment_id,
-                    fold_id,
-                    TRIAL_PHASE_INNER_VALIDATION,
-                ):
-                    metric_available = bool(np.isfinite(val_sharpe))
-                    artifact_status = (
-                        artifact.status if artifact is not None else "FAILED"
-                    )
-                    # R03: stamp the full evaluation identity on every trial
+                batch_cells.append((
+                    spec_val, sim_start, fold.inner_val_end,
+                    True, fold.inner_val_start, fold.inner_val_end,
+                ))
+                cell_keys.append((
+                    params, cost_scenario, cost_scenario.name, stored_candidate.experiment_id,
+                ))
+
+        # Dispatch all cells in parallel (or serially fallback)
+        if hasattr(cell_runner, "run_batch"):
+            artifacts = cell_runner.run_batch(batch_cells)  # type: ignore[union-attr]
+        else:
+            # Fallback: serial execution
+            runner = cell_runner or run_cell
+            artifacts = [
+                runner(spec_val, out_root=out_root, start=sim_start,
+                       end=fold.inner_val_end, fresh=True,
+                       measurement_start=fold.inner_val_start,
+                       measurement_end=fold.inner_val_end)
+                for spec_val, _, _, _, _, _ in batch_cells
+            ]
+
+        # Map results back
+        for idx, (params, cost_scenario_obj, cost_name, experiment_id) in enumerate(cell_keys):
+            params_with_cost = {**params, "cost_scenario": cost_name}
+            cost_scenario = cost_scenario_obj  # R02: restore loop var for downstream
+            artifact_val = artifacts[idx] if artifacts[idx] else None
+
+            if artifact_val.status != "COMPLETED":
+                val_sharpe = -np.inf
+                val_metrics = {}
+            else:
+                val_sharpe = float(artifact_val.metrics.get("sharpe", -np.inf))
+                val_metrics = dict(artifact_val.metrics)
+
+            candidate_metrics.append(
+                {
+                    "params": params,
+                    "cost_scenario": cost_name,
+                    "val_sharpe": val_sharpe,
+                    "val_metrics": val_metrics,
+                }
+            )
+            # S3-2: every attempted (params, cost, fold) is evidence. Failed,
+            # no-trade and non-finite trials remain in the append-only burden
+            # instead of disappearing from multiple-testing accounting.
+            if not registry.has_trial_phase(
+                experiment_id,
+                fold_id,
+                TRIAL_PHASE_INNER_VALIDATION,
+            ):
+                metric_available = bool(np.isfinite(val_sharpe))
+                artifact_status = artifact_val.status if artifact_val else "FAILED"
+                # R03: stamp the full evaluation identity on every trial
                     # record so consumers (ResumeGuard) can verify resume
-                    # compatibility from any single registry entry.
-                    inner_identity = evaluation_identity(
-                        strategy_id=spec.strategy_id,
-                        symbol=spec.symbol,
-                        timeframe=spec.timeframe,
-                        strategy_code_sha=strategy_code_sha,
-                        data_manifest_sha=data_manifest_sha,
-                        feature_schema_hash=feature_schema_hash,
-                        search_space_hash=search_space_hash_val,
-                        evaluator_version=spec.evaluator_version,
-                        policy_version=POLICY_VERSION,
-                        cost_scenario=cost_scenario.name,
-                        window_kind=TRIAL_PHASE_INNER_VALIDATION,
-                        seed=spec.seed,
-                        commit_sha=commit_sha,
-                        extra={
-                            "params_hash": param_hash(params_with_cost),
-                            "study_manifest_id": study_manifest.manifest_id,
-                        },
-                    )
-                    inner_metadata = attach_evaluation_identity(
-                        {
-                            "params": params_with_cost,
-                            "cost_scenario": cost_scenario.name,
-                            "freeze_id": None,
-                            "status": artifact_status,
-                            "metric_available": metric_available,
-                            "failure_reasons": list(artifact.failure_reasons)
-                            if artifact is not None
-                            else ["missing_artifact"],
-                        },
-                        inner_identity,
-                    )
-                    registry.append_evaluation(
-                        experiment_id=stored_candidate.experiment_id,
-                        fold_id=fold_id,
-                        metric_name=(
-                            "inner_val_sharpe"
-                            if metric_available
-                            else "inner_val_trial_failed"
-                        ),
-                        metric_value=float(val_sharpe) if metric_available else 0.0,
-                        environment_hash=env_hash,
-                        trial_phase=TRIAL_PHASE_INNER_VALIDATION,
-                        metadata=inner_metadata,
-                    )
+                # compatibility from any single registry entry.
+                inner_identity = evaluation_identity(
+                    strategy_id=spec.strategy_id,
+                    symbol=spec.symbol,
+                    timeframe=spec.timeframe,
+                    strategy_code_sha=strategy_code_sha,
+                    data_manifest_sha=data_manifest_sha,
+                    feature_schema_hash=feature_schema_hash,
+                    search_space_hash=search_space_hash_val,
+                    evaluator_version=spec.evaluator_version,
+                    policy_version=POLICY_VERSION,
+                    cost_scenario=cost_scenario.name,
+                    window_kind=TRIAL_PHASE_INNER_VALIDATION,
+                    seed=spec.seed,
+                    commit_sha=commit_sha,
+                    extra={
+                        "params_hash": param_hash(params_with_cost),
+                        "study_manifest_id": study_manifest.manifest_id,
+                    },
+                )
+                inner_metadata = attach_evaluation_identity(
+                    {
+                        "params": params_with_cost,
+                        "cost_scenario": cost_scenario.name,
+                        "freeze_id": None,
+                        "status": artifact_status,
+                        "metric_available": metric_available,
+                        "failure_reasons": list(artifact_val.failure_reasons)
+                        if artifact_val is not None
+                        else ["missing_artifact"],
+                    },
+                    inner_identity,
+                )
+                registry.append_evaluation(
+                    experiment_id=experiment_id,
+                    fold_id=fold_id,
+                    metric_name=(
+                        "inner_val_sharpe"
+                        if metric_available
+                        else "inner_val_trial_failed"
+                    ),
+                    metric_value=float(val_sharpe) if metric_available else 0.0,
+                    environment_hash=env_hash,
+                    trial_phase=TRIAL_PHASE_INNER_VALIDATION,
+                    metadata=inner_metadata,
+                )
                 if val_sharpe > best_val_sharpe:
                     best_val_sharpe = val_sharpe
                     best_params = params_with_cost
                     best_val_metrics = val_metrics
-                    best_candidate_experiment_id = stored_candidate.experiment_id
+                    best_candidate_experiment_id = experiment_id
 
         inner_results.append(
             WFOInnerResult(
@@ -3491,6 +3529,11 @@ def run_nested_wfo(
     # cannot silently re-aggregate a tampered/incomplete result. Only
     # validated for REAL_MARKET studies (synthetic evidence does not need
     # the same fail-closed gate).
+    #
+    # FAIL-CLOSED SEMANTICS: completeness_report must gate `passes` and
+    # `promotable` — if the evidence is incomplete or tampered, the result
+    # MUST NOT be promotable, even if all hard gates passed. This check runs
+    # AFTER gate evaluation so completeness is a blocking condition.
     completeness_report: CompletenessReport | None = None
     if spec.evidence_class == "REAL_MARKET":
         try:
@@ -3503,6 +3546,45 @@ def run_nested_wfo(
                 expected_count=len(folds),
                 found_count=0,
                 issues=(f"manifest validator raised: {exc!r}",),
+            )
+
+    # --- Fold completeness into passes / promotable / no_trade_artifact ---
+    # This must happen AFTER completeness_report is computed (line above),
+    # NOT before. Previously `passes` was computed at line ~3436 without
+    # considering completeness, so an incomplete evidence set could still
+    # yield passes_hard_gates=True. Fix: fail-closed if completeness fails.
+    completeness_failed = (
+        completeness_report is not None and not completeness_report.is_complete
+    )
+    if completeness_failed:
+        # Append completeness gate failure
+        gate_failures.append(
+            f"completeness_check:{';'.join(completeness_report.issues or [])}"
+        )
+        passes = False
+        aggregate_metrics["promotable"] = False
+        # Build or update formal no-trade artifact for completeness failure
+        candidate_id = f"{spec.strategy_id}::{spec.symbol}"
+        if no_trade_artifact is None:
+            no_trade_artifact = FormalNoTradeArtifact(
+                candidate_set=[candidate_id],
+                gate_results={candidate_id: all_gate_results},
+                gate_failures={candidate_id: list(gate_failures)},
+                best_candidate=candidate_id,
+                best_candidate_metrics=aggregate_metrics,
+                registry_identity=registry_identity,
+                policy_version=POLICY_VERSION,
+                policy_thresholds=policy_thresholds,
+                commit_sha=commit_sha,
+                data_manifest_sha=data_manifest_sha,
+                feature_schema_hash=feature_schema_hash,
+                search_space_hash=search_space_hash_val,
+                evaluation_timestamp=datetime.now(UTC).isoformat(),
+                evaluation_duration_sec=0.0,
+                notes=(
+                    f"Manifest completeness check failed for {candidate_id}: "
+                    f"{';'.join(completeness_report.issues or [])}"
+                ),
             )
 
     result = WFOResult(
@@ -3575,6 +3657,11 @@ def _build_portfolio_selection_result(
                 ),
                 "trades": int(result.aggregate_metrics.get("total_test_trades") or 0),
                 "individual_pass": result.passes_hard_gates,
+                # R03: completeness must flow to portfolio aggregation
+                "completeness_report": asdict(result.completeness_report)
+                if result.completeness_report
+                else None,
+                "provenance_digest": result.provenance_digest,
             }
         )
 

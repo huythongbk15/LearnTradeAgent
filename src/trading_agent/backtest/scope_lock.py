@@ -26,6 +26,7 @@ import hashlib
 import json
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 # Default R04 locked scope (per R00 baseline + R02 canonical authority).
@@ -307,6 +308,43 @@ class HoldoutAccessGuard:
                 for (p, s), r in self._accesses.items()
             ],
         }
+
+    def save(self, path: str | Path) -> Path:
+        """Persist holdout access registry to disk for cross-run protection."""
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".json.tmp")
+        tmp.write_text(
+            json.dumps(self.to_dict(), indent=2, default=str),
+            encoding="utf-8",
+        )
+        tmp.replace(path)
+        return path
+
+    @classmethod
+    def load(cls, path: str | Path) -> "HoldoutAccessGuard":
+        """Load holdout access registry from disk.
+
+        If the file does not exist, returns an empty guard (no accesses).
+        This ensures a fresh campaign starts clean while a resumed campaign
+        preserves previously-recorded holdout touches.
+        """
+        path = Path(path)
+        if not path.exists():
+            return cls()
+        data = json.loads(path.read_text(encoding="utf-8"))
+        guard = cls()
+        for entry in data.get("touched", []):
+            record = HoldoutAccessRecord(
+                pair=entry["pair"],
+                strategy=entry["strategy"],
+                fold_count=entry["fold_count"],
+                accessed_at=entry.get("accessed_at", ""),
+                outcome=entry.get("outcome", ""),
+                result_artifact=entry.get("result_artifact", ""),
+            )
+            guard._accesses[(entry["pair"], entry["strategy"])] = record
+        return guard
 
 
 class HoldoutReuseError(Exception):
