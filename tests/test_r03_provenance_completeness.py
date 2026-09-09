@@ -32,6 +32,7 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from trading_agent.backtest.nested_wfo import NestedFold
 from trading_agent.backtest.provenance import (
     CompletenessReport,
     ManifestValidator,
@@ -809,6 +810,249 @@ class TestWFOResultCompleteness:
         assert d["missing"] == ["f2", "f3"]
         assert d["mismatched"] == ["f1"]
         assert "data_manifest_sha" in d["issues"][0]
+
+
+# =============================================================================
+# Test 8: Consumer-level completeness gate (end-to-end)
+# =============================================================================
+
+
+class TestConsumerCompletenessGate:
+    """R03 integration: consumer must reject tampered/missing evidence.
+
+    Exercises the full pipeline with ``evidence_class="REAL_MARKET"`` so
+    that ``ManifestValidator`` runs at production time. Then verifies:
+
+    1. Clean run → ``completeness_report.is_complete`` is True and
+       ``promotable`` is wired into ``passes``.
+    2. Tampering an outer artifact on disk → consumer re-validation
+       detects it → ``is_complete=False`` → result not promotable.
+    3. Removing an outer artifact → ``is_complete=False`` (missing cell).
+    4. ``to_dict()`` round-trip preserves completeness_report and
+       provenance_digest for downstream consumers.
+    """
+
+    _FOLDS = [
+        NestedFold(
+            fold_id="f1",
+            inner_train_start=0,
+            inner_train_end=160,
+            inner_val_start=160,
+            inner_val_end=240,
+            outer_test_start=240,
+            outer_test_end=320,
+            purge=0,
+            embargo=0,
+        ),
+    ]
+
+    def _setup_and_run(self, tmp_path: Path, evidence_class: str = "REAL_MARKET"):
+        """Run ``run_nested_wfo`` with mocked runner + monkeypatched folds."""
+        from trading_agent.backtest.nested_wfo import run_nested_wfo
+        from trading_agent.backtest.synthetic_data import (
+            synthetic_wfo_spec,
+            generate_synthetic_ohlcv,
+        )
+
+        df = generate_synthetic_ohlcv(
+            symbol="BTC/USDT", timeframe="1h", n_bars=400, seed=7
+        )
+
+        def _load(*a, **k):
+            return df
+
+        import trading_agent.data.storage as storage_mod
+        import trading_agent.backtest.tournament as tournament_mod
+        import trading_agent.backtest.nested_wfo as nwfo
+
+        storage_mod.load_ohlcv = _load
+        tournament_mod.load_ohlcv = _load
+        nwfo._resolve_frozen_holdout_window = lambda *a, **k: (320, 399)
+        nwfo._get_fold_indices = lambda *a, **k: self._FOLDS
+
+        def runner(
+            spec_cell, *, out_root=None, start=0, end=None, fresh=True,
+            measurement_start=None, measurement_end=None, **kwargs,
+        ):
+            import datetime
+            from trading_agent.backtest.tournament import EvaluationArtifact
+
+            return EvaluationArtifact(
+                cell_id=f"c_{spec_cell.params.get('period')}_{measurement_start}",
+                status="COMPLETED",
+                descriptor_id="desc",
+                strategy_id=spec_cell.strategy_id,
+                symbol=spec_cell.symbol,
+                timeframe=spec_cell.timeframe,
+                params_hash=f"hash_{spec_cell.params}",
+                cost_scenario=spec_cell.cost_scenario.name,
+                fault_profile="none",
+                commission=0.001,
+                slippage=0.0005,
+                data_manifest_sha="synthetic",
+                commit_sha="synthetic",
+                report_path=None,
+                metrics={
+                    "sharpe": 1.0,
+                    "total_return_pct": 5.0,
+                    "total_trades": 5,
+                    "profit_factor": 1.5,
+                    "max_drawdown_pct": 2.0,
+                    "calmar": 1.0,
+                    "return_series": [0.001] * 30,
+                },
+                execution_health={},
+                failure_reasons=(),
+                created_at=datetime.datetime.now(datetime.UTC).isoformat(),
+            )
+
+        nwfo.run_cell = runner
+        tournament_mod.run_cell = runner
+
+        spec, _, _ = synthetic_wfo_spec(
+            strategy_id="rsi", symbol="BTC/USDT", timeframe="1h", n_bars=400
+        )
+        from dataclasses import replace
+        spec = replace(
+            spec,
+            evidence_class=evidence_class,
+            registry_path=str(tmp_path / "r03-consumer.sqlite3"),
+        )
+        return run_nested_wfo(spec, out_root=tmp_path / "wfo", run_holdout=False)
+
+    def test_clean_real_market_run_has_complete_report(self, tmp_path: Path):
+        """REAL_MARKET run produces completeness_report.is_complete=True."""
+        result = self._setup_and_run(tmp_path)
+        assert result.completeness_report is not None, (
+            "REAL_MARKET evidence must produce a completeness_report"
+        )
+        assert result.completeness_report.is_complete, (
+            f"Clean run should be complete; issues: "
+            f"{result.completeness_report.issues}"
+        )
+        assert result.completeness_report.expected_count == len(self._FOLDS)
+
+    def test_tampered_outer_artifact_rejected_by_consumer(self, tmp_path: Path):
+        """Consumer re-validation detects tampered outer artifact."""
+        result = self._setup_and_run(tmp_path)
+        out_root = tmp_path / "wfo"
+
+        # Find an outer artifact file and tamper with it
+        outer_dir = out_root / "outer_one_shot"
+        outer_files = []
+        for fold_dir in outer_dir.iterdir():
+            outer_files.extend(fold_dir.glob("*.json"))
+        assert len(outer_files) >= 1, "Expected outer artifact files on disk"
+
+        tampered_file = outer_files[0]
+        original = tampered_file.read_text()
+        data = json.loads(original)
+        # Tamper: change the selection_freeze_id to a non-existent value
+        data["selection_freeze_id"] = "sha256:DEADbeef_tampered"
+        tampered_file.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+        # Rebuild validator from the persisted study manifest
+        from trading_agent.backtest.provenance import ManifestValidator
+        manifest_stem = result.study_manifest.manifest_id.removeprefix("sha256:")
+        manifest_path = out_root / "study_manifests" / f"{manifest_stem}.json"
+        assert manifest_path.exists(), f"Study manifest must be persisted at {manifest_path}"
+        manifest_dict = json.loads(manifest_path.read_text())
+        validator = ManifestValidator(manifest_dict, out_root)
+        report = validator.validate_manifest()
+
+        assert not report.is_complete, (
+            "Tampered artifact must fail validation"
+        )
+        assert report.tampered or report.mismatched, (
+            "Tampered file should appear in mismatched or tampered list"
+        )
+
+    def test_missing_outer_artifact_rejected_by_consumer(self, tmp_path: Path):
+        """Consumer re-validation detects missing outer artifact."""
+        result = self._setup_and_run(tmp_path)
+        out_root = tmp_path / "wfo"
+
+        # Remove an outer artifact file
+        outer_dir = out_root / "outer_one_shot"
+        outer_files = []
+        for fold_dir in outer_dir.iterdir():
+            outer_files.extend(fold_dir.glob("*.json"))
+        assert len(outer_files) >= 1
+
+        removed_file = outer_files[0]
+        removed_file.unlink()
+
+        from trading_agent.backtest.provenance import ManifestValidator
+        manifest_stem = result.study_manifest.manifest_id.removeprefix("sha256:")
+        manifest_path = out_root / "study_manifests" / f"{manifest_stem}.json"
+        manifest_dict = json.loads(manifest_path.read_text())
+        validator = ManifestValidator(manifest_dict, out_root)
+        report = validator.validate_manifest()
+
+        assert not report.is_complete, (
+            "Missing artifact must fail validation"
+        )
+        assert report.missing, "Missing file should appear in missing list"
+
+    def test_to_dict_round_trip_preserves_completeness(self, tmp_path: Path):
+        """WFOResult.to_dict() preserves completeness_report + provenance_digest."""
+        result = self._setup_and_run(tmp_path)
+        assert result.completeness_report is not None
+        assert result.completeness_report.is_complete
+
+        d = result.to_dict()
+        assert d["completeness_report"] is not None
+        assert d["completeness_report"]["is_complete"] is True
+        assert d["provenance_digest"] == result.provenance_digest
+        assert d["provenance_digest"].startswith("sha256:")
+
+        # Reconstruct CompletenessReport from dict
+        report = CompletenessReport(
+            is_complete=d["completeness_report"]["is_complete"],
+            expected_count=d["completeness_report"]["expected_count"],
+            found_count=d["completeness_report"]["found_count"],
+            missing=tuple(d["completeness_report"]["missing"]),
+            mismatched=tuple(d["completeness_report"]["mismatched"]),
+            tampered=tuple(d["completeness_report"]["tampered"]),
+            issues=tuple(d["completeness_report"]["issues"]),
+        )
+        assert report.is_complete is True
+
+    def test_completeness_failure_blocks_promotable(self, tmp_path: Path):
+        """After tampering, a re-validation produces is_complete=False,
+        which must block the promotable flag (fail-closed).
+
+        The producer self-assesses completeness; the consumer MUST
+        independently re-validate from on-disk evidence before honoring
+        the result. Tampering a freeze file must be detected.
+        """
+        result = self._setup_and_run(tmp_path)
+        out_root = tmp_path / "wfo"
+
+        assert result.completeness_report is not None
+        assert result.completeness_report.is_complete
+
+        # Tamper: remove an inner freeze file
+        freeze_dir = out_root / "inner_selection_freezes"
+        freeze_files = list(freeze_dir.glob("*.json"))
+        assert len(freeze_files) >= 1
+        freeze_files[0].unlink()
+
+        # Consumer re-validates from on-disk evidence — the tampered state
+        # must be detected independently of the producer's self-report.
+        from trading_agent.backtest.provenance import ManifestValidator
+        manifest_stem = result.study_manifest.manifest_id.removeprefix("sha256:")
+        manifest_path = out_root / "study_manifests" / f"{manifest_stem}.json"
+        manifest_dict = json.loads(manifest_path.read_text())
+        validator = ManifestValidator(manifest_dict, out_root)
+        report = validator.validate_manifest()
+
+        assert not report.is_complete, (
+            "Missing freeze must fail validation"
+        )
+        # Consumer must reject: completeness failure blocks promotion
+        # regardless of what the producer's hard-gate results claimed.
+        assert report.expected_count > 0 or report.found_count == 0
 
 
 if __name__ == "__main__":

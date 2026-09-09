@@ -1,28 +1,28 @@
 # Tiến độ và lộ trình các phase
 
-> Snapshot rà soát: **2026-09-07** · P0: **R0–R5 (R00,R01,R02,R03,R04,R05) ✅ COMPLETE** · Production mainnet: **NO-GO**
+> Snapshot rà soát: **2026-09-09**, code `09d3ce3` · Readiness: **còn thiếu tích hợp/evidence** · Production mainnet: **NO-GO**
 
-## Cập nhật điều phối 07/09/2026 — đọc trước các bảng lịch sử
+## Cập nhật điều phối 09/09/2026 — trạng thái hiện hành
 
 [Kế hoạch củng cố và bàn giao agent](KE_HOACH_CUNG_CO_VA_BAN_GIAO_AGENT.md) là backlog thực hiện hiện hành cho đợt này: R00–R09, dependency, ownership, acceptance tests và mẫu giao việc.
 
-**R0–R3 đã nghiệm thu** (commit `3cb4d81`→`b95fac1`):
-- **R00**: Baseline locked (commit `3cb4d81`, 167 tests baseline)
-- **R01**: Adapter LegacyDataFrameAdapter + CanonicalRegistry parity VERIFIED (signal 1000/1000 bars identical, equity 0.00% diff)
-- **R02**: Single S3 Validation Authority (canonical WFO + `cell_runner` callback, 13/13 equivalence tests PASS)
-- **R03**: Provenance, completeness, resume (28/28 tests PASS, every trial record carries `evaluation_identity`)
+**Không dùng claim “R00–R05 COMPLETE” của snapshot cũ để giao việc.** Có baseline R00; R01 đã có schema/hash/grid canonical; R02 đã có canonical callback. R03–R06 có module/test nhưng còn thiếu tích hợp. Ticket thực hiện và điều kiện DONE chỉ quản lý tại [mục 4 của kế hoạch agent](KE_HOACH_CUNG_CO_VA_BAN_GIAO_AGENT.md#4-bảng-công-việc-điều-phối); trang này chỉ tổng hợp S/P-phase, không duy trì bảng owner thứ hai.
 
-| Phase | Trạng thái sau R0–R3 | Điều kiện tiếp theo |
+| Phase | Trạng thái sau audit 09/09 | Điều kiện tiếp theo |
 | --- | --- | --- |
-| S0–S1 | Nền tảng + R01 parity đã đóng | R01 schema/effective identity (signal/equity parity VERIFIED) ✅ |
-| S2 | Engineering có; evidence binding đã đóng (R03) | R01–R03 ✅; matrix có completeness/provenance |
-| S3 | Canonical WFO là thẩm quyền duy nhất (R02); 13 + 28 + 33 + 42 tests PASS | R02 ✅ + R03 ✅ + R04 ✅ + R05 ✅ → R06/R07 |
-| S4 | Có lifecycle/policy; identity binding qua R03 | R03 ✅ + R05; approval tích hợp R08 |
-| S5 | Có routing; campaign hiện tại chưa chứng minh adaptive execution | R05–R06 |
+| S0–S1 | Schema/registry đã cải thiện; R01 có 26 test đạt | Review effective identity trong artifact/trial thực |
+| S2 | Tournament có; evidence chưa đóng | R03 phải chặn missing/tampered và kiểm resume ở consumer |
+| S3 | Canonical WFO có; campaign chưa nghiệm thu | R02 concurrency/parity; R03 gate/serialization; R04 isolation, holdout, verdict và campaign |
+| S4 | Có lifecycle/resolver; chưa nối bundle vào đường real | R05 consumer integration, R03 verified evidence, R08 approval |
+| S5 | Bridge có nhưng state chưa theo fills; test chưa gọi bridge trực tiếp | R06 ledger từng bước, reject/partial fill/restart và so incumbent |
 | S6 | Có allocator; campaign và tổng hợp stress còn thiếu | R07 với ledger chung, coverage từng pair |
 | S7 | NO-GO | R08–R09 và operational evidence theo policy |
 
-24 test trọng điểm và mypy 28 file đạt ở lần audit; Ruff có 12 lỗi trong script S6 local. Đây không phải full regression. Trạng thái P0 GREEN ở snapshot cũ không chứng nhận checkout hiện tại. Chưa có kết luận live bypass; các lỗi evidence và approval mới phải được xử lý trước khi dùng để promotion.
+**Kiểm chứng 09/09:** 157/157 test R01–R06 đạt trong 184,53s; 1 warning thống kê không hữu hạn; mypy đạt 28 file được cấu hình; Ruff `src scripts tests` còn 34 lỗi. Không phải full regression/campaign real. Chi tiết và logs tạm nằm ở mục 2 của kế hoạch agent. Trạng thái P0 GREEN lịch sử không chứng nhận checkout hiện tại; R-ticket không đồng nghĩa P-phase. Chưa có kết luận live bypass.
+
+**Mục tiêu gần nhất:** một campaign local replay được, có identity xuyên suốt data → WFO → policy → router → permission → fill ledger → shared capital → reconciliation. `NO_TRADE` hợp lệ; equity phẳng hoặc test xanh riêng lẻ không chứng minh fill path an toàn.
+
+**Thứ tự hiện hành:** review R00–R02 → đóng chốt R03 → sửa runner R04 trước campaign → nối R05 → kiểm trực tiếp R06 → R07 → R09. R08 có thể triển khai riêng khi không tranh file. Chưa mở rộng strategy/module hoặc chạy lại full campaign để tìm winner trước khi sửa tính đúng.
 
 Các mục 1–3 bên dưới giữ bối cảnh/backlog cũ để truy vết; khi khác với cập nhật này, dùng bảng trên và kế hoạch R00–R09 cho điều phối, không dùng nhãn COMPLETE cũ để đóng việc. Artifact lịch sử không bị sửa hoặc xóa.
 

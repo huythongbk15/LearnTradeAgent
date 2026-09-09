@@ -1,6 +1,6 @@
 # Kế hoạch củng cố hệ thống và bàn giao cho agent
 
-> Status: **TARGET** · Owner: maintainer / agent điều phối · Verified: **2026-09-07**
+> Status: **TARGET** · Owner: maintainer / agent điều phối · Verified: **2026-09-09**
 > Phạm vi: tính đúng của evidence → policy → adaptive execution → shared capital → operational gates.
 > Mainnet: **NO-GO**. Đây là kế hoạch thực hiện, không phải chứng nhận các hạng mục đã hoàn thành.
 
@@ -14,12 +14,18 @@ Tài liệu này quản lý ticket, dependency và bàn giao của đợt củng
 
 ## 2. Mốc xuất phát và những điều chưa được phép kết luận
 
+**Mốc hiện hành: `09d3ce3`, audit 09/09/2026.** Phần audit 07/09 bên dưới là lịch sử, không phải backlog còn nguyên: R01 đã có schema/hash/grid canonical; R02 đã chuyển về canonical WFO và diagnostic-only reporting. Không triển khai lại các phần này. Các claim hoàn thành trong inventory cũ chỉ mô tả module/test, không thay thế tiêu chí tích hợp tại mục 4.1.
+
+Trong lúc cập nhật tài liệu 09/09 đã xuất hiện thay đổi local ở runner S3/S5, `nested_wfo.py`, `scope_lock.py` và test R04. Tài liệu không ghi đè hoặc chứng nhận các thay đổi đang diễn ra này. Agent nhận việc phải đọc diff mới và phối hợp chủ sở hữu; tái kiểm từng delta trước khi sửa để tránh làm trùng. Trạng thái audit không tự nâng cấp theo một diff chưa review.
+
+Lần kiểm tra 09/09: **157/157 test R01–R06 đạt trong 184,53s**, 1 warning thống kê không hữu hạn; mypy đạt 28 file cấu hình; Ruff `src scripts tests` còn 34 lỗi. Không phải full regression, không phải campaign real. Logs audit local: `/tmp/review_sep9_tests.json`, `/tmp/review_sep9_static.json`; có thể mất sau cleanup, không phải evidence release bất biến. Chạy lại trên revision bàn giao và lưu locator + hash trước khi nghiệm thu.
+
 Audit ngày 07/09/2026 dựa trên HEAD `f8dda19c8324ae07d0b89e4c5edd094fd72eba78` cùng thay đổi local trong `src/trading_agent/backtest/nested_wfo.py` và file chưa tracked `scripts/run_s6_campaign.py`. Không reset, ghi đè hoặc tự commit các thay đổi này. Agent mới phải kiểm tra lại vì workspace có thể đã thay đổi.
 
 | Phát hiện đã xác minh | Nguồn / tác động |
 | --- | --- |
 | Grid Enhanced MA dùng `fast/slow/signal_ma`, constructor đọc `fast_period/slow_period` | [runner](../../scripts/run_wfo_parallel.py), [strategy](../../src/trading_agent/strategies/enhanced_ma.py): hai cấu hình khác nhau đều khởi tạo MA 20/80; phải sửa trước khi tối ưu lại |
-| Bộ tổng hợp dùng PBO/DSR/CI proxy và ngưỡng khác canonical | [aggregator](../../scripts/aggregate_wfo_cells.py), [nested WFO](../../src/trading_agent/backtest/nested_wfo.py): không dùng `FINAL_PASS` của aggregator làm qualification chuẩn |
+| Bộ tổng hợp cũ dùng PBO/DSR/CI proxy và ngưỡng khác canonical | Lịch sử `scripts/aggregate_wfo_cells.py`; nay thay bằng [diagnostic](../../scripts/diagnose_wfo_cells.py), [nested WFO](../../src/trading_agent/backtest/nested_wfo.py) là đường chuẩn. Không dùng `FINAL_PASS` lịch sử làm qualification |
 | Provenance được suy từ checkout lúc tổng hợp | Commit sạch sau khi chạy không chứng minh nguồn gốc từng cell |
 | S5 `real` vẫn tạo policy/hash/score mẫu và trạng thái tài khoản đơn giản hóa | [campaign S5](../../scripts/run_s5_adaptive_campaign.py): chưa phải bằng chứng adaptive trading đầu-cuối |
 | Approval không chữ ký vẫn được `ApprovalChain.evaluate(PRODUCTION)` chấp nhận khi đủ vai trò | [approval](../../src/trading_agent/authority/approval.py): kiểm tra bằng DB tạm; chưa thấy class nối vào promotion chính, không suy ra live bypass |
@@ -58,16 +64,48 @@ Trạng thái ticket: `TODO → IN_PROGRESS → REVIEW → DONE`; `BLOCKED` ph�
 
 | ID | Gói việc / owner đề xuất | Phụ thuộc | Trạng thái | Owner thực tế / evidence |
 | --- | --- | --- | --- | --- |
-| R00 | Baseline, file ownership / Integrator | Không | TODO | Chưa giao |
-| R01 | Tham số và trial identity / Strategy | R00 | **IN_PROGRESS** | **Signal/equity parity VERIFIED** (see R01_PARITY_REPORT.md); remaining: param schema validation, trial identity deduplication, grid enumeration tests |
-| R02 | Canonical WFO và thống kê / Research | R01 | TODO | Chưa giao |
-| R03 | Provenance và completeness / Evidence | R02 | TODO | Chưa giao |
-| R04 | Campaign S3 bất biến / Research runner | R03 | TODO | Chưa giao |
-| R05 | Policy và replay clock / Authority | R04 | TODO | Chưa giao |
-| R06 | Adaptive execution đầu-cuối / Execution | R05 | TODO | Chưa giao |
+| R00 | Baseline, file ownership / Integrator | Không | REVIEW | Có R00_BASELINE.json; owner/reviewer vòng mới chưa giao |
+| R01 | Tham số và trial identity / Strategy | R00 | REVIEW | Schema/hash/grid đã có; 26 test đạt; kiểm artifact và trial dedup thực tế |
+| R02 | Canonical WFO và thống kê / Research | R01 | REVIEW | Canonical callback; 13 test đạt; chưa chứng minh concurrency thực |
+| R03 | Provenance và completeness / Evidence | R02 | IN_PROGRESS | 28 test đạt; thiếu gate binding và serialization; owner chưa giao |
+| R04 | Campaign S3 bất biến / Research runner | R03 | IN_PROGRESS | 33 test đạt; sửa runner trước khi nghiệm thu real campaign |
+| R05 | Policy và replay clock / Authority | R04 | IN_PROGRESS | 42 test đạt; chưa nối resolver vào S5 real |
+| R06 | Adaptive execution đầu-cuối / Execution | R05 | IN_PROGRESS | 15 test đạt; chưa test bridge trực tiếp, state phải theo fills |
 | R07 | Shared-capital và stress coverage / Portfolio | R06 | TODO | Chưa giao |
 | R08 | Approval có chữ ký / Security | R00; tích hợp cần R03 + R05 | TODO | Chưa giao |
 | R09 | Regression, evidence và bàn giao / Integrator + reviewer | R07 + R08 | TODO | Chưa giao |
+
+### 4.1. Delta bắt buộc sau audit 09/09 — hàng đợi thực hiện hiện hành
+
+Mọi mục dưới đây **chưa nghiệm thu**. Không ghi DONE theo số test hoặc tên commit. Dùng ticket gốc, không tạo hệ phase mới. Owner/reviewer phải là người/agent cụ thể trước khi sửa; các vai trò ở bảng trên chỉ là gợi ý.
+
+| Thứ tự / ticket | Việc cần thực hiện, không làm lại phần đã có | Bằng chứng nghiệm thu bắt buộc |
+| --- | --- | --- |
+| 0 / R00 | Xác nhận HEAD/dirty state, claim file và ngân sách chạy; kiểm baseline lịch sử thay vì sao chép | Revision + danh sách file/owner/reviewer; không ghi đè thay đổi người khác |
+| 1 / R01 | Review schema/effective hash đã có; xác minh requested/effective params được lưu và dedup đúng evaluation context | Test qua factory → cell → artifact; cấu hình trùng không tăng trial count giả; khác fold/cost vẫn có identity đúng |
+| 1 / R02 | Giữ canonical authority; nối batching an toàn nếu muốn tăng tốc; xử lý warning nonfinite đúng policy | Serial/batch cùng selection/verdict/ledger; test đếm worker chồng thời gian thực, không chỉ mock callback; ghi benchmark và tài nguyên. Không thay đổi inner/outer freeze để tăng tốc |
+| 2 / R03 | Nối completeness/provenance vào hard gates và `promotable`; serialize/deserialize report + digest; nối resume guard tại consumer | Gọi public WFO entrypoint với missing/tampered/mixed cell: kết quả không promotable; ghi rồi đọc JSON vẫn bị chặn; validator exception cũng chặn; đổi identity khi resume không dùng cache cũ |
+| 3 / R04 | Output/DB riêng theo run/study/pair/strategy; giữ trạng thái chưa holdout; holdout guard bền vững qua process/restart và atomic khi tranh quyền | Hai pair cùng strategy giữ đủ artifacts không ghi đè; smoke/scope không FINAL_PASS; process thứ hai không tái dùng holdout đã chạm; kiểm cả canonical registry, không chỉ guard trong RAM |
+| 4 / R05 | Đưa verified bundle/resolver vào chính S5 real; bỏ fixture policy/hash/score khỏi đường real; exact identity verification, không chỉ tự khai evidence class | Chạy entrypoint S5: thiếu/tampered/synthetic/not-yet-valid/expired bundle bị chặn; lineage sai bị chặn; valid bundle được truy từ decision về R04. Test không chỉ gọi resolver riêng |
+| 5 / R06 | Dùng fill ledger làm nguồn vị thế/cash/equity ở từng bước; không cập nhật vị thế theo intent; nối bridge vào campaign | Khởi tạo và gọi chính AdaptiveExecutionBridge/AdaptiveSimulatorBridge; order reject không đổi vị thế, partial fill chỉ đổi lượng đã khớp; restart không lệnh trùng; switch không mất ownership; so adaptive/incumbent cùng conditions |
+| 6 / R07 | Account ledger chung; ma trận stress từng pair; holdout toàn bộ member | Một pair thiếu stress/holdout fail làm gate tương ứng fail; kiểm tranh vốn, reserved cash, correlation shock, attribution reconcile và recovery |
+| Song song có giới hạn / R08 | Chữ ký thật và promotion consumer; không giả lập để đóng | Payload tamper, unsigned, sai role/key, revoked, expiry/future/replay đều bị chặn tại promotion; approval hợp lệ không bỏ qua gate nghiên cứu/vận hành |
+| Cuối / R09 | Rà tích hợp revision cuối, static/regression và evidence index; cập nhật hai tài liệu trong cùng thay đổi | Reviewer tái chạy negative path; evidence có hash; giới hạn và skip rõ; thiếu operational soak thì S7 vẫn NO-GO |
+
+**Ưu tiên hành động:** review nhanh R00/R01/R02, sửa R03 trước; sửa runner R04 trước campaign tốn tài nguyên; sau đó R05 → R06 → R07. R08 có thể phát triển riêng nếu không tranh file. Không phải bắt đầu lại toàn bộ R00–R06.
+
+**Định nghĩa DONE của một ticket:** (1) code thực sự được entrypoint sử dụng; (2) test trực tiếp component mới và producer–consumer; (3) negative case chứng minh consumer từ chối; (4) artifact persisted/reloaded vẫn giữ contract; (5) reviewer và evidence index đủ. Nếu chưa đủ, giữ REVIEW/IN_PROGRESS và ghi chính xác phần thiếu.
+
+**Mốc nghiệm thu toàn luồng:** data manifest → canonical WFO → verified artifact → policy/resolver → router → permission/risk → order → fill ledger → shared capital → reconciliation. Một campaign phải truy được ID qua các bước, replay được trên cùng inputs và chặn khi thiếu identity. `NO_TRADE` là kết quả hợp lệ; không có order không chứng minh fill path, phải có fixture có fill/reject/partial fill riêng.
+
+### 4.2. Cách làm hiệu quả và tránh bỏ sót
+
+- Một writer cho `nested_wfo.py`: R02 → R03 → R07. Một writer cho campaign S5: R05 → R06. Người khác chuẩn bị test/interface trên file riêng, không cùng sửa lõi.
+- Mỗi patch nhỏ phải có test tái hiện lỗi trước sửa, test qua entrypoint sau sửa, và regression liên quan. Nếu chỉ có mock/unit, ghi rõ mức coverage; không gọi đó là E2E.
+- Static check không chỉ dựa mypy mặc định 28 file: liệt kê module thay đổi có/không nằm trong phạm vi type-check; mọi ngoại lệ phải được reviewer chấp nhận. Chạy Ruff phần thay đổi trước, toàn phạm vi liên quan khi tích hợp; không che lỗi bằng ignore rộng.
+- Mỗi boundary chỉ chạy integration cần thiết; full regression một lần ở revision tích hợp cuối hoặc khi thay core contract. Không chạy lại full market campaign cho mỗi sửa formatting/docs.
+- Chốt giới hạn worker, RAM, timeout, retry và nơi lưu kết quả trước chạy. Kết quả nhanh hơn phải kèm parity và benchmark, không dùng số worker cấu hình làm bằng chứng parallel.
+- Evidence index tối thiểu trong báo cáo bàn giao: ticket, base/final revision, dirty diff hash nếu có, scope, input/config hashes, commands/exit codes, counts/skips/warnings, output hashes, reviewer, known limitations. Log ở `/tmp` chỉ dùng tạm; copy/archive có kiểm soát vào output riêng trước khi nghiệm thu, không chứa secret.
 
 ### R00 — Khóa baseline, không khóa nhầm kết luận
 
@@ -78,14 +116,14 @@ Trạng thái ticket: `TODO → IN_PROGRESS → REVIEW → DONE`; `BLOCKED` ph�
 
 ### R01 — Schema tham số và danh tính trial
 
-**TRẠNG THÁI: IN_PROGRESS — Signal/equity parity VERIFIED ✅**
+**TRẠNG THÁI: REVIEW — schema/effective hash/grid đã triển khai; 26 test đạt ngày 09/09. Kiểm nghiệm thu artifact/trial theo mục 4.1.**
 
 **Đã hoàn thành (Signal/Equity Parity):**
 - `scripts/r01_signal_parity.py`: 1000/1000 bars identical signals giữa canonical registry adapter và `build_legacy_candidate()`
 - `scripts/r01_equity_parity.py`: FullSystemSimulator với canonical signals injected vs legacy strategy → **0.00% diff** trên mọi metric
 - Xác nhận `LegacyDataFrameAdapter` là zero-overhead wrapper không thay đổi hành vi
 
-**Còn lại (Param Schema & Trial Identity):**
+**Contract phải duy trì và review (không triển khai lại schema đã có):**
 - **File chính:** `scripts/run_wfo_parallel.py`, `src/trading_agent/strategies/canonical/candidates.py`, strategy constructors; rà các runner/grid khác dùng cùng chiến lược.
 - Validate khóa, kiểu, miền giá trị, quan hệ fast/slow. Unknown key phải báo lỗi; alias nếu giữ phải có migration rõ ràng, không âm thầm fallback.
 - Artifact ghi requested params, normalized/effective params, schema version và hash. Effective identity lấy từ cấu hình thực thi, không chỉ chuỗi JSON người dùng gửi.
@@ -95,7 +133,9 @@ Trạng thái ticket: `TODO → IN_PROGRESS → REVIEW → DONE`; `BLOCKED` ph�
 
 **Evidence:** `R01_PARITY_REPORT.md`, `data/backtests/r01_parity/r01_signal_parity_report.json`, `data/backtests/r01_parity/r01_equity_parity_report.json`
 
-### R02 — Chỉ một thẩm quyền kiểm định S3 — **✅ COMPLETE**
+### R02 — Chỉ một thẩm quyền kiểm định S3 — REVIEW
+
+Inventory/test dưới đây là phần đã triển khai, không xác nhận batching thực hoặc hoàn thành campaign; delta nghiệm thu ở mục 4.1. Các số thời gian cũ là lịch sử.
 
 **Đã hoàn thành (Core Architecture + Tests):**
 - ✅ `run_nested_wfo()` accepts `cell_runner` callback for parallel execution
@@ -120,7 +160,9 @@ Trạng thái ticket: `TODO → IN_PROGRESS → REVIEW → DONE`; `BLOCKED` ph�
 
 **Evidence:** `tests/test_r02_canonical_authority.py` (13 tests, 113s, mock-based for speed; real WFO pipeline covered by `tests/test_nested_wfo.py` 51/51 and `tests/test_nested_wfo_evidence.py`)
 
-### R03 — Provenance, completeness và resume — **✅ COMPLETE**
+### R03 — Provenance, completeness và resume — IN_PROGRESS
+
+Inventory dưới đây là capability cấp module. Audit 09/09 xác nhận report/digest chưa được serialize đầy đủ và completeness chưa ảnh hưởng `passes/promotable`; các dấu kiểm không chứng minh consumer đã chặn. Chưa nghiệm thu R03; bắt buộc mục 4.1.
 
 **Đã hoàn thành:**
 - ✅ `src/trading_agent/backtest/provenance.py` — module mới với:
@@ -150,7 +192,9 @@ Trạng thái ticket: `TODO → IN_PROGRESS → REVIEW → DONE`; `BLOCKED` ph�
 
 **Evidence:** `tests/test_r03_provenance_completeness.py` (28 tests, 4.83s).
 
-### R04 — Chạy lại S3 với scope đã khóa — **✅ COMPLETE**
+### R04 — Chạy lại S3 với scope đã khóa — IN_PROGRESS
+
+Inventory dưới đây là công cụ/test synthetic, không phải campaign real hoàn tất. Guard mới ở RAM; runner còn output collision giữa pair và verdict chưa holdout. Hoàn thành sửa runner và evidence theo mục 4.1 trước khi đóng R04.
 
 **Đã hoàn thành:**
 - ✅ `src/trading_agent/backtest/scope_lock.py` — module mới với:
@@ -181,7 +225,9 @@ Trạng thái ticket: `TODO → IN_PROGRESS → REVIEW → DONE`; `BLOCKED` ph�
 
 **Evidence:** `tests/test_r04_scope_lock_campaign.py` (33 tests, 0.5s + orchestrator e2e 40s).
 
-### R05 — Policy thật và thời gian replay — **✅ COMPLETE**
+### R05 — Policy thật và thời gian replay — IN_PROGRESS
+
+Inventory dưới đây là module/test, chưa chứng minh entrypoint S5 real dùng resolver. Audit 09/09 thấy đường S5 cũ còn policy mẫu. Chỉ nghiệm thu sau test consumer theo mục 4.1.
 
 **Đã hoàn thành:**
 - ✅ `src/trading_agent/research/policy_resolver.py` — module mới với:
@@ -311,4 +357,4 @@ Báo cáo trả về phải có: ticket/status; revision và file đã sửa; h�
 - Core interface cần refactor rộng: tách proposal có chi phí/migration; không mở rộng trong ticket nhỏ.
 - Thiếu người ký, môi trường testnet hoặc thời gian soak: giữ operational phase pending; không giả lập để đóng.
 
-**Bước triển khai đầu tiên: R00 → R01. Chưa chạy full campaign lại trước khi R01–R03 được nghiệm thu.**
+**Bước tiếp theo: claim ownership và review delta R00–R02, sửa chốt R03, rồi sửa runner R04. Chưa chạy full campaign trước khi gate/identity/output isolation được nghiệm thu.**
