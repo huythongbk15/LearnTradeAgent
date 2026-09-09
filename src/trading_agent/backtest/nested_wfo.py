@@ -788,6 +788,7 @@ class HoldoutAccessGuard:
         """
         # Re-load to catch the latest persisted state (process-restart safety)
         self.reload()
+        assert self._manifest is not None  # reload() always populates this
         if self._manifest.opened:
             raise ValueError(
                 f"Holdout already opened at {self._manifest.opened_at} "
@@ -2816,7 +2817,7 @@ def run_nested_wfo(
             cost_scenario = cost_scenario_obj  # R02: restore loop var for downstream
             artifact_val = artifacts[idx] if artifacts[idx] else None
 
-            if artifact_val.status != "COMPLETED":
+            if artifact_val is None or artifact_val.status != "COMPLETED":
                 val_sharpe = -np.inf
                 val_metrics = {}
             else:
@@ -3806,14 +3807,10 @@ def run_nested_wfo(
     # NOT before. Previously `passes` was computed at line ~3436 without
     # considering completeness, so an incomplete evidence set could still
     # yield passes_hard_gates=True. Fix: fail-closed if completeness fails.
-    completeness_failed = (
-        completeness_report is not None and not completeness_report.is_complete
-    )
-    if completeness_failed:
-        # Append completeness gate failure
-        gate_failures.append(
-            f"completeness_check:{';'.join(completeness_report.issues or [])}"
-        )
+    if completeness_report is not None and not completeness_report.is_complete:
+        # Fail-closed: incomplete evidence blocks promotion even if gates passed.
+        issues_str = ";".join(completeness_report.issues or [])
+        gate_failures.append(f"completeness_check:{issues_str}")
         passes = False
         aggregate_metrics["promotable"] = False
         # Build or update formal no-trade artifact for completeness failure
@@ -3836,7 +3833,7 @@ def run_nested_wfo(
                 evaluation_duration_sec=0.0,
                 notes=(
                     f"Manifest completeness check failed for {candidate_id}: "
-                    f"{';'.join(completeness_report.issues or [])}"
+                    f"{issues_str}"
                 ),
             )
 
