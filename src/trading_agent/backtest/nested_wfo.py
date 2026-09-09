@@ -2636,11 +2636,11 @@ def run_nested_wfo(
                     trial_phase=TRIAL_PHASE_INNER_VALIDATION,
                     metadata=inner_metadata,
                 )
-                if val_sharpe > best_val_sharpe:
-                    best_val_sharpe = val_sharpe
-                    best_params = params_with_cost
-                    best_val_metrics = val_metrics
-                    best_candidate_experiment_id = experiment_id
+            if val_sharpe > best_val_sharpe:
+                best_val_sharpe = val_sharpe
+                best_params = params_with_cost
+                best_val_metrics = val_metrics
+                best_candidate_experiment_id = experiment_id
 
         inner_results.append(
             WFOInnerResult(
