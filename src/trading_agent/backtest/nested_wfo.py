@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import sys
 from collections.abc import Iterator
 from dataclasses import asdict, dataclass, field, replace
@@ -671,18 +672,29 @@ class FinalHoldoutManifest:
         )
 
     def save(self, path: Path) -> None:
-        """Save manifest to disk (JSON)."""
+        """Save manifest to disk (atomic write via temp file + rename)."""
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(self.to_dict(), indent=2))
+        tmp_path = path.with_suffix(".json.tmp")
+        tmp_path.write_text(
+            json.dumps(self.to_dict(), indent=2, allow_nan=False),
+            encoding="utf-8",
+        )
+        os.replace(tmp_path, path)
 
     @classmethod
     def load(cls, path: Path) -> FinalHoldoutManifest:
-        """Load manifest from disk and verify integrity."""
+        """Load manifest from disk and verify integrity (tamper detection).
+
+        Compares the stored ``holdout_id`` (from the file) against the
+        recomputed hash of all immutable fields.  A mismatch means the
+        content was tampered after the manifest was created.
+        """
         path = Path(path)
         if not path.exists():
             raise FileNotFoundError(f"Holdout manifest not found: {path}")
-        d = json.loads(path.read_text())
+        d = json.loads(path.read_text(encoding="utf-8"))
+        stored_holdout_id = d.get("holdout_id")
         manifest = cls(
             strategy_id=d["strategy_id"],
             symbol=d["symbol"],
@@ -699,11 +711,92 @@ class FinalHoldoutManifest:
             commit_sha_at_freeze=d.get("commit_sha_at_freeze", "unknown"),
             notes=d.get("notes", ""),
         )
+        # Compare stored holdout_id with recomputed — detects tampering of
+        # any immutable field (strategy_id, data_manifest_sha, window, etc.)
+        if stored_holdout_id is not None and stored_holdout_id != manifest.holdout_id:
+            raise ValueError(
+                f"Holdout manifest integrity check failed: stored holdout_id "
+                f"{stored_holdout_id} != computed {manifest.holdout_id}"
+            )
         if not manifest.verify_integrity():
             raise ValueError(
                 f"Holdout manifest integrity check failed: {manifest.holdout_id}"
             )
         return manifest
+
+
+@dataclass
+class HoldoutAccessGuard:
+    """Process-restart-resilient gate for final holdout access (R04a / S3-7).
+
+    Re-loads the manifest from disk on init **and** on every ``open()`` call so
+    that a process restart — or an external tamper — is always detected.
+
+    Usage::
+
+        # --- producer side (research) ---
+        with HoldoutAccessGuard(path) as guard:
+            opened = guard.open(actor="research_system")
+
+        # --- consumer side (live execution) ---
+        with HoldoutAccessGuard(path) as guard:
+            if not guard.opened:
+                raise RuntimeError("Holdout not yet opened — no selected params.")
+            manifest = guard.manifest
+    """
+
+    manifest_path: Path
+    _manifest: FinalHoldoutManifest | None = field(default=None, init=False)
+
+    def __post_init__(self) -> None:
+        self.manifest_path = Path(self.manifest_path)
+        self.reload()
+
+    # -- lifecycle ---------------------------------------------------------
+
+    def reload(self) -> None:
+        """Re-read manifest from disk and verify integrity (tamper detection)."""
+        self._manifest = FinalHoldoutManifest.load(self.manifest_path)
+
+    def __enter__(self) -> "HoldoutAccessGuard":
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        pass
+
+    # -- properties --------------------------------------------------------
+
+    @property
+    def manifest(self) -> FinalHoldoutManifest:
+        assert self._manifest is not None
+        return self._manifest
+
+    @property
+    def opened(self) -> bool:
+        assert self._manifest is not None
+        return self._manifest.opened
+
+    # -- actions -----------------------------------------------------------
+
+    def open(self, actor: str) -> FinalHoldoutManifest:
+        """Atomically mark the holdout as opened (one-shot, fail-closed).
+
+        Re-loads from disk first to ensure ``opened`` reflects persisted state,
+        then performs an **atomic** save of the opened manifest.  On success the
+        in-memory ``_manifest`` is updated so subsequent calls in the same
+        process see the new state without another disk read.
+        """
+        # Re-load to catch the latest persisted state (process-restart safety)
+        self.reload()
+        if self._manifest.opened:
+            raise ValueError(
+                f"Holdout already opened at {self._manifest.opened_at} "
+                f"by {self._manifest.opened_by}. Cannot re-open (fail-closed)."
+            )
+        opened = self._manifest.open(actor=actor)
+        opened.save(self.manifest_path)          # atomic write
+        self._manifest = opened
+        return opened
 
 
 def _create_final_holdout_manifest(
@@ -880,19 +973,14 @@ def run_final_holdout(
     Returns:
         dict with holdout metrics, execution health, and manifest reference
     """
-    if manifest.opened:
-        raise ValueError(
-            f"Final holdout already opened at {manifest.opened_at} by {manifest.opened_by}. "
-            f"Cannot re-open (fail-closed)."
-        )
-
     out_root = Path(out_root) if out_root else ROOT / "data" / "backtests" / "wfo"
     out_root.mkdir(parents=True, exist_ok=True)
-
-    # Open the holdout (one-shot, immutable)
-    opened_manifest = manifest.open(actor=actor)
     manifest_path = out_root / f"holdout_{manifest.holdout_id[:16]}.json"
-    opened_manifest.save(manifest_path)
+
+    # R04a: Use HoldoutAccessGuard for process-restart-resilient, atomic access.
+    # The guard re-loads from disk on init to detect prior openings or tampering.
+    with HoldoutAccessGuard(manifest_path) as guard:
+        opened_manifest = guard.open(actor=actor)
 
     from trading_agent.backtest.tournament import _research_env
     from trading_agent.strategies.canonical.candidates import build_default_registry

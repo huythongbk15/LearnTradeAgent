@@ -6,6 +6,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from pathlib import Path
+
 from trading_agent.backtest.nested_wfo import (
     WFOSpec,
     NestedFold,
@@ -916,6 +918,113 @@ class TestFinalHoldout:
 
         with pytest.raises(ValueError):
             opened.open(actor="x")
+
+    def test_holdout_guard_atomic_save(self, tmp_path: Path):
+        """HoldoutAccessGuard.open() writes atomically and persists opened state."""
+        import json
+
+        from trading_agent.backtest.nested_wfo import (
+            FinalHoldoutManifest,
+            HoldoutAccessGuard,
+        )
+
+        manifest_path = tmp_path / "holdout_test.json"
+        m = FinalHoldoutManifest(
+            strategy_id="enhanced_ma",
+            symbol="BTC/USDT",
+            timeframe="1h",
+            holdout_start_bar=100,
+            holdout_end_bar=200,
+            data_manifest_sha="abc",
+            feature_schema_hash="def",
+            freeze_timestamp="2026-01-01T00:00:00+00:00",
+            commit_sha_at_freeze="xyz",
+        )
+        m.save(manifest_path)
+
+        # No temp file should remain after save
+        assert not manifest_path.with_suffix(".json.tmp").exists()
+
+        # Use guard to open
+        with HoldoutAccessGuard(manifest_path) as guard:
+            assert not guard.opened
+            opened = guard.open(actor="research_system")
+            assert opened.opened
+            assert not manifest_path.with_suffix(".json.tmp").exists()
+
+        # State persisted to disk
+        d = json.loads(manifest_path.read_text())
+        assert d["opened"] is True
+        assert d["opened_by"] == "research_system"
+
+    def test_holdout_guard_reload_detects_opened(self, tmp_path: Path):
+        """HoldoutAccessGuard re-loads from disk (process-restart resilience)."""
+        from trading_agent.backtest.nested_wfo import (
+            FinalHoldoutManifest,
+            HoldoutAccessGuard,
+        )
+
+        manifest_path = tmp_path / "holdout_reopen.json"
+        m = FinalHoldoutManifest(
+            strategy_id="enhanced_ma",
+            symbol="BTC/USDT",
+            timeframe="1h",
+            holdout_start_bar=100,
+            holdout_end_bar=200,
+            data_manifest_sha="abc",
+            feature_schema_hash="def",
+            freeze_timestamp="2026-01-01T00:00:00+00:00",
+            commit_sha_at_freeze="xyz",
+        )
+        m.save(manifest_path)
+
+        # First guard instance opens the holdout
+        with HoldoutAccessGuard(manifest_path) as guard:
+            assert not guard.opened
+            guard.open(actor="research_system")
+
+        # Simulate process restart: new guard instance loads from disk
+        guard2 = HoldoutAccessGuard(manifest_path)
+        assert guard2.opened, "Reloaded guard must see opened=True from disk"
+
+        # Opening again should fail (fail-closed)
+        import pytest
+
+        with pytest.raises(ValueError, match="already opened"):
+            guard2.open(actor="research_system")
+
+    def test_holdout_guard_rejects_tampered_manifest(self, tmp_path: Path):
+        """HoldoutAccessGuard detects tampered manifest content via integrity check."""
+        import json
+
+        from trading_agent.backtest.nested_wfo import (
+            FinalHoldoutManifest,
+            HoldoutAccessGuard,
+        )
+
+        manifest_path = tmp_path / "holdout_tamper.json"
+        m = FinalHoldoutManifest(
+            strategy_id="enhanced_ma",
+            symbol="BTC/USDT",
+            timeframe="1h",
+            holdout_start_bar=100,
+            holdout_end_bar=200,
+            data_manifest_sha="abc",
+            feature_schema_hash="def",
+            freeze_timestamp="2026-01-01T00:00:00+00:00",
+            commit_sha_at_freeze="xyz",
+        )
+        m.save(manifest_path)
+
+        # Tamper: modify a content-bound field (data_manifest_sha)
+        d = json.loads(manifest_path.read_text())
+        d["data_manifest_sha"] = "tampered"
+        manifest_path.write_text(json.dumps(d, indent=2))
+
+        import pytest
+
+        with pytest.raises(ValueError, match="integrity check failed"):
+            HoldoutAccessGuard(manifest_path)
 
 
 class TestFormalNoTrade:
