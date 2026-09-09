@@ -125,24 +125,38 @@ def build_s6_specs(
 
 def _install_synthetic_patches(n_bars: int, holdout_start: int):
     """Patch data loading + fold geometry + holdout window for synthetic mode."""
-    import trading_agent.backtest.nested_wfo as nw
-    import trading_agent.backtest.tournament as tournament
-    import trading_agent.data.storage as storage
-    import sys
+    from trading_agent.backtest.synthetic_data import (
+        generate_synthetic_ohlcv as _gen,
+    )
 
-    df = generate_synthetic_ohlcv(n_bars=n_bars, seed=7)
+    # Generate deterministic synthetic data
+    df = _gen(n_bars=n_bars, seed=7)
 
     def _load(*args, **kwargs):
         return df
 
-    # Patch at source module level
-    storage.load_ohlcv = _load
-    tournament.load_ohlcv = _load
+    original = _load  # capture for comparison
 
-    # Also patch any cached references in nested_wfo module
-    # (nested_wfo does lazy imports: `from trading_agent.data.storage import load_ohlcv`)
-    # We need to ensure those lazy imports get the patched version
-    sys.modules["trading_agent.data.storage"].load_ohlcv = _load  # type: ignore[attr-defined]
+    # Patch the source module
+    import trading_agent.data.storage as storage
+
+    storage.load_ohlcv = original
+
+    # Walk all modules that have imported load_ohlcv and patch them too.
+    # This covers full_system_backtest, tournament, nested_wfo, etc.
+    import sys
+
+    for mod in list(sys.modules.values()):
+        if mod is None:
+            continue
+        attr = getattr(mod, "load_ohlcv", None)
+        if attr is not None and callable(attr) and getattr(attr, "__module__", None) == "trading_agent.data.storage":
+            # This module's load_ohlcv came from trading_agent.data.storage
+            # Replace it with the synthetic _load
+            mod.load_ohlcv = original
+
+    # Also patch the nested_wfo module's run_cell and holdout window
+    import trading_agent.backtest.nested_wfo as nw
 
     # End-of-window open position is expected carry; treat as COMPLETED
     def _wrapped_run_cell(spec, **kwargs):
@@ -283,6 +297,7 @@ def run_real_mode(
     step_months: int = 3,
     core_only: bool = True,
     reduced_grid: bool = False,
+    workers: int = 1,
 ) -> dict:
     """Full real-data campaign (NOT for CI)."""
     # Import here to avoid any import-time side effects
@@ -301,12 +316,24 @@ def run_real_mode(
         reduced_grid=reduced_grid,
     )
 
-    result = run_nested_wfo_portfolio(
-        specs,
-        out_root=out_root,
-        run_holdout=True,
-        real_sensitivity=True,
-    )
+    cell_runner = None
+    if workers > 1:
+        from scripts.run_wfo_parallel import ParallelCellRunner
+
+        cell_runner = ParallelCellRunner(workers=workers, out_root=out_root)
+        print(f"  ParallelCellRunner: {workers} workers", flush=True)
+
+    import contextlib
+    cm = cell_runner if cell_runner is not None else contextlib.nullcontext()
+
+    with cm:
+        result = run_nested_wfo_portfolio(
+            specs,
+            out_root=out_root,
+            run_holdout=True,
+            real_sensitivity=True,
+            cell_runner=cell_runner,
+        )
 
     # Check real sensitivity
     sens = result.aggregate_metrics.get("sensitivity", {})
@@ -397,6 +424,12 @@ def main(argv=None) -> int:
         action="store_true",
         help="Use reduced parameter grid (2 values per param) for faster runs",
     )
+    ap.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        help="Number of parallel cell workers (1 = sequential, >1 uses multiprocessing)",
+    )
     args = ap.parse_args(argv)
 
     out_root = Path(args.out_root)
@@ -421,7 +454,7 @@ def main(argv=None) -> int:
         summary = run_synthetic_mode(out_root, args.strategy, core_only=core_only)
     else:
         print(
-            f"Running S6 REAL campaign for {args.strategy} (core_only={core_only}, reduced_grid={args.reduced_grid})..."
+            f"Running S6 REAL campaign for {args.strategy} (core_only={core_only}, reduced_grid={args.reduced_grid}, workers={args.workers})..."
         )
         summary = run_real_mode(
             out_root,
@@ -433,6 +466,7 @@ def main(argv=None) -> int:
             args.step_months,
             core_only=core_only,
             reduced_grid=args.reduced_grid,
+            workers=args.workers,
         )
 
     # Save summary
@@ -449,6 +483,7 @@ def main(argv=None) -> int:
         "cost_scenarios": args.cost,
         "core_only": core_only,
         "reduced_grid": args.reduced_grid,
+        "workers": args.workers,
         "pairs": pairs,
     }
     summary_path.write_text(json.dumps(summary, indent=2, default=str))

@@ -2966,7 +2966,7 @@ def run_nested_wfo(
                     params=test_params,
                     cost_scenario=cost_scenario,
                 )
-                runner = cell_runner or run_cell
+                runner = cell_runner if (cell_runner and not hasattr(cell_runner, "run_batch")) else run_cell
                 artifact = runner(
                     spec_test,
                     out_root=out_root,

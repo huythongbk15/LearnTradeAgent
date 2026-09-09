@@ -18,6 +18,11 @@ logs/
 
 # Session-local TODO files
 *_TODO.md
+# Workstream B temporary files
+WORKSTREAM_B_RUN.sh
+data/wfo/*.sqlite3
+data/backtests/wfo/
+data/wfo/experiments_parallel.sqlite3
 REVIEW_*.md
 !docs/LIVE_TRADING_TODO.md
 REVIEW_*.md

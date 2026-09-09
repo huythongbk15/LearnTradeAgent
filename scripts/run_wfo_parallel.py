@@ -413,7 +413,8 @@ def main():
 
     print("\n=== Canonical WFO Complete ===")
     print(f"  Status: {'PASS' if result.passes_hard_gates else 'FAIL'}")
-    print(f"  Verdict: {result.verdict}")
+    verdict = getattr(result, "verdict", "N/A")
+    print(f"  Verdict: {verdict}")
     print(f"  Folds: {result.aggregate_metrics.get('n_outer_folds', 0)}")
     print(
         f"  Median Sharpe: {result.aggregate_metrics.get('median_test_sharpe', 0):.4f}"
@@ -429,7 +430,7 @@ def main():
         "symbol": args.symbol,
         "timeframe": args.timeframe,
         "cost_scenarios": [c.name for c in cost_scenarios],
-        "verdict": result.verdict,
+        "verdict": verdict,
         "passes_hard_gates": result.passes_hard_gates,
         "aggregate_metrics": result.aggregate_metrics,
         "gate_results": [
