@@ -29,6 +29,7 @@ from trading_agent.strategies.enhanced_ma import (
     MaAdxCrossover,
     MaVolTargetCrossover,
 )
+from trading_agent.strategies.regime_switching import RegimeSwitchingStrategy
 from trading_agent.strategies.rsi import RsiStrategy
 
 _STRATEGIES_DIR = Path(__file__).resolve().parents[1]
@@ -41,6 +42,7 @@ def _file_sha(name: str) -> str:
 _ENHANCED_MA_SHA = _file_sha("enhanced_ma.py")
 _RSI_SHA = _file_sha("rsi.py")
 _BBANDS_SHA = _file_sha("bbands.py")
+_REGIME_SWITCHING_SHA = _file_sha("regime_switching.py")
 
 # Default parameter sets (mirror the legacy defaults) → warm-up bars.
 _ENHANCED_MA_WARMUP = 80 + 14 + 6  # slow(80) + adx(14) + buffer
@@ -168,6 +170,21 @@ _BBANDS_PARAMS_SCHEMA = {
     "required": [],
 }
 
+_REGIME_SWITCHING_PARAMS_SCHEMA = {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "regime_method": {"type": "string", "enum": ["hybrid", "hmm", "gmm", "rule_based"]},
+        "lookback": {"type": "integer", "minimum": 50, "maximum": 1000},
+        "min_confidence": {"type": "number", "minimum": 0.3, "maximum": 0.9},
+        "regime_smoothing": {"type": "integer", "minimum": 1, "maximum": 10},
+        "refit_every": {"type": "integer", "minimum": 0, "maximum": 2000},
+        "base_position_pct": {"type": "number", "minimum": 0.01, "maximum": 0.5},
+    },
+    "required": [],
+}
+
 
 # ──────────────────────────────────────────────────────────────────────
 # Parameter normalization / validation helpers
@@ -209,6 +226,14 @@ _PARAM_DEFAULTS: dict[str, dict[str, Any]] = {
         "period": 20,
         "std_dev": 2.0,
     },
+    "regime_switching": {
+        "regime_method": "hybrid",
+        "lookback": 200,
+        "min_confidence": 0.55,
+        "regime_smoothing": 3,
+        "refit_every": 0,
+        "base_position_pct": 0.1,
+    },
 }
 
 _PARAM_SCHEMAS: dict[str, dict[str, Any]] = {
@@ -217,6 +242,7 @@ _PARAM_SCHEMAS: dict[str, dict[str, Any]] = {
     "ma_vol_target": _MA_VOL_TARGET_PARAMS_SCHEMA,
     "rsi": _RSI_PARAMS_SCHEMA,
     "bbands": _BBANDS_PARAMS_SCHEMA,
+    "regime_switching": _REGIME_SWITCHING_PARAMS_SCHEMA,
 }
 
 
@@ -440,6 +466,7 @@ MA_VOL_TARGET_DESCRIPTOR = _descriptor(
 )
 RSI_DESCRIPTOR = _descriptor("rsi", _RSI_SHA, _RSI_WARMUP, _RSI_PARAMS_SCHEMA)
 BBANDS_DESCRIPTOR = _descriptor("bbands", _BBANDS_SHA, _BBANDS_WARMUP, _BBANDS_PARAMS_SCHEMA)
+REGIME_SWITCHING_DESCRIPTOR = _descriptor("regime_switching", _REGIME_SWITCHING_SHA, 200, _REGIME_SWITCHING_PARAMS_SCHEMA)
 
 #: All first-wave candidate descriptors, keyed by strategy_id.
 FIRST_WAVE_DESCRIPTORS: dict[str, StrategyDescriptor] = {
@@ -450,6 +477,7 @@ FIRST_WAVE_DESCRIPTORS: dict[str, StrategyDescriptor] = {
         MA_VOL_TARGET_DESCRIPTOR,
         RSI_DESCRIPTOR,
         BBANDS_DESCRIPTOR,
+        REGIME_SWITCHING_DESCRIPTOR,
     )
 }
 
@@ -459,6 +487,7 @@ _CANDIDATE_CLASSES: dict[str, type[Strategy]] = {
     "ma_vol_target": MaVolTargetCrossover,
     "rsi": RsiStrategy,
     "bbands": BBandsStrategy,
+    "regime_switching": RegimeSwitchingStrategy,
 }
 
 _CANDIDATE_WARMUPS = {
@@ -467,6 +496,7 @@ _CANDIDATE_WARMUPS = {
     "ma_vol_target": _ENHANCED_MA_WARMUP,
     "rsi": _RSI_WARMUP,
     "bbands": _BBANDS_WARMUP,
+    "regime_switching": 200,
 }
 
 
@@ -506,6 +536,7 @@ def build_default_registry() -> CanonicalStrategyRegistry:
         ),
         (RSI_DESCRIPTOR, RsiStrategy, RsiStrategy, _RSI_WARMUP),
         (BBANDS_DESCRIPTOR, BBandsStrategy, BBandsStrategy, _BBANDS_WARMUP),
+        (REGIME_SWITCHING_DESCRIPTOR, RegimeSwitchingStrategy, RegimeSwitchingStrategy, 200),
     ):
         registry.register(
             desc,
@@ -519,6 +550,7 @@ __all__ = [
     "BBANDS_DESCRIPTOR",
     "ENHANCED_MA_DESCRIPTOR",
     "FIRST_WAVE_DESCRIPTORS",
+    "REGIME_SWITCHING_DESCRIPTOR",
     "MA_ADX_DESCRIPTOR",
     "MA_VOL_TARGET_DESCRIPTOR",
     "RSI_DESCRIPTOR",

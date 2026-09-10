@@ -85,6 +85,12 @@ MINIMAL_PARAM_GRIDS: dict[str, dict[str, list]] = {
         "fast_period": [20, 30],
         "slow_period": [60, 80],
     },
+    "regime_switching": {
+        "regime_method": ["rule_based", "hybrid"],
+        "min_confidence": [0.4, 0.65],
+        "regime_smoothing": [2, 3],
+        "base_position_pct": [0.1, 0.2],
+    },
 }
 
 
