@@ -360,12 +360,19 @@ class FullSystemSimulator:
                     "atr_tp_mult": ATR_TP_MULT,
                 }
             )
-        elif strategy_name in {"ma_adx", "ma_vol_target"}:
+        elif strategy_name == "ma_adx":
             self.strategy_params.update(
                 {
                     "fast_period": FAST_MA,
                     "slow_period": SLOW_MA,
                     "adx_threshold": ADX_THRESHOLD,
+                }
+            )
+        elif strategy_name == "ma_vol_target":
+            self.strategy_params.update(
+                {
+                    "fast_period": FAST_MA,
+                    "slow_period": SLOW_MA,
                 }
             )
         elif strategy_name == "rsi":
