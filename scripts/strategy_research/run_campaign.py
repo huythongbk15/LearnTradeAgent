@@ -62,6 +62,8 @@ from trading_agent.research.portfolio_analysis import (
 )
 from scripts.run_wfo_parallel import ParallelCellRunner
 
+import numpy as np  # used in portfolio analysis
+
 logger = logging.getLogger("research_campaign")
 
 ASSETS = ["BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT", "XRP/USDT"]
@@ -87,17 +89,18 @@ def run_single_strategy_cell(
 ) -> dict:
     """Run WFO for one (strategy, symbol, timeframe) combination.
 
-    Handles both catalog strategies (some map to existing code) and
-    existing registered strategies.
+    Uses subprocess to run run_wfo_parallel.py CLI, avoiding nested
+    process pools. Each combination runs as its own process.
     """
-    code_name = get_strategy_code_name(strategy_id.split("__")[0])
+    import subprocess
+
+    base_id = strategy_id.split("__")[0]
+    code_name = get_strategy_code_name(base_id)
+    spec = STRATEGY_CATALOG[base_id]
     cs_variant = None
     if "__" in strategy_id:
-        base_id = strategy_id.split("__")[0]
         cs_variant = strategy_id.split("__")[1]
-        param_grid = get_param_grid(base_id, cs_variant=cs_variant)
-    else:
-        param_grid = get_param_grid(strategy_id)
+    param_grid = get_param_grid(base_id, cs_variant=cs_variant)
 
     if not param_grid:
         return {
@@ -107,66 +110,81 @@ def run_single_strategy_cell(
             "status": "SKIPPED",
             "reason": "No param grid defined",
         }
-
-    spec = WFOSpec(
-        strategy_id=code_name,
-        symbol=symbol,
-        timeframe=timeframe,
-        param_grid=param_grid,
-        cost_scenarios=DEFAULT_SCENARIOS,
-        train_months=12,
-        val_months=3,
-        test_months=3,
-        step_months=3,
-        registry_path=str(out_root / "research.sqlite3"),
-        search_family=f"research_{strategy_id}_{symbol.replace('/', '')}_{timeframe}",
-        evaluator_version="v1",
-        seed=42,
-        min_oos_trades=30,
-        evidence_class="REAL_MARKET",
-    )
-
-    strategy_dir = out_root / f"{strategy_id}__{symbol.replace('/', '')}__{timeframe}"
-    strategy_dir.mkdir(parents=True, exist_ok=True)
-
-    start = time.time()
-    try:
-        runner = ParallelCellRunner(workers=workers, out_root=strategy_dir)
-        with runner:
-            result = run_nested_wfo(
-                spec,
-                out_root=strategy_dir,
-                run_holdout=True,
-                real_sensitivity=True,
-                cell_runner=runner.run,
-            )
-        elapsed = time.time() - start
-
-        m = result.aggregate_metrics
+    if spec.implementation == "TODO":
         return {
             "strategy_id": strategy_id,
             "symbol": symbol,
             "timeframe": timeframe,
-            "status": "PASS" if result.passes_hard_gates else "FAIL",
-            "verdict": getattr(result, "verdict", "N/A"),
-            "passes_hard_gates": bool(result.passes_hard_gates),
-            "n_outer_folds": int(m.get("n_outer_folds", 0)),
-            "total_test_trades": int(m.get("total_test_trades", 0)),
-            "median_test_sharpe": float(m.get("median_test_sharpe", 0)),
-            "median_test_return_pct": float(m.get("median_test_return_pct", 0)),
-            "median_profit_factor": float(m.get("median_profit_factor", 0)),
-            "positive_outer_folds_pct": float(m.get("positive_outer_folds_pct", 0)),
-            "final_holdout_status": getattr(result, "final_holdout_status", None),
-            "statistical_hardening": getattr(result, "statistical_hardening", None),
-            "gate_results": [
-                g.to_dict() if hasattr(g, "to_dict") else g
-                for g in result.gate_results
-            ],
+            "status": "SKIPPED",
+            "reason": f"Implementation: {spec.implementation}",
+        }
+
+    # Launch subprocess
+    out_dir = str(out_root / f"{strategy_id}__{symbol.replace('/', '')}__{timeframe}")
+    cmd = [
+        "python3", "scripts/run_wfo_parallel.py",
+        "--strategy", code_name,
+        "--symbol", symbol,
+        "--timeframe", timeframe,
+        "--out", out_dir,
+        "--workers", str(workers),
+        "--cost", "1x",
+        "--run-holdout",
+    ]
+
+    start = time.time()
+    try:
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=600,
+            cwd=str(ROOT),
+        )
+        elapsed = time.time() - start
+        if result.returncode != 0:
+            return {
+                "strategy_id": strategy_id,
+                "symbol": symbol,
+                "timeframe": timeframe,
+                "status": "ERROR",
+                "error": result.stderr[-500:] if result.stderr else "Unknown error",
+            }
+
+        # Parse summary
+        summary_path = Path(out_dir) / "parallel_canonical_summary.json"
+        if summary_path.exists():
+            summary = json.loads(summary_path.read_text())
+            m = summary.get("aggregate_metrics", {})
+            return {
+                "strategy_id": strategy_id,
+                "symbol": symbol,
+                "timeframe": timeframe,
+                "status": "PASS" if summary.get("passes_hard_gates") else "FAIL",
+                "verdict": summary.get("verdict", "N/A"),
+                "passes_hard_gates": bool(summary.get("passes_hard_gates")),
+                "n_outer_folds": int(m.get("n_outer_folds", 0)),
+                "total_test_trades": int(m.get("total_test_trades", 0)),
+                "median_test_sharpe": float(m.get("median_test_sharpe", 0)),
+                "median_test_return_pct": float(m.get("median_test_return_pct", 0)),
+                "median_profit_factor": float(m.get("median_profit_factor", 0)),
+                "positive_outer_folds_pct": float(m.get("positive_outer_folds_pct", 0)),
+                "final_holdout_status": summary.get("final_holdout_status"),
+                "elapsed_seconds": elapsed,
+            }
+        return {
+            "strategy_id": strategy_id,
+            "symbol": symbol,
+            "timeframe": timeframe,
+            "status": "COMPLETED",
             "elapsed_seconds": elapsed,
         }
+    except subprocess.TimeoutExpired:
+        return {
+            "strategy_id": strategy_id,
+            "symbol": symbol,
+            "timeframe": timeframe,
+            "status": "TIMEOUT",
+            "elapsed_seconds": time.time() - start,
+        }
     except Exception as exc:
-        logger.error(f"Failed {strategy_id} {symbol} {timeframe}: {exc}")
-        traceback.print_exc()
         return {
             "strategy_id": strategy_id,
             "symbol": symbol,
@@ -280,14 +298,15 @@ def run_single_asset_phase(
     assets: list[str],
     timeframes: list[str],
     workers: int = 4,
+    strategies: list[str] | None = None,
 ) -> list[dict]:
     """Run all single-asset strategies across assets and timeframes."""
-
-    import numpy as np  # noqa - needed in collect_return_series
 
     results = []
     cells = []
     for strategy_id in SINGLE_ASSET_STRATEGIES:
+        if strategies is not None and strategy_id not in strategies:
+            continue
         spec = STRATEGY_CATALOG[strategy_id]
         if spec.implementation == "TODO":
             results.append({
@@ -301,14 +320,29 @@ def run_single_asset_phase(
                 cells.append((strategy_id, asset, tf))
 
     print(f"Single-asset phase: {len(cells)} job(s), {workers} workers")
+
+    results = []
     completed = 0
-    for strategy_id, asset, tf in cells:
-        result = run_single_strategy_cell(strategy_id, asset, tf, out_root, workers)
-        results.append(result)
-        completed += 1
-        status = result.get("status", "?")
-        sharpe = result.get("median_test_sharpe", 0)
-        print(f"  [{completed}/{len(cells)}] {strategy_id} | {asset} | {tf} → {status} (Sharpe={sharpe:.3f})")
+    # Run cells in parallel using ThreadPool (each cell spawns a subprocess)
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        future_map = {
+            pool.submit(run_single_strategy_cell, sid, asset, tf, out_root, 2): (sid, asset, tf)
+            for sid, asset, tf in cells
+        }
+        for future in as_completed(future_map):
+            sid, asset, tf = future_map[future]
+            try:
+                result = future.result()
+            except Exception as exc:
+                result = {"strategy_id": sid, "symbol": asset, "timeframe": tf,
+                          "status": "ERROR", "error": str(exc)}
+            results.append(result)
+            completed += 1
+            status = result.get("status", "?")
+            sharpe = result.get("median_test_sharpe", 0)
+            print(f"  [{completed}/{len(cells)}] {sid} | {asset} | {tf} → {status} (Sharpe={sharpe:.3f})")
 
     return results
 
@@ -380,7 +414,7 @@ def main():
     # ── Phase 1: Single-Asset Strategies ─────────────────────────────────
     if args.phase in ("single-asset", "all"):
         single_results = run_single_asset_phase(
-            out_root, args.assets, args.timeframes, args.workers
+            out_root, args.assets, args.timeframes, args.workers, args.strategies,
         )
         all_results.extend(single_results)
 
@@ -436,6 +470,4 @@ def main():
 
 
 if __name__ == "__main__":
-    # Import numpy here so it's available in collect_return_series
-    import numpy as np
     main()
