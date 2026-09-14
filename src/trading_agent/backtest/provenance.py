@@ -246,78 +246,85 @@ class ManifestValidator:
         for fold_id in expected:
             inner_dir = self.out_root / "inner_selection_freezes"
             outer_dir = self.out_root / "outer_one_shot" / fold_id
-            if not outer_dir.exists():
-                missing.append(fold_id)
-                continue
+            # R04: Also check the pair/strategy-isolated path structure
+            # outer_one_shot/<pair>/<strategy>/<fold_id>/<digest>.json
+            outer_dirs: list[Path] = [outer_dir]
+            spec = m_payload.get("spec") or {}
+            pair = spec.get("symbol") or m_payload.get("symbol", "")
+            strategy = spec.get("strategy_id") or m_payload.get("strategy_id", "")
+            if pair and strategy:
+                pair_safe = pair.replace("/", "_").replace(" ", "_")
+                strat_safe = strategy.replace("/", "_").replace(" ", "_")
+                isolated_dir = self.out_root / "outer_one_shot" / pair_safe / strat_safe / fold_id
+                outer_dirs.append(isolated_dir)
 
-            outer_files = list(outer_dir.glob("*.json"))
-            if not outer_files:
-                missing.append(fold_id)
-                continue
-
-            # Find an outer artifact whose freeze_id matches a freeze file
-            ok = False
-            for outer_path in outer_files:
-                try:
-                    outer = json.loads(outer_path.read_text(encoding="utf-8"))
-                except Exception as exc:
-                    tampered.append(fold_id)
-                    issues.append(f"{fold_id}: outer artifact unreadable: {exc}")
+            found_artifact = False
+            for od in outer_dirs:
+                if not od.exists():
+                    continue
+                outer_files = list(od.glob("*.json"))
+                if not outer_files:
                     continue
 
-                freeze_id = outer.get("selection_freeze_id")
-                if not freeze_id:
-                    mismatched.append(fold_id)
-                    issues.append(
-                        f"{fold_id}: outer artifact has no selection_freeze_id"
-                    )
-                    continue
+                # Find an outer artifact whose freeze_id matches a freeze file
+                for outer_path in outer_files:
+                    try:
+                        outer = json.loads(outer_path.read_text(encoding="utf-8"))
+                    except Exception as exc:
+                        tampered.append(fold_id)
+                        issues.append(f"{fold_id}: outer artifact unreadable: {exc}")
+                        continue
 
-                # Inner freeze must exist
-                freeze_path = inner_dir / f"{freeze_id.removeprefix('sha256:')}.json"
-                if not freeze_path.exists():
-                    mismatched.append(fold_id)
-                    issues.append(
-                        f"{fold_id}: inner freeze file missing for {freeze_id}"
-                    )
-                    continue
-
-                # Inner freeze must reference this study's manifest
-                try:
-                    freeze_data = json.loads(freeze_path.read_text(encoding="utf-8"))
-                except Exception as exc:
-                    tampered.append(fold_id)
-                    issues.append(f"{fold_id}: inner freeze unreadable: {exc}")
-                    continue
-
-                # The freeze's commit_sha + data_manifest_sha + feature_schema_hash
-                # must match the study manifest
-                for fld in (
-                    "commit_sha",
-                    "data_manifest_sha",
-                    "feature_schema_hash",
-                ):
-                    expected_v = m_payload.get(fld)
-                    actual_v = freeze_data.get(fld)
-                    if expected_v is not None and expected_v != actual_v:
+                    freeze_id = outer.get("selection_freeze_id")
+                    if not freeze_id:
                         mismatched.append(fold_id)
                         issues.append(
-                            f"{fold_id}: freeze {fld}={actual_v} != manifest {fld}={expected_v}"
+                            f"{fold_id}: outer artifact has no selection_freeze_id"
                         )
+                        continue
+
+                    # Inner freeze must exist
+                    freeze_path = inner_dir / f"{freeze_id.removeprefix('sha256:')}.json"
+                    if not freeze_path.exists():
+                        mismatched.append(fold_id)
+                        issues.append(
+                            f"{fold_id}: inner freeze file missing for {freeze_id}"
+                        )
+                        continue
+
+                    # Inner freeze must reference this study's manifest
+                    try:
+                        freeze_data = json.loads(freeze_path.read_text(encoding="utf-8"))
+                    except Exception as exc:
+                        tampered.append(fold_id)
+                        issues.append(f"{fold_id}: inner freeze unreadable: {exc}")
+                        continue
+
+                    # The freeze's commit_sha + data_manifest_sha + feature_schema_hash
+                    # must match the study manifest
+                    for fld in (
+                        "commit_sha",
+                        "data_manifest_sha",
+                        "feature_schema_hash",
+                    ):
+                        expected_v = m_payload.get(fld)
+                        actual_v = freeze_data.get(fld)
+                        if expected_v is not None and expected_v != actual_v:
+                            mismatched.append(fold_id)
+                            issues.append(
+                                f"{fold_id}: freeze {fld}={actual_v} != manifest {fld}={expected_v}"
+                            )
+                            break
+                    else:
+                        found += 1
+                        found_artifact = True
                         break
-                else:
-                    ok = True
+                if found_artifact:
                     break
 
-            if ok:
-                found += 1
-            elif (
-                fold_id not in missing
-                and fold_id not in mismatched
-                and fold_id not in tampered
-            ):
-                mismatched.append(fold_id)
-                issues.append(f"{fold_id}: no matching outer/freeze pair found")
+            if not found_artifact:
+                missing.append(fold_id)
+                issues.append(f"{fold_id}: no matching outer artifact found")
 
         is_complete = (
             found == len(expected) and not missing and not mismatched and not tampered

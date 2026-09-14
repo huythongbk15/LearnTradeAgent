@@ -873,14 +873,11 @@ def _last_bar_le_or_before(df, ts: datetime) -> int:
     return max(0, min(idx, df.height - 1))
 
 
-def _resolve_frozen_holdout_window(df, spec: WFOSpec) -> tuple[int, int] | None:
+def _resolve_frozen_holdout_window(df, spec: WFOSpec) -> tuple[int, int, dict[str, Any]] | None:
     """Resolve the frozen holdout window (STR-0309) from research_manifest.json.
 
-    Returns (holdout_start_bar, holdout_end_bar) mapped into the loaded dataset,
-    or None if no frozen manifest exists (holdout disabled).
-
-    Fail-closed: if a manifest exists but the window is invalid/empty, returns
-    None (and the caller must decide whether to proceed).
+    Returns (holdout_start_bar, holdout_end_bar, manifest_dict) mapped into
+    the loaded dataset, or None if no frozen manifest exists (holdout disabled).
     """
     from trading_agent.alpha_research.holdout import (
         HoldoutError,
@@ -903,7 +900,7 @@ def _resolve_frozen_holdout_window(df, spec: WFOSpec) -> tuple[int, int] | None:
             f"maps to empty bar range [{start_bar}..{end_bar}]; holdout disabled"
         )
         return None
-    return (start_bar, end_bar)
+    return (start_bar, end_bar, manifest)
 
 
 def _guard_fold_against_holdout(
@@ -979,7 +976,12 @@ def run_final_holdout(
     manifest_path = out_root / f"holdout_{manifest.holdout_id[:16]}.json"
 
     # R04a: Use HoldoutAccessGuard for process-restart-resilient, atomic access.
-    # The guard re-loads from disk on init to detect prior openings or tampering.
+    # First, persist the frozen manifest to disk so the guard can detect prior openings.
+    # The freeze_timestamp was set at manifest creation (before any tuning), ensuring
+    # the holdout_id is stable across runs for the same study.
+    if not manifest_path.exists():
+        manifest.save(manifest_path)
+
     with HoldoutAccessGuard(manifest_path) as guard:
         opened_manifest = guard.open(actor=actor)
 
@@ -1772,7 +1774,12 @@ def _persist_study_manifest(out_root: Path, manifest: WFOStudyManifest) -> Path:
 
 
 def _find_existing_outer_artifact(
-    out_root: Path, freeze_id: str, fold_id: str
+    out_root: Path,
+    freeze_id: str,
+    fold_id: str,
+    *,
+    pair: str | None = None,
+    strategy: str | None = None,
 ) -> EvaluationArtifact | None:
     """Load the immutable outer artifact bound to ``freeze_id``.
 
@@ -1780,7 +1787,7 @@ def _find_existing_outer_artifact(
     outer window and generate a replacement result.
     """
 
-    path = _outer_artifact_path(out_root, freeze_id, fold_id)
+    path = _outer_artifact_path(out_root, freeze_id, fold_id, pair=pair, strategy=strategy)
     if not path.exists():
         return None
     data = json.loads(path.read_text(encoding="utf-8"))
@@ -1790,8 +1797,46 @@ def _find_existing_outer_artifact(
     return artifact
 
 
-def _outer_artifact_path(out_root: Path, freeze_id: str, fold_id: str) -> Path:
+def _outer_artifact_path(
+    out_root: Path,
+    freeze_id: str,
+    fold_id: str,
+    *,
+    pair: str | None = None,
+    strategy: str | None = None,
+) -> Path:
+    """Construct output path for outer artifact.
+
+    R04: Output isolation per (pair, strategy) ensures that:
+    - Two pairs of the same strategy do NOT overwrite each other's artifacts
+    - Two different strategies on the same pair do NOT overwrite each other
+    - Path is deterministic and content-addressed
+
+    The path embeds optional pair/strategy components for isolation.
+    When provided, the path structure is:
+        {out_root}/outer_one_shot/{pair}/{strategy}/{fold_id}/{digest}.json
+
+    When pair/strategy are not provided (legacy callers), falls back to:
+        {out_root}/outer_one_shot/{fold_id}/{digest}.json
+
+    This backward-compatible design allows incremental migration.
+    """
     digest = freeze_id.removeprefix("sha256:")
+
+    if pair is not None and strategy is not None:
+        # Sanitize pair/strategy for filesystem safety
+        pair_safe = pair.replace("/", "_").replace(" ", "_")
+        strat_safe = strategy.replace("/", "_").replace(" ", "_")
+        return (
+            Path(out_root)
+            / "outer_one_shot"
+            / pair_safe
+            / strat_safe
+            / fold_id
+            / f"{digest}.json"
+        )
+
+    # Legacy fallback — no pair/strategy isolation
     return Path(out_root) / "outer_one_shot" / fold_id / f"{digest}.json"
 
 
@@ -1845,25 +1890,103 @@ def _persist_outer_artifact(
     freeze_id: str,
     fold_id: str,
     artifact: EvaluationArtifact,
+    *,
+    pair: str | None = None,
+    strategy: str | None = None,
 ) -> EvaluationArtifact:
-    """Atomically persist an outer result, including failures, exactly once."""
+    """Atomically persist an outer result, including failures, exactly once.
 
-    path = _outer_artifact_path(out_root, freeze_id, fold_id)
+    R04: Two-phase write with fsync + post-write verification.
+
+    Phase 1 (Prepare): Write to temp file + fsync to disk
+    Phase 2 (Commit): Atomic rename via os.replace
+    Verify: Re-read + validate artifact_id matches
+
+    This ensures no partial/corrupt artifacts even on process crash.
+    """
+    import os
+    import tempfile
+    import time
+
+    path = _outer_artifact_path(out_root, freeze_id, fold_id, pair=pair, strategy=strategy)
     path.parent.mkdir(parents=True, exist_ok=True)
     bound = replace(artifact, selection_freeze_id=freeze_id)
+
+    # Idempotency check — if artifact exists with same content, return it
     if path.exists():
-        existing = _find_existing_outer_artifact(out_root, freeze_id, fold_id)
+        existing = _find_existing_outer_artifact(out_root, freeze.freeze_id, fold_id, pair=pair, strategy=strategy)
         if existing is None or existing.artifact_id != bound.artifact_id:
             raise ValueError(
                 f"outer artifact already exists with different content: {path}"
             )
+        # Verify existing is readable
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                json.load(f)
+        except (json.JSONDecodeError, OSError):
+            raise ValueError(
+                f"existing outer artifact is corrupt: {path}"
+            )
         return existing
-    tmp_path = path.with_suffix(".json.tmp")
-    tmp_path.write_text(
-        json.dumps(bound.to_dict(), indent=2, allow_nan=False), encoding="utf-8"
-    )
-    tmp_path.replace(path)
-    return bound
+
+    # Phase 1: Write to temp file with fsync
+    max_retries = 3
+    last_error = None
+
+    for attempt in range(max_retries):
+        try:
+            # Use mkstemp for robust temp file creation
+            tmp_fd, tmp_path = tempfile.mkstemp(
+                dir=path.parent,
+                prefix=f"_{path.stem}_",
+                suffix=path.suffix,
+            )
+
+            # Phase 1: Write + fsync
+            with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
+                json.dump(
+                    bound.to_dict(),
+                    f,
+                    indent=2,
+                    allow_nan=False,
+                    default=str,
+                )
+                f.flush()
+                os.fsync(f.fileno())
+
+            # Phase 2: Atomic commit via rename
+            os.replace(tmp_path, path)
+
+            # Verification: Re-read to confirm integrity
+            with open(path, "r", encoding="utf-8") as f:
+                verified = json.load(f)
+
+            # Validate the persisted artifact matches expected
+            if verified.get("artifact_id") != bound.artifact_id:
+                raise ValueError(
+                    f"verification failed: artifact_id mismatch after write "
+                    f"(expected {bound.artifact_id}, got {verified.get('artifact_id')})"
+                )
+
+            return bound
+
+        except Exception as e:
+            last_error = e
+            # Clean up temp file if it exists
+            try:
+                if "tmp_path" in locals() and os.path.exists(tmp_path):
+                    os.unlink(tmp_path)
+            except OSError:
+                pass
+
+            if attempt < max_retries - 1:
+                # Exponential backoff: 0.1s, 0.2s
+                time.sleep(0.1 * (2 ** attempt))
+                continue
+            else:
+                raise RuntimeError(
+                    f"failed to persist outer artifact after {max_retries} attempts: {last_error}"
+                ) from last_error
 
 
 def _compute_multi_dimensional_evaluation(
@@ -2640,8 +2763,9 @@ def run_nested_wfo(
     # Declare upfront so both branches can assign (mypy no-redef)
     holdout_start_bar: int | None = None
     holdout_end_bar: int | None = None
+    research_manifest: dict[str, Any] | None = None
     if holdout_bars is not None:
-        holdout_start_bar, holdout_end_bar = holdout_bars
+        holdout_start_bar, holdout_end_bar, research_manifest = holdout_bars
         kept_folds = [f for f in folds if f.outer_test_end <= holdout_start_bar]
         dropped = len(folds) - len(kept_folds)
         if dropped:
@@ -2977,7 +3101,9 @@ def run_nested_wfo(
                     measurement_end=fold.outer_test_end,
                 )
                 artifact = _persist_outer_artifact(
-                    out_root, freeze.freeze_id, fold_id, artifact
+                    out_root, freeze.freeze_id, fold_id, artifact,
+                    pair=spec.symbol.replace("/", "_"),
+                    strategy=spec.strategy_id.replace("/", "_"),
                 )
 
                 test_metrics = (
@@ -3640,7 +3766,7 @@ def run_nested_wfo(
                     holdout_end_bar=holdout_end_bar,
                     data_manifest_sha=data_manifest_sha,
                     feature_schema_hash=feature_schema_hash,
-                    freeze_timestamp=datetime.now(UTC).isoformat(),
+                    freeze_timestamp=research_manifest.get("freeze_date", datetime.now(UTC).isoformat()),
                     frozen_by="research_system",
                     commit_sha_at_freeze=commit_sha,
                     notes=f"Final holdout from frozen research_manifest: bars {holdout_start_bar}..{holdout_end_bar}",
@@ -3660,9 +3786,11 @@ def run_nested_wfo(
                     actor=holdout_actor,
                 )
             except Exception as e:  # noqa: BLE001
+                import traceback
                 final_holdout_result = {
                     "status": "ERROR",
-                    "error": str(e),
+                    "error": f"{type(e).__name__}: {e}",
+                    "traceback": traceback.format_exc(),
                 }
 
         # --- Gate 13: final holdout must COMPLETED and be independent ---

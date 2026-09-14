@@ -37,11 +37,15 @@ from trading_agent.backtest.tournament import (
 )
 from trading_agent.backtest.nested_wfo import (
     WFOSpec,
+    WFOResult,
+    GateResult,
     _get_fold_indices,
     _resolve_frozen_holdout_window,
     _default_purge_embargo,
     run_nested_wfo,
     EvaluationCellSpec,
+    PortfolioGatePolicy,
+    _build_portfolio_selection_result,
 )
 from trading_agent.strategies.canonical.candidates import build_default_registry
 from trading_agent.data.storage import load_ohlcv
@@ -49,6 +53,31 @@ from trading_agent.backtest.tournament import EvaluationArtifact
 
 
 # Param grids (aligned with R01 parameter schema in candidates.py)
+# ── Param grids ─────────────────────────────────────────────────────────────
+# For single-asset strategies: look up from param_grids.py (canonical source)
+# For cross-sectional strategies: use cs_variant suffix
+from trading_agent.research.param_grids import SINGLE_ASSET_GRIDS, CROSS_SECTIONAL_GRIDS
+
+# Map CLI strategy names to catalog param grid keys
+_STRATEGY_GRID_MAP: dict[str, str] = {
+    "ma_adx": "ma_adx",
+    "rsi": "rsi",
+    "bbands": "bbands",
+    "enhanced_ma": "enhanced_ma",
+    "ma_vol_target": "ma_vol_target",
+    "regime_switching": "regime_ensemble",
+    "trend_pullback": "trend_pullback",
+    "range_mean_reversion": "range_mean_reversion",
+    "volatility_breakout": "volatility_breakout",
+    "funding_carry": "funding_carry",
+    # Cross-sectional variants
+    "cross_sectional_momentum_lo": ("cross_sectional_momentum", "long_only"),
+    "cross_sectional_momentum_ls": ("cross_sectional_momentum", "long_short"),
+    "stat_arbitrage_lo": ("stat_arbitrage", "long_only"),
+    "stat_arbitrage_ls": ("stat_arbitrage", "long_short"),
+}
+
+# Default param grids matching existing behavior (used for strategies not in param_grids)
 MINIMAL_PARAM_GRIDS: dict[str, dict[str, list]] = {
     "ma_adx": {
         "fast_period": [10, 20, 30],
@@ -91,7 +120,79 @@ MINIMAL_PARAM_GRIDS: dict[str, dict[str, list]] = {
         "regime_smoothing": [2, 3],
         "base_position_pct": [0.1, 0.2],
     },
+    # S1: Trend Pullback
+    "trend_pullback": {
+        "ma_fast": [10, 20, 30],
+        "ma_slow": [80, 120],
+        "adx_threshold": [25, 30],
+        "adx_period": [14],
+    },
+    # S2: Range Mean Reversion
+    "range_mean_reversion": {
+        "vwap_window": [14, 20, 30],
+        "zscore_entry": [1.5, 2.0, 2.5],
+        "zscore_exit": [0.5],
+        "bb_lookback": [20],
+        "bb_std": [2.0],
+    },
+    # S3: Volatility Expansion Breakout
+    "volatility_breakout": {
+        "bb_period": [14, 20, 21],
+        "bb_std": [2.0],
+        "compression_percentile": [0.03, 0.05],
+        "atr_spike_mult": [1.5, 2.0],
+        "max_hold_bars": [10, 20],
+    },
+    # S5: Funding Carry
+    "funding_carry": {
+        "funding_entry_threshold": [-0.0001, -0.001],
+        "funding_exit_threshold": [0.00005, 0.0],
+        "max_hold_periods": [9],
+        "vol_window": [20],
+    },
+    # S4: Cross-sectional Momentum (long-only)
+    "cross_sectional_momentum_lo": {
+        "lookback_days": [60, 90],
+        "fast_period": [10, 20, 30],
+        "slow_period": [40, 60],
+        "rsi_period": [14],
+    },
+    # S4: Cross-sectional Momentum (long-short)
+    "cross_sectional_momentum_ls": {
+        "lookback_days": [60, 90],
+        "fast_period": [10, 20, 30],
+        "slow_period": [40, 60],
+    },
+    # S8: Stat Arbitrage (long-only)
+    "stat_arbitrage_lo": {
+        "zscore_entry": [1.5, 2.0],
+        "zscore_exit": [0.5],
+        "lookback_days": [20],
+    },
+    # S8: Stat Arbitrage (long-short)
+    "stat_arbitrage_ls": {
+        "zscore_entry": [2.0, 2.5],
+        "zscore_exit": [0.5],
+        "lookback_days": [20],
+    },
 }
+
+
+def get_param_grid_for_strategy(strategy_id: str) -> dict[str, list]:
+    """Get param grid for a strategy, falling back to MINIMAL_PARAM_GRIDS."""
+    mapping = _STRATEGY_GRID_MAP.get(strategy_id, strategy_id)
+    if isinstance(mapping, tuple):
+        grid_key, cs_variant = mapping
+        grid = CROSS_SECTIONAL_GRIDS.get((grid_key, cs_variant))
+        if grid:
+            return grid
+        # Fallback
+        return MINIMAL_PARAM_GRIDS.get(strategy_id, {})
+    # Single-asset: check SINGLE_ASSET_GRIDS first
+    grid = SINGLE_ASSET_GRIDS.get(mapping)
+    if grid:
+        return grid
+    return MINIMAL_PARAM_GRIDS.get(strategy_id, {})
 
 
 def get_cost_scenarios(cost_arg: str) -> tuple[CostScenario, ...]:
@@ -207,7 +308,8 @@ class ParallelCellRunner:
         """Run multiple cells in parallel and return results in order."""
         futures = [self._submit_cell(*cell) for cell in cells]
         results = []
-        for future in concurrent.futures.as_completed(futures):
+        # Iterate in submission order so results align with batch_cells / cell_keys.
+        for future in futures:
             try:
                 artifact = future.result(timeout=self.timeout_seconds)
                 results.append(artifact)
@@ -219,16 +321,13 @@ class ParallelCellRunner:
                     strategy_id=spec.strategy_id,
                     symbol=spec.symbol,
                     timeframe=spec.timeframe,
-                    params=dict(spec.params),
+                    params_hash=spec.params_hash,
                     cost_scenario=spec.cost_scenario.name,
                     failure_reasons={f"worker_exception: {exc}"},
                     metrics={},
                     execution_health={},
                 )
                 results.append(artifact)
-        # Sort results to match input order
-        # Note: as_completed doesn't preserve order, but for our use case
-        # the order doesn't matter since results are matched by freeze_id/fold_id
         return results
 
 
@@ -345,6 +444,10 @@ def main():
     parser.add_argument(
         "--workers", type=int, default=4, help="Number of parallel workers"
     )
+    parser.add_argument(
+        "--cell-timeout", type=int, default=1800,
+        help="Per-cell timeout in seconds (inner validation & outer folds)",
+    )
     parser.add_argument("--train-months", type=int, default=12)
     parser.add_argument("--val-months", type=int, default=3)
     parser.add_argument("--test-months", type=int, default=3)
@@ -371,11 +474,27 @@ def main():
 
     cost_scenarios = get_cost_scenarios(args.cost)
 
+    # Normalize symbol: CLI args may use BTCUSDT, BTC_USDT, or BTC/USDT.
+    # Strategy descriptors expect BTC/USDT (slash format).
+    raw_symbol = args.symbol
+    if "/" in raw_symbol:
+        symbol = raw_symbol
+    elif "_" in raw_symbol:
+        symbol = raw_symbol.replace("_", "/")
+    else:
+        # Heuristic: try common crypto quote currencies
+        for quote in ("USDT", "USDC", "BUSD", "BTC", "ETH", "USD", "ADA"):
+            if raw_symbol.endswith(quote) and len(raw_symbol) > len(quote):
+                symbol = raw_symbol[:-len(quote)] + "/" + quote
+                break
+        else:
+            symbol = raw_symbol  # fallback: use as-is
+
     spec = WFOSpec(
         strategy_id=args.strategy,
-        symbol=args.symbol,
+        symbol=symbol,
         timeframe=args.timeframe,
-        param_grid=MINIMAL_PARAM_GRIDS.get(args.strategy, {}),
+        param_grid=get_param_grid_for_strategy(args.strategy),
         cost_scenarios=cost_scenarios,
         train_months=args.train_months,
         val_months=args.val_months,
@@ -393,12 +512,14 @@ def main():
         f"Running CANONICAL WFO for {args.strategy} {args.symbol} {args.timeframe}...",
         flush=True,
     )
-    print(f"  Params: {MINIMAL_PARAM_GRIDS.get(args.strategy, {})}", flush=True)
+    print(f"  Params: {get_param_grid_for_strategy(args.strategy)}", flush=True)
     print(f"  Cost: {[c.name for c in cost_scenarios]}", flush=True)
     print(f"  Workers: {args.workers}", flush=True)
     print(f"  Out: {out_root}", flush=True)
     print(f"  Run holdout: {args.run_holdout}", flush=True)
     print(f"  Real sensitivity: {args.real_sensitivity}", flush=True)
+
+    print(f"  Cell timeout: {args.cell_timeout}s", flush=True)
 
     start_time = time.time()
 
@@ -406,13 +527,14 @@ def main():
     with ParallelCellRunner(
         workers=args.workers,
         out_root=out_root,
+        timeout_seconds=args.cell_timeout,
     ) as runner:
         result = run_nested_wfo(
             spec,
             out_root=out_root,
             run_holdout=args.run_holdout,
             real_sensitivity=args.real_sensitivity,
-            cell_runner=runner.run,  # Pass the runner's single-cell method
+            cell_runner=runner,  # Pass the runner object (has run_batch)
         )
 
     elapsed = time.time() - start_time
@@ -430,10 +552,14 @@ def main():
     )
     print(f"  Elapsed: {elapsed:.0f}s")
 
+    # Compute per-strategy output directory for summary persistence
+    symbol_safe = spec.symbol.replace("/", "_").replace(" ", "_")
+    spec_dir = out_root / f"{spec.strategy_id}__{symbol_safe}__{spec.timeframe}"
+
     # Save summary
     summary = {
         "strategy": args.strategy,
-        "symbol": args.symbol,
+        "symbol": symbol,
         "timeframe": args.timeframe,
         "cost_scenarios": [c.name for c in cost_scenarios],
         "verdict": verdict,
@@ -452,6 +578,45 @@ def main():
         json.dumps(summary, indent=2, default=str), encoding="utf-8"
     )
     print(f"\n  Summary saved: {out_root / 'parallel_canonical_summary.json'}")
+    print(f"  Per-strategy:  {spec_dir / 'parallel_canonical_summary.json'}")
+
+    # R07: Evaluate PortfolioGatePolicy (fail-closed promotion path)
+    policy = PortfolioGatePolicy()
+    portfolio_result = _build_portfolio_selection_result(
+        [result],
+        run_holdout=args.run_holdout,
+        out_root=out_root,
+        policy=policy,
+    )
+    summary["portfolio_verdict"] = portfolio_result.verdict
+    summary["portfolio_passes_hard_gates"] = portfolio_result.passes_hard_gates
+    summary["portfolio_gate_results"] = [
+        g.to_dict() for g in portfolio_result.gate_results
+    ]
+    summary["portfolio_artifact_id"] = portfolio_result.artifact_id
+
+    # Save summary to per-strategy directory to avoid overwrites in campaign runs
+    spec_dir.mkdir(parents=True, exist_ok=True)
+    (spec_dir / "parallel_canonical_summary.json").write_text(
+        json.dumps(summary, indent=2, default=str), encoding="utf-8"
+    )
+
+    print("\n=== Portfolio Gate Evaluation (R07) ===")
+    print(f"  Policy ID: {policy.policy_id[:16]}...")
+    print(f"  Verdict: {portfolio_result.verdict}")
+    print(f"  Passes hard gates: {portfolio_result.passes_hard_gates}")
+    for g in portfolio_result.gate_results:
+        status = "PASS" if g.is_pass() else ("FAIL" if g.verdict == "FAIL" else "INVALID")
+        val = f"{g.observed_value:.2f}" if g.observed_value is not None else "N/A"
+        print(f"  [{status}] {g.gate_id}: {val} (threshold={g.threshold})")
+
+    if portfolio_result.passes_hard_gates:
+        print("\n  --> Strategy passes portfolio gates. Eligible for promotion.")
+    else:
+        failed_gates = [g.gate_id for g in portfolio_result.gate_results if not g.is_pass()]
+        print(f"\n  --> Strategy FAILS portfolio gates: {failed_gates}")
+        if portfolio_result.no_trade_artifact:
+            print(f"  --> FormalNoTradeArtifact generated.")
 
 
 if __name__ == "__main__":

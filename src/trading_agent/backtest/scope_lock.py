@@ -257,9 +257,15 @@ class HoldoutAccessGuard:
     we re-ran with new code").
     """
 
-    def __init__(self) -> None:
+    # --- R04: Restart-resilient context manager ---
+    def __init__(self, path: str | Path | None = None) -> None:
         # (pair, strategy) -> HoldoutAccessRecord
         self._accesses: dict[tuple[str, str], HoldoutAccessRecord] = {}
+        self._path: Path | None = Path(path) if path else None
+        self._manifest: "FinalHoldoutManifest | None" = None
+        if self._path is not None:
+            loaded = HoldoutAccessGuard.load(self._path)
+            self._accesses = loaded._accesses
 
     def request_access(
         self, pair: str, strategy: str, fold_count: int
@@ -309,26 +315,23 @@ class HoldoutAccessGuard:
             ],
         }
 
-    def save(self, path: str | Path) -> Path:
+    def save(self, path: str | Path | None = None) -> Path:
         """Persist holdout access registry to disk for cross-run protection."""
-        path = Path(path)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(".json.tmp")
+        p = Path(path) if path else self._path
+        if p is None:
+            raise ValueError("No path specified for save")
+        p.parent.mkdir(parents=True, exist_ok=True)
+        tmp = p.with_suffix(".json.tmp")
         tmp.write_text(
             json.dumps(self.to_dict(), indent=2, default=str),
             encoding="utf-8",
         )
-        tmp.replace(path)
-        return path
+        tmp.replace(p)
+        return p
 
     @classmethod
     def load(cls, path: str | Path) -> "HoldoutAccessGuard":
-        """Load holdout access registry from disk.
-
-        If the file does not exist, returns an empty guard (no accesses).
-        This ensures a fresh campaign starts clean while a resumed campaign
-        preserves previously-recorded holdout touches.
-        """
+        """Load holdout access registry from disk."""
         path = Path(path)
         if not path.exists():
             return cls()
@@ -345,6 +348,69 @@ class HoldoutAccessGuard:
             )
             guard._accesses[(entry["pair"], entry["strategy"])] = record
         return guard
+
+    def open(self, actor: str = "research_system") -> "FinalHoldoutManifest":
+        """Open the holdout manifest for one-shot evaluation (R04.1).
+
+        Loads the FinalHoldoutManifest from disk, checks reuse, marks it opened
+        atomically, and persists.  Fail-closed: a second call raises
+        HoldoutReuseError.
+        """
+        from trading_agent.backtest.nested_wfo import (
+            FinalHoldoutManifest,
+        )
+
+        if self._path is None:
+            raise ValueError("HoldoutAccessGuard requires a path to open()")
+
+        # Load manifest from disk with integrity verification
+        manifest = FinalHoldoutManifest.load(self._path)
+
+        # Fail-closed: reject if already opened by anyone
+        if manifest.opened:
+            raise HoldoutReuseError(
+                f"Holdout for {manifest.symbol}/{manifest.strategy_id} "
+                f"already opened at {manifest.opened_at}; cannot re-use."
+            )
+
+        # Record access in our registry (cross-process tracking)
+        self.request_access(
+            pair=manifest.symbol,
+            strategy=manifest.strategy_id,
+            fold_count=0,
+        )
+
+        # Atomically open + persist manifest
+        opened_manifest = manifest.open(actor=actor)
+        opened_manifest.save(self._path)
+
+        # Record the outcome on our access record
+        self.record_outcome(
+            pair=manifest.symbol,
+            strategy=manifest.strategy_id,
+            outcome="OPENED",
+            result_artifact=str(self._path),
+        )
+
+        return opened_manifest
+
+    # --- Context manager protocol ---
+    def __enter__(self) -> "HoldoutAccessGuard":
+        """Enter context manager — loads existing state from disk if present."""
+        if self._path is not None:
+            loaded = HoldoutAccessGuard.load(self._path)
+            self._accesses = loaded._accesses
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> bool:
+        """Exit context manager — auto-persists state to disk."""
+        if self._path is not None:
+            try:
+                self.save(self._path)
+            except Exception:
+                import logging
+                logging.warning("Failed to persist HoldoutAccessGuard state")
+        return False
 
 
 class HoldoutReuseError(Exception):

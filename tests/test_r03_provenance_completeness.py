@@ -516,7 +516,7 @@ class TestEndToEndIdentity:
 
         storage_mod.load_ohlcv = _load
         tournament_mod.load_ohlcv = _load
-        nwfo._resolve_frozen_holdout_window = lambda *a, **k: (holdout_start, 399)
+        nwfo._resolve_frozen_holdout_window = lambda *a, **k: (holdout_start, 399, {"freeze_date": "2026-01-01T00:00:00+00:00"})
         nwfo._get_fold_indices = lambda *a, **k: folds
 
         # Deterministic mock cell runner
@@ -633,7 +633,7 @@ class TestEndToEndIdentity:
 
         storage_mod.load_ohlcv = _load
         tournament_mod.load_ohlcv = _load
-        nwfo._resolve_frozen_holdout_window = lambda *a, **k: (holdout_start, 399)
+        nwfo._resolve_frozen_holdout_window = lambda *a, **k: (holdout_start, 399, {"freeze_date": "2026-01-01T00:00:00+00:00"})
         nwfo._get_fold_indices = lambda *a, **k: folds
 
         def runner(
@@ -867,7 +867,7 @@ class TestConsumerCompletenessGate:
 
         storage_mod.load_ohlcv = _load
         tournament_mod.load_ohlcv = _load
-        nwfo._resolve_frozen_holdout_window = lambda *a, **k: (320, 399)
+        nwfo._resolve_frozen_holdout_window = lambda *a, **k: (320, 399, {"freeze_date": "2026-01-01T00:00:00+00:00"})
         nwfo._get_fold_indices = lambda *a, **k: self._FOLDS
 
         def runner(
@@ -939,9 +939,7 @@ class TestConsumerCompletenessGate:
 
         # Find an outer artifact file and tamper with it
         outer_dir = out_root / "outer_one_shot"
-        outer_files = []
-        for fold_dir in outer_dir.iterdir():
-            outer_files.extend(fold_dir.glob("*.json"))
+        outer_files = list(outer_dir.rglob("*.json"))
         assert len(outer_files) >= 1, "Expected outer artifact files on disk"
 
         tampered_file = outer_files[0]
@@ -974,9 +972,7 @@ class TestConsumerCompletenessGate:
 
         # Remove an outer artifact file
         outer_dir = out_root / "outer_one_shot"
-        outer_files = []
-        for fold_dir in outer_dir.iterdir():
-            outer_files.extend(fold_dir.glob("*.json"))
+        outer_files = list(outer_dir.rglob("*.json"))
         assert len(outer_files) >= 1
 
         removed_file = outer_files[0]

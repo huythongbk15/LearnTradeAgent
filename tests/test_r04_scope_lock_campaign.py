@@ -542,7 +542,7 @@ class TestCampaignOutputIsolation:
         assert registry_path.exists(), "holdout_registry.json not persisted"
 
         # Verify the spec output is isolated per pair/strategy
-        spec_out = out_dir / "smoke" / "rsi" / "BTC/USDT"
+        spec_out = out_dir / "smoke" / "smoke" / "rsi" / "BTC/USDT"
         if spec_out.exists():
             assert (spec_out / "wfo_decision.json").exists()
 
