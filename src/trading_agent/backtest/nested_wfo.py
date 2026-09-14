@@ -1318,6 +1318,7 @@ class WFOPortfolioResult:
                     "passes_hard_gates": result.passes_hard_gates,
                     "gate_failures": result.gate_failures,
                     "aggregate_metrics": result.aggregate_metrics,
+                    "statistical_hardening": result.statistical_hardening,
                     "final_holdout": result.final_holdout,
                     "study_manifest_id": result.study_manifest.manifest_id
                     if result.study_manifest is not None
@@ -3854,12 +3855,27 @@ def run_nested_wfo(
     # --- Recompute passes: holdout gates are part of the hard-gate set ---
     all_gate_results = list(gate_results) + list(holdout_gates)
     passes = all(g.is_pass() for g in all_gate_results)
+    # S3-3: promotion-eligible path REQUIRES real canonical stats.
+    # The candidate must have:
+    #   - real per-bar return_series (not synthetic/fallback) with observations >= 10
+    #   - statistical_hardening with non-None DSR and PBO (real OOS stats)
+    #   - sensitivity with real_computed entries (not placeholder notes)
+    has_real_canonical_stats = (
+        statistical_hardening.get("return_series_observations", 0) >= 10
+        and statistical_hardening.get("dsr") is not None
+        and statistical_hardening.get("pbo") is not None
+    )
+    has_real_sensitivity = bool(sensitivity_eval.get("real_computed"))
     aggregate_metrics["promotable"] = bool(
         study_manifest.provenance_eligible
         and passes
+        and has_real_canonical_stats
+        and has_real_sensitivity
         and final_holdout_result
         and final_holdout_result.get("status") == "COMPLETED"
     )
+    aggregate_metrics["canonical_stats_verified"] = has_real_canonical_stats
+    aggregate_metrics["sensitivity_verified"] = has_real_sensitivity
 
     # Create the formal rejection only after optional holdout gates have been
     # folded into the decision, so a failed holdout cannot yield a bare FAIL.
@@ -4140,6 +4156,16 @@ def _build_portfolio_selection_result(
         and result.final_holdout.get("status") != "COMPLETED"
         for result in results
     )
+    # S3-3: portfolio promotion requires at least one member with real
+    # canonical stats (return_series >= 10 obs, non-None DSR/PBO).
+    all_stat_hardening = [r.statistical_hardening for r in results if r.statistical_hardening]
+    portfolio_canonical_stats_verified = any(
+        sh.get("return_series_observations", 0) >= 10
+        and sh.get("dsr") is not None
+        and sh.get("pbo") is not None
+        for sh in all_stat_hardening
+    )
+    passes = passes and portfolio_canonical_stats_verified
     if passes and run_holdout:
         verdict = "FINAL_PASS"
     elif passes:
@@ -4188,6 +4214,21 @@ def _build_portfolio_selection_result(
         "members": rows,
         "sensitivity": combined_sensitivity,
     }
+
+    # S3-3: Export canonical stats verification + per-member hardening to
+    # portfolio aggregate_metrics so downstream consumers can audit.
+    aggregate_metrics["canonical_stats_verified"] = portfolio_canonical_stats_verified
+    aggregate_metrics["statistical_hardening_members"] = [
+        {
+            "candidate_id": f"{r.spec.strategy_id}::{r.spec.symbol}",
+            "return_series_observations": r.statistical_hardening.get("return_series_observations", 0),
+            "dsr": r.statistical_hardening.get("dsr"),
+            "pbo": r.statistical_hardening.get("pbo"),
+            "psr": r.statistical_hardening.get("psr"),
+            "median_sharpe": r.aggregate_metrics.get("median_test_sharpe"),
+        }
+        for r in results
+    ]
 
     data_identity = _combined_identity(
         [
