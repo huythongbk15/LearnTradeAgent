@@ -1914,7 +1914,7 @@ def _persist_outer_artifact(
 
     # Idempotency check — if artifact exists with same content, return it
     if path.exists():
-        existing = _find_existing_outer_artifact(out_root, freeze.freeze_id, fold_id, pair=pair, strategy=strategy)
+        existing = _find_existing_outer_artifact(out_root, freeze_id, fold_id, pair=pair, strategy=strategy)
         if existing is None or existing.artifact_id != bound.artifact_id:
             raise ValueError(
                 f"outer artifact already exists with different content: {path}"
@@ -3766,7 +3766,7 @@ def run_nested_wfo(
                     holdout_end_bar=holdout_end_bar,
                     data_manifest_sha=data_manifest_sha,
                     feature_schema_hash=feature_schema_hash,
-                    freeze_timestamp=research_manifest.get("freeze_date", datetime.now(UTC).isoformat()),
+                    freeze_timestamp=(research_manifest or {}).get("freeze_date", datetime.now(UTC).isoformat()),
                     frozen_by="research_system",
                     commit_sha_at_freeze=commit_sha,
                     notes=f"Final holdout from frozen research_manifest: bars {holdout_start_bar}..{holdout_end_bar}",

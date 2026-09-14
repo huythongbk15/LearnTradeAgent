@@ -27,7 +27,10 @@ import json
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from trading_agent.backtest.nested_wfo import FinalHoldoutManifest
 
 # Default R04 locked scope (per R00 baseline + R02 canonical authority).
 # These are the ONLY allowed values for a campaign run. Any deviation
@@ -402,7 +405,7 @@ class HoldoutAccessGuard:
             self._accesses = loaded._accesses
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> bool:
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         """Exit context manager — auto-persists state to disk."""
         if self._path is not None:
             try:
@@ -410,7 +413,6 @@ class HoldoutAccessGuard:
             except Exception:
                 import logging
                 logging.warning("Failed to persist HoldoutAccessGuard state")
-        return False
 
 
 class HoldoutReuseError(Exception):

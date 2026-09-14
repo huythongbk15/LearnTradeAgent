@@ -37,8 +37,6 @@ from trading_agent.backtest.tournament import (
 )
 from trading_agent.backtest.nested_wfo import (
     WFOSpec,
-    WFOResult,
-    GateResult,
     _get_fold_indices,
     _resolve_frozen_holdout_window,
     _default_purge_embargo,
@@ -315,17 +313,16 @@ class ParallelCellRunner:
                 results.append(artifact)
             except Exception as exc:
                 # Create a failed artifact for the failed cell
-                spec, start, end, fresh, m_start, m_end = self._pending[future]
-                artifact = EvaluationArtifact(
-                    status="FAILED",
-                    strategy_id=spec.strategy_id,
-                    symbol=spec.symbol,
-                    timeframe=spec.timeframe,
-                    params_hash=spec.params_hash,
-                    cost_scenario=spec.cost_scenario.name,
-                    failure_reasons={f"worker_exception: {exc}"},
-                    metrics={},
-                    execution_health={},
+                spec_cell, start, end, fresh, m_start, m_end = self._pending[future]
+                from trading_agent.backtest.tournament import _failed_artifact
+                artifact = _failed_artifact(
+                    spec_cell,
+                    None,
+                    f"worker_exception: {exc}",
+                    measurement_window=(m_start, m_end)
+                    if m_start is not None and m_end is not None
+                    else None,
+                    simulation_window=(start, end),
                 )
                 results.append(artifact)
         return results
@@ -616,7 +613,7 @@ def main():
         failed_gates = [g.gate_id for g in portfolio_result.gate_results if not g.is_pass()]
         print(f"\n  --> Strategy FAILS portfolio gates: {failed_gates}")
         if portfolio_result.no_trade_artifact:
-            print(f"  --> FormalNoTradeArtifact generated.")
+            print("  --> FormalNoTradeArtifact generated.")
 
 
 if __name__ == "__main__":
