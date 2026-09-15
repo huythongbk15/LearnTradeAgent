@@ -84,13 +84,12 @@ class FundingCarryStrategy(Strategy):
 PARAM_GRID = {
     "funding_entry_threshold": [-0.0001, -0.00008, -0.00005, -0.00003],
     "funding_exit_threshold": [0.0, 0.00005],
-    "max_hold_periods": [6, 12, 24],
     "vol_window": [20],
 }
 
 DEFAULT_PARAMS = {
     "funding_entry_threshold": -0.00008,
     "funding_exit_threshold": 0.00005,
-    "max_hold_periods": 12,
+    "max_hold_periods": 0,  # 0 = disabled (hold through funding period)
     "vol_window": 20,
 }

@@ -13,10 +13,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
-from trading_agent.backtest.nested_wfo import WFOSpec
-from trading_agent.backtest.tournament import CostScenario, DEFAULT_SCENARIOS
+if TYPE_CHECKING:
+    from trading_agent.backtest.nested_wfo import WFOSpec
+    from trading_agent.backtest.tournament import CostScenario
+
+
+def _load_default_scenarios() -> tuple:
+    """Deferred import to break circular dependency."""
+    from trading_agent.backtest.tournament import DEFAULT_SCENARIOS
+    return DEFAULT_SCENARIOS
 
 
 @dataclass
@@ -42,7 +49,7 @@ class ResearchProtocol:
     step_months: int = 3
 
     # ── Cost scenarios ────────────────────────────────────────────────────
-    cost_scenarios: tuple[CostScenario, ...] = DEFAULT_SCENARIOS
+    cost_scenarios: tuple["CostScenario", ...] = field(default_factory=_load_default_scenarios)
 
     # ── Statistical hardening ─────────────────────────────────────────────
     compute_dsr: bool = True
@@ -75,8 +82,9 @@ class ResearchProtocol:
     evaluator_version: str = "v1"
     out_root: str = "data/backtests/wfo/research"
 
-    def to_wfo_spec(self, param_grid: dict[str, list[Any]]) -> WFOSpec:
+    def to_wfo_spec(self, param_grid: dict[str, list[Any]]) -> "WFOSpec":
         """Convert to WFOSpec for the WFO runner."""
+        from trading_agent.backtest.nested_wfo import WFOSpec
         return WFOSpec(
             strategy_id=self.strategy_id,
             symbol=self.symbol,
