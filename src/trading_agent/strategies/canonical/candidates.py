@@ -29,6 +29,7 @@ from trading_agent.strategies.enhanced_ma import (
     MaAdxCrossover,
     MaVolTargetCrossover,
 )
+from trading_agent.strategies.funding_carry import FundingCarryStrategy
 from trading_agent.strategies.regime_switching import RegimeSwitchingStrategy
 from trading_agent.strategies.rsi import RsiStrategy
 
@@ -43,11 +44,13 @@ _ENHANCED_MA_SHA = _file_sha("enhanced_ma.py")
 _RSI_SHA = _file_sha("rsi.py")
 _BBANDS_SHA = _file_sha("bbands.py")
 _REGIME_SWITCHING_SHA = _file_sha("regime_switching.py")
+_FUNDING_CARRY_SHA = _file_sha("funding_carry.py")
 
 # Default parameter sets (mirror the legacy defaults) → warm-up bars.
 _ENHANCED_MA_WARMUP = 80 + 14 + 6  # slow(80) + adx(14) + buffer
 _RSI_WARMUP = 14 + 2
 _BBANDS_WARMUP = 20 + 2
+_FUNDING_CARRY_WARMUP = 20 + 2  # vol_window(20) + buffer for pct_change + rolling
 
 _TEN_SYMBOLS = (
     "ADA/USDT",
@@ -185,6 +188,39 @@ _REGIME_SWITCHING_PARAMS_SCHEMA = {
     "required": [],
 }
 
+_FUNDING_CARRY_PARAMS_SCHEMA = {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "funding_entry_threshold": {
+            "type": "number",
+            "minimum": -1.0,
+            "maximum": 1.0,
+            "description": "Enter long when funding_rate <= this (shorts pay longs).",
+        },
+        "funding_exit_threshold": {
+            "type": "number",
+            "minimum": -1.0,
+            "maximum": 1.0,
+            "description": "Exit/close position when funding_rate >= this.",
+        },
+        "max_hold_periods": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 500,
+            "description": "Max bars to hold; 0 = disabled.",
+        },
+        "vol_window": {
+            "type": "integer",
+            "minimum": 2,
+            "maximum": 100,
+            "description": "Rolling window for realized volatility.",
+        },
+    },
+    "required": [],
+}
+
 
 # ──────────────────────────────────────────────────────────────────────
 # Parameter normalization / validation helpers
@@ -234,6 +270,12 @@ _PARAM_DEFAULTS: dict[str, dict[str, Any]] = {
         "refit_every": 0,
         "base_position_pct": 0.1,
     },
+    "funding_carry": {
+        "funding_entry_threshold": -0.00008,
+        "funding_exit_threshold": 0.00005,
+        "max_hold_periods": 0,
+        "vol_window": 20,
+    },
 }
 
 _PARAM_SCHEMAS: dict[str, dict[str, Any]] = {
@@ -243,6 +285,7 @@ _PARAM_SCHEMAS: dict[str, dict[str, Any]] = {
     "rsi": _RSI_PARAMS_SCHEMA,
     "bbands": _BBANDS_PARAMS_SCHEMA,
     "regime_switching": _REGIME_SWITCHING_PARAMS_SCHEMA,
+    "funding_carry": _FUNDING_CARRY_PARAMS_SCHEMA,
 }
 
 
@@ -467,6 +510,7 @@ MA_VOL_TARGET_DESCRIPTOR = _descriptor(
 RSI_DESCRIPTOR = _descriptor("rsi", _RSI_SHA, _RSI_WARMUP, _RSI_PARAMS_SCHEMA)
 BBANDS_DESCRIPTOR = _descriptor("bbands", _BBANDS_SHA, _BBANDS_WARMUP, _BBANDS_PARAMS_SCHEMA)
 REGIME_SWITCHING_DESCRIPTOR = _descriptor("regime_switching", _REGIME_SWITCHING_SHA, 200, _REGIME_SWITCHING_PARAMS_SCHEMA)
+FUNDING_CARRY_DESCRIPTOR = _descriptor("funding_carry", _FUNDING_CARRY_SHA, _FUNDING_CARRY_WARMUP, _FUNDING_CARRY_PARAMS_SCHEMA)
 
 #: All first-wave candidate descriptors, keyed by strategy_id.
 FIRST_WAVE_DESCRIPTORS: dict[str, StrategyDescriptor] = {
@@ -478,6 +522,7 @@ FIRST_WAVE_DESCRIPTORS: dict[str, StrategyDescriptor] = {
         RSI_DESCRIPTOR,
         BBANDS_DESCRIPTOR,
         REGIME_SWITCHING_DESCRIPTOR,
+        FUNDING_CARRY_DESCRIPTOR,
     )
 }
 
@@ -488,6 +533,7 @@ _CANDIDATE_CLASSES: dict[str, type[Strategy]] = {
     "rsi": RsiStrategy,
     "bbands": BBandsStrategy,
     "regime_switching": RegimeSwitchingStrategy,
+    "funding_carry": FundingCarryStrategy,
 }
 
 _CANDIDATE_WARMUPS = {
@@ -497,6 +543,7 @@ _CANDIDATE_WARMUPS = {
     "rsi": _RSI_WARMUP,
     "bbands": _BBANDS_WARMUP,
     "regime_switching": 200,
+    "funding_carry": _FUNDING_CARRY_WARMUP,
 }
 
 
@@ -537,6 +584,7 @@ def build_default_registry() -> CanonicalStrategyRegistry:
         (RSI_DESCRIPTOR, RsiStrategy, RsiStrategy, _RSI_WARMUP),
         (BBANDS_DESCRIPTOR, BBandsStrategy, BBandsStrategy, _BBANDS_WARMUP),
         (REGIME_SWITCHING_DESCRIPTOR, RegimeSwitchingStrategy, RegimeSwitchingStrategy, 200),
+        (FUNDING_CARRY_DESCRIPTOR, FundingCarryStrategy, FundingCarryStrategy, _FUNDING_CARRY_WARMUP),
     ):
         registry.register(
             desc,
@@ -554,6 +602,7 @@ __all__ = [
     "MA_ADX_DESCRIPTOR",
     "MA_VOL_TARGET_DESCRIPTOR",
     "RSI_DESCRIPTOR",
+    "FUNDING_CARRY_DESCRIPTOR",
     "ParamValidationError",
     "build_default_registry",
     "build_legacy_candidate",

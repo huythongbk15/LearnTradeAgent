@@ -43,9 +43,8 @@ SINGLE_ASSET_GRIDS: dict[str, dict[str, list[Any]]] = {
     },
     # S5: Funding Rate Carry
     "funding_carry": {
-        "funding_entry_threshold": [-0.01, -0.005, -0.001, -0.0001],
-        "funding_exit_threshold": [0.0, 0.001, 0.005, 0.00005],
-        "max_hold_periods": [9, 24],
+        "funding_entry_threshold": [-0.0001, -0.00008, -0.00005, -0.00003],
+        "funding_exit_threshold": [0.0, 0.00005],
         "vol_window": [20],
     },
     # S6: Volatility Targeting (maps to ma_vol_target)
