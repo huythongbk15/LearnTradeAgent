@@ -15,6 +15,21 @@ def test_all_first_wave_candidates_build_with_bound_parameters():
         "ma_vol_target": {"fast_period": 20, "slow_period": 80},
         "rsi": {"period": 14},
         "bbands": {"period": 20},
+        "regime_switching": {
+            "regime_method": "hybrid",
+            "lookback": 200,
+            "min_confidence": 0.55,
+            "regime_smoothing": 3,
+            "refit_every": 0,
+            "base_position_pct": 0.1,
+        },
+        "funding_carry": {
+            "funding_entry_threshold": -0.00008,
+            "funding_exit_threshold": 0.00005,
+            "max_hold_periods": 0,
+            "vol_window": 20,
+            "fr_lookback_bars": 22,
+        },
     }
 
     for strategy_id, expected_descriptor in FIRST_WAVE_DESCRIPTORS.items():
