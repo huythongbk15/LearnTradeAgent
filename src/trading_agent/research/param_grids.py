@@ -42,10 +42,19 @@ SINGLE_ASSET_GRIDS: dict[str, dict[str, list[Any]]] = {
         "max_hold_bars": [10, 20],
     },
     # S5: Funding Rate Carry
+    # BTC funding rate is positive ~86% of the time (median ~0.000063,
+    # 75th pct ~0.0001). Strategy enters on fr_min (22-bar rolling min =
+    # full warmup window) <= entry_threshold (negative = shorts pay longs),
+    # exits when funding reverts to >= exit_threshold (positive = take profit).
+    # Exit threshold set ABOVE median so positions aren't closed immediately.
+    # 4 × 2 × 1 × 1 × 1 = 8 combos × ~8 folds = ~64 cells
+    # NOTE: aligned with PARAM_GRID in strategies/funding_carry.py for consistency.
     "funding_carry": {
         "funding_entry_threshold": [-0.0001, -0.00008, -0.00005, -0.00003],
         "funding_exit_threshold": [0.0, 0.00005],
+        "max_hold_periods": [0],
         "vol_window": [20],
+        "fr_lookback_bars": [22],
     },
     # S6: Volatility Targeting (maps to ma_vol_target)
     "vol_target": {

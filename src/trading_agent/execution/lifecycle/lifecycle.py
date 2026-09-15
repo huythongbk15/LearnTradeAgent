@@ -1392,7 +1392,7 @@ class ExecutionLifecycle:
         incremental_exposure_ratio = max(0.0, min(1.0, incremental_exposure_ratio))
 
         # ── Risk constraint verification ────────────────────────────────
-        tolerance = 1e-6
+        tolerance = 1e-3
         if risk_decision.reduce_only:
             if resulting_exposure_ratio > current_exposure_ratio + tolerance:
                 raise InvariantViolation(

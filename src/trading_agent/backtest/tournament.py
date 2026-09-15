@@ -54,7 +54,10 @@ from trading_agent.strategies.canonical.adapter import (
     ACTION_SELL,
     LegacyDataFrameAdapter,
 )
-from trading_agent.strategies.canonical.candidates import build_default_registry
+from trading_agent.strategies.canonical.candidates import (
+    build_default_registry,
+    build_parameterized_adapter,
+)
 from trading_agent.strategies.canonical.descriptor import StrategyDescriptor
 from trading_agent.strategies.canonical.features import (
     FEATURE_OHLCV_WINDOW,
@@ -991,7 +994,9 @@ def _run_cell_impl(
         )
 
     try:
-        _, adapter = registry.get(spec.strategy_id, environment=_research_env())
+        _, adapter = build_parameterized_adapter(
+            spec.strategy_id, spec.params
+        )
     except RegistryIntegrityError as exc:
         return _failed_artifact(spec, descriptor, f"registry blocked: {exc}")
 
