@@ -142,11 +142,13 @@ MINIMAL_PARAM_GRIDS: dict[str, dict[str, list]] = {
         "max_hold_bars": [10, 20],
     },
     # S5: Funding Carry
+    # Aligned with SINGLE_ASSET_GRIDS in param_grids.py (canonical source)
     "funding_carry": {
-        "funding_entry_threshold": [-0.0001, -0.001],
-        "funding_exit_threshold": [0.00005, 0.0],
-        "max_hold_periods": [9],
+        "funding_entry_threshold": [-0.0001, -0.00008, -0.00005, -0.00003],
+        "funding_exit_threshold": [0.0, 0.00005],
+        "max_hold_periods": [0],
         "vol_window": [20],
+        "fr_lookback_bars": [22],
     },
     # S4: Cross-sectional Momentum (long-only)
     "cross_sectional_momentum_lo": {
@@ -230,9 +232,13 @@ class ParallelCellRunner:
         ] = {}
 
     def __enter__(self):
-        self._executor = concurrent.futures.ProcessPoolExecutor(
-            max_workers=self.workers, mp_context=self._ctx
-        )
+        if self.workers <= 1:
+            # Sequential mode — avoids spawn-context issues in restricted envs
+            self._executor = None
+        else:
+            self._executor = concurrent.futures.ProcessPoolExecutor(
+                max_workers=self.workers, mp_context=self._ctx
+            )
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -293,7 +299,27 @@ class ParallelCellRunner:
         """Run a single cell, blocking until complete.
 
         This is the callback signature expected by `run_nested_wfo`.
+        When ``workers <= 1`` we execute inline (no process pool).
         """
+        if self._executor is None:
+            spec_primitives = {
+                "strategy_id": spec.strategy_id,
+                "symbol": spec.symbol,
+                "timeframe": spec.timeframe,
+                "params": dict(spec.params),
+                "cost_scenario": spec.cost_scenario,
+            }
+            return _run_cell_worker(
+                spec_primitives,
+                str(self.out_root),
+                start,
+                end,
+                fresh,
+                measurement_start,
+                measurement_end,
+                self.timeout_seconds,
+                self.max_retries,
+            )
         future = self._submit_cell(
             spec, start, end, fresh, measurement_start, measurement_end
         )
@@ -303,7 +329,46 @@ class ParallelCellRunner:
         self,
         cells: list[tuple[EvaluationCellSpec, int, int, bool, int, int]],
     ) -> list[EvaluationArtifact]:
-        """Run multiple cells in parallel and return results in order."""
+        """Run multiple cells and return results in order.
+
+        In sequential mode (``workers <= 1``) cells run one-by-one inline.
+        """
+        if self._executor is None:
+            results: list[EvaluationArtifact] = []
+            for spec_cell, start, end, fresh, m_start, m_end in cells:
+                try:
+                    spec_primitives = {
+                        "strategy_id": spec_cell.strategy_id,
+                        "symbol": spec_cell.symbol,
+                        "timeframe": spec_cell.timeframe,
+                        "params": dict(spec_cell.params),
+                        "cost_scenario": spec_cell.cost_scenario,
+                    }
+                    artifact = _run_cell_worker(
+                        spec_primitives,
+                        str(self.out_root),
+                        start,
+                        end,
+                        fresh,
+                        m_start,
+                        m_end,
+                        self.timeout_seconds,
+                        self.max_retries,
+                    )
+                    results.append(artifact)
+                except Exception as exc:
+                    from trading_agent.backtest.tournament import _failed_artifact
+                    artifact = _failed_artifact(
+                        spec_cell,
+                        None,
+                        f"worker_exception: {exc}",
+                        measurement_window=(m_start, m_end)
+                        if m_start is not None and m_end is not None
+                        else None,
+                        simulation_window=(start, end),
+                    )
+                    results.append(artifact)
+            return results
         futures = [self._submit_cell(*cell) for cell in cells]
         results = []
         # Iterate in submission order so results align with batch_cells / cell_keys.

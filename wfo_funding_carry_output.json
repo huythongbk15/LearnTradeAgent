@@ -1,0 +1,22 @@
+{
+  "cmd": [
+    "bash",
+    "-c",
+    "cd /home/huythong/.qwenpaw/workspaces/trading && rm -rf data/backtests/wfo_full/funding_carry__* && PYTHONPATH=src python3 scripts/run_wfo_parallel.py --strategy funding_carry --symbol BTCUSDT --timeframe 1h --cost 1x --workers 4 --out data/backtests/wfo_full --train-months 12 --val-months 3 --test-months 3 --step-months 3 --run-holdout --real-sensitivity 2>&1 | tail -10"
+  ],
+  "rc": 0,
+  "elapsed_sec": 2.382786750793457,
+  "stdout": [
+    "    main()",
+    "  File \"/home/huythong/.qwenpaw/workspaces/trading/scripts/run_wfo_parallel.py\", line 529, in main",
+    "    result = run_nested_wfo(",
+    "             ^^^^^^^^^^^^^^^",
+    "  File \"/home/huythong/.qwenpaw/workspaces/trading/src/trading_agent/backtest/nested_wfo.py\", line 2727, in run_nested_wfo",
+    "    descriptor = registry_canonical.describe(spec.strategy_id)",
+    "                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^",
+    "  File \"/home/huythong/.qwenpaw/workspaces/trading/src/trading_agent/strategies/canonical/registry.py\", line 149, in describe",
+    "    raise UnknownStrategyError(strategy_id)",
+    "trading_agent.strategies.canonical.registry.UnknownStrategyError: 'funding_carry'"
+  ],
+  "stderr": []
+}

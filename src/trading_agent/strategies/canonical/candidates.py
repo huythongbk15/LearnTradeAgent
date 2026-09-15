@@ -217,6 +217,12 @@ _FUNDING_CARRY_PARAMS_SCHEMA = {
             "maximum": 100,
             "description": "Rolling window for realized volatility.",
         },
+        "fr_lookback_bars": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Lookback window for rolling minimum of funding rate (fr_min).",
+        },
     },
     "required": [],
 }
@@ -275,6 +281,7 @@ _PARAM_DEFAULTS: dict[str, dict[str, Any]] = {
         "funding_exit_threshold": 0.00005,
         "max_hold_periods": 0,
         "vol_window": 20,
+        "fr_lookback_bars": 22,
     },
 }
 
