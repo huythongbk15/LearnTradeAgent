@@ -184,6 +184,10 @@ class RegimeSwitchingStrategy(Strategy):
         self._bars_since_refit = 0
         self._state_path: str | None = params.get("detector_state_path")
 
+        # Regime cache — precompute all states once for O(n) instead of O(n²)
+        self._regime_cache: list | None = None
+        self._regime_cache_df: pl.DataFrame | None = None
+
         # Pre-instantiate all possible sub-strategies
         self._init_sub_strategies()
 
@@ -353,46 +357,53 @@ class RegimeSwitchingStrategy(Strategy):
             logger.warning(f"Failed to fit regime detector: {e}")
 
     def _predict_regime_state(self, df: pl.DataFrame, bar_idx: int) -> RegimeState:
-        """Predict a full posterior state without refitting on the test bar."""
+        """Predict a full posterior state without refitting on the test bar.
+
+        Uses a precomputed cache of all-bar regime states for O(1) lookup
+        per bar, instead of O(n) recomputation per bar (which makes the naive
+        approach O(n²)).  The cache is recomputed when the DataFrame identity
+        changes (i.e. a new backtest window) or when the detector is refit.
+        """
 
         def unknown() -> RegimeState:
             return RegimeState(MarketRegime.UNKNOWN, 0.0, {}, datetime.now())
 
         if not self._detector_fitted:
             self._fit_detector(df)
+
+        # Lazily build full-series regime cache (O(n) via batched detect_all)
+        if self._regime_cache is None or self._regime_cache_df is not df:
             if not self._detector_fitted:
                 return unknown()
+            try:
+                # Convert to pandas ONCE for the full series
+                prices_pd = df["close"].to_pandas()
+                volumes_pd = df["volume"].to_pandas() if "volume" in df.columns else None
 
-        # Use expanding window up to bar_idx for prediction
-        hist_df = df.slice(0, bar_idx + 1)
-        if len(hist_df) < 50:
-            return unknown()
+                detector = self._get_detector()
+                if isinstance(detector, HybridRegimeDetector):
+                    all_states = detector.detect_all(prices_pd, volumes_pd)
+                elif isinstance(detector, HMMStrategy):
+                    all_states = detector.predict_all(prices_pd, volumes_pd)
+                elif isinstance(detector, GMMStrategy):
+                    returns = np.log(prices_pd / prices_pd.shift(1)).dropna()
+                    pad = len(prices_pd) - len(returns)
+                    all_states = detector.predict_all(returns)
+                    all_states = [RegimeState(MarketRegime.UNKNOWN, 0.0, {}, datetime.now())] * pad + all_states
+                elif isinstance(detector, RuleBasedStrategy):
+                    all_states = detector.detect_all(prices_pd)
+                else:
+                    all_states = [unknown() for _ in range(len(df))]
 
-        prices = hist_df["close"]
-        volumes = hist_df["volume"] if "volume" in hist_df.columns else None
-
-        try:
-            detector = self._get_detector()
-            prices_pd = prices.to_pandas()
-            volumes_pd = volumes.to_pandas() if volumes is not None else None
-
-            if isinstance(detector, HybridRegimeDetector):
-                state = detector.detect(prices_pd, volumes_pd)
-            elif isinstance(detector, HMMStrategy):
-                state = detector.predict(prices_pd, volumes_pd)
-            elif isinstance(detector, GMMStrategy):
-                returns = np.log(prices_pd / prices_pd.shift(1)).dropna()
-                state = detector.predict(returns)
-            elif isinstance(detector, RuleBasedStrategy):
-                state = detector.detect(prices_pd)
-            else:
+                self._regime_cache = all_states
+                self._regime_cache_df = df
+            except Exception as e:
+                logger.debug(f"Regime batch prediction failed: {e}")
                 return unknown()
 
-            return state
-
-        except Exception as e:
-            logger.debug(f"Regime prediction failed at bar {bar_idx}: {e}")
-            return unknown()
+        if bar_idx < len(self._regime_cache):
+            return self._regime_cache[bar_idx]
+        return unknown()
 
     def _predict_regime(
         self, df: pl.DataFrame, bar_idx: int
@@ -429,6 +440,7 @@ class RegimeSwitchingStrategy(Strategy):
                     detector.fit(returns)
 
                 self._bars_since_refit = 0
+                self._regime_cache = None  # Invalidate cached regime states
                 logger.debug(f"Regime detector re-fitted at bar {bar_idx}")
             except Exception as e:
                 logger.warning(f"Failed to re-fit detector: {e}")

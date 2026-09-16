@@ -304,8 +304,9 @@ class HMMStrategy:
 
         self.model: Optional[hmm.GaussianHMM] = None
         self._regime_names: list[MarketRegime] = []
-        self._fitted = False
+        self._fitted = True
         self._history: list[RegimeState] = []
+        self._predict_cache: np.ndarray | None = None  # Cached posteriors for all bars
 
     def _prepare_features(
         self, prices: pd.Series, volume: pd.Series | None = None
@@ -335,9 +336,10 @@ class HMMStrategy:
             vol = vol.iloc[-min_len:]
             features = np.column_stack([returns.values, vol.values])
 
-        # Standardize
+        # Standardize — clip inf/nan to prevent sklearn errors
         from sklearn.preprocessing import StandardScaler
 
+        features = np.nan_to_num(features, nan=0.0, posinf=0.0, neginf=0.0)
         scaler = StandardScaler()
         return scaler.fit_transform(features)
 
@@ -354,6 +356,7 @@ class HMMStrategy:
 
         self.model.fit(features)
         self._fitted = True
+        self._predict_cache = None  # Clear cache after refit
 
         # Assign regime names based on characteristics
         self._assign_regime_names(features)
@@ -406,6 +409,7 @@ class HMMStrategy:
 
         # Get current state probabilities
         logprob, posteriors = self.model.score_samples(features)
+        self._predict_cache = posteriors  # Cache for batch access
         current_probs = posteriors[-1]
 
         # Most likely regime
@@ -436,6 +440,51 @@ class HMMStrategy:
 
         self._history.append(state)
         return state
+
+    def predict_all(
+        self, prices: pd.Series, volume: pd.Series | None = None
+    ) -> list[RegimeState]:
+        """Predict regime for ALL bars at once — O(n) instead of O(n) × O(n).
+
+        Calls score_samples once on the full feature set, then extracts
+        per-bar posteriors from the cached result.
+        """
+        if not self._fitted:
+            raise ValueError("Model not fitted. Call fit() first.")
+        if self.model is None:
+            raise ValueError("Model not fitted. Call fit() first.")
+
+        if self._predict_cache is not None:
+            posteriors = self._predict_cache
+        else:
+            features = self._prepare_features(prices, volume)
+            if len(features) == 0:
+                return []
+            _, posteriors = self.model.score_samples(features)
+            self._predict_cache = posteriors
+
+        transmat = self.model.transmat_
+        states: list[RegimeState] = []
+        for i in range(len(posteriors)):
+            current_probs = posteriors[i]
+            regime_idx = np.argmax(current_probs)
+            regime = self._regime_names[regime_idx]
+            confidence = float(current_probs[regime_idx])
+            prob_dict: dict[MarketRegime, float] = {}
+            for idx, probability in enumerate(current_probs):
+                label = self._regime_names[idx]
+                prob_dict[label] = prob_dict.get(label, 0.0) + float(probability)
+            expected_dur = (
+                int(1 / (1 - transmat[regime_idx, regime_idx]))
+                if transmat[regime_idx, regime_idx] < 1
+                else None
+            )
+            states.append(RegimeState(
+                regime=regime, confidence=confidence,
+                probability=prob_dict, timestamp=datetime.now(),
+                expected_duration=expected_dur,
+            ))
+        return states
 
     def get_transition_matrix(self) -> np.ndarray:
         """Get regime transition matrix"""
@@ -501,6 +550,7 @@ class GMMStrategy:
         )
         self.model.fit(features)
         self._fitted = True
+        self._predict_cache = None  # Clear cache after refit
         self._assign_regime_names(features)
         return self
 
@@ -555,6 +605,34 @@ class GMMStrategy:
             probability=prob_dict,
             timestamp=datetime.now(),
         )
+
+    def predict_all(self, returns: pd.Series) -> list[RegimeState]:
+        """Predict regime for ALL bars at once — O(n) instead of O(n) × O(n)."""
+        if not self._fitted:
+            raise ValueError("Model not fitted")
+        if self.model is None:
+            raise ValueError("Model not fitted")
+
+        features = self._prepare_features(returns)
+        if len(features) == 0:
+            return []
+
+        all_probs = self.model.predict_proba(features)
+        states: list[RegimeState] = []
+        for i in range(len(all_probs)):
+            probs = all_probs[i]
+            regime_idx = np.argmax(probs)
+            regime = self._regime_names[regime_idx]
+            confidence = float(probs[regime_idx])
+            prob_dict: dict[MarketRegime, float] = {}
+            for index, probability in enumerate(probs):
+                label = self._regime_names[index]
+                prob_dict[label] = prob_dict.get(label, 0.0) + float(probability)
+            states.append(RegimeState(
+                regime=regime, confidence=confidence,
+                probability=prob_dict, timestamp=datetime.now(),
+            ))
+        return states
 
 
 class RuleBasedStrategy:
@@ -629,6 +707,64 @@ class RuleBasedStrategy:
                 "momentum": float(momentum),
             },
         )
+
+
+    def detect_all(self, prices: pd.Series) -> list[RegimeState]:
+        """Detect regime for ALL bars at once — O(n) instead of O(n) × O(n).
+
+        Computes rolling indicators once on the full series and returns
+        a RegimeState per bar.
+        """
+        n = len(prices)
+        if n < self.slow_ma:
+            return [RegimeState(MarketRegime.UNKNOWN, 0, {}, datetime.now()) for _ in range(n)]
+
+        # Compute rolling indicators once
+        fast_ma_series = prices.rolling(self.fast_ma).mean()
+        slow_ma_series = prices.rolling(self.slow_ma).mean()
+        returns = np.log(prices / prices.shift(1)).dropna()
+        vol_series = returns.rolling(self.vol_window).std() * np.sqrt(252)
+        vol_series = vol_series.bfill()
+
+        states: list[RegimeState] = []
+        for i in range(n):
+            if i < self.slow_ma - 1:
+                states.append(RegimeState(MarketRegime.UNKNOWN, 0, {}, datetime.now()))
+                continue
+
+            fast = fast_ma_series.iloc[i] if i < len(fast_ma_series) else np.nan
+            slow = slow_ma_series.iloc[i] if i < len(slow_ma_series) else np.nan
+            vol = vol_series.iloc[i] if i < len(vol_series) else np.nan
+
+            if pd.isna(fast) or pd.isna(slow) or pd.isna(vol):
+                states.append(RegimeState(MarketRegime.UNKNOWN, 0, {}, datetime.now()))
+                continue
+
+            momentum = (prices.iloc[i] / prices.iloc[max(0, i - self.fast_ma)] - 1) if i >= self.fast_ma else 0
+
+            probs = {r: 0.0 for r in MarketRegime}
+            if vol > self.vol_threshold_high:
+                regime = MarketRegime.HIGH_VOLATILITY
+                probs[regime] = 0.8
+            elif vol < self.vol_threshold_low:
+                regime = MarketRegime.LOW_VOLATILITY
+                probs[regime] = 0.7
+            elif fast > slow and momentum > 0:
+                regime = MarketRegime.BULL_TREND
+                probs[regime] = 0.7
+            elif fast < slow and momentum < 0:
+                regime = MarketRegime.BEAR_TREND
+                probs[regime] = 0.7
+            else:
+                regime = MarketRegime.SIDEWAYS
+                probs[regime] = 0.5
+
+            states.append(RegimeState(
+                regime=regime, confidence=probs[regime], probability=probs,
+                timestamp=datetime.now(),
+            ))
+
+        return states
 
 
 class HybridRegimeDetector:
@@ -706,6 +842,61 @@ class HybridRegimeDetector:
 
         self._history.append(state)
         return state
+
+    def detect_all(
+        self, prices: pd.Series, volume: pd.Series | None = None
+    ) -> list[RegimeState]:
+        """Aggregate predictions from all methods for ALL bars at once — O(n).
+
+        Each sub-detector computes all-bar predictions in one batch call,
+        then results are aggregated per bar.
+        """
+        if not self._detectors:
+            self.initialize(prices, volume)
+
+        n = len(prices)
+        votes_list: list[dict[MarketRegime, float]] = [
+            defaultdict(float) for _ in range(n)
+        ]
+
+        for method, detector in self._detectors.items():
+            if method == RegimeMethod.HMM:
+                all_states = detector.predict_all(prices, volume)
+            elif method == RegimeMethod.GMM:
+                returns = np.log(prices / prices.shift(1)).dropna()
+                all_states = detector.predict_all(returns)
+                # GMM features have fewer bars due to dropna; pad
+                pad = n - len(all_states)
+                all_states = [RegimeState(MarketRegime.UNKNOWN, 0, {}, datetime.now())] * pad + all_states
+            elif method == RegimeMethod.RULE_BASED:
+                all_states = detector.detect_all(prices)
+            else:
+                continue
+
+            weight = self.weights.get(method, 1.0)
+            for i, state in enumerate(all_states[:n]):
+                for regime, prob in state.probability.items():
+                    votes_list[i][regime] += prob * weight
+
+        states: list[RegimeState] = []
+        for votes in votes_list:
+            total = sum(votes.values())
+            if total > 0:
+                probs = {r: v / total for r, v in votes.items()}
+            else:
+                probs = {r: 1.0 / len(MarketRegime) for r in MarketRegime}
+
+            final_regime = max(probs, key=lambda regime: probs[regime])
+            confidence = probs[final_regime]
+            states.append(RegimeState(
+                regime=final_regime,
+                confidence=confidence,
+                probability=probs,
+                timestamp=datetime.now(),
+            ))
+
+        self._history.extend(states)
+        return states
 
 
 class AdaptivePositionSizer:
