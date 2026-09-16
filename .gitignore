@@ -201,6 +201,8 @@ REVIEW_*.md
 # Backtest output data
 data/backtests/
 data/benchmarks/
+data/tournament_shadow*/
+data/tournament_test/
 MILESTONE_C_TODO.md
 REVIEW_*.md
 MILESTONE_C_BATCH_TODO.md
