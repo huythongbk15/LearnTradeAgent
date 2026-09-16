@@ -32,8 +32,19 @@ from trading_agent.strategies.enhanced_ma import (
     MaVolTargetCrossover,
 )
 from trading_agent.strategies.funding_carry import FundingCarryStrategy
+from trading_agent.strategies.ma_crossover import MaCrossover
+from trading_agent.strategies.range_mean_reversion import RangeMeanReversionStrategy
 from trading_agent.strategies.regime_switching import RegimeSwitchingStrategy
 from trading_agent.strategies.rsi import RsiStrategy
+from trading_agent.strategies.stat_arbitrage import (
+    StatArbitrageLongOnlyStrategy,
+    StatArbitrageLongShortStrategy,
+)
+from trading_agent.strategies.trend_pullback import TrendPullbackStrategy
+from trading_agent.strategies.cross_sectional_momentum import (
+    CrossSectionalMomentumLongOnlyStrategy,
+    CrossSectionalMomentumLongShortStrategy,
+)
 from trading_agent.strategies.volatility_breakout import VolatilityBreakoutStrategy
 
 _STRATEGIES_DIR = Path(__file__).resolve().parents[1]
@@ -49,6 +60,11 @@ _BBANDS_SHA = _file_sha("bbands.py")
 _REGIME_SWITCHING_SHA = _file_sha("regime_switching.py")
 _FUNDING_CARRY_SHA = _file_sha("funding_carry.py")
 _VOLATILITY_BREAKOUT_SHA = _file_sha("volatility_breakout.py")
+_TREND_PULLBACK_SHA = _file_sha("trend_pullback.py")
+_MA_CROSSOVER_SHA = _file_sha("ma_crossover.py")
+_RANGE_MEAN_REVERSION_SHA = _file_sha("range_mean_reversion.py")
+_STAT_ARBITRAGE_SHA = _file_sha("stat_arbitrage.py")
+_CROSS_SECTIONAL_MOMENTUM_SHA = _file_sha("cross_sectional_momentum.py")
 
 # Default parameter sets (mirror the legacy defaults) → warm-up bars.
 _ENHANCED_MA_WARMUP = 80 + 14 + 6  # slow(80) + adx(14) + buffer
@@ -58,6 +74,11 @@ _FUNDING_CARRY_WARMUP = 20 + 2  # vol_window(20) + buffer for pct_change + rolli
 _VOLATILITY_BREAKOUT_WARMUP = 20 + 14 + 2  # bb_period(20) + atr(14) + buffer
 _ENSEMBLE_MA_ADX_WARMUP = 80 + 14 + 2  # max sub-strategy lookback + buffer
 _MA_ADX_REGIME_WARMUP = 80 + 14 + 2  # base MA + ADX + buffer
+_TREND_PULLBACK_WARMUP = 80 + 14 + 2  # slow MA + ADX + buffer
+_MA_CROSSOVER_WARMUP = 50 + 1  # slow period + 1
+_RANGE_MEAN_REVERSION_WARMUP = 20 + 2  # BB period + buffer
+_STAT_ARBITRAGE_WARMUP = 20 + 2  # lookback + buffer
+_CROSS_SECTIONAL_MOMENTUM_WARMUP = 60 + 1  # lookback + 1
 
 _TEN_SYMBOLS = (
     "ADA/USDT",
@@ -281,6 +302,127 @@ _MA_ADX_REGIME_PARAMS_SCHEMA = {
     ],
 }
 
+_TREND_PULLBACK_PARAMS_SCHEMA = {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "ma_fast": {"type": "integer", "minimum": 5, "maximum": 100},
+        "ma_slow": {"type": "integer", "minimum": 10, "maximum": 200},
+        "adx_threshold": {"type": "number", "minimum": 10.0, "maximum": 50.0},
+        "adx_period": {"type": "integer", "minimum": 5, "maximum": 50},
+        "rsi_period": {"type": "integer", "minimum": 5, "maximum": 50},
+    },
+    "required": [],
+    "allOf": [
+        {
+            "if": {"properties": {"ma_fast": {}, "ma_slow": {}}},
+            "then": {"properties": {"ma_slow": {"exclusiveMinimum": {"$data": "1/ma_fast"}}}},
+        }
+    ],
+}
+
+_MA_CROSSOVER_PARAMS_SCHEMA = {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "fast_period": {"type": "integer", "minimum": 2, "maximum": 100},
+        "slow_period": {"type": "integer", "minimum": 3, "maximum": 200},
+    },
+    "required": [],
+    "allOf": [
+        {
+            "if": {"properties": {"fast_period": {}, "slow_period": {}}},
+            "then": {"properties": {"slow_period": {"exclusiveMinimum": {"$data": "1/fast_period"}}}},
+        }
+    ],
+}
+
+_RANGE_MEAN_REVERSION_PARAMS_SCHEMA = {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "vwap_window": {"type": "integer", "minimum": 5, "maximum": 100},
+        "zscore_entry": {"type": "number", "minimum": 0.5, "maximum": 5.0},
+        "zscore_exit": {"type": "number", "minimum": 0.1, "maximum": 3.0},
+        "bb_lookback": {"type": "integer", "minimum": 5, "maximum": 100},
+        "bb_std": {"type": "number", "minimum": 0.5, "maximum": 5.0},
+        "rsi_oversold": {"type": "integer", "minimum": 10, "maximum": 49},
+        "rsi_overbought": {"type": "integer", "minimum": 51, "maximum": 90},
+    },
+    "required": [],
+    "allOf": [
+        {
+            "if": {"properties": {"rsi_oversold": {}, "rsi_overbought": {}}},
+            "then": {"properties": {"rsi_overbought": {"exclusiveMinimum": {"$data": "1/rsi_oversold"}}}},
+        }
+    ],
+}
+
+_STAT_ARBITRAGE_LO_PARAMS_SCHEMA = {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "zscore_entry": {"type": "number", "minimum": 0.5, "maximum": 5.0},
+        "zscore_exit": {"type": "number", "minimum": 0.1, "maximum": 3.0},
+        "lookback_days": {"type": "integer", "minimum": 5, "maximum": 100},
+        "bb_lookback": {"type": "integer", "minimum": 5, "maximum": 100},
+    },
+    "required": [],
+}
+
+_STAT_ARBITRAGE_LS_PARAMS_SCHEMA = {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "zscore_entry": {"type": "number", "minimum": 0.5, "maximum": 5.0},
+        "zscore_exit": {"type": "number", "minimum": 0.1, "maximum": 3.0},
+        "lookback_days": {"type": "integer", "minimum": 5, "maximum": 100},
+    },
+    "required": [],
+}
+
+_CROSS_SECTIONAL_MOMENTUM_LO_PARAMS_SCHEMA = {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "lookback_days": {"type": "integer", "minimum": 10, "maximum": 200},
+        "fast_period": {"type": "integer", "minimum": 2, "maximum": 100},
+        "slow_period": {"type": "integer", "minimum": 3, "maximum": 200},
+        "rsi_period": {"type": "integer", "minimum": 5, "maximum": 50},
+    },
+    "required": [],
+    "allOf": [
+        {
+            "if": {"properties": {"fast_period": {}, "slow_period": {}}},
+            "then": {"properties": {"slow_period": {"exclusiveMinimum": {"$data": "1/fast_period"}}}},
+        }
+    ],
+}
+
+_CROSS_SECTIONAL_MOMENTUM_LS_PARAMS_SCHEMA = {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "lookback_days": {"type": "integer", "minimum": 10, "maximum": 200},
+        "fast_period": {"type": "integer", "minimum": 2, "maximum": 100},
+        "slow_period": {"type": "integer", "minimum": 3, "maximum": 200},
+    },
+    "required": [],
+    "allOf": [
+        {
+            "if": {"properties": {"fast_period": {}, "slow_period": {}}},
+            "then": {"properties": {"slow_period": {"exclusiveMinimum": {"$data": "1/fast_period"}}}},
+        }
+    ],
+}
+
 
 # ──────────────────────────────────────────────────────────────────────
 # Parameter normalization / validation helpers
@@ -357,6 +499,48 @@ _PARAM_DEFAULTS: dict[str, dict[str, Any]] = {
         "atr_period": 14,
         "regime_lookback": 252,
     },
+    "trend_pullback": {
+        "ma_fast": 20,
+        "ma_slow": 80,
+        "adx_threshold": 25.0,
+        "adx_period": 14,
+        "rsi_period": 14,
+    },
+    "ma_crossover": {
+        "fast_period": 20,
+        "slow_period": 50,
+    },
+    "range_mean_reversion": {
+        "vwap_window": 20,
+        "zscore_entry": 2.0,
+        "zscore_exit": 0.5,
+        "bb_lookback": 20,
+        "bb_std": 2.0,
+        "rsi_oversold": 30,
+        "rsi_overbought": 70,
+    },
+    "stat_arbitrage_lo": {
+        "zscore_entry": 2.0,
+        "zscore_exit": 0.5,
+        "lookback_days": 20,
+        "bb_lookback": 20,
+    },
+    "stat_arbitrage_ls": {
+        "zscore_entry": 2.0,
+        "zscore_exit": 0.5,
+        "lookback_days": 20,
+    },
+    "cross_sectional_momentum_lo": {
+        "lookback_days": 60,
+        "fast_period": 20,
+        "slow_period": 60,
+        "rsi_period": 14,
+    },
+    "cross_sectional_momentum_ls": {
+        "lookback_days": 60,
+        "fast_period": 20,
+        "slow_period": 60,
+    },
 }
 
 _PARAM_SCHEMAS: dict[str, dict[str, Any]] = {
@@ -370,6 +554,13 @@ _PARAM_SCHEMAS: dict[str, dict[str, Any]] = {
     "volatility_breakout": _VOLATILITY_BREAKOUT_PARAMS_SCHEMA,
     "ensemble_ma_adx": _ENSEMBLE_MA_ADX_PARAMS_SCHEMA,
     "ma_adx_regime": _MA_ADX_REGIME_PARAMS_SCHEMA,
+    "trend_pullback": _TREND_PULLBACK_PARAMS_SCHEMA,
+    "ma_crossover": _MA_CROSSOVER_PARAMS_SCHEMA,
+    "range_mean_reversion": _RANGE_MEAN_REVERSION_PARAMS_SCHEMA,
+    "stat_arbitrage_lo": _STAT_ARBITRAGE_LO_PARAMS_SCHEMA,
+    "stat_arbitrage_ls": _STAT_ARBITRAGE_LS_PARAMS_SCHEMA,
+    "cross_sectional_momentum_lo": _CROSS_SECTIONAL_MOMENTUM_LO_PARAMS_SCHEMA,
+    "cross_sectional_momentum_ls": _CROSS_SECTIONAL_MOMENTUM_LS_PARAMS_SCHEMA,
 }
 
 
@@ -598,6 +789,13 @@ FUNDING_CARRY_DESCRIPTOR = _descriptor("funding_carry", _FUNDING_CARRY_SHA, _FUN
 VOLATILITY_BREAKOUT_DESCRIPTOR = _descriptor("volatility_breakout", _VOLATILITY_BREAKOUT_SHA, _VOLATILITY_BREAKOUT_WARMUP, _VOLATILITY_BREAKOUT_PARAMS_SCHEMA)
 ENSEMBLE_MA_ADX_DESCRIPTOR = _descriptor("ensemble_ma_adx", _ENHANCED_MA_SHA, _ENSEMBLE_MA_ADX_WARMUP, _ENSEMBLE_MA_ADX_PARAMS_SCHEMA)
 MA_ADX_REGIME_DESCRIPTOR = _descriptor("ma_adx_regime", _ENHANCED_MA_SHA, _MA_ADX_REGIME_WARMUP, _MA_ADX_REGIME_PARAMS_SCHEMA)
+TREND_PULLBACK_DESCRIPTOR = _descriptor("trend_pullback", _TREND_PULLBACK_SHA, _TREND_PULLBACK_WARMUP, _TREND_PULLBACK_PARAMS_SCHEMA)
+MA_CROSSOVER_DESCRIPTOR = _descriptor("ma_crossover", _MA_CROSSOVER_SHA, _MA_CROSSOVER_WARMUP, _MA_CROSSOVER_PARAMS_SCHEMA)
+RANGE_MEAN_REVERSION_DESCRIPTOR = _descriptor("range_mean_reversion", _RANGE_MEAN_REVERSION_SHA, _RANGE_MEAN_REVERSION_WARMUP, _RANGE_MEAN_REVERSION_PARAMS_SCHEMA)
+STAT_ARBITRAGE_LO_DESCRIPTOR = _descriptor("stat_arbitrage_lo", _STAT_ARBITRAGE_SHA, _STAT_ARBITRAGE_WARMUP, _STAT_ARBITRAGE_LO_PARAMS_SCHEMA)
+STAT_ARBITRAGE_LS_DESCRIPTOR = _descriptor("stat_arbitrage_ls", _STAT_ARBITRAGE_SHA, _STAT_ARBITRAGE_WARMUP, _STAT_ARBITRAGE_LS_PARAMS_SCHEMA)
+CROSS_SECTIONAL_MOMENTUM_LO_DESCRIPTOR = _descriptor("cross_sectional_momentum_lo", _CROSS_SECTIONAL_MOMENTUM_SHA, _CROSS_SECTIONAL_MOMENTUM_WARMUP, _CROSS_SECTIONAL_MOMENTUM_LO_PARAMS_SCHEMA)
+CROSS_SECTIONAL_MOMENTUM_LS_DESCRIPTOR = _descriptor("cross_sectional_momentum_ls", _CROSS_SECTIONAL_MOMENTUM_SHA, _CROSS_SECTIONAL_MOMENTUM_WARMUP, _CROSS_SECTIONAL_MOMENTUM_LS_PARAMS_SCHEMA)
 
 #: All first-wave candidate descriptors, keyed by strategy_id.
 FIRST_WAVE_DESCRIPTORS: dict[str, StrategyDescriptor] = {
@@ -614,6 +812,14 @@ FIRST_WAVE_DESCRIPTORS: dict[str, StrategyDescriptor] = {
         VOLATILITY_BREAKOUT_DESCRIPTOR,
         ENSEMBLE_MA_ADX_DESCRIPTOR,
         MA_ADX_REGIME_DESCRIPTOR,
+        # Comprehensive pool expansion
+        TREND_PULLBACK_DESCRIPTOR,
+        MA_CROSSOVER_DESCRIPTOR,
+        RANGE_MEAN_REVERSION_DESCRIPTOR,
+        STAT_ARBITRAGE_LO_DESCRIPTOR,
+        STAT_ARBITRAGE_LS_DESCRIPTOR,
+        CROSS_SECTIONAL_MOMENTUM_LO_DESCRIPTOR,
+        CROSS_SECTIONAL_MOMENTUM_LS_DESCRIPTOR,
     )
 }
 
@@ -628,6 +834,13 @@ _CANDIDATE_CLASSES: dict[str, type[Strategy]] = {
     "volatility_breakout": VolatilityBreakoutStrategy,
     "ensemble_ma_adx": EnsembleMaAdx,
     "ma_adx_regime": MaAdxRegimeAware,
+    "trend_pullback": TrendPullbackStrategy,
+    "ma_crossover": MaCrossover,
+    "range_mean_reversion": RangeMeanReversionStrategy,
+    "stat_arbitrage_lo": StatArbitrageLongOnlyStrategy,
+    "stat_arbitrage_ls": StatArbitrageLongShortStrategy,
+    "cross_sectional_momentum_lo": CrossSectionalMomentumLongOnlyStrategy,
+    "cross_sectional_momentum_ls": CrossSectionalMomentumLongShortStrategy,
 }
 
 _CANDIDATE_WARMUPS = {
@@ -641,6 +854,13 @@ _CANDIDATE_WARMUPS = {
     "volatility_breakout": _VOLATILITY_BREAKOUT_WARMUP,
     "ensemble_ma_adx": _ENSEMBLE_MA_ADX_WARMUP,
     "ma_adx_regime": _MA_ADX_REGIME_WARMUP,
+    "trend_pullback": _TREND_PULLBACK_WARMUP,
+    "ma_crossover": _MA_CROSSOVER_WARMUP,
+    "range_mean_reversion": _RANGE_MEAN_REVERSION_WARMUP,
+    "stat_arbitrage_lo": _STAT_ARBITRAGE_WARMUP,
+    "stat_arbitrage_ls": _STAT_ARBITRAGE_WARMUP,
+    "cross_sectional_momentum_lo": _CROSS_SECTIONAL_MOMENTUM_WARMUP,
+    "cross_sectional_momentum_ls": _CROSS_SECTIONAL_MOMENTUM_WARMUP,
 }
 
 
@@ -685,6 +905,13 @@ def build_default_registry() -> CanonicalStrategyRegistry:
         (VOLATILITY_BREAKOUT_DESCRIPTOR, VolatilityBreakoutStrategy, VolatilityBreakoutStrategy, _VOLATILITY_BREAKOUT_WARMUP),
         (ENSEMBLE_MA_ADX_DESCRIPTOR, EnsembleMaAdx, EnsembleMaAdx, _ENSEMBLE_MA_ADX_WARMUP),
         (MA_ADX_REGIME_DESCRIPTOR, MaAdxRegimeAware, MaAdxRegimeAware, _MA_ADX_REGIME_WARMUP),
+        (TREND_PULLBACK_DESCRIPTOR, TrendPullbackStrategy, TrendPullbackStrategy, _TREND_PULLBACK_WARMUP),
+        (MA_CROSSOVER_DESCRIPTOR, MaCrossover, MaCrossover, _MA_CROSSOVER_WARMUP),
+        (RANGE_MEAN_REVERSION_DESCRIPTOR, RangeMeanReversionStrategy, RangeMeanReversionStrategy, _RANGE_MEAN_REVERSION_WARMUP),
+        (STAT_ARBITRAGE_LO_DESCRIPTOR, StatArbitrageLongOnlyStrategy, StatArbitrageLongOnlyStrategy, _STAT_ARBITRAGE_WARMUP),
+        (STAT_ARBITRAGE_LS_DESCRIPTOR, StatArbitrageLongShortStrategy, StatArbitrageLongShortStrategy, _STAT_ARBITRAGE_WARMUP),
+        (CROSS_SECTIONAL_MOMENTUM_LO_DESCRIPTOR, CrossSectionalMomentumLongOnlyStrategy, CrossSectionalMomentumLongOnlyStrategy, _CROSS_SECTIONAL_MOMENTUM_WARMUP),
+        (CROSS_SECTIONAL_MOMENTUM_LS_DESCRIPTOR, CrossSectionalMomentumLongShortStrategy, CrossSectionalMomentumLongShortStrategy, _CROSS_SECTIONAL_MOMENTUM_WARMUP),
     ):
         registry.register(
             desc,
@@ -706,6 +933,13 @@ __all__ = [
     "VOLATILITY_BREAKOUT_DESCRIPTOR",
     "ENSEMBLE_MA_ADX_DESCRIPTOR",
     "MA_ADX_REGIME_DESCRIPTOR",
+    "TREND_PULLBACK_DESCRIPTOR",
+    "MA_CROSSOVER_DESCRIPTOR",
+    "RANGE_MEAN_REVERSION_DESCRIPTOR",
+    "STAT_ARBITRAGE_LO_DESCRIPTOR",
+    "STAT_ARBITRAGE_LS_DESCRIPTOR",
+    "CROSS_SECTIONAL_MOMENTUM_LO_DESCRIPTOR",
+    "CROSS_SECTIONAL_MOMENTUM_LS_DESCRIPTOR",
     "ParamValidationError",
     "build_default_registry",
     "build_legacy_candidate",
