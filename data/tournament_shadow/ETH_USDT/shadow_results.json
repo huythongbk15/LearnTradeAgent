@@ -1,0 +1,56 @@
+{
+  "symbol": "ETH/USDT",
+  "timeframe": "1h",
+  "days": 3,
+  "bars_evaluated": 72,
+  "shadow_mode": true,
+  "pool_strategies": [
+    "enhanced_ma",
+    "ma_adx",
+    "ma_vol_target",
+    "rsi",
+    "bbands",
+    "funding_carry"
+  ],
+  "excluded": [
+    "regime_switching"
+  ],
+  "shadow_performance": {
+    "enhanced_ma": {
+      "sharpe": 15.027580650277294,
+      "total_return": 0.010020182414451906,
+      "active_bars": 4,
+      "total_bars": 72
+    },
+    "ma_adx": {
+      "sharpe": 15.027580650277294,
+      "total_return": 0.010020182414451906,
+      "active_bars": 4,
+      "total_bars": 72
+    },
+    "ma_vol_target": {
+      "sharpe": 14.685602572476608,
+      "total_return": 0.009800345881870065,
+      "active_bars": 5,
+      "total_bars": 72
+    },
+    "rsi": {
+      "sharpe": -13.35540602378619,
+      "total_return": -0.007104437717412759,
+      "active_bars": 3,
+      "total_bars": 72
+    },
+    "bbands": {
+      "sharpe": -21.665824892014125,
+      "total_return": -0.019163750626098652,
+      "active_bars": 6,
+      "total_bars": 72
+    },
+    "funding_carry": {
+      "sharpe": 9.370453475563867,
+      "total_return": 0.01469520657627843,
+      "active_bars": 71,
+      "total_bars": 72
+    }
+  }
+}

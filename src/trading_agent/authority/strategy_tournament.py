@@ -378,7 +378,8 @@ class StrategyTournament(AdaptiveStrategyRouter):
                 continue
             # Shadow return = signal direction × bar return × conviction
             signal = fc.expected_excess_return
-            weight = max(-1.0, min(1.0, abs(signal) * 100)) if signal != 0 else 0.0
+            # Preserve signal direction: BUY(+0.01)→+1, SELL(-0.01)→-1
+            weight = max(-1.0, min(1.0, signal * 100)) if signal != 0 else 0.0
             shadow[sid] = bar_return * weight
         return shadow
 
@@ -466,9 +467,12 @@ class StrategyTournament(AdaptiveStrategyRouter):
         for regime in (  # iterate canonical regime keys
             "trend", "mean_reversion", "high_vol", "crisis", "other"
         ):
-            policy = self.policy_registry.get_active(
-                symbol=symbol, timeframe=timeframe, regime=regime,
-                key=self.verification_key, key_id=self.key_id,
+            policy = self.policy_registry.get_active_verified(
+                symbol=symbol,
+                timeframe=timeframe,
+                regime=regime,
+                key=self.verification_key,
+                key_id=self.key_id,
                 now=datetime.now(UTC),
             )
             if policy is None:

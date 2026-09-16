@@ -1,0 +1,257 @@
+{
+  "BTC/USDT:1h:crisis": {
+    "04f103a6273fb497ed6498b25d894764e3c07fa24931b31b4bcc843b5c91b81f": {
+      "created_at": "2026-09-16T08:17:32.196810+00:00",
+      "status": "validated",
+      "strategy_id": "rsi",
+      "validity_end": "2026-12-15T08:18:32.196810+00:00",
+      "validity_start": "2026-09-15T08:18:32.196810+00:00"
+    },
+    "0daba619b253d9ecb6873447f8a5c4264197b09902fec5a0b11f1f05d8b06656": {
+      "created_at": "2026-09-16T08:17:32.196810+00:00",
+      "status": "validated",
+      "strategy_id": "bbands",
+      "validity_end": "2026-12-15T08:18:32.196810+00:00",
+      "validity_start": "2026-09-15T08:18:32.196810+00:00"
+    },
+    "3e839a9d22dc62c59bfcb3c26b217b0347f6484fbd7bb01abd2e6aca95879411": {
+      "created_at": "2026-09-16T08:18:32.196810+00:00",
+      "status": "active",
+      "strategy_id": "enhanced_ma",
+      "validity_end": "2026-12-15T08:18:32.196810+00:00",
+      "validity_start": "2026-09-15T08:18:32.196810+00:00"
+    },
+    "861fc73c0fbaf0f6aee1eaedb841087c38f52f1a4e1d7610760d7d86937826b7": {
+      "created_at": "2026-09-16T08:17:32.196810+00:00",
+      "status": "validated",
+      "strategy_id": "ma_adx",
+      "validity_end": "2026-12-15T08:18:32.196810+00:00",
+      "validity_start": "2026-09-15T08:18:32.196810+00:00"
+    },
+    "ae7e745357b4d7ffeccf8559824b822dd8cc516c5102a4053256779cbfd63c9e": {
+      "created_at": "2026-09-16T08:17:32.196810+00:00",
+      "status": "validated",
+      "strategy_id": "enhanced_ma",
+      "validity_end": "2026-12-15T08:18:32.196810+00:00",
+      "validity_start": "2026-09-15T08:18:32.196810+00:00"
+    },
+    "be965900b7736b475503ab689ab6da243103fa564f0a8c2772d131fea43ee360": {
+      "created_at": "2026-09-16T08:17:32.196810+00:00",
+      "status": "validated",
+      "strategy_id": "funding_carry",
+      "validity_end": "2026-12-15T08:18:32.196810+00:00",
+      "validity_start": "2026-09-15T08:18:32.196810+00:00"
+    },
+    "f290bb36778901ddd38a95b01c74fc46955b2040f5a52e5c614540caf1aff663": {
+      "created_at": "2026-09-16T08:17:32.196810+00:00",
+      "status": "validated",
+      "strategy_id": "ma_vol_target",
+      "validity_end": "2026-12-15T08:18:32.196810+00:00",
+      "validity_start": "2026-09-15T08:18:32.196810+00:00"
+    }
+  },
+  "BTC/USDT:1h:high_vol": {
+    "7692ab3d5a17abc8aef4ac44206f3f86e380fa5cf73046794cd3b610e258388a": {
+      "created_at": "2026-09-16T08:17:32.196810+00:00",
+      "status": "validated",
+      "strategy_id": "funding_carry",
+      "validity_end": "2026-12-15T08:18:32.196810+00:00",
+      "validity_start": "2026-09-15T08:18:32.196810+00:00"
+    },
+    "ae7e2f60b4233452af5b46d0fcc238350842148e0d9e0a90ed6c87b45dfd5217": {
+      "created_at": "2026-09-16T08:17:32.196810+00:00",
+      "status": "validated",
+      "strategy_id": "ma_adx",
+      "validity_end": "2026-12-15T08:18:32.196810+00:00",
+      "validity_start": "2026-09-15T08:18:32.196810+00:00"
+    },
+    "ce5e8216abdbe25c94d528d1368aca30f7f3d055f1737f393343b0b51ef48128": {
+      "created_at": "2026-09-16T08:17:32.196810+00:00",
+      "status": "validated",
+      "strategy_id": "rsi",
+      "validity_end": "2026-12-15T08:18:32.196810+00:00",
+      "validity_start": "2026-09-15T08:18:32.196810+00:00"
+    },
+    "d01725a5787f0d67f84d338ce7fd9b92596ea380051667d5b502a5ed70445e7e": {
+      "created_at": "2026-09-16T08:17:32.196810+00:00",
+      "status": "validated",
+      "strategy_id": "enhanced_ma",
+      "validity_end": "2026-12-15T08:18:32.196810+00:00",
+      "validity_start": "2026-09-15T08:18:32.196810+00:00"
+    },
+    "d0b484745cfaff82f191e72572f99356334fbfe1b90bb7e36f15cbba424a66a4": {
+      "created_at": "2026-09-16T08:18:32.196810+00:00",
+      "status": "active",
+      "strategy_id": "enhanced_ma",
+      "validity_end": "2026-12-15T08:18:32.196810+00:00",
+      "validity_start": "2026-09-15T08:18:32.196810+00:00"
+    },
+    "f1bee86a615ffa39d9f349dcfe82479b25dd635fc9ded809e44330c167bf5edb": {
+      "created_at": "2026-09-16T08:17:32.196810+00:00",
+      "status": "validated",
+      "strategy_id": "bbands",
+      "validity_end": "2026-12-15T08:18:32.196810+00:00",
+      "validity_start": "2026-09-15T08:18:32.196810+00:00"
+    },
+    "f668260184d00d4779f2468162d637ee8ed90a9686d410d59b738518639a6cbf": {
+      "created_at": "2026-09-16T08:17:32.196810+00:00",
+      "status": "validated",
+      "strategy_id": "ma_vol_target",
+      "validity_end": "2026-12-15T08:18:32.196810+00:00",
+      "validity_start": "2026-09-15T08:18:32.196810+00:00"
+    }
+  },
+  "BTC/USDT:1h:mean_reversion": {
+    "0d3a82e291bc6997ddd3df36f345936e02acd7a7327407ae37e07964047b482f": {
+      "created_at": "2026-09-16T08:17:32.196810+00:00",
+      "status": "validated",
+      "strategy_id": "funding_carry",
+      "validity_end": "2026-12-15T08:18:32.196810+00:00",
+      "validity_start": "2026-09-15T08:18:32.196810+00:00"
+    },
+    "2de6e5a2618a6f1a59928000a4b519419ba4a2bc36624f677834257529cebba9": {
+      "created_at": "2026-09-16T08:17:32.196810+00:00",
+      "status": "validated",
+      "strategy_id": "bbands",
+      "validity_end": "2026-12-15T08:18:32.196810+00:00",
+      "validity_start": "2026-09-15T08:18:32.196810+00:00"
+    },
+    "2e8ee50bb71fdc173a16c1ea8ba4e8cef1bc618428dd6b5284a5a5a6ae2a92e9": {
+      "created_at": "2026-09-16T08:18:32.196810+00:00",
+      "status": "active",
+      "strategy_id": "enhanced_ma",
+      "validity_end": "2026-12-15T08:18:32.196810+00:00",
+      "validity_start": "2026-09-15T08:18:32.196810+00:00"
+    },
+    "4d7b0e62b98885bcb8e21da9572e86925735aed683aa4507b1df57a17bc6ca4d": {
+      "created_at": "2026-09-16T08:17:32.196810+00:00",
+      "status": "validated",
+      "strategy_id": "ma_adx",
+      "validity_end": "2026-12-15T08:18:32.196810+00:00",
+      "validity_start": "2026-09-15T08:18:32.196810+00:00"
+    },
+    "c84c49851c4a7730577570bf0e8dcc834dccffa2fff5f3376e52b10242b879eb": {
+      "created_at": "2026-09-16T08:17:32.196810+00:00",
+      "status": "validated",
+      "strategy_id": "rsi",
+      "validity_end": "2026-12-15T08:18:32.196810+00:00",
+      "validity_start": "2026-09-15T08:18:32.196810+00:00"
+    },
+    "c8db28b90f8f9e2680332b9b14ea1312399968559e43894dd6f638c5b7dd2cc1": {
+      "created_at": "2026-09-16T08:17:32.196810+00:00",
+      "status": "validated",
+      "strategy_id": "ma_vol_target",
+      "validity_end": "2026-12-15T08:18:32.196810+00:00",
+      "validity_start": "2026-09-15T08:18:32.196810+00:00"
+    },
+    "c9870256771616f841afcfe47de6774b5dd5ace9431011189fe2f30477b949c5": {
+      "created_at": "2026-09-16T08:17:32.196810+00:00",
+      "status": "validated",
+      "strategy_id": "enhanced_ma",
+      "validity_end": "2026-12-15T08:18:32.196810+00:00",
+      "validity_start": "2026-09-15T08:18:32.196810+00:00"
+    }
+  },
+  "BTC/USDT:1h:other": {
+    "3879e4c413c17895a010e185495e47014350f2738defac0fdcd3b6f16c4b321b": {
+      "created_at": "2026-09-16T08:18:32.196810+00:00",
+      "status": "active",
+      "strategy_id": "enhanced_ma",
+      "validity_end": "2026-12-15T08:18:32.196810+00:00",
+      "validity_start": "2026-09-15T08:18:32.196810+00:00"
+    },
+    "3eafbd7867031ce752e73a49e6119d9a32250079e9544aae9cce7425b782238c": {
+      "created_at": "2026-09-16T08:17:32.196810+00:00",
+      "status": "validated",
+      "strategy_id": "ma_adx",
+      "validity_end": "2026-12-15T08:18:32.196810+00:00",
+      "validity_start": "2026-09-15T08:18:32.196810+00:00"
+    },
+    "4c9b6878b8f2f457b20c17a5c532f2dc075ed36468531223e3d0ad6ba7899b93": {
+      "created_at": "2026-09-16T08:17:32.196810+00:00",
+      "status": "validated",
+      "strategy_id": "bbands",
+      "validity_end": "2026-12-15T08:18:32.196810+00:00",
+      "validity_start": "2026-09-15T08:18:32.196810+00:00"
+    },
+    "ab2553581242e616457a258dc958717f4446be5ec32fe142caf01ef1f7783845": {
+      "created_at": "2026-09-16T08:17:32.196810+00:00",
+      "status": "validated",
+      "strategy_id": "funding_carry",
+      "validity_end": "2026-12-15T08:18:32.196810+00:00",
+      "validity_start": "2026-09-15T08:18:32.196810+00:00"
+    },
+    "b84a55306925a3dc197748f465038037a0fee6576fef5062003e9f2d5e5299cd": {
+      "created_at": "2026-09-16T08:17:32.196810+00:00",
+      "status": "validated",
+      "strategy_id": "ma_vol_target",
+      "validity_end": "2026-12-15T08:18:32.196810+00:00",
+      "validity_start": "2026-09-15T08:18:32.196810+00:00"
+    },
+    "ea27774526f8fefc472620fba0efbd5b18d5ce246a53969a465fe202fda273e1": {
+      "created_at": "2026-09-16T08:17:32.196810+00:00",
+      "status": "validated",
+      "strategy_id": "rsi",
+      "validity_end": "2026-12-15T08:18:32.196810+00:00",
+      "validity_start": "2026-09-15T08:18:32.196810+00:00"
+    },
+    "f0ee5fb01009907c2fd31816db13f8cf20bdfe62679c1efbe003362eef524870": {
+      "created_at": "2026-09-16T08:17:32.196810+00:00",
+      "status": "validated",
+      "strategy_id": "enhanced_ma",
+      "validity_end": "2026-12-15T08:18:32.196810+00:00",
+      "validity_start": "2026-09-15T08:18:32.196810+00:00"
+    }
+  },
+  "BTC/USDT:1h:trend": {
+    "4a5ab27851b516460b96cb81eedfd4165dcb8b40919da3213ad8483a04d2ede3": {
+      "created_at": "2026-09-16T08:17:32.196810+00:00",
+      "status": "validated",
+      "strategy_id": "ma_adx",
+      "validity_end": "2026-12-15T08:18:32.196810+00:00",
+      "validity_start": "2026-09-15T08:18:32.196810+00:00"
+    },
+    "4c10be526c8f13eb9e5593f20ef32c9a3b90c54d9e8ece2f28eecc1e976e0d76": {
+      "created_at": "2026-09-16T08:17:32.196810+00:00",
+      "status": "validated",
+      "strategy_id": "bbands",
+      "validity_end": "2026-12-15T08:18:32.196810+00:00",
+      "validity_start": "2026-09-15T08:18:32.196810+00:00"
+    },
+    "87de7ed09b41eab2a2cce91e9c6c4cf44c9014fada698e1e45c9e7f4668c352e": {
+      "created_at": "2026-09-16T08:17:32.196810+00:00",
+      "status": "validated",
+      "strategy_id": "ma_vol_target",
+      "validity_end": "2026-12-15T08:18:32.196810+00:00",
+      "validity_start": "2026-09-15T08:18:32.196810+00:00"
+    },
+    "99f3db8771f95b9b962259c1d3d34e313a7cb7cf2be9de2f318dbe7af04a5916": {
+      "created_at": "2026-09-16T08:17:32.196810+00:00",
+      "status": "validated",
+      "strategy_id": "enhanced_ma",
+      "validity_end": "2026-12-15T08:18:32.196810+00:00",
+      "validity_start": "2026-09-15T08:18:32.196810+00:00"
+    },
+    "a889200d7d2e341b04d3cd5e81aecff297341a506d2b1cf62a491966c6ece94b": {
+      "created_at": "2026-09-16T08:17:32.196810+00:00",
+      "status": "validated",
+      "strategy_id": "rsi",
+      "validity_end": "2026-12-15T08:18:32.196810+00:00",
+      "validity_start": "2026-09-15T08:18:32.196810+00:00"
+    },
+    "f42b0f3d50877424d26b96289ff6c076ed2327dba542ee6df497f0ca93be888d": {
+      "created_at": "2026-09-16T08:18:32.196810+00:00",
+      "status": "active",
+      "strategy_id": "enhanced_ma",
+      "validity_end": "2026-12-15T08:18:32.196810+00:00",
+      "validity_start": "2026-09-15T08:18:32.196810+00:00"
+    },
+    "fe2cb5f011c7715abd5670fe351ae4ff3a74dae505e296927537b5732f810892": {
+      "created_at": "2026-09-16T08:17:32.196810+00:00",
+      "status": "validated",
+      "strategy_id": "funding_carry",
+      "validity_end": "2026-12-15T08:18:32.196810+00:00",
+      "validity_start": "2026-09-15T08:18:32.196810+00:00"
+    }
+  }
+}
