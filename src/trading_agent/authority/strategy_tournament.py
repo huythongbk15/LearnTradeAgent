@@ -317,15 +317,45 @@ class StrategyTournament(AdaptiveStrategyRouter):
     def shadow_forecast(
         self, strategy_id: str, observation: MarketObservation
     ) -> Forecast | None:
-        """Compute a shadow forecast for *any* pool strategy (no execution)."""
+        """Compute a shadow forecast for *any* pool strategy (no execution).
+
+        Params are pulled from the active policy in the registry for this
+        symbol / timeframe.  Falls back to descriptor defaults.
+        """
+        from trading_agent.strategies.canonical.candidates import (
+            build_parameterized_adapter,
+            validate_params,
+        )
+
         descriptor = self.pool.get(strategy_id)
         if descriptor is None:
             return None
+
+        params: dict[str, Any] = {}
+
+        # Try to get params from active policy (verified signature)
         try:
-            from trading_agent.strategies.canonical.candidates import (
-                build_parameterized_adapter,
-            )
-            _, adapter = build_parameterized_adapter(strategy_id, descriptor)
+            tf = observation.features.get("timeframe", "1h")
+            for regime in ("trend", "mean_reversion", "high_vol", "crisis", "other"):
+                policy = self.policy_registry.get_active_verified(
+                    symbol=observation.symbol,
+                    timeframe=tf,
+                    regime=regime,
+                    key=self.verification_key,
+                    key_id=self.key_id,
+                    now=datetime.now(UTC),
+                )
+                if policy and policy.incumbent.strategy_id == strategy_id:
+                    params = dict(policy.incumbent.params)
+                    break
+        except Exception:
+            pass
+
+        if not params:
+            params = validate_params(strategy_id, None)
+
+        try:
+            _, adapter = build_parameterized_adapter(strategy_id, params)
             return adapter.forecast(observation)
         except Exception:
             return None
