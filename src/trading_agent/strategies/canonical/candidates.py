@@ -26,12 +26,15 @@ from trading_agent.strategies.canonical.descriptor import StrategyDescriptor
 from trading_agent.strategies.canonical.registry import CanonicalStrategyRegistry
 from trading_agent.strategies.enhanced_ma import (
     EnhancedMaCrossover,
+    EnsembleMaAdx,
     MaAdxCrossover,
+    MaAdxRegimeAware,
     MaVolTargetCrossover,
 )
 from trading_agent.strategies.funding_carry import FundingCarryStrategy
 from trading_agent.strategies.regime_switching import RegimeSwitchingStrategy
 from trading_agent.strategies.rsi import RsiStrategy
+from trading_agent.strategies.volatility_breakout import VolatilityBreakoutStrategy
 
 _STRATEGIES_DIR = Path(__file__).resolve().parents[1]
 
@@ -45,12 +48,16 @@ _RSI_SHA = _file_sha("rsi.py")
 _BBANDS_SHA = _file_sha("bbands.py")
 _REGIME_SWITCHING_SHA = _file_sha("regime_switching.py")
 _FUNDING_CARRY_SHA = _file_sha("funding_carry.py")
+_VOLATILITY_BREAKOUT_SHA = _file_sha("volatility_breakout.py")
 
 # Default parameter sets (mirror the legacy defaults) → warm-up bars.
 _ENHANCED_MA_WARMUP = 80 + 14 + 6  # slow(80) + adx(14) + buffer
 _RSI_WARMUP = 14 + 2
 _BBANDS_WARMUP = 20 + 2
 _FUNDING_CARRY_WARMUP = 20 + 2  # vol_window(20) + buffer for pct_change + rolling
+_VOLATILITY_BREAKOUT_WARMUP = 20 + 14 + 2  # bb_period(20) + atr(14) + buffer
+_ENSEMBLE_MA_ADX_WARMUP = 80 + 14 + 2  # max sub-strategy lookback + buffer
+_MA_ADX_REGIME_WARMUP = 80 + 14 + 2  # base MA + ADX + buffer
 
 _TEN_SYMBOLS = (
     "ADA/USDT",
@@ -227,6 +234,53 @@ _FUNDING_CARRY_PARAMS_SCHEMA = {
     "required": [],
 }
 
+_VOLATILITY_BREAKOUT_PARAMS_SCHEMA = {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "bb_period": {"type": "integer", "minimum": 5, "maximum": 100},
+        "bb_std": {"type": "number", "minimum": 0.5, "maximum": 5.0},
+        "compression_percentile": {"type": "number", "minimum": 0.001, "maximum": 0.5},
+        "atr_spike_mult": {"type": "number", "minimum": 0.5, "maximum": 5.0},
+        "max_hold_bars": {"type": "integer", "minimum": 1, "maximum": 200},
+        "atr_period": {"type": "integer", "minimum": 2, "maximum": 100},
+        "volume_lookback": {"type": "integer", "minimum": 5, "maximum": 100},
+    },
+    "required": [],
+}
+
+_ENSEMBLE_MA_ADX_PARAMS_SCHEMA = {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "regime_lookback": {"type": "integer", "minimum": 50, "maximum": 500},
+        "min_weight": {"type": "number", "minimum": 0.01, "maximum": 0.2},
+    },
+    "required": [],
+}
+
+_MA_ADX_REGIME_PARAMS_SCHEMA = {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "fast_period": {"type": "integer", "minimum": 2, "maximum": 100},
+        "slow_period": {"type": "integer", "minimum": 3, "maximum": 500},
+        "adx_threshold": {"type": "number", "minimum": 0.0, "maximum": 100.0},
+        "atr_period": {"type": "integer", "minimum": 2, "maximum": 100},
+        "regime_lookback": {"type": "integer", "minimum": 50, "maximum": 500},
+    },
+    "required": [],
+    "allOf": [
+        {
+            "if": {"properties": {"fast_period": {}, "slow_period": {}}},
+            "then": {"properties": {"slow_period": {"exclusiveMinimum": {"$data": "1/fast_period"}}}},
+        }
+    ],
+}
+
 
 # ──────────────────────────────────────────────────────────────────────
 # Parameter normalization / validation helpers
@@ -283,6 +337,26 @@ _PARAM_DEFAULTS: dict[str, dict[str, Any]] = {
         "vol_window": 20,
         "fr_lookback_bars": 22,
     },
+    "volatility_breakout": {
+        "bb_period": 14,
+        "bb_std": 2.0,
+        "compression_percentile": 0.03,
+        "atr_spike_mult": 1.2,
+        "max_hold_bars": 20,
+        "atr_period": 14,
+        "volume_lookback": 20,
+    },
+    "ensemble_ma_adx": {
+        "regime_lookback": 252,
+        "min_weight": 0.05,
+    },
+    "ma_adx_regime": {
+        "fast_period": 20,
+        "slow_period": 80,
+        "adx_threshold": 25.0,
+        "atr_period": 14,
+        "regime_lookback": 252,
+    },
 }
 
 _PARAM_SCHEMAS: dict[str, dict[str, Any]] = {
@@ -293,6 +367,9 @@ _PARAM_SCHEMAS: dict[str, dict[str, Any]] = {
     "bbands": _BBANDS_PARAMS_SCHEMA,
     "regime_switching": _REGIME_SWITCHING_PARAMS_SCHEMA,
     "funding_carry": _FUNDING_CARRY_PARAMS_SCHEMA,
+    "volatility_breakout": _VOLATILITY_BREAKOUT_PARAMS_SCHEMA,
+    "ensemble_ma_adx": _ENSEMBLE_MA_ADX_PARAMS_SCHEMA,
+    "ma_adx_regime": _MA_ADX_REGIME_PARAMS_SCHEMA,
 }
 
 
@@ -518,6 +595,9 @@ RSI_DESCRIPTOR = _descriptor("rsi", _RSI_SHA, _RSI_WARMUP, _RSI_PARAMS_SCHEMA)
 BBANDS_DESCRIPTOR = _descriptor("bbands", _BBANDS_SHA, _BBANDS_WARMUP, _BBANDS_PARAMS_SCHEMA)
 REGIME_SWITCHING_DESCRIPTOR = _descriptor("regime_switching", _REGIME_SWITCHING_SHA, 200, _REGIME_SWITCHING_PARAMS_SCHEMA)
 FUNDING_CARRY_DESCRIPTOR = _descriptor("funding_carry", _FUNDING_CARRY_SHA, _FUNDING_CARRY_WARMUP, _FUNDING_CARRY_PARAMS_SCHEMA)
+VOLATILITY_BREAKOUT_DESCRIPTOR = _descriptor("volatility_breakout", _VOLATILITY_BREAKOUT_SHA, _VOLATILITY_BREAKOUT_WARMUP, _VOLATILITY_BREAKOUT_PARAMS_SCHEMA)
+ENSEMBLE_MA_ADX_DESCRIPTOR = _descriptor("ensemble_ma_adx", _ENHANCED_MA_SHA, _ENSEMBLE_MA_ADX_WARMUP, _ENSEMBLE_MA_ADX_PARAMS_SCHEMA)
+MA_ADX_REGIME_DESCRIPTOR = _descriptor("ma_adx_regime", _ENHANCED_MA_SHA, _MA_ADX_REGIME_WARMUP, _MA_ADX_REGIME_PARAMS_SCHEMA)
 
 #: All first-wave candidate descriptors, keyed by strategy_id.
 FIRST_WAVE_DESCRIPTORS: dict[str, StrategyDescriptor] = {
@@ -530,6 +610,10 @@ FIRST_WAVE_DESCRIPTORS: dict[str, StrategyDescriptor] = {
         BBANDS_DESCRIPTOR,
         REGIME_SWITCHING_DESCRIPTOR,
         FUNDING_CARRY_DESCRIPTOR,
+        # Expanded pool — higher Sharpe single-backtest performers
+        VOLATILITY_BREAKOUT_DESCRIPTOR,
+        ENSEMBLE_MA_ADX_DESCRIPTOR,
+        MA_ADX_REGIME_DESCRIPTOR,
     )
 }
 
@@ -541,6 +625,9 @@ _CANDIDATE_CLASSES: dict[str, type[Strategy]] = {
     "bbands": BBandsStrategy,
     "regime_switching": RegimeSwitchingStrategy,
     "funding_carry": FundingCarryStrategy,
+    "volatility_breakout": VolatilityBreakoutStrategy,
+    "ensemble_ma_adx": EnsembleMaAdx,
+    "ma_adx_regime": MaAdxRegimeAware,
 }
 
 _CANDIDATE_WARMUPS = {
@@ -551,6 +638,9 @@ _CANDIDATE_WARMUPS = {
     "bbands": _BBANDS_WARMUP,
     "regime_switching": 200,
     "funding_carry": _FUNDING_CARRY_WARMUP,
+    "volatility_breakout": _VOLATILITY_BREAKOUT_WARMUP,
+    "ensemble_ma_adx": _ENSEMBLE_MA_ADX_WARMUP,
+    "ma_adx_regime": _MA_ADX_REGIME_WARMUP,
 }
 
 
@@ -592,6 +682,9 @@ def build_default_registry() -> CanonicalStrategyRegistry:
         (BBANDS_DESCRIPTOR, BBandsStrategy, BBandsStrategy, _BBANDS_WARMUP),
         (REGIME_SWITCHING_DESCRIPTOR, RegimeSwitchingStrategy, RegimeSwitchingStrategy, 200),
         (FUNDING_CARRY_DESCRIPTOR, FundingCarryStrategy, FundingCarryStrategy, _FUNDING_CARRY_WARMUP),
+        (VOLATILITY_BREAKOUT_DESCRIPTOR, VolatilityBreakoutStrategy, VolatilityBreakoutStrategy, _VOLATILITY_BREAKOUT_WARMUP),
+        (ENSEMBLE_MA_ADX_DESCRIPTOR, EnsembleMaAdx, EnsembleMaAdx, _ENSEMBLE_MA_ADX_WARMUP),
+        (MA_ADX_REGIME_DESCRIPTOR, MaAdxRegimeAware, MaAdxRegimeAware, _MA_ADX_REGIME_WARMUP),
     ):
         registry.register(
             desc,
@@ -610,6 +703,9 @@ __all__ = [
     "MA_VOL_TARGET_DESCRIPTOR",
     "RSI_DESCRIPTOR",
     "FUNDING_CARRY_DESCRIPTOR",
+    "VOLATILITY_BREAKOUT_DESCRIPTOR",
+    "ENSEMBLE_MA_ADX_DESCRIPTOR",
+    "MA_ADX_REGIME_DESCRIPTOR",
     "ParamValidationError",
     "build_default_registry",
     "build_legacy_candidate",
