@@ -32,6 +32,7 @@ class TrendPullbackStrategy(Strategy):
         self.adx_threshold = float(self.params.get("adx_threshold", 25.0))
         self.adx_period = int(self.params.get("adx_period", 14))
         self.rsi_period = int(self.params.get("rsi_period", 14))
+        self.vol_multiplier = float(self.params.get("vol_multiplier", 1.5))
 
     def compute_indicators(self, df: pl.DataFrame) -> pl.DataFrame:
         return df.with_columns([
@@ -56,7 +57,7 @@ class TrendPullbackStrategy(Strategy):
                 & (pl.col("adx") > pl.lit(self.adx_threshold))
                 & (pl.col("close") > pl.col("ma_fast"))
                 & (pl.col("close").shift(1) <= pl.col("ma_fast").shift(1))
-                & (pl.col("volume") > pl.lit(1.5) * pl.col("vol_sma"))
+                & (pl.col("volume") > pl.lit(self.vol_multiplier) * pl.col("vol_sma"))
             )
             .then(1)
             .when(pl.col("close") < pl.col("ma_fast"))
@@ -69,10 +70,11 @@ class TrendPullbackStrategy(Strategy):
 # Param grid aligned with MINIMAL_PARAM_GRIDS in run_wfo_parallel.py
 PARAM_GRID = {
     "ma_fast": [10, 20, 30],
-    "ma_slow": [80, 120],
-    "adx_threshold": [25, 30],
+    "ma_slow": [50, 80, 120],
+    "adx_threshold": [15, 20, 25, 30],
     "adx_period": [14],
     "rsi_period": [14],
+    "vol_multiplier": [1.0, 1.2, 1.5],
 }
 
 DEFAULT_PARAMS = {
@@ -81,4 +83,5 @@ DEFAULT_PARAMS = {
     "adx_threshold": 25.0,
     "adx_period": 14,
     "rsi_period": 14,
+    "vol_multiplier": 1.5,
 }

@@ -33,6 +33,7 @@ from trading_agent.strategies.bbands import BBandsStrategy
 from trading_agent.strategies.volatility_breakout import VolatilityBreakoutStrategy
 from trading_agent.strategies.funding_carry import FundingCarryStrategy
 from trading_agent.strategies.regime_switching import RegimeSwitchingStrategy
+from trading_agent.strategies.trend_pullback import TrendPullbackStrategy
 
 STRATEGY_SPECS = {
     "ma_adx": {"cls": MaAdxCrossover, "grid": {"fast_period": [10, 20, 30], "slow_period": [40, 60, 80],
@@ -50,21 +51,44 @@ STRATEGY_SPECS = {
                "funding_exit_threshold": [0.0, 0.00005], "max_hold_periods": [0], "vol_window": [20], "fr_lookback_bars": [22]}, "warmup": 50},
     "regime_switching": {"cls": RegimeSwitchingStrategy, "grid": {"regime_method": ["rule_based", "hybrid"],
                "min_confidence": [0.4, 0.65], "regime_smoothing": [2, 3], "base_position_pct": [0.1, 0.2]}, "warmup": 200},
+    "trend_pullback": {"cls": TrendPullbackStrategy, "grid": {"ma_fast": [5, 10, 20, 30],
+               "ma_slow": [50, 80, 120, 200], "adx_threshold": [15, 20, 25],
+               "adx_period": [14], "rsi_period": [14], "vol_multiplier": [0.5, 1.0, 1.5]}, "warmup": 150},
 }
 
 PAIRS = ["BTC/USDT", "ETH/USDT", "BNB/USDT", "XRP/USDT"]
 TIMEFRAME = "1h"
 TRAIN_MONTHS, VAL_MONTHS, TEST_MONTHS, STEP_MONTHS = 12, 3, 3, 3
-MIN_OOS_TRADES = 30
-BARS_PER_MONTH = 720
 
 
-def compute_folds(n_bars: int) -> list[dict]:
-    train_bars = TRAIN_MONTHS * BARS_PER_MONTH
-    val_bars = VAL_MONTHS * BARS_PER_MONTH
-    test_bars = TEST_MONTHS * BARS_PER_MONTH
+def _min_oos_trades(timeframe: str) -> int:
+    """Timeframe-aware minimum OOS trades per fold (higher TF → fewer trades expected)."""
+    tf = timeframe.lower()
+    if tf.endswith("d") and tf[:-1].isdigit():
+        return 3  # daily: trend-following naturally low-frequency; 3+ trades per fold acceptable
+    if tf.endswith("h") and int(tf[:-1]) >= 4:
+        return 15  # 4h+: ~15 trades per fold
+    return 30  # 1h default
+
+
+def _bars_per_month(timeframe: str) -> int:
+    """Map timeframe string to approximate bars per calendar month."""
+    tf = timeframe.lower()
+    if tf.endswith("m") and tf[:-1].isdigit():
+        return int(30 * 24 * 60 / int(tf[:-1]))
+    if tf.endswith("h") and tf[:-1].isdigit():
+        return int(30 * 24 / int(tf[:-1]))
+    if tf.endswith("d") and tf[:-1].isdigit():
+        return int(30 / int(tf[:-1]))
+    return 720  # default: 1h
+
+
+def compute_folds(n_bars: int, bars_per_month: int) -> list[dict]:
+    train_bars = TRAIN_MONTHS * bars_per_month
+    val_bars = VAL_MONTHS * bars_per_month
+    test_bars = TEST_MONTHS * bars_per_month
     total = train_bars + val_bars + test_bars
-    step = STEP_MONTHS * BARS_PER_MONTH
+    step = STEP_MONTHS * bars_per_month
     folds = []
     start = 0
     while start + total <= n_bars:
@@ -145,7 +169,7 @@ def _backtest_cell(args):
     return params, _backtest(spec["cls"], params, _SHARED_DF, start, end, warmup)
 
 
-def run_fast_wfo(strategy_id: str, symbol: str, workers: int = 1) -> dict:
+def run_fast_wfo(strategy_id: str, symbol: str, timeframe: str = "1h", workers: int = 1) -> dict:
     spec = STRATEGY_SPECS[strategy_id]
     cls = spec["cls"]
     grid = spec["grid"]
@@ -154,9 +178,10 @@ def run_fast_wfo(strategy_id: str, symbol: str, workers: int = 1) -> dict:
 
     symbol_raw = symbol.replace("/", "_")
     global _SHARED_DF
-    _SHARED_DF = load_ohlcv("binance", symbol_raw, TIMEFRAME).sort("timestamp")
+    _SHARED_DF = load_ohlcv("binance", symbol_raw, timeframe).sort("timestamp")
     n_bars = _SHARED_DF.height
-    folds = compute_folds(n_bars)
+    bpm = _bars_per_month(timeframe)
+    folds = compute_folds(n_bars, bpm)
 
     total_cells = len(combos) * len(folds)
     print(f"  [{strategy_id} {symbol}] {len(combos)} params × {len(folds)} folds = {total_cells} cells, warmup={warmup}, workers={workers}", flush=True)
@@ -227,11 +252,12 @@ def run_fast_wfo(strategy_id: str, symbol: str, workers: int = 1) -> dict:
     med_calmar = med_return / abs(med_dd) if med_dd != 0 else 0
     total_oos_trades = sum(test_trades)
     no_trade = total_oos_trades == 0
+    min_trades = _min_oos_trades(timeframe)
 
     # Portfolio gates
     gates = {
         "positive_sharpe": {"pass": med_sharpe >= 0.0, "observed": med_sharpe, "threshold": 0.0},
-        "min_trades": {"pass": med_trades >= MIN_OOS_TRADES, "observed": med_trades, "threshold": MIN_OOS_TRADES},
+        "min_trades": {"pass": med_trades >= min_trades, "observed": med_trades, "threshold": min_trades},
         "max_dd_below_40pct": {"pass": med_dd <= 40.0, "observed": med_dd, "threshold": 40.0},
     }
     passes_hard_gates = all(g["pass"] for g in gates.values()) and med_sharpe > 0
@@ -239,7 +265,7 @@ def run_fast_wfo(strategy_id: str, symbol: str, workers: int = 1) -> dict:
     return {
         "strategy": strategy_id,
         "symbol": symbol,
-        "timeframe": TIMEFRAME,
+        "timeframe": timeframe,
         "param_combos": len(combos),
         "n_folds": len(folds),
         "total_cells": total_cells,
@@ -260,9 +286,9 @@ def run_fast_wfo(strategy_id: str, symbol: str, workers: int = 1) -> dict:
     }
 
 
-def _run_wrapper(strat, pair, wfo_workers=1, out_dir="data/backtests/fast_wfo"):
+def _run_wrapper(strat, pair, wfo_workers=1, timeframe="1h", out_dir="data/backtests/fast_wfo"):
     s = time.time()
-    r = run_fast_wfo(strat, pair, workers=wfo_workers)
+    r = run_fast_wfo(strat, pair, workers=wfo_workers, timeframe=timeframe)
     m = r["aggregate_metrics"]
     print(f"  {strat} {pair}: {time.time()-s:.1f}s | Sharpe={m['median_test_sharpe']:.2f} | Trades={m['median_oos_trades']:.0f} | {r['verdict']}", flush=True)
     return f"{strat}__{pair.replace('/', '_')}", r
@@ -274,6 +300,7 @@ def main():
     parser.add_argument("--symbol", default="BTC/USDT")
     parser.add_argument("--all-strategies", action="store_true")
     parser.add_argument("--all-pairs", action="store_true")
+    parser.add_argument("--timeframe", default="1h", help="OHLCV timeframe (1h, 4h, 1d)")
     parser.add_argument("--out", default="data/backtests/fast_wfo")
     parser.add_argument("--wfo-workers", type=int, default=1, help="Cell-level parallelism per (strategy, pair)")
     args = parser.parse_args()
@@ -299,11 +326,11 @@ def main():
     ctx = mp.get_context("fork")
     if len(jobs) == 1:
         # Single job: call directly (avoids nested fork pools)
-        key, r = _run_wrapper(jobs[0][0], jobs[0][1], args.wfo_workers, args.out)
+        key, r = _run_wrapper(jobs[0][0], jobs[0][1], args.wfo_workers, timeframe=args.timeframe, out_dir=args.out)
         results[key] = r
     else:
         with ProcessPoolExecutor(max_workers=n_workers, mp_context=ctx) as pool:
-            futures = {pool.submit(_run_wrapper, s, p, 1, args.out): (s, p) for s, p in jobs}
+            futures = {pool.submit(_run_wrapper, s, p, 1, args.timeframe, args.out): (s, p) for s, p in jobs}
             for i, fut in enumerate(as_completed(futures)):
                 key, r = fut.result()
                 results[key] = r

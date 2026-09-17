@@ -337,6 +337,7 @@ def main() -> None:
         "days": args.days,
         "bars_evaluated": total_bars,
         "shadow_mode": shadow_mode,
+        "incumbent": state.incumbent_strategy_id if (state := router._live_state.get((args.symbol, args.timeframe))) else "unknown",
         "pool_strategies": pool_strategies,
         "excluded": list(EXCLUDED),
         "shadow_performance": shadow_perf,

@@ -121,11 +121,16 @@ class TestStrategyEventLedger:
 
 
 class TestDefaultCandidateRegistry:
-    def test_five_candidates_registered_with_verified_hashes(self):
+    def test_default_candidates_registered_with_verified_hashes(self):
         registry = build_default_registry()
-        assert sorted(registry.list_ids()) == sorted(
-            ["enhanced_ma", "ma_adx", "ma_vol_target", "rsi", "bbands"]
-        )
+        expected = [
+            "enhanced_ma", "ma_adx", "ma_vol_target", "rsi", "bbands",
+            "regime_switching", "funding_carry", "volatility_breakout",
+            "ensemble_ma_adx", "ma_adx_regime", "trend_pullback", "ma_crossover",
+            "range_mean_reversion", "stat_arbitrage_lo", "stat_arbitrage_ls",
+            "cross_sectional_momentum_lo", "cross_sectional_momentum_ls",
+        ]
+        assert sorted(registry.list_ids()) == sorted(expected)
         for strategy_id in registry.list_ids():
             desc = registry.describe(strategy_id)
             assert desc.research_only is True
@@ -146,7 +151,7 @@ class TestDefaultCandidateRegistry:
 
     def test_adapters_forecast_deterministically_in_research(self):
         registry = build_default_registry()
-        window = build_ohlcv_window(_frame(140), observed_at=_OBS_AT, bars=120)
+        window = build_ohlcv_window(_frame(250), observed_at=_OBS_AT, bars=201)
         obs_features = {FEATURE_OHLCV_WINDOW: window}
         from trading_agent.research.forecast import MarketObservation
 

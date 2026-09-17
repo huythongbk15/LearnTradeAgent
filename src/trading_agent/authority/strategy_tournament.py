@@ -57,6 +57,11 @@ class TournamentConfig:
     demotion_sharpe_threshold: float = -0.10
     score_margin: float = 0.10  # Min Sharpe delta above incumbent to promote
     promotion_persistence: int = 6  # Consecutive bars above threshold
+    # ── Production risk controls ──
+    max_drawdown_limit: float = 0.30  # Demote strategy if drawdown exceeds 30 %
+    position_size_cap: float = 0.85  # Cap single-strategy weight at 85 %
+    sharpe_circuit_breaker: float = -0.50  # Demote incumbent if Sharpe drops below this
+    circuit_breaker_lookback: int = 288  # Bars over which to evaluate circuit breaker (2 weeks on 1 h)
 
     def __post_init__(self) -> None:
         if self.shadow_lookback <= 0:
@@ -79,6 +84,7 @@ class _ShadowMetrics:
     consecutive_up: int = 0
     consecutive_down: int = 0
     promoted: bool = False
+    _peak_cum: float = 1.0  # Peak cumulative return for drawdown calc
 
     @property
     def n(self) -> int:
@@ -107,6 +113,19 @@ class _ShadowMetrics:
     def trade_count(self) -> int:
         """Count bars with non-trivial position (|weight| > 1 %)."""
         return sum(1 for w in self.weights if abs(w) > 0.01)
+
+    @property
+    def max_drawdown(self) -> float:
+        """Peak-to-trough drawdown of cumulative returns (0.0 = no drawdown)."""
+        cum = 1.0
+        peak = 1.0
+        max_dd = 0.0
+        for r in self.returns:
+            cum *= 1.0 + r
+            peak = max(peak, cum)
+            dd = (cum - peak) / peak if peak > 0 else 0.0
+            max_dd = min(max_dd, dd)
+        return max_dd
 
     def add(self, ret: float, weight: float) -> None:
         self.returns.append(ret)
@@ -381,6 +400,9 @@ class StrategyTournament(AdaptiveStrategyRouter):
             signal = fc.expected_excess_return
             # Preserve signal direction: BUY(+0.01)→+1, SELL(-0.01)→-1
             weight = max(-1.0, min(1.0, signal * 100)) if signal != 0 else 0.0
+            # Apply position size cap from risk config
+            cap = self.tournament_config.position_size_cap
+            weight = max(-cap, min(cap, weight))
             shadow[sid] = bar_return * weight
         return shadow
 
@@ -423,16 +445,33 @@ class StrategyTournament(AdaptiveStrategyRouter):
             return
 
         inc_sharpe = inc_metrics.sharpe()
+        inc_dd = inc_metrics.max_drawdown
         best_sid: str | None = None
         best_sharpe: float = -999.0
 
         for sid, metrics in state.shadow_metrics.items():
             if sid == incumbent or metrics.n < cfg.min_shadow_bars:
                 continue
+            # Skip challengers that breach drawdown limit
+            if metrics.max_drawdown < -cfg.max_drawdown_limit:
+                continue
             sharpe = metrics.sharpe()
             if sharpe > best_sharpe:
                 best_sharpe = sharpe
                 best_sid = sid
+
+        # ── Circuit breaker: demote incumbent if Sharpe drops below threshold
+        #     or drawdown exceeds limit ──
+        circuit_breaker_triggered = (
+            inc_sharpe < cfg.sharpe_circuit_breaker
+            or inc_dd < -cfg.max_drawdown_limit
+        )
+
+        if circuit_breaker_triggered and best_sid is not None:
+            # Immediate demotion (no persistence wait)
+            state.challenger_strategy_id = best_sid
+            self._promote(symbol, timeframe, state, incumbent, best_sid)
+            return
 
         if best_sid is None:
             return

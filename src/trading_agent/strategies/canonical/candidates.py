@@ -312,14 +312,8 @@ _TREND_PULLBACK_PARAMS_SCHEMA = {
         "adx_threshold": {"type": "number", "minimum": 10.0, "maximum": 50.0},
         "adx_period": {"type": "integer", "minimum": 5, "maximum": 50},
         "rsi_period": {"type": "integer", "minimum": 5, "maximum": 50},
+        "vol_multiplier": {"type": "number", "minimum": 0.5, "maximum": 5.0},
     },
-    "required": [],
-    "allOf": [
-        {
-            "if": {"properties": {"ma_fast": {}, "ma_slow": {}}},
-            "then": {"properties": {"ma_slow": {"exclusiveMinimum": {"$data": "1/ma_fast"}}}},
-        }
-    ],
 }
 
 _MA_CROSSOVER_PARAMS_SCHEMA = {
@@ -505,6 +499,7 @@ _PARAM_DEFAULTS: dict[str, dict[str, Any]] = {
         "adx_threshold": 25.0,
         "adx_period": 14,
         "rsi_period": 14,
+        "vol_multiplier": 1.5,
     },
     "ma_crossover": {
         "fast_period": 20,

@@ -116,8 +116,12 @@ def build_status_table(symbol: str) -> Table:
             )
 
     # Kill switch status
-    env_mode = os.getenv("TOURNAMENT_SHADOW_MODE", "1")
-    ks_status = "ACTIVE (shadow)" if env_mode == "1" else "INACTIVE (LIVE)"
+    if shadow:
+        env_mode = "0" if not shadow.get("shadow_mode", True) else "1"
+        ks_status = "ACTIVE (shadow)" if shadow.get("shadow_mode", True) else "INACTIVE (LIVE)"
+    else:
+        env_mode = os.getenv("TOURNAMENT_SHADOW_MODE", "1")
+        ks_status = "ACTIVE (shadow)" if env_mode == "1" else "INACTIVE (LIVE)"
     ks_color = "green" if env_mode == "1" else "red"
 
     return Panel(
