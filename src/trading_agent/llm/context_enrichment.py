@@ -432,6 +432,7 @@ class ContextEnricher:
             raise ValueError("ResearchMemory instance required for replay mode")
 
         ind = indicators if indicators is not None else (context.indicators or {})
+        extra = ind.get("_extra", extra_market_data or {})
         sym = symbol or context.symbol
         tf = timeframe or context.timeframe
         ts = bar_timestamp or getattr(context, "bar_timestamp", None) or datetime.now(UTC)
@@ -446,5 +447,5 @@ class ContextEnricher:
             "using deterministic fallback"
         )
         return _deterministic_context(
-            context, ind, extra_market_data=extra_market_data
+            context, ind, extra_market_data=extra
         )

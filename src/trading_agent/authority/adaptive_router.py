@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import math
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
@@ -18,6 +19,7 @@ from typing import Any, Mapping
 
 from trading_agent.ml.regime_detection import RegimePosterior
 from trading_agent.authority.config import Environment
+from trading_agent.llm.context_enrichment import MarketContext
 from trading_agent.research.forecast import Forecast, MarketObservation
 from trading_agent.research.selection_policy import (
     SelectionPolicyArtifact,
@@ -25,6 +27,8 @@ from trading_agent.research.selection_policy import (
 )
 from trading_agent.strategies.canonical.adapter import LegacyDataFrameAdapter
 from trading_agent.strategies.canonical.descriptor import StrategyDescriptor
+
+logger = logging.getLogger(__name__)
 
 
 class HandoverState(str, Enum):
@@ -388,8 +392,20 @@ class AdaptiveStrategyRouter:
         observed_at: datetime,
         position_is_flat: bool,
         position_owner_strategy_id: str | None = None,
+        market_context: MarketContext | None = None,
     ) -> RoutingDecision:
-        """Return one idempotent decision for a closed-bar observation."""
+        """Return one idempotent decision for a closed-bar observation.
+
+        Parameters
+        ----------
+        market_context:
+            Optional LLM-produced MarketContext for enrichment.
+
+            **Enrichment-only**: adjusts entropy_threshold when regime_tags
+            indicate divergence (1.2x), and logs anomaly_flags as advisory.
+            Does NOT override the deterministic routing decision based on
+            the regime posterior.
+        """
         if observed_at.tzinfo is None or observed_at.utcoffset() is None:
             raise ValueError("observed_at must be timezone-aware")
         state = self.state_store.load(symbol, timeframe)
@@ -439,9 +455,30 @@ class AdaptiveStrategyRouter:
             max_ood_score=self.config.max_ood_score,
         )
         uncertainty_reason = None
+
+        # ── LLM Context Enrichment (P0 §4) — threshold adjustment ─────
+        # When LLM market context indicates regime divergence or anomalies,
+        # increase the entropy threshold to allow more regime uncertainty.
+        # This is ENRICHMENT-ONLY: the deterministic posterior still drives
+        # the routing decision — we only adjust tolerance.
+        effective_entropy_threshold = self.config.entropy_threshold
+        if market_context is not None:
+            # Regime divergence → higher entropy tolerance (1.2x)
+            if market_context.regime_tags.get("trend") == "diverging":
+                effective_entropy_threshold = min(
+                    1.0, self.config.entropy_threshold * 1.2
+                )
+            # Mild anomaly flags → advisory logging only (no threshold change)
+            if market_context.anomaly_flags:
+                logger.debug(
+                    f"LLM context anomalies for {symbol}/{timeframe}: "
+                    f"{market_context.anomaly_flags}"
+                )
+        # ────────────────────────────────────────────────────────────────
+
         if not posterior_ready:
             uncertainty_reason = "POSTERIOR_STALE_OOD_OR_UNVERSIONED"
-        elif posterior.normalized_entropy > self.config.entropy_threshold:
+        elif posterior.normalized_entropy > effective_entropy_threshold:
             uncertainty_reason = "POSTERIOR_HIGH_ENTROPY"
         elif coverage < self.config.min_policy_coverage:
             uncertainty_reason = "SIGNED_POLICY_COVERAGE_INSUFFICIENT"

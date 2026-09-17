@@ -18,6 +18,7 @@ from trading_agent.authority.adaptive_router import (
 )
 from trading_agent.authority.config import Environment
 from trading_agent.ml.regime_detection import RegimePosterior
+from trading_agent.llm.context_enrichment import MarketContext
 from trading_agent.research.forecast import MarketObservation
 from trading_agent.strategies.canonical.candidates import FIRST_WAVE_DESCRIPTORS
 from trading_agent.strategies.canonical.features import (
@@ -120,6 +121,7 @@ def _route(
     *,
     flat: bool = True,
     owner: str | None = None,
+    market_context: MarketContext | None = None,
 ):
     return router.route(
         symbol="BTC/USDT",
@@ -128,6 +130,7 @@ def _route(
         observed_at=observed_at,
         position_is_flat=flat,
         position_owner_strategy_id=owner,
+        market_context=market_context,
     )
 
 
@@ -493,3 +496,96 @@ def test_research_only_candidate_cannot_be_loaded_in_paper_environment(tmp_path)
     )
     with pytest.raises(ValueError, match="research_only"):
         runtime.forecast(decision, observation)
+
+
+# ── MarketContext enrichment integration tests ──────────────────────────
+
+
+def _diverging_context() -> MarketContext:
+    return MarketContext(
+        regime_tags={"trend": "diverging"},
+        anomaly_flags=["high_volatility"],
+        confidence_adjustment=1.1,
+        reasoning="Price oscillating in wide range.",
+    )
+
+
+def _normal_context() -> MarketContext:
+    return MarketContext(
+        regime_tags={"trend": "up"},
+        anomaly_flags=[],
+        confidence_adjustment=0.9,
+        reasoning="Clear uptrend.",
+    )
+
+
+def test_router_no_market_context_same_as_baseline(tmp_path):
+    """Without market_context, routing behaves exactly as before."""
+    router = _router(
+        tmp_path, config=AdaptiveRouterConfig(entropy_threshold=0.75)
+    )
+    # High entropy posterior would normally trigger POSTERIOR_HIGH_ENTROPY
+    posterior = _posterior(NOW, (0.2, 0.2, 0.2, 0.2, 0.2))
+    decision = _route(router, posterior, NOW)
+    assert decision.reason == "POSTERIOR_HIGH_ENTROPY"
+    assert decision.chosen_strategy_id is None
+
+
+def test_diverging_regime_raises_entropy_threshold(tmp_path):
+    """When regime_tags trend=diverging, entropy threshold increases 1.2x,
+    allowing higher-entropy posteriors to pass through."""
+    router = _router(
+        tmp_path, config=AdaptiveRouterConfig(entropy_threshold=0.75)
+    )
+    # Uniform posterior (entropy=1.0) would normally fail at 0.75
+    posterior = _posterior(NOW, (0.2, 0.2, 0.2, 0.2, 0.2))
+
+    # Without context → fails closed
+    decision_no_ctx = _route(router, posterior, NOW)
+    assert decision_no_ctx.reason == "POSTERIOR_HIGH_ENTROPY"
+
+    # With diverging context → effective threshold = 0.90, posterior entropy 1.0
+    # still fails, but a slightly less uniform posterior should pass
+    # With diverging context → effective threshold = 0.90
+    # Posterior2 entropy ~0.85 passes 0.90 but would fail 0.75
+    posterior2 = _posterior(NOW, (0.45, 0.25, 0.15, 0.10, 0.05))
+    decision_with_ctx = _route(
+        router, posterior2, NOW + timedelta(hours=1),
+        market_context=_diverging_context(),
+    )
+    assert decision_with_ctx.reason != "POSTERIOR_HIGH_ENTROPY"
+
+    # Same posterior without diverging context → entropy 0.85 > 0.75 → fails closed
+    decision_no_ctx2 = _route(
+        router, posterior2, NOW + timedelta(hours=2),
+        market_context=_normal_context(),
+    )
+    assert decision_no_ctx2.reason == "POSTERIOR_HIGH_ENTROPY"
+
+
+def test_market_context_does_not_override_deterministic_routing(tmp_path):
+    router = _router(tmp_path, config=AdaptiveRouterConfig(
+        entropy_threshold=1.0, persistence_bars=1, min_dwell_bars=1, cooldown_bars=0,
+    ))
+    posterior = _posterior(NOW, (0.8, 0.05, 0.05, 0.05, 0.05))
+    decision = _route(
+        router, posterior, NOW, market_context=_diverging_context()
+    )
+    assert decision.chosen_strategy_id == "trend_following"
+
+
+def test_anomaly_flags_are_advisory_only(tmp_path):
+    router = _router(tmp_path, config=AdaptiveRouterConfig(
+        entropy_threshold=1.0, persistence_bars=1, min_dwell_bars=1, cooldown_bars=0,
+    ))
+    posterior = _posterior(NOW, (0.8, 0.05, 0.05, 0.05, 0.05))
+    ctx = MarketContext(
+        regime_tags={"trend": "up"},
+        anomaly_flags=["extreme_spread", "funding_spike"],
+        confidence_adjustment=0.95,
+        reasoning="Anomalies detected but trend intact.",
+    )
+    decision = _route(router, posterior, NOW, market_context=ctx)
+    # Anomalies are advisory — routing still proceeds normally
+    assert decision.chosen_strategy_id == "trend_following"
+    assert decision.allow_new_exposure
