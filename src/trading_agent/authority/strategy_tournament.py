@@ -296,7 +296,8 @@ class StrategyTournament(AdaptiveStrategyRouter):
 
         # SelectionAudit — immutable audit trail for routing decisions
         from trading_agent.authority.selection_audit import SelectionAudit
-        self.audit_store = SelectionAudit(audit_path / "tournament_audit.sqlite3")
+        audit_dir = audit_path.parent / "audit"
+        self.audit_store = SelectionAudit(audit_dir / "tournament_audit.sqlite3")
 
         # Portfolio risk gate — cross-asset exposure caps and circuit breaker
         from trading_agent.authority.portfolio_risk_gate import PortfolioRiskGate
