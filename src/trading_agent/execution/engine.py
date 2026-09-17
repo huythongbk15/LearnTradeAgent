@@ -1311,60 +1311,44 @@ class ExecutionEngine:
         return [outcome.order] if outcome.order is not None else []
 
     # ── Legacy adapter: AgentMessage → StrategyRuntime ──────────────
+    # DEPRECATED (STR-0211): execute_signal() permanently disabled.
+    # The Orchestrator → AgentMessage → execute_signal path bypassed
+    # evidence tracking in the authority chain (evidence_states were
+    # set to UNKNOWN for all calibrated_ood / ood / calibration states).
+    # All execution MUST go through execute_strategy() with a resolved
+    # StrategyRuntime from the promotion store.
 
     def execute_signal(
         self, signal: AgentMessage, observation: EnrichedMarketObservation | None = None
-    ) -> list[Order]:
-        """Legacy adapter: Execute a trading signal from the multi-agent system.
+    ) -> list[Order]:  # pragma: no cover
+        """Legacy adapter — PERMANENTLY DISABLED (STR-0211).
 
-        This method is DEPRECATED. Use execute_strategy() with a resolved
-        StrategyRuntime for artifact-driven execution.
+        This method was a bypass around the authority chain's evidence
+        tracking.  It constructed a ``StrategyRuntime`` from
+        ``_from_agent_message()`` which set all evidence states to
+        ``UNKNOWN``, violating the fail-closed evidence contract.
 
-        Takes the final ``Trader`` agent signal and converts it to orders
-        through the authority chain pipeline.
+        Use ``execute_strategy()`` instead, which resolves artifacts
+        from the promotion store with full evidence provenance.
+
+        Raises:
+            RuntimeError: always — this method is permanently disabled.
         """
-        if self.execution_service is None:
-            raise RuntimeError(
-                "execute_signal requires instrument_rules to be provided at engine construction"
-            )
-        if self.resolver is None:
-            raise RuntimeError(
-                "execute_signal requires RuntimeStrategyResolver (promotion_store + artifact_store)"
-            )
-
-        signal_str = signal.signal.upper()
-        orders: list[Order] = []
-
-        if signal_str == "HOLD":
-            logger.info("Signal: HOLD — no action")
-            return orders
-
-        # Sync protective orders
-        self._sync_protective_orders()
-
-        symbol = signal.details.get("symbol") if signal.details else None
-        if not isinstance(symbol, str) or not symbol:
-            logger.warning("Cannot execute: signal is missing an explicit symbol")
-            return orders
-
-        # Resolve strategy for this symbol/timeframe/environment
-        env = self.authority_config.environment
-        timeframe = signal.details.get("timeframe", "1h") if signal.details else "1h"
-
-        strategy_runtime = self.resolver.resolve_for(symbol, timeframe, env)
-        if strategy_runtime is None:
-            logger.warning(
-                f"No promoted strategy resolved for {symbol} {timeframe} {env.value}"
-            )
-            return orders
-
-        # Execute via new authority-driven pipeline
-        market_data = signal.details.get("market_data") if signal.details else None
-        if market_data is None:
-            logger.warning("execute_signal: signal.details missing market_data")
-            return orders
-
-        return self.execute_strategy(strategy_runtime, market_data, observation)
+        raise RuntimeError(
+            "execute_signal() is permanently disabled (STR-0211).\n"
+            "The Orchestrator → AgentMessage → execute_signal path bypassed\n"
+            "evidence tracking in DecisionAuthority. All execution must\n"
+            "go through execute_strategy() with a StrategyRuntime resolved\n"
+            "from the promotion store.\n"
+            "\n"
+            "Migration path:\n"
+            "  1. Use execution_run_promoted() in cli/commands/live.py\n"
+            "  2. Or resolve StrategyRuntime via PromotionStateStore →\n"
+            "     RuntimeStrategyResolver.resolve_for() →\n"
+            "     execute_strategy(runtime, market_data, observation)\n"
+            "\n"
+            "See: docs/architecture/execution_pipeline.md (STR-0211)"
+        )
 
     @staticmethod
     def _is_protective_intent(intent_id: str) -> bool:

@@ -1270,126 +1270,23 @@ class TestTwoConnectionConcurrency:
                 )
 
 
-class TestExecutionEngineE2E:
-    """Actual ExecutionEngine end-to-end flow: signal → execution → fill → state."""
+class TestExecutionEngineE2EDeprecated:
+    """Verify execute_signal() is permanently disabled (STR-0211)."""
 
-    def test_engine_execute_signal_full_flow(self, tmp_path):
-        from unittest.mock import MagicMock
+    def test_execute_signal_raises_runtime_error(self, tmp_path):
         from trading_agent.execution.engine import ExecutionEngine
-        from trading_agent.execution.canonical.order_planner import (
-            OrderPlanningResult,
-            OrderPlanningStatus,
-        )
-        from trading_agent.execution.application import CanonicalExecutionService
-        from trading_agent.authority.promotion_store import (
-            PromotionStateStore,
-            PromotionRecord,
-        )
-        from trading_agent.research.artifact import (
-            PersistentArtifactStore,
-            StrategyArtifact,
-        )
-        from trading_agent.research.artifact import canonical_params, sha256_hex
-        from trading_agent.research.promotion import ResearchStage
 
-        # Create stores
-        promotion_store = PromotionStateStore(tmp_path / "promotion.db")
-        artifact_store = PersistentArtifactStore(tmp_path / "artifacts")
+        engine = ExecutionEngine()
+        from trading_agent.agents.base import AgentMessage
 
-        # Add a dummy promoted artifact
-        params = {"fast_period": 10, "slow_period": 30}
-        artifact = StrategyArtifact(
-            strategy_name="ma_crossover",
-            code_sha="abc123",
-            data_manifest_sha="data_sha",
-            parameter_hash=sha256_hex(canonical_params(params)),
-            execution_model_version="1.0",
-            framework_version="1.0",
-            metadata={
-                "symbol": "BTC/USDT",
-                "timeframe": "1h",
-                "parameters": params,
-                "calibration_state": "KNOWN",
-                "ood_state": "KNOWN",
-                "regime_state": "KNOWN",
-            },
-        )
-        artifact_store.add(artifact)
-        record = PromotionRecord(
-            artifact_id=artifact.artifact_id,
-            stage=ResearchStage.TESTNET_ELIGIBLE,
-            updated_at=datetime.now(UTC),
-        )
-        promotion_store.upsert(record)
-
-        engine = ExecutionEngine(
-            exchange_name="paper",
-            promotion_store=promotion_store,
-            artifact_store=artifact_store,
-            state_dir=tmp_path / "paper_state",
-            event_store_path=tmp_path / "engine_events.db",
-        )
-
-        # Seed price cache so engine can build TrustedPrice with exchange_timestamp
-        engine.exchange._last_price_cache["BTC/USDT"] = 50000.0
-        engine.exchange._last_price_timestamps["BTC/USDT"] = datetime.now(
-            UTC
-        ).timestamp()
-
-        # Mock execution_service since engine is created without instrument_rules
-        engine.execution_service = MagicMock(spec=CanonicalExecutionService)
-        engine.execution_service.plan.return_value = OrderPlanningResult(
-            status=OrderPlanningStatus.ORDER_REQUIRED,
-            intent=None,  # engine will build intent from legacy adapter
-            reason_codes=(),
-            requested_delta=0.01,
-            executable_delta=0.01,
-        )
-
-        # Build a closed market observation (engine requires observation is closed)
-        now = datetime.now(UTC)
-        observation = EnrichedMarketObservation(
-            symbol="BTC/USDT",
-            observed_at=now,
-            open=50000.0,
-            high=51000.0,
-            low=49000.0,
-            close=50500.0,
-            volume=100.0,
-            timeframe="1h",
-            bar_close_at=now,
-            is_closed=True,
-            data_manifest_id="manifest-1",
-            feature_artifact_id="features-1",
-        )
-
-        # Build a BUY signal in AgentMessage format
         signal = AgentMessage(
             role="trader",
             signal="BUY",
-            confidence=0.9,
-            reasoning="Signal-based entry",
-            details={
-                "symbol": "BTC/USDT",
-                "quantity": 0.01,
-                "price": 50000.0,
-                "market_data": pl.DataFrame(
-                    {
-                        "close": [50000.0] * 40,
-                        "high": [51000.0] * 40,
-                        "low": [49000.0] * 40,
-                        "volume": [100.0] * 40,
-                    }
-                ),
-            },
+            confidence=0.8,
+            reasoning="test",
         )
-
-        orders = engine.execute_signal(signal, observation=observation)
-
-        # Engine may return 0 or 1 order depending on risk/permission; both are valid
-        # as long as the pipeline ran without exception.
-        # For this test we only verify the engine accepted the signal and ran the flow.
-        assert isinstance(orders, list)
+        with pytest.raises(RuntimeError, match="permanently disabled"):
+            engine.execute_signal(signal)
 
     def test_engine_unknown_broker_state_treated_as_open(self, tmp_path):
         """P0-2: Broker UNKNOWN must become OrderStatus.OPEN, not REJECTED."""

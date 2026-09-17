@@ -249,133 +249,35 @@ def execution_run(
     confirm: bool,
     authority_config: str | None,
 ):
-    """Run agents → execute signal → paper trade.
+    """Run live execution via the canonical promotion path (STR-0211).
 
-    Full cycle: loads data → runs 4 agents → places order → sets stop-loss.
+    DEPRECATED: The Orchestrator → AgentMessage → execute_signal path has
+    been permanently disabled (STR-0211). This command now redirects to
+    ``execution_run_promoted()``, which resolves strategies from the
+    promotion store and executes via the authority chain with full
+    evidence provenance.
+
+    Full cycle: loads promoted artifacts → runs authority chain → places order.
     """
-    from trading_agent.agents.orchestrator import Orchestrator, print_report
-    from trading_agent.execution.engine import ExecutionEngine
-    from trading_agent.execution.risk_controller import RiskController
+    from rich.panel import Panel
 
-    # 1. Get current position if any
-    authority_cfg = None
-    if authority_config:
-        from trading_agent.authority import AuthorityConfig, set_authority_config
+    console.print(Panel(
+        "[bold yellow]⚠ DEPRECATED: execute_signal() path disabled (STR-0211)[/bold yellow]\n"
+        "Redirecting to promoted strategy execution via the authority chain.\n"
+        "To use manual Orchestrator analysis, run `trading-agent research critique`\n"
+        "(Research Copilot mode — analysis only, no execution).",
+        title="Deprecation Notice",
+    ))
 
-        authority_cfg = AuthorityConfig.from_yaml(authority_config)
-        set_authority_config(authority_cfg)
-
-    engine = ExecutionEngine(initial_capital=capital, authority_config=authority_cfg)
-    rc = RiskController(engine)
-    existing_pos = engine.exchange.get_position(symbol)
-    current_pos_pct = (
-        (
-            existing_pos.quantity
-            * existing_pos.entry_price
-            / engine.exchange.get_total_equity()
-        )
-        if existing_pos and existing_pos.is_active
-        else 0.0
+    # Delegate to canonical execution path
+    execution_run_promoted(
+        symbols=(symbol,),
+        timeframe=timeframe,
+        environment="paper",
+        authority_config=authority_config,
+        exchange=None,
+        hot_reload=False,
     )
-    port_value = capital or engine.exchange.get_total_equity()
-
-    console.print(
-        f"🧠 Running multi-agent analysis for [bold]{symbol}[/bold] {timeframe}…"
-    )
-    console.print(
-        f"   Current position: {existing_pos.quantity:.4f} {symbol} "
-        f"({current_pos_pct * 100:.1f}% of portfolio)"
-        if existing_pos and existing_pos.is_active
-        else "   No open position"
-    )
-
-    # 2. Run agents
-    orchestrator = Orchestrator()
-    try:
-        report = orchestrator.analyze(
-            symbol=symbol,
-            timeframe=timeframe,
-            current_position_pct=current_pos_pct,
-            portfolio_value=port_value,
-        )
-    except FileNotFoundError as e:
-        console.print(f"[red]Data not found: {e}[/red]")
-        return
-
-    print_report(report)
-
-    # 3. Execute signal
-    decision = report.final_decision
-    signal_str = decision.signal
-
-    if signal_str == "HOLD":
-        console.print("[yellow]Signal: HOLD — no trade[/yellow]")
-        # Still update prices for P&L tracking (timestamp-guarded)
-        try:
-            engine.update_market_price(
-                symbol,
-                report.current_price,
-                report.data_timestamp,
-                timeframe,
-            )
-        except ValueError as e:
-            console.print(f"[dim]Price not updated ({e})[/dim]")
-        return
-
-    # Confirm if requested
-    if confirm:
-        from rich.prompt import Confirm
-
-        if not Confirm.ask(f"Execute {signal_str} signal for {symbol}?"):
-            console.print("[yellow]Trade cancelled[/yellow]")
-            return
-
-    # 4. Place order
-    try:
-        engine.update_market_price(
-            symbol,
-            report.current_price,
-            report.data_timestamp,
-            timeframe,
-        )
-    except ValueError as e:
-        console.print(
-            f"[red]Refusing to trade {symbol}: price feed rejected — {e}[/red]"
-        )
-        return
-    orders = engine.execute_signal(decision)
-
-    if orders:
-        for o in orders:
-            console.print(
-                f"[green]→ Order placed: {o.side.value.upper()} {o.amount:.4f} {symbol} "
-                f"@ ${o.avg_fill_price or report.current_price:,.2f}[/green]"
-            )
-
-        # 5. Set stop-loss if bought
-        if signal_str == "BUY" and stop_loss > 0:
-            engine.set_stop_loss(symbol, stop_loss)
-            pos = engine.exchange.get_position(symbol)
-            if pos and pos.stop_loss:
-                console.print(
-                    f"🛡️  Stop-loss set: ${pos.stop_loss:,.2f} "
-                    f"({stop_loss * 100:.1f}% below entry)"
-                )
-
-    # 6. Run risk checks
-    warnings = rc.check_all()
-    if warnings:
-        console.print("\n[bold red]⚠ Risk Warnings:[/bold red]")
-        for w in warnings:
-            console.print(f"  • {w}")
-        if rc._circuit_breaker_active:
-            console.print(
-                "[bold red]🔴 CIRCUIT BREAKER ACTIVATED — all positions closed[/bold red]"
-            )
-
-    # Show updated status
-    console.print()
-    execution_status.callback()
 
 
 @execution.command("close")
@@ -466,114 +368,29 @@ def execution_run_multi(
     parallel: bool,
     authority_config: str | None,
 ):
-    """Run execution cycle for multiple symbols."""
-    from trading_agent.agents.orchestrator import Orchestrator
-    from trading_agent.execution.engine import ExecutionEngine
-    from trading_agent.execution.risk_controller import RiskController
+    """Run multi-symbol execution via the canonical promotion path (STR-0211).
 
-    authority_cfg = None
-    if authority_config:
-        from trading_agent.authority import AuthorityConfig, set_authority_config
+    DEPRECATED: The Orchestrator → AgentMessage → execute_signal multi-symbol
+    path has been permanently disabled. This command redirects to
+    ``execution_run_promoted()`` which uses the authority chain with full
+    evidence provenance.
+    """
+    from rich.panel import Panel
 
-        authority_cfg = AuthorityConfig.from_yaml(authority_config)
-        set_authority_config(authority_cfg)
+    console.print(Panel(
+        "[bold yellow]⚠ DEPRECATED: execute_signal() multi path disabled (STR-0211)[/bold yellow]\n"
+        "Redirecting to promoted strategy execution via the authority chain.",
+        title="Deprecation Notice",
+    ))
 
-    engine = ExecutionEngine(initial_capital=capital, authority_config=authority_cfg)
-    rc = RiskController(engine)
-    console.print(
-        f"[bold]Running multi-symbol execution for: {', '.join(symbols)}[/bold]"
+    execution_run_promoted(
+        symbols=symbols,
+        timeframe=timeframe,
+        environment="paper",
+        authority_config=authority_config,
+        exchange=None,
+        hot_reload=False,
     )
-
-    def process_symbol(symbol: str):
-        console.print(f"\n[cyan]=== {symbol} ===[/cyan]")
-        try:
-            local_orchestrator = Orchestrator()
-            report = local_orchestrator.analyze(
-                symbol=symbol,
-                timeframe=timeframe,
-                current_position_pct=0.0,
-                portfolio_value=capital or engine.exchange.get_total_equity(),
-            )
-            decision = report.final_decision
-
-            if decision.signal == "HOLD":
-                console.print(f"  [yellow]HOLD[/yellow] — {decision.reasoning}")
-                return {"symbol": symbol, "signal": "HOLD", "orders": 0, "status": "ok"}
-
-            # Execute
-            try:
-                engine.update_market_price(
-                    symbol,
-                    report.current_price,
-                    report.data_timestamp,
-                    timeframe,
-                )
-            except ValueError as e:
-                console.print(
-                    f"  [red]Refusing to trade {symbol}: price feed rejected — {e}[/red]"
-                )
-                return {
-                    "symbol": symbol,
-                    "signal": decision.signal,
-                    "orders": 0,
-                    "status": "stale_data",
-                }
-            orders = engine.execute_signal(decision)
-
-            if orders:
-                for o in orders:
-                    console.print(
-                        f"  [green]→ {o.side.value.upper()} {o.amount:.4f} {symbol}[/green]"
-                    )
-                if decision.signal == "BUY" and stop_loss > 0:
-                    engine.set_stop_loss(symbol, stop_loss)
-                    pos = engine.exchange.get_position(symbol)
-                    if pos and pos.stop_loss:
-                        console.print(f"  🛡️  Stop-loss: ${pos.stop_loss:,.2f}")
-
-            # Risk check
-            warnings = rc.check_all()
-            if warnings:
-                for w in warnings:
-                    console.print(f"  [red]⚠ {w}[/red]")
-
-            return {
-                "symbol": symbol,
-                "signal": decision.signal,
-                "orders": len(orders),
-                "status": "ok",
-            }
-
-        except FileNotFoundError as e:
-            console.print(f"  [red]Data not found: {e}[/red]")
-            return {
-                "symbol": symbol,
-                "signal": "ERROR",
-                "orders": 0,
-                "status": "data_not_found",
-            }
-        except Exception as e:
-            console.print(f"  [red]Error: {e}[/red]")
-            return {"symbol": symbol, "signal": "ERROR", "orders": 0, "status": "error"}
-
-    if parallel:
-        console.print(
-            "[yellow]Parallel order execution is disabled; processing symbols "
-            "sequentially against the shared portfolio.[/yellow]"
-        )
-    results = [process_symbol(symbol) for symbol in symbols]
-
-    # Summary
-    console.print("\n[bold]📋 Summary[/bold]")
-    t = Table("Symbol", "Signal", "Orders", "Status")
-    for r in results:
-        status_icon = "✅" if r["status"] == "ok" else "❌"
-        t.add_row(r["symbol"], r["signal"], str(r["orders"]), status_icon)
-    console.print(t)
-
-    # Show portfolio status
-    console.print()
-    execution_status.callback()
 
 
 @execution.command("run-promoted")

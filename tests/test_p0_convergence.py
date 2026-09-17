@@ -1050,266 +1050,35 @@ class TestEnginePaperE2E:
     """Actual Engine + PaperExchange integration tests."""
 
     def test_engine_execute_signal_buy_and_fill(self, tmp_path):
-        """Engine should create, submit, and fill a BUY order end-to-end."""
+        """DEPRECATED PATH (STR-0211): execute_signal() must raise RuntimeError."""
 
         from trading_agent.agents.base import AgentMessage
-        from trading_agent.execution.canonical.market_observation import (
-            EnrichedMarketObservation,
-        )
         from trading_agent.execution.engine import ExecutionEngine
-        from trading_agent.execution.lifecycle import ExecutionEventStore
-        from trading_agent.execution.paper_exchange import PaperExchange
-        from trading_agent.execution.types import OrderStatus
-        from trading_agent.execution.canonical.order_planner import InstrumentRules
-        from trading_agent.authority.promotion_store import PromotionStateStore
-        from trading_agent.research.artifact import (
-            PersistentArtifactStore,
-            StrategyArtifact,
-        )
-        from trading_agent.research.artifact import canonical_params, sha256_hex
-        from trading_agent.authority.promotion_store import PromotionRecord
-        from trading_agent.research.promotion import ResearchStage
-        import polars as pl
 
-        # Use isolated state dir to avoid cross-test pollution
-        state_dir = tmp_path / "paper_state"
-        state_dir.mkdir()
-        exchange = PaperExchange(
-            exchange_name="test",
-            initial_balance=100_000.0,
-            state_dir=state_dir,
-        )
-        store = ExecutionEventStore(str(tmp_path / "events.db")).connect()
+        engine = ExecutionEngine()
 
-        # Create instrument rules for BTC/USDT
-        instrument_rules = InstrumentRules(
-            symbol="BTC/USDT",
-            asset_class="crypto",
-            min_order_qty=0.001,
-            max_order_qty=1.0,
-            qty_step=0.001,
-            price_precision=2,
-            min_notional=10.0,
-        )
-
-        # Create stores
-        promotion_store = PromotionStateStore(tmp_path / "promotion.db")
-        artifact_store = PersistentArtifactStore(tmp_path / "artifacts")
-
-        # Add a dummy promoted artifact
-        params = {"fast_period": 10, "slow_period": 30}
-        artifact = StrategyArtifact(
-            strategy_name="ma_crossover",
-            code_sha="abc123",
-            data_manifest_sha="data_sha",
-            parameter_hash=sha256_hex(canonical_params(params)),
-            execution_model_version="1.0",
-            framework_version="1.0",
-            metadata={
-                "symbol": "BTC/USDT",
-                "timeframe": "1h",
-                "parameters": params,
-                "calibration_state": "KNOWN",
-                "ood_state": "KNOWN",
-                "regime_state": "KNOWN",
-            },
-        )
-        artifact_store.add(artifact)
-        record = PromotionRecord(
-            artifact_id=artifact.artifact_id,
-            stage=ResearchStage.TESTNET_ELIGIBLE,
-            updated_at=datetime.now(UTC),
-        )
-        promotion_store.upsert(record)
-
-        engine = ExecutionEngine(
-            exchange=exchange,
-            store=store,
-            instrument_rules=instrument_rules,
-            allow_backtest_new_exposure=True,
-            promotion_store=promotion_store,
-            artifact_store=artifact_store,
-        )
-        # Seed a price so the engine has a valid market observation
-        engine.exchange.update_prices({"BTC/USDT": 50_000.0})
-        # Ensure the engine has a current price for the symbol
-        price_info = engine._get_current_price("BTC/USDT")
-        assert price_info is not None
-        current_price, exchange_ts = price_info
-        assert current_price == 50_000.0
-
-        # Build a closed market observation (engine requires observation is closed)
-        now = datetime.now(UTC)
-        observation = EnrichedMarketObservation(
-            symbol="BTC/USDT",
-            observed_at=now,
-            open=50000.0,
-            high=50500.0,
-            low=49500.0,
-            close=current_price,
-            volume=100.0,
-            observation_id="obs-test",
-            venue="paper",
-            timeframe="1h",
-            bar_close_at=now,
-            is_closed=True,
-            data_manifest_id="manifest-test",
-        )
-
-        # Build a BUY signal with required exposure details for DecisionAuthority
-        # Need market data that generates BUY signal: flat at 50000 for 30 bars, then 10 bars at 50000, then 1 bar at 55000
-        prices = [50000.0] * 30 + [50000.0] * 10 + [55000.0]
         signal = AgentMessage(
             role="trader",
             signal="BUY",
-            confidence=0.9,
+            confidence=0.8,
             reasoning="test",
-            details={
-                "symbol": "BTC/USDT",
-                "target_exposure_pct": 0.05,  # 5% target exposure
-                "max_new_exposure_pct": 0.05,
-                "risk_level": "LOW",
-                "reduce_only": False,
-                "calibration_state": "KNOWN",
-                "calibration_ece": 0.01,
-                "ood_state": "KNOWN",
-                "ood_score": 0.0,
-                "regime_state": "KNOWN",
-                "regime_entropy": 0.5,
-                "market_data": pl.DataFrame(
-                    {
-                        "close": prices,
-                        "high": [p * 1.01 for p in prices],
-                        "low": [p * 0.99 for p in prices],
-                        "volume": [100.0] * len(prices),
-                    }
-                ),
-            },
         )
-        orders = engine.execute_signal(signal, observation=observation)
-        assert len(orders) == 1
-        order = orders[0]
-        # Compare by value to avoid enum identity mismatch across modules
-        assert order.side.value == "buy"
-        # For paper trading, the engine simulates an immediate fill
-        assert order.status == OrderStatus.FILLED
-        # Verify position was created (quantity depends on planner sizing)
-        pos = engine.exchange.get_position("BTC/USDT")
-        assert pos is not None
-        assert pos.quantity > 0
+        with pytest.raises(RuntimeError, match="permanently disabled"):
+            engine.execute_signal(signal)
 
     def test_engine_execute_signal_sell_without_position(self, tmp_path):
-        """Engine should reject a SELL signal when no position exists."""
-
+        """DEPRECATED PATH (STR-0211): execute_signal() must raise RuntimeError."""
+        
         from trading_agent.agents.base import AgentMessage
-        from trading_agent.execution.canonical.market_observation import (
-            EnrichedMarketObservation,
-        )
         from trading_agent.execution.engine import ExecutionEngine
-        from trading_agent.execution.paper_exchange import PaperExchange
-        from trading_agent.execution.canonical.order_planner import InstrumentRules
-        from trading_agent.authority.promotion_store import PromotionStateStore
-        from trading_agent.research.artifact import (
-            PersistentArtifactStore,
-            StrategyArtifact,
-        )
-        from trading_agent.research.artifact import canonical_params, sha256_hex
-        from trading_agent.authority.promotion_store import PromotionRecord
-        from trading_agent.research.promotion import ResearchStage
-        import polars as pl
-
-        state_dir = tmp_path / "paper_state"
-        state_dir.mkdir()
-        exchange = PaperExchange(
-            exchange_name="test",
-            initial_balance=100_000.0,
-            state_dir=state_dir,
-        )
-
-        # Create instrument rules for BTC/USDT
-        instrument_rules = InstrumentRules(
-            symbol="BTC/USDT",
-            asset_class="crypto",
-            min_order_qty=0.001,
-            max_order_qty=1.0,
-            qty_step=0.001,
-            price_precision=2,
-            min_notional=10.0,
-        )
-
-        # Create stores
-        promotion_store = PromotionStateStore(tmp_path / "promotion.db")
-        artifact_store = PersistentArtifactStore(tmp_path / "artifacts")
-
-        # Add a dummy promoted artifact
-        params = {"fast_period": 10, "slow_period": 30}
-        artifact = StrategyArtifact(
-            strategy_name="ma_crossover",
-            code_sha="abc123",
-            data_manifest_sha="data_sha",
-            parameter_hash=sha256_hex(canonical_params(params)),
-            execution_model_version="1.0",
-            framework_version="1.0",
-            metadata={
-                "symbol": "BTC/USDT",
-                "timeframe": "1h",
-                "parameters": params,
-                "calibration_state": "KNOWN",
-                "ood_state": "KNOWN",
-                "regime_state": "KNOWN",
-            },
-        )
-        artifact_store.add(artifact)
-        record = PromotionRecord(
-            artifact_id=artifact.artifact_id,
-            stage=ResearchStage.TESTNET_ELIGIBLE,
-            updated_at=datetime.now(UTC),
-        )
-        promotion_store.upsert(record)
-
-        engine = ExecutionEngine(
-            exchange=exchange,
-            instrument_rules=instrument_rules,
-            promotion_store=promotion_store,
-            artifact_store=artifact_store,
-            state_dir=tmp_path / "paper_state_sell_without_position",
-            event_store_path=tmp_path / "events_sell_without_position.db",
-        )
-        # Use the symbol governed by the supplied instrument rules.
-        engine.exchange.update_prices({"BTC/USDT": 50_000.0})
-        now = datetime.now(UTC)
-        observation = EnrichedMarketObservation(
-            symbol="BTC/USDT",
-            observed_at=now,
-            open=50000.0,
-            high=50500.0,
-            low=49500.0,
-            close=50000.0,
-            volume=100.0,
-            observation_id="obs-test-btc",
-            venue="paper",
-            timeframe="1h",
-            bar_close_at=now,
-            is_closed=True,
-            data_manifest_id="manifest-test-btc",
-        )
+        
+        engine = ExecutionEngine()
+        
         signal = AgentMessage(
             role="trader",
             signal="SELL",
             confidence=0.8,
             reasoning="test",
-            details={
-                "symbol": "BTC/USDT",
-                "market_data": pl.DataFrame(
-                    {
-                        "close": [50000.0] * 40,
-                        "high": [51000.0] * 40,
-                        "low": [49000.0] * 40,
-                        "volume": [100.0] * 40,
-                    }
-                ),
-            },
         )
-        orders = engine.execute_signal(signal, observation=observation)
-        # No order should be created because there's no position to sell
-        assert len(orders) == 0
+        with pytest.raises(RuntimeError, match="permanently disabled"):
+            engine.execute_signal(signal)

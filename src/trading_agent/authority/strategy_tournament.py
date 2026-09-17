@@ -62,6 +62,9 @@ class TournamentConfig:
     position_size_cap: float = 0.85  # Cap single-strategy weight at 85 %
     sharpe_circuit_breaker: float = -0.50  # Demote incumbent if Sharpe drops below this
     circuit_breaker_lookback: int = 288  # Bars over which to evaluate circuit breaker (2 weeks on 1 h)
+    min_shadow_bars_for_promote: int = 288  # Minimum shadow bars before considering promotion
+    significance_alpha: float = 0.05  # Statistical significance level (Welch's t-test)
+    bonferroni_correction: bool = True  # Adjust alpha by number of strategies in pool
 
     def __post_init__(self) -> None:
         if self.shadow_lookback <= 0:
@@ -435,22 +438,41 @@ class StrategyTournament(AdaptiveStrategyRouter):
         decision: RoutingDecision,
         state: TournamentState,
     ) -> None:
-        """Check promotion / de-promotion conditions and update registry."""
+        """Check promotion / de-promotion conditions and update registry.
+
+        **Statistical rigour (STR-0210):** A challenger must pass TWO gates
+        before promotion:
+
+        1. **Significance gate** — Welch's t-test on per-bar returns must
+           reject H₀ (equal mean returns) at ``alpha / n_strategies``
+           (Bonferroni correction for multiple testing across the pool).
+        2. **PBO gate** — Sharpe ratio is deflated by a probabilistic-best-
+           optimization penalty proportional to the pool size and sample
+           size.  Promotion only proceeds if the deflated Sharpe exceeds
+           the threshold.
+
+        Circuit-breaker demotion (incumbent Sharpe < -0.50 or drawdown >
+        30 %) skips the significance test — an under-water incumbent is
+        replaced immediately as a safety measure.
+        """
         cfg = self.tournament_config
         incumbent = state.incumbent_strategy_id or decision.chosen_strategy_id
 
         # Skip if not enough data
         inc_metrics = state.shadow_metrics.get(incumbent) if incumbent else None
-        if inc_metrics is None or inc_metrics.n < cfg.min_shadow_bars:
+        if inc_metrics is None or inc_metrics.n < cfg.min_shadow_bars_for_promote:
             return
 
         inc_sharpe = inc_metrics.sharpe()
         inc_dd = inc_metrics.max_drawdown
+        inc_n = inc_metrics.n
+
         best_sid: str | None = None
         best_sharpe: float = -999.0
+        best_metrics: _ShadowMetrics | None = None
 
         for sid, metrics in state.shadow_metrics.items():
-            if sid == incumbent or metrics.n < cfg.min_shadow_bars:
+            if sid == incumbent or metrics.n < cfg.min_shadow_bars_for_promote:
                 continue
             # Skip challengers that breach drawdown limit
             if metrics.max_drawdown < -cfg.max_drawdown_limit:
@@ -459,16 +481,23 @@ class StrategyTournament(AdaptiveStrategyRouter):
             if sharpe > best_sharpe:
                 best_sharpe = sharpe
                 best_sid = sid
+                best_metrics = metrics
 
         # ── Circuit breaker: demote incumbent if Sharpe drops below threshold
-        #     or drawdown exceeds limit ──
+        #     or drawdown exceeds limit — immediate replacement (no stats gate)
         circuit_breaker_triggered = (
             inc_sharpe < cfg.sharpe_circuit_breaker
             or inc_dd < -cfg.max_drawdown_limit
         )
 
         if circuit_breaker_triggered and best_sid is not None:
-            # Immediate demotion (no persistence wait)
+            self._log_audit_event(
+                symbol, timeframe, "CIRCUIT_BREAKER_DEMOTE",
+                incumbent=incumbent, challenger=best_sid,
+                inc_sharpe=inc_sharpe, challenger_sharpe=best_sharpe,
+                reason="Sharpe < circuit_breaker or drawdown > max_drawdown_limit",
+                statistical_check="bypassed (safety)",
+            )
             state.challenger_strategy_id = best_sid
             self._promote(symbol, timeframe, state, incumbent, best_sid)
             return
@@ -476,23 +505,143 @@ class StrategyTournament(AdaptiveStrategyRouter):
         if best_sid is None:
             return
 
+        # ── Significance gate (STR-0210a): Welch's t-test ───────────────
+        if best_metrics is not None:
+            p_value = self._welch_t_test_pvalue(inc_metrics, best_metrics)
+            n_pool = len(self.pool)
+            alpha = cfg.significance_alpha
+            if cfg.bonferroni_correction:
+                alpha_adj = alpha / max(n_pool, 1)
+            else:
+                alpha_adj = alpha
+
+            significant = p_value < alpha_adj
+
+            if not significant:
+                self._log_audit_event(
+                    symbol, timeframe, "SIGNIFICANCE_GATE_BLOCK",
+                    incumbent=incumbent, challenger=best_sid,
+                    inc_sharpe=inc_sharpe, challenger_sharpe=best_sharpe,
+                    p_value=p_value, alpha=alpha_adj, n_pool=n_pool,
+                    n_inc=inc_n, n_challenger=best_metrics.n,
+                    reason="Welch's t-test did not reject H₀ at adjusted alpha",
+                )
+                return  # Blocked — not statistically significant
+
+            self._log_audit_event(
+                symbol, timeframe, "SIGNIFICANCE_GATE_PASS",
+                incumbent=incumbent, challenger=best_sid,
+                p_value=p_value, alpha=alpha_adj, n_pool=n_pool,
+                reason="Welch's t-test rejected H₀",
+            )
+
+        # ── PBO gate (STR-0210b): Deflated Sharpe ────────────────────────
+        if best_metrics is None:
+            return  # Fail-closed — no valid challenger metrics
+
+        deflated_best, deflated_inc = self._deflated_sharpe_pair(
+            best_sharpe, best_metrics.n, inc_sharpe, inc_n
+        )
+
+        # Use deflated Sharpe for all threshold comparisons
+        eff_score_margin = cfg.score_margin
+        if deflated_best - deflated_inc < eff_score_margin:
+            return  # Challenger does not meaningfully outperform after deflation
+
         # Promote challenger if it consistently outperforms
         if (
-            best_sharpe - inc_sharpe >= cfg.score_margin
-            and best_sharpe >= cfg.promotion_sharpe_threshold
+            deflated_best >= cfg.promotion_sharpe_threshold
+            and deflated_best - deflated_inc >= eff_score_margin
         ):
-            if inc_sharpe >= cfg.demotion_sharpe_threshold:
-                # Challenger beats incumbent + margin
+            if deflated_inc >= cfg.demotion_sharpe_threshold:
                 state.challenger_persistence += 1
                 state.challenger_strategy_id = best_sid
                 if state.challenger_persistence >= cfg.promotion_persistence:
                     self._promote(symbol, timeframe, state, incumbent, best_sid)
             else:
-                # Incumbent below threshold — immediate promotion
                 state.challenger_strategy_id = best_sid
                 self._promote(symbol, timeframe, state, incumbent, best_sid)
         else:
             state.challenger_persistence = 0
+
+    def _welch_t_test_pvalue(
+        self, inc: _ShadowMetrics, challenger: _ShadowMetrics
+    ) -> float:
+        """Two-sided Welch's t-test on per-bar returns.
+
+        Tests H₀: μ_incumbent = μ_challenger.
+        Returns p-value; smaller → more confident the means differ.
+        """
+        from scipy import stats
+
+        inc_rets = list(inc.returns)
+        ch_ret = list(challenger.returns)
+
+        if len(inc_rets) < 2 or len(ch_ret) < 2:
+            return 1.0  # Not enough data → fail-closed (p=1 → not significant)
+
+        inc_mean = sum(inc_rets) / len(inc_rets)
+        ch_mean = sum(ch_ret) / len(ch_ret)
+
+        inc_var = sum((r - inc_mean) ** 2 for r in inc_rets) / (len(inc_rets) - 1)
+        ch_var = sum((r - ch_mean) ** 2 for r in ch_ret) / (len(ch_ret) - 1)
+
+        try:
+            _, p_value = stats.ttest_ind_from_stats(
+                mean1=ch_mean, std1=math.sqrt(ch_var), nobs1=len(ch_ret),
+                mean2=inc_mean, std2=math.sqrt(inc_var), nobs2=len(inc_rets),
+                equal_var=False,  # Welch's
+            )
+            if p_value is None or (isinstance(p_value, float) and math.isnan(p_value)):
+                return 1.0
+            return float(p_value)
+        except Exception:
+            return 1.0  # Fail-closed
+
+    def _deflated_sharpe(
+        self, raw_sharpe: float, n_obs: int, n_strategies: int
+    ) -> float:
+        """Apply Probabilistic Best Optimization (PBO) deflation.
+
+        Uses the deflated Sharpe formula from Bailey et al. (2016):
+        Sharpe_deflated = Sharpe_raw * (1 - sqrt(n_strategies / n_obs))
+
+        When n_strategies << n_obs, deflation is small. When the ratio is
+        high (more strategies than observations), deflation is severe.
+        """
+        if n_obs < 2 or n_strategies < 1:
+            return raw_sharpe
+        ratio = min(n_strategies / n_obs, 1.0)
+        deflation_factor = 1.0 - math.sqrt(ratio)
+        return raw_sharpe * deflation_factor
+
+    def _deflated_sharpe_pair(
+        self, challenger_sharpe: float, challenger_n: int,
+        incumbent_sharpe: float, incumbent_n: int,
+    ) -> tuple[float, float]:
+        """Compute deflated Sharpe for both challenger and incumbent."""
+        n_strategies = len(self.pool)
+        def_challenger = self._deflated_sharpe(challenger_sharpe, challenger_n, n_strategies)
+        def_incumbent = self._deflated_sharpe(incumbent_sharpe, incumbent_n, n_strategies)
+        return def_challenger, def_incumbent
+
+    def _log_audit_event(
+        self,
+        symbol: str,
+        timeframe: str,
+        event: str,
+        **details: Any,
+    ) -> None:
+        """Write a structured audit entry for statistical gate decisions."""
+        entry = {
+            "event": f"TOURNAMENT_{event}",
+            "symbol": symbol,
+            "timeframe": timeframe,
+            "timestamp": datetime.now(UTC).isoformat(),
+            **details,
+        }
+        with self.audit_path.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(entry, sort_keys=True) + "\n")
 
     def _promote(
         self,
@@ -548,17 +697,15 @@ class StrategyTournament(AdaptiveStrategyRouter):
             self.policy_registry.add(new_policy)
             self.policy_registry.deprecate(policy.policy_id)
             # Persist audit entry
-            with self.audit_path.open("a", encoding="utf-8") as fh:
-                entry = {
-                    "event": "TOURNAMENT_PROMOTION",
-                    "symbol": symbol,
-                    "timeframe": timeframe,
-                    "old_incumbent": old_incumbent,
-                    "new_incumbent": new_incumbent,
-                    "regime": regime,
-                    "timestamp": datetime.now(UTC).isoformat(),
-                }
-                fh.write(json.dumps(entry, sort_keys=True) + "\n")
+            self._log_audit_event(
+                symbol, timeframe, "PROMOTION",
+                old_incumbent=old_incumbent,
+                new_incumbent=new_incumbent,
+                regime=regime,
+                challenger_params=dict(policy.incumbent.params),
+                code_sha=policy.incumbent.code_sha,
+                promotion_stage=policy.promotion_stage,
+            )
 
         state.incumbent_strategy_id = new_incumbent
         state.challenger_persistence = 0
