@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import math
 import os
 from collections import deque
@@ -32,6 +33,7 @@ from trading_agent.authority.adaptive_router import (
 )
 from trading_agent.authority.config import Environment
 from trading_agent.ml.regime_detection import RegimePosterior
+from trading_agent.llm.context_enrichment import MarketContext
 from trading_agent.research.forecast import Forecast, MarketObservation
 from trading_agent.research.selection_policy import (
     ParamArtifact,
@@ -41,6 +43,8 @@ from trading_agent.research.selection_policy import (
 )
 from trading_agent.strategies.canonical.candidates import FIRST_WAVE_DESCRIPTORS
 from trading_agent.strategies.canonical.descriptor import StrategyDescriptor
+
+logger = logging.getLogger(__name__)
 
 # ── Config ───────────────────────────────────────────────────────────────
 
@@ -290,6 +294,10 @@ class StrategyTournament(AdaptiveStrategyRouter):
         # Per-symbol live state
         self._live_state: dict[tuple[str, str], TournamentState] = {}
 
+        # SelectionAudit — immutable audit trail for routing decisions
+        from trading_agent.authority.selection_audit import SelectionAudit
+        self.audit_store = SelectionAudit(audit_path / "tournament_audit.sqlite3")
+
     # ── Public API ──────────────────────────────────────────────────────
 
     def route(
@@ -303,12 +311,15 @@ class StrategyTournament(AdaptiveStrategyRouter):
         position_owner_strategy_id: str | None = None,
         observation: MarketObservation | None = None,
         bar_return: float | None = None,
+        market_context: MarketContext | None = None,
     ) -> RoutingDecision:
         """Route one observation through the tournament.
 
         Extra params ``observation`` and ``bar_return`` enable shadow scoring
         of all pool strategies.  When either is ``None``, only the parent
         routing logic runs (backward-compatible with ``AdaptiveStrategyRouter``).
+
+        ``market_context`` is optional LLM enrichment metadata (advisory only).
         """
         decision = super().route(
             symbol=symbol,
@@ -317,6 +328,7 @@ class StrategyTournament(AdaptiveStrategyRouter):
             observed_at=observed_at,
             position_is_flat=position_is_flat,
             position_owner_strategy_id=position_owner_strategy_id,
+            market_context=market_context,
         )
 
         # Shadow-track all strategies if we have observation data
@@ -334,6 +346,41 @@ class StrategyTournament(AdaptiveStrategyRouter):
                 if not self.tournament_config.shadow_mode:
                     self._maybe_promote(symbol, timeframe, decision, state)
                 self.tournament_state_store.save(symbol, timeframe, state)
+
+        # ── SelectionAudit: immutable decision trail ───────────────────
+        try:
+            shadow_sharpe = None
+            shadow_delta = None
+            state = self._live_state.get((symbol, timeframe))
+            if state is not None and state.incumbent_strategy_id in state.shadow_metrics:
+                inc_metrics = state.shadow_metrics[state.incumbent_strategy_id]
+                shadow_sharpe = inc_metrics.sharpe()
+                if state.shadow_metrics:
+                    all_sharpes = {
+                        sid: m.sharpe() for sid, m in state.shadow_metrics.items()
+                    }
+                    if all_sharpes:
+                        best_sharpe = max(all_sharpes.values())
+                        shadow_delta = best_sharpe - shadow_sharpe
+
+            self.audit_store.append(
+                decision=decision,
+                posterior=posterior,
+                regime_tags=(market_context.regime_tags
+                             if market_context is not None else {}),
+                anomaly_flags=(list(market_context.anomaly_flags)
+                              if market_context is not None else []),
+                confidence_adjustment=(market_context.confidence_adjustment
+                                      if market_context is not None else 1.0),
+                cross_asset_signals=(dict(market_context.cross_asset_signals)
+                                    if market_context is not None else {}),
+                reasoning_snippet=decision.reason,
+                shadow_sharpe=shadow_sharpe,
+                shadow_sharpe_delta_vs_incumbent=shadow_delta,
+            )
+        except Exception as e:
+            logger.debug(f"SelectionAudit append failed: {e}")
+        # ────────────────────────────────────────────────────────────────
 
         return decision
 
