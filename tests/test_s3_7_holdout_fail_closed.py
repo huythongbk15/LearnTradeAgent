@@ -95,7 +95,7 @@ def patched(monkeypatch):
     monkeypatch.setattr("trading_agent.backtest.tournament.load_ohlcv", _load)
     monkeypatch.setattr(
         "trading_agent.backtest.nested_wfo._resolve_frozen_holdout_window",
-        lambda *a, **kw: (HOLDOUT_START, N_BARS - 1),
+        lambda *a, **kw: (HOLDOUT_START, N_BARS - 1, {}),
     )
     monkeypatch.setattr(
         "trading_agent.backtest.nested_wfo._get_fold_indices",
