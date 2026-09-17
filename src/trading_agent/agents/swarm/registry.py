@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING, Optional
 from trading_agent.agents.base import AgentRole, AgentSpec
 from trading_agent.agents.base import BaseAgent as Agent
 from trading_agent.agents.swarm.specialized import (
-    ExecutionAgent,
     FundamentalAgent,
     RiskAgent,
     SentimentAgent,
@@ -81,8 +80,6 @@ class AgentRegistry:
             return SentimentAgent(spec, llm)
         elif spec.role == AgentRole.RISK:
             return RiskAgent(spec, llm)
-        elif spec.role == AgentRole.EXECUTION:
-            return ExecutionAgent(spec, llm)
         else:
             raise ValueError(f"Unknown agent role: {spec.role}")
 
@@ -237,13 +234,6 @@ class SwarmFactory:
                 params={},
                 weight=1.5,  # Higher weight for risk
             ),
-            AgentSpec(
-                name="ExecutionTrader",
-                role=AgentRole.EXECUTION,
-                symbols=symbols,
-                params={},
-                weight=1.0,
-            ),
         ]
 
         for spec in specs:
@@ -354,12 +344,6 @@ class SwarmFactory:
                 role=AgentRole.RISK,
                 symbols=symbols,
                 params={"max_leverage": 3.0},
-            ),
-            AgentSpec(
-                name="ExecutionTrader",
-                role=AgentRole.EXECUTION,
-                symbols=symbols,
-                params={"prefer_dex": True},
             ),
         ]
 

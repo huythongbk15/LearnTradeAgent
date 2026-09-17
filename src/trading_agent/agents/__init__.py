@@ -31,7 +31,6 @@ from trading_agent.agents.swarm.registry import (
     SwarmFactory,
 )
 from trading_agent.agents.swarm.specialized import (
-    ExecutionAgent,
     FundamentalAgent,
     RiskAgent,
     SentimentAgent,
@@ -62,7 +61,6 @@ __all__ = [
     "FundamentalAgent",
     "SentimentAgent",
     "RiskAgent",
-    "ExecutionAgent",
     "CoordinatorAgent",
     "SwarmConfig",
     "SwarmSignal",

@@ -8,7 +8,6 @@ from trading_agent.agents.swarm.coordinator import (
 )
 from trading_agent.agents.swarm.registry import AgentRegistry, AgentSpec
 from trading_agent.agents.swarm.specialized import (
-    ExecutionAgent,
     FundamentalAgent,
     RiskAgent,
     SentimentAgent,
@@ -24,7 +23,6 @@ __all__ = [
     "FundamentalAgent",
     "SentimentAgent",
     "RiskAgent",
-    "ExecutionAgent",
     "AgentRegistry",
     "AgentSpec",
 ]
