@@ -65,8 +65,7 @@ class TestRiskManager:
     def _risk(self, context: AnalysisContext) -> RiskManager:
         return RiskManager()
 
-    def test_high_volatility_blocks_position(self, monkeypatch) -> None:
-        monkeypatch.setattr("trading_agent.agents.risk.llm_enabled", lambda: False)
+    def test_high_volatility_blocks_position(self) -> None:
         # Volatile series: big alternating swings -> daily vol >> 3%.
         closes = [100.0] + [100 + 15.0 * (1 if i % 2 else -1) for i in range(1, 60)]
         context = AnalysisContext(
@@ -80,8 +79,7 @@ class TestRiskManager:
         assert msg.details["risk_level"] == "HIGH"
         assert msg.max_position_size_pct == 0.0
 
-    def test_low_volatility_allows_buy(self, monkeypatch) -> None:
-        monkeypatch.setattr("trading_agent.agents.risk.llm_enabled", lambda: False)
+    def test_low_volatility_allows_buy(self) -> None:
         closes = [100.0 + 0.1 * i for i in range(60)]
         context = AnalysisContext(
             symbol="BTC/USDT",
@@ -95,8 +93,7 @@ class TestRiskManager:
         assert msg.signal == "BUY"
         assert msg.max_position_size_pct > 0.0
 
-    def test_missing_ohlcv_uses_conservative_size(self, monkeypatch) -> None:
-        monkeypatch.setattr("trading_agent.agents.risk.llm_enabled", lambda: False)
+    def test_missing_ohlcv_uses_conservative_size(self) -> None:
         context = AnalysisContext(
             symbol="BTC/USDT",
             timeframe="1h",
@@ -107,8 +104,7 @@ class TestRiskManager:
         msg = self._risk(context).analyze(context)
         assert msg.max_position_size_pct >= 0.0
 
-    def test_high_risk_exit_when_in_position(self, monkeypatch) -> None:
-        monkeypatch.setattr("trading_agent.agents.risk.llm_enabled", lambda: False)
+    def test_high_risk_exit_when_in_position(self) -> None:
         closes = [100.0] + [100 + 15.0 * (1 if i % 2 else -1) for i in range(1, 60)]
         context = AnalysisContext(
             symbol="BTC/USDT",

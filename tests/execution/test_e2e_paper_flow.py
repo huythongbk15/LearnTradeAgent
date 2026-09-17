@@ -1411,7 +1411,7 @@ class TestExecutionEngineE2EDeprecated:
                 "market_data": pl.DataFrame(
                     {
                         # Rising close at the end so ma_crossover(fast=10,
-                        # slow=30) emits BUY: since Milestone B, execute_signal
+                        # slow=30) emits BUY: since Milestone B, resolve_and_execute
                         # runs the real resolved strategy before the mocked authorities.
                         "close": [50000.0] * 39 + [60000.0],
                         "high": [51000.0] * 39 + [61000.0],
@@ -1543,7 +1543,7 @@ class TestExecutionEngineE2EDeprecated:
                 engine.execution_authority, "execute", return_value=exec_output
             ),
         ):
-            orders = engine.execute_signal(signal, observation=observation)
+            orders = engine.resolve_and_execute(signal, observation=observation)
 
         assert len(orders) == 1
         assert orders[0].status == OrderStatus.OPEN
@@ -2401,7 +2401,7 @@ class TestP1ConvergenceProofs:
                 "market_data": pl.DataFrame(
                     {
                         # Rising close at the end so ma_crossover(fast=10,
-                        # slow=30) emits BUY: since Milestone B, execute_signal
+                        # slow=30) emits BUY: since Milestone B, resolve_and_execute
                         # runs the real resolved strategy before the mocked authorities.
                         "close": [50000.0] * 39 + [60000.0],
                         "high": [51000.0] * 39 + [61000.0],
@@ -2559,7 +2559,7 @@ class TestP1ConvergenceProofs:
                 engine.execution_authority, "execute", side_effect=mock_execute
             ),
         ):
-            orders = engine.execute_signal(signal, observation=observation)
+            orders = engine.resolve_and_execute(signal, observation=observation)
 
         # Engine should have called ExecutionAuthority.execute exactly once (no resubmit on UNKNOWN)
         assert len(exec_auth_calls) == 1
@@ -2681,7 +2681,7 @@ class TestP1ConvergenceProofs:
                         "market_data": pl.DataFrame(
                             {
                                 # Rising close at the end so ma_crossover(fast=10,
-                                # slow=30) emits BUY: since Milestone B, execute_signal
+                                # slow=30) emits BUY: since Milestone B, resolve_and_execute
                                 # runs the real resolved strategy before the mocked authorities.
                                 "close": [50000.0] * 39 + [60000.0],
                                 "high": [51000.0] * 39 + [61000.0],
@@ -2807,7 +2807,7 @@ class TestP1ConvergenceProofs:
                         engine1.gateway, "submit", side_effect=mock_gateway_submit
                     ),
                 ):
-                    orders1 = engine1.execute_signal(signal, observation=observation)
+                    orders1 = engine1.resolve_and_execute(signal, observation=observation)
 
                 # Capture lifecycle state before "restart"
                 lifecycle1 = engine1.lifecycle

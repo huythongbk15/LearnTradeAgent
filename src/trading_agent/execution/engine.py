@@ -1350,6 +1350,56 @@ class ExecutionEngine:
             "See: docs/architecture/execution_pipeline.md (STR-0211)"
         )
 
+    def resolve_and_execute(
+        self,
+        signal: AgentMessage,
+        observation: EnrichedMarketObservation | None = None,
+    ) -> list[Order]:
+        """Resolve a promoted StrategyRuntime and execute via the authority chain.
+
+        This is the canonical replacement for the deprecated ``execute_signal()``.
+        It resolves the strategy artifact from the promotion store via the
+        resolver, then delegates to ``execute_strategy()`` with full evidence
+        provenance through the authority chain.
+
+        Migration: replace ``engine.execute_signal(signal)`` with
+        ``engine.resolve_and_execute(signal)``.
+        """
+        if self.resolver is None:
+            raise RuntimeError(
+                "resolve_and_execute requires RuntimeStrategyResolver "
+                "(promotion_store + artifact_store)"
+            )
+
+        signal_str = signal.signal.upper()
+        if signal_str == "HOLD":
+            logger.info("Signal: HOLD — no action")
+            return []
+
+        self._sync_protective_orders()
+
+        symbol = signal.details.get("symbol") if signal.details else None
+        if not isinstance(symbol, str) or not symbol:
+            logger.warning("Cannot execute: signal is missing an explicit symbol")
+            return []
+
+        env = self.authority_config.environment
+        timeframe = signal.details.get("timeframe", "1h") if signal.details else "1h"
+
+        strategy_runtime = self.resolver.resolve_for(symbol, timeframe, env)
+        if strategy_runtime is None:
+            logger.warning(
+                f"No promoted strategy resolved for {symbol} {timeframe} {env}"
+            )
+            return []
+
+        market_data = signal.details.get("market_data") if signal.details else None
+        if market_data is None:
+            logger.warning("resolve_and_execute: signal.details missing market_data")
+            return []
+
+        return self.execute_strategy(strategy_runtime, market_data, observation)
+
     @staticmethod
     def _is_protective_intent(intent_id: str) -> bool:
         return intent_id.startswith("prot_") and intent_id.endswith("_submit")

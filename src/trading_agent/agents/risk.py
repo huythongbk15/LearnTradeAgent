@@ -2,6 +2,10 @@
 Risk Manager Agent — đánh giá rủi ro, position sizing, warnings.
 
 Không có vị thế thực (Phase 2) nên đánh giá rủi ro dựa trên volatility + drawdown.
+
+P0.2 (STR-0212): LLM RiskManager thay thế bằng ForecastRiskPolicy.
+Toàn bộ LLM call (`ask_agent`) đã được loại bỏ. Risk quyết định dựa trên
+công thức toán học: realized volatility + volume ratio + current drawdown.
 """
 
 from __future__ import annotations
@@ -11,114 +15,142 @@ import logging
 import numpy as np
 
 from trading_agent.agents.base import AgentMessage, AnalysisContext, BaseAgent
-from trading_agent.agents.llm import ask_agent, llm_enabled
 from trading_agent.agents.risk_decision import RiskDecision, RiskLevel
 
 logger = logging.getLogger(__name__)
 
 
-SYSTEM_PROMPT = """You are a Risk Manager in a multi-agent trading system.
+class ForecastRiskPolicy(BaseAgent):
+    """Deterministic, volatility-scaled risk policy (STR-0212).
 
-Assess risk based on market conditions and current exposure.
-Output JSON:
-{
-  "signal": "BUY" | "SELL" | "HOLD",
-  "confidence": 0.0-1.0,
-  "reasoning": "1-2 sentence explanation",
-  "risk_level": "LOW"|"MEDIUM"|"HIGH"|"EXTREME",
-  "target_exposure_pct": 0.0-1.0,
-  "max_new_exposure_pct": 0.0-1.0,
-  "reduce_only": boolean,
-  "key_risks": ["risk1", "risk2"]
-}
+    Replaces the LLM-based RiskManager. No external API calls — risk
+    is computed entirely from realized volatility, volume ratio, and
+    current drawdown. Designed to be fast, reproducible, and auditable.
 
-Guidelines:
-- High volatility = smaller position sizes
-- Strong trend = can increase size
-- Low volume breakouts = reduce size
-- Never suggest >50% position in high volatility
-- Default to HOLD and 0% new exposure if risk is extreme
-- Keep it conservative — preserve capital first
-- HIGH/EXTREME risk must set reduce_only=true and max_new_exposure_pct=0
-"""
+    Decision model:
+        vol < 1.5%   → LOW risk,   max_pos = risk_based ∩ vol_cap
+        vol 1.5–3%   → MEDIUM risk, same sizing
+        vol > 3%    → HIGH risk,  max_pos = 0 (market too volatile)
 
+    Position sizing:
+        risk_based = RISK_PER_TRADE / stop_distance
+        vol_cap    = 0.40 * min(1.0, 1.5 / vol)   (asymmetric decay)
+        max_pos    = max(0.05, min(risk_based, vol_cap))
+    """
 
-class RiskManager(BaseAgent):
-    """Assesses risk and suggests position sizing."""
+    RISK_PER_TRADE: float = 0.015  # 1.5% equity at risk per trade
+    VOL_HIGH_THRESHOLD: float = 3.0   # % daily vol → HIGH
+    VOL_MED_THRESHOLD: float = 1.5   # % daily vol → MEDIUM
+    VOL_CAP_BASE: float = 0.40       # Base cap at vol=1.5%
+    STOP_PCT_MIN: float = 0.03       # 3% minimum stop distance
+    STOP_PCT_MAX: float = 0.08       # 8% maximum stop distance
 
     def analyze(self, context: AnalysisContext) -> AgentMessage:
-        ind = context.indicators
-        extra = ind.get("_extra", {})
-        price = context.current_price
+        """Compute risk policy for the current context → AgentMessage."""
+        decision = self._evaluate(context)
+        return self._decision_to_message(decision, context)
 
-        # LLM disabled → rule-based ngay, không build prompt
-        if not llm_enabled():
-            decision = self._rule_based(ind, context)
-            return self._decision_to_message(decision, context)
+    # ── Core policy ──────────────────────────────────────────────────
 
-        prompt_lines = [
-            f"Symbol: {context.symbol} ({context.timeframe})",
-            f"Current Price: ${price:.2f}",
-            f"Current Position: {context.current_position_pct * 100:.0f}%",
-            f"Portfolio Value: ${context.portfolio_value:,.2f}",
-            "",
-            "--- Risk Indicators ---",
-        ]
+    def _evaluate(self, context: AnalysisContext) -> RiskDecision:
+        """Evaluate risk and produce a typed RiskDecision."""
+        ind = getattr(context, "indicators", {})
+        extra = ind.get("_extra", {}) if isinstance(ind, dict) else {}
+        vol = self._compute_volatility(context)
+        vol_ratio = extra.get("volume_ratio_5_20", 1.0)
 
-        if extra.get("volatility_20"):
-            prompt_lines.append(f"20-bar volatility: {extra['volatility_20']:.2f}%")
-        if extra.get("volume_ratio_5_20"):
-            prompt_lines.append(
-                f"Volume ratio (5/20): {extra['volume_ratio_5_20']:.2f}x"
-            )
+        # ── Volatility-based position sizing ──
+        if vol is not None and vol > 0:
+            stop_pct = max(self.STOP_PCT_MIN, min(self.STOP_PCT_MAX, vol / 100.0))
+            risk_based = self.RISK_PER_TRADE / stop_pct
+            vol_cap = self.VOL_CAP_BASE * min(1.0, self.VOL_MED_THRESHOLD / vol)
+            max_pos = max(0.05, min(risk_based, vol_cap))
 
-        if "rsi" in ind:
-            rsi = ind["rsi"]
-            prompt_lines.append(f"RSI(14): {rsi:.1f}")
-
-        # Price changes
-        for label, key in [
-            ("1d", "price_change_1d"),
-            ("1w", "price_change_1w"),
-            ("1m", "price_change_1m"),
-        ]:
-            val = getattr(context, key, None)
-            if val is not None:
-                prompt_lines.append(f"Change {label}: {val:+.2f}%")
-
-        prompt_lines.append("")
-
-        if context.current_position_pct == 0:
-            prompt_lines.append(
-                "Assess the risk level for opening a new long position "
-                "and suggest a safe position size."
-            )
+            if vol > self.VOL_HIGH_THRESHOLD:
+                risk = RiskLevel.HIGH
+                max_pos = 0.0
+                reason = f"HIGH vol ({vol:.1f}%) — position REDUCED TO 0%"
+            elif vol > self.VOL_MED_THRESHOLD:
+                risk = RiskLevel.MEDIUM
+                reason = f"MEDIUM vol ({vol:.1f}%) — size {max_pos * 100:.0f}%"
+            else:
+                risk = RiskLevel.LOW
+                reason = f"LOW vol ({vol:.1f}%) — size {max_pos * 100:.0f}%"
         else:
-            prompt_lines.append(
-                "Assess the risk level for holding the current position "
-                "and advise on position size adjustment."
-            )
+            risk = RiskLevel.MEDIUM
+            max_pos = 0.25
+            reason = "No vol data — conservative sizing"
 
-        prompt = "\n".join(prompt_lines)
+        reduce_only = risk in (RiskLevel.HIGH, RiskLevel.EXTREME)
 
-        try:
-            result = ask_agent(SYSTEM_PROMPT, prompt, schema="risk")
-            decision = RiskDecision(
-                risk_level=RiskLevel(result.get("risk_level", "MEDIUM")),
-                target_exposure_pct=float(result.get("target_exposure_pct", 0.0)),
-                max_new_exposure_pct=float(result.get("max_new_exposure_pct", 0.0)),
-                reduce_only=bool(result.get("reduce_only", False)),
-                warnings=tuple(result.get("key_risks", [])),
-            )
-            msg = self._decision_to_message(
-                decision, context, result.get("reasoning", "")
-            )
-        except Exception as e:
-            logger.warning(f"Risk LLM failed ({e}), using rule-based")
-            decision = self._rule_based(ind, context)
-            msg = self._decision_to_message(decision, context)
+        # Volume adjustment
+        if vol_ratio < 0.5:
+            if risk == RiskLevel.MEDIUM:
+                risk = RiskLevel.HIGH
+                max_pos = 0.0
+                reduce_only = True
+            else:
+                max_pos = max_pos * 0.5
+            reason += "; low volume — reduce further"
 
-        return msg
+        return RiskDecision(
+            risk_level=risk,
+            target_exposure_pct=0.0 if reduce_only else max_pos,
+            max_new_exposure_pct=0.0 if reduce_only else max_pos,
+            reduce_only=reduce_only,
+            warnings=(
+                f"Position size capped at {max_pos * 100:.0f}%",
+                f"Volatility at {vol:.1f}%" if vol else "Unknown volatility",
+            ),
+        )
+
+    # ── Query interface ──────────────────────────────────────────────
+
+    def should_open_position(
+        self, context: AnalysisContext
+    ) -> tuple[bool, float, str]:
+        """Return (should_open, max_exposure_pct, reason).
+
+        Used by the Trader agent to gate new position entries.
+        """
+        decision = self._evaluate(context)
+        if decision.risk_level == RiskLevel.LOW:
+            return True, decision.target_exposure_pct, "LOW risk — open allowed"
+        elif decision.risk_level == RiskLevel.MEDIUM:
+            return False, 0.0, "MEDIUM risk — neutral, no new exposure"
+        else:
+            return False, 0.0, f"{decision.risk_level} risk — HOLD/SELL only"
+
+    def should_reduce_position(
+        self, context: AnalysisContext
+    ) -> tuple[bool, float, str]:
+        """Return (should_reduce, reduction_pct, reason).
+
+        Used by the Trader agent to gate position exits.
+        """
+        decision = self._evaluate(context)
+        if decision.risk_level == RiskLevel.HIGH:
+            return True, 1.0, "HIGH risk — exit full position"
+        elif decision.risk_level == RiskLevel.EXTREME:
+            return True, 1.0, "EXTREME risk — emergency exit"
+        else:
+            return False, 0.0, "Risk level acceptable — hold"
+
+    def position_size_pct(
+        self, context: AnalysisContext
+    ) -> tuple[float, str, list[str]]:
+        """Return (max_position_pct, risk_level_str, warnings).
+
+        Direct position sizing without trading signal bias.
+        """
+        decision = self._evaluate(context)
+        return (
+            decision.target_exposure_pct,
+            decision.risk_level.value,
+            list(decision.warnings),
+        )
+
+    # ── Helpers ──────────────────────────────────────────────────────
 
     def _decision_to_message(
         self,
@@ -139,9 +171,8 @@ class RiskManager(BaseAgent):
         return AgentMessage(
             role="risk_manager",
             signal=signal,
-            confidence=0.5,
-            reasoning=reasoning
-            or f"risk={decision.risk_level.value} reduce_only={decision.reduce_only}",
+            confidence=0.9 if decision.risk_level != RiskLevel.MEDIUM else 0.5,
+            reasoning=reasoning or "ForecastRiskPolicy deterministic assessment",
             details={
                 "risk_level": decision.risk_level.value,
                 "target_exposure_pct": decision.target_exposure_pct,
@@ -155,17 +186,25 @@ class RiskManager(BaseAgent):
         )
 
     def _compute_volatility(self, context: AnalysisContext) -> float:
-        """Compute realized volatility from raw OHLCV (no dependency on pre-computed context)."""
-        df = context.ohlcv
+        """Compute realized volatility from raw OHLCV.
+
+        Normalize per-bar volatility to daily units so thresholds remain
+        comparable across 15m/1h/4h/daily inputs. Falls back to pre-computed
+        ``indicators._extra.volatility_20`` if OHLCV is unavailable.
+        """
+        df = getattr(context, "ohlcv", None)
         if df is None or len(df) < 20:
+            ind = getattr(context, "indicators", {})
+            if isinstance(ind, dict):
+                vol_20 = ind.get("_extra", {}).get("volatility_20")
+                if vol_20 is not None:
+                    return float(vol_20)
             return 5.0  # Default moderate volatility
 
         closes = df["close"].to_numpy()
         if len(closes) < 20:
             return 5.0
 
-        # Normalize per-bar volatility to a 24-hour volatility so thresholds
-        # remain comparable across 15m/1h/4h/daily inputs.
         returns = np.diff(closes[-21:]) / closes[-21:-1]
         timeframe_minutes = self._timeframe_minutes(context.timeframe)
         bars_per_day = max(1.0, 24 * 60 / timeframe_minutes)
@@ -186,61 +225,17 @@ class RiskManager(BaseAgent):
             raise ValueError(f"Unsupported timeframe: {timeframe!r}")
         return amount * units[tf[-1]]
 
-    def _rule_based(self, ind: dict, context: AnalysisContext) -> RiskDecision:
-        """Rule-based risk assessment with volatility-scaled position sizing."""
-        extra = ind.get("_extra", {})
-        vol = self._compute_volatility(context)
-        vol_ratio = extra.get("volume_ratio_5_20", 1.0)
 
-        # ── Position sizing theo volatility ──────────────────────────────
-        # Công thức liên tục, hai ràng buộc:
-        #   1) Risk-based: mỗi lệnh chỉ rủi ro ~1.5% equity
-        #      size = risk_per_trade / stop_distance
-        #   2) Vol-cap: vol càng cao → size càng nhỏ (bất đối xứng với rủi ro)
-        RISK_PER_TRADE = 0.015
-        if vol is not None and vol > 0:
-            # Stop distance giãn theo vol (3-8%) → rủi ro thực tế được chuẩn hoá
-            stop_pct = max(0.03, min(0.08, vol / 100.0))
-            risk_based = RISK_PER_TRADE / stop_pct
-            # Vol cap liên tục: vol 1.5 → 0.40, vol 3.0 → 0.20, vol 6.0 → 0.10
-            vol_cap = 0.40 * min(1.0, 1.5 / vol)
-            max_pos = max(0.05, min(risk_based, vol_cap))
-            if vol > 3.0:
-                risk = RiskLevel.HIGH
-                max_pos = 0.0
-                reason = f"High volatility ({vol:.1f}%) — position size REDUCED TO 0%"
-            elif vol > 1.5:
-                risk = RiskLevel.MEDIUM
-                reason = f"Moderate volatility ({vol:.1f}%) — size {max_pos * 100:.0f}% of equity"
-            else:
-                risk = RiskLevel.LOW
-                reason = (
-                    f"Low volatility ({vol:.1f}%) — size {max_pos * 100:.0f}% of equity"
-                )
-        else:
-            risk = RiskLevel.MEDIUM
-            max_pos = 0.25
-            reason = "No volatility data — using conservative sizing"
+class RiskManager(ForecastRiskPolicy):
+    """Backward-compatible alias for ForecastRiskPolicy (STR-0212).
 
-        # Adjust for volume
-        if vol_ratio < 0.5:
-            risk = RiskLevel.HIGH if risk == RiskLevel.MEDIUM else risk
-            max_pos = 0.0 if risk == RiskLevel.HIGH else max_pos * 0.5
-            reason += "; low volume — reduce further"
+    All Orchestrator references ``RiskManager`` are transparently redirected
+    to ``ForecastRiskPolicy``. New code should import ForecastRiskPolicy directly.
+    The LLM-based analysis path has been permanently removed.
+    """
 
-        # Risk agent chỉ vote hướng khi rõ ràng:
-        #   LOW  → BUY (cho phép vào lệnh)
-        #   MEDIUM → HOLD (trung lập, không bias weighted vote)
-        #   HIGH → SELL nếu đang giữ vị thế (thoát), HOLD nếu đang đứng ngoài
-        #          + risk_level HIGH (trader override vẫn chặn lệnh mua mới)
-        reduce_only = risk in (RiskLevel.HIGH, RiskLevel.EXTREME)
-        return RiskDecision(
-            risk_level=risk,
-            target_exposure_pct=0.0 if reduce_only else max_pos,
-            max_new_exposure_pct=0.0 if reduce_only else max_pos,
-            reduce_only=reduce_only,
-            warnings=(
-                f"Position size capped at {max_pos * 100:.0f}%",
-                f"Volatility at {vol:.1f}%" if vol else "Unknown volatility",
-            ),
-        )
+    def analyze(self, context: AnalysisContext) -> AgentMessage:
+        return super().analyze(context)
+
+
+__all__ = ["ForecastRiskPolicy", "RiskManager", "RiskDecision", "RiskLevel"]
