@@ -24,7 +24,10 @@ import logging
 import math
 from dataclasses import dataclass, field, asdict
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from trading_agent.llm.research_memory import ResearchMemory
 
 from trading_agent.agents.base import AnalysisContext
 from trading_agent.agents.llm import (
@@ -151,13 +154,20 @@ class MarketContext:
 
 # ── Deterministic fallback ───────────────────────────────────────────────
 
-def _deterministic_context(context: AnalysisContext, indicators: dict[str, Any]) -> MarketContext:
+def _deterministic_context(
+    context: AnalysisContext,
+    indicators: dict[str, Any] | None = None,
+    *,
+    extra_market_data: dict[str, Any] | None = None,
+) -> MarketContext:
     """Rule-based MarketContext when LLM is unavailable.
 
     Always conservative: NO anomaly flags, neutral regime, confidence_adjustment = 1.0.
     """
-    ind = context.indicators
-    extra = ind.get("_extra", {})
+    ind = indicators if indicators is not None else (context.indicators or {})
+    extra = ind.get("_extra", {}) if isinstance(ind, dict) else {}
+    if extra_market_data:
+        extra = {**extra, **extra_market_data}
     regime_tags: dict[str, str] = {}
 
     # Trend regime (deterministic)
@@ -299,7 +309,7 @@ class ContextEnricher:
         prompt = self._build_prompt(context, ind, extra, sym, tf, price)
 
         if not self._llm_available():
-            return _deterministic_context(context, ind)
+            return _deterministic_context(context, ind, extra_market_data=extra)
 
         try:
             # Use backtest_ask_agent if in backtest mode, else ask_agent
@@ -313,7 +323,7 @@ class ContextEnricher:
             return MarketContext.from_llm_response(raw)
         except Exception as e:
             logger.warning(f"Context enrichment LLM call failed ({e}), using deterministic fallback")
-            return _deterministic_context(context, ind)
+            return _deterministic_context(context, ind, extra_market_data=extra)
 
     def _llm_available(self) -> bool:
         """Check if LLM is enabled and configured."""
@@ -389,3 +399,52 @@ class ContextEnricher:
         as a signal source.
         """
         return max(0.0, min(1.0, original_confidence * context.confidence_adjustment))
+
+    def replay(
+        self,
+        context: AnalysisContext,
+        indicators: dict[str, Any] | None = None,
+        *,
+        bar_timestamp: datetime | None = None,
+        symbol: str | None = None,
+        timeframe: str | None = None,
+        extra_market_data: dict[str, Any] | None = None,
+        memory: ResearchMemory | None = None,
+    ) -> MarketContext:
+        """Replay stored MarketContext from ResearchMemory (no LLM calls).
+
+        This is the A/B test entry point: replay a previously stored
+        MarketContext for a given bar instead of calling the LLM.
+
+        Args:
+            context: AnalysisContext with indicators and price data
+            indicators: Optional override for indicators dict
+            bar_timestamp: Timestamp of the bar to retrieve context for
+            symbol: Optional symbol override
+            timeframe: Optional timeframe override
+            extra_market_data: Optional dict for deterministic fallback
+            memory: ResearchMemory instance to read from
+
+        Returns:
+            MarketContext from storage, or deterministic fallback if not found
+        """
+        if memory is None:
+            raise ValueError("ResearchMemory instance required for replay mode")
+
+        ind = indicators if indicators is not None else (context.indicators or {})
+        sym = symbol or context.symbol
+        tf = timeframe or context.timeframe
+        ts = bar_timestamp or getattr(context, "bar_timestamp", None) or datetime.now(UTC)
+
+        stored = memory.retrieve(sym, tf, ts, deterministic=False)
+        if stored is not None:
+            return stored
+
+        # Not found in memory → use deterministic fallback
+        logger.debug(
+            f"Replay: no stored MarketContext for {sym}/{tf} at {ts}, "
+            "using deterministic fallback"
+        )
+        return _deterministic_context(
+            context, ind, extra_market_data=extra_market_data
+        )

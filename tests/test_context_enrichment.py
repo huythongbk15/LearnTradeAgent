@@ -14,12 +14,15 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
+import pytest
+
 from trading_agent.agents.base import AnalysisContext
 from trading_agent.llm.context_enrichment import (
     ContextEnricher,
     MarketContext,
     SYSTEM_PROMPT,
 )
+from trading_agent.llm.research_memory import ResearchMemory
 
 
 # ── MarketContext dataclass ──────────────────────────────────────────────
@@ -227,3 +230,68 @@ def test_non_backtest_mode_uses_ask_agent():
         enricher = ContextEnricher()
         result = enricher.enrich(context)
         assert mock_ask.called
+
+
+# ── Replay mode ─────────────────────────────────────────────────────────
+
+def test_replay_returns_stored_context(tmp_path):
+    """Replay mode should return stored MarketContext from ResearchMemory."""
+    from datetime import UTC, datetime
+
+    db_path = tmp_path / "replay.sqlite3"
+    memory = ResearchMemory(db_path)
+    ts = datetime(2024, 6, 15, 14, 30, tzinfo=UTC)
+
+    stored = MarketContext(
+        regime_tags={"trend": "bearish", "volatility": "high"},
+        anomaly_flags=["funding_extreme"],
+        cross_asset_signals={"ETH/USDT": {"signal": "SELL"}},
+        confidence_adjustment=0.65,
+        reasoning="LLM detected bear market regime",
+        details={"source": "llm"},
+    )
+    memory.store("BTC/USDT", "1h", ts, stored, deterministic=False)
+
+    context = AnalysisContext(
+        symbol="BTC/USDT", timeframe="1h", current_price=50000.0
+    )
+    enricher = ContextEnricher()
+    result = enricher.replay(context, memory=memory, bar_timestamp=ts)
+
+    assert result.regime_tags["trend"] == "bearish"
+    assert "funding_extreme" in result.anomaly_flags
+    assert result.confidence_adjustment == 0.65
+    assert result.reasoning == "LLM detected bear market regime"
+
+
+def test_replay_falls_back_when_not_found(tmp_path):
+    """Replay mode should use deterministic fallback when no stored context."""
+    from datetime import UTC, datetime
+
+    db_path = tmp_path / "replay_empty.sqlite3"
+    memory = ResearchMemory(db_path)
+    ts = datetime(2024, 6, 15, 14, 30, tzinfo=UTC)
+
+    context = AnalysisContext(
+        symbol="BTC/USDT",
+        timeframe="1h",
+        current_price=50000.0,
+        indicators={"rsi": 50, "ma_20": 50000, "ma_50": 50000},
+    )
+    enricher = ContextEnricher()
+    result = enricher.replay(context, memory=memory, bar_timestamp=ts)
+
+    # Should be deterministic fallback
+    assert result.reasoning == "deterministic fallback (LLM unavailable)"
+    assert result.confidence_adjustment == 1.0
+    assert result.anomaly_flags == []
+
+
+def test_replay_requires_memory():
+    """Replay mode without ResearchMemory should raise ValueError."""
+    enricher = ContextEnricher()
+    context = AnalysisContext(
+        symbol="BTC/USDT", timeframe="1h", current_price=50000.0
+    )
+    with pytest.raises(ValueError, match="ResearchMemory"):
+        enricher.replay(context, memory=None)

@@ -6,6 +6,7 @@ calls, no randomness.
 
 from __future__ import annotations
 
+import logging
 import math
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -19,7 +20,11 @@ from trading_agent.execution.canonical.market_observation import (
     EnrichedMarketObservation,
 )
 from trading_agent.execution.canonical.risk_decision import UnifiedRiskDecision
+from trading_agent.llm.context_enrichment import MarketContext
 from trading_agent.research.forecast import TargetExposure
+
+
+logger = logging.getLogger(__name__)
 
 
 class ExposureEffect(str, Enum):
@@ -275,6 +280,7 @@ class OrderPlanner:
         price: MarketPrice,
         existing_reservations: float = 0.0,
         tolerance: float = 1e-4,
+        market_context: MarketContext | None = None,
     ) -> OrderPlanningResult:
         """Produce an OrderPlanningResult from pipeline inputs.
 
@@ -294,6 +300,10 @@ class OrderPlanner:
             Quantity already reserved but not yet filled.
         tolerance:
             Deadband for NOOP determination (default 1e-4 = 0.01%).
+        market_context:
+            Optional LLM-produced MarketContext. **Enrichment only** — scales
+            position size via confidence_adjustment, logs anomaly_flags as
+            advisory metadata. Does NOT override risk decision or signal.
 
         Returns
         -------
@@ -329,6 +339,23 @@ class OrderPlanner:
                 f"spot-long-only instrument rejected negative target exposure "
                 f"{target.exposure}"
             )
+
+        # ── LLM Context Enrichment (P0 §4) — position size scaling only ───
+        # market_context.confidence_adjustment scales the target exposure
+        # magnitude. The signal direction (sign of exposure) is never
+        # changed — LLM is enrichment-only. Anomaly flags are logged as
+        # advisory metadata, never blocking.
+        context_adjustment = 1.0
+        context_anomalies: list[str] = []
+        if market_context is not None:
+            context_adjustment = market_context.confidence_adjustment
+            context_anomalies = list(market_context.anomaly_flags)
+            if context_adjustment < 0.7:
+                # Advisory: LLM sees significant uncertainty
+                logger.debug(
+                    f"LLM context adjustment {context_adjustment} for "
+                    f"{target.symbol} — position size scaled down"
+                )
 
         # Compute raw exposure delta
         requested_delta = target.exposure - portfolio.current_exposure
@@ -384,9 +411,11 @@ class OrderPlanner:
         # Determine resulting exposure (clamped to instrument limits and risk decision)
         max_allowed_by_leverage = rules.max_leverage
         max_allowed_by_risk = risk_decision.allowed_target_exposure
+        # LLM context adjustment: scale target exposure magnitude (preserves sign)
+        adjusted_target_exposure = target.exposure * context_adjustment
         resulting_exposure = max(
             -max_allowed_by_leverage,
-            min(max_allowed_by_leverage, max_allowed_by_risk, target.exposure),
+            min(max_allowed_by_leverage, max_allowed_by_risk, adjusted_target_exposure),
         )
         executable_delta = resulting_exposure - portfolio.current_exposure
 
@@ -600,8 +629,9 @@ class OrderPlanner:
                     requested_delta=requested_delta,
                     executable_delta=0.0,
                 )
-            # Also validate against target (allow rounding by tolerance)
-            if final_resulting_exposure > target.exposure + tolerance:
+            # Also validate against target (allow rounding by tolerance).
+            # Use adjusted_target_exposure to account for LLM confidence scaling.
+            if final_resulting_exposure > adjusted_target_exposure + tolerance:
                 return OrderPlanningResult(
                     status=OrderPlanningStatus.BLOCKED,
                     intent=None,
@@ -666,6 +696,8 @@ class OrderPlanner:
                 "target_notional": target_notional,
                 "current_notional": current_notional,
                 "delta_notional": delta_notional,
+                "llm_confidence_adjustment": context_adjustment,
+                "llm_anomaly_flags": context_anomalies,
             },
         )
 
