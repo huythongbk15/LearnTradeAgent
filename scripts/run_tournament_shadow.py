@@ -140,10 +140,26 @@ def main() -> None:
     parser.add_argument("--symbol", default="BTC/USDT")
     parser.add_argument("--days", type=int, default=3)
     parser.add_argument("--timeframe", default="1h")
+    parser.add_argument(
+        "--live", action="store_true",
+        help="ENABLE LIVE promotion/demotion (disables kill switch). "
+             "Requires TOURNAMENT_SHADOW_MODE=0 or explicit --live flag.",
+    )
     args = parser.parse_args()
 
-    # Ensure shadow mode (kill switch ON)
-    assert os.getenv("TOURNAMENT_SHADOW_MODE") == "1", "Shadow mode must be ON"
+    # Kill switch logic:
+    #   TOURNAMENT_SHADOW_MODE=1 (default): shadow only, no live changes
+    #   TOURNAMENT_SHADOW_MODE=0 OR --live: live promotion/demotion enabled
+    env_mode = os.getenv("TOURNAMENT_SHADOW_MODE", "1")
+    shadow_mode = env_mode != "0" and not args.live
+
+    if not shadow_mode:
+        logger.warning("=" * 60)
+        logger.warning("⚠️  LIVE MODE ENABLED — promotion/demotion active!")
+        logger.warning("  Kill switch INACTIVE. Tournament will auto-promote")
+        logger.warning("  strategies via policy_registry.update().")
+        logger.warning("  Set TOURNAMENT_SHADOW_MODE=1 to re-enable shadow mode.")
+        logger.warning("=" * 60)
 
     signing_key = b"tournament-shadow-key"
     key_id = "shadow-release-key"
@@ -170,7 +186,7 @@ def main() -> None:
         audit_path=tmp_dir / "router_audit.jsonl",
         tournament_state_root=tmp_dir / "tournament_state",
         config=AdaptiveRouterConfig(max_policy_age_days=36500),
-        tournament_config=TournamentConfig(shadow_mode=True),
+        tournament_config=TournamentConfig(shadow_mode=shadow_mode),
         pool=pool,
         exclude=EXCLUDED,
     )
@@ -192,7 +208,8 @@ def main() -> None:
     logger.info("Strategy Tournament Shadow Mode")
     logger.info(f"Symbol: {args.symbol} | Days: {args.days} | Bars: {len(df)}")
     logger.info(f"Pool: {pool_strategies}")
-    logger.info("Kill switch: TOURNAMENT_SHADOW_MODE=1 (shadow only, no live changes)")
+    mode_str = "SHADOW (kill switch)" if shadow_mode else "LIVE (promotion active)"
+    logger.info(f"Kill switch: TOURNAMENT_SHADOW_MODE={env_mode}, --live={args.live} | Mode: {mode_str}")
     logger.info(f"{'=' * 60}\n")
 
     # Simplified regime posterior (trending_up dominant) — fully populated
@@ -317,7 +334,7 @@ def main() -> None:
         "timeframe": args.timeframe,
         "days": args.days,
         "bars_evaluated": total_bars,
-        "shadow_mode": True,
+        "shadow_mode": shadow_mode,
         "pool_strategies": pool_strategies,
         "excluded": list(EXCLUDED),
         "shadow_performance": shadow_perf,
