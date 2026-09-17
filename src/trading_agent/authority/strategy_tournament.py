@@ -308,8 +308,9 @@ class StrategyTournament(AdaptiveStrategyRouter):
 
             # Auto-promote / de-promote when not in shadow mode
             state = self._live_state.get((symbol, timeframe))
-            if state is not None and not self.tournament_config.shadow_mode:
-                self._maybe_promote(symbol, timeframe, decision, state)
+            if state is not None:
+                if not self.tournament_config.shadow_mode:
+                    self._maybe_promote(symbol, timeframe, decision, state)
                 self.tournament_state_store.save(symbol, timeframe, state)
 
         return decision

@@ -154,6 +154,8 @@ def main() -> None:
     shadow_mode = env_mode != "0" and not args.live
 
     if not shadow_mode:
+        # Override env so StrategyTournament.__init__ doesn't re-enable shadow mode
+        os.environ["TOURNAMENT_SHADOW_MODE"] = "0"
         logger.warning("=" * 60)
         logger.warning("⚠️  LIVE MODE ENABLED — promotion/demotion active!")
         logger.warning("  Kill switch INACTIVE. Tournament will auto-promote")
@@ -209,7 +211,7 @@ def main() -> None:
     logger.info(f"Symbol: {args.symbol} | Days: {args.days} | Bars: {len(df)}")
     logger.info(f"Pool: {pool_strategies}")
     mode_str = "SHADOW (kill switch)" if shadow_mode else "LIVE (promotion active)"
-    logger.info(f"Kill switch: TOURNAMENT_SHADOW_MODE={env_mode}, --live={args.live} | Mode: {mode_str}")
+    logger.info(f"Kill switch: TOURNAMENT_SHADOW_MODE={os.getenv('TOURNAMENT_SHADOW_MODE', 'unset')} | Mode: {mode_str}")
     logger.info(f"{'=' * 60}\n")
 
     # Simplified regime posterior (trending_up dominant) — fully populated
