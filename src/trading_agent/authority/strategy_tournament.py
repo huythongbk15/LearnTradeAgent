@@ -298,6 +298,10 @@ class StrategyTournament(AdaptiveStrategyRouter):
         from trading_agent.authority.selection_audit import SelectionAudit
         self.audit_store = SelectionAudit(audit_path / "tournament_audit.sqlite3")
 
+        # Portfolio risk gate — cross-asset exposure caps and circuit breaker
+        from trading_agent.authority.portfolio_risk_gate import PortfolioRiskGate
+        self.portfolio_risk_gate = PortfolioRiskGate(audit_store=self.audit_store)
+
     # ── Public API ──────────────────────────────────────────────────────
 
     def route(
@@ -346,6 +350,16 @@ class StrategyTournament(AdaptiveStrategyRouter):
                 if not self.tournament_config.shadow_mode:
                     self._maybe_promote(symbol, timeframe, decision, state)
                 self.tournament_state_store.save(symbol, timeframe, state)
+
+        # ── Portfolio risk gate: cross-asset exposure caps + circuit breaker ─
+        decision = self.portfolio_risk_gate.evaluate(
+            symbol=symbol,
+            timeframe=timeframe,
+            decision=decision,
+            posterior=posterior,
+            market_context=market_context,
+            symbol_bar_return=bar_return,
+        )
 
         # ── SelectionAudit: immutable decision trail ───────────────────
         try:
