@@ -8,8 +8,9 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Optional
 
-from trading_agent.agents.base import AgentConfig, AgentSignal
+from trading_agent.agents.base import AgentConfig, AgentSignal, AnalysisContext
 from trading_agent.agents.base import BaseAgent as Agent
+from trading_agent.agents.risk import ForecastRiskPolicy
 from trading_agent.llm.client import LLMClient
 from trading_agent.llm.pool import LLMPool
 
@@ -531,27 +532,15 @@ Output JSON:
 
 
 class RiskAgent(SpecializedAgent):
-    """Risk management agent - position sizing, limits, portfolio risk."""
+    """Risk management agent — position sizing, limits, portfolio risk.
 
-    SYSTEM_PROMPT = """You are a risk management expert. Evaluate trading signals against risk limits and portfolio constraints.
+    P0.2 migration (STR-0212): Now delegates to ForecastRiskPolicy for
+    deterministic volatility-scaled risk assessment. The LLM-based analysis
+    path has been permanently removed. Swarm input (dict-based market_data)
+    is converted to AnalysisContext before evaluation.
+    """
 
-Consider: position size limits, sector/concentration limits, correlation risk, VaR, drawdown limits, leverage, liquidity, margin requirements.
-
-Output JSON:
-{
-  "action": "approve|reduce|reject|hedge",
-  "confidence": 0.0-1.0,
-  "reasoning": "concise explanation",
-  "max_position_pct": 0.05,
-  "suggested_size_pct": 0.02,
-  "stop_loss_pct": 0.02,
-  "take_profit_pct": 0.05,
-  "risk_metrics": {"var_95": 0.02, "max_drawdown": 0.1, "correlation": 0.3},
-  "warnings": ["concentration", "correlation"],
-  "hedge_suggestion": "SPY put|VIX call|none"
-}"""
-
-    def __init__(self, spec: AgentSpec, llm_client: Optional[LLMBackend] = None):
+    def __init__(self, spec: AgentSpec, llm_client=None):
         super().__init__(spec, llm_client)
         # Risk limits
         self.max_position_pct = 0.10  # 10% max per position
@@ -561,120 +550,38 @@ Output JSON:
         self.max_drawdown = 0.15  # 15% max drawdown
 
     async def analyze(self, market_data: dict[str, Any]) -> AgentSignal:
-        """Analyze risk for proposed trades."""
+        """Analyze risk for proposed trades — deterministic (no LLM)."""
         symbol = market_data.get("symbol", "PORTFOLIO")
 
-        # Get proposed trade from other agents
         proposed_signals = market_data.get("proposed_signals", [])
         portfolio = market_data.get("portfolio", {})
 
-        context = self._build_context(proposed_signals, portfolio)
+        # Delegate to ForecastRiskPolicy for deterministic risk assessment
+        policy = ForecastRiskPolicy()
+        context = self._build_analysis_context(market_data)
 
-        if self.llm:
-            response = await self.llm.chat(
-                [
-                    {"role": "system", "content": self.SYSTEM_PROMPT},
-                    {"role": "user", "content": context},
-                ],
-                temperature=0.1,
-                max_tokens=500,
-            )
+        vol, vol_ratio, max_pos, risk_level = self._compute_risk(context, portfolio)
 
-            signal = self._parse_llm_response(response, symbol)
-        else:
-            signal = self._rule_based_analysis(proposed_signals, portfolio, symbol)
-
-        signal.metadata["agent_role"] = self.role.value
-        signal.metadata["agent_name"] = self.spec.name
-        return signal
-
-    def _build_context(self, signals: list, portfolio: dict) -> str:
-        parts = ["Proposed Trades:"]
-        for s in signals:
-            parts.append(
-                f"  {s.get('symbol')}: {s.get('action')} {s.get('size_pct', 0):.1%} (conf: {s.get('confidence', 0):.2f})"
-            )
-
-        parts.append("\nPortfolio:")
-        parts.append(f"  Total Value: ${portfolio.get('total_value', 0):,.0f}")
-        parts.append(f"  Cash: ${portfolio.get('cash', 0):,.0f}")
-        parts.append(f"  Positions: {len(portfolio.get('positions', {}))}")
-        parts.append(f"  Current Drawdown: {portfolio.get('drawdown_pct', 0):.1%}")
-        parts.append(f"  Portfolio VaR: {portfolio.get('var_95', 0):.2%}")
-
-        if "positions" in portfolio:
-            for sym, pos in portfolio["positions"].items():
-                parts.append(
-                    f"  {sym}: {pos.get('size_pct', 0):.1%} (PnL: {pos.get('unrealized_pnl_pct', 0):.1%})"
-                )
-
-        return "\n".join(parts)
-
-    def _parse_llm_response(self, response: str, symbol: str) -> AgentSignal:
-        import json
-        import re
-
-        try:
-            match = re.search(r"\{.*\}", response, re.DOTALL)
-            if match:
-                data = json.loads(match.group())
-            else:
-                raise ValueError("No JSON found")
-        except Exception:
-            data = {}
-
-        action = data.get("action", "approve")
-        confidence = float(data.get("confidence", 0.8))
-
-        # Map risk actions to trading actions
-        if action == "reject":
-            trade_action = "hold"
-        elif action == "reduce":
-            trade_action = "hold"  # Will size down
-        elif action == "hedge":
-            trade_action = "buy"  # Buy hedge
-        else:
-            trade_action = "hold"  # Pass through
-
-        return AgentSignal(
-            signal_id=str(uuid.uuid4()),
-            symbol=symbol,
-            action=trade_action,
-            confidence=confidence,
-            size_pct=data.get("suggested_size_pct", 0.02),
-            reasoning=data.get("reasoning", "Risk check"),
-            metadata={
-                "risk_action": action,
-                "max_position_pct": data.get("max_position_pct", 0.1),
-                "stop_loss_pct": data.get("stop_loss_pct", 0.02),
-                "take_profit_pct": data.get("take_profit_pct", 0.05),
-                "risk_metrics": data.get("risk_metrics", {}),
-                "warnings": data.get("warnings", []),
-                "hedge_suggestion": data.get("hedge_suggestion", "none"),
-            },
-        )
-
-    def _rule_based_analysis(
-        self, signals: list, portfolio: dict, symbol: str
-    ) -> AgentSignal:
-        """Rule-based risk check."""
-        warnings = []
-
-        # Check portfolio drawdown
-        dd = portfolio.get("drawdown_pct", 0)
-        if dd > self.max_drawdown * 0.8:
+        warnings: list[str] = []
+        if portfolio.get("drawdown_pct", 0) > self.max_drawdown * 0.8:
             warnings.append("drawdown_approaching_limit")
+        if vol > 3.0:
+            warnings.append("high_volatility")
+        if vol_ratio < 0.5:
+            warnings.append("low_volume")
 
-        # Check concentration
-        total_size = sum(s.get("size_pct", 0) for s in signals)
+        total_size = sum(s.get("size_pct", 0) for s in proposed_signals)
         if total_size > 0.2:
             warnings.append("high_concentration")
-
-        # Check correlation (simplified)
         if portfolio.get("avg_correlation", 0) > self.max_correlation:
             warnings.append("high_correlation")
 
-        if warnings:
+        # Apply risk level to position sizing
+        if risk_level in ("HIGH", "EXTREME"):
+            action = "reduce"
+            confidence = 0.9
+            size_mult = 0.0
+        elif risk_level == "MEDIUM":
             action = "reduce"
             confidence = 0.7
             size_mult = 0.5
@@ -683,18 +590,96 @@ Output JSON:
             confidence = 0.85
             size_mult = 1.0
 
+        suggested_size = min(max_pos, self.max_position_pct) * size_mult
+
         return AgentSignal(
             signal_id=str(uuid.uuid4()),
             symbol=symbol,
-            action="hold",  # Risk agent doesn't trade, it approves/modifies
+            action="hold",  # Risk agent approves/modifies, doesn't trade
             confidence=confidence,
-            size_pct=0.02 * size_mult,
-            reasoning=f"Risk check: {', '.join(warnings) or 'OK'}",
+            size_pct=suggested_size,
+            reasoning=f"Risk: {risk_level}, vol={vol:.2f}%, "
+            f"max_size={max_pos:.1%}",
             metadata={
                 "risk_action": action,
                 "warnings": warnings,
                 "max_position_pct": self.max_position_pct,
                 "stop_loss_pct": 0.02,
                 "take_profit_pct": 0.05,
+                "volatility": vol,
+                "vol_ratio": vol_ratio,
             },
         )
+
+    def _build_analysis_context(self, market_data: dict[str, Any]) -> AnalysisContext:
+        """Convert swarm market_data dict to AnalysisContext for ForecastRiskPolicy."""
+        closes = market_data.get("closes", [])
+        ohlcv = None
+        if closes and len(closes) >= 2:
+            import polars as pl
+
+            ohlcv = pl.DataFrame(
+                {
+                    "close": closes,
+                    "high": closes,
+                    "low": closes,
+                    "volume": market_data.get("volumes", [100.0] * len(closes)),
+                }
+            )
+
+        extra = {}
+        if "volatility" in market_data:
+            extra["volatility_20"] = market_data["volatility"]
+        if "volume_ratio" in market_data:
+            extra["volume_ratio_5_20"] = market_data["volume_ratio"]
+
+        return AnalysisContext(
+            symbol=market_data.get("symbol", "UNKNOWN"),
+            timeframe=market_data.get("timeframe", "1h"),
+            current_price=float(market_data.get("current_price", 0.0)),
+            current_position_pct=float(market_data.get("current_position_pct", 0.0)),
+            portfolio_value=float(market_data.get("portfolio", {}).get("total_value", 0.0)),
+            ohlcv=ohlcv,
+            indicators={"_extra": extra},
+        )
+
+    def _compute_risk(
+        self, context: AnalysisContext, portfolio: dict
+    ) -> tuple[float, float, float, str]:
+        """Compute risk level using ForecastRiskPolicy volatility model."""
+        ind = context.indicators
+        extra = ind.get("_extra", {}) if isinstance(ind, dict) else {}
+        vol = ForecastRiskPolicy()._compute_volatility(context)
+        vol_ratio = extra.get("volume_ratio_5_20", 1.0)
+
+        if vol > ForecastRiskPolicy.VOL_HIGH_THRESHOLD:
+            risk_level = "HIGH"
+            max_pos = 0.0
+        elif vol > ForecastRiskPolicy.VOL_MED_THRESHOLD:
+            risk_level = "MEDIUM"
+            stop_pct = max(
+                ForecastRiskPolicy.STOP_PCT_MIN,
+                min(ForecastRiskPolicy.STOP_PCT_MAX, vol / 100.0),
+            )
+            risk_based = ForecastRiskPolicy.RISK_PER_TRADE / stop_pct
+            vol_cap = ForecastRiskPolicy.VOL_CAP_BASE * min(
+                1.0, ForecastRiskPolicy.VOL_MED_THRESHOLD / vol
+            )
+            max_pos = max(0.05, min(risk_based, vol_cap))
+        else:
+            risk_level = "LOW"
+            stop_pct = max(
+                ForecastRiskPolicy.STOP_PCT_MIN,
+                min(ForecastRiskPolicy.STOP_PCT_MAX, vol / 100.0),
+            )
+            risk_based = ForecastRiskPolicy.RISK_PER_TRADE / stop_pct
+            vol_cap = ForecastRiskPolicy.VOL_CAP_BASE * min(
+                1.0, ForecastRiskPolicy.VOL_MED_THRESHOLD / vol
+            )
+            max_pos = max(0.05, min(risk_based, vol_cap))
+
+        if vol_ratio < 0.5 and risk_level != "HIGH":
+            risk_level = "MEDIUM"
+            max_pos = max_pos * 0.5
+
+        return vol, vol_ratio, max_pos, risk_level

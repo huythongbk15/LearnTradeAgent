@@ -277,6 +277,9 @@ def execution_run(
         authority_config=authority_config,
         exchange=None,
         hot_reload=False,
+        capital=capital,
+        stop_loss=stop_loss,
+        confirm=confirm,
     )
 
 
@@ -390,6 +393,8 @@ def execution_run_multi(
         authority_config=authority_config,
         exchange=None,
         hot_reload=False,
+        capital=capital,
+        stop_loss=stop_loss,
     )
 
 
@@ -414,6 +419,15 @@ def execution_run_multi(
     default=True,
     help="Watch the promotion store so newly promoted artifacts are picked up mid-run",
 )
+@click.option(
+    "--capital", "-c", default=None, type=float,
+    help="Portfolio value override (default: from config)",
+)
+@click.option(
+    "--stop-loss", "-s", default=None, type=float,
+    help="Stop-loss as fraction of price (e.g. 0.05 = 5%). Applied per-pair after execution.",
+)
+@click.option("--confirm/--auto", default=False, help="Prompt before executing each position")
 def execution_run_promoted(
     symbols: tuple[str],
     timeframe: str | None,
@@ -421,6 +435,9 @@ def execution_run_promoted(
     authority_config: str | None,
     exchange: str | None,
     hot_reload: bool,
+    capital: float | None,
+    stop_loss: float | None,
+    confirm: bool,
 ):
     """Run ONE multi-pair cycle over PROMOTED artifacts via the authority chain.
 
