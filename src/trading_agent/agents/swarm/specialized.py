@@ -8,7 +8,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Optional
 
-from trading_agent.agents.base import AgentConfig, AgentSignal, AnalysisContext
+from trading_agent.agents.base import AgentConfig, AgentMessage, AnalysisContext
 from trading_agent.agents.base import BaseAgent as Agent
 from trading_agent.agents.risk import ForecastRiskPolicy
 from trading_agent.llm.client import LLMClient
@@ -18,6 +18,35 @@ from trading_agent.llm.pool import LLMPool
 LLMBackend = LLMClient | LLMPool
 
 logger = logging.getLogger(__name__)
+
+
+def make_signal(
+    signal_id: str,
+    symbol: str,
+    action: str,
+    confidence: float,
+    size_pct: float,
+    reasoning: str,
+    metadata: dict[str, Any] | None = None,
+) -> AgentMessage:
+    """Create an ``AgentMessage`` from legacy ``AgentSignal`` kwargs.
+
+    Since P1 protocol unification, ``AgentSignal == AgentMessage``.  This
+    factory accepts the old-style kwargs (``action``, ``size_pct``,
+    ``signal_id``, ``metadata``) and maps them to the unified
+    ``AgentMessage`` fields so migration of call sites is mechanical.
+    """
+    meta = dict(metadata or {})
+    meta["signal_id"] = signal_id
+    return AgentMessage(
+        role="agent",
+        symbol=symbol,
+        signal=str(action).upper(),
+        confidence=confidence,
+        reasoning=reasoning,
+        details=meta,
+        max_position_size_pct=size_pct,
+    )
 
 
 class AgentRole(str, Enum):
@@ -56,15 +85,15 @@ class SpecializedAgent(Agent):
         self.spec = spec
         self.llm = llm_client
         self.role = spec.role
-        self.last_signal: Optional[AgentSignal] = None
+        self.last_signal: Optional[AgentMessage] = None
         self.performance_history: list[dict] = []
 
     @abstractmethod
-    async def analyze(self, market_data: dict[str, Any]) -> AgentSignal:
+    async def analyze(self, market_data: dict[str, Any]) -> AgentMessage:
         """Analyze market data and produce signal."""
         pass
 
-    async def process(self, market_data: dict[str, Any]) -> AgentSignal:
+    async def process(self, market_data: dict[str, Any]) -> AgentMessage:
         """Process market data (interface for coordinator)."""
         signal = await self.analyze(market_data)
         self.last_signal = signal
@@ -73,7 +102,7 @@ class SpecializedAgent(Agent):
         self.performance_history.append(
             {
                 "timestamp": datetime.utcnow(),
-                "signal": signal.action,
+                "signal": signal.signal.lower(),
                 "confidence": signal.confidence,
                 "reasoning": signal.reasoning,
             }
@@ -116,7 +145,7 @@ Output JSON:
   "risk_reward": 2.5
 }"""
 
-    async def analyze(self, market_data: dict[str, Any]) -> AgentSignal:
+    async def analyze(self, market_data: dict[str, Any]) -> AgentMessage:
         symbol = market_data.get(
             "symbol", self.spec.symbols[0] if self.spec.symbols else "UNKNOWN"
         )
@@ -175,7 +204,7 @@ Output JSON:
 
         return "\n".join(parts)
 
-    def _parse_llm_response(self, response: str, symbol: str) -> AgentSignal:
+    def _parse_llm_response(self, response: str, symbol: str) -> AgentMessage:
         import json
         import re
 
@@ -192,7 +221,7 @@ Output JSON:
         action = data.get("action", "hold")
         confidence = float(data.get("confidence", 0.5))
 
-        return AgentSignal(
+        return make_signal(
             signal_id=str(uuid.uuid4()),
             symbol=symbol,
             action=action,
@@ -207,7 +236,7 @@ Output JSON:
             },
         )
 
-    def _rule_based_analysis(self, data: dict, symbol: str) -> AgentSignal:
+    def _rule_based_analysis(self, data: dict, symbol: str) -> AgentMessage:
         """Fallback rule-based analysis."""
         ind = data.get("indicators", {})
         rsi = ind.get("rsi", 50)
@@ -245,7 +274,7 @@ Output JSON:
             action = "hold"
             confidence = 0.5
 
-        return AgentSignal(
+        return make_signal(
             signal_id=str(uuid.uuid4()),
             symbol=symbol,
             action=action,
@@ -276,7 +305,7 @@ Output JSON:
   "risk_factors": ["competition", "regulation"]
 }"""
 
-    async def analyze(self, market_data: dict[str, Any]) -> AgentSignal:
+    async def analyze(self, market_data: dict[str, Any]) -> AgentMessage:
         symbol = market_data.get(
             "symbol", self.spec.symbols[0] if self.spec.symbols else "UNKNOWN"
         )
@@ -331,7 +360,7 @@ Output JSON:
 
         return "\n".join(parts)
 
-    def _parse_llm_response(self, response: str, symbol: str) -> AgentSignal:
+    def _parse_llm_response(self, response: str, symbol: str) -> AgentMessage:
         import json
         import re
 
@@ -347,7 +376,7 @@ Output JSON:
         action = data.get("action", "hold")
         confidence = float(data.get("confidence", 0.5))
 
-        return AgentSignal(
+        return make_signal(
             signal_id=str(uuid.uuid4()),
             symbol=symbol,
             action=action,
@@ -364,7 +393,7 @@ Output JSON:
             },
         )
 
-    def _rule_based_analysis(self, data: dict, symbol: str) -> AgentSignal:
+    def _rule_based_analysis(self, data: dict, symbol: str) -> AgentMessage:
         f = data.get("fundamentals", {})
         pe = f.get("pe", 20)
         growth = f.get("earnings_growth", 0.1)
@@ -383,7 +412,7 @@ Output JSON:
             action = "hold"
             confidence = 0.5
 
-        return AgentSignal(
+        return make_signal(
             signal_id=str(uuid.uuid4()),
             symbol=symbol,
             action=action,
@@ -416,7 +445,7 @@ Output JSON:
   "risk_reward": 2.0
 }"""
 
-    async def analyze(self, market_data: dict[str, Any]) -> AgentSignal:
+    async def analyze(self, market_data: dict[str, Any]) -> AgentMessage:
         symbol = market_data.get(
             "symbol", self.spec.symbols[0] if self.spec.symbols else "UNKNOWN"
         )
@@ -471,7 +500,7 @@ Output JSON:
 
         return "\n".join(parts)
 
-    def _parse_llm_response(self, response: str, symbol: str) -> AgentSignal:
+    def _parse_llm_response(self, response: str, symbol: str) -> AgentMessage:
         import json
         import re
 
@@ -487,7 +516,7 @@ Output JSON:
         action = data.get("action", "hold")
         confidence = float(data.get("confidence", 0.5))
 
-        return AgentSignal(
+        return make_signal(
             signal_id=str(uuid.uuid4()),
             symbol=symbol,
             action=action,
@@ -506,7 +535,7 @@ Output JSON:
             },
         )
 
-    def _rule_based_analysis(self, data: dict, symbol: str) -> AgentSignal:
+    def _rule_based_analysis(self, data: dict, symbol: str) -> AgentMessage:
         s = data.get("sentiment", {})
         overall = s.get("overall", 0)
 
@@ -520,7 +549,7 @@ Output JSON:
             action = "hold"
             confidence = 0.5
 
-        return AgentSignal(
+        return make_signal(
             signal_id=str(uuid.uuid4()),
             symbol=symbol,
             action=action,
@@ -549,7 +578,7 @@ class RiskAgent(SpecializedAgent):
         self.max_portfolio_var = 0.05  # 5% daily VaR
         self.max_drawdown = 0.15  # 15% max drawdown
 
-    async def analyze(self, market_data: dict[str, Any]) -> AgentSignal:
+    async def analyze(self, market_data: dict[str, Any]) -> AgentMessage:
         """Analyze risk for proposed trades — deterministic (no LLM)."""
         symbol = market_data.get("symbol", "PORTFOLIO")
 
@@ -592,7 +621,7 @@ class RiskAgent(SpecializedAgent):
 
         suggested_size = min(max_pos, self.max_position_pct) * size_mult
 
-        return AgentSignal(
+        return make_signal(
             signal_id=str(uuid.uuid4()),
             symbol=symbol,
             action="hold",  # Risk agent approves/modifies, doesn't trade

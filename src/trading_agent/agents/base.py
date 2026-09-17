@@ -14,9 +14,8 @@ from __future__ import annotations
 import inspect
 import math
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
-from uuid import uuid4
 
 
 @dataclass
@@ -27,6 +26,7 @@ class AgentMessage:
     signal: str  # "BUY" | "SELL" | "HOLD"
     confidence: float  # 0.0 to 1.0
     reasoning: str  # 1-2 sentence explanation
+    symbol: str = ""  # trading pair, e.g. "BTC/USDT"
     details: dict[str, Any] = field(default_factory=dict)
 
     # Risk-specific (only for risk_manager)
@@ -101,6 +101,7 @@ class AgentMessage:
     def to_dict(self) -> dict[str, Any]:
         return {
             "role": self.role,
+            "symbol": self.symbol,
             "signal": self.signal,
             "confidence": self.confidence,
             "reasoning": self.reasoning,
@@ -117,6 +118,7 @@ class AgentMessage:
     def from_dict(cls, d: dict) -> AgentMessage:
         return cls(
             role=d.get("role", "unknown"),
+            symbol=d.get("symbol", ""),
             signal=d.get("signal", "HOLD"),
             confidence=d.get("confidence", 0.5),
             reasoning=d.get("reasoning", ""),
@@ -187,7 +189,7 @@ class AgentSpec:
 
 
 class AgentRole:
-    """Agent roles in the swarm."""
+    """Roles agents can play."""
 
     TECHNICAL = "technical"
     FUNDAMENTAL = "fundamental"
@@ -197,50 +199,27 @@ class AgentRole:
     COORDINATOR = "coordinator"
 
 
-@dataclass
-class AgentSignal:
-    """Trading signal from an agent."""
-
-    signal_id: str
-    symbol: str
-    action: str  # buy, sell, hold, close_long, close_short
-    confidence: float
-    size_pct: float
-    reasoning: str
-    metadata: dict[str, Any] = field(default_factory=dict)
-
-
-# ─── AgentMessage <-> AgentSignal interop ─────────────────────────────────
-# The core agents emit AgentMessage; the Phase 6 swarm consumes AgentSignal.
-# These converters bridge the two ecosystems losslessly so a swarm can run
-# core agents (or vice versa) without rewriting either side.
+# ── Phase 6: AgentSignal is now unified with AgentMessage ─────────────────
+# All agents — core and swarm alike — return AgentMessage.  The legacy
+# AgentSignal class is preserved as an alias so downstream code keeps working
+# during the migration.  New code should import AgentMessage only.
+AgentSignal = AgentMessage
 
 
 def message_to_signal(
     msg: AgentMessage,
     *,
-    symbol: str,
+    symbol: str | None = None,
     signal_id: str | None = None,
 ) -> AgentSignal:
-    """Convert a core ``AgentMessage`` into a swarm ``AgentSignal``."""
-    action = str(msg.signal).lower()
-    return AgentSignal(
-        signal_id=signal_id or f"msg-{uuid4().hex[:8]}",
-        symbol=symbol,
-        action=action,
-        confidence=msg.confidence,
-        size_pct=msg.max_position_size_pct or 0.0,
-        reasoning=msg.reasoning or "",
-        metadata={
-            "role": msg.role,
-            "risk_level": msg.risk_level,
-            "target_exposure_pct": msg.target_exposure_pct,
-            "max_new_exposure_pct": msg.max_new_exposure_pct,
-            "reduce_only": msg.reduce_only,
-            "warnings": list(msg.warnings),
-            "details": dict(msg.details or {}),
-        },
-    )
+    """Convert a core ``AgentMessage`` into a swarm-compatible ``AgentSignal``.
+
+    Since P1 (protocol unification), AgentSignal == AgentMessage, so this
+    is a passthrough that ensures the ``symbol`` field is populated.
+    """
+    if symbol is not None and msg.symbol != symbol:
+        msg = replace(msg, symbol=symbol)
+    return msg
 
 
 def signal_to_message(
@@ -248,21 +227,14 @@ def signal_to_message(
     *,
     role: str = "agent",
 ) -> AgentMessage:
-    """Convert a swarm ``AgentSignal`` into a core ``AgentMessage``."""
-    meta = dict(sig.metadata or {})
-    return AgentMessage(
-        role=role,
-        signal=str(sig.action).upper(),
-        confidence=sig.confidence,
-        reasoning=sig.reasoning or "",
-        details=meta.pop("details", {}),
-        max_position_size_pct=sig.size_pct,
-        target_exposure_pct=meta.pop("target_exposure_pct", None),
-        max_new_exposure_pct=meta.pop("max_new_exposure_pct", None),
-        reduce_only=meta.pop("reduce_only", None),
-        risk_level=meta.pop("risk_level", None),
-        warnings=meta.pop("warnings", []),
-    )
+    """Convert a swarm ``AgentSignal`` into a core ``AgentMessage``.
+
+    Since P1 (protocol unification), AgentSignal == AgentMessage, so this
+    is a passthrough that ensures `role` is populated if missing.
+    """
+    if sig.role == "agent":
+        return replace(sig, role=role)
+    return sig
 
 
 @dataclass

@@ -8,7 +8,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Optional
 
-from trading_agent.agents.base import AgentSignal, AgentSpec
+from trading_agent.agents.base import AgentMessage, AgentSpec
 from trading_agent.agents.base import BaseAgent as Agent
 
 logger = logging.getLogger(__name__)
@@ -44,7 +44,7 @@ class SwarmSignal:
     final_action: str
     final_confidence: float
     final_size_pct: float
-    agent_signals: list[AgentSignal]
+    agent_signals: list[AgentMessage]
     risk_approved: bool = True
     execution_plan: Optional[dict] = None
     consensus_score: float = 0.0
@@ -105,7 +105,7 @@ class CoordinatorAgent(Agent):
         signals = []
         for name, signal in results:
             if signal:
-                signal.metadata["agent_name"] = name
+                signal.details["agent_name"] = name
                 signals.append(signal)
 
         # Aggregate
@@ -119,7 +119,7 @@ class CoordinatorAgent(Agent):
         return swarm_signal
 
     def _aggregate(
-        self, symbol: str, signals: list[AgentSignal], market_data: dict
+        self, symbol: str, signals: list[AgentMessage], market_data: dict
     ) -> SwarmSignal:
         """Aggregate agent signals."""
         if not signals:
@@ -133,10 +133,10 @@ class CoordinatorAgent(Agent):
             )
 
         # Separate risk signals
-        risk_signals = [s for s in signals if s.metadata.get("agent_role") == "risk"]
-        trading_signals = [s for s in signals if s.metadata.get("agent_role") != "risk"]
+        risk_signals = [s for s in signals if s.details.get("agent_role") == "risk"]
+        trading_signals = [s for s in signals if s.details.get("agent_role") != "risk"]
         execution_signals = [
-            s for s in signals if s.metadata.get("agent_role") == "execution"
+            s for s in signals if s.details.get("agent_role") == "execution"
         ]
 
         # Risk check
@@ -144,11 +144,11 @@ class CoordinatorAgent(Agent):
         risk_warnings = []
         if risk_signals and self.config.risk_override:
             risk = risk_signals[0]
-            risk_action = risk.metadata.get("risk_action", "approve")
+            risk_action = risk.details.get("risk_action", "approve")
             if risk_action == "reject":
                 risk_approved = False
             elif risk_action == "reduce":
-                risk_warnings = risk.metadata.get("warnings", [])
+                risk_warnings = risk.details.get("warnings", [])
 
         # Aggregate trading signals
         if self.config.mode == SwarmMode.CONSENSUS:
@@ -169,11 +169,11 @@ class CoordinatorAgent(Agent):
         if execution_signals and self.config.execution_integration:
             exec_signal = execution_signals[0]
             execution_plan = {
-                "action": exec_signal.metadata.get("execution_action"),
-                "order_type": exec_signal.metadata.get("order_type"),
-                "limit_price_offset": exec_signal.metadata.get("limit_price_offset"),
-                "duration_minutes": exec_signal.metadata.get("duration_minutes"),
-                "venue": exec_signal.metadata.get("venue"),
+                "action": exec_signal.details.get("execution_action"),
+                "order_type": exec_signal.details.get("order_type"),
+                "limit_price_offset": exec_signal.details.get("limit_price_offset"),
+                "duration_minutes": exec_signal.details.get("duration_minutes"),
+                "venue": exec_signal.details.get("venue"),
             }
 
         return SwarmSignal(
@@ -195,7 +195,7 @@ class CoordinatorAgent(Agent):
         )
 
     def _consensus_aggregate(
-        self, signals: list[AgentSignal], risk_approved: bool, risk_warnings: list
+        self, signals: list[AgentMessage], risk_approved: bool, risk_warnings: list
     ) -> dict:
         """Consensus-based aggregation."""
         if not signals:
@@ -218,8 +218,8 @@ class CoordinatorAgent(Agent):
         total_weight: float = 0.0
 
         for s in signals:
-            weight = s.confidence * s.metadata.get("weight", 1.0)
-            action = s.action
+            weight = s.confidence * s.details.get("weight", 1.0)
+            action = s.signal.lower()
             if action in votes:
                 votes[action] += weight
             total_weight += weight
@@ -250,7 +250,7 @@ class CoordinatorAgent(Agent):
 
         # Calculate size (weighted average)
         size_pct = (
-            sum(s.size_pct * s.confidence for s in signals)
+            sum(s.max_position_size_pct * s.confidence for s in signals)
             / sum(s.confidence for s in signals)
             if signals
             else 0
@@ -266,9 +266,9 @@ class CoordinatorAgent(Agent):
 
         # Find dissenters
         dissenters = [
-            s.metadata.get("agent_name", "unknown")
+            s.details.get("agent_name", "unknown")
             for s in signals
-            if s.action != action and s.confidence > 0.5
+            if s.signal.lower() != action and s.confidence > 0.5
         ]
 
         return {
@@ -280,7 +280,7 @@ class CoordinatorAgent(Agent):
         }
 
     def _hierarchical_aggregate(
-        self, signals: list[AgentSignal], risk_approved: bool, risk_warnings: list
+        self, signals: list[AgentMessage], risk_approved: bool, risk_warnings: list
     ) -> dict:
         """Hierarchical aggregation (coordinator decides)."""
         if not signals:
@@ -299,7 +299,7 @@ class CoordinatorAgent(Agent):
         sorted_signals = sorted(
             signals,
             key=lambda s: (
-                priority.get(s.metadata.get("agent_role", ""), 0),
+                priority.get(s.details.get("agent_role", ""), 0),
                 s.confidence,
             ),
             reverse=True,
@@ -307,12 +307,12 @@ class CoordinatorAgent(Agent):
 
         # Primary signal from highest priority
         primary = sorted_signals[0]
-        action = primary.action
+        action = primary.signal.lower()
         confidence = primary.confidence
-        size_pct = primary.size_pct
+        size_pct = primary.max_position_size_pct
 
         # Check agreement
-        agreements = sum(1 for s in signals if s.action == action)
+        agreements = sum(1 for s in signals if s.signal.lower() == action)
         consensus = agreements / len(signals)
 
         # If strong disagreement, reduce confidence
@@ -327,7 +327,7 @@ class CoordinatorAgent(Agent):
             size_pct *= 0.5
 
         dissenters = [
-            s.metadata.get("agent_name") for s in signals if s.action != action
+            s.details.get("agent_name") for s in signals if s.signal.lower() != action
         ]
 
         return {
@@ -339,12 +339,12 @@ class CoordinatorAgent(Agent):
         }
 
     def _pipeline_aggregate(
-        self, signals: list[AgentSignal], risk_approved: bool, risk_warnings: list
+        self, signals: list[AgentMessage], risk_approved: bool, risk_warnings: list
     ) -> dict:
         """Pipeline aggregation (sequential filtering)."""
         # Stage 1: Technical analysis
         tech_signals = [
-            s for s in signals if s.metadata.get("agent_role") == "technical"
+            s for s in signals if s.details.get("agent_role") == "technical"
         ]
         if not tech_signals:
             return {
@@ -355,23 +355,23 @@ class CoordinatorAgent(Agent):
                 "dissenters": [],
             }
 
-        tech_action = tech_signals[0].action
+        tech_action = tech_signals[0].signal.lower()
         tech_conf = tech_signals[0].confidence
 
         # Stage 2: Fundamental confirmation
         fund_signals = [
-            s for s in signals if s.metadata.get("agent_role") == "fundamental"
+            s for s in signals if s.details.get("agent_role") == "fundamental"
         ]
         fund_confirm = (
-            any(s.action == tech_action for s in fund_signals) if fund_signals else True
+            any(s.signal.lower() == tech_action for s in fund_signals) if fund_signals else True
         )
 
         # Stage 3: Sentiment alignment
         sent_signals = [
-            s for s in signals if s.metadata.get("agent_role") == "sentiment"
+            s for s in signals if s.details.get("agent_role") == "sentiment"
         ]
         sent_align = (
-            any(s.action == tech_action for s in sent_signals) if sent_signals else True
+            any(s.signal.lower() == tech_action for s in sent_signals) if sent_signals else True
         )
 
         if not fund_confirm or not sent_align:
@@ -382,7 +382,7 @@ class CoordinatorAgent(Agent):
         else:
             action = tech_action
             confidence = tech_conf
-            size_pct = tech_signals[0].size_pct
+            size_pct = tech_signals[0].max_position_size_pct
 
             # Boost confidence if all agree
             if fund_confirm and sent_align:
@@ -408,7 +408,7 @@ class ConsensusSwarm(CoordinatorAgent):
     """Swarm that requires consensus among agents."""
 
     def _aggregate(
-        self, symbol: str, signals: list[AgentSignal], market_data: dict
+        self, symbol: str, signals: list[AgentMessage], market_data: dict
     ) -> SwarmSignal:
         """Override to enforce strict consensus."""
         self.config.mode = SwarmMode.CONSENSUS
@@ -420,7 +420,7 @@ class CompetitiveSwarm(CoordinatorAgent):
     """Swarm where best signal wins (competitive)."""
 
     def _aggregate(
-        self, symbol: str, signals: list[AgentSignal], market_data: dict
+        self, symbol: str, signals: list[AgentMessage], market_data: dict
     ) -> SwarmSignal:
         """Override for competitive mode."""
         if not signals:
@@ -437,20 +437,20 @@ class CompetitiveSwarm(CoordinatorAgent):
         best_signal = max(
             signals,
             key=lambda s: (
-                s.confidence * self._get_agent_performance(s.metadata.get("agent_name"))
+                s.confidence * self._get_agent_performance(s.details.get("agent_name"))
             ),
         )
 
         # Risk check
-        risk_signals = [s for s in signals if s.metadata.get("agent_role") == "risk"]
+        risk_signals = [s for s in signals if s.details.get("agent_role") == "risk"]
         risk_approved = True
         if risk_signals and self.config.risk_override:
-            risk_action = risk_signals[0].metadata.get("risk_action", "approve")
+            risk_action = risk_signals[0].details.get("risk_action", "approve")
             if risk_action == "reject":
                 risk_approved = False
 
-        action = best_signal.action if risk_approved else "hold"
-        size_pct = best_signal.size_pct if risk_approved else 0
+        action = best_signal.signal.lower() if risk_approved else "hold"
+        size_pct = best_signal.max_position_size_pct if risk_approved else 0
 
         return SwarmSignal(
             swarm_id=f"swarm_{uuid.uuid4().hex}",
@@ -462,11 +462,11 @@ class CompetitiveSwarm(CoordinatorAgent):
             risk_approved=risk_approved,
             consensus_score=best_signal.confidence,
             dissenting_agents=[
-                s.metadata.get("agent_name") for s in signals if s != best_signal
+                s.details.get("agent_name") for s in signals if s != best_signal
             ],
             metadata={
                 "mode": "competitive",
-                "winner": best_signal.metadata.get("agent_name"),
+                "winner": best_signal.details.get("agent_name"),
             },
         )
 
@@ -477,11 +477,11 @@ class CompetitiveSwarm(CoordinatorAgent):
 
 
 # Signal aggregation utilities
-def majority_vote(signals: list[AgentSignal]) -> tuple[str, float]:
+def majority_vote(signals: list[AgentMessage]) -> tuple[str, float]:
     """Simple majority vote."""
     votes: dict[str, float] = {}
     for s in signals:
-        votes[s.action] = votes.get(s.action, 0) + s.confidence
+        votes[s.signal.lower()] = votes.get(s.signal.lower(), 0) + s.confidence
 
     if not votes:
         return "hold", 0.0
@@ -491,16 +491,16 @@ def majority_vote(signals: list[AgentSignal]) -> tuple[str, float]:
     return winner, votes[winner] / total
 
 
-def weighted_average(signals: list[AgentSignal], weights: dict[str, float]) -> dict:
+def weighted_average(signals: list[AgentMessage], weights: dict[str, float]) -> dict:
     """Weighted average of signals."""
     action_weights: dict[str, float] = {}
     size_weights: dict[str, float] = {}
     total_weight: float = 0.0
 
     for s in signals:
-        w = weights.get(s.metadata.get("agent_role", ""), 1.0) * s.confidence
-        action_weights[s.action] = action_weights.get(s.action, 0) + w
-        size_weights[s.action] = size_weights.get(s.action, 0) + s.size_pct * w
+        w = weights.get(s.details.get("agent_role", ""), 1.0) * s.confidence
+        action_weights[s.signal.lower()] = action_weights.get(s.signal.lower(), 0) + w
+        size_weights[s.signal.lower()] = size_weights.get(s.signal.lower(), 0) + s.max_position_size_pct * w
         total_weight += w
 
     if total_weight == 0:

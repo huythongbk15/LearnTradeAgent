@@ -1,5 +1,10 @@
 """Tests for AgentMessage <-> AgentSignal interop (audit Phase 5: unify
-agent ecosystems)."""
+agent ecosystems).
+
+Since P1 protocol unification, AgentSignal == AgentMessage.  All agents
+core and swarm alike return AgentMessage.  The interop functions are
+now passthroughs that ensure field consistency.
+"""
 
 from __future__ import annotations
 
@@ -11,69 +16,66 @@ from trading_agent.agents.base import (
 )
 
 
-def test_message_to_signal_roundtrip():
+def test_signal_is_message():
+    """AgentSignal is now an alias for AgentMessage."""
+    assert AgentSignal is AgentMessage
+
+
+def test_message_to_signal_passthrough():
     msg = AgentMessage(
         role="technical_analyst",
+        symbol="BTC/USDT",
         signal="BUY",
         confidence=0.8,
         reasoning="trend up",
-        details={"rsi": 60},
+        details={"rsi": 60, "role": "technical_analyst", "risk_level": "LOW"},
         max_position_size_pct=0.25,
         risk_level="LOW",
         warnings=["careful"],
     )
     sig = message_to_signal(msg, symbol="BTC/USDT")
-    assert isinstance(sig, AgentSignal)
+    assert isinstance(sig, AgentMessage)
     assert sig.symbol == "BTC/USDT"
-    assert sig.action == "buy"
+    assert sig.signal == "BUY"
     assert sig.confidence == 0.8
-    assert sig.size_pct == 0.25
+    assert sig.max_position_size_pct == 0.25
     assert sig.reasoning == "trend up"
-    assert sig.metadata["role"] == "technical_analyst"
-    assert sig.metadata["risk_level"] == "LOW"
-    assert sig.metadata["warnings"] == ["careful"]
-    assert sig.metadata["details"] == {"rsi": 60}
-
-    # Back to a message: signal, confidence, size survive.
-    back = signal_to_message(sig, role="technical_analyst")
-    assert back.signal == "BUY"
-    assert back.confidence == 0.8
-    assert back.max_position_size_pct == 0.25
-    assert back.role == "technical_analyst"
+    assert sig.details["rsi"] == 60
+    assert sig.risk_level == "LOW"
+    assert sig.warnings == ["careful"]
 
 
-def test_signal_to_message_roundtrip():
-    sig = AgentSignal(
-        signal_id="sig-1",
+def test_signal_to_message_passthrough():
+    """signal_to_message is a passthrough that ensures role is populated."""
+    msg = AgentMessage(
+        role="agent",
         symbol="ETH/USDT",
-        action="hold",
+        signal="HOLD",
         confidence=0.55,
-        size_pct=0.0,
         reasoning="chờ breakout",
-        metadata={"role": "sentiment"},
+        details={"role": "sentiment"},
     )
-    msg = signal_to_message(sig, role="sentiment_analyst")
-    assert msg.role == "sentiment_analyst"
-    assert msg.signal == "HOLD"
-    assert msg.confidence == 0.55
-    assert msg.reasoning == "chờ breakout"
-    assert msg.role == "sentiment_analyst"
-
-    # Full circle preserves the action.
-    sig2 = message_to_signal(msg, symbol="ETH/USDT", signal_id="sig-2")
-    assert sig2.action == "hold"
-    assert sig2.signal_id == "sig-2"
+    result = signal_to_message(msg, role="sentiment_analyst")
+    assert result.role == "sentiment_analyst"
+    assert result.signal == "HOLD"
+    assert result.confidence == 0.55
+    assert result.reasoning == "chờ breakout"
+    assert result.symbol == "ETH/USDT"
 
 
-def test_message_to_signal_generates_id_when_omitted():
-    msg = AgentMessage(role="trader", signal="SELL", confidence=0.9, reasoning="")
+def test_message_to_signal_ensures_symbol():
+    """If the message lacks a symbol, message_to_signal sets it."""
+    msg = AgentMessage(
+        role="trader", signal="SELL", confidence=0.9, reasoning="", symbol="",
+    )
     sig = message_to_signal(msg, symbol="BTC/USDT")
-    assert sig.signal_id.startswith("msg-")
-    assert len(sig.signal_id) == 12
+    assert sig.symbol == "BTC/USDT"
 
 
-def test_default_message_fields_survive():
-    msg = AgentMessage(role="risk", signal="HOLD", confidence=0.5, reasoning="")
-    sig = message_to_signal(msg, symbol="BTC/USDT")
-    assert sig.size_pct == 0.0
-    assert sig.metadata["warnings"] == []
+def test_default_message_fields_preserved():
+    msg = AgentMessage(
+        role="risk", signal="HOLD", confidence=0.5, reasoning="", symbol="BTC/USDT"
+    )
+    sig = message_to_signal(msg)
+    assert sig.max_position_size_pct is None
+    assert sig.warnings == []

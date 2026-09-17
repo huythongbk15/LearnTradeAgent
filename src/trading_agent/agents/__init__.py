@@ -42,12 +42,12 @@ from trading_agent.agents.trader import Trader
 __all__ = [
     # Base
     "AgentMessage",
+    "AgentSignal",  # alias for AgentMessage (backward compat)
     "AgentConfig",
     "AnalysisContext",
     "BaseAgent",
     "AgentSpec",
     "AgentRole",
-    "AgentSignal",
     # Core
     "PortfolioAllocation",
     "PortfolioDecision",
