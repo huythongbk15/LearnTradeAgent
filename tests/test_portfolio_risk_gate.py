@@ -99,6 +99,7 @@ class TestPortfolioRiskGate:
         config = PortfolioRiskGateConfig(
             portfolio_sharpe_threshold=-0.50,
             min_shadow_bars=5,
+            portfolio_sharpe_warmup=0,
         )
         gate = PortfolioRiskGate(config=config)
 
@@ -108,6 +109,7 @@ class TestPortfolioRiskGate:
             -0.03, -0.01, -0.02, -0.04, -0.01,
             -0.02, -0.03, -0.01, -0.02, -0.04,
         ]
+        state.symbol_bar_count["BTC/USDT"] = len(state.symbol_returns["BTC/USDT"])
 
         assert state.portfolio_sharpe is not None
         assert state.portfolio_sharpe < -0.50
