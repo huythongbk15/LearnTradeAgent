@@ -1,0 +1,20 @@
+{
+  "symbols": [
+    "BTC/USDT",
+    "ETH/USDT",
+    "SOL/USDT"
+  ],
+  "mode": "shadow",
+  "bars_processed": 400,
+  "incumbents": {
+    "BTC/USDT": "enhanced_ma",
+    "ETH/USDT": "enhanced_ma",
+    "SOL/USDT": "enhanced_ma"
+  },
+  "incumbent_sharpe_by_symbol": {
+    "BTC/USDT": 0.5618299140163084,
+    "ETH/USDT": 1.2337248582455076,
+    "SOL/USDT": 2.499525353330835
+  },
+  "portfolio_sharpe": 1.6814304157426978
+}

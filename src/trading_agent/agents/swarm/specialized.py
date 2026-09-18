@@ -29,11 +29,11 @@ def make_signal(
     reasoning: str,
     metadata: dict[str, Any] | None = None,
 ) -> AgentMessage:
-    """Create an ``AgentMessage`` from legacy ``AgentSignal`` kwargs.
+    """Create an ``AgentMessage`` from legacy kwargs.
 
-    Since P1 protocol unification, ``AgentSignal == AgentMessage``.  This
-    factory accepts the old-style kwargs (``action``, ``size_pct``,
-    ``signal_id``, ``metadata``) and maps them to the unified
+    Since P1 protocol unification, all agents return ``AgentMessage``
+    directly.  This factory accepts the old-style kwargs (``action``,
+    ``size_pct``, ``signal_id``, ``metadata``) and maps them to the unified
     ``AgentMessage`` fields so migration of call sites is mechanical.
     """
     meta = dict(metadata or {})

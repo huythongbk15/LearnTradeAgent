@@ -66,6 +66,7 @@ class TournamentConfig:
     position_size_cap: float = 0.85  # Cap single-strategy weight at 85 %
     sharpe_circuit_breaker: float = -0.50  # Demote incumbent if Sharpe drops below this
     circuit_breaker_lookback: int = 288  # Bars over which to evaluate circuit breaker (2 weeks on 1 h)
+    circuit_breaker_warmup: int = 288  # Additional bars after min_shadow_bars before circuit breaker activates
     min_shadow_bars_for_promote: int = 288  # Minimum shadow bars before considering promotion
     significance_alpha: float = 0.05  # Statistical significance level (Welch's t-test)
     bonferroni_correction: bool = True  # Adjust alpha by number of strategies in pool
@@ -77,6 +78,8 @@ class TournamentConfig:
             raise ValueError("min_shadow_bars must be positive")
         if self.promotion_persistence <= 0:
             raise ValueError("promotion_persistence must be positive")
+        if self.circuit_breaker_warmup < 0:
+            raise ValueError("circuit_breaker_warmup must be non-negative")
 
 
 # ── Shadow metrics tracker ──────────────────────────────────────────────
@@ -337,6 +340,7 @@ class StrategyTournament(AdaptiveStrategyRouter):
         )
 
         # Shadow-track all strategies if we have observation data
+        shadow_returns: dict[str, float] | None = None
         if observation is not None and bar_return is not None:
             shadow_returns = self._shadow_score_all(
                 symbol, timeframe, observation, bar_return
@@ -345,14 +349,23 @@ class StrategyTournament(AdaptiveStrategyRouter):
                 symbol, timeframe, decision, shadow_returns, bar_return
             )
 
-            # Auto-promote / de-promote when not in shadow mode
+            # Initialize incumbent from active policy if not set yet
             state = self._live_state.get((symbol, timeframe))
+            if state is not None and state.incumbent_strategy_id is None:
+                self._init_incumbent_from_policy(symbol, timeframe, posterior, state)
+
+            # Auto-promote / de-promote when not in shadow mode
             if state is not None:
                 if not self.tournament_config.shadow_mode:
                     self._maybe_promote(symbol, timeframe, decision, state)
                 self.tournament_state_store.save(symbol, timeframe, state)
 
         # ── Portfolio risk gate: cross-asset exposure caps + circuit breaker ─
+        # Pass strategy's realized return (not market return) for accurate portfolio Sharpe
+        strategy_return = None
+        if shadow_returns is not None and decision.chosen_strategy_id:
+            strategy_return = shadow_returns.get(decision.chosen_strategy_id, 0.0)
+        
         decision = self.portfolio_risk_gate.evaluate(
             symbol=symbol,
             timeframe=timeframe,
@@ -360,6 +373,7 @@ class StrategyTournament(AdaptiveStrategyRouter):
             posterior=posterior,
             market_context=market_context,
             symbol_bar_return=bar_return,
+            strategy_return=strategy_return,
         )
 
         # ── SelectionAudit: immutable decision trail ───────────────────
@@ -481,17 +495,29 @@ class StrategyTournament(AdaptiveStrategyRouter):
     ) -> None:
         key = (symbol, timeframe)
         state = self._live_state.setdefault(key, TournamentState())
-        state.incumbent_strategy_id = decision.chosen_strategy_id or state.incumbent_strategy_id
+        # Only update incumbent if a strategy was actually chosen
+        if decision.chosen_strategy_id is not None:
+            state.incumbent_strategy_id = decision.chosen_strategy_id
 
         for sid, ret in shadow_returns.items():
             metrics = state.shadow_metrics.get(sid)
             if metrics is None:
                 metrics = _ShadowMetrics()
                 state.shadow_metrics[sid] = metrics
-            weight = 1.0 if decision.chosen_strategy_id == sid else 0.0
-            metrics.add(ret, weight)
+            # Track what-if performance for ALL strategies (weight=1.0)
+            # so challengers accumulate metrics and can be promoted
+            metrics.add(ret, 1.0)
 
     # ── Promotion / de-promotion ─────────────────────────────────────────
+
+    def _init_incumbent_from_policy(self, symbol, timeframe, posterior, state):
+        """Initialize incumbent_strategy_id from active policy if None."""
+        if state.incumbent_strategy_id is not None:
+            return
+        regime = max(posterior.as_mapping, key=posterior.as_mapping.get)
+        active_policy = self.policy_registry.get_active(symbol, timeframe, regime)
+        if active_policy is not None and active_policy.incumbent:
+            state.incumbent_strategy_id = active_policy.incumbent.strategy_id
 
     def _maybe_promote(
         self,
@@ -519,13 +545,12 @@ class StrategyTournament(AdaptiveStrategyRouter):
         """
         cfg = self.tournament_config
         incumbent = state.incumbent_strategy_id or decision.chosen_strategy_id
-
-        # Skip if not enough data
         inc_metrics = state.shadow_metrics.get(incumbent) if incumbent else None
         if inc_metrics is None or inc_metrics.n < cfg.min_shadow_bars_for_promote:
             return
 
         inc_sharpe = inc_metrics.sharpe()
+        # ── Best challenger search ─────────────────────────────────────────
         inc_dd = inc_metrics.max_drawdown
         inc_n = inc_metrics.n
 
@@ -547,7 +572,9 @@ class StrategyTournament(AdaptiveStrategyRouter):
 
         # ── Circuit breaker: demote incumbent if Sharpe drops below threshold
         #     or drawdown exceeds limit — immediate replacement (no stats gate)
-        circuit_breaker_triggered = (
+        # Skip circuit breaker during warmup period for statistical stability
+        circuit_breaker_active = inc_n >= (cfg.min_shadow_bars_for_promote + cfg.circuit_breaker_warmup)
+        circuit_breaker_triggered = circuit_breaker_active and (
             inc_sharpe < cfg.sharpe_circuit_breaker
             or inc_dd < -cfg.max_drawdown_limit
         )
@@ -605,7 +632,6 @@ class StrategyTournament(AdaptiveStrategyRouter):
             best_sharpe, best_metrics.n, inc_sharpe, inc_n
         )
 
-        # Use deflated Sharpe for all threshold comparisons
         eff_score_margin = cfg.score_margin
         if deflated_best - deflated_inc < eff_score_margin:
             return  # Challenger does not meaningfully outperform after deflation
@@ -725,6 +751,7 @@ class StrategyTournament(AdaptiveStrategyRouter):
                 key=self.verification_key,
                 key_id=self.key_id,
                 now=datetime.now(UTC),
+                max_age_days=self.config.max_policy_age_days,
             )
             if policy is None:
                 continue
@@ -757,7 +784,9 @@ class StrategyTournament(AdaptiveStrategyRouter):
                 previous_policy_id=policy.policy_id,
             )
             self.policy_registry.add(new_policy)
-            self.policy_registry.deprecate(policy.policy_id)
+            # Deprecate old policy so it's no longer active
+            expired = policy.expire(datetime.now(UTC))
+            self.policy_registry.add(expired)
             # Persist audit entry
             self._log_audit_event(
                 symbol, timeframe, "PROMOTION",

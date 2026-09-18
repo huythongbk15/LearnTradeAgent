@@ -1,27 +1,29 @@
-"""Tests for AgentMessage <-> AgentSignal interop (audit Phase 5: unify
-agent ecosystems).
+"""Tests for AgentMessage interop utilities (P1 protocol unification audit).
 
-Since P1 protocol unification, AgentSignal == AgentMessage.  All agents
-core and swarm alike return AgentMessage.  The interop functions are
-now passthroughs that ensure field consistency.
+All agents — core and swarm alike — return AgentMessage.  The interop
+functions are passthroughs that ensure field consistency (symbol/role
+population).
 """
 
 from __future__ import annotations
 
 from trading_agent.agents.base import (
     AgentMessage,
-    AgentSignal,
     message_to_signal,
     signal_to_message,
 )
 
 
-def test_signal_is_message():
-    """AgentSignal is now an alias for AgentMessage."""
-    assert AgentSignal is AgentMessage
+def test_message_type_single():
+    """AgentMessage is the single canonical message type."""
+    msg = AgentMessage(
+        role="technical_analyst", signal="BUY", confidence=0.8, reasoning="trend up",
+    )
+    assert isinstance(msg, AgentMessage)
 
 
 def test_message_to_signal_passthrough():
+    """message_to_signal is a passthrough that ensures symbol is populated."""
     msg = AgentMessage(
         role="technical_analyst",
         symbol="BTC/USDT",

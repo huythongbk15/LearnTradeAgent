@@ -1,0 +1,607 @@
+{
+  "BTC/USDT:1h:crisis": {
+    "08b0149ec64e739f7ac9c182cfcc8e89dc9f7e37b5075314f8ac71dbb29915a3": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "range_mean_reversion",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "161824e72b6bb3ebe7988bacfb9bff5e84823a0e9751013300a9bdcdff5b8f42": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "ma_adx_regime",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "215d7e73d9826a9af6d9fdf09c368caf143dd03cfa5c4b66215336bde8b8e4b5": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "bbands",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "32893e11db43108e64af8cf1ed6703b3be5c7b6eb8005a9e80b8f8a17f6145e6": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "rsi",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "34888822afef203ff03d14bd5503c7ddf15cdf7234c78d9869da61a025a37f46": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "ensemble_ma_adx",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "3c73c399bd1f95019f77aa87802674f29b4472935b9e8e82de406ddd99af34f1": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "volatility_breakout",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "500e072b8b17804f9fb7aa9465a0145c9d19f869032210ac58521cb4d8440e92": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "cross_sectional_momentum_ls",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "89140f788b7fed0c9e685e352808e3975924ca58d47b46f97241d6c8b211b8b0": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "stat_arbitrage_ls",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "8ef20df7ad96169ea85f1c8319324a3eb4179b6ab09866b638459e0e0a18d82f": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "stat_arbitrage_lo",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "8efbb4802d9d7572b61bc709f6ef7beeed77c5b12d78b9de4a306d7db1d5bd8f": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "funding_carry",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "bdac806c9d2a406561e8d21049364517fc977569e1ba1d4363709101f401e332": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "ma_vol_target",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "c5d7e61d103f0b4ddc5713904055bb5f1874102244fdbd2ff89a9f2c40187d94": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "trend_pullback",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "dd2b991326a57375c1d081e8bc9b1ee3903d10a14b249dafb047a0c7cc5d819f": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "ma_crossover",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "df22003a2949081c20433fa796a60141bbc1f2c2fa2d9beab80c382e553991d7": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "cross_sectional_momentum_lo",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "efb7bdb87469046aa177400af63f38704a98d206cfcb5bcfc2bbc94c01744825": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "enhanced_ma",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "fbc547b837202d6b65a9cf090d729eb1f38c209c826405ab151daee15931abde": {
+      "created_at": "2026-09-18T11:41:55.081259+00:00",
+      "status": "active",
+      "strategy_id": "enhanced_ma",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "fe9ac3d68c7ed85ac925683626d6d6e20f95a21c75ea61c05026a252b9a1c1aa": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "ma_adx",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    }
+  },
+  "BTC/USDT:1h:high_vol": {
+    "093cb759f3c80b6f7e2aa6188fdce32238ec740298d2270c39f74b8f0312e1a1": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "ma_adx_regime",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "4a956840ba02d2073100295eb2c908390a0cce6d0602d84def913ecd3f45dae4": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "ma_adx",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "5b087996817593c1eb4ebf0ab4b64eb50d5581f00596a7ce5576c664d0d75a1c": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "funding_carry",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "6132f17205d6c5dff04a144e15d6d2978398c636fab699bca2a9ee4c25e1eb51": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "trend_pullback",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "64e173fba1f2f84b2bda19d131e3d0f33d6097a1c181973af90410b4f8384ef4": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "cross_sectional_momentum_lo",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "7a5099cb9f7eb6601cfe8fa975269f9fe66b87c1b2c413b8c4229464193ce964": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "rsi",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "7e24303837080b0866f141cab2211abd407be26c97f7786060ecf8750e8db246": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "cross_sectional_momentum_ls",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "91a3143cacb0451ee035082d410f7d63838aaf5e8239be6cbc7f005a12884c15": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "ensemble_ma_adx",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "b88d1546b6cff5b420bde0b0852060adb7f2eadb432809795e629e743cb6540c": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "range_mean_reversion",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "b9b1d3c2b2c0310c0c3cab116a7d0a450612ebec7992ec1252585582b3875100": {
+      "created_at": "2026-09-18T11:41:55.081259+00:00",
+      "status": "active",
+      "strategy_id": "enhanced_ma",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "baefac3e6aaed01e222d10cb43a0441d1b23ada3d8f4aa7943ef10daf2a9c006": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "ma_vol_target",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "bff2e835b5d4fe85c347ddefd626e72bbc2d30cf60981a43f79fccaac73b2290": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "enhanced_ma",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "c379b73f747d735299d0e8914772c5d958d552bd98a48c78cad413c4a18294c9": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "stat_arbitrage_lo",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "cf0588d88d58f683198bcf159869d57a7d442c8769b23d515029ceecefa45723": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "stat_arbitrage_ls",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "e1ecd62191169d3143bd1dbda0e596b8f68f56bc32b31c7e0815d2871a8cb483": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "bbands",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "e6cb9540b954410c19a2574811f6f82a3aa4db98e24e881a779697d2f8d00144": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "ma_crossover",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "e700e72c213c271c9616dd5137a425a232b0461b4e2b12071f0586f673fdd275": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "volatility_breakout",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    }
+  },
+  "BTC/USDT:1h:mean_reversion": {
+    "005ce18a06db94f6c0646e4a2f06ba235910ac29a12de91b78d643bfe30298a0": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "ma_vol_target",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "0f906bc43e5ead765e400d0ddd497db4958009e128d48085552443ed6c087527": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "stat_arbitrage_ls",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "1237cd08cf0de14df664c1a2ea3512dc5c54f83446da0b8afe16082fd7b4953d": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "cross_sectional_momentum_lo",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "127381a58d556f069c13c1e73acdf6117e2c9d1603bb34a71ef0a22fc0b14545": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "volatility_breakout",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "14d45299816abea9bbb0186479c34dec9dcab931c1848ad072473b0124d6273d": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "bbands",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "26182e4e1d3a7285e22aff3983e2a5a7df9a6977d50db45b73b64ca062f4c439": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "enhanced_ma",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "4b5de734849f7a24e02ba4f95103dae45c39d0b62db21fc3265455bacd4eabfa": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "ma_adx_regime",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "5c83a0c4bdec6b395d1e88dfaab9d49e7aa143842a6473a96808984851de91f6": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "ma_crossover",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "750c263a69086c589f203721efb89e89a5cbbde62358deae1505abf2be5508b4": {
+      "created_at": "2026-09-18T11:41:55.081259+00:00",
+      "status": "active",
+      "strategy_id": "enhanced_ma",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "843705b02623ce6e0f08e1d1ea4cb4dbeae48b66a537b90c1ac0d8caac6994ae": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "cross_sectional_momentum_ls",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "899c7c747ad13fe27188de6b49a756f47d799974ca184bf76c68a07fa087abde": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "funding_carry",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "cdd3df1cfc4d72a4799c573c4393bbf2605d2bc417fc08e63436424c11bd380e": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "ma_adx",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "d01c56bd18c596936ec8746a7a1d15d50e41eec26f038d425bda84be7588d1a0": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "ensemble_ma_adx",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "dbbe0117549a4e4bb7a799020642cf2d1ed4fe5c77429d3f99bb10c88bf19e95": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "range_mean_reversion",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "dc1d6fdaa61a0fcfa6bd8553768d77e89f2ea51c5bc807ec09737ec8709983be": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "stat_arbitrage_lo",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "e6447867092306e938a26f570316006b1b8f4fca6eb89e62e63f9bc1d7ed5d38": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "trend_pullback",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "fc9e71fad3303222582fafae88a5341c3e6d9415969915628d467bd5ead90f86": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "rsi",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    }
+  },
+  "BTC/USDT:1h:other": {
+    "25492a3b294e67b71cd863af095952f8285b2eec5953218826f8ef40bd3b3926": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "trend_pullback",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "2d627922f226cb79ee1d98720a6c9cbeccf743eac34bdfc37e17ec25e6c9c659": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "stat_arbitrage_lo",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "30547f9fc35656ab05ed9a84a87a11f3a6dce146f3bcd9b15566e3fa46ebe45c": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "rsi",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "39feb13fb4611e113f5c1386c56fb8889488b1be621c903ca69cfaa75e214474": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "ma_adx",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "4a5f5a1d2a418e04b1a1f9723ac95507f6c9e5285ec74d7cec37f8efef783d82": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "cross_sectional_momentum_ls",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "4b6f85301f3ac72f0b3449aebc0d6f858b03fc163a1c1a5a04859ddca13e7b2f": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "stat_arbitrage_ls",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "626b74327302a7fef78634a5ae5247f0c7aa938548678996a9f751d65e4583b4": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "range_mean_reversion",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "742e9ed58f0ba5d497b1b4344b4aaa72db672f3d5eac5f94406e6dbf4d7f0575": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "enhanced_ma",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "7b2f19b1797c9a9b88e1827519468a338c0ae1350da04b9af7d04ab59b28a209": {
+      "created_at": "2026-09-18T11:41:55.081259+00:00",
+      "status": "active",
+      "strategy_id": "enhanced_ma",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "8fdadd2bc78c5021b51e427d38c0687e2aa5874820baf1d80d3bb585c89c0282": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "ma_crossover",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "9d0efd6e9a2ce9885609f9881bd6cf0237648efd9cf6f6a95eade998b2259165": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "ensemble_ma_adx",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "ac2dd8f7f7f16f7339b2cf1bd6d7a394a3f5ee00764215460e035d322a2847c9": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "volatility_breakout",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "b60f543d46b5b1c5b93899e26260c8fd76ac057c5eac3be8c08d0d57411b9144": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "bbands",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "b7e6a7c0579c323c77abfd0afb683c91fd5cd5a3679c68f53ba9dc57d0a3f1c4": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "funding_carry",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "cb3ac991111e56bee4b3775a318ab59094b6b085fab83aabcfad317ba5cd7490": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "ma_adx_regime",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "e9d57ef1985668ee4d6ef6c40cfd923be0b15e36b2c821b3f544e5909d00e0d4": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "ma_vol_target",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "f2bc870bee94923c100ff67ee6b96cc3af3123b62e075d6d76da74c06ac5b0cf": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "cross_sectional_momentum_lo",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    }
+  },
+  "BTC/USDT:1h:trend": {
+    "09e56b571e74a249d26fa5b952313366fc81b8b9a20493211603841b85674410": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "ma_adx",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "14f4731b9ad79967c1d39290e18e900a99b62e32bf6f59d6788a99a72235759f": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "cross_sectional_momentum_lo",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "1b3caf6f8ae5282148aec60e940acf69107284b1335126b8ba23fa17a5dcc8b3": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "volatility_breakout",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "3be049a2e8ea65590fb453d99ef8cb0ced63673f91836454ecad2c8aee78536f": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "stat_arbitrage_ls",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "3f293980510e5a4d17e83facc51a687978b82da08d7c760ffd89d7a4db47bdee": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "ensemble_ma_adx",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "416113856a0de01a06f5730ef357136db45d11ae696008ccef8ee159f5d65784": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "ma_adx_regime",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "42367c8bd834ba6ef960a90dbb82935399bf6038af34e9400e1a199bd36e96ce": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "cross_sectional_momentum_ls",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "68041389aca66ce7038336a14dd84332c205cc86b4ed38efa89c8b957fa25045": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "bbands",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "6abcb601cf7c5432035e000941084750ccb853f79787993ad2f2b196e13f05b7": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "ma_crossover",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "8ae0ea1283cdebdce7a2924b3bc89ee1f8b29d4aa184177d0f120653d9e2766d": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "ma_vol_target",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "8fe740fe1e24a252d3b7f10e02b917610ebd7df35e8889d308dc3b0d68cb622b": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "trend_pullback",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "b52bf3182e24982a1dad85b081700c31c1c165a652576700382306bc376ccc07": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "stat_arbitrage_lo",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "c4699566729801238b4d15fce05544e8d012de8247fa32aa08577b672d7f3955": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "rsi",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "d93d7eb120a333baf941bb5dc726d855dbabf1b7758c243b344d41779a3e5ec7": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "funding_carry",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "de139419c121b0e20fef9078ecd1bb95f17838d7805c3910c4c6c4581912eee3": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "enhanced_ma",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "dfd855ec99eeb6f6671d1791f7ff8f9335eb8f652737be6f20baafef1b85c5b8": {
+      "created_at": "2026-09-18T11:41:55.081259+00:00",
+      "status": "active",
+      "strategy_id": "enhanced_ma",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "f50e5db5fc374c267072778c30f574a987b0ed2bf9233caf354f5a49ca22971b": {
+      "created_at": "2026-09-18T11:40:55.081259+00:00",
+      "status": "validated",
+      "strategy_id": "range_mean_reversion",
+      "validity_end": "2026-12-17T11:41:55.081259+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    }
+  }
+}

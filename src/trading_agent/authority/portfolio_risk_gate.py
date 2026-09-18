@@ -80,6 +80,7 @@ class PortfolioRiskGateConfig:
     portfolio_sharpe_threshold: float = -0.50  # circuit breaker
     min_shadow_bars: int = 288  # 288-bar lookback for Sharpe (2 weeks on 1h)
     correlation_decay: float = 0.94  # EWMA decay for correlation tracking
+    portfolio_sharpe_warmup: int = 288  # Additional bars before portfolio circuit breaker activates
 
 
 class PortfolioRiskGate:
@@ -116,6 +117,7 @@ class PortfolioRiskGate:
         posterior: RegimePosterior,
         market_context: MarketContext | None = None,
         symbol_bar_return: float | None = None,
+        strategy_return: float | None = None,  # Realized strategy return (not market return)
     ) -> RoutingDecision:
         """Evaluate portfolio-level risk for a routing decision.
 
@@ -127,9 +129,13 @@ class PortfolioRiskGate:
         state_key = timeframe
         state = self._state[state_key]
 
-        # Track per-symbol returns for correlation
-        if symbol_bar_return is not None:
-            state.symbol_returns.setdefault(symbol, []).append(symbol_bar_return)
+        # Track per-symbol STRATEGY returns for portfolio Sharpe (not market returns)
+        # strategy_return = market_return * signal_direction (what the strategy actually earned)
+        # If not provided, fall back to symbol_bar_return for backward compatibility
+        effective_return = strategy_return if strategy_return is not None else symbol_bar_return
+        
+        if effective_return is not None:
+            state.symbol_returns.setdefault(symbol, []).append(effective_return)
             state.symbol_bar_count[symbol] = state.symbol_bar_count.get(symbol, 0) + 1
             # Keep rolling window
             if len(state.symbol_returns[symbol]) > self.config.min_shadow_bars:
@@ -173,7 +179,13 @@ class PortfolioRiskGate:
 
         # ── Portfolio Sharpe circuit breaker ────────────────────────────
         portfolio_sharpe = state.portfolio_sharpe
-        if portfolio_sharpe is not None and portfolio_sharpe < self.config.portfolio_sharpe_threshold:
+        # Skip circuit breaker during warmup for statistical stability
+        total_bars = sum(state.symbol_bar_count.values())
+        portfolio_circuit_breaker_active = total_bars >= (self.config.min_shadow_bars + self.config.portfolio_sharpe_warmup)
+        
+        if (portfolio_circuit_breaker_active and 
+            portfolio_sharpe is not None and 
+            portfolio_sharpe < self.config.portfolio_sharpe_threshold):
             # Demote: force low exposure
             new_exposure *= 0.5
             decision_reason = (

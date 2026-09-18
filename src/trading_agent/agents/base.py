@@ -1,9 +1,8 @@
 """
 Base agent framework — AgentMessage protocol, BaseAgent abstract class.
 
-Merged from two generations:
 - Core (sync): BaseAgent.analyze(context) -> AgentMessage, name-based init.
-- Phase 6 (async): AgentConfig/AgentSpec/AgentRole/AgentSignal + process().
+- Phase 6 (async): AgentConfig/AgentSpec/AgentRole + process().
 
 BaseAgent supports both styles: ``analyze`` may be sync (core agents) or
 async (swarm agents); ``process()`` handles both.
@@ -160,8 +159,12 @@ class BaseAgent(ABC):
         self.role = config.role if config else getattr(self, "role", None)
 
     @abstractmethod
-    def analyze(self, context: AnalysisContext) -> AgentMessage:
-        """Analyze the current market context and return a signal."""
+    def analyze(self, context: AnalysisContext | dict[str, Any]) -> AgentMessage:
+        """Analyze the current market context and return a signal.
+
+        Accepts either ``AnalysisContext`` (core agents) or raw ``dict``
+        (swarm agents via ``process()``).
+        """
         ...
 
     async def process(self, market_data: dict[str, Any]) -> AgentMessage:
@@ -199,11 +202,9 @@ class AgentRole:
     COORDINATOR = "coordinator"
 
 
-# ── Phase 6: AgentSignal is now unified with AgentMessage ─────────────────
-# All agents — core and swarm alike — return AgentMessage.  The legacy
-# AgentSignal class is preserved as an alias so downstream code keeps working
-# during the migration.  New code should import AgentMessage only.
-AgentSignal = AgentMessage
+# ── Interop utilities (symbol/role normalisation) ────────────────────────
+# All agents — core and swarm alike — return AgentMessage.  The following
+# helpers ensure field consistency when converting between agent roles.
 
 
 def message_to_signal(
@@ -211,11 +212,12 @@ def message_to_signal(
     *,
     symbol: str | None = None,
     signal_id: str | None = None,
-) -> AgentSignal:
-    """Convert a core ``AgentMessage`` into a swarm-compatible ``AgentSignal``.
+) -> AgentMessage:
+    """Ensure the ``symbol`` field is populated on an ``AgentMessage``.
 
-    Since P1 (protocol unification), AgentSignal == AgentMessage, so this
-    is a passthrough that ensures the ``symbol`` field is populated.
+    Since P1 protocol unification, all agents return ``AgentMessage`` directly.
+    This helper remains for backward compatibility with code that called
+    ``message_to_signal``; it is a passthrough that sets the symbol if missing.
     """
     if symbol is not None and msg.symbol != symbol:
         msg = replace(msg, symbol=symbol)
@@ -223,14 +225,15 @@ def message_to_signal(
 
 
 def signal_to_message(
-    sig: AgentSignal,
+    sig: AgentMessage,
     *,
     role: str = "agent",
 ) -> AgentMessage:
-    """Convert a swarm ``AgentSignal`` into a core ``AgentMessage``.
+    """Ensure the ``role`` field is populated on an ``AgentMessage``.
 
-    Since P1 (protocol unification), AgentSignal == AgentMessage, so this
-    is a passthrough that ensures `role` is populated if missing.
+    Since P1 protocol unification, all agents return ``AgentMessage`` directly.
+    This helper remains for backward compatibility with code that called
+    ``signal_to_message``; it is a passthrough that sets the role if missing.
     """
     if sig.role == "agent":
         return replace(sig, role=role)

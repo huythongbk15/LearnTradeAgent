@@ -9,7 +9,6 @@ from trading_agent.agents.base import (
     AgentConfig,
     AgentMessage,
     AgentRole,
-    AgentSignal,
     AgentSpec,
     AnalysisContext,
     BaseAgent,
@@ -42,7 +41,6 @@ from trading_agent.agents.trader import Trader
 __all__ = [
     # Base
     "AgentMessage",
-    "AgentSignal",  # alias for AgentMessage (backward compat)
     "AgentConfig",
     "AnalysisContext",
     "BaseAgent",

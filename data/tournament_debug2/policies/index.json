@@ -1,0 +1,18 @@
+{
+  "BTC/USDT:1h:trend": {
+    "04fce47688a681387cc95230c09c4aa08fca4a56038705e3f67fad2d8b4905d5": {
+      "created_at": "2026-09-18T12:00:23.026668+00:00",
+      "status": "validated",
+      "strategy_id": "enhanced_ma",
+      "validity_end": "2026-12-17T12:01:23.026668+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    },
+    "d21e95fb1b208b5616adc09bf7eeee08883102b89bdf4b27548668609bda5008": {
+      "created_at": "2026-09-18T12:01:23.026668+00:00",
+      "status": "active",
+      "strategy_id": "enhanced_ma",
+      "validity_end": "2026-12-17T12:01:23.026668+00:00",
+      "validity_start": "2020-01-01T00:00:00+00:00"
+    }
+  }
+}
