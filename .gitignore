@@ -61,6 +61,9 @@ data/optimal_strategy_config.json
 data/qwenpaw_process_registry.db
 data/wfo_results/
 
+# Tournament paper trading artifacts (runtime-generated)
+data/tournament_paper/
+
 # Allow these templates (commit-safe)
 !.env.example
 !.env.oracle.example
