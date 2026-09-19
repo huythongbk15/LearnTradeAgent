@@ -164,7 +164,16 @@ def evaluate_order_permission(ctx: PermissionContext) -> PermissionResult:
             f"sell {ctx.order_size} > authorized sellable inventory {authorized}",
         )
 
-    safe_reduce = ctx.exposure_effect == ExposureEffect.REDUCE and inventory_known
+    risk = ctx.risk_decision
+    safe_reduce = (
+        ctx.exposure_effect == ExposureEffect.REDUCE
+        or (
+            side == "sell"
+            and ctx.exposure_effect == ExposureEffect.NEUTRAL
+            and risk is not None
+            and risk.reduce_only
+        )
+    ) and inventory_known
 
     def degraded(reason: PermissionReason, detail: str) -> PermissionResult:
         if safe_reduce:
@@ -215,8 +224,6 @@ def evaluate_order_permission(ctx: PermissionContext) -> PermissionResult:
         )
         return degraded(reason, "kill switch active")
 
-    risk = ctx.risk_decision
-
     # Missing risk decision → BLOCK for INCREASE/NEUTRAL (fail-closed)
     # UNLESS draft=True (intent creation before risk approval)
     if ctx.exposure_effect in (ExposureEffect.INCREASE, ExposureEffect.NEUTRAL):
@@ -249,6 +256,9 @@ def evaluate_order_permission(ctx: PermissionContext) -> PermissionResult:
                 )
             if ctx.exposure_effect == ExposureEffect.NEUTRAL and (
                 risk.allowed_target_exposure <= 1e-12 or risk.max_new_exposure <= 1e-12
+            ) and not (
+                side == "sell"
+                and risk.reduce_only
             ):
                 # Neutral exposure is blocked only when risk params explicitly
                 # forbid any exposure, NOT merely because reduce_only is set.

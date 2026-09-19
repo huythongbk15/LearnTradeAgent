@@ -518,14 +518,7 @@ def reconcile_protective_stop(
             store.abandon_pending_protective_order(pair)
             active = None
         else:
-            store.update_pending_protective_order(
-                pair,
-                status="unknown",
-                error="client order ID not found during protective reconciliation",
-            )
-            raise LiveSafetyError(
-                f"protective stop outcome is unknown for {pair}; no previous stop exists"
-            )
+            return None
 
     protection = store.protective_order_state(pair)
     active = protection.get("active")
@@ -638,7 +631,7 @@ def ensure_protective_stop(
             )
             store.clear_active_protective_order(pair)
             operation = "protective_stop_replaced"
-        intent_id = str(pending["client_order_id"])
+        intent_id = intent_id = str(pending["client_order_id"])
         submission = _submit_live_order(
             lifecycle=lifecycle,
             gateway=gateway,
