@@ -27,6 +27,7 @@ from trading_agent.data.storage import load_ohlcv
 from trading_agent.backtest.engine import BacktestEngine
 from trading_agent.strategies.enhanced_ma import (
     MaAdxCrossover, EnhancedMaCrossover, MaVolTargetCrossover,
+    EnsembleMaAdx, MaAdxRegimeAware,
 )
 from trading_agent.strategies.rsi import RsiStrategy
 from trading_agent.strategies.bbands import BBandsStrategy
@@ -34,6 +35,8 @@ from trading_agent.strategies.volatility_breakout import VolatilityBreakoutStrat
 from trading_agent.strategies.funding_carry import FundingCarryStrategy
 from trading_agent.strategies.regime_switching import RegimeSwitchingStrategy
 from trading_agent.strategies.trend_pullback import TrendPullbackStrategy
+from trading_agent.strategies.ma_crossover import MaCrossover
+from trading_agent.strategies.range_mean_reversion import RangeMeanReversionStrategy
 
 STRATEGY_SPECS = {
     "ma_adx": {"cls": MaAdxCrossover, "grid": {"fast_period": [10, 20, 30], "slow_period": [40, 60, 80],
@@ -54,6 +57,17 @@ STRATEGY_SPECS = {
     "trend_pullback": {"cls": TrendPullbackStrategy, "grid": {"ma_fast": [5, 10, 20, 30],
                "ma_slow": [50, 80, 120, 200], "adx_threshold": [15, 20, 25],
                "adx_period": [14], "rsi_period": [14], "vol_multiplier": [0.5, 1.0, 1.5]}, "warmup": 150},
+    "ensemble_ma_adx": {"cls": EnsembleMaAdx, "grid": {"regime_lookback": [126, 252],
+               "min_weight": [0.03, 0.05]}, "warmup": 252},
+    "ma_adx_regime": {"cls": MaAdxRegimeAware, "grid": {"fast_period": [20, 30],
+               "slow_period": [50, 80, 120], "adx_threshold": [20, 25, 30],
+               "regime_lookback": [252]}, "warmup": 150},
+    "ma_crossover": {"cls": MaCrossover, "grid": {"fast_period": [10, 20, 30],
+               "slow_period": [50, 80, 120]}, "warmup": 50},
+    "range_mean_reversion": {"cls": RangeMeanReversionStrategy, "grid": {"bb_lookback": [20, 30],
+               "bb_std": [2.0, 2.5], "zscore_entry": [2.0, 2.5],
+               "zscore_exit": [0.5, 1.0], "rsi_oversold": [25, 30],
+               "rsi_overbought": [70, 75]}, "warmup": 60},
 }
 
 PAIRS = ["BTC/USDT", "ETH/USDT", "BNB/USDT", "XRP/USDT"]
@@ -169,7 +183,7 @@ def _backtest_cell(args):
     return params, _backtest(spec["cls"], params, _SHARED_DF, start, end, warmup)
 
 
-def run_fast_wfo(strategy_id: str, symbol: str, timeframe: str = "1h", workers: int = 1) -> dict:
+def run_fast_wfo(strategy_id: str, symbol: str, timeframe: str = "1h", workers: int = 1, limit_bars: int = 0) -> dict:
     spec = STRATEGY_SPECS[strategy_id]
     cls = spec["cls"]
     grid = spec["grid"]
@@ -179,6 +193,8 @@ def run_fast_wfo(strategy_id: str, symbol: str, timeframe: str = "1h", workers: 
     symbol_raw = symbol.replace("/", "_")
     global _SHARED_DF
     _SHARED_DF = load_ohlcv("binance", symbol_raw, timeframe).sort("timestamp")
+    if limit_bars and _SHARED_DF.height > limit_bars:
+        _SHARED_DF = _SHARED_DF.tail(limit_bars)
     n_bars = _SHARED_DF.height
     bpm = _bars_per_month(timeframe)
     folds = compute_folds(n_bars, bpm)
@@ -286,9 +302,9 @@ def run_fast_wfo(strategy_id: str, symbol: str, timeframe: str = "1h", workers: 
     }
 
 
-def _run_wrapper(strat, pair, wfo_workers=1, timeframe="1h", out_dir="data/backtests/fast_wfo"):
+def _run_wrapper(strat, pair, wfo_workers=1, timeframe="1h", limit_bars=0, out_dir="data/backtests/fast_wfo"):
     s = time.time()
-    r = run_fast_wfo(strat, pair, workers=wfo_workers, timeframe=timeframe)
+    r = run_fast_wfo(strat, pair, workers=wfo_workers, timeframe=timeframe, limit_bars=limit_bars)
     m = r["aggregate_metrics"]
     print(f"  {strat} {pair}: {time.time()-s:.1f}s | Sharpe={m['median_test_sharpe']:.2f} | Trades={m['median_oos_trades']:.0f} | {r['verdict']}", flush=True)
     return f"{strat}__{pair.replace('/', '_')}", r

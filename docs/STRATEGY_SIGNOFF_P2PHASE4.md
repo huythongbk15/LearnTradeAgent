@@ -17,13 +17,13 @@
 | 4 | `stat_arbitrage_lo` | Stat arb (long only) | Cross-asset | 0.49 | +8.36% | -4.50% | 10 | — | ⚠️ **CONDITIONAL** — low trade count |
 | 5 | `cross_sectional_momentum_lo` | Cross-sectional MO | Cross-asset (LO) | 0.40 | +2.84% | -67.41% | 145 | — | ❌ **REJECT** — high DD |
 | 6 | `cross_sectional_momentum_ls` | Cross-sectional MO (LS) | Cross-asset (CSMO LS) | 0.44 | +7.42% | -48.16% | 173 | — | ⚠️ **MONITOR** — DD concern |
-| 7 | `volatility_breakout` | Volatility breakout | No direct WFO | N/A | — | — | — | UNSIGNED | ⚠️ **PENDING** — needs evidence |
-| 8 | `ensemble_ma_adx` | Ensemble MA+ADX | No direct WFO | N/A | — | — | — | UNSIGNED | ⚠️ **PENDING** — needs evidence |
-| 9 | `ma_adx_regime` | Regime-aware MA | No direct WFO | N/A | — | — | — | UNSIGNED | ⚠️ **PENDING** — needs evidence |
-| 10 | `ma_crossover` | Simple MA crossover | No direct WFO | N/A | — | — | — | UNSIGNED | ⚠️ **PENDING** — needs evidence |
-| 11 | `range_mean_reversion` | Mean reversion (RSI+BB) | No direct WFO | N/A | — | — | — | UNSIGNED | ⚠️ **PENDING** — needs evidence |
-| 12 | `regime_switching` | Regime switching | No direct WFO | N/A | — | — | — | UNSIGNED | ⚠️ **PENDING** — needs evidence |
-| 13 | `ma_vol_target` | MA + vol targeting | No direct WFO | N/A | — | — | — | UNSIGNED | ⚠️ **PENDING** — needs evidence |
+| 7 | `volatility_breakout` | Volatility breakout | WFO BTC/USDT 1h (9 folds, 216 cells) | 0.00 | 0.00% | -9.14% | 1 | FAIL | Sharpe=0.00, 1 trade/fold (4/9 no-trade folds) |
+| 8 | `ensemble_ma_adx` | Ensemble MA+ADX | WFO BTC/USDT 1h (9 folds, 36 cells) | -0.2349 | -1.79% | -11.58% | 6 | FAIL | negative Sharpe, 6 trades/fold |
+| 9 | `ma_adx_regime` | Regime-aware MA | WFO BTC/USDT 1h (9 folds, 162 cells) | 0.6740 | +4.12% | -11.41% | 8 | FAIL | best Sharpe (0.674), positive return, 8 trades/fold < 30 threshold; retains on cross-asset basis |
+| 10 | `ma_crossover` | Simple MA crossover | WFO BTC/USDT 1h (9 folds, 81 cells) | -0.3445 | -2.55% | -14.34% | 15 | FAIL | negative Sharpe, 15 trades/fold |
+| 11 | `range_mean_reversion` | Mean reversion (RSI+BB) | WFO BTC/USDT 1h (9 folds, 576 cells) | -0.0343 | -0.44% | -21.94% | 7 | FAIL | near-zero Sharpe, high DD, 7 trades/fold |
+| 12 | `regime_switching` | Regime switching | WFO BTC/USDT 1h (9 folds, 144 cells) | 0.1760 | +1.74% | -17.53% | 15 | FAIL | positive return, low Sharpe (0.176), 15 trades/fold; slow per-cell (20s) |
+| 13 | `ma_vol_target` | MA + vol targeting | WFO BTC/USDT 1h (9 folds, 36 cells) | 0.2273 | +1.72% | -13.41% | 18 | FAIL | positive Sharpe/return but low trade count (18/fold); consider vol-attenuated sizing |
 | 14 | `ma_adx` | MA+ADX crossover | WFO SOL 1h (189 cells) | 0.058 | +0.03% | — | — | NO_TRADE (6/13) | ❌ **REJECT** — no edge |
 | 15 | `rsi` | Momentum (RSI) | WFO SOL 1h (168 cells) | -2.36 | -1.18% | — | — | NO_TRADE (3/13) | ❌ **REJECT** — negative edge |
 | 16 | `bbands` | Volatility (Bollinger) | WFO SOL 1h (84 cells) | -2.27 | -1.43% | — | — | NO_TRADE (2/13) | ❌ **REJECT** — no edge |

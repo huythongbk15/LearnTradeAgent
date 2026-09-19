@@ -1,0 +1,1 @@
+[REGISTRY] Registered PID=1040 cmd=python3 scripts/wfo_tier_c.py
