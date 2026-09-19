@@ -30,10 +30,14 @@ ALERT_EXPOSURE_CHANGE = 0.10  # flag if exposure multiplier changes by >10%
 # ── Data source paths ────────────────────────────────────────────────────
 
 DEFAULT_JSONL = [
+    "data/tournament_paper/BTC_USDT/router_audit.jsonl",
+    "data/tournament_paper/BTC_USDT_ETH_USDT_SOL_USDT/router_audit.jsonl",
     "data/execution/binance_live_audit.jsonl",
     "logs/audit.jsonl",
 ]
 DEFAULT_SQLITE = [
+    "data/tournament_paper/BTC_USDT/audit/tournament_audit.sqlite3",
+    "data/tournament_paper/BTC_USDT_ETH_USDT_SOL_USDT/audit/tournament_audit.sqlite3",
     "data/tournament_audit.sqlite3",
     "data/tournament/audit.db",
 ]
