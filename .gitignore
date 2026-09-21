@@ -64,6 +64,12 @@ data/wfo_results/
 # Tournament paper trading artifacts (runtime-generated)
 data/tournament_paper/
 
+# O-TRADE-1 volatile backtest outputs (runtime-generated)
+data/vol_*/
+data/volatile_backtest_*/
+data/*_result.json
+data/confidence_backtest/
+
 # Allow these templates (commit-safe)
 !.env.example
 !.env.oracle.example
@@ -206,6 +212,9 @@ data/backtests/
 data/benchmarks/
 data/tournament_shadow*/
 data/tournament_test/
+data/live_pipeline_*/
+data/ab_test_*/
+data/monitoring_*
 MILESTONE_C_TODO.md
 REVIEW_*.md
 MILESTONE_C_BATCH_TODO.md
@@ -224,3 +233,7 @@ data/canonical_runs/
 data/promotion/
 PHASE_S2_TODO.md
 REVIEW_*.md
+
+# Runtime data artifacts (test outputs, caches)
+scripts/data/
+data/e2e_test_output/
