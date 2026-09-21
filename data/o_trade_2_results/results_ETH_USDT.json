@@ -1,0 +1,62 @@
+{
+  "status": "PASS",
+  "passed": 3,
+  "total": 3,
+  "symbol": "ETH/USDT",
+  "period": {
+    "start_date": "2020-01-01",
+    "end_date": "2020-04-15",
+    "bars": 1000
+  },
+  "t2b": {
+    "calm": {
+      "start": "2024-10-01",
+      "end": "2024-11-01"
+    },
+    "volatile": {
+      "start": "2020-03-01",
+      "end": "2020-04-15"
+    }
+  },
+  "results": {
+    "T2A": {
+      "name": "T2A: Market order slippage",
+      "n_bars": 1000,
+      "avg_slippage_bps": 68.4101,
+      "max_slippage_bps": 1127.0583,
+      "fill_rate": 1.0,
+      "pass": true,
+      "assert": "mean_slippage <= 0.15% (150 bps)"
+    },
+    "T2B": {
+      "name": "T2B: Limit order fill rate by volatility regime",
+      "calm_period": {
+        "vol_25th_pct": 0.122,
+        "vol_75th_pct": 0.473,
+        "low_vol_fill_rate": 0.8407,
+        "n_bars": 720
+      },
+      "volatile_period": {
+        "vol_25th_pct": 0.241,
+        "vol_75th_pct": 1.132,
+        "high_vol_fill_rate": 0.2771,
+        "n_bars": 1000
+      },
+      "pass": true,
+      "assert": "fill_rate[high_vol] < 0.5; fill_rate[low_vol] > 0.7"
+    },
+    "T2C": {
+      "name": "T2C: Slippage \u00d7 volatility interaction",
+      "quintile_slippage_bps": {
+        "0": 33.8704,
+        "1": 40.8674,
+        "2": 51.4257,
+        "3": 71.2298,
+        "4": 146.9978
+      },
+      "ratio_q4_to_q0": 4.34,
+      "pass": true,
+      "assert": "slippage[q4] > 3 * slippage[q1]"
+    }
+  }
+}

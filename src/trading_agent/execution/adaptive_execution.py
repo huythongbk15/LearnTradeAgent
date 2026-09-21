@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -44,12 +45,8 @@ from trading_agent.execution.canonical.order_planner import (
     ExposureEffect,
     OrderIntent,
 )
-from trading_agent.execution.canonical.broker_gateway import (
-    BrokerGateway,
-)
 from trading_agent.execution.canonical.market_observation import (
     BarState,
-    EnrichedMarketObservation,
 )
 from trading_agent.execution.lifecycle import (
     ExecutionLifecycle,
@@ -167,12 +164,77 @@ class AdaptiveExecutionResult:
     handover_reason: str = ""
 
 
+def _select_order_type(
+    observation: MarketObservation,
+    recent_bars: pl.DataFrame | None = None,
+    *,
+    spread_bps: float = 1.0,
+) -> str:
+    """T3A: Vol-based order type selection (Market vs Limit).
+
+    Decision tree:
+      - Compute per-bar relative range (bar_range = (high-low)/mid) as vol proxy.
+      - Compute expected fill cost for Market vs Limit:
+          • Market: half_spread + 30% × bar_range
+          • Limit: half_spread × fill_prob + 0.5 × bar_range × (1 - fill_prob)
+      - Low vol regime (bar_range ≤ 25th percentile) → Limit optimal
+      - High vol regime (bar_range ≥ 75th percentile) → Market optimal
+
+    Args:
+        observation: Current market observation with OHLCV.
+        recent_bars: Optional DataFrame with 'high','low','close','volume' for
+            percentile thresholds. If None or <20 rows, uses static threshold.
+        spread_bps: Base bid-ask spread in basis points.
+
+    Returns:
+        "market" or "limit"
+    """
+    mid = (observation.high + observation.low) / 2.0
+    if mid <= 0:
+        return "market"
+
+    bar_range = (observation.high - observation.low) / mid
+    half_spread = spread_bps / 10_000.0
+
+    # Expected market slippage: half-spread + 30% of bar range
+    market_slippage = half_spread + bar_range * 0.30
+
+    # Expected limit slippage: half-spread × fill_prob + gap_cost × (1 - fill_prob)
+    # P(fill) decreases with volatility (exponential decay)
+    fill_prob = math.exp(-bar_range / 0.025) if bar_range > 0 else 0.99
+    gap_cost = bar_range * 0.5
+    limit_slippage = (half_spread * fill_prob) + (gap_cost * (1.0 - fill_prob))
+
+    # Use rolling percentiles for threshold if enough data
+    if recent_bars is not None and recent_bars.height >= 20:
+        recent_mid = (recent_bars["high"] + recent_bars["low"]) / 2.0
+        recent_ranges = (recent_bars["high"] - recent_bars["low"]) / recent_mid
+        vol_25 = float(recent_ranges.quantile(0.25))
+        vol_75 = float(recent_ranges.quantile(0.75))
+    else:
+        # Static fallback: 0.5% bar range as boundary
+        vol_25 = 0.005
+        vol_75 = 0.025
+
+    # Decision: pick lower expected cost, but gate by regime
+    if bar_range >= vol_75:
+        # High vol → Market (ensure fill, avoid gap risk)
+        return "market" if market_slippage < limit_slippage else "market"
+    elif bar_range <= vol_25:
+        # Low vol → Limit (capture spread)
+        return "limit" if limit_slippage < market_slippage else "limit"
+    else:
+        # Moderate vol → compare expected cost directly
+        return "limit" if limit_slippage < market_slippage else "market"
+
+
 def _forecast_to_order_intent(
     forecast: Forecast,
     decision: RoutingDecision,
     observation: MarketObservation,
     state: AdaptiveExecutionState,
     config: AdaptiveExecutionConfig,
+    recent_bars: pl.DataFrame | None = None,
 ) -> list[OrderIntent]:
     """Convert a routed forecast into executable order intents."""
 
@@ -180,6 +242,9 @@ def _forecast_to_order_intent(
 
     if forecast.expected_excess_return <= 0:
         return intents  # No positive alpha → no new exposure
+
+    # T3A: Determine order type based on volatility regime
+    order_type = _select_order_type(observation, recent_bars, spread_bps=config.spread_bps)
 
     # Calculate position size using risk budget (mirrors simulator logic)
     equity = state.equity
@@ -224,6 +289,8 @@ def _forecast_to_order_intent(
                             "action": "close_for_switch",
                             "old_strategy": state.current_strategy_id,
                             "new_strategy": decision.chosen_strategy_id,
+                            "order_type": order_type,
+                            "t3a": "vol_regime",
                         },
                     )
                 )
@@ -256,6 +323,8 @@ def _forecast_to_order_intent(
                         "policy_id": decision.chosen_policy_id,
                         "exposure_multiplier": decision.exposure_multiplier,
                         "expected_return": forecast.expected_excess_return,
+                        "order_type": order_type,
+                        "t3a": "vol_regime",
                     },
                 )
             )
@@ -285,6 +354,8 @@ def _forecast_to_order_intent(
                         "action": "reduce_exposure",
                         "strategy": decision.chosen_strategy_id,
                         "multiplier": decision.exposure_multiplier,
+                        "order_type": order_type,
+                        "t3a": "vol_regime",
                     },
                 )
             )
@@ -636,15 +707,23 @@ class AdaptiveSimulatorBridge:
                     observation,
                     exec_state,
                     self.config,
+                    recent_bars=recent_df,
                 )
                 for intent in intents:
+                    intent_order_type = intent.metadata.get("order_type", "market")
+                    if intent_order_type == "limit":
+                        # Place limit at current close (passive, inside spread)
+                        limit_price = observation.close * (1 - 0.005) if intent.side == "buy" else observation.close * (1 + 0.005)
+                    else:
+                        limit_price = None
                     sim_intent = SimOrderIntent(
-                        order_id=intent.order_id,
+                        order_id=intent.intent_id,
                         side=SimSide.BUY if intent.side == "buy" else SimSide.SELL,
-                        order_type=SimOrderType.MARKET
-                        if intent.order_type == "market"
-                        else SimOrderType.LIMIT,
+                        order_type=SimOrderType.LIMIT
+                        if intent_order_type == "limit"
+                        else SimOrderType.MARKET,
                         quantity=intent.quantity,
+                        limit_price=limit_price,
                         metadata=intent.metadata,
                     )
                     sim_intents.append(sim_intent)

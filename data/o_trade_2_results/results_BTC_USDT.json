@@ -1,0 +1,62 @@
+{
+  "status": "FAIL",
+  "passed": 2,
+  "total": 3,
+  "symbol": "BTC/USDT",
+  "period": {
+    "start_date": "2024-10-01",
+    "end_date": "2024-11-01",
+    "bars": 1000
+  },
+  "t2b": {
+    "calm": {
+      "start": "2024-10-01",
+      "end": "2024-11-15"
+    },
+    "volatile": {
+      "start": "2020-03-09",
+      "end": "2020-03-21"
+    }
+  },
+  "results": {
+    "T2A": {
+      "name": "T2A: Market order slippage",
+      "n_bars": 768,
+      "avg_slippage_bps": 22.9299,
+      "max_slippage_bps": 131.385,
+      "fill_rate": 1.0,
+      "pass": true,
+      "assert": "mean_slippage <= 0.15% (150 bps)"
+    },
+    "T2B": {
+      "name": "T2B: Limit order fill rate by volatility regime",
+      "calm_period": {
+        "vol_25th_pct": 0.107,
+        "vol_75th_pct": 0.434,
+        "low_vol_fill_rate": 0.8343,
+        "n_bars": 720
+      },
+      "volatile_period": {
+        "vol_25th_pct": 0.332,
+        "vol_75th_pct": 1.952,
+        "high_vol_fill_rate": 0.0972,
+        "n_bars": 288
+      },
+      "pass": true,
+      "assert": "fill_rate[high_vol] < 0.5; fill_rate[low_vol] > 0.7"
+    },
+    "T2C": {
+      "name": "T2C: Slippage \u00d7 volatility interaction",
+      "quintile_slippage_bps": {
+        "0": 14.2921,
+        "1": 17.8444,
+        "2": 21.312,
+        "3": 28.8067,
+        "4": 33.7681
+      },
+      "ratio_q4_to_q0": 2.36,
+      "pass": false,
+      "assert": "slippage[q4] > 3 * slippage[q1]"
+    }
+  }
+}

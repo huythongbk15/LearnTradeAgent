@@ -237,3 +237,4 @@ REVIEW_*.md
 # Runtime data artifacts (test outputs, caches)
 scripts/data/
 data/e2e_test_output/
+O_TRADE_2_TODO.md

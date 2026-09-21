@@ -158,9 +158,11 @@ class ExecutionAuthority:
             )
 
             # 5. Authorize intent (permission check passed)
+            # Pass through intent metadata so T3A order_type reaches BrokerGateway
             auth_event = self.lifecycle.authorize_order(
                 intent_id,
                 idempotency_key=input_.intent.idempotency_key,
+                metadata=dict(input_.intent.metadata),
             )
             authorization_id = auth_event.payload.get("authorization_id")
             if not authorization_id:
