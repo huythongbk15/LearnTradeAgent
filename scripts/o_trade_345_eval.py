@@ -1137,6 +1137,10 @@ def main() -> int:
     parser.add_argument("--t5a-symbols", default="BTC_USDT,ETH_USDT,BNB_USDT,SPY,QQQ,AAPL,MSFT,GOOGL,NVDA",
                         help="Comma-separated symbols for T5A (default: crypto + major equities)")
     parser.add_argument("--t2c-symbol", default=None, help="Calibrate equity slippage (T2C-1)")
+    parser.add_argument(
+        "--t8a-tournament", action="store_true",
+        help="Run full StrategyTournament validation on the T8A 1000-bar BTC period (separate script)",
+    )
     parser.add_argument("--walk-forward", action="store_true", help="Run walk-forward validation for T1B/T1C")
     parser.add_argument("--wf-folds", type=int, default=5, help="Number of WFO folds (default: 5)")
     parser.add_argument("--output-dir", default="data/o_trade_345_results")
@@ -1201,6 +1205,22 @@ def main() -> int:
         results["T2C-1"] = t2c_equity_slippage_calibration(
             args.t2c_symbol, args.start_date, args.end_date, args.bars * 10,
         )
+
+    # T8A tournament validation (optional — runs separate StrategyTournament script)
+    if args.t8a_tournament:
+        import subprocess
+        print("\n  ── Running T8A StrategyTournament validation ──\n")
+        proc = subprocess.run(
+            [sys.executable, str(Path(__file__).parent / "t8a_tournament_validation.py")],
+            capture_output=False,
+            text=True,
+            timeout=600,
+        )
+        t8a_tourney_path = Path("data/t8a_tournament_validation/t8a_results.json")
+        if t8a_tourney_path.exists():
+            results["T8A-Tournament"] = json.loads(t8a_tourney_path.read_text())
+        else:
+            results["T8A-Tournament"] = {"pass": False, "error": "Tournament validation did not produce results"}
 
     passed = sum(1 for r in results.values() if r["pass"])
     total = len(results)
