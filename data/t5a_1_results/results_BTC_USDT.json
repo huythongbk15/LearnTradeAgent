@@ -1,21 +1,21 @@
 {
-  "status": "FAIL",
-  "passed": 5,
+  "status": "PASS",
+  "passed": 6,
   "total": 6,
   "results": {
     "T3A": {
       "name": "T3A: Market vs Limit decision matrix",
-      "n_bars": 300,
-      "vol_25th_pct": 0.0198,
-      "vol_75th_pct": 0.0414,
+      "n_bars": 1500,
+      "vol_25th_pct": 0.0204,
+      "vol_75th_pct": 0.0449,
       "expected_cost": {
         "low_vol": {
-          "market": 47.75,
-          "limit": 35.27
+          "market": 49.17,
+          "limit": 37.05
         },
         "high_vol": {
-          "market": 187.08,
-          "limit": 275.43
+          "market": 204.79,
+          "limit": 307.96
         }
       },
       "optimal_order_type": {
@@ -23,12 +23,12 @@
         "high_vol": "market"
       },
       "n_bars_analyzed": {
-        "low_vol": 75,
-        "high_vol": 75
+        "low_vol": 375,
+        "high_vol": 375
       },
       "optimal_distribution": {
-        "limit_pct": 0.3567,
-        "market_pct": 0.6433
+        "limit_pct": 0.348,
+        "market_pct": 0.652
       },
       "pass": true,
       "assert": "optimal[low_vol]='limit' AND optimal[high_vol]='market'"
@@ -36,18 +36,18 @@
     "T4A": {
       "name": "T4A: Confidence scaling effectiveness",
       "symbol": "BTC_USDT",
-      "n_bars": 300,
-      "sharpe_baseline": -0.0792,
-      "sharpe_llm_adjusted": -0.1277,
-      "sharpe_improvement": -0.0485,
-      "max_dd_baseline": -2.3074,
-      "max_dd_llm_adjusted": -1.9134,
-      "mean_confidence": 0.7098,
+      "n_bars": 1500,
+      "sharpe_baseline": 0.0605,
+      "sharpe_llm_adjusted": 0.0612,
+      "sharpe_improvement": 0.0007,
+      "max_dd_baseline": -3.908,
+      "max_dd_llm_adjusted": -3.1917,
+      "mean_confidence": 0.7002,
       "confidence_range": [
         0.5,
-        1.3725
+        1.3983
       ],
-      "pass": false,
+      "pass": true,
       "assert": "sharpe[llm_adjusted] > sharpe[baseline]"
     },
     "T5A": {
@@ -138,10 +138,10 @@
     },
     "T5B": {
       "name": "T5B: Kill switch recovery quality",
-      "n_bars": 300,
+      "n_bars": 1500,
       "kill_switch_triggered": false,
       "kill_bar": 20,
-      "kill_sharpe": 2.8105,
+      "kill_sharpe": 2.0459,
       "bars_to_recovery": 0,
       "passed_recovery": true,
       "pass": true,
