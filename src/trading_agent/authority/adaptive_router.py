@@ -94,6 +94,7 @@ class RoutingDecision:
     candidate_score: float | None
     incumbent_score: float | None
     position_owner_strategy_id: str | None
+    confidence_adjustment: float = 1.0
     decision_id: str = field(init=False)
 
     def __post_init__(self) -> None:
@@ -103,6 +104,10 @@ class RoutingDecision:
             0.0 <= self.exposure_multiplier <= 1.0
         ):
             raise ValueError("exposure_multiplier must be finite and in [0, 1]")
+        if not math.isfinite(self.confidence_adjustment) or not (
+            0.5 <= self.confidence_adjustment <= 1.5
+        ):
+            raise ValueError("confidence_adjustment must be finite and in [0.5, 1.5]")
         encoded = json.dumps(
             self._identity_payload(),
             sort_keys=True,
@@ -130,6 +135,7 @@ class RoutingDecision:
             "candidate_score": self.candidate_score,
             "incumbent_score": self.incumbent_score,
             "position_owner_strategy_id": self.position_owner_strategy_id,
+            "confidence_adjustment": self.confidence_adjustment,
         }
 
     def to_dict(self) -> dict[str, Any]:
@@ -163,6 +169,7 @@ class RoutingDecision:
                 else None
             ),
             position_owner_strategy_id=value.get("position_owner_strategy_id"),
+            confidence_adjustment=float(value.get("confidence_adjustment", 1.0)),
         )
         if value.get("decision_id") != decision.decision_id:
             raise ValueError("routing decision integrity failure")
@@ -329,6 +336,11 @@ class AdaptiveStrategyRouter:
         encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(encoded.encode()).hexdigest()
 
+    @staticmethod
+    def _scale_confidence(base_exposure: float, confidence_adj: float) -> float:
+        """T4A: apply LLM confidence_adjustment to exposure, clamped [0, 1]."""
+        return max(0.0, min(1.0, base_exposure * confidence_adj))
+
     def _persist_decision(
         self,
         state: _RouterState,
@@ -362,6 +374,7 @@ class AdaptiveStrategyRouter:
         candidate_score: float | None,
         incumbent_score: float | None,
         position_owner_strategy_id: str | None,
+        confidence_adjustment: float = 1.0,
     ) -> RoutingDecision:
         return RoutingDecision(
             symbol=symbol,
@@ -381,6 +394,7 @@ class AdaptiveStrategyRouter:
             candidate_score=candidate_score,
             incumbent_score=incumbent_score,
             position_owner_strategy_id=position_owner_strategy_id,
+            confidence_adjustment=confidence_adjustment,
         )
 
     def route(
@@ -428,6 +442,15 @@ class AdaptiveStrategyRouter:
         scores, representatives, coverage = self._score_strategies(posterior, policies)
 
         owner = None if position_is_flat else position_owner_strategy_id
+
+        # T4A: Apply LLM confidence_adjustment to scale exposure_multiplier
+        # Defined early so all _decision paths have access
+        confidence_adj = (
+            market_context.confidence_adjustment
+            if market_context is not None
+            else 1.0
+        )
+
         if not position_is_flat and owner is None:
             decision = self._decision(
                 symbol=symbol,
@@ -443,6 +466,7 @@ class AdaptiveStrategyRouter:
                 reason="OPEN_POSITION_OWNER_MISSING",
                 allow_new_exposure=False,
                 exposure_multiplier=0.0,
+                confidence_adjustment=confidence_adj,
                 candidate_score=None,
                 incumbent_score=None,
                 position_owner_strategy_id=None,
@@ -502,6 +526,7 @@ class AdaptiveStrategyRouter:
                 reason=uncertainty_reason,
                 allow_new_exposure=False,
                 exposure_multiplier=0.0,
+                confidence_adjustment=confidence_adj,
                 candidate_score=None,
                 incumbent_score=scores.get(state.incumbent_strategy_id or ""),
                 position_owner_strategy_id=owner,
@@ -531,6 +556,7 @@ class AdaptiveStrategyRouter:
                     reason="POSITION_OWNER_PINNED_UNTIL_FLAT",
                     allow_new_exposure=False,
                     exposure_multiplier=0.0,
+                    confidence_adjustment=confidence_adj,
                     candidate_score=scores.get(state.pending_strategy_id),
                     incumbent_score=incumbent_score,
                     position_owner_strategy_id=owner,
@@ -550,9 +576,10 @@ class AdaptiveStrategyRouter:
                     handover=HandoverState.ACTIVATE,
                     reason="PENDING_SWITCH_ACTIVATED_AFTER_FLAT",
                     allow_new_exposure=True,
-                    exposure_multiplier=min(
-                        best_policy.risk_cap, posterior.conviction_multiplier
+                    exposure_multiplier=self._scale_confidence(
+                        min(best_policy.risk_cap, posterior.conviction_multiplier), confidence_adj
                     ),
+                    confidence_adjustment=confidence_adj,
                     candidate_score=best_score,
                     incumbent_score=incumbent_score,
                     position_owner_strategy_id=None,
@@ -588,9 +615,10 @@ class AdaptiveStrategyRouter:
                 handover=HandoverState.STABLE,
                 reason="INCUMBENT_RETAINED",
                 allow_new_exposure=position_is_flat or owner == incumbent,
-                exposure_multiplier=min(
-                    best_policy.risk_cap, posterior.conviction_multiplier
+                exposure_multiplier=self._scale_confidence(
+                    min(best_policy.risk_cap, posterior.conviction_multiplier), confidence_adj
                 ),
+                confidence_adjustment=confidence_adj,
                 candidate_score=best_score,
                 incumbent_score=best_score,
                 position_owner_strategy_id=owner,
@@ -618,10 +646,10 @@ class AdaptiveStrategyRouter:
                     handover=HandoverState.STABLE,
                     reason="CHALLENGER_SCORE_MARGIN_INSUFFICIENT",
                     allow_new_exposure=position_is_flat or owner == incumbent,
-                    exposure_multiplier=min(
-                        representatives[incumbent].risk_cap,
-                        posterior.conviction_multiplier,
+                    exposure_multiplier=self._scale_confidence(
+                        min(representatives[incumbent].risk_cap, posterior.conviction_multiplier), confidence_adj
                     ),
+                    confidence_adjustment=confidence_adj,
                     candidate_score=best_score,
                     incumbent_score=incumbent_score,
                     position_owner_strategy_id=owner,
@@ -646,10 +674,10 @@ class AdaptiveStrategyRouter:
                     handover=HandoverState.STABLE,
                     reason="MIN_DWELL_OR_COOLDOWN_ACTIVE",
                     allow_new_exposure=position_is_flat or owner == incumbent,
-                    exposure_multiplier=min(
-                        representatives[incumbent].risk_cap,
-                        posterior.conviction_multiplier,
+                    exposure_multiplier=self._scale_confidence(
+                        min(representatives[incumbent].risk_cap, posterior.conviction_multiplier), confidence_adj
                     ),
+                    confidence_adjustment=confidence_adj,
                     candidate_score=best_score,
                     incumbent_score=incumbent_score,
                     position_owner_strategy_id=owner,
@@ -676,6 +704,7 @@ class AdaptiveStrategyRouter:
                 reason="CHALLENGER_PERSISTENCE_PENDING",
                 allow_new_exposure=False,
                 exposure_multiplier=0.0,
+                confidence_adjustment=confidence_adj,
                 candidate_score=best_score,
                 incumbent_score=incumbent_score,
                 position_owner_strategy_id=owner,
@@ -699,6 +728,7 @@ class AdaptiveStrategyRouter:
                 reason="POSITION_OWNER_PINNED_UNTIL_FLAT",
                 allow_new_exposure=False,
                 exposure_multiplier=0.0,
+                confidence_adjustment=confidence_adj,
                 candidate_score=best_score,
                 incumbent_score=incumbent_score,
                 position_owner_strategy_id=owner,
@@ -718,9 +748,10 @@ class AdaptiveStrategyRouter:
             handover=HandoverState.ACTIVATE,
             reason="CHALLENGER_ACTIVATED",
             allow_new_exposure=True,
-            exposure_multiplier=min(
-                best_policy.risk_cap, posterior.conviction_multiplier
+            exposure_multiplier=self._scale_confidence(
+                min(best_policy.risk_cap, posterior.conviction_multiplier), confidence_adj
             ),
+            confidence_adjustment=confidence_adj,
             candidate_score=best_score,
             incumbent_score=incumbent_score,
             position_owner_strategy_id=None,
