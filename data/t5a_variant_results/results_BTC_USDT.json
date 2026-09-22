@@ -1,6 +1,6 @@
 {
   "status": "FAIL",
-  "passed": 5,
+  "passed": 4,
   "total": 6,
   "results": {
     "T3A": {
@@ -173,15 +173,15 @@
         "max_dd": -3.0587
       },
       "correlation_adjusted": {
-        "portfolio_sharpe": 1.4339,
-        "portfolio_vol": 0.00947,
-        "max_dd": -4.2248
+        "portfolio_sharpe": 1.4661,
+        "portfolio_vol": 0.01123,
+        "max_dd": -3.7916
       },
-      "vol_reduction_pct": 16.68,
-      "sharpe_improvement": -0.032,
-      "dd_reduction_pct": 238.13,
-      "pass": true,
-      "assert": "vol[corr_adj] < 0.85 * vol[naive] (15% reduction target)"
+      "vol_reduction_pct": 1.17,
+      "sharpe_improvement": 0.0002,
+      "dd_reduction_pct": 223.96,
+      "pass": false,
+      "assert": "vol_reduction > 15%"
     },
     "T2C-1": {
       "name": "T2C-1: Slippage calibration (SPY)",
