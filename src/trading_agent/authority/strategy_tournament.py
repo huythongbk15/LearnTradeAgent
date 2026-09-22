@@ -70,6 +70,15 @@ class TournamentConfig:
     min_shadow_bars_for_promote: int = 288  # Minimum shadow bars before considering promotion
     significance_alpha: float = 0.05  # Statistical significance level (Welch's t-test)
     bonferroni_correction: bool = True  # Adjust alpha by number of strategies in pool
+    # ── Transaction cost model for shadow scoring (net-of-fees Sharpe) ──
+    commission_fee: float = 0.001     # 0.1 % per side (entry + exit)
+    slippage_fee: float = 0.0005      # 0.05 % per side
+    spread_bps: float = 5.0           # 5 bps = 0.05 % per side
+
+    @property
+    def total_fee_rate(self) -> float:
+        """Total per-side fee rate: round-trip cost = 2 × this."""
+        return self.commission_fee + self.slippage_fee + self.spread_bps / 10_000.0
 
     def __post_init__(self) -> None:
         if self.shadow_lookback <= 0:
@@ -80,6 +89,12 @@ class TournamentConfig:
             raise ValueError("promotion_persistence must be positive")
         if self.circuit_breaker_warmup < 0:
             raise ValueError("circuit_breaker_warmup must be non-negative")
+        if self.commission_fee < 0 or self.commission_fee > 0.1:
+            raise ValueError("commission_fee must be in [0, 0.1]")
+        if self.slippage_fee < 0 or self.slippage_fee > 0.1:
+            raise ValueError("slippage_fee must be in [0, 0.1]")
+        if self.spread_bps < 0 or self.spread_bps > 1_000:
+            raise ValueError("spread_bps must be in [0, 1000]")
 
 
 # ── Shadow metrics tracker ──────────────────────────────────────────────
@@ -95,6 +110,7 @@ class _ShadowMetrics:
     consecutive_down: int = 0
     promoted: bool = False
     _peak_cum: float = 1.0  # Peak cumulative return for drawdown calc
+    _prev_weight: float = 0.0  # Last weight, for turnover-fee computation
 
     @property
     def n(self) -> int:
@@ -137,9 +153,18 @@ class _ShadowMetrics:
             max_dd = min(max_dd, dd)
         return max_dd
 
-    def add(self, ret: float, weight: float) -> None:
-        self.returns.append(ret)
+    def add(self, ret: float, weight: float, fee_rate: float = 0.0) -> None:
+        """Append a (net-of-fees) return for this strategy.
+
+        When *fee_rate* > 0 the turnover since the last bar is charged:
+        ``fee = abs(weight - prev_weight) * fee_rate`` is subtracted from
+        *ret* before it is stored, producing a net-of-fees Sharpe.
+        """
+        turnover = abs(weight - self._prev_weight)
+        fee = turnover * fee_rate if fee_rate > 0 else 0.0
+        self.returns.append(ret - fee)
         self.weights.append(weight)
+        self._prev_weight = weight
 
 
 # ── Tournament state store ────────────────────────────────────────────────
@@ -166,6 +191,7 @@ class TournamentState:
                     "consecutive_up": m.consecutive_up,
                     "consecutive_down": m.consecutive_down,
                     "promoted": m.promoted,
+                    "prev_weight": m._prev_weight,
                 }
                 for sid, m in self.shadow_metrics.items()
             },
@@ -185,6 +211,7 @@ class TournamentState:
             metrics.consecutive_up = data.get("consecutive_up", 0)
             metrics.consecutive_down = data.get("consecutive_down", 0)
             metrics.promoted = data.get("promoted", False)
+            metrics._prev_weight = data.get("prev_weight", 0.0)
             state.shadow_metrics[sid] = metrics
         return state
 
@@ -219,6 +246,7 @@ class TournamentStateStore:
                     "consecutive_up": m.consecutive_up,
                     "consecutive_down": m.consecutive_down,
                     "promoted": m.promoted,
+                    "prev_weight": m._prev_weight,
                 }
                 for sid, m in state.shadow_metrics.items()
             },
@@ -340,7 +368,7 @@ class StrategyTournament(AdaptiveStrategyRouter):
         )
 
         # Shadow-track all strategies if we have observation data
-        shadow_returns: dict[str, float] | None = None
+        shadow_returns: dict[str, tuple[float, float]] | None = None
         if observation is not None and bar_return is not None:
             shadow_returns = self._shadow_score_all(
                 symbol, timeframe, observation, bar_return
@@ -364,7 +392,8 @@ class StrategyTournament(AdaptiveStrategyRouter):
         # Pass strategy's realized return (not market return) for accurate portfolio Sharpe
         strategy_return = None
         if shadow_returns is not None and decision.chosen_strategy_id:
-            strategy_return = shadow_returns.get(decision.chosen_strategy_id, 0.0)
+            net_ret, _ = shadow_returns.get(decision.chosen_strategy_id, (0.0, 0.0))
+            strategy_return = net_ret
         
         decision = self.portfolio_risk_gate.evaluate(
             symbol=symbol,
@@ -467,13 +496,19 @@ class StrategyTournament(AdaptiveStrategyRouter):
         timeframe: str,
         observation: MarketObservation,
         bar_return: float,
-    ) -> dict[str, float]:
-        """Return {strategy_id: shadow_return} for every pool strategy."""
-        shadow: dict[str, float] = {}
+    ) -> dict[str, tuple[float, float]]:
+        """Return {strategy_id: (net_return, weight)} for every pool strategy.
+
+        Turnover fees are deducted from the gross shadow return so that
+        the Sharpe ratio computed from ``_ShadowMetrics`` is net-of-fees.
+        """
+        shadow: dict[str, tuple[float, float]] = {}
+        fee_rate = self.tournament_config.total_fee_rate
+        state = self._live_state.get((symbol, timeframe))
         for sid in self.pool:
             fc = self.shadow_forecast(sid, observation)
             if fc is None:
-                shadow[sid] = 0.0
+                shadow[sid] = (0.0, 0.0)
                 continue
             # Shadow return = signal direction × bar return × conviction
             signal = fc.expected_excess_return
@@ -482,7 +517,14 @@ class StrategyTournament(AdaptiveStrategyRouter):
             # Apply position size cap from risk config
             cap = self.tournament_config.position_size_cap
             weight = max(-cap, min(cap, weight))
-            shadow[sid] = bar_return * weight
+            gross_return = bar_return * weight
+            # Deduct turnover fee: |Δweight| × per-side fee rate
+            prev_weight = 0.0
+            if state is not None and sid in state.shadow_metrics:
+                prev_weight = state.shadow_metrics[sid]._prev_weight
+            turnover_fee = abs(weight - prev_weight) * fee_rate
+            net_return = gross_return - turnover_fee
+            shadow[sid] = (net_return, weight)
         return shadow
 
     def _update_shadow_metrics(
@@ -490,7 +532,7 @@ class StrategyTournament(AdaptiveStrategyRouter):
         symbol: str,
         timeframe: str,
         decision: RoutingDecision,
-        shadow_returns: dict[str, float],
+        shadow_returns: dict[str, tuple[float, float]],
         bar_return: float,
     ) -> None:
         key = (symbol, timeframe)
@@ -499,14 +541,16 @@ class StrategyTournament(AdaptiveStrategyRouter):
         if decision.chosen_strategy_id is not None:
             state.incumbent_strategy_id = decision.chosen_strategy_id
 
-        for sid, ret in shadow_returns.items():
+        for sid, (net_ret, weight) in shadow_returns.items():
             metrics = state.shadow_metrics.get(sid)
             if metrics is None:
                 metrics = _ShadowMetrics()
                 state.shadow_metrics[sid] = metrics
-            # Track what-if performance for ALL strategies (weight=1.0)
-            # so challengers accumulate metrics and can be promoted
-            metrics.add(ret, 1.0)
+            # Track what-if performance for ALL strategies so challengers
+            # accumulate metrics and can be promoted.
+            # Fees are already deducted in _shadow_score_all; add() also
+            # guards against double-counting via _prev_weight tracking.
+            metrics.add(net_ret, weight, fee_rate=0.0)
 
     # ── Promotion / de-promotion ─────────────────────────────────────────
 
