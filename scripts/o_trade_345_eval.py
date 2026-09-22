@@ -515,11 +515,12 @@ def _generate_strategy_signals(signal_class, params: dict, df: pl.DataFrame) -> 
     strategy = signal_class(params=params)
     df_ind = strategy.compute_indicators(df)
     sigs = strategy.generate_signals(df_ind)
-    return sigs.to_numpy()
+    return np.asarray(sigs.to_numpy()).ravel()
 
 
 def t1b_hit_rate_analysis(
-    symbol: str, start_date: str, end_date: str, n_bars: int = 1000
+    symbol: str, start_date: str, end_date: str, n_bars: int = 1000,
+    df: pl.DataFrame | None = None,
 ) -> dict[str, Any]:
     """T1B: Strategy hit rate analysis.
 
@@ -528,7 +529,8 @@ def t1b_hit_rate_analysis(
 
     Assert: mean(hit_rate[strategy]) >= 0.45 for all strategies with > 20 signals.
     """
-    df = load_symbol_daily(symbol, start_date, end_date, n_bars)
+    if df is None:
+        df = load_symbol_daily(symbol, start_date, end_date, n_bars)
     if df.height < 50:
         return {"name": "T1B: Strategy hit rate analysis", "pass": False, "error": "Insufficient data"}
 
@@ -611,7 +613,8 @@ def t1b_hit_rate_analysis(
 # ─── T1C: Strategy Correlation Matrix ───────────────────────────────────────
 
 def t1c_strategy_correlation_matrix(
-    symbol: str, start_date: str, end_date: str, n_bars: int = 1000
+    symbol: str, start_date: str, end_date: str, n_bars: int = 1000,
+    df: pl.DataFrame | None = None,
 ) -> dict[str, Any]:
     """T1C: Strategy correlation matrix.
 
@@ -621,7 +624,8 @@ def t1c_strategy_correlation_matrix(
 
     Assert: corr[bbands][range_mean_reversion] > 0.3; corr[ma_adx][ma_vol_target] > 0.5
     """
-    df = load_symbol_daily(symbol, start_date, end_date, n_bars)
+    if df is None:
+        df = load_symbol_daily(symbol, start_date, end_date, n_bars)
     if df.height < 50:
         return {"name": "T1C: Strategy correlation matrix", "pass": False, "error": "Insufficient data"}
 
@@ -693,6 +697,144 @@ def t1c_strategy_correlation_matrix(
         "correlation_assertions": assertions,
         "pass": passed,
         "assert": "corr[bbands][range_mean_reversion] > 0.3 AND corr[ma_adx][ma_vol_target] > 0.5",
+    }
+
+
+# ─── Walk-Forward Validation: T1B & T1C ────────────────────────────────────
+
+def walk_forward_split(n_bars: int, n_folds: int = 5, min_fold_size: int = 50) -> list[tuple[int, int]]:
+    """Split *n_bars* into *n_folds* contiguous out-of-sample windows.
+
+    Returns list of (start, end) indices (end exclusive).  Each fold
+    is non-overlapping and contiguous so every bar appears in exactly
+    one fold.
+    """
+    fold_size = max(min_fold_size, n_bars // n_folds)
+    folds: list[tuple[int, int]] = []
+    for i in range(n_folds):
+        start = i * fold_size
+        end = min(start + fold_size, n_bars)
+        if end - start < min_fold_size:
+            break
+        folds.append((start, end))
+    return folds
+
+
+def t1b_hit_rate_walkforward(
+    symbol: str, start_date: str, end_date: str, n_bars: int = 1500,
+    n_folds: int = 5,
+) -> dict[str, Any]:
+    """T1B-WF: Walk-forward hit-rate stability across market regimes.
+
+    Assert: mean(hit_rate) >= 0.45 AND std(hit_rate) <= 0.15
+    """
+    df = load_symbol_daily(symbol, start_date, end_date, n_bars)
+    if df.height < 100:
+        return {"name": "T1B-WF: Walk-forward hit rate", "pass": False, "error": "Insufficient data"}
+    df = df.sort("timestamp")
+    folds = walk_forward_split(df.height, n_folds=n_folds, min_fold_size=50)
+
+    if len(folds) < 2:
+        return {"name": "T1B-WF: Walk-forward hit rate", "pass": False,
+                "error": f"Need >= 2 folds of >=50 bars, got {len(folds)}"}
+
+    fold_results: list[dict[str, Any]] = []
+    for fi, (start, end) in enumerate(folds):
+        df_fold = df[start:end]
+        result = t1b_hit_rate_analysis(symbol, start_date, end_date, n_bars=len(df_fold), df=df_fold)
+        result["fold"] = fi
+        result["fold_range"] = [start, end]
+        fold_results.append(result)
+
+    fold_means = [r.get("mean_hit_rate", 0.0) for r in fold_results]
+    overall_mean = float(np.mean(fold_means))
+    overall_std = float(np.std(fold_means, ddof=1)) if len(fold_means) > 1 else 0.0
+
+    passed = overall_mean >= 0.45 and overall_std <= 0.15
+    return {
+        "name": "T1B-WF: Walk-forward hit rate stability",
+        "symbol": symbol,
+        "n_bars": df.height,
+        "n_folds": len(folds),
+        "fold_hit_rates": [round(float(m), 4) for m in fold_means],
+        "mean_hit_rate": round(overall_mean, 4),
+        "std_hit_rate": round(overall_std, 4),
+        "per_fold_results": [{k: v for k, v in r.items() if k != "name"} for r in fold_results],
+        "pass": passed,
+        "assert": "mean(hit_rate) >= 0.45 AND std(hit_rate) <= 0.15 (regime stability)",
+    }
+
+
+def t1c_correlation_walkforward(
+    symbol: str, start_date: str, end_date: str, n_bars: int = 1500,
+    n_folds: int = 5,
+) -> dict[str, Any]:
+    """T1C-WF: Walk-forward correlation stability across market regimes.
+
+    Assert: corr[bbands][range_mean_reversion] > 0.3 AND corr[ma_adx][ma_vol_target] > 0.5 in ALL folds
+    """
+    df = load_symbol_daily(symbol, start_date, end_date, n_bars)
+    if df.height < 100:
+        return {"name": "T1C-WF: Walk-forward correlation", "pass": False, "error": "Insufficient data"}
+    df = df.sort("timestamp")
+    folds = walk_forward_split(df.height, n_folds=n_folds, min_fold_size=50)
+
+    if len(folds) < 2:
+        return {"name": "T1C-WF: Walk-forward correlation", "pass": False,
+                "error": f"Need >= 2 folds of >=50 bars, got {len(folds)}"}
+
+    fold_results: list[dict[str, Any]] = []
+    for fi, (start, end) in enumerate(folds):
+        df_fold = df[start:end]
+        result = t1c_strategy_correlation_matrix(symbol, start_date, end_date, n_bars=len(df_fold), df=df_fold)
+        result["fold"] = fi
+        result["fold_range"] = [start, end]
+        fold_results.append(result)
+
+    bb_corrs: list[float] = []
+    ma_corrs: list[float] = []
+    all_pass = True
+
+    for fr in fold_results:
+        if not fr["pass"]:
+            all_pass = False
+        assertions = fr.get("correlation_assertions", {})
+        for k, v in assertions.items():
+            if "PASS" not in str(v):
+                all_pass = False
+            parts = str(v).split()
+            if parts:
+                try:
+                    val = float(parts[0])
+                    if "bbands" in k:
+                        bb_corrs.append(val)
+                    elif "ma_adx" in k:
+                        ma_corrs.append(val)
+                except ValueError:
+                    pass
+
+    passed = all_pass and len(folds) >= 2
+    return {
+        "name": "T1C-WF: Walk-forward correlation stability",
+        "symbol": symbol,
+        "n_bars": df.height,
+        "n_folds": len(folds),
+        "correlation_stability": {
+            "bbands_range_mean_rev": {
+                "folds": [round(float(v), 3) for v in bb_corrs],
+                "min": round(float(min(bb_corrs)), 3) if bb_corrs else None,
+                "mean": round(float(np.mean(bb_corrs)), 3) if bb_corrs else None,
+            },
+            "ma_adx_ma_vol_target": {
+                "folds": [round(float(v), 3) for v in ma_corrs],
+                "min": round(float(min(ma_corrs)), 3) if ma_corrs else None,
+                "mean": round(float(np.mean(ma_corrs)), 3) if ma_corrs else None,
+            },
+        },
+        "per_fold_pass": [r["pass"] for r in fold_results],
+        "all_folds_pass": all_pass,
+        "pass": passed,
+        "assert": "corr[bbands][range_mean_reversion] > 0.3 AND corr[ma_adx][ma_vol_target] > 0.5 in ALL folds",
     }
 
 
@@ -883,6 +1025,7 @@ def t2c_equity_slippage_calibration(
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="O-TRADE-1/2/3/4/5: T1B, T1C, T3A, T4A, T5A, T5B"
+        "\n  --walk-forward: Run WFO validation for T1B/T1C across rolling OOS folds"
         + "\n  T5A-1: Use --timeframe daily + --t5a-symbols for cross-asset-class (crypto + equities)"
         + "\n  T1B/T1C: Hit rate + correlation matrix across all candidate strategies"
         + "\n  T2C: Use --t2c-symbol SYMBOL for equity slippage calibration"
@@ -895,6 +1038,8 @@ def main() -> int:
     parser.add_argument("--t5a-symbols", default="BTC_USDT,ETH_USDT,BNB_USDT,SPY,QQQ,AAPL,MSFT,GOOGL,NVDA",
                         help="Comma-separated symbols for T5A (default: crypto + major equities)")
     parser.add_argument("--t2c-symbol", default=None, help="Calibrate equity slippage (T2C-1)")
+    parser.add_argument("--walk-forward", action="store_true", help="Run walk-forward validation for T1B/T1C")
+    parser.add_argument("--wf-folds", type=int, default=5, help="Number of WFO folds (default: 5)")
     parser.add_argument("--output-dir", default="data/o_trade_345_results")
     args = parser.parse_args()
 
@@ -934,6 +1079,14 @@ def main() -> int:
         ),
         "T5B": t5b_kill_switch_recovery(df_main),
     }
+
+    if args.walk_forward:
+        results["T1B-WF"] = t1b_hit_rate_walkforward(
+            symbol, args.start_date, args.end_date, n_bars=args.bars, n_folds=args.wf_folds,
+        )
+        results["T1C-WF"] = t1c_correlation_walkforward(
+            symbol, args.start_date, args.end_date, n_bars=args.bars, n_folds=args.wf_folds,
+        )
 
     # T5A-variant: Correlation-adjusted position sizing (daily only)
     if args.timeframe == "daily":
