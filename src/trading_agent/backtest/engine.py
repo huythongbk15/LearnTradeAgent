@@ -131,10 +131,7 @@ class BacktestEngine:
             raise ValueError("slippage must be in [0, 1)")
         if spread_bps < 0 or spread_bps >= 20_000:
             raise ValueError("spread_bps must be in [0, 20000)")
-        if not long_only:
-            raise NotImplementedError(
-                "BacktestEngine currently supports long_only=True"
-            )
+        # Short-side support: long_only can be False for long/short strategies.
 
         self.strategy = strategy
         self.initial_capital = initial_capital
@@ -289,6 +286,7 @@ class BacktestEngine:
         current_sl = 0.0
         current_tp = 0.0
         trailing_high = 0.0
+        trailing_low = 0.0
         previous_equity = float(self.initial_capital)
         spread_half = self.spread_bps / 20_000.0
         buy_factor = 1.0 + spread_half + self.slippage
@@ -297,14 +295,29 @@ class BacktestEngine:
 
         def close_position(i: int, reference_price: float, reason: str) -> None:
             nonlocal cash, position, entry_price, entry_fee, entry_idx
-            nonlocal current_sl, current_tp, trailing_high
+            nonlocal current_sl, current_tp, trailing_high, trailing_low
 
-            exit_price = reference_price * sell_factor
-            exit_notional = position * exit_price
-            exit_fee = exit_notional * self.commission
-            cash += exit_notional - exit_fee
-            net_pnl = (exit_price - entry_price) * position - entry_fee - exit_fee
-            entry_notional = entry_price * position
+            if position > 0:
+                # Long: exit by selling at bid
+                exit_price = reference_price * sell_factor
+                exit_notional = position * exit_price
+                exit_fee = exit_notional * self.commission
+                cash += exit_notional - exit_fee
+                net_pnl = (exit_price - entry_price) * position - entry_fee - exit_fee
+                direction = 1
+            elif position < 0:
+                # Short: exit by buying back at ask
+                exit_price = reference_price * buy_factor
+                abs_pos = abs(position)
+                exit_notional = abs_pos * exit_price
+                exit_fee = exit_notional * self.commission
+                cash -= exit_notional + exit_fee
+                net_pnl = (entry_price - exit_price) * abs_pos - entry_fee - exit_fee
+                direction = -1
+            else:
+                return  # nothing to close
+
+            entry_notional = abs(entry_price * position)
 
             float_columns["exit_fill"][i] = exit_price
             float_columns["fees"][i] += exit_fee
@@ -313,7 +326,7 @@ class BacktestEngine:
                 pnl=net_pnl,
                 entry_price=entry_price,
                 exit_price=exit_price,
-                size=position,
+                size=abs(position),
             )
             self._ledger_trades.append(
                 Trade(
@@ -321,7 +334,7 @@ class BacktestEngine:
                     exit_date=timestamps[i],
                     entry_price=float(entry_price),
                     exit_price=float(exit_price),
-                    direction=1,
+                    direction=direction,
                     pnl_pct=float(net_pnl / entry_notional * 100)
                     if entry_notional
                     else 0.0,
@@ -339,52 +352,119 @@ class BacktestEngine:
             current_sl = 0.0
             current_tp = 0.0
             trailing_high = 0.0
+            trailing_low = 0.0
+
+        def _open_long(i: int):
+            nonlocal cash, position, entry_price, entry_fee, entry_idx
+            nonlocal current_sl, current_tp, trailing_high
+
+            signal_atr = atr_values[i - 1] if atr_values is not None else None
+            signal_atr = (
+                float(signal_atr)
+                if signal_atr is not None
+                and np.isfinite(signal_atr)
+                and signal_atr > 0
+                else None
+            )
+            buy_price = open_prices[i] * buy_factor
+            size = self.position_sizer.calculate_position_size(
+                equity=previous_equity,
+                price=buy_price,
+                atr=signal_atr,
+                current_portfolio_value=0,
+                current_positions=0,
+            )
+            # Commission is separate from the slippage-adjusted fill price.
+            max_affordable = cash / (buy_price * (1.0 + self.commission))
+            position = max(0.0, min(float(size), max_affordable))
+            if position > 0:
+                entry_price = buy_price
+                entry_idx = i
+                entry_notional = position * entry_price
+                entry_fee = entry_notional * self.commission
+                cash -= entry_notional + entry_fee
+                float_columns["entry_fill"][i] = entry_price
+                float_columns["fees"][i] += entry_fee
+                if signal_atr:
+                    if self.atr_sl_mult > 0:
+                        current_sl = entry_price - signal_atr * self.atr_sl_mult
+                    if self.atr_tp_mult > 0:
+                        current_tp = entry_price + signal_atr * self.atr_tp_mult
+                    if self.trailing_atr_mult > 0:
+                        trailing_high = entry_price
+
+        def _open_short(i: int):
+            nonlocal cash, position, entry_price, entry_fee, entry_idx
+            nonlocal current_sl, current_tp, trailing_low
+
+            signal_atr = atr_values[i - 1] if atr_values is not None else None
+            signal_atr = (
+                float(signal_atr)
+                if signal_atr is not None
+                and np.isfinite(signal_atr)
+                and signal_atr > 0
+                else None
+            )
+            sell_price = open_prices[i] * sell_factor
+            size = self.position_sizer.calculate_position_size(
+                equity=previous_equity,
+                price=sell_price,
+                atr=signal_atr,
+                current_portfolio_value=0,
+                current_positions=0,
+            )
+            # Short sale: sell |size| units, receive cash (proceeds minus fee)
+            abs_size = max(0.0, float(size))
+            position = -abs_size  # negative for short
+            if position < 0:
+                entry_price = sell_price
+                entry_idx = i
+                entry_notional = abs(position) * entry_price
+                entry_fee = entry_notional * self.commission
+                cash += entry_notional - entry_fee
+                float_columns["entry_fill"][i] = entry_price
+                float_columns["fees"][i] += entry_fee
+                if signal_atr:
+                    if self.atr_sl_mult > 0:
+                        current_sl = entry_price + signal_atr * self.atr_sl_mult
+                    if self.atr_tp_mult > 0:
+                        current_tp = entry_price - signal_atr * self.atr_tp_mult
+                    if self.trailing_atr_mult > 0:
+                        trailing_low = entry_price
 
         for i in range(n):
             # A signal is only actionable at the next bar's open.
             previous_signal = signals[i - 1] if i > 0 else 0
 
-            if previous_signal == -1 and position > 0:
-                close_position(i, open_prices[i], "signal")
-            elif previous_signal == 1 and position == 0:
-                signal_atr = atr_values[i - 1] if atr_values is not None else None
-                signal_atr = (
-                    float(signal_atr)
-                    if signal_atr is not None
-                    and np.isfinite(signal_atr)
-                    and signal_atr > 0
-                    else None
-                )
-                buy_price = open_prices[i] * buy_factor
-                size = self.position_sizer.calculate_position_size(
-                    equity=previous_equity,
-                    price=buy_price,
-                    atr=signal_atr,
-                    current_portfolio_value=0,
-                    current_positions=0,
-                )
-                # Commission is separate from the slippage-adjusted fill price.
-                max_affordable = cash / (buy_price * (1.0 + self.commission))
-                position = max(0.0, min(float(size), max_affordable))
+            # ── Signal-driven entry / exit ──
+            if previous_signal == 0:
+                # Hold: no position change
+                pass
+            elif previous_signal == 1 and not self.long_only:
+                # Long signal — close short if any, then enter long
+                if position < 0:
+                    close_position(i, open_prices[i], "signal")
+                if position == 0:
+                    _open_long(i)
+            elif previous_signal == -1 and not self.long_only:
+                # Short signal — close long if any, then enter short
                 if position > 0:
-                    entry_price = buy_price
-                    entry_idx = i
-                    entry_notional = position * entry_price
-                    entry_fee = entry_notional * self.commission
-                    cash -= entry_notional + entry_fee
-                    float_columns["entry_fill"][i] = entry_price
-                    float_columns["fees"][i] += entry_fee
-                    if signal_atr:
-                        if self.atr_sl_mult > 0:
-                            current_sl = entry_price - signal_atr * self.atr_sl_mult
-                        if self.atr_tp_mult > 0:
-                            current_tp = entry_price + signal_atr * self.atr_tp_mult
-                        if self.trailing_atr_mult > 0:
-                            trailing_high = entry_price
+                    close_position(i, open_prices[i], "signal")
+                if position == 0:
+                    _open_short(i)
+            elif previous_signal == 1 and self.long_only:
+                # Long-only: buy only when flat
+                if position == 0:
+                    _open_long(i)
+            elif previous_signal == -1 and self.long_only:
+                # Long-only: -1 means exit
+                if position > 0:
+                    close_position(i, open_prices[i], "signal")
 
             # Intrabar protective orders. If both SL and TP are touched, use the
             # conservative stop-first assumption because tick order is unknown.
             if position > 0:
+                # Long position: stop-loss below, take-profit above
                 if current_sl > 0 and low_prices[i] <= current_sl:
                     stop_reference = (
                         open_prices[i] if open_prices[i] <= current_sl else current_sl
@@ -406,6 +486,30 @@ class BacktestEngine:
                         current_sl = max(
                             current_sl,
                             trailing_high - float(known_atr) * self.trailing_atr_mult,
+                        )
+            elif position < 0:
+                # Short position: stop-loss above, take-profit below
+                if current_sl > 0 and high_prices[i] >= current_sl:
+                    stop_reference = (
+                        open_prices[i] if open_prices[i] >= current_sl else current_sl
+                    )
+                    close_position(i, stop_reference, "stop_loss")
+                elif current_tp > 0 and low_prices[i] <= current_tp:
+                    tp_reference = (
+                        open_prices[i] if open_prices[i] <= current_tp else current_tp
+                    )
+                    close_position(i, tp_reference, "take_profit")
+                elif self.trailing_atr_mult > 0 and atr_values is not None:
+                    known_atr = atr_values[i - 1] if i > 0 else None
+                    if (
+                        known_atr is not None
+                        and np.isfinite(known_atr)
+                        and known_atr > 0
+                    ):
+                        trailing_low = min(trailing_low, low_prices[i])
+                        current_sl = min(
+                            current_sl,
+                            trailing_low + float(known_atr) * self.trailing_atr_mult,
                         )
 
             end_equity = cash + position * close_prices[i]
@@ -431,6 +535,28 @@ class BacktestEngine:
                     entry_price=float(entry_price),
                     exit_price=float(mark_price),
                     direction=1,
+                    pnl_pct=float(unrealized_pnl / entry_notional * 100)
+                    if entry_notional
+                    else 0.0,
+                    bars_held=max(n - 1 - entry_idx, 0),
+                    pnl_abs=float(unrealized_pnl),
+                    fees=float(entry_fee),
+                    exit_reason="open",
+                    is_open=True,
+                )
+            )
+        elif position < 0:
+            mark_price = close_prices[-1]
+            abs_pos = abs(position)
+            unrealized_pnl = (entry_price - mark_price) * abs_pos - entry_fee
+            entry_notional = entry_price * abs_pos
+            self._ledger_trades.append(
+                Trade(
+                    entry_date=timestamps[entry_idx],
+                    exit_date=None,
+                    entry_price=float(entry_price),
+                    exit_price=float(mark_price),
+                    direction=-1,
                     pnl_pct=float(unrealized_pnl / entry_notional * 100)
                     if entry_notional
                     else 0.0,
