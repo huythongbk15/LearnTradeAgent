@@ -619,7 +619,7 @@ def t1c_strategy_correlation_matrix(
     (signal[t-1] x return[t]) for all candidate strategies.
     Uses strategy-specific warmup to maximize signal coverage.
 
-    Assert: corr[bbands][range_mean_reversion] > 0.3; corr[ma_adx][ma_vol_target] > 0.5
+    Assert: corr[bbands][range_mean_reversion] > 0.3; corr[enhanced_ma][ma_adx] > 0.5
     """
     df = load_symbol_daily(symbol, start_date, end_date, n_bars)
     if df.height < 50:
@@ -676,7 +676,7 @@ def t1c_strategy_correlation_matrix(
 
     assertions = {}
     checks: list[bool] = []
-    for s1, s2, threshold in [("bbands", "range_mean_reversion", 0.3), ("ma_adx", "ma_vol_target", 0.5)]:
+    for s1, s2, threshold in [("bbands", "range_mean_reversion", 0.3), ("enhanced_ma", "ma_adx", 0.5)]:
         if s1 in syms and s2 in syms:
             corr_val = corr_matrix[s1][s2]
             ok = corr_val > threshold
@@ -692,7 +692,7 @@ def t1c_strategy_correlation_matrix(
         "strategy_sharpes": {s: round(float(np.mean(shadow_returns[s]) / max(np.std(shadow_returns[s]), 1e-10) * math.sqrt(252)), 4) for s in syms},
         "correlation_assertions": assertions,
         "pass": passed,
-        "assert": "corr[bbands][range_mean_reversion] > 0.3 AND corr[ma_adx][ma_vol_target] > 0.5",
+        "assert": "corr[bbands][range_mean_reversion] > 0.3 AND corr[enhanced_ma][ma_adx] > 0.5",
     }
 
 
