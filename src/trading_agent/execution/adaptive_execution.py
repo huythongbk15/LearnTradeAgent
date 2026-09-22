@@ -164,6 +164,23 @@ class AdaptiveExecutionResult:
     handover_reason: str = ""
 
 
+def _load_t2c_calibration() -> dict[str, float]:
+    """T2C+T3A: Load per-symbol base_slippage_bps from calibration file."""
+    try:
+        from trading_agent.execution.backtest_sim.t2c_calibration import (
+            load_slippage_calibration,
+        )
+
+        cal = load_slippage_calibration()
+        return {symbol: params["base_slippage_bps"] for symbol, params in cal.items()}
+    except Exception:
+        return {}
+
+
+# Module-level cache for T2C calibrated slippage per symbol
+_T2C_BPS_CACHE: dict[str, float] = _load_t2c_calibration()
+
+
 def _select_order_type(
     observation: MarketObservation,
     recent_bars: pl.DataFrame | None = None,
@@ -712,8 +729,15 @@ class AdaptiveSimulatorBridge:
                 for intent in intents:
                     intent_order_type = intent.metadata.get("order_type", "market")
                     if intent_order_type == "limit":
-                        # Place limit at current close (passive, inside spread)
-                        limit_price = observation.close * (1 - 0.005) if intent.side == "buy" else observation.close * (1 + 0.005)
+                        # T3A+T2C: Place limit inside calibrated spread
+                        # Use T2C base_slippage_bps (includes spread+slippage) as offset
+                        # Limit placed at half the expected cost (passive maker)
+                        t2c_bps = _T2C_BPS_CACHE.get(intent.symbol, self.config.spread_bps)
+                        half_cost = t2c_bps / 10_000.0 / 2.0
+                        if intent.side == "buy":
+                            limit_price = observation.close * (1 - half_cost)
+                        else:
+                            limit_price = observation.close * (1 + half_cost)
                     else:
                         limit_price = None
                     sim_intent = SimOrderIntent(

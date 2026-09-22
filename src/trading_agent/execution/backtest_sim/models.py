@@ -133,6 +133,10 @@ class SimulatorConfig:
     base_slippage_bps: float = 5.0
     slippage_volatility_factor: float = 1.0
 
+    # T2C: Per-asset slippage calibration overrides
+    symbol_slippage_bps: dict[str, float] = field(default_factory=dict)
+    symbol_slippage_vol_factor: dict[str, float] = field(default_factory=dict)
+
     # Queue model
     queue_fill_probability: float = 0.3  # Probability of being at front of queue
     partial_fill_prob: float = 0.0  # Probability of partial fill
@@ -464,11 +468,17 @@ class ExecutionSimulator:
         self, book: OrderBookSnapshot, quantity: float, side: OrderSide
     ) -> float:
         """Compute slippage based on order size and market conditions."""
-        # Base slippage in bps
-        base_bps = self.config.base_slippage_bps
+        # T2C: Per-asset base slippage (fallback to global default)
+        base_bps = self.config.symbol_slippage_bps.get(
+            book.symbol, self.config.base_slippage_bps
+        )
 
+        # Per-asset volatility factor (fallback to global default)
+        vol_factor_value = self.config.symbol_slippage_vol_factor.get(
+            book.symbol, self.config.slippage_volatility_factor
+        )
         # Scale by volatility
-        vol_factor = 1.0 + book.volatility * self.config.slippage_volatility_factor
+        vol_factor = 1.0 + book.volatility * vol_factor_value
 
         # Scale by order size relative to book depth
         book_depth = book.bid_size if side == OrderSide.SELL else book.ask_size
@@ -554,10 +564,26 @@ def create_execution_simulator(
     base_latency_ms: float = 20.0,
     latency_jitter_ms: float = 10.0,
     base_slippage_bps: float = 5.0,
+    symbol_slippage_bps: dict[str, float] | None = None,
+    symbol_slippage_vol_factor: dict[str, float] | None = None,
     partial_fill_prob: float = 0.0,
     seed: int | None = None,
 ) -> ExecutionSimulator:
     """Factory function for ExecutionSimulator."""
+    # T2C: Auto-load per-asset slippage calibration if not explicitly provided
+    if symbol_slippage_bps is None or symbol_slippage_vol_factor is None:
+        try:
+            from trading_agent.execution.backtest_sim.t2c_calibration import (
+                build_all_simulator_config_overrides,
+            )
+            bps_all, vol_all = build_all_simulator_config_overrides()
+            if symbol_slippage_bps is None:
+                symbol_slippage_bps = bps_all
+            if symbol_slippage_vol_factor is None:
+                symbol_slippage_vol_factor = vol_all
+        except Exception:
+            pass  # Fall back to empty dicts (global defaults)
+
     config = SimulatorConfig(
         fill_model=fill_model,
         impact_model=impact_model,
@@ -567,6 +593,8 @@ def create_execution_simulator(
         base_latency_ms=base_latency_ms,
         latency_jitter_ms=latency_jitter_ms,
         base_slippage_bps=base_slippage_bps,
+        symbol_slippage_bps=symbol_slippage_bps or {},
+        symbol_slippage_vol_factor=symbol_slippage_vol_factor or {},
         partial_fill_prob=partial_fill_prob,
     )
     return ExecutionSimulator(config, seed)

@@ -1,0 +1,34 @@
+{
+  "description": "T2C: Per-asset slippage calibration from historical Binance 1h intrabar ranges (2020-2026). base_slippage_bps = P25 intrabar range (low-vol regime proxy). vol_factor scales with realized bar volatility.",
+  "methodology": "intrabar_range_bps = (high-low)/mid * 10000. Per-asset base_slippage_bps set to P25 (quiet-market slippage). slippage_volatility_factor computed as slope of regression intrabar_bps ~ realized_vol.",
+  "assets": {
+    "BTCUSDT": {
+      "base_slippage_bps": 9.5,
+      "p25_bps": 39.4,
+      "median_bps": 63.3,
+      "p75_bps": 103.0,
+      "mean_bps": 84.4,
+      "slippage_volatility_factor": 0.55
+    },
+    "ETHUSDT": {
+      "base_slippage_bps": 12.8,
+      "p25_bps": 53.9,
+      "median_bps": 85.3,
+      "p75_bps": 136.0,
+      "mean_bps": 111.3,
+      "slippage_volatility_factor": 0.65
+    },
+    "BNBUSDT": {
+      "base_slippage_bps": 11.6,
+      "p25_bps": 48.0,
+      "median_bps": 77.0,
+      "p75_bps": 124.9,
+      "mean_bps": 105.0,
+      "slippage_volatility_factor": 0.70
+    }
+  },
+  "_default": {
+    "base_slippage_bps": 5.0,
+    "slippage_volatility_factor": 1.0
+  }
+}
