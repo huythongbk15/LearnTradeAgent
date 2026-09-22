@@ -707,13 +707,19 @@ class DataPipeline:
     """Orchestrates multi-asset candle ingestion."""
 
     def __init__(
-        self, store: CandleStore, sources: Optional[dict[str, DataSource]] = None
+        self, store: CandleStore, sources: Optional[dict[str, DataSource]] = None,
+        fallback_sources: Optional[dict[str, DataSource]] = None,
     ):
         self.store = store
         self.sources: dict[str, DataSource] = sources or {}
+        self.fallback_sources: dict[str, DataSource] = fallback_sources or {}
 
     def register_source(self, name: str, source: DataSource) -> None:
         self.sources[name] = source
+
+    def register_fallback_source(self, name: str, source: DataSource) -> None:
+        """Register a backup source used when the primary source fails."""
+        self.fallback_sources[name] = source
 
     def _source_for(self, symbol: Symbol) -> DataSource:
         """Pick a source by asset class, then exchange name."""
@@ -732,6 +738,44 @@ class DataPipeline:
             )
         return source
 
+    async def _fetch_candles(
+        self, symbol: Symbol, timeframe: str, start: datetime | None = None,
+        end: datetime | None = None, limit: int | None = None,
+    ) -> list[Candle]:
+        """Fetch candles from the primary source, falling back to backups.
+
+        Tries the primary source first; if it raises, iterates through any
+        registered fallback sources in order until one succeeds or all are
+        exhausted.
+        """
+        primary = self._source_for(symbol)
+        try:
+            if limit is not None:
+                return await primary.fetch_recent(symbol, timeframe, limit)
+            assert start is not None and end is not None
+            return await primary.fetch_candles(symbol, timeframe, start, end)
+        except Exception as e:
+            logger.warning(
+                f"Primary source {primary.name} failed for {symbol.pair} "
+                f"({e}); trying {len(self.fallback_sources)} fallback(s)"
+            )
+        if not self.fallback_sources:
+            raise
+        last_exc: Exception | None = None
+        for fb_name, fb_source in self.fallback_sources.items():
+            try:
+                logger.info(f"Trying fallback source {fb_name} for {symbol.pair}")
+                if limit is not None:
+                    return await fb_source.fetch_recent(symbol, timeframe, limit)
+                assert start is not None and end is not None
+                return await fb_source.fetch_candles(symbol, timeframe, start, end)
+            except Exception as e:
+                last_exc = e
+                logger.warning(f"Fallback {fb_name} also failed for {symbol.pair}: {e}")
+        if last_exc:
+            raise last_exc
+        raise RuntimeError("No fallback sources succeeded")
+
     async def ingest(
         self,
         symbols: list[Symbol],
@@ -739,14 +783,13 @@ class DataPipeline:
         start: datetime,
         end: datetime,
     ) -> IngestReport:
-        """Full-range ingestion (backfill)."""
+        """Full-range ingestion (backfill), with fallback source support."""
         report = IngestReport()
         begin = time.monotonic()
         for symbol in symbols:
             key = f"{symbol.pair}@{symbol.exchange}:{timeframe}"
             try:
-                source = self._source_for(symbol)
-                candles = await source.fetch_candles(symbol, timeframe, start, end)
+                candles = await self._fetch_candles(symbol, timeframe, start, end)
                 report.total_read += len(candles)
                 written = await self.store.write(candles)
                 report.symbols[key] = written
@@ -762,14 +805,13 @@ class DataPipeline:
     async def incremental(
         self, symbols: list[Symbol], timeframe: str, limit: int = 200
     ) -> IngestReport:
-        """Ingest the most recent `limit` candles per symbol."""
+        """Ingest the most recent `limit` candles per symbol, with fallback."""
         report = IngestReport()
         begin = time.monotonic()
         for symbol in symbols:
             key = f"{symbol.pair}@{symbol.exchange}:{timeframe}"
             try:
-                source = self._source_for(symbol)
-                candles = await source.fetch_recent(symbol, timeframe, limit)
+                candles = await self._fetch_candles(symbol, timeframe, limit=limit)
                 report.total_read += len(candles)
                 written = await self.store.write(candles)
                 report.symbols[key] = written

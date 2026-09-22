@@ -7,7 +7,8 @@ Models:
 * **limit-order passive fills** with queue-position approximation and a
   deterministic per-bar fill probability;
 * **order cancellation** with cancellation latency;
-* **submission/exchange/network latency**;
+* **submission/exchange/network latency** with fill-probability decay
+  (late orders have lower fill probability and face adverse price impact);
 * **stale-quote and sequence-gap rejection** (fail closed).
 
 All randomness comes from a single ``random.Random`` instance seeded from
@@ -18,6 +19,8 @@ from __future__ import annotations
 
 import random
 from dataclasses import dataclass
+
+import numpy as np
 
 from trading_agent.execution.simulator.models import (
     Fill,
@@ -52,6 +55,38 @@ class FillModel:
         config.validate()
         self.config = config
         self._rng = random.Random(config.random_seed)
+
+    # ── Latency model ───────────────────────────────────────────────────
+
+    @property
+    def total_latency_ms(self) -> float:
+        """Total round-trip latency: submit + network + ack (ms)."""
+        return self.config.submit_latency_ms + self.config.network_latency_ms + self.config.ack_latency_ms
+
+    def fill_probability(self, bar_duration_ms: float = 3_600_000.0) -> float:
+        """Estimate probability that a resting order fills within the bar.
+
+        Decay factor based on how much of the bar is consumed by latency:
+        ``P(fill) = max(0.01, exp(-2 × latency / bar_duration))``.
+        """
+        if bar_duration_ms <= 0:
+            return 0.01
+        latency_frac = self.total_latency_ms / bar_duration_ms
+        return max(0.01, float(np.exp(-2.0 * latency_frac)))
+
+    def latency_fill_adjustment(
+        self, bar_duration_ms: float = 3_600_000.0
+    ) -> tuple[float, float]:
+        """Return (fill_prob, adverse_price_bps) for a latency-constrained fill.
+
+        *fill_prob* — multiplier on order quantity that gets filled.
+        *adverse_price_bps* — extra price concession (bps) the aggressor pays
+        because a late fill often catches a worse price level.
+        """
+        fp = self.fill_probability(bar_duration_ms)
+        latency_frac = self.total_latency_ms / bar_duration_ms if bar_duration_ms > 0 else 0.0
+        adverse_bps = self.config.adverse_selection_bps * latency_frac * 2.0
+        return fp, adverse_bps
 
     # ── Market orders ───────────────────────────────────────────────────
 
@@ -147,9 +182,12 @@ class FillModel:
         if book.check_limit(intent.side, limit):
             return self.fill_market(intent, book, bar_index, timestamp)
 
-        # Resting passive order.
+        # Resting passive order — adjust fill probability for latency.
         queue_approx = self._queue_approx(intent)
-        if rng.random() > self.config.passive_fill_prob:
+        # Latency reduces the effective fill probability for passive orders.
+        latency_fill_prob, _ = self.latency_fill_adjustment()
+        effective_fill_prob = self.config.passive_fill_prob * latency_fill_prob
+        if rng.random() > effective_fill_prob:
             return FillOutcome([], SimOrderStatus.SUBMITTED, queue_approx=queue_approx)
 
         fill_qty = intent.quantity

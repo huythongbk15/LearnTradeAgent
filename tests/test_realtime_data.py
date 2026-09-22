@@ -9,6 +9,7 @@ import os
 
 from trading_agent.data.pipeline import (
     DataPipeline,
+    DataSource,
     MockSource,
     SQLiteCandleStore,
 )
@@ -314,3 +315,40 @@ class TestDataPipeline:
         assert candle.symbol.pair == "BTC/USDT"
         assert str(candle.close) == "60500"
         assert candle.timeframe == "1h"
+
+    def test_fallback_source_on_primary_failure(self, tmp_path):
+        """When the primary source raises, the fallback source should be used."""
+
+        async def scenario():
+            from datetime import datetime, timezone
+            db_path = os.path.join(tmp_path, "market_fb.db")
+            store = SQLiteCandleStore(db_path=db_path)
+
+            # Primary source that always fails
+            class FailingSource(DataSource):
+                name = "failing"
+
+                async def fetch_candles(self, symbol, timeframe, start, end):
+                    raise ConnectionError("Primary source unreachable")
+
+                async def fetch_recent(self, symbol, timeframe, limit=200):
+                    raise ConnectionError("Primary source unreachable")
+
+            pipeline = DataPipeline(
+                store=store,
+                sources={"mock": FailingSource()},
+                fallback_sources={"backup": MockSource(seed=50000)},
+            )
+            btc = crypto_symbol("BTC", "USDT", exchange="mock")
+
+            start = datetime(2026, 7, 1, tzinfo=timezone.utc)
+            end = datetime(2026, 7, 1, 12, tzinfo=timezone.utc)
+            report = await pipeline.ingest([btc], "1h", start, end)
+
+            # Fallback should have succeeded
+            assert report.total_written == 12
+            assert report.errors == {}
+            assert await pipeline.count(btc, "1h") == 12
+            store.close()
+
+        run_async(scenario())
