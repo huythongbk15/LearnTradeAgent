@@ -84,7 +84,15 @@ def _fake_folds():
 
 def _fake_holdout(df, spec):
     # Returns bar indices for the frozen holdout within the synthetic range.
-    return (HOLDOUT_START, N_BARS - 1)
+    # Must return 3-tuple matching _resolve_frozen_holdout_window:
+    # (holdout_start_bar, holdout_end_bar, manifest_dict)
+    return (HOLDOUT_START, N_BARS - 1, {
+        "study_id": "s3_evidence",
+        "frozen_by": "test_nested_wfo_evidence",
+        "commit_sha_at_freeze": "test",
+        "data_manifest_sha": "synthetic",
+        "feature_schema_hash": "synthetic",
+    })
 
 
 @pytest.fixture

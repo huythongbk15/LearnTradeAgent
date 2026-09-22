@@ -170,80 +170,16 @@ class EnhancedMaCrossover(Strategy):
                 .otherwise(0)
             )
 
-        # Max drawdown circuit breaker + ATR trailing stop: replay a no-fee
-        # long-only equity curve and bake the exits INTO the signal stream, so
-        # backtest/evidence/live all replay identical signals.
-        #  - ATR trailing stop: exit when close < peak_high - mult*ATR
-        #  - DD breaker: exit when equity DD from peak > max_dd_pct, then stay
-        #    flat until price recovers `dd_recovery_pct` from the trip close
-        #    (price-based reset — equity of a flat book never moves, so a
-        #    "DD recovered" test would never fire).
-        # NOTE: needs OHLC columns; bare signal-frame unit tests (no close/high)
-        # skip this block so pure crossover logic stays testable.
-        if (self.max_dd_pct > 0 or self.trailing_atr_mult > 0) and all(
-            c in df.columns for c in ("close", "high")
-        ):
-            sig = df.select(final_signal.alias("signal")).to_series().to_numpy().copy()
-            close = df["close"].to_numpy()
-            high = df["high"].to_numpy()
-            atr = df["atr"].to_numpy() if "atr" in df.columns else np.zeros(len(close))
-            n = len(sig)
-            shares = 0.0
-            cash = 1.0
-            peak = 1.0
-            halted = False
-            cooldown_left = 0
-            trail_high = 0.0
-            trip_close = 0.0
-            for i in range(n):
-                prev = sig[i - 1] if i > 0 else 0
-                if halted:
-                    sig[i] = 0
-                else:
-                    if prev == -1 and shares > 0:
-                        cash = shares * close[i - 1] if i > 0 else cash
-                        shares = 0.0
-                        trail_high = 0.0
-                    elif prev == 1 and shares == 0 and i > 0 and close[i - 1] > 0:
-                        shares = cash / close[i - 1]
-                        cash = 0.0
-                        trail_high = close[i - 1]
-                    if shares > 0 and high[i] > trail_high:
-                        trail_high = high[i]
-                equity = cash + shares * close[i]
-                if equity > peak:
-                    peak = equity
-                dd = (peak - equity) / peak if peak > 0 else 0.0
-                if halted:
-                    if cooldown_left > 0:
-                        cooldown_left -= 1
-                        if cooldown_left == 0:
-                            halted = False
-                    elif trip_close > 0 and close[i] >= trip_close * (
-                        1 + self.dd_recovery_pct
-                    ):
-                        halted = False
-                else:
-                    exit_here = False
-                    # ATR trailing stop
-                    if shares > 0 and self.trailing_atr_mult > 0:
-                        stop = trail_high - self.trailing_atr_mult * atr[i]
-                        if close[i] < stop:
-                            exit_here = True
-                    # DD circuit breaker
-                    if dd > self.max_dd_pct:
-                        exit_here = True
-                    if exit_here and shares > 0:
-                        sig[i] = -1
-                        cash = shares * close[i]
-                        shares = 0.0
-                        trail_high = 0.0
-                        if dd > self.max_dd_pct:
-                            halted = True
-                            trip_close = close[i]
-                            cooldown_left = self.dd_cooldown_bars
-            return pl.Series(sig)
-
+        # Risk-management (DD circuit breaker, ATR trailing stop, SL/TP) is
+        # handled by the BacktestEngine, which has the *actual* equity curve
+        # and position ledger.  Baking a parallel no-fee equity simulation
+        # into generate_signals creates a divergent replay where the strategy's
+        # internal DD/equity does not match the engine's — causing phantom
+        # exits or missed exits.  Signals should only express *direction*;
+        # the engine decides *when* and *whether* to act on risk.
+        #
+        # The BacktestEngine supports atr_sl_mult, atr_tp_mult,
+        # trailing_atr_mult, and max_dd_pct parameters — pass them there.
         return df.select(final_signal.alias("signal")).to_series()
 
 

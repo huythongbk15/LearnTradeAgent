@@ -113,6 +113,10 @@ class BacktestEngine:
         atr_sl_mult: float = 0.0,  # 0 = disabled, else ATR multiplier for stop loss
         atr_tp_mult: float = 0.0,  # 0 = disabled, else ATR multiplier for take profit
         trailing_atr_mult: float = 0.0,  # 0 = disabled, else ATR multiplier for trailing
+        # Max drawdown circuit breaker
+        max_dd_pct: float = 0.0,  # 0 = disabled, else exit all when DD > threshold
+        dd_cooldown_bars: int = 0,  # bars to stay flat after DD trip (0 = price-based)
+        dd_recovery_pct: float = 0.03,  # price must recover this % from trip close
         # Position sizing
         position_sizing_method: str = "fixed",
         fixed_position_pct: float = 0.1,
@@ -144,6 +148,9 @@ class BacktestEngine:
         self.atr_sl_mult = atr_sl_mult
         self.atr_tp_mult = atr_tp_mult
         self.trailing_atr_mult = trailing_atr_mult
+        self.max_dd_pct = max_dd_pct
+        self.dd_cooldown_bars = dd_cooldown_bars
+        self.dd_recovery_pct = dd_recovery_pct
 
         # Position sizing config
         self.position_sizing_method = position_sizing_method
@@ -293,6 +300,12 @@ class BacktestEngine:
         sell_factor = 1.0 - spread_half - self.slippage
         self._ledger_trades: list[Trade] = []
 
+        # DD circuit breaker state
+        dd_peak = float(self.initial_capital)
+        dd_halted = False
+        dd_cooldown_left = 0
+        dd_trip_close = 0.0
+
         def close_position(i: int, reference_price: float, reason: str) -> None:
             nonlocal cash, position, entry_price, entry_fee, entry_idx
             nonlocal current_sl, current_tp, trailing_high, trailing_low
@@ -436,30 +449,45 @@ class BacktestEngine:
             # A signal is only actionable at the next bar's open.
             previous_signal = signals[i - 1] if i > 0 else 0
 
-            # ── Signal-driven entry / exit ──
-            if previous_signal == 0:
-                # Hold: no position change
-                pass
-            elif previous_signal == 1 and not self.long_only:
-                # Long signal — close short if any, then enter long
-                if position < 0:
-                    close_position(i, open_prices[i], "signal")
-                if position == 0:
-                    _open_long(i)
-            elif previous_signal == -1 and not self.long_only:
-                # Short signal — close long if any, then enter short
-                if position > 0:
-                    close_position(i, open_prices[i], "signal")
-                if position == 0:
-                    _open_short(i)
-            elif previous_signal == 1 and self.long_only:
-                # Long-only: buy only when flat
-                if position == 0:
-                    _open_long(i)
-            elif previous_signal == -1 and self.long_only:
-                # Long-only: -1 means exit
-                if position > 0:
-                    close_position(i, open_prices[i], "signal")
+            # -- DD circuit breaker: skip new entries while halted --
+            if dd_halted:
+                if self.max_dd_pct > 0:
+                    if dd_cooldown_left > 0:
+                        dd_cooldown_left -= 1
+                        if dd_cooldown_left == 0:
+                            dd_halted = False
+                    elif (
+                        dd_trip_close > 0
+                        and close_prices[i]
+                        >= dd_trip_close * (1 + self.dd_recovery_pct)
+                    ):
+                        dd_halted = False
+                # Stay flat -- skip signal-driven entries/exits
+            else:
+                # ── Signal-driven entry / exit ──
+                if previous_signal == 0:
+                    # Hold: no position change
+                    pass
+                elif previous_signal == 1 and not self.long_only:
+                    # Long signal — close short if any, then enter long
+                    if position < 0:
+                        close_position(i, open_prices[i], "signal")
+                    if position == 0:
+                        _open_long(i)
+                elif previous_signal == -1 and not self.long_only:
+                    # Short signal — close long/short if any, then enter short
+                    if position != 0:
+                        close_position(i, open_prices[i], "signal")
+                    if position == 0:
+                        _open_short(i)
+                elif previous_signal == 1 and self.long_only:
+                    # Long-only: buy only when flat
+                    if position == 0:
+                        _open_long(i)
+                elif previous_signal == -1 and self.long_only:
+                    # Long-only: -1 means exit
+                    if position > 0:
+                        close_position(i, open_prices[i], "signal")
 
             # Intrabar protective orders. If both SL and TP are touched, use the
             # conservative stop-first assumption because tick order is unknown.
@@ -513,6 +541,22 @@ class BacktestEngine:
                         )
 
             end_equity = cash + position * close_prices[i]
+
+            # DD circuit breaker: force-close on drawdown breach
+            if (
+                not dd_halted
+                and self.max_dd_pct > 0
+                and end_equity < dd_peak * (1 - self.max_dd_pct)
+            ):
+                if position != 0:
+                    close_position(i, close_prices[i], "dd_circuit")
+                    end_equity = cash + position * close_prices[i]
+                dd_halted = True
+                dd_trip_close = close_prices[i]
+                dd_cooldown_left = self.dd_cooldown_bars
+            elif end_equity > dd_peak:
+                dd_peak = end_equity
+
             float_columns["position"][i] = position
             float_columns["entry_price"][i] = entry_price
             float_columns["stop_loss"][i] = current_sl

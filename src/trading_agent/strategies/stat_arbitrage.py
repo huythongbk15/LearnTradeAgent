@@ -104,7 +104,7 @@ class StatArbitrageLongShortStrategy(Strategy):
             .when(pl.col("zscore") > pl.lit(self.zscore_entry))
             .then(-1)
             .when(pl.col("zscore").abs() <= pl.lit(self.zscore_exit))
-            .then(0)
+            .then(-1)
             .otherwise(None)
             .alias("raw_signal"),
         ]).with_columns([

@@ -356,12 +356,14 @@ class TestR01SchemaCompleteness:
         for strategy_id, schema in _PARAM_SCHEMAS.items():
             for prop, spec in schema["properties"].items():
                 assert "type" in spec, f"{strategy_id}.{prop} missing type"
-                assert spec["type"] in ("integer", "number", "boolean"), (
+                assert spec["type"] in ("integer", "number", "boolean", "string"), (
                     f"{strategy_id}.{prop} invalid type"
                 )
                 if spec["type"] in ("integer", "number"):
                     assert "minimum" in spec, f"{strategy_id}.{prop} missing minimum"
                     assert "maximum" in spec, f"{strategy_id}.{prop} missing maximum"
+                if spec["type"] == "string":
+                    assert "enum" in spec, f"{strategy_id}.{prop} missing enum"
 
 
 class TestR01TrialIdentityDeduplication:

@@ -1,5 +1,5 @@
 """
-S3: Volatility Expansion Breakout Strategy
+S3: Volatility Expansion Breakout Strategy — fixed
 
 Bollinger Band compression → expansion breakout.
 - BB width percentile < threshold = compression
@@ -66,7 +66,11 @@ class VolatilityBreakoutStrategy(Strategy):
         # (bb_width_avg needs 44+ bars; warmup is 23-37)
         # Entry: price breaks above upper band with ATR confirmation
         # Exit: price reverts to SMA or max_hold_bars elapsed
-        return df.with_columns([
+
+        # NOTE: exit signal must be -1 (not 0).  The BacktestEngine interprets
+        # signal=0 as "hold/no action" — it does NOT close a position.
+        # signal=-1 is the only value that triggers an exit in long-only mode.
+        result = df.with_columns([
             pl.when(
                 (pl.col("atr_spike") > pl.lit(self.atr_spike_mult))
                 & (pl.col("close") > pl.col("bb_upper"))
@@ -79,19 +83,41 @@ class VolatilityBreakoutStrategy(Strategy):
                 & (pl.col("close").shift(1) >= pl.col("bb_lower").shift(1))
             )
             .then(-1)
-            # Exit: price reverts to mean or max_hold_bars elapsed
+            # Exit: price reverts to mean → -1 to trigger engine exit
             .when(
                 (pl.col("close") < pl.col("sma"))
                 & (pl.col("close").shift(1) >= pl.col("sma").shift(1))
                 | (pl.col("close") > pl.col("sma"))
                 & (pl.col("close").shift(1) <= pl.col("sma").shift(1))
             )
-            .then(0)
+            .then(-1)
             .otherwise(None)  # hold position
             .alias("raw_signal"),
         ]).with_columns([
             pl.col("raw_signal").forward_fill().fill_null(0).alias("signal"),
-        ]).select("signal").to_series()
+        ])
+
+        # ── max_hold_bars enforcement (post-process) ──────────────────
+        # Track position duration in a loop and force-close when the
+        # holding period exceeds the configured maximum.  This was
+        # previously a dead parameter.
+        if self.max_hold_bars > 0:
+            sig_arr = result["signal"].to_numpy().copy()
+            n = len(sig_arr)
+            entry_idx = -1
+            for i in range(n):
+                sig = sig_arr[i]
+                if sig == 1 and entry_idx < 0:
+                    entry_idx = i  # Long entry detected
+                elif sig != 1 and entry_idx >= 0:
+                    entry_idx = -1  # Position already closed
+                elif sig == 1 and entry_idx >= 0:
+                    if i - entry_idx >= self.max_hold_bars:
+                        sig_arr[i] = -1  # Force exit
+                        entry_idx = -1
+            return pl.Series("signal", sig_arr)
+
+        return result.select("signal").to_series()
 
 
 PARAM_GRID = {

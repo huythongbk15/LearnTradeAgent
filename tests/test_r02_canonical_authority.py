@@ -93,7 +93,15 @@ def _fake_folds() -> list[NestedFold]:
 
 
 def _fake_holdout(df, spec):
-    return (HOLDOUT_START, N_BARS - 1)
+    # Must return 3-tuple matching _resolve_frozen_holdout_window signature:
+    # (holdout_start_bar, holdout_end_bar, manifest_dict)
+    return (HOLDOUT_START, N_BARS - 1, {
+        "study_id": "test",
+        "frozen_by": "test_r02",
+        "commit_sha_at_freeze": "test",
+        "data_manifest_sha": "synthetic",
+        "feature_schema_hash": "synthetic",
+    })
 
 
 def _wrap_run_cell_tolerate_open(monkeypatch):

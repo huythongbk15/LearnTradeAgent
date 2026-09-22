@@ -18,6 +18,8 @@ logs/
 
 # Session-local TODO files
 *_TODO.md
+AC_TRACKER.md
+AC14_EVIDENCE_TODO.md
 # Workstream B temporary files
 WORKSTREAM_B_RUN.sh
 data/wfo/*.sqlite3

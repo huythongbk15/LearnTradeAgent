@@ -127,16 +127,16 @@ def save_ohlcv(
     with _dataset_lock(path):
         if append and path.exists():
             existing = pl.read_parquet(path)
-            had_atr = "atr" in existing.columns
             df = (
                 pl.concat([existing, df], how="diagonal_relaxed")
                 .unique(subset=["timestamp"], keep="last")
                 .sort("timestamp")
             )
-            # ATR is derived data. Recompute it after an append instead of
-            # leaving the newly appended rows as null/stale values.
-            if had_atr:
-                df = df.with_columns(compute_atr(df, period=14))
+            # ATR is derived data. Always recompute after an append — doing
+            # so conditionally (only when the existing file already had ATR)
+            # left newly appended rows or first-time saves with null/stale
+            # ATR when the existing file lacked the column.
+            df = df.with_columns(compute_atr(df, period=14))
 
         _write_parquet_atomic(df, path)
     return path

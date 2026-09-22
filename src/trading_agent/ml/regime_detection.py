@@ -25,6 +25,8 @@ import numpy as np
 import pandas as pd
 from hmmlearn import hmm
 from sklearn.mixture import GaussianMixture
+from sklearn.preprocessing import StandardScaler
+from scipy.special import logsumexp
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
@@ -306,24 +308,33 @@ class HMMStrategy:
         self._regime_names: list[MarketRegime] = []
         self._fitted = True
         self._history: list[RegimeState] = []
-        self._predict_cache: np.ndarray | None = None  # Cached posteriors for all bars
+        self._scaler: Optional[StandardScaler] = None  # Fit on training only
+        self._predict_cache: np.ndarray | None = None  # Cached FILTERED posteriors
+        self._predict_cache_len: int | None = None  # Cache identity: input length
 
     def _prepare_features(
         self, prices: pd.Series, volume: pd.Series | None = None
     ) -> np.ndarray:
-        """Prepare observation features for HMM"""
+        """Prepare raw observation features for HMM (unscaled).
+
+        PIT-safe: rolling volatility uses backward-looking windows only.
+        NaN values from the warmup period are forward-filled (causal: only
+        uses past values) then zero-filled for the initial NaN. No bfill()
+        which would backfill with future observations.
+        """
         # Log returns
         returns = np.log(prices / prices.shift(1)).dropna()
 
-        # Rolling volatility (20-day) - fill NaN with expanding std
+        # Rolling volatility (20-day) — backward-looking. Use causal fill
+        # (ffill + 0.0 for initial NaN) instead of bfill which leaks future data.
         vol = returns.rolling(20).std() * np.sqrt(252)
-        vol = vol.bfill()  # Backfill to handle initial NaN
+        vol = vol.ffill().fillna(0.0)
 
         # Volume features
         if volume is not None:
             # Align volume with returns
             vol_aligned = volume.reindex(returns.index).ffill()
-            vol_change = vol_aligned.pct_change().bfill()  # Backfill initial NaN
+            vol_change = vol_aligned.pct_change().ffill().fillna(0.0)
             # Align all series
             min_len = min(len(returns), len(vol), len(vol_change))
             returns = returns.iloc[-min_len:]
@@ -336,16 +347,70 @@ class HMMStrategy:
             vol = vol.iloc[-min_len:]
             features = np.column_stack([returns.values, vol.values])
 
-        # Standardize — clip inf/nan to prevent sklearn errors
-        from sklearn.preprocessing import StandardScaler
-
+        # Clip inf/nan to prevent sklearn errors (NaN already handled above)
         features = np.nan_to_num(features, nan=0.0, posinf=0.0, neginf=0.0)
-        scaler = StandardScaler()
-        return scaler.fit_transform(features)
+        return features
+
+    def _scale_features(self, features: np.ndarray) -> np.ndarray:
+        """Scale features using the scaler fit during training.
+
+        Uses the stored ``self._scaler`` (fit on training data only).
+        In training (``fit``) the scaler is fit AND transformed; in
+        prediction the stored scaler transforms — no refit on test data,
+        preventing transductive leakage.
+        """
+        if self._scaler is None:
+            raise ValueError("Scaler not fitted. Call fit() first.")
+        return self._scaler.transform(features)
+
+    def _compute_filtered_posteriors(self, features: np.ndarray) -> np.ndarray:
+        """Compute **causal** (filtered) posteriors via the forward algorithm.
+
+        Unlike ``hmmlearn``'s ``score_samples`` which uses the
+        forward-backward algorithm (smoothing — posterior at time *t*
+        depends on observations *t+1...T*, i.e. look-ahead leakage),
+        this computes P(q_t = j | o_0...o_t) — using only observations
+        known at or before time *t*.
+
+        Complexity: O(n × k²) where k = n_components.
+        """
+        if self.model is None:
+            raise ValueError("Model not fitted")
+
+        n_samples, _ = features.shape
+        n_components = self.model.n_components
+
+        # Emission log-probabilities: log P(o_t | q_t = j)
+        emis = self.model._compute_log_likelihood(features)  # (n, k)
+
+        # Forward pass (log-scale).  Add small epsilon to avoid log(0)=-inf
+        # when some states are unreachable (startprob_/transmat_ have zeros).
+        eps = 1e-300
+        log_alpha = np.full((n_samples, n_components), -np.inf)
+        log_alpha[0] = np.log(np.maximum(self.model.startprob_, eps)) + emis[0]
+        log_transmat = np.log(np.maximum(self.model.transmat_, eps))
+        for t in range(1, n_samples):
+            for j in range(n_components):
+                log_alpha[t, j] = (
+                    logsumexp(log_alpha[t - 1] + log_transmat[:, j]) + emis[t, j]
+                )
+
+        # Normalize each row → filtered posteriors
+        log_norm = logsumexp(log_alpha, axis=1, keepdims=True)
+        filtered = np.exp(log_alpha - log_norm)
+        return filtered
 
     def fit(self, prices: pd.Series, volume: pd.Series | None = None) -> "HMMStrategy":
-        """Fit HMM to historical data"""
+        """Fit HMM to historical data.
+
+        The StandardScaler is fit on the training data and stored, so
+        that prediction uses the *same* scaler — no transductive leakage.
+        """
         features = self._prepare_features(prices, volume)
+
+        # Fit scaler on training data ONLY, then transform for training
+        self._scaler = StandardScaler()
+        features = self._scaler.fit_transform(features)
 
         self.model = hmm.GaussianHMM(
             n_components=self.n_regimes,
@@ -404,13 +469,15 @@ class HMMStrategy:
             raise ValueError("Model not fitted. Call fit() first.")
 
         features = self._prepare_features(prices, volume)
+        features = self._scale_features(features)  # reuse training scaler
         if len(features) == 0:
-            return RegimeState(MarketRegime.UNKNOWN, 0, {}, datetime.now())
+            return RegimeState(MarketRegime.UNKNOWN, 0, {}, datetime.now(UTC))
 
-        # Get current state probabilities
-        logprob, posteriors = self.model.score_samples(features)
-        self._predict_cache = posteriors  # Cache for batch access
+        # Causal forward-filter posteriors — NO look-ahead.
+        # (Replaces score_samples which used forward-backward smoothing.)
+        posteriors = self._compute_filtered_posteriors(features)
         current_probs = posteriors[-1]
+        self._predict_cache = posteriors  # Cache for batch access
 
         # Most likely regime
         regime_idx = np.argmax(current_probs)
@@ -434,7 +501,7 @@ class HMMStrategy:
             regime=regime,
             confidence=confidence,
             probability=prob_dict,
-            timestamp=datetime.now(),
+            timestamp=datetime.now(UTC),
             expected_duration=expected_dur,
         )
 
@@ -446,22 +513,28 @@ class HMMStrategy:
     ) -> list[RegimeState]:
         """Predict regime for ALL bars at once — O(n) instead of O(n) × O(n).
 
-        Calls score_samples once on the full feature set, then extracts
-        per-bar posteriors from the cached result.
+        Uses causal forward-filter posteriors (not forward-backward smoothing),
+        so each bar's regime state depends only on observations up to that bar.
         """
         if not self._fitted:
             raise ValueError("Model not fitted. Call fit() first.")
         if self.model is None:
             raise ValueError("Model not fitted. Call fit() first.")
 
-        if self._predict_cache is not None:
+        features = self._prepare_features(prices, volume)
+        features = self._scale_features(features)  # reuse training scaler
+        if len(features) == 0:
+            return []
+
+        # Cache validation: invalidate when input length changes to prevent
+        # stale cache reuse across different prediction windows.
+        if self._predict_cache is not None and self._predict_cache_len == len(features):
             posteriors = self._predict_cache
         else:
-            features = self._prepare_features(prices, volume)
-            if len(features) == 0:
-                return []
-            _, posteriors = self.model.score_samples(features)
+            # Causal forward-filter posteriors — NO look-ahead.
+            posteriors = self._compute_filtered_posteriors(features)
             self._predict_cache = posteriors
+            self._predict_cache_len = len(features)
 
         transmat = self.model.transmat_
         states: list[RegimeState] = []
@@ -481,7 +554,7 @@ class HMMStrategy:
             )
             states.append(RegimeState(
                 regime=regime, confidence=confidence,
-                probability=prob_dict, timestamp=datetime.now(),
+                probability=prob_dict, timestamp=datetime.now(UTC),
                 expected_duration=expected_dur,
             ))
         return states
@@ -515,10 +588,17 @@ class GMMStrategy:
         self.model: Optional[GaussianMixture] = None
         self._regime_names: list[MarketRegime] = []
         self._fitted = False
+        self._scaler = None  # Fit on training data only
 
     def _prepare_features(self, returns: pd.Series) -> np.ndarray:
-        """Prepare features: returns, rolling vol, skew, kurtosis"""
-        # Rolling statistics
+        """Prepare raw features: returns, rolling vol, skew, kurtosis.
+
+        PIT-safe: uses ``dropna()`` (not ``bfill``), so only bars with a
+        full rolling window are included. Returns unscaled features;
+        scaling is performed by ``_scale_features`` using the scaler
+        fitted during ``fit()``.
+        """
+        # Rolling statistics — backward-looking, dropna handles warmup
         roll_vol = returns.rolling(20).std() * np.sqrt(252)
         roll_skew = returns.rolling(60).skew()
         roll_kurt = returns.rolling(60).kurt()
@@ -533,15 +613,28 @@ class GMMStrategy:
             }
         ).dropna()
 
-        # Standardize
-        from sklearn.preprocessing import StandardScaler
+        # Clip inf/nan for numerical safety
+        features = np.nan_to_num(df.to_numpy(), nan=0.0, posinf=0.0, neginf=0.0)
+        return features
 
-        scaler = StandardScaler()
-        return scaler.fit_transform(df)
+    def _scale_features(self, features: np.ndarray) -> np.ndarray:
+        """Scale features using the scaler fit during training only.
+
+        Uses the stored ``self._scaler``. In training (``fit``) the scaler
+        is fit AND transformed; in prediction it transforms — no refit on
+        test data, preventing transductive leakage.
+        """
+        if self._scaler is None:
+            raise ValueError("Scaler not fitted. Call fit() first.")
+        return self._scaler.transform(features)
 
     def fit(self, returns: pd.Series) -> "GMMStrategy":
-        """Fit GMM to returns"""
+        """Fit GMM to returns. Fits scaler on training data only."""
         features = self._prepare_features(returns)
+
+        # Fit scaler on training data ONLY, then transform for training
+        self._scaler = StandardScaler()
+        features = self._scaler.fit_transform(features)
 
         self.model = GaussianMixture(
             n_components=self.n_regimes,
@@ -550,7 +643,6 @@ class GMMStrategy:
         )
         self.model.fit(features)
         self._fitted = True
-        self._predict_cache = None  # Clear cache after refit
         self._assign_regime_names(features)
         return self
 
@@ -586,8 +678,9 @@ class GMMStrategy:
             raise ValueError("Model not fitted")
 
         features = self._prepare_features(returns)
+        features = self._scale_features(features)  # reuse training scaler
         if len(features) == 0:
-            return RegimeState(MarketRegime.UNKNOWN, 0, {}, datetime.now())
+            return RegimeState(MarketRegime.UNKNOWN, 0, {}, datetime.now(UTC))
 
         probs = self.model.predict_proba(features[-1:].reshape(1, -1))[0]
         regime_idx = np.argmax(probs)
@@ -603,7 +696,7 @@ class GMMStrategy:
             regime=regime,
             confidence=confidence,
             probability=prob_dict,
-            timestamp=datetime.now(),
+            timestamp=datetime.now(UTC),
         )
 
     def predict_all(self, returns: pd.Series) -> list[RegimeState]:
@@ -614,6 +707,7 @@ class GMMStrategy:
             raise ValueError("Model not fitted")
 
         features = self._prepare_features(returns)
+        features = self._scale_features(features)  # reuse training scaler
         if len(features) == 0:
             return []
 
@@ -630,7 +724,7 @@ class GMMStrategy:
                 prob_dict[label] = prob_dict.get(label, 0.0) + float(probability)
             states.append(RegimeState(
                 regime=regime, confidence=confidence,
-                probability=prob_dict, timestamp=datetime.now(),
+                probability=prob_dict, timestamp=datetime.now(UTC),
             ))
         return states
 
@@ -659,15 +753,15 @@ class RuleBasedStrategy:
     def detect(self, prices: pd.Series) -> RegimeState:
         """Detect regime using simple rules"""
         if len(prices) < self.slow_ma:
-            return RegimeState(MarketRegime.UNKNOWN, 0, {}, datetime.now())
+            return RegimeState(MarketRegime.UNKNOWN, 0, {}, datetime.now(UTC))
 
         # Moving averages
         fast = prices.rolling(self.fast_ma).mean().iloc[-1]
         slow = prices.rolling(self.slow_ma).mean().iloc[-1]
 
         # Returns
-        returns = np.log(prices / prices.shift(1)).dropna()
-        vol = returns.rolling(self.vol_window).std().iloc[-1] * np.sqrt(252)
+        returns = np.log(prices / prices.shift(1))
+        vol = returns.rolling(self.vol_window).std().fillna(0.0).iloc[-1] * np.sqrt(252)
 
         # Momentum
         momentum = (
@@ -699,7 +793,7 @@ class RuleBasedStrategy:
             regime=regime,
             confidence=probs[regime],
             probability=probs,
-            timestamp=datetime.now(),
+            timestamp=datetime.now(UTC),
             features={
                 "fast_ma": float(fast),
                 "slow_ma": float(slow),
@@ -717,19 +811,22 @@ class RuleBasedStrategy:
         """
         n = len(prices)
         if n < self.slow_ma:
-            return [RegimeState(MarketRegime.UNKNOWN, 0, {}, datetime.now()) for _ in range(n)]
+            return [RegimeState(MarketRegime.UNKNOWN, 0, {}, datetime.now(UTC)) for _ in range(n)]
 
         # Compute rolling indicators once
         fast_ma_series = prices.rolling(self.fast_ma).mean()
         slow_ma_series = prices.rolling(self.slow_ma).mean()
-        returns = np.log(prices / prices.shift(1)).dropna()
+        # Compute returns WITHOUT dropna -- keep full index aligned with prices.
+        # rolling().std() on the first vol_window bars yields NaN which we
+        # fill with 0.0 (causal: no future leakage).
+        returns = np.log(prices / prices.shift(1))
         vol_series = returns.rolling(self.vol_window).std() * np.sqrt(252)
-        vol_series = vol_series.bfill()
+        vol_series = vol_series.fillna(0.0)  # causal warmup fill, index-aligned  # causal: no future leakage
 
         states: list[RegimeState] = []
         for i in range(n):
             if i < self.slow_ma - 1:
-                states.append(RegimeState(MarketRegime.UNKNOWN, 0, {}, datetime.now()))
+                states.append(RegimeState(MarketRegime.UNKNOWN, 0, {}, datetime.now(UTC)))
                 continue
 
             fast = fast_ma_series.iloc[i] if i < len(fast_ma_series) else np.nan
@@ -737,7 +834,7 @@ class RuleBasedStrategy:
             vol = vol_series.iloc[i] if i < len(vol_series) else np.nan
 
             if pd.isna(fast) or pd.isna(slow) or pd.isna(vol):
-                states.append(RegimeState(MarketRegime.UNKNOWN, 0, {}, datetime.now()))
+                states.append(RegimeState(MarketRegime.UNKNOWN, 0, {}, datetime.now(UTC)))
                 continue
 
             momentum = (prices.iloc[i] / prices.iloc[max(0, i - self.fast_ma)] - 1) if i >= self.fast_ma else 0
@@ -761,7 +858,7 @@ class RuleBasedStrategy:
 
             states.append(RegimeState(
                 regime=regime, confidence=probs[regime], probability=probs,
-                timestamp=datetime.now(),
+                timestamp=datetime.now(UTC),
             ))
 
         return states
@@ -800,10 +897,23 @@ class HybridRegimeDetector:
         if RegimeMethod.RULE_BASED in self.methods:
             self._detectors[RegimeMethod.RULE_BASED] = RuleBasedStrategy()
 
-    def detect(self, prices: pd.Series, volume: pd.Series | None = None) -> RegimeState:
-        """Aggregate predictions from all methods"""
+    def detect(
+        self, prices: pd.Series, volume: pd.Series | None = None,
+        training_cutoff: int | None = None,
+    ) -> RegimeState:
+        """Aggregate predictions from all methods.
+
+        PIT-safe: when training_cutoff is provided, detectors are
+        initialized (fit) on prices.iloc[:training_cutoff] only.
+        """
         if not self._detectors:
-            self.initialize(prices, volume)
+            if training_cutoff is not None:
+                self.initialize(
+                    prices.iloc[:training_cutoff],
+                    volume.iloc[:training_cutoff] if volume is not None else None,
+                )
+            else:
+                self.initialize(prices, volume)
 
         votes: dict[MarketRegime, float] = defaultdict(float)
 
@@ -837,22 +947,32 @@ class HybridRegimeDetector:
             regime=final_regime,
             confidence=confidence,
             probability=probs,
-            timestamp=datetime.now(),
+            timestamp=datetime.now(UTC),
         )
 
         self._history.append(state)
         return state
 
     def detect_all(
-        self, prices: pd.Series, volume: pd.Series | None = None
+        self, prices: pd.Series, volume: pd.Series | None = None,
+        training_cutoff: int | None = None,
     ) -> list[RegimeState]:
-        """Aggregate predictions from all methods for ALL bars at once — O(n).
+        """Aggregate predictions from all methods for ALL bars at once -- O(n).
 
         Each sub-detector computes all-bar predictions in one batch call,
         then results are aggregated per bar.
+
+        PIT-safe: when training_cutoff is provided, all sub-detectors
+        are initialized (fit) on prices.iloc[:training_cutoff] only.
         """
         if not self._detectors:
-            self.initialize(prices, volume)
+            if training_cutoff is not None:
+                self.initialize(
+                    prices.iloc[:training_cutoff],
+                    volume.iloc[:training_cutoff] if volume is not None else None,
+                )
+            else:
+                self.initialize(prices, volume)
 
         n = len(prices)
         votes_list: list[dict[MarketRegime, float]] = [
@@ -867,7 +987,7 @@ class HybridRegimeDetector:
                 all_states = detector.predict_all(returns)
                 # GMM features have fewer bars due to dropna; pad
                 pad = n - len(all_states)
-                all_states = [RegimeState(MarketRegime.UNKNOWN, 0, {}, datetime.now())] * pad + all_states
+                all_states = [RegimeState(MarketRegime.UNKNOWN, 0, {}, datetime.now(UTC))] * pad + all_states
             elif method == RegimeMethod.RULE_BASED:
                 all_states = detector.detect_all(prices)
             else:
@@ -892,7 +1012,7 @@ class HybridRegimeDetector:
                 regime=final_regime,
                 confidence=confidence,
                 probability=probs,
-                timestamp=datetime.now(),
+                timestamp=datetime.now(UTC),
             ))
 
         self._history.extend(states)
