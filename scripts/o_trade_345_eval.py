@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
-"""O-TRADE-3/4/5: T3A, T4A, T5A, T5B evaluation scenarios.
+"""O-TRADE-1/2/3/4/5: T1B, T1C, T3A, T4A, T5A, T5B evaluation scenarios.
 
+T1B: Strategy hit rate analysis (mean hit_rate >= 0.45 across all pool strategies)
+T1C: Strategy correlation matrix (diversification: correlated pairs identified for portfolio construction)
 T3A: Market vs Limit decision matrix (volatility × liquidity → optimal order type)
 T4A: Confidence scaling effectiveness (LLM-adjusted Sharpe > baseline)
 T5A: Cross-asset diversification benefit (BTC + ETH + BNB portfolio > individual)
-T5B: Kill switch recovery quality (bars to positive Sharpe ≤ 30)
+T5B: Kill switch recovery quality (bars to positive Sharpe <= 30)
 
 Usage:
     python scripts/o_trade_345_eval.py --start-date 2020-03-09 --end-date 2020-03-21 --bars 300
+    python scripts/o_trade_345_eval.py --start-date 2020-01-01 --end-date 2026-09-21 --bars 300 --symbols BTC/USDT
+    python scripts/o_trade_345_eval.py --start-date 2020-01-01 --end-date 2026-09-21 --timeframe daily --bars 1500 --symbols BTC/USDT
 """
 from __future__ import annotations
 
@@ -504,6 +508,194 @@ def t5a_correlation_adjusted_sizing(
     }
 
 
+# ─── T1B: Strategy Hit Rate Analysis ────────────────────────────────────────
+
+def _generate_strategy_signals(signal_class, params: dict, df: pl.DataFrame) -> np.ndarray:
+    """Instantiate strategy, compute indicators, generate signals as numpy array."""
+    strategy = signal_class(params=params)
+    df_ind = strategy.compute_indicators(df)
+    sigs = strategy.generate_signals(df_ind)
+    return sigs.to_numpy()
+
+
+def t1b_hit_rate_analysis(
+    symbol: str, start_date: str, end_date: str, n_bars: int = 1000
+) -> dict[str, Any]:
+    """T1B: Strategy hit rate analysis.
+
+    Hit rate = fraction of non-zero signals where next-bar return moves
+    in the same direction as the signal.
+
+    Assert: mean(hit_rate[strategy]) >= 0.45 for all strategies with > 20 signals.
+    """
+    df = load_symbol_daily(symbol, start_date, end_date, n_bars)
+    if df.height < 50:
+        return {"name": "T1B: Strategy hit rate analysis", "pass": False, "error": "Insufficient data"}
+
+    df = df.sort("timestamp")
+    close = df["close"].to_numpy()
+    high = df["high"].to_numpy()
+    low = df["low"].to_numpy()
+    mid = (high + low) / 2.0
+    bar_range = (high - low) / mid
+    returns = np.diff(close) / close[:-1]
+
+    # Import strategy classes
+    from trading_agent.strategies.canonical.candidates import (
+        _CANDIDATE_CLASSES, _CANDIDATE_WARMUPS,
+    )
+
+    strategy_names = list(_CANDIDATE_CLASSES.keys())
+    hit_rates: dict[str, float] = {}
+    n_signals: dict[str, int] = {}
+
+    # Warmup: use the max warmup across all strategies
+    max_warmup = max(_CANDIDATE_WARMUPS.values())
+    # Truncate to have enough bars after warmup
+    if df.height < max_warmup + 10:
+        max_warmup = df.height // 2
+
+    for sname in strategy_names:
+        cls = _CANDIDATE_CLASSES[sname]
+        warmup = min(_CANDIDATE_WARMUPS[sname], max_warmup)
+        try:
+            sigs = _generate_strategy_signals(cls, {}, df)
+        except Exception:
+            # Some strategies may require special params or data columns
+            hit_rates[sname] = 0.0
+            n_signals[sname] = 0
+            continue
+
+        # Align: signal[t] → return[t+1]
+        sigs_valid = sigs[warmup:]
+        rets_aligned = returns[warmup:-1] if len(returns) > len(sigs_valid) else returns[warmup:warmup + len(sigs_valid)]
+
+        min_len = min(len(sigs_valid), len(rets_aligned))
+        sigs_valid = sigs_valid[:min_len]
+        rets_aligned = rets_aligned[:min_len]
+
+        # Hit rate: fraction of non-zero signals where return moves in signal direction
+        non_zero = sigs_valid != 0
+        n_sig = int(non_zero.sum())
+        if n_sig < 5:
+            hit_rates[sname] = 0.0
+            n_signals[sname] = n_sig
+            continue
+
+        correct = ((sigs_valid > 0) & (rets_aligned > 0)) | ((sigs_valid < 0) & (rets_aligned < 0))
+        hit_rate = float(correct[non_zero].sum() / n_sig)
+        hit_rates[sname] = round(hit_rate, 4)
+        n_signals[sname] = n_sig
+
+    # Only evaluate strategies with > 20 signals
+    valid_rates = [hr for sn, hr in hit_rates.items() if n_signals[sn] > 20]
+    valid_names = [sn for sn in hit_rates if n_signals[sn] > 20]
+    mean_hit_rate = float(np.mean(valid_rates)) if valid_rates else 0.0
+
+    passed = bool(mean_hit_rate >= 0.45)
+    return {
+        "name": "T1B: Strategy hit rate analysis",
+        "symbol": symbol,
+        "n_bars": df.height,
+        "warmup_bars": max_warmup,
+        "n_strategies": len(strategy_names),
+        "hit_rates": {sn: {"hit_rate": hr, "n_signals": n_signals[sn]}
+                       for sn, hr in sorted(hit_rates.items(), key=lambda x: -x[1]) if n_signals[sn] > 0},
+        "mean_hit_rate": round(mean_hit_rate, 4),
+        "n_strategies_evaluated": len(valid_rates),
+        "pass": passed,
+        "assert": "mean(hit_rate[strategy]) >= 0.45 for strategies with > 20 signals",
+    }
+
+
+# ─── T1C: Strategy Correlation Matrix ───────────────────────────────────────
+
+def t1c_strategy_correlation_matrix(
+    symbol: str, start_date: str, end_date: str, n_bars: int = 1000
+) -> dict[str, Any]:
+    """T1C: Strategy correlation matrix.
+
+    Compute Pearson correlation between strategy shadow returns
+    (signal[t-1] x return[t]) for all candidate strategies.
+    Uses strategy-specific warmup to maximize signal coverage.
+
+    Assert: corr[bbands][range_mean_reversion] > 0.3; corr[ma_adx][ma_vol_target] > 0.5
+    """
+    df = load_symbol_daily(symbol, start_date, end_date, n_bars)
+    if df.height < 50:
+        return {"name": "T1C: Strategy correlation matrix", "pass": False, "error": "Insufficient data"}
+
+    df = df.sort("timestamp")
+    close = df["close"].to_numpy()
+    returns = np.diff(close) / close[:-1]
+
+    from trading_agent.strategies.canonical.candidates import (
+        _CANDIDATE_CLASSES, _CANDIDATE_WARMUPS,
+    )
+
+    strategy_names = list(_CANDIDATE_CLASSES.keys())
+
+    shadow_returns: dict[str, np.ndarray] = {}
+    for sname in strategy_names:
+        cls = _CANDIDATE_CLASSES[sname]
+        warmup = _CANDIDATE_WARMUPS[sname]
+        if df.height <= warmup + 10:
+            continue
+        try:
+            sigs = _generate_strategy_signals(cls, {}, df)
+            sigs_valid: np.ndarray = sigs[warmup:-1].astype(float)
+            rets_aligned = returns[warmup:warmup + len(sigs_valid)]
+            min_len = min(len(sigs_valid), len(rets_aligned))
+            sr = sigs_valid[:min_len] * rets_aligned[:min_len]
+            if np.std(sr) > 1e-10:
+                shadow_returns[sname] = sr
+        except Exception:
+            continue
+
+    if len(shadow_returns) < 3:
+        return {"name": "T1C: Strategy correlation matrix", "pass": False, "error": "Not enough strategies generated non-zero variance signals"}
+
+    syms = list(shadow_returns.keys())
+    min_sr_len = min(len(sr) for sr in shadow_returns.values())
+    aligned_returns = np.array([shadow_returns[s][:min_sr_len] for s in syms])
+
+    corr_matrix: dict[str, dict[str, float]] = {}
+    for i, s1 in enumerate(syms):
+        corr_matrix[s1] = {}
+        for j, s2 in enumerate(syms):
+            if i == j:
+                corr_matrix[s1][s2] = 1.0
+            elif j > i:
+                r = float(np.corrcoef(aligned_returns[i], aligned_returns[j])[0, 1])
+                if math.isnan(r):
+                    r = 0.0
+                corr_matrix[s1][s2] = round(r, 3)
+            else:
+                prev = corr_matrix[s2].get(s1, 0.0)
+                corr_matrix[s1][s2] = round(prev, 3)
+
+    assertions = {}
+    checks: list[bool] = []
+    for s1, s2, threshold in [("bbands", "range_mean_reversion", 0.3), ("ma_adx", "ma_vol_target", 0.5)]:
+        if s1 in syms and s2 in syms:
+            corr_val = corr_matrix[s1][s2]
+            ok = corr_val > threshold
+            checks.append(ok)
+            assertions[f"corr[{s1}][{s2}] > {threshold}"] = f"{corr_val} ({'PASS' if ok else 'FAIL'})"
+
+    passed = all(checks) if checks else False
+    return {
+        "name": "T1C: Strategy correlation matrix",
+        "symbol": symbol,
+        "n_bars": df.height,
+        "n_strategies": len(syms),
+        "strategy_sharpes": {s: round(float(np.mean(shadow_returns[s]) / max(np.std(shadow_returns[s]), 1e-10) * math.sqrt(252)), 4) for s in syms},
+        "correlation_assertions": assertions,
+        "pass": passed,
+        "assert": "corr[bbands][range_mean_reversion] > 0.3 AND corr[ma_adx][ma_vol_target] > 0.5",
+    }
+
+
 # ─── T5B: Kill Switch Recovery Quality ─────────────────────────────────────
 
 def t5b_kill_switch_recovery(df: pl.DataFrame) -> dict[str, Any]:
@@ -690,8 +882,9 @@ def t2c_equity_slippage_calibration(
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="O-TRADE-3/4/5: T3A, T4A, T5A, T5B"
+        description="O-TRADE-1/2/3/4/5: T1B, T1C, T3A, T4A, T5A, T5B"
         + "\n  T5A-1: Use --timeframe daily + --t5a-symbols for cross-asset-class (crypto + equities)"
+        + "\n  T1B/T1C: Hit rate + correlation matrix across all candidate strategies"
         + "\n  T2C: Use --t2c-symbol SYMBOL for equity slippage calibration"
     )
     parser.add_argument("--start-date", required=True)
@@ -730,6 +923,8 @@ def main() -> int:
     t5a_symbols = [s.strip() for s in args.t5a_symbols.split(",")]
 
     results = {
+        "T1B": t1b_hit_rate_analysis(symbol, args.start_date, args.end_date, n_bars=args.bars),
+        "T1C": t1c_strategy_correlation_matrix(symbol, args.start_date, args.end_date, n_bars=args.bars),
         "T3A": t3a_order_type_matrix(df_main),
         "T4A": t4a_confidence_scaling(df_main, symbol),
         "T5A": t5a_cross_asset_diversification(

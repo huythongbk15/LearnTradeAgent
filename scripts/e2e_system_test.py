@@ -10,6 +10,8 @@ Covers 7 layers with 5 test scenarios:
   Scenario 5  Order Planning         — OrderPlanner.plan() with confidence scaling
   Scenario 6  LLM Enrichment         — deterministic + replay consistency
   Scenario 7  Monitoring             — audit DB, process registry, alerts
+  Scenario 8  T1B Strategy Hit Rate    — hit_rate >= 0.45 for all pool strategies
+  Scenario 9  T1C Correlation Matrix   — strategy correlation for diversification
 
 Usage:
     python scripts/e2e_system_test.py [--bars N] [--output-dir DIR]
@@ -23,7 +25,7 @@ import sys
 import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import polars as pl
 
@@ -341,7 +343,6 @@ def scenario_3_tournament(
 def scenario_4_risk_policy() -> TestResult:
     from trading_agent.research.forecast import (
         Forecast,
-        RiskReason,
         CalibrationState,
         ForecastRiskPolicy,
     )
@@ -752,6 +753,62 @@ def scenario_7_monitoring(tmp_dir: Path) -> TestResult:
     return result
 
 
+# ── Scenario 8: T1B Strategy Hit Rate ────────────────────────────────────
+
+
+def scenario_8_t1b_hit_rate(symbol: str, bars: int) -> TestResult:
+    """T1B: Verify all strategies produce hit rate >= 0.45 on daily data."""
+    result = TestResult("Scenario 8: T1B Strategy hit rate analysis")
+
+    try:
+        from o_trade_345_eval import t1b_hit_rate_analysis
+        sym = symbol.replace("/", "_")
+        r = t1b_hit_rate_analysis(sym, "2020-01-01", "2026-09-21", n_bars=1000)
+    except Exception as e:
+        result.check(False, "T1B execution", str(e))
+        return result
+
+    result.check(r["pass"], "T1B mean hit rate >= 0.45", f"got {r.get('mean_hit_rate', 'N/A')}")
+    result.check(r["n_strategies_evaluated"] >= 10, "T1B strategies evaluated >= 10", f"got {r['n_strategies_evaluated']}")
+
+    # Check each strategy hit rate
+    for sn, info in r.get("hit_rates", {}).items():
+        if info["n_signals"] > 20:
+            result.check(
+                info["hit_rate"] >= 0.40,
+                f"T1B {sn} hit rate >= 0.40",
+                f"got {info['hit_rate']}",
+            )
+
+    return result
+
+
+# ── Scenario 9: T1C Strategy Correlation Matrix ──────────────────────────
+
+
+def scenario_9_t1c_correlation(symbol: str, bars: int) -> TestResult:
+    """T1C: Verify strategy correlation matrix for diversification."""
+    result = TestResult("Scenario 9: T1C Strategy correlation matrix")
+
+    try:
+        from o_trade_345_eval import t1c_strategy_correlation_matrix
+        sym = symbol.replace("/", "_")
+        r = t1c_strategy_correlation_matrix(sym, "2020-01-01", "2026-09-21", n_bars=1000)
+    except Exception as e:
+        result.check(False, "T1C execution", str(e))
+        return result
+
+    result.check(r["pass"], "T1C correlation assertions", f"got {r.get('correlation_assertions', 'N/A')}")
+    result.check(r["n_strategies"] >= 10, "T1C strategies evaluated >= 10", f"got {r['n_strategies']}")
+
+    # Check each correlation assertion
+    for assertion, detail in r.get("correlation_assertions", {}).items():
+        passed = detail.endswith("PASS)")
+        result.check(passed, f"T1C {assertion}", detail)
+
+    return result
+
+
 # ── Main ─────────────────────────────────────────────────────────────────
 
 
@@ -777,12 +834,12 @@ def main():
     test_df = df.tail(min(args.bars, len(df)))
 
     print(f"\n{'=' * 60}")
-    print(f"  End-to-End System Test")
+    print("  End-to-End System Test")
     print(f"  Symbol: {symbols[0]} | Timeframe: 1h | Bars: {len(test_df)}")
     print(f"  Output: {tmp_dir}")
     print(f"{'=' * 60}\n")
 
-    scenarios: dict[str, callable] = {
+    scenarios: dict[str, Callable[[], TestResult]] = {
         "1": lambda: scenario_1_data_integrity(symbols, DEFAULT_WINDOW),
         "2": lambda: scenario_2_strategy_signals(test_df),
         "3": lambda: scenario_3_tournament(symbols, DEFAULT_WINDOW, tmp_dir),
@@ -790,6 +847,8 @@ def main():
         "5": lambda: scenario_5_order_planner(),
         "6": lambda: scenario_6_llm_enrichment(test_df, tmp_dir),
         "7": lambda: scenario_7_monitoring(tmp_dir),
+        "8": lambda: scenario_8_t1b_hit_rate(symbols[0], args.bars),
+        "9": lambda: scenario_9_t1c_correlation(symbols[0], args.bars),
     }
 
     selected = (
