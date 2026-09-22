@@ -40,8 +40,11 @@ def add_regime_indicators(
     df = df.with_columns(atr_expr.alias("atr"))
 
     # ATR percentile (using rolling quantile approximation)
+    # FIX: shift(1) before rolling to use only PAST bars — avoids look-ahead
+    # where current bar's ATR contaminates the percentile window.
     atr_pctl_expr = (
         pl.col("atr")
+        .shift(1)
         .rolling_map(
             lambda s: (s < s[-1]).sum() / len(s) if len(s) > 1 else 0.5,
             window_size=lookback,
