@@ -2,32 +2,40 @@
   "name": "T8A-B-multi: Multi-crash recovery validation",
   "crash_events_evaluated": 4,
   "per_crash": {
-    "2020-03-09": {
+    "Black Thursday": {
       "crash_min_confidence": 0.7,
       "crash_avg_confidence": 0.975,
       "portfolio_sharpe": 3.8955,
       "crash_correlation": 0.938,
+      "confidence_recovery_bars": 0,
+      "drawdown_recovery_bars": 16,
       "pass": true
     },
-    "2020-05-10": {
+    "DeFi Summer Exit": {
       "crash_min_confidence": 0.7,
       "crash_avg_confidence": 0.9703,
       "portfolio_sharpe": 3.8955,
       "crash_correlation": 0.6188,
+      "confidence_recovery_bars": 0,
+      "drawdown_recovery_bars": 6,
       "pass": true
     },
-    "2022-05-09": {
+    "Terra/Luna Collapse": {
       "crash_min_confidence": 0.7,
       "crash_avg_confidence": 0.95,
       "portfolio_sharpe": 3.8955,
       "crash_correlation": 0.8775,
+      "confidence_recovery_bars": 0,
+      "drawdown_recovery_bars": 0,
       "pass": true
     },
-    "2021-05-17": {
+    "China Mining Ban": {
       "crash_min_confidence": 1.0,
       "crash_avg_confidence": 1.1,
       "portfolio_sharpe": 3.8955,
       "crash_correlation": 0.5018,
+      "confidence_recovery_bars": 0,
+      "drawdown_recovery_bars": 1,
       "pass": true
     }
   },

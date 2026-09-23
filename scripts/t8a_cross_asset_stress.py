@@ -664,6 +664,78 @@ def run_cross_asset_stress(
     print(f"  Exposure reductions: {n_exposure_reductions}")
     print(f"  Demotions: {n_demotions}")
 
+    # ── Recovery analysis: post-crash confidence + equity recovery ─────────
+    RECOVERY_BARS_ANALYSIS = 60  # Bars after crash_end to track
+
+    post_crash_confidence_curve: list[float] = []
+    post_crash_equity_curve: list[float] = []
+    confidence_recovery_bars: int = RECOVERY_BARS_ANALYSIS
+    drawdown_recovery_bars: int = RECOVERY_BARS_ANALYSIS
+
+    if crash_end_dt is not None and portfolio_daily_returns is not None:
+        # Find bar index just after crash_end
+        post_crash_start_idx = None
+        for i in range(WARMUP_BARS, len(symbol_data[SYMBOLS[0]])):
+            bar_time = symbol_data[SYMBOLS[0]].row(i, named=True)["timestamp"]
+            if hasattr(bar_time, "replace"):
+                if bar_time.tzinfo is None:
+                    bar_time = bar_time.replace(tzinfo=ZoneInfo("UTC"))
+            else:
+                from datetime import datetime as _dt
+                bar_time = _dt.fromtimestamp(bar_time.astype("int64") / 1e9, tz=ZoneInfo("UTC"))
+
+            if bar_time > crash_end_dt:
+                post_crash_start_idx = i
+                break
+
+        if post_crash_start_idx is not None:
+            # Track post-crash confidence recovery
+            for j in range(post_crash_start_idx, min(post_crash_start_idx + RECOVERY_BARS_ANALYSIS, len(all_market_contexts) + WARMUP_BARS)):
+                ctx_idx = j - WARMUP_BARS
+                if 0 <= ctx_idx < len(all_market_contexts):
+                    post_crash_confidence_curve.append(
+                        all_market_contexts[ctx_idx].confidence_adjustment
+                    )
+
+            # Track post-crash equity recovery from continuous equity path
+            # Build full equity path from portfolio_daily_returns
+            full_eq_path: np.ndarray = np.cumprod(1.0 + np.array(portfolio_daily_returns))
+            # Find pre-crash peak (all-time high before post-crash)
+            pre_crash_eq_end_idx = post_crash_start_idx - WARMUP_BARS
+            if pre_crash_eq_end_idx > 0:
+                pre_crash_peak = float(np.max(full_eq_path[:pre_crash_eq_end_idx]))
+            else:
+                pre_crash_peak = 1.0
+            # Post-crash equity path (continuous from pre-crash)
+            post_crash_eq = full_eq_path[pre_crash_eq_end_idx:
+                                          min(pre_crash_eq_end_idx + RECOVERY_BARS_ANALYSIS,
+                                              len(full_eq_path))]
+            post_crash_equity_curve = [float(x) for x in post_crash_eq]
+
+            # Find bars to recovery: confidence returns to >= 0.95 (near-normal)
+            for idx, conf in enumerate(post_crash_confidence_curve):
+                if conf >= 0.95:
+                    confidence_recovery_bars = idx
+                    break
+
+            # Find bars to drawdown recovery: 50% of loss recovered within window
+            # For severe crashes (Terra/Luna, Black Thursday), full recovery can take months
+            if len(post_crash_eq) > 0:
+                crash_trough = float(np.min(post_crash_eq))
+                total_loss = pre_crash_peak - crash_trough
+                target_recovery = pre_crash_peak - total_loss * 0.5 if total_loss > 0 else pre_crash_peak * 0.8
+                for idx, eq in enumerate(post_crash_equity_curve):
+                    if eq >= target_recovery:
+                        drawdown_recovery_bars = idx
+                        break
+            else:
+                drawdown_recovery_bars = RECOVERY_BARS_ANALYSIS
+
+    recovery_assertions = {
+        "confidence_recovers_60_bars": confidence_recovery_bars < RECOVERY_BARS_ANALYSIS,
+        "drawdown_recovers_60_bars": drawdown_recovery_bars < RECOVERY_BARS_ANALYSIS,
+    }
+
     # ── Assertions ─────────────────────────────────────────────────────────
 
     assertions = {
@@ -672,6 +744,7 @@ def run_cross_asset_stress(
         "max_drawdown_within_limit": port_max_dd >= -0.60,  # -60% max acceptable
         "confidence_syncs_on_crash": min_crash_conf <= 1.0,  # Confidence drops in crisis
     }
+    assertions.update(recovery_assertions)
 
     passed = all(assertions.values())
 
@@ -680,7 +753,7 @@ def run_cross_asset_stress(
         "symbols": list(SYMBOLS),
         "date_range": f"{START_DATE} → {END_DATE}",
         "crash_window": f"{crash_start} → {crash_end}",
-        "crash_label": crash_label or "Black Thursday",
+        "crash_label": crash_label or "crash_window",
         "results_dir": str(tmp_dir),
         "n_bars_evaluated": len(portfolio_daily_returns),
         "portfolio_sharpe": round(float(port_sharpe), 4),
@@ -697,7 +770,14 @@ def run_cross_asset_stress(
         "exposure_reductions": n_exposure_reductions,
         "demotions": n_demotions,
         "assertions": {k: bool(v) for k, v in assertions.items()},
-        "assert": "portfolio_sharpe > -0.50 AND crash_correlation >= 0.50 AND confidence_syncs_on_crash",
+        "assert": "portfolio_sharpe > -0.50 AND crash_correlation >= 0.50 AND confidence_syncs_on_crash AND recovery_60_bars",
+        "recovery_analysis": {
+            "post_crash_confidence_curve": post_crash_confidence_curve,
+            "post_crash_equity_curve": post_crash_equity_curve,
+            "confidence_recovery_bars": confidence_recovery_bars,
+            "drawdown_recovery_bars": drawdown_recovery_bars,
+            "recovery_window_bars": RECOVERY_BARS_ANALYSIS,
+        },
         "pass": passed,
     }
 
@@ -733,25 +813,29 @@ def run_multi_crash_validation() -> dict[str, object]:
     for crash_start, crash_end, label in CRASH_WINDOWS:
         print(f"\n  Running: {label} ({crash_start} → {crash_end})...")
         result = run_cross_asset_stress(
-            crash_start, crash_end, tmp_subdir=tmp_dir / label.replace(" ", "_")
+            crash_start, crash_end, tmp_subdir=tmp_dir / label.replace(" ", "_"), crash_label=label
         )
         results.append(result)
 
     # Aggregate recovery metrics
     recovery_stats: dict[str, dict[str, object]] = {}
     for r in results:
-        label = str(r.get("crash_window", "")).split(" → ")[0] if " → " in str(r.get("crash_window", "")) else "unknown"
+        # Use crash_label for key, fall back to start date
+        label = str(r.get("crash_label", "")) or str(r.get("crash_window", "")).split(" → ")[0]
         # Extract from crash_min_confidence and crash_avg_confidence
         crash_conf_min = float(cast(float, r["crash_min_confidence"]))
         crash_conf_avg = float(cast(float, r["crash_avg_confidence"]))
 
-        # Compute recovery: confidence should return above 1.0 post-crash
-        # This is approximate — we check if the crash confidence was suppressed
+        # Also extract recovery stats
+        recovery = r.get("recovery_analysis", {})
+        recovery_dict = cast(dict[str, object], recovery) if recovery else {}
         recovery_stats[label] = {
             "crash_min_confidence": crash_conf_min,
             "crash_avg_confidence": crash_conf_avg,
             "portfolio_sharpe": float(cast(float, r["portfolio_sharpe"])),
             "crash_correlation": float(cast(float, r["crash_correlation"])),
+            "confidence_recovery_bars": recovery_dict.get("confidence_recovery_bars", "N/A"),
+            "drawdown_recovery_bars": recovery_dict.get("drawdown_recovery_bars", "N/A"),
             "pass": bool(r.get("pass", False)),
         }
 
