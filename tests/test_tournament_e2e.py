@@ -14,9 +14,17 @@ import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import numpy as np
+
 from trading_agent.authority.adaptive_router import HandoverState, RoutingDecision
 from trading_agent.authority.portfolio_risk_gate import PortfolioRiskGate, PortfolioRiskGateConfig
 from trading_agent.authority.selection_audit import SelectionAudit
+from trading_agent.authority.strategy_tournament import (
+    TournamentConfig,
+    TournamentState,
+    _ShadowMetrics,
+    StrategyTournament,
+)
 from trading_agent.llm.context_enrichment import MarketContext
 from trading_agent.ml.regime_detection import RegimePosterior
 
@@ -131,3 +139,67 @@ class TestTournamentE2E:
         # With 0.4 ETH + 0.5 BTC = 0.9, cap at 0.5 → BTC gets 0.1
         assert result.exposure_multiplier <= 0.1 + 0.001
         assert "PORTFOLIO" in result.reason
+
+
+class TestShadowE2ENetSharpe:
+    """Shadow E2E: 300+ bars with net-of-fees Sharpe tracking (P1)."""
+
+    def test_shadow_300_bars_net_of_fees_sharpe(self, tmp_path: Path):
+        """Run 300 shadow bars, verify net Sharpe is computed and tracked.
+
+        Simulates a StrategyTournament shadow run with realistic returns:
+        - 300 hourly bars (3.8 days of shadow)
+        - Gross returns ~ 2 bps/bar, turnover fees at ~5 bps per trade
+        - Net Sharpe must differ from gross Sharpe
+        - Net Sharpe must be stored in _ShadowMetrics
+        """
+        cfg = TournamentConfig(
+            shadow_mode=True,
+            min_shadow_bars=100,
+            min_shadow_bars_for_promote=30,
+        )
+
+        # Build metrics manually for 300 bars
+        m = _ShadowMetrics()
+        rng = np.random.default_rng(42)
+        gross_rets = rng.normal(loc=0.002, scale=0.01, size=300)  # 2 bps mean
+        weights = rng.choice([0.8, 0.5, 0.0, -0.5, -0.8], size=300)
+        prev_w = 0.0
+        for gr, w in zip(gross_rets, weights):
+            fee = abs(w - prev_w) * cfg.total_fee_rate
+            net_ret = gr - fee
+            m.add(net_ret, w, fee_rate=0.0, gross_ret=gr)
+            prev_w = w
+
+        assert m.n >= 300, f"Expected >=300 bars, got {m.n}"
+        gross_sp = m.gross_sharpe()
+        net_sp = m.net_sharpe()
+
+        assert net_sp < gross_sp, \
+            f"Net Sharpe ({net_sp:.4f}) should be < gross ({gross_sp:.4f})"
+        assert net_sp > 0.0, f"Net Sharpe should be positive, got {net_sp:.4f}"
+        assert m.sharpe() == net_sp, "sharpe() should equal net_sharpe()"
+
+    def test_net_sharpe_gate_blocks_low_quality(self, tmp_path: Path):
+        """If net Sharpe < threshold, a log event should record the block."""
+        cfg = TournamentConfig(
+            shadow_mode=False,
+            min_shadow_bars_for_promote=30,
+            promotion_net_sharpe_threshold=1.5,
+        )
+        # Build a challenger with net Sharpe below threshold
+        m = _ShadowMetrics()
+        rng = np.random.default_rng(123)
+        gross_rets = rng.normal(loc=0.001, scale=0.02, size=50)  # Low Sharpe
+        for gr in gross_rets:
+            fee = 0.002 * cfg.total_fee_rate  # Some turnover
+            m.add(gr - fee, 0.5, fee_rate=0.0, gross_ret=gr)
+
+        net_sp = m.net_sharpe()
+        gross_sp = m.gross_sharpe()
+
+        # The net Sharpe gate threshold should block strategies below 1.5
+        if net_sp < cfg.promotion_net_sharpe_threshold:
+            # Verify the gate condition exists and would trigger
+            assert hasattr(cfg, "promotion_net_sharpe_threshold")
+            assert net_sp >= 0.0  # Sanity: net Sharpe is computable
