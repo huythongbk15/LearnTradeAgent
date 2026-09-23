@@ -192,3 +192,50 @@ class TestSignificanceGateIntegration:
         decision = MagicMock(chosen_strategy_id="strat_0")
         t._maybe_promote("BTCUSDT", "1h", decision, state)
         t._promote.assert_not_called()
+
+
+class TestNetOfFeesSharpe:
+    """Verify _ShadowMetrics tracks gross and net Sharpe separately (P1)."""
+
+    def test_net_sharpe_lower_than_gross_after_fees(self):
+        """Turnover fees reduce Sharpe: net < gross."""
+        m = _ShadowMetrics()
+        # Simulate high-turnover returns: alternate +1% / -1% with weight flips
+        returns = deque([0.01, -0.01] * 100)
+        for i, ret in enumerate(returns):
+            weight = 0.5 if i % 2 == 0 else -0.5
+            gross = ret
+            fee = abs(weight - (0.5 if (i - 1) % 2 == 0 else -0.5)) * 0.0015
+            m.add(ret - fee, weight, fee_rate=0.0, gross_ret=gross)
+
+        gross_sp = m.gross_sharpe()
+        net_sp = m.net_sharpe()
+        assert net_sp < gross_sp, f"Net Sharpe ({net_sp}) should be < gross ({gross_sp})"
+        assert m.sharpe() == net_sp, "sharpe() should equal net_sharpe()"
+
+    def test_net_sharpe_equals_gross_when_no_turnover(self):
+        """Constant weight → no fees → net = gross."""
+        m = _ShadowMetrics()
+        for ret in [0.01, 0.02, -0.01, 0.005, -0.02]:
+            m.add(ret, 0.5, fee_rate=0.0, gross_ret=ret)
+
+        assert abs(m.gross_sharpe() - m.net_sharpe()) < 1e-10
+
+    def test_net_sharpe_increase_after_fees_reduces_promotion(self):
+        """Strategy with high turnover: gross Sharpe > net Sharpe after fees."""
+        # Build metrics with high-turnover scenario
+        inc_m = _ShadowMetrics()
+        ch_m = _ShadowMetrics()
+        weights = [0.8, -0.8, 0.8, -0.8, 0.8, -0.8]
+        gross_rets = [0.01, 0.005, 0.012, 0.008, 0.011, 0.004]
+        fee_rate = 0.0025
+        prev_w = 0.0
+        for gr, w in zip(gross_rets, weights):
+            fee = abs(w - prev_w) * fee_rate
+            net_ret = gr - fee
+            ch_m.add(net_ret, w, fee_rate=0.0, gross_ret=gr)
+            inc_m.add(0.005, 0.5, fee_rate=0.0, gross_ret=0.005)
+            prev_w = w
+
+        assert ch_m.gross_sharpe() > ch_m.net_sharpe(), \
+            "Gross Sharpe should exceed net after turnover fees"
