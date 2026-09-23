@@ -466,7 +466,7 @@ Tất cả command quan trọng dùng `scripts/qwenpaw_control/controlled_exec.p
 | AC11 | VERIFIED | Agent / reviewer pending | 22/09 | scripts/evidence_ac11.py (9 checks) | Shared capital budget, pro-rata scaling, liquidity cap |
 | AC12 | VERIFIED | Agent / reviewer pending | 22/09 | scripts/evidence_ac12.py (11 checks) | Protection/fallback/telemetry recovery |
 | AC13 | VERIFIED | Agent / reviewer pending | 22/09 | scripts/evidence_ac13.py (8 checks) | Approval consumer fail-closed |
-| AC14 | NOT_VERIFIED | — | — | — | Adaptive comparison (research-level study) |
+| AC14 | VERIFIED | Agent / reviewer pending | 23/09 | scripts/evidence_ac14.py (12 checks) | Adaptive router vs fixed incumbent; independent oracle, same data/cost |
 | AC15 | VERIFIED | Agent / reviewer pending | 22/09 | scripts/evidence_ac15.py (11 checks) | Deterministic replay, seed reproducibility |
 
 Evidence index của mỗi lần chạy phải gồm: run ID, AC/case IDs, base/final revision, dirty diff hash nếu có, data/config/params/cost/policy hashes, seed, timeframe/window, entrypoint và command, exit code, counts/skip/warnings, metric/tolerance/verdict, output hashes, reviewer và giới hạn. File tạm `/tmp` không đủ làm release evidence; lưu dưới output riêng theo run ID theo convention repo, không chứa secrets. Không commit artifact dung lượng lớn hay checkpoint nội bộ vào Git nếu chưa có chính sách lưu trữ được đồng ý.
@@ -479,7 +479,7 @@ Evidence index của mỗi lần chạy phải gồm: run ID, AC/case IDs, base/
 
 Nếu không có strategy đạt, có thể hoàn thành engineering bằng fixture an toàn nhưng phải giữ real-policy promotion NO-GO. Nếu thiếu dữ liệu chưa thấy, môi trường, chữ ký hoặc thời gian soak, ghi BLOCKED/PENDING cụ thể; không giả lập bằng chứng để đóng phase.
 
-**Giao việc đầu tiên:** AC01–AC13 và AC15 deterministic replay đã VERIFIED qua evidence scripts độc lập. AC14 còn lại — cần study adaptive comparison (Workstream D). Reviewer tái kiểm negative cases và artifact trên revision mới nhất trước khi review.
+**Giao việc đầu tiên:** AC01–AC13, AC15, và AC14 adaptive comparison đã VERIFIED qua evidence scripts độc lập. Reviewer tái kiểm negative cases và artifact trên revision mới nhất trước khi review.
 
 ### 9.8. AC01 — lần kiểm chứng 22/09/2026
 

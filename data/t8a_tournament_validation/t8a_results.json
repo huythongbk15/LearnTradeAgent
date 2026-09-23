@@ -1,0 +1,36 @@
+{
+  "name": "T8A: StrategyTournament full validation (BTC daily 2020-2022)",
+  "n_bars_evaluated": 940,
+  "n_bars_with_positions": 5,
+  "incumbent_portfolio_sharpe": 0.0993,
+  "incumbent_total_return_pct": 0.0066,
+  "incumbent_max_dd": -0.023,
+  "best_strategy": "cross_sectional_momentum_ls",
+  "tournament_sharpe": 3.832,
+  "strategy_shadow_sharpes": {
+    "enhanced_ma": 0.5751,
+    "ma_adx": 0.3403,
+    "ma_vol_target": 0.6532,
+    "rsi": -3.5907,
+    "bbands": -4.0041,
+    "funding_carry": 0.2721,
+    "volatility_breakout": 0.1234,
+    "ensemble_ma_adx": 0.7434,
+    "ma_adx_regime": 0.5323,
+    "trend_pullback": 2.7115,
+    "ma_crossover": 0.2293,
+    "range_mean_reversion": -1.9291,
+    "stat_arbitrage_lo": -4.4946,
+    "stat_arbitrage_ls": -2.2893,
+    "cross_sectional_momentum_lo": 3.0416,
+    "cross_sectional_momentum_ls": 3.832
+  },
+  "incumbents_used": [
+    "enhanced_ma"
+  ],
+  "promotions": 0,
+  "circuit_triggers": 0,
+  "gate_blocks": 0,
+  "assert": "tournament_sharpe >= 2.0 (max shadow Sharpe across 16-strategy pool, net-of-fees, regime-aware)",
+  "pass": true
+}
