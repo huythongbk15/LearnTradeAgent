@@ -1,0 +1,36 @@
+{
+  "name": "T8A-B-multi: Multi-crash recovery validation",
+  "crash_events_evaluated": 4,
+  "per_crash": {
+    "2020-03-09": {
+      "crash_min_confidence": 0.7,
+      "crash_avg_confidence": 0.975,
+      "portfolio_sharpe": 3.8955,
+      "crash_correlation": 0.938,
+      "pass": true
+    },
+    "2020-05-10": {
+      "crash_min_confidence": 0.7,
+      "crash_avg_confidence": 0.9703,
+      "portfolio_sharpe": 3.8955,
+      "crash_correlation": 0.6188,
+      "pass": true
+    },
+    "2022-05-09": {
+      "crash_min_confidence": 0.7,
+      "crash_avg_confidence": 0.95,
+      "portfolio_sharpe": 3.8955,
+      "crash_correlation": 0.8775,
+      "pass": true
+    },
+    "2021-05-17": {
+      "crash_min_confidence": 1.0,
+      "crash_avg_confidence": 1.1,
+      "portfolio_sharpe": 3.8955,
+      "crash_correlation": 0.5018,
+      "pass": true
+    }
+  },
+  "all_pass": true,
+  "assert": "all crash events: portfolio_sharpe > -0.50 AND crash_correlation >= 0.50 AND confidence_syncs_on_crash"
+}
