@@ -9,7 +9,12 @@ data/raw/**
 data/processed/**
 !data/raw/.gitkeep
 !data/processed/.gitkeep
-data/execution/
+data/t8a_cross_asset_stress/policies/
+data/t8a_cross_asset_stress/router_state/
+data/t8a_cross_asset_stress/tournament_state/
+data/t8a_cross_asset_stress/audit/
+data/t8a_cross_asset_stress/router_audit.jsonl
+data/t8a_cross_asset_stress/audit.jsonl
 
 # Logs
 logs/

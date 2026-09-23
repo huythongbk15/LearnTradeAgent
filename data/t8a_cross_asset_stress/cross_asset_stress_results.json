@@ -1,0 +1,49 @@
+{
+  "name": "T8A-B: Cross-asset correlation stress test (BTC+ETH+BNB, daily)",
+  "symbols": [
+    "BTC_USDT",
+    "ETH_USDT",
+    "BNB_USDT"
+  ],
+  "date_range": "2020-01-01 \u2192 2022-11-30",
+  "crash_window": "2020-03-09 \u2192 2020-03-17",
+  "n_bars_evaluated": 440,
+  "portfolio_sharpe": 4.1919,
+  "portfolio_total_return_pct": 31.5577,
+  "portfolio_max_dd": -0.1562,
+  "per_symbol_sharpe": {
+    "BTC_USDT": 3.1735,
+    "ETH_USDT": 4.4757,
+    "BNB_USDT": 2.5843
+  },
+  "crash_period_bars": 9,
+  "crash_correlation": 0.9619,
+  "overall_correlation": 0.4574,
+  "crash_avg_confidence": 1.0667,
+  "crash_min_confidence": 0.7,
+  "crash_strategy_sharpes": {
+    "enhanced_ma": 8.7511,
+    "ma_vol_target": 8.7511,
+    "funding_carry": -5.051,
+    "volatility_breakout": 5.051,
+    "trend_pullback": 8.6958,
+    "range_mean_reversion": 5.051,
+    "stat_arbitrage_lo": 0.9256,
+    "stat_arbitrage_ls": 5.051,
+    "cross_sectional_momentum_lo": 4.0303,
+    "cross_sectional_momentum_ls": 4.0303,
+    "rsi": -4.4676,
+    "bbands": -9.6094
+  },
+  "circuit_triggers": 1,
+  "exposure_reductions": 1141,
+  "demotions": 5,
+  "assertions": {
+    "portfolio_sharpe_survives": true,
+    "crash_correlation_spike": true,
+    "max_drawdown_within_limit": true,
+    "confidence_syncs_on_crash": true
+  },
+  "assert": "portfolio_sharpe > -0.50 AND crash_correlation >= 0.50 AND confidence_syncs_on_crash",
+  "pass": true
+}
