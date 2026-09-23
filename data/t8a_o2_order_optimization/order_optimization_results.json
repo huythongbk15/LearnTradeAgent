@@ -1,0 +1,236 @@
+{
+  "t3a_matrix": {
+    "name": "T3A+: Order optimization matrix (6 order types \u00d7 4 market regimes)",
+    "symbols": [
+      "BTC_USDT",
+      "ETH_USDT",
+      "BNB_USDT"
+    ],
+    "date_range": "2020-01-01 \u2192 2022-11-30",
+    "timeframe": "daily",
+    "n_bars": 800,
+    "order_types": [
+      "market",
+      "limit",
+      "stop_limit",
+      "twap",
+      "vwap",
+      "iceberg"
+    ],
+    "regimes": [
+      "normal",
+      "high_vol",
+      "crash",
+      "illiquid"
+    ],
+    "regime_distribution_pct": {
+      "normal": 0.635,
+      "high_vol": 0.235,
+      "crash": 0.1125,
+      "illiquid": 0.0175
+    },
+    "matrix_slippage_bps": {
+      "normal": {
+        "market": 1.9684,
+        "limit": 0.6209,
+        "stop_limit": 1.6213,
+        "twap": 0.7931,
+        "vwap": 2.7351,
+        "iceberg": 0.4197
+      },
+      "high_vol": {
+        "market": 3.0218,
+        "limit": 0.9769,
+        "stop_limit": 2.8038,
+        "twap": 1.2546,
+        "vwap": 3.1153,
+        "iceberg": 0.9983
+      },
+      "crash": {
+        "market": 7.3749,
+        "limit": 2.8951,
+        "stop_limit": 5.6773,
+        "twap": 2.8717,
+        "vwap": 5.1883,
+        "iceberg": 2.8125
+      },
+      "illiquid": {
+        "market": 1.108,
+        "limit": 0.4927,
+        "stop_limit": 0.8285,
+        "twap": 0.4101,
+        "vwap": 1.8296,
+        "iceberg": 0.1339
+      }
+    },
+    "fill_rates": {
+      "normal": {
+        "market": 1.0,
+        "limit": 0.4724,
+        "stop_limit": 0.5667,
+        "twap": 0.95,
+        "vwap": 0.9,
+        "iceberg": 0.3412
+      },
+      "high_vol": {
+        "market": 1.0,
+        "limit": 0.2259,
+        "stop_limit": 0.3261,
+        "twap": 0.95,
+        "vwap": 0.9,
+        "iceberg": 0.2361
+      },
+      "crash": {
+        "market": 1.0,
+        "limit": 0.0838,
+        "stop_limit": 0.1517,
+        "twap": 0.95,
+        "vwap": 0.9,
+        "iceberg": 0.1313
+      },
+      "illiquid": {
+        "market": 1.0,
+        "limit": 0.7841,
+        "stop_limit": 0.8331,
+        "twap": 0.95,
+        "vwap": 0.9,
+        "iceberg": 0.4427
+      }
+    },
+    "optimal_order_type_per_regime": {
+      "normal": "iceberg",
+      "high_vol": "limit",
+      "crash": "iceberg",
+      "illiquid": "iceberg"
+    },
+    "rankings": {
+      "normal": [
+        [
+          "iceberg",
+          0.4197
+        ],
+        [
+          "limit",
+          0.6209
+        ],
+        [
+          "twap",
+          0.7931
+        ],
+        [
+          "stop_limit",
+          1.6213
+        ],
+        [
+          "market",
+          1.9684
+        ],
+        [
+          "vwap",
+          2.7351
+        ]
+      ],
+      "high_vol": [
+        [
+          "limit",
+          0.9769
+        ],
+        [
+          "iceberg",
+          0.9983
+        ],
+        [
+          "twap",
+          1.2546
+        ],
+        [
+          "stop_limit",
+          2.8038
+        ],
+        [
+          "market",
+          3.0218
+        ],
+        [
+          "vwap",
+          3.1153
+        ]
+      ],
+      "crash": [
+        [
+          "iceberg",
+          2.8125
+        ],
+        [
+          "twap",
+          2.8717
+        ],
+        [
+          "limit",
+          2.8951
+        ],
+        [
+          "vwap",
+          5.1883
+        ],
+        [
+          "stop_limit",
+          5.6773
+        ],
+        [
+          "market",
+          7.3749
+        ]
+      ],
+      "illiquid": [
+        [
+          "iceberg",
+          0.1339
+        ],
+        [
+          "twap",
+          0.4101
+        ],
+        [
+          "limit",
+          0.4927
+        ],
+        [
+          "stop_limit",
+          0.8285
+        ],
+        [
+          "market",
+          1.108
+        ],
+        [
+          "vwap",
+          1.8296
+        ]
+      ]
+    },
+    "baseline_avg_slippage_bps": 2.8091,
+    "optimized_avg_slippage_bps": 0.8148,
+    "improvement_bps": 1.9943,
+    "assertions": {
+      "slippage_below_5bps": true,
+      "improvement_positive": true,
+      "market_suboptimal_in_high_vol": true,
+      "market_suboptimal_in_crash": true,
+      "limit_suboptimal_in_crash": true
+    },
+    "assert": "optimized_slippage < 5 bps AND improvement > 0 AND regime-optimized order type \u2260 market in crash",
+    "pass": true
+  },
+  "bridge_alignment": {
+    "name": "T3A+: AdaptiveExecutionBridge alignment check",
+    "bridge_slippage_bps": 2.0,
+    "bridge_spread_bps": 1.0,
+    "matrix_market_normal_bps": 1.9684,
+    "expected_bps": 2.0,
+    "alignment_error_bps": 0.03,
+    "alignment_ok": true,
+    "assert": "alignment_error < 5.0 bps"
+  },
+  "pass": true
+}
