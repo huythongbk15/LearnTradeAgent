@@ -245,3 +245,9 @@ REVIEW_*.md
 scripts/data/
 data/e2e_test_output/
 O_TRADE_2_TODO.md
+
+# Workstream B runtime artifacts
+data/wvo/
+data/execution/
+out.json
+*_CONTINUE.md
