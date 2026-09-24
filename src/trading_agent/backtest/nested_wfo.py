@@ -3061,8 +3061,16 @@ def run_nested_wfo(
             inner_selection_freezes.append(freeze)
 
             # Check if outer fold was already evaluated with this freeze (idempotent replay)
+            artifact_path = _outer_artifact_path(
+                out_root, freeze.freeze_id, fold_id,
+                pair=freeze.symbol, strategy=freeze.strategy_id,
+            )
+            import sys as _sys
+            print(f"DEBUG-IDEMPOTENCY: freeze={freeze.freeze_id[:12]} fold={fold_id} "
+                  f"artifact_path={artifact_path} exists={artifact_path.exists()}", file=_sys.stderr, flush=True)
             existing_artifact = _find_existing_outer_artifact(
-                out_root, freeze.freeze_id, fold_id
+                out_root, freeze.freeze_id, fold_id,
+                pair=freeze.symbol, strategy=freeze.strategy_id,
             )
             if existing_artifact:
                 # Replay: return existing artifact, don't re-run
