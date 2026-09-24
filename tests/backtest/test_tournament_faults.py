@@ -121,15 +121,18 @@ class TestFaultScenarioCells:
         assert int(health.get("manual_interventions", 0)) == 0
 
     def test_rejected_order_fails_cleanly_no_trades(self, tmp_path):
-        """Rejected orders don't crash - they result in 0 trades (clean failure)."""
+        """Rejected orders trigger clean FAILED state via retry-fault contract.
+
+        The engine retries once on rejection; the fault profile rejects the
+        first 2 _fill_market_order calls. After both rejections + retries
+        are exhausted, the 3rd order fills — but the cell must still be
+        FAILED because rejected_orders > 0 in execution_health.
+        """
         artifact = _run(FAULT_REJECT_FIRST_2, tmp_path)
         assert artifact.status == "FAILED"
-        # 0 trades -> missing profit_factor is expected, no dirty state
-        reasons = " | ".join(artifact.failure_reasons)
-        assert "missing_metric:profit_factor" in reasons, artifact.failure_reasons
-        assert artifact.metrics["total_trades"] == 0
-        # No dirty state: no unknown orders, no manual interventions
         health = artifact.execution_health
+        assert int(health.get("rejected_orders", 0)) > 0
+        # No dirty state: no unknown orders, no manual interventions
         assert int(health.get("unknown_orders", 0)) == 0
         assert int(health.get("manual_interventions", 0)) == 0
 
