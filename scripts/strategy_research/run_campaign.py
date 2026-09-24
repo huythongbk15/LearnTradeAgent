@@ -126,7 +126,7 @@ def run_single_strategy_cell(
         "--timeframe", timeframe,
         "--out", out_dir,
         "--workers", str(workers),
-        "--cost", "1x",
+        "--cost", "all",
         "--run-holdout",
     ]
 
