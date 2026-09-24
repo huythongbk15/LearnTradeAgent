@@ -33,7 +33,7 @@ from trading_agent.backtest.nested_wfo import FinalHoldoutManifest
 # C1: holdout_id matches independent hash
 now = datetime.now(timezone.utc).isoformat()
 manifest = FinalHoldoutManifest(
-    strategy_id="volatility_breakout_v2",
+    strategy_id="volatility_breakout",  # catalog S3, was _v2
     symbol="ADA_USDT",
     timeframe="1h",
     holdout_start_bar=27000,
@@ -47,7 +47,7 @@ manifest = FinalHoldoutManifest(
 )
 
 oracle_payload = {
-    "strategy_id": "volatility_breakout_v2",
+    "strategy_id": "volatility_breakout",
     "symbol": "ADA_USDT",
     "timeframe": "1h",
     "holdout_start_bar": 27000,
@@ -91,7 +91,7 @@ except Exception as e:
 
 # C4: verify_integrity detects in-memory tamper
 tampered_manifest = FinalHoldoutManifest(
-    strategy_id="volatility_breakout_v2",
+    strategy_id="volatility_breakout",  # catalog S3, was _v2
     symbol="ADA_USDT",
     timeframe="1h",
     holdout_start_bar=28000,

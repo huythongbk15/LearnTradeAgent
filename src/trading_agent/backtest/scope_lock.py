@@ -35,16 +35,27 @@ if TYPE_CHECKING:
 # Default R04 locked scope (per R00 baseline + R02 canonical authority).
 # These are the ONLY allowed values for a campaign run. Any deviation
 # requires a new scope lock + new manifest.
+#
+# Updated: legacy strategies (rsi/ma_adx/enhanced_ma) replaced with the
+# 8 StrategyCatalog candidates from trading_agent.research.strategy_catalog.
+# Pairs expanded from 3 → 5 to match ResearchProtocol.ASSETS.
 R04_LOCKED_PAIRS: tuple[str, ...] = (
     "BTC/USDT",
     "ETH/USDT",
     "SOL/USDT",
+    "BNB/USDT",
+    "XRP/USDT",
 )
 
 R04_LOCKED_STRATEGIES: tuple[str, ...] = (
-    "rsi",
-    "ma_adx",
-    "enhanced_ma",
+    "trend_pullback",           # S1 — ADX+Fib+MA+vol
+    "range_mean_reversion",     # S2 — VWAP+z-score+BB
+    "volatility_breakout",      # S3 — BB compression+ATR spike
+    "cross_sectional_momentum", # S4 — 60-day relative strength
+    "funding_carry",            # S5 — perp funding rate drift
+    "vol_target",               # S6 — inverse vol targeting + MA
+    "regime_ensemble",          # S7 — probabilistic regime weighting
+    "stat_arbitrage",           # S8 — cointegration + OLS hedge
 )
 
 R04_LOCKED_TIMEFRAME: str = "1h"
@@ -63,9 +74,9 @@ R04_LOCKED_FOLD_GEOMETRY: dict[str, int] = {
 }
 
 R04_LOCKED_BUDGET: dict[str, Any] = {
-    "max_runtime_seconds": 3600,
+    "max_runtime_seconds": 7200,
     "min_oos_trades": 30,
-    "max_cells_per_fold": 12,
+    "max_cells_per_fold": 50,
 }
 
 
@@ -158,7 +169,7 @@ def r04_default_scope() -> CampaignScope:
         cost_scenarios=R04_LOCKED_COST_SCENARIOS,
         fold_geometry=dict(R04_LOCKED_FOLD_GEOMETRY),
         budget=dict(R04_LOCKED_BUDGET),
-        description="R04 default scope: 3 pairs x 3 strategies x 3 cost scenarios",
+        description="R04 default scope: 5 pairs x 8 catalog strategies x 3 cost scenarios",
     )
 
 
