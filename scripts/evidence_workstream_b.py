@@ -575,7 +575,7 @@ def main() -> int:
 
     specs = _build_specs()
     print(f"  Specs: {len(specs)}")
-    n_workers = min(len(specs), 4)
+    n_workers = min(len(specs), int(os.environ.get("WFO_WORKERS", "9")))
     print(f"  Parallel workers: {n_workers}")
 
     t0 = time.time()
