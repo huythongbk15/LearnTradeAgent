@@ -110,8 +110,8 @@ S1_TREND_PULLBACK = StrategySpec(
     },
     complexity="LOW",
     priority="P0",
-    implementation="TODO",
-    code_class=None,
+    implementation="READY",
+    code_class="TrendPullbackStrategy",
 )
 
 # ── Strategy 2: Range Mean Reversion ────────────────────────────────────────
@@ -153,8 +153,8 @@ S2_RANGE_MEAN_REVERSION = StrategySpec(
     },
     complexity="LOW",
     priority="P0",
-    implementation="TODO",  # Close to existing bbands/rsi but with VWAP+z-score
-    code_class=None,
+    implementation="READY",
+    code_class="RangeMeanReversionStrategy",
 )
 
 # ── Strategy 3: Volatility Expansion Breakout ───────────────────────────────
@@ -198,8 +198,8 @@ S3_VOLATILITY_BREAKOUT = StrategySpec(
     },
     complexity="LOW",
     priority="P0",
-    implementation="TODO",
-    code_class=None,
+    implementation="READY",
+    code_class="VolatilityBreakoutStrategy",
 )
 
 # ── Strategy 4: Cross-Sectional Momentum ────────────────────────────────────
@@ -241,8 +241,8 @@ S4_CROSS_SECTIONAL_MOMENTUM = StrategySpec(
     },
     complexity="MEDIUM",
     priority="P1",
-    implementation="TODO",
-    code_class=None,
+    implementation="READY",  # cross-sectional: has _lo and _ls code classes
+    code_class="CrossSectionalMomentumLongOnlyStrategy",
 )
 
 # ── Strategy 5: Funding Rate Carry ──────────────────────────────────────────
@@ -286,8 +286,8 @@ S5_FUNDING_CARRY = StrategySpec(
     },
     complexity="HIGH",
     priority="P1",
-    implementation="TODO",
-    code_class=None,
+    implementation="READY",
+    code_class="FundingCarryStrategy",
 )
 
 # ── Strategy 6: Volatility Targeting ─────────────────────────────────────────
@@ -414,8 +414,8 @@ S8_STAT_ARBITRAGE = StrategySpec(
     },
     complexity="HIGH",
     priority="P1",
-    implementation="TODO",
-    code_class=None,
+    implementation="READY",  # cross-sectional: has _lo and _ls code classes
+    code_class="StatArbitrageLongOnlyStrategy",
 )
 
 

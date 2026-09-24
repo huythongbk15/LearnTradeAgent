@@ -112,8 +112,25 @@ def get_param_grid(
     return SINGLE_ASSET_GRIDS.get(strategy_id, {})
 
 
-def get_strategy_code_name(strategy_id: str) -> str:
-    """Map catalog strategy_id to the code-level registered name."""
+def get_strategy_code_name(strategy_id: str, cs_variant: str | None = None) -> str:
+    """Map catalog strategy_id to the code-level registered name in candidates.py.
+
+    For cross-sectional strategies (S4, S8), the cs_variant parameter resolves
+    the long_only/long_short suffix that candidates.py expects:
+    - cross_sectional_momentum + long_only → cross_sectional_momentum_lo
+    - cross_sectional_momentum + long_short → cross_sectional_momentum_ls
+    - stat_arbitrage + long_only → stat_arbitrage_lo
+    - stat_arbitrage + long_short → stat_arbitrage_ls
+
+    For single-asset strategies with different catalog vs candidate IDs:
+    - vol_target → ma_vol_target
+    - regime_ensemble → regime_switching
+    All others (trend_pullback, range_mean_reversion, etc.) use the same ID.
+    """
+    if cs_variant is not None:
+        suffix = "lo" if cs_variant == "long_only" else "ls"
+        return f"{strategy_id}_{suffix}"
+
     mapping = {
         "vol_target": "ma_vol_target",
         "regime_ensemble": "regime_switching",

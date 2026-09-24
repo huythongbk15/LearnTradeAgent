@@ -95,11 +95,9 @@ def run_single_strategy_cell(
     import subprocess
 
     base_id = strategy_id.split("__")[0]
-    code_name = get_strategy_code_name(base_id)
+    cs_variant = strategy_id.split("__")[1] if "__" in strategy_id else None
+    code_name = get_strategy_code_name(base_id, cs_variant=cs_variant)
     spec = STRATEGY_CATALOG[base_id]
-    cs_variant = None
-    if "__" in strategy_id:
-        cs_variant = strategy_id.split("__")[1]
     param_grid = get_param_grid(base_id, cs_variant=cs_variant)
 
     if not param_grid:
