@@ -35,6 +35,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from trading_agent.llm.context_enrichment import MarketContext
+
 import click
 import polars as pl
 
@@ -167,6 +169,20 @@ def _run_mode(
     result = ModeResult()
     series_dict = {col: df[col].to_list() for col in df.columns}
     rows = df.to_dicts()
+    batch_timestamps: list[datetime] = []
+
+    # Pre-batch-retrieve for replay mode to avoid N SQLite round-trips
+    replay_cache: list[Any] | None = None
+    if mode == "replay" and memory is not None and hasattr(memory, "retrieve_batch"):
+        all_ts: list[datetime] = []
+        for row in rows:
+            bar_ts = row.get("timestamp") or datetime.now(UTC)
+            if hasattr(bar_ts, "replace"):
+                bar_ts = bar_ts.replace(tzinfo=UTC) if bar_ts.tzinfo is None else bar_ts
+            all_ts.append(bar_ts)
+        replay_cache = memory.retrieve_batch(
+            symbol, timeframe, all_ts, deterministic=False
+        )
 
     for idx, row in enumerate(rows):
         try:
@@ -178,22 +194,21 @@ def _run_mode(
                 bar_ts = bar_ts.replace(tzinfo=UTC) if bar_ts.tzinfo is None else bar_ts
 
             if mode == "replay" and memory is not None:
-                ctx_result = enricher.replay(
-                    ctx_obj, indicators=indicators,
-                    bar_timestamp=bar_ts, symbol=symbol,
-                    timeframe=timeframe, memory=memory,
-                )
+                if replay_cache is not None and replay_cache[idx] is not None:
+                    ctx_result = replay_cache[idx]
+                else:
+                    ctx_result = enricher.replay(
+                        ctx_obj, indicators=indicators,
+                        bar_timestamp=bar_ts, symbol=symbol,
+                        timeframe=timeframe, memory=memory,
+                    )
             else:
                 ctx_result = enricher.enrich(
                     ctx_obj, indicators=indicators,
                     symbol=symbol, timeframe=timeframe,
                 )
 
-            if memory is not None:
-                memory.store(
-                    symbol, timeframe, bar_ts, ctx_result,
-                    deterministic=(mode == "llm_off"),
-                )
+            batch_timestamps.append(bar_ts)
 
             result.contexts.append({
                 "bar_index": idx,
@@ -208,7 +223,32 @@ def _run_mode(
             if result.errors <= 3:
                 print(f"  [{mode}] Error at bar {idx}: {sys.exc_info()[1]}", file=sys.stderr)
 
+    if memory is not None and result.contexts and hasattr(memory, "store_batch"):
+        contexts = [
+            # Reconstruct MarketContext from the dict we stored
+            _reconstruct_context(c) for c in result.contexts
+        ]
+        memory.store_batch(
+            entries=contexts,
+            symbol=symbol,
+            timeframe=timeframe,
+            timestamps=batch_timestamps,
+            deterministic=(mode == "llm_off"),
+        )
+
     return result
+
+
+def _reconstruct_context(ctx_dict: dict[str, Any]) -> MarketContext:
+    """Rebuild a MarketContext from per-bar dict for batch storage."""
+    return MarketContext(
+        regime_tags=ctx_dict["regime_tags"],
+        anomaly_flags=ctx_dict["anomaly_flags"],
+        cross_asset_signals={},
+        confidence_adjustment=ctx_dict["confidence_adjustment"],
+        reasoning=ctx_dict["reasoning"],
+        details={},
+    )
 
 
 def _compute_stats(mode_result: ModeResult) -> dict[str, Any]:

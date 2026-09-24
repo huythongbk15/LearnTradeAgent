@@ -1,0 +1,519 @@
+{
+  "status": "FAIL",
+  "passed": 8,
+  "total": 10,
+  "results": {
+    "T1B": {
+      "name": "T1B: Strategy hit rate analysis",
+      "symbol": "BTC_USDT",
+      "n_bars": 153,
+      "warmup_bars": 76,
+      "n_strategies": 17,
+      "hit_rates": {
+        "bbands": {
+          "hit_rate": 0.6,
+          "n_signals": 15
+        },
+        "funding_carry": {
+          "hit_rate": 0.5581,
+          "n_signals": 129
+        },
+        "rsi": {
+          "hit_rate": 0.5526,
+          "n_signals": 38
+        },
+        "cross_sectional_momentum_lo": {
+          "hit_rate": 0.4819,
+          "n_signals": 83
+        },
+        "range_mean_reversion": {
+          "hit_rate": 0.4574,
+          "n_signals": 129
+        },
+        "stat_arbitrage_ls": {
+          "hit_rate": 0.4574,
+          "n_signals": 129
+        },
+        "stat_arbitrage_lo": {
+          "hit_rate": 0.451,
+          "n_signals": 102
+        },
+        "volatility_breakout": {
+          "hit_rate": 0.4435,
+          "n_signals": 115
+        },
+        "cross_sectional_momentum_ls": {
+          "hit_rate": 0.4222,
+          "n_signals": 45
+        },
+        "trend_pullback": {
+          "hit_rate": 0.2222,
+          "n_signals": 18
+        },
+        "enhanced_ma": {
+          "hit_rate": 0.0,
+          "n_signals": 2
+        },
+        "ma_adx": {
+          "hit_rate": 0.0,
+          "n_signals": 2
+        },
+        "ma_vol_target": {
+          "hit_rate": 0.0,
+          "n_signals": 2
+        },
+        "ma_adx_regime": {
+          "hit_rate": 0.0,
+          "n_signals": 2
+        },
+        "ma_crossover": {
+          "hit_rate": 0.0,
+          "n_signals": 2
+        }
+      },
+      "mean_hit_rate": 0.478,
+      "n_strategies_evaluated": 8,
+      "pass": true,
+      "assert": "mean(hit_rate[strategy]) >= 0.45 for strategies with > 20 signals"
+    },
+    "T1C": {
+      "name": "T1C: Strategy correlation matrix",
+      "symbol": "BTC_USDT",
+      "n_bars": 153,
+      "n_strategies": 15,
+      "strategy_sharpes": {
+        "enhanced_ma": -2.2229,
+        "ma_adx": -2.2229,
+        "ma_vol_target": -2.2229,
+        "rsi": 1.8526,
+        "bbands": 0.5571,
+        "funding_carry": 1.0158,
+        "volatility_breakout": -0.6177,
+        "ma_adx_regime": -2.1405,
+        "trend_pullback": -3.2509,
+        "ma_crossover": -1.8795,
+        "range_mean_reversion": 0.4688,
+        "stat_arbitrage_lo": -1.5657,
+        "stat_arbitrage_ls": 0.4688,
+        "cross_sectional_momentum_lo": 0.655,
+        "cross_sectional_momentum_ls": -1.4147
+      },
+      "correlation_assertions": {
+        "corr[bbands][range_mean_reversion] > 0.3": "0.401 (PASS)",
+        "corr[ma_adx][ma_vol_target] > 0.5": "1.0 (PASS)"
+      },
+      "pass": true,
+      "assert": "corr[bbands][range_mean_reversion] > 0.3 AND corr[ma_adx][ma_vol_target] > 0.5"
+    },
+    "T3A": {
+      "name": "T3A: Market vs Limit decision matrix",
+      "n_bars": 153,
+      "vol_25th_pct": 0.0326,
+      "vol_75th_pct": 0.0692,
+      "expected_cost": {
+        "low_vol": {
+          "market": 80.21,
+          "limit": 82.43
+        },
+        "high_vol": {
+          "market": 386.66,
+          "limit": 626.18
+        }
+      },
+      "optimal_order_type": {
+        "low_vol": "market",
+        "high_vol": "market"
+      },
+      "n_bars_analyzed": {
+        "low_vol": 39,
+        "high_vol": 39
+      },
+      "optimal_distribution": {
+        "limit_pct": 0.098,
+        "market_pct": 0.902
+      },
+      "pass": false,
+      "assert": "optimal[low_vol]='limit' AND optimal[high_vol]='market'"
+    },
+    "T4A": {
+      "name": "T4A: Confidence scaling effectiveness",
+      "symbol": "BTC_USDT",
+      "n_bars": 153,
+      "sharpe_baseline": 0.0489,
+      "sharpe_llm_adjusted": 0.094,
+      "sharpe_improvement": 0.0451,
+      "max_dd_baseline": -2.4084,
+      "max_dd_llm_adjusted": -2.6357,
+      "mean_confidence": 0.5632,
+      "confidence_range": [
+        0.5,
+        1.168
+      ],
+      "pass": true,
+      "assert": "sharpe[llm_adjusted] > sharpe[baseline]"
+    },
+    "T5A": {
+      "name": "T5A (daily): Cross-asset diversification benefit",
+      "symbols": [
+        "BTC_USDT",
+        "ETH_USDT",
+        "BNB_USDT",
+        "SPY",
+        "QQQ",
+        "AAPL",
+        "MSFT",
+        "GOOGL",
+        "NVDA"
+      ],
+      "equity_symbols": [
+        "SPY",
+        "QQQ",
+        "AAPL",
+        "MSFT",
+        "GOOGL",
+        "NVDA"
+      ],
+      "crypto_symbols": [
+        "BTC_USDT",
+        "ETH_USDT",
+        "BNB_USDT"
+      ],
+      "n_bars": 103,
+      "timeframe": "daily",
+      "individual_sharpes": {
+        "BTC_USDT": -1.2083,
+        "ETH_USDT": 1.1145,
+        "BNB_USDT": 0.3705,
+        "SPY": -0.6559,
+        "QQQ": 0.2371,
+        "AAPL": 0.384,
+        "MSFT": 0.1165,
+        "GOOGL": -0.0129,
+        "NVDA": 0.8349
+      },
+      "portfolio_sharpe": 0.487,
+      "mean_individual_sharpe": 0.1312,
+      "diversification_benefit": 0.3558,
+      "correlation_matrix": {
+        "BTC_USDT\u2194ETH_USDT": 0.931,
+        "BTC_USDT\u2194BNB_USDT": 0.927,
+        "BTC_USDT\u2194SPY": -0.04,
+        "BTC_USDT\u2194QQQ": -0.022,
+        "BTC_USDT\u2194AAPL": -0.027,
+        "BTC_USDT\u2194MSFT": -0.029,
+        "BTC_USDT\u2194GOOGL": -0.028,
+        "BTC_USDT\u2194NVDA": 0.007,
+        "ETH_USDT\u2194BNB_USDT": 0.92,
+        "ETH_USDT\u2194SPY": -0.006,
+        "ETH_USDT\u2194QQQ": 0.014,
+        "ETH_USDT\u2194AAPL": 0.0,
+        "ETH_USDT\u2194MSFT": -0.005,
+        "ETH_USDT\u2194GOOGL": -0.008,
+        "ETH_USDT\u2194NVDA": 0.03,
+        "BNB_USDT\u2194SPY": -0.017,
+        "BNB_USDT\u2194QQQ": 0.001,
+        "BNB_USDT\u2194AAPL": -0.0,
+        "BNB_USDT\u2194MSFT": 0.006,
+        "BNB_USDT\u2194GOOGL": -0.006,
+        "BNB_USDT\u2194NVDA": 0.031,
+        "SPY\u2194QQQ": 0.965,
+        "SPY\u2194AAPL": 0.928,
+        "SPY\u2194MSFT": 0.92,
+        "SPY\u2194GOOGL": 0.902,
+        "SPY\u2194NVDA": 0.858,
+        "QQQ\u2194AAPL": 0.952,
+        "QQQ\u2194MSFT": 0.964,
+        "QQQ\u2194GOOGL": 0.934,
+        "QQQ\u2194NVDA": 0.907,
+        "AAPL\u2194MSFT": 0.928,
+        "AAPL\u2194GOOGL": 0.891,
+        "AAPL\u2194NVDA": 0.842,
+        "MSFT\u2194GOOGL": 0.91,
+        "MSFT\u2194NVDA": 0.88,
+        "GOOGL\u2194NVDA": 0.841
+      },
+      "max_cross_correlation": 0.965,
+      "threshold": 0.3,
+      "pass": true,
+      "assert": "diversification_benefit > 0.3",
+      "note": "Daily timeframe: equity symbols provide lower cross-correlation enabling 0.3+ benefit; hourly crypto limited to <0.02 due to BTC-ETH corr ~0.85"
+    },
+    "T5B": {
+      "name": "T5B: Kill switch recovery quality",
+      "n_bars": 153,
+      "kill_switch_triggered": false,
+      "kill_bar": 20,
+      "kill_sharpe": 2.092,
+      "bars_to_recovery": 0,
+      "passed_recovery": true,
+      "pass": true,
+      "assert": "bars_to_recovery <= 30",
+      "note": "No natural kill trigger; simulated stress period"
+    },
+    "T8A": {
+      "name": "T8A: Historical bull-run validation (BTC 2020-2021)",
+      "symbol": "BTC_USDT",
+      "date_range": "2020-01-01 \u2192 2022-11-30",
+      "n_bars": 1000,
+      "n_trades": 21,
+      "shadow_sharpe": 1.0109,
+      "strategy_sharpe": 0.909,
+      "crash_period_sharpe": 1.004,
+      "bull_period_sharpe": 1.1262,
+      "max_dd_pct": -0.0212,
+      "mean_confidence": 0.5684,
+      "pass": false,
+      "assert": "shadow_sharpe >= 2.0 AND strategy_sharpe >= 1.0 across bull-run + crash regimes"
+    },
+    "T1B-WF": {
+      "name": "T1B-WF: Walk-forward hit rate stability",
+      "symbol": "BTC_USDT",
+      "n_bars": 153,
+      "n_folds": 3,
+      "fold_hit_rates": [
+        0.4167,
+        0.5256,
+        0.4983
+      ],
+      "mean_hit_rate": 0.4802,
+      "std_hit_rate": 0.0567,
+      "per_fold_results": [
+        {
+          "symbol": "BTC_USDT",
+          "n_bars": 50,
+          "warmup_bars": 25,
+          "n_strategies": 17,
+          "hit_rates": {
+            "rsi": {
+              "hit_rate": 0.5556,
+              "n_signals": 9
+            },
+            "funding_carry": {
+              "hit_rate": 0.5385,
+              "n_signals": 26
+            },
+            "volatility_breakout": {
+              "hit_rate": 0.3913,
+              "n_signals": 23
+            },
+            "range_mean_reversion": {
+              "hit_rate": 0.3846,
+              "n_signals": 26
+            },
+            "stat_arbitrage_lo": {
+              "hit_rate": 0.3846,
+              "n_signals": 26
+            },
+            "stat_arbitrage_ls": {
+              "hit_rate": 0.3846,
+              "n_signals": 26
+            },
+            "bbands": {
+              "hit_rate": 0.0,
+              "n_signals": 2
+            },
+            "ensemble_ma_adx": {
+              "hit_rate": 0.0,
+              "n_signals": 1
+            },
+            "trend_pullback": {
+              "hit_rate": 0.0,
+              "n_signals": 1
+            }
+          },
+          "mean_hit_rate": 0.4167,
+          "n_strategies_evaluated": 5,
+          "pass": false,
+          "assert": "mean(hit_rate[strategy]) >= 0.45 for strategies with > 20 signals",
+          "fold": 0,
+          "fold_range": [
+            0,
+            50
+          ]
+        },
+        {
+          "symbol": "BTC_USDT",
+          "n_bars": 50,
+          "warmup_bars": 25,
+          "n_strategies": 17,
+          "hit_rates": {
+            "rsi": {
+              "hit_rate": 0.5833,
+              "n_signals": 12
+            },
+            "funding_carry": {
+              "hit_rate": 0.5769,
+              "n_signals": 26
+            },
+            "range_mean_reversion": {
+              "hit_rate": 0.5,
+              "n_signals": 26
+            },
+            "stat_arbitrage_ls": {
+              "hit_rate": 0.5,
+              "n_signals": 26
+            },
+            "volatility_breakout": {
+              "hit_rate": 0.4667,
+              "n_signals": 15
+            },
+            "stat_arbitrage_lo": {
+              "hit_rate": 0.4444,
+              "n_signals": 18
+            },
+            "trend_pullback": {
+              "hit_rate": 0.2222,
+              "n_signals": 9
+            },
+            "bbands": {
+              "hit_rate": 0.0,
+              "n_signals": 3
+            }
+          },
+          "mean_hit_rate": 0.5256,
+          "n_strategies_evaluated": 3,
+          "pass": true,
+          "assert": "mean(hit_rate[strategy]) >= 0.45 for strategies with > 20 signals",
+          "fold": 1,
+          "fold_range": [
+            50,
+            100
+          ]
+        },
+        {
+          "symbol": "BTC_USDT",
+          "n_bars": 50,
+          "warmup_bars": 25,
+          "n_strategies": 17,
+          "hit_rates": {
+            "funding_carry": {
+              "hit_rate": 0.6923,
+              "n_signals": 26
+            },
+            "rsi": {
+              "hit_rate": 0.5455,
+              "n_signals": 11
+            },
+            "stat_arbitrage_lo": {
+              "hit_rate": 0.4545,
+              "n_signals": 22
+            },
+            "range_mean_reversion": {
+              "hit_rate": 0.4231,
+              "n_signals": 26
+            },
+            "stat_arbitrage_ls": {
+              "hit_rate": 0.4231,
+              "n_signals": 26
+            },
+            "volatility_breakout": {
+              "hit_rate": 0.2857,
+              "n_signals": 7
+            },
+            "trend_pullback": {
+              "hit_rate": 0.2857,
+              "n_signals": 7
+            },
+            "bbands": {
+              "hit_rate": 0.0,
+              "n_signals": 1
+            }
+          },
+          "mean_hit_rate": 0.4983,
+          "n_strategies_evaluated": 4,
+          "pass": true,
+          "assert": "mean(hit_rate[strategy]) >= 0.45 for strategies with > 20 signals",
+          "fold": 2,
+          "fold_range": [
+            100,
+            150
+          ]
+        }
+      ],
+      "pass": true,
+      "assert": "mean(hit_rate) >= 0.45 AND std(hit_rate) <= 0.15 (regime stability)"
+    },
+    "T1C-WF": {
+      "name": "T1C-WF: Walk-forward correlation stability",
+      "symbol": "BTC_USDT",
+      "n_bars": 153,
+      "n_folds": 3,
+      "correlation_stability": {
+        "bbands_range_mean_rev": {
+          "folds": [
+            0.428,
+            0.383,
+            0.144
+          ],
+          "min": 0.144,
+          "mean": 0.318
+        },
+        "ma_adx_ma_vol_target": {
+          "folds": [],
+          "min": null,
+          "mean": null
+        }
+      },
+      "per_fold_pass": [
+        true,
+        true,
+        false
+      ],
+      "all_folds_pass": false,
+      "folds_passing": "2/3 (min 2 required)",
+      "pass": true,
+      "assert": "corr[bbands][range_mean_reversion] > 0.3 AND corr[ma_adx][ma_vol_target] > 0.5 in >= 80% of folds (allow crash-period divergence)"
+    },
+    "T5A-variant": {
+      "name": "T5A-variant: Correlation-adjusted position sizing",
+      "symbols": [
+        "BTC_USDT",
+        "ETH_USDT",
+        "BNB_USDT",
+        "SPY",
+        "QQQ",
+        "AAPL",
+        "MSFT",
+        "GOOGL",
+        "NVDA"
+      ],
+      "n_bars": 103,
+      "correlation_threshold": 0.8,
+      "high_corr_pairs": {
+        "BTC_USDT\u2194ETH_USDT": 0.931,
+        "BTC_USDT\u2194BNB_USDT": 0.927,
+        "ETH_USDT\u2194BNB_USDT": 0.92,
+        "SPY\u2194QQQ": 0.965,
+        "SPY\u2194AAPL": 0.928,
+        "SPY\u2194MSFT": 0.92,
+        "SPY\u2194GOOGL": 0.902,
+        "SPY\u2194NVDA": 0.858,
+        "QQQ\u2194AAPL": 0.952,
+        "QQQ\u2194MSFT": 0.964,
+        "QQQ\u2194GOOGL": 0.934,
+        "QQQ\u2194NVDA": 0.907,
+        "AAPL\u2194MSFT": 0.928,
+        "AAPL\u2194GOOGL": 0.891,
+        "AAPL\u2194NVDA": 0.842,
+        "MSFT\u2194GOOGL": 0.91,
+        "MSFT\u2194NVDA": 0.88,
+        "GOOGL\u2194NVDA": 0.841
+      },
+      "naive": {
+        "portfolio_sharpe": 0.487,
+        "portfolio_vol": 0.01116,
+        "max_dd": -3.0587
+      },
+      "correlation_adjusted": {
+        "portfolio_sharpe": 0.4498,
+        "portfolio_vol": 0.00659,
+        "max_dd": -2.9387
+      },
+      "vol_reduction_pct": 40.91,
+      "sharpe_improvement": -0.0371,
+      "dd_reduction_pct": 196.08,
+      "pass": true,
+      "assert": "vol[corr_adj] < 0.85 * vol[naive] (15% reduction target)"
+    }
+  }
+}

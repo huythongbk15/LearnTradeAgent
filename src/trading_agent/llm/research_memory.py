@@ -152,6 +152,71 @@ class ResearchMemory:
             details=ctx_dict.get("details", {}),
         )
 
+    def store_batch(
+        self,
+        entries: list[MarketContext],
+        symbol: str,
+        timeframe: str,
+        timestamps: list[datetime],
+        deterministic: bool = False,
+    ) -> None:
+        """Batch-store MarketContexts in a single SQLite transaction.
+
+        All rows share the same symbol/timeframe but may have different timestamps.
+        """
+        now_str = datetime.now(UTC).isoformat()
+        rows = []
+        for ts, ctx in zip(timestamps, entries):
+            ctx_dict = ctx.to_dict()
+            ctx_dict["regime_tags"] = ctx.regime_tags
+            ctx_dict["anomaly_flags"] = ctx.anomaly_flags
+            ctx_dict["confidence_adjustment"] = ctx.confidence_adjustment
+            rows.append((
+                symbol,
+                timeframe,
+                ts.isoformat(),
+                json.dumps(ctx_dict, default=str),
+                1 if deterministic else 0,
+                now_str,
+            ))
+        with self._connect() as conn:
+            conn.executemany(
+                """INSERT OR REPLACE INTO market_contexts
+                     (symbol, timeframe, bar_timestamp, context_json, deterministic, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                rows,
+            )
+
+    def retrieve_batch(
+        self,
+        symbol: str,
+        timeframe: str,
+        timestamps: list[datetime],
+        deterministic: bool = False,
+    ) -> list[MarketContext | None]:
+        """Batch-retrieve MarketContexts for given timestamps in one query."""
+        ts_strings = [ts.isoformat() for ts in timestamps]
+        placeholders = ",".join("?" * len(ts_strings))
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"""SELECT bar_timestamp, context_json FROM market_contexts
+                    WHERE symbol = ? AND timeframe = ? AND bar_timestamp IN ({placeholders})
+                      AND deterministic = ?""",
+                (symbol, timeframe, *ts_strings, 1 if deterministic else 0),
+            ).fetchall()
+        ts_map: dict[str, MarketContext] = {}
+        for ts_str, ctx_json in rows:
+            ctx_dict = json.loads(ctx_json)
+            ts_map[ts_str] = MarketContext(
+                regime_tags=ctx_dict.get("regime_tags", {}),
+                anomaly_flags=ctx_dict.get("anomaly_flags", []),
+                cross_asset_signals=ctx_dict.get("cross_asset_signals", {}),
+                confidence_adjustment=ctx_dict.get("confidence_adjustment", 1.0),
+                reasoning=ctx_dict.get("reasoning", ""),
+                details=ctx_dict.get("details", {}),
+            )
+        return [ts_map.get(ts.isoformat()) for ts in timestamps]
+
     def retrieve_range(
         self,
         symbol: str,
