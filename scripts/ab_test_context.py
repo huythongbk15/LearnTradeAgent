@@ -319,7 +319,7 @@ def run_ab_test(
     else:
         print("=== Pass 1: LLM ON (deterministic backtest mode) ===")
         df_llm = df.head(max_bars_llm)
-        enable_backtest_mode(provider="openrouter", model="nvidia/nemotron-3-ultra-550b-a55b:free",
+        enable_backtest_mode(provider="opencode", model="deepseek-v4-flash-free",
                              temperature=0.0, max_tokens=1000, seed=42, use_cache=False)
         # Override timeout to 60s for slower free-tier LLM responses
         import trading_agent.agents.llm as _llm_mod
