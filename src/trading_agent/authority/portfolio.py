@@ -452,11 +452,14 @@ class PortfolioAllocator:
                 budget.symbols[request.symbol] = (
                     budget.symbols.get(request.symbol, 0.0) + allocation
                 )
-            elif request.risk_decision.reduce_only and request.symbol in budget.symbols:
-                # Exit-to-flat (or reduce) frees the previously allocated
-                # budget for this symbol. Without this release the strategy
-                # budget leaks upward on every close and all later entries
-                # get starved to zero allocation.
+            elif request.symbol in budget.symbols and (
+                request.risk_decision.reduce_only
+                # Position closed to flat via normal exit (signal → HOLD/0):
+                # allowed_target_exposure collapses to 0.  Without releasing
+                # the budget the strategy budget leaks upward on every close
+                # and all later entries get starved to zero allocation.
+                or request.risk_decision.allowed_target_exposure <= 0
+            ):
                 released = budget.symbols.pop(request.symbol)
                 budget.allocated_exposure = max(
                     0.0, budget.allocated_exposure - released
