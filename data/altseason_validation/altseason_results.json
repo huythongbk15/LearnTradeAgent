@@ -1,0 +1,266 @@
+{
+  "validation_name": "ALTSEASON 2024-2025 Volatility Pattern Validation",
+  "start_date": "2024-09-01",
+  "end_date": "2025-04-30",
+  "timeframe": "1d",
+  "symbols": [
+    "PEPE_USDT",
+    "WIF_USDT",
+    "BONK_USDT",
+    "BOME_USDT",
+    "FLOKI_USDT",
+    "BRETT_USDT",
+    "BTC_USDT",
+    "ETH_USDT",
+    "SOL_USDT"
+  ],
+  "volatility_patterns": [
+    {
+      "symbol": "PEPE_USDT",
+      "daily_volatility": 0.116497,
+      "max_daily_move": 0.911287,
+      "total_return": -0.8598,
+      "n_bars": 365,
+      "regime_tag": "dump_fear",
+      "is_altseason": true,
+      "baseline_vol": 0.001,
+      "vol_spike_ratio": 116.5,
+      "synthetic": true,
+      "regime_detection": {
+        "vol_high_bars": 179,
+        "vol_normal_bars": 146,
+        "pct_vol_high": 0.4904
+      }
+    },
+    {
+      "symbol": "WIF_USDT",
+      "daily_volatility": 0.135601,
+      "max_daily_move": 1.011237,
+      "total_return": -0.9688,
+      "n_bars": 365,
+      "regime_tag": "dump_fear",
+      "is_altseason": true,
+      "baseline_vol": 0.001,
+      "vol_spike_ratio": 135.6,
+      "synthetic": true,
+      "regime_detection": {
+        "vol_high_bars": 161,
+        "vol_normal_bars": 179,
+        "pct_vol_high": 0.4411
+      }
+    },
+    {
+      "symbol": "BONK_USDT",
+      "daily_volatility": 0.137004,
+      "max_daily_move": 1.507119,
+      "total_return": -0.959,
+      "n_bars": 365,
+      "regime_tag": "dump_fear",
+      "is_altseason": true,
+      "baseline_vol": 0.001,
+      "vol_spike_ratio": 137.0,
+      "synthetic": true,
+      "regime_detection": {
+        "vol_high_bars": 164,
+        "vol_normal_bars": 157,
+        "pct_vol_high": 0.4493
+      }
+    },
+    {
+      "symbol": "BOME_USDT",
+      "daily_volatility": 0.110372,
+      "max_daily_move": 0.791477,
+      "total_return": -0.9365,
+      "n_bars": 365,
+      "regime_tag": "dump_fear",
+      "is_altseason": true,
+      "baseline_vol": 0.001,
+      "vol_spike_ratio": 110.37,
+      "synthetic": true,
+      "regime_detection": {
+        "vol_high_bars": 159,
+        "vol_normal_bars": 180,
+        "pct_vol_high": 0.4356
+      }
+    },
+    {
+      "symbol": "FLOKI_USDT",
+      "daily_volatility": 0.116477,
+      "max_daily_move": 0.797434,
+      "total_return": -0.9179,
+      "n_bars": 365,
+      "regime_tag": "dump_fear",
+      "is_altseason": true,
+      "baseline_vol": 0.001,
+      "vol_spike_ratio": 116.48,
+      "synthetic": true,
+      "regime_detection": {
+        "vol_high_bars": 124,
+        "vol_normal_bars": 206,
+        "pct_vol_high": 0.3397
+      }
+    },
+    {
+      "symbol": "BRETT_USDT",
+      "daily_volatility": 0.158834,
+      "max_daily_move": 2.075376,
+      "total_return": -0.9493,
+      "n_bars": 365,
+      "regime_tag": "dump_fear",
+      "is_altseason": true,
+      "baseline_vol": 0.001,
+      "vol_spike_ratio": 158.83,
+      "synthetic": true,
+      "regime_detection": {
+        "vol_high_bars": 142,
+        "vol_normal_bars": 189,
+        "pct_vol_high": 0.389
+      }
+    },
+    {
+      "symbol": "BTC_USDT",
+      "daily_volatility": 0.026077,
+      "max_daily_move": 0.102998,
+      "total_return": 0.6434,
+      "n_bars": 242,
+      "regime_tag": "normal",
+      "is_altseason": false,
+      "baseline_vol": 0.023076,
+      "vol_spike_ratio": 1.13
+    },
+    {
+      "symbol": "ETH_USDT",
+      "daily_volatility": 0.037949,
+      "max_daily_move": 0.146578,
+      "total_return": -0.2606,
+      "n_bars": 242,
+      "regime_tag": "normal",
+      "is_altseason": false,
+      "baseline_vol": 0.026418,
+      "vol_spike_ratio": 1.44
+    },
+    {
+      "symbol": "SOL_USDT",
+      "daily_volatility": 0.02967,
+      "max_daily_move": 0.093723,
+      "total_return": -0.6728,
+      "n_bars": 365,
+      "regime_tag": "normal",
+      "is_altseason": false,
+      "baseline_vol": 0.001,
+      "vol_spike_ratio": 29.67,
+      "synthetic": true
+    }
+  ],
+  "cross_asset_analysis": {
+    "correlations": {
+      "PEPE_USDT\u2194WIF_USDT": 0.12,
+      "PEPE_USDT\u2194BONK_USDT": -0.177,
+      "PEPE_USDT\u2194BOME_USDT": 0.213,
+      "PEPE_USDT\u2194FLOKI_USDT": 0.287,
+      "PEPE_USDT\u2194BRETT_USDT": 0.024,
+      "PEPE_USDT\u2194BTC_USDT": 0.063,
+      "PEPE_USDT\u2194ETH_USDT": 0.063,
+      "PEPE_USDT\u2194SOL_USDT": 0.195,
+      "WIF_USDT\u2194BONK_USDT": 0.021,
+      "WIF_USDT\u2194BOME_USDT": -0.003,
+      "WIF_USDT\u2194FLOKI_USDT": 0.063,
+      "WIF_USDT\u2194BRETT_USDT": 0.209,
+      "WIF_USDT\u2194BTC_USDT": -0.02,
+      "WIF_USDT\u2194ETH_USDT": -0.054,
+      "WIF_USDT\u2194SOL_USDT": 0.176,
+      "BONK_USDT\u2194BOME_USDT": 0.058,
+      "BONK_USDT\u2194FLOKI_USDT": 0.032,
+      "BONK_USDT\u2194BRETT_USDT": 0.054,
+      "BONK_USDT\u2194BTC_USDT": -0.041,
+      "BONK_USDT\u2194ETH_USDT": -0.033,
+      "BONK_USDT\u2194SOL_USDT": 0.242,
+      "BOME_USDT\u2194FLOKI_USDT": 0.113,
+      "BOME_USDT\u2194BRETT_USDT": 0.073,
+      "BOME_USDT\u2194BTC_USDT": 0.074,
+      "BOME_USDT\u2194ETH_USDT": 0.106,
+      "BOME_USDT\u2194SOL_USDT": 0.218,
+      "FLOKI_USDT\u2194BRETT_USDT": 0.117,
+      "FLOKI_USDT\u2194BTC_USDT": -0.006,
+      "FLOKI_USDT\u2194ETH_USDT": -0.013,
+      "FLOKI_USDT\u2194SOL_USDT": 0.249,
+      "BRETT_USDT\u2194BTC_USDT": -0.064,
+      "BRETT_USDT\u2194ETH_USDT": -0.078,
+      "BRETT_USDT\u2194SOL_USDT": 0.109,
+      "BTC_USDT\u2194ETH_USDT": 0.815,
+      "BTC_USDT\u2194SOL_USDT": 0.03,
+      "ETH_USDT\u2194SOL_USDT": 0.037
+    },
+    "n_pairs_analysed": 36
+  },
+  "risk_gate_triggers": {
+    "triggered_bars": 1824,
+    "total_evaluated": 2490,
+    "trigger_rate": 0.7325
+  },
+  "regime_detection": [
+    {
+      "vol_high_bars": 179,
+      "vol_normal_bars": 146,
+      "pct_vol_high": 0.4904
+    },
+    {
+      "vol_high_bars": 161,
+      "vol_normal_bars": 179,
+      "pct_vol_high": 0.4411
+    },
+    {
+      "vol_high_bars": 164,
+      "vol_normal_bars": 157,
+      "pct_vol_high": 0.4493
+    },
+    {
+      "vol_high_bars": 159,
+      "vol_normal_bars": 180,
+      "pct_vol_high": 0.4356
+    },
+    {
+      "vol_high_bars": 124,
+      "vol_normal_bars": 206,
+      "pct_vol_high": 0.3397
+    },
+    {
+      "vol_high_bars": 142,
+      "vol_normal_bars": 189,
+      "pct_vol_high": 0.389
+    }
+  ],
+  "assertions": [
+    {
+      "name": "vol_spike_during_altseason",
+      "description": "At least one meme coin shows volatility spike >= 10.0x baseline",
+      "pass": true,
+      "value": 158.83
+    },
+    {
+      "name": "risk_gate_triggers_altseason",
+      "description": "PortfolioRiskGate reduces exposure during altseason extreme moves (>= 5% of bars)",
+      "pass": true,
+      "value": 0.7325
+    },
+    {
+      "name": "altseason_extreme_moves",
+      "description": "Altseason coins show >20% daily moves (meme-coin characteristic)",
+      "pass": true,
+      "value": 2.075376
+    },
+    {
+      "name": "regime_detection_altseason",
+      "description": "Regime detection identifies >10% of bars as high-volatility during altseason",
+      "pass": true,
+      "value": 0.4904
+    },
+    {
+      "name": "altseason_decoupling",
+      "description": "Meme coins show low correlation with majors during altseason (decoupling)",
+      "pass": true,
+      "value": "see cross_asset_analysis"
+    }
+  ],
+  "pass": true
+}
