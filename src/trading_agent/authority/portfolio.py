@@ -393,6 +393,21 @@ class PortfolioAllocator:
             # Get or create strategy budget
             budget = self._get_or_create_budget(request.strategy_id, request)
 
+            # Release budget for symbols whose position was closed externally
+            # (stop-loss / protective order bypasses the allocator).  When the
+            # strategy re-enters on the next signal the stale budget must be
+            # returned to the pool, otherwise it leaks and starves all later
+            # entries → persistent zero-allocation warnings.
+            if (
+                request.symbol in budget.symbols
+                and request.current_exposure <= 0
+                and request.risk_decision.allowed_target_exposure > 0
+            ):
+                released = budget.symbols.pop(request.symbol)
+                budget.allocated_exposure = max(
+                    0.0, budget.allocated_exposure - released
+                )
+
             # Compute available budget for this strategy
             strategy_budget_available = budget.max_exposure - budget.allocated_exposure
 
@@ -446,12 +461,15 @@ class PortfolioAllocator:
                 authority_chain=(),
             )
 
-            # Update budget tracking
+            # Update budget tracking — use delta so reductions (scale-down)
+            # and re-entries after stop-loss don't accumulate stale budget.
             if allocation > 0:
-                budget.allocated_exposure += allocation
-                budget.symbols[request.symbol] = (
-                    budget.symbols.get(request.symbol, 0.0) + allocation
+                old_symbol_budget = budget.symbols.get(request.symbol, 0.0)
+                delta = allocation - old_symbol_budget
+                budget.allocated_exposure = max(
+                    0.0, budget.allocated_exposure + delta
                 )
+                budget.symbols[request.symbol] = allocation
             elif request.symbol in budget.symbols and (
                 request.risk_decision.reduce_only
                 # Position closed to flat via normal exit (signal → HOLD/0):
