@@ -39,16 +39,22 @@ def add_regime_indicators(
     # Materialize ATR first
     df = df.with_columns(atr_expr.alias("atr"))
 
-    # ATR percentile (using rolling quantile approximation)
-    # FIX: shift(1) before rolling to use only PAST bars — avoids look-ahead
-    # where current bar's ATR contaminates the percentile window.
+    # ATR percentile — shifted to avoid look-ahead bias.
+    # rolling_map computes the percentile rank of the current bar's ATR
+    # against the window [atr[i-lookback+1], ..., atr[i]], where s[-1] is
+    # the current value (excluded from numerator via strict < comparison).
+    # Dividing by (len(s) - 1) removes the current bar from the denominator.
+    # The shift(1) AFTER rolling_map ensures bar i only sees the percentile
+    # computed from data up to bar i-1 (no intrabar leakage).
     atr_pctl_expr = (
         pl.col("atr")
-        .shift(1)
         .rolling_map(
-            lambda s: (s < s[-1]).sum() / len(s) if len(s) > 1 else 0.5,
+            lambda s: (s < s[-1]).sum() / (len(s) - 1)
+            if len(s) > 1
+            else 0.5,
             window_size=lookback,
         )
+        .shift(1)
         .alias("atr_pctl")
     )
 
