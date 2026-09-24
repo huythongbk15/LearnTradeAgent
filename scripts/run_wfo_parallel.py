@@ -243,7 +243,10 @@ class ParallelCellRunner:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         if self._executor:
-            self._executor.shutdown(wait=True, cancel_futures=True)
+            # cancel_futures=True can deadlock with spawn-context pools where
+            # workers have already exited but results remain in internal pipes.
+            # Use cancel_futures=False + wait=False to allow clean shutdown.
+            self._executor.shutdown(wait=True, cancel_futures=False)
             self._executor = None
 
     def _submit_cell(
