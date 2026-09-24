@@ -133,7 +133,7 @@ def run_single_strategy_cell(
     start = time.time()
     try:
         result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=600,
+            cmd, capture_output=True, text=True, timeout=3600,
             cwd=str(ROOT),
         )
         elapsed = time.time() - start
