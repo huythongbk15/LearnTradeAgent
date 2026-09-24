@@ -251,3 +251,5 @@ data/wvo/
 data/execution/
 out.json
 *_CONTINUE.md
+*_TODO.md
+CLEANUP_TODO.md
