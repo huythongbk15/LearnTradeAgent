@@ -357,6 +357,7 @@ def execution_reset(yes: bool):
 @click.option("--capital", "-c", default=None, type=float, help="Portfolio value")
 @click.option("--stop-loss", "-s", default=0.05, type=float, help="Stop-loss %")
 @click.option("--parallel/--sequential", default=True, help="Run agents in parallel")
+@click.option("--confirm/--auto", default=False, help="Prompt before executing trade")
 @click.option(
     "--authority-config",
     type=click.Path(exists=True, dir_okay=False),
@@ -369,6 +370,7 @@ def execution_run_multi(
     capital: float | None,
     stop_loss: float,
     parallel: bool,
+    confirm: bool,
     authority_config: str | None,
 ):
     """Run multi-symbol execution via the canonical promotion path (STR-0211).
@@ -395,6 +397,7 @@ def execution_run_multi(
         hot_reload=False,
         capital=capital,
         stop_loss=stop_loss,
+        confirm=confirm,
     )
 
 
