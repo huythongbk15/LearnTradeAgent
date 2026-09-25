@@ -123,6 +123,7 @@ class TestSignificanceGateIntegration:
         t.pool = {f"strat_{i}": MagicMock() for i in range(n_pool)}
         t.audit_path = Path("/tmp/test_tournament_audit.jsonl")
         t._promote = MagicMock()  # mock to detect calls
+        t.health_monitor = None  # bypass health gate for unit tests
         return t
 
     def test_significance_gate_blocks_promotion(self):
