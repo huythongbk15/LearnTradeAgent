@@ -425,14 +425,14 @@ def run_chaos_scenario(
         def failing_append(event, *a, **kw):
             raise OSError("disk full")
 
-        store.append = failing_append  # type: ignore[method-assign]
+        store.append = failing_append
         try:
             attempt(
                 lambda: lifecycle.create_order_intent(intent_id, symbol, side, size)
             )
             attempt(lambda: lifecycle.approve_risk(intent_id))
         finally:
-            store.append = original  # type: ignore[method-assign]
+            store.append = original
         result.notes.append("disk-full append raised; state unchanged")
 
     elif fault == FaultType.NETWORK_LOSS:
