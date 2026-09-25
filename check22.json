@@ -1,1 +1,0 @@
-{"actions":[{"tool_name":"execute_shell_command","arguments":{"command":"grep -c 'PASS\\|FAIL\\|EvaluationArtifact\\|report.json\\|Cell.*complete' /tmp/vol_btc_bg.log; grep -c 'ERROR\\|Traceback' /tmp/vol_btc_bg.log; tail -3 /tmp/vol_btc_bg.log","timeout":15}}]}

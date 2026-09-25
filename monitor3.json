@@ -1,1 +1,0 @@
-{"actions":[{"tool_name":"execute_shell_command","arguments":{"command":"sleep 25; find data/backtests/wfo_parallel_canonical -name report.json 2>/dev/null | wc -l; tail -2 /tmp/vol_btc_bg.log; ps aux | grep multiprocessing | grep -v grep | awk '{print $2, $8, $10}'","timeout":35}}]}

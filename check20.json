@@ -1,1 +1,0 @@
-{"actions":[{"tool_name":"execute_shell_command","arguments":{"command":"find data/backtests -maxdepth 3 -name report.json -newer /tmp/vol_btc_bg.log 2>/dev/null | wc -l; find data/backtests -maxdepth 2 -type d 2>/dev/null | head -20","timeout":15}}]}

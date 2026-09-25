@@ -1,1 +1,0 @@
-{"actions": [{"tool_name": "execute_shell_command", "arguments": {"command": "sleep 20; find data/backtests/wfo_parallel_canonical -name report.json -newer /tmp/vol_btc_exec.log 2>/dev/null | wc -l; tail -2 /tmp/vol_btc_exec.log; echo '---'; ps aux | grep run_wfo_parallel | grep -v grep | awk '{print $2, $8, $10}' | head -8", "timeout": 30}}]}

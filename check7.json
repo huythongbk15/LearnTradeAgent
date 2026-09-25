@@ -1,1 +1,0 @@
-{"actions": [{"tool_name": "execute_shell_command", "arguments": {"command": "ls data/backtests/wfo_parallel_canonical/ | grep vol | head -10; echo '==='; find data/backtests/wfo_parallel_canonical -name report.json -newer /tmp/vol_btc_exec.log 2>/dev/null | wc -l", "timeout": 10}}]}

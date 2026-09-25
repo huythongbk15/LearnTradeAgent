@@ -1,1 +1,0 @@
-{"actions":[{"tool_name":"execute_shell_command","arguments":{"command":"find data/backtests/wfo_parallel_canonical -name report.json 2>/dev/null | wc -l; ls -d data/backtests/wfo_parallel_canonical/*/ 2>/dev/null | head -5; find data/backtests/wvo -name report.json 2>/dev/null | wc -l","timeout":10}}]}
