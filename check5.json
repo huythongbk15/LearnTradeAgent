@@ -1,0 +1,1 @@
+{"actions":[{"tool_name":"execute_shell_command","arguments":{"command":"ls data/backtests/wfo_parallel_canonical/ 2>/dev/null | head -5", "timeout":10}}]}

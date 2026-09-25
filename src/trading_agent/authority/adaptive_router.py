@@ -95,6 +95,7 @@ class RoutingDecision:
     incumbent_score: float | None
     position_owner_strategy_id: str | None
     confidence_adjustment: float = 1.0
+    exchange_name: str | None = None
     decision_id: str = field(init=False)
 
     def __post_init__(self) -> None:
@@ -136,6 +137,7 @@ class RoutingDecision:
             "incumbent_score": self.incumbent_score,
             "position_owner_strategy_id": self.position_owner_strategy_id,
             "confidence_adjustment": self.confidence_adjustment,
+            "exchange_name": self.exchange_name,
         }
 
     def to_dict(self) -> dict[str, Any]:
@@ -170,6 +172,7 @@ class RoutingDecision:
             ),
             position_owner_strategy_id=value.get("position_owner_strategy_id"),
             confidence_adjustment=float(value.get("confidence_adjustment", 1.0)),
+            exchange_name=value.get("exchange_name"),
         )
         if value.get("decision_id") != decision.decision_id:
             raise ValueError("routing decision integrity failure")

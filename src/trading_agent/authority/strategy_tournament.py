@@ -43,6 +43,7 @@ from trading_agent.research.selection_policy import (
 )
 from trading_agent.strategies.canonical.candidates import FIRST_WAVE_DESCRIPTORS
 from trading_agent.strategies.canonical.descriptor import StrategyDescriptor
+from trading_agent.exchanges.health_monitor import HealthMonitor
 
 logger = logging.getLogger(__name__)
 
@@ -328,6 +329,7 @@ class StrategyTournament(AdaptiveStrategyRouter):
         tournament_config: TournamentConfig | None = None,
         pool: dict[str, StrategyDescriptor] | None = None,
         exclude: tuple[str, ...] = (),
+        health_monitor: HealthMonitor | None = None,
     ) -> None:
         super().__init__(
             policy_registry=policy_registry,
@@ -365,6 +367,9 @@ class StrategyTournament(AdaptiveStrategyRouter):
         # Portfolio risk gate — cross-asset exposure caps and circuit breaker
         from trading_agent.authority.portfolio_risk_gate import PortfolioRiskGate
         self.portfolio_risk_gate = PortfolioRiskGate(audit_store=self.audit_store)
+
+        # Exchange health monitor — gates promotion when exchange is unhealthy
+        self.health_monitor = health_monitor
 
     # ── Public API ──────────────────────────────────────────────────────
 
@@ -622,12 +627,32 @@ class StrategyTournament(AdaptiveStrategyRouter):
         Circuit-breaker demotion (incumbent Sharpe < -0.50 or drawdown >
         30 %) skips the significance test — an under-water incumbent is
         replaced immediately as a safety measure.
+
+        **Health gate (P1):** Before any promotion or replacement, the
+        target exchange must be ``HEALTHY`` (not degraded or down).  If
+        ``self.health_monitor`` is set and the exchange is unhealthy,
+        promotion is blocked with an audit-log entry.
         """
         cfg = self.tournament_config
         incumbent = state.incumbent_strategy_id or decision.chosen_strategy_id
         inc_metrics = state.shadow_metrics.get(incumbent) if incumbent else None
         if inc_metrics is None or inc_metrics.n < cfg.min_shadow_bars_for_promote:
             return
+
+        # ── Exchange health gate (P1) ────────────────────────────────────────
+        if self.health_monitor is not None:
+            exchange_name = decision.exchange_name or "binance"
+            if not self.health_monitor.is_healthy(exchange_name):
+                unhealthy = self.health_monitor.get_unhealthy()
+                self._log_audit_event(
+                    symbol, timeframe, "HEALTH_GATE_BLOCK",
+                    incumbent=incumbent, challenger=None,
+                    reason=f"Exchange {exchange_name} unhealthy (degraded/down)",
+                    exchange_status=self.health_monitor.get_exchange_status(exchange_name),
+                    unhealthy_exchanges=unhealthy,
+                    statistical_check="bypassed (infrastructure safety)",
+                )
+                return  # Block promotion — infrastructure unsafe
 
         inc_sharpe = inc_metrics.sharpe()
         # ── Best challenger search ─────────────────────────────────────────

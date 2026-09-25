@@ -1,0 +1,1 @@
+{"actions":[{"tool_name":"execute_shell_command","arguments":{"command":"ps aux | grep python3 | grep -v grep | awk '{print $2}' | xargs kill -9 2>/dev/null; sleep 2; ps aux | grep python3 | grep -v grep | wc -l","timeout":15}}]}

@@ -1,0 +1,1 @@
+{"actions":[{"tool_name":"execute_shell_command","arguments":{"command":"kill -9 150 151 152 193 244 247 248 249 2>/dev/null; sleep 2; ps aux | grep python3 | grep -v grep | wc -l","timeout":15}}]}

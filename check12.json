@@ -1,0 +1,1 @@
+{"actions":[{"tool_name":"execute_shell_command","arguments":{"command":"fuser -v data/wfo/experiments_parallel.sqlite3 2>&1; echo '---'; python3 -c \"import sqlite3; c=sqlite3.connect('data/wfo/experiments_parallel.sqlite3'); print(c.execute('SELECT count(*) FROM evaluation_records').fetchone()[0]); c.close()\"", "timeout":15}}]}

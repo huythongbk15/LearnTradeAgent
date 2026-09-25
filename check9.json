@@ -1,0 +1,1 @@
+{"actions":[{"tool_name":"execute_shell_command","arguments":{"command":"ps aux | grep python3 | grep -v grep | awk '{print $2, $8, $10}'","timeout":10}}]}

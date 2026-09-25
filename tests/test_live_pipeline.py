@@ -204,3 +204,102 @@ class TestLivePipeline:
         async for stub in pipe.run(timeframe="1d", lookback=300, max_iterations=3):
             count += 1
         assert count == 3, f"Expected 3 iterations, got {count}"
+
+
+class TestFallbackFeed:
+    """P2: Verify fallback feed activates when primary source fails."""
+
+    @staticmethod
+    def _make_source(name: str, fail: bool):
+        """Create a mock DataSource with configurable failure."""
+        from trading_agent.data.pipeline import DataSource
+        from trading_agent.exchanges.models import Candle
+        from datetime import timezone
+
+        class _FailingSource(DataSource):
+            def __init__(self):
+                self.name = name
+            async def fetch_candles(self, symbol, timeframe, start, end):
+                if fail:
+                    raise ConnectionError(f"{name} unavailable")
+                step = {"1h": 3600}.get(timeframe, 3600)
+                ts = start
+                out = []
+                while ts < end:
+                    ts = datetime.fromtimestamp(ts.timestamp() + step, tz=timezone.utc)
+                    out.append(Candle(
+                        symbol=symbol, timestamp=ts, timeframe=timeframe,
+                        open=Decimal("100.0"), high=Decimal("101.0"),
+                        low=Decimal("99.0"), close=Decimal("100.0"),
+                        volume=Decimal("1000.0"),
+                    ))
+                return out
+            async def fetch_recent(self, symbol, timeframe, limit):
+                raise NotImplementedError
+            async def close(self): pass
+
+        from decimal import Decimal
+        from datetime import datetime
+        return _FailingSource()
+
+    async def test_fallback_used_when_primary_fails(self):
+        """Primary fails → fallback source provides data."""
+        from trading_agent.data.pipeline import DataPipeline, CandleStore
+        from trading_agent.exchanges.models import Symbol, AssetClass, MarketType
+        from datetime import datetime, UTC
+
+        class _MockStore(CandleStore):
+            async def write(self, candles): return len(candles)
+            async def read(self, *a, **kw): return []
+            async def count(self, *a, **kw): return 0
+            async def latest(self, *a, **kw): return None
+
+        primary = self._make_source("binance", fail=True)
+        fallback = self._make_source("kraken", fail=False)
+        pipe = DataPipeline(store=_MockStore(), sources={"binance": primary}, fallback_sources={"kraken": fallback})
+        symbol = Symbol(base="BTC", quote="USDT", asset_class=AssetClass.CRYPTO,
+                        market_type=MarketType.SPOT, exchange="binance")
+        candles = await pipe._fetch_candles(symbol, "1h",
+            start=datetime(2023,11,1,tzinfo=UTC), end=datetime(2023,11,2,tzinfo=UTC))
+        assert len(candles) > 0, "Fallback should have provided candles"
+
+    async def test_all_sources_fail_raises(self):
+        """All sources fail → RuntimeError raised."""
+        from trading_agent.data.pipeline import DataPipeline, CandleStore
+        from trading_agent.exchanges.models import Symbol, AssetClass, MarketType
+        from datetime import datetime, UTC
+
+        class _MockStore(CandleStore):
+            async def write(self, candles): return len(candles)
+            async def read(self, *a, **kw): return []
+            async def count(self, *a, **kw): return 0
+            async def latest(self, *a, **kw): return None
+
+        primary = self._make_source("binance", fail=True)
+        fallback = self._make_source("kraken", fail=True)
+        pipe = DataPipeline(store=_MockStore(), sources={"binance": primary}, fallback_sources={"kraken": fallback})
+        symbol = Symbol(base="BTC", quote="USDT", asset_class=AssetClass.CRYPTO,
+                        market_type=MarketType.SPOT, exchange="binance")
+        with pytest.raises((RuntimeError, ConnectionError)):
+            await pipe._fetch_candles(symbol, "1h",
+                start=datetime(2023,11,1,tzinfo=UTC), end=datetime(2023,11,2,tzinfo=UTC))
+
+    async def test_no_fallback_raises_original_error(self):
+        """Primary fails, no fallback → error raised."""
+        from trading_agent.data.pipeline import DataPipeline, CandleStore
+        from trading_agent.exchanges.models import Symbol, AssetClass, MarketType
+        from datetime import datetime, UTC
+
+        class _MockStore(CandleStore):
+            async def write(self, candles): return len(candles)
+            async def read(self, *a, **kw): return []
+            async def count(self, *a, **kw): return 0
+            async def latest(self, *a, **kw): return None
+
+        primary = self._make_source("binance", fail=True)
+        pipe = DataPipeline(store=_MockStore(), sources={"binance": primary}, fallback_sources={})
+        symbol = Symbol(base="BTC", quote="USDT", asset_class=AssetClass.CRYPTO,
+                        market_type=MarketType.SPOT, exchange="binance")
+        with pytest.raises(Exception):
+            await pipe._fetch_candles(symbol, "1h",
+                start=datetime(2023,11,1,tzinfo=UTC), end=datetime(2023,11,2,tzinfo=UTC))

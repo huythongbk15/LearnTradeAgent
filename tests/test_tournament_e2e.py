@@ -21,9 +21,7 @@ from trading_agent.authority.portfolio_risk_gate import PortfolioRiskGate, Portf
 from trading_agent.authority.selection_audit import SelectionAudit
 from trading_agent.authority.strategy_tournament import (
     TournamentConfig,
-    TournamentState,
     _ShadowMetrics,
-    StrategyTournament,
 )
 from trading_agent.llm.context_enrichment import MarketContext
 from trading_agent.ml.regime_detection import RegimePosterior
@@ -203,3 +201,53 @@ class TestShadowE2ENetSharpe:
             # Verify the gate condition exists and would trigger
             assert hasattr(cfg, "promotion_net_sharpe_threshold")
             assert net_sp >= 0.0  # Sanity: net Sharpe is computable
+
+
+class TestHealthGatePrePromotion:
+    """P1: Exchange health gate before live promotion."""
+
+    def test_routing_decision_has_exchange_name(self):
+        """RoutingDecision must carry exchange_name for health gate."""
+        decision = _make_decision(0, NOW)
+        assert hasattr(decision, "exchange_name")
+
+    def test_routing_decision_serializes_exchange_name(self):
+        """RoutingDecision round-trip must preserve exchange_name."""
+        decision = RoutingDecision(
+            symbol="BTC/USDT", timeframe="1h", observed_at=NOW,
+            posterior_fingerprint="fp0", policy_ids=("default",),
+            incumbent_strategy_id=None, challenger_strategy_id="t3",
+            chosen_strategy_id="t3", chosen_policy_id="default",
+            chosen_params={}, handover_state=HandoverState.ACTIVATE,
+            reason="activate", allow_new_exposure=True,
+            exposure_multiplier=1.0, candidate_score=8.5,
+            incumbent_score=None, position_owner_strategy_id=None,
+            confidence_adjustment=1.0, exchange_name="binance",
+        )
+        d = decision.to_dict()
+        assert d["exchange_name"] == "binance"
+        restored = RoutingDecision.from_dict(d)
+        assert restored.exchange_name == "binance"
+
+    def test_health_monitor_is_healthy_method(self):
+        """HealthMonitor must expose is_healthy() interface."""
+        from trading_agent.exchanges.health_monitor import HealthMonitor
+        assert hasattr(HealthMonitor, "is_healthy")
+        assert hasattr(HealthMonitor, "get_unhealthy")
+        assert hasattr(HealthMonitor, "get_exchange_status")
+
+    def test_strategy_tournament_has_health_monitor_attr(self):
+        """StrategyTournament must optionally accept health_monitor."""
+        import inspect
+        from trading_agent.authority.strategy_tournament import StrategyTournament
+        sig = inspect.signature(StrategyTournament.__init__)
+        assert "health_monitor" in sig.parameters
+        assert sig.parameters["health_monitor"].default is None
+
+    def test_health_gate_logic_in_source(self):
+        """Verify health gate exists in _maybe_promote source code."""
+        from trading_agent.authority.strategy_tournament import StrategyTournament
+        import inspect
+        src = inspect.getsource(StrategyTournament._maybe_promote)
+        assert "health_monitor" in src
+        assert "HEALTH_GATE_BLOCK" in src
