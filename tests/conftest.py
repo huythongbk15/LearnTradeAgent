@@ -21,6 +21,22 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 
+# Modules that share a SQLite database / temp store and are flaky under
+# pytest-xdist parallel execution. Grouping them onto a single xdist worker
+# (via xdist_group + --dist loadgroup) eliminates cross-worker file lock races.
+# Verified: each passes 100% in sequential mode (-n 0); failures only appear
+# under -n auto due to SQLite "database is locked" contention.
+_FLAKY_DB_MODULES = frozenset(
+    {
+        "tests/test_execution_lifecycle.py",
+        "tests/test_phase6_integration.py",
+        "tests/test_multi_pair_runtime.py",
+        "tests/test_golden_execute_promoted.py",
+        "tests/test_tournament_e2e.py",
+    }
+)
+_FLAKY_DB_PREFIXES = ("tests/strategies/", "tests/backtest/")
+
 # One auditable definition of the edit-time P0 regression gate.  Keeping this
 # mapping here avoids scattering module-level markers across safety tests and
 # makes newly-added critical modules obvious during review.
@@ -92,6 +108,8 @@ def pytest_collection_modifyitems(items) -> None:
             continue
         if relative_path in _P0_MODULES or relative_path.startswith(_P0_PREFIXES):
             item.add_marker(pytest.mark.p0)
+        if relative_path in _FLAKY_DB_MODULES or relative_path.startswith(_FLAKY_DB_PREFIXES):
+            item.add_marker(pytest.mark.xdist_group("shared_db"))
 
 
 def pytest_runtest_setup(item) -> None:

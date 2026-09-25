@@ -107,7 +107,11 @@ markers = [
     "r03: R03 provenance, completeness, and resume tests",
     "r04: R04 scope lock and campaign orchestration tests",
     "r05: R05 real policy and replay clock tests",
+    "xdist_group: pytest-xdist group marker (auto-applied by conftest to DB-sensitive modules)",
 ]
+# --dist loadgroup ensures xdist_group("shared_db") tests run on a single
+# worker, eliminating SQLite file-lock races between parallel test processes.
+addopts = "--dist loadgroup"
 # Bộ lọc warning có chủ đích (P1 cleanup):
 # - Deprecation của thư viện / Python stdlib — không phải bug dự án
 # - SciPy/numpy cảnh báo phụ trợ mà code đã xử lý nan an toàn
