@@ -11,6 +11,7 @@ from trading_agent.agents.swarm.specialized import (
     FundamentalAgent,
     RiskAgent,
     SentimentAgent,
+    SpecializedAgent,
     TechnicalAgent,
 )
 
@@ -23,6 +24,7 @@ __all__ = [
     "FundamentalAgent",
     "SentimentAgent",
     "RiskAgent",
+    "SpecializedAgent",
     "AgentRegistry",
     "AgentSpec",
 ]

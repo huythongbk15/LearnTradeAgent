@@ -85,7 +85,7 @@ class SpecializedAgent(Agent):
         self.spec = spec
         self.llm = llm_client
         self.role = spec.role
-        self.last_signal: Optional[AgentMessage] = None
+        self.last_message: Optional[AgentMessage] = None
         self.performance_history: list[dict] = []
 
     @abstractmethod
@@ -96,7 +96,7 @@ class SpecializedAgent(Agent):
     async def process(self, market_data: dict[str, Any]) -> AgentMessage:
         """Process market data (interface for coordinator)."""
         signal = await self.analyze(market_data)
-        self.last_signal = signal
+        self.last_message = signal
 
         # Track performance
         self.performance_history.append(
