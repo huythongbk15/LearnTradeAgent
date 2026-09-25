@@ -90,7 +90,12 @@ class BacktestResult:
 
 
 class BacktestEngine:
-    """Vectorized backtest engine — nhanh, đơn giản, long-only.
+    """Vectorized backtest engine — nhanh, đơn giản, hỗ trợ long/short.
+
+    Set ``long_only=False`` to enable short-side trading:
+    - Short entry: sell proceeds credited to cash (net of fee)
+    - Short exit: buy-back at ask, cash debited
+    - Short SL/TP/trailing: SL above, TP below (mirrored from long)
 
     FIXES applied:
     - No look-ahead: signal at t → position at t+1, fill at open[t+1]

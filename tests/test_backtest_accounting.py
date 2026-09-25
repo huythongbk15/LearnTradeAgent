@@ -123,6 +123,108 @@ def test_unknown_timeframe_is_rejected() -> None:
         engine.run(candles([100.0, 100.0]))
 
 
+def test_short_entry_credits_proceeds_to_cash() -> None:
+    # Short signal at bar 0 → enter short at bar 1 open=100.
+    # 10% of 10_000 → 1_000 notional → 10 units @100. Fees=0 → cash
+    # credited with 1_000 proceeds. Position is negative and open.
+    result = BacktestEngine(
+        StaticSignals([-1, 0, 0, 0]),
+        initial_capital=10_000,
+        commission=0,
+        slippage=0,
+        fixed_position_pct=0.1,
+        long_only=False,
+        timeframe="1d",
+    ).run(candles([100.0, 100.0, 100.0, 100.0]))
+
+    # Bar 1: short entered at open.
+    assert result.equity_curve["position"][1] == pytest.approx(-10.0)
+    assert result.equity_curve["cash"][1] == pytest.approx(11_000.0)
+    assert len(result.trades) == 1
+    assert result.trades[0].is_open is True
+    assert result.trades[0].direction == -1
+    assert result.trades[0].entry_price == pytest.approx(100.0)
+
+
+def test_short_pnl_symmetric_with_long() -> None:
+    # Long @100 rising to 110 vs short @100 falling to 90.
+    # Open-position equity must be equal because |Δprice| × qty = 100.
+    long_res = BacktestEngine(
+        StaticSignals([1, 0, 0, 0]),
+        initial_capital=10_000,
+        commission=0,
+        slippage=0,
+        fixed_position_pct=0.1,
+        long_only=False,
+        timeframe="1d",
+    ).run(candles([100.0, 100.0, 100.0, 110.0]))
+
+    short_res = BacktestEngine(
+        StaticSignals([-1, 0, 0, 0]),
+        initial_capital=10_000,
+        commission=0,
+        slippage=0,
+        fixed_position_pct=0.1,
+        long_only=False,
+        timeframe="1d",
+    ).run(candles([100.0, 100.0, 100.0, 90.0]))
+
+    # Long: 9_000 cash + 10×110 = 10_100
+    # Short: 11_000 cash − 10×90 = 10_100
+    assert long_res.equity_curve["equity"][-1] == pytest.approx(
+        short_res.equity_curve["equity"][-1]
+    )
+
+
+def test_short_equity_reconciliation() -> None:
+    # equity must always equal cash + position × price, even when negative.
+    result = BacktestEngine(
+        StaticSignals([-1, 0, 0, 0]),
+        commission=0.001,
+        slippage=0.0005,
+        fixed_position_pct=0.1,
+        long_only=False,
+        timeframe="1d",
+    ).run(candles([100.0, 100.0, 100.0, 100.0]))
+
+    for row in result.equity_curve.iter_rows(named=True):
+        reconciled = row["cash"] + row["position"] * row["close"]
+        assert row["equity"] == pytest.approx(reconciled)
+
+
+def test_short_loss_when_price_rises() -> None:
+    # Short 10 @100, price rises to 110: unrealized loss = 100,
+    # equity = 11_000 − 10×110 = 9_900.
+    result = BacktestEngine(
+        StaticSignals([-1, 0, 0, 0]),
+        initial_capital=10_000,
+        commission=0,
+        slippage=0,
+        fixed_position_pct=0.1,
+        long_only=False,
+        timeframe="1d",
+    ).run(candles([100.0, 100.0, 100.0, 110.0]))
+
+    assert result.equity_curve["equity"][-1] == pytest.approx(9_900.0)
+
+
+def test_long_only_ignores_short_signal() -> None:
+    # long_only=True: a -1 signal is an exit, never a short entry.
+    result = BacktestEngine(
+        StaticSignals([-1, 0, 0, 0]),
+        initial_capital=10_000,
+        commission=0,
+        slippage=0,
+        fixed_position_pct=0.1,
+        long_only=True,
+        timeframe="1d",
+    ).run(candles([100.0, 100.0, 100.0, 100.0]))
+
+    # No short position opened; stays flat throughout.
+    assert result.equity_curve["position"][1] == pytest.approx(0.0)
+    assert result.total_trades == 0
+
+
 @pytest.mark.parametrize(
     "kwargs",
     [
