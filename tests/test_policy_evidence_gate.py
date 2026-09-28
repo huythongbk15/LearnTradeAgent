@@ -92,3 +92,84 @@ def test_fold_counts_must_be_consistent():
 def test_more_passing_than_total_is_rejected():
     with pytest.raises(ValueError, match="fold counts are inconsistent"):
         _policy(scores={**MEASURED, "n_passing_folds": -1})
+
+
+# ── stored artifacts ──────────────────────────────────────────────────────
+# Stored JSON bypasses __post_init__, so the 2690 pre-existing policies with
+# fabricated scores still load through get(). require_trusted() is the
+# boundary that refuses them, and activate() goes through it.
+
+
+def _store_legacy_fabricated(reg, policy: SelectionPolicyArtifact) -> str:
+    """Write the on-disk shape left by the pre-gate generators.
+
+    The policy id is content-addressed over the *draft* artifact, then the
+    stored JSON is edited to look promoted. Loading it back re-runs
+    __post_init__, which is the point: a legacy artifact with fabricated
+    scores cannot be reconstructed as a promotable object at all.
+    """
+    import json
+
+    payload = json.loads(policy.to_json())
+    payload["status"] = "active"
+    payload["activated_at"] = NOW.isoformat()
+    payload["activated_by"] = "test"
+    payload["activation_ticket"] = "T-1"
+    payload["scores"] = {"selection_score": 0.5}
+    payload["promotion_stage"] = "paper_eligible"
+    path = reg._policy_path(policy.policy_id)
+    path.write_text(json.dumps(payload))
+    return policy.policy_id
+
+
+def test_legacy_fabricated_policy_cannot_be_loaded(tmp_path):
+    from trading_agent.research.selection_policy import SelectionPolicyRegistry
+
+    reg = SelectionPolicyRegistry(tmp_path)
+    draft = _policy(
+        scores={}, status=PolicyStatus.DRAFT, promotion_stage="exploratory"
+    )
+    policy_id = _store_legacy_fabricated(reg, draft)
+
+    # Reading it back raises, because __post_init__ re-applies the gate.
+    with pytest.raises(ValueError, match="measured"):
+        reg.get(policy_id)
+
+    with pytest.raises(ValueError, match="measured"):
+        reg.require_trusted(policy_id)
+
+
+def test_activation_refuses_legacy_fabricated_policy(tmp_path):
+    from trading_agent.research.selection_policy import (
+        PolicyActivationService,
+        SelectionPolicyRegistry,
+    )
+
+    reg = SelectionPolicyRegistry(tmp_path)
+    draft = _policy(
+        scores={}, status=PolicyStatus.DRAFT, promotion_stage="exploratory"
+    )
+    policy_id = _store_legacy_fabricated(reg, draft)
+
+    svc = PolicyActivationService(
+        reg, signing_key=b"k" * 32, key_id="kid", audit_path=tmp_path / "a.jsonl"
+    )
+    with pytest.raises(ValueError, match="measured"):
+        svc.activate(policy_id, actor="t", ticket="T", now=NOW)
+
+
+def test_measured_stored_policy_activates(tmp_path):
+    from trading_agent.research.selection_policy import (
+        PolicyActivationService,
+        SelectionPolicyRegistry,
+    )
+
+    reg = SelectionPolicyRegistry(tmp_path)
+    validated = _policy()
+    reg.add(validated)
+
+    svc = PolicyActivationService(
+        reg, signing_key=b"k" * 32, key_id="kid", audit_path=tmp_path / "a.jsonl"
+    )
+    active = svc.activate(validated.policy_id, actor="t", ticket="T", now=NOW)
+    assert active.status is PolicyStatus.ACTIVE

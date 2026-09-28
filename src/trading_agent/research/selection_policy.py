@@ -608,6 +608,13 @@ class SelectionPolicyRegistry:
     ) -> Optional[SelectionPolicyArtifact]:
         """Get policy by ID.
 
+        Stored JSON is the authority and a stored artifact is never
+        re-validated through ``__post_init__``. That matters because the
+        measured-evidence gate lives in ``__post_init__``: policies promoted
+        before the gate existed carry fabricated scores on disk and would
+        otherwise load and route as if evidence-backed. Anything handing a
+        stored policy to the runtime should use :meth:`require_trusted`.
+
         Args:
             policy_id: Expected policy ID
             verify: If True, verify that loaded content matches policy_id (tamper detection)
@@ -624,6 +631,21 @@ class SelectionPolicyRegistry:
                 f"Policy integrity check failed: expected {policy_id}, "
                 f"computed {policy.policy_id} (content tampered)"
             )
+        return policy
+
+    def require_trusted(self, policy_id: str) -> SelectionPolicyArtifact:
+        """Return a stored policy only if it clears the measured-evidence gate.
+
+        Raises when the artifact was promoted before the gate existed, or by a
+        generator that fabricated its scores. Use this instead of :meth:`get`
+        wherever a stored policy reaches execution, promotion or routing —
+        ``get`` deliberately stays permissive for inspection and rollback.
+        """
+        policy = self.get(policy_id)
+        if policy is None:
+            raise ValueError(f"policy not found: {policy_id}")
+        if policy.status in {PolicyStatus.VALIDATED, PolicyStatus.ACTIVE}:
+            policy._require_measured_scores()
         return policy
 
     def get_active(
@@ -837,9 +859,7 @@ class PolicyActivationService:
         expected_previous_policy_id: str | None = None,
     ) -> SelectionPolicyArtifact:
         now = now or datetime.now(UTC)
-        policy = self.registry.get(policy_id)
-        if policy is None:
-            raise ValueError(f"policy not found: {policy_id}")
+        policy = self.registry.require_trusted(policy_id)
         if PROMOTION_STAGE_ORDER.index(
             policy.promotion_stage
         ) < PROMOTION_STAGE_ORDER.index("paper_eligible"):
