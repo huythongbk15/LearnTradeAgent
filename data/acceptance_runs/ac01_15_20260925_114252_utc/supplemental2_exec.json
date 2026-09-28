@@ -1,0 +1,29 @@
+{
+  "cmd": [
+    ".venv/bin/python",
+    "-m",
+    "pytest",
+    "-q",
+    "--junitxml=data/acceptance_runs/ac01_15_20260925_114252_utc/supplemental2_junit.xml",
+    "tests/test_portfolio_backtest.py::TestN1Parity::test_signal_uses_closed_bar_not_forming_bar",
+    "tests/test_portfolio_backtest.py::TestSharedCapitalMultiPair::test_two_symbols_share_one_pool_under_caps",
+    "tests/test_portfolio_backtest.py::TestBrokerPhaseAndReservations::test_reserved_cash_and_inventory_count_pending",
+    "tests/test_portfolio_backtest.py::TestBrokerRejectionDrop::test_rejected_buy_never_fills_on_price_drop",
+    "tests/execution/test_cancel_stop_regressions.py::test_cancel_after_fill_reports_filled_not_canceled",
+    "tests/execution/test_cancel_stop_regressions.py::test_lifecycle_accepts_fill_while_cancel_is_requested",
+    "tests/test_p0_convergence.py::TestProtectiveEvidence::test_protective_ack_requires_broker_evidence",
+    "tests/strategies/test_canonical_wave_c.py::TestPointInTimeFeatures::test_future_leak_rejected_by_validate",
+    "tests/test_r01_param_schema.py",
+    "tests/test_experiment_registry.py",
+    "tests/test_r02_canonical_authority.py",
+    "tests/test_verify_provenance.py",
+    "tests/test_quant_methodology.py::test_cscv_marks_unscorable_zero_volatility_degradation_as_missing"
+  ],
+  "rc": 0,
+  "elapsed_sec": 147.95513105392456,
+  "stdout": [
+    ".....................................................................    [100%]",
+    "69 passed in 147.17s (0:02:27)"
+  ],
+  "stderr": []
+}

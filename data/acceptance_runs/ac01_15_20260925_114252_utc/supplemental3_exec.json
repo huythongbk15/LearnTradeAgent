@@ -1,0 +1,35 @@
+{
+  "cmd": [
+    ".venv/bin/python",
+    "-m",
+    "pytest",
+    "-q",
+    "--junitxml=data/acceptance_runs/ac01_15_20260925_114252_utc/supplemental3_junit.xml",
+    "tests/execution/test_e2e_paper_flow.py",
+    "tests/execution/test_instrument_registry.py",
+    "tests/execution/test_canonical_pipeline.py",
+    "tests/authority/test_approval_chain.py",
+    "tests/test_e2e_authority_chain.py",
+    "tests/test_execution_simulator_property.py",
+    "tests/test_multi_pair_runtime.py",
+    "tests/test_multi_pair_batch_adversarial.py",
+    "tests/test_adaptive_strategy_router.py",
+    "tests/test_nested_wfo.py",
+    "tests/backtest/test_tournament_faults.py",
+    "tests/test_shadow_mainnet.py",
+    "tests/test_selection_policy_lifecycle.py",
+    "tests/test_forecast_promotion_contract.py",
+    "tests/test_r03_provenance_completeness.py"
+  ],
+  "rc": 0,
+  "elapsed_sec": 361.5124878883362,
+  "stdout": [
+    "........................................................................ [ 22%]",
+    "........................................................................ [ 45%]",
+    "........................................................................ [ 67%]",
+    "........................................................................ [ 90%]",
+    "..............................                                           [100%]",
+    "318 passed in 360.09s (0:06:00)"
+  ],
+  "stderr": []
+}

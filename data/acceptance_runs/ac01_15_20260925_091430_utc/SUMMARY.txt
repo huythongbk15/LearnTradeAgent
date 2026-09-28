@@ -1,0 +1,19 @@
+Integrated AC01-AC15 run
+Revision: e78ff4bb5d33aa903596ea3cf0b50e010a72426b
+Directory: /home/huythong/.qwenpaw/workspaces/trading/data/acceptance_runs/ac01_15_20260925_091430_utc
+
+AC02: PASS (rc=0)
+AC03: PASS (rc=0)
+AC04: PASS (rc=0)
+AC05: PASS (rc=0)
+AC06: PASS (rc=0)
+AC07: PASS (rc=0)
+AC08: PASS (rc=0)
+AC09: PASS (rc=0)
+AC10: PASS (rc=0)
+AC11: PASS (rc=0)
+AC12: PASS (rc=0)
+AC13: PASS (rc=0)
+AC14: PASS (rc=0)
+AC15: PASS (rc=0)
+AC01: PASS (rc=0)

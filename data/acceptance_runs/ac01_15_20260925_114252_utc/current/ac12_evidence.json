@@ -1,0 +1,64 @@
+{
+  "ac_id": "AC12",
+  "oracle": "independent hand-trace of health transitions",
+  "cases": [
+    {
+      "name": "C1_initial_unknown",
+      "status": "PASS",
+      "detail": "status=HealthStatus.UNKNOWN"
+    },
+    {
+      "name": "C2_1fail_degraded",
+      "status": "PASS",
+      "detail": "HealthStatus.DEGRADED"
+    },
+    {
+      "name": "C2_2fail_degraded",
+      "status": "PASS",
+      "detail": "HealthStatus.DEGRADED"
+    },
+    {
+      "name": "C2_3fail_down",
+      "status": "PASS",
+      "detail": "HealthStatus.DOWN"
+    },
+    {
+      "name": "C3_1recover_degraded",
+      "status": "PASS",
+      "detail": "HealthStatus.DEGRADED, err=0.4392"
+    },
+    {
+      "name": "C3_4recover_still_degraded",
+      "status": "PASS",
+      "detail": "HealthStatus.DEGRADED, err=0.3202"
+    },
+    {
+      "name": "C3_5recover_healthy",
+      "status": "PASS",
+      "detail": "HealthStatus.HEALTHY, err=0.2882"
+    },
+    {
+      "name": "C4_latency_tracked",
+      "status": "PASS",
+      "detail": "latency=5000ms"
+    },
+    {
+      "name": "C5_down_detected",
+      "status": "PASS",
+      "detail": "HealthStatus.DOWN"
+    },
+    {
+      "name": "C6_multi_exchange",
+      "status": "PASS",
+      "detail": "bin=1, krk=1"
+    },
+    {
+      "name": "C7_error_rate",
+      "status": "PASS",
+      "detail": "err_rate=0.3600, fails=2"
+    }
+  ],
+  "all_pass": true,
+  "total_checks": 11,
+  "passed": 11
+}

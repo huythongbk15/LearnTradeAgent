@@ -1,0 +1,75 @@
+{
+  "ac_id": "AC02",
+  "oracle": "independent: defaults+coerce+sort_keys+sha256",
+  "cases": [
+    {
+      "name": "C1_artifact_exists",
+      "status": "PASS",
+      "detail": "model_artifact_id=legacy.rsi.3019ea5544fd0499508b4397ec8a9e96962e6025aa404eae5efb12396ab17c8d"
+    },
+    {
+      "name": "C1_hash_matches_oracle",
+      "status": "PASS",
+      "detail": "expected_hash=3019ea5544fd0499, artifact=legacy.rsi.3019ea5544fd0499508b4397ec8a9e96962e6025aa404eae5efb12396ab17c8d"
+    },
+    {
+      "name": "C1_format",
+      "status": "PASS",
+      "detail": "format=legacy.rsi.3019ea5544fd0499508b4397ec8a9e96962e6025aa404eae5efb12396ab17c8d"
+    },
+    {
+      "name": "C2_unknown_rejected",
+      "status": "PASS",
+      "detail": "ParamValidationError: Unknown parameter(s) for rsi: ['bogus']. Allowed: ['overbought', 'oversold', 'period']"
+    },
+    {
+      "name": "C3_range_rejected",
+      "status": "PASS",
+      "detail": "period=0 rejected"
+    },
+    {
+      "name": "C4_crossparam_rejected",
+      "status": "PASS",
+      "detail": "oversold>=overbought rejected"
+    },
+    {
+      "name": "C5_alias_explicit",
+      "status": "PASS",
+      "detail": "hash=54c9893584870e16"
+    },
+    {
+      "name": "C5_alias_partial",
+      "status": "PASS",
+      "detail": "hash=54c9893584870e16, same as explicit=True"
+    },
+    {
+      "name": "C5_alias_none",
+      "status": "PASS",
+      "detail": "hash=54c9893584870e16, same as explicit=True"
+    },
+    {
+      "name": "C5_dedup_identity",
+      "status": "PASS",
+      "detail": "duplicate configs \u2192 same hash (no extra independent trial)"
+    },
+    {
+      "name": "C6_different",
+      "status": "PASS",
+      "detail": "explicit=54c9893584870e16, different=5dd735ab7c2840c8"
+    },
+    {
+      "name": "C7_schema_present",
+      "status": "PASS",
+      "detail": "keys=['overbought', 'oversold', 'period']"
+    },
+    {
+      "name": "C7_schema_version",
+      "status": "PASS",
+      "detail": "semver=1.0.0"
+    }
+  ],
+  "all_pass": true,
+  "total_checks": 13,
+  "passed": 13,
+  "failed": 0
+}

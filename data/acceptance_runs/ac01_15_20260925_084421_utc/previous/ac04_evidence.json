@@ -1,0 +1,56 @@
+{
+  "ac_id": "AC04",
+  "oracle": "independent: SHA-256 of canonical JSON, no FinalHoldoutManifest internals",
+  "cases": [
+    {
+      "name": "C1_hash_match",
+      "status": "PASS",
+      "detail": "system=sha256:73af9dcc7fb49398b..., oracle=sha256:73af9dcc7fb49398b..."
+    },
+    {
+      "name": "C2_reload_id_match",
+      "status": "PASS",
+      "detail": "reloaded=sha256:73af9dcc7fb49398b..., original=sha256:73af9dcc7fb49398b..."
+    },
+    {
+      "name": "C2_reload_fields_match",
+      "status": "PASS",
+      "detail": "strategy=volatility_breakout, start=27000"
+    },
+    {
+      "name": "C3_tamper_rejected_on_load",
+      "status": "PASS",
+      "detail": "rejected: ValueError"
+    },
+    {
+      "name": "C4_different_hash_after_tamper",
+      "status": "PASS",
+      "detail": "tampered=sha256:b5e0d1ffd00e6759f..."
+    },
+    {
+      "name": "C4_verify_integrity_ok",
+      "status": "PASS",
+      "detail": "untampered verifies"
+    },
+    {
+      "name": "C5_atomic_no_temp_left",
+      "status": "PASS",
+      "detail": "no .tmp file after atomic save"
+    },
+    {
+      "name": "C6_hash_still_matches_after_open",
+      "status": "PASS",
+      "detail": "opened holdout_id unchanged from original"
+    },
+    {
+      "name": "C6_opened_flag_set",
+      "status": "PASS",
+      "detail": "opened=True, by=researcher"
+    }
+  ],
+  "all_pass": true,
+  "total_checks": 9,
+  "passed": 9,
+  "strategy": "volatility_breakout",
+  "holdout_id": "sha256:73af9dcc7fb49398b44608cf45d5eb0684fbf24ae5c53169ad842601e9d4872e"
+}

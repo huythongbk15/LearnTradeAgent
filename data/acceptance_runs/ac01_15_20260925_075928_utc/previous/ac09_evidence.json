@@ -1,0 +1,73 @@
+{
+  "ac_id": "AC09",
+  "oracle": "independent hand calculation: filled_size, avg_fill_price, fees, position, cash",
+  "cases": [
+    {
+      "name": "D1_events_persisted",
+      "status": "PASS",
+      "detail": "stored 9, expected 9"
+    },
+    {
+      "name": "C1_filled_size",
+      "status": "PASS",
+      "detail": "system=100.0, oracle=100.0"
+    },
+    {
+      "name": "C1_avg_fill_price",
+      "status": "PASS",
+      "detail": "system=0.562000, oracle=0.562000"
+    },
+    {
+      "name": "C1_fees",
+      "status": "PASS",
+      "detail": "system=0.0562, oracle=0.0562"
+    },
+    {
+      "name": "C1_status_filled",
+      "status": "PASS",
+      "detail": "system=IntentStatus.FILLED"
+    },
+    {
+      "name": "C2_position_delta",
+      "status": "PASS",
+      "detail": "system=100.0, oracle=100.0"
+    },
+    {
+      "name": "C2_cash_impact",
+      "status": "PASS",
+      "detail": "oracle_cash=56.2562"
+    },
+    {
+      "name": "C3_dup_rejected",
+      "status": "PASS",
+      "detail": "duplicate append returned False"
+    },
+    {
+      "name": "C3_idempotent_state",
+      "status": "PASS",
+      "detail": "filled=100.0, fees=0.0562 unchanged"
+    },
+    {
+      "name": "C4_partial_fill_size",
+      "status": "PASS",
+      "detail": "system=40.0, oracle=40.0"
+    },
+    {
+      "name": "C4_partial_avg_price",
+      "status": "PASS",
+      "detail": "system=0.500000, oracle=0.50"
+    },
+    {
+      "name": "C4_partial_status",
+      "status": "PASS",
+      "detail": "system=IntentStatus.PARTIALLY_FILLED"
+    }
+  ],
+  "all_pass": true,
+  "total_checks": 12,
+  "passed": 12,
+  "order_id": "order_test_001",
+  "expected_filled": 100.0,
+  "expected_avg_price": 0.562,
+  "expected_fees": 0.0562
+}

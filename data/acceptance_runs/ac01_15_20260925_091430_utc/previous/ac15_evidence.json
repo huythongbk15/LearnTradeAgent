@@ -1,0 +1,65 @@
+{
+  "ac_id": "AC15",
+  "oracle": "independent SHA-256 hash comparison",
+  "cases": [
+    {
+      "name": "C1_seed_deterministic",
+      "status": "PASS",
+      "detail": "seed1=160609431, seed2=160609431"
+    },
+    {
+      "name": "C1_seed_differs_by_symbol",
+      "status": "PASS",
+      "detail": "ADA=160609431, BTC=1245717813"
+    },
+    {
+      "name": "C2_same_seed_identical",
+      "status": "PASS",
+      "detail": "hash_a=1720e01edb491f3a, hash_b=1720e01edb491f3a"
+    },
+    {
+      "name": "C2_bar_count",
+      "status": "PASS",
+      "detail": "rows=500"
+    },
+    {
+      "name": "C3_different_seed_differs",
+      "status": "PASS",
+      "detail": "seed42=1720e01edb491f3a, seed99=9e1d85644b7491c2"
+    },
+    {
+      "name": "C4_schema_match",
+      "status": "PASS",
+      "detail": "missing=set()"
+    },
+    {
+      "name": "C5_monotonic",
+      "status": "PASS",
+      "detail": "monotonic=True"
+    },
+    {
+      "name": "C6_price_variation",
+      "status": "PASS",
+      "detail": "std/mean=0.0337"
+    },
+    {
+      "name": "C7_seed_range",
+      "status": "PASS",
+      "detail": "seed=160609431"
+    },
+    {
+      "name": "C8_strategy_identical",
+      "status": "PASS",
+      "detail": "params_match=True"
+    },
+    {
+      "name": "C9_regime_affects",
+      "status": "PASS",
+      "detail": "different with/without regimes"
+    }
+  ],
+  "all_pass": true,
+  "total_checks": 11,
+  "passed": 11,
+  "seed": 160609431
+}

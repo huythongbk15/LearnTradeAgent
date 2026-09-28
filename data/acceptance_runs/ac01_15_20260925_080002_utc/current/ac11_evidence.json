@@ -1,0 +1,57 @@
+{
+  "ac_id": "AC11",
+  "oracle": "independent: per-request cap (asked, strat_budget, symbol_headroom, liquidity_headroom) then global pro-rata scale = budget / total_capped",
+  "cases": [
+    {
+      "name": "C1_no_double_counting",
+      "status": "PASS",
+      "detail": "approved=0.1500, oracle_budget=0.1500"
+    },
+    {
+      "name": "C2_scale_factor",
+      "status": "PASS",
+      "detail": "system=0.375000, oracle=0.375000"
+    },
+    {
+      "name": "C3_pro_rata_equal",
+      "status": "PASS",
+      "detail": "approved=[0.0750, 0.0750], oracle=0.0750"
+    },
+    {
+      "name": "C4_total_matches",
+      "status": "PASS",
+      "detail": "total=0.1500"
+    },
+    {
+      "name": "C5_order_independent",
+      "status": "PASS",
+      "detail": "normal=0.1500, reversed=0.1500"
+    },
+    {
+      "name": "C6_symbol_cap",
+      "status": "PASS",
+      "detail": "max=0.0750, cap=0.3"
+    },
+    {
+      "name": "C7_strategy_cap",
+      "status": "PASS",
+      "detail": "total=0.1500, cap=0.4"
+    },
+    {
+      "name": "C8_cash_avail",
+      "status": "PASS",
+      "detail": "cash_used=15000.00"
+    },
+    {
+      "name": "C9_liquidity_caps",
+      "status": "PASS",
+      "detail": "approved=0.000100, oracle=0.000100"
+    }
+  ],
+  "all_pass": true,
+  "total_checks": 9,
+  "passed": 9,
+  "global_budget": 0.15000000000000002,
+  "scale_factor": 0.37500000000000006,
+  "expected_each": 0.07500000000000001
+}

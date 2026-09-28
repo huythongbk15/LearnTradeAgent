@@ -1,0 +1,49 @@
+{
+  "ac_id": "AC06",
+  "oracle": "independent: constructs bundles with known attributes, verifies resolver fail-closed decisions",
+  "cases": [
+    {
+      "name": "C1_valid_resolves",
+      "status": "PASS",
+      "detail": "resolved policy_id=b9114130975b29f4..."
+    },
+    {
+      "name": "C2_synthetic_rejected",
+      "status": "PASS",
+      "detail": "rejected"
+    },
+    {
+      "name": "C3_not_yet_valid_rejected",
+      "status": "PASS",
+      "detail": "rejected"
+    },
+    {
+      "name": "C4_expired_rejected",
+      "status": "PASS",
+      "detail": "rejected"
+    },
+    {
+      "name": "C5_missing_rejected",
+      "status": "PASS",
+      "detail": "rejected"
+    },
+    {
+      "name": "C6_draft_rejected",
+      "status": "PASS",
+      "detail": "rejected"
+    },
+    {
+      "name": "C7_future_training_rejected",
+      "status": "PASS",
+      "detail": "rejected"
+    },
+    {
+      "name": "C8_content_addressed",
+      "status": "PASS",
+      "detail": "different ids"
+    }
+  ],
+  "all_pass": true,
+  "total_checks": 8,
+  "passed": 8
+}

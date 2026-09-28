@@ -1,0 +1,44 @@
+{
+  "ac_id": "AC01",
+  "revision": "e78ff4bb5d33aa903596ea3cf0b50e010a72426b",
+  "command": ".venv/bin/python -m pytest -q tests/test_ac01_prefix_contract.py",
+  "result_source": "data/acceptance_runs/ac01_15_20260925_092413_utc/current/ac01.log",
+  "result_source_sha256": "c00a177ee02c20665f38fd0be754f8ef0eea54b8d14696cc3dcc6492258a53ad",
+  "source_sha256": "1506c95ad7282b7613e349ffd12fe2f1d67e2ba78d6ba1afbccf855e967e9acb",
+  "aggregate_result": "7 passed in 3.26s",
+  "case_status_basis": "all collected cases pass because pytest aggregate reports 6 passed, 0 failed/skipped; individual case lines are not printed by -q",
+  "cases": [
+    {
+      "name": "test_rule_based_future_mutation_and_append[220]",
+      "status": "PASS"
+    },
+    {
+      "name": "test_rule_based_future_mutation_and_append[310]",
+      "status": "PASS"
+    },
+    {
+      "name": "test_enhanced_ma_features_and_signals_prefix[220]",
+      "status": "PASS"
+    },
+    {
+      "name": "test_enhanced_ma_features_and_signals_prefix[310]",
+      "status": "PASS"
+    },
+    {
+      "name": "test_hmm_frozen_training_prefix",
+      "status": "PASS"
+    },
+    {
+      "name": "test_hmm_cache_respects_new_input_length",
+      "status": "PASS"
+    },
+    {
+      "name": "test_gmm_frozen_fit_batch_stream_and_future_mutation",
+      "status": "PASS"
+    }
+  ],
+  "all_pass": true,
+  "total_checks": 7,
+  "passed": 7,
+  "note": "A legacy ac01_evidence.json copied from /tmp is excluded; this record is derived from the current run log and source hash."
+}

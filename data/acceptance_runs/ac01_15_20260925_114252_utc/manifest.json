@@ -1,0 +1,379 @@
+{
+  "run_id": "ac01_15_20260925_114252_utc",
+  "created_at_utc": "2026-09-25T11:56:20.550086+00:00",
+  "revision": "e78ff4bb5d33aa903596ea3cf0b50e010a72426b",
+  "tracked_source_paths_clean": false,
+  "dirty_diff_sha256": "966a8b90afabbbe279f7820d9f7044d7a050247d0a508c7062f026bf5478de05",
+  "working_tree_status_at_manifest": [
+    " M docs/vi/KE_HOACH_CUNG_CO_VA_BAN_GIAO_AGENT.md",
+    " M src/trading_agent/alpha_research/stats.py",
+    " M src/trading_agent/backtest/nested_wfo.py",
+    " M state/last_dispatch.json",
+    " M tests/test_ac01_prefix_contract.py",
+    " M tests/test_multi_pair_runtime.py",
+    " M tests/test_nested_wfo.py",
+    " M tests/test_quant_methodology.py",
+    " M tests/test_r03_provenance_completeness.py",
+    "?? data/acceptance_runs/",
+    "?? data/qwenpaw_process_registry.db-journal",
+    "?? scripts/evidence_workstream_b_verify.py",
+    "?? scripts/finalize_ac_run_manifest.py",
+    "?? scripts/run_acceptance_ac01_15.py"
+  ],
+  "source_sha256": {
+    "tests/test_ac01_prefix_contract.py": "1506c95ad7282b7613e349ffd12fe2f1d67e2ba78d6ba1afbccf855e967e9acb",
+    "scripts/evidence_ac02.py": "d29b04855e3d9a0139b51fb886fa773eaf59c706fa21d0607e35c6a460394047",
+    "scripts/evidence_ac03.py": "921cba81539dd98aa44d56dd1ff27539bbb9dc201c78567af828e0574ef6ee7e",
+    "scripts/evidence_ac04.py": "24f5070b2dfc2f683275aa074b7306245212d80cc9d5c7056368b15cd18acc87",
+    "scripts/evidence_ac05.py": "06124850b78d024966a3275c34a9c2d6b3d61d8e3871e800992be1b99d433ec9",
+    "scripts/evidence_ac06.py": "92d6a0907318dfa05c546922187ecd1aa7d4337cfeaed8c0b3280c97a5b938bb",
+    "scripts/evidence_ac07.py": "c127a7eac2ee279b77255ef9f04b59679e079bfc1eb2c86a979924d832f4e74e",
+    "scripts/evidence_ac08.py": "9e8f4ea722dad0c1583ec3ac0b1c7068785b6e52eb39267b96b0f0b7698d8124",
+    "scripts/evidence_ac09.py": "73b96d01c281cc88f393f44fd9389774a5ab251eeeb46a9353a7f5415b006067",
+    "scripts/evidence_ac10.py": "4afe0db20e6bb483bd8c2a10c68164c2781df20ce2181996de265a76c4762168",
+    "scripts/evidence_ac11.py": "2f38b8f45042b7de2888d122475492833d9bdd0443d51c785bc6fd64dfbda64c",
+    "scripts/evidence_ac12.py": "0eb1966447f97114ea2b166044b2e0f6221cf75c16b05a83bde865ea2f93a813",
+    "scripts/evidence_ac13.py": "a6eee80c2f714aae2200dfabf008844b1979887f06e0249c5d2aa6630315a34d",
+    "scripts/evidence_ac14.py": "4941c68c2b4c80ea3b251712818243729609f6a3e43080bb25722d1a46cd73d3",
+    "scripts/evidence_ac15.py": "230ab91032f2c740abb0c2784ce9dfea14ca43ab4341f42d6b5ad6f85ced0f91",
+    "tests/execution/test_e2e_paper_flow.py": "8a2738e26a308c4d21130c4fad1dccb98ba6474da5df9643bfaeb3753a77eac7",
+    "tests/execution/test_instrument_registry.py": "d10b9247b3d070e749d744364416949136a71a00257c1492c40a6cef94c96de4",
+    "tests/execution/test_canonical_pipeline.py": "7b310e0a6aeca54ec09ce76f7a0d2a53690d835487cc7fd624616fde7f6f8f11",
+    "tests/authority/test_approval_chain.py": "c7c5d9ee0e969e157137fd03dff902c8a70942eeb08f17849f8a4c6a24c52a99",
+    "tests/test_e2e_authority_chain.py": "de76f89b8318ce0ac21311aeaf0e38c84411272ee254a39e6dde5cf4a9f0c7b6",
+    "tests/test_execution_simulator_property.py": "88000322fdccd43597e7beb46562d023c6391c6d8bb0c2c8e2ebe3ff597bc133",
+    "tests/test_multi_pair_runtime.py": "6ad86e87a4360053aea107c9f5357c93016b752bdf0f4aaeb973c11c237bc6f8",
+    "tests/test_multi_pair_batch_adversarial.py": "3cad5e271bd6416863279643c0429f6c845cd1793cdf50ef9f92c6752b5f06c5",
+    "tests/test_adaptive_strategy_router.py": "904779354feb983f932f6454fceda81f6fd56dc5000a850d843a5d031de17e63",
+    "tests/test_nested_wfo.py": "31bfa7e6b2db7d05dd42a4ced76e0fd7c1740f015917bca331aa4b51387fde19",
+    "tests/backtest/test_tournament_faults.py": "aff90adf6387f6c787eeabed04d4aac562dea9ceccf9514b03c95a40a91fd8c8",
+    "tests/test_shadow_mainnet.py": "232892166e359ae1f2e69ebb1e32f32a9a79c1b08c4e9db2dcac738b77d8439f",
+    "tests/test_selection_policy_lifecycle.py": "f5f66ec7329c7ac8b12162c6b08c33dae3b099da56c8b17554ed13ea93fa945a",
+    "tests/test_forecast_promotion_contract.py": "d38d94be47f53c177c24a16f16298f72138fb2541cd841a982ddcd6b456d783c",
+    "tests/test_portfolio_backtest.py": "f7d92c1a63d5a5e5cc18a7f4ebf0fae599c21d694d2b29288be1dd4e28219fee",
+    "tests/execution/test_cancel_stop_regressions.py": "1a960591e750bfe36df9cc30c52563d2891147cfb350fbe416a291b0f8f433a3",
+    "tests/test_p0_convergence.py": "2a13a4ada38031cdb145e0af9d9dcf587c084556e9a15ec96b946d4445bee9c7",
+    "tests/strategies/test_canonical_wave_c.py": "33db90dac3075d7324948509fd0bb4184f005e2df2f2470341de7d20f7a4182d",
+    "tests/test_r01_param_schema.py": "5aae9842d66ecf8eb9ad6c111313098b1e544b9cb9eb7ae7e314b54ed80c1506",
+    "tests/test_experiment_registry.py": "ef930c0469846872ed01406393ed68d01ac4085a6c62e8fba880044eba0946d6",
+    "tests/test_r02_canonical_authority.py": "5ba859f3009f749ad78c52a26ee9996a9b0db6545ab79c533cfe482970291ed3",
+    "tests/test_verify_provenance.py": "3b6a7c4cf57ed1a3b08152bb8b29e92bcf8d42e23553798939fd1e0550a8a589",
+    "tests/test_quant_methodology.py": "5458b50d9f24c91dde3a22ea2971237f190a85aa23e363523b3f0a16c646dd17",
+    "tests/test_r03_provenance_completeness.py": "a082fb50e5e642d0c010e5b4a0d235b1c8892f924a36127adfda613995bd46e7",
+    "src/trading_agent/alpha_research/stats.py": "a7efb37995532077b69b52899c096f50fccb9e45fa4e728781edbaff6e9d2c3e",
+    "src/trading_agent/backtest/nested_wfo.py": "220372158cef51e8bb403816488851d04682e2f759f58090c7131e854c78d444",
+    "src/trading_agent/execution/multi_pair_runtime.py": "d971475e5398e534c29e0c34c95df420c438874b9209a230eb4e2340c169a606",
+    "scripts/run_acceptance_ac01_15.py": "774855f6de2d1320c796ad31d9cc750df2cfef8cc5210a3e0c7f1753666585da",
+    "scripts/finalize_ac_run_manifest.py": "3c1bcd6d51930c0b9c2e2e304ce5ab4b94b09188868e6a555824ba02ce37e13a"
+  },
+  "results": [
+    {
+      "ac": "AC01",
+      "verdict": "PASS",
+      "passed_checks": 7,
+      "total_checks": 7,
+      "log": {
+        "path": "data/acceptance_runs/ac01_15_20260925_114252_utc/current/ac01.log",
+        "sha256": "bbe88a43cd13d06657e2fffe34fe9bfe5ab14618b6ba1f3c7920a2ae05015805"
+      },
+      "evidence": {
+        "path": "data/acceptance_runs/ac01_15_20260925_114252_utc/current/ac01_pytest_run_evidence.json",
+        "sha256": "2ec426b5c7c670ea8bf5e57581b19d5f111b58328c818fcf63c5a845d8db128b"
+      },
+      "all_pass_field": true
+    },
+    {
+      "ac": "AC02",
+      "verdict": "PASS",
+      "passed_checks": 13,
+      "total_checks": 13,
+      "log": {
+        "path": "data/acceptance_runs/ac01_15_20260925_114252_utc/current/ac02.log",
+        "sha256": "85842f2269f9ebe5dd063185d7fa884f90cbb83dc3687792327d6c57f05b19c7"
+      },
+      "evidence": {
+        "path": "data/acceptance_runs/ac01_15_20260925_114252_utc/current/ac02_evidence.json",
+        "sha256": "296c6db8c6a5b9420bbb79fa861d0fdaa5faa1af54b45658f76eaf9b3bf174e0"
+      },
+      "all_pass_field": true
+    },
+    {
+      "ac": "AC03",
+      "verdict": "PASS",
+      "passed_checks": 13,
+      "total_checks": 13,
+      "log": {
+        "path": "data/acceptance_runs/ac01_15_20260925_114252_utc/current/ac03.log",
+        "sha256": "6002d5b9ce0fadca53ede19f210368ba3eefa65ab287fbb0befd5dd05546cbcb"
+      },
+      "evidence": {
+        "path": "data/acceptance_runs/ac01_15_20260925_114252_utc/current/ac03_evidence.json",
+        "sha256": "a7a704b7301303376101125f83ab28c60aa32921ef4ee50bbd0250aefd8462ec"
+      },
+      "all_pass_field": true
+    },
+    {
+      "ac": "AC04",
+      "verdict": "PASS",
+      "passed_checks": 9,
+      "total_checks": 9,
+      "log": {
+        "path": "data/acceptance_runs/ac01_15_20260925_114252_utc/current/ac04.log",
+        "sha256": "08d5ae867e4217b80a17ce4790b46a6e6dc302b79fdb77f5de54b09efc505d5e"
+      },
+      "evidence": {
+        "path": "data/acceptance_runs/ac01_15_20260925_114252_utc/current/ac04_evidence.json",
+        "sha256": "865b5c751fc5d39e2bbca0911b26735ec061649c24f3da0e8820528648503ab1"
+      },
+      "all_pass_field": true
+    },
+    {
+      "ac": "AC05",
+      "verdict": "PASS",
+      "passed_checks": 15,
+      "total_checks": 15,
+      "log": {
+        "path": "data/acceptance_runs/ac01_15_20260925_114252_utc/current/ac05.log",
+        "sha256": "12c8a48bf6162abe719d477ec3684b2b3ff146bb39365be60387e59c7af5e76e"
+      },
+      "evidence": {
+        "path": "data/acceptance_runs/ac01_15_20260925_114252_utc/current/ac05_evidence.json",
+        "sha256": "a74746fcf9250a85f7468e9d7dc9e031a262ee62f2d808d7c4a6ced550695271"
+      },
+      "all_pass_field": true
+    },
+    {
+      "ac": "AC06",
+      "verdict": "PASS",
+      "passed_checks": 8,
+      "total_checks": 8,
+      "log": {
+        "path": "data/acceptance_runs/ac01_15_20260925_114252_utc/current/ac06.log",
+        "sha256": "c2f54382f9d228617c52ae3869b405cdeadd14128438fe9ce3db8d9be0392a4a"
+      },
+      "evidence": {
+        "path": "data/acceptance_runs/ac01_15_20260925_114252_utc/current/ac06_evidence.json",
+        "sha256": "0f9f8a147517bafb7d1c57fadc214dddc6e857b4bb27f2166bf2025123bae456"
+      },
+      "all_pass_field": true
+    },
+    {
+      "ac": "AC07",
+      "verdict": "PASS",
+      "passed_checks": 8,
+      "total_checks": 8,
+      "log": {
+        "path": "data/acceptance_runs/ac01_15_20260925_114252_utc/current/ac07.log",
+        "sha256": "bec370a15e9ebc7b44ca2cb71fe81dd9f70d8a8b6afe1d87bf48e45c500ed0d6"
+      },
+      "evidence": {
+        "path": "data/acceptance_runs/ac01_15_20260925_114252_utc/current/ac07_evidence.json",
+        "sha256": "6ed97508966d8f07898f70286e7d6322a285fca4af69b9adca83aa4a59f9e8c9"
+      },
+      "all_pass_field": true
+    },
+    {
+      "ac": "AC08",
+      "verdict": "PASS",
+      "passed_checks": 12,
+      "total_checks": 12,
+      "log": {
+        "path": "data/acceptance_runs/ac01_15_20260925_114252_utc/current/ac08.log",
+        "sha256": "fbe51c2b70ef4e5d9c5ccc889e4145430fcdbacd4da83d6a633dec3b970d60b0"
+      },
+      "evidence": {
+        "path": "data/acceptance_runs/ac01_15_20260925_114252_utc/current/ac08_evidence.json",
+        "sha256": "c44a7b462a0777cfda32ed6256ae8739e8bef0b96ce6eb0708b34e20f05556ec"
+      },
+      "all_pass_field": true
+    },
+    {
+      "ac": "AC09",
+      "verdict": "PASS",
+      "passed_checks": 12,
+      "total_checks": 12,
+      "log": {
+        "path": "data/acceptance_runs/ac01_15_20260925_114252_utc/current/ac09.log",
+        "sha256": "af53f5ec3419926bbb3a01f63ced097fece5bc0724d987c2b05397bdd5f7fe81"
+      },
+      "evidence": {
+        "path": "data/acceptance_runs/ac01_15_20260925_114252_utc/current/ac09_evidence.json",
+        "sha256": "2d7e1784abc8936555831d66de0129ffd649e72172217af255fc734c12ed8b4c"
+      },
+      "all_pass_field": true
+    },
+    {
+      "ac": "AC10",
+      "verdict": "PASS",
+      "passed_checks": 6,
+      "total_checks": 6,
+      "log": {
+        "path": "data/acceptance_runs/ac01_15_20260925_114252_utc/current/ac10.log",
+        "sha256": "3d80584a878098640749543763e61086616dd502b616c14c875e500814d2132f"
+      },
+      "evidence": {
+        "path": "data/acceptance_runs/ac01_15_20260925_114252_utc/current/ac10_evidence.json",
+        "sha256": "678b9bff918e9d913e94448a480ed3aef18c32131fc377b9af1b2758a101a2e4"
+      },
+      "all_pass_field": true
+    },
+    {
+      "ac": "AC11",
+      "verdict": "PASS",
+      "passed_checks": 9,
+      "total_checks": 9,
+      "log": {
+        "path": "data/acceptance_runs/ac01_15_20260925_114252_utc/current/ac11.log",
+        "sha256": "ae9a0a6ca5aac128ca80b82595ecda4d08579547251d19e098c261db481c7bbe"
+      },
+      "evidence": {
+        "path": "data/acceptance_runs/ac01_15_20260925_114252_utc/current/ac11_evidence.json",
+        "sha256": "a1bfc16f48d3c55bbd085dd1a6ded76d730ccd7ff6ddfcb9dc2b99636345118d"
+      },
+      "all_pass_field": true
+    },
+    {
+      "ac": "AC12",
+      "verdict": "PASS",
+      "passed_checks": 11,
+      "total_checks": 11,
+      "log": {
+        "path": "data/acceptance_runs/ac01_15_20260925_114252_utc/current/ac12.log",
+        "sha256": "3fe4b5dbe9ef5cbfa5d2b7e4ee2db646118627faaca27039b57d803f922176c3"
+      },
+      "evidence": {
+        "path": "data/acceptance_runs/ac01_15_20260925_114252_utc/current/ac12_evidence.json",
+        "sha256": "01307957a0ddb9afb0c097fb9aa0f6dc9fa900e972758f5c95fb6eb61b84d191"
+      },
+      "all_pass_field": true
+    },
+    {
+      "ac": "AC13",
+      "verdict": "PASS",
+      "passed_checks": 8,
+      "total_checks": 8,
+      "log": {
+        "path": "data/acceptance_runs/ac01_15_20260925_114252_utc/current/ac13.log",
+        "sha256": "f5f48fc938254bf03cda1097aad85b6a8a95cdf5b7929cb58757242751677201"
+      },
+      "evidence": {
+        "path": "data/acceptance_runs/ac01_15_20260925_114252_utc/current/ac13_evidence.json",
+        "sha256": "29ea5b415df73e6ffa7743eec9f59db65e9efa8a540ab0c2418d0089afffbf0a"
+      },
+      "all_pass_field": true
+    },
+    {
+      "ac": "AC14",
+      "verdict": "PASS",
+      "passed_checks": 12,
+      "total_checks": 12,
+      "log": {
+        "path": "data/acceptance_runs/ac01_15_20260925_114252_utc/current/ac14.log",
+        "sha256": "d0a10c7b2c54874b6ad86e64fb49b47c5a1e9bbbc08223a5d1e51c424af296ea"
+      },
+      "evidence": {
+        "path": "data/acceptance_runs/ac01_15_20260925_114252_utc/current/ac14_evidence.json",
+        "sha256": "5f86f7b23673881252492bbd2c4883c81f82a736df4b91468a1ba25f181aef4e"
+      },
+      "all_pass_field": true
+    },
+    {
+      "ac": "AC15",
+      "verdict": "PASS",
+      "passed_checks": 11,
+      "total_checks": 11,
+      "log": {
+        "path": "data/acceptance_runs/ac01_15_20260925_114252_utc/current/ac15.log",
+        "sha256": "a83ea0656573ccc5098203f19f58ef00a0687afb36c21dc1f4242ded5b2d0129"
+      },
+      "evidence": {
+        "path": "data/acceptance_runs/ac01_15_20260925_114252_utc/current/ac15_evidence.json",
+        "sha256": "c7e155de6dd9845c20f1c9c0402c41ef8c754235bd39f2b03ebd1a6d7afec38f"
+      },
+      "all_pass_field": true
+    }
+  ],
+  "supplemental_test_runs": [
+    {
+      "run_name": "supplemental2",
+      "controlled_exec_status": "PASS",
+      "controlled_exec_returncode": 0,
+      "pytest_counts": {
+        "tests": 69,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "warnings": [],
+      "junit": {
+        "path": "data/acceptance_runs/ac01_15_20260925_114252_utc/supplemental2_junit.xml",
+        "sha256": "41191aa89bf308f0d4df02dd78ba892f5242b88a62b1560b367f086bf9cc3d93"
+      },
+      "result": {
+        "path": "data/acceptance_runs/ac01_15_20260925_114252_utc/supplemental2_exec.json",
+        "sha256": "79f163714c2cd84abc47bf90c8e4f590e923e72f6ee4998eafd7df9ecaf6109e"
+      },
+      "scope": "local paper/simulator/fixture tests only; no exchange submit, no OOS holdout campaign"
+    },
+    {
+      "run_name": "supplemental3",
+      "controlled_exec_status": "PASS",
+      "controlled_exec_returncode": 0,
+      "pytest_counts": {
+        "tests": 318,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "warnings": [],
+      "junit": {
+        "path": "data/acceptance_runs/ac01_15_20260925_114252_utc/supplemental3_junit.xml",
+        "sha256": "835d45e75577ef6f2248b29a5880bdcbec3bc2b7458f03176fa50fad42b0e235"
+      },
+      "result": {
+        "path": "data/acceptance_runs/ac01_15_20260925_114252_utc/supplemental3_exec.json",
+        "sha256": "b6226dd9a5b2e8b55e12239443095462f2412f33aabaf2ddb0553dd4b21f3756"
+      },
+      "scope": "local paper/simulator/fixture tests only; no exchange submit, no OOS holdout campaign"
+    }
+  ],
+  "automated_suite": "AC01-AC15 evidence runners plus two supplemental local paper/simulator test runs",
+  "review_status": "INDEPENDENT_REVIEW_WITH_OPEN_GATES",
+  "independent_review": {
+    "reviewer": "independent_ac_review",
+    "status": "REVIEWED_WITH_OPEN_GATES",
+    "accepted_bounded_scope": [
+      "AC01",
+      "AC02",
+      "AC03",
+      "AC04",
+      "AC05",
+      "AC07",
+      "AC08",
+      "AC09",
+      "AC10"
+    ],
+    "partial_or_rejected": [
+      "AC06",
+      "AC11",
+      "AC12",
+      "AC13"
+    ],
+    "blocked": [
+      "AC14",
+      "AC15"
+    ],
+    "notes": [
+      "Local evidence does not close the remaining negative-case/integration criteria in AC06 and AC11-AC13.",
+      "AC03 is accepted for holdout non-reuse controls; AC04 is accepted for WFO evidence completeness and consumer validation, both within local tested scope.",
+      "AC02 is accepted for bounded WFO identity/cell/accounting; AC05 is accepted for bounded metric/statistical scope. The CSCV non-finite score warning is fixed and regression-tested.",
+      "AC14 needs an authorized locked out-of-sample campaign; current result is synthetic only.",
+      "AC15 needs operational shadow/testnet soak and rollback evidence; local simulation is not sufficient."
+    ]
+  },
+  "scope_limits": [
+    "Automated AC evidence is not the C01-C10 end-to-end execution-path gate.",
+    "AC14 synthetic adaptive comparison does not establish live or out-of-sample profitability.",
+    "This run does not grant production/mainnet authority or satisfy operational soak/rollback gates."
+  ]
+}

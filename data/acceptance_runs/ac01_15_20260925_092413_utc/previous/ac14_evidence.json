@@ -1,0 +1,129 @@
+{
+  "ac_id": "AC14",
+  "oracle": "independent: hand-built equity curve from raw signals + open prices; metrics: total_return, sharpe(with CI), max_dd, turnover, switching_cost, exposure, abstain, trades",
+  "criteria": {
+    "methodology": "fair comparison: same data, capital, cost, execution; independent oracle",
+    "routed_bars_min": 100,
+    "min_strategies_selected": 2,
+    "min_trades_per_side": 3,
+    "conclusion_requires": [
+      "both_strategies_selected",
+      "fair_comparison",
+      "sufficient_observations"
+    ],
+    "performance_note": "adaptive th\u1eafng kh\u00f4ng b\u1eaft bu\u1ed9c; k\u1ebft lu\u1eadn d\u1ef1a v\u00e0o methodology"
+  },
+  "cases": [
+    {
+      "name": "C1_incumbent_trades",
+      "status": "PASS",
+      "detail": "trades=19"
+    },
+    {
+      "name": "C2_routed_sufficiently",
+      "status": "PASS",
+      "detail": "routed 600 bars"
+    },
+    {
+      "name": "C3_adaptive_uses_both_strategies",
+      "status": "PASS",
+      "detail": "strategies={'ma_crossover_trend', 'range_mr'}"
+    },
+    {
+      "name": "C4_fair_comparison",
+      "status": "PASS",
+      "detail": "same df, same capital=100k, same commission/slippage/spread"
+    },
+    {
+      "name": "C5_independent_oracle",
+      "status": "PASS",
+      "detail": "oracle_equity_curve: hand-built position sim, no BacktestEngine"
+    },
+    {
+      "name": "C6_adaptive_return_nonzero",
+      "status": "PASS",
+      "detail": "return=-6.78%"
+    },
+    {
+      "name": "C7_incumbent_return_nonzero",
+      "status": "PASS",
+      "detail": "return=-3.61%"
+    },
+    {
+      "name": "C8_sharpe_ci_bounds_adaptive",
+      "status": "PASS",
+      "detail": "lower=-28.6321, sharpe=-5.6091, upper=15.3516"
+    },
+    {
+      "name": "C9_sharpe_ci_bounds_incumbent",
+      "status": "PASS",
+      "detail": "lower=-28.6031, sharpe=-4.4628, upper=15.2976"
+    },
+    {
+      "name": "C10_adaptive_trades",
+      "status": "PASS",
+      "detail": "trades=22"
+    },
+    {
+      "name": "C11_strategy_selection_valid",
+      "status": "PASS",
+      "detail": "routed 600 bars"
+    },
+    {
+      "name": "C12_regime_aware_routing",
+      "status": "PASS",
+      "detail": "adaptive_switches=44, incumbent_switches=38"
+    }
+  ],
+  "all_pass": true,
+  "total_checks": 12,
+  "passed": 12,
+  "adaptive_metrics": {
+    "total_return_pct": -6.7843,
+    "annualized_return_pct": -99.0511,
+    "sharpe_ratio": -5.6091,
+    "sharpe_ci_lower": -28.6321,
+    "sharpe_ci_upper": 15.3516,
+    "max_drawdown_pct": 6.9441,
+    "turnover": 42.3384,
+    "switching_cost": 44,
+    "exposure": 0.1217,
+    "abstain": 0.8783,
+    "total_trades": 22,
+    "avg_trade_pnl": -308.3782,
+    "final_equity": 93215.68,
+    "n_active": 73
+  },
+  "incumbent_metrics": {
+    "total_return_pct": -3.6139,
+    "annualized_return_pct": -52.7631,
+    "sharpe_ratio": -4.4628,
+    "sharpe_ci_lower": -28.6031,
+    "sharpe_ci_upper": 15.2976,
+    "max_drawdown_pct": 3.7791,
+    "turnover": 3.664756327623288e+16,
+    "switching_cost": 38,
+    "exposure": 0.0317,
+    "abstain": 0.9683,
+    "total_trades": 19,
+    "avg_trade_pnl": -190.206,
+    "final_equity": 96386.09,
+    "n_active": 19
+  },
+  "return_gap_pct": -3.1704,
+  "drawdown_ratio": 1.8375,
+  "conclusion": "PASS",
+  "regime_segments": {
+    "trend": [
+      400,
+      600
+    ],
+    "mean_reversion": [
+      200,
+      400
+    ]
+  },
+  "seed": 42,
+  "n_bars": 600,
+  "methodology_sound": true
+}

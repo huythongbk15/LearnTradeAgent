@@ -1,0 +1,84 @@
+{
+  "ac_id": "AC05",
+  "oracle": "independent: Sharpe/CAGR/MDD/dd_duration/cost_attribution by hand",
+  "cases": [
+    {
+      "name": "C1_cagr",
+      "status": "PASS",
+      "detail": "system=1559.4611, oracle=1559.4611"
+    },
+    {
+      "name": "C2_sharpe",
+      "status": "PASS",
+      "detail": "system=7.1110, oracle=7.1110"
+    },
+    {
+      "name": "C3_mdd",
+      "status": "PASS",
+      "detail": "system=2.3585, oracle=2.3585"
+    },
+    {
+      "name": "C3_dd_duration",
+      "status": "PASS",
+      "detail": "system=1, oracle=1"
+    },
+    {
+      "name": "C4_net_pnl",
+      "status": "PASS",
+      "detail": "system=100.0, oracle=100.0"
+    },
+    {
+      "name": "C4_commission",
+      "status": "PASS",
+      "detail": "system=3.0, oracle=3.0"
+    },
+    {
+      "name": "C4_slippage",
+      "status": "PASS",
+      "detail": "system=75.0, oracle=75.0"
+    },
+    {
+      "name": "C4_total_cost",
+      "status": "PASS",
+      "detail": "system=78.0, oracle=78.0"
+    },
+    {
+      "name": "C4_gross_alpha",
+      "status": "PASS",
+      "detail": "system=178.0, oracle=178.0"
+    },
+    {
+      "name": "C4_complete",
+      "status": "PASS",
+      "detail": "missing=0"
+    },
+    {
+      "name": "C4_recon_tolerance",
+      "status": "PASS",
+      "detail": "error=0.000e+00, tol=1.000e-06"
+    },
+    {
+      "name": "C5_valid_report_ok",
+      "status": "PASS",
+      "detail": "violations=[]"
+    },
+    {
+      "name": "C5_nan_rejected",
+      "status": "PASS",
+      "detail": "NaN equity rejected: ['final_equity must be a finite number', 'non-finite number at report.final_equity']"
+    },
+    {
+      "name": "C5_nan_sharpe_rejected",
+      "status": "PASS",
+      "detail": "NaN sharpe rejected: ['sharpe must be a finite number', 'non-finite number at report.sharpe']"
+    },
+    {
+      "name": "C6_zero_trades_valid",
+      "status": "PASS",
+      "detail": "violations=[]"
+    }
+  ],
+  "all_pass": true,
+  "total_checks": 15,
+  "passed": 15
+}

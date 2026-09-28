@@ -1,0 +1,19 @@
+Integrated AC01-AC15 run
+Revision: 3658216101680b13d0771fad3b08bb013be6423e
+Directory: /home/huythong/.qwenpaw/workspaces/trading/data/acceptance_runs/ac01_15_20260925_075928_utc
+
+AC02: FAIL (rc=1)
+AC03: FAIL (rc=1)
+AC04: FAIL (rc=1)
+AC05: FAIL (rc=1)
+AC06: FAIL (rc=1)
+AC07: FAIL (rc=1)
+AC08: FAIL (rc=1)
+AC09: FAIL (rc=1)
+AC10: FAIL (rc=1)
+AC11: FAIL (rc=1)
+AC12: FAIL (rc=1)
+AC13: FAIL (rc=1)
+AC14: FAIL (rc=1)
+AC15: FAIL (rc=1)
+AC01: FAIL (rc=1)
