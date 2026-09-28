@@ -774,6 +774,44 @@ class SelectionPolicyRegistry:
         return chain
 
 
+def _median_fold_trades(result: Any) -> float:
+    """Median OOS trade count per outer fold.
+
+    The aggregate metrics carry ``total_test_trades`` across all folds but
+    no per-fold median, and there is no ``median_test_trades`` key. Reading
+    a missing key defaulted to 0.0, which would publish "0 trades" on a
+    real campaign and, worse, collapse the cost-adjusted evidence floor to
+    zero — a policy that never trades would pass the cost test.
+
+    Median per fold is the right figure: the evidence floor in
+    ``StrategyEvidencePolicy.required_return_pct`` is applied to a single
+    fold's median return, so the trade count has to be on the same scale.
+    """
+    outer = getattr(result, "outer_results", None)
+    if outer:
+        counts = []
+        for o in outer:
+            tm = getattr(o, "test_metrics", None) or {}
+            try:
+                counts.append(float(tm.get("total_trades", 0)))
+            except (TypeError, ValueError):
+                continue
+        if counts:
+            counts.sort()
+            mid = len(counts) // 2
+            median = (
+                counts[mid] if len(counts) % 2
+                else (counts[mid - 1] + counts[mid]) / 2.0
+            )
+            return float(median)
+    total = getattr(result, "aggregate_metrics", {}) or {}
+    try:
+        folds = float(total.get("n_outer_folds", 0) or 0)
+        return float(total.get("total_test_trades", 0) or 0) / folds if folds else 0.0
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def _fold_counts(result: Any) -> tuple[int, int]:
     """Return (passing, total) fold counts from a WFO result.
 
@@ -859,7 +897,7 @@ class SelectionPolicyBuilder:
             "median_oos_return_pct": float(
                 metrics.get("median_test_return_pct", 0.0)
             ),
-            "median_oos_trades": float(metrics.get("median_test_trades", 0.0)),
+            "median_oos_trades": _median_fold_trades(result),
             "n_passing_folds": float(_fold_counts(result)[0]),
             "total_folds": float(_fold_counts(result)[1]),
         }

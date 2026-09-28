@@ -257,3 +257,7 @@ WFO_BTC_TODO.md
 # Policy stores quarantined by scripts/quarantine_policies.py (runtime artifacts,
 # not source). See POLICY_RETURN_AUDIT.md.
 data/policies_quarantine_*/
+
+# Real WFO campaign artifacts (runtime data, not source)
+data/wfo_real_campaign/
+data/promotion_store/
