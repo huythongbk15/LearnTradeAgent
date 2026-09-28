@@ -434,7 +434,11 @@ def main():
         "return_gap_pct": round(return_gap, 4),
         "drawdown_ratio": round(dd_ratio, 4),
         "conclusion": conclusion,
-        "regime_segments": {"trend": (0, 200), "mean_reversion": (200, 400), "trend": (400, 600)},
+        "regime_segments": [
+            {"name": "trend", "start": 0, "end": 200},
+            {"name": "mean_reversion", "start": 200, "end": 400},
+            {"name": "trend_high_vol", "start": 400, "end": 600},
+        ],
         "seed": seed,
         "n_bars": n_bars,
         "methodology_sound": all_pass,
