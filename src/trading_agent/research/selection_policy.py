@@ -88,6 +88,43 @@ class ParamArtifact:
                 "fold counts are inconsistent: "
                 f"{passing}/{total_folds} passing folds"
             )
+        self._require_attributable_code()
+
+    def _require_attributable_code(self) -> None:
+        """Refuse a policy whose score is not attributable to real code.
+
+        Metric *presence* is not evidence. The generators that predate this
+        gate wrote complete metric blocks with literal values — 0.02 / 0.05 /
+        0.10 return, 30 / 40 trades — so a presence check alone lets them
+        through. What separates them is that the score was supposedly
+        produced by running specific code, and that code is still on disk.
+
+        ``incumbent.code_sha`` must match the source hash the canonical
+        registry computes for the same strategy_id. Fabricated policies carry
+        placeholder SHAs ("c" * 64, "t" * 64, "live-pipeline-001") and do not
+        match any real source.
+        """
+        strategy_id = self.incumbent.strategy_id
+        try:
+            from trading_agent.strategies.canonical import build_default_registry
+
+            descriptor = build_default_registry().describe(strategy_id)
+        except Exception:
+            # Strategy not on the allowlist: nothing to verify against, and
+            # an unverifiable score is not an evidence-backed score.
+            raise ValueError(
+                f"cannot verify code_sha for strategy {strategy_id!r}: not on the "
+                "canonical allowlist, so its scores cannot be attributed to "
+                "real source"
+            ) from None
+        claimed = (self.incumbent.code_sha or "").lower()
+        actual = descriptor.code_sha.lower()
+        if not claimed.startswith(actual[:12]):
+            raise ValueError(
+                f"code_sha for {strategy_id!r} does not match the canonical "
+                f"source ({claimed[:12]!r} vs {actual[:12]!r}); these scores "
+                "were not produced by the registered strategy"
+            )
 
     def __post_init__(self) -> None:
         if not self.strategy_id.strip():
@@ -214,6 +251,43 @@ class SelectionPolicyArtifact:
             raise ValueError(
                 "fold counts are inconsistent: "
                 f"{passing}/{total_folds} passing folds"
+            )
+        self._require_attributable_code()
+
+    def _require_attributable_code(self) -> None:
+        """Refuse a policy whose score is not attributable to real code.
+
+        Metric *presence* is not evidence. The generators that predate this
+        gate wrote complete metric blocks with literal values — 0.02 / 0.05 /
+        0.10 return, 30 / 40 trades — so a presence check alone lets them
+        through. What separates them is that the score was supposedly
+        produced by running specific code, and that code is still on disk.
+
+        ``incumbent.code_sha`` must match the source hash the canonical
+        registry computes for the same strategy_id. Fabricated policies carry
+        placeholder SHAs ("c" * 64, "t" * 64, "live-pipeline-001") and do not
+        match any real source.
+        """
+        strategy_id = self.incumbent.strategy_id
+        try:
+            from trading_agent.strategies.canonical import build_default_registry
+
+            descriptor = build_default_registry().describe(strategy_id)
+        except Exception:
+            # Strategy not on the allowlist: nothing to verify against, and
+            # an unverifiable score is not an evidence-backed score.
+            raise ValueError(
+                f"cannot verify code_sha for strategy {strategy_id!r}: not on the "
+                "canonical allowlist, so its scores cannot be attributed to "
+                "real source"
+            ) from None
+        claimed = (self.incumbent.code_sha or "").lower()
+        actual = descriptor.code_sha.lower()
+        if not claimed.startswith(actual[:12]):
+            raise ValueError(
+                f"code_sha for {strategy_id!r} does not match the canonical "
+                f"source ({claimed[:12]!r} vs {actual[:12]!r}); these scores "
+                "were not produced by the registered strategy"
             )
 
     def __post_init__(self) -> None:

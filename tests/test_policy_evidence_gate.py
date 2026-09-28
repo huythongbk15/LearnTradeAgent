@@ -21,6 +21,13 @@ from trading_agent.research.selection_policy import (
 
 NOW = datetime(2026, 1, 1, tzinfo=UTC)
 
+
+def _real_code_sha(strategy_id: str = "rsi") -> str:
+    """The hash the canonical registry computes for this strategy's source."""
+    from trading_agent.strategies.canonical import build_default_registry
+
+    return build_default_registry().describe(strategy_id).code_sha
+
 MEASURED = {
     "selection_score": 1.2,
     "median_oos_return_pct": 6.5,
@@ -35,7 +42,9 @@ def _policy(**overrides):
         "symbol": "BTC/USDT",
         "timeframe": "1h",
         "regime": "trend",
-        "incumbent": ParamArtifact("rsi", {"period": 14}, code_sha="e" * 64),
+        "incumbent": ParamArtifact(
+            "rsi", {"period": 14}, code_sha=_real_code_sha("rsi")
+        ),
         "scores": dict(MEASURED),
         "evidence_ids": ("sha256:study", "sha256:outer", "sha256:holdout"),
         "validity_start": NOW,
@@ -92,6 +101,54 @@ def test_fold_counts_must_be_consistent():
 def test_more_passing_than_total_is_rejected():
     with pytest.raises(ValueError, match="fold counts are inconsistent"):
         _policy(scores={**MEASURED, "n_passing_folds": -1})
+
+
+# ── attribution ───────────────────────────────────────────────────────────
+# Metric presence alone is not evidence: the old generators wrote complete
+# metric blocks full of literals. Attribution to real code is what separates
+# them.
+
+
+def test_placeholder_code_sha_is_rejected_even_with_full_metrics():
+    # The exact shape the generators produced: every required metric present,
+    # plausible values, but code_sha is a repeated-character placeholder.
+    with pytest.raises(ValueError, match="does not match the canonical source"):
+        _policy(
+            scores=dict(MEASURED),
+            incumbent=ParamArtifact("rsi", {"period": 14}, code_sha="c" * 64),
+        )
+
+
+def test_named_placeholder_code_sha_is_rejected():
+    with pytest.raises(ValueError, match="does not match the canonical source"):
+        _policy(
+            incumbent=ParamArtifact(
+                "rsi", {"period": 14}, code_sha="live-pipeline-001"
+            ),
+        )
+
+
+def test_strategy_off_allowlist_is_rejected():
+    with pytest.raises(ValueError, match="canonical allowlist"):
+        _policy(
+            incumbent=ParamArtifact(
+                "not_a_registered_strategy", {}, code_sha="a" * 64
+            ),
+        )
+
+
+def test_code_sha_for_wrong_strategy_is_rejected():
+    # enhanced_ma and ma_adx share a source file, so their hashes match; a
+    # policy claiming rsi must carry rsi's hash, not another strategy's.
+    rsi_sha = _real_code_sha("rsi")
+    with pytest.raises(ValueError, match="does not match the canonical source"):
+        _policy(
+            incumbent=ParamArtifact(
+                "rsi", {"period": 14}, code_sha=_real_code_sha("bbands")
+            ),
+        )
+    # sanity: the real rsi hash is accepted
+    assert _policy().incumbent.code_sha == rsi_sha
 
 
 # ── stored artifacts ──────────────────────────────────────────────────────

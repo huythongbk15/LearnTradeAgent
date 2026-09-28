@@ -254,3 +254,7 @@ out.json
 *_TODO.md
 CLEANUP_TODO.md
 WFO_BTC_TODO.md
+
+# Policy stores quarantined by scripts/quarantine_policies.py (runtime artifacts,
+# not source). See POLICY_RETURN_AUDIT.md.
+data/policies_quarantine_*/
