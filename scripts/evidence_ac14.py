@@ -156,9 +156,12 @@ def oracle_equity_curve(signals: np.ndarray, open_prices_arr: np.ndarray,
     else:
         lower = upper = sharpe
 
+    # Turnover is total position change normalized by average position over
+    # the SAME window. Slicing only the active bars for the denominator while
+    # diffing the full history makes the ratio explode on sparse strategies.
     if n_active > 1:
         pos_changes = float(np.sum(np.abs(np.diff(position_history))))
-        avg_pos = float(np.mean(np.abs(position_history[:n_active])))
+        avg_pos = float(np.mean(np.abs(position_history)))
         turnover = pos_changes / max(avg_pos * n_active, 1e-12)
     else:
         turnover = 0.0
