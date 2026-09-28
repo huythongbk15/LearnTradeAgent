@@ -514,7 +514,11 @@ def _strategy_evidence(now: datetime) -> dict:
                 "end": end.isoformat(),
                 "bars": 90 * 24,
                 "sharpe": 0.7,
-                "return_pct": 1.0,
+                # Must clear the cost-adjusted floor: 3 folds x 4 trades =
+                # 12 round trips x 0.32% = 3.84%. A 1% return would be
+                # rejected as unprofitable once costs are counted, which is
+                # the behaviour under test elsewhere in this file.
+                "return_pct": 6.0,
                 "max_drawdown_pct": 5.0,
                 "trades": 4,
             }

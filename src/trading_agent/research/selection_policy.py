@@ -50,6 +50,45 @@ class ParamArtifact:
     code_sha: str = "unknown"
     param_hash: str = field(init=False)
 
+    def _require_measured_scores(self) -> None:
+        """Refuse to validate a policy whose scores were never measured.
+
+        A ``selection_score`` on its own is a claim, not evidence. Promotion
+        decisions in this codebase read the OOS metric family to decide
+        whether a fold run actually happened, so a policy carrying a score
+        without those metrics cannot have been scored from a measurement.
+
+        Generators that predate this check wrote literal constants
+        (0.02 / 0.05 / 0.10 return, 30 / 40 trades) straight into ``scores``;
+        those artifacts pass provenance checks while encoding no result. This
+        makes that unrepresentable rather than merely discouraged.
+        """
+        if not self.scores:
+            raise ValueError(
+                "validated/active policy requires measured scores; an unscored "
+                "policy must stay in DRAFT until a real evaluation writes them"
+            )
+        required = (
+            "median_oos_return_pct",
+            "median_oos_trades",
+            "n_passing_folds",
+            "total_folds",
+        )
+        missing = [key for key in required if key not in self.scores]
+        if missing:
+            raise ValueError(
+                "validated/active policy requires measured OOS metrics; "
+                f"missing {missing}. A selection_score without its supporting "
+                "metrics is a claim, not evidence."
+            )
+        total_folds = float(self.scores["total_folds"])
+        passing = float(self.scores["n_passing_folds"])
+        if total_folds <= 0 or not 0.0 <= passing <= total_folds:
+            raise ValueError(
+                "fold counts are inconsistent: "
+                f"{passing}/{total_folds} passing folds"
+            )
+
     def __post_init__(self) -> None:
         if not self.strategy_id.strip():
             raise ValueError("strategy_id is required")
@@ -138,6 +177,45 @@ class SelectionPolicyArtifact:
     previous_policy_id: Optional[str] = None
     rollback_reason: Optional[str] = None
 
+    def _require_measured_scores(self) -> None:
+        """Refuse to validate a policy whose scores were never measured.
+
+        A ``selection_score`` on its own is a claim, not evidence. Promotion
+        decisions in this codebase read the OOS metric family to decide
+        whether a fold run actually happened, so a policy carrying a score
+        without those metrics cannot have been scored from a measurement.
+
+        Generators that predate this check wrote literal constants
+        (0.02 / 0.05 / 0.10 return, 30 / 40 trades) straight into ``scores``;
+        those artifacts pass provenance checks while encoding no result. This
+        makes that unrepresentable rather than merely discouraged.
+        """
+        if not self.scores:
+            raise ValueError(
+                "validated/active policy requires measured scores; an unscored "
+                "policy must stay in DRAFT until a real evaluation writes them"
+            )
+        required = (
+            "median_oos_return_pct",
+            "median_oos_trades",
+            "n_passing_folds",
+            "total_folds",
+        )
+        missing = [key for key in required if key not in self.scores]
+        if missing:
+            raise ValueError(
+                "validated/active policy requires measured OOS metrics; "
+                f"missing {missing}. A selection_score without its supporting "
+                "metrics is a claim, not evidence."
+            )
+        total_folds = float(self.scores["total_folds"])
+        passing = float(self.scores["n_passing_folds"])
+        if total_folds <= 0 or not 0.0 <= passing <= total_folds:
+            raise ValueError(
+                "fold counts are inconsistent: "
+                f"{passing}/{total_folds} passing folds"
+            )
+
     def __post_init__(self) -> None:
         if (
             not self.symbol.strip()
@@ -163,6 +241,7 @@ class SelectionPolicyArtifact:
         if self.status in {PolicyStatus.VALIDATED, PolicyStatus.ACTIVE}:
             if not self.evidence_ids:
                 raise ValueError("validated/active policy requires evidence_ids")
+            self._require_measured_scores()
             provenance = (
                 self.policy_commit_sha,
                 self.policy_data_manifest_sha,
@@ -599,6 +678,29 @@ class SelectionPolicyRegistry:
         return chain
 
 
+def _fold_counts(result: Any) -> tuple[int, int]:
+    """Return (passing, total) fold counts from a WFO result.
+
+    Prefers the explicit per-fold gate results, which are the authoritative
+    record. Falls back to fields on the result itself. Returns (0, 0) when
+    the result carries no fold information, which the promotion gate then
+    refuses — better than inventing a count.
+    """
+    gates = getattr(result, "gate_results", None)
+    if gates:
+        total = len(gates)
+        passing = sum(1 for g in gates if getattr(g, "passed", False))
+        return passing, total
+    outer = getattr(result, "outer_results", None)
+    if outer:
+        return sum(1 for o in outer if getattr(o, "passed", True)), len(outer)
+    passing_attr = getattr(result, "n_passing_folds", None)
+    total_attr = getattr(result, "total_folds", None)
+    if passing_attr is not None and total_attr is not None:
+        return int(passing_attr), int(total_attr)
+    return 0, 0
+
+
 class SelectionPolicyBuilder:
     """Fail-closed bridge from promotable S3 WFO evidence to an S4 policy."""
 
@@ -654,6 +756,16 @@ class SelectionPolicyBuilder:
             "positive_outer_folds_pct": float(
                 metrics.get("positive_outer_folds_pct", 0.0)
             ),
+            # Canonical names the promotion gate reads. Derive them from the
+            # per-fold gate results rather than defaulting to zero: a fold
+            # count of 0 is not a measurement, and defaulting would make the
+            # builder emit a policy its own gate rejects.
+            "median_oos_return_pct": float(
+                metrics.get("median_test_return_pct", 0.0)
+            ),
+            "median_oos_trades": float(metrics.get("median_test_trades", 0.0)),
+            "n_passing_folds": float(_fold_counts(result)[0]),
+            "total_folds": float(_fold_counts(result)[1]),
         }
         return SelectionPolicyArtifact(
             symbol=result.spec.symbol,

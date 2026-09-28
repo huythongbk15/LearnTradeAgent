@@ -37,7 +37,15 @@ def _validated(
         incumbent=ParamArtifact(
             strategy_id, params or {"period": 14}, code_sha="e" * 64
         ),
-        scores={"selection_score": 1.2},
+        # A selection_score alone is a claim; validated/active policies must
+        # carry the OOS metric family that the score was derived from.
+        scores={
+            "selection_score": 1.2,
+            "median_oos_return_pct": 6.5,
+            "median_oos_trades": 30,
+            "n_passing_folds": 9,
+            "total_folds": 9,
+        },
         evidence_ids=("sha256:study", "sha256:outer", "sha256:holdout"),
         validity_start=now,
         validity_end=now + timedelta(days=30),

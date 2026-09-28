@@ -351,6 +351,27 @@ class StrategyEvidencePolicy:
     max_generated_age_hours: float = 24.0
     max_data_age_hours: float = 6.0
 
+    def required_return_pct(self, total_trades: float) -> float:
+        """Return a fold must clear to cover the cost of its own trading.
+
+        A median OOS return is not comparable across strategies with different
+        turnover: a policy that trades 40 times needs several times the edge
+        of one that trades once to reach the same net result. Judging every
+        fold against a flat floor therefore passes high-turnover strategies
+        that lose money after costs — which is what the stored policies do
+        (median 2% promised against a 4.8% break-even at 30 trades).
+
+        The floor is one round trip per trade: costs are charged on entry and
+        exit, so a "trade" here means one complete round trip.
+        """
+        trades = max(float(total_trades), 0.0)
+        round_trip = (
+            2.0 * (self.min_commission_bps + self.min_slippage_bps)
+            + self.min_spread_bps
+        ) / 10_000.0
+        floor = max(self.min_median_oos_return_pct, trades * round_trip * 100.0)
+        return floor
+
 
 def _parse_utc_datetime(value: object, field_name: str) -> datetime:
     if not isinstance(value, str) or not value.strip():
@@ -694,8 +715,13 @@ def _validate_evidence_folds(
     total_trades = sum(trades)
     if median_sharpe < policy.min_median_oos_sharpe:
         raise LiveSafetyError(f"{label} median OOS Sharpe does not pass")
-    if median_return <= policy.min_median_oos_return_pct:
-        raise LiveSafetyError(f"{label} median OOS return does not pass")
+    required_return = policy.required_return_pct(total_trades / len(returns))
+    if median_return <= required_return:
+        raise LiveSafetyError(
+            f"{label} median OOS return {median_return:.4f}% does not clear the "
+            f"cost-adjusted floor {required_return:.4f}% "
+            f"({total_trades:.0f} total trades)"
+        )
     if positive_ratio < policy.min_positive_fold_ratio:
         raise LiveSafetyError(f"{label} positive-fold ratio does not pass")
     if worst_drawdown > policy.max_worst_oos_drawdown_pct:

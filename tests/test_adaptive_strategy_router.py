@@ -80,7 +80,7 @@ def _active_registry(tmp_path) -> SelectionPolicyRegistry:
             incumbent=ParamArtifact(
                 strategy_id, {"window": 10 + index}, code_sha="e" * 64
             ),
-            scores={"selection_score": score},
+            scores={"selection_score": score, "median_oos_return_pct": 6.5, "median_oos_trades": 30, "n_passing_folds": 9, "total_folds": 9},
             evidence_ids=(f"sha256:study-{regime}", f"sha256:outer-{regime}"),
             validity_start=created_at,
             validity_end=NOW + timedelta(days=29),
@@ -355,7 +355,7 @@ def test_forecast_runtime_resolves_signed_policy_to_parameterized_adapter(tmp_pa
             incumbent=ParamArtifact(
                 "rsi", {"period": 14}, code_sha=descriptor.code_sha
             ),
-            scores={"selection_score": 1.0},
+            scores={"selection_score": 1.0, "median_oos_return_pct": 6.5, "median_oos_trades": 30, "n_passing_folds": 9, "total_folds": 9},
             evidence_ids=(f"sha256:{regime}",),
             validity_start=created_at,
             validity_end=NOW + timedelta(days=1),
@@ -439,7 +439,7 @@ def test_research_only_candidate_cannot_be_loaded_in_paper_environment(tmp_path)
         timeframe="1h",
         regime="trend",
         incumbent=ParamArtifact("rsi", {"period": 14}, code_sha=descriptor.code_sha),
-        scores={"selection_score": 1.0},
+        scores={"selection_score": 1.0, "median_oos_return_pct": 6.5, "median_oos_trades": 30, "n_passing_folds": 9, "total_folds": 9},
         evidence_ids=("sha256:evidence",),
         validity_start=NOW - timedelta(days=1),
         validity_end=NOW + timedelta(days=1),

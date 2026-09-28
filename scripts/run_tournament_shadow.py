@@ -101,27 +101,21 @@ def _build_registry(tmp_dir: Path, signing_key: bytes, key_id: str,
                 timeframe=timeframe,
                 regime=regime,
                 incumbent=ParamArtifact(sid, params, code_sha="a" * 64),
-                scores={
-                "selection_score": 0.50,
-                "median_test_sharpe": 0.30,
-                "median_oos_return_pct": 0.05,
-                "median_max_dd_pct": 0.30,
-                "median_calmar": 0.50,
-                "median_oos_trades": 40,
-                "n_passing_folds": 9,
-                "total_folds": 9,
-            },
                 evidence_ids=(f"sha256:shadow-{sid}-{regime}",),
                 validity_start=validity_start,
-                validity_end=now + timedelta(days=90),
-                risk_cap=0.25,
-                status=PolicyStatus.VALIDATED,
+                # No scores: this script wires shadow plumbing, it does not
+                # evaluate strategies. Fabricated scores here reached
+                # status=active via the stage-only promotion check.
+                scores={},
+                status=PolicyStatus.DRAFT,
                 created_at=now - timedelta(minutes=1),
                 policy_commit_sha="b" * 40,
                 policy_data_manifest_sha="c" * 64,
                 policy_feature_manifest_sha="d" * 64,
                 policy_release_digest="sha256:e" * 64,
-                promotion_stage="paper_eligible",
+                promotion_stage="exploratory",
+                risk_cap=0.25,
+                validity_end=now + timedelta(days=90),
             )
             registry.add(policy)
             # Only activate ONE policy per regime (the first = incumbent)
@@ -208,31 +202,32 @@ def main() -> None:
             policy = SelectionPolicyArtifact(
                 symbol=symbol, timeframe=args.timeframe, regime=regime,
                 incumbent=ParamArtifact(first_sid, params, code_sha="a" * 64),
-                scores={
-                    "selection_score": 0.50,
-                    "median_test_sharpe": 0.30,
-                    "median_oos_return_pct": 0.05,
-                    "median_max_dd_pct": 0.30,
-                    "median_calmar": 0.50,
-                    "median_oos_trades": 40,
-                    "n_passing_folds": 9, "total_folds": 9,
-                },
+                # Unmeasured: this script bootstraps shadow plumbing and does
+                # not evaluate strategies. A scored block here would be
+                # fabricated, and the measured-evidence gate would reject it
+                # anyway, so the artifact stays DRAFT.
+                scores={},
+                status=PolicyStatus.DRAFT,
+                promotion_stage="exploratory",
                 evidence_ids=(f"sha256:shadow-{first_sid}-{regime}",),
                 validity_start=validity_start,
                 validity_end=now + timedelta(days=90),
                 risk_cap=0.25,
-                status=PolicyStatus.VALIDATED,
                 created_at=now - timedelta(minutes=1),
                 policy_commit_sha="b" * 40,
                 policy_data_manifest_sha="c" * 64,
                 policy_feature_manifest_sha="d" * 64,
                 policy_release_digest="sha256:e" * 64,
-                promotion_stage="paper_eligible",
             )
             registry.add(policy)
-            service.activate(
-                policy.policy_id, actor="tournament-init",
-                ticket=f"SHADOW-{symbol}-{regime}", now=now,
+            raise RuntimeError(
+                f"cannot activate {first_sid} for {symbol}/{regime}: this "
+                "bootstrap script writes no measured scores, and a policy "
+                "without them is not promotable. Run a real WFO evaluation "
+                "that writes median_oos_return_pct / median_oos_trades / "
+                "fold counts, then promote that artifact. Fabricated score "
+                "blocks were removed here after POLICY_RETURN_AUDIT.md found "
+                "2690 policies built from three return constants."
             )
 
     # Add remaining strategies as inactive (challengers only)
