@@ -453,23 +453,25 @@ Tất cả command quan trọng dùng `scripts/qwenpaw_control/controlled_exec.p
 
 | AC | Status | Owner / reviewer | Revision + scope | Test/evidence locator + hash | Gap / bước tiếp |
 | --- | --- | --- | --- | --- | --- |
-| AC01 | VERIFIED | Agent hiện tại / reviewer pending | 22/09, HEAD f128564 + dirty 7 files; scoped check | tests/test_ac01_prefix_contract.py (6/6); kết quả mục 9.8 | Rule-based index alignment, HMM cache key, fit cutoff param — fixed |
-| AC02 | VERIFIED | Agent / reviewer pending | 22/09 | scripts/evidence_ac02.py (13 passes) + test_r01 (26) | Independent oracle hash match, unknown/range/crossparam rejection, dedup identity |
-| AC03 | VERIFIED | Agent / reviewer pending | 22/09 | scripts/evidence_ac03.py (13 checks) | Real manifest integrity (SHA-256), bar mapping on 31k bars, tamper rejection, fail-closed guard |
-| AC04 | VERIFIED | Agent / reviewer pending | 22/09 | scripts/evidence_ac04.py (9 checks) | Serialize->reload identity, tamper detection on disk, atomic save |
-| AC05 | VERIFIED | Agent / reviewer pending | 22/09 | scripts/evidence_ac05.py (15 checks) | CAGR/Sharpe/MDD by hand, cost attribution oracle, NaN/Inf rejection |
-| AC06 | VERIFIED | Agent / reviewer pending | 22/09 | scripts/evidence_ac06.py (8 checks) | PolicyResolver fail-closed |
-| AC07 | VERIFIED | Agent / reviewer pending | 22/09 | scripts/evidence_ac07.py (8 checks) | Atomic claim, concurrent rejection, ownership preserved |
-| AC08 | VERIFIED | Agent / reviewer pending | 22/09 | scripts/evidence_ac08.py (12 checks) | Permission gate 12 scenarios |
-| AC09 | VERIFIED | Agent / reviewer pending | 22/09 | scripts/evidence_ac09.py (12 checks) | Fill-ledger oracle on 3 fills |
-| AC10 | VERIFIED | Agent / reviewer pending | 22/09 | scripts/evidence_ac10.py (6 checks) | Crash recovery, idempotency, seq-gaps |
-| AC11 | VERIFIED | Agent / reviewer pending | 22/09 | scripts/evidence_ac11.py (9 checks) | Shared capital budget, pro-rata scaling, liquidity cap |
-| AC12 | VERIFIED | Agent / reviewer pending | 22/09 | scripts/evidence_ac12.py (11 checks) | Protection/fallback/telemetry recovery |
-| AC13 | VERIFIED | Agent / reviewer pending | 22/09 | scripts/evidence_ac13.py (8 checks) | Approval consumer fail-closed |
-| AC14 | VERIFIED | Agent / reviewer pending | 23/09 | scripts/evidence_ac14.py (12 checks) | Adaptive router vs fixed incumbent; independent oracle, same data/cost |
-| AC15 | VERIFIED | Agent / reviewer pending | 22/09 | scripts/evidence_ac15.py (11 checks) | Deterministic replay, seed reproducibility |
+| AC01 | ACCEPT có giới hạn | Reviewer độc lập đã kiểm | 25/09, base `e78ff4bb5d33aa903596ea3cf0b50e010a72426b` + diff SHA trong manifest | `data/acceptance_runs/ac01_15_20260925_114252_utc/` | 7/7; GMM frozen-fit future-mutation và batch/stream parity; không suy rộng ngoài strategy/path đã test |
+| AC02 | ACCEPT có giới hạn | Reviewer độc lập đã kiểm | Cùng run tích hợp; trial identity/fold-cost accounting | Cùng run; evidence scripts + suite 69 test | Factory/schema identity, dedup, cost/fold identity; bounded WFO scope |
+| AC03 | ACCEPT có giới hạn | Reviewer độc lập đã kiểm | Cùng run tích hợp; lock xuyên process + persisted holdout | `data/acceptance_runs/ac01_15_20260925_114252_utc/` + 318-test suite | Hai process tranh chấp: đúng một process mở; restart/reload/tamper guard; không phải holdout performance test |
+| AC04 | ACCEPT có giới hạn | Reviewer độc lập đã kiểm | Cùng run tích hợp; WFO provenance/consumer gate cục bộ | `data/acceptance_runs/ac01_15_20260925_114252_utc/` + 318-test suite | Missing/tampered artifact, foreign-commit freeze và wrong-commit resume bị chặn; scope fixture/synthetic WFO |
+| AC05 | ACCEPT có giới hạn | Reviewer độc lập đã kiểm | Cùng run tích hợp; thống kê/chi phí | Cùng run; suite 69 test, không warning | Cost scenarios, serial/parallel parity và CSCV invalid-score; không chứng minh edge OOS |
+| AC06 | PARTIAL | Reviewer độc lập đã kiểm | Cùng run tích hợp; public paper cycle | `data/acceptance_runs/ac01_15_20260925_114252_utc/` | Missing policy chặn trước broker submit; còn thiếu no-submit cho wrong-pair và lineage tampered/missing |
+| AC07 | ACCEPT có giới hạn | Reviewer độc lập đã kiểm | Cùng run tích hợp; router contracts | Cùng run + supplemental3 | Dwell/cooldown/ownership/restart; không phải hiệu quả lợi nhuận |
+| AC08 | ACCEPT có giới hạn | Reviewer độc lập đã kiểm | Cùng run tích hợp; spot/paper rules | Cùng run + supplemental3 | Instrument, permission và no-submit boundary; không xác nhận account live |
+| AC09 | ACCEPT có giới hạn | Reviewer độc lập đã kiểm | Cùng run tích hợp; paper/simulator | Cùng run + supplemental3 | Fill/ledger simulator accounting; không suy rộng live broker |
+| AC10 | ACCEPT có giới hạn | Reviewer độc lập đã kiểm | Cùng run tích hợp; local recovery semantics | Cùng run + supplemental3 | Cancel/UNKNOWN/restart/reconcile; không tuyên bố exactly-once transport |
+| AC11 | PARTIAL | Reviewer độc lập đã kiểm | Cùng run tích hợp | Cùng run + supplemental suites | Còn thiếu chuỗi hai pair pending → partial-fill → cancel/correlation stress |
+| AC12 | PARTIAL | Reviewer độc lập đã kiểm | Cùng run tích hợp | Cùng run + supplemental suites | Còn thiếu stop-reject, fallback-quality và telemetry-fault safety matrix |
+| AC13 | PARTIAL | Reviewer độc lập đã kiểm | Cùng run tích hợp | Cùng run + supplemental suites | Còn thiếu revoked/stale/future/replay approval tại promotion consumer thực |
+| AC14 | BLOCKED | Cần owner phê duyệt OOS | Synthetic 600-bar chỉ là smoke | `evidence_ac14.py`; chưa có locked OOS campaign | Cần holdout, tiêu chí và chi phí khóa trước; không được thay holdout sau khi xem |
+| AC15 | BLOCKED | Cần owner phê duyệt môi trường vận hành | Deterministic/local shadow only | `evidence_ac15.py`; chưa có soak/rollback record | Cần shadow/testnet soak, recovery và rollback evidence |
 
 Evidence index của mỗi lần chạy phải gồm: run ID, AC/case IDs, base/final revision, dirty diff hash nếu có, data/config/params/cost/policy hashes, seed, timeframe/window, entrypoint và command, exit code, counts/skip/warnings, metric/tolerance/verdict, output hashes, reviewer và giới hạn. File tạm `/tmp` không đủ làm release evidence; lưu dưới output riêng theo run ID theo convention repo, không chứa secrets. Không commit artifact dung lượng lớn hay checkpoint nội bộ vào Git nếu chưa có chính sách lưu trữ được đồng ý.
+
+**Run tích hợp mới nhất (25/09/2026):** AC01–AC15 evidence runners đều PASS trên base revision `e78ff4bb5d33aa903596ea3cf0b50e010a72426b` cộng diff được khóa bằng SHA-256; artifacts nằm tại `data/acceptance_runs/ac01_15_20260925_114252_utc/`. Reviewer độc lập chấp nhận có giới hạn AC01–AC05 và AC07–AC10; AC06, AC11–AC13 còn thiếu bằng chứng tích hợp/negative-case. AC14 vẫn BLOCKED vì chỉ có synthetic study; AC15 vẫn BLOCKED vì chưa có soak/recovery/rollback vận hành. Hai suite bổ sung đạt 69/69 và 318/318, không lỗi/skip/cảnh báo. Đây **chưa phải nghiệm thu cuối toàn bộ AC** và không phải xác nhận lợi nhuận, C01–C10 đầy đủ, hay quyền production/mainnet.
 
 ### 9.7. Khi nào được gọi là hoàn thành?
 
@@ -479,7 +481,7 @@ Evidence index của mỗi lần chạy phải gồm: run ID, AC/case IDs, base/
 
 Nếu không có strategy đạt, có thể hoàn thành engineering bằng fixture an toàn nhưng phải giữ real-policy promotion NO-GO. Nếu thiếu dữ liệu chưa thấy, môi trường, chữ ký hoặc thời gian soak, ghi BLOCKED/PENDING cụ thể; không giả lập bằng chứng để đóng phase.
 
-**Giao việc đầu tiên:** AC01–AC13, AC15, và AC14 adaptive comparison đã VERIFIED qua evidence scripts độc lập. Reviewer tái kiểm negative cases và artifact trên revision mới nhất trước khi review.
+**Trạng thái bàn giao:** Không đánh dấu toàn bộ AC VERIFIED chỉ vì runner PASS. Reviewer đã kiểm hashes và các phần mở; manifest cuối phải gắn cả supplemental suites. Để tuyên bố nghiệm thu cuối, đóng các hàng PARTIAL/REVIEW, cung cấp campaign OOS có khóa cho AC14, operational soak/rollback cho AC15, và index bằng chứng riêng cho C01–C10.
 
 ### 9.8. AC01 — lần kiểm chứng 22/09/2026
 

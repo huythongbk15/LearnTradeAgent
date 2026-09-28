@@ -301,6 +301,30 @@ class TestMultiPairCycle:
 
         return provider
 
+    def test_missing_policy_blocks_public_cycle_without_broker_submit(
+        self, config, stores, temp_dir
+    ):
+        """The public cycle must stop at policy resolution before broker I/O."""
+        engine = _build_engine(
+            config, stores, temp_dir, _instrument_rules("BTC/USDT")
+        )
+        runtime = MultiPairRuntime(engine)
+        submissions = self._spy_submissions(engine)
+        try:
+            report = runtime.run_cycle(
+                environment="paper",
+                market_data_provider=self._provider_all_buy(),
+                bindings_override=[("BTC/USDT", "1h")],
+            )
+        finally:
+            engine._graceful_shutdown()
+
+        assert report.total_orders == 0
+        assert not submissions
+        assert len(report.results) == 1
+        assert report.results[0].status == "blocked"
+        assert "no_resolved_strategy" in report.results[0].detail
+
     def test_golden_two_pairs_one_engine_one_cycle(
         self, config, stores, temp_dir, btc_eth_artifacts
     ):

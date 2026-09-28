@@ -196,3 +196,13 @@ def test_cscv_flags_noise_selection_more_than_stable_edge() -> None:
     stable_pbo = combinatorially_symmetric_cross_validation(stable)["pbo"]
     noise_pbo = combinatorially_symmetric_cross_validation(noise)["pbo"]
     assert noise_pbo > stable_pbo
+
+
+def test_cscv_marks_unscorable_zero_volatility_degradation_as_missing() -> None:
+    # A constant return series has undefined Sharpe in CSCV. It must not emit
+    # inf-inf RuntimeWarnings or turn undefined degradation into zero.
+    result = combinatorially_symmetric_cross_validation(
+        np.zeros((32, 2), dtype=float), n_slices=4
+    )
+    assert result["n_splits"] > 0
+    assert all(value is None for value in result["oos_degradation"])

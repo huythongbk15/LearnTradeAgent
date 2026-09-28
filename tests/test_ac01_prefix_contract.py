@@ -12,7 +12,7 @@ import polars as pl
 import pytest
 from polars.testing import assert_frame_equal, assert_series_equal
 
-from trading_agent.ml.regime_detection import HMMStrategy, RuleBasedStrategy
+from trading_agent.ml.regime_detection import GMMStrategy, HMMStrategy, RuleBasedStrategy
 from trading_agent.strategies.enhanced_ma import EnhancedMaCrossover
 
 
@@ -84,3 +84,20 @@ def test_hmm_cache_respects_new_input_length():
     actual = model.predict_all(original)
     fresh = HMMStrategy(n_regimes=3).fit(original.iloc[:180]).predict_all(original)
     assert len(actual) == len(fresh), 'prediction cache reused for a different input window'
+
+
+def test_gmm_frozen_fit_batch_stream_and_future_mutation():
+    pytest.importorskip('sklearn')
+    original = prices()
+    model = GMMStrategy(n_regimes=3, random_state=2209).fit(original.iloc[:180])
+
+    # Batch inference must match repeated one-step inference using the same
+    # frozen training artifact; prediction must not refit its scaler/model.
+    batch = deepcopy(model).predict_all(original)
+    streamed = [deepcopy(model).predict(original.iloc[:end]) for end in range(60, len(original) + 1)]
+    assert_states_equal(batch, streamed)
+
+    mutated = original.copy()
+    mutated.iloc[300:] *= np.linspace(2, 8, len(mutated) - 300)
+    changed_future = deepcopy(model).predict_all(mutated)
+    assert_states_equal(batch[:300 - 59], changed_future[:300 - 59])

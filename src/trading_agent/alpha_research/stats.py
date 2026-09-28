@@ -273,7 +273,10 @@ def combinatorially_symmetric_cross_validation(
         )
 
     logits: list[float] = []
-    degradations: list[float] = []
+    # ``None`` marks an unscorable selected candidate (e.g. zero volatility).
+    # Keeping this distinct from zero avoids both inf-inf warnings and a
+    # misleading claim that the candidate had no OOS degradation.
+    degradations: list[float | None] = []
     half = n_slices // 2
     all_slices = set(range(n_slices))
     for train_slice_ids in combinations(range(n_slices), half):
@@ -293,7 +296,12 @@ def combinatorially_symmetric_cross_validation(
         relative_rank = (rank + 1.0) / (n_candidates + 1.0)
         relative_rank = min(max(relative_rank, 1e-9), 1.0 - 1e-9)
         logits.append(float(math.log(relative_rank / (1.0 - relative_rank))))
-        degradations.append(float(test_scores[selected] - np.max(test_scores)))
+        selected_test_score = float(test_scores[selected])
+        best_test_score = float(np.max(test_scores))
+        if math.isfinite(selected_test_score) and math.isfinite(best_test_score):
+            degradations.append(selected_test_score - best_test_score)
+        else:
+            degradations.append(None)
 
     if not logits:
         raise ValueError("CSCV produced no valid symmetric splits")

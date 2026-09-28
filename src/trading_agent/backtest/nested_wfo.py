@@ -14,13 +14,53 @@ import hashlib
 import json
 import os
 import sys
+from contextlib import contextmanager
 from collections.abc import Iterator
 from dataclasses import asdict, dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 
 import numpy as np
+
+
+@contextmanager
+def _holdout_manifest_lock(manifest_path: Path) -> Iterator[None]:
+    """Serialize holdout open checks across processes on POSIX and Windows.
+
+    Atomic replacement protects readers from partial JSON, but it does not
+    serialize the read/check/write sequence. An OS advisory lock closes that
+    race; the lock file is intentionally persistent while the kernel lock is
+    released automatically when the process exits.
+    """
+    lock_path = manifest_path.with_suffix(manifest_path.suffix + ".lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a+b") as lock_file:
+        if os.name == "nt":
+            # msvcrt is Windows-only; cast keeps the Linux type-checker quiet.
+            import msvcrt
+
+            msvcrt_mod = cast(Any, msvcrt)
+            lock_file.seek(0, os.SEEK_END)
+            if lock_file.tell() == 0:
+                lock_file.write(b"\0")
+                lock_file.flush()
+            lock_file.seek(0)
+            msvcrt_mod.locking(lock_file.fileno(), msvcrt_mod.LK_LOCK, 1)
+            try:
+                yield
+            finally:
+                lock_file.seek(0)
+                msvcrt_mod.locking(lock_file.fileno(), msvcrt_mod.LK_UNLCK, 1)
+        else:
+            import fcntl
+
+            fcntl_mod = cast(Any, fcntl)
+            fcntl_mod.flock(lock_file.fileno(), fcntl_mod.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl_mod.flock(lock_file.fileno(), fcntl_mod.LOCK_UN)
 
 
 class CellRunner(Protocol):
@@ -786,18 +826,20 @@ class HoldoutAccessGuard:
         in-memory ``_manifest`` is updated so subsequent calls in the same
         process see the new state without another disk read.
         """
-        # Re-load to catch the latest persisted state (process-restart safety)
-        self.reload()
-        assert self._manifest is not None  # reload() always populates this
-        if self._manifest.opened:
-            raise ValueError(
-                f"Holdout already opened at {self._manifest.opened_at} "
-                f"by {self._manifest.opened_by}. Cannot re-open (fail-closed)."
-            )
-        opened = self._manifest.open(actor=actor)
-        opened.save(self.manifest_path)          # atomic write
-        self._manifest = opened
-        return opened
+        with _holdout_manifest_lock(self.manifest_path):
+            # Keep reload, one-shot check, and atomic replace inside the same
+            # process lock so concurrent independent workers cannot both win.
+            self.reload()
+            assert self._manifest is not None  # reload() always populates this
+            if self._manifest.opened:
+                raise ValueError(
+                    f"Holdout already opened at {self._manifest.opened_at} "
+                    f"by {self._manifest.opened_by}. Cannot re-open (fail-closed)."
+                )
+            opened = self._manifest.open(actor=actor)
+            opened.save(self.manifest_path)  # atomic write
+            self._manifest = opened
+            return opened
 
 
 def _create_final_holdout_manifest(

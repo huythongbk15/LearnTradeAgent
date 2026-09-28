@@ -990,6 +990,29 @@ class TestConsumerCompletenessGate:
         )
         assert report.missing, "Missing file should appear in missing list"
 
+    def test_inner_freeze_from_different_commit_rejected_by_consumer(
+        self, tmp_path: Path
+    ):
+        """A cell/freeze from another commit cannot satisfy this study manifest."""
+        result = self._setup_and_run(tmp_path)
+        out_root = tmp_path / "wfo"
+        freeze_files = list((out_root / "inner_selection_freezes").glob("*.json"))
+        assert freeze_files
+
+        freeze_path = freeze_files[0]
+        freeze_payload = json.loads(freeze_path.read_text(encoding="utf-8"))
+        freeze_payload["commit_sha"] = "foreign-commit-sha"
+        freeze_path.write_text(json.dumps(freeze_payload, indent=2), encoding="utf-8")
+
+        manifest_stem = result.study_manifest.manifest_id.removeprefix("sha256:")
+        manifest_path = out_root / "study_manifests" / f"{manifest_stem}.json"
+        persisted_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        report = ManifestValidator(persisted_manifest, out_root).validate_manifest()
+
+        assert report.is_complete is False
+        assert report.mismatched or report.tampered
+        assert any("commit_sha" in issue for issue in report.issues)
+
     def test_to_dict_round_trip_preserves_completeness(self, tmp_path: Path):
         """WFOResult.to_dict() preserves completeness_report + provenance_digest."""
         result = self._setup_and_run(tmp_path)

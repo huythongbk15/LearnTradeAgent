@@ -33,6 +33,18 @@ from trading_agent.backtest.tournament import (
 from trading_agent.strategies.canonical.candidates import build_default_registry
 
 
+def _open_frozen_holdout_concurrently(manifest_path: str, barrier: object, result_queue: object) -> None:
+    """Spawn-safe worker used to exercise the inter-process one-shot gate."""
+    from trading_agent.backtest.nested_wfo import HoldoutAccessGuard
+
+    barrier.wait(timeout=15)  # type: ignore[attr-defined]
+    try:
+        HoldoutAccessGuard(Path(manifest_path)).open(actor="concurrency_test")
+        result_queue.put("opened")  # type: ignore[attr-defined]
+    except ValueError as exc:
+        result_queue.put(f"rejected:{exc}")  # type: ignore[attr-defined]
+
+
 class TestFoldGeometry:
     """Test expanding window fold geometry (STR-0301, STR-0302)."""
 
@@ -810,7 +822,7 @@ class TestFinalHoldout:
         df = load_ohlcv("binance", "BTC/USDT", "1h")
         hb = _resolve_frozen_holdout_window(df, None)
         assert hb is not None
-        h_start, h_end = hb
+        h_start, h_end, _manifest = hb
         assert 0 < h_start < h_end < df.height
 
     def test_guard_rejects_overlapping_fold(self):
@@ -825,7 +837,7 @@ class TestFinalHoldout:
         from trading_agent.alpha_research.holdout import HoldoutError
 
         df = load_ohlcv("binance", "BTC/USDT", "1h")
-        h_start, h_end = _resolve_frozen_holdout_window(df, None)
+        h_start, h_end, _manifest = _resolve_frozen_holdout_window(df, None)
         reg = build_default_registry()
         descriptor = reg.describe("enhanced_ma")
 
@@ -854,7 +866,7 @@ class TestFinalHoldout:
         from trading_agent.strategies.canonical.candidates import build_default_registry
 
         df = load_ohlcv("binance", "BTC/USDT", "1h")
-        h_start, h_end = _resolve_frozen_holdout_window(df, None)
+        h_start, h_end, _manifest = _resolve_frozen_holdout_window(df, None)
         reg = build_default_registry()
         descriptor = reg.describe("enhanced_ma")
 
@@ -884,7 +896,7 @@ class TestFinalHoldout:
 
         df = load_ohlcv("binance", "BTC/USDT", "1h")
         n_bars = df.height
-        h_start, _ = _resolve_frozen_holdout_window(df, None)
+        h_start, _h_end, _manifest = _resolve_frozen_holdout_window(df, None)
         reg = build_default_registry()
         descriptor = reg.describe("enhanced_ma")
         purge, embargo = _default_purge_embargo(descriptor)
@@ -994,6 +1006,54 @@ class TestFinalHoldout:
 
         with pytest.raises(ValueError, match="already opened"):
             guard2.open(actor="research_system")
+
+    def test_holdout_guard_allows_only_one_independent_process(self, tmp_path: Path):
+        """Two processes racing the same frozen holdout must have one winner."""
+        import multiprocessing
+
+        from trading_agent.backtest.nested_wfo import FinalHoldoutManifest
+
+        manifest_path = tmp_path / "holdout_process_race.json"
+        FinalHoldoutManifest(
+            strategy_id="enhanced_ma",
+            symbol="BTC/USDT",
+            timeframe="1h",
+            holdout_start_bar=100,
+            holdout_end_bar=200,
+            data_manifest_sha="abc",
+            feature_schema_hash="def",
+            freeze_timestamp="2026-01-01T00:00:00+00:00",
+            commit_sha_at_freeze="xyz",
+        ).save(manifest_path)
+
+        context = multiprocessing.get_context("spawn")
+        barrier = context.Barrier(2)
+        result_queue = context.Queue()
+        workers = [
+            context.Process(
+                target=_open_frozen_holdout_concurrently,
+                args=(str(manifest_path), barrier, result_queue),
+            )
+            for _ in range(2)
+        ]
+        for worker in workers:
+            worker.start()
+        for worker in workers:
+            worker.join(timeout=30)
+        try:
+            assert all(worker.exitcode == 0 for worker in workers)
+            outcomes = [result_queue.get(timeout=5) for _ in workers]
+        finally:
+            for worker in workers:
+                if worker.is_alive():
+                    worker.terminate()
+                    worker.join(timeout=5)
+            result_queue.close()
+
+        assert outcomes.count("opened") == 1, outcomes
+        assert sum(value.startswith("rejected:") for value in outcomes) == 1, outcomes
+        persisted = FinalHoldoutManifest.load(manifest_path)
+        assert persisted.opened is True
 
     def test_holdout_guard_rejects_tampered_manifest(self, tmp_path: Path):
         """HoldoutAccessGuard detects tampered manifest content via integrity check."""
@@ -1471,7 +1531,16 @@ class TestPortfolioGateEvaluation:
                 "total_test_trades": 100,
                 "median_test_sharpe": 1.5,
             },
-            statistical_hardening={},
+            statistical_hardening=(
+                {
+                    "return_series_observations": 30,
+                    "dsr": 0.99,
+                    "pbo": 0.02,
+                    "psr": 0.95,
+                }
+                if passes
+                else {}
+            ),
             gate_results=[] if passes else [
                 GateResult(
                     gate_id="mock_gate",
