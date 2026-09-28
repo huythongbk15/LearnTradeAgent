@@ -6,7 +6,6 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-import numpy as np
 import polars as pl
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -70,5 +69,5 @@ n_sw = 440
 print(f"\nfrictionless total: {f:+.2f}% over {n_sw} switches")
 print(f"  gross edge per round trip: {f / n_sw:+.4f}% "
       f"({f / n_sw * 100:.1f} bps)")
-print(f"  real cost per round trip : 32.0 bps")
+print("  real cost per round trip : 32.0 bps")
 print(f"  -> cost exceeds edge by ~{32 - f / n_sw * 100:.0f} bps per trade")
