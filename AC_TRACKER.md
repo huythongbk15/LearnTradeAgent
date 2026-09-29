@@ -67,7 +67,7 @@
 - **2026-09-28**: results measured on real BTC/USDT data through the promoted-policy pipeline are recorded in `HANDOVER_2026_09_28.md`. They are not a substitute for a locked OOS campaign, and the system currently has no promotable policy to run one against.
 
 ## Next priority (per contract §9.5 + §9.7)
-1. **Establish whether the WFO pipeline is deterministic.** `scripts/check_wfo_determinism.py` runs one spec twice and compares; no prior test does this — `test_nested_wfo.py` calls `run_nested_wfo` once in the whole file. Every campaign number depends on this and none of it is settled until it is.
+1. ~~Establish whether the WFO pipeline is deterministic.~~ **Done** — `check_wfo_determinism.py` ran one spec twice; every measurement matched exactly and the four differences were provenance (`worktree_dirty`, and the manifest fields derived from it), not arithmetic. The 14x spread between on-disk campaigns came from the `a65ed29000` bugs and differing configurations, not non-determinism. Not verified on a run that actually trades — that spec produced zero trades — so the trading path is exercised but unconfirmed. See `HANDOVER_2026_09_28.md`.
 2. **Re-measure one strategy on the fixed pipeline**, not the registry. `enhanced_ma` on SOL is the cheapest test that also produces the first citable post-fix number. Workstream B (S3 real nested WFO campaign) is subsumed by this; a full registry re-measurement would cost roughly 170 hours to learn the same thing and is explicitly not recommended.
 3. **AC15** stays blocked until a cluster exists for operational soak/recovery/rollback evidence.
 4. Re-run AC14 only after steps 1 and 2, on data that reproduces.

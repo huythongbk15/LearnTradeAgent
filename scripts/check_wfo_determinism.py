@@ -37,6 +37,12 @@ from trading_agent.backtest.nested_wfo import WFOSpec, run_nested_wfo
 
 TOL = 1e-9
 
+# rsi on these windows produced zero trades in both runs, so every metric
+# matched trivially. enhanced_ma is the strategy the 104-cell and 852-cell
+# runs show actually holding positions (~20 trades per window).
+STRATEGY = "enhanced_ma"
+PARAM_GRID = {"fast_period": [20], "slow_period": [80]}
+
 
 def spec_for(registry_path: str) -> WFOSpec:
     """Minimal spec, and no real sensitivity analysis.
@@ -56,10 +62,10 @@ def spec_for(registry_path: str) -> WFOSpec:
     is what a minimal determinism check wants.
     """
     return WFOSpec(
-        strategy_id="rsi",
+        strategy_id=STRATEGY,
         symbol="BTC/USDT",
         timeframe="1h",
-        param_grid={"period": [10, 14]},
+        param_grid=PARAM_GRID,
         train_months=18,
         val_months=3,
         test_months=3,
