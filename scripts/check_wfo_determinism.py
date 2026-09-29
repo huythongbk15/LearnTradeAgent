@@ -39,15 +39,26 @@ TOL = 1e-9
 
 
 def spec_for(registry_path: str) -> WFOSpec:
+    """Minimal spec, and no real sensitivity analysis.
+
+    ``real_sensitivity=False`` skips the cost-2x, slippage-stress,
+    delay-1-bar and parameter-neighbour reruns. With it on, this spec took
+    over four hours for a single run and produced 72 artifacts — a cost
+    measurement, not a determinism question. Whether a run reproduces its
+    own result is independent of how much extra work it does, so the
+    sensitivity pass is switched off here. A spec that includes it is a
+    different measurement and would need its own reproducibility check
+    before a production campaign relied on it.
+    """
     return WFOSpec(
         strategy_id="rsi",
         symbol="BTC/USDT",
         timeframe="1h",
         param_grid={"period": [10, 14]},
-        train_months=6,
-        val_months=2,
-        test_months=2,
-        step_months=2,
+        train_months=3,
+        val_months=1,
+        test_months=1,
+        step_months=1,
         min_trades_per_fold=1,
         registry_path=registry_path,
     )
@@ -79,7 +90,11 @@ def main() -> None:
         out = base / f"run{i}"
         out.mkdir(parents=True, exist_ok=True)
         print(f"\nrun {i} ...", flush=True)
-        result = run_nested_wfo(spec_for(str(out / "registry.sqlite3")), out_root=out)
+        result = run_nested_wfo(
+            spec_for(str(out / "registry.sqlite3")),
+            out_root=out,
+            real_sensitivity=False,
+        )
         runs.append(summarise(result))
         print(f"  median_sharpe={result.aggregate_metrics.get('median_test_sharpe')}")
 
