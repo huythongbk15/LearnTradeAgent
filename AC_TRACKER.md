@@ -78,6 +78,7 @@
 - Campaign coverage invariant: a run must measure what it claimed (`54906f6`).
 - 43 policy stores quarantined — 2,690 promoted policies carried fabricated scores; only 4 of 4,520 promotable policies are attributable to code that exists (`f4e2a91`).
 - E2E full flow 9/9, 86 assertions, with scenario 3 asserting fail-closed abstention (`9ba654d`).
+- **Integrated AC01–AC15 run 15/15 PASS on the current pipeline** (`ac01_15_20260929_154822_utc`, revision `0022dc4`). Reaching that required fixing the three evidence scripts that were themselves writing fabricated policies: AC06, AC13 and AC14 all used placeholder `code_sha` values and score dicts with no OOS metrics, so they were refused by the gate added in `8870e03` and `eeea331`. A fixture that violates the rule it is meant to exercise tests nothing.
 - Campaign irreproducibility traced to three WFO pipeline bugs fixed at `a65ed29000`; 4,527 cells predate the fix and the sign-off's only approval rests on them (`CAMPAIGN_REPRODUCIBILITY_ROOT_CAUSE.md`, `EVIDENCE_BASE_AUDIT.md`).
 
 Full account: `HANDOVER_2026_09_28.md`.

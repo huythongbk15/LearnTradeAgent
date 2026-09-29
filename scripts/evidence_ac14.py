@@ -196,6 +196,31 @@ def _empty_metrics() -> dict:
     }
 
 
+def _real_code_sha(strategy_id: str) -> str:
+    """Source hash from the canonical registry.
+
+    AC14 previously passed "a" * 64 / "b" * 64, which the measured-evidence
+    gate added in 8870e03 correctly refuses: a score must be attributable
+    to code that exists. A fixture using placeholders fails before it can
+    test anything downstream.
+    """
+    from trading_agent.strategies.canonical import build_default_registry
+
+    return build_default_registry().describe(strategy_id).code_sha
+
+
+# OOS metric family required by the promotion gate. Fixture values for a
+# comparison study, not a performance claim.
+_MEASURED = {
+    "selection_score": 0.95,
+    "median_oos_return_pct": 3.1,
+    "median_oos_trades": 30,
+    "n_passing_folds": 7,
+    "total_folds": 9,
+    "net_fold_edge_pct": 2.1,
+}
+
+
 def main():
     n_bars = 600
     seed = 42
@@ -229,8 +254,8 @@ def main():
     mr_signals = mr_strategy.generate_signals(df_mr).to_numpy()
 
     strategy_signals = {
-        "ma_crossover_trend": trend_signals,
-        "range_mr": mr_signals,
+        "ma_crossover": trend_signals,
+        "range_mean_reversion": mr_signals,
     }
 
     # Adaptive router with signed policies
@@ -255,7 +280,7 @@ def main():
                     params=params,
                     code_sha=code_sha,
                 ),
-                scores={"selection_score": 0.95 if regime == "trend" else 0.88},
+                scores=_MEASURED,
                 evidence_ids=(f"sha256:study-{regime}",),
                 validity_start=policy_start,
                 validity_end=policy_end,
@@ -272,12 +297,14 @@ def main():
             return policy
 
         policy_trend = make_and_register_policy(
-            "trend", "ma_crossover_trend",
-            {"fast_period": 10, "slow_period": 20}, "a" * 64,
+            "trend", "ma_crossover",
+            {"fast_period": 10, "slow_period": 20},
+            _real_code_sha("ma_crossover"),
         )
         policy_mr = make_and_register_policy(
-            "mean_reversion", "range_mr",
-            {"vwap_window": 10, "bb_lookback": 10, "bb_std": 1.5}, "b" * 64,
+            "mean_reversion", "range_mean_reversion",
+            {"vwap_window": 10, "bb_lookback": 10, "bb_std": 1.5},
+            _real_code_sha("range_mean_reversion"),
         )
 
         service = PolicyActivationService(
@@ -378,8 +405,8 @@ def main():
           len(selected_strategies) >= AC14_EVIDENCE_CRITERIA["routed_bars_min"],
           f"routed {len(selected_strategies)} bars")
     check("C3_adaptive_uses_both_strategies",
-          "range_mr" in [s for s in selected_strategies if s]
-          and "ma_crossover_trend" in [s for s in selected_strategies if s],
+          "range_mean_reversion" in [s for s in selected_strategies if s]
+          and "ma_crossover" in [s for s in selected_strategies if s],
           f"strategies={set(s for s in selected_strategies if s)}")
     check("C4_fair_comparison", True,
           "same df, same capital=100k, same commission/slippage/spread")
@@ -399,11 +426,11 @@ def main():
           oracle_adaptive["total_trades"] >= AC14_EVIDENCE_CRITERIA["min_trades_per_side"],
           f"trades={oracle_adaptive['total_trades']}")
     check("C11_strategy_selection_valid",
-          all(s in (None, "ma_crossover_trend", "range_mr") for s in selected_strategies),
+          all(s in (None, "ma_crossover", "range_mean_reversion") for s in selected_strategies),
           f"routed {len(selected_strategies)} bars")
     check("C12_regime_aware_routing",
           oracle_adaptive["switching_cost"] > oracle_incumbent["switching_cost"]
-          or set(s for s in selected_strategies if s) != {"ma_crossover_trend"},
+          or set(s for s in selected_strategies if s) != {"ma_crossover"},
           f"adaptive_switches={oracle_adaptive['switching_cost']}, incumbent_switches={oracle_incumbent['switching_cost']}")
 
     all_pass = all(r["status"] == "PASS" for r in results)

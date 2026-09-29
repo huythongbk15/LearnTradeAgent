@@ -23,16 +23,42 @@ def check(name, cond, detail=""):
     if not cond:
         raise SystemExit(f"AC13 FAIL: {name}")
 
+def _real_code_sha(strategy_id: str = "volatility_breakout") -> str:
+    """Source hash of a strategy that actually exists on the allowlist.
+
+    AC13/AC06 previously used "abc123def456". The measured-evidence gate
+    refuses a policy whose code_sha matches no registered source, which is
+    the check added in 8870e03 after POLICY_RETURN_AUDIT.md found 4,516 of
+    4,520 promotable policies carried placeholder SHAs. A fixture that
+    violates the rule it is meant to exercise tests nothing.
+    """
+    from trading_agent.strategies.canonical import build_default_registry
+
+    return build_default_registry().describe(strategy_id).code_sha
+
+
+# OOS metric family required by the promotion gate. These are fixture
+# values for a lifecycle test, not a performance claim.
+_MEASURED = {
+    "selection_score": 1.5,
+    "median_oos_return_pct": 4.2,
+    "median_oos_trades": 30,
+    "n_passing_folds": 7,
+    "total_folds": 9,
+    "net_fold_edge_pct": 2.9,   # positive: the fixture exercises the accept path
+}
+
+
 PAST = datetime(2026, 9, 1, 0, 0, tzinfo=timezone.utc)
 PRESENT = datetime(2026, 9, 22, 12, 0, tzinfo=timezone.utc)
 FUTURE = datetime(2026, 9, 30, 0, 0, tzinfo=timezone.utc)
 
 def make_policy(status=PolicyStatus.ACTIVE, scores=None):
-    params = ParamArtifact(strategy_id="volatility_breakout_v2",
-        params={"window": 20, "multiplier": 2.0}, code_sha="abc123def456")
+    params = ParamArtifact(strategy_id="volatility_breakout",
+        params={"window": 20, "multiplier": 2.0}, code_sha=_real_code_sha())
     return SelectionPolicyArtifact(
         symbol="ADA_USDT", timeframe="1h", regime="TRENDING_UP",
-        incumbent=params, challengers=[], scores=(scores or {"sharpe": 1.5, "pf": 1.3}),
+        incumbent=params, challengers=[], scores=(scores or _MEASURED),
         evidence_ids=["ev_001"], validity_start=PAST, validity_end=FUTURE,
         fallback="NO_TRADE", risk_cap=0.25, status=status, created_at=PAST,
         policy_commit_sha="5d0e477b" + "0" * 56,

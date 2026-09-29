@@ -33,13 +33,39 @@ PAST = datetime(2026, 9, 1, 0, 0, tzinfo=timezone.utc)
 PRESENT = datetime(2026, 9, 22, 12, 0, tzinfo=timezone.utc)
 FUTURE = datetime(2026, 9, 30, 0, 0, tzinfo=timezone.utc)
 
+def _real_code_sha(strategy_id: str = "volatility_breakout") -> str:
+    """Source hash of a strategy that actually exists on the allowlist.
+
+    AC13/AC06 previously used "abc123def456". The measured-evidence gate
+    refuses a policy whose code_sha matches no registered source, which is
+    the check added in 8870e03 after POLICY_RETURN_AUDIT.md found 4,516 of
+    4,520 promotable policies carried placeholder SHAs. A fixture that
+    violates the rule it is meant to exercise tests nothing.
+    """
+    from trading_agent.strategies.canonical import build_default_registry
+
+    return build_default_registry().describe(strategy_id).code_sha
+
+
+# OOS metric family required by the promotion gate. These are fixture
+# values for a lifecycle test, not a performance claim.
+_MEASURED = {
+    "selection_score": 1.5,
+    "median_oos_return_pct": 4.2,
+    "median_oos_trades": 30,
+    "n_passing_folds": 7,
+    "total_folds": 9,
+    "net_fold_edge_pct": 2.9,   # positive: the fixture exercises the accept path
+}
+
+
 def make_policy(status=PolicyStatus.ACTIVE, validity_start=PAST,
                 scores=None,
                 validity_end=FUTURE, symbol="ADA_USDT", regime="TRENDING_UP"):
     params = ParamArtifact(
-        strategy_id="volatility_breakout_v2",
+        strategy_id="volatility_breakout",
         params={"window": 20, "multiplier": 2.0},
-        code_sha="abc123",
+        code_sha=_real_code_sha(),
     )
     return SelectionPolicyArtifact(
         symbol=symbol,
@@ -47,7 +73,7 @@ def make_policy(status=PolicyStatus.ACTIVE, validity_start=PAST,
         regime=regime,
         incumbent=params,
         challengers=[],
-        scores=(scores or {"sharpe": 1.5, "pf": 1.3}),
+        scores=(scores or _MEASURED),
         evidence_ids=["ev_001"],
         validity_start=validity_start,
         validity_end=validity_end,
@@ -156,10 +182,16 @@ try:
 except FutureTrainingDataError:
     check("C7_future_training_rejected", True, "rejected")
 
-# C8: Content-addressed policy_id
-pa = make_policy()
-pb = make_policy(scores={"sharpe": 1.5, "pf": 1.31})
-check("C8_content_addressed", pa.policy_id != pb.policy_id, "different ids")
+# C8: Content-addressed policy_id — the id must change with the content.
+# Both policies need to pass the measured-evidence gate, so they differ in a
+# metric rather than in whether metrics are present.
+_pa = dict(_MEASURED)
+_pb = dict(_MEASURED)
+_pb["median_oos_return_pct"] = _MEASURED["median_oos_return_pct"] + 1.0
+pa = make_policy(scores=_pa)
+pb = make_policy(scores=_pb)
+check("C8_content_addressed", pa.policy_id != pb.policy_id,
+      f"{pa.policy_id[:12]} vs {pb.policy_id[:12]}")
 
 all_pass = all(r["status"] == "PASS" for r in results)
 print(f"\n{'='*60}")
