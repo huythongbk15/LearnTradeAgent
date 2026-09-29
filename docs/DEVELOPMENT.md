@@ -77,3 +77,33 @@ CI kiểm tra không stale (xem `ci.yml`).
 - Không thêm feature trading mới khi các release gates chưa xong (feature freeze).
 - Không sửa code chỉ để khớp claim cũ trong docs — sửa docs theo code/evidence.
 - Mọi thay đổi live path phải có test (characterization test trước khi refactor).
+
+### Bắt buộc: chạy AC01–AC15 sau khi sửa promotion/gate
+
+Nếu chạm vào bất kỳ path nào sau, **phải** chạy evidence suite trước khi
+coi là xong:
+
+- `src/trading_agent/research/selection_policy.py` (promotion gate)
+- `src/trading_agent/execution/live_safety.py` (evidence thresholds)
+- `src/trading_agent/backtest/nested_wfo.py` (WFO gates)
+- bất kỳ `scripts/evidence_ac*.py`
+
+```bash
+.venv/bin/python scripts/run_acceptance_ac01_15.py   # ~3 phút
+```
+
+**Vì sao.** Gate từ chối policy có score không truy được về source code đã
+đăng ký, nên thay đổi gate có thể làm mất hiệu lực bằng chứng dùng nó.
+Đây không phải giả định: AC06, AC13, AC14 từng tự viết `code_sha` giả và
+score không có metric OOS. Cả ba pass trước khi gate ra đời và cả ba fail
+ngay khi có — fixture vi phạm đúng luật nó dùng để kiểm tra thì không
+kiểm tra được gì.
+
+CI chạy suite này mỗi lần push (job `acceptance-evidence` trong
+`ci.yml`) và upload `data/acceptance_runs/`. Chạy local là để bắt lỗi
+nhanh, không phải thay thế CI.
+
+**Bẫy môi trường:** dùng `.venv/bin/python`, không dùng `python` trần.
+Venv của QwenPaw có numpy 1.26.4 với scipy 1.18 và fail lúc import với
+`module 'numpy' has no attribute ...`. Pytest cũng cần `-o addopts=""`
+vì `pyproject.toml` đặt cờ `--dist` cho plugin chưa cài.

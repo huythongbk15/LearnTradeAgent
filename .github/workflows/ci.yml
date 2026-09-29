@@ -288,3 +288,33 @@ jobs:
             Branch: ${{ github.ref_name }}
             Commit: ${{ github.sha }}
             Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+  acceptance-evidence:
+    # The promotion gate refuses a policy whose scores cannot be attributed
+    # to code that exists. When that gate changes, the acceptance evidence
+    # that exercises it must be re-verified in the same commit: AC06, AC13
+    # and AC14 were themselves writing placeholder code_sha values and
+    # score dicts with no OOS metrics, and only a run caught it
+    # (ff8c922). A fixture that violates the rule it is meant to exercise
+    # tests nothing.
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev,web,infra,ml,research,portfolio]"
+      - name: Integrated AC01-AC15 evidence run
+        run: python scripts/run_acceptance_ac01_15.py
+      - name: Upload evidence artifacts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: acceptance-evidence
+          path: data/acceptance_runs/
+          retention-days: 30
