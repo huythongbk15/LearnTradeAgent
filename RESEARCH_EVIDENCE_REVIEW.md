@@ -1,5 +1,20 @@
 # Strategy research evidence that existed and was not used
 
+
+> **Data provenance caveat, added 2026-09-28 after the commit filter.**
+> All campaigns behind this document were run **before** `a65ed29000`, which
+> fixed three WFO pipeline bugs — one of them silently dropped strategies
+> whose params failed schema validation. See
+> `COMMIT_FILTER_AND_SIGNOFF_RECHECK.md` and
+> `CAMPAIGN_REPRODUCIBILITY_ROOT_CAUSE.md`.
+>
+> Results here are internally consistent (one commit per campaign, no
+> pooling), so comparisons *within* a campaign are meaningful. The absolute
+> numbers cannot be cited as current-pipeline evidence, and any ordering
+> between them may partly reflect which cells were dropped rather than
+> which strategy traded better. Re-measure on the fixed pipeline before
+> relying on this.
+
 `docs/STRATEGY_SIGNOFF_P2PHASE4.md` ranks all 16 registry strategies. It
 was available the whole time and the WFO campaign in
 `WFO_CAMPAIGN_RESULT.md` ignored it, re-running `enhanced_ma` on
@@ -85,10 +100,18 @@ research had already been consulted.
 
 ## What to do before spending more compute
 
-1. Treat the 852 cells as the primary evidence and drop the BTC-only
-   campaign from the record, or keep it explicitly as a BTC finding.
-2. Run the spread gates in `eeea331` against SOL and ETH separately. If
-   `enhanced_ma` passes on SOL, the registry is not empty and the
-   quarantine decision needs revisiting.
-3. Only then decide whether to campaign the strategies the sign-off left
-   unmeasured, rather than re-measuring one it already ranked.
+> **Superseded 2026-09-28.** The three steps below were written before the
+> commit filter and the reproducibility investigation, and step 1 is now
+> known to be wrong: the 852 cells are all pre-`a65ed29000` and cannot be
+> treated as primary evidence. Step 2 was done — see
+> `SPREAD_GATES_BY_SYMBOL.md`. Step 3 is superseded by
+> `HANDOVER_2026_09_28.md`. Retained for the record of what was known when.
+
+1. ~~Treat the 852 cells as the primary evidence~~ — **withdrawn**, all
+   pre-fix (`COMMIT_FILTER_AND_SIGNOFF_RECHECK.md`).
+2. ~~Run the spread gates against SOL and ETH separately~~ — **done**,
+   `SPREAD_GATES_BY_SYMBOL.md`.
+3. ~~Only then decide whether to campaign the unmeasured strategies~~ —
+   superseded. No campaign should run before pipeline determinism is
+   established (`HANDOVER_2026_09_28.md`).
+

@@ -1,5 +1,20 @@
 # Real WFO campaign — enhanced_ma on BTC/USDT 1h
 
+
+> **Data provenance caveat, added 2026-09-28 after the commit filter.**
+> All campaigns behind this document were run **before** `a65ed29000`, which
+> fixed three WFO pipeline bugs — one of them silently dropped strategies
+> whose params failed schema validation. See
+> `COMMIT_FILTER_AND_SIGNOFF_RECHECK.md` and
+> `CAMPAIGN_REPRODUCIBILITY_ROOT_CAUSE.md`.
+>
+> Results here are internally consistent (one commit per campaign, no
+> pooling), so comparisons *within* a campaign are meaningful. The absolute
+> numbers cannot be cited as current-pipeline evidence, and any ordering
+> between them may partly reflect which cells were dropped rather than
+> which strategy traded better. Re-measure on the fixed pipeline before
+> relying on this.
+
 104 measured backtest cells across 8 of 10 outer folds. Run stopped
 deliberately before completion: the question the campaign was commissioned
 to answer was already answered, and two more folds could not reverse it.
