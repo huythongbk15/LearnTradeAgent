@@ -72,7 +72,7 @@ ACTIVE (would be tradeable): 155
 
 155 active policies would be eligible to trade, all insolvent, all with
 fabricated scores. The active ones are predominantly `enhanced_ma` —
-the strategy that ENHANCED_MA_FINDINGS.md showed loses on the long leg in
+the strategy that ENHANCED_MA_MEASUREMENTS.md §2 showed loses on the long leg in
 all five windows tested.
 
 ## What this means

@@ -25,7 +25,7 @@
 | AC11 | Shared capital across pairs | Runner PASS; pending→partial→cancel/correlation stress sequence missing | PARTIAL — not accepted |
 | AC12 | Protection/telemetry | Runner PASS; stop rejection, stale fallback and telemetry-fault safety proofs incomplete | PARTIAL — not accepted |
 | AC13 | Approval/promotion | Runner PASS; revoked/stale/future/replay signatures tied to actual promotion consumer/key identity missing | PARTIAL — **a worse defect was found 2026-09-28**: promotion never verified that scores came from a measurement. 4,516 of 4,520 promotable policies carried a `code_sha` matching no source on disk, and their scores were three literal constants. Gates added in `8870e03`; the prior 43 stores are quarantined and the live store is empty |
-| AC14 | Locked out-of-sample research | 12/12 synthetic checks; negative synthetic comparison is not efficacy evidence | BLOCKED — **blocking condition changed 2026-09-28**. It is no longer "an OOS campaign is required": no promotable policy in the repository is attributable to code that exists, so there was nothing to run a campaign against. A real campaign on the best-scoring strategy has since been run (104 cells, `WFO_CAMPAIGN_RESULT.md`): 10 clear their own cost and half of those sit in one test window, so the apparent edge is a window artefact. See `AC14_CHAIN_SUMMARY.md` |
+| AC14 | Locked out-of-sample research | 12/12 synthetic checks; negative synthetic comparison is not efficacy evidence | BLOCKED — **blocking condition changed 2026-09-28**. It is no longer "an OOS campaign is required": no promotable policy in the repository is attributable to code that exists, so there was nothing to run a campaign against. A real campaign on the best-scoring strategy has since been run (104 cells, `ENHANCED_MA_MEASUREMENTS.md §3`): 10 clear their own cost and half of those sit in one test window, so the apparent edge is a window artefact. See `HANDOVER_2026_09_28.md` |
 | AC15 | Replay + operational readiness | Deterministic/local shadow checks pass; no operational soak/recovery/rollback | BLOCKED — operational evidence required |
 
 ## Evidence scripts (untracked)
@@ -64,7 +64,7 @@
 - Hash-indexed artifacts were independently reviewed; the review did **not** approve the full AC set.
 - The exact per-AC bounded verdicts and remaining criteria are in the integrated run's `manifest.json` and the table above.
 - Do not mark the overall project or release as finally accepted until all PARTIAL and BLOCKED rows are closed on one integrated revision.
-- **2026-09-28**: results measured on real BTC/USDT data through the promoted-policy pipeline are recorded in `AC14_CHAIN_SUMMARY.md`. They are not a substitute for a locked OOS campaign, and the system currently has no promotable policy to run one against.
+- **2026-09-28**: results measured on real BTC/USDT data through the promoted-policy pipeline are recorded in `HANDOVER_2026_09_28.md`. They are not a substitute for a locked OOS campaign, and the system currently has no promotable policy to run one against.
 
 ## Next priority (per contract §9.5 + §9.7)
 1. **Establish whether the WFO pipeline is deterministic.** `scripts/check_wfo_determinism.py` runs one spec twice and compares; no prior test does this — `test_nested_wfo.py` calls `run_nested_wfo` once in the whole file. Every campaign number depends on this and none of it is settled until it is.
@@ -78,6 +78,6 @@
 - Campaign coverage invariant: a run must measure what it claimed (`54906f6`).
 - 43 policy stores quarantined — 2,690 promoted policies carried fabricated scores; only 4 of 4,520 promotable policies are attributable to code that exists (`f4e2a91`).
 - E2E full flow 9/9, 86 assertions, with scenario 3 asserting fail-closed abstention (`9ba654d`).
-- Campaign irreproducibility traced to three WFO pipeline bugs fixed at `a65ed29000`; 4,527 cells predate the fix and the sign-off's only approval rests on them (`CAMPAIGN_REPRODUCIBILITY_ROOT_CAUSE.md`, `COMMIT_FILTER_AND_SIGNOFF_RECHECK.md`).
+- Campaign irreproducibility traced to three WFO pipeline bugs fixed at `a65ed29000`; 4,527 cells predate the fix and the sign-off's only approval rests on them (`CAMPAIGN_REPRODUCIBILITY_ROOT_CAUSE.md`, `EVIDENCE_BASE_AUDIT.md`).
 
 Full account: `HANDOVER_2026_09_28.md`.

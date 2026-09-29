@@ -49,16 +49,21 @@ def spec_for(registry_path: str) -> WFOSpec:
     sensitivity pass is switched off here. A spec that includes it is a
     different measurement and would need its own reproducibility check
     before a production campaign relied on it.
+    Fold count is data-driven — ``_get_fold_indices`` iterates until the
+    history runs out — so *shorter* folds produce *more* folds, not fewer.
+    A 3m/1m/1m/step-1m spec over 31,783 BTC 1h bars yields 40 folds,
+    which is the largest not the smallest. 18m/3m/3m/step-6m yields 4 and
+    is what a minimal determinism check wants.
     """
     return WFOSpec(
         strategy_id="rsi",
         symbol="BTC/USDT",
         timeframe="1h",
         param_grid={"period": [10, 14]},
-        train_months=3,
-        val_months=1,
-        test_months=1,
-        step_months=1,
+        train_months=18,
+        val_months=3,
+        test_months=3,
+        step_months=6,
         min_trades_per_fold=1,
         registry_path=registry_path,
     )

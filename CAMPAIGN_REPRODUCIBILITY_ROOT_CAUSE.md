@@ -64,9 +64,9 @@ that depends on one:
 
 | artifact | commits spanned | status |
 |---|---|---|
-| `WFO_CAMPAIGN_RESULT.md` (104 cells, BTC) | single commit | internally consistent |
-| `RESEARCH_EVIDENCE_REVIEW.md` (852 cells) | 09-05 to 09-21, per symbol | mixed-commits, symbol-separated |
-| `SPREAD_GATES_BY_SYMBOL.md` | per symbol, single commit each | internally consistent per symbol |
+| `ENHANCED_MA_MEASUREMENTS.md §3` (104 cells, BTC) | single commit | internally consistent |
+| `ENHANCED_MA_MEASUREMENTS.md §4` (852 cells) | 09-05 to 09-21, per symbol | mixed-commits, symbol-separated |
+| `ENHANCED_MA_MEASUREMENTS.md §4` | per symbol, single commit each | internally consistent per symbol |
 | `GATE_SEMANTICS_AND_RERANK.md` re-rank | **9 commits pooled** | **invalid** |
 | `docs/STRATEGY_SIGNOFF_P2PHASE4.md` | spans the bug window | **needs re-check** |
 
