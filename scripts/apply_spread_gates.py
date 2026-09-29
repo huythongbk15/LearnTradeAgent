@@ -18,17 +18,21 @@ Thresholds are copied from nested_wfo.py, not re-derived.
 from __future__ import annotations
 
 import json
+import sys
 from collections import defaultdict
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT / "src") not in sys.path:
+    sys.path.insert(0, str(ROOT / "src"))
 
-# ── thresholds, identical to nested_wfo.py (eeea331) ─────────────────────
+from trading_agent.backtest.nested_wfo import _binomial_upper_tail
+
+# ── thresholds, identical to nested_wfo.py after a79e01a ────────────────
 ROUND_TRIP_COST_PCT = 0.32
 ZERO_TRADE_FOLD_MAX_PCT = 50.0
-MEDIAN_TRADES_MIN = 20.0
-COST_CLEARING_FOLD_MIN_PCT = 50.0
 SINGLE_WINDOW_MAX_PCT = 60.0
+BINOMIAL_P_MAX = 0.10
 
 SYMBOL_DIRS = {
     "SOLUSDT": "wfo_parallel_enhanced_ma",
@@ -86,18 +90,19 @@ def evaluate(by_window: dict, scenario: str) -> dict:
     med_trades = st.median([x[1] for x in trading]) if n_trading else 0.0
     med_ret = st.median([x[0] for x in clearing]) if clearing else None
     floor = ROUND_TRIP_COST_PCT * med_trades if n_trading else None
+    p_value = _binomial_upper_tail(len(clearing), n_trading)
 
     gates = [
         ("zero_trade_fold_pct_le_50", zero_pct, "<=", ZERO_TRADE_FOLD_MAX_PCT,
          f"{zero_pct:.1f}%"),
-        ("median_trades_per_trading_fold_ge_20", med_trades, ">=", MEDIAN_TRADES_MIN,
-         f"{med_trades:.1f}"),
-        ("cost_clearing_fold_pct_ge_50", spread_pct, ">=", COST_CLEARING_FOLD_MIN_PCT,
-         f"{len(clearing)}/{n_trading} = {spread_pct:.1f}%"),
+        ("cost_clearing_folds_above_chance_p_le_010", p_value, "<=",
+         BINOMIAL_P_MAX,
+         f"{len(clearing)}/{n_trading} windows, p={p_value:.4f}"),
         ("cost_clearing_single_window_le_60pct", top_share, "<=", SINGLE_WINDOW_MAX_PCT,
          f"{top_share:.1f}% (1 cell per window)"),
         ("median_return_clears_cost_floor", med_ret, ">", floor,
-         f"{med_ret:.3f}%" if med_ret is not None else "n/a"),
+         f"{med_ret:.3f}% vs floor {floor:.3f}%" if med_ret is not None and floor is not None
+         else "n/a"),
     ]
     return {
         "windows": len(rows),
