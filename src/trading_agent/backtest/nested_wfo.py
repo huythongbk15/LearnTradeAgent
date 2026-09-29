@@ -1529,6 +1529,19 @@ def _get_fold_indices(
     return folds
 
 
+def _count_clearing_per_window(
+    outer_results: list[Any], clearing_indices: list[int]
+) -> dict[str, int]:
+    """Count cost-clearing folds grouped by their test window."""
+    keys: dict[str, int] = {}
+    for i in clearing_indices:
+        if 0 <= i < len(outer_results):
+            r = outer_results[i]
+            key = f"{getattr(r, 'test_start', None)}:{getattr(r, 'test_end', None)}"
+            keys[key] = keys.get(key, 0) + 1
+    return keys
+
+
 def _compute_strategy_code_sha(strategy_id: str) -> str:
     """Get strategy code SHA from registry descriptor."""
     from trading_agent.strategies.canonical.candidates import build_default_registry
@@ -3600,6 +3613,115 @@ def run_nested_wfo(
         threshold=60.0,
         comparison=">=",
         reason=f"Positive outer folds {positive_folds_pct:.1f}% must be ≥ 60%",
+    )
+
+    # --- Cost-adjusted gates -------------------------------------------------
+    # A fold that trades T times pays T round trips of cost before it earns
+    # anything, so the return a fold must clear scales with its own trade
+    # count. Gates 1 and 9 above both ignore this: gate 1 judges median
+    # return against zero and gate 9 counts positive *Sharpe*, so a strategy
+    # that barely trades can satisfy both while losing money after costs.
+    #
+    # Measured on enhanced_ma over 104 cells (WFO_CAMPAIGN_RESULT.md): 10
+    # cells cleared their own cost, and half of them came from one test
+    # window. The gates below are what that result failed.
+
+    trading_folds = [i for i, t in enumerate(test_trades) if t > 0]
+    n_trading_folds = len(trading_folds)
+    zero_trade_pct = (
+        ((len(test_trades) - n_trading_folds) / len(test_trades) * 100)
+        if test_trades else 100.0
+    )
+
+    add_gate(
+        gate_id="zero_trade_fold_pct_le_50",
+        observed_value=zero_trade_pct,
+        threshold=50.0,
+        comparison="<=",
+        reason=(
+            f"Folds with zero trades {zero_trade_pct:.1f}% must be ≤ 50%; a "
+            "strategy flat in most folds cannot be assessed on returns, and "
+            "low drawdown in that case is an artefact of not holding"
+        ),
+        evidence_artifact="outer_results.test_trades",
+    )
+
+    add_gate(
+        gate_id="median_trades_per_trading_fold_ge_20",
+        observed_value=(
+            float(np.median([test_trades[i] for i in trading_folds]))
+            if n_trading_folds else 0.0
+        ),
+        threshold=20.0,
+        comparison=">=",
+        reason=(
+            f"Median trades in trading folds must be ≥ 20, so that the "
+            f"round-trip cost a fold must overcome is small relative to the "
+            f"gross return it can earn; observed "
+            f"{float(np.median([test_trades[i] for i in trading_folds])) if n_trading_folds else 0.0:.1f}"
+        ),
+        evidence_artifact="outer_results.test_trades",
+    )
+
+    # Edge must be spread across folds, not concentrated in one window.
+    # ROUND_TRIP_COST matches the audit and evidence scripts: commission
+    # 0.1% x2 + slippage 0.05% x2 + spread 2bps = 0.32%.
+    ROUND_TRIP_COST_PCT = 0.32
+    cost_clearing_folds = [
+        i for i in trading_folds
+        if float(test_returns[i]) > ROUND_TRIP_COST_PCT * float(test_trades[i])
+    ]
+    n_clearing = len(cost_clearing_folds)
+    spread_pct = (n_clearing / n_trading_folds * 100) if n_trading_folds else 0.0
+    clearing_by_window = _count_clearing_per_window(outer_results, cost_clearing_folds)
+    top_window_share = (
+        max(clearing_by_window.values()) / n_clearing * 100
+    ) if n_clearing else 0.0
+
+    add_gate(
+        gate_id="cost_clearing_fold_pct_ge_50",
+        observed_value=spread_pct,
+        threshold=50.0,
+        comparison=">=",
+        reason=(
+            f"Folds clearing their own round-trip cost {n_clearing}/"
+            f"{n_trading_folds} = {spread_pct:.1f}% must be ≥ 50% of trading "
+            f"folds; a strategy whose edge sits in one favourable window is "
+            f"not a strategy with edge"
+        ),
+        evidence_artifact="outer_results.test_returns vs test_trades",
+    )
+
+    add_gate(
+        gate_id="cost_clearing_single_window_le_60pct",
+        observed_value=top_window_share,
+        threshold=60.0,
+        comparison="<=",
+        reason=(
+            f"At most 60% of cost-clearing folds may come from a single test "
+            f"window; observed {top_window_share:.1f}% (measured on "
+            f"enhanced_ma: 5 of 10 clearing cells came from one window)"
+        ),
+        evidence_artifact="outer_results.window_key",
+    )
+
+    add_gate(
+        gate_id="median_return_clears_cost_floor",
+        observed_value=(
+            float(np.median([test_returns[i] for i in cost_clearing_folds]))
+            if n_clearing else None
+        ),
+        threshold=(
+            ROUND_TRIP_COST_PCT
+            * float(np.median([test_trades[i] for i in trading_folds]))
+            if n_trading_folds else None
+        ),
+        comparison=">",
+        reason=(
+            "median return of cost-clearing folds must exceed the cost floor "
+            "of a median trading fold (0.32% x median trades)"
+        ),
+        evidence_artifact="outer_results.test_returns",
     )
 
     # Gate 10: Minimum trades per pair-strategy OOS ≥ 30

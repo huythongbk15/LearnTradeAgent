@@ -24,6 +24,17 @@ NOW = datetime(2026, 8, 30, tzinfo=UTC)
 KEY = b"unit-test-policy-signing-key"
 
 
+def _canonical_code_sha(strategy_id: str) -> str:
+    """Source hash the promotion gate verifies against.
+
+    A placeholder SHA is refused: a score has to be attributable to the
+    strategy that produced it, which is the check added in 8870e03.
+    """
+    from trading_agent.strategies.canonical import build_default_registry
+
+    return build_default_registry().describe(strategy_id).code_sha
+
+
 def _validated(
     strategy_id: str = "rsi",
     *,
@@ -35,7 +46,7 @@ def _validated(
         timeframe="1h",
         regime="trend",
         incumbent=ParamArtifact(
-            strategy_id, params or {"period": 14}, code_sha="e" * 64
+            strategy_id, params or {"period": 14}, code_sha=_canonical_code_sha(strategy_id)
         ),
         # A selection_score alone is a claim; validated/active policies must
         # carry the OOS metric family that the score was derived from.
@@ -265,7 +276,7 @@ def test_wfo_builder_rejects_non_promotable_and_builds_validated_policy():
         commit_sha="a" * 40,
         data_manifest_sha="b" * 64,
         feature_schema_hash="c" * 64,
-        strategy_code_sha="e" * 64,
+        strategy_code_sha=_canonical_code_sha("rsi"),
     )
     artifact = SimpleNamespace(artifact_id="sha256:outer")
     result = SimpleNamespace(

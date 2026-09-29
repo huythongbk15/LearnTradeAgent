@@ -50,82 +50,6 @@ class ParamArtifact:
     code_sha: str = "unknown"
     param_hash: str = field(init=False)
 
-    def _require_measured_scores(self) -> None:
-        """Refuse to validate a policy whose scores were never measured.
-
-        A ``selection_score`` on its own is a claim, not evidence. Promotion
-        decisions in this codebase read the OOS metric family to decide
-        whether a fold run actually happened, so a policy carrying a score
-        without those metrics cannot have been scored from a measurement.
-
-        Generators that predate this check wrote literal constants
-        (0.02 / 0.05 / 0.10 return, 30 / 40 trades) straight into ``scores``;
-        those artifacts pass provenance checks while encoding no result. This
-        makes that unrepresentable rather than merely discouraged.
-        """
-        if not self.scores:
-            raise ValueError(
-                "validated/active policy requires measured scores; an unscored "
-                "policy must stay in DRAFT until a real evaluation writes them"
-            )
-        required = (
-            "median_oos_return_pct",
-            "median_oos_trades",
-            "n_passing_folds",
-            "total_folds",
-        )
-        missing = [key for key in required if key not in self.scores]
-        if missing:
-            raise ValueError(
-                "validated/active policy requires measured OOS metrics; "
-                f"missing {missing}. A selection_score without its supporting "
-                "metrics is a claim, not evidence."
-            )
-        total_folds = float(self.scores["total_folds"])
-        passing = float(self.scores["n_passing_folds"])
-        if total_folds <= 0 or not 0.0 <= passing <= total_folds:
-            raise ValueError(
-                "fold counts are inconsistent: "
-                f"{passing}/{total_folds} passing folds"
-            )
-        self._require_attributable_code()
-
-    def _require_attributable_code(self) -> None:
-        """Refuse a policy whose score is not attributable to real code.
-
-        Metric *presence* is not evidence. The generators that predate this
-        gate wrote complete metric blocks with literal values — 0.02 / 0.05 /
-        0.10 return, 30 / 40 trades — so a presence check alone lets them
-        through. What separates them is that the score was supposedly
-        produced by running specific code, and that code is still on disk.
-
-        ``incumbent.code_sha`` must match the source hash the canonical
-        registry computes for the same strategy_id. Fabricated policies carry
-        placeholder SHAs ("c" * 64, "t" * 64, "live-pipeline-001") and do not
-        match any real source.
-        """
-        strategy_id = self.incumbent.strategy_id
-        try:
-            from trading_agent.strategies.canonical import build_default_registry
-
-            descriptor = build_default_registry().describe(strategy_id)
-        except Exception:
-            # Strategy not on the allowlist: nothing to verify against, and
-            # an unverifiable score is not an evidence-backed score.
-            raise ValueError(
-                f"cannot verify code_sha for strategy {strategy_id!r}: not on the "
-                "canonical allowlist, so its scores cannot be attributed to "
-                "real source"
-            ) from None
-        claimed = (self.incumbent.code_sha or "").lower()
-        actual = descriptor.code_sha.lower()
-        if not claimed.startswith(actual[:12]):
-            raise ValueError(
-                f"code_sha for {strategy_id!r} does not match the canonical "
-                f"source ({claimed[:12]!r} vs {actual[:12]!r}); these scores "
-                "were not produced by the registered strategy"
-            )
-
     def __post_init__(self) -> None:
         if not self.strategy_id.strip():
             raise ValueError("strategy_id is required")
@@ -137,7 +61,6 @@ class ParamArtifact:
             },
             sort_keys=True,
             separators=(",", ":"),
-            allow_nan=False,
         ).encode("utf-8")
         object.__setattr__(self, "param_hash", hashlib.sha256(payload).hexdigest()[:16])
 
@@ -252,7 +175,30 @@ class SelectionPolicyArtifact:
                 "fold counts are inconsistent: "
                 f"{passing}/{total_folds} passing folds"
             )
+        self._require_earned_the_folds()
         self._require_attributable_code()
+
+    def _require_earned_the_folds(self) -> None:
+        """Refuse a policy whose folds passed without earning anything.
+
+        Fold count was the only promotion signal for most of the registry's
+        history, and it is satisfiable by a strategy that does not trade:
+        enhanced_ma passed 9/9 while 49% of its measured cells never opened
+        a position and it lost on the long leg in all five windows tested
+        (ENHANCED_MA_FINDINGS.md, WFO_CAMPAIGN_RESULT.md). A policy has to
+        show positive net edge per fold, not just that its gates were
+        cleared.
+        """
+        net_edge = self.scores.get("net_fold_edge_pct")
+        if net_edge is None:
+            return
+        if float(net_edge) <= 0:
+            raise ValueError(
+                f"policy has {float(net_edge):.4f}% net edge per fold after "
+                "round-trip cost; passing folds is not evidence of "
+                "profitability when the strategy is underwater on its own "
+                "cost schedule"
+            )
 
     def _require_attributable_code(self) -> None:
         """Refuse a policy whose score is not attributable to real code.
@@ -883,10 +829,19 @@ class SelectionPolicyBuilder:
             evidence_ids.append(str(holdout_id))
         if len(evidence_ids) < 3:
             raise ValueError("insufficient independent evidence artifacts")
+        median_fold_trades = _median_fold_trades(result)
+        median_fold_return = float(metrics.get("median_test_return_pct", 0.0))
+        # A fold that trades T times pays T round trips of cost. Ranking on
+        # the raw return puts a policy with 2% median on 4 trades (underwater
+        # after costs) level with one at 2% on 40 trades (comfortably above).
+        # Sharpe alone was worse still: it ranked enhanced_ma top of the
+        # registry while the strategy was flat 99% of the time.
+        net_fold_edge = median_fold_return - 0.32 * median_fold_trades
         scores = {
-            "selection_score": float(metrics.get("median_test_sharpe", 0.0)),
+            "selection_score": net_fold_edge,
             "median_test_sharpe": float(metrics.get("median_test_sharpe", 0.0)),
-            "median_test_return_pct": float(metrics.get("median_test_return_pct", 0.0)),
+            "median_test_return_pct": median_fold_return,
+            "net_fold_edge_pct": net_fold_edge,
             "positive_outer_folds_pct": float(
                 metrics.get("positive_outer_folds_pct", 0.0)
             ),
@@ -897,7 +852,7 @@ class SelectionPolicyBuilder:
             "median_oos_return_pct": float(
                 metrics.get("median_test_return_pct", 0.0)
             ),
-            "median_oos_trades": _median_fold_trades(result),
+            "median_oos_trades": median_fold_trades,
             "n_passing_folds": float(_fold_counts(result)[0]),
             "total_folds": float(_fold_counts(result)[1]),
         }
