@@ -25,7 +25,7 @@
 | AC11 | Shared capital across pairs | Runner PASS; pending→partial→cancel/correlation stress sequence missing | PARTIAL — not accepted |
 | AC12 | Protection/telemetry | Runner PASS; stop rejection, stale fallback and telemetry-fault safety proofs incomplete | PARTIAL — not accepted |
 | AC13 | Approval/promotion | Runner PASS; revoked/stale/future/replay signatures tied to actual promotion consumer/key identity missing | PARTIAL — **a worse defect was found 2026-09-28**: promotion never verified that scores came from a measurement. 4,516 of 4,520 promotable policies carried a `code_sha` matching no source on disk, and their scores were three literal constants. Gates added in `8870e03`; the prior 43 stores are quarantined and the live store is empty |
-| AC14 | Locked out-of-sample research | 12/12 synthetic checks; negative synthetic comparison is not efficacy evidence | BLOCKED — **blocking condition changed 2026-09-28**. It is no longer "an OOS campaign is required": no promotable policy in the repository is attributable to code that exists, so there is nothing to run a campaign against. See `AC14_CHAIN_SUMMARY.md` |
+| AC14 | Locked out-of-sample research | 12/12 synthetic checks; negative synthetic comparison is not efficacy evidence | BLOCKED — **blocking condition changed 2026-09-28**. It is no longer "an OOS campaign is required": no promotable policy in the repository is attributable to code that exists, so there was nothing to run a campaign against. A real campaign on the best-scoring strategy has since been run (104 cells, `WFO_CAMPAIGN_RESULT.md`): 10 clear their own cost and half of those sit in one test window, so the apparent edge is a window artefact. See `AC14_CHAIN_SUMMARY.md` |
 | AC15 | Replay + operational readiness | Deterministic/local shadow checks pass; no operational soak/recovery/rollback | BLOCKED — operational evidence required |
 
 ## Evidence scripts (untracked)
@@ -67,7 +67,7 @@
 - **2026-09-28**: results measured on real BTC/USDT data through the promoted-policy pipeline are recorded in `AC14_CHAIN_SUMMARY.md`. They are not a substitute for a locked OOS campaign, and the system currently has no promotable policy to run one against.
 
 ## Next priority (per contract §9.5 + §9.7)
-1. **Run a real WFO campaign** and let it write `median_oos_return_pct` / `median_oos_trades` / fold counts together with a `code_sha` that matches the canonical source. This is the precondition for everything else: the gate added in `8870e03` will refuse anything else, which is the intended behaviour.
-2. **Re-run AC14** against policies from step 1. Current AC14 numbers describe a router fed fabricated scores and cannot support a go-live decision either way.
+1. **Change the promotion criteria before running any more campaigns.** A 104-cell real run on the best-scoring strategy produced 10 cost-clearing cells with half of them in one window (`WFO_CAMPAIGN_RESULT.md`). Folding 9/9 is satisfiable by a strategy that does not trade — 49% of cells never did. The gate needs a cross-fold spread requirement and a trade count consistent with the cost floor. Thresholds and a gate, not new infrastructure.
+2. **Do not scale to the remaining 16 strategies** on the current criteria. One strategy cost ~10 hours; the registry would cost ~170 to learn the same thing.
 3. **AC15** stays blocked until a cluster exists for operational soak/recovery/rollback evidence.
-4. Workstream B (S3 real nested WFO campaign) is subsumed by step 1.
+4. Re-run AC14 only after step 1 produces a rule that a fold-concentrated result cannot pass.

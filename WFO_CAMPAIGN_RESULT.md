@@ -1,82 +1,95 @@
-# Real WFO campaign — enhanced_ma on BTC/USDT 1h (partial run)
+# Real WFO campaign — enhanced_ma on BTC/USDT 1h
 
-41 backtest cells measured before the run was stopped deliberately
-(~1h05m for one strategy). Data: `data/wfo_real_campaign/`.
+104 measured backtest cells across 8 of 10 outer folds. Run stopped
+deliberately before completion: the question the campaign was commissioned
+to answer was already answered, and two more folds could not reverse it.
 
-Config: train 9m / val 3m / test 3m, 3+ outer folds, param grid
-fast_period [10,20,30] × slow_period [60,80,120] = 9 combos,
-`evidence_class=REAL_MARKET`.
+Data: `data/wfo_real_campaign/` (gitignored, runtime artifacts).
+Campaign length: ~10 hours for one strategy.
 
-## Aggregate
+Config: train 9m / val 3m / test 3m / step 3m, expanding window,
+param grid fast_period [10,20,30] × slow_period [60,80,120] = 9 combos,
+`evidence_class=REAL_MARKET`. Fold count is data-driven
+(`_get_fold_indices` iterates until data runs out), so the 9-10 folds were
+always going to exist; the earlier 4-fold run was stopped early, not
+limited by configuration.
+
+## Aggregate over 104 cells
 
 | metric | median | mean | min | max |
 |---|---|---|---|---|
-| return % | 0.000 | 0.630 | -4.059 | 6.191 |
-| sharpe | 0.000 | 0.294 | -3.263 | 3.793 |
-| trades | 10 | 8.5 | 0 | 20 |
-| max DD % | 2.584 | 2.070 | 0.000 | 5.304 |
+| return % | 0.000 | 0.281 | -4.825 | 7.451 |
+| sharpe | 0.000 | 0.052 | -4.935 | 4.042 |
+| trades | 6 | 6.4 | 0 | 21 |
+| max DD % | 1.505 | 1.720 | 0.000 | 5.588 |
+
+**49% of cells (51/104) never traded at all.** Median trades is 6.
 
 ## After costs
 
-Break-even is 0.32% per round trip, so a cell needs `ret > 0.32 × trades`
-in percent units.
+Round trip is 0.32%, so a cell needs `return% > 0.32 × trades`.
 
-| trades | cells | median ret % | break-even % | clears |
-|---|---|---|---|---|
-| 0 | 14 | 0.000 | 0.00 | n/a — 34% of all cells never traded |
-| 5–9 | 6 | 1.665 | 1.92 | no |
-| 10–14 | 10 | 3.504 | 3.20 | **yes** |
-| 15–20 | 11 | -1.196 | 4.80 | no |
+- **10 of 104 cells (10%)** clear their own cost
+- median surplus among those: **+1.57pp**
 
-7 of 41 cells clear their own cost, median surplus +1.09pp.
+## The four full param-grid windows
 
-## The finding that matters
+These are the informative ones — 9 cells each means params were actually
+compared, rather than a single config being run in isolation.
 
-Those 7 are not spread across the campaign. Grouped by outer-fold window:
-
-| window | cells | clearing cost | median ret % |
+| window | cells | clearing cost | median return % |
 |---|---|---|---|
-| w642b5c3b3225a95a | 9 | **5** | 4.832 |
-| w78ba79e93f0b0fd1 | 9 | 1 | 0.708 |
-| w0da54784faeebd68 | 9 | **0** | -1.988 |
-| w66d826ec3a3de24c | 9 | **0** | 0.000 |
-| w00ac6a3c9a8532aa | 1 | 1 | 5.625 |
+| `w642b5c3b3225a95a` | 9 | **5** | 4.832 |
+| `w78ba79e93f0b0fd1` | 9 | 1 | 0.708 |
+| `w0da54784faeebd68` | 9 | **0** | -1.988 |
+| `w66d826ec3a3de24c` | 9 | **0** | 0.000 |
 
-**Five of the seven cost-clearing cells come from a single outer fold.**
-The two full windows with nine cells each — the ones with enough
-param-comparison structure to be informative — produced 5 and 0 winners.
-The window at median 0.000% produced 0, and the one at -1.988% produced 0.
+Winners across all windows: `w642b5c` 5, `w76808c` 2, then 1 each in three
+others.
 
-The apparent edge is a single favourable test window, not a property of the
-strategy. This is the same failure mode ENHANCED_MA_FINDINGS.md identified
-from the outside (1.2–1.5% exposure, flat ~98% of the time); here it shows
-up from the inside as fold concentration.
+## Conclusion
 
-## Two things worth carrying forward
+**The edge is not a property of the strategy. It is one test window.**
 
-1. **34% of cells never traded** (14/41 at 0 trades). Whatever this
-   strategy's edge is, most of the grid never expresses it — consistent
-   with the 9/9-fold figure being a low-drawdown artefact rather than a
-   return figure.
+Half of all cost-clearing cells sit in a single window, and the two
+full-grid windows with median 0.000% and -1.988% produced zero winners
+between them. The spread between windows (-1.988% to 4.832% median) is
+larger than any difference attributable to parameter choice within a
+window.
 
-2. **A unit error nearly repeated here.** The first pass of this analysis
-   compared `ret` in percent against `trades × 0.0032` in fraction units
-   and concluded 15/41 cleared cost. The correct comparison is
-   `ret > trades × 0.32` in percent units, which gives 7/41. Same shape as
-   the earlier silent-pass defects, and caught the same way: by checking
-   the arithmetic against a known case rather than trusting the output.
+This is consistent with the independent finding in
+`ENHANCED_MA_FINDINGS.md`, which measured the same strategy from the
+outside across five windows and found it loses on the long leg in all of
+them, with 1.2–1.5% exposure. Here the same fact appears from the inside
+as fold concentration: the strategy is flat most of the time (49% of cells
+never trade, median 6 trades), and what does trade lands in whichever
+window happened to be favourable.
 
-## Decision
+The `enhanced_ma` policy carries 9/9 WFO folds and selection_score 0.5 in
+the quarantined stores. Those folds were real folds — but they measure
+*low drawdown*, not returns. A strategy that stays flat 99% of the time
+has a low drawdown by construction, and a fold-pass criterion that counts
+that as success is the defect now demonstrated end to end.
 
-Do not scale to the other 16 strategies on this basis. One strategy over
-one 21-month span has produced a fold-concentrated result, and a campaign
-across the registry would cost ~17 hours to learn the same thing more
-slowly.
+## Consequences for the registry
 
-What would justify scaling:
+One strategy out of seventeen, over ten months of expanding windows and
+104 cells, yields 10 cost-clearing cells concentrated in one fold. There is
+no evidence that the other sixteen differ, and no basis for assuming they
+do. Scaling the campaign to the full registry would cost roughly 17×10
+hours to learn the same thing.
 
-- more outer folds, so a single window cannot dominate, and
-- a selection rule that requires the cost-clearing cells to be spread
-  across folds rather than concentrated in one.
+## What would be needed before running this again
 
-Both are configuration changes to the campaign, not new code.
+1. **A selection rule that requires edge to be spread across folds.** A
+   single favourable window should not be able to qualify a policy. This is
+   a gate change, not a campaign parameter.
+2. **A minimum trade count that reflects the cost floor.** `min_trades_per_fold`
+   is currently 10, while median trades is 6 and 49% of cells are 0. A
+   policy whose folds average 6 trades has 1.9% of cost to overcome before
+   earning anything.
+3. **Drop the fold count as a promotion criterion**, or pair it with a
+   return requirement. 9/9 folds is satisfiable by a strategy that does
+   not trade.
+
+None of these require new infrastructure. They are thresholds and a gate.
