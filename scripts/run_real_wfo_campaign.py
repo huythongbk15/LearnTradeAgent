@@ -85,6 +85,20 @@ def main() -> None:
     result = run_nested_wfo(spec, out_root=EVIDENCE)
     agg = result.aggregate_metrics
 
+    # The requested strategy must have produced cells. Before a65ed29000 a
+    # strategy whose params failed schema validation produced nothing while
+    # the campaign still reported success; see campaign_integrity.py.
+    from trading_agent.backtest.campaign_integrity import verify_campaign_coverage
+
+    coverage = verify_campaign_coverage(
+        requested_strategies=[args.strategy], out_root=EVIDENCE
+    )
+    print("\n=== campaign coverage ===")
+    print(coverage.summary())
+    if not coverage.ok:
+        print("\nrefusing to build a policy from an incomplete campaign")
+        return
+
     print("\n=== measured aggregate metrics ===")
     for key in (
         "n_outer_folds", "median_test_sharpe", "median_test_return_pct",

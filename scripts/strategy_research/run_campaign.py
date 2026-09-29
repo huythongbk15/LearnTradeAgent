@@ -28,9 +28,7 @@ import json
 import logging
 import sys
 import time
-import traceback
-from concurrent.futures import ProcessPoolExecutor, as_completed
-from dataclasses import asdict
+from concurrent.futures import as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -38,17 +36,8 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from trading_agent.backtest.nested_wfo import run_nested_wfo, WFOSpec
-from trading_agent.backtest.tournament import (
-    DEFAULT_SCENARIOS,
-    SCENARIO_BASE,
-    SCENARIO_DOUBLE,
-    SCENARIO_SLIPPAGE_STRESS,
-    CostScenario,
-)
 from trading_agent.research.strategy_catalog import (
     STRATEGY_CATALOG,
-    StrategySpec,
 )
 from trading_agent.research.param_grids import (
     get_param_grid,
@@ -60,7 +49,6 @@ from trading_agent.research.portfolio_analysis import (
     compute_marginal_sharpe_contribution,
     compute_drawdown_correlation,
 )
-from scripts.run_wfo_parallel import ParallelCellRunner
 
 import numpy as np  # used in portfolio analysis
 
@@ -322,7 +310,7 @@ def run_single_asset_phase(
     results = []
     completed = 0
     # Run cells in parallel using ThreadPool (each cell spawns a subprocess)
-    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from concurrent.futures import ThreadPoolExecutor
 
     with ThreadPoolExecutor(max_workers=workers) as pool:
         future_map = {
@@ -342,7 +330,31 @@ def run_single_asset_phase(
             sharpe = result.get("median_test_sharpe", 0)
             print(f"  [{completed}/{len(cells)}] {sid} | {asset} | {tf} → {status} (Sharpe={sharpe:.3f})")
 
+    # Prove the run measured everything it asked for. This is the check whose
+    # absence let a65ed29000's first bug run silently: strategies whose params
+    # failed validation produced no cell, and "completed" counted artifacts
+    # rather than strategies, so the campaign reported success having skipped
+    # part of its own plan.
+    _assert_coverage(cells, results, out_root)
     return results
+
+
+def _assert_coverage(cells, results, out_root: Path) -> None:
+    from trading_agent.backtest.campaign_integrity import (
+        verify_campaign_coverage,
+    )
+
+    requested = {sid for sid, _asset, _tf in cells}
+    report = verify_campaign_coverage(
+        requested_strategies=requested, out_root=out_root, results=results
+    )
+    print(report.summary())
+    if not report.ok:
+        raise SystemExit(
+            "campaign incomplete: strategies were requested that produced no "
+            "cells. Treating this as success is what produced unreproducible "
+            "evidence before; refusing to exit 0 until the gap is explained."
+        )
 
 
 def run_cross_asset_phase(
@@ -456,7 +468,7 @@ def main():
     errored = [r for r in all_results if r.get("status") == "ERROR"]
 
     print(f"\n{'='*50}")
-    print(f"Campaign Summary")
+    print("Campaign Summary")
     print(f"{'='*50}")
     print(f"  Total cells: {len(all_results)}")
     print(f"  PASS: {len(passed)}  FAIL: {len(failed)}  SKIPPED: {len(skipped)}  ERROR: {len(errored)}")
