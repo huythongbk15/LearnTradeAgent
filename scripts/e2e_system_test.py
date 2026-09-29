@@ -303,10 +303,21 @@ def scenario_3_tournament(
 
     result.check(decisions >= 250, "Processed >= 250 routing decisions",
                  f"got {decisions}")
+    # With no promotable policy the router must abstain rather than route.
+    # Asserting that a strategy was selected here would require a policy
+    # promoted without measured evidence — see POLICY_RETURN_AUDIT.md for
+    # what that produced before the promotion gate rejected it. The E2E
+    # bootstrap registers DRAFT policies deliberately, so abstention is the
+    # expected and correct outcome.
     result.check(
-        len(strategies_used) >= 1,
-        "≥1 strategy selected across bars",
-        f"strategies={strategies_used}",
+        len(strategies_used) == 0,
+        "router abstains with no promotable policy (fail-closed)",
+        f"strategies={strategies_used or 'none — correct'}",
+    )
+    result.check(
+        all(e == 0.0 for e in exposure_multipliers),
+        "no exposure requested while abstaining",
+        f"max multiplier {max(exposure_multipliers) if exposure_multipliers else 0:.3f}",
     )
     result.check(
         all(0.0 <= e <= 1.0 for e in exposure_multipliers),

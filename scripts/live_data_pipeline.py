@@ -613,17 +613,23 @@ def build_tournament(
             existing = registry.get_active(
                 symbol, DEFAULT_TIMEFRAME, regime, now=now
             )
-            if existing is None:
-                service.activate(
-                    policy.policy_id,
-                    actor="live-data-pipeline",
-                    ticket=f"LIVE-{symbol}-{regime}",
-                    now=now,
-                )
-            else:
+            if existing is not None:
                 logger.debug(
                     f"  {symbol} [{regime}]: already active "
-                    f"({existing.policy_id[:8]}…), skipping activation"
+                    f"({existing.policy_id[:8]}…), skipping"
+                )
+            else:
+                # Deliberately no activation here. This bootstrap evaluates
+                # nothing, so its policies carry no measured scores and stay
+                # DRAFT/exploratory. Promotion requires a real WFO result —
+                # see POLICY_RETURN_AUDIT.md for what happened when this call
+                # existed alongside fabricated scores. With no active policy
+                # the router abstains and returns NO_TRADE, which is the
+                # correct outcome for a system with no evidence.
+                logger.debug(
+                    f"  {symbol} [{regime}]: DRAFT policy registered "
+                    f"({policy.policy_id[:8]}…); not activated — no measured "
+                    f"evidence, so routing will abstain"
                 )
 
     # Add remaining strategies as inactive challengers
