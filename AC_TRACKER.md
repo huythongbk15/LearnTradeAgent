@@ -67,7 +67,17 @@
 - **2026-09-28**: results measured on real BTC/USDT data through the promoted-policy pipeline are recorded in `AC14_CHAIN_SUMMARY.md`. They are not a substitute for a locked OOS campaign, and the system currently has no promotable policy to run one against.
 
 ## Next priority (per contract §9.5 + §9.7)
-1. **Change the promotion criteria before running any more campaigns.** A 104-cell real run on the best-scoring strategy produced 10 cost-clearing cells with half of them in one window (`WFO_CAMPAIGN_RESULT.md`). Folding 9/9 is satisfiable by a strategy that does not trade — 49% of cells never did. The gate needs a cross-fold spread requirement and a trade count consistent with the cost floor. Thresholds and a gate, not new infrastructure.
-2. **Do not scale to the remaining 16 strategies** on the current criteria. One strategy cost ~10 hours; the registry would cost ~170 to learn the same thing.
+1. **Establish whether the WFO pipeline is deterministic.** `scripts/check_wfo_determinism.py` runs one spec twice and compares; no prior test does this — `test_nested_wfo.py` calls `run_nested_wfo` once in the whole file. Every campaign number depends on this and none of it is settled until it is.
+2. **Re-measure one strategy on the fixed pipeline**, not the registry. `enhanced_ma` on SOL is the cheapest test that also produces the first citable post-fix number. Workstream B (S3 real nested WFO campaign) is subsumed by this; a full registry re-measurement would cost roughly 170 hours to learn the same thing and is explicitly not recommended.
 3. **AC15** stays blocked until a cluster exists for operational soak/recovery/rollback evidence.
-4. Re-run AC14 only after step 1 produces a rule that a fold-concentrated result cannot pass.
+4. Re-run AC14 only after steps 1 and 2, on data that reproduces.
+
+### Completed since 2026-09-25
+- Promotion now requires measured OOS metrics and scores attributable to canonical source (`19ec13c`, `b872c5f`, `8870e03`).
+- Edge must clear the cost floor and be spread across folds; selection score is net-of-cost, not Sharpe; the spread gate is a binomial test (`eeea331`, `98a0658`).
+- Campaign coverage invariant: a run must measure what it claimed (`54906f6`).
+- 43 policy stores quarantined — 2,690 promoted policies carried fabricated scores; only 4 of 4,520 promotable policies are attributable to code that exists (`f4e2a91`).
+- E2E full flow 9/9, 86 assertions, with scenario 3 asserting fail-closed abstention (`9ba654d`).
+- Campaign irreproducibility traced to three WFO pipeline bugs fixed at `a65ed29000`; 4,527 cells predate the fix and the sign-off's only approval rests on them (`CAMPAIGN_REPRODUCIBILITY_ROOT_CAUSE.md`, `COMMIT_FILTER_AND_SIGNOFF_RECHECK.md`).
+
+Full account: `HANDOVER_2026_09_28.md`.
