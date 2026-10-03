@@ -37,12 +37,20 @@ from trading_agent.research.selection_policy import (
 NOW = datetime(2026, 8, 30, 12, tzinfo=UTC)
 KEY = b"adaptive-router-test-signing-key"
 REGIME_POLICIES = {
-    "trend": ("trend_following", 1.5),
-    "mean_reversion": ("mean_reversion", 2.0),
-    "high_vol": ("defensive", 1.2),
-    "crisis": ("defensive", 1.2),
-    "other": ("trend_following", 0.4),
+    "trend": ("ma_crossover", 1.5),
+    "mean_reversion": ("range_mean_reversion", 2.0),
+    "high_vol": ("bbands", 1.2),
+    "crisis": ("bbands", 1.2),
+    "other": ("ma_crossover", 0.4),
 }
+
+
+
+def _code_sha(strategy_id: str) -> str:
+    """Real source hash for a strategy on the canonical allowlist."""
+    from trading_agent.strategies.canonical import build_default_registry
+
+    return build_default_registry().describe(strategy_id).code_sha
 
 
 def _posterior(
@@ -78,7 +86,7 @@ def _active_registry(tmp_path) -> SelectionPolicyRegistry:
             timeframe="1h",
             regime=regime,
             incumbent=ParamArtifact(
-                strategy_id, {"window": 10 + index}, code_sha="e" * 64
+                strategy_id, {"window": 10 + index}, code_sha=_code_sha(strategy_id)
             ),
             scores={"selection_score": score, "median_oos_return_pct": 6.5, "median_oos_trades": 30, "n_passing_folds": 9, "total_folds": 9},
             evidence_ids=(f"sha256:study-{regime}", f"sha256:outer-{regime}"),
@@ -163,7 +171,7 @@ def test_router_uses_full_posterior_weighting_not_argmax_only(tmp_path):
     decision = _route(router, posterior, NOW)
 
     assert decision.handover_state is HandoverState.ACTIVATE
-    assert decision.chosen_strategy_id == "mean_reversion"
+    assert decision.chosen_strategy_id == "range_mean_reversion"
     assert decision.incumbent_strategy_id is None
     assert decision.allow_new_exposure
 
@@ -224,7 +232,7 @@ def test_challenger_requires_persistent_closed_bar_evidence(tmp_path):
     assert first.handover_state is HandoverState.SWITCH_PENDING
     assert not first.allow_new_exposure
     assert second.handover_state is HandoverState.ACTIVATE
-    assert second.chosen_strategy_id == "trend_following"
+    assert second.chosen_strategy_id == "ma_crossover"
 
 
 def test_open_position_owner_is_pinned_until_flat_then_switches(tmp_path):
@@ -239,7 +247,7 @@ def test_open_position_owner_is_pinned_until_flat_then_switches(tmp_path):
     )
     trend = _posterior(NOW, (0.8, 0.05, 0.05, 0.05, 0.05))
     established = _route(router, trend, NOW)
-    assert established.chosen_strategy_id == "trend_following"
+    assert established.chosen_strategy_id == "ma_crossover"
 
     dwell_time = NOW + timedelta(hours=1)
     retained = _route(router, _posterior(dwell_time, trend.values), dwell_time)
@@ -251,10 +259,10 @@ def test_open_position_owner_is_pinned_until_flat_then_switches(tmp_path):
         _posterior(switch_time, (0.05, 0.8, 0.05, 0.05, 0.05)),
         switch_time,
         flat=False,
-        owner="trend_following",
+        owner="ma_crossover",
     )
     assert switch.handover_state is HandoverState.WAIT_FLAT
-    assert switch.chosen_strategy_id == "trend_following"
+    assert switch.chosen_strategy_id == "ma_crossover"
     assert not switch.allow_new_exposure
 
     flat_time = switch_time + timedelta(hours=1)
@@ -264,8 +272,8 @@ def test_open_position_owner_is_pinned_until_flat_then_switches(tmp_path):
         flat_time,
     )
     assert activated.handover_state is HandoverState.ACTIVATE
-    assert activated.incumbent_strategy_id == "trend_following"
-    assert activated.chosen_strategy_id == "mean_reversion"
+    assert activated.incumbent_strategy_id == "ma_crossover"
+    assert activated.chosen_strategy_id == "range_mean_reversion"
 
 
 def test_restart_replays_idempotently_and_detects_state_tampering(tmp_path):
@@ -571,7 +579,7 @@ def test_market_context_does_not_override_deterministic_routing(tmp_path):
     decision = _route(
         router, posterior, NOW, market_context=_diverging_context()
     )
-    assert decision.chosen_strategy_id == "trend_following"
+    assert decision.chosen_strategy_id == "ma_crossover"
 
 
 def test_anomaly_flags_are_advisory_only(tmp_path):
@@ -587,5 +595,5 @@ def test_anomaly_flags_are_advisory_only(tmp_path):
     )
     decision = _route(router, posterior, NOW, market_context=ctx)
     # Anomalies are advisory — routing still proceeds normally
-    assert decision.chosen_strategy_id == "trend_following"
+    assert decision.chosen_strategy_id == "ma_crossover"
     assert decision.allow_new_exposure
