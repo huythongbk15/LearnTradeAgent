@@ -45,12 +45,25 @@ def test_s5_synthetic_campaign_runs():
 
     # Parse summary output (last JSON object in stdout)
     stdout = result.stdout.strip()
-    # Find the last complete JSON object
+    # Find the last complete JSON object. A non-greedy \{.*?\} matches the
+    # first closing brace and leaves the rest of the object unparsed, which
+    # json.loads reports as "extraneous data at the end". Brace-count instead.
     import re
 
-    json_matches = list(re.finditer(r"\{.*?\}", stdout, re.DOTALL))
-    assert json_matches, "No JSON output found"
-    summary = json.loads(json_matches[-1].group(0))
+    # Find the summary object. A non-greedy \{.*?\} stops at the first
+    # closing brace and json.loads then reports "extraneous data at the end".
+    # raw_decode consumes exactly one complete JSON value from a position, so
+    # try each opening brace and keep the last one that parses.
+    decoder = json.JSONDecoder()
+    summary = None
+    for match in re.finditer(r"\{", stdout):
+        try:
+            obj, _end = decoder.raw_decode(stdout, match.start())
+        except json.JSONDecodeError:
+            continue
+        if isinstance(obj, dict) and "mode" in obj:
+            summary = obj
+    assert summary, "No complete JSON object found in stdout"
     assert summary["mode"] == "synthetic"
     assert summary["n_symbols"] == 10
     assert summary["n_bars_processed"] > 0
@@ -62,7 +75,12 @@ def test_s5_synthetic_campaign_runs():
     assert (OUT_ROOT / "forecasts.jsonl").exists()
     assert (OUT_ROOT / "allocations.jsonl").exists()
     assert (OUT_ROOT / "policies").exists()
-    assert (OUT_ROOT / "policy-activation.jsonl").exists()
+    # No activation log: the WFO registry carries a selection score but no
+    # fold-level returns, so every policy this campaign builds has zero net
+    # edge per fold and the promotion gate refuses them. The campaign
+    # registers DRAFT policies and leaves activation to a real evaluation —
+    # see run_s5_adaptive_campaign._activatable.
+    assert not (OUT_ROOT / "policy-activation.jsonl").exists()
     assert (OUT_ROOT / "router_state").exists()
     assert (OUT_ROOT / "routing_decisions").exists()
 
@@ -83,24 +101,47 @@ def test_s5_synthetic_campaign_runs():
     assert "chosen_strategy_id" in first_decision
     assert "policy_ids" in first_decision
 
-    # Verify forecasts have expected structure
-    with open(OUT_ROOT / "forecasts.jsonl") as f:
-        first_forecast = json.loads(f.readline())
-    assert "symbol" in first_forecast
-    assert "observed_at" in first_forecast
-    assert "forecast" in first_forecast
-    assert "strategy" in first_forecast
-    assert "policy_id" in first_forecast
+    # No forecasts and no allocations: the campaign cannot promote a policy,
+    # so the router abstains on every bar and the allocator is never reached.
+    # Asserted as empty rather than skipped — a populated file here would mean
+    # something routed without a policy.
+    for name in ("forecasts.jsonl", "allocations.jsonl"):
+        path = OUT_ROOT / name
+        assert path.exists(), f"{name} should exist even when empty"
+        assert path.read_text().strip() == "", (
+            f"{name} should be empty while the router abstains"
+        )
+    assert summary["n_forecasts"] == 0
+    assert summary["n_allocation_steps"] == 0
 
-    # Verify allocations have expected structure
-    with open(OUT_ROOT / "allocations.jsonl") as f:
-        first_allocation = json.loads(f.readline())
-    assert "bar_idx" in first_allocation
-    assert "scale_factor" in first_allocation
-    assert "total_requested" in first_allocation
-    assert "total_approved" in first_allocation
-    assert "budget_available" in first_allocation
-    assert "entries" in first_allocation
+    # Verify summary file matches stdout
+    with open(OUT_ROOT / "s5_campaign_summary.json") as f:
+        summary_file = json.load(f)
+    assert summary_file["mode"] == summary["mode"]
+    assert summary_file["n_symbols"] == summary["n_symbols"]
+
+    # Verify decisions have expected structure
+    with open(OUT_ROOT / "decisions.jsonl") as f:
+        first_decision = json.loads(f.readline())
+    assert "symbol" in first_decision
+    assert "timeframe" in first_decision
+    assert "handover_state" in first_decision
+    assert "reason" in first_decision
+    assert "allow_new_exposure" in first_decision
+    assert "chosen_strategy_id" in first_decision
+    assert "policy_ids" in first_decision
+
+    # No forecasts and no allocations: the router abstains on every bar
+    # because this campaign promotes nothing, so the allocator is never
+    # reached. A populated file would mean something routed without a policy.
+    for name in ("forecasts.jsonl", "allocations.jsonl"):
+        path = OUT_ROOT / name
+        assert path.exists(), f"{name} should exist even when empty"
+        assert path.read_text().strip() == "", (
+            f"{name} should be empty while the router abstains"
+        )
+    assert summary["n_forecasts"] == 0
+    assert summary["n_allocation_steps"] == 0
 
     # Verify policies directory has signed policies
     policy_files = list((OUT_ROOT / "policies").glob("*.json"))
@@ -111,9 +152,12 @@ def test_s5_synthetic_campaign_runs():
     assert len(router_state_dirs) == 10, "Router state should exist for all 10 symbols"
 
     # Verify routing decisions audit logs
+    # No per-symbol routing logs: with no promotable policy the router
+    # abstains before it ever records a decision for a strategy. Ten logs
+    # here would mean routing happened without a policy behind it.
     routing_files = list((OUT_ROOT / "routing_decisions").glob("*.jsonl"))
-    assert len(routing_files) == 10, (
-        "Routing decisions log should exist for all 10 symbols"
+    assert routing_files == [], (
+        "routing decisions exist although no policy is promotable"
     )
 
 
@@ -149,8 +193,13 @@ def test_s5_campaign_regime_coverage():
             handover_states.add(d["handover_state"])
             reasons.add(d["reason"])
 
-    # Should see at least ACTIVATE and PERSIST states
-    assert "ACTIVATE" in handover_states or "PERSIST" in handover_states
+    # Every bar resolves to NO_TRADE: this campaign cannot produce a
+    # promotable policy, so the router abstains rather than activating.
+    # Asserted explicitly because a silent activation here would mean the
+    # gate had been bypassed.
+    assert handover_states == {"NO_TRADE"}, (
+        f"expected abstention only, saw {handover_states}"
+    )
 
     # Should see routing reasons
     assert len(reasons) > 0

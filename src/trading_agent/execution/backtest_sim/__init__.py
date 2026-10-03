@@ -12,6 +12,9 @@ from trading_agent.execution.backtest_sim.models import (
     SimulatedOrder,
     create_execution_simulator,
 )
+from trading_agent.execution.backtest_sim.backtest_integration import (
+    run_simulator_backtest,
+)
 from trading_agent.execution.backtest_sim.t2c_calibration import (
     build_all_simulator_config_overrides,
     build_simulator_config_overrides,

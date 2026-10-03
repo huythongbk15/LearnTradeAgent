@@ -110,10 +110,26 @@ def _measured_scores(selection_score: float) -> dict[str, float]:
         "selection_score": float(selection_score),
         "median_oos_return_pct": 0.0,
         "median_oos_trades": 0,
+        # total_folds must be positive — the gate reads 0/0 as an inconsistent
+        # fold record rather than as "not measured". One fold with no pass is
+        # the honest encoding of a registry that has a score but no folds.
         "n_passing_folds": 0,
-        "total_folds": 0,
+        "total_folds": 1,
         "net_fold_edge_pct": 0.0,
     }
+
+
+def _activatable() -> bool:
+    """Whether this campaign may promote the policies it builds.
+
+    It may not. The WFO registry carries a selection score but no fold-level
+    returns, so a policy assembled from it has zero net edge per fold and
+    ``_require_earned_the_folds`` refuses it at activation. Rather than
+    defaulting the metric into passing, the activation is skipped and the
+    router abstains — the correct outcome for an unmeasured campaign, and the
+    same treatment the other four generators received in ec60666.
+    """
+    return False
 
 
 def _load_real_policy_scores(
@@ -374,14 +390,14 @@ def _build_active_registry(
                 validity_start=validity_start,
                 validity_end=now + timedelta(days=29),
                 risk_cap=0.25,
-                status=PolicyStatus.VALIDATED,
+                status=PolicyStatus.DRAFT,
                 created_at=created_at,
                 # R05: real commit SHA, real data/feature manifest hashes
                 policy_commit_sha=real_commit_sha,
                 policy_data_manifest_sha=data_manifest_sha,
                 policy_feature_manifest_sha=feature_manifest_sha,
                 policy_release_digest=release_digest,
-                promotion_stage="paper_eligible",
+                promotion_stage="exploratory",
             )
             registry.add(policy)
             # R05: build PolicyBundle with real LineageRecord for audit
@@ -401,7 +417,8 @@ def _build_active_registry(
             )
             bundle_key = f"{symbol}|{TIMEFRAME}|{regime}"
             bundles[bundle_key] = bundle
-            service.activate(
+            if _activatable():
+              service.activate(
                 policy.policy_id,
                 actor="s5-campaign",
                 ticket=f"S5-{symbol.replace('/', '_')}-{regime}",
@@ -779,14 +796,14 @@ def run_real(out_root: Path, symbols: list[str] | None = None) -> dict:
                 validity_start=created_at,
                 validity_end=now + timedelta(days=29),
                 risk_cap=0.25,
-                status=PolicyStatus.VALIDATED,
+                status=PolicyStatus.DRAFT,
                 created_at=created_at,
                 # R05: real commit SHA and evidence hashes (not "a"*40 etc.)
                 policy_commit_sha=real_commit_sha,
                 policy_data_manifest_sha=data_manifest_sha,
                 policy_feature_manifest_sha=feature_manifest_sha,
                 policy_release_digest=release_digest,
-                promotion_stage="paper_eligible",
+                promotion_stage="exploratory",
             )
             registry.add(policy)
             # R05: build PolicyBundle with real LineageRecord for resolver
@@ -805,7 +822,8 @@ def run_real(out_root: Path, symbols: list[str] | None = None) -> dict:
             )
             bundle_key = f"{symbol}|{TIMEFRAME}|{regime}"
             bundles[bundle_key] = bundle
-            service.activate(
+            if _activatable():
+              service.activate(
                 policy.policy_id,
                 actor="s5-campaign",
                 ticket=f"S5-{symbol.replace('/', '_')}-{regime}",
