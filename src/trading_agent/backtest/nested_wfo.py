@@ -2106,7 +2106,15 @@ def _compute_multi_dimensional_evaluation(
         time_col = "timestamp"
     else:
         time_col = pdf.columns[0]
-    pdf[time_col] = pdf[time_col].dt.tz_localize(UTC)
+    # Only localize when naive. Daily bar files carry a UTC timezone while
+    # hourly ones are naive, and tz_localize on an aware column raises
+    # "Already tz-aware" — which meant no WFO run had ever completed on
+    # daily bars before this was fixed.
+    time_series = pdf[time_col]
+    if getattr(time_series.dt, "tz", None) is None:
+        pdf[time_col] = time_series.dt.tz_localize(UTC)
+    else:
+        pdf[time_col] = time_series.dt.tz_convert(UTC)
 
     multi_dim: dict[str, Any] = {
         "by_fold": [],
