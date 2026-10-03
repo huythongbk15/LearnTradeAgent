@@ -40,10 +40,20 @@ PROMOTABLE_STATUSES = {"VALIDATED", "ACTIVE"}
 
 
 def _producers() -> list[Path]:
+    """Every file that constructs a SelectionPolicyArtifact.
+
+    tests/ is included deliberately. The router test fixture used
+    code_sha="e" * 64 with strategy ids that were never on the allowlist,
+    so the promotion gate raised inside the fixture and 12 router tests
+    were reported as passing-by-collection while never exercising the
+    router at all. They had been failing since 8870e03 without anyone
+    running the suite after that change.
+    """
     out = []
-    for base in (ROOT / "scripts", ROOT / "src"):
+    for base in (ROOT / "scripts", ROOT / "src", ROOT / "tests"):
+        pattern = "test_generator_evidence_integrity.py"
         for f in base.rglob("*.py"):
-            if "__pycache__" in f.parts:
+            if "__pycache__" in f.parts or f.name == pattern:
                 continue
             try:
                 tree = ast.parse(f.read_text())

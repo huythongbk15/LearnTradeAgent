@@ -61,6 +61,14 @@ from trading_agent.research.selection_policy import (
 # =============================================================================
 
 
+
+def _canonical_code_sha(strategy_id: str) -> str:
+    """Real source hash — a placeholder is refused by the promotion gate."""
+    from trading_agent.strategies.canonical import build_default_registry
+
+    return build_default_registry().describe(strategy_id).code_sha
+
+
 def _make_policy(
     *,
     policy_id: str = "abc123def456",
@@ -79,9 +87,15 @@ def _make_policy(
         incumbent=ParamArtifact(
             strategy_id="rsi",
             params={"period": 14, "oversold": 30, "overbought": 70},
-            code_sha="e" * 64,
+            code_sha=_canonical_code_sha("rsi"),
         ),
-        scores={"selection_score": 1.2},
+        scores={
+            "selection_score": 1.2,
+            "median_oos_return_pct": 6.5,
+            "median_oos_trades": 30,
+            "n_passing_folds": 9,
+            "total_folds": 9,
+        },
         evidence_ids=("sha256:study", "sha256:outer", "sha256:holdout"),
         validity_start=validity_start or now,
         validity_end=validity_end,
@@ -502,8 +516,15 @@ class TestResolverLineage:
             timeframe="1h",
             regime="TRENDING_UP",
             incumbent=ParamArtifact(
-                strategy_id="rsi", params={"period": 14}, code_sha="e" * 64
+                strategy_id="rsi", params={"period": 14}, code_sha=_canonical_code_sha("rsi")
             ),
+            scores={
+                "selection_score": 1.2,
+                "median_oos_return_pct": 6.5,
+                "median_oos_trades": 30,
+                "n_passing_folds": 9,
+                "total_folds": 9,
+            },
             evidence_ids=("sha256:study",),
             validity_start=datetime(2025, 1, 1, tzinfo=UTC),
             validity_end=datetime(2026, 12, 31, tzinfo=UTC),
@@ -580,8 +601,15 @@ class TestResolverLineage:
             timeframe="1h",
             regime="TRENDING_UP",
             incumbent=ParamArtifact(
-                strategy_id="rsi", params={"period": 14}, code_sha="e" * 64
+                strategy_id="rsi", params={"period": 14}, code_sha=_canonical_code_sha("rsi")
             ),
+            scores={
+                "selection_score": 1.2,
+                "median_oos_return_pct": 6.5,
+                "median_oos_trades": 30,
+                "n_passing_folds": 9,
+                "total_folds": 9,
+            },
             evidence_ids=("sha256:study",),
             validity_start=datetime(2025, 1, 1, tzinfo=UTC),
             validity_end=datetime(2026, 12, 31, tzinfo=UTC),
@@ -636,8 +664,15 @@ class TestBuildLineageFromPolicy:
             timeframe="1h",
             regime="TRENDING_UP",
             incumbent=ParamArtifact(
-                strategy_id="rsi", params={"period": 14}, code_sha="e" * 64
+                strategy_id="rsi", params={"period": 14}, code_sha=_canonical_code_sha("rsi")
             ),
+            scores={
+                "selection_score": 1.2,
+                "median_oos_return_pct": 6.5,
+                "median_oos_trades": 30,
+                "n_passing_folds": 9,
+                "total_folds": 9,
+            },
             evidence_ids=("sha256:study",),
             validity_start=created,
             status=PolicyStatus.ACTIVE,
@@ -668,7 +703,7 @@ class TestBuildLineageFromPolicy:
             timeframe="1h",
             regime="TRENDING_UP",
             incumbent=ParamArtifact(
-                strategy_id="rsi", params={"period": 14}, code_sha="e" * 64
+                strategy_id="rsi", params={"period": 14}, code_sha=_canonical_code_sha("rsi")
             ),
             validity_start=created,
             status=PolicyStatus.DRAFT,
@@ -783,8 +818,15 @@ class TestEndToEndRouting:
             timeframe="1h",
             regime="TRENDING_UP",
             incumbent=ParamArtifact(
-                strategy_id="rsi", params={"period": 14}, code_sha="e" * 64
+                strategy_id="rsi", params={"period": 14}, code_sha=_canonical_code_sha("rsi")
             ),
+            scores={
+                "selection_score": 1.2,
+                "median_oos_return_pct": 6.5,
+                "median_oos_trades": 30,
+                "n_passing_folds": 9,
+                "total_folds": 9,
+            },
             evidence_ids=("sha256:study",),
             validity_start=now - timedelta(days=30),
             validity_end=now + timedelta(days=30),

@@ -27,7 +27,6 @@ if str(ROOT) not in sys.path:
 from trading_agent.backtest.nested_wfo import (
     PortfolioGatePolicy,
     PortfolioGateReport,
-    WFOPortfolioResult,
     GateResult,
     FormalNoTradeArtifact,
 )
@@ -170,8 +169,6 @@ class TestFormalNoTradeArtifact:
     def test_tampering_detected(self):
         artifact = self._make_artifact()
         # Tamper by modifying internal no_trade_id
-        import hashlib
-        import json as _json
         payload = {
             "candidate_set": ["tampered"],  # Tampered data
             "best_candidate": "b",
