@@ -91,31 +91,32 @@ def build_paper_trader(
             policy = SelectionPolicyArtifact(
                 symbol=symbol, timeframe=TIMEFRAME, regime=regime,
                 incumbent=ParamArtifact(first_sid, params, code_sha="paper001"),
-                scores={
-                    "selection_score": 0.50,
-                    "median_test_sharpe": 0.30,
-                    "median_oos_return_pct": 0.05,
-                    "median_max_dd_pct": 0.30,
-                    "median_calmar": 0.50,
-                    "median_oos_trades": 40,
-                    "n_passing_folds": 9, "total_folds": 9,
-                },
+                # No scores: this script bootstraps a paper-trading
+                # session and measures nothing. The literal block that used
+                # to be here wrote selection_score 0.50, return 0.05, 40
+                # trades and 9/9 folds — the shape described in
+                # POLICY_RETURN_AUDIT.md — and the promotion gate refuses it.
+                scores={},
                 evidence_ids=(f"sha256:paper-{first_sid}-{regime}",),
                 validity_start=validity_start,
                 validity_end=now + timedelta(days=90),
                 risk_cap=0.25,
-                status=PolicyStatus.VALIDATED,
+                status=PolicyStatus.DRAFT,
                 created_at=now - timedelta(minutes=1),
                 policy_commit_sha="paper-commit-sha",
                 policy_data_manifest_sha="paper-data-sha",
                 policy_feature_manifest_sha="paper-feature-sha",
                 policy_release_digest="sha256:paper-release-digest",
-                promotion_stage="paper_eligible",
+                promotion_stage="exploratory",
             )
             registry.add(policy)
-            service.activate(
-                policy.policy_id, actor="paper-trader-init",
-                ticket=f"PAPER-{symbol}-{regime}", now=now,
+            # Not activated: an unmeasured policy is not promotable, and
+            # activate() raises below paper_eligible. The tournament falls
+            # back to NO_TRADE rather than trading on a fabricated score.
+            print(
+                f"  {symbol} [{regime}]: DRAFT policy registered "
+                f"({policy.policy_id[:8]}…); not activated — no measured "
+                f"evidence"
             )
 
     # Add remaining strategies as INACTIVE challengers (not activated)
@@ -139,13 +140,13 @@ def build_paper_trader(
                     validity_start=validity_start,
                     validity_end=now + timedelta(days=90),
                     risk_cap=0.25,
-                    status=PolicyStatus.VALIDATED,
+                    status=PolicyStatus.DRAFT,
                     created_at=now - timedelta(minutes=1),
                     policy_commit_sha="paper-commit-sha",
                     policy_data_manifest_sha="paper-data-sha",
                     policy_feature_manifest_sha="paper-feature-sha",
                     policy_release_digest="sha256:paper-release-digest",
-                    promotion_stage="paper_eligible",
+                    promotion_stage="exploratory",
                 )
                 registry.add(policy)  # NOT activated — challenger only
 

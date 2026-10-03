@@ -271,11 +271,18 @@ def main() -> None:
             pol = SelectionPolicyArtifact(
                 symbol="BTC/USDT", timeframe="1h", regime=regime,
                 incumbent=ParamArtifact(strategy_id=sid, params=params, code_sha=sha),
-                scores={"selection_score": 0.95 if regime == "high_vol" else 0.88},
+                # No scores: this script reuses the promoted bindings from a
+                # store, which carry a selection score but not the OOS metric
+                # family the gate requires. It measures nothing of its own, so
+                # the policies it builds here are not promotable and the
+                # router abstains — which is why the run reports a full
+                # abstention rather than a routing result.
+                scores={},
                 evidence_ids=(f"sha256:real-study-{regime}",),
                 validity_start=first_obs,
                 validity_end=window_end + timedelta(days=1),
-                risk_cap=1.0, status=PolicyStatus.VALIDATED, created_at=created_at,
+                risk_cap=1.0, status=PolicyStatus.DRAFT,
+                promotion_stage="exploratory", created_at=created_at,
                 policy_commit_sha="f" * 40, policy_data_manifest_sha="d" * 64,
                 policy_feature_manifest_sha="e" * 64,
                 policy_release_digest="sha256:" + "c" * 64,

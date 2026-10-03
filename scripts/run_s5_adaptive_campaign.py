@@ -95,6 +95,27 @@ def _get_real_commit_sha() -> str:
     return "unknown"
 
 
+def _measured_scores(selection_score: float) -> dict[str, float]:
+    """OOS metric family required by the promotion gate.
+
+    A bare ``selection_score`` is a claim, not evidence — the gate added in
+    19ec13c refuses it, and _require_earned_the_folds additionally refuses a
+    policy whose net edge per fold is not positive. The WFO registry this
+    campaign reads exposes only the selection score, so the fold-level
+    metrics are not available here and a policy built from it cannot be
+    promoted. Kept explicit rather than defaulted to a passing value: the
+    same reasoning that removed literals from the other four generators.
+    """
+    return {
+        "selection_score": float(selection_score),
+        "median_oos_return_pct": 0.0,
+        "median_oos_trades": 0,
+        "n_passing_folds": 0,
+        "total_folds": 0,
+        "net_fold_edge_pct": 0.0,
+    }
+
+
 def _load_real_policy_scores(
     out_root: Path,
 ) -> dict[str, float]:
@@ -340,7 +361,12 @@ def _build_active_registry(
                     strategy_id, {"period": 14}, code_sha=descriptor.code_sha
                 ),
                 # R05: use real score from WFO registry, not hardcoded 1.5/2.0/etc.
-                scores={"selection_score": real_scores.get(strategy_id, 0.5)},
+                # The promotion gate requires the OOS metric family, not a
+                # lone selection_score. real_scores carries only the latter,
+                # so this policy would be refused at activation — which is
+                # correct: the campaign assembles a policy from a registry
+                # score without the fold detail the gate needs to verify it.
+                scores=_measured_scores(real_scores.get(strategy_id, 0.5)),
                 evidence_ids=(
                     f"sha256:study-{symbol}-{regime}:{data_manifest_sha[:16]}",
                     f"sha256:outer-{symbol}-{regime}",
@@ -741,7 +767,12 @@ def run_real(out_root: Path, symbols: list[str] | None = None) -> dict:
                     strategy_id, {"period": 14}, code_sha=descriptor.code_sha
                 ),
                 # R05: use real score from WFO registry, not hardcoded 1.5/2.0/etc.
-                scores={"selection_score": real_scores.get(strategy_id, 0.5)},
+                # The promotion gate requires the OOS metric family, not a
+                # lone selection_score. real_scores carries only the latter,
+                # so this policy would be refused at activation — which is
+                # correct: the campaign assembles a policy from a registry
+                # score without the fold detail the gate needs to verify it.
+                scores=_measured_scores(real_scores.get(strategy_id, 0.5)),
                 evidence_ids=(
                     f"sha256:study-{symbol}-{regime}:{data_manifest_sha[:16]}",
                 ),

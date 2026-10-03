@@ -129,6 +129,17 @@ def _build_registry(tmp_dir: Path, signing_key: bytes, key_id: str,
     return registry
 
 
+def _real_code_sha(strategy_id: str) -> str:
+    """Source hash from the canonical registry.
+
+    Scripts that bootstrap a tournament used to pass literal SHAs, which the
+    measured-evidence gate added in 8870e03 correctly refuses.
+    """
+    from trading_agent.strategies.canonical import build_default_registry
+
+    return build_default_registry().describe(strategy_id).code_sha
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Strategy Tournament Shadow Run")
     parser.add_argument("--symbol", default="BTC/USDT",
@@ -237,7 +248,7 @@ def main() -> None:
                 params = TournamentStrategyParams.get(sid, {})
                 policy = SelectionPolicyArtifact(
                     symbol=symbol, timeframe=args.timeframe, regime=regime,
-                    incumbent=ParamArtifact(sid, params, code_sha="f" * 64),
+                    incumbent=ParamArtifact(sid, params, code_sha=_real_code_sha(sid)),
                     scores={
                         "selection_score": 0.40,
                         "median_test_sharpe": 0.20,
@@ -251,13 +262,13 @@ def main() -> None:
                     validity_start=validity_start,
                     validity_end=now + timedelta(days=90),
                     risk_cap=0.25,
-                    status=PolicyStatus.VALIDATED,
+                    status=PolicyStatus.DRAFT,
                     created_at=now - timedelta(minutes=1),
                     policy_commit_sha="b" * 40,
                     policy_data_manifest_sha="c" * 64,
                     policy_feature_manifest_sha="d" * 64,
                     policy_release_digest="sha256:e" * 64,
-                    promotion_stage="paper_eligible",
+                    promotion_stage="exploratory",
                 )
                 registry.add(policy)
 
