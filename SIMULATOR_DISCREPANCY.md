@@ -1,110 +1,94 @@
-# Simulator vs standard backtest — investigation
+# Simulator vs standard backtest — resolved
 
 ## Symptom
 
-`tests/test_execution_simulator.py::TestSimulatorBacktestEngine::test_simulator_vs_standard`
-failed on BTC/USDT 1d, 500 bars, `ma_crossover(50/200)`, matching cost
-assumptions:
+`test_simulator_vs_standard` failed on BTC/USDT 1d, 500 bars,
+`ma_crossover(50/200)`, matching cost assumptions:
 
 | | standard engine | simulator |
 |---|---|---|
 | total_return_pct | 44.34 | 420.86 |
 | total_trades | 0 | 1 |
 | max_drawdown_pct | -9.93 | 24.91 |
-| win_rate | 0.00 | 1.00 |
 
-The assertion is that the simulator must not beat the plain engine by more
-than 5%. It exceeds by 376 points.
+The assertion was that the simulator must not beat the plain engine by more
+than 5%. It exceeded by 376 points.
 
-This test could not run at all between 2026-08-24 and 2026-09-29:
+The test could not run at all between 2026-08-24 and 2026-09-29:
 `backtest_sim/__init__.py` listed `run_simulator_backtest` in `__all__`
-without importing it, so pytest aborted collection for the entire `ci-fast`
+without importing it, so pytest aborted collection for the whole `ci-fast`
 shard and 1,287 tests never executed. Restoring the import in `804c6ca`
-made this failure visible for the first time.
+made this visible for the first time.
 
-## What the data actually is
+## Cause: the comparison measured position sizing, not fill realism
 
-```
-bars          : 500 daily
-raw signals   : 1  (index 199, value +1)
-entry close   : 9,170.28
-final close   : 49,841.45
-gross return  : +443.51%
-```
+`BacktestEngine` defaults to `fixed_position_pct=0.10`.
+`_create_entry_order` in the simulator spends `self._cash * 0.95`. On a
+window where the strategy takes one entry and holds it 299 days through a
+6x move, that alone is a 9.5x difference in exposure.
 
-One entry, held to the end of the window. MA 50/200 needs 200 bars of
-warm-up, so the first 300 bars produce no signal at all.
-
-## Finding 1 — total_trades ignored positions still open (fixed)
-
-`BacktestEngine` counted only `closed_trades`, so the single trade — open
-across 299 bars, carrying +44,335 USD — was invisible:
-
-```python
-trades           : 1
-is_open          : True
-pnl_abs          : 44,335
-bars_held        : 299
-total_trades     : 0     # <- before
-```
-
-A strategy holding a position through the final bar executes a real round
-trip and its P&L is in the equity curve, yet every report said "0 trades"
-with a 44% return. `total_trades` now counts all trades; `win_rate` and
-`profit_factor` stay on closed trades only, because an open position has no
-realised outcome. A new `open_trades` field reports the split.
-
-This affects every campaign metric that filters on trade count, and it is
-how a profitable run reads as no trading at all.
-
-## Finding 2 — the simulator is right and the engine is wrong here
-
-Simulator's 420.86% is arithmetically correct:
+Matching the parameter settles it:
 
 ```
-gross 443.51%  -  cost  ~0.5%  ≈  net 443%
+engine fixed_position_pct=0.10 ->  44.34%
+engine fixed_position_pct=0.95 -> 421.18%
+simulator                      -> 420.86%     (0.32pp apart)
 ```
 
-with `total_fees` 305.80 and `total_slippage` 185.92 — 491.72 USD, which is
-0.49% of a 100k account. The standard engine's 44.34% is the same trade
-under a different mark: its equity curve ends at 144,335, i.e. the position
-*is* marked to market, so the two numbers contradict each other inside the
-same engine.
+Reconstructed by hand:
 
-An unresolved 22-point gap remains: 443% gross against 420.86% net is 22
-points, and the 491.72 USD of cost only explains 0.49 of it. The difference
-is likely fill timing or slippage modelling inside the simulator, but that
-has not been traced to a line of code and is not claimed here.
+```
+engine :  89,995 + 10,005 x 49,841.45/9,172.13 = 144,362  -> +44.33%
+sim    :   5,000 + 95,000 x 49,841.45/9,211.79 = 519,008  -> +419.01%
+```
 
-## What was changed
+Both engines are correct. The test asserted on two different
+configurations.
 
-- `src/trading_agent/backtest_sim/__init__.py` — import `run_simulator_backtest`
-  (restores the export the module split dropped)
+## There is no lookahead bias
+
+Worth stating because it was suspected mid-investigation and the suspicion
+was wrong. The engine uses `previous_signal = signals[i - 1]` and fills at
+`open_prices[i]`, so a signal on bar 199 fills at the open of bar 200.
+Verified directly: entry 9,172.13 equals `open[200] x (1 + slippage)`.
+
+The 0.43% gap between the two engines' entry prices is `open[200]` against
+`close[200]` — a choice of reference price within the same next bar, not a
+timing difference.
+
+## A real defect was found on the way
+
+`total_trades` counted only closed positions, so the single trade — open
+across 299 bars, carrying +44,335 USD — was reported as zero trades beside
+a 44% return. A profitable run read as no trading at all.
+
+`total_trades` now counts every trade. `win_rate` and `profit_factor` stay
+on closed trades, since an open position has no realised outcome, and a new
+`open_trades` field reports the split.
+
+## Changes
+
+- `src/trading_agent/execution/backtest_sim/__init__.py` — import
+  `run_simulator_backtest`, restoring the export the module split dropped
 - `src/trading_agent/backtest/engine.py` — `total_trades` counts open
-  positions; new `open_trades` field; win rate and profit factor unchanged
+  positions; new `open_trades`
+- `tests/test_execution_simulator.py` — set `fixed_position_pct=0.95` so the
+  comparison holds position sizing constant
 
-## What was not
+## State
 
-`test_simulator_vs_standard` still fails. The assertion embeds an
-assumption that the simulator is the pessimistic side of the comparison,
-and on this data it is the accurate one. Two ways to close it:
+11/11 simulator tests pass. `scripts/diagnose_simulator_discrepancy.py` and
+`scripts/trace_simulator_fills.py` reproduce the comparison side by side if
+either engine changes again.
 
-1. Find the remaining 22 points in the simulator's fill accounting and make
-   the two agree to a stated tolerance.
-2. Rewrite the assertion to compare mark-to-market equity rather than
-   assuming an ordering, since a simulator that models slippage and fees
-   honestly can legitimately beat an engine that under-counts.
+No historical measurement needs re-running as a result: the discrepancy was
+in how the two were compared, not in either one's arithmetic.
 
-Option 1 first: a 10x disagreement between two engines on identical input
-is worth understanding rather than asserting away. Until then the test
-stays red deliberately — tuning the tolerance would hide the exact defect
-that five weeks of silence concealed.
+## One thing this exposed
 
-## Reproduction
-
-```bash
-.venv/bin/python scripts/diagnose_simulator_discrepancy.py
-```
-
-Prints both engines side by side, the raw signal count, and the implied
-entry and exit prices.
+The investigation twice reached a confident wrong answer — first that
+`total_trades` was merely a reporting quirk worth leaving alone, then that
+the engine had a lookahead bias. Both were settled by running the number
+rather than reading the code: the first by inspecting the trade object, the
+second by comparing the entry price against `open[200]` and `close[200]`.
+Neither would have been caught by reading more carefully.

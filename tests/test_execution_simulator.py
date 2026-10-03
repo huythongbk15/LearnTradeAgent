@@ -364,6 +364,12 @@ class TestSimulatorBacktestEngine:
             commission=0.0005,
             slippage=0.0002,
             long_only=True,
+            # Must match the simulator's capital deployment. The engine
+            # defaults to fixed_position_pct=0.10 while
+            # _create_entry_order spends 95% of cash, so without this the two
+            # engines differ by 9.5x on leverage alone and the comparison
+            # measures position sizing rather than fill realism.
+            fixed_position_pct=0.95,
         )
         std_result = engine.run(df, symbol="BTC/USDT", timeframe="1d")
 
