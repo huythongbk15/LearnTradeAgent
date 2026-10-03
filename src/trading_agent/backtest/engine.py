@@ -65,6 +65,7 @@ class BacktestResult:
     max_drawdown_pct: float = 0.0
     win_rate: float = 0.0
     total_trades: int = 0
+    open_trades: int = 0
     profit_factor: float = 0.0
     calmar_ratio: float = 0.0
     avg_hold_bars: float = 0.0
@@ -695,8 +696,19 @@ class BacktestEngine:
         result.max_drawdown_pct = float(df["drawdown"].min() * 100)
 
         # Trade stats
+        #
+        # total_trades counts every trade, including one still open at the end
+        # of the window. A strategy that holds a position through the final
+        # bar has executed a real round trip and carries its P&L in the equity
+        # curve — excluding it reported "0 trades" alongside a 44% return,
+        # which is how a profitable run can look like no trading at all.
+        #
+        # win_rate and profit_factor stay on closed trades only: an open
+        # position has no realised outcome to win or lose.
         closed_trades = [trade for trade in trades if not trade.is_open]
-        result.total_trades = len(closed_trades)
+        open_trades = [trade for trade in trades if trade.is_open]
+        result.total_trades = len(trades)
+        result.open_trades = len(open_trades)
         if closed_trades:
             winning = [t for t in closed_trades if t.pnl_abs > 0]
             result.win_rate = len(winning) / len(closed_trades)
