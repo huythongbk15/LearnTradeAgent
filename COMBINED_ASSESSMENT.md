@@ -16,7 +16,7 @@ All claims below were verified by running the code, not by reading it.
 |---|---|---|
 | B01 | BUY producer chưa nối đủ risk/planning/permission | **partly resolved — see below** |
 | B02 | 6 legacy runner tests bị skip; testnet signature cũ | **confirmed** — 3 opt-in skips, plus 1 real failure not listed |
-| B03 | soak tổng hợp theo symbol; failed runs tạo false PASS | **confirmed, mechanism identified** |
+| B03 | soak tổng hợp theo symbol; failed runs tạo false PASS | **đã fix trong working tree** (không có ở HEAD) — báo cáo đầu của tôi đọc bản cũ |
 | B04 | cost floor/selection score cần thống nhất net/gross | **already fixed** — `selection_policy.py:841` uses `net_fold_edge` |
 | B05 | chưa có published evidence; promotion store rỗng | **confirmed** — 0 entries, only `.rejected.json` |
 | B06 | payoff script thiếu per-trade; break-even sai | **confirmed** — `BREAK_EVEN_RATIO = 0.71` hardcoded from the superseded per-trade rate |
@@ -58,40 +58,45 @@ error.
 
 ---
 
-## B03 — the false-PASS mechanism, exactly as described
+## B03 — already fixed in the working tree, not in HEAD
 
-`evaluate_gates` checks four conditions and none of them inspects whether a
-run failed:
+**Correction.** I read this file against `HEAD` and reported a false-PASS
+path. The working tree does not have it. `scripts/testnet_soak_tracker.py`
+carries 320 insertions against HEAD, and both halves of the fix are in it.
 
-```python
-"continuous_30_days": tracking["days_continuous"] >= min_days,
-"100_complete_lifecycles": lifecycles["complete"] >= min_lifecycles,
-"zero_unexplained_events": sum(critical.values()) == 0,
-"stop_coverage_100pct": ...
+`tracking_days` was rewritten:
+
+```
+HEAD:  docstring "Consecutive covered days; a gap longer than max_gap_hours breaks the run."
+        terminals = _terminals(events)          # run_completed AND run_failed
+
+work:  docstring "Successful streak only; failed/critical events break continuous coverage."
+        if event["event"] != "run_completed":
+            days, prev = 0, None                 # a failure resets the streak
 ```
 
-And the day counter treats failure as progress:
+and `evaluate_gates` now reads `run_outcomes`, which it did not before:
 
 ```python
-TERMINAL_RUNS = frozenset({"run_completed", "run_failed"})   # line 34
-...
-for ts in terminals[1:]:
-    if (ts - prev) <= timedelta(hours=max_gap_hours):
-        days += 1 if ts.date() != prev.date() else 0
+"zero_unexplained_events": eligible
+and sum(critical.values()) == 0
+and sum(report["run_outcomes"][key]
+        for key in ("failed", "incomplete", "invalid")) == 0,
 ```
 
-A sequence of consecutive `run_failed` events advances `days_continuous` the
-same way a healthy run does. Thirty days of a system failing every eight
-hours reports as continuous coverage. Nothing downstream looks at
-`run_failed` at all.
+Every gate is now gated on `evidence_eligible`, and `stop_coverage_100pct`
+requires `invalid_events == 0`.
 
-This is the highest-severity item in the baseline table, because L3 gates on
-this tracker and L4 gates on L3. A soak that never passed a single run can
-produce four green gates. The fix belongs in L1.2: `run_failed` must break
-the continuous-day chain, and the report should carry a per-run outcome
-distribution so a reviewer sees it without reading event logs.
+`scripts/demo_soak_false_pass.py` builds 91 consecutive runs across 30
+calendar days and confirms the behaviour: with every run failing,
+`days_continuous` is 0 and all five gates refuse. The false-PASS I
+described would have produced `days_continuous: 31`.
 
----
+This is the failure mode this document keeps recording, in the other
+direction. I read a file, found a defect, and reported it without checking
+whether the working tree had already diverged from what I read. The
+instruction to confirm B01-B07 on the revision that receives the work is
+exactly what I skipped, and this is what skipping it costs.
 
 ## B07 — three hourly files, and which one is authoritative
 
@@ -230,10 +235,7 @@ than left implicit.
 
 ## Recommended order of additions
 
-1. **B03 fix before anything in L3.** A tracker that counts failures as
-   continuous coverage can green-light four gates. This is a false-PASS
-   path in the code that gates the gates.
-2. **The failing reconciliation test into B02**, plus the positive
+1. **The failing reconciliation test into B02**, plus the positive
    restart-recovery case. Already red, already L0.4.
 3. **Campaign-evidence contract at L1**, including the market-data manifest,
    so L1.4 and L2 consume something verifiable.
