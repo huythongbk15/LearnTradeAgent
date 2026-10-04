@@ -163,3 +163,179 @@ def load_requested_from_plan(out_root: Path) -> list[str]:
             if isinstance(value, list) and value:
                 return [str(v) for v in value]
     return []
+
+
+@dataclass(frozen=True)
+class BundleReport:
+    """Verdict on a campaign evidence bundle."""
+
+    admissible: bool
+    problems: tuple[str, ...] = ()
+    bundle_id: str | None = None
+
+    def summary(self) -> str:
+        verdict = "ADMISSIBLE" if self.admissible else "NOT ADMISSIBLE"
+        lines = [f"campaign bundle: {verdict}"]
+        for problem in self.problems:
+            lines.append(f"  - {problem}")
+        return "\n".join(lines)
+
+
+def _require(bundle: dict, key: str, problems: list[str]) -> object | None:
+    value = bundle.get(key)
+    if value is None or (isinstance(value, str) and not value.strip()):
+        problems.append(f"missing {key}")
+    return value
+
+
+def verify_evidence_bundle(
+    out_root: Path,
+    *,
+    expected_commit: str | None = None,
+    filename: str = "campaign_evidence.json",
+) -> BundleReport:
+    """Check a campaign bundle against CAMPAIGN_EVIDENCE_CONTRACT.md.
+
+    Every rule corresponds to a field whose absence previously produced a
+    number nobody could re-derive. The checks are deliberately independent:
+    each names its field, so a rejected bundle says what to fix rather than
+    only that something is wrong.
+
+    ``expected_commit`` is compared against ``code_commit`` when given, so a
+    campaign run on an older tree cannot be cited as evidence for the
+    revision being reviewed.
+    """
+    problems: list[str] = []
+
+    path = Path(out_root) / filename
+    if not path.exists():
+        return BundleReport(
+            admissible=False,
+            problems=(f"no campaign evidence bundle at {path.name}",),
+        )
+    try:
+        bundle = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        return BundleReport(
+            admissible=False, problems=(f"unreadable bundle: {exc}",)
+        )
+    if not isinstance(bundle, dict):
+        return BundleReport(
+            admissible=False, problems=("bundle is not an object",)
+        )
+
+    _require(bundle, "schema_version", problems)
+    _require(bundle, "code_commit", problems)
+    _require(bundle, "gate_version", problems)
+    _require(bundle, "gate_set_fingerprint", problems)
+
+    # Rule 1 — code binding.
+    commit = bundle.get("code_commit")
+    if expected_commit and isinstance(commit, str) and commit != expected_commit:
+        problems.append(
+            f"code_commit {commit[:12]} does not match the revision under "
+            f"review {expected_commit[:12]}"
+        )
+
+    # Rule 3 — data binding.
+    data = bundle.get("data_manifest")
+    if not isinstance(data, dict):
+        problems.append("missing data_manifest")
+    else:
+        _require(data, "input_path", problems)
+        _require(data, "input_rows", problems)
+        window = data.get("window")
+        if not isinstance(window, dict):
+            problems.append("missing data_manifest.window")
+        elif window.get("bars") != data.get("input_rows"):
+            problems.append(
+                "data_manifest.window.bars disagrees with input_rows"
+            )
+        if "gaps" not in data:
+            problems.append("missing data_manifest.gaps")
+
+    # Rule 4 — cost schedule.
+    cost = bundle.get("cost_schedule")
+    if not isinstance(cost, dict):
+        problems.append("missing cost_schedule")
+    else:
+        round_trip = cost.get("round_trip_bps")
+        if round_trip is None:
+            problems.append("missing cost_schedule.round_trip_bps")
+        else:
+            expected = (
+                2 * float(cost.get("commission_bps", 0.0))
+                + 2 * float(cost.get("slippage_bps", 0.0))
+                + float(cost.get("spread_bps", 0.0))
+            )
+            if abs(float(round_trip) - expected) > 1e-6:
+                problems.append(
+                    f"cost_schedule.round_trip_bps {round_trip} does not "
+                    f"recompute from its components ({expected:.4f})"
+                )
+
+    # Rules 5 and 6 — folds and independence.
+    folds = bundle.get("folds")
+    results = bundle.get("results")
+    if not isinstance(folds, list) or not folds:
+        problems.append("missing folds")
+    else:
+        seen: set[str] = set()
+        for fold in folds:
+            if not isinstance(fold, dict):
+                problems.append("malformed fold entry")
+                continue
+            fold_id = fold.get("fold_id")
+            if not fold_id:
+                problems.append("fold without fold_id")
+            elif fold_id in seen:
+                problems.append(f"duplicate fold_id {fold_id}")
+            else:
+                seen.add(fold_id)
+        if bundle.get("fold_count") != len(folds):
+            problems.append("fold_count disagrees with len(folds)")
+        policy = bundle.get("overlap_policy")
+        if policy not in {"independent", "overlapping"}:
+            problems.append("overlap_policy must be declared")
+        elif policy == "overlapping":
+            if any(f.get("overlap_group") is None for f in folds
+                   if isinstance(f, dict)):
+                problems.append(
+                    "overlap_policy is overlapping but a fold has no "
+                    "overlap_group"
+                )
+
+    if not isinstance(results, list) or not results:
+        problems.append("missing results")
+    else:
+        if isinstance(folds, list):
+            known = {f.get("fold_id") for f in folds if isinstance(f, dict)}
+            for row in results:
+                if isinstance(row, dict) and row.get("fold_id") not in known:
+                    problems.append(
+                        f"result references unknown fold {row.get('fold_id')!r}"
+                    )
+
+    # Rule 7 — per-trade records, or a stated reason.
+    if bundle.get("trades") is None and not bundle.get("trades_absent_reason"):
+        problems.append(
+            "trades absent without trades_absent_reason"
+        )
+
+    # Rule 8 — the verdict must be derivable.
+    verdict = bundle.get("verdict")
+    failed = bundle.get("failed_gates")
+    if verdict not in {"PASS", "FAIL", "INCONCLUSIVE"}:
+        problems.append(f"verdict {verdict!r} is not PASS/FAIL/INCONCLUSIVE")
+    if verdict == "PASS" and failed:
+        problems.append("verdict is PASS but failed_gates is non-empty")
+    if verdict in {"FAIL", "INCONCLUSIVE"} and not failed:
+        problems.append(
+            f"verdict {verdict} but failed_gates is empty — name the gates"
+        )
+
+    return BundleReport(
+        admissible=not problems,
+        problems=tuple(problems),
+        bundle_id=bundle.get("campaign_id"),
+    )
