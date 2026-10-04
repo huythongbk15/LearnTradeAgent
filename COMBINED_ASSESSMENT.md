@@ -1,0 +1,246 @@
+# Combined assessment — deep review × live-readiness plan
+
+Requested: an assessment that joins the system-wide review with the
+live-readiness plan rather than treating them separately. The plan was
+written against a baseline at `6f1d69d`; this cross-checks every baseline
+claim B01–B07 and reports what the plan covers, what it under-specifies, and
+what the deep review found that the plan does not yet list.
+
+All claims below were verified by running the code, not by reading it.
+
+---
+
+## Baseline claims — all seven checked
+
+| ID | claim | result |
+|---|---|---|
+| B01 | BUY producer chưa nối đủ risk/planning/permission | **partly resolved — see below** |
+| B02 | 6 legacy runner tests bị skip; testnet signature cũ | **confirmed** — 3 opt-in skips, plus 1 real failure not listed |
+| B03 | soak tổng hợp theo symbol; failed runs tạo false PASS | **confirmed, mechanism identified** |
+| B04 | cost floor/selection score cần thống nhất net/gross | **already fixed** — `selection_policy.py:841` uses `net_fold_edge` |
+| B05 | chưa có published evidence; promotion store rỗng | **confirmed** — 0 entries, only `.rejected.json` |
+| B06 | payoff script thiếu per-trade; break-even sai | **confirmed** — `BREAK_EVEN_RATIO = 0.71` hardcoded from the superseded per-trade rate |
+| B07 | nhiều phiên bản hourly, cutoff khác nhau | **confirmed, quantified below** |
+
+Two of seven are already resolved and one is partly resolved. Re-implementing
+any of them would be waste, which is why the plan's instruction to confirm
+before redoing work is the right one.
+
+---
+
+## B01 — admission is optional at the producer, mandatory at the consumer
+
+`build_decisions` takes `buy_admissions: Mapping | None = None`. When it is
+`None`, a BUY is emitted **without** `risk_decision`, `order_planning` or
+`permission_context`:
+
+```python
+if action == "BUY" and buy_admissions is not None:   # line 1030
+    ...
+    decision.update(qty=..., risk_decision=..., order_planning=...,
+                    permission_context=...)
+decisions.append(decision)
+```
+
+The consumer closes this. `execute_orders` calls `_validated_buy_admission`,
+which raises unless all three are present, correctly typed, non-stale
+(`MAX_BUY_ADMISSION_AGE_SECONDS`), and the planned quantity does not exceed
+the runner's own quantity.
+
+So the invariant holds at the boundary that matters — no unadmitted BUY
+reaches the broker. What remains true and worth stating: a producer caller
+that omits the argument produces decisions that are guaranteed to be refused
+later, rather than refused at production. That is a diagnosability gap
+rather than a safety gap, and it is why the plan's L0.1 deliverable —
+*"map chỉ rõ dependency thật trong code"* — is worth doing. Making the
+producer require admission would turn a runtime refusal into a construction
+error.
+
+---
+
+## B03 — the false-PASS mechanism, exactly as described
+
+`evaluate_gates` checks four conditions and none of them inspects whether a
+run failed:
+
+```python
+"continuous_30_days": tracking["days_continuous"] >= min_days,
+"100_complete_lifecycles": lifecycles["complete"] >= min_lifecycles,
+"zero_unexplained_events": sum(critical.values()) == 0,
+"stop_coverage_100pct": ...
+```
+
+And the day counter treats failure as progress:
+
+```python
+TERMINAL_RUNS = frozenset({"run_completed", "run_failed"})   # line 34
+...
+for ts in terminals[1:]:
+    if (ts - prev) <= timedelta(hours=max_gap_hours):
+        days += 1 if ts.date() != prev.date() else 0
+```
+
+A sequence of consecutive `run_failed` events advances `days_continuous` the
+same way a healthy run does. Thirty days of a system failing every eight
+hours reports as continuous coverage. Nothing downstream looks at
+`run_failed` at all.
+
+This is the highest-severity item in the baseline table, because L3 gates on
+this tracker and L4 gates on L3. A soak that never passed a single run can
+produce four green gates. The fix belongs in L1.2: `run_failed` must break
+the continuous-day chain, and the report should carry a per-run outcome
+distribution so a reviewer sees it without reading event logs.
+
+---
+
+## B07 — three hourly files, and which one is authoritative
+
+```
+1h              31,783 bars  2023-01-01 → 2026-08-17
+1h_extended     58,897 bars  2020-01-01 → 2026-09-21
+1h_full         58,897 bars  2020-01-01 → 2026-09-21
+```
+
+`1h_extended` and `1h_full` have identical bar counts and ranges; whether
+they are byte-identical was not checked here and should be, because two files
+with the same name-shape and the same content is a path to a campaign
+silently reading one while the report cites the other.
+
+The default `1h` carries **46% less history** than the other two. Every
+campaign in this investigation used `data/raw/binance/{sym}/1h.parquet`
+unless it said otherwise, and therefore measured 2023-01 onward while the
+same symbol had data back to 2020. No campaign recorded which file it read.
+
+Recommended at L1.4: one canonical hourly path, a manifest that records
+sha256 and row count for whatever was read, and every campaign citing that
+manifest. That is the same campaign-evidence contract noted below, applied
+to the input rather than the output.
+
+---
+
+## The finding neither document lists
+
+`test_canonical_recovery_requires_context_and_uses_client_key` fails:
+
+```
+scripts/live_enhanced_ma_binance.py:1614
+LiveSafetyError: reconciliation broker identity mismatch
+40 passed, 1 failed, 3 skipped
+```
+
+`_record_reconciled_submission` compares `broker_order_id` against
+`order.exchange_order_id` after a store restart. A lifecycle reconstructed
+from the persisted ledger has not rehydrated exchange identity onto the
+order, so the guard fires and reconciliation raises.
+
+The guard is correct — it is what prevents a cumulative fill being applied
+twice. What is missing is the hydration behind it, so **restart recovery
+cannot recover**. This is L0.4's stated scope and it is the failure mode
+most likely to appear during a soak rather than before one: the plan's own
+L0.4 wording is *"restore/crash không duplicate submit hoặc reset risk
+baseline"*, and this is that case, failing.
+
+The test itself is well-constructed — it asserts the guard fires on a real
+identity mismatch. It lacks the positive case: restart, reconcile the same
+order, receive one cumulative fill. Adding it now is cheaper than
+discovering the behaviour mid-soak.
+
+---
+
+## What the plan covers well, confirmed against the code
+
+**L0.1's prohibition is load-bearing.** *"không thiết kế luồng parallel
+bypass canonical"* — verified that `execute_orders` requires both
+`lifecycle` and `gateway` and raises without them. The canonical path is
+enforced at the boundary, not merely documented.
+
+**The L0 evidence rule matches a real failure mode in this repository.**
+*"Mock chỉ exchange boundary; không mock risk/planner/permission thành
+ALLOW"* and *"NO_TRADE chỉ chứng minh abstention, không thay case positive
+BUY"*. During this investigation a test passed because construction was
+refused rather than because behaviour was correct — exactly what these two
+lines prohibit. Likewise *"Testnet opt-in chưa chạy phải ghi NOT_RUN, không
+PASS"* is what the three verified skips would otherwise become.
+
+**§3's authority table is unusually complete.** The distinction between
+"task-scoped code change" and "operator approval for account access" is the
+line most commonly blurred when an agent is handed a live-readiness plan.
+
+**§4's invariant — keep NO-GO on conflict** is the correct default, and it
+is what this document does: where a plan claim and a code check disagreed,
+the code check was recorded against the plan.
+
+---
+
+## What the plan under-specifies
+
+**1. L1.4 has no input to consume.** §7's evidence bundle is a *policy
+admission* contract. L1.4 needs a *campaign* contract — revision, data
+manifest, fold identities, cost schedule, per-fold metrics, and which
+market-data file was read. `campaign_summary.json` currently records a
+status string and binds nothing. This is the contract that would have
+caught both the fabricated policies and the three unreconcilable campaign
+results, and it is cheapest to specify at L1.
+
+**2. L2 names no selection rule.** Neither candidate has an edge:
+
+```
+enhanced_ma         32-fold,  5 trades,  median  0.000%
+stat_arbitrage_lo   32-fold, 45 trades,  median -0.029%
+                    20/28 folds trade, 6/28 profitable, payoff ratio 0.50
+```
+
+The plan declines to presume a winner, correctly, but leaves the subject
+unset — so the first person to reach L2 chooses by preference, against a
+five-trade result. A rule fixed before the campaign and recorded in D01
+costs nothing and removes the choice.
+
+**3. Two gate decisions are deferred and are load-bearing.** p≤0.20 and n≥14
+(`GATE_SEMANTICS_AND_RERANK.md`), and fold independence versus fold count —
+the 270-bar window that makes folds tradeable also makes them overlap,
+which the binomial test assumes away. Both change L2's outcome. The plan's
+rule against self-amending thresholds means they must be settled at L1 and
+recorded, not discovered at L2 with a result sitting on the boundary.
+
+**4. L3 carries a calendar dependency.** AC15 needs 30 days of wall clock,
+the longest lead item in the plan. Part of L3 preparation can run alongside
+L1/L2; deciding that now is cheaper than discovering it at L2.
+
+---
+
+## How the two documents fit together
+
+The deep review's conclusion — strong execution core, correctly-stopped
+promotion gate, unmeasured evidence base — is the same finding the plan is
+built to address, and L0/L1 are the right level to close it.
+
+The plan adds three things the review could not see from code alone: an
+authority model, a decision-record requirement, and an explicit refusal to
+let a narrow canary stand for project sign-off. Those are process
+instruments, and they are the part most likely to be the difference between
+a completed workstream and a correct one.
+
+Where they differ is granularity. The review measured the system;
+the plan sequences the work. The review's largest gap — fifteen strategies
+never run through walk-forward — corresponds to L2 being a single policy,
+which is a reasonable scope decision and should be stated as such rather
+than left implicit.
+
+---
+
+## Recommended order of additions
+
+1. **B03 fix before anything in L3.** A tracker that counts failures as
+   continuous coverage can green-light four gates. This is a false-PASS
+   path in the code that gates the gates.
+2. **The failing reconciliation test into B02**, plus the positive
+   restart-recovery case. Already red, already L0.4.
+3. **Campaign-evidence contract at L1**, including the market-data manifest,
+   so L1.4 and L2 consume something verifiable.
+4. **L2 selection rule recorded in D01** before the campaign runs.
+5. **One canonical hourly file**, with sha256 and row count in the
+   evidence manifest, so a campaign cannot silently read a shorter history
+   than its report implies.
+
+Items 1 and 2 are defects in existing code. Items 3–5 are specifications
+that cost an hour now and weeks later.
