@@ -15,7 +15,7 @@ All claims below were verified by running the code, not by reading it.
 | ID | claim | result |
 |---|---|---|
 | B01 | BUY producer chưa nối đủ risk/planning/permission | **partly resolved — see below** |
-| B02 | 6 legacy runner tests bị skip; testnet signature cũ | **confirmed** — 3 opt-in skips, plus 1 real failure not listed |
+| B02 | 6 legacy runner tests bị skip; testnet signature cũ | **confirmed** — 3 opt-in skips; the fourth failure I reported was against a build since fixed |
 | B03 | soak tổng hợp theo symbol; failed runs tạo false PASS | **đã fix trong working tree** (không có ở HEAD) — báo cáo đầu của tôi đọc bản cũ |
 | B04 | cost floor/selection score cần thống nhất net/gross | **already fixed** — `selection_policy.py:841` uses `net_fold_edge` |
 | B05 | chưa có published evidence; promotion store rỗng | **confirmed** — 0 entries, only `.rejected.json` |
@@ -123,35 +123,34 @@ to the input rather than the output.
 
 ---
 
-## The finding neither document lists
+## The reconciliation failure also already fixed
 
-`test_canonical_recovery_requires_context_and_uses_client_key` fails:
+**Second correction, same cause.** I reported
+test_canonical_recovery_requires_context_and_uses_client_key failing with
+reconciliation broker identity mismatch. It passes now:
 
-```
-scripts/live_enhanced_ma_binance.py:1614
-LiveSafetyError: reconciliation broker identity mismatch
-40 passed, 1 failed, 3 skipped
-```
+    tests/test_binance_live_runner.py                        46 passed
+    tests/test_binance_live_runner.py + testnet_acceptance  46 passed, 3 skipped
 
-`_record_reconciled_submission` compares `broker_order_id` against
-`order.exchange_order_id` after a store restart. A lifecycle reconstructed
-from the persisted ledger has not rehydrated exchange identity onto the
-order, so the guard fires and reconciliation raises.
+Timestamps settle it. My run finished at 16:15;
+scripts/live_enhanced_ma_binance.py was last modified at 16:50.
 
-The guard is correct — it is what prevents a cumulative fill being applied
-twice. What is missing is the hydration behind it, so **restart recovery
-cannot recover**. This is L0.4's stated scope and it is the failure mode
-most likely to appear during a soak rather than before one: the plan's own
-L0.4 wording is *"restore/crash không duplicate submit hoặc reset risk
-baseline"*, and this is that case, failing.
+What changed is exactly the missing hydration. Against HEAD the restart
+path compared broker_order_id to order.exchange_order_id without restoring
+the venue identity first. The working tree adds a branch calling
+execution_service.record_broker_fact with an UNKNOWN fact when
+order.exchange_order_id is None and the intent is not already unresolved.
+record_broker_fact emits ORDER_SUBMITTED, _on_order_submitted assigns
+order.exchange_order_id, and the identity comparison then compares two real
+values instead of a value against None.
 
-The test itself is well-constructed — it asserts the guard fires on a real
-identity mismatch. It lacks the positive case: restart, reconcile the same
-order, receive one cumulative fill. Adding it now is cheaper than
-discovering the behaviour mid-soak.
+The guard I called correct still is correct, and it now has the hydration
+behind it. Neither the B02 failure nor the L0.4 gap needs work from me.
 
----
-
+I hit this twice: B03 and the reconciliation path. Both times the finding
+was real against HEAD and already resolved in the working tree, and both
+times I reported it before checking. The check is cheap: git status on the
+file, or re-running the test and noticing it passes.
 ## What the plan covers well, confirmed against the code
 
 **L0.1's prohibition is load-bearing.** *"không thiết kế luồng parallel
@@ -235,8 +234,9 @@ than left implicit.
 
 ## Recommended order of additions
 
-1. **The failing reconciliation test into B02**, plus the positive
-   restart-recovery case. Already red, already L0.4.
+1. The reconciliation test B02 failure: **resolved** in the working tree,
+   46/46 pass. Still worth adding the positive restart-recovery case,
+   which no test covers.
 3. **Campaign-evidence contract at L1**, including the market-data manifest,
    so L1.4 and L2 consume something verifiable.
 4. **L2 selection rule recorded in D01** before the campaign runs.
