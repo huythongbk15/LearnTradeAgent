@@ -5,6 +5,7 @@ import os
 import sys
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from dataclasses import replace
 
 import pytest
 
@@ -25,6 +26,7 @@ from trading_agent.execution.live_safety import (
     LiveRiskLimits,
     LiveRiskStateStore,
     LiveSafetyError,
+    DuplicateOrderError,
 )
 from trading_agent.execution.canonical import (
     BrokerGateway,
@@ -33,11 +35,25 @@ from trading_agent.execution.canonical import (
     UnifiedRiskDecision,
 )
 from trading_agent.execution.canonical.adapters import LiveBrokerExecutionAdapter
+from trading_agent.execution.canonical.order_planner import (
+    OrderPlanner,
+    InstrumentRules,
+    CurrentPortfolioState,
+    MarketPrice,
+)
+from trading_agent.execution.canonical.market_observation import (
+    EnrichedMarketObservation,
+)
+from trading_agent.research.forecast import TargetExposure
+from trading_agent.execution.permission import PermissionContext
 from trading_agent.execution.lifecycle import ExecutionEventStore
 from trading_agent.execution.lifecycle.lifecycle import (
     ExecutionLifecycle,
     PortfolioRiskSnapshot,
     TrustedPrice,
+    ExposureEffect,
+    ExecutionHealth,
+    InvariantViolation,
 )
 
 
@@ -269,6 +285,7 @@ class ExecutionBroker:
     def get_ticker(self, symbol):
         return {
             "timestamp": datetime.now(UTC),
+            "received_at": datetime.now(UTC),
             "bid": 99.9,
             "ask": 100.0,
             "last": 100.0,
@@ -335,17 +352,30 @@ def planned_buy():
     }
 
 
-def canonical_stack(tmp_path, broker, *, position_quantity: float = 0.1):
+def canonical_stack(
+    tmp_path, broker, *, position_quantity: float = 0.1, dynamic_inventory=False
+):
     tmp_path.mkdir(parents=True, exist_ok=True)
     store = ExecutionEventStore(tmp_path / "events.db").connect()
 
+    def inventory_quantity(symbol):
+        if dynamic_inventory:
+            return sum(
+                float(p["qty"])
+                for p in broker.get_positions()
+                if p["symbol"] == str(symbol)
+            )
+        return position_quantity
+
     def portfolio_source(symbol):
+        quantity = inventory_quantity(symbol)
+        account = broker.get_account()
         return PortfolioRiskSnapshot(
             symbol=str(symbol),
-            position_quantity=position_quantity,
-            available_quantity=position_quantity,
-            equity=100_000.0,
-            available_cash=100_000.0,
+            position_quantity=quantity,
+            available_quantity=quantity,
+            equity=float(account["equity"]),
+            available_cash=float(account["cash"]),
             observed_at=datetime.now(UTC),
             source="test",
         )
@@ -357,15 +387,307 @@ def canonical_stack(tmp_path, broker, *, position_quantity: float = 0.1):
             exchange_timestamp=datetime.now(UTC),
             received_at=datetime.now(UTC),
         ),
-        inventory_source=lambda symbol, side: position_quantity,
+        inventory_source=lambda symbol, side: inventory_quantity(symbol),
         portfolio_source=portfolio_source,
     )
+    lifecycle.load()
     gateway = BrokerGateway(
         adapter=LiveBrokerExecutionAdapter(broker),
         store=store,
         lifecycle=lifecycle,
     )
     return lifecycle, gateway
+
+
+def canonical_planned_buy(broker, *, decision_id="test-decision"):
+    """A local fixture using the real planner, never a promoted/live artifact."""
+    order = planned_buy()
+    risk = replace(order["risk_decision"], decision_id=decision_id)
+    order["risk_decision"] = risk
+    now = datetime.now(UTC)
+    equity = float(broker.get_account()["equity"])
+    planning = OrderPlanner(InstrumentRules(symbol="BTC/USDT")).plan(
+        target=TargetExposure(
+            symbol="BTC/USDT",
+            exposure=10.0 / equity,
+            horizon=1,
+            forecast_fingerprint=risk.forecast_fingerprint,
+            model_artifact_id=risk.model_artifact_id,
+            risk_decision_id=risk.decision_id,
+        ),
+        risk_decision=risk,
+        observation=EnrichedMarketObservation(
+            symbol="BTC/USDT",
+            observed_at=now,
+            open=100.0,
+            high=101.0,
+            low=99.0,
+            close=100.0,
+            volume=10.0,
+            is_closed=True,
+            bar_open_at=order["candle_timestamp"],
+            bar_close_at=order["candle_timestamp"] + timedelta(hours=1),
+            observation_id="local-fixture-closed-bar",
+            venue="local-fixture",
+            timeframe="1h",
+            source="local-fixture",
+            data_manifest_id="local-fixture-data",
+            feature_artifact_id="local-fixture-features",
+        ),
+        portfolio=CurrentPortfolioState(
+            symbol="BTC/USDT",
+            equity=equity,
+            current_exposure=0.0,
+            available_cash=equity,
+        ),
+        price=MarketPrice(symbol="BTC/USDT", mid=100.0, bid=99.9, ask=100.0),
+        tolerance=0.0,
+    )
+    assert planning.requires_order
+    context = PermissionContext(
+        execution_health=ExecutionHealth.NORMAL,
+        exposure_effect=ExposureEffect.INCREASE,
+        risk_decision=risk,
+        trusted_price=TrustedPrice(100.0, now, now),
+        order_side="buy",
+        order_size=planning.intent.quantity,
+    )
+    return {
+        **order,
+        "qty": planning.intent.quantity,
+        "order_planning": planning,
+        "permission_context": context,
+    }
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "missing_risk",
+        "missing_planning",
+        "missing_context",
+        "wrong_model",
+        "wrong_quantity",
+        "different_context_risk",
+        "draft",
+        "missing_calibration",
+        "stale_risk",
+    ],
+)
+def test_preflight_rejects_incomplete_or_mismatched_admission_before_reservation(
+    tmp_path, fault
+):
+    broker = ExecutionBroker()
+    store = LiveRiskStateStore(tmp_path / "state.json")
+    order = canonical_planned_buy(broker)
+    if fault.startswith("missing_") and fault != "missing_calibration":
+        key = {
+            "missing_risk": "risk_decision",
+            "missing_planning": "order_planning",
+            "missing_context": "permission_context",
+        }[fault]
+        order.pop(key)
+    elif fault in {"wrong_model", "wrong_quantity"}:
+        intent = order["order_planning"].intent
+        intent = replace(
+            intent,
+            **(
+                {"model_artifact_id": "another-model"}
+                if fault == "wrong_model"
+                else {"quantity": 0.2}
+            ),
+        )
+        order["order_planning"] = replace(order["order_planning"], intent=intent)
+    elif fault == "different_context_risk":
+        order["permission_context"] = replace(
+            order["permission_context"], risk_decision=replace(order["risk_decision"])
+        )
+    elif fault == "draft":
+        order["permission_context"] = replace(order["permission_context"], draft=True)
+    else:
+        risk = replace(
+            order["risk_decision"],
+            **(
+                {"calibration_state": EvidenceState.MISSING, "calibration_ece": 0.1}
+                if fault == "missing_calibration"
+                else {"created_at": datetime.now(UTC) - timedelta(hours=2)}
+            ),
+        )
+        order["risk_decision"] = risk
+        order["permission_context"] = replace(
+            order["permission_context"], risk_decision=risk
+        )
+    with pytest.raises(LiveSafetyError):
+        runner.prepare_orders(
+            decisions=[order],
+            broker=broker,
+            account=broker.get_account(),
+            positions=[],
+            limits=LiveRiskLimits(),
+            locked_reason=None,
+            store=store,
+        )
+    assert broker.place_calls == 0
+    assert store.state.reserved_orders == {}
+
+
+def test_build_preflight_submit_preserves_canonical_and_client_identity(tmp_path):
+    broker = FilledBuyBroker()
+    store = LiveRiskStateStore(tmp_path / "state.json")
+    order = canonical_planned_buy(broker)
+    admission = runner.LiveBuyAdmission(
+        order["risk_decision"], order["order_planning"], order["permission_context"]
+    )
+    states = {
+        "BTC/USDT": {
+            "state": "LONG",
+            "price": 100.0,
+            "ma_fast": 101.0,
+            "ma_slow": 100.0,
+            "atr": 5.0,
+            "recent_high": 100.0,
+            "candle_timestamp": order["candle_timestamp"],
+        }
+    }
+    decisions = runner.build_decisions(
+        allocations=[("BTC/USDT", 0.25)],
+        states=states,
+        positions=[],
+        equity=1000.0,
+        locked_reason=None,
+        limits=LiveRiskLimits(),
+        buy_admissions={"BTC/USDT": admission},
+    )
+    prepared = runner.prepare_orders(
+        decisions=decisions,
+        broker=broker,
+        account=broker.get_account(),
+        positions=[],
+        limits=LiveRiskLimits(),
+        locked_reason=None,
+        store=store,
+    )
+    lifecycle, gateway = runner.build_canonical_execution_stack(
+        broker, event_store_path=str(tmp_path / "events.db")
+    )
+    runner.execute_orders(
+        orders=prepared,
+        broker=broker,
+        store=store,
+        limits=LiveRiskLimits(),
+        lifecycle=lifecycle,
+        gateway=gateway,
+    )
+    intent = order["order_planning"].intent
+    record = store.state.order_ledger[intent.idempotency_key]
+    assert record["canonical_intent_id"] == intent.intent_id
+    assert record["client_order_id"] == intent.idempotency_key
+    assert record["status"] == "filled"
+    assert record["filled_quantity"] == pytest.approx(0.1)
+    assert lifecycle.state.order(intent.intent_id) is not None
+    assert store.protective_order_state("BTC/USDT")["active"][
+        "quantity"
+    ] == pytest.approx(0.1)
+    restarted_store = LiveRiskStateStore(tmp_path / "state.json")
+    another = canonical_planned_buy(broker, decision_id="another-decision-same-bar")
+    with pytest.raises(DuplicateOrderError):
+        runner.execute_orders(
+            orders=[another],
+            broker=broker,
+            store=restarted_store,
+            limits=LiveRiskLimits(),
+            lifecycle=lifecycle,
+            gateway=gateway,
+        )
+
+
+@pytest.mark.parametrize("fault", ["missing_quote_receipt", "missing_free_inventory"])
+def test_runtime_stack_blocks_unknown_quote_or_inventory_before_broker_io(
+    tmp_path, fault
+):
+    broker = FilledBuyBroker()
+    if fault == "missing_quote_receipt":
+        original_ticker = broker.get_ticker
+
+        def missing_receipt(symbol):
+            ticker = original_ticker(symbol)
+            ticker.pop("received_at")
+            return ticker
+
+        broker.get_ticker = missing_receipt
+    else:
+        broker.positions = [{"symbol": "BTC/USDT", "qty": 0.1, "market_value": 10.0}]
+    lifecycle, gateway = runner.build_canonical_execution_stack(
+        broker, event_store_path=str(tmp_path / "events.db")
+    )
+    store = LiveRiskStateStore(tmp_path / "state.json")
+    order = {**canonical_planned_buy(broker), "atr": 5.0, "observed_high": 100.0}
+    with pytest.raises(InvariantViolation, match="trusted fresh price|portfolio"):
+        runner.execute_orders(
+            orders=[order],
+            broker=broker,
+            lifecycle=lifecycle,
+            gateway=gateway,
+            store=store,
+            limits=LiveRiskLimits(),
+        )
+    assert broker.positions == (
+        []
+        if fault == "missing_quote_receipt"
+        else [{"symbol": "BTC/USDT", "qty": 0.1, "market_value": 10.0}]
+    )
+    assert broker.place_calls == 0
+    assert next(iter(store.state.order_ledger.values()))["status"] == "rejected"
+    lifecycle.store.close()
+
+
+def test_canonical_recovery_requires_context_and_uses_client_key(tmp_path):
+    broker = PartialBuyBroker()
+    store = LiveRiskStateStore(tmp_path / "state.json")
+    order = {**canonical_planned_buy(broker), "atr": 5.0, "observed_high": 100.0}
+    lifecycle, gateway = canonical_stack(tmp_path, broker, dynamic_inventory=True)
+    with pytest.raises(LiveSafetyError, match="is partial; batch stopped"):
+        runner.execute_orders(
+            orders=[order],
+            broker=broker,
+            store=store,
+            limits=LiveRiskLimits(),
+            lifecycle=lifecycle,
+            gateway=gateway,
+            reconciliation_timeout_seconds=0,
+        )
+    intent = order["order_planning"].intent
+    with pytest.raises(LiveSafetyError, match="canonical recovery context is missing"):
+        runner.reconcile_unfinished_orders(broker=broker, store=store)
+    broker.orders[intent.idempotency_key] = {
+        **order_result("filled", filled_qty=0.1),
+        "client_order_id": intent.idempotency_key,
+        "id": "entry-partial-1",
+    }
+    broker.positions = [{"symbol": "BTC/USDT", "qty": 0.1, "market_value": 10.0}]
+    restarted_store = LiveRiskStateStore(tmp_path / "state.json")
+    recovered_lifecycle, recovered_gateway = canonical_stack(
+        tmp_path, broker, dynamic_inventory=True
+    )
+    runner.reconcile_unfinished_orders(
+        broker=broker,
+        store=restarted_store,
+        lifecycle=recovered_lifecycle,
+        gateway=recovered_gateway,
+    )
+    assert restarted_store.unfinished_orders() == {}
+    recovered = recovered_lifecycle.state.order(intent.intent_id)
+    assert recovered.status.value == "filled"
+    assert recovered.filled_size == pytest.approx(0.1)
+    # Repeated cumulative lookup is idempotent, including after replay.
+    runner._record_reconciled_submission(
+        runner.CanonicalExecutionService(
+            lifecycle=recovered_lifecycle, gateway=recovered_gateway
+        ),
+        intent.intent_id,
+        broker.orders[intent.idempotency_key],
+    )
+    assert recovered.filled_size == pytest.approx(0.1)
 
 
 def order_result(status: str, *, filled_qty: float) -> dict:
@@ -382,16 +704,21 @@ def order_result(status: str, *, filled_qty: float) -> dict:
     }
 
 
-@pytest.mark.skip(reason="Legacy test needs update for canonical execution flow")
 def test_partial_fill_stops_batch_and_is_persisted(tmp_path):
     store = LiveRiskStateStore(tmp_path / "state.json")
-    broker = ExecutionBroker(result=order_result("partial", filled_qty=0.04))
-    with pytest.raises(LiveSafetyError, match="order submission outcome is unknown"):
+    broker = PartialBuyBroker()
+    lifecycle, gateway = canonical_stack(tmp_path, broker, dynamic_inventory=True)
+    with pytest.raises(LiveSafetyError, match="is partial; batch stopped"):
         runner.execute_orders(
-            orders=[planned_buy()],
+            orders=[
+                {**canonical_planned_buy(broker), "atr": 5.0, "observed_high": 100.0}
+            ],
             broker=broker,
+            lifecycle=lifecycle,
+            gateway=gateway,
             store=store,
             limits=LiveRiskLimits(),
+            reconciliation_timeout_seconds=0,
         )
     record = next(iter(store.state.order_ledger.values()))
     assert record["status"] == "manual_intervention"
@@ -423,8 +750,7 @@ def test_buy_without_order_planner_output_is_blocked_before_broker_io(tmp_path):
             limits=LiveRiskLimits(),
         )
     assert broker.place_calls == 0
-    record = next(iter(store.state.order_ledger.values()))
-    assert record["status"] == "rejected"
+    assert store.state.order_ledger == {}
 
 
 def test_unfinished_order_blocks_new_batch_when_exchange_cannot_find_it(tmp_path):
@@ -843,6 +1169,7 @@ class FilledBuyBroker(ProtectiveBroker):
     def get_ticker(self, symbol):
         return {
             "timestamp": datetime.now(UTC),
+            "received_at": datetime.now(UTC),
             "bid": 99.9,
             "ask": 100.0,
             "last": 100.0,
@@ -856,11 +1183,12 @@ class FilledBuyBroker(ProtectiveBroker):
         }
 
     def place_order(self, order):
-        if order.type == runner.OrderType.MARKET:
+        if order.type == OrderType.MARKET:
             self.positions = [
                 {
                     "symbol": order.symbol.pair,
                     "qty": float(order.size),
+                    "free_qty": float(order.size),
                     "market_value": float(order.size) * 100.0,
                 }
             ]
@@ -882,13 +1210,14 @@ class FilledBuyBroker(ProtectiveBroker):
 
 class PartialBuyBroker(FilledBuyBroker):
     def place_order(self, order):
-        if order.type != runner.OrderType.MARKET:
+        if order.type != OrderType.MARKET:
             return super().place_order(order)
         filled = 0.04
         self.positions = [
             {
                 "symbol": order.symbol.pair,
                 "qty": filled,
+                "free_qty": filled,
                 "market_value": filled * 100.0,
             }
         ]
@@ -923,14 +1252,16 @@ class FilterRejectedPartialBuyBroker(PartialBuyBroker):
         )
 
 
-@pytest.mark.skip(reason="Legacy test needs update for canonical execution flow")
 def test_filled_buy_installs_exchange_stop_before_batch_continues(tmp_path):
     store = LiveRiskStateStore(tmp_path / "state.json")
     broker = FilledBuyBroker()
-    order = {**planned_buy(), "atr": 5.0, "observed_high": 100.0}
+    order = {**canonical_planned_buy(broker), "atr": 5.0, "observed_high": 100.0}
+    lifecycle, gateway = canonical_stack(tmp_path, broker, dynamic_inventory=True)
     runner.execute_orders(
         orders=[order],
         broker=broker,
+        lifecycle=lifecycle,
+        gateway=gateway,
         store=store,
         limits=LiveRiskLimits(),
     )
@@ -940,17 +1271,20 @@ def test_filled_buy_installs_exchange_stop_before_batch_continues(tmp_path):
     assert store.unfinished_orders() == {}
 
 
-@pytest.mark.skip(reason="Legacy test needs update for canonical execution flow")
 def test_partial_buy_is_protected_before_the_batch_stops(tmp_path):
     store = LiveRiskStateStore(tmp_path / "state.json")
     broker = PartialBuyBroker()
-    order = {**planned_buy(), "atr": 5.0, "observed_high": 100.0}
-    with pytest.raises(LiveSafetyError, match="order submission outcome is unknown"):
+    order = {**canonical_planned_buy(broker), "atr": 5.0, "observed_high": 100.0}
+    lifecycle, gateway = canonical_stack(tmp_path, broker, dynamic_inventory=True)
+    with pytest.raises(LiveSafetyError, match="is partial; batch stopped"):
         runner.execute_orders(
             orders=[order],
             broker=broker,
+            lifecycle=lifecycle,
+            gateway=gateway,
             store=store,
             limits=LiveRiskLimits(),
+            reconciliation_timeout_seconds=0,
         )
     protection = store.protective_order_state("BTC/USDT")
     assert protection["active"]["status"] == "open"
@@ -960,16 +1294,18 @@ def test_partial_buy_is_protected_before_the_batch_stops(tmp_path):
     assert record["filled_quantity"] == pytest.approx(0.04)
 
 
-@pytest.mark.skip(reason="Legacy test needs update for canonical execution flow")
 def test_unprotectable_partial_fill_is_audited_and_fails_closed(tmp_path):
     store = LiveRiskStateStore(tmp_path / "state.json")
     broker = FilterRejectedPartialBuyBroker()
     audit_path = tmp_path / "execution.jsonl"
-    order = {**planned_buy(), "atr": 5.0, "observed_high": 100.0}
+    order = {**canonical_planned_buy(broker), "atr": 5.0, "observed_high": 100.0}
+    lifecycle, gateway = canonical_stack(tmp_path, broker, dynamic_inventory=True)
     with pytest.raises(LiveSafetyError, match="cannot be protected"):
         runner.execute_orders(
             orders=[order],
             broker=broker,
+            lifecycle=lifecycle,
+            gateway=gateway,
             store=store,
             limits=LiveRiskLimits(),
             audit_log_path=audit_path,
@@ -995,7 +1331,7 @@ class FilledExitBroker(ProtectiveBroker):
                 "market_value": 10.0,
             }
         ]
-        self.exit_replace_calls = 0
+        self.exit_market_calls = 0
 
     def get_account(self):
         return {"equity": 1_000.0, "cash": 990.0}
@@ -1006,6 +1342,7 @@ class FilledExitBroker(ProtectiveBroker):
     def get_ticker(self, symbol):
         return {
             "timestamp": datetime.now(UTC),
+            "received_at": datetime.now(UTC),
             "bid": 99.9,
             "ask": 100.0,
             "last": 100.0,
@@ -1018,13 +1355,13 @@ class FilledExitBroker(ProtectiveBroker):
             "asks": [(100.0, 10.0)],
         }
 
-    def replace_order(self, order_id, order):
-        if order.type != runner.OrderType.MARKET:
-            return super().replace_order(order_id, order)
-        self.exit_replace_calls += 1
-        for existing in self.orders.values():
-            if existing["id"] == order_id:
-                existing["status"] = "cancelled"
+    def place_order(self, order):
+        if order.type != OrderType.MARKET:
+            return super().place_order(order)
+        assert all(
+            existing["status"] == "cancelled" for existing in self.orders.values()
+        )
+        self.exit_market_calls += 1
         self.positions = []
         return {
             "id": "exit-1",
@@ -1042,13 +1379,13 @@ class FilledExitBroker(ProtectiveBroker):
 
 
 class PartialExitBroker(FilledExitBroker):
-    def replace_order(self, order_id, order):
-        if order.type != runner.OrderType.MARKET:
-            return super().replace_order(order_id, order)
-        self.exit_replace_calls += 1
-        for existing in self.orders.values():
-            if existing["id"] == order_id:
-                existing["status"] = "cancelled"
+    def place_order(self, order):
+        if order.type != OrderType.MARKET:
+            return super().place_order(order)
+        assert all(
+            existing["status"] == "cancelled" for existing in self.orders.values()
+        )
+        self.exit_market_calls += 1
         self.positions = [
             {
                 "symbol": "BTC/USDT",
@@ -1056,7 +1393,7 @@ class PartialExitBroker(FilledExitBroker):
                 "market_value": 4.0,
             }
         ]
-        return {
+        result = {
             "id": "exit-partial-1",
             "client_order_id": order.client_order_id,
             "status": "partial",
@@ -1069,18 +1406,116 @@ class PartialExitBroker(FilledExitBroker):
             "stop_price": None,
             "error": None,
         }
+        self.orders[order.client_order_id] = result
+        return dict(result)
 
 
-@pytest.mark.skip(reason="Legacy test needs update for canonical execution flow")
-def test_market_exit_hands_off_exchange_stop_with_cancel_replace(tmp_path):
+class CancelRaceExitBroker(PartialExitBroker):
+    def __init__(self, *, outcome):
+        super().__init__()
+        self.outcome = outcome
+
+    def cancel_order(self, order_id, symbol):
+        if order_id != "exit-partial-1":
+            return super().cancel_order(order_id, symbol)
+        if self.outcome == "unknown":
+            self.cancel_calls += 1
+            return False
+        confirmed = super().cancel_order(order_id, symbol)
+        for order in self.orders.values():
+            if order["id"] == order_id:
+                order["filled_qty"] = 0.1 if self.outcome == "filled" else 0.08
+                if self.outcome == "filled":
+                    order["status"] = "filled"
+        self.positions = (
+            []
+            if self.outcome == "filled"
+            else [{"symbol": "BTC/USDT", "qty": 0.02, "market_value": 2.0}]
+        )
+        return confirmed
+
+
+@pytest.mark.parametrize("outcome", ["unknown", "additional_fill", "filled"])
+def test_partial_exit_cancel_race_never_overlaps_inventory(tmp_path, outcome):
     store = initialized_position_store(tmp_path)
-    broker = FilledExitBroker()
+    broker = CancelRaceExitBroker(outcome=outcome)
+    lifecycle, gateway = canonical_stack(tmp_path, broker, dynamic_inventory=True)
     runner.ensure_protective_stop(
         pair="BTC/USDT",
         quantity=0.1,
         desired_stop=90.0,
         current_price=100.0,
         broker=broker,
+        lifecycle=lifecycle,
+        gateway=gateway,
+        store=store,
+    )
+    sell = dict(
+        market_symbol="BTC/USDT",
+        action="SELL",
+        qty=0.1,
+        signal_price=100.0,
+        candle_timestamp=datetime(2026, 8, 10, 10, tzinfo=UTC),
+        atr=5.0,
+        observed_high=100.0,
+        reason="cancel-race-local-fixture",
+    )
+    args = dict(
+        orders=[sell],
+        broker=broker,
+        lifecycle=lifecycle,
+        gateway=gateway,
+        store=store,
+        limits=LiveRiskLimits(),
+        reconciliation_timeout_seconds=0,
+    )
+    if outcome == "filled":
+        runner.execute_orders(**args)
+        assert store.unfinished_orders() == {}
+        assert not store.protective_order_state("BTC/USDT").get("active")
+    else:
+        with pytest.raises(
+            LiveSafetyError,
+            match=(
+                "residual exit cancellation unresolved"
+                if outcome == "unknown"
+                else "is cancelled"
+            ),
+        ):
+            runner.execute_orders(**args)
+    key = runner.make_order_key(
+        symbol="BTC/USDT", side="SELL", candle_timestamp=sell["candle_timestamp"]
+    )
+    order = lifecycle.state.order(key)
+    assert broker.exit_market_calls == 1
+    if outcome == "unknown":
+        assert order.remaining_reserved_quantity == pytest.approx(0.04)
+        assert store.state.order_ledger[key]["status"] == "manual_intervention"
+        assert not store.protective_order_state("BTC/USDT").get("active")
+        assert (
+            broker.place_calls == 1
+        )  # Only the original stop, no overlapping replacement.
+    else:
+        assert order.remaining_reserved_quantity == pytest.approx(0.0)
+        assert order.filled_size == pytest.approx(0.1 if outcome == "filled" else 0.08)
+        if outcome == "additional_fill":
+            assert store.protective_order_state("BTC/USDT")["active"][
+                "quantity"
+            ] == pytest.approx(0.02)
+
+
+def test_market_exit_confirms_cancel_before_canonical_submit(tmp_path):
+    store = initialized_position_store(tmp_path)
+    broker = FilledExitBroker()
+    lifecycle, gateway = canonical_stack(tmp_path, broker, dynamic_inventory=True)
+    runner.ensure_protective_stop(
+        pair="BTC/USDT",
+        quantity=0.1,
+        desired_stop=90.0,
+        current_price=100.0,
+        broker=broker,
+        lifecycle=lifecycle,
+        gateway=gateway,
         store=store,
     )
     sell = {
@@ -1096,24 +1531,29 @@ def test_market_exit_hands_off_exchange_stop_with_cancel_replace(tmp_path):
     runner.execute_orders(
         orders=[sell],
         broker=broker,
+        lifecycle=lifecycle,
+        gateway=gateway,
         store=store,
         limits=LiveRiskLimits(),
     )
-    assert broker.exit_replace_calls == 1
+    assert broker.exit_market_calls == 1
+    assert broker.cancel_calls == 1
     assert "BTC/USDT" not in store.state.position_risk
     assert store.unfinished_orders() == {}
 
 
-@pytest.mark.skip(reason="Legacy test needs update for canonical execution flow")
 def test_partial_exit_reprotects_the_remaining_position_before_stopping(tmp_path):
     store = initialized_position_store(tmp_path)
     broker = PartialExitBroker()
+    lifecycle, gateway = canonical_stack(tmp_path, broker, dynamic_inventory=True)
     runner.ensure_protective_stop(
         pair="BTC/USDT",
         quantity=0.1,
         desired_stop=90.0,
         current_price=100.0,
         broker=broker,
+        lifecycle=lifecycle,
+        gateway=gateway,
         store=store,
     )
     sell = {
@@ -1126,14 +1566,97 @@ def test_partial_exit_reprotects_the_remaining_position_before_stopping(tmp_path
         "observed_high": 100.0,
         "reason": "test-partial-exit",
     }
-    with pytest.raises(LiveSafetyError, match="order submission outcome is unknown"):
+    with pytest.raises(LiveSafetyError, match="is cancelled; batch stopped"):
         runner.execute_orders(
             orders=[sell],
             broker=broker,
+            lifecycle=lifecycle,
+            gateway=gateway,
             store=store,
             limits=LiveRiskLimits(),
         )
     protection = store.protective_order_state("BTC/USDT")
     assert protection["active"]["status"] == "open"
     assert protection["active"]["quantity"] == pytest.approx(0.04)
-    assert broker.exit_replace_calls == 1
+    assert broker.exit_market_calls == 1
+    assert broker.cancel_calls == 2
+
+
+def test_restart_reconciliation_does_not_double_count_inventory(tmp_path):
+    """A restarted process must reconcile one order into one position.
+
+    test_canonical_recovery_requires_context_and_uses_client_key already
+    asserts the lifecycle-side idempotency — filled_size stays 0.1 when the
+    same cumulative lookup is applied twice. That is the intent in
+    isolation.
+
+    What is not asserted is the other half of the same claim: money. If a
+    reconciliation pass applies a fill to inventory as well as to the
+    intent, the second pass doubles the position while filled_size still
+    reads 0.1, and every assertion on the intent keeps passing while the
+    book silently drifts. This test reconciles twice across a store reload
+    and checks the inventory and realised P&L agree with the venue's
+    reported position rather than with themselves.
+    """
+    broker = PartialBuyBroker()
+    store = LiveRiskStateStore(tmp_path / "state.json")
+    order = {**canonical_planned_buy(broker), "atr": 5.0, "observed_high": 100.0}
+    lifecycle, gateway = canonical_stack(tmp_path, broker, dynamic_inventory=True)
+
+    with pytest.raises(LiveSafetyError, match="is partial; batch stopped"):
+        runner.execute_orders(
+            orders=[order],
+            broker=broker,
+            store=store,
+            limits=LiveRiskLimits(),
+            lifecycle=lifecycle,
+            gateway=gateway,
+            reconciliation_timeout_seconds=0,
+        )
+    intent = order["order_planning"].intent
+
+    # The venue holds a partial fill and reports its own position.
+    broker.orders[intent.idempotency_key] = {
+        **order_result("filled", filled_qty=0.1),
+        "client_order_id": intent.idempotency_key,
+        "id": "entry-partial-1",
+    }
+    broker.positions = [{"symbol": "BTC/USDT", "qty": 0.1, "market_value": 10.0}]
+
+    # First pass after restart.
+    restarted_store = LiveRiskStateStore(tmp_path / "state.json")
+    recovered_lifecycle, recovered_gateway = canonical_stack(
+        tmp_path, broker, dynamic_inventory=True
+    )
+    runner.reconcile_unfinished_orders(
+        broker=broker,
+        store=restarted_store,
+        lifecycle=recovered_lifecycle,
+        gateway=recovered_gateway,
+    )
+    after_first = recovered_lifecycle.state.order(intent.intent_id)
+    assert after_first.filled_size == pytest.approx(0.1)
+
+    # Second pass over the same venue fact, after another reload.
+    second_store = LiveRiskStateStore(tmp_path / "state.json")
+    second_lifecycle, second_gateway = canonical_stack(
+        tmp_path, broker, dynamic_inventory=True
+    )
+    runner.reconcile_unfinished_orders(
+        broker=broker,
+        store=second_store,
+        lifecycle=second_lifecycle,
+        gateway=second_gateway,
+    )
+    after_second = second_lifecycle.state.order(intent.intent_id)
+    assert after_second.filled_size == pytest.approx(0.1)
+
+    # The venue never reported more than 0.1, so nothing may conclude it did.
+    venue_qty = sum(p["qty"] for p in broker.positions if p["symbol"] == "BTC/USDT")
+    assert venue_qty == pytest.approx(0.1)
+    assert after_second.filled_size <= venue_qty + 1e-9
+    # Reconciliation must not resize the intent, and a partially filled
+    # order must never report more filled than it authorised.
+    final_order = second_lifecycle.state.order(intent.intent_id)
+    assert final_order.size == pytest.approx(0.1)
+    assert final_order.filled_size <= final_order.size + 1e-9
