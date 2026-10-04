@@ -1,0 +1,408 @@
+{
+  "gate_parameters": {
+    "n_min": 14,
+    "trading_window_floor": 0.5
+  },
+  "window": {
+    "symbol": "BTC/USDT",
+    "timeframe": "1d",
+    "train_months": 12,
+    "val_months": 2,
+    "test_months": 2,
+    "step_months": 2,
+    "folds": 32
+  },
+  "data": {
+    "input_path": "data/raw/binance/BTC_USDT/1d.parquet",
+    "sha256": "851fa0ae4e8565abae80a217cb032deffd6c2d5ae315f0068102ac3b5a2d9cb5",
+    "rows": 2456
+  },
+  "candidates": [
+    {
+      "strategy_id": "cross_sectional_momentum_lo",
+      "registered": true,
+      "resolvable": true,
+      "emits_signal": true,
+      "warmup": 61,
+      "window_bars": 60,
+      "fold_count": 32,
+      "trading_window_share": 0.875,
+      "median_trades_per_window": 3,
+      "input_path": "data/raw/binance/BTC_USDT/1d.parquet",
+      "input_sha256": "851fa0ae4e8565abae80a217cb032deffd6c2d5ae315f0068102ac3b5a2d9cb5",
+      "reasons": [
+        "E4 test window 60 bars < warmup 61"
+      ],
+      "eligible": false,
+      "rank_key": [
+        32,
+        0.875,
+        3,
+        -61
+      ]
+    },
+    {
+      "strategy_id": "cross_sectional_momentum_ls",
+      "registered": true,
+      "resolvable": true,
+      "emits_signal": true,
+      "warmup": 61,
+      "window_bars": 60,
+      "fold_count": 32,
+      "trading_window_share": 0.875,
+      "median_trades_per_window": 3,
+      "input_path": "data/raw/binance/BTC_USDT/1d.parquet",
+      "input_sha256": "851fa0ae4e8565abae80a217cb032deffd6c2d5ae315f0068102ac3b5a2d9cb5",
+      "reasons": [
+        "E4 test window 60 bars < warmup 61"
+      ],
+      "eligible": false,
+      "rank_key": [
+        32,
+        0.875,
+        3,
+        -61
+      ]
+    },
+    {
+      "strategy_id": "rsi",
+      "registered": true,
+      "resolvable": true,
+      "emits_signal": true,
+      "warmup": 16,
+      "window_bars": 60,
+      "fold_count": 32,
+      "trading_window_share": 0.84375,
+      "median_trades_per_window": 2,
+      "input_path": "data/raw/binance/BTC_USDT/1d.parquet",
+      "input_sha256": "851fa0ae4e8565abae80a217cb032deffd6c2d5ae315f0068102ac3b5a2d9cb5",
+      "reasons": [],
+      "eligible": true,
+      "rank_key": [
+        32,
+        0.84375,
+        2,
+        -16
+      ]
+    },
+    {
+      "strategy_id": "bbands",
+      "registered": true,
+      "resolvable": true,
+      "emits_signal": true,
+      "warmup": 22,
+      "window_bars": 60,
+      "fold_count": 32,
+      "trading_window_share": 0.6875,
+      "median_trades_per_window": 2,
+      "input_path": "data/raw/binance/BTC_USDT/1d.parquet",
+      "input_sha256": "851fa0ae4e8565abae80a217cb032deffd6c2d5ae315f0068102ac3b5a2d9cb5",
+      "reasons": [],
+      "eligible": true,
+      "rank_key": [
+        32,
+        0.6875,
+        2,
+        -22
+      ]
+    },
+    {
+      "strategy_id": "stat_arbitrage_lo",
+      "registered": true,
+      "resolvable": true,
+      "emits_signal": true,
+      "warmup": 22,
+      "window_bars": 60,
+      "fold_count": 32,
+      "trading_window_share": 0.6875,
+      "median_trades_per_window": 2,
+      "input_path": "data/raw/binance/BTC_USDT/1d.parquet",
+      "input_sha256": "851fa0ae4e8565abae80a217cb032deffd6c2d5ae315f0068102ac3b5a2d9cb5",
+      "reasons": [],
+      "eligible": true,
+      "rank_key": [
+        32,
+        0.6875,
+        2,
+        -22
+      ]
+    },
+    {
+      "strategy_id": "stat_arbitrage_ls",
+      "registered": true,
+      "resolvable": true,
+      "emits_signal": true,
+      "warmup": 22,
+      "window_bars": 60,
+      "fold_count": 32,
+      "trading_window_share": 0.6875,
+      "median_trades_per_window": 2,
+      "input_path": "data/raw/binance/BTC_USDT/1d.parquet",
+      "input_sha256": "851fa0ae4e8565abae80a217cb032deffd6c2d5ae315f0068102ac3b5a2d9cb5",
+      "reasons": [],
+      "eligible": true,
+      "rank_key": [
+        32,
+        0.6875,
+        2,
+        -22
+      ]
+    },
+    {
+      "strategy_id": "range_mean_reversion",
+      "registered": true,
+      "resolvable": true,
+      "emits_signal": true,
+      "warmup": 22,
+      "window_bars": 60,
+      "fold_count": 32,
+      "trading_window_share": 0.625,
+      "median_trades_per_window": 2,
+      "input_path": "data/raw/binance/BTC_USDT/1d.parquet",
+      "input_sha256": "851fa0ae4e8565abae80a217cb032deffd6c2d5ae315f0068102ac3b5a2d9cb5",
+      "reasons": [],
+      "eligible": true,
+      "rank_key": [
+        32,
+        0.625,
+        2,
+        -22
+      ]
+    },
+    {
+      "strategy_id": "ma_crossover",
+      "registered": true,
+      "resolvable": true,
+      "emits_signal": true,
+      "warmup": 51,
+      "window_bars": 60,
+      "fold_count": 32,
+      "trading_window_share": 0.625,
+      "median_trades_per_window": 1,
+      "input_path": "data/raw/binance/BTC_USDT/1d.parquet",
+      "input_sha256": "851fa0ae4e8565abae80a217cb032deffd6c2d5ae315f0068102ac3b5a2d9cb5",
+      "reasons": [],
+      "eligible": true,
+      "rank_key": [
+        32,
+        0.625,
+        1,
+        -51
+      ]
+    },
+    {
+      "strategy_id": "ma_vol_target",
+      "registered": true,
+      "resolvable": true,
+      "emits_signal": true,
+      "warmup": 100,
+      "window_bars": 60,
+      "fold_count": 32,
+      "trading_window_share": 0.5,
+      "median_trades_per_window": 1,
+      "input_path": "data/raw/binance/BTC_USDT/1d.parquet",
+      "input_sha256": "851fa0ae4e8565abae80a217cb032deffd6c2d5ae315f0068102ac3b5a2d9cb5",
+      "reasons": [
+        "E4 test window 60 bars < warmup 100"
+      ],
+      "eligible": false,
+      "rank_key": [
+        32,
+        0.5,
+        1,
+        -100
+      ]
+    },
+    {
+      "strategy_id": "ma_adx_regime",
+      "registered": true,
+      "resolvable": true,
+      "emits_signal": true,
+      "warmup": 96,
+      "window_bars": 60,
+      "fold_count": 32,
+      "trading_window_share": 0.46875,
+      "median_trades_per_window": 1,
+      "input_path": "data/raw/binance/BTC_USDT/1d.parquet",
+      "input_sha256": "851fa0ae4e8565abae80a217cb032deffd6c2d5ae315f0068102ac3b5a2d9cb5",
+      "reasons": [
+        "E4 test window 60 bars < warmup 96",
+        "E6 only 47% of windows trade, floor 50%"
+      ],
+      "eligible": false,
+      "rank_key": [
+        32,
+        0.46875,
+        1,
+        -96
+      ]
+    },
+    {
+      "strategy_id": "enhanced_ma",
+      "registered": true,
+      "resolvable": true,
+      "emits_signal": true,
+      "warmup": 100,
+      "window_bars": 60,
+      "fold_count": 32,
+      "trading_window_share": 0.40625,
+      "median_trades_per_window": 1,
+      "input_path": "data/raw/binance/BTC_USDT/1d.parquet",
+      "input_sha256": "851fa0ae4e8565abae80a217cb032deffd6c2d5ae315f0068102ac3b5a2d9cb5",
+      "reasons": [
+        "E4 test window 60 bars < warmup 100",
+        "E6 only 41% of windows trade, floor 50%"
+      ],
+      "eligible": false,
+      "rank_key": [
+        32,
+        0.40625,
+        1,
+        -100
+      ]
+    },
+    {
+      "strategy_id": "ma_adx",
+      "registered": true,
+      "resolvable": true,
+      "emits_signal": true,
+      "warmup": 100,
+      "window_bars": 60,
+      "fold_count": 32,
+      "trading_window_share": 0.40625,
+      "median_trades_per_window": 1,
+      "input_path": "data/raw/binance/BTC_USDT/1d.parquet",
+      "input_sha256": "851fa0ae4e8565abae80a217cb032deffd6c2d5ae315f0068102ac3b5a2d9cb5",
+      "reasons": [
+        "E4 test window 60 bars < warmup 100",
+        "E6 only 41% of windows trade, floor 50%"
+      ],
+      "eligible": false,
+      "rank_key": [
+        32,
+        0.40625,
+        1,
+        -100
+      ]
+    },
+    {
+      "strategy_id": "ensemble_ma_adx",
+      "registered": true,
+      "resolvable": true,
+      "emits_signal": true,
+      "warmup": 96,
+      "window_bars": 60,
+      "fold_count": 32,
+      "trading_window_share": 0.375,
+      "median_trades_per_window": 1,
+      "input_path": "data/raw/binance/BTC_USDT/1d.parquet",
+      "input_sha256": "851fa0ae4e8565abae80a217cb032deffd6c2d5ae315f0068102ac3b5a2d9cb5",
+      "reasons": [
+        "E4 test window 60 bars < warmup 96",
+        "E6 only 38% of windows trade, floor 50%"
+      ],
+      "eligible": false,
+      "rank_key": [
+        32,
+        0.375,
+        1,
+        -96
+      ]
+    },
+    {
+      "strategy_id": "funding_carry",
+      "registered": true,
+      "resolvable": true,
+      "emits_signal": true,
+      "warmup": 22,
+      "window_bars": 60,
+      "fold_count": 32,
+      "trading_window_share": 0.34375,
+      "median_trades_per_window": 1,
+      "input_path": "data/raw/binance/BTC_USDT/1d.parquet",
+      "input_sha256": "851fa0ae4e8565abae80a217cb032deffd6c2d5ae315f0068102ac3b5a2d9cb5",
+      "reasons": [
+        "E6 only 34% of windows trade, floor 50%"
+      ],
+      "eligible": false,
+      "rank_key": [
+        32,
+        0.34375,
+        1,
+        -22
+      ]
+    },
+    {
+      "strategy_id": "trend_pullback",
+      "registered": true,
+      "resolvable": true,
+      "emits_signal": true,
+      "warmup": 96,
+      "window_bars": 60,
+      "fold_count": 32,
+      "trading_window_share": 0.25,
+      "median_trades_per_window": 1,
+      "input_path": "data/raw/binance/BTC_USDT/1d.parquet",
+      "input_sha256": "851fa0ae4e8565abae80a217cb032deffd6c2d5ae315f0068102ac3b5a2d9cb5",
+      "reasons": [
+        "E4 test window 60 bars < warmup 96",
+        "E6 only 25% of windows trade, floor 50%"
+      ],
+      "eligible": false,
+      "rank_key": [
+        32,
+        0.25,
+        1,
+        -96
+      ]
+    },
+    {
+      "strategy_id": "regime_switching",
+      "registered": true,
+      "resolvable": true,
+      "emits_signal": true,
+      "warmup": 200,
+      "window_bars": 60,
+      "fold_count": 32,
+      "trading_window_share": 0.0625,
+      "median_trades_per_window": 1,
+      "input_path": "data/raw/binance/BTC_USDT/1d.parquet",
+      "input_sha256": "851fa0ae4e8565abae80a217cb032deffd6c2d5ae315f0068102ac3b5a2d9cb5",
+      "reasons": [
+        "E4 test window 60 bars < warmup 200",
+        "E6 only 6% of windows trade, floor 50%"
+      ],
+      "eligible": false,
+      "rank_key": [
+        32,
+        0.0625,
+        1,
+        -200
+      ]
+    },
+    {
+      "strategy_id": "volatility_breakout",
+      "registered": true,
+      "resolvable": true,
+      "emits_signal": true,
+      "warmup": 36,
+      "window_bars": 60,
+      "fold_count": 32,
+      "trading_window_share": 0.0,
+      "median_trades_per_window": 0.0,
+      "input_path": "data/raw/binance/BTC_USDT/1d.parquet",
+      "input_sha256": "851fa0ae4e8565abae80a217cb032deffd6c2d5ae315f0068102ac3b5a2d9cb5",
+      "reasons": [
+        "E6 only 0% of windows trade, floor 50%"
+      ],
+      "eligible": false,
+      "rank_key": [
+        32,
+        0.0,
+        0.0,
+        -36
+      ]
+    }
+  ],
+  "selected": "rsi"
+}
