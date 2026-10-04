@@ -212,10 +212,20 @@ def main() -> int:
     from trading_agent.strategies.canonical import build_default_registry
 
     market = args.symbol.replace("_", "/")
-    path = ROOT / "data" / "raw" / "binance" / args.symbol / f"{args.timeframe}.parquet"
-    if not path.exists():
-        print(f"no data at {path}")
+    # Resolve through the canonical registry rather than building a path by
+    # hand: three hourly files exist per symbol with different coverage, and a
+    # hand-built path picks whichever the caller typed. B07 in
+    # LIVE_READINESS_AGENT_PLAN.md.
+    from trading_agent.data.canonical import resolve_canonical
+
+    resolution = resolve_canonical(ROOT, args.symbol, args.timeframe)
+    if resolution is None:
+        print(f"no data for {args.symbol} {args.timeframe}")
         return 2
+    path = resolution.path
+    if not resolution.preferred:
+        print(f"note: {args.symbol} {args.timeframe} has no extended file; "
+              f"canonical resolution is {path.name}")
     data = pl.read_parquet(path)
     folds = _get_fold_indices(
         data.height, args.timeframe, args.train_months, args.val_months,
