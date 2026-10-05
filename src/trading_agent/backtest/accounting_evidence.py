@@ -21,9 +21,18 @@ def _number(value, name: str) -> float:
 
 
 def export_paper_trade_accounting(
-    trades: Sequence[Mapping], *, equity_delta: float, open_inventory: bool
+    trades: Sequence[Mapping],
+    *,
+    equity_delta: float,
+    open_inventory: bool | Mapping,
 ) -> dict:
-    """Use fill-time paper accounting, not later candle proxy references."""
+    """Use fill-time paper accounting, not later candle proxy references.
+
+    ``open_inventory`` is either a flag confirming the run ended flat, or the
+    measured open leg for a position that survived the window. A flag cannot
+    certify what the flag says is true, so the legacy boolean form is refused
+    for a carried position rather than trusted.
+    """
     normalized = []
     for trade in trades:
         metadata = trade.get("metadata", {})
@@ -42,10 +51,25 @@ def export_paper_trade_accounting(
         normalized.append(
             {**trade, "trade_id": trade.get("id"), "metadata": {"simulation": measured}}
         )
+    carried = None
+    if isinstance(open_inventory, Mapping):
+        carried = open_inventory
+    elif open_inventory is not False:
+        raise ValueError(
+            "open inventory requires the measured open leg, not a flag"
+        )
+    exporter = (
+        export_open_inventory_accounting
+        if carried is not None
+        else export_closed_trade_accounting
+    )
+    kwargs = (
+        {"open_inventory": carried}
+        if carried is not None
+        else {"open_inventory": False}
+    )
     return {
-        **export_closed_trade_accounting(
-            normalized, equity_delta=equity_delta, open_inventory=open_inventory
-        ),
+        **exporter(normalized, equity_delta=equity_delta, **kwargs),
         "execution_model": "paper_slippage_only_v1",
     }
 

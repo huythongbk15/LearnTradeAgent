@@ -379,6 +379,59 @@ class PaperExchange:
     def get_all_positions(self) -> list[Position]:
         return [p for p in self.positions.values() if p.is_active]
 
+    def get_open_inventory_measurement(self, mark_price: float) -> dict | None:
+        """Measure the position that survived the window, or None when flat.
+
+        A carried position has no closed trade, so nothing else in the
+        accounting can see it. This reports what is provable about it at the
+        window boundary: what was paid, what the fill was worth against its
+        reference, and what it is marked at now.
+
+        Raises rather than defaulting. An incomplete basis means a reference
+        price was never observed, and inventing a zero there would report a
+        fill as fair when nothing measured it.
+        """
+        positions = self.get_all_positions()
+        if not positions:
+            return None
+        if len(positions) > 1:
+            raise ValueError(
+                "open inventory measurement supports a single carried position"
+            )
+        position = positions[0]
+        basis = position.metadata.get("paper_cost_basis_v1")
+        if not isinstance(basis, dict) or not basis.get("complete"):
+            raise ValueError("open position lacks a complete measured cost basis")
+        quantity = abs(float(position.quantity))
+        basis_quantity = float(basis["quantity"])
+        if quantity <= 0 or basis_quantity <= 0:
+            raise ValueError("open position must have positive size")
+        entry_fees = position.metadata.get("entry_fees")
+        if entry_fees is None:
+            raise ValueError("open position lacks measured entry fees")
+        mark = float(mark_price)
+        entry_price = float(position.entry_price)
+        if not math.isfinite(mark) or mark <= 0:
+            raise ValueError("open position needs a positive finite mark price")
+        return {
+            "side": position.side.value,
+            "quantity": quantity,
+            "entry_price": entry_price,
+            "entry_reference_price": float(basis["reference_notional"])
+            / basis_quantity,
+            "valuation_price": mark,
+            "entry_fee": float(entry_fees),
+            # PaperExchange has no spread or impact model. These zeros are
+            # explicit model facts, matching the closed-trade path, never a
+            # substitute for an unobserved venue measurement.
+            "execution_components": {
+                "slippage": float(basis["slippage"]),
+                "spread": 0.0,
+                "market_impact": 0.0,
+                "price_cap_credit": 0.0,
+            },
+        }
+
     def get_trade_history(self, limit: int = 20) -> list[Trade]:
         return sorted(
             self.trades, key=lambda t: t.entry_time or datetime.min, reverse=True
@@ -586,7 +639,7 @@ class PaperExchange:
             self.slippage if order.side == OrderSide.BUY else -self.slippage
         )
         fill_price = price * slippage_mult
-        self._execute_fill(order, fill_price)
+        self._execute_fill(order, fill_price, reference_price=price)
 
     def _check_limit_order(self, order: Order, prices: dict[str, float]):
         """Check if a limit order should be filled."""
@@ -633,10 +686,15 @@ class PaperExchange:
                 -self.slippage if order.side == OrderSide.SELL else self.slippage
             )
             fill_price = current_price * slippage_mult
-            self._execute_fill(order, fill_price)
+            self._execute_fill(order, fill_price, reference_price=current_price)
 
     def _execute_fill(
-        self, order: Order, fill_price: float, fill_amount: float | None = None
+        self,
+        order: Order,
+        fill_price: float,
+        fill_amount: float | None = None,
+        *,
+        reference_price: float | None = None,
     ):
         """Execute a fill — update balances, position, create trade record.
 
@@ -688,6 +746,25 @@ class PaperExchange:
                     current_price=fill_price,
                 )
             active_position = self.positions[order.symbol]
+            basis = active_position.metadata.setdefault(
+                "paper_cost_basis_v1",
+                {
+                    "quantity": 0.0,
+                    "reference_notional": 0.0,
+                    "slippage": 0.0,
+                    "complete": active_position.quantity == fill_amount,
+                },
+            )
+            known_reference = (
+                reference_price is not None
+                and math.isfinite(reference_price)
+                and reference_price > 0
+            )
+            basis["complete"] = bool(basis["complete"] and known_reference)
+            basis["quantity"] += fill_amount
+            if known_reference and reference_price is not None:
+                basis["reference_notional"] += fill_amount * reference_price
+                basis["slippage"] += fill_amount * (fill_price - reference_price)
             active_position.metadata["entry_fees"] = (
                 float(active_position.metadata.get("entry_fees", 0.0)) + fee_amount
             )
@@ -738,6 +815,7 @@ class PaperExchange:
                     if is_full_close
                     else "partial_exit"
                 ),
+                exit_reference=reference_price,
             )
 
             # Reduce position
@@ -751,6 +829,11 @@ class PaperExchange:
                 pos.metadata["entry_fees"] = max(
                     0.0, entry_fees_total - entry_fee_alloc
                 )
+                basis = pos.metadata.get("paper_cost_basis_v1")
+                if isinstance(basis, dict):
+                    ratio = pos.quantity / (pos.quantity + fill_amount)
+                    for key in ("quantity", "reference_notional", "slippage"):
+                        basis[key] *= ratio
 
         # Update order fill status
         prev_filled = order.filled_amount
@@ -812,7 +895,9 @@ class PaperExchange:
             pos.quantity * fill_price - order.fee
         )
 
-        self._record_trade(pos, fill_price, order, pnl, pnl_pct, reason=reason)
+        self._record_trade(
+            pos, fill_price, order, pnl, pnl_pct, reason=reason, exit_reference=price
+        )
         del self.positions[symbol]
         self._save_state()
 
@@ -827,6 +912,7 @@ class PaperExchange:
         entry_fee: float | None = None,
         exit_fee: float | None = None,
         reason: str | None = None,
+        exit_reference: float | None = None,
     ):
         """Record a completed trade."""
         sizing_method = pos.metadata.get("sizing_method", "unknown")
@@ -834,6 +920,39 @@ class PaperExchange:
         simulation = pos.metadata.get("simulation")
         if isinstance(simulation, dict):
             trade_metadata["simulation"] = dict(simulation)
+        basis = pos.metadata.get("paper_cost_basis_v1")
+        if (
+            isinstance(basis, dict)
+            and basis.get("complete") is True
+            and basis.get("quantity", 0) > 0
+            and exit_reference is not None
+            and math.isfinite(exit_reference)
+            and exit_reference > 0
+        ):
+            trade_quantity = pos.quantity if quantity is None else quantity
+            fraction = trade_quantity / basis["quantity"]
+            # PaperExchange has no spread/impact model: zeros are explicit
+            # model facts, never a substitution for absent venue observations.
+            trade_metadata["measured_accounting"] = {
+                "model": "paper_slippage_only_v1",
+                "entry_reference_price": basis["reference_notional"]
+                / basis["quantity"],
+                "exit_reference_price": exit_reference,
+                "execution_components": {
+                    "entry": {
+                        "slippage": basis["slippage"] * fraction,
+                        "spread": 0.0,
+                        "market_impact": 0.0,
+                        "price_cap_credit": 0.0,
+                    },
+                    "exit": {
+                        "slippage": trade_quantity * (exit_reference - exit_price),
+                        "spread": 0.0,
+                        "market_impact": 0.0,
+                        "price_cap_credit": 0.0,
+                    },
+                },
+            }
         trade = Trade(
             id=self._next_id("trade"),
             symbol=pos.symbol,

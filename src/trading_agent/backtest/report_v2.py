@@ -300,6 +300,51 @@ def report_json_schema() -> dict[str, Any]:
             "circuit_breakers": {"type": "integer", "minimum": 0},
             "signals_seen": {"type": "integer", "minimum": 0},
             "open_positions": {"type": "integer", "minimum": 0},
+            "measured_open_inventory": {
+                "type": ["object", "null"],
+                "description": (
+                    "Measured position carried past the window. Required when "
+                    "open_positions is non-zero; the position must be priced, "
+                    "not omitted. Null only when the run ended flat."
+                ),
+                "required": [
+                    "side",
+                    "quantity",
+                    "entry_price",
+                    "entry_reference_price",
+                    "valuation_price",
+                    "entry_fee",
+                    "execution_components",
+                ],
+                "additionalProperties": False,
+                "properties": {
+                    "side": {"type": "string", "enum": ["buy", "sell"]},
+                    "quantity": {"type": "number", "exclusiveMinimum": 0},
+                    "entry_price": number_field("paid price"),
+                    "entry_reference_price": number_field("fill reference at entry"),
+                    "valuation_price": number_field("window close used to mark it"),
+                    "entry_fee": number_field("entry fee on the open quantity"),
+                    "execution_components": {
+                        "type": "object",
+                        "required": [
+                            "slippage",
+                            "spread",
+                            "market_impact",
+                            "price_cap_credit",
+                        ],
+                        "additionalProperties": False,
+                        "properties": {
+                            key: number_field(f"open leg {key} in quote currency")
+                            for key in (
+                                "slippage",
+                                "spread",
+                                "market_impact",
+                                "price_cap_credit",
+                            )
+                        },
+                    },
+                },
+            },
             "open_orders": {"type": "integer", "minimum": 0},
             "execution_timing": {"type": "string"},
             "commit_sha": {

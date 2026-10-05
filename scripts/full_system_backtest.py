@@ -219,6 +219,7 @@ class FullSystemSimulator:
         adaptive_router=None,
         adaptive_posterior_provider=None,
         adaptive_runtime_provider=None,
+        source_df_override: pl.DataFrame | None = None,
     ):
         resolved_symbol = symbol or os.getenv("SYMBOL", SYMBOL)
         resolved_timeframe = timeframe or os.getenv("TIMEFRAME", TIMEFRAME)
@@ -308,7 +309,13 @@ class FullSystemSimulator:
 
         # Load data
         print(f"📥 Loading {self.symbol} {self.timeframe} from {self.exchange}...")
-        source_df = load_ohlcv(self.exchange, self.symbol, self.timeframe)
+        if source_df_override is not None and not data_manifest_id:
+            raise ValueError("injected source data requires an explicit data manifest")
+        source_df = (
+            source_df_override.clone()
+            if source_df_override is not None
+            else load_ohlcv(self.exchange, self.symbol, self.timeframe)
+        )
         self.source_data_quality = assess_ohlcv(
             source_df,
             expected_interval=self.timeframe_delta,
@@ -1064,6 +1071,30 @@ class FullSystemSimulator:
             trades=self.trade_log,
         )
         cost_attribution = calculate_cost_attribution(self.trade_log)
+        from trading_agent.backtest.accounting_evidence import (
+            export_paper_trade_accounting,
+        )
+
+        measured_accounting = None
+        measured_accounting_error = None
+        try:
+            # A carried position must be measured, not flagged. Passing the
+            # bare boolean only asserted that inventory existed, which the
+            # exporter could not price, so the run lost its accounting
+            # entirely whenever it ended holding anything.
+            open_leg = None
+            if self.engine.exchange.get_all_positions():
+                mark_price = float(self.df["close"][self._run_end - 1])
+                open_leg = self.engine.exchange.get_open_inventory_measurement(
+                    mark_price
+                )
+            measured_accounting = export_paper_trade_accounting(
+                self.trade_log,
+                equity_delta=float(self.equity_curve[-1][1]) - INITIAL_CAPITAL,
+                open_inventory=open_leg if open_leg is not None else False,
+            )
+        except ValueError as exc:
+            measured_accounting_error = str(exc)
         window = self.df.slice(self._run_start, self._run_end - self._run_start)
         benchmark = fixed_allocation_buy_and_hold(
             [float(value) for value in window["close"].to_list()],
@@ -1224,6 +1255,8 @@ class FullSystemSimulator:
             },
             "metrics": metrics,
             "cost_attribution": cost_attribution,
+            "measured_accounting": measured_accounting,
+            "measured_accounting_error": measured_accounting_error,
             "benchmarks": {
                 "fixed_allocation_buy_and_hold": benchmark,
             },

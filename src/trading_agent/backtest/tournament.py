@@ -48,7 +48,7 @@ from trading_agent.backtest.reporting import (
     calendar_returns,
     load_gap_exceptions,
 )
-from trading_agent.data.storage import load_ohlcv
+from trading_agent.data.storage import load_research_ohlcv as load_ohlcv
 from trading_agent.strategies.canonical.adapter import (
     ACTION_BUY,
     ACTION_SELL,
@@ -994,9 +994,7 @@ def _run_cell_impl(
         )
 
     try:
-        _, adapter = build_parameterized_adapter(
-            spec.strategy_id, spec.params
-        )
+        _, adapter = build_parameterized_adapter(spec.strategy_id, spec.params)
     except RegistryIntegrityError as exc:
         return _failed_artifact(spec, descriptor, f"registry blocked: {exc}")
 
@@ -1164,6 +1162,7 @@ def _run_cell_impl(
         strategy_name=spec.strategy_id,
         strategy_params_override=dict(spec.params),
         signal_series=signals,
+        source_df_override=source_df,
         commission=spec.cost_scenario.commission,
         slippage=spec.cost_scenario.slippage,
         # EVERY strategy goes through the canonical runtime bridge so the
@@ -1251,6 +1250,14 @@ def _run_cell_impl(
         if measurement_start > 0 and "close" in frame.columns:
             boundary_price = float(frame[measurement_start - 1, "close"])
 
+        # The last close inside the measurement window. A position carried
+        # past the window is marked at this, not at a warm-up price or the
+        # opening mark, which would price inventory the run never held.
+        window_mark_price = None
+        mark_bar = measurement_end - 1
+        if "close" in frame.columns and 0 <= mark_bar < frame.height:
+            window_mark_price = float(frame[mark_bar, "close"])
+
         m_trades: list[dict[str, Any]] = []
         unattributed_cross_boundary = 0
         for original in report.get("trades", []):
@@ -1312,6 +1319,37 @@ def _run_cell_impl(
         report["trades"] = m_trades
         report["metrics"] = m_metrics
         report["cost_attribution"] = calculate_cost_attribution(m_trades)
+        from trading_agent.backtest.accounting_evidence import (
+            export_paper_trade_accounting,
+        )
+
+        try:
+            if not m_eq:
+                raise ValueError("no measured equity window")
+            # A carried position used to discard the whole accounting: the
+            # flag below could only confirm flat, so a surviving position
+            # left the report with no evidence at all rather than priced
+            # numbers. Measure the open leg instead and reconcile against it.
+            open_leg = None
+            if sim.engine.exchange.get_all_positions():
+                if window_mark_price is None:
+                    raise ValueError(
+                        "cannot mark a carried position without a window close"
+                    )
+                open_leg = sim.engine.exchange.get_open_inventory_measurement(
+                    window_mark_price
+                )
+            report["measured_accounting"] = export_paper_trade_accounting(
+                m_trades,
+                equity_delta=float(m_eq[-1][1]) - opening_equity,
+                open_inventory=open_leg if open_leg is not None else False,
+            )
+            report["measured_accounting_error"] = None
+        except ValueError as exc:
+            # Never retain the full-run accounting as OOS evidence after
+            # clipping trades/equity to a different measurement window.
+            report["measured_accounting"] = None
+            report["measured_accounting_error"] = str(exc)
         report["calendar_returns_pct"] = calendar_returns(
             m_eq, initial_capital=opening_equity
         )

@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 from collections import defaultdict
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable
@@ -48,8 +49,7 @@ class CoverageReport:
         ]
         if self.missing_strategies:
             lines.append(
-                "  no result at all for: "
-                + ", ".join(sorted(self.missing_strategies))
+                "  no result at all for: " + ", ".join(sorted(self.missing_strategies))
             )
         if self.empty_strategies:
             lines.append(
@@ -124,9 +124,7 @@ def verify_campaign_coverage(
 
     produced = sum(cells.get(sid, 0) for sid in requested)
     if results is None:
-        notes.append(
-            "no result list supplied; verified against cells on disk only"
-        )
+        notes.append("no result list supplied; verified against cells on disk only")
     found_extra = sorted(set(cells) - set(requested))
     if found_extra:
         notes.append(
@@ -172,6 +170,7 @@ class BundleReport:
     admissible: bool
     problems: tuple[str, ...] = ()
     bundle_id: str | None = None
+    validated_bundle: dict | None = field(default=None, repr=False)
 
     def summary(self) -> str:
         verdict = "ADMISSIBLE" if self.admissible else "NOT ADMISSIBLE"
@@ -193,6 +192,9 @@ def verify_evidence_bundle(
     *,
     expected_commit: str | None = None,
     filename: str = "campaign_evidence.json",
+    data_root: Path | None = None,
+    expected_tree_fingerprint: str | None = None,
+    expected_gate_set_fingerprint: str | None = None,
 ) -> BundleReport:
     """Check a campaign bundle against CAMPAIGN_EVIDENCE_CONTRACT.md.
 
@@ -216,12 +218,26 @@ def verify_evidence_bundle(
     try:
         bundle = json.loads(path.read_text())
     except (OSError, json.JSONDecodeError) as exc:
-        return BundleReport(
-            admissible=False, problems=(f"unreadable bundle: {exc}",)
-        )
+        return BundleReport(admissible=False, problems=(f"unreadable bundle: {exc}",))
     if not isinstance(bundle, dict):
+        return BundleReport(admissible=False, problems=("bundle is not an object",))
+
+    from trading_agent.backtest.campaign_evidence import validate_v2
+
+    try:
+        strict_problems = validate_v2(
+            bundle,
+            data_root=data_root or Path(__file__).resolve().parents[3],
+            expected_tree_fingerprint=expected_tree_fingerprint,
+            expected_gate_set_fingerprint=expected_gate_set_fingerprint,
+        )
+    except (TypeError, ValueError, KeyError, OverflowError) as exc:
+        strict_problems = [f"malformed campaign bundle: {exc}"]
+    if strict_problems:
         return BundleReport(
-            admissible=False, problems=("bundle is not an object",)
+            admissible=False,
+            problems=tuple(strict_problems),
+            bundle_id=bundle.get("campaign_id"),
         )
 
     _require(bundle, "schema_version", problems)
@@ -248,9 +264,7 @@ def verify_evidence_bundle(
         if not isinstance(window, dict):
             problems.append("missing data_manifest.window")
         elif window.get("bars") != data.get("input_rows"):
-            problems.append(
-                "data_manifest.window.bars disagrees with input_rows"
-            )
+            problems.append("data_manifest.window.bars disagrees with input_rows")
         if "gaps" not in data:
             problems.append("missing data_manifest.gaps")
 
@@ -298,11 +312,11 @@ def verify_evidence_bundle(
         if policy not in {"independent", "overlapping"}:
             problems.append("overlap_policy must be declared")
         elif policy == "overlapping":
-            if any(f.get("overlap_group") is None for f in folds
-                   if isinstance(f, dict)):
+            if any(
+                f.get("overlap_group") is None for f in folds if isinstance(f, dict)
+            ):
                 problems.append(
-                    "overlap_policy is overlapping but a fold has no "
-                    "overlap_group"
+                    "overlap_policy is overlapping but a fold has no overlap_group"
                 )
 
     if not isinstance(results, list) or not results:
@@ -318,9 +332,7 @@ def verify_evidence_bundle(
 
     # Rule 7 — per-trade records, or a stated reason.
     if bundle.get("trades") is None and not bundle.get("trades_absent_reason"):
-        problems.append(
-            "trades absent without trades_absent_reason"
-        )
+        problems.append("trades absent without trades_absent_reason")
 
     # Rule 8 — the verdict must be derivable.
     verdict = bundle.get("verdict")
@@ -330,12 +342,230 @@ def verify_evidence_bundle(
     if verdict == "PASS" and failed:
         problems.append("verdict is PASS but failed_gates is non-empty")
     if verdict in {"FAIL", "INCONCLUSIVE"} and not failed:
-        problems.append(
-            f"verdict {verdict} but failed_gates is empty — name the gates"
-        )
+        problems.append(f"verdict {verdict} but failed_gates is empty — name the gates")
 
     return BundleReport(
         admissible=not problems,
         problems=tuple(problems),
         bundle_id=bundle.get("campaign_id"),
+        validated_bundle=bundle if not problems else None,
     )
+
+
+def capture_campaign_source(root: Path) -> dict:
+    """Capture actual code, including untracked source, before measurement."""
+    import hashlib
+    import subprocess
+    from trading_agent.backtest.campaign_evidence import content_hash
+
+    root = root.resolve()
+    files = {
+        str(path.relative_to(root)): hashlib.sha256(path.read_bytes()).hexdigest()
+        for directory in ("src", "scripts")
+        for path in (root / directory).rglob("*.py")
+    }
+    commit = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=root, text=True
+    ).strip()
+    diff = subprocess.check_output(
+        ["git", "diff", "HEAD", "--binary", "--", "src", "scripts"], cwd=root
+    )
+    untracked = subprocess.check_output(
+        ["git", "ls-files", "--others", "--exclude-standard", "src", "scripts"],
+        cwd=root,
+        text=True,
+    ).splitlines()
+    dirty = bool(diff or untracked)
+    return {
+        "code_commit": commit,
+        "tree_fingerprint": content_hash(files),
+        "worktree_dirty": dirty,
+        "dirty_diff_sha256": content_hash(
+            {
+                "tracked_diff_sha256": hashlib.sha256(diff).hexdigest(),
+                "untracked": {p: files.get(p) for p in untracked},
+            }
+        )
+        if dirty
+        else None,
+    }
+
+
+def require_wfo_campaign_evidence(
+    result, out_root: Path, *, data_root: Path, source_binding: dict
+) -> dict:
+    """Consumer gate: a bundle must match the WFO result before policy writes.
+
+    Does not manufacture missing accounting fields, and does not convert a
+    valid FAIL into eligibility. Native exporters missing schema-v2 fields must
+    be upgraded upstream; an old summary is not accepted as a replacement.
+    """
+    from trading_agent.backtest.campaign_evidence import content_hash, finite
+
+    report = verify_evidence_bundle(
+        out_root,
+        data_root=data_root,
+        expected_commit=source_binding["code_commit"],
+        expected_tree_fingerprint=source_binding["tree_fingerprint"],
+    )
+    if not report.admissible:
+        raise ValueError(report.summary())
+    bundle = report.validated_bundle
+    if bundle is None:
+        raise ValueError("validator returned no bound payload")
+    if any(bundle.get(key) != value for key, value in source_binding.items()):
+        raise ValueError("campaign source/dirty diff differs from pre-run capture")
+    if bundle["verdict"] != "PASS" or result.passes_hard_gates is not True:
+        raise ValueError("campaign is measured but NOT_QUALIFIED")
+    subject = bundle["subject"]
+    if any(
+        subject[key] != getattr(result.spec, key)
+        for key in ("strategy_id", "symbol", "timeframe")
+    ):
+        raise ValueError("campaign subject differs from actual WFO result")
+    measured = {fold.fold_id: fold for fold in result.outer_results}
+    if len(measured) != len(result.outer_results):
+        raise ValueError("actual WFO result contains duplicate fold IDs")
+    if set(measured) != {row["fold_id"] for row in bundle["results"]}:
+        raise ValueError("campaign folds differ from actual WFO result")
+    if subject["params_hash"] != content_hash(
+        {fold.fold_id: fold.params for fold in result.outer_results}
+    ):
+        raise ValueError(
+            "campaign selected parameters differ from actual WFO selection"
+        )
+    aliases = {
+        "trades": "total_trades",
+        "return_pct": "return_pct",
+        "sharpe": "sharpe",
+        "max_dd_pct": "max_drawdown_pct",
+        "net_pnl": "net_pnl",
+    }
+    for row in bundle["results"]:
+        fold = measured[row["fold_id"]]
+        for key, source_key in aliases.items():
+            value = fold.test_metrics.get(source_key)
+            if not finite(value) or abs(value - row[key]) > 1e-9:
+                raise ValueError(
+                    f"campaign result {row['fold_id']}.{key} differs from measured WFO metrics"
+                )
+        artifact = fold.artifact
+        if artifact is None or artifact.status != "COMPLETED":
+            raise ValueError("campaign lacks completed source evaluation artifact")
+        if any(
+            getattr(artifact, key) != subject[key]
+            for key in ("strategy_id", "symbol", "timeframe")
+        ):
+            raise ValueError("source evaluation artifact subject mismatch")
+        for name, value in (
+            ("commission_bps", artifact.commission * 10000),
+            ("slippage_bps", artifact.slippage * 10000),
+        ):
+            if not finite(value) or abs(bundle["cost_schedule"][name] - value) > 1e-9:
+                raise ValueError(
+                    "campaign cost schedule differs from actual evaluation model"
+                )
+        from trading_agent.backtest.accounting_evidence import (
+            export_paper_trade_accounting,
+        )
+        import hashlib
+
+        try:
+            report_bytes = Path(artifact.report_path).read_bytes()
+            if row.get("report_sha256") != hashlib.sha256(report_bytes).hexdigest():
+                raise ValueError(
+                    "source report content hash differs from campaign binding"
+                )
+            source_report = json.loads(report_bytes)
+            if type(source_report.get("open_positions")) is not int:
+                raise ValueError("source report lacks a measured position count")
+            curve = source_report["equity_curve"]
+            initial = source_report["initial_capital"]
+            if not finite(initial) or not curve or not finite(curve[-1][1]):
+                raise ValueError("missing measured source equity")
+            source_open_leg = source_report.get("measured_open_inventory")
+            if source_report["open_positions"] == 0:
+                if source_open_leg is not None:
+                    raise ValueError("flat source must not declare open inventory")
+                rebuilt = export_paper_trade_accounting(
+                    source_report["trades"],
+                    equity_delta=curve[-1][1] - initial,
+                    open_inventory=False,
+                )
+            else:
+                if not isinstance(source_open_leg, Mapping):
+                    raise ValueError(
+                        "open source positions require a measured open leg"
+                    )
+                rebuilt = export_paper_trade_accounting(
+                    source_report["trades"],
+                    equity_delta=curve[-1][1] - initial,
+                    open_inventory=source_open_leg,
+                )
+            if rebuilt != source_report.get("measured_accounting"):
+                raise ValueError(
+                    "source accounting declaration differs from rebuilt ledger"
+                )
+            for key in (
+                "gross_pnl",
+                "fees",
+                "slippage",
+                "spread_cost",
+                "net_pnl",
+                "trades",
+            ):
+                if not finite(row.get(key)) or abs(row[key] - rebuilt[key]) > 1e-8:
+                    raise ValueError(
+                        f"campaign {key} differs from measured source accounting"
+                    )
+            # A carried position must appear in the campaign row with the same
+            # measured amounts as the source rebuilt. Omitting it here would
+            # let a bundle publish a fold's closed half and stay silent about
+            # the inventory the same fold was still holding.
+            if source_open_leg is not None:
+                for key in (
+                    "open_quantity",
+                    "open_mark_value",
+                    "open_entry_fee",
+                    "open_unrealized",
+                    "total_pnl",
+                ):
+                    if not finite(row.get(key)) or abs(row[key] - rebuilt[key]) > 1e-8:
+                        raise ValueError(
+                            f"campaign {key} differs from measured open inventory"
+                        )
+                if row.get("open_side") != rebuilt["open_side"]:
+                    raise ValueError("campaign open_side differs from source")
+            elif row.get("open_quantity") is not None:
+                raise ValueError("flat source must not publish open inventory")
+            if rebuilt["market_impact"] != 0 or rebuilt["price_cap_credit"] != 0:
+                raise ValueError(
+                    "campaign schema does not yet represent impact/cap credit"
+                )
+        except (
+            OSError,
+            TypeError,
+            KeyError,
+            IndexError,
+            AttributeError,
+            json.JSONDecodeError,
+        ) as exc:
+            raise ValueError("missing/invalid measured source report") from exc
+    actual_gates = {gate.gate_id: gate for gate in result.gate_results}
+    if len(actual_gates) != len(result.gate_results):
+        raise ValueError("actual WFO result contains duplicate gate IDs")
+    if set(actual_gates) != {gate["gate_id"] for gate in bundle["gate_set"]}:
+        raise ValueError("campaign gate_set omits/adds WFO hard gates")
+    for gate in bundle["gate_set"]:
+        actual = actual_gates[gate["gate_id"]]
+        observed = bundle["aggregate"][gate["metric"].removeprefix("aggregate.")]
+        if (
+            actual.threshold != gate["threshold"]
+            or actual.comparison != gate["comparison"]
+            or not finite(actual.observed_value)
+            or abs(actual.observed_value - observed) > 1e-9
+        ):
+            raise ValueError(
+                "campaign gate threshold/observation differs from actual WFO gate"
+            )
+    return bundle
