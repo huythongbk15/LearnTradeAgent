@@ -39,10 +39,6 @@ class OrderStatus(str, Enum):
     REJECTED = "rejected"
 
 
-
-
-
-
 def decompose_fill_cost(
     *,
     quantity: float,
@@ -53,6 +49,7 @@ def decompose_fill_cost(
     fill_price: float,
     fee_rate: float,
     is_buy: bool,
+    limit_price: float | None = None,
 ) -> dict[str, float]:
     """Split what a fill charged into spread, slippage, impact and commission.
 
@@ -75,6 +72,25 @@ def decompose_fill_cost(
 
     A missing rate is a caller error, not a free component.
     """
+    import math
+
+    if type(is_buy) is not bool:
+        raise ValueError("is_buy must be an explicit boolean")
+    for name, value in (
+        ("quantity", quantity),
+        ("mid_price", mid_price),
+        ("side_price", side_price),
+        ("fill_price", fill_price),
+        ("fee_rate", fee_rate),
+        ("slippage_rate", slippage_rate),
+        ("impact_rate", impact_rate),
+    ):
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(value)
+        ):
+            raise ValueError(f"{name} must be a finite measured number")
     for name, value in (
         ("quantity", quantity),
         ("mid_price", mid_price),
@@ -94,13 +110,37 @@ def decompose_fill_cost(
     slipped = side_price * (1 + slippage_rate)
     slippage = quantity * (slipped - side_price) * sign
     impacted = slipped * (1 + impact_rate)
+    expected_fill = impacted
+    if limit_price is not None:
+        if (
+            isinstance(limit_price, bool)
+            or not isinstance(limit_price, (int, float))
+            or not math.isfinite(limit_price)
+            or limit_price <= 0
+        ):
+            raise ValueError("limit_price must be finite and positive")
+        expected_fill = (
+            min(impacted, limit_price) if is_buy else max(impacted, limit_price)
+        )
+    if not math.isfinite(impacted) or not math.isclose(
+        expected_fill, fill_price, rel_tol=1e-9, abs_tol=1e-9
+    ):
+        raise ValueError(
+            "actual fill price does not match the declared component price chain"
+        )
     impact = quantity * (impacted - slipped) * sign
     commission = quantity * fill_price * fee_rate
+    cap_credit = quantity * (fill_price - impacted) * sign
+    if not all(
+        math.isfinite(value) for value in (spread, slippage, impact, commission)
+    ):
+        raise ValueError("nonfinite measured cost components")
     return {
         "commission": commission,
         "spread_cost": spread,
         "slippage_cost": slippage,
         "impact_cost": impact,
+        "price_cap_credit": cap_credit,
     }
 
 
@@ -161,15 +201,13 @@ class SimulatedFill:
     spread_cost: float = 0.0
     slippage_cost: float = 0.0
     impact_cost: float = 0.0
+    price_cap_credit: float = 0.0
 
     @property
     def total_cost(self) -> float:
         """Everything charged beyond the reference price on this fill."""
         return (
-            self.commission
-            + self.spread_cost
-            + self.slippage_cost
-            + self.impact_cost
+            self.commission + self.spread_cost + self.slippage_cost + self.impact_cost
         )
 
     @property
@@ -179,7 +217,12 @@ class SimulatedFill:
         Commission is a venue fee rather than execution quality, so the two
         are reported separately rather than summed into one headline.
         """
-        return self.spread_cost + self.slippage_cost + self.impact_cost
+        return (
+            self.spread_cost
+            + self.slippage_cost
+            + self.impact_cost
+            + self.price_cap_credit
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -271,9 +314,24 @@ class ExecutionSimulator:
 
     def __init__(self, config: SimulatorConfig | None = None, seed: int | None = None):
         self.config = config or SimulatorConfig()
+        self.seed = seed
         self.state = SimulatorState()
         if seed is not None:
             self.state.rng = np.random.default_rng(seed)
+
+    def reset(self, *, seed: int | None = None) -> None:
+        """Clear runtime state for a fresh run, preserving reproducibility.
+
+        Replacing the state outright would build a new unseeded generator, so
+        a simulator constructed with a seed would stop being deterministic the
+        moment a backtest engine reset it. Every partial fill then drew from a
+        fresh RNG and two runs of the same seed produced different sizes --
+        silently, since nothing raised.
+        """
+        self.state = SimulatorState()
+        chosen = seed if seed is not None else self.seed
+        if chosen is not None:
+            self.state.rng = np.random.default_rng(chosen)
 
     def update_order_book(self, snapshot: OrderBookSnapshot) -> None:
         """Update internal order book snapshot."""
@@ -369,8 +427,8 @@ class ExecutionSimulator:
             quantity=fill_qty,
             mid_price=book.mid_price,
             side_price=base_price,
-            slippage_rate=slippage,
-            impact_rate=impact,
+            slippage_rate=slippage if order.side == OrderSide.BUY else -slippage,
+            impact_rate=impact if order.side == OrderSide.BUY else -impact,
             fill_price=fill_price,
             fee_rate=fee_rate,
             is_buy=order.side == OrderSide.BUY,
@@ -464,8 +522,9 @@ class ExecutionSimulator:
             quantity=fill_qty,
             mid_price=book.mid_price,
             side_price=side_price,
-            slippage_rate=slippage,
-            impact_rate=impact,
+            limit_price=order.price,
+            slippage_rate=slippage if order.side == OrderSide.BUY else -slippage,
+            impact_rate=impact if order.side == OrderSide.BUY else -impact,
             fill_price=fill_price,
             fee_rate=fee_rate,
             is_buy=order.side == OrderSide.BUY,
@@ -705,6 +764,7 @@ def create_execution_simulator(
             from trading_agent.execution.backtest_sim.t2c_calibration import (
                 build_all_simulator_config_overrides,
             )
+
             bps_all, vol_all = build_all_simulator_config_overrides()
             if symbol_slippage_bps is None:
                 symbol_slippage_bps = bps_all

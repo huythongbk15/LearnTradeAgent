@@ -200,7 +200,7 @@ class SimulatorBacktestEngine:
         self._equity_curve = []
         self._order_counter = 0
         self._final_price = 0.0
-        self.simulator.state = self.simulator.state.__class__()  # Reset simulator state
+        self.simulator.reset()  # Preserves the seed; a bare state swap would not
 
         # Process each bar
         for row in df_signals.iter_rows(named=True):
