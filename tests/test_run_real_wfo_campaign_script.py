@@ -68,10 +68,16 @@ def test_missing_data_file_is_refused(tmp_path: Path) -> None:
 
 def test_dry_run_freezes_a_plan_for_every_strategy(tmp_path: Path) -> None:
     bars = write_bars(tmp_path / "bars.parquet")
+    # A dedicated out-root: the default directory is shared, and a real
+    # campaign running alongside this test would otherwise make this one
+    # fail for having correctly left no plan behind of its own.
+    out = tmp_path / "campaign_out"
     result = run_script(
         "--dry-run",
         "--data-file",
         str(bars),
+        "--out-root",
+        str(out),
         "--strategies",
         "enhanced_ma,ma_crossover",
         "--train-months",
@@ -90,9 +96,7 @@ def test_dry_run_freezes_a_plan_for_every_strategy(tmp_path: Path) -> None:
         "each strategy needs its own frozen plan"
     )
     # Dry-run must not leave a plan behind on disk.
-    assert not (ROOT / "data" / "wfo_real_campaign").exists() or not list(
-        (ROOT / "data" / "wfo_real_campaign").glob("*/campaign_plan.json")
-    )
+    assert not out.exists() or not list(out.glob("*/campaign_plan.json"))
 
 
 def test_too_few_bars_is_refused_rather_than_campaigned(tmp_path: Path) -> None:
@@ -160,3 +164,52 @@ def test_unknown_flag_is_rejected(tmp_path: Path, flag: str) -> None:
     bars = write_bars(tmp_path / "bars.parquet")
     result = run_script("--dry-run", "--data-file", str(bars), flag, "--bogus")
     assert result.returncode != 0
+
+def test_out_root_keeps_concurrent_campaigns_isolated(tmp_path: Path) -> None:
+    # Two campaigns pointed at the same default root would write each other's
+    # cells. --out-root is what lets a verification run proceed beside a long
+    # one without corrupting either.
+    bars = write_bars(tmp_path / "bars.parquet")
+    out = tmp_path / "isolated"
+    result = run_script(
+        "--dry-run",
+        "--data-file",
+        str(bars),
+        "--out-root",
+        str(out),
+        "--train-months",
+        "1",
+        "--val-months",
+        "1",
+        "--test-months",
+        "1",
+        "--n-outer",
+        "2",
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert str(out) in result.stdout
+
+
+def test_param_grid_override_is_applied(tmp_path: Path) -> None:
+    # The default grid is nine combinations, which makes a smoke campaign over
+    # a real window too slow to verify the chain with.
+    bars = write_bars(tmp_path / "bars.parquet")
+    result = run_script(
+        "--dry-run",
+        "--data-file",
+        str(bars),
+        "--out-root",
+        str(tmp_path / "grid_out"),
+        "--param-grid",
+        '{"fast_period": [7], "slow_period": [21]}',
+        "--train-months",
+        "1",
+        "--val-months",
+        "1",
+        "--test-months",
+        "1",
+        "--n-outer",
+        "2",
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "'fast_period': [7]" in result.stdout

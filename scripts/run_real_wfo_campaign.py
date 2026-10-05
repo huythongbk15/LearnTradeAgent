@@ -60,6 +60,19 @@ DEFAULT_GATE_SET = [
 ]
 
 
+
+def _rel(path: Path) -> str:
+    """Repo-relative when inside the repo, absolute when it is not.
+
+    --out-root may point outside the tree, and pathlib.relative_to raises
+    rather than degrading, which would fail a run that had otherwise
+    succeeded.
+    """
+    try:
+        return str(Path(path).relative_to(ROOT))
+    except ValueError:
+        return str(path)
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--strategy", default="enhanced_ma")
@@ -96,6 +109,24 @@ def main() -> None:
         help="JSON file with the frozen gate list; defaults to the documented gates.",
     )
     ap.add_argument("--dry-run", action="store_true", help="plan only, do not write")
+    ap.add_argument(
+        "--param-grid",
+        default=None,
+        help=(
+            "JSON param grid. The default is 9 combinations, which makes an "
+            "inner search over a real window slow enough to need a smoke "
+            "campaign with a single combination to verify the chain."
+        ),
+    )
+    ap.add_argument(
+        "--out-root",
+        default=None,
+        help=(
+            "Evidence directory for this campaign. Defaults to "
+            "data/wfo_real_campaign. Point two campaigns at separate roots to "
+            "run them concurrently without one corrupting the other's cells."
+        ),
+    )
     ap.add_argument(
         "--no-publish",
         action="store_true",
@@ -137,6 +168,9 @@ def main() -> None:
         SelectionPolicyRegistry,
     )
 
+    evidence = (
+        (ROOT / args.out_root).resolve() if args.out_root else EVIDENCE
+    )
     data_path = (ROOT / args.data_file).resolve()
     if not data_path.is_file():
         raise SystemExit(f"NOT_QUALIFIED: data file not found: {data_path}")
@@ -166,9 +200,13 @@ def main() -> None:
             val_months=args.val_months,
             test_months=args.test_months,
             step_months=args.test_months,
-            param_grid={"fast_period": [10, 20, 30], "slow_period": [60, 80, 120]},
+            param_grid=(
+                json.loads(args.param_grid)
+                if args.param_grid
+                else {"fast_period": [10, 20, 30], "slow_period": [60, 80, 120]}
+            ),
             min_trades_per_fold=args.min_trades,
-            registry_path=str(EVIDENCE / "registry"),
+            registry_path=str(evidence / "registry"),
         )
 
         span_months = (
@@ -241,13 +279,13 @@ def main() -> None:
             print("\n--dry-run: plan frozen, nothing executed or written.")
             continue
 
-        plan_path = EVIDENCE / strategy / "campaign_plan.json"
+        plan_path = evidence / strategy / "campaign_plan.json"
         plan_path.parent.mkdir(parents=True, exist_ok=True)
         plan_path.write_text(json.dumps(plan, indent=2, sort_keys=True))
-        print(f"  plan written : {plan_path.relative_to(ROOT)}")
+        print(f"  plan written : {_rel(plan_path)}")
 
         print("\nrunning nested WFO (this executes backtests)...", flush=True)
-        result = run_nested_wfo(spec, out_root=EVIDENCE)
+        result = run_nested_wfo(spec, out_root=evidence)
         if capture_campaign_source(ROOT) != source_binding:
             raise SystemExit("NOT_QUALIFIED: source changed during campaign")
 
@@ -260,7 +298,7 @@ def main() -> None:
             print(f"  measured rows: {len(measured_rows)} verified fold rows")
 
             coverage = verify_campaign_coverage(
-                requested_strategies=[strategy], out_root=EVIDENCE
+                requested_strategies=[strategy], out_root=evidence
             )
             if not coverage.ok:
                 raise ValueError(f"incomplete campaign: {coverage.summary()}")
@@ -274,7 +312,7 @@ def main() -> None:
                 data_root=data_root,
             )
             require_wfo_campaign_evidence(
-                result, EVIDENCE, data_root=data_root, source_binding=source_binding
+                result, evidence, data_root=data_root, source_binding=source_binding
             )
             print(f"  verdict      : {bundle['verdict']} "
                   f"({len(bundle['failed_gates'])} failed gates)")
@@ -284,7 +322,7 @@ def main() -> None:
             for key, value in bundle["aggregate"].items():
                 print(f"    {key:20s} {value}")
 
-            bundle_path = EVIDENCE / strategy / "campaign_evidence.json"
+            bundle_path = evidence / strategy / "campaign_evidence.json"
             if not args.no_publish:
                 from trading_agent.backtest.campaign_writer import (
                     publish_campaign_bundle,
@@ -297,11 +335,11 @@ def main() -> None:
                     data_root=data_root,
                     source_binding=source_binding,
                 )
-                print(f"  published    : {published_path.relative_to(ROOT)}")
+                print(f"  published    : {_rel(published_path)}")
                 published.append((strategy, published_path, bundle["verdict"]))
             else:
                 bundle_path.write_text(json.dumps(bundle, indent=2, sort_keys=True))
-                print(f"  bundle (dry) : {bundle_path.relative_to(ROOT)}")
+                print(f"  bundle (dry) : {_rel(bundle_path)}")
         except ValueError as exc:
             raise SystemExit(f"NOT_QUALIFIED: {exc}; no bundle or policy written") from exc
 
@@ -368,8 +406,8 @@ def main() -> None:
     if published:
         print(f"\n=== published {len(published)} campaign bundle(s) ===")
         for strategy, path, verdict in published:
-            print(f"  {strategy:24s} {verdict:5s} {path.relative_to(ROOT)}")
-    print(f"\nevidence: {EVIDENCE.relative_to(ROOT)}")
+            print(f"  {strategy:24s} {verdict:5s} {_rel(path)}")
+    print(f"\nevidence: {_rel(evidence)}")
 
 
 if __name__ == "__main__":
