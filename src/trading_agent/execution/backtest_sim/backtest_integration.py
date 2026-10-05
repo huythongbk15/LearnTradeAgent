@@ -46,6 +46,12 @@ class SimulatorBacktestResult:
     total_slippage: float
     avg_latency_ms: float
     maker_ratio: float
+    total_spread_cost: float = 0.0
+    total_impact_cost: float = 0.0
+    total_price_cap_credit: float = 0.0
+    total_execution_drag: float = 0.0
+    accounting_evidence: dict | None = None
+    accounting_status: str = "NOT_QUALIFIED"
 
 
 class SimulatorBacktestEngine:
@@ -85,10 +91,18 @@ class SimulatorBacktestEngine:
         self._cash = initial_capital
         self._equity = initial_capital
         self._entry_price = 0.0
+        self._entry_reference = 0.0
+        self._entry_costs: dict[str, float] = {}
+
+        self._seen_fill_ids: set[str] = set()
+
         self._entry_time = None
-        self._trades = []
-        self._equity_curve = []
+        self._trades: list[dict] = []
+
+        self._equity_curve: list[dict] = []
+
         self._order_counter = 0
+        self._final_price = 0.0
 
     def _generate_order_id(self) -> str:
         self._order_counter += 1
@@ -178,10 +192,14 @@ class SimulatorBacktestEngine:
         self._cash = self.initial_capital
         self._equity = self.initial_capital
         self._entry_price = 0.0
+        self._entry_reference = 0.0
+        self._entry_costs = {}
+        self._seen_fill_ids = set()
         self._entry_time = None
         self._trades = []
         self._equity_curve = []
         self._order_counter = 0
+        self._final_price = 0.0
         self.simulator.state = self.simulator.state.__class__()  # Reset simulator state
 
         # Process each bar
@@ -236,6 +254,16 @@ class SimulatorBacktestEngine:
             for fill in fills:
                 self._process_fill(fill)
 
+        # Final liquidation changes cash/fees after the last regular mark.
+        # Preserve any unfilled inventory in the final equity rather than
+        # reporting the pre-liquidation mark as the final result.
+        if self._equity_curve:
+            final_price = float(df_signals["close"][-1])
+            self._final_price = final_price
+            self._equity = self._cash + self._position * final_price
+            self._equity_curve[-1].update(
+                equity=self._equity, cash=self._cash, position=self._position
+            )
         return self._compute_results(symbol, timeframe)
 
     def _create_entry_order(
@@ -278,47 +306,104 @@ class SimulatorBacktestEngine:
 
     def _process_fill(self, fill: SimulatedFill) -> None:
         """Process a fill and update position/cash."""
-        if fill.side == OrderSide.BUY:
-            cost = fill.quantity * fill.price + fill.fee
-            self._cash -= cost
-            self._position += fill.quantity
-            if self._entry_price == 0:
-                self._entry_price = fill.price
-                self._entry_time = fill.timestamp
-        else:
-            proceeds = fill.quantity * fill.price - fill.fee
-            self._cash += proceeds
-
-            # Record trade
-            if self._entry_price > 0:
-                pnl = (fill.price - self._entry_price) * self._position
-                pnl_pct = (fill.price - self._entry_price) / self._entry_price * 100
-                hold_bars = (
-                    (fill.timestamp - self._entry_time).total_seconds() / 3600
+        if fill.fill_id in self._seen_fill_ids:
+            return
+        direction = 1 if fill.side == OrderSide.BUY else -1
+        old_position = self._position
+        old_quantity = abs(old_position)
+        closed = (
+            min(old_quantity, fill.quantity) if old_position * direction < 0 else 0.0
+        )
+        components = {
+            "fees": fill.fee,
+            "slippage": fill.slippage_cost,
+            "spread": fill.spread_cost,
+            "market_impact": fill.impact_cost,
+            "price_cap_credit": fill.price_cap_credit,
+        }
+        self._cash -= direction * fill.quantity * fill.price + fill.fee
+        if closed:
+            entry = {
+                key: self._entry_costs.get(key, 0.0) * closed / old_quantity
+                for key in components
+            }
+            exit_cost = {
+                key: value * closed / fill.quantity for key, value in components.items()
+            }
+            position_sign = 1 if old_position > 0 else -1
+            pnl = (
+                position_sign * closed * (fill.price - self._entry_price)
+                - entry["fees"]
+                - exit_cost["fees"]
+            )
+            self._trades.append(
+                {
+                    "trade_id": f"{fill.fill_id}:closed",
+                    "entry_time": self._entry_time,
+                    "exit_time": fill.timestamp,
+                    "entry_price": self._entry_price,
+                    "exit_price": fill.price,
+                    "quantity": closed,
+                    "pnl": pnl,
+                    "pnl_pct": pnl / (closed * self._entry_price) * 100,
+                    "hold_bars": (fill.timestamp - self._entry_time).total_seconds()
+                    / 3600
                     if self._entry_time
-                    else 0
-                )
-
-                self._trades.append(
-                    {
-                        "entry_time": self._entry_time,
-                        "exit_time": fill.timestamp,
-                        "entry_price": self._entry_price,
-                        "exit_price": fill.price,
-                        "quantity": self._position,
-                        "pnl": pnl,
-                        "pnl_pct": pnl_pct,
-                        "hold_bars": hold_bars,
-                        "fees": fill.fee,
-                        "side": "long" if self._position > 0 else "short",
-                    }
-                )
-
-            self._position -= fill.quantity
-            if self._position <= 0:
-                self._position = 0
+                    else 0,
+                    "entry_fee": entry["fees"],
+                    "exit_fee": exit_cost["fees"],
+                    "fees": entry["fees"] + exit_cost["fees"],
+                    "side": "buy" if old_position > 0 else "sell",
+                    "metadata": {
+                        "simulation": {
+                            "entry_reference_price": self._entry_reference,
+                            "exit_reference_price": fill.mid_price_at_fill,
+                            "execution_components": {
+                                "entry": {
+                                    key: value
+                                    for key, value in entry.items()
+                                    if key != "fees"
+                                },
+                                "exit": {
+                                    key: value
+                                    for key, value in exit_cost.items()
+                                    if key != "fees"
+                                },
+                            },
+                        }
+                    },
+                }
+            )
+            self._entry_costs = {
+                key: self._entry_costs.get(key, 0.0) - entry[key] for key in components
+            }
+        remaining_old = old_quantity - closed
+        opened = fill.quantity - closed
+        if opened:
+            if not remaining_old:
                 self._entry_price = 0.0
-                self._entry_time = None
+                self._entry_reference = 0.0
+                self._entry_time = fill.timestamp
+                self._entry_costs = {}
+            total = remaining_old + opened
+            self._entry_price = (
+                self._entry_price * remaining_old + fill.price * opened
+            ) / total
+            self._entry_reference = (
+                self._entry_reference * remaining_old + fill.mid_price_at_fill * opened
+            ) / total
+            self._entry_costs = {
+                key: self._entry_costs.get(key, 0.0) + value * opened / fill.quantity
+                for key, value in components.items()
+            }
+        self._position = old_position + direction * fill.quantity
+        if abs(self._position) < 1e-12:
+            self._position = 0.0
+            self._entry_price = 0.0
+            self._entry_reference = 0.0
+            self._entry_time = None
+            self._entry_costs = {}
+        self._seen_fill_ids.add(fill.fill_id)
 
     def _compute_results(self, symbol: str, timeframe: str) -> SimulatorBacktestResult:
         """Compute final backtest metrics."""
@@ -341,15 +426,20 @@ class SimulatorBacktestEngine:
             n_bars = len(returns)
             annual_factor = np.sqrt(bars_per_year / max(n_bars, 1))
 
-            if returns.std() > 0:
-                sharpe = float(returns.mean() / returns.std() * annual_factor)
+            # polars returns None for std() when there are fewer than two
+            # observations, so a run with one return bar, or exactly one
+            # losing bar, has no standard deviation to divide by.
+            return_std = returns.std()
+            if return_std is not None and return_std > 0:
+                sharpe = float(returns.mean() / return_std * annual_factor)
             else:
                 sharpe = 0.0
 
             # Sortino
             downside = returns.filter(returns < 0)
-            if len(downside) > 0 and downside.std() > 0:
-                sortino = float(returns.mean() / downside.std() * annual_factor)
+            downside_std = downside.std()
+            if downside_std is not None and downside_std > 0:
+                sortino = float(returns.mean() / downside_std * annual_factor)
             else:
                 sortino = sharpe
 
@@ -400,16 +490,58 @@ class SimulatorBacktestEngine:
             sum(f.latency_ms for f in all_fills) / len(all_fills) if all_fills else 0.0
         )
 
-        # Estimate slippage from fills vs mid price at fill time
-        total_slippage = 0.0
-        for fill in all_fills:
-            mid_at_fill = fill.mid_price_at_fill
-            if mid_at_fill > 0:
-                if fill.side == OrderSide.BUY:
-                    slippage = (fill.price - mid_at_fill) / mid_at_fill
-                else:
-                    slippage = (mid_at_fill - fill.price) / mid_at_fill
-                total_slippage += slippage * fill.quantity * fill.price
+        # Preserve the measured quote-currency components. The previous
+        # mid-normalized ratio multiplied by fill price distorted drag and
+        # mixed spread/impact into the slippage headline.
+        total_slippage = sum(fill.slippage_cost for fill in all_fills)
+        total_spread = sum(fill.spread_cost for fill in all_fills)
+        total_impact = sum(fill.impact_cost for fill in all_fills)
+        total_cap_credit = sum(fill.price_cap_credit for fill in all_fills)
+        total_drag = sum(fill.execution_cost for fill in all_fills)
+        accounting = None
+        accounting_status = "NOT_QUALIFIED"
+        if self._position == 0 and self._trades:
+            from trading_agent.backtest.accounting_evidence import (
+                export_closed_trade_accounting,
+            )
+
+            accounting = export_closed_trade_accounting(
+                self._trades,
+                equity_delta=self._cash - self.initial_capital,
+                open_inventory=False,
+            )
+            accounting_status = "CLOSED_LEDGER_RECONCILED"
+        elif self._position != 0 and self._trades:
+            # The window ended holding inventory, so the liquidation did not
+            # complete. Cash alone understates the position and charges the
+            # open quantity's entry fee with nothing to show for it; the
+            # closed ledger alone ignores a position the run still owns.
+            if self._final_price <= 0:
+                raise ValueError(
+                    "open inventory cannot be marked without a final price"
+                )
+            from trading_agent.backtest.accounting_evidence import (
+                export_open_inventory_accounting,
+            )
+
+            accounting = export_open_inventory_accounting(
+                self._trades,
+                open_inventory={
+                    "side": "buy" if self._position > 0 else "sell",
+                    "quantity": abs(self._position),
+                    "entry_price": self._entry_price,
+                    "entry_reference_price": self._entry_reference,
+                    "valuation_price": self._final_price,
+                    "entry_fee": self._entry_costs.get("fees", 0.0),
+                    "execution_components": {
+                        key: self._entry_costs.get(key, 0.0)
+                        for key in ("slippage", "spread", "market_impact")
+                    }
+                    | {"price_cap_credit": self._entry_costs.get("price_cap_credit", 0.0)},
+                },
+                equity_delta=self._cash - self.initial_capital,
+            )
+            accounting_status = "OPEN_INVENTORY_RECONCILED"
 
         return SimulatorBacktestResult(
             total_return_pct=total_return,
@@ -429,6 +561,12 @@ class SimulatorBacktestEngine:
             total_slippage=total_slippage,
             avg_latency_ms=avg_latency,
             maker_ratio=maker_ratio,
+            total_spread_cost=total_spread,
+            total_impact_cost=total_impact,
+            total_price_cap_credit=total_cap_credit,
+            total_execution_drag=total_drag,
+            accounting_evidence=accounting,
+            accounting_status=accounting_status,
         )
 
 
