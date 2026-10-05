@@ -39,6 +39,71 @@ class OrderStatus(str, Enum):
     REJECTED = "rejected"
 
 
+
+
+
+
+def decompose_fill_cost(
+    *,
+    quantity: float,
+    mid_price: float,
+    side_price: float,
+    slippage_rate: float,
+    impact_rate: float,
+    fill_price: float,
+    fee_rate: float,
+    is_buy: bool,
+) -> dict[str, float]:
+    """Split what a fill charged into spread, slippage, impact and commission.
+
+    ``slippage_rate`` and ``impact_rate`` are signed exactly as the caller
+    applied them to the price, i.e.
+
+        fill_price = side_price x (1 + slippage_rate) x (1 + impact_rate)
+
+    That convention matters because the maker path applies impact in the
+    direction favourable to the maker, so a maker's impact component is a
+    credit. Modelling rates as always-adverse instead would overstate maker
+    cost and break the invariant.
+
+    Execution components are signed against mid, so a maker resting inside
+    the spread records a negative spread component:
+
+        spread + slippage + impact
+            == (fill_price - mid_price) * quantity * (+1 buy, -1 sell)
+        commission == fill_price * quantity * fee_rate
+
+    A missing rate is a caller error, not a free component.
+    """
+    for name, value in (
+        ("quantity", quantity),
+        ("mid_price", mid_price),
+        ("side_price", side_price),
+        ("fill_price", fill_price),
+    ):
+        if value <= 0:
+            raise ValueError(f"{name} must be positive, got {value!r}")
+    if fee_rate < 0:
+        raise ValueError(f"fee_rate must be non-negative, got {fee_rate!r}")
+
+    # Rates are applied to price as the caller did; the *cost* is then
+    # oriented against the trader, so a sell crossing down from mid pays a
+    # positive spread rather than appearing as a negative one.
+    sign = 1.0 if is_buy else -1.0
+    spread = quantity * (side_price - mid_price) * sign
+    slipped = side_price * (1 + slippage_rate)
+    slippage = quantity * (slipped - side_price) * sign
+    impacted = slipped * (1 + impact_rate)
+    impact = quantity * (impacted - slipped) * sign
+    commission = quantity * fill_price * fee_rate
+    return {
+        "commission": commission,
+        "spread_cost": spread,
+        "slippage_cost": slippage,
+        "impact_cost": impact,
+    }
+
+
 class FillModel(str, Enum):
     """Fill simulation model."""
 
@@ -88,6 +153,33 @@ class SimulatedFill:
     is_maker: bool
     latency_ms: float
     mid_price_at_fill: float = 0.0  # Store mid price at fill time for slippage calc
+    # Per-fill cost breakdown. Each is a positive number in the fee currency
+    # (quote), and their sum is the total charged for this fill beyond the
+    # reference price. Kept separate so a campaign can reconcile measured cost
+    # against a schedule instead of against a single opaque fee field.
+    commission: float = 0.0
+    spread_cost: float = 0.0
+    slippage_cost: float = 0.0
+    impact_cost: float = 0.0
+
+    @property
+    def total_cost(self) -> float:
+        """Everything charged beyond the reference price on this fill."""
+        return (
+            self.commission
+            + self.spread_cost
+            + self.slippage_cost
+            + self.impact_cost
+        )
+
+    @property
+    def execution_cost(self) -> float:
+        """Execution component only: spread plus slippage plus impact.
+
+        Commission is a venue fee rather than execution quality, so the two
+        are reported separately rather than summed into one headline.
+        """
+        return self.spread_cost + self.slippage_cost + self.impact_cost
 
 
 @dataclass(frozen=True, slots=True)
@@ -269,9 +361,20 @@ class ExecutionSimulator:
         if self.state.rng.random() < self.config.partial_fill_prob:
             fill_qty = order.quantity * self.state.rng.uniform(0.1, 0.9)
 
-        # Fee
+        # Fee, and the cost split that lets a campaign reconcile what the fill
+        # charged against its schedule instead of against one opaque field.
         fee_rate = self.config.taker_fee_bps / 10000
         fee = fill_qty * fill_price * fee_rate
+        costs = decompose_fill_cost(
+            quantity=fill_qty,
+            mid_price=book.mid_price,
+            side_price=base_price,
+            slippage_rate=slippage,
+            impact_rate=impact,
+            fill_price=fill_price,
+            fee_rate=fee_rate,
+            is_buy=order.side == OrderSide.BUY,
+        )
 
         fill = SimulatedFill(
             fill_id=f"fill_{order.order_id}_{len(self.state.fill_history)}",
@@ -285,6 +388,7 @@ class ExecutionSimulator:
             is_maker=is_maker,
             latency_ms=latency,
             mid_price_at_fill=book.mid_price,
+            **costs,
         )
 
         # Remove filled order
@@ -353,6 +457,19 @@ class ExecutionSimulator:
 
         fee_rate = self.config.taker_fee_bps / 10000
         fee = fill_qty * fill_price * fee_rate
+        side_price = (
+            book.ask_price if order.side == OrderSide.BUY else book.bid_price
+        ) or 0.0
+        costs = decompose_fill_cost(
+            quantity=fill_qty,
+            mid_price=book.mid_price,
+            side_price=side_price,
+            slippage_rate=slippage,
+            impact_rate=impact,
+            fill_price=fill_price,
+            fee_rate=fee_rate,
+            is_buy=order.side == OrderSide.BUY,
+        )
 
         fill = SimulatedFill(
             fill_id=f"fill_{order.order_id}_{len(self.state.fill_history)}",
@@ -366,6 +483,7 @@ class ExecutionSimulator:
             is_maker=is_maker,
             latency_ms=latency,
             mid_price_at_fill=book.mid_price,
+            **costs,
         )
 
         del self.state.open_orders[order.order_id]
@@ -400,6 +518,16 @@ class ExecutionSimulator:
 
         fee_rate = self.config.maker_fee_bps / 10000
         fee = fill_qty * fill_price * fee_rate
+        costs = decompose_fill_cost(
+            quantity=fill_qty,
+            mid_price=book.mid_price,
+            side_price=base_price,
+            slippage_rate=0.0,
+            impact_rate=-impact if order.side == OrderSide.BUY else impact,
+            fill_price=fill_price,
+            fee_rate=fee_rate,
+            is_buy=order.side == OrderSide.BUY,
+        )
 
         fill = SimulatedFill(
             fill_id=f"fill_{order.order_id}_{len(self.state.fill_history)}",
@@ -413,6 +541,7 @@ class ExecutionSimulator:
             is_maker=is_maker,
             latency_ms=latency,
             mid_price_at_fill=book.mid_price,
+            **costs,
         )
 
         del self.state.open_orders[order.order_id]
