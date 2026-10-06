@@ -1324,13 +1324,14 @@ def _run_cell_impl(
         )
 
         try:
+            open_leg = None
             if not m_eq:
                 raise ValueError("no measured equity window")
             # A carried position used to discard the whole accounting: the
             # flag below could only confirm flat, so a surviving position
             # left the report with no evidence at all rather than priced
-            # numbers. Measure the open leg instead and reconcile against it.
-            open_leg = None
+            # numbers. Measure the open leg and emit it at the top level so
+            # the campaign bundle can price it rather than refuse it.
             if sim.engine.exchange.get_all_positions():
                 if window_mark_price is None:
                     raise ValueError(
@@ -1339,6 +1340,7 @@ def _run_cell_impl(
                 open_leg = sim.engine.exchange.get_open_inventory_measurement(
                     window_mark_price
                 )
+            report["measured_open_inventory"] = open_leg
             report["measured_accounting"] = export_paper_trade_accounting(
                 m_trades,
                 equity_delta=float(m_eq[-1][1]) - opening_equity,
@@ -1346,8 +1348,12 @@ def _run_cell_impl(
             )
             report["measured_accounting_error"] = None
         except ValueError as exc:
-            # Never retain the full-run accounting as OOS evidence after
-            # clipping trades/equity to a different measurement window.
+            # Preserve a successfully-measured open leg even when the closed
+            # ledger reconciliation fails: the open-inventory measurement is
+            # independent fill evidence, and discarding it on an unrelated
+            # closed-trade error hides a carry position from the producer.
+            if open_leg is None:
+                report["measured_open_inventory"] = None
             report["measured_accounting"] = None
             report["measured_accounting_error"] = str(exc)
         report["calendar_returns_pct"] = calendar_returns(

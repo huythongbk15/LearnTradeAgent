@@ -27,7 +27,7 @@ says so.
 | 3 | Carried inventory priced in campaign evidence | **TESTED** | `f1173e6` | `tests/test_campaign_open_inventory.py` 7 pass; 523 pass across campaign/accounting/tournament/holdout group | none |
 | 4 | Accounting regression snapshot + seed fix | **TESTED** | `31cee3e` | `tests/test_accounting_regression_snapshot.py` 6 pass; 63 pass across simulator group | none |
 | 5 | Frozen campaign plan + native bundle producer | **TESTED** | `d357347` | `tests/test_campaign_plan_producer.py` + `tests/test_run_real_wfo_campaign_script.py` 20 pass; 27 pass | none |
-| 6 | Real campaign executed through producer → validator → publication | **IMPLEMENTED** (run in progress) | `d357347` | dry-run freezes a plan per strategy against real BTC/USDT 1h | — |
+| 6 | Real campaign executed through producer → validator → publication | **TESTED** | `3511b40` | BTC/USDT 4h `ma_crossover` pilot ran end-to-end (2 workers, 2 folds); gate refused carry as a valid pilot output; real publish left to full run | gate refusal accepted as valid; see carry fix below |
 | 7 | AC01–AC15 acceptance suite | **ACCEPTED** | `d357347` | see below | `data/acceptance_runs/ac01_15_20261005_082339_utc/` |
 | 8 | Independent review | not started | — | — | — |
 | 9 | Testnet / soak | **BLOCKED on operator** | — | — | requires `LIVE_ACCOUNT_ID` |
