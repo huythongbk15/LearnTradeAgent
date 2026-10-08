@@ -46,7 +46,7 @@ from trading_agent.backtest.nested_wfo import (
     _build_portfolio_selection_result,
 )
 from trading_agent.strategies.canonical.candidates import build_default_registry
-from trading_agent.data.storage import load_ohlcv
+from trading_agent.data.storage import load_research_ohlcv as load_ohlcv
 from trading_agent.backtest.tournament import EvaluationArtifact
 
 

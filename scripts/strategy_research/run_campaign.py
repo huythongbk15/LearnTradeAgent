@@ -26,6 +26,8 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
+import hashlib
 import sys
 import time
 from concurrent.futures import as_completed
@@ -66,6 +68,8 @@ SINGLE_ASSET_STRATEGIES = [
     "regime_ensemble",
 ]
 CROSS_ASSET_STRATEGIES = ["cross_sectional_momentum", "stat_arbitrage"]
+FROZEN_INPUTS: dict = {}
+JOB_TIMEOUT_SECONDS = 3600
 
 
 def run_single_strategy_cell(
@@ -81,6 +85,20 @@ def run_single_strategy_cell(
     process pools. Each combination runs as its own process.
     """
     import subprocess
+
+    input_record = FROZEN_INPUTS.get((symbol, timeframe))
+    if FROZEN_INPUTS and (input_record is None or strategy_id == "funding_carry"):
+        return {"strategy_id": strategy_id, "symbol": symbol, "timeframe": timeframe,
+                "status": "BLOCKED_DATA", "reason": "No approved scenario-specific frozen input"}
+    child_env = os.environ.copy()
+    if input_record is not None:
+        input_path = Path(input_record["path"])
+        if hashlib.sha256(input_path.read_bytes()).hexdigest() != input_record["byte_sha256"]:
+            raise ValueError("frozen input changed before subprocess launch")
+        child_env["TRADING_FROZEN_RESEARCH_DATA"] = json.dumps({
+            "path": str(input_path), "sha256": input_record["byte_sha256"],
+            "exchange": "binance", "symbol": symbol, "timeframe": timeframe,
+        })
 
     base_id = strategy_id.split("__")[0]
     cs_variant = strategy_id.split("__")[1] if "__" in strategy_id else None
@@ -108,22 +126,32 @@ def run_single_strategy_cell(
     # Launch subprocess
     out_dir = str(out_root / f"{strategy_id}__{symbol.replace('/', '')}__{timeframe}")
     cmd = [
-        "python3", "scripts/run_wfo_parallel.py",
+        sys.executable, "scripts/run_wfo_parallel.py",
         "--strategy", code_name,
         "--symbol", symbol,
         "--timeframe", timeframe,
         "--out", out_dir,
         "--workers", str(workers),
         "--cost", "all",
-        "--run-holdout",
     ]
 
     start = time.time()
+    job_dir = Path(out_dir)
+    job_dir.mkdir(parents=True, exist_ok=True)
+    stdout_path = job_dir / "worker_stdout.log"
+    stderr_path = job_dir / "worker_stderr.log"
+    # Preserve worker output even if the parent session disappears.
+    started_path = job_dir / "execution_started.json"
+    with started_path.open("x", encoding="utf-8") as stream:
+        json.dump({"cmd": cmd, "started_at": datetime.now(timezone.utc).isoformat(),
+                   "binding": input_record, "status": "STARTED"}, stream, indent=2)
     try:
-        result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=3600,
-            cwd=str(ROOT),
-        )
+        with stdout_path.open("x", encoding="utf-8") as stdout_log, \
+                stderr_path.open("x", encoding="utf-8") as stderr_log:
+            result = subprocess.run(
+                cmd, stdout=stdout_log, stderr=stderr_log, text=True, timeout=JOB_TIMEOUT_SECONDS,
+                cwd=str(ROOT), env=child_env,
+            )
         elapsed = time.time() - start
         if result.returncode != 0:
             return {
@@ -131,7 +159,7 @@ def run_single_strategy_cell(
                 "symbol": symbol,
                 "timeframe": timeframe,
                 "status": "ERROR",
-                "error": result.stderr[-500:] if result.stderr else "Unknown error",
+                "error": stderr_path.read_text()[-2000:] or "Worker exited without stderr",
             }
 
         # Parse summary
@@ -344,9 +372,11 @@ def _assert_coverage(cells, results, out_root: Path) -> None:
         verify_campaign_coverage,
     )
 
-    requested = {sid for sid, _asset, _tf in cells}
+    requested = {get_strategy_code_name(sid) for sid, _asset, _tf in cells}
+    canonical_results = [{**r, "strategy_id": get_strategy_code_name(r["strategy_id"])}
+                         if r.get("strategy_id") else r for r in results]
     report = verify_campaign_coverage(
-        requested_strategies=requested, out_root=out_root, results=results
+        requested_strategies=requested, out_root=out_root, results=canonical_results
     )
     print(report.summary())
     if not report.ok:
@@ -397,6 +427,7 @@ def run_cross_asset_phase(
 
 
 def main():
+    global FROZEN_INPUTS, JOB_TIMEOUT_SECONDS
     parser = argparse.ArgumentParser(description="Strategy Research Campaign")
     parser.add_argument(
         "--phase",
@@ -411,7 +442,33 @@ def main():
         "--strategies", nargs="+",
         help="Limit to specific strategy IDs (overrides default universe)",
     )
+    parser.add_argument("--input-manifest", type=Path,
+                        help="Audited per-subject pre-holdout manifest; forwarded to child workers")
+    parser.add_argument("--preflight-only", action="store_true")
+    parser.add_argument("--job-timeout-seconds", type=int, default=3600)
     args = parser.parse_args()
+    if args.job_timeout_seconds <= 0:
+        parser.error("job timeout must be positive")
+    JOB_TIMEOUT_SECONDS = args.job_timeout_seconds
+    if args.input_manifest:
+        manifest = json.loads(args.input_manifest.read_text())
+        FROZEN_INPUTS = {(r["symbol"], r["timeframe"]): r for r in manifest["inputs"]
+                         if r["status"] == "FROZEN"}
+        if not FROZEN_INPUTS:
+            raise ValueError("manifest contains no frozen inputs")
+    if args.preflight_only:
+        for sid in SINGLE_ASSET_STRATEGIES:
+            if args.strategies and sid not in args.strategies:
+                continue
+            for symbol in args.assets:
+                for tf in args.timeframes:
+                    record = FROZEN_INPUTS.get((symbol, tf))
+                    status = "READY_INPUT" if record and sid != "funding_carry" else "BLOCKED_DATA"
+                    print(json.dumps({"strategy": sid, "symbol": symbol,
+                                      "timeframe": tf, "status": status,
+                                      "grid": get_param_grid(sid)}))
+        print("Cross-asset requires separately bound universe/scenario inputs; no execution performed")
+        return
 
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 

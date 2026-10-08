@@ -88,13 +88,27 @@ class ControlledExec:
             while True:
                 if time.time() - self._start_time > self.timeout_sec:
                     self._terminate("timeout")
-                    complete(registry_pid, "timeout")
+                    stdout_thread.join(timeout=2)
+                    stderr_thread.join(timeout=2)
+                    result_path = ""
+                    if result_file:
+                        result_path = str(cwd / result_file)
+                        with open(result_path, "w") as f:
+                            json.dump({
+                                "cmd": cmd, "status": "timeout", "rc": -1,
+                                "elapsed_sec": time.time() - self._start_time,
+                                "stdout": self._output_lines,
+                                "stderr": self._error_lines,
+                                "error": f"Timeout after {self.timeout_sec}s",
+                            }, f, indent=2)
+                    complete(registry_pid, "timeout", result_path)
                     return ExecResult(
                         "timeout",
                         -1,
                         time.time() - self._start_time,
                         self._output_lines[-50:],
                         self._error_lines[-50:],
+                        result_path,
                         error=f"Timeout after {self.timeout_sec}s",
                     )
 

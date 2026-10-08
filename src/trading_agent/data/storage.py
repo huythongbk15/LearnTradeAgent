@@ -7,6 +7,9 @@ Current backend: Parquet files (fast, columnar, queryable with DuckDB later).
 from __future__ import annotations
 
 import logging
+import hashlib
+import io
+import json
 import os
 import tempfile
 import threading
@@ -23,6 +26,32 @@ logger = logging.getLogger(__name__)
 _STORAGE_LOCK = threading.RLock()
 
 DateBound = str | date | datetime
+
+
+@contextmanager
+def frozen_research_data(path: Path, *, exchange: str, symbol: str, timeframe: str):
+    """Bind research loads, including spawned workers, to exact input bytes.
+
+    This process-wide context is for serial campaign orchestration only.
+    Nested bindings are refused; ingestion/live loaders remain unchanged.
+    """
+    key = "TRADING_FROZEN_RESEARCH_DATA"
+    if key in os.environ:
+        raise ValueError("a frozen research data binding is already active")
+    path = Path(path).resolve(strict=True)
+    binding = dict(
+        path=str(path),
+        exchange=exchange,
+        symbol=symbol,
+        timeframe=timeframe,
+        sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
+    )
+    os.environ[key] = json.dumps(binding)
+    try:
+        yield binding
+    finally:
+        os.environ.pop(key, None)
+
 
 try:
     import fcntl
@@ -167,6 +196,55 @@ def load_ohlcv(
 
     df = pl.read_parquet(path).sort("timestamp")
 
+    timestamp_dtype = df.schema["timestamp"]
+    if start is not None:
+        df = df.filter(
+            pl.col("timestamp") >= _coerce_date_bound(start, timestamp_dtype)
+        )
+    if end is not None:
+        df = df.filter(pl.col("timestamp") < _coerce_date_bound(end, timestamp_dtype))
+    return df
+
+
+def load_research_ohlcv(
+    exchange: str,
+    symbol: str,
+    timeframe: str,
+    *,
+    start: DateBound | None = None,
+    end: DateBound | None = None,
+) -> pl.DataFrame:
+    """Research-only canonical history; leave ingestion/live storage unchanged.
+
+    Uses the configured storage root, never a hard-coded repository dataset.
+    Explicit noncanonical timeframes and other exchanges retain exact-path reads.
+    """
+    from trading_agent.data.canonical import TF_ALIASES, resolve_canonical
+
+    frozen = os.environ.get("TRADING_FROZEN_RESEARCH_DATA")
+    if frozen is not None:
+        binding = json.loads(frozen)
+        if (exchange, symbol, timeframe) != (
+            binding["exchange"],
+            binding["symbol"],
+            binding["timeframe"],
+        ):
+            raise ValueError("research subject differs from frozen input")
+        raw = Path(binding["path"]).read_bytes()
+        if hashlib.sha256(raw).hexdigest() != binding["sha256"]:
+            raise ValueError("frozen research input changed")
+        df = pl.read_parquet(io.BytesIO(raw)).sort("timestamp")
+    elif exchange != "binance" or timeframe not in TF_ALIASES:
+        return load_ohlcv(exchange, symbol, timeframe, start=start, end=end)
+    else:
+        resolution = resolve_canonical(
+            config.project_root, symbol, timeframe, storage_base=config.storage_abs_path
+        )
+        if resolution is None:
+            raise FileNotFoundError(
+                f"No canonical research data for {exchange} {symbol} {timeframe}"
+            )
+        df = pl.read_parquet(resolution.path).sort("timestamp")
     timestamp_dtype = df.schema["timestamp"]
     if start is not None:
         df = df.filter(

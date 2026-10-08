@@ -81,13 +81,27 @@ def sha256_file(path: Path, *, chunk: int = 1 << 20) -> str:
 
 
 def resolve_canonical(
-    root: Path, symbol: str, timeframe: str
+    root: Path, symbol: str, timeframe: str, *, storage_base: Path | None = None
 ) -> DataResolution | None:
     """Return the canonical file for a symbol, or None when it has none."""
     bucket = TF_ALIASES.get(timeframe)
     if bucket is None:
         return None
-    directory = Path(root) / "data" / "raw" / "binance" / symbol
+    normalized_symbol = symbol.replace("/", "_")
+    if not normalized_symbol or any(
+        c not in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_"
+        for c in normalized_symbol
+    ):
+        raise ValueError("invalid market symbol")
+    directory = (
+        (
+            Path(storage_base)
+            if storage_base is not None
+            else Path(root) / "data" / "raw"
+        )
+        / "binance"
+        / normalized_symbol
+    )
     for name in PREFERENCE[bucket]:
         candidate = directory / f"{name}.parquet"
         if not candidate.exists():
@@ -95,8 +109,10 @@ def resolve_canonical(
         import polars as pl
 
         df = pl.read_parquet(candidate, columns=["timestamp", "close"])
+        if df.is_empty():
+            raise ValueError(f"canonical dataset is empty: {candidate}")
         return DataResolution(
-            symbol=symbol,
+            symbol=normalized_symbol,
             timeframe=bucket,
             path=candidate,
             rows=df.height,
@@ -144,30 +160,35 @@ def describe(root: Path) -> list[dict]:
             canonical_name, canonical_path = found[0]
             df = pl.read_parquet(canonical_path, columns=["timestamp"])
             digests = {sha256_file(p) for _, p in found}
-            rows.append({
-                "symbol": directory.name,
-                "timeframe": bucket,
-                "canonical_path": str(canonical_path.relative_to(root)),
-                "canonical_rows": df.height,
-                "canonical_start": str(df["timestamp"][0]),
-                "canonical_end": str(df["timestamp"][-1]),
-                "sha256": sha256_file(canonical_path),
-                "available_files": [n for n, _ in found],
-                "duplicate_datasets": len(digests) < len(found),
-            })
+            rows.append(
+                {
+                    "symbol": directory.name,
+                    "timeframe": bucket,
+                    "canonical_path": str(canonical_path.relative_to(root)),
+                    "canonical_rows": df.height,
+                    "canonical_start": str(df["timestamp"][0]),
+                    "canonical_end": str(df["timestamp"][-1]),
+                    "sha256": sha256_file(canonical_path),
+                    "available_files": [n for n, _ in found],
+                    "duplicate_datasets": len(digests) < len(found),
+                }
+            )
     return rows
 
 
 if __name__ == "__main__":
-
     here = Path(__file__).resolve().parents[3]
     census = describe(here)
     print(f"{'symbol':10s} {'tf':10s} {'rows':>7}  {'files':22s} dup")
     print("-" * 62)
     for row in census:
-        print(f"{row['symbol']:10s} {row['timeframe']:10s} {row['canonical_rows']:>7}  "
-              f"{','.join(row['available_files']):22s} "
-              f"{'YES' if row['duplicate_datasets'] else ''}")
-    print(f"\n{len(census)} symbol/timeframe pairs; "
-          f"{sum(1 for r in census if r['duplicate_datasets'])} carry duplicate datasets "
-          f"under different names")
+        print(
+            f"{row['symbol']:10s} {row['timeframe']:10s} {row['canonical_rows']:>7}  "
+            f"{','.join(row['available_files']):22s} "
+            f"{'YES' if row['duplicate_datasets'] else ''}"
+        )
+    print(
+        f"\n{len(census)} symbol/timeframe pairs; "
+        f"{sum(1 for r in census if r['duplicate_datasets'])} carry duplicate datasets "
+        f"under different names"
+    )
