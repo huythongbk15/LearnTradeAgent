@@ -45,6 +45,53 @@ def finite(value: object) -> bool:
     return type(value) in {int, float} and math.isfinite(value)
 
 
+OPEN_RESULT_FIELDS = (
+    "open_quantity",
+    "open_side",
+    "open_entry_price",
+    "open_valuation_price",
+    "open_mark_value",
+    "open_entry_fee",
+    "open_unrealized",
+    "total_pnl",
+)
+
+
+def measured_row_total_pnl(row):
+    """Prove an optional carried leg; clearance cannot ignore its loss."""
+    if not any(key in row for key in OPEN_RESULT_FIELDS):
+        return row["net_pnl"]
+    if any(
+        not finite(row.get(key)) for key in OPEN_RESULT_FIELDS if key != "open_side"
+    ):
+        raise ValueError("incomplete measured open inventory row")
+    if (
+        row.get("open_side") not in {"buy", "sell"}
+        or any(
+            row[key] <= 0
+            for key in ("open_quantity", "open_entry_price", "open_valuation_price")
+        )
+        or row["open_entry_fee"] < 0
+    ):
+        raise ValueError("invalid measured open inventory row")
+    direction = 1 if row["open_side"] == "buy" else -1
+    mark = direction * row["open_quantity"] * row["open_valuation_price"]
+    unrealized = (
+        direction
+        * row["open_quantity"]
+        * (row["open_valuation_price"] - row["open_entry_price"])
+        - row["open_entry_fee"]
+    )
+    for key, expected in (
+        ("open_mark_value", mark),
+        ("open_unrealized", unrealized),
+        ("total_pnl", row["net_pnl"] + unrealized),
+    ):
+        if not math.isclose(row[key], expected, rel_tol=1e-9, abs_tol=1e-8):
+            raise ValueError(f"measured open inventory {key} does not reconcile")
+    return row["total_pnl"]
+
+
 def hash_id(value: object, lengths=(64,)) -> bool:
     return (
         isinstance(value, str)
@@ -305,10 +352,15 @@ def validate_v2(
                 errors.append(
                     "result gross/cost/net accounting bridge does not reconcile"
                 )
-            if type(row.get("cost_cleared")) is not bool or row["cost_cleared"] != (
-                row["net_pnl"] > 0
-            ):
-                errors.append("result cost_cleared disagrees with measured net PnL")
+            try:
+                cleared = measured_row_total_pnl(row) > 0
+                if (
+                    type(row.get("cost_cleared")) is not bool
+                    or row["cost_cleared"] != cleared
+                ):
+                    errors.append("result cost_cleared disagrees with measured net PnL")
+            except ValueError as exc:
+                errors.append(str(exc))
         if len(set(result_ids)) != len(result_ids) or set(result_ids) != set(fold_ids):
             errors.append(
                 "each fold must have exactly one result; duplicate/missing/unknown fold result"
@@ -322,6 +374,8 @@ def validate_v2(
             "median_sharpe": median(row["sharpe"] for row in usable),
             "total_trades": sum(row["trades"] for row in usable),
         }
+        if "fold_count" in aggregate:
+            derived["fold_count"] = len(usable)
         for key, value in derived.items():
             if not finite(aggregate.get(key)) or not math.isclose(
                 aggregate[key], value, abs_tol=1e-9
@@ -379,6 +433,18 @@ def validate_v2(
                             "comparison": comparison,
                         }
                     )
+            if bundle.get("native_gate_contract") is not None:
+                from trading_agent.backtest.native_gate_contract import (
+                    validate_native_evidence,
+                )
+
+                failed += validate_native_evidence(
+                    bundle["native_gate_contract"],
+                    bundle.get("native_gate_evidence"),
+                    [row["trades"] for row in usable],
+                )
+            elif "native_gate_evidence" in bundle:
+                raise ValueError("native evidence has no frozen contract")
             if bundle.get("failed_gates") != failed or bundle.get("verdict") != (
                 "FAIL" if failed else "PASS"
             ):

@@ -52,6 +52,47 @@ def run_script(*args: str, timeout: int = 300) -> subprocess.CompletedProcess[st
     )
 
 
+def test_eligibility_requires_both_thresholds(tmp_path):
+    result = run_script(
+        "--data-file", str(tmp_path / "unused.parquet"), "--min-validation-trades", "3"
+    )
+    assert result.returncode != 0
+    assert "requires both validation thresholds" in result.stderr
+
+
+def test_parameterized_history_matches_runtime_default_gaps(tmp_path):
+    from dataclasses import replace
+    from trading_agent.backtest.nested_wfo import _default_purge_embargo
+    from trading_agent.strategies.canonical.candidates import build_default_registry
+
+    descriptor = replace(build_default_registry().describe("ma_crossover"), warmup_bars=121)
+    purge, embargo = _default_purge_embargo(descriptor)
+    data = write_bars(tmp_path / "bars.parquet")
+    result = run_script(
+        "--strategy", "ma_crossover", "--timeframe", "1h",
+        "--data-file", str(data), "--out-root", str(tmp_path / "out"),
+        "--train-months", "2", "--val-months", "1", "--test-months", "1",
+        "--n-outer", "1", "--param-grid", '{"fast_period":[10],"slow_period":[120]}',
+        "--min-validation-trades", "30", "--min-validation-sharpe", "0",
+        "--no-publish", "--dry-run",
+    )
+    assert result.returncode == 0, result.stderr
+    assert f"warmup=121 purge={purge} embargo={embargo}" in result.stdout
+
+
+def test_eligibility_publication_is_blocked(tmp_path):
+    result = run_script(
+        "--data-file",
+        str(tmp_path / "unused.parquet"),
+        "--min-validation-trades",
+        "3",
+        "--min-validation-sharpe",
+        "0",
+    )
+    assert result.returncode != 0
+    assert "require --no-publish" in result.stderr
+
+
 def test_data_file_is_required(tmp_path: Path) -> None:
     # A plan without a data binding would not say what the campaign ran on,
     # so the entrypoint refuses rather than freezing a vague plan.
@@ -95,6 +136,7 @@ def test_dry_run_freezes_a_plan_for_every_strategy(tmp_path: Path) -> None:
     assert result.stdout.count("frozen plan") == 2, (
         "each strategy needs its own frozen plan"
     )
+    assert result.stdout.count("(2 folds)") == 2
     # Dry-run must not leave a plan behind on disk.
     assert not out.exists() or not list(out.glob("*/campaign_plan.json"))
 
@@ -164,6 +206,7 @@ def test_unknown_flag_is_rejected(tmp_path: Path, flag: str) -> None:
     bars = write_bars(tmp_path / "bars.parquet")
     result = run_script("--dry-run", "--data-file", str(bars), flag, "--bogus")
     assert result.returncode != 0
+
 
 def test_out_root_keeps_concurrent_campaigns_isolated(tmp_path: Path) -> None:
     # Two campaigns pointed at the same default root would write each other's

@@ -49,6 +49,7 @@ from trading_agent.backtest.reporting import (
     fingerprint_payload,
     fixed_allocation_buy_and_hold,
     load_gap_exceptions,
+    timeframe_delta,
 )
 from trading_agent.config.loader import config
 from trading_agent.data.storage import load_ohlcv
@@ -106,17 +107,7 @@ ATR_TP_MULT = float(os.getenv("ATR_TP_MULT", "3.0"))
 
 def _timeframe_delta(timeframe: str) -> timedelta:
     """Convert a compact timeframe such as 15m/1h/4h/1d to a duration."""
-    if len(timeframe) < 2 or not timeframe[:-1].isdigit():
-        raise ValueError(f"Unsupported timeframe: {timeframe!r}")
-    amount = int(timeframe[:-1])
-    unit = timeframe[-1].lower()
-    if amount <= 0 or unit not in {"m", "h", "d"}:
-        raise ValueError(f"Unsupported timeframe: {timeframe!r}")
-    return {
-        "m": timedelta(minutes=amount),
-        "h": timedelta(hours=amount),
-        "d": timedelta(days=amount),
-    }[unit]
+    return timeframe_delta(timeframe)
 
 
 def _sha256_file(path: Path) -> str:

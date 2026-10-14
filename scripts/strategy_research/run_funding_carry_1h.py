@@ -19,7 +19,6 @@ import os
 import subprocess
 import sys
 import time
-from datetime import UTC, datetime
 from pathlib import Path
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -64,7 +63,7 @@ def main() -> None:
 
     log(f"Command: {' '.join(cmd)}")
     log(f"Output dir: {OUT_DIR}")
-    log(f"Timeout: 4h (14400s)")
+    log("Timeout: 4h (14400s)")
     log("")
 
     start = time.time()

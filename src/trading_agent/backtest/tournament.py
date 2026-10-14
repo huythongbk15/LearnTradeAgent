@@ -29,7 +29,7 @@ import math
 import sys
 import time
 from dataclasses import dataclass, field, replace
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Mapping, Optional
@@ -43,10 +43,12 @@ import polars as pl
 
 from trading_agent.backtest.reporting import (
     GapPolicy,
+    DataQualityError,
     assess_ohlcv,
     calculate_cost_attribution,
     calendar_returns,
     load_gap_exceptions,
+    timeframe_delta,
 )
 from trading_agent.data.storage import load_research_ohlcv as load_ohlcv
 from trading_agent.strategies.canonical.adapter import (
@@ -994,7 +996,7 @@ def _run_cell_impl(
         )
 
     try:
-        _, adapter = build_parameterized_adapter(spec.strategy_id, spec.params)
+        descriptor, adapter = build_parameterized_adapter(spec.strategy_id, spec.params)
     except RegistryIntegrityError as exc:
         return _failed_artifact(spec, descriptor, f"registry blocked: {exc}")
 
@@ -1081,12 +1083,13 @@ def _run_cell_impl(
         if resolved_gap_exceptions_path is not None
         else ()
     )
-    quality = assess_ohlcv(
-        source_df.sort("timestamp"),
-        expected_interval=timedelta(hours=1),
-        gap_policy=gap_policy,
-        gap_exceptions=gap_exceptions,
-    )
+    try:
+        quality = assess_ohlcv(
+            source_df, expected_interval=timeframe_delta(spec.timeframe),
+            gap_policy=gap_policy, gap_exceptions=gap_exceptions,
+        )
+    except DataQualityError as error:
+        quality = error.report
     data_manifest_sha = hashlib.sha256(
         json.dumps(
             {
@@ -1113,6 +1116,15 @@ def _run_cell_impl(
             sort_keys=True,
         ).encode()
     ).hexdigest()
+
+    if not quality.accepted:
+        return _failed_artifact(
+            spec, descriptor, f"data_quality:{quality.status}",
+            data_manifest_sha=data_manifest_sha,
+            measurement_window=(measurement_start, measurement_end)
+            if measurement_start is not None and measurement_end is not None else None,
+            simulation_window=(sim_start, end), signal_delay_bars=signal_delay_bars,
+        )
 
     frame = source_df.sort("timestamp")
     if "timestamp" in frame.columns and "time" not in frame.columns:
@@ -1295,16 +1307,20 @@ def _run_cell_impl(
             ):
                 unattributed_cross_boundary += 1
                 continue
-            gross = quantity * (
-                exit_price - boundary_price
-                if side == "buy"
-                else boundary_price - exit_price
+            from trading_agent.backtest.accounting_evidence import (
+                mark_paper_trade_at_boundary,
             )
-            exit_fee = float(trade.get("exit_fee") or 0.0)
-            trade["pnl"] = gross - exit_fee
-            trade["entry_price"] = boundary_price
-            trade["entry_fee"] = 0.0
-            trade["measurement_attribution"] = "marked_at_window_open"
+
+            try:
+                trade = mark_paper_trade_at_boundary(
+                    original,
+                    boundary_price=boundary_price,
+                    measurement_start=measurement_start,
+                    measurement_end=measurement_end,
+                )
+            except ValueError:
+                unattributed_cross_boundary += 1
+                continue
             m_trades.append(trade)
 
         m_metrics = calculate_performance_metrics(
@@ -1340,11 +1356,31 @@ def _run_cell_impl(
                 open_leg = sim.engine.exchange.get_open_inventory_measurement(
                     window_mark_price
                 )
+                position = sim.engine.exchange.get_all_positions()[0]
+                entry_bar = position.metadata.get("simulation", {}).get(
+                    "entry_bar_index"
+                )
+                if type(entry_bar) is not int:
+                    raise ValueError("open position lacks a measured entry bar")
+                if entry_bar < measurement_start:
+                    from trading_agent.backtest.accounting_evidence import (
+                        mark_paper_open_at_boundary,
+                    )
+
+                    open_leg = mark_paper_open_at_boundary(
+                        open_leg,
+                        boundary_price=boundary_price,
+                        entry_bar_index=entry_bar,
+                        measurement_start=measurement_start,
+                        measurement_end=measurement_end,
+                    )
             report["measured_open_inventory"] = open_leg
+            report["measured_equity_basis"] = "marked_equity"
             report["measured_accounting"] = export_paper_trade_accounting(
                 m_trades,
                 equity_delta=float(m_eq[-1][1]) - opening_equity,
                 open_inventory=open_leg if open_leg is not None else False,
+                equity_basis="marked_equity",
             )
             report["measured_accounting_error"] = None
         except ValueError as exc:
@@ -1436,7 +1472,7 @@ def _bridge_runtime_factory(spec: EvaluationCellSpec, adapter, descriptor):
             descriptor_warmup_bars=descriptor.warmup_bars,
             symbol=spec.symbol,
             timeframe=spec.timeframe,
-            timeframe_delta=timedelta(hours=1),
+            timeframe_delta=timeframe_delta(spec.timeframe),
             default_target_exposure_pct=0.25,
         )
 

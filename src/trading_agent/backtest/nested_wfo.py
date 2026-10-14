@@ -2275,9 +2275,8 @@ def _run_outer_eval(
         signal_delay_bars: Number of bars to delay signals (0 = no delay).
             1 = delay by 1 bar (decision at close of bar j-1, execute at open j).
     """
-    warmup = getattr(descriptor, "warmup_bars", 0)
-    buffer_bars = 100
-    sim_start = max(0, fold.outer_test_start - warmup - buffer_bars)
+    # Match the primary outer evaluation's fresh, flat startup boundary.
+    sim_start = fold.outer_test_start
     cell = EvaluationCellSpec(
         strategy_id=spec.strategy_id,
         symbol=spec.symbol,
@@ -2348,6 +2347,16 @@ def _compute_drop_best_trade(
     }
 
 
+def _sensitivity_requests(spec, outer_results, folds):
+    from trading_agent.backtest.wfo_sensitivity import sensitivity_requests
+    return sensitivity_requests(spec, outer_results, folds)
+
+
+def _sensitivity_receipt(request, artifact, root):
+    from trading_agent.backtest.wfo_sensitivity import sensitivity_receipt
+    return sensitivity_receipt(request, artifact, root)
+
+
 def _compute_sensitivity_analysis(
     spec: WFOSpec,
     outer_results: list[WFOOuterResult],
@@ -2368,6 +2377,9 @@ def _compute_sensitivity_analysis(
     re-evaluations. Otherwise they fall back to framework placeholders (so the
     function never crashes without a backtest harness available).
     """
+    if out_root is not None and descriptor is not None:
+        from trading_agent.backtest.wfo_sensitivity import compute_sensitivity
+        return compute_sensitivity(spec, outer_results, folds, Path(out_root), descriptor)
     if not outer_results:
         return {"error": "No outer results to analyze"}
 
@@ -2776,6 +2788,11 @@ def run_nested_wfo(
     holdout_actor: str = "research_system",
     real_sensitivity: bool = True,
     cell_runner: CellRunner | None = None,
+    validation_only: bool = False,
+    native_gate_contract: dict | None = None,
+    selection_contract: dict | None = None,
+    execution_context: dict | None = None,
+    folds: list[NestedFold] | None = None,
 ) -> WFOResult:
     """Run nested walk-forward optimization for one strategy × symbol.
 
@@ -2796,6 +2813,16 @@ def run_nested_wfo(
     """
     out_root = Path(out_root) if out_root else ROOT / "data" / "backtests" / "wfo"
     out_root.mkdir(parents=True, exist_ok=True)
+
+    if native_gate_contract is not None and not validation_only:
+        from trading_agent.backtest.native_gate_contract import freeze_native_gate_contract
+        if native_gate_contract != freeze_native_gate_contract(spec, run_holdout=run_holdout):
+            raise ValueError("native gate contract differs from frozen definitions")
+    runner_context = getattr(cell_runner, "trial_context", None)
+    if runner_context is not None:
+        if execution_context is not None and execution_context != runner_context:
+            raise ValueError("runner and WFO execution context disagree")
+        execution_context = runner_context
 
     # Initialize registry
     registry = ExperimentRegistry(spec.registry_path)
@@ -2822,17 +2849,21 @@ def run_nested_wfo(
     df = load_ohlcv("binance", spec.symbol, spec.timeframe)
     n_bars = df.height
 
-    # Generate folds
-    folds = _get_fold_indices(
-        n_bars=n_bars,
-        timeframe=spec.timeframe,
-        train_months=spec.train_months,
-        val_months=spec.val_months,
-        test_months=spec.test_months,
-        step_months=spec.step_months,
-        purge=purge,
-        embargo=embargo,
-    )
+    # Generate folds (or use provided folds for validation-only)
+    if validation_only and folds is not None:
+        # Use provided folds for validation-only calibration
+        pass
+    else:
+        folds = _get_fold_indices(
+            n_bars=n_bars,
+            timeframe=spec.timeframe,
+            train_months=spec.train_months,
+            val_months=spec.val_months,
+            test_months=spec.test_months,
+            step_months=spec.step_months,
+            purge=purge,
+            embargo=embargo,
+        )
 
     if not folds:
         raise ValueError(f"Insufficient data for fold structure: {n_bars} bars")
@@ -2846,7 +2877,7 @@ def run_nested_wfo(
     holdout_start_bar: int | None = None
     holdout_end_bar: int | None = None
     research_manifest: dict[str, Any] | None = None
-    if holdout_bars is not None:
+    if holdout_bars is not None and not validation_only:
         holdout_start_bar, holdout_end_bar, research_manifest = holdout_bars
         kept_folds = [f for f in folds if f.outer_test_end <= holdout_start_bar]
         dropped = len(folds) - len(kept_folds)
@@ -2860,6 +2891,27 @@ def run_nested_wfo(
             raise ValueError(
                 f"All {len(folds) + dropped} folds overlap the frozen holdout "
                 f"(bars {holdout_start_bar}..{holdout_end_bar}); reduce horizon or extend data"
+            )
+    elif holdout_bars is not None and validation_only:
+        # validation-only: we only run inner validation, no outer OOS.
+        # But inner validation window must still not overlap holdout.
+        holdout_start_bar, holdout_end_bar, research_manifest = holdout_bars
+        kept_folds = []
+        for f in folds:
+            if f.inner_val_end <= holdout_start_bar:
+                kept_folds.append(f)
+            else:
+                print(
+                    f"[STR-0309] Dropped fold {f.fold_id} inner validation window "
+                    f"(val bars {f.inner_val_start}..{f.inner_val_end}) "
+                    f"overlaps frozen holdout (bars {holdout_start_bar}..{holdout_end_bar})"
+                )
+        dropped = len(folds) - len(kept_folds)
+        folds = kept_folds
+        if not folds:
+            raise ValueError(
+                f"All folds' inner validation windows overlap frozen holdout "
+                f"(bars {holdout_start_bar}..{holdout_end_bar}); adjust validation windows"
             )
 
     # Generate parameter combinations
@@ -2907,6 +2959,12 @@ def run_nested_wfo(
     # study. Declared once and used in every evaluation identity record.
     POLICY_VERSION = "v1"
 
+    # validation-only mode: forbids holdout, real_sensitivity, requires selection_contract
+    if validation_only:
+        if run_holdout or real_sensitivity:
+            raise ValueError("validation-only requires eligibility contract and forbids holdout/sensitivity")
+        # selection_contract is checked by caller (run_wfo_parallel.py)
+
     inner_results = []
     outer_results = []
     inner_selection_freezes = []
@@ -2939,7 +2997,8 @@ def run_nested_wfo(
         # STR-0309: fail-closed guard — this fold's data window must never touch
         # the frozen holdout. (Folds overlapping it were already dropped above,
         # but this is defense-in-depth before any expensive backtest runs.)
-        if holdout_start_bar is not None:
+        # Skip for validation-only: we only run inner validation, no outer OOS.
+        if holdout_start_bar is not None and not validation_only:
             _guard_fold_against_holdout(
                 fold,
                 df,
@@ -3004,16 +3063,26 @@ def run_nested_wfo(
                 ))
 
         # Dispatch all cells in parallel (or serially fallback)
+        # Extract timeout/retry from execution_context for calibration budget enforcement
+        cell_timeout = 300
+        cell_max_retries = 2
+        if execution_context is not None:
+            rt = execution_context.get("runtime_config", {})
+            cell_timeout = rt.get("cell_timeout_seconds", cell_timeout)
+            cell_max_retries = rt.get("max_retries", cell_max_retries)
+
         if hasattr(cell_runner, "run_batch"):
             artifacts = cell_runner.run_batch(batch_cells)  # type: ignore[union-attr]
         else:
-            # Fallback: serial execution
+            # Fallback: serial execution with budget enforcement
             runner = cell_runner or run_cell
             artifacts = [
                 runner(spec_val, out_root=out_root, start=sim_start,
                        end=fold.inner_val_end, fresh=True,
                        measurement_start=fold.inner_val_start,
-                       measurement_end=fold.inner_val_end)
+                       measurement_end=fold.inner_val_end,
+                       timeout_seconds=cell_timeout,
+                       max_retries=cell_max_retries)
                 for spec_val, _, _, _, _, _ in batch_cells
             ]
 
@@ -3036,12 +3105,14 @@ def run_nested_wfo(
                     "cost_scenario": cost_name,
                     "val_sharpe": val_sharpe,
                     "val_metrics": val_metrics,
+                    "experiment_id": experiment_id,
+                    "artifact": artifact_val,
                 }
             )
             # S3-2: every attempted (params, cost, fold) is evidence. Failed,
             # no-trade and non-finite trials remain in the append-only burden
             # instead of disappearing from multiple-testing accounting.
-            if not registry.has_trial_phase(
+            if execution_context is not None or not registry.has_trial_phase(
                 experiment_id,
                 fold_id,
                 TRIAL_PHASE_INNER_VALIDATION,
@@ -3068,8 +3139,12 @@ def run_nested_wfo(
                     extra={
                         "params_hash": param_hash(params_with_cost),
                         "study_manifest_id": study_manifest.manifest_id,
+                        **({"execution_context": execution_context} if execution_context is not None else {}),
                     },
                 )
+                if execution_context is not None:
+                    inner_identity["execution_context"] = execution_context
+                    inner_identity["extra"] = {"execution_context": execution_context}
                 inner_metadata = attach_evaluation_identity(
                     {
                         "params": params_with_cost,
@@ -3083,24 +3158,70 @@ def run_nested_wfo(
                     },
                     inner_identity,
                 )
-                registry.append_evaluation(
-                    experiment_id=experiment_id,
-                    fold_id=fold_id,
-                    metric_name=(
-                        "inner_val_sharpe"
-                        if metric_available
-                        else "inner_val_trial_failed"
-                    ),
-                    metric_value=float(val_sharpe) if metric_available else 0.0,
-                    environment_hash=env_hash,
-                    trial_phase=TRIAL_PHASE_INNER_VALIDATION,
-                    metadata=inner_metadata,
-                )
+                # validation-only: skip legacy registry write; validation-only block writes versioned trials
+                if not validation_only:
+                    registry.append_evaluation(
+                        experiment_id=experiment_id,
+                        fold_id=fold_id,
+                        metric_name=(
+                            "inner_val_sharpe"
+                            if metric_available
+                            else "inner_val_trial_failed"
+                        ),
+                        metric_value=float(val_sharpe) if metric_available else 0.0,
+                        environment_hash=env_hash,
+                        trial_phase=TRIAL_PHASE_INNER_VALIDATION,
+                        metadata=inner_metadata,
+                        idempotent=execution_context is not None,
+                        execution_context=execution_context,
+                    )
             if val_sharpe > best_val_sharpe:
                 best_val_sharpe = val_sharpe
                 best_params = params_with_cost
                 best_val_metrics = val_metrics
                 best_candidate_experiment_id = experiment_id
+
+        # Source attribution and deterministic eligibility precede ANY outer run.
+        for candidate in candidate_metrics:
+            measured = candidate.get("artifact")
+            if measured is not None and measured.report_path:
+                report_path = Path(measured.report_path).resolve()
+                if not report_path.is_relative_to(out_root.resolve()):
+                    raise ValueError("validation report escapes WFO root")
+                candidate["validation_source"] = {
+                    "report_path": str(report_path.relative_to(out_root.resolve())),
+                    "report_sha256": hashlib.sha256(report_path.read_bytes()).hexdigest(),
+                    "artifact": measured.to_dict(),
+                }
+        if selection_contract is not None:
+            from trading_agent.backtest.selection_eligibility import (
+                assess_validation_candidates, verify_validation_reports,
+            )
+            if validation_only:
+                decision = assess_validation_candidates(selection_contract, candidate_metrics)
+            else:
+                decision = verify_validation_reports(selection_contract, candidate_metrics,
+                    root=out_root, validation_window=(fold.inner_val_start, fold.inner_val_end),
+                    expected_spec=spec, expected_commit=commit_sha,
+                    expected_simulation_window=(sim_start, fold.inner_val_end))
+                from trading_agent.backtest.campaign_execution import _durable_json
+                path = out_root / f"selection_decision_{fold_id}.json"
+                if path.exists():
+                    if json.loads(path.read_bytes()) != decision:
+                        raise ValueError("frozen selection decision mismatch")
+                else:
+                    _durable_json(path, decision)
+            selected = decision["selected"]
+            if selected is None:
+                best_params, best_val_metrics, best_val_sharpe = {}, {}, -np.inf
+                best_candidate_experiment_id = None
+                if not validation_only:
+                    raise ValueError("NOT_QUALIFIED: validation ABSTAIN before outer evaluation")
+            else:
+                winner = next(c for c in candidate_metrics if c["params"] == selected["params"] and c["cost_scenario"] == selected["cost_scenario"])
+                best_params = selected["params"] | {"cost_scenario": selected["cost_scenario"]}
+                best_val_sharpe, best_val_metrics = selected["validation_sharpe"], winner["val_metrics"]
+                best_candidate_experiment_id = winner["experiment_id"]
 
         inner_results.append(
             WFOInnerResult(
@@ -3137,18 +3258,32 @@ def run_nested_wfo(
                 feature_schema_hash=feature_schema_hash,
                 evaluator_version=spec.evaluator_version,
             )
-            # S3-6: atomic persistence of inner selection freeze
-            freeze = _persist_inner_selection_freeze(out_root, freeze)
-            inner_selection_freezes.append(freeze)
+            if validation_only:
+                # Do NOT persist freeze yet; validation-only assessment below
+                # will decide SELECT vs ABSTAIN. Freeze persisted only on SELECT.
+                inner_selection_freezes.append(freeze)
+            else:
+                # S3-6: atomic persistence of inner selection freeze (non-validation-only)
+                freeze = _persist_inner_selection_freeze(out_root, freeze)
+                inner_selection_freezes.append(freeze)
+
+            # validation-only: skip outer OOS evaluation entirely
+            if validation_only:
+                # No outer test, no artifact, just continue to next fold
+                outer_results.append(
+                    WFOOuterResult(
+                        fold_id=fold_id,
+                        test_start=fold.outer_test_start,
+                        test_end=fold.outer_test_end,
+                        params=best_params,
+                        test_metrics={},
+                        execution_health={},
+                        artifact=None,
+                    )
+                )
+                continue
 
             # Check if outer fold was already evaluated with this freeze (idempotent replay)
-            artifact_path = _outer_artifact_path(
-                out_root, freeze.freeze_id, fold_id,
-                pair=freeze.symbol, strategy=freeze.strategy_id,
-            )
-            import sys as _sys
-            print(f"DEBUG-IDEMPOTENCY: freeze={freeze.freeze_id[:12]} fold={fold_id} "
-                  f"artifact_path={artifact_path} exists={artifact_path.exists()}", file=_sys.stderr, flush=True)
             existing_artifact = _find_existing_outer_artifact(
                 out_root, freeze.freeze_id, fold_id,
                 pair=freeze.symbol, strategy=freeze.strategy_id,
@@ -3180,7 +3315,7 @@ def run_nested_wfo(
                     params=test_params,
                     cost_scenario=cost_scenario,
                 )
-                runner = cell_runner if (cell_runner and not hasattr(cell_runner, "run_batch")) else run_cell
+                runner = cell_runner or run_cell
                 artifact = runner(
                     spec_test,
                     out_root=out_root,
@@ -3225,9 +3360,9 @@ def run_nested_wfo(
             test_sharpe = test_metrics.get("sharpe", -np.inf)
             if (
                 best_candidate_experiment_id is not None
-                and not registry.has_trial_phase(
+                and (execution_context is not None or not registry.has_trial_phase(
                     best_candidate_experiment_id, fold_id, TRIAL_PHASE_OUTER_OOS
-                )
+                ))
             ):
                 metric_available = bool(np.isfinite(test_sharpe))
                 # R03: stamp the full evaluation identity on OUTER_OOS too.
@@ -3256,8 +3391,12 @@ def run_nested_wfo(
                         ),
                         "freeze_id": freeze.freeze_id,
                         "study_manifest_id": study_manifest.manifest_id,
+                        **({"execution_context": execution_context} if execution_context is not None else {}),
                     },
                 )
+                if execution_context is not None:
+                    outer_identity["execution_context"] = execution_context
+                    outer_identity["extra"] = {"execution_context": execution_context}
                 outer_metadata = attach_evaluation_identity(
                     {
                         "params": {
@@ -3285,7 +3424,243 @@ def run_nested_wfo(
                     environment_hash=env_hash,
                     trial_phase=TRIAL_PHASE_OUTER_OOS,
                     metadata=outer_metadata,
+                    idempotent=execution_context is not None,
+                    execution_context=execution_context,
                 )
+
+    # validation-only: attach validation_source to candidates BEFORE writing selection decisions
+    # This ensures report_sha256 and report_path are available for the decision
+    for inner in inner_results:
+        for candidate in inner.candidate_metrics:
+            source = candidate.get("validation_source")
+            if not source:
+                # Construct validation_source from candidate info if not present
+                artifact = candidate.get("artifact")
+                # Handle both dict and EvaluationArtifact objects
+                report_path = None
+                artifact_status = getattr(artifact, "status", None) if artifact else None
+                if artifact is not None:
+                    report_path = getattr(artifact, "report_path", None)
+                    if report_path is None and isinstance(artifact, dict):
+                        report_path = artifact.get("report_path")
+                        artifact_status = artifact.get("status")
+                if report_path:
+                    report_path = Path(report_path)
+                    if report_path.exists():
+                        # Convert artifact to dict for verification
+                        artifact_dict = artifact.to_dict() if hasattr(artifact, "to_dict") else artifact
+                        source = {
+                            "report_path": str(report_path.relative_to(out_root)),
+                            "report_sha256": hashlib.sha256(report_path.read_bytes()).hexdigest(),
+                            "artifact": artifact_dict,
+                        }
+                    else:
+                        artifact_dict = artifact.to_dict() if hasattr(artifact, "to_dict") else artifact
+                        source = {"artifact": artifact_dict}
+                else:
+                    # Failed or missing artifact: create minimal validation_source
+                    # that will cause verification to fail with ValueError
+                    artifact_dict = artifact.to_dict() if hasattr(artifact, "to_dict") else artifact
+                    source = {
+                        "report_path": "nonexistent/report.json",
+                        "report_sha256": "",
+                        "artifact": artifact_dict,
+                    }
+            # Attach validation_source to candidate for test/accessor verification
+            candidate["validation_source"] = source
+
+    # validation-only: persist inner selection freezes, write trials, return early
+    # No outer OOS, sensitivity, holdout, gates, or promotion artifacts.
+    if validation_only:
+        from trading_agent.backtest.campaign_execution import _durable_json
+        from trading_agent.backtest.selection_eligibility import (
+            assess_validation_candidates,
+            verify_selection_contract,
+        )
+        # Save validation selection decision (assessment result) for each fold
+        # Use selection_contract if provided, otherwise fall back to InnerSelectionFreeze
+        for inner in inner_results:
+            if selection_contract is not None:
+                # Assess candidates against eligibility contract
+                verify_selection_contract(selection_contract)
+                decision = assess_validation_candidates(selection_contract, inner.candidate_metrics)
+                # Augment candidates with report_sha256 from validation_source
+                for d_cand, raw_cand in zip(decision["candidates"], inner.candidate_metrics):
+                    source = raw_cand.get("validation_source", {})
+                    d_cand["report_sha256"] = source.get("report_sha256", "")
+                    d_cand["report_path"] = source.get("report_path", "")
+                is_calibration = inner.fold_id.startswith("cal_")
+                decision_with_fold = {**decision, "fold_id": inner.fold_id}
+                if is_calibration:
+                    decision_with_fold["strategy_id"] = spec.strategy_id
+                # Per-strategy file for calibration (fold_id starts with "cal_") to avoid collision
+                # when multiple strategies share out_root. Normal validation-only uses old naming.
+                freeze_name = f"selection_decision_{spec.strategy_id}_{inner.fold_id}.json" if is_calibration else f"selection_decision_{inner.fold_id}.json"
+                freeze_path = out_root / freeze_name
+                if freeze_path.exists():
+                    existing = json.loads(freeze_path.read_text())
+                    if existing != decision_with_fold:
+                        raise ValueError("destination selection decision mismatch")
+                else:
+                    _durable_json(freeze_path, decision_with_fold)
+            else:
+                # Fallback: save InnerSelectionFreeze
+                freeze = next((f for f in inner_selection_freezes if f.fold_id == inner.fold_id), None)
+                if freeze:
+                    is_calibration = freeze.fold_id.startswith("cal_")
+                    freeze_name = f"selection_decision_{spec.strategy_id}_{freeze.fold_id}.json" if is_calibration else f"selection_decision_{freeze.fold_id}.json"
+                    freeze_path = out_root / freeze_name
+                    if freeze_path.exists():
+                        existing = json.loads(freeze_path.read_text())
+                        if existing.get("freeze_id") != freeze.freeze_id:
+                            raise ValueError("destination selection freeze hash mismatch")
+                    else:
+                        _durable_json(freeze_path, freeze.to_dict())
+        # Write trials to registry for validation-only cells (INNER_VALIDATION phase)
+        # Use provided execution_context or fall back to study manifest
+        if execution_context is not None:
+            exec_ctx = execution_context
+        else:
+            exec_ctx = {
+                "trial_identity_version": 2,
+                "protocol_fingerprint": study_manifest.manifest_id.removeprefix("sha256:"),
+                "source": {
+                    "commit_sha": study_manifest.commit_sha,
+                    "strategy_code_sha": study_manifest.strategy_code_sha,
+                    "data_manifest_sha": study_manifest.data_manifest_sha,
+                },
+                "environment": {
+                    "python_version": "3.12",
+                    "platform": "linux",
+                },
+                "runtime_config": {
+                    "cell_timeout_seconds": 60,
+                    "max_retries": 0,
+                },
+            }
+        for inner in inner_results:
+            for candidate in inner.candidate_metrics:
+                    # validation_source already attached earlier
+                    source = candidate.get("validation_source", {})
+                    val_metrics = candidate.get("val_metrics", {})
+                    val_sharpe = val_metrics.get("sharpe", 0.0)
+                    # Determine artifact status for metadata
+                    artifact = candidate.get("artifact")
+                    artifact_status = getattr(artifact, "status", "FAILED") if artifact else "FAILED"
+                    # Find the fold to get fold-specific environment hash
+                    fold_obj = next((f for f in folds if f.fold_id == inner.fold_id), None)
+                    env_hash = _compute_environment_hash(spec, fold_obj) if fold_obj else study_manifest.manifest_id.removeprefix("sha256:")
+                    # Build evaluation_identity matching audit expectations
+                    # Include execution_context at top level for versioned trial identity check
+                    # AND in extra for audit comparison
+                    eval_identity = {
+                        "strategy_id": spec.strategy_id,
+                        "symbol": spec.symbol,
+                        "timeframe": spec.timeframe,
+                        "strategy_code_sha": study_manifest.strategy_code_sha,
+                        "data_manifest_sha": study_manifest.data_manifest_sha,
+                        "feature_schema_hash": study_manifest.feature_schema_hash,
+                        "search_space_hash": study_manifest.search_space_hash,
+                        "evaluator_version": spec.evaluator_version,
+                        "policy_version": "v1",
+                        "cost_scenario": candidate.get("cost_scenario", "1x"),
+                        "window_kind": TRIAL_PHASE_INNER_VALIDATION,
+                        "seed": spec.seed,
+                        "commit_sha": study_manifest.commit_sha,
+                        "execution_context": exec_ctx,
+                        "extra": {"execution_context": exec_ctx},
+                    }
+                    registry.append_evaluation(
+                        experiment_id=candidate.get("experiment_id", "unknown"),
+                        fold_id=inner.fold_id,
+                        metric_name="inner_validation_sharpe",
+                        metric_value=float(val_sharpe) if val_sharpe is not None else 0.0,
+                        environment_hash=env_hash,
+                        metadata={
+                            "evaluation_identity": eval_identity,
+                            "status": artifact_status,
+                        },
+                        trial_phase=TRIAL_PHASE_INNER_VALIDATION,
+                        idempotent=True,
+                        execution_context=exec_ctx,
+                    )
+        # Write cell_timings.jsonl for validation cells (placeholder timing info)
+        timings_path = out_root / "cell_timings.jsonl"
+        with timings_path.open("a", encoding="utf-8") as stream:
+            for inner in inner_results:
+                fold_obj = next((f for f in folds if f.fold_id == inner.fold_id), None)
+                for candidate in inner.candidate_metrics:
+                    artifact = candidate.get("artifact")
+                    stream.write(
+                        json.dumps(
+                            dict(
+                                key=f"{inner.fold_id}_{candidate.get('cost_scenario', '1x')}_{candidate.get('params', {})}",
+                                cell_id=getattr(artifact, "cell_id", "") if artifact else "",
+                                window={"timeout_seconds": 60, "max_retries": 0, "simulation_window": [inner.val_start, inner.val_end]},
+                                elapsed_sec=0.0,
+                                cache_hit=False,
+                                cache_reason="validation_only",
+                                status=getattr(artifact, "status", "COMPLETED") if artifact else "COMPLETED",
+                                error=None,
+                                strategy_id=spec.strategy_id,
+                                params=dict(candidate.get("params", {})),
+                                execution_control=dict(getattr(artifact, "execution_control", {}) or {}) if artifact else {},
+                                workers=1,
+                            )
+                        )
+                        + "\n"
+                    )
+        # validation-only: override best_params with eligibility contract assessment
+        final_inner_results = inner_results
+        if selection_contract is not None:
+            from trading_agent.backtest.selection_eligibility import (
+                assess_validation_candidates, verify_selection_contract,
+            )
+            verify_selection_contract(selection_contract)
+            final_inner_results = []
+            final_freezes = []
+            for inner in inner_results:
+                decision = assess_validation_candidates(selection_contract, inner.candidate_metrics)
+                selected = decision.get("selected")
+                if selected:
+                    best_params = {**selected["params"], "cost_scenario": selected["cost_scenario"]}
+                    best_val_sharpe = selected["validation_sharpe"]
+                    # Persist freeze to disk only on SELECT (never on ABSTAIN)
+                    freeze = next((f for f in inner_selection_freezes if f.fold_id == inner.fold_id), None)
+                    if freeze:
+                        freeze = _persist_inner_selection_freeze(out_root, freeze)
+                        final_freezes.append(freeze)
+                else:
+                    best_params = {}
+                    best_val_sharpe = -float("inf")
+                # Create new WFOInnerResult with updated best_params
+                final_inner_results.append(
+                    WFOInnerResult(
+                        fold_id=inner.fold_id,
+                        train_start=inner.train_start,
+                        train_end=inner.train_end,
+                        val_start=inner.val_start,
+                        val_end=inner.val_end,
+                        best_params=best_params,
+                        best_val_sharpe=best_val_sharpe,
+                        val_metrics=inner.val_metrics,
+                        n_trials=inner.n_trials,
+                        candidate_metrics=inner.candidate_metrics,
+                    )
+                )
+            inner_results = final_inner_results
+            inner_selection_freezes = final_freezes
+
+        return WFOResult(
+            spec=spec, inner_results=inner_results, outer_results=[],
+            inner_selection_freezes=inner_selection_freezes,
+            aggregate_metrics={"n_inner_folds": len(inner_results), "n_outer_folds": 0,
+                               "scope": "inner_validation_only"},
+            statistical_hardening={}, gate_results=[], passes_hard_gates=False,
+            gate_failures=["VALIDATION_ONLY_NOT_QUALIFIED"],
+            trial_counts=asdict(registry.trial_counts(experiment_ids=candidate_experiment_ids)),
+            study_manifest=study_manifest,
+        )
 
     # Aggregate statistics
     test_sharpes = [
@@ -3384,13 +3759,12 @@ def run_nested_wfo(
             statistical_hardening["psr"] = float(psr)
 
             # DSR: Deflated Sharpe Ratio with multiple testing adjustment.
-            # trials = number of distinct candidate configurations actually
-            # registered in the registry (real search-space size), not a
-            # hand-maintained counter.
+            # Preserve candidate x execution-context burden and legacy history,
+            # rather than counting only distinct candidates in this new run.
             dsr = deflated_sharpe_ratio(
                 s.sharpe,
                 n=s.n,
-                trials=trial_counts.unique_experiments,
+                trials=trial_counts.raw_trial_count,
                 skew=s.skew,
                 excess_kurtosis=s.excess_kurtosis,
                 sr_benchmark=0.0,
@@ -3408,12 +3782,12 @@ def run_nested_wfo(
         )
 
     # --- One-call summary from summarize_sharpe (reuses bootstrap + PSR + DSR) ---
-    if flat_returns.size >= 3 and trial_counts.unique_experiments >= 1:
+    if flat_returns.size >= 3 and trial_counts.raw_trial_count >= 1:
         try:
             summary = summarize_sharpe(
                 flat_returns,
                 periods_per_year=periods_per_year,
-                trials=trial_counts.unique_experiments,
+                trials=trial_counts.raw_trial_count,
                 experiment_registry=registry,
                 experiment_ids=candidate_experiment_ids,
                 bootstrap_iters=1000,
@@ -3453,13 +3827,13 @@ def run_nested_wfo(
 
     # Trial count info — all sourced from the append-only registry (S3-2)
     statistical_hardening["effective_trial_count"] = trial_counts.effective_trial_count
-    statistical_hardening["raw_trial_count"] = trial_counts.unique_experiments
+    statistical_hardening["raw_trial_count"] = trial_counts.raw_trial_count
     statistical_hardening["inner_validation_trials"] = (
         trial_counts.inner_validation_trials
     )
     statistical_hardening["outer_oos_trials"] = trial_counts.outer_oos_trials
     statistical_hardening["total_trial_runs"] = trial_counts.total_trial_runs
-    statistical_hardening["dsr_trials"] = trial_counts.unique_experiments
+    statistical_hardening["dsr_trials"] = trial_counts.raw_trial_count
     statistical_hardening["trial_methodology"] = trial_counts.methodology
 
     # ============================================================
@@ -4199,6 +4573,10 @@ def run_nested_wfo(
         completeness_report=completeness_report,
         provenance_digest=aggregate_provenance_digest,
     )
+    if native_gate_contract is not None:
+        from trading_agent.backtest.native_gate_contract import native_evidence_from_result
+        aggregate_metrics["native_gate_contract"] = native_gate_contract
+        native_evidence_from_result(native_gate_contract, result)
     # S3-9: persist composite evidence artifact
     if out_root is not None:
         _persist_wfo_result(out_root, result)

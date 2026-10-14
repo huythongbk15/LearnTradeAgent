@@ -23,6 +23,8 @@ import argparse
 import json
 import os
 import sys
+import time
+import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -60,7 +62,6 @@ DEFAULT_GATE_SET = [
 ]
 
 
-
 def _rel(path: Path) -> str:
     """Repo-relative when inside the repo, absolute when it is not.
 
@@ -72,6 +73,56 @@ def _rel(path: Path) -> str:
         return str(Path(path).relative_to(ROOT))
     except ValueError:
         return str(path)
+
+
+def _execution_plan_binding(plan, *, evidence, strategy, reuse_from=None):
+    """Verified semantic identity; packet timestamps are not execution inputs."""
+    from trading_agent.backtest.campaign_plan import semantic_fingerprint, verify_frozen_plan
+
+    verify_frozen_plan(plan)
+    identity = semantic_fingerprint(plan)
+    if reuse_from is not None:
+        source = (ROOT / reuse_from).resolve()
+        destination = Path(evidence).resolve()
+        if source.is_relative_to(destination) or destination.is_relative_to(source):
+            raise ValueError("reuse requires disjoint source and destination packets")
+        path = (source / strategy / "campaign_plan.json").resolve()
+        if not path.is_relative_to(source):
+            raise ValueError("reuse plan escapes source packet")
+        previous = json.loads(path.read_bytes())
+        verify_frozen_plan(previous)
+        if "semantic_fingerprint" not in previous:
+            raise ValueError("legacy packet lacks semantic reuse contract; retain without reuse")
+        if semantic_fingerprint(previous) != identity:
+            raise ValueError("reuse plan mismatch: source/data/subject/config/gates must match")
+        if not (source / "cell_resume_cache").is_dir():
+            raise ValueError("reuse packet has no cell_resume_cache")
+    return {"plan": identity, "plan_semantics_version": 1}
+
+
+def _run_measured_wfo(spec, *, evidence, plan, runner, max_outer_folds):
+    """Durable per-attempt measurement status, never a qualification verdict."""
+    from trading_agent.backtest.campaign_execution import _durable_json
+    from trading_agent.backtest.nested_wfo import run_nested_wfo
+
+    attempt = evidence / spec.strategy_id / "execution_runs" / uuid.uuid4().hex
+    started = time.monotonic()
+    identity = {"pid": os.getpid(), "plan_fingerprint": plan["plan_fingerprint"],
+                "source": plan["execution_source"], "scope": "measurement_not_qualification",
+                "live_authorized": False}
+    _durable_json(attempt / "started.json", {**identity, "status": "STARTED"})
+    try:
+        result = run_nested_wfo(spec, out_root=evidence, max_outer_folds=max_outer_folds,
+                                native_gate_contract=plan["native_gate_contract"],
+                                selection_contract=plan.get("selection_contract"), cell_runner=runner)
+    except BaseException as exc:
+        _durable_json(attempt / "finished.json", {**identity, "status": "INCOMPLETE",
+            "elapsed_seconds": time.monotonic() - started, "error": f"{type(exc).__name__}: {exc}"})
+        raise
+    _durable_json(attempt / "finished.json", {**identity, "status": "MEASURED_PENDING_EVIDENCE",
+        "elapsed_seconds": time.monotonic() - started})
+    return result
+
 
 def main() -> None:
     ap = argparse.ArgumentParser()
@@ -132,7 +183,48 @@ def main() -> None:
         action="store_true",
         help="Build and verify the bundle but do not publish it.",
     )
+    ap.add_argument("--workers", type=int, choices=[1, 2, 4], default=1)
+    ap.add_argument(
+        "--resume",
+        action="store_true",
+        help="Reuse only matching frozen source/data/plan and verified completed cells in the same output packet",
+    )
+    ap.add_argument(
+        "--reuse-from",
+        default=None,
+        help=(
+            "Cold reuse from a different packet: copy raw reports into this packet, "
+            "update artifact paths, record lineage. Requires disjoint source/destination. "
+            "Does NOT mutate the source packet."
+        ),
+    )
+    ap.add_argument(
+        "--max-inner-cells",
+        type=int,
+        default=None,
+        help="Preflight budget; sensitivity adds work beyond this count",
+    )
+    ap.add_argument("--min-validation-trades", type=int, default=None)
+    ap.add_argument("--min-validation-sharpe", type=float, default=None)
     args = ap.parse_args()
+    if (args.resume or args.reuse_from) and not args.no_publish:
+        ap.error("execution reuse requires --no-publish; qualification uses run_wfo_parallel.py")
+    if (args.min_validation_trades is None) != (args.min_validation_sharpe is None):
+        ap.error("eligibility requires both validation thresholds")
+    from trading_agent.backtest.selection_eligibility import freeze_selection_contract
+
+    selection_contract = (
+        freeze_selection_contract(
+            min_validation_trades=args.min_validation_trades,
+            min_validation_sharpe=args.min_validation_sharpe,
+        )
+        if args.min_validation_trades is not None
+        else None
+    )
+    if selection_contract is not None and not args.no_publish:
+        ap.error(
+            "eligibility campaigns require --no-publish pending independent acceptance and production contract approval"
+        )
 
     strategies = (
         [s.strip() for s in args.strategies.split(",") if s.strip()]
@@ -147,7 +239,6 @@ def main() -> None:
             "binding would not say what the campaign ran on"
         )
 
-
     from trading_agent.backtest.campaign_integrity import (
         capture_campaign_source,
         require_wfo_campaign_evidence,
@@ -161,16 +252,14 @@ def main() -> None:
         verify_frozen_plan,
     )
     from trading_agent.backtest.campaign_evidence import content_hash
-    from trading_agent.backtest.nested_wfo import WFOSpec, run_nested_wfo
+    from trading_agent.backtest.nested_wfo import WFOSpec
     from trading_agent.research.selection_policy import (
         PolicyActivationService,
         SelectionPolicyBuilder,
         SelectionPolicyRegistry,
     )
 
-    evidence = (
-        (ROOT / args.out_root).resolve() if args.out_root else EVIDENCE
-    )
+    evidence = (ROOT / args.out_root).resolve() if args.out_root else EVIDENCE
     data_path = (ROOT / args.data_file).resolve()
     if not data_path.is_file():
         raise SystemExit(f"NOT_QUALIFIED: data file not found: {data_path}")
@@ -191,7 +280,9 @@ def main() -> None:
     published: list[tuple[str, Path, str]] = []
 
     for strategy in strategies:
-        print(f"\n{'=' * 70}\n=== {strategy} on {args.symbol} {args.timeframe}\n{'=' * 70}")
+        print(
+            f"\n{'=' * 70}\n=== {strategy} on {args.symbol} {args.timeframe}\n{'=' * 70}"
+        )
         spec = WFOSpec(
             strategy_id=strategy,
             symbol=args.symbol,
@@ -206,6 +297,8 @@ def main() -> None:
                 else {"fast_period": [10, 20, 30], "slow_period": [60, 80, 120]}
             ),
             min_trades_per_fold=args.min_trades,
+            purge_bars=args.purge_bars,
+            embargo_bars=args.embargo_bars,
             registry_path=str(evidence / "registry"),
         )
 
@@ -214,8 +307,10 @@ def main() -> None:
             + args.val_months
             + (args.test_months + args.test_months * (args.n_outer - 1))
         )
-        print(f"  folds        : train {args.train_months}m / val {args.val_months}m "
-              f"/ test {args.test_months}m x {args.n_outer} outer")
+        print(
+            f"  folds        : train {args.train_months}m / val {args.val_months}m "
+            f"/ test {args.test_months}m x {args.n_outer} outer"
+        )
         print(f"  param grid   : {spec.param_grid}")
         print(f"  data         : {data_path.name} ({frame.height} bars)")
         print(f"  gate_set     : {[g['gate_id'] for g in gate_set]}")
@@ -241,6 +336,20 @@ def main() -> None:
                 "market": args.market_type,
             },
         )
+        from trading_agent.backtest.nested_wfo import _default_purge_embargo
+        from trading_agent.strategies.canonical.candidates import build_default_registry
+
+        from dataclasses import replace
+        from trading_agent.strategies.canonical.candidates import campaign_history_contract
+        history_contract = campaign_history_contract(strategy, spec.param_grid)
+        history_descriptor = replace(
+            build_default_registry().describe(strategy),
+            warmup_bars=history_contract["warmup_bars"],
+        )
+        default_purge, default_embargo = _default_purge_embargo(history_descriptor)
+        print(f"  history      : warmup={history_contract['warmup_bars']} "
+              f"purge={args.purge_bars if args.purge_bars > 0 else default_purge} "
+              f"embargo={args.embargo_bars if args.embargo_bars > 0 else default_embargo}")
         folds = plan_folds_from_spec(
             frame,
             timeframe=args.timeframe,
@@ -248,15 +357,39 @@ def main() -> None:
             val_months=args.val_months,
             test_months=args.test_months,
             step_months=args.test_months,
-            purge=args.purge_bars,
-            embargo=args.embargo_bars,
+            purge=args.purge_bars if args.purge_bars > 0 else default_purge,
+            embargo=args.embargo_bars if args.embargo_bars > 0 else default_embargo,
         )
         if not folds:
             raise SystemExit(
                 f"NOT_QUALIFIED: {frame.height} bars is too few for the "
                 f"requested fold structure ({span_months} months needed)"
             )
-        commission_bps, slippage_bps, spread_bps = 5.0, 2.0, 1.0
+        if args.n_outer < 1 or len(folds) < args.n_outer:
+            raise SystemExit("NOT_QUALIFIED: insufficient folds or invalid --n-outer")
+        folds = folds[: args.n_outer]
+        from trading_agent.backtest.campaign_execution import (
+            CampaignCellRunner,
+            preflight_workload,
+        )
+
+        workload = preflight_workload(spec, folds, max_inner_cells=args.max_inner_cells)
+        print(
+            f"  preflight    : {workload['inner_cells']} inner + {workload['outer_cells']} outer cells; sensitivity additional",
+            flush=True,
+        )
+        from trading_agent.backtest.tournament import BASE_COMMISSION, BASE_SLIPPAGE
+
+        # Paper runtime models commission/slippage, not a separate spread leg.
+        commission_bps = BASE_COMMISSION * 10000
+        slippage_bps = BASE_SLIPPAGE * 10000
+        spread_bps = 0.0
+        from trading_agent.backtest.native_gate_contract import (
+            freeze_native_gate_contract,
+            native_evidence_from_result,
+        )
+
+        from trading_agent.backtest.campaign_execution import execution_environment, simulator_runtime_config
         plan = freeze_campaign_plan(
             subject=subject,
             folds=folds,
@@ -270,10 +403,26 @@ def main() -> None:
             gate_set=gate_set,
             param_grid=spec.param_grid,
             frozen_by=f"run_real_wfo_campaign.py:{os.getenv('USER', 'operator')}",
+            native_gate_contract=freeze_native_gate_contract(spec),
+            selection_contract=selection_contract,
+            validation_cost_scenarios=[
+                {**cost.to_dict(), "commission_bps": cost.commission * 10000,
+                 "slippage_bps": cost.slippage * 10000}
+                for cost in spec.cost_scenarios
+            ] if selection_contract is not None else None,
+            execution_source=source_binding,
+            execution_context={"environment": execution_environment(),
+                               "runtime_config": simulator_runtime_config(),
+                               "workers": args.workers, "cell_timeout": 300, "max_retries": 2},
         )
         verify_frozen_plan(plan)
-        print(f"  frozen plan  : {plan['plan_fingerprint'][:16]} "
-              f"({plan['fold_count']} folds)")
+        execution_plan = _execution_plan_binding(
+            plan, evidence=evidence, strategy=strategy, reuse_from=args.reuse_from,
+        )
+        print(
+            f"  frozen plan  : {plan['plan_fingerprint'][:16]} "
+            f"({plan['fold_count']} folds)"
+        )
 
         if args.dry_run:
             print("\n--dry-run: plan frozen, nothing executed or written.")
@@ -281,17 +430,74 @@ def main() -> None:
 
         plan_path = evidence / strategy / "campaign_plan.json"
         plan_path.parent.mkdir(parents=True, exist_ok=True)
-        plan_path.write_text(json.dumps(plan, indent=2, sort_keys=True))
+        if plan_path.exists():
+            existing_plan = json.loads(plan_path.read_text())
+            verify_frozen_plan(existing_plan)
+
+            def immutable(value):
+                return {
+                    key: item
+                    for key, item in value.items()
+                    if key not in {"frozen_at", "plan_fingerprint"}
+                }
+
+            if not args.resume or immutable(existing_plan) != immutable(plan):
+                raise SystemExit(
+                    "NOT_QUALIFIED: existing plan differs or --resume absent; use a new output directory"
+                )
+            plan = existing_plan
+        else:
+            with plan_path.open("x", encoding="utf-8") as stream:
+                json.dump(plan, stream, indent=2, sort_keys=True)
         print(f"  plan written : {_rel(plan_path)}")
 
+        # Validate reuse-from packet is disjoint
+        if args.reuse_from:
+            reuse_root = (ROOT / args.reuse_from).resolve()
+            if evidence.is_relative_to(reuse_root) or reuse_root.is_relative_to(evidence):
+                raise SystemExit(
+                    "NOT_QUALIFIED: --reuse-from packet must be disjoint from output packet"
+                )
+            if not (reuse_root / "cell_resume_cache").exists():
+                raise SystemExit(
+                    f"NOT_QUALIFIED: --reuse-from packet has no cell_resume_cache: {reuse_root}"
+                )
+            print(f"  reuse-from   : {_rel(reuse_root)}")
+
         print("\nrunning nested WFO (this executes backtests)...", flush=True)
-        result = run_nested_wfo(spec, out_root=evidence)
+        from trading_agent.data.storage import frozen_research_data
+
+        with frozen_research_data(
+            data_path, exchange="binance", symbol=args.symbol, timeframe=args.timeframe
+        ) as data_binding:
+            if data_binding["sha256"] != manifest["file_sha256"]:
+                raise SystemExit("NOT_QUALIFIED: data changed since plan freeze")
+            runner = CampaignCellRunner(
+                evidence,
+                {
+                    "data": data_binding,
+                    "source": source_binding,
+                    **execution_plan,
+                },
+                workers=args.workers,
+                resume=args.resume,
+                reuse_from=args.reuse_from,
+            )
+            result = _run_measured_wfo(
+                spec, evidence=evidence, plan=plan, runner=runner, max_outer_folds=args.n_outer,
+            )
         if capture_campaign_source(ROOT) != source_binding:
             raise SystemExit("NOT_QUALIFIED: source changed during campaign")
 
         try:
             from trading_agent.backtest.campaign_writer import (
                 collect_wfo_campaign_rows,
+                selected_wfo_subject,
+            )
+            from trading_agent.backtest.campaign_integrity import (
+                verify_trial_idempotence,
+                verify_frozen_selection_idempotence,
+                verify_raw_ledger_integrity,
             )
 
             measured_rows = collect_wfo_campaign_rows(result)
@@ -303,6 +509,31 @@ def main() -> None:
             if not coverage.ok:
                 raise ValueError(f"incomplete campaign: {coverage.summary()}")
 
+            # Post-reuse verification: trial-count idempotence, frozen-selection
+            # idempotence, and raw ledger integrity. These are required before
+            # any policy can be built (P2-B qualification resume gate).
+            if args.resume or args.reuse_from:
+                trial_check = verify_trial_idempotence(evidence, strategy)
+                print(f"  trial idempotence: {trial_check.summary()}")
+                if not trial_check.ok:
+                    raise ValueError(
+                        f"trial-count idempotence failed: {trial_check.summary()}"
+                    )
+
+                selection_check = verify_frozen_selection_idempotence(evidence, strategy)
+                print(f"  selection idempotence: {selection_check.summary()}")
+                if not selection_check.ok:
+                    raise ValueError(
+                        f"frozen-selection idempotence failed: {selection_check.summary()}"
+                    )
+
+                ledger_check = verify_raw_ledger_integrity(evidence, strategy, data_root)
+                print(f"  ledger integrity: {ledger_check.summary()}")
+                if not ledger_check.ok:
+                    raise ValueError(
+                        f"raw ledger integrity failed: {ledger_check.summary()}"
+                    )
+
             # Producer: derive the aggregate, gate outcomes, verdict and id
             # from the measurements. It accepts a plan and rows, nothing else.
             bundle = build_campaign_bundle(
@@ -310,15 +541,20 @@ def main() -> None:
                 rows=measured_rows,
                 source=source_binding,
                 data_root=data_root,
+                subject=selected_wfo_subject(plan, result),
+                native_evidence=native_evidence_from_result(
+                    plan["native_gate_contract"], result
+                ),
             )
-            require_wfo_campaign_evidence(
-                result, evidence, data_root=data_root, source_binding=source_binding
+            print(
+                f"  verdict      : {bundle['verdict']} "
+                f"({len(bundle['failed_gates'])} failed gates)"
             )
-            print(f"  verdict      : {bundle['verdict']} "
-                  f"({len(bundle['failed_gates'])} failed gates)")
             for gate in bundle["failed_gates"]:
-                print(f"    - {gate['gate_id']}: observed {gate['observed']} "
-                      f"{gate['comparison']} {gate['threshold']} {gate['unit']} FAILED")
+                print(
+                    f"    - {gate['gate_id']}: observed {gate['observed']} "
+                    f"{gate['comparison']} {gate['threshold']} {gate['unit']} FAILED"
+                )
             for key, value in bundle["aggregate"].items():
                 print(f"    {key:20s} {value}")
 
@@ -334,14 +570,27 @@ def main() -> None:
                     bundle_path.parent,
                     data_root=data_root,
                     source_binding=source_binding,
+                    publication_root=evidence,
+                    selection_evidence_root=evidence
+                    if selection_contract is not None
+                    else None,
                 )
                 print(f"  published    : {_rel(published_path)}")
                 published.append((strategy, published_path, bundle["verdict"]))
             else:
-                bundle_path.write_text(json.dumps(bundle, indent=2, sort_keys=True))
+                with bundle_path.open("x", encoding="utf-8") as stream:
+                    stream.write(
+                        json.dumps(bundle, indent=2, sort_keys=True, allow_nan=False)
+                    )
                 print(f"  bundle (dry) : {_rel(bundle_path)}")
+                require_wfo_campaign_evidence(
+                    result,
+                    bundle_path.parent,
+                    data_root=data_root,
+                    source_binding=source_binding,
+                )
         except ValueError as exc:
-            raise SystemExit(f"NOT_QUALIFIED: {exc}; no bundle or policy written") from exc
+            raise SystemExit(f"NOT_QUALIFIED: {exc}; no policy published") from exc
 
         agg = result.aggregate_metrics
         print("\n=== measured aggregate metrics ===")
@@ -359,6 +608,9 @@ def main() -> None:
         if getattr(result, "gate_failures", None):
             print(f"  gate_failures                {result.gate_failures}")
 
+        if args.no_publish:
+            print("\n--no-publish: evidence only; no policy build, registry write or activation.")
+            continue
         if bundle["verdict"] != "PASS":
             print("\ncampaign verdict is FAIL — refusing to build a policy.")
             continue

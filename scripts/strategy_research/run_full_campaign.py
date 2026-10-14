@@ -7,9 +7,7 @@ Finally compute portfolio correlation matrix (2×5=10 strategies) + diversificat
 
 from __future__ import annotations
 
-import asyncio
 import json
-import os
 import subprocess
 import sys
 import time
@@ -18,8 +16,6 @@ from itertools import product
 from pathlib import Path
 
 from trading_agent.research.param_grids import (
-    SINGLE_ASSET_GRIDS,
-    CROSS_SECTIONAL_GRIDS,
     get_strategy_code_name,
 )
 

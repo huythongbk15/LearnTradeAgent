@@ -10,7 +10,6 @@ Run remaining strategies with proper settings:
 import json
 import subprocess
 import sys
-from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
 from trading_agent.research.param_grids import get_strategy_code_name, get_param_grid

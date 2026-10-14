@@ -17,10 +17,9 @@ Each strategy is defined by:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
-import polars as pl
 
 
 @dataclass(frozen=True)

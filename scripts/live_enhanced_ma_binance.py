@@ -15,8 +15,11 @@ import os
 import random
 import sys
 import time
+from collections.abc import Mapping
 from contextlib import suppress
-from datetime import UTC, datetime
+from dataclasses import replace
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 sys.path.insert(0, "src")
 
@@ -42,6 +45,7 @@ from trading_agent.exchanges.models import (
 from trading_agent.execution.canonical import (
     BrokerGateway,
     BrokerSubmitResult,
+    CancelEvidence,
     CancelState,
 )
 from trading_agent.execution.canonical.adapters import (
@@ -54,13 +58,17 @@ from trading_agent.execution.canonical.order_planner import (
     OrderPlanningStatus,
 )
 from trading_agent.execution.application import CanonicalExecutionService
-from trading_agent.execution.permission import PermissionContext
+from trading_agent.execution.permission import (
+    PermissionContext,
+    evaluate_order_permission,
+)
 from trading_agent.execution.lifecycle import ExecutionEventStore
 from trading_agent.execution.lifecycle.lifecycle import (
     EmergencyReduceRequest,
     ExecutionLifecycle,
     PortfolioRiskSnapshot,
     TrustedPrice,
+    ExposureEffect,
 )
 from trading_agent.execution.correlation import bind_run_correlation
 from trading_agent.execution.data_trust import (
@@ -76,11 +84,10 @@ from trading_agent.execution.data_trust import (
 from trading_agent.execution.live_safety import (
     LIVE_CONFIRMATION,
     RISK_INCREASE_CONFIRMATION,
-    LiveExecutionLock,
+    LiveAccountSession,
     LiveRiskLimits,
     LiveRiskStateStore,
     LiveSafetyError,
-    account_fingerprint,
     append_live_audit_event,
     configured_entry_lock_reason,
     make_order_key,
@@ -94,11 +101,25 @@ from trading_agent.execution.live_safety import (
     validate_spread,
     validate_strategy_evidence,
 )
+from trading_agent.execution.live_admission import (
+    LiveBuyAdmission,
+    PromotedLiveAdmissionProducer,
+)
+from trading_agent.execution.batch_models import wrap_market_data
+from trading_agent.authority.config import AuthorityConfig, Environment
+from trading_agent.authority.portfolio import (
+    PortfolioSnapshot,
+    ReconciliationState as PortfolioReconciliation,
+)
+from trading_agent.authority.resolver import RuntimeStrategyResolver
+from trading_agent.authority.promotion_store import PromotionStateStore
+from trading_agent.research.artifact import PersistentArtifactStore
 from trading_agent.strategies.enhanced_ma import EnhancedMaCrossover
 
 load_dotenv(".env")
 
 HOUR_MS = 3_600_000
+MAX_BUY_ADMISSION_AGE_SECONDS = HOUR_MS / 1_000
 MAX_CLOSED_CANDLE_LAG_SECONDS = 5_400
 ORDER_TERMINAL_STATUSES = frozenset(
     {
@@ -934,6 +955,7 @@ def build_decisions(
     locked_reason: str | None,
     entries_locked_reason: str | None = None,
     limits: LiveRiskLimits | None = None,
+    buy_admissions: Mapping[str, LiveBuyAdmission] | None = None,
 ) -> list[dict]:
     position_map = {position["symbol"]: position for position in positions}
     decisions: list[dict] = []
@@ -984,18 +1006,33 @@ def build_decisions(
             continue
         if qty <= 0 or not math.isfinite(qty):
             raise LiveSafetyError(f"invalid decision quantity for {market_symbol}")
-        decisions.append(
-            {
-                "market_symbol": market_symbol,
-                "action": action,
-                "qty": qty,
-                "signal_price": state["price"],
-                "candle_timestamp": state["candle_timestamp"],
-                "atr": state.get("atr"),
-                "observed_high": state.get("recent_high"),
-                "reason": reason,
-            }
-        )
+        decision = {
+            "market_symbol": market_symbol,
+            "action": action,
+            "qty": qty,
+            "signal_price": state["price"],
+            "candle_timestamp": state["candle_timestamp"],
+            "atr": state.get("atr"),
+            "observed_high": state.get("recent_high"),
+            "reason": reason,
+        }
+        if action == "BUY" and buy_admissions is not None:
+            admission = buy_admissions.get(market_symbol)
+            if admission is not None:
+                if not isinstance(admission, LiveBuyAdmission):
+                    raise LiveSafetyError("BUY admission must be a LiveBuyAdmission")
+                intent = admission.planning.intent
+                if intent is None or intent.quantity > qty + 1e-12:
+                    raise LiveSafetyError(
+                        "BUY admission exceeds the permitted runner quantity"
+                    )
+                decision.update(
+                    qty=intent.quantity,
+                    risk_decision=admission.risk_decision,
+                    order_planning=admission.planning,
+                    permission_context=admission.permission_context,
+                )
+        decisions.append(decision)
     return sorted(decisions, key=lambda item: 0 if item["action"] == "SELL" else 1)
 
 
@@ -1227,6 +1264,68 @@ def protected_execution_quote(
     )
 
 
+def _validated_buy_admission(
+    planned: dict,
+    *,
+    symbol: str,
+    quantity: float,
+    trusted_quote: TrustedPrice | None = None,
+) -> tuple[UnifiedRiskDecision, OrderPlanningResult, PermissionContext]:
+    """Validate the complete admission before reservation or broker submission."""
+    risk = planned.get("risk_decision")
+    planning = planned.get("order_planning")
+    context = planned.get("permission_context")
+    if not isinstance(risk, UnifiedRiskDecision):
+        raise LiveSafetyError(f"BUY {symbol} has no promoted UnifiedRiskDecision")
+    if not isinstance(risk.created_at, datetime) or risk.created_at.utcoffset() is None:
+        raise LiveSafetyError("BUY risk decision timestamp must be timezone-aware")
+    age = (datetime.now(UTC) - risk.created_at).total_seconds()
+    if age < 0 or age > MAX_BUY_ADMISSION_AGE_SECONDS:
+        raise LiveSafetyError("BUY risk decision is stale or future-dated")
+    if (
+        not isinstance(planning, OrderPlanningResult)
+        or planning.status is not OrderPlanningStatus.ORDER_REQUIRED
+        or planning.intent is None
+    ):
+        raise LiveSafetyError(f"BUY {symbol} has no canonical OrderPlanner output")
+    intent = planning.intent
+    if (
+        intent.symbol != symbol
+        or intent.side != "buy"
+        or not math.isfinite(quantity)
+        or quantity <= 0
+        or not math.isfinite(intent.quantity)
+        or abs(intent.quantity - quantity) > 1e-12
+        or intent.decision_id != risk.decision_id
+        or intent.model_artifact_id != risk.model_artifact_id
+        or intent.forecast_fingerprint != risk.forecast_fingerprint
+        or not intent.intent_id
+        or not intent.idempotency_key
+    ):
+        raise LiveSafetyError(
+            "BUY planner identity or quantity does not match admission"
+        )
+    if (
+        not isinstance(context, PermissionContext)
+        or context.risk_decision is not risk
+        or context.draft
+        or context.exposure_effect is not ExposureEffect.INCREASE
+        or context.order_side.lower() != "buy"
+        or not math.isfinite(context.order_size)
+        or abs(context.order_size - quantity) > 1e-12
+    ):
+        raise LiveSafetyError(
+            "BUY permission context does not match canonical admission"
+        )
+    # Recheck permission against the current venue quote, not an old planning quote.
+    if trusted_quote is not None:
+        context = replace(context, trusted_price=trusted_quote)
+    permission = evaluate_order_permission(context)
+    if not permission.allowed():
+        raise LiveSafetyError(f"BUY permission blocked: {permission.reason.value}")
+    return risk, planning, context
+
+
 def prepare_orders(
     *,
     decisions: list[dict],
@@ -1291,6 +1390,11 @@ def prepare_orders(
 
         current_notional = float(existing["market_value"]) if existing else 0.0
         notional = quantity * float(quote_price)
+        permission_context = decision.get("permission_context")
+        if decision["action"] == "BUY":
+            _, _, permission_context = _validated_buy_admission(
+                decision, symbol=pair, quantity=quantity, trusted_quote=trusted_quote
+            )
         validate_order_risk(
             side=decision["action"],
             notional_usd=notional,
@@ -1301,6 +1405,7 @@ def prepare_orders(
             limits=limits,
             locked_reason=locked_reason,
             trusted_price=trusted_quote,
+            risk_decision=decision.get("risk_decision"),
         )
 
         if decision["action"] == "BUY":
@@ -1325,6 +1430,7 @@ def prepare_orders(
                 "qty": quantity,
                 "quote_price": float(quote_price),
                 "notional": notional,
+                "permission_context": permission_context,
             }
         )
     return prepared
@@ -1344,6 +1450,36 @@ def protect_remaining_position(
     """Protect any position left after a filled or partially filled order."""
 
     pair = planned["market_symbol"]
+    if planned["action"] == "SELL" and result.get("status") in {"open", "partial"}:
+        # An outstanding SELL owns the remaining inventory. Never place another
+        # stop until terminal broker evidence has released that reservation.
+        order_key = make_order_key(
+            symbol=pair, side="SELL", candle_timestamp=planned["candle_timestamp"]
+        )
+        broker_order_id = str(result.get("id") or "")
+        try:
+            terminal = _cancel_canonical_order(
+                lifecycle=lifecycle,
+                gateway=gateway,
+                intent_id=order_key,
+                broker_order_id=broker_order_id,
+                symbol=pair,
+                reason="cancel residual exit before restoring protection",
+                reconcile_broker=broker,
+                client_order_id=order_key,
+            )
+            if terminal is None or terminal.get("status") not in {
+                "cancelled",
+                "filled",
+            }:
+                raise LiveSafetyError("residual exit lacks a terminal broker lookup")
+            result.update(terminal)
+            persist_order_result(store, order_key, result)
+        except Exception as exc:
+            store.update_order(order_key, status="manual_intervention", error=str(exc))
+            raise LiveSafetyError(
+                f"residual exit cancellation unresolved for {pair}; no overlapping stop submitted"
+            ) from exc
     refreshed_positions = broker.get_positions()
     refreshed = next(
         (position for position in refreshed_positions if position["symbol"] == pair),
@@ -1380,11 +1516,16 @@ def protect_remaining_position(
                 "trailing stop state is missing"
             )
     try:
+        protective_quote = trusted_broker_quote(broker, pair)
+        if protective_quote is None or not protective_quote.is_fresh(60.0):
+            raise LiveSafetyError(
+                "post-order protection requires a fresh observed broker quote"
+            )
         ensure_protective_stop(
             pair=pair,
             quantity=remaining_quantity,
             desired_stop=desired_stop,
-            current_price=float(planned["signal_price"]),
+            current_price=protective_quote.price,
             broker=broker,
             lifecycle=lifecycle,
             gateway=gateway,
@@ -1477,6 +1618,97 @@ def _record_reconciled_submission(
         "avg_fill_price",
         result.get("average", result.get("price", 0.0)),
     )
+    lifecycle = execution_service.lifecycle
+    order = lifecycle.state.order(intent_id)
+    if order is None:
+        raise LiveSafetyError(f"reconciliation has no canonical intent {intent_id}")
+    if (
+        order.exchange_order_id is None
+        and intent_id not in lifecycle.state.unresolved_manual_intents
+    ):
+        # A process can die after venue acceptance but before the ACK is durable.
+        # Restore explicit UNKNOWN, then use the normal typed reconciliation path.
+        execution_service.record_broker_fact(
+            intent_id,
+            BrokerSubmitResult(
+                success=False,
+                state=BrokerSubmitState.UNKNOWN,
+                broker_order_id=None,
+                venue="binance",
+                broker_status="unknown",
+                observed_at=datetime.now(UTC),
+                error="restart found submitted intent without durable broker ACK",
+                raw_response={},
+            ),
+        )
+    if intent_id not in lifecycle.state.unresolved_manual_intents:
+        # Known partial orders report cumulative fills, not another full fill.
+        # Applying the same lookup twice must not create synthetic inventory.
+        if broker_order_id != order.exchange_order_id:
+            raise LiveSafetyError(
+                f"reconciliation broker identity mismatch for {intent_id}"
+            )
+        filled = float(normalized["filled_qty"] or 0.0)
+        if (
+            not math.isfinite(filled)
+            or filled < order.filled_size - 1e-9
+            or filled > order.size + 1e-9
+        ):
+            raise LiveSafetyError(f"invalid cumulative fill for {intent_id}")
+        delta = filled - order.filled_size
+        if delta > 1e-9:
+            average = float(normalized["avg_fill_price"] or 0.0)
+            delta_price = (
+                filled * average
+                - order.filled_size * float(order.avg_fill_price or 0.0)
+            ) / delta
+            if not math.isfinite(delta_price) or delta_price <= 0:
+                raise LiveSafetyError(f"invalid incremental fill price for {intent_id}")
+            execution_service.record_broker_fact(
+                intent_id,
+                BrokerSubmitResult(
+                    success=True,
+                    state=(
+                        BrokerSubmitState.FILLED
+                        if filled >= order.size - 1e-9
+                        else BrokerSubmitState.PARTIALLY_FILLED
+                    ),
+                    broker_order_id=broker_order_id,
+                    venue="binance",
+                    broker_status=status,
+                    observed_at=datetime.now(UTC),
+                    error=None,
+                    raw_response={"filled_qty": delta, "avg_fill_price": delta_price},
+                ),
+            )
+        if status == "filled" and order.remaining > 1e-9:
+            raise LiveSafetyError(
+                f"filled lookup has residual quantity for {intent_id}"
+            )
+        if status in {"cancelled", "expired"} and order.status.value not in {
+            "canceled",
+            "filled",
+        }:
+            if order.status.value != "cancel_requested":
+                lifecycle.request_cancel(intent_id, reason="terminal broker lookup")
+            lifecycle.confirm_cancel(
+                intent_id,
+                CancelEvidence(
+                    broker_order_id=broker_order_id or "",
+                    state=(
+                        CancelState.CANCELED
+                        if status == "cancelled"
+                        else CancelState.EXPIRED
+                    ),
+                    venue="binance",
+                    confirmed_at=datetime.now(UTC).isoformat(),
+                    source="RECONCILIATION",
+                    raw_response=normalized,
+                ),
+            )
+        elif status == "rejected" and order.status.value != "rejected":
+            lifecycle.reject_order(intent_id, reason="terminal broker lookup")
+        return
     error = str(result.get("error") or "") or None
     execution_service.reconcile(
         intent_id=intent_id,
@@ -1507,7 +1739,9 @@ def _cancel_canonical_order(
     broker_order_id: str,
     symbol: str,
     reason: str,
-) -> None:
+    reconcile_broker: LiveBroker | None = None,
+    client_order_id: str | None = None,
+) -> dict | None:
     """Persist a cancel request and require broker-confirmed terminal evidence."""
 
     lifecycle_order = lifecycle.state.order(intent_id)
@@ -1528,6 +1762,20 @@ def _cancel_canonical_order(
             f"broker did not confirm cancellation for {broker_order_id}: "
             f"{cancel.error or 'unknown cancel state'}"
         )
+    if reconcile_broker is not None:
+        terminal = reconcile_broker.get_order_by_client_id(
+            client_order_id or intent_id, exchange_symbol(symbol)
+        )
+        if terminal is None or terminal.get("status") not in {"cancelled", "filled"}:
+            raise LiveSafetyError(
+                "cancel confirmation lacks a terminal client-ID lookup"
+            )
+        _record_reconciled_submission(
+            CanonicalExecutionService(lifecycle=lifecycle, gateway=gateway),
+            intent_id,
+            terminal,
+        )
+        return terminal
     if lifecycle_order is not None:
         lifecycle.confirm_cancel(intent_id, cancel.evidence)
 
@@ -1571,25 +1819,9 @@ def _submit_live_order(
             correlation_id=intent_id,
         ).result
 
-    risk_decision = planned.get("risk_decision")
-    if not isinstance(risk_decision, UnifiedRiskDecision):
-        raise LiveSafetyError(
-            f"BUY {symbol} has no promoted UnifiedRiskDecision; exposure increase blocked"
-        )
-    planning = planned.get("order_planning")
-    permission_context = planned.get("permission_context")
-    if (
-        not isinstance(planning, OrderPlanningResult)
-        or planning.status is not OrderPlanningStatus.ORDER_REQUIRED
-        or planning.intent is None
-    ):
-        raise LiveSafetyError(
-            f"BUY {symbol} has no canonical OrderPlanner output; exposure increase blocked"
-        )
-    if not isinstance(permission_context, PermissionContext):
-        raise LiveSafetyError(
-            f"BUY {symbol} has no canonical PermissionContext; exposure increase blocked"
-        )
+    risk_decision, planning, permission_context = _validated_buy_admission(
+        planned, symbol=symbol, quantity=quantity
+    )
     if planning.intent.intent_id != intent_id:
         raise LiveSafetyError(
             "planned intent identity does not match durable order key"
@@ -1680,6 +1912,11 @@ def execute_orders(
         current_notional = float(current["market_value"]) if current else 0.0
         notional = quantity * float(quote_price)
         risk_decision = planned.get("risk_decision")
+        if planned["action"] == "BUY":
+            risk_decision, planning, permission_context = _validated_buy_admission(
+                planned, symbol=pair, quantity=quantity, trusted_quote=trusted_quote
+            )
+            planned = {**planned, "permission_context": permission_context}
         validate_order_risk(
             side=planned["action"],
             notional_usd=notional,
@@ -1693,17 +1930,24 @@ def execute_orders(
             trusted_price=trusted_quote,
         )
 
-        order_key = make_order_key(
+        signal_key = make_order_key(
             symbol=pair,
             side=planned["action"],
             candle_timestamp=planned["candle_timestamp"],
         )
+        if planned["action"] == "BUY":
+            intent_id = planning.intent.intent_id
+            order_key = planning.intent.idempotency_key
+        else:
+            intent_id = order_key = signal_key
         store.reserve_order(
             order_key,
             symbol=pair,
             side=planned["action"],
             quantity=quantity,
             signal_timestamp=planned["candle_timestamp"],
+            canonical_intent_id=intent_id,
+            signal_key=signal_key,
         )
         try:
             if isinstance(active_protective, dict):
@@ -1738,7 +1982,7 @@ def execute_orders(
                 lifecycle=lifecycle,
                 gateway=gateway,
                 planned=planned,
-                intent_id=order_key,
+                intent_id=intent_id,
                 symbol=pair,
                 quantity=quantity,
                 reason="STRATEGY_EXIT"
@@ -1751,7 +1995,7 @@ def execute_orders(
                     f"broker submission state is unknown for {order_key}"
                 )
         except Exception as exc:
-            lifecycle_order = lifecycle.state.order(order_key)
+            lifecycle_order = lifecycle.state.order(intent_id)
             if lifecycle_order is None or not lifecycle_order.io_started:
                 store.update_order(order_key, status="rejected", error=str(exc))
                 if audit_log_path:
@@ -1784,7 +2028,7 @@ def execute_orders(
                 persist_order_result(store, order_key, reconciled)
                 _record_reconciled_submission(
                     CanonicalExecutionService(lifecycle=lifecycle, gateway=gateway),
-                    order_key,
+                    intent_id,
                     reconciled,
                 )
                 audit_order_result(
@@ -1905,6 +2149,11 @@ def execute_orders(
             )
             if reconciled is not None:
                 persist_order_result(store, order_key, reconciled)
+                _record_reconciled_submission(
+                    CanonicalExecutionService(lifecycle=lifecycle, gateway=gateway),
+                    intent_id,
+                    reconciled,
+                )
                 result = reconciled
                 audit_order_result(
                     audit_log_path,
@@ -2060,12 +2309,30 @@ def reconcile_unfinished_orders(
     timeout_seconds: float = 0.0,
     sleep_fn=time.sleep,
     monotonic_fn=time.monotonic,
+    lifecycle: ExecutionLifecycle | None = None,
+    gateway: BrokerGateway | None = None,
 ) -> None:
     """Reconcile every non-terminal intent before a new batch can be planned."""
 
     unresolved: list[str] = []
     reconciled_any = False
     for order_key, record in store.unfinished_orders().items():
+        canonical_intent_id = str(record.get("canonical_intent_id") or order_key)
+        canonical_order = (
+            lifecycle.state.order(canonical_intent_id)
+            if lifecycle is not None
+            else None
+        )
+        if canonical_intent_id != order_key and (
+            lifecycle is None or gateway is None or canonical_order is None
+        ):
+            store.update_order(
+                order_key,
+                status="manual_intervention",
+                error="canonical recovery context is missing",
+            )
+            unresolved.append(f"{order_key}: canonical recovery context is missing")
+            continue
         pair = str(record.get("symbol") or "")
         if not pair:
             store.update_order(
@@ -2098,6 +2365,12 @@ def reconcile_unfinished_orders(
             unresolved.append(f"{order_key}: client order ID not found")
             continue
         reconciled_any = True
+        if canonical_order is not None and gateway is not None:
+            _record_reconciled_submission(
+                CanonicalExecutionService(lifecycle=lifecycle, gateway=gateway),
+                canonical_intent_id,
+                result,
+            )
         persist_order_result(store, order_key, result)
         ledger_status = str(
             store.state.order_ledger[order_key].get("status") or ""
@@ -2167,6 +2440,132 @@ def reconcile_unfinished_orders(
         )
 
 
+def trusted_broker_quote(
+    broker: LiveBroker, symbol: str, *, buy: bool = False
+) -> TrustedPrice | None:
+    ticker = broker.get_ticker(exchange_symbol(str(symbol)))
+    price = float(ticker.get("ask" if buy else "last") or 0.0)
+    exchange_timestamp = ticker.get("timestamp")
+    receipt = ticker.get("received_at")
+    if isinstance(receipt, (int, float)) and not isinstance(receipt, bool):
+        started = ticker.get("request_started_at")
+        age = time.monotonic() - receipt
+        if (
+            not math.isfinite(age)
+            or not 0 <= age <= 60
+            or not isinstance(started, (int, float))
+            or not math.isfinite(started)
+            or started > receipt
+        ):
+            return None
+        reject_high_latency(
+            TimeStampedFetch(
+                exchange_timestamp=exchange_timestamp.timestamp() * 1000
+                if isinstance(exchange_timestamp, datetime)
+                else 0.0,
+                request_started_at=float(started),
+                received_at=float(receipt),
+            ),
+            context=f"{symbol} canonical quote",
+        )
+        # Ticker receipts are monotonic, not UTC datetimes. Anchor the observed
+        # elapsed time to UTC; never replace a missing/stale receipt with 'now'.
+        receipt = datetime.now(UTC) - timedelta(seconds=age)
+    if (
+        not math.isfinite(price)
+        or price <= 0
+        or not isinstance(exchange_timestamp, datetime)
+        or exchange_timestamp.utcoffset() is None
+        or not isinstance(receipt, datetime)
+        or receipt.utcoffset() is None
+    ):
+        return None
+    return TrustedPrice(
+        price=price,
+        exchange_timestamp=exchange_timestamp.astimezone(UTC),
+        received_at=receipt.astimezone(UTC),
+    )
+
+
+def build_canonical_execution_stack(
+    broker: LiveBroker, *, event_store_path: str
+) -> tuple[ExecutionLifecycle, BrokerGateway]:
+    """Use the same live data sources in the runner and isolated acceptance tests.
+
+    The caller owns the returned lifecycle store and must close it. This factory
+    grants no entry authority and requires explicit persistent-store identity.
+    """
+
+    def price_source(symbol_value: str) -> TrustedPrice | None:
+        return trusted_broker_quote(broker, str(symbol_value))
+
+    def portfolio_source(symbol_value: str) -> PortfolioRiskSnapshot | None:
+        account = broker.get_account()
+        equity = float(account.get("equity") or 0.0)
+        cash = float(account.get("cash") or 0.0)
+        if (
+            not math.isfinite(equity)
+            or equity <= 0
+            or not math.isfinite(cash)
+            or cash < 0
+        ):
+            return None
+        position = next(
+            (
+                item
+                for item in broker.get_positions()
+                if str(item.get("symbol")) == str(symbol_value)
+            ),
+            None,
+        )
+        quantity = float(position.get("qty") or 0.0) if position else 0.0
+        if position and "free_qty" not in position:
+            # Total inventory is not proof that locked inventory is sellable.
+            return None
+        free = (
+            float(position.get("free_qty") or 0.0)
+            if position and "free_qty" in position
+            else quantity
+        )
+        if (
+            any(not math.isfinite(value) or value < 0 for value in (quantity, free))
+            or free > quantity + 1e-9
+        ):
+            return None
+        return PortfolioRiskSnapshot(
+            symbol=str(symbol_value),
+            position_quantity=quantity,
+            available_quantity=free,
+            equity=equity,
+            available_cash=cash,
+            observed_at=datetime.now(UTC),
+            source="binance_live_broker",
+        )
+
+    event_store = ExecutionEventStore(event_store_path).connect()
+    try:
+        lifecycle = ExecutionLifecycle(
+            event_store,
+            price_source=price_source,
+            inventory_source=lambda symbol_value, side: (
+                snapshot.available_quantity
+                if (snapshot := portfolio_source(symbol_value)) is not None
+                else 0.0
+            ),
+            portfolio_source=portfolio_source,
+        )
+        lifecycle.load()
+        gateway = BrokerGateway(
+            adapter=LiveBrokerExecutionAdapter(broker),
+            store=event_store,
+            lifecycle=lifecycle,
+        )
+        return lifecycle, gateway
+    except Exception:
+        event_store.close()
+        raise
+
+
 def run_locked(
     args: argparse.Namespace,
     *,
@@ -2175,7 +2574,16 @@ def run_locked(
     state_path: str,
     profile: str,
     run_id: str,
+    buy_admissions: Mapping[str, LiveBuyAdmission] | None = None,
+    account_session: LiveAccountSession | None = None,
+    admission_producer: PromotedLiveAdmissionProducer | None = None,
 ) -> int:
+    if account_session is None or not account_session.active:
+        raise LiveSafetyError("runner requires an active account-scoped session")
+    if Path(state_path).resolve() != account_session.state_path:
+        raise LiveSafetyError(
+            "runner risk-state path does not match its account session"
+        )
     reconciliation_timeout = order_reconciliation_timeout_seconds()
     key_name = "BINANCE_TESTNET_API_KEY" if args.testnet else "BINANCE_API_KEY"
     secret_name = "BINANCE_TESTNET_API_SECRET" if args.testnet else "BINANCE_API_SECRET"
@@ -2197,10 +2605,7 @@ def run_locked(
         )
     allocation_map = dict(allocations)
     store.bind_context(
-        account=account_fingerprint(
-            exchange="binance-testnet" if args.testnet else "binance-mainnet",
-            api_key=api_key,
-        ),
+        account=account_session.fingerprint,
         strategy=strategy_fingerprint(
             strategy="enhanced_ma",
             params=STRATEGY_PARAMS,
@@ -2235,15 +2640,17 @@ def run_locked(
             ),
             limit_change,
         )
+    expected_artifact_ids = None
     if args.execute and not args.testnet:
         build_sha = validate_build_sha(os.getenv("TRADING_BUILD_SHA"))
-        validate_strategy_evidence(
+        expected_artifact_ids = validate_strategy_evidence(
             args.evidence_file,
             expected_symbols=[symbol for symbol, _ in allocations],
             expected_params=STRATEGY_PARAMS,
             expected_allocations=allocation_map,
             expected_build_sha=build_sha,
             integrity_key=integrity_key,
+            return_runtime_bindings=True,
         )
 
     print("=" * 80)
@@ -2293,6 +2700,7 @@ def run_locked(
         )
     )
     asyncio.run(adapter.connect())
+    canonical_lifecycle: ExecutionLifecycle | None = None
     try:
         if not args.testnet:
             require_dedicated_account(adapter, allocations)
@@ -2303,83 +2711,9 @@ def run_locked(
             strict_pricing=True,
         )
 
-        def _canonical_price_source(symbol_value: str) -> TrustedPrice | None:
-            ticker = broker.get_ticker(exchange_symbol(str(symbol_value)))
-            price = float(ticker.get("last") or 0.0)
-            exchange_timestamp = ticker.get("timestamp")
-            received_at = ticker.get("received_at")
-            if (
-                not math.isfinite(price)
-                or price <= 0
-                or not isinstance(exchange_timestamp, datetime)
-                or exchange_timestamp.tzinfo is None
-                or not isinstance(received_at, datetime)
-                or received_at.tzinfo is None
-            ):
-                return None
-            return TrustedPrice(
-                price=price,
-                exchange_timestamp=exchange_timestamp.astimezone(UTC),
-                received_at=received_at.astimezone(UTC),
-            )
-
-        def _canonical_portfolio_source(
-            symbol_value: str,
-        ) -> PortfolioRiskSnapshot | None:
-            account_snapshot = broker.get_account()
-            equity_value = float(account_snapshot.get("equity") or 0.0)
-            cash_value = float(account_snapshot.get("cash") or 0.0)
-            if (
-                not math.isfinite(equity_value)
-                or equity_value <= 0
-                or not math.isfinite(cash_value)
-                or cash_value < 0
-            ):
-                return None
-            position = next(
-                (
-                    item
-                    for item in broker.get_positions()
-                    if str(item.get("symbol")) == str(symbol_value)
-                ),
-                None,
-            )
-            position_quantity = float(position.get("qty") or 0.0) if position else 0.0
-            available_quantity = (
-                float(position.get("free_qty") or 0.0)
-                if position and "free_qty" in position
-                else position_quantity
-            )
-            if any(
-                not math.isfinite(value) or value < 0
-                for value in (position_quantity, available_quantity)
-            ):
-                return None
-            return PortfolioRiskSnapshot(
-                symbol=str(symbol_value),
-                position_quantity=position_quantity,
-                available_quantity=available_quantity,
-                equity=equity_value,
-                available_cash=cash_value,
-                observed_at=datetime.now(UTC),
-                source="binance_live_broker",
-            )
-
-        canonical_store = ExecutionEventStore("data/execution/events.db").connect()
-        canonical_lifecycle = ExecutionLifecycle(
-            canonical_store,
-            price_source=_canonical_price_source,
-            inventory_source=lambda symbol_value, side: (
-                snapshot.available_quantity
-                if (snapshot := _canonical_portfolio_source(symbol_value)) is not None
-                else 0.0
-            ),
-            portfolio_source=_canonical_portfolio_source,
-        )
-        canonical_gateway = BrokerGateway(
-            adapter=LiveBrokerExecutionAdapter(broker),
-            store=canonical_store,
-            lifecycle=canonical_lifecycle,
+        canonical_lifecycle, canonical_gateway = build_canonical_execution_stack(
+            broker,
+            event_store_path=str(account_session.event_store_path),
         )
 
         reconcile_unfinished_orders(
@@ -2387,6 +2721,8 @@ def run_locked(
             store=store,
             audit_log_path=args.audit_log,
             timeout_seconds=reconciliation_timeout,
+            lifecycle=canonical_lifecycle,
+            gateway=canonical_gateway,
         )
         account = broker.get_account()
         positions = broker.get_positions()
@@ -2428,10 +2764,20 @@ def run_locked(
                 )
 
         states: dict[str, dict] = {}
+        market_inputs = {}
         data_errors: list[str] = []
         for pair, allocation in allocations:
             try:
-                state = compute_state(get_recent_df(pair, monitor=monitor))
+                frame = get_recent_df(pair, monitor=monitor)
+                market_input = wrap_market_data(
+                    pair, "1h", frame, source="binance_spot_rest"
+                )
+                if market_input is None:
+                    raise LiveSafetyError(
+                        "live market input has no attributable provenance"
+                    )
+                market_inputs[pair] = market_input
+                state = compute_state(frame)
                 states[pair] = state
                 print(
                     f"{pair}: {state['state']} @ ${state['price']:,.2f}, "
@@ -2458,15 +2804,133 @@ def run_locked(
             if state.get("risk_exit"):
                 print(f"{pair}: RISK EXIT — {state['risk_exit']}")
 
-        decisions = build_decisions(
-            allocations=allocations,
-            states=states,
-            positions=positions,
-            equity=equity,
-            locked_reason=risk_locked_reason,
-            entries_locked_reason=entries_locked_reason,
-            limits=limits,
-        )
+        if buy_admissions is not None:
+            # Compatibility injection for consumer-boundary local tests.
+            decisions = build_decisions(
+                allocations=allocations,
+                states=states,
+                positions=positions,
+                equity=equity,
+                locked_reason=risk_locked_reason,
+                entries_locked_reason=entries_locked_reason,
+                limits=limits,
+                buy_admissions=buy_admissions,
+            )
+        else:
+            forced_states = {
+                pair: state
+                for pair, state in states.items()
+                if risk_locked_reason or state.get("risk_exit")
+            }
+            forced = [
+                (pair, weight) for pair, weight in allocations if pair in forced_states
+            ]
+            if forced:
+                # Safety exits never depend on a new-exposure policy binding.
+                decisions = build_decisions(
+                    allocations=forced,
+                    states=forced_states,
+                    positions=positions,
+                    equity=equity,
+                    locked_reason=risk_locked_reason,
+                    entries_locked_reason=entries_locked_reason,
+                    limits=limits,
+                )
+            else:
+                environment = (
+                    Environment.TESTNET
+                    if args.testnet
+                    else Environment.CANARY
+                    if profile == "mainnet-canary"
+                    else Environment.PRODUCTION
+                )
+                if admission_producer is None:
+                    promotion_path = Path(
+                        os.getenv(
+                            "LIVE_PROMOTION_DB", "data/promotion_store/promotions.db"
+                        )
+                    )
+                    artifact_path = Path(
+                        os.getenv("LIVE_ARTIFACT_DB", "data/research/artifacts.db")
+                    )
+                    if not promotion_path.is_file() or not artifact_path.is_file():
+                        raise LiveSafetyError(
+                            "existing authoritative LIVE_PROMOTION_DB and LIVE_ARTIFACT_DB are required"
+                        )
+                    config = AuthorityConfig(environment=environment)
+                    admission_producer = PromotedLiveAdmissionProducer(
+                        RuntimeStrategyResolver(
+                            config,
+                            promotion_store=PromotionStateStore(promotion_path),
+                            artifact_store=PersistentArtifactStore(artifact_path),
+                        ),
+                        config=config,
+                    )
+                _, gross = position_snapshot(positions)
+                exposures = {
+                    item["symbol"]: float(item["market_value"]) / equity
+                    for item in positions
+                }
+                snapshot = PortfolioSnapshot(
+                    equity=equity,
+                    available_cash=float(account["cash"]),
+                    positions={
+                        item["symbol"]: float(item["qty"]) for item in positions
+                    },
+                    symbol_exposures=exposures,
+                    gross_exposure=gross / equity,
+                    untracked_symbols=tuple(
+                        sorted(set(exposures) - set(allocation_map))
+                    ),
+                    untracked_exposure=sum(
+                        v for k, v in exposures.items() if k not in allocation_map
+                    ),
+                    untracked_valued=True,
+                    reconciliation_state=PortfolioReconciliation.RECONCILED,
+                )
+                quotes = {
+                    pair: trusted_broker_quote(broker, pair, buy=True)
+                    for pair in allocation_map
+                }
+                if any(quote is None for quote in quotes.values()):
+                    raise LiveSafetyError(
+                        "canonical live producer has unknown quote receipt"
+                    )
+                decisions = admission_producer.produce(
+                    inputs=market_inputs,
+                    quotes=quotes,
+                    snapshot=snapshot,
+                    allocations=allocation_map,
+                    lifecycle=canonical_lifecycle,
+                    environment=environment,
+                    limits=limits,
+                    states=states,
+                    expected_artifact_ids=expected_artifact_ids,
+                    expected_strategy_name="enhanced_ma"
+                    if expected_artifact_ids
+                    else None,
+                    expected_parameters=STRATEGY_PARAMS
+                    if expected_artifact_ids
+                    else None,
+                )
+                if entries_locked_reason:
+                    decisions = [
+                        decision
+                        for decision in decisions
+                        if decision["action"] != "BUY"
+                    ]
+        if expected_artifact_ids is not None:
+            for decision in decisions:
+                if decision["action"] == "BUY":
+                    risk = decision.get("risk_decision")
+                    if (
+                        risk is None
+                        or risk.model_artifact_id
+                        != expected_artifact_ids.get(decision["market_symbol"])
+                    ):
+                        raise LiveSafetyError(
+                            "BUY runtime does not match signed mainnet evidence"
+                        )
         if args.execute:
             ensure_protective_stops(
                 states=states,
@@ -2530,11 +2994,19 @@ def run_locked(
         )
         return 0
     finally:
+        if canonical_lifecycle is not None:
+            with suppress(Exception):
+                canonical_lifecycle.store.close()
         with suppress(Exception):
             asyncio.run(adapter.disconnect())
 
 
-def run(args: argparse.Namespace) -> int:
+def run(
+    args: argparse.Namespace,
+    *,
+    buy_admissions: Mapping[str, LiveBuyAdmission] | None = None,
+    admission_producer: PromotedLiveAdmissionProducer | None = None,
+) -> int:
     # P1.2: one correlation ID per runner invocation; every audit event and
     # error raised inside the run is tagged with it.
     run_id = bind_run_correlation()
@@ -2551,7 +3023,13 @@ def run(args: argparse.Namespace) -> int:
         if args.testnet
         else "data/binance_live_risk_state.json"
     )
-    with LiveExecutionLock(f"{state_path}.lock"):
+    with LiveAccountSession(
+        account_id=os.getenv("LIVE_ACCOUNT_ID", ""),
+        exchange="binance-testnet" if args.testnet else "binance-mainnet",
+        state_path=state_path,
+        integrity_key=os.getenv("LIVE_SAFETY_HMAC_KEY", ""),
+        root=Path(__file__).resolve().parents[1] / "data" / "execution" / "accounts",
+    ) as account_session:
         return run_locked(
             args,
             limits=limits,
@@ -2559,6 +3037,9 @@ def run(args: argparse.Namespace) -> int:
             state_path=state_path,
             profile=profile,
             run_id=run_id,
+            buy_admissions=buy_admissions,
+            account_session=account_session,
+            admission_producer=admission_producer,
         )
 
 

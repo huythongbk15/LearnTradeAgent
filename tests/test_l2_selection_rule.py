@@ -28,14 +28,16 @@ from select_l2_candidate import (  # noqa: E402
     GATE_N_MIN,
     TRADING_WINDOW_FLOOR,
     Candidate,
+    rank_candidates,
     _binomial_tail,
 )
 
 RULE = ROOT / "docs" / "operations" / "L2_SELECTION_RULE.md"
 
 
-def _cand(strategy_id: str, folds: int, share: float, trades: float,
-          warmup: int = 10) -> Candidate:
+def _cand(
+    strategy_id: str, folds: int, share: float, trades: float, warmup: int = 10
+) -> Candidate:
     return Candidate(
         strategy_id=strategy_id,
         registered=True,
@@ -50,6 +52,7 @@ def _cand(strategy_id: str, folds: int, share: float, trades: float,
 
 
 # ── ranking: fold count dominates ─────────────────────────────────────────
+
 
 def test_more_folds_wins_even_with_worse_density():
     # 12 folds at 50% versus 32 folds at 60%. Fold count decides whether the
@@ -79,6 +82,7 @@ def test_shorter_warmup_breaks_remaining_ties():
 
 # ── tie-break must be total ───────────────────────────────────────────────
 
+
 def test_tie_break_is_total_and_lexicographic():
     a = _cand("alpha", 32, 0.60, 2, warmup=20)
     b = _cand("beta", 32, 0.60, 2, warmup=20)
@@ -98,6 +102,7 @@ def test_fewer_trades_wins_when_only_that_differs():
 
 
 # ── gate parameters the rule references ───────────────────────────────────
+
 
 def test_gate_n_min_is_documented_as_unresolved():
     # The rule states that n_min and p_max are unresolved in
@@ -123,6 +128,7 @@ def test_both_selection_paths_are_specified():
 
 # ── the binomial helper the contract relies on ────────────────────────────
 
+
 @pytest.mark.parametrize("n", [7, 14, 21])
 def test_binomial_tail_matches_gate_arithmetic(n):
     # At n=7 with p<=0.20 the gate needs 6/7; at n=14, 10/14.
@@ -138,6 +144,7 @@ def test_binomial_tail_is_monotone():
 
 
 # ── the recorded run must match the document ─────────────────────────────
+
 
 def test_recorded_first_run_matches_rule_document():
     text = RULE.read_text()
@@ -156,6 +163,17 @@ def test_selector_emits_d01_fragment():
     assert data["data"]["sha256"]
     assert data["window"]["folds"] >= GATE_N_MIN
     if data["selected"] != "NOT_QUALIFIED":
-        chosen = next(c for c in data["candidates"]
-                      if c["strategy_id"] == data["selected"])
+        chosen = next(
+            c for c in data["candidates"] if c["strategy_id"] == data["selected"]
+        )
         assert chosen["eligible"] is True
+
+
+def test_actual_selector_total_order_is_input_order_independent():
+    alpha = _cand("alpha", 32, 0.60, 2)
+    zeta = _cand("zeta", 32, 0.60, 2)
+    assert [row.strategy_id for row in rank_candidates([zeta, alpha])] == [
+        "alpha",
+        "zeta",
+    ]
+    assert rank_candidates([alpha, zeta]) == rank_candidates([zeta, alpha])

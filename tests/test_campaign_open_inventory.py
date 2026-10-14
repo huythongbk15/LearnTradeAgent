@@ -91,11 +91,170 @@ def test_flat_run_still_uses_the_closed_basis() -> None:
     assert evidence["execution_model"] == "paper_slippage_only_v1"
 
 
+def test_zero_trade_window_requires_zero_unexplained_equity():
+    evidence = export_paper_trade_accounting([], equity_delta=0.0, open_inventory=False)
+    assert evidence["trades"] == 0 and evidence["net_pnl"] == 0.0
+    assert evidence["strategy_qualified"] is False
+    with pytest.raises(ValueError):
+        export_paper_trade_accounting([], equity_delta=1.0, open_inventory=False)
+
+
+def test_producer_accepts_measured_open_only_boundary_window(tmp_path):
+    import json
+    from types import SimpleNamespace as NS
+    from trading_agent.backtest.accounting_evidence import mark_paper_open_at_boundary
+
+    leg = mark_paper_open_at_boundary(
+        open_leg(),
+        boundary_price=105.0,
+        entry_bar_index=2,
+        measurement_start=10,
+        measurement_end=20,
+    )
+    report = dict(
+        initial_capital=100.0,
+        equity_curve=[[0, 100.0], [1, 105.0]],
+        trades=[],
+        open_positions=1,
+        measured_open_inventory=leg,
+        measured_equity_basis="marked_equity",
+    )
+    report["measured_accounting"] = export_paper_trade_accounting(
+        [], equity_delta=5.0, open_inventory=leg, equity_basis="marked_equity"
+    )
+    path = tmp_path / "open_only.json"
+    path.write_text(json.dumps(report))
+    subject = dict(strategy_id="s", symbol="BTC/USDT", timeframe="1h")
+    fold = NS(
+        fold_id="f0",
+        artifact=NS(**subject, status="COMPLETED", report_path=str(path)),
+        test_metrics=dict(
+            total_trades=0,
+            net_pnl=0.0,
+            total_return_pct=5.0,
+            sharpe=1.0,
+            max_drawdown_pct=0.0,
+        ),
+    )
+    row = collect_wfo_campaign_rows(NS(spec=NS(**subject), outer_results=[fold]))[0]
+    assert row["trades"] == 0 and row["net_pnl"] == 0.0
+    assert row["total_pnl"] == 5.0 and row["cost_cleared"] is True
+
+
+def test_partial_exit_and_remaining_inventory_share_boundary_basis():
+    from trading_agent.backtest.accounting_evidence import (
+        mark_paper_open_at_boundary,
+        mark_paper_trade_at_boundary,
+    )
+
+    original_trade = paper_trade(
+        quantity=0.5, entry_fee=0.5, exit_fee=0.5, entry_bar_index=2, exit_bar_index=12
+    )
+    trade = mark_paper_trade_at_boundary(
+        original_trade, boundary_price=105.0, measurement_start=10, measurement_end=20
+    )
+    leg = mark_paper_open_at_boundary(
+        open_leg(quantity=0.5, entry_fee=0.5, valuation_price=112.0),
+        boundary_price=105.0,
+        entry_bar_index=2,
+        measurement_start=10,
+        measurement_end=20,
+    )
+    evidence = export_paper_trade_accounting(
+        [trade], equity_delta=5.5, open_inventory=leg, equity_basis="marked_equity"
+    )
+    assert evidence["net_pnl"] == pytest.approx(2.0)
+    assert evidence["open_unrealized"] == pytest.approx(3.5)
+    assert evidence["total_pnl"] == pytest.approx(5.5)
+    assert evidence["fees"] == pytest.approx(0.5)
+
+
+@pytest.mark.parametrize("side,delta", [("buy", 5.0), ("sell", -5.0)])
+def test_inventory_born_before_oos_is_marked_at_boundary(side, delta):
+    from copy import deepcopy
+    from trading_agent.backtest.accounting_evidence import mark_paper_open_at_boundary
+
+    original = open_leg(side=side, entry_reference=100.0, valuation_price=110.0)
+    leg = mark_paper_open_at_boundary(
+        original,
+        boundary_price=105.0,
+        entry_bar_index=2,
+        measurement_start=10,
+        measurement_end=20,
+    )
+    evidence = export_paper_trade_accounting(
+        [], equity_delta=delta, open_inventory=leg, equity_basis="marked_equity"
+    )
+    assert evidence["total_pnl"] == delta and evidence["open_entry_fee"] == 0.0
+    assert leg["measurement_boundary"]["original_open_inventory"] == original
+    forged = deepcopy(leg)
+    forged["entry_price"] = 104.0
+    with pytest.raises(ValueError):
+        export_paper_trade_accounting(
+            [], equity_delta=delta, open_inventory=forged, equity_basis="marked_equity"
+        )
+    with pytest.raises(ValueError):
+        export_paper_trade_accounting(
+            [], equity_delta=delta, open_inventory=leg, equity_basis="cash"
+        )
+
+
+def test_marked_equity_does_not_add_inventory_value_twice():
+    evidence = export_paper_trade_accounting(
+        [paper_trade()],
+        equity_delta=19.85,
+        open_inventory=open_leg(),
+        equity_basis="marked_equity",
+    )
+    assert evidence["total_pnl"] == pytest.approx(19.85)
+    assert evidence["equity_basis"] == "marked_equity"
+    with pytest.raises(ValueError):
+        export_paper_trade_accounting(
+            [paper_trade()],
+            equity_delta=19.85,
+            open_inventory=open_leg(),
+            equity_basis="cash",
+        )
+    with pytest.raises(ValueError):
+        export_paper_trade_accounting(
+            [paper_trade()],
+            equity_delta=19.85,
+            open_inventory=open_leg(),
+            equity_basis="invented",
+        )
+
+
+def test_boundary_trade_preserves_original_fill_proof():
+    from copy import deepcopy
+    from trading_agent.backtest.accounting_evidence import mark_paper_trade_at_boundary
+
+    original = paper_trade(entry_bar_index=2, exit_bar_index=12)
+    trade = mark_paper_trade_at_boundary(
+        original, boundary_price=105, measurement_start=10, measurement_end=20
+    )
+    evidence = export_paper_trade_accounting(
+        [trade], equity_delta=4.95, open_inventory=False
+    )
+    assert evidence["net_pnl"] == pytest.approx(4.95)
+    assert evidence["fees"] == pytest.approx(0.05)
+    assert trade["measurement_boundary"]["original_trade"] == original
+    forged = deepcopy(trade)
+    forged["entry_fee"] = 0.01
+    with pytest.raises(ValueError):
+        export_paper_trade_accounting([forged], equity_delta=4.94, open_inventory=False)
+    with pytest.raises(ValueError):
+        mark_paper_trade_at_boundary(
+            original, boundary_price=105, measurement_start=1, measurement_end=20
+        )
+
+
 def test_a_bare_flag_can_no_longer_stand_in_for_a_carried_position() -> None:
     # True used to be enough to say "open inventory exists", which the
     # exporter then refused -- it could not price what it could not see.
     with pytest.raises(ValueError, match="measured open leg"):
-        export_paper_trade_accounting([paper_trade()], equity_delta=9.9, open_inventory=True)
+        export_paper_trade_accounting(
+            [paper_trade()], equity_delta=9.9, open_inventory=True
+        )
 
 
 def test_carried_position_is_priced_and_reconciled() -> None:
@@ -172,7 +331,9 @@ def test_carried_fold_is_priced_rather_than_refused(tmp_path) -> None:
     # equity_delta is derived from the curve in production; mirror that so
     # the stored ledger and the producer's reconstruction compare equal.
     accounting = export_paper_trade_accounting(
-        [paper_trade()], equity_delta=final - initial, open_inventory=leg,
+        [paper_trade()],
+        equity_delta=final - initial,
+        open_inventory=leg,
     )
     report = {
         "trades": [paper_trade()],
@@ -247,8 +408,11 @@ def test_flat_fold_reconstructs_without_open_inventory(tmp_path) -> None:
         fold_id="f_flat",
         params={},
         artifact=SimpleNamespace(
-            status="COMPLETED", report_path=str(report_path),
-            strategy_id="s", symbol="s", timeframe="1h",
+            status="COMPLETED",
+            report_path=str(report_path),
+            strategy_id="s",
+            symbol="s",
+            timeframe="1h",
         ),
         test_metrics={
             "total_trades": accounting["trades"],

@@ -1255,9 +1255,12 @@ class TestSensitivityAnalysis:
         # Real trade-level drop-best: net 12.0, drop best (10.0) -> 2.0
         assert sens["drop_best_trade"]["folds"]["f1"]["net_pnl"] == 12.0
         assert sens["drop_best_trade"]["folds"]["f1"]["net_pnl_after_drop"] == 2.0
-        assert sens["cost_2x"]["aggregate"]["median_profit_factor"] == 0.82
-        assert sens["slippage_stress"]["aggregate"]["median_profit_factor"] == 0.70
-        assert sens["drop_best_trade"]["aggregate"]["total_net_pnl_after_drop"] == 2.0
+        # Legacy mock objects cannot certify source-bound stress coverage.
+        assert sens["cost_2x"]["folds"]["f1"]["profit_factor"] == 0.82
+        assert sens["slippage_stress"]["folds"]["f1"]["profit_factor"] == 0.70
+        assert sens["coverage"]["status"] == "INCOMPLETE"
+        assert sens["cost_2x"]["aggregate"]["median_profit_factor"] is None
+        assert sens["drop_best_trade"]["aggregate"]["total_net_pnl_after_drop"] is None
 
     def test_fallback_without_rerun(self):
         """Without out_root/descriptor, returns framework placeholders (no crash)."""
@@ -1311,11 +1314,12 @@ class TestMeasurementWindow:
             symbol="BTC/USDT", timeframe="1h", n_bars=n_bars, seed=7, regimes=True
         )
 
-        def _load(*args, **kwargs):
-            return df
-
-        monkeypatch.setattr("trading_agent.data.storage.load_ohlcv", _load)
-        monkeypatch.setattr("trading_agent.backtest.tournament.load_ohlcv", _load)
+        # Loader monkeypatches do not reach spawned simulator children. Bind
+        # actual synthetic bytes instead, so these tests cannot read market data.
+        from trading_agent.data.storage import frozen_research_data
+        out_root.parent.mkdir(parents=True, exist_ok=True)
+        data_path = out_root.parent / f"synthetic_{out_root.name}_{n_bars}.parquet"
+        df.write_parquet(data_path)
 
         spec = EvaluationCellSpec(
             strategy_id="rsi",
@@ -1324,15 +1328,16 @@ class TestMeasurementWindow:
             params={"period": 14, "oversold": 30, "overbought": 70},
             cost_scenario=SCENARIO_BASE,
         )
-        return run_cell(
-            spec,
-            out_root=out_root,
-            start=0,
-            end=n_bars,
-            fresh=True,
-            measurement_start=m_start,
-            measurement_end=m_end,
-        )
+        with frozen_research_data(data_path, exchange="binance", symbol=spec.symbol, timeframe=spec.timeframe):
+            return run_cell(
+                spec,
+                out_root=out_root,
+                start=0,
+                end=m_end if m_end is not None else n_bars,
+                fresh=True,
+                measurement_start=m_start,
+                measurement_end=m_end,
+            )
 
     def test_measurement_window_recorded(self, tmp_path, monkeypatch):
         art = self._run(monkeypatch, tmp_path / "m", 800, 1200)

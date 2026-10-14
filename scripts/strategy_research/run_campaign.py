@@ -72,12 +72,135 @@ FROZEN_INPUTS: dict = {}
 JOB_TIMEOUT_SECONDS = 3600
 
 
+def _load_frozen_inputs(path):
+    """Validate bytes and reject ambiguous duplicate subject bindings up front."""
+    manifest = json.loads(Path(path).read_text())
+    records = {}
+    for record in manifest["inputs"]:
+        if record["status"] != "FROZEN":
+            continue
+        key = (record["symbol"], record["timeframe"])
+        if key in records:
+            raise ValueError("Duplicate frozen input subject")
+        source = Path(record["path"]).resolve()
+        if hashlib.sha256(source.read_bytes()).hexdigest() != record["byte_sha256"]:
+            raise ValueError("Frozen input byte hash mismatch")
+        records[key] = {**record, "path": str(source)}
+    if not records:
+        raise ValueError("manifest contains no frozen inputs")
+    return records
+
+
+def _resolve_reuse_packet(reuse_from, out_root, strategy_id, symbol, timeframe, *, workers):
+    """Reject ambiguous/missing reuse before launching a potentially costly job.
+
+    Worker preflight subsequently compares the entire canonical protocol, folds,
+    grid and trial history. This check is dispatch admission, not qualification.
+    """
+    if reuse_from is None:
+        return None
+    from trading_agent.backtest.campaign_evidence import content_hash
+    from trading_agent.backtest.campaign_execution import execution_environment, simulator_runtime_config
+    from trading_agent.backtest.campaign_integrity import capture_campaign_source
+    from trading_agent.backtest.selection_eligibility import freeze_selection_contract
+    from scripts.run_wfo_parallel import TRIAL_IDENTITY_CONTRACT
+
+    source_root, destination = Path(reuse_from).resolve(), Path(out_root).resolve()
+    if source_root.is_relative_to(destination) or destination.is_relative_to(source_root):
+        raise ValueError("reuse requires disjoint source and destination roots")
+    packet = (source_root / f"{strategy_id}__{symbol.replace('/', '')}__{timeframe}").resolve()
+    path = (packet / "research_protocol.json").resolve()
+    if not packet.is_relative_to(source_root) or not path.is_relative_to(packet):
+        raise ValueError("reuse packet/protocol escapes source root")
+    if not path.is_file() or not (packet / "cell_resume_cache").is_dir():
+        raise ValueError(f"missing reuse packet/protocol/cache for {strategy_id}/{symbol}/{timeframe}; choose explicit fresh execution")
+    protocol = json.loads(path.read_bytes())
+    body = {key: value for key, value in protocol.items() if key != "fingerprint"}
+    spec = protocol.get("spec", {})
+    binding = FROZEN_INPUTS.get((symbol, timeframe))
+    execution = protocol.get("execution", {})
+    expected_binding = None if binding is None else {
+        "path": str(Path(binding["path"]).resolve()), "sha256": binding["byte_sha256"],
+        "exchange": "binance", "symbol": symbol, "timeframe": timeframe,
+    }
+    if (
+        protocol.get("fingerprint") != content_hash(body)
+        or protocol.get("trial_identity_contract") != TRIAL_IDENTITY_CONTRACT
+        or protocol.get("selection_contract") != freeze_selection_contract(min_validation_trades=30, min_validation_sharpe=0)
+        or spec.get("strategy_id") != get_strategy_code_name(strategy_id)
+        or spec.get("symbol") != symbol or spec.get("timeframe") != timeframe
+        or spec.get("param_grid") != get_param_grid(strategy_id)
+        or expected_binding is None or protocol.get("input_binding") != expected_binding
+        or protocol.get("source") != capture_campaign_source(ROOT)
+        or execution.get("environment") != execution_environment()
+        or execution.get("runtime_config") != simulator_runtime_config()
+        or execution.get("workers") != workers
+        or protocol.get("live_authorized") is not False
+    ):
+        raise ValueError(f"reuse protocol/subject/source/config mismatch: {packet}")
+    return packet
+
+
+def _validate_worker_summary(out_dir, *, code_name, symbol, timeframe, param_grid):
+    """Reject legacy or mismatched summaries instead of interpreting rc0 as coverage."""
+    from trading_agent.backtest.campaign_evidence import content_hash
+    from trading_agent.backtest.selection_eligibility import freeze_selection_contract
+    from scripts.run_wfo_parallel import TRIAL_IDENTITY_CONTRACT
+
+    root = Path(out_dir).resolve()
+    summary = json.loads((root / "parallel_canonical_summary.json").read_text())
+    protocol = json.loads((root / "research_protocol.json").read_text())
+    coverage = json.loads((root / "exact_coverage.json").read_text())
+    decision_bytes = (root / "wfo_decision.json").read_bytes()
+    decision = json.loads(decision_bytes)
+    body = {key: value for key, value in protocol.items() if key != "fingerprint"}
+    expected_selection = freeze_selection_contract(min_validation_trades=30, min_validation_sharpe=0.0)
+    if (
+        protocol.get("fingerprint") != content_hash(body)
+        or protocol.get("trial_identity_contract") != TRIAL_IDENTITY_CONTRACT
+        or protocol.get("selection_contract") != expected_selection
+        or any(summary.get(key) != value for key, value in
+               (("strategy", code_name), ("symbol", symbol), ("timeframe", timeframe)))
+        or any(protocol.get("spec", {}).get(key) != value for key, value in
+               (("strategy_id", code_name), ("symbol", symbol),
+                ("timeframe", timeframe), ("param_grid", param_grid)))
+        or summary.get("protocol_fingerprint") != protocol["fingerprint"]
+        or summary.get("exact_coverage") != coverage
+        or coverage.get("protocol_fingerprint") != protocol["fingerprint"]
+        or coverage.get("status") != "PASS"
+        or coverage.get("scope") != "planned_inner_selected_outer_and_sensitivity"
+        or coverage.get("inner_cells") != len(protocol["expected_inner_cells"])
+        or coverage.get("outer_folds") != len(protocol["folds"])
+        or summary.get("run_holdout") is not False
+        or type(summary.get("passes_hard_gates")) is not bool
+        or summary.get("decision_sha256") != hashlib.sha256(decision_bytes).hexdigest()
+        or decision.get("spec") != protocol["spec"]
+        or summary.get("passes_hard_gates") != decision.get("passes_hard_gates")
+        or summary.get("aggregate_metrics") != decision.get("aggregate_metrics")
+    ):
+        raise ValueError("Worker protocol/subject/coverage mismatch")
+    reports = coverage.get("reports", [])
+    if (type(coverage.get("sensitivity_cells")) is not int or coverage["sensitivity_cells"] < 1
+            or len(reports) != coverage["inner_cells"] + coverage["outer_folds"] + coverage["sensitivity_cells"]):
+        raise ValueError("Worker report inventory is incomplete")
+    seen = set()
+    for record in reports:
+        path = (root / record["path"]).resolve()
+        if not path.is_relative_to(root) or path in seen:
+            raise ValueError("Worker report inventory escapes packet or is duplicated")
+        seen.add(path)
+        if hashlib.sha256(path.read_bytes()).hexdigest() != record["sha256"]:
+            raise ValueError("Worker source report changed")
+    return summary
+
+
 def run_single_strategy_cell(
     strategy_id: str,
     symbol: str,
     timeframe: str,
     out_root: Path,
     workers: int = 4,
+    reuse_from: Path | None = None,
 ) -> dict:
     """Run WFO for one (strategy, symbol, timeframe) combination.
 
@@ -134,6 +257,11 @@ def run_single_strategy_cell(
         "--workers", str(workers),
         "--cost", "all",
     ]
+    source_packet = _resolve_reuse_packet(
+        reuse_from, out_root, strategy_id, symbol, timeframe, workers=workers,
+    )
+    if source_packet is not None:
+        cmd.extend(["--reuse-from", str(source_packet)])
 
     start = time.time()
     job_dir = Path(out_dir)
@@ -144,7 +272,21 @@ def run_single_strategy_cell(
     started_path = job_dir / "execution_started.json"
     with started_path.open("x", encoding="utf-8") as stream:
         json.dump({"cmd": cmd, "started_at": datetime.now(timezone.utc).isoformat(),
-                   "binding": input_record, "status": "STARTED"}, stream, indent=2)
+                   "binding": input_record, "status": "STARTED",
+                   "reuse_from": str(source_packet) if source_packet is not None else None}, stream, indent=2)
+    worker_exit_code = None
+
+    def finish(record):
+        terminal = {**record, "worker_exit_code": worker_exit_code,
+                    "finished_at": datetime.now(timezone.utc).isoformat(),
+                    "elapsed_seconds": time.time() - start,
+                    "reuse_from": str(source_packet) if source_packet is not None else None,
+                    "live_authorized": False}
+        with (job_dir / "execution_finished.json").open("x", encoding="utf-8") as stream:
+            json.dump(terminal, stream, indent=2)
+            stream.flush()
+            os.fsync(stream.fileno())
+        return record
     try:
         with stdout_path.open("x", encoding="utf-8") as stdout_log, \
                 stderr_path.open("x", encoding="utf-8") as stderr_log:
@@ -153,21 +295,25 @@ def run_single_strategy_cell(
                 cwd=str(ROOT), env=child_env,
             )
         elapsed = time.time() - start
+        worker_exit_code = result.returncode
         if result.returncode != 0:
-            return {
+            return finish({
                 "strategy_id": strategy_id,
                 "symbol": symbol,
                 "timeframe": timeframe,
                 "status": "ERROR",
                 "error": stderr_path.read_text()[-2000:] or "Worker exited without stderr",
-            }
+            })
 
         # Parse summary
         summary_path = Path(out_dir) / "parallel_canonical_summary.json"
         if summary_path.exists():
-            summary = json.loads(summary_path.read_text())
+            summary = _validate_worker_summary(
+                out_dir, code_name=code_name, symbol=symbol,
+                timeframe=timeframe, param_grid=param_grid,
+            )
             m = summary.get("aggregate_metrics", {})
-            return {
+            return finish({
                 "strategy_id": strategy_id,
                 "symbol": symbol,
                 "timeframe": timeframe,
@@ -182,30 +328,32 @@ def run_single_strategy_cell(
                 "positive_outer_folds_pct": float(m.get("positive_outer_folds_pct", 0)),
                 "final_holdout_status": summary.get("final_holdout_status"),
                 "elapsed_seconds": elapsed,
-            }
-        return {
+                "protocol_fingerprint": summary["protocol_fingerprint"],
+            })
+        return finish({
             "strategy_id": strategy_id,
             "symbol": symbol,
             "timeframe": timeframe,
-            "status": "COMPLETED",
+            "status": "ERROR",
+            "error": "Worker exited without verified summary",
             "elapsed_seconds": elapsed,
-        }
+        })
     except subprocess.TimeoutExpired:
-        return {
+        return finish({
             "strategy_id": strategy_id,
             "symbol": symbol,
             "timeframe": timeframe,
             "status": "TIMEOUT",
             "elapsed_seconds": time.time() - start,
-        }
+        })
     except Exception as exc:
-        return {
+        return finish({
             "strategy_id": strategy_id,
             "symbol": symbol,
             "timeframe": timeframe,
             "status": "ERROR",
             "error": str(exc),
-        }
+        })
 
 
 def collect_return_series(
@@ -313,6 +461,9 @@ def run_single_asset_phase(
     timeframes: list[str],
     workers: int = 4,
     strategies: list[str] | None = None,
+    reuse_from: Path | None = None,
+    cell_workers: int = 2,
+    max_cell_workers: int = 4,
 ) -> list[dict]:
     """Run all single-asset strategies across assets and timeframes."""
 
@@ -335,6 +486,14 @@ def run_single_asset_phase(
 
     print(f"Single-asset phase: {len(cells)} job(s), {workers} workers")
 
+    if cell_workers not in (1, 2, 4) or max_cell_workers < cell_workers or workers < 1:
+        raise ValueError("invalid global cell-worker budget")
+    workers = min(workers, max_cell_workers // cell_workers)
+    # Validate every mapping before ANY subject starts. Never silently expand a
+    # reuse run into fresh market evaluation when a requested source is absent.
+    for sid, asset, tf in cells:
+        _resolve_reuse_packet(reuse_from, out_root, sid, asset, tf, workers=cell_workers)
+
     results = []
     completed = 0
     # Run cells in parallel using ThreadPool (each cell spawns a subprocess)
@@ -342,7 +501,7 @@ def run_single_asset_phase(
 
     with ThreadPoolExecutor(max_workers=workers) as pool:
         future_map = {
-            pool.submit(run_single_strategy_cell, sid, asset, tf, out_root, 2): (sid, asset, tf)
+            pool.submit(run_single_strategy_cell, sid, asset, tf, out_root, cell_workers, reuse_from): (sid, asset, tf)
             for sid, asset, tf in cells
         }
         for future in as_completed(future_map):
@@ -370,16 +529,25 @@ def run_single_asset_phase(
 def _assert_coverage(cells, results, out_root: Path) -> None:
     from trading_agent.backtest.campaign_integrity import (
         verify_campaign_coverage,
+        verify_subject_coverage,
     )
 
-    requested = {get_strategy_code_name(sid) for sid, _asset, _tf in cells}
-    canonical_results = [{**r, "strategy_id": get_strategy_code_name(r["strategy_id"])}
+    def canonical(sid):
+        base, _, variant = sid.partition("__")
+        return get_strategy_code_name(base, cs_variant=variant or None)
+
+    subjects = [(canonical(sid), asset, tf) for sid, asset, tf in cells]
+    requested = {sid for sid, _asset, _tf in subjects}
+    canonical_results = [{**r, "strategy_id": canonical(r["strategy_id"])}
                          if r.get("strategy_id") else r for r in results]
+    subject_report = verify_subject_coverage(requested_subjects=subjects, results=canonical_results)
+    with (out_root / "subject_coverage.json").open("x", encoding="utf-8") as stream:
+        json.dump(subject_report, stream, indent=2)
     report = verify_campaign_coverage(
         requested_strategies=requested, out_root=out_root, results=canonical_results
     )
     print(report.summary())
-    if not report.ok:
+    if not report.ok or subject_report["status"] != "PASS":
         raise SystemExit(
             "campaign incomplete: strategies were requested that produced no "
             "cells. Treating this as success is what produced unreproducible "
@@ -437,6 +605,9 @@ def main():
     parser.add_argument("--assets", nargs="+", default=ASSETS)
     parser.add_argument("--timeframes", nargs="+", default=["4h", "1h"])
     parser.add_argument("--workers", type=int, default=4)
+    parser.add_argument("--cell-workers", type=int, choices=[1, 2, 4], default=2)
+    parser.add_argument("--max-cell-workers", type=int, default=4,
+                        help="Global concurrent measured-cell cap across subject jobs")
     parser.add_argument("--out", default="data/backtests/wfo/research")
     parser.add_argument(
         "--strategies", nargs="+",
@@ -444,18 +615,27 @@ def main():
     )
     parser.add_argument("--input-manifest", type=Path,
                         help="Audited per-subject pre-holdout manifest; forwarded to child workers")
+    parser.add_argument("--reuse-from", type=Path,
+                        help="Root directory of previous research packets to cold-reuse from; subdirectory must match strategy__symbol__timeframe")
     parser.add_argument("--preflight-only", action="store_true")
     parser.add_argument("--job-timeout-seconds", type=int, default=3600)
     args = parser.parse_args()
-    if args.job_timeout_seconds <= 0:
-        parser.error("job timeout must be positive")
+    if args.job_timeout_seconds <= 0 or args.workers <= 0:
+        parser.error("job timeout and workers must be positive")
+    if args.max_cell_workers < args.cell_workers:
+        parser.error("global cell-worker budget is smaller than one job")
+    if len(set(args.assets)) != len(args.assets) or len(set(args.timeframes)) != len(args.timeframes):
+        parser.error("duplicate asset/timeframe requests are not allowed")
+    if args.strategies:
+        if args.phase != "single-asset":
+            parser.error("--strategies requires --phase single-asset; cross-asset needs separate scenario binding")
+        if len(set(args.strategies)) != len(args.strategies) or set(args.strategies) - set(SINGLE_ASSET_STRATEGIES):
+            parser.error("--strategies requires unique single-asset catalog IDs")
     JOB_TIMEOUT_SECONDS = args.job_timeout_seconds
+    if args.phase != "portfolio-analysis" and not args.input_manifest:
+        parser.error("research execution/preflight requires --input-manifest")
     if args.input_manifest:
-        manifest = json.loads(args.input_manifest.read_text())
-        FROZEN_INPUTS = {(r["symbol"], r["timeframe"]): r for r in manifest["inputs"]
-                         if r["status"] == "FROZEN"}
-        if not FROZEN_INPUTS:
-            raise ValueError("manifest contains no frozen inputs")
+        FROZEN_INPUTS = _load_frozen_inputs(args.input_manifest)
     if args.preflight_only:
         for sid in SINGLE_ASSET_STRATEGIES:
             if args.strategies and sid not in args.strategies:
@@ -464,11 +644,26 @@ def main():
                 for tf in args.timeframes:
                     record = FROZEN_INPUTS.get((symbol, tf))
                     status = "READY_INPUT" if record and sid != "funding_carry" else "BLOCKED_DATA"
+                    reuse_packet = None
+                    if args.reuse_from is not None and status == "READY_INPUT":
+                        reuse_packet = _resolve_reuse_packet(
+                            args.reuse_from, args.out, sid, symbol, tf, workers=args.cell_workers,
+                        )
                     print(json.dumps({"strategy": sid, "symbol": symbol,
                                       "timeframe": tf, "status": status,
+                                      "reuse_packet": str(reuse_packet) if reuse_packet is not None else None,
+                                      "global_cell_worker_cap": args.max_cell_workers,
                                       "grid": get_param_grid(sid)}))
         print("Cross-asset requires separately bound universe/scenario inputs; no execution performed")
         return
+    if args.phase in ("single-asset", "all"):
+        requested = args.strategies or SINGLE_ASSET_STRATEGIES
+        if "funding_carry" in requested or any(
+            (symbol, tf) not in FROZEN_INPUTS for symbol in args.assets for tf in args.timeframes
+        ):
+            parser.error("BLOCKED_DATA: choose an explicit OHLC-compatible shortlist with all inputs bound; inspect --preflight-only first")
+    if args.phase in ("cross-asset", "all"):
+        parser.error("BLOCKED_DATA: cross-asset execution requires a separately bound universe/scenario protocol")
 
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
@@ -481,7 +676,8 @@ def main():
     # ── Phase 1: Single-Asset Strategies ─────────────────────────────────
     if args.phase in ("single-asset", "all"):
         single_results = run_single_asset_phase(
-            out_root, args.assets, args.timeframes, args.workers, args.strategies,
+            out_root, args.assets, args.timeframes, args.workers, args.strategies, args.reuse_from,
+            args.cell_workers, args.max_cell_workers,
         )
         all_results.extend(single_results)
 

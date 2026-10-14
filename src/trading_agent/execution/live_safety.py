@@ -188,6 +188,108 @@ class LiveExecutionLock:
         self.release()
 
 
+class LiveAccountSession:
+    """One local writer and one persistent risk baseline per declared account.
+
+    Account identity must be stable across API-key rotation and verified by the
+    operator against the venue before external execution. Changing credentials
+    or the state-file argument must not select a fresh risk baseline. The root
+    is fixed by the application; tests may inject an isolated temporary root.
+    """
+
+    def __init__(
+        self,
+        *,
+        account_id: str,
+        exchange: str,
+        state_path: str | Path,
+        integrity_key: str,
+        root: str | Path,
+    ) -> None:
+        if not isinstance(account_id, str) or not account_id.strip():
+            raise LiveSafetyError(
+                "LIVE_ACCOUNT_ID must identify a stable venue account"
+            )
+        self.fingerprint = account_fingerprint(
+            exchange=exchange, api_key=account_id.strip()
+        )
+        self.state_path = Path(state_path).resolve()
+        self.namespace = Path(root).resolve() / self.fingerprint
+        self.event_store_path = self.namespace / "events.db"
+        self.binding_path = self.namespace / "binding.json"
+        self.integrity_key = validate_integrity_key(integrity_key)
+        self.lock = LiveExecutionLock(self.namespace / "writer.lock")
+        self.state_lock = LiveExecutionLock(f"{self.state_path}.lock")
+        self.active = False
+
+    def __enter__(self) -> "LiveAccountSession":
+        self.lock.acquire()
+        try:
+            self.state_lock.acquire()
+            expected = {
+                "version": 1,
+                "account_fingerprint": self.fingerprint,
+                "state_path": str(self.state_path),
+            }
+            if self.binding_path.exists():
+                raw = json.loads(self.binding_path.read_text(encoding="utf-8"))
+                signature = raw.pop("integrity", None)
+                if not isinstance(signature, str) or not hmac.compare_digest(
+                    signature, _payload_hmac(raw, self.integrity_key)
+                ):
+                    raise LiveSafetyError("account binding integrity check failed")
+                if raw != expected:
+                    raise LiveSafetyError(
+                        "account is already bound to another risk-state path"
+                    )
+                if not self.state_path.is_file():
+                    raise LiveSafetyError(
+                        "bound account risk state is missing; operator recovery required"
+                    )
+                # Detect corrupt/tampered state before connecting to a broker.
+                LiveRiskStateStore(self.state_path, integrity_key=self.integrity_key)
+            else:
+                # Persist the binding FIRST. A crash before bootstrap leaves a
+                # missing bound state, which fails closed rather than resetting.
+                payload = {
+                    **expected,
+                    "integrity": _payload_hmac(expected, self.integrity_key),
+                }
+                fd = os.open(
+                    self.binding_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600
+                )
+                with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                    json.dump(payload, handle, sort_keys=True)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                directory_fd = os.open(
+                    self.namespace, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+                )
+                try:
+                    os.fsync(directory_fd)
+                finally:
+                    os.close(directory_fd)
+                if not self.state_path.exists():
+                    LiveRiskStateStore(
+                        self.state_path, integrity_key=self.integrity_key
+                    ).save()
+                else:
+                    LiveRiskStateStore(
+                        self.state_path, integrity_key=self.integrity_key
+                    )
+            self.active = True
+            return self
+        except Exception:
+            self.state_lock.release()
+            self.lock.release()
+            raise
+
+    def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
+        self.active = False
+        self.state_lock.release()
+        self.lock.release()
+
+
 def _is_true(value: str | None) -> bool:
     return (value or "").strip().lower() == "true"
 
@@ -499,7 +601,8 @@ def validate_strategy_evidence(
     integrity_key: str | None = None,
     policy: StrategyEvidencePolicy | None = None,
     now: datetime | None = None,
-) -> dict[str, dict[str, float]]:
+    return_runtime_bindings: bool = False,
+) -> dict[str, dict[str, float]] | dict[str, str]:
     """Validate recent, cost-aware walk-forward evidence for every live symbol."""
 
     evidence_path = Path(path)
@@ -658,6 +761,22 @@ def validate_strategy_evidence(
             portfolio_folds,
             selected_policy,
         )
+    if return_runtime_bindings:
+        bindings = raw.get("strategy_artifact_ids")
+        if (
+            not isinstance(bindings, dict)
+            or set(bindings) != set(expected_symbols)
+            or any(
+                not isinstance(value, str) or not value.strip()
+                for value in bindings.values()
+            )
+        ):
+            raise LiveSafetyError(
+                "strategy evidence lacks exact runtime artifact bindings"
+            )
+        if integrity_key is None:
+            raise LiveSafetyError("runtime artifact bindings require signed evidence")
+        return dict(bindings)
     return summaries
 
 
@@ -1030,17 +1149,30 @@ class LiveRiskStateStore:
         side: str = "",
         quantity: float = 0.0,
         signal_timestamp: datetime | None = None,
+        canonical_intent_id: str = "",
+        signal_key: str = "",
         now: datetime | None = None,
     ) -> None:
         """Persist an intent before submission so crashes cannot duplicate an order."""
 
         if order_key in self.state.reserved_orders:
             raise DuplicateOrderError(f"order intent already reserved: {order_key}")
+        # A planner's intent identity and the venue client ID are different.
+        # Preserve the old per-candle duplicate guard even when a producer
+        # emits another canonical decision/idempotency key for that candle.
+        dedupe_key = signal_key or order_key
+        if dedupe_key in self.state.reserved_orders or any(
+            record.get("signal_key") == dedupe_key
+            for record in self.state.order_ledger.values()
+        ):
+            raise DuplicateOrderError(f"signal already reserved: {dedupe_key}")
         current = now or datetime.now(UTC)
         timestamp = current.astimezone(UTC).isoformat()
         self.state.reserved_orders[order_key] = timestamp
         self.state.order_ledger[order_key] = {
             "client_order_id": order_key,
+            "canonical_intent_id": canonical_intent_id or order_key,
+            "signal_key": dedupe_key,
             "exchange_order_id": "",
             "symbol": symbol,
             "side": side.upper(),
@@ -1587,6 +1719,13 @@ class LiveRiskStateStore:
                 os.fsync(handle.fileno())
             os.chmod(temp_name, 0o600)
             os.replace(temp_name, self.path)
+            directory_fd = os.open(
+                self.path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+            )
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
         finally:
             Path(temp_name).unlink(missing_ok=True)
 

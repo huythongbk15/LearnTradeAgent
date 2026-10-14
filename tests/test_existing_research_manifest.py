@@ -3,6 +3,7 @@ import importlib.util
 import json
 from pathlib import Path
 from types import SimpleNamespace
+import pytest
 
 
 def load_script():
@@ -50,8 +51,10 @@ def test_coverage_maps_catalog_names_without_changing_verdict(tmp_path, monkeypa
         return SimpleNamespace(ok=True, summary=lambda: "test coverage")
 
     monkeypatch.setattr("trading_agent.backtest.campaign_integrity.verify_campaign_coverage", verify)
-    results = [{"strategy_id": "vol_target", "status": "TIMEOUT"}]
-    module._assert_coverage([("vol_target", "BTC/USDT", "4h")], results, tmp_path)
+    results = [{"strategy_id": "vol_target", "symbol": "BTC/USDT", "timeframe": "4h", "status": "TIMEOUT"}]
+    with pytest.raises(SystemExit, match="incomplete"):
+        module._assert_coverage([("vol_target", "BTC/USDT", "4h")], results, tmp_path)
     assert seen["requested_strategies"] == {"ma_vol_target"}
-    assert seen["results"] == [{"strategy_id": "ma_vol_target", "status": "TIMEOUT"}]
+    assert seen["results"] == [{"strategy_id": "ma_vol_target", "symbol": "BTC/USDT", "timeframe": "4h", "status": "TIMEOUT"}]
     assert results[0]["strategy_id"] == "vol_target"
+    assert json.loads((tmp_path / "subject_coverage.json").read_text())["status"] == "INCOMPLETE"

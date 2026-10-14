@@ -18,6 +18,9 @@ multi-exchange, multi-asset (Crypto + Stocks + Forex + Futures/Options).
 >
 > Chi tiết: [`docs/LIVE_TRADING_TODO.md`](docs/LIVE_TRADING_TODO.md) · [`docs/CAPABILITY_MATRIX.md`](docs/CAPABILITY_MATRIX.md)
 
+Kế hoạch thực hiện live readiness cho agent: [L0–L4, constraints và evidence review](docs/operations/LIVE_READINESS_AGENT_PLAN.md).
+Không suy ra quyền mainnet từ AC PASS, checkbox hoặc deployment thành công.
+
 ---
 
 ## Dự án này là gì?
@@ -44,7 +47,7 @@ Hệ thống giao dịch tự động theo hướng nghiên cứu (research-orie
 | --- | --- |
 | Research / backtest | Hoạt động, nhiều strategy + WFO — xem [`docs/RESEARCH_EVIDENCE.md`](docs/RESEARCH_EVIDENCE.md) |
 | Paper trading | Hoạt động (Alpaca paper validated) |
-| Testnet (Binance) | P0.1–P0.3 acceptance pass (opt-in, testnet.binance.vision) — chờ P3 soak 30 ngày |
+| Testnet (Binance) | Có acceptance lịch sử; cần revalidate canonical runner và release-bound soak — xem [L0–L4](docs/operations/LIVE_READINESS_AGENT_PLAN.md) |
 | Mainnet (vốn thật) | **NO-GO** — xem [`docs/LIVE_TRADING_TODO.md`](docs/LIVE_TRADING_TODO.md) |
 | CI/CD | Xem GitHub Actions badge — không claim "xanh" cố định trong docs |
 | Production validated | Chưa — xem [`docs/CAPABILITY_MATRIX.md`](docs/CAPABILITY_MATRIX.md) |

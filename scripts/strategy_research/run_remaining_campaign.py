@@ -8,7 +8,6 @@ import json
 import subprocess
 import sys
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from itertools import product
 from pathlib import Path
 
 from trading_agent.research.param_grids import get_strategy_code_name

@@ -1,10 +1,17 @@
 # Live trading implementation TODO
 
+> **Workstream hiện hành (2026-10-04):** dùng [Quy trình agent L0–L4](operations/LIVE_READINESS_AGENT_PLAN.md)
+> để claim task, thực hiện và nghiệm thu live readiness trên revision tích hợp.
+> Checklist/số liệu bên dưới thuộc các đợt triển khai trước, giữ để truy vết; không
+> dùng checkbox cũ làm bằng chứng release hiện tại. Mainnet vẫn **NO-GO**;
+> [Production Policy](PRODUCTION_POLICY.md) và [S7 evidence](S7_OPERATIONAL_EVIDENCE_RUNBOOK.md)
+> vẫn là contracts bắt buộc, không bị thay thế bởi kế hoạch mới.
+
 Last updated: 2026-08-14 (Asia/Saigon)
 
 Mainnet status: **NO-GO**. Completion of an engineering checkbox is not
-authorization to submit real-money orders. Mainnet still requires the release
-gates in this document and an explicit operator approval.
+authorization to submit real-money orders. Mainnet still requires the current
+production/S7 release contracts, integrated evidence review and explicit operator approval.
 
 ## Baseline
 

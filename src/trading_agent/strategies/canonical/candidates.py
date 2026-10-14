@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import replace
+from itertools import product
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -678,6 +680,40 @@ def compute_effective_params_hash(strategy_id: str, params: Mapping[str, Any] | 
     return hashlib.sha256(encoded).hexdigest()
 
 
+def resolved_warmup_bars(strategy_id: str, params: Mapping[str, Any] | None = None) -> int:
+    """Registered history requirement; MA lookback follows effective periods."""
+    baseline = _CANDIDATE_WARMUPS[strategy_id]
+    if strategy_id not in {"ma_crossover", "enhanced_ma"}:
+        return baseline
+    normalized = validate_params(strategy_id, params)
+    if strategy_id == "enhanced_ma":
+        # ATR feeds DI, whose DX is averaged again for ADX. Include the
+        # previous close/crossover bar and momentum's shifted observation.
+        return max(
+            baseline,
+            normalized.get("fast_period", 20) + 1,
+            normalized.get("slow_period", 80) + 1,
+            max(normalized.get("atr_period", 14), normalized.get("adx_period", 14))
+            + normalized.get("adx_period", 14) + 1,
+            normalized.get("momentum_period", 0) + 1,
+        )
+    return max(baseline, normalized["fast_period"] + 1, normalized["slow_period"] + 1)
+
+
+def campaign_history_contract(strategy_id: str, grid: Mapping) -> dict:
+    """Use one conservative simulation prefix for all candidates in a grid."""
+    if strategy_id in {"ma_crossover", "enhanced_ma"}:
+        keys = list(grid)
+        warmups = [resolved_warmup_bars(strategy_id, dict(zip(keys, values)))
+                   for values in product(*(grid[key] for key in keys))]
+        if not warmups:
+            raise ValueError("history contract requires nonempty grid")
+        warmup = max(warmups)
+    else:
+        warmup = _CANDIDATE_WARMUPS[strategy_id]
+    return {"version": 1, "warmup_bars": warmup, "buffer_bars": 100}
+
+
 def build_legacy_candidate(
     strategy_id: str,
     params: Mapping[str, Any] | None = None,
@@ -693,6 +729,7 @@ def build_legacy_candidate(
 
     # Validate and normalize params (fail-closed)
     normalized = validate_params(strategy_id, params)
+    descriptor = replace(descriptor, warmup_bars=resolved_warmup_bars(strategy_id, normalized))
     effective_hash = compute_effective_params_hash(strategy_id, params)
 
     # Build strategy with normalized params
@@ -715,7 +752,7 @@ def build_parameterized_adapter(
     adapter = LegacyDataFrameAdapter(
         strategy,
         model_artifact_id=f"legacy.{strategy_id}.{effective_hash}",
-        warmup_bars=_CANDIDATE_WARMUPS[strategy_id],
+        warmup_bars=descriptor.warmup_bars,
         horizon_bars=descriptor.horizon_bars,
         research_only=True,
         strategy_id=strategy_id,

@@ -261,3 +261,13 @@ data/policies_quarantine_*/
 # Real WFO campaign artifacts (runtime data, not source)
 data/wfo_real_campaign/
 data/promotion_store/
+CALIB_FIX_TODO.md
+
+# Local calibration/acceptance evidence; never source or operator approval
+/calibration_result*.json
+/data/calibration_*/
+/data/git_sync_audit_*/
+/data/acceptance_runs/ac01_15_*/
+*.sqlite3-shm
+*.sqlite3-wal
+/data/qwenpaw_process_registry.db-journal

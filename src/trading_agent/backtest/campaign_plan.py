@@ -18,6 +18,7 @@ which is what stops a plan from being rewritten once the numbers arrive.
 
 from __future__ import annotations
 
+import json
 import math
 import subprocess
 from collections.abc import Mapping, Sequence
@@ -30,6 +31,8 @@ from trading_agent.backtest.campaign_evidence import (
     COMPARISONS,
     _time,
     NUMERIC_RESULTS,
+    OPEN_RESULT_FIELDS,
+    measured_row_total_pnl,
     content_hash,
     finite,
     hash_id,
@@ -93,6 +96,11 @@ def freeze_campaign_plan(
     param_grid: Mapping | None = None,
     frozen_by: str,
     frozen_at: datetime | None = None,
+    native_gate_contract: dict | None = None,
+    selection_contract: dict | None = None,
+    validation_cost_scenarios: list[dict] | None = None,
+    execution_source: dict | None = None,
+    execution_context: dict | None = None,
 ) -> dict:
     """Build a frozen plan and bind it to its own content hash.
 
@@ -172,7 +180,9 @@ def freeze_campaign_plan(
             gate.get("comparison") in COMPARISONS,
             f"gate {gate_id} has an unsupported comparator",
         )
-        _require(finite(gate.get("threshold")), f"gate {gate_id} threshold must be finite")
+        _require(
+            finite(gate.get("threshold")), f"gate {gate_id} threshold must be finite"
+        )
         _require(bool(gate.get("unit")), f"gate {gate_id} requires a unit")
         gates.append(
             {
@@ -184,13 +194,28 @@ def freeze_campaign_plan(
             }
         )
 
+    minimum_fold_gate = {
+        "gate_id": "campaign_minimum_folds",
+        "metric": "aggregate.fold_count",
+        "comparison": ">=",
+        "threshold": float(MIN_FOLDS_FOR_VERDICT),
+        "unit": "folds",
+    }
+    _require("campaign_minimum_folds" not in gate_ids, "reserved minimum-fold gate id")
+    gates.append(minimum_fold_gate)
+    policies = {fold.get("overlap_policy", "independent") for fold in folds}
+    _require(
+        len(policies) == 1 and policies <= {"independent", "overlapping"},
+        "fold overlap policy must consistently be independent or overlapping",
+    )
     plan = {
         "plan_version": PLAN_VERSION,
+        "gate_version": "campaign-aggregate-v1",
         "subject": dict(subject),
         "param_grid": dict(param_grid or {}),
         "folds": fold_records,
         "fold_count": len(fold_records),
-        "overlap_policy": folds[0].get("overlap_policy", "non_overlapping"),
+        "overlap_policy": policies.pop(),
         "data_manifest": dict(data_manifest),
         "cost_schedule": dict(cost_schedule),
         "gate_set": gates,
@@ -198,8 +223,52 @@ def freeze_campaign_plan(
         "frozen_by": frozen_by,
         "frozen_at": (frozen_at or datetime.now(UTC)).astimezone(UTC).isoformat(),
     }
+    if execution_source is not None:
+        plan["execution_source"] = execution_source
+    if execution_context is not None:
+        plan["execution_context"] = json.loads(json.dumps(execution_context, allow_nan=False))
+    if selection_contract is not None:
+        from trading_agent.backtest.selection_eligibility import (
+            verify_selection_contract,
+        )
+
+        verify_selection_contract(selection_contract)
+        plan["selection_contract"] = json.loads(json.dumps(selection_contract))
+        if not validation_cost_scenarios:
+            raise ValueError("selection requires frozen validation cost scenarios")
+        plan["validation_cost_scenarios"] = json.loads(json.dumps(validation_cost_scenarios))
+        from trading_agent.strategies.canonical.candidates import campaign_history_contract
+        plan["history_contract"] = campaign_history_contract(
+            subject["strategy_id"], plan["param_grid"]
+        )
+    if native_gate_contract is not None:
+        from trading_agent.backtest.native_gate_contract import verify_native_contract
+
+        verify_native_contract(native_gate_contract)
+        plan["native_gate_contract"] = native_gate_contract
+    # Semantic fingerprint excludes metadata that changes on each freeze
+    # (frozen_at, plan_fingerprint) but includes all semantic fields.
+    # This is used for reuse identity matching across packets.
+    plan["semantic_fingerprint"] = semantic_fingerprint(plan)
+    # plan_fingerprint MUST be computed LAST, after all fields including semantic_fingerprint are set
     plan["plan_fingerprint"] = content_hash(plan)
     return plan
+
+
+def semantic_fingerprint(plan: Mapping) -> str:
+    """Compute semantic identity for reuse matching.
+
+    Excludes metadata that changes on each freeze (frozen_at, plan_fingerprint)
+    but includes all semantic fields that determine execution equivalence:
+    subject, folds, data_manifest, cost_schedule, gate_set, param_grid,
+    selection_contract, native_gate_contract, validation_cost_scenarios,
+    history_contract, execution_source, overlap_policy.
+    """
+    # Derived identity must never hash itself. Source/dirty state is deliberately
+    # retained: same HEAD is not sufficient to reuse a measurement.
+    excluded = {"plan_fingerprint", "semantic_fingerprint", "frozen_at", "frozen_by"}
+    body = {k: v for k, v in plan.items() if k not in excluded}
+    return content_hash(body)
 
 
 def _require_nonneg_int(value: object, name: str) -> int:
@@ -218,6 +287,9 @@ def verify_frozen_plan(plan: Mapping) -> None:
         content_hash(body) == declared,
         "plan_fingerprint does not bind the plan; it was edited after freezing",
     )
+    if "semantic_fingerprint" in plan:
+        _require(plan["semantic_fingerprint"] == semantic_fingerprint(plan),
+                 "plan semantic fingerprint mismatch")
 
 
 def build_source_binding(root: Path) -> dict:
@@ -345,8 +417,9 @@ def build_data_manifest(
         raise ValueError(f"unsupported cutoff_policy {cutoff_policy!r}")
 
     frame = read_ohlcv(resolved)
-    start, end = _time(_iso(window.get("start"), "window.start")), _time(
-        _iso(window.get("end"), "window.end")
+    start, end = (
+        _time(_iso(window.get("start"), "window.start")),
+        _time(_iso(window.get("end"), "window.end")),
     )
     if start > end:
         raise ValueError("window boundaries reversed")
@@ -383,6 +456,7 @@ def build_campaign_bundle(
     source: Mapping,
     data_root: Path,
     subject: Mapping | None = None,
+    native_evidence: list | None = None,
 ) -> dict:
     """Produce a schema-v2 bundle from a frozen plan and measured rows.
 
@@ -421,9 +495,7 @@ def build_campaign_bundle(
         if row.get("report_sha256"):
             record["report_sha256"] = row["report_sha256"]
         for key in NUMERIC_RESULTS:
-            _require(
-                finite(row.get(key)), f"fold {fold_id} is missing finite {key}"
-            )
+            _require(finite(row.get(key)), f"fold {fold_id} is missing finite {key}")
             record[key] = float(row[key])
         _require(
             type(row.get("trades")) is int and row["trades"] >= 0,
@@ -432,10 +504,14 @@ def build_campaign_bundle(
         record["trades"] = row["trades"]
         # Derived, not copied. A caller that cleared a losing fold by
         # passing cost_cleared=True would otherwise publish it as sound.
-        record["cost_cleared"] = record["net_pnl"] > 0
+        for key in OPEN_RESULT_FIELDS:
+            if key in row:
+                record[key] = row[key]
+        record["cost_cleared"] = measured_row_total_pnl(record) > 0
         results.append(record)
 
     aggregate = {
+        "fold_count": len(results),
         "median_return_pct": median(r["return_pct"] for r in results),
         "median_sharpe": median(r["sharpe"] for r in results),
         "total_trades": sum(r["trades"] for r in results),
@@ -446,7 +522,6 @@ def build_campaign_bundle(
     # Verdict gates the fold count as well as the thresholds. One fold has no
     # dispersion, so a median computed from it would pass a median-sharpe
     # gate for reasons that have nothing to do with the strategy.
-    insufficient = len(results) < MIN_FOLDS_FOR_VERDICT
     failed: list[dict] = []
     for gate in plan["gate_set"]:
         metric = gate["metric"].removeprefix("aggregate.")
@@ -454,9 +529,7 @@ def build_campaign_bundle(
         _require(
             finite(observed), f"gate {gate['gate_id']} has no measured aggregate field"
         )
-        if insufficient or not COMPARISONS[gate["comparison"]](
-            observed, gate["threshold"]
-        ):
+        if not COMPARISONS[gate["comparison"]](observed, gate["threshold"]):
             failed.append(
                 {
                     "gate_id": gate["gate_id"],
@@ -469,6 +542,8 @@ def build_campaign_bundle(
 
     bundle = {
         "schema_version": SCHEMA_VERSION,
+        "gate_version": plan["gate_version"],
+        "trades_absent_reason": "Per-trade records are retained in source reports bound by results.report_sha256; bundle contains fold summaries only.",
         "subject": effective_subject,
         "code_commit": source["code_commit"],
         "tree_fingerprint": source["tree_fingerprint"],
@@ -487,6 +562,22 @@ def build_campaign_bundle(
         "verdict": "FAIL" if failed else "PASS",
         "plan_fingerprint": plan["plan_fingerprint"],
     }
+    if plan.get("selection_contract") is not None:
+        bundle["selection_contract"] = plan["selection_contract"]
+    if plan.get("native_gate_contract") is not None:
+        from trading_agent.backtest.native_gate_contract import validate_native_evidence
+
+        native_failed = validate_native_evidence(
+            plan["native_gate_contract"],
+            native_evidence,
+            [row["trades"] for row in results],
+        )
+        bundle["native_gate_contract"] = plan["native_gate_contract"]
+        bundle["native_gate_evidence"] = native_evidence
+        bundle["failed_gates"] += native_failed
+        bundle["verdict"] = "FAIL" if bundle["failed_gates"] else "PASS"
+    elif native_evidence is not None:
+        raise ValueError("native evidence requires a pre-run frozen contract")
     bundle["campaign_id"] = content_hash(bundle)
     return bundle
 
@@ -498,6 +589,7 @@ def verified_bundle(
     source: Mapping,
     data_root: Path,
     subject: Mapping | None = None,
+    native_evidence: list | None = None,
 ) -> dict:
     """Produce and self-validate in one step, so an invalid bundle never escapes.
 
@@ -507,7 +599,12 @@ def verified_bundle(
     only fails later, at publication.
     """
     bundle = build_campaign_bundle(
-        plan=plan, rows=rows, source=source, data_root=data_root, subject=subject
+        plan=plan,
+        rows=rows,
+        source=source,
+        data_root=data_root,
+        subject=subject,
+        native_evidence=native_evidence,
     )
     errors = validate_v2(
         bundle,
@@ -515,6 +612,8 @@ def verified_bundle(
         expected_tree_fingerprint=source["tree_fingerprint"],
         expected_gate_set_fingerprint=plan["gate_set_fingerprint"],
     )
-    _require(not errors, "produced bundle failed its own schema-v2 validation: "
-            + "; ".join(errors[:4]))
+    _require(
+        not errors,
+        "produced bundle failed its own schema-v2 validation: " + "; ".join(errors[:4]),
+    )
     return bundle

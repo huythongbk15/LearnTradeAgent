@@ -10,7 +10,6 @@ from __future__ import annotations
 import ccxt
 import polars as pl
 import pandas as pd
-import numpy as np
 from datetime import datetime, timezone
 from pathlib import Path
 import logging

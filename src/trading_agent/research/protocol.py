@@ -12,7 +12,6 @@ Extends WFOSpec with research-specific configuration:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any, TYPE_CHECKING
 
 if TYPE_CHECKING:

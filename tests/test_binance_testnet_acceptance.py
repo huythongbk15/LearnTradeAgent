@@ -89,23 +89,29 @@ def _eligible_positions(broker: LiveBroker) -> list[dict]:
     return [position for position in positions if float(position.get("qty") or 0.0) > 0]
 
 
-def _cancel_acceptance_stops(broker: LiveBroker, pair: str) -> None:
-    """Cancel every live-runner protective order still open for one pair.
-
-    Keeps the testnet account clean so the acceptance lifecycle is repeatable:
-    stale stops from earlier runs would collide with the deterministic
-    client order ID of the next run (Binance rejects them as duplicates).
-    """
+def _cancel_acceptance_stops(broker, pair, *, lifecycle, gateway, store) -> None:
+    """Cancel only orders owned by this acceptance run, through canonical IO."""
     symbol = runner.exchange_symbol(pair)
-    try:
-        orders = asyncio.run(broker.adapter.fetch_open_orders(symbol))
-    except Exception:
-        return
-    for order in orders:
-        client_id = str(getattr(order, "client_order_id", "") or "")
-        order_id = str(getattr(order, "id", "") or "")
-        if client_id.startswith("lta-ps-") and order_id:
-            broker.cancel_order(order_id, symbol)
+    protection = store.protective_order_state(pair)
+    for record in (protection.get("active"), protection.get("pending")):
+        if not record:
+            continue
+        client_id = str(record.get("client_order_id") or "")
+        order = broker.get_order_by_client_id(client_id, symbol)
+        if order is None:
+            raise runner.LiveSafetyError(
+                "acceptance cleanup has an unresolved owned stop"
+            )
+        if order.get("status") in {"cancelled", "filled", "expired", "rejected"}:
+            continue
+        runner._cancel_canonical_order(
+            lifecycle=lifecycle,
+            gateway=gateway,
+            intent_id=client_id,
+            broker_order_id=str(order.get("id") or ""),
+            symbol=pair,
+            reason="cleanup stop owned by acceptance run",
+        )
 
 
 def test_clock_sync_and_account_readable(testnet_broker):
@@ -141,7 +147,6 @@ def test_protective_stop_lifecycle_on_existing_positions(testnet_broker):
     position = max(positions, key=lambda p: float(p.get("market_value") or 0.0))
     pair = position["symbol"]
     current = float(position["current_price"])
-    _cancel_acceptance_stops(broker, pair)
 
     limits = LiveRiskLimits.for_profile("testnet")
     with tempfile.TemporaryDirectory() as tmp:
@@ -163,12 +168,17 @@ def test_protective_stop_lifecycle_on_existing_positions(testnet_broker):
         )
 
         states = {pair: {"atr_stop": current * 0.95, "price": current}}
+        lifecycle, gateway = runner.build_canonical_execution_stack(
+            broker, event_store_path=os.path.join(tmp, "execution.db")
+        )
         try:
             # First pass: create/tighten a protective stop for the position.
             runner.ensure_protective_stops(
                 states=states,
                 positions=[position],
                 broker=broker,
+                lifecycle=lifecycle,
+                gateway=gateway,
                 store=store,
                 limits=limits,
                 audit_log_path=audit_path,
@@ -185,6 +195,8 @@ def test_protective_stop_lifecycle_on_existing_positions(testnet_broker):
                 states=states,
                 positions=[position],
                 broker=broker,
+                lifecycle=lifecycle,
+                gateway=gateway,
                 store=store,
                 limits=limits,
                 audit_log_path=audit_path,
@@ -195,7 +207,12 @@ def test_protective_stop_lifecycle_on_existing_positions(testnet_broker):
                 f"protective stop for {pair} was duplicated on the exchange"
             )
         finally:
-            _cancel_acceptance_stops(broker, pair)
+            try:
+                _cancel_acceptance_stops(
+                    broker, pair, lifecycle=lifecycle, gateway=gateway, store=store
+                )
+            finally:
+                lifecycle.store.close()
 
         # Audit trail must contain the placement/replacement events.
         with open(audit_path, encoding="utf-8") as handle:

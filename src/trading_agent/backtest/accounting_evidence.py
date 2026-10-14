@@ -7,6 +7,7 @@ per-leg decomposition. Open/carry inventory requires a different contract.
 from __future__ import annotations
 
 import math
+from copy import deepcopy
 from collections.abc import Mapping, Sequence
 
 
@@ -25,6 +26,7 @@ def export_paper_trade_accounting(
     *,
     equity_delta: float,
     open_inventory: bool | Mapping,
+    equity_basis: str = "cash",
 ) -> dict:
     """Use fill-time paper accounting, not later candle proxy references.
 
@@ -33,8 +35,26 @@ def export_paper_trade_accounting(
     certify what the flag says is true, so the legacy boolean form is refused
     for a carried position rather than trusted.
     """
+    if equity_basis not in {"cash", "marked_equity"}:
+        raise ValueError("unknown measured equity basis")
     normalized = []
     for trade in trades:
+        if trade.get("measurement_attribution") is not None:
+            proof = trade.get("measurement_boundary")
+            if not isinstance(proof, Mapping):
+                raise ValueError(
+                    "boundary-carried trades require explicit boundary accounting"
+                )
+            expected = mark_paper_trade_at_boundary(
+                proof.get("original_trade"),
+                boundary_price=proof.get("boundary_price"),
+                measurement_start=proof.get("measurement_start"),
+                measurement_end=proof.get("measurement_end"),
+            )
+            if trade != expected:
+                raise ValueError(
+                    "boundary attribution differs from original measured fill"
+                )
         metadata = trade.get("metadata", {})
         measured = (
             metadata.get("measured_accounting")
@@ -48,23 +68,27 @@ def export_paper_trade_accounting(
             raise ValueError(
                 "missing measured paper cost basis; legacy/venue/carry is not certified"
             )
-        normalized.append(
-            {**trade, "trade_id": trade.get("id"), "metadata": {"simulation": measured}}
-        )
+        record = {
+            **trade,
+            "trade_id": trade.get("id"),
+            "metadata": {"simulation": measured},
+        }
+        record.pop(
+            "measurement_attribution", None
+        )  # verified above, not silently discarded
+        normalized.append(record)
     carried = None
     if isinstance(open_inventory, Mapping):
         carried = open_inventory
     elif open_inventory is not False:
-        raise ValueError(
-            "open inventory requires the measured open leg, not a flag"
-        )
+        raise ValueError("open inventory requires the measured open leg, not a flag")
     exporter = (
         export_open_inventory_accounting
         if carried is not None
         else export_closed_trade_accounting
     )
     kwargs = (
-        {"open_inventory": carried}
+        {"open_inventory": carried, "equity_basis": equity_basis}
         if carried is not None
         else {"open_inventory": False}
     )
@@ -72,6 +96,57 @@ def export_paper_trade_accounting(
         **exporter(normalized, equity_delta=equity_delta, **kwargs),
         "execution_model": "paper_slippage_only_v1",
     }
+
+
+def mark_paper_trade_at_boundary(
+    original_trade, *, boundary_price, measurement_start, measurement_end
+):
+    """Attribute only post-boundary PnL, retaining validated original fill proof."""
+    if (
+        not isinstance(original_trade, Mapping)
+        or original_trade.get("measurement_attribution") is not None
+    ):
+        raise ValueError("boundary requires an original measured trade")
+    if any(type(v) is not int for v in (measurement_start, measurement_end)):
+        raise ValueError("boundary requires integer measurement indices")
+    original = deepcopy(dict(original_trade))
+    timeline = original.get("metadata", {}).get("simulation", {})
+    entry = original.get("entry_bar_index", timeline.get("entry_bar_index"))
+    exit_bar = original.get("exit_bar_index", timeline.get("exit_bar_index"))
+    if (
+        type(entry) is not int
+        or type(exit_bar) is not int
+        or not 0 <= entry < measurement_start <= exit_bar < measurement_end
+    ):
+        raise ValueError("original trade does not straddle measured boundary")
+    boundary_price = _number(boundary_price, "boundary_price")
+    if boundary_price <= 0:
+        raise ValueError("boundary price must be positive")
+    # Prove full-trade fees/components first, before removing pre-OOS costs.
+    export_paper_trade_accounting(
+        [original], equity_delta=original.get("pnl"), open_inventory=False
+    )
+    trade = deepcopy(original)
+    measured = trade["metadata"]["measured_accounting"]
+    measured["entry_reference_price"] = boundary_price
+    measured["execution_components"]["entry"] = dict(
+        slippage=0.0, spread=0.0, market_impact=0.0, price_cap_credit=0.0
+    )
+    direction = 1 if trade["side"] == "buy" else -1
+    trade.update(
+        entry_price=boundary_price,
+        entry_fee=0.0,
+        pnl=direction * trade["quantity"] * (trade["exit_price"] - boundary_price)
+        - trade["exit_fee"],
+        measurement_attribution="marked_at_window_open",
+        measurement_boundary=dict(
+            original_trade=original,
+            boundary_price=boundary_price,
+            measurement_start=measurement_start,
+            measurement_end=measurement_end,
+        ),
+    )
+    return trade
 
 
 def export_closed_trade_accounting(
@@ -107,8 +182,8 @@ def _closed_ledger(trades: Sequence[Mapping]) -> dict:
     Reconciliation depends on what happened to inventory that was still open
     at the window boundary, so it cannot live here.
     """
-    if not trades:
-        raise ValueError("no measured closed trades")
+    # Empty is a measured zero, not missing evidence. Equity reconciliation
+    # below still rejects unexplained movement; minimum-trade gates are separate.
     totals = dict(
         gross_pnl=0.0,
         fees=0.0,
@@ -200,6 +275,21 @@ def _closed_ledger(trades: Sequence[Mapping]) -> dict:
 
 
 def _open_leg(open_inventory: Mapping) -> dict:
+    if open_inventory.get("measurement_attribution") is not None:
+        proof = open_inventory.get("measurement_boundary")
+        if not isinstance(proof, Mapping):
+            raise ValueError("open boundary requires original inventory proof")
+        expected = mark_paper_open_at_boundary(
+            proof.get("original_open_inventory"),
+            boundary_price=proof.get("boundary_price"),
+            entry_bar_index=proof.get("entry_bar_index"),
+            measurement_start=proof.get("measurement_start"),
+            measurement_end=proof.get("measurement_end"),
+        )
+        if open_inventory != expected:
+            raise ValueError(
+                "open boundary attribution differs from original inventory"
+            )
     """Validate the still-open position and return its measured amounts.
 
     The open leg is an entry that was never traded back, so it carries the
@@ -244,7 +334,11 @@ def _open_leg(open_inventory: Mapping) -> dict:
 
 
 def export_open_inventory_accounting(
-    trades: Sequence[Mapping], *, open_inventory: Mapping, equity_delta: float
+    trades: Sequence[Mapping],
+    *,
+    open_inventory: Mapping,
+    equity_delta: float,
+    equity_basis: str = "cash",
 ) -> dict:
     """Accounting when a position survives the window boundary (carry).
 
@@ -265,11 +359,21 @@ def export_open_inventory_accounting(
     quantity's entry fee, which cash already paid.
     """
     equity_delta = _number(equity_delta, "equity_delta")
+    if equity_basis not in {"cash", "marked_equity"}:
+        raise ValueError("unknown measured equity basis")
+    if (
+        open_inventory.get("measurement_attribution") is not None
+        and equity_basis != "marked_equity"
+    ):
+        raise ValueError("boundary inventory requires marked-equity measurement")
     totals = _closed_ledger(trades)
     leg = _open_leg(open_inventory)
     total_pnl = totals["net_pnl"] + leg["unrealized"]
     if not math.isclose(
-        total_pnl, equity_delta + leg["mark_value"], abs_tol=1e-8, rel_tol=1e-9
+        total_pnl,
+        equity_delta + (leg["mark_value"] if equity_basis == "cash" else 0.0),
+        abs_tol=1e-8,
+        rel_tol=1e-9,
     ):
         raise ValueError(
             "open inventory ledger does not reconcile to cash plus marked position"
@@ -279,6 +383,7 @@ def export_open_inventory_accounting(
         "accounting_basis": "closed_trades_plus_open_inventory",
         "trades": len(trades),
         "equity_delta": equity_delta,
+        "equity_basis": equity_basis,
         **totals,
         "open_quantity": leg["quantity"],
         "open_side": "buy" if leg["direction"] > 0 else "sell",
@@ -294,3 +399,50 @@ def export_open_inventory_accounting(
         "total_pnl": total_pnl,
         "strategy_qualified": False,
     }
+
+
+def mark_paper_open_at_boundary(
+    original_open_inventory,
+    *,
+    boundary_price,
+    entry_bar_index,
+    measurement_start,
+    measurement_end,
+):
+    """Price only the OOS movement of remaining inventory born before OOS."""
+    if (
+        not isinstance(original_open_inventory, Mapping)
+        or original_open_inventory.get("measurement_attribution") is not None
+    ):
+        raise ValueError("open boundary requires original measured inventory")
+    if (
+        any(
+            type(v) is not int
+            for v in (entry_bar_index, measurement_start, measurement_end)
+        )
+        or not 0 <= entry_bar_index < measurement_start < measurement_end
+    ):
+        raise ValueError("open inventory does not straddle measurement boundary")
+    _open_leg(original_open_inventory)  # Original fill drag and fee must be complete.
+    boundary_price = _number(boundary_price, "boundary_price")
+    if boundary_price <= 0:
+        raise ValueError("boundary price must be positive")
+    original = deepcopy(dict(original_open_inventory))
+    leg = deepcopy(original)
+    leg.update(
+        entry_price=boundary_price,
+        entry_reference_price=boundary_price,
+        entry_fee=0.0,
+        execution_components=dict(
+            slippage=0.0, spread=0.0, market_impact=0.0, price_cap_credit=0.0
+        ),
+        measurement_attribution="marked_at_window_open",
+        measurement_boundary=dict(
+            original_open_inventory=original,
+            boundary_price=boundary_price,
+            entry_bar_index=entry_bar_index,
+            measurement_start=measurement_start,
+            measurement_end=measurement_end,
+        ),
+    )
+    return leg

@@ -135,6 +135,11 @@ class StrategyRuntime:
                     "calibration_artifact_id"
                 ),
                 "interval_width": self.artifact_metadata.get("interval_width", 1.0),
+                # Preserve the registered forecast identity; never synthesize
+                # an identity from current time or substitute a fake default.
+                "forecast_fingerprint": self.artifact_metadata.get(
+                    "forecast_fingerprint", ""
+                ),
             },
             generated_at=datetime.now(UTC),
             observation_id=observation_id,

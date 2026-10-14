@@ -282,7 +282,7 @@ def main() -> None:
                 validity_start=first_obs,
                 validity_end=window_end + timedelta(days=1),
                 risk_cap=1.0, status=PolicyStatus.DRAFT,
-                promotion_stage="exploratory", created_at=created_at,
+                created_at=created_at,
                 policy_commit_sha="f" * 40, policy_data_manifest_sha="d" * 64,
                 policy_feature_manifest_sha="e" * 64,
                 policy_release_digest="sha256:" + "c" * 64,

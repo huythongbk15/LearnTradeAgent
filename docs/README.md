@@ -10,6 +10,9 @@ Nhãn `CURRENT` mô tả behavior hoặc quy trình đang tồn tại; `TARGET` 
 
 ## Bắt đầu nhanh
 
+Mục tiêu gần nhất là live readiness: đọc [Quy trình agent L0–L4](operations/LIVE_READINESS_AGENT_PLAN.md).
+Trang này quản lý task, dependency và evidence review; không cấp quyền mainnet.
+
 | Bạn muốn | Đọc trước | Sau đó |
 | --- | --- | --- |
 | Hiểu toàn hệ thống | [Core System](CORE_SYSTEM.md) | [Architecture](ARCHITECTURE.md) |

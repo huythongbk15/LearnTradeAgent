@@ -17,11 +17,6 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from trading_agent.research.param_grids import (
-    SINGLE_ASSET_GRIDS,
-    CROSS_SECTIONAL_GRIDS,
-    get_strategy_code_name,
-)
 
 # All 8 strategies
 STRATEGIES = [

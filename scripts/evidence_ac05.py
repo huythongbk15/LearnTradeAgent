@@ -123,26 +123,25 @@ check("C3_dd_duration", system_metrics.get("longest_drawdown_bars", 0) == oracle
 
 # ── C4: Cost reconciliation oracle ─────────────────────────────────────
 trades = [
-    {"quantity": 100, "entry_price": 50.0, "exit_price": 52.0, "pnl": 200.0,
+    {"side": "buy", "quantity": 100, "entry_price": 50.0, "exit_price": 52.0, "pnl": 198.0,
      "entry_fee": 1.0, "exit_fee": 1.0,
      "metadata": {"simulation": {"entry_reference_price": 50.5, "exit_reference_price": 51.5}}},
-    {"quantity": 50, "entry_price": 100.0, "exit_price": 98.0, "pnl": -100.0,
+    {"side": "buy", "quantity": 50, "entry_price": 100.0, "exit_price": 98.0, "pnl": -101.0,
      "entry_fee": 0.5, "exit_fee": 0.5,
      "metadata": {"simulation": {"entry_reference_price": 99.5, "exit_reference_price": 99.0}}},
 ]
 
 costs = calculate_cost_attribution(trades)
 
-# Oracle: net_pnl = 200 - 100 = 100
+# Net ledger includes entry and exit commissions.
 oracle_net = sum(t["pnl"] for t in trades)
 # commission = 1 + 1 + 0.5 + 0.5 = 3
 oracle_commission = sum(t["entry_fee"] + t["exit_fee"] for t in trades)
-# slippage: trade1: 100*(50.0-50.5)=0 (negative, clamped to 0) + 100*(51.5-52.0)=0 → 0
-# trade2: 50*(100-99.5)=25 + 50*(99.0-98.0)=50 → 75
-oracle_slippage = max(0, 100*(50.0-50.5)) + max(0, 100*(51.5-52.0))
-oracle_slippage += max(0, 50*(100.0-99.5)) + max(0, 50*(99.0-98.0))
+# Signed execution drag: preserve favorable fills rather than clamp them away.
+oracle_slippage = 100*(50.0-50.5) + 100*(51.5-52.0)
+oracle_slippage += 50*(100.0-99.5) + 50*(99.0-98.0)
 oracle_total_cost = oracle_commission + oracle_slippage
-oracle_gross_alpha = oracle_net + oracle_total_cost
+oracle_gross_alpha = 100*(51.5-50.5) + 50*(99.0-99.5)
 
 check("C4_net_pnl", abs(costs["net_pnl"] - oracle_net) < 0.001,
       f"system={costs['net_pnl']}, oracle={oracle_net}")
@@ -159,6 +158,10 @@ scale = abs(oracle_gross_alpha)
 tol = max(_RECONCILIATION_ABS_TOL, _RECONCILIATION_REL_TOL * scale)
 check("C4_recon_tolerance", abs(costs["reconciliation_error"]) < tol,
       f"error={costs['reconciliation_error']:.3e}, tol={tol:.3e}")
+wrong_trades = [{**t, "pnl": t["pnl"] + 7.0} for t in trades]
+wrong_costs = calculate_cost_attribution(wrong_trades)
+check("C4_wrong_net_detected", abs(wrong_costs["reconciliation_error"] + 14.0) < 0.001,
+      f"error={wrong_costs['reconciliation_error']}; gross must not move with net")
 
 # ── C5: Non-finite numbers rejected ───────────────────────────────────
 good_report = {

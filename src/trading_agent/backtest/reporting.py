@@ -20,6 +20,16 @@ import polars as pl
 GapPolicy = Literal["record", "reject"]
 
 
+def timeframe_delta(timeframe: str) -> timedelta:
+    """Shared candle duration for quality, simulation and canonical runtime."""
+    if not isinstance(timeframe, str) or len(timeframe) < 2 or not timeframe[:-1].isdigit():
+        raise ValueError(f"Unsupported timeframe: {timeframe!r}")
+    amount, unit = int(timeframe[:-1]), timeframe[-1].lower()
+    if amount <= 0 or unit not in {"m", "h", "d"}:
+        raise ValueError(f"Unsupported timeframe: {timeframe!r}")
+    return timedelta(**{{"m": "minutes", "h": "hours", "d": "days"}[unit]: amount})
+
+
 def fingerprint_payload(payload: Mapping[str, Any]) -> str:
     """Return a stable SHA-256 identity for a JSON-compatible payload."""
     encoded = json.dumps(
@@ -437,8 +447,30 @@ def calculate_cost_attribution(
     net_pnl = 0.0
     commission = 0.0
     slippage = 0.0
+    gross_alpha_pnl = 0.0
     missing_reference_trades = 0
+    invalid_trade_count = 0
     for trade in trades:
+        required = (
+            "quantity",
+            "entry_price",
+            "exit_price",
+            "entry_fee",
+            "exit_fee",
+            "pnl",
+        )
+        if (
+            any(
+                isinstance(trade.get(key), bool)
+                or not isinstance(trade.get(key), (int, float))
+                or not math.isfinite(trade[key])
+                for key in required
+            )
+            or any(trade[key] <= 0 for key in ("quantity", "entry_price", "exit_price"))
+            or any(trade[key] < 0 for key in ("entry_fee", "exit_fee"))
+        ):
+            invalid_trade_count += 1
+            continue
         quantity = float(trade.get("quantity") or 0.0)
         entry_price = float(trade.get("entry_price") or 0.0)
         exit_price = float(trade.get("exit_price") or 0.0)
@@ -458,17 +490,45 @@ def calculate_cost_attribution(
         if entry_reference is None or exit_reference is None:
             missing_reference_trades += 1
             continue
-        slippage += quantity * max(0.0, entry_price - float(entry_reference))
-        slippage += quantity * max(0.0, float(exit_reference) - exit_price)
+        if any(
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(value)
+            or value <= 0
+            for value in (entry_reference, exit_reference)
+        ):
+            invalid_trade_count += 1
+            continue
+        side = str(trade.get("side", "")).lower()
+        if side not in {"buy", "sell"}:
+            missing_reference_trades += 1
+            continue
+        direction = 1.0 if side == "buy" else -1.0
+        # Independent reference-price alpha, not net plus modeled costs.
+        gross_alpha_pnl += (
+            direction * quantity * (float(exit_reference) - float(entry_reference))
+        )
+        # Signed execution drag preserves favorable fills and short-side costs.
+        slippage += direction * quantity * (entry_price - float(entry_reference))
+        slippage += direction * quantity * (float(exit_reference) - exit_price)
 
     spread = 0.0
     impact = 0.0
     total_cost = commission + slippage + spread + impact
-    gross_alpha_pnl = net_pnl + total_cost
     reconciliation_error = gross_alpha_pnl - total_cost - net_pnl
     return {
-        "complete": missing_reference_trades == 0,
+        "complete": missing_reference_trades == 0 and invalid_trade_count == 0,
+        "invalid_trade_count": invalid_trade_count,
+        "reconciled": (
+            missing_reference_trades == 0
+            and invalid_trade_count == 0
+            and math.isfinite(reconciliation_error)
+            and abs(reconciliation_error) <= max(1e-8, abs(gross_alpha_pnl) * 1e-9)
+        ),
+        "qualification_eligible": False,
         "missing_reference_trades": missing_reference_trades,
+        "execution_drag_includes_spread": True,
+        "cost_components_separated": False,
         "gross_alpha_pnl": float(gross_alpha_pnl),
         "commission": float(commission),
         "slippage": float(slippage),

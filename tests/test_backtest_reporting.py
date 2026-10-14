@@ -129,6 +129,7 @@ def test_cost_attribution_reconciles_reference_alpha_to_net_pnl() -> None:
     net_pnl = exit_fill - entry_fill - entry_fee - exit_fee
     trades = [
         {
+            "side": "buy",
             "quantity": 1.0,
             "entry_price": entry_fill,
             "exit_price": exit_fill,
@@ -150,6 +151,73 @@ def test_cost_attribution_reconciles_reference_alpha_to_net_pnl() -> None:
     assert attribution["gross_alpha_pnl"] == pytest.approx(10.0)
     assert attribution["net_pnl"] == pytest.approx(net_pnl)
     assert attribution["reconciliation_error"] == pytest.approx(0.0)
+
+
+@pytest.mark.parametrize("side,direction", [("buy", 1), ("sell", -1)])
+def test_cost_attribution_detects_wrong_net_and_preserves_signed_drag(side, direction):
+    trade = {
+        "side": side,
+        "quantity": 2.0,
+        "entry_price": 100.0 + direction * 0.1,
+        "exit_price": 110.0 - direction * 0.2,
+        "entry_fee": 0.2,
+        "exit_fee": 0.3,
+        "pnl": direction * 20.0 - 1.1,
+        "metadata": {
+            "simulation": {
+                "entry_reference_price": 100.0,
+                "exit_reference_price": 110.0,
+            }
+        },
+    }
+    actual = calculate_cost_attribution([trade])
+    assert actual["gross_alpha_pnl"] == pytest.approx(direction * 20.0)
+    assert actual["slippage"] == pytest.approx(0.6)
+    assert actual["reconciliation_error"] == pytest.approx(0.0)
+    trade["pnl"] += 7.0
+    wrong = calculate_cost_attribution([trade])
+    assert wrong["gross_alpha_pnl"] == actual["gross_alpha_pnl"]
+    assert wrong["reconciliation_error"] == pytest.approx(-7.0)
+    assert wrong["reconciled"] is False
+    assert wrong["cost_components_separated"] is False
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("entry_fee", None),
+        ("quantity", True),
+        ("pnl", float("nan")),
+        ("exit_price", float("inf")),
+        ("exit_fee", -1.0),
+        ("quantity", 0.0),
+    ],
+)
+def test_incomplete_or_invalid_trade_cannot_be_accounting_evidence(field, value):
+    trade = {
+        "side": "buy",
+        "quantity": 1.0,
+        "entry_price": 100.0,
+        "exit_price": 110.0,
+        "entry_fee": 1.0,
+        "exit_fee": 1.0,
+        "pnl": 8.0,
+        "metadata": {
+            "simulation": {
+                "entry_reference_price": 100.0,
+                "exit_reference_price": 110.0,
+            }
+        },
+    }
+    if value is None:
+        trade.pop(field)
+    else:
+        trade[field] = value
+    actual = calculate_cost_attribution([trade])
+    assert actual["complete"] is False
+    assert actual["reconciled"] is False
+    assert actual["qualification_eligible"] is False
+    assert actual["invalid_trade_count"] == 1
 
 
 def test_performance_and_benchmark_metrics_are_annualized_and_auditable() -> None:

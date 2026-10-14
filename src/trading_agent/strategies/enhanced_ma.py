@@ -9,7 +9,6 @@ Enhanced MA Crossover Strategy with:
 6. Strategy Ensemble with dynamic weights - NEW
 """
 
-import numpy as np
 import polars as pl
 
 from trading_agent.regime import add_regime_indicators

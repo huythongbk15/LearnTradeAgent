@@ -46,6 +46,54 @@ def test_roundtrip_reconciles_cash_pnl_and_both_fees(tmp_path):
     restored = reloaded.trades[-1]
     assert restored.entry_order_id == entry.id
     assert restored.exit_order_id == exit_order.id
+    from trading_agent.backtest.accounting_evidence import export_paper_trade_accounting
+
+    exported = export_paper_trade_accounting(
+        [restored.to_dict()],
+        equity_delta=exchange.get_balance() - 10_000,
+        open_inventory=False,
+    )
+    assert exported["gross_pnl"] == pytest.approx(100.0)
+    assert exported["slippage"] == pytest.approx(1.05)
+    assert exported["fees"] == pytest.approx(entry.fee + exit_order.fee)
+
+
+def test_measured_basis_survives_partial_exit_and_restart(tmp_path):
+    from trading_agent.backtest.accounting_evidence import export_paper_trade_accounting
+
+    exchange = PaperExchange(
+        exchange_name="test",
+        initial_balance=10_000,
+        commission=0.001,
+        slippage=0.0005,
+        state_dir=tmp_path,
+    )
+    exchange.update_prices({"BTC/USDT": 100.0})
+    exchange.place_order("BTC/USDT", OrderSide.BUY, amount=10)
+    exchange.update_prices({"BTC/USDT": 110.0})
+    exchange.place_order("BTC/USDT", OrderSide.SELL, amount=4)
+    basis = exchange.positions["BTC/USDT"].metadata["paper_cost_basis_v1"]
+    assert basis["quantity"] == pytest.approx(6.0)
+    assert basis["reference_notional"] == pytest.approx(600.0)
+    assert basis["slippage"] == pytest.approx(0.3)
+    restored = PaperExchange(
+        exchange_name="test",
+        initial_balance=10_000,
+        commission=0.001,
+        slippage=0.0005,
+        state_dir=tmp_path,
+    )
+    restored.update_prices({"BTC/USDT": 90.0})
+    restored.place_order("BTC/USDT", OrderSide.SELL, amount=6)
+    result = export_paper_trade_accounting(
+        [t.to_dict() for t in restored.trades],
+        equity_delta=restored.get_balance() - 10_000,
+        open_inventory=False,
+    )
+    assert result["gross_pnl"] == pytest.approx(-20.0)
+    assert result["slippage"] == pytest.approx(0.99)
+    assert result["fees"] == pytest.approx(1.98001)
+    assert result["net_pnl"] == pytest.approx(-22.97001)
 
 
 def test_kill_switch_refuses_stale_or_missing_fill_price(tmp_path):

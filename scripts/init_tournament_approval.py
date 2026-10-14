@@ -11,12 +11,10 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 
 from trading_agent.authority.approval import (
-    Approval,
     ApprovalChain,
     ApprovalDecision,
     ApprovalRole,
@@ -49,7 +47,7 @@ def compute_artifact_id() -> str:
 def main() -> None:
     artifact_id = compute_artifact_id()
 
-    print(f"=== Tournament Shadow→Live Approval Chain Init ===")
+    print("=== Tournament Shadow→Live Approval Chain Init ===")
     print(f"Artifact ID: {artifact_id}")
     print(f"Artifact: {RESULTS_FILE}")
     print()
@@ -59,7 +57,7 @@ def main() -> None:
     print(f"Evidence: {results['bars_evaluated']} bars × {len(results['symbols'])} symbols = "
           f"{results['bars_evaluated'] * len(results['symbols'])} bars audited")
     print(f"Kill switch: {results['shadow_mode']}")
-    print(f"Audit entries: 2160 SelectionAudit entries logged")
+    print("Audit entries: 2160 SelectionAudit entries logged")
     print()
 
     store = ApprovalStore()
@@ -180,8 +178,8 @@ def main() -> None:
     chain = ApprovalChain(store=store)
     result = chain.evaluate(artifact_id, PromotionStage.PRODUCTION)
 
-    print(f"\n=== Approval Chain Evaluation ===")
-    print(f"Stage: production")
+    print("\n=== Approval Chain Evaluation ===")
+    print("Stage: production")
     print(f"Required roles: {sorted(result['required_roles'])}")
     print(f"Approved roles: {sorted(result['approved_roles'])}")
     print(f"Rejected roles: {sorted(result['rejected_roles'])}")

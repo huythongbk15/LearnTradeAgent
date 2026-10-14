@@ -14,7 +14,7 @@ from __future__ import annotations
 import polars as pl
 
 from trading_agent.strategies.base import Strategy, register_strategy
-from trading_agent.technical.indicators import rsi_func, sma_func, std_func, bollinger_bands_func
+from trading_agent.technical.indicators import rsi_func, sma_func, std_func
 
 _NAME = "range_mean_reversion"
 

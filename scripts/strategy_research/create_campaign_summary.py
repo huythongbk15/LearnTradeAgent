@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Create campaign_summary.json from completed WFO runs."""
 import json
-import time
 from pathlib import Path
 from datetime import datetime, timezone
 

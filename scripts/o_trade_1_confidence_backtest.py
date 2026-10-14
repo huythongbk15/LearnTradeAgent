@@ -14,11 +14,8 @@ from __future__ import annotations
 import argparse
 import json
 import math
-import os
-import random
 import shutil
 import sys
-from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -409,7 +406,7 @@ def main():
         print(f"  {check}")
 
     pm = result["portfolio_metrics"]
-    print(f"\n  ── Portfolio Metrics ──")
+    print("\n  ── Portfolio Metrics ──")
     print(f"    Sharpe (baseline):  {pm['sharpe_baseline']:.4f}")
     print(f"    Sharpe (LLM adj):   {pm['sharpe_llm']:.4f}")
     print(f"    Sortino (baseline): {pm['sortino_baseline']:.4f}")
@@ -426,7 +423,7 @@ def main():
     print(f"    Confidence std:      {pm['confidence_std']:.4f}")
     print(f"    Bars conf ≠ 1.0:     {pm['bars_conf_not_1']}")
 
-    print(f"\n  ── Per-Strategy Shadow Metrics ──")
+    print("\n  ── Per-Strategy Shadow Metrics ──")
     for sid, m in sorted(result["strategy_metrics"].items(),
                          key=lambda x: x[1]["sharpe"], reverse=True):
         print(

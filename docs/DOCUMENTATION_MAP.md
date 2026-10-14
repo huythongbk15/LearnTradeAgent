@@ -43,11 +43,15 @@ Các file khác là reference chuyên biệt hoặc historical; không cần đ�
 
 ### Operator / release reviewer
 
+Workstream live readiness hiện hành: [Quy trình agent L0–L4](operations/LIVE_READINESS_AGENT_PLAN.md)
+— task/dependency/evidence trên revision tích hợp; checklist cũ không tự chứng nhận release.
+
 1. [CORE_SYSTEM.md](CORE_SYSTEM.md)
 2. [Capability Matrix](CAPABILITY_MATRIX.md)
 3. [Main-flow Validation](operations/MAIN_FLOW_VALIDATION.md)
 4. [Live Readiness](LIVE_TRADING_TODO.md)
 5. [S7 Operational Evidence Runbook](S7_OPERATIONAL_EVIDENCE_RUNBOOK.md)
+6. [Calibration Protocol](CALIBRATION_PROTOCOL.md) — operator approval gate for pre-pilot evidence
 
 ### Người học bằng tiếng Việt
 
@@ -81,10 +85,12 @@ Các file khác là reference chuyên biệt hoặc historical; không cần đ�
 | Luồng hệ thống là gì? | [CORE_SYSTEM.md](CORE_SYSTEM.md) |
 | Code đang đạt đến đâu? | [Capability Matrix](CAPABILITY_MATRIX.md) + tests/CI evidence |
 | Mainnet có được phép không? | [Live Readiness](LIVE_TRADING_TODO.md) |
+| Agent thực hiện các bước tiến tới live theo thứ tự nào? | [Quy trình agent L0–L4](operations/LIVE_READINESS_AGENT_PLAN.md) — tracker của workstream, không thay production/S7 gates |
 | Một strategy đi từ research tới runtime thế nào? | [Strategy Lifecycle](architecture/STRATEGY_LIFECYCLE.md) + [Promotion Binding](PROMOTION_BINDING.md) |
 | Một lệnh đi qua những gate nào? | [ARCHITECTURE.md](ARCHITECTURE.md) + [Runtime Resolver](RUNTIME_RESOLVER.md) |
 | Chạy validation ra sao? | [Main-flow Validation](operations/MAIN_FLOW_VALIDATION.md) |
 | Thiếu evidence S7 cần bổ sung gì? | [S7 Operational Evidence Runbook](S7_OPERATIONAL_EVIDENCE_RUNBOOK.md) |
+| Calibration trước pilot chạy ra sao? | [Calibration Protocol](CALIBRATION_PROTOCOL.md) — scope/budget/approval/evidence |
 
 ## 6. Definition of done cho tài liệu
 

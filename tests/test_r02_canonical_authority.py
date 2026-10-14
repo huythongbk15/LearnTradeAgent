@@ -43,6 +43,7 @@ from trading_agent.backtest.nested_wfo import (
     NestedFold,
     run_nested_wfo,
 )
+from trading_agent.backtest import nested_wfo as wfo_module
 from trading_agent.backtest.synthetic_data import (
     generate_synthetic_ohlcv,
     synthetic_wfo_spec,
@@ -228,7 +229,7 @@ def _make_deterministic_cell_runner(
 
 
 @pytest.fixture
-def fast_patched(monkeypatch):
+def fast_patched(monkeypatch, tmp_path):
     """Like ``patched`` but uses a deterministic mock cell runner so the
     full WFO pipeline (folds, freezes, registry, gates) runs in <5s.
     The real run_cell is replaced by the deterministic runner."""
@@ -253,6 +254,15 @@ def fast_patched(monkeypatch):
     runner = _make_deterministic_cell_runner()
     monkeypatch.setattr("trading_agent.backtest.nested_wfo.run_cell", runner)
     monkeypatch.setattr("trading_agent.backtest.tournament.run_cell", runner)
+    # A pre-bound imported function bypasses both patches and its spawned child
+    # loses the synthetic loader patch. Keep protocol tests backend-free.
+    monkeypatch.setattr(sys.modules[__name__], "_real_run_cell",
+                        lambda *a, **kw: pytest.fail("fast authority fixture invoked real simulator"))
+    factory = synthetic_wfo_spec
+    def isolated_spec(*args, **kwargs):
+        spec, start, end = factory(*args, **kwargs)
+        return replace(spec, registry_path=str(tmp_path / "authority_trials.sqlite3")), start, end
+    monkeypatch.setattr(sys.modules[__name__], "synthetic_wfo_spec", isolated_spec)
     return df
 
 
@@ -303,7 +313,7 @@ class TestSerialParallelEquivalence:
             call_log.append(
                 f"start={start},end={end},m={measurement_start}-{measurement_end}"
             )
-            return _real_run_cell(
+            return wfo_module.run_cell(
                 spec_cell,
                 out_root=out_root,
                 start=start,
@@ -346,7 +356,7 @@ class TestSerialParallelEquivalence:
             measurement_end: int | None = None,
             **kwargs: Any,
         ) -> EvaluationArtifact:
-            return _real_run_cell(
+            return wfo_module.run_cell(
                 spec_cell,
                 out_root=out_root,
                 start=start,
@@ -393,6 +403,16 @@ class TestSerialParallelEquivalence:
         s_folds = {r.fold_id for r in result_serial.outer_results}
         p_folds = {r.fold_id for r in result_parallel.outer_results}
         assert s_folds == p_folds, f"Fold set differs: {s_folds} vs {p_folds}"
+        assert result_serial.passes_hard_gates == result_parallel.passes_hard_gates
+        assert [(g.gate_id, g.verdict, g.observed_value, g.threshold) for g in result_serial.gate_results] == [
+            (g.gate_id, g.verdict, g.observed_value, g.threshold) for g in result_parallel.gate_results
+        ]
+        assert [f.freeze_id for f in result_serial.inner_selection_freezes] == [
+            f.freeze_id for f in result_parallel.inner_selection_freezes
+        ]
+        assert [row.test_metrics for row in result_serial.outer_results] == [
+            row.test_metrics for row in result_parallel.outer_results
+        ]
 
 
 class TestInnerSelectionFreezeInvariance:
@@ -630,13 +650,12 @@ class TestCellRunnerProtocol:
             strategy_id="rsi", symbol="BTC/USDT", timeframe="1h", n_bars=N_BARS
         )
 
-        # CellRunner that just calls run_cell inline
-        runner: CellRunner = _real_run_cell
+        # Forward to the fixture's mock, not a pre-bound real function reference.
         result = run_nested_wfo(
             spec,
             out_root=tmp_path / "wfo_lambda",
             run_holdout=False,
-            cell_runner=runner,
+            cell_runner=lambda *args, **kwargs: wfo_module.run_cell(*args, **kwargs),
         )
         assert isinstance(result.passes_hard_gates, bool)
 

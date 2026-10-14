@@ -1,4 +1,4 @@
-import glob, os
+import glob
 
 btc_dir = 'data/backtests/wfo/research/vol_target__BTCUSDT__1h'
 eth_dir = 'data/backtests/wfo/research/vol_target__ETHUSDT__1h'

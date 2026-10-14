@@ -42,6 +42,42 @@ TRIAL_PHASE_OUTER_OOS = "OUTER_OOS"
 TRIAL_PHASE_UNKNOWN = "UNKNOWN"
 
 
+def execution_scope_identity(context: dict[str, Any]) -> dict[str, Any]:
+    """Strict versioned evaluation scope; does not rename the logical candidate."""
+    if not isinstance(context, dict) or type(context.get("trial_identity_version")) is not int or context["trial_identity_version"] != 2:
+        raise ValueError("execution context requires trial identity version 2")
+    # No default=str: unsupported values/non-finite data cannot masquerade as a
+    # reproducible frozen context. Hash the complete context, not just its label.
+    frozen = json.loads(json.dumps(context, sort_keys=True, allow_nan=False))
+    fingerprint = frozen.get("protocol_fingerprint")
+    if not isinstance(fingerprint, str) or len(fingerprint) != 64 or any(c not in "0123456789abcdef" for c in fingerprint):
+        raise ValueError("execution context requires a SHA256 protocol fingerprint")
+    for context_field in ("source", "environment", "runtime_config"):
+        if not isinstance(frozen.get(context_field), dict) or not frozen[context_field]:
+            raise ValueError(f"execution context requires frozen {context_field}")
+    return {"version": 2, "protocol_fingerprint": fingerprint, "context_sha256": _sha256(frozen)}
+
+
+def evaluation_scope_from_metadata(metadata: dict[str, Any]) -> str | None:
+    """None means retained legacy history, never implicitly upgraded/reused."""
+    if not isinstance(metadata, dict):
+        raise ValueError("invalid trial metadata")
+    marker = metadata.get("evaluation_execution_identity")
+    if marker is None:
+        identity = metadata.get("evaluation_identity")
+        context = identity.get("execution_context") if isinstance(identity, dict) else None
+        if isinstance(context, dict) and context.get("trial_identity_version") == 2:
+            raise ValueError("versioned evaluation missing execution identity")
+        return None
+    identity = metadata.get("evaluation_identity")
+    if not isinstance(identity, dict):
+        raise ValueError("versioned evaluation missing identity")
+    expected = execution_scope_identity(identity.get("execution_context"))
+    if marker != expected:
+        raise ValueError("evaluation execution identity differs from frozen context")
+    return expected["context_sha256"]
+
+
 @dataclass(frozen=True)
 class ExperimentSpec:
     experiment_id: str
@@ -340,9 +376,27 @@ class ExperimentRegistry:
         evaluation_id: str | None = None,
         created_at: datetime | None = None,
         trial_phase: str = TRIAL_PHASE_UNKNOWN,
+        idempotent: bool = False,
+        execution_context: dict[str, Any] | None = None,
     ) -> EvaluationRecord:
         if not math.isfinite(float(metric_value)):
             raise ValueError("metric_value must be finite")
+        metadata = dict(metadata or {})
+        scope = None
+        if execution_context is not None:
+            if not idempotent:
+                raise ValueError("versioned evaluation requires atomic idempotent append")
+            marker = execution_scope_identity(execution_context)
+            identity = metadata.get("evaluation_identity")
+            if not isinstance(identity, dict) or identity.get("execution_context") != execution_context:
+                raise ValueError("evaluation metadata differs from declared execution context")
+            if "evaluation_execution_identity" in metadata and metadata["evaluation_execution_identity"] != marker:
+                raise ValueError("evaluation execution identity mismatch")
+            metadata["evaluation_execution_identity"] = marker
+            metadata = json.loads(json.dumps(metadata, allow_nan=False))
+            scope = marker["context_sha256"]
+        elif "evaluation_execution_identity" in metadata:
+            raise ValueError("versioned evaluation requires explicit execution context")
         record = EvaluationRecord(
             evaluation_id=evaluation_id or f"eval_{uuid.uuid4().hex}",
             experiment_id=experiment_id,
@@ -352,12 +406,50 @@ class ExperimentRegistry:
             created_at=created_at or datetime.now(UTC),
             environment_hash=str(environment_hash),
             trial_phase=str(trial_phase),
-            metadata=dict(metadata or {}),
+            metadata=metadata,
         )
         with self._lock:
             connection = self._connect()
             try:
                 connection.execute("BEGIN IMMEDIATE")
+                if idempotent:
+                    rows = connection.execute(
+                        "SELECT * FROM evaluation_records WHERE experiment_id = ? "
+                        "AND fold_id = ? AND trial_phase = ?",
+                        (record.experiment_id, record.fold_id, record.trial_phase),
+                    ).fetchall()
+                    if scope is not None:
+                        # Old scopes/legacy remain immutable and in trial burden.
+                        # A new protocol appends a NEW evaluation, not a replay of
+                        # an old result. Validate markers before filtering them.
+                        history = connection.execute(
+                            "SELECT * FROM evaluation_records WHERE experiment_id = ?",
+                            (record.experiment_id,),
+                        ).fetchall()
+                        matching = []
+                        for row in history:
+                            previous_metadata = json.loads(row["metadata_json"])
+                            previous_scope = evaluation_scope_from_metadata(previous_metadata)
+                            previous_marker = previous_metadata.get("evaluation_execution_identity")
+                            if (previous_marker is not None
+                                    and previous_marker["protocol_fingerprint"] == marker["protocol_fingerprint"]
+                                    and previous_scope != scope):
+                                raise ValueError("same protocol declares different execution context")
+                            if (previous_scope == scope and row["fold_id"] == record.fold_id
+                                    and row["trial_phase"] == record.trial_phase):
+                                matching.append(row)
+                        rows = matching
+                    if rows:
+                        if len(rows) != 1:
+                            raise ValueError("duplicate trial phase history; cannot replay")
+                        previous = self._evaluation_from_row(rows[0])
+                        if (previous.metric_name != record.metric_name
+                                or previous.metric_value != record.metric_value
+                                or previous.environment_hash != record.environment_hash
+                                or _canonical_json(previous.metadata) != _canonical_json(record.metadata)):
+                            raise ValueError("trial replay identity/metric differs from immutable history")
+                        connection.commit()
+                        return previous
                 connection.execute(
                     """
                     INSERT INTO evaluation_records
@@ -391,9 +483,8 @@ class ExperimentRegistry:
     ) -> bool:
         """Return True if a trial record with this (experiment, fold, phase) exists.
 
-        Used by the nested-WFO driver to keep the append-only registry
-        idempotent: re-running the same (params, cost, fold, phase) does not
-        create a duplicate trial record.
+        Legacy diagnostic only; tuple existence does not prove replay identity.
+        WFO uses atomic append with complete metadata and execution context.
         """
         connection = self._connect()
         try:
@@ -465,14 +556,23 @@ class ExperimentRegistry:
                 for evaluation in evaluations
                 if evaluation.experiment_id in selected_ids
             ]
-        raw = len(specs)
+        unique = len(specs)
+        scopes: dict[str, set[str | None]] = {spec.experiment_id: set() for spec in specs}
+        for evaluation in evaluations:
+            scopes[evaluation.experiment_id].add(evaluation_scope_from_metadata(evaluation.metadata))
+        # Each candidate x research context is a selection opportunity. Legacy
+        # history retains a bucket; folds/phases/exact replay do not multiply it.
+        # Registered but unexecuted candidates conservatively count at least one.
+        weights = {key: max(1, len(value)) for key, value in scopes.items()}
+        raw = sum(weights.values())
         families: dict[str, int] = {}
         for spec in specs:
             key = f"{spec.search_family}:{spec.search_space_hash}"
-            families[key] = families.get(key, 0) + 1
+            families[key] = families.get(key, 0) + weights[spec.experiment_id]
 
         methodology = (
-            "unique canonical ExperimentSpecs; exact reruns are evaluations, not new trials; "
+            "canonical candidates x immutable execution contexts; retained legacy bucket; "
+            "folds/phases/exact same-context replays are not new selection opportunities; "
             "without an empirical trial-correlation matrix, effective equals raw (conservative)"
         )
         if experiment_ids is not None:
@@ -482,7 +582,7 @@ class ExperimentRegistry:
             matrix = np.asarray(empirical_trial_correlation, dtype=float)
             if matrix.shape != (raw, raw):
                 raise ValueError(
-                    "empirical_trial_correlation must match the unique experiment count"
+                    "empirical_trial_correlation must match the candidate-context trial count"
                 )
             if not np.all(np.isfinite(matrix)) or not np.allclose(matrix, matrix.T):
                 raise ValueError(
@@ -497,7 +597,7 @@ class ExperimentRegistry:
             )
             effective = min(raw, max(1 if raw else 0, math.ceil(participation_ratio)))
             methodology = (
-                "unique canonical ExperimentSpecs with effective trials estimated by the "
+                "candidate-context opportunities with effective trials estimated by the "
                 "eigenvalue participation ratio of the supplied empirical trial-correlation matrix"
             )
 
@@ -517,7 +617,7 @@ class ExperimentRegistry:
             raw_trial_count=raw,
             effective_trial_count=effective,
             evaluation_count=len(evaluations),
-            unique_experiments=raw,
+            unique_experiments=unique,
             search_family_counts=families,
             inner_validation_trials=inner_validation_trials,
             outer_oos_trials=outer_oos_trials,

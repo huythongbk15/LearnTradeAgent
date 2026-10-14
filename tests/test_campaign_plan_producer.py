@@ -55,14 +55,20 @@ SUBJECT = {
 def data_manifest(directory: Path, rows: int = 60, **subject_overrides) -> dict:
     """Build the manifest the same way a real campaign would: from the file."""
     path = write_frame(directory, rows)
-    subject = {**SUBJECT, "params_hash": content_hash({"fast": 10, "slow": 60}), **subject_overrides}
+    subject = {
+        **SUBJECT,
+        "params_hash": content_hash({"fast_period": 10, "slow_period": 60}),
+        **subject_overrides,
+    }
     return build_data_manifest(
         path,
         data_root=directory,
         subject=subject,
         window={
             "start": datetime(2024, 1, 1, tzinfo=UTC).isoformat(),
-            "end": (datetime(2024, 1, 1, tzinfo=UTC) + timedelta(hours=rows - 1)).isoformat(),
+            "end": (
+                datetime(2024, 1, 1, tzinfo=UTC) + timedelta(hours=rows - 1)
+            ).isoformat(),
             "timeframe": subject["timeframe"],
             "market": subject["market_type"],
         },
@@ -80,9 +86,18 @@ def folds(count: int = 3) -> list[dict]:
         records.append(
             {
                 "fold_id": f"f{i}",
-                "train_span": {"start": start.isoformat(), "end": train_end.isoformat()},
-                "val_span": {"start": train_end.isoformat(), "end": val_end.isoformat()},
-                "test_span": {"start": val_end.isoformat(), "end": test_end.isoformat()},
+                "train_span": {
+                    "start": start.isoformat(),
+                    "end": train_end.isoformat(),
+                },
+                "val_span": {
+                    "start": train_end.isoformat(),
+                    "end": val_end.isoformat(),
+                },
+                "test_span": {
+                    "start": val_end.isoformat(),
+                    "end": test_end.isoformat(),
+                },
                 "purge_bars": 1,
                 "embargo_bars": 2,
             }
@@ -90,14 +105,21 @@ def folds(count: int = 3) -> list[dict]:
     return records
 
 
-def plan_for(directory: Path, *, gates=None, fold_count: int = 3) -> dict:
+def plan_for(
+    directory: Path, *, gates=None, fold_count: int = 3, selection_contract=None
+) -> dict:
     return freeze_campaign_plan(
+        selection_contract=selection_contract,
+        validation_cost_scenarios=[{"name": "baseline", "fee_multiplier": 0.5,
+                                    "slippage_multiplier": 0.4,
+                                    "commission_bps": 5.0, "slippage_bps": 2.0}]
+        if selection_contract is not None else None,
         subject={
             "strategy_id": "enhanced_ma",
             "symbol": "BTC/USDT",
             "market_type": "spot",
             "timeframe": "1h",
-            "params_hash": content_hash({"fast": 10, "slow": 60}),
+            "params_hash": content_hash({"fast_period": 10, "slow_period": 60}),
         },
         folds=folds(fold_count),
         data_manifest=data_manifest(directory),
@@ -124,7 +146,7 @@ def plan_for(directory: Path, *, gates=None, fold_count: int = 3) -> dict:
                 "unit": "trades",
             },
         ],
-        param_grid={"fast": [10], "slow": [60]},
+        param_grid={"fast_period": [10], "slow_period": [60]},
         frozen_by="test",
         frozen_at=datetime(2024, 1, 1, tzinfo=UTC),
     )
@@ -156,11 +178,107 @@ def source_binding() -> dict:
     }
 
 
+def test_native_layer_is_separate_and_cannot_be_dropped(tmp_path):
+    from types import SimpleNamespace
+    from trading_agent.backtest.native_gate_contract import (
+        freeze_native_gate_contract,
+        threshold_for,
+    )
+
+    plan = plan_for(tmp_path)
+    contract = freeze_native_gate_contract(SimpleNamespace(effective_min_oos_trades=30))
+    plan["native_gate_contract"] = contract
+    from trading_agent.backtest.campaign_plan import semantic_fingerprint
+    plan["semantic_fingerprint"] = semantic_fingerprint(plan)
+    plan.pop("plan_fingerprint")
+    plan["plan_fingerprint"] = content_hash(plan)
+    rows = [row(f"f{i}", sharpe=1, trades=30, net=1) for i in range(3)]
+    evidence = []
+    for gate in contract["gates"]:
+        threshold = threshold_for(gate, [30, 30, 30])
+        observed = threshold + 1 if gate["comparison"] in {">", ">="} else threshold / 2
+        evidence.append(
+            dict(
+                gate_id=gate["gate_id"],
+                threshold=threshold,
+                observed=observed,
+                comparison=gate["comparison"],
+                policy_version="v1",
+                verdict="PASS",
+            )
+        )
+    bundle = build_campaign_bundle(
+        plan=plan,
+        rows=rows,
+        source=source_binding(),
+        data_root=tmp_path,
+        native_evidence=evidence,
+    )
+    assert bundle["verdict"] == "PASS"
+    with pytest.raises(ValueError):
+        build_campaign_bundle(
+            plan=plan, rows=rows, source=source_binding(), data_root=tmp_path
+        )
+    evidence[0].update(observed=-1, verdict="FAIL")
+    bundle = build_campaign_bundle(
+        plan=plan,
+        rows=rows,
+        source=source_binding(),
+        data_root=tmp_path,
+        native_evidence=evidence,
+    )
+    assert bundle["verdict"] == "FAIL"
+    assert any(g["scope"] == "native" for g in bundle["failed_gates"])
+
+
+def test_selection_contract_is_bound_and_snapshotted(tmp_path):
+    from trading_agent.backtest.selection_eligibility import freeze_selection_contract
+
+    contract = freeze_selection_contract(
+        min_validation_trades=3, min_validation_sharpe=0
+    )
+    plan = plan_for(tmp_path, selection_contract=contract)
+    verify_frozen_plan(plan)
+    contract["min_validation_trades"] = 999
+    assert plan["selection_contract"]["min_validation_trades"] == 3
+    plan["selection_contract"]["min_validation_trades"] = 999
+    with pytest.raises(ValueError):
+        verify_frozen_plan(plan)
+
+
 def test_frozen_plan_binds_its_own_content(tmp_path: Path) -> None:
     plan = plan_for(tmp_path)
     verify_frozen_plan(plan)
     assert len(plan["plan_fingerprint"]) == 64
     assert plan["gate_set_fingerprint"] == content_hash(plan["gate_set"])
+
+
+def test_bundle_preserves_open_loss_and_derives_clearance(tmp_path):
+    plan = plan_for(tmp_path)
+    rows = [row(f"f{i}", sharpe=1, trades=10, net=1) for i in range(3)]
+    rows[0].update(
+        open_quantity=1.0,
+        open_side="buy",
+        open_entry_price=100.0,
+        open_valuation_price=90.0,
+        open_mark_value=90.0,
+        open_entry_fee=1.0,
+        open_unrealized=-11.0,
+        total_pnl=-10.0,
+        cost_cleared=True,
+    )
+    bundle = build_campaign_bundle(
+        plan=plan, rows=rows, source=source_binding(), data_root=tmp_path
+    )
+    measured = bundle["results"][0]
+    assert measured["total_pnl"] == -10.0
+    assert measured["cost_cleared"] is False
+    assert not validate_v2(bundle, data_root=tmp_path)
+    rows[0]["total_pnl"] = 999.0
+    with pytest.raises(ValueError, match="reconcile"):
+        build_campaign_bundle(
+            plan=plan, rows=rows, source=source_binding(), data_root=tmp_path
+        )
 
 
 def test_edited_plan_is_refused(tmp_path: Path) -> None:
@@ -180,7 +298,10 @@ def test_plan_must_be_frozen_before_it_can_produce(tmp_path: Path) -> None:
 
 
 def test_producer_recomputes_aggregate_instead_of_accepting_it(tmp_path: Path) -> None:
-    rows = [row("f0", sharpe=1.0, trades=10, net=1.0), row("f1", sharpe=3.0, trades=10, net=1.0)]
+    rows = [
+        row("f0", sharpe=1.0, trades=10, net=1.0),
+        row("f1", sharpe=3.0, trades=10, net=1.0),
+    ]
     bundle = build_campaign_bundle(
         plan=plan_for(tmp_path, fold_count=2),
         rows=rows,
@@ -194,7 +315,10 @@ def test_producer_recomputes_aggregate_instead_of_accepting_it(tmp_path: Path) -
 def test_gate_outcome_and_verdict_recompute_from_frozen_thresholds(
     tmp_path: Path,
 ) -> None:
-    rows = [row("f0", sharpe=0.1, trades=10, net=1.0), row("f1", sharpe=0.2, trades=10, net=1.0)]
+    rows = [
+        row("f0", sharpe=0.1, trades=10, net=1.0),
+        row("f1", sharpe=0.2, trades=10, net=1.0),
+    ]
     bundle = build_campaign_bundle(
         plan=plan_for(tmp_path, fold_count=2),
         rows=rows,
@@ -218,6 +342,38 @@ def test_single_fold_never_passes_a_median_gate(tmp_path: Path) -> None:
     )
     assert bundle["verdict"] == "FAIL"
     assert bundle["failed_gates"]
+    assert [gate["gate_id"] for gate in bundle["failed_gates"]] == [
+        "campaign_minimum_folds"
+    ]
+    assert not validate_v2(bundle, data_root=tmp_path)
+
+
+@pytest.mark.parametrize("sharpe", [2.0, -1.0])
+def test_native_bundle_metadata_agrees_with_consumer(tmp_path, sharpe):
+    from trading_agent.backtest.campaign_integrity import verify_evidence_bundle
+
+    plan = plan_for(tmp_path)
+    bundle = build_campaign_bundle(
+        plan=plan,
+        rows=[row(f"f{i}", sharpe=sharpe, trades=20, net=100.0) for i in range(3)],
+        source=source_binding(),
+        data_root=tmp_path,
+    )
+    assert bundle["gate_version"] == plan["gate_version"]
+    assert bundle["overlap_policy"] == "independent"
+    assert bundle["trades_absent_reason"]
+    path = tmp_path / "campaign_evidence.json"
+    path.write_text(json.dumps(bundle))
+    report = verify_evidence_bundle(tmp_path, data_root=tmp_path)
+    assert report.admissible, report.problems
+
+    bundle["aggregate"]["fold_count"] += 1
+    bundle["campaign_id"] = content_hash(
+        {key: value for key, value in bundle.items() if key != "campaign_id"}
+    )
+    assert any(
+        "fold_count" in error for error in validate_v2(bundle, data_root=tmp_path)
+    )
 
 
 def test_rows_must_match_the_frozen_folds(tmp_path: Path) -> None:
@@ -258,11 +414,15 @@ def test_produced_bundle_passes_schema_v2_validation(tmp_path: Path) -> None:
 def test_campaign_id_binds_bundle_content(tmp_path: Path) -> None:
     rows = [row("f0", sharpe=1.0, trades=10, net=1.0)]
     bundle = build_campaign_bundle(
-        plan=plan_for(tmp_path, fold_count=1), rows=rows, source=source_binding(), data_root=DATA_ROOT
+        plan=plan_for(tmp_path, fold_count=1),
+        rows=rows,
+        source=source_binding(),
+        data_root=DATA_ROOT,
     )
     tampered = {**bundle, "net_pnl_note": "changed"}
-    assert content_hash({k: v for k, v in tampered.items() if k != "campaign_id"}) != (
-        bundle["campaign_id"]
+    assert (
+        content_hash({k: v for k, v in tampered.items() if k != "campaign_id"})
+        != (bundle["campaign_id"])
     )
 
 

@@ -615,6 +615,29 @@ def test_strategy_evidence_signature_and_build_are_bound(tmp_path):
         integrity_key=key,
         now=now,
     )
+    with pytest.raises(LiveSafetyError, match="runtime artifact bindings"):
+        validate_strategy_evidence(
+            evidence_path,
+            expected_symbols=["BTC/USDT"],
+            expected_params=evidence["strategy_params"],
+            integrity_key=key,
+            now=now,
+            return_runtime_bindings=True,
+        )
+    evidence["strategy_artifact_ids"] = {"BTC/USDT": "local-fixture-only-artifact"}
+    bound = sign_strategy_evidence(evidence, key)
+    evidence_path.write_text(json.dumps(bound), encoding="utf-8")
+    assert (
+        validate_strategy_evidence(
+            evidence_path,
+            expected_symbols=["BTC/USDT"],
+            expected_params=evidence["strategy_params"],
+            integrity_key=key,
+            now=now,
+            return_runtime_bindings=True,
+        )
+        == evidence["strategy_artifact_ids"]
+    )
     signed["symbols"]["BTC/USDT"]["folds"][0]["return_pct"] = 999
     evidence_path.write_text(json.dumps(signed), encoding="utf-8")
     with pytest.raises(LiveSafetyError, match="integrity check failed"):

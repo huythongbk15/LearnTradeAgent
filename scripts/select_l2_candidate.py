@@ -25,6 +25,7 @@ import math
 import sys
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+from statistics import median
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "src") not in sys.path:
@@ -72,7 +73,21 @@ def _binomial_tail(k: int, n: int) -> float:
     if n <= 0:
         return 1.0
     k = max(0, min(k, n))
-    return sum(math.comb(n, i) for i in range(k, n + 1)) / (2 ** n)
+    return sum(math.comb(n, i) for i in range(k, n + 1)) / (2**n)
+
+
+def rank_candidates(candidates: list[Candidate]) -> list[Candidate]:
+    """Total ordering; equal measurements never depend on caller input order."""
+    return sorted(
+        candidates,
+        key=lambda row: (
+            -row.fold_count,
+            -row.trading_window_share,
+            -row.median_trades_per_window,
+            row.warmup,
+            row.strategy_id,
+        ),
+    )
 
 
 def _sha256(path: Path) -> str:
@@ -112,7 +127,6 @@ def evaluate(strategy_id: str, data: pl.DataFrame, folds) -> Candidate:
         entries: set[int] = set()
         if cand.resolvable:
             try:
-
                 cls = _resolve_legacy(strategy_id)
                 if cls is not None:
                     strat = cls()
@@ -120,23 +134,22 @@ def evaluate(strategy_id: str, data: pl.DataFrame, folds) -> Candidate:
                         strat.compute_indicators(data)
                     ).to_numpy()
                     entries = {
-                        i for i in range(1, len(sig))
-                        if sig[i] > 0 and sig[i - 1] <= 0
+                        i for i in range(1, len(sig)) if sig[i] > 0 and sig[i - 1] <= 0
                     }
             except Exception:
                 entries = set()
 
         if entries:
-            cand.emits_signal = True
             per_window = [
                 sum(1 for e in entries if f.outer_test_start <= e < f.outer_test_end)
                 for f in folds
             ]
+            cand.emits_signal = bool(per_window and per_window[0] > 0)
             trading = [c for c in per_window if c > 0]
-            cand.trading_window_share = len(trading) / len(per_window) if per_window else 0.0
-            cand.median_trades_per_window = (
-                sorted(trading)[len(trading) // 2] if trading else 0.0
+            cand.trading_window_share = (
+                len(trading) / len(per_window) if per_window else 0.0
             )
+            cand.median_trades_per_window = median(per_window) if per_window else 0.0
     return cand
 
 
@@ -165,18 +178,22 @@ _LEGACY_MAP = {
     "volatility_breakout": ("volatility_breakout", "VolatilityBreakoutStrategy"),
     "trend_pullback": ("trend_pullback", "TrendPullbackStrategy"),
     "range_mean_reversion": (
-        "range_mean_reversion", "RangeMeanReversionStrategy",
+        "range_mean_reversion",
+        "RangeMeanReversionStrategy",
     ),
     "regime_switching": ("regime_switching", "RegimeSwitchingStrategy"),
     "stat_arbitrage_lo": ("stat_arbitrage", "StatArbitrageLongOnlyStrategy"),
     "stat_arbitrage_ls": (
-        "stat_arbitrage", "StatArbitrageLongShortStrategy",
+        "stat_arbitrage",
+        "StatArbitrageLongShortStrategy",
     ),
     "cross_sectional_momentum_lo": (
-        "cross_sectional_momentum", "CrossSectionalMomentumLongOnlyStrategy",
+        "cross_sectional_momentum",
+        "CrossSectionalMomentumLongOnlyStrategy",
     ),
     "cross_sectional_momentum_ls": (
-        "cross_sectional_momentum", "CrossSectionalMomentumLongShortStrategy",
+        "cross_sectional_momentum",
+        "CrossSectionalMomentumLongShortStrategy",
     ),
     "ma_adx_regime": ("enhanced_ma", "MaAdxRegimeAware"),
     "funding_carry": ("funding_carry", "FundingCarryStrategy"),
@@ -207,6 +224,16 @@ def main() -> int:
     ap.add_argument("--step-months", type=int, default=2)
     ap.add_argument("--strategies", nargs="*", default=None)
     args = ap.parse_args()
+    if any(
+        value <= 0
+        for value in (
+            args.train_months,
+            args.val_months,
+            args.test_months,
+            args.step_months,
+        )
+    ):
+        ap.error("fold durations must be positive")
 
     from trading_agent.backtest.nested_wfo import _get_fold_indices
     from trading_agent.strategies.canonical import build_default_registry
@@ -217,20 +244,37 @@ def main() -> int:
     # hand-built path picks whichever the caller typed. B07 in
     # LIVE_READINESS_AGENT_PLAN.md.
     from trading_agent.data.canonical import resolve_canonical
+    from trading_agent.config.loader import config
 
-    resolution = resolve_canonical(ROOT, args.symbol, args.timeframe)
+    resolution = resolve_canonical(
+        ROOT, args.symbol, args.timeframe, storage_base=config.storage_abs_path
+    )
     if resolution is None:
         print(f"no data for {args.symbol} {args.timeframe}")
         return 2
     path = resolution.path
+    args.timeframe = {"hourly": "1h", "daily": "1d", "four_hour": "4h"}[
+        resolution.timeframe
+    ]
     if not resolution.preferred:
-        print(f"note: {args.symbol} {args.timeframe} has no extended file; "
-              f"canonical resolution is {path.name}")
+        print(
+            f"note: {args.symbol} {args.timeframe} has no extended file; "
+            f"canonical resolution is {path.name}"
+        )
     data = pl.read_parquet(path)
     folds = _get_fold_indices(
-        data.height, args.timeframe, args.train_months, args.val_months,
-        args.test_months, args.step_months, 25, 25,
+        data.height,
+        args.timeframe,
+        args.train_months,
+        args.val_months,
+        args.test_months,
+        args.step_months,
+        25,
+        25,
     )
+    if not folds:
+        print("NOT_QUALIFIED: insufficient data to construct an outer fold")
+        return 1
 
     ids = args.strategies or sorted(build_default_registry().list_ids())
     rows = []
@@ -267,25 +311,33 @@ def main() -> int:
     print("=" * 78)
     print(f"  symbol/timeframe : {market} {args.timeframe}")
     print(f"  data             : {cand_path(rows, path, ROOT)}")
-    print(f"  fold structure   : {args.train_months}/{args.val_months}/"
-          f"{args.test_months}/{args.step_months} months "
-          f"-> {len(folds)} folds, {folds[0].outer_test_end - folds[0].outer_test_start} bars/window")
-    print(f"  gate parameters  : n_min={GATE_N_MIN}, "
-          f"trading_window_floor={TRADING_WINDOW_FLOOR}")
+    print(
+        f"  fold structure   : {args.train_months}/{args.val_months}/"
+        f"{args.test_months}/{args.step_months} months "
+        f"-> {len(folds)} folds, {folds[0].outer_test_end - folds[0].outer_test_start} bars/window"
+    )
+    print(
+        f"  gate parameters  : n_min={GATE_N_MIN}, "
+        f"trading_window_floor={TRADING_WINDOW_FLOOR}"
+    )
     print()
 
-    header = (f"{'strategy':28s} {'reg':>4} {'sig':>4} {'folds':>6} "
-              f"{'trade%':>7} {'medTrd':>7}  eligible")
+    header = (
+        f"{'strategy':28s} {'reg':>4} {'sig':>4} {'folds':>6} "
+        f"{'trade%':>7} {'medTrd':>7}  eligible"
+    )
     print(header)
     print("-" * len(header))
 
     eligible = []
-    for row in sorted(rows, key=lambda r: r.rank_key(), reverse=True):
+    for row in rank_candidates(rows):
         status = "YES" if row.eligible else "no"
-        print(f"{row.strategy_id:28s} {str(row.registered):>4} "
-              f"{str(row.emits_signal):>4} {row.fold_count:>6} "
-              f"{row.trading_window_share * 100:>6.0f}% "
-              f"{row.median_trades_per_window:>7.0f}  {status}")
+        print(
+            f"{row.strategy_id:28s} {str(row.registered):>4} "
+            f"{str(row.emits_signal):>4} {row.fold_count:>6} "
+            f"{row.trading_window_share * 100:>6.0f}% "
+            f"{row.median_trades_per_window:>7.0f}  {status}"
+        )
         if row.eligible:
             eligible.append(row)
 
@@ -301,7 +353,7 @@ def main() -> int:
             if row.reasons:
                 print(f"  {row.strategy_id:28s} {row.reasons[0]}")
     else:
-        eligible.sort(key=lambda r: r.rank_key(), reverse=True)
+        eligible = rank_candidates(eligible)
         chosen = eligible[0]
         print(f"RESULT: campaign {chosen.strategy_id} first")
         print(f"  rank key: {chosen.rank_key()}")
@@ -312,20 +364,27 @@ def main() -> int:
     print("=" * 78)
 
     fragment = {
-        "gate_parameters": {"n_min": GATE_N_MIN,
-                            "trading_window_floor": TRADING_WINDOW_FLOOR},
-        "window": {"symbol": market, "timeframe": args.timeframe,
-                   "train_months": args.train_months,
-                   "val_months": args.val_months,
-                   "test_months": args.test_months,
-                   "step_months": args.step_months,
-                   "folds": len(folds)},
-        "data": {"input_path": str(path.relative_to(ROOT)),
-                 "sha256": _sha256(path), "rows": data.height},
+        "gate_parameters": {
+            "n_min": GATE_N_MIN,
+            "trading_window_floor": TRADING_WINDOW_FLOOR,
+        },
+        "window": {
+            "symbol": market,
+            "timeframe": args.timeframe,
+            "train_months": args.train_months,
+            "val_months": args.val_months,
+            "test_months": args.test_months,
+            "step_months": args.step_months,
+            "folds": len(folds),
+        },
+        "data": {
+            "input_path": str(path.relative_to(ROOT)),
+            "sha256": _sha256(path),
+            "rows": data.height,
+        },
         "candidates": [
-            {**asdict(row), "eligible": row.eligible,
-             "rank_key": list(row.rank_key())}
-            for row in sorted(rows, key=lambda r: r.rank_key(), reverse=True)
+            {**asdict(row), "eligible": row.eligible, "rank_key": list(row.rank_key())}
+            for row in rank_candidates(rows)
         ],
         "selected": chosen.strategy_id if eligible else "NOT_QUALIFIED",
     }

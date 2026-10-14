@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Quick check of funding_carry WFO results."""
 import json
-import sys
 from pathlib import Path
 
 base = Path("/home/huythong/.qwenpaw/workspaces/trading/data/backtests/wfo_full")

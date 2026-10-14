@@ -34,7 +34,6 @@ from trading_agent.backtest.nested_wfo import (  # noqa: E402
     WFOSpec,
 )
 from trading_agent.backtest.synthetic_data import (  # noqa: E402
-    generate_synthetic_ohlcv,
     synthetic_wfo_spec,
 )
 from trading_agent.backtest.tournament import (

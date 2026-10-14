@@ -86,13 +86,17 @@ def _fake_holdout(df, spec):
     # Returns bar indices for the frozen holdout within the synthetic range.
     # Must return 3-tuple matching _resolve_frozen_holdout_window:
     # (holdout_start_bar, holdout_end_bar, manifest_dict)
-    return (HOLDOUT_START, N_BARS - 1, {
-        "study_id": "s3_evidence",
-        "frozen_by": "test_nested_wfo_evidence",
-        "commit_sha_at_freeze": "test",
-        "data_manifest_sha": "synthetic",
-        "feature_schema_hash": "synthetic",
-    })
+    return (
+        HOLDOUT_START,
+        N_BARS - 1,
+        {
+            "study_id": "s3_evidence",
+            "frozen_by": "test_nested_wfo_evidence",
+            "commit_sha_at_freeze": "test",
+            "data_manifest_sha": "synthetic",
+            "feature_schema_hash": "synthetic",
+        },
+    )
 
 
 @pytest.fixture
@@ -107,6 +111,7 @@ def patched(monkeypatch):
     # must patch the source module; tournament imports it at module level,
     # so patch both.
     monkeypatch.setattr("trading_agent.data.storage.load_ohlcv", _load)
+    monkeypatch.setattr("trading_agent.data.storage.load_research_ohlcv", _load)
     monkeypatch.setattr("trading_agent.backtest.tournament.load_ohlcv", _load)
 
     def _wrapped_run_cell(spec, **kwargs):
@@ -137,6 +142,35 @@ def patched(monkeypatch):
         "trading_agent.backtest.nested_wfo._get_fold_indices", lambda *a, **k: folds
     )
     return df
+
+
+def test_eligibility_abstain_stops_before_outer(patched, tmp_path):
+    import json
+    from trading_agent.backtest.selection_eligibility import freeze_selection_contract
+
+    spec, _, _ = synthetic_wfo_spec(
+        strategy_id="rsi", symbol="BTC/USDT", timeframe="1h", n_bars=N_BARS
+    )
+    contract = freeze_selection_contract(
+        min_validation_trades=1000000, min_validation_sharpe=0
+    )
+    root = tmp_path / "abstain"
+    with pytest.raises(ValueError, match="ABSTAIN; campaign incomplete"):
+        run_nested_wfo(
+            spec,
+            out_root=root,
+            selection_contract=contract,
+            cell_runner=lambda *a, **k: None,
+        )
+    decisions = list(root.glob("selection_decision_*.json"))
+    assert len(decisions) == 1
+    decision = json.loads(decisions[0].read_text())
+    assert decision["decision"] == "ABSTAIN"
+    assert decision["contract_fingerprint"] == contract["fingerprint"]
+    assert decision["candidates"]
+    assert not list(root.glob("outer_artifacts/**/*.json"))
+    with pytest.raises(ValueError, match="without its contract"):
+        run_nested_wfo(spec, out_root=root)
 
 
 def test_full_pipeline_on_synthetic(patched, tmp_path):
@@ -195,7 +229,14 @@ def test_s3_trial_registry_records_inner_and_outer(patched, tmp_path):
     # 2 outer OOS trials.
     spec = replace(spec, registry_path=str(tmp_path / "wfo.sqlite3"))
 
-    result = run_nested_wfo(spec, out_root=tmp_path / "wfo_evidence", run_holdout=False)
+    # Sensitivity re-runs are covered by test_full_pipeline_on_synthetic;
+    # this test exercises only the append-only trial registry contract.
+    result = run_nested_wfo(
+        spec,
+        out_root=tmp_path / "wfo_evidence",
+        run_holdout=False,
+        real_sensitivity=False,
+    )
 
     tc = result.trial_counts
     assert tc["inner_validation_trials"] == 2, tc
@@ -212,8 +253,18 @@ def test_s3_trial_registry_idempotent_on_rerun(patched, tmp_path):
     )
     spec = replace(spec, registry_path=str(tmp_path / "wfo.sqlite3"))
 
-    run_nested_wfo(spec, out_root=tmp_path / "wfo_evidence", run_holdout=False)
-    run_nested_wfo(spec, out_root=tmp_path / "wfo_evidence", run_holdout=False)
+    run_nested_wfo(
+        spec,
+        out_root=tmp_path / "wfo_evidence",
+        run_holdout=False,
+        real_sensitivity=False,
+    )
+    run_nested_wfo(
+        spec,
+        out_root=tmp_path / "wfo_evidence",
+        run_holdout=False,
+        real_sensitivity=False,
+    )
 
     from trading_agent.research.trials import ExperimentRegistry
 

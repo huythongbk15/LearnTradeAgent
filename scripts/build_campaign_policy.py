@@ -59,8 +59,14 @@ def fold_plan(symbol: str, timeframe: str, train: int, val: int, test: int, step
     n_bars = pl.read_parquet(path, columns=["close"]).height
     purge = 100 if timeframe == "1h" else 25
     folds = _get_fold_indices(n_bars, timeframe, train, val, test, step, purge, purge)
-    need = next((k for k in range(len(folds) + 1)
-                 if _binomial_upper_tail(k, len(folds)) <= P_MAX), None)
+    need = next(
+        (
+            k
+            for k in range(len(folds) + 1)
+            if _binomial_upper_tail(k, len(folds)) <= P_MAX
+        ),
+        None,
+    )
     return n_bars, folds, need
 
 
@@ -72,14 +78,19 @@ def main() -> None:
     ap.add_argument("--val-months", type=int, default=2)
     ap.add_argument("--test-months", type=int, default=2)
     ap.add_argument("--step-months", type=int, default=2)
-    ap.add_argument("--strategy", default=None,
-                    help="run one strategy instead of both candidates")
+    ap.add_argument(
+        "--strategy", default=None, help="run one strategy instead of both candidates"
+    )
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
     n_bars, folds, need = fold_plan(
-        args.symbol, args.timeframe, args.train_months,
-        args.val_months, args.test_months, args.step_months,
+        args.symbol,
+        args.timeframe,
+        args.train_months,
+        args.val_months,
+        args.test_months,
+        args.step_months,
     )
 
     print("=" * 74)
@@ -87,15 +98,21 @@ def main() -> None:
     print("=" * 74)
     print(f"  symbol/timeframe : {args.symbol} {args.timeframe}")
     print(f"  data             : {n_bars:,} bars")
-    print(f"  folds            : {len(folds)} "
-          f"({args.train_months}/{args.val_months}/{args.test_months}/"
-          f"{args.step_months} months)")
-    print(f"  spread gate      : need {need}/{len(folds)} cost-clearing folds "
-          f"({need / len(folds) * 100:.0f}%) at p<={P_MAX}")
+    print(
+        f"  folds            : {len(folds)} "
+        f"({args.train_months}/{args.val_months}/{args.test_months}/"
+        f"{args.step_months} months)"
+    )
+    print(
+        f"  spread gate      : need {need}/{len(folds)} cost-clearing folds "
+        f"({need / len(folds) * 100:.0f}%) at p<={P_MAX}"
+    )
 
     if len(folds) < MIN_FOLDS:
-        print(f"\nABORT: {len(folds)} folds cannot resolve the gate "
-              f"(minimum {MIN_FOLDS}).")
+        print(
+            f"\nABORT: {len(folds)} folds cannot resolve the gate "
+            f"(minimum {MIN_FOLDS})."
+        )
         print("A campaign with too few folds measures nothing and must not run.")
         return
     if need is None:
@@ -111,6 +128,10 @@ def main() -> None:
         return
 
     from trading_agent.backtest.nested_wfo import WFOSpec, run_nested_wfo
+    from trading_agent.backtest.campaign_integrity import (
+        capture_campaign_source,
+        require_wfo_campaign_evidence,
+    )
     from trading_agent.research.selection_policy import (
         PolicyActivationService,
         SelectionPolicyBuilder,
@@ -138,11 +159,22 @@ def main() -> None:
         out.mkdir(parents=True, exist_ok=True)
         print(f"  running {len(folds)} folds ...", flush=True)
         try:
+            source_binding = capture_campaign_source(ROOT)
             res = run_nested_wfo(spec, out_root=out, real_sensitivity=False)
+            if capture_campaign_source(ROOT) != source_binding:
+                raise ValueError("source changed during campaign")
+            from trading_agent.backtest.campaign_writer import collect_wfo_campaign_rows
+
+            measured_rows = collect_wfo_campaign_rows(res)
+            print(f"  native accounting: {len(measured_rows)} verified fold rows")
+            require_wfo_campaign_evidence(
+                res, out, data_root=ROOT, source_binding=source_binding
+            )
         except Exception as exc:
             print(f"  FAILED: {type(exc).__name__}: {exc}")
-            results.append({"strategy": sid, "status": "run_failed",
-                            "error": str(exc)[:200]})
+            results.append(
+                {"strategy": sid, "status": "run_failed", "error": str(exc)[:200]}
+            )
             continue
 
         agg = res.aggregate_metrics
@@ -153,13 +185,24 @@ def main() -> None:
         if getattr(res, "gate_failures", None):
             print(f"  gate failures    : {res.gate_failures}")
 
-        entry = {"strategy": sid, "status": "ran",
-                 "aggregate": {k: agg.get(k) for k in (
-                     "median_test_sharpe", "median_test_return_pct",
-                     "total_test_trades", "median_oos_trades" if "median_oos_trades"
-                     in agg else "median_test_trades", "n_outer_folds")},
-                 "passes_hard_gates": bool(res.passes_hard_gates),
-                 "gate_failures": list(getattr(res, "gate_failures", []) or [])}
+        entry = {
+            "strategy": sid,
+            "status": "ran",
+            "aggregate": {
+                k: agg.get(k)
+                for k in (
+                    "median_test_sharpe",
+                    "median_test_return_pct",
+                    "total_test_trades",
+                    "median_oos_trades"
+                    if "median_oos_trades" in agg
+                    else "median_test_trades",
+                    "n_outer_folds",
+                )
+            },
+            "passes_hard_gates": bool(res.passes_hard_gates),
+            "gate_failures": list(getattr(res, "gate_failures", []) or []),
+        }
 
         if not res.passes_hard_gates:
             entry["status"] = "hard_gates_failed"
@@ -190,13 +233,17 @@ def main() -> None:
         print(f"  scores           {json.dumps(policy.scores, default=str)}")
 
         svc = PolicyActivationService(
-            reg, signing_key=b"campaign-policy-signing0", key_id="campaign",
+            reg,
+            signing_key=b"campaign-policy-signing0",
+            key_id="campaign",
             audit_path=EVIDENCE / "activation.jsonl",
         )
         try:
             active = svc.activate(
-                policy.policy_id, actor="campaign",
-                ticket=f"CAMPAIGN-{sid}", now=datetime.now(UTC),
+                policy.policy_id,
+                actor="campaign",
+                ticket=f"CAMPAIGN-{sid}",
+                now=datetime.now(UTC),
             )
             print(f"  ACTIVATED        {active.status.value}")
             entry["status"] = "activated"
@@ -214,8 +261,9 @@ def main() -> None:
         print(f"  {r['strategy']:16s} {r['status']}")
     activated = [r for r in results if r["status"] == "activated"]
     print(f"\nactivated: {len(activated)} of {len(results)}")
-    json.dump(results, open(EVIDENCE / "campaign_summary.json", "w"),
-              indent=2, default=str)
+    json.dump(
+        results, open(EVIDENCE / "campaign_summary.json", "w"), indent=2, default=str
+    )
     print(f"summary: {(EVIDENCE / 'campaign_summary.json').relative_to(ROOT)}")
     if not activated:
         print("\nNo policy activated. That is a real answer, not a failure of")
