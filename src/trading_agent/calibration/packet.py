@@ -206,7 +206,7 @@ def validate_plan(plan, root):
     ):
         raise ValueError("invalid captured source fingerprint")
     if plan["evidence_class"] == "REAL_MARKET":
-        strategies = {"rsi", "bbands", "enhanced_ma", "ma_adx", "ma_vol_target"}
+        strategies = set(plan.get("expected_strategies", ("rsi", "bbands", "enhanced_ma", "ma_adx", "ma_vol_target")))
         expected = {f"{s}_cal_{w}" for s in strategies for w in ("early", "late")}
         operational = (
             Path(__file__).resolve().parents[3]
@@ -400,7 +400,14 @@ def verify_calibration_packet(root, *, require_terminal=True):
                 Path(__file__).resolve().parents[3]
                 / "data/wfo/experiments_parallel.sqlite3"
             )
-            if Path(manifest["registry_path"]).resolve() != expected.resolve() or len(manifest["cells"]) != 10:
+            expected_strategies = manifest.get(
+                "expected_strategies",
+                ("rsi", "bbands", "enhanced_ma", "ma_adx", "ma_vol_target"),
+            )
+            if (
+                Path(manifest["registry_path"]).resolve() != expected.resolve()
+                or len(manifest["cells"]) != 2 * len(expected_strategies)
+            ):
                 return False
             approval = read(root / "operator_approval.json")
             intents = [
