@@ -5,6 +5,13 @@
 Operator đã duyệt phân loại/commit/push và tạo PR code/tests/docs. Nhánh
 `codex/calibration-integration-20261014`, base `dbb9713`; không force-push,
 không đưa database/state/research outputs hoặc approval files lên remote.
+Integration commit0951da3:44modules/774cases,770PASS/1FAIL/3SKIP; source stable,
+hai registries và1500protected files không đổi. Lỗi test ABSTAIN dùng runnerNone
+không tạo validation source; fixture spawn còn có thể đọc default local data.
+Sửa fixture inline và kiểm tiếp đã lộ runtime thiếu guard khi retry cùng thư mục
+nhưng bỏ contract. Follow-up chặn downgrade trước registry/data, không đổi gates.
+Không relabel lượt fail/timeout thành PASS. Regression và AC15 cần chạy trên
+follow-up commit; xem receipt local `data/git_sync_audit_20261014/` và PR/CI.
 Snapshot pre-commit source32bfdb61…: 80/80scoped tests PASS; AC15PASS raw hashes
 và actual source/config/test identity khớp. Local authority:
 `data/calibration_v2_recheck_20261014/review.json`.

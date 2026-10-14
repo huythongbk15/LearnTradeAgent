@@ -2814,6 +2814,12 @@ def run_nested_wfo(
     out_root = Path(out_root) if out_root else ROOT / "data" / "backtests" / "wfo"
     out_root.mkdir(parents=True, exist_ok=True)
 
+    # A durable selection decision binds this destination to its eligibility
+    # contract. Dropping the contract on retry must not fall back to ungated
+    # legacy selection and dispatch an outer evaluation after ABSTAIN.
+    if selection_contract is None and any(out_root.glob("selection_decision_*.json")):
+        raise ValueError("existing selection decision cannot be used without its contract")
+
     if native_gate_contract is not None and not validation_only:
         from trading_agent.backtest.native_gate_contract import freeze_native_gate_contract
         if native_gate_contract != freeze_native_gate_contract(spec, run_holdout=run_holdout):

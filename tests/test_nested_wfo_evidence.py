@@ -103,8 +103,10 @@ def _fake_holdout(df, spec):
 def patched(monkeypatch):
     df = _synthetic_df()
     folds = _fake_folds()
+    load_calls = []
 
     def _load(*args, **kwargs):
+        load_calls.append(True)
         return df
 
     # nested_wfo imports load_ohlcv lazily from storage inside functions, so we
@@ -122,7 +124,13 @@ def patched(monkeypatch):
         standard backtest semantics where the last bar may leave a position
         open to carry into the next window. All other health failures propagate.
         """
+        # Spawned workers do not inherit pytest monkeypatches and may load a
+        # real default dataset. Keep this synthetic fixture in-process so the
+        # simulator receives the same patched frame as WFO and signal generation.
+        kwargs["_use_multiprocessing"] = False
+        previous_loads = len(load_calls)
         art = _real_run_cell(spec, **kwargs)
+        assert len(load_calls) > previous_loads, "cell escaped the synthetic loader"
         if art.status == "FAILED":
             leftover = [
                 r
@@ -146,31 +154,95 @@ def patched(monkeypatch):
 
 def test_eligibility_abstain_stops_before_outer(patched, tmp_path):
     import json
+    import sqlite3
+    from trading_agent.backtest import nested_wfo
     from trading_agent.backtest.selection_eligibility import freeze_selection_contract
 
     spec, _, _ = synthetic_wfo_spec(
         strategy_id="rsi", symbol="BTC/USDT", timeframe="1h", n_bars=N_BARS
     )
+    spec = replace(spec, registry_path=str(tmp_path / "abstain.sqlite3"))
+    measured_windows = []
+
+    def valid_inner_only(cell, **kwargs):
+        window = (kwargs["measurement_start"], kwargs["measurement_end"])
+        assert window == (400, 620), "ABSTAIN must never dispatch an outer cell"
+        measured_windows.append(window)
+        artifact = nested_wfo.run_cell(cell, **kwargs)
+        assert artifact.status == "COMPLETED"
+        assert artifact.measurement_window == window
+        assert Path(artifact.report_path).is_file()
+        return artifact
+
     contract = freeze_selection_contract(
         min_validation_trades=1000000, min_validation_sharpe=0
     )
     root = tmp_path / "abstain"
-    with pytest.raises(ValueError, match="ABSTAIN; campaign incomplete"):
+    with pytest.raises(ValueError, match="NOT_QUALIFIED: validation ABSTAIN before outer evaluation"):
         run_nested_wfo(
             spec,
             out_root=root,
             selection_contract=contract,
-            cell_runner=lambda *a, **k: None,
+            cell_runner=valid_inner_only,
         )
+    assert measured_windows == [(400, 620)]
     decisions = list(root.glob("selection_decision_*.json"))
     assert len(decisions) == 1
     decision = json.loads(decisions[0].read_text())
     assert decision["decision"] == "ABSTAIN"
     assert decision["contract_fingerprint"] == contract["fingerprint"]
     assert decision["candidates"]
+    assert all(isinstance(c["validation_trades"], int) for c in decision["candidates"])
     assert not list(root.glob("outer_artifacts/**/*.json"))
+    with sqlite3.connect(Path(spec.registry_path).resolve().as_uri() + "?mode=ro", uri=True) as connection:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM evaluation_records WHERE trial_phase='OUTER_OOS'"
+        ).fetchone()[0] == 0
     with pytest.raises(ValueError, match="without its contract"):
         run_nested_wfo(spec, out_root=root)
+
+
+def test_invalid_inner_measurement_is_not_abstain(patched, tmp_path):
+    from trading_agent.backtest.selection_eligibility import freeze_selection_contract
+
+    spec, _, _ = synthetic_wfo_spec(
+        strategy_id="rsi", symbol="BTC/USDT", timeframe="1h", n_bars=N_BARS
+    )
+    spec = replace(spec, registry_path=str(tmp_path / "invalid.sqlite3"))
+    root = tmp_path / "invalid"
+    with pytest.raises(ValueError, match="candidate lacks validation source"):
+        run_nested_wfo(
+            spec,
+            out_root=root,
+            selection_contract=freeze_selection_contract(
+                min_validation_trades=1000000, min_validation_sharpe=0
+            ),
+            cell_runner=lambda *a, **k: None,
+        )
+    assert not list(root.glob("outer_artifacts/**/*.json"))
+
+
+def test_existing_selection_cannot_drop_contract_before_data_or_registry(tmp_path, monkeypatch):
+    import json
+    from trading_agent.backtest import nested_wfo
+
+    root = tmp_path / "frozen"
+    root.mkdir()
+    decision = root / "selection_decision_f1.json"
+    decision.write_text(json.dumps({"decision": "ABSTAIN", "contract_fingerprint": "frozen"}))
+    before = decision.read_bytes()
+    spec, _, _ = synthetic_wfo_spec(strategy_id="rsi", n_bars=N_BARS)
+    spec = replace(spec, registry_path=str(tmp_path / "must_not_exist.sqlite3"))
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("contract downgrade reached data/registry execution")
+
+    monkeypatch.setattr(nested_wfo, "ExperimentRegistry", forbidden)
+    monkeypatch.setattr("trading_agent.data.storage.load_ohlcv", forbidden)
+    with pytest.raises(ValueError, match="without its contract"):
+        run_nested_wfo(spec, out_root=root, cell_runner=forbidden)
+    assert decision.read_bytes() == before
+    assert not Path(spec.registry_path).exists()
 
 
 def test_full_pipeline_on_synthetic(patched, tmp_path):
