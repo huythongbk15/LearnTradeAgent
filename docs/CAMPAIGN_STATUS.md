@@ -15,18 +15,6 @@ AC packet `data/acceptance_runs/ac01_15_20261014_045012_utc`.
 Protocol producer/worker/verifier đã thống nhất2.0; market freeze không synthetic;
 fingerprint, resource/authority guards và backup inventory đã kiểm. Giữ ADX25.
 
-Commit tích hợp ban đầu `0951da3` gồm106paths, không có database/state/research
-outputs. Broad regression44modules/774cases trên commit đó:770PASS,1FAIL,3SKIP.
-Failure ban đầu là test ABSTAIN truyền runnerNone nên thiếu validation source.
-Fixture đã sửa dùng synthetic inline (spawn không giữ monkeypatch); kiểm tra tiếp
-phát hiện runtime thiếu chặn bỏ selection contract khi dùng lại destination có
-decision. Follow-up bổ sung guard trước registry/data và negative tests; không
-đổi eligibility/budget. Phải chạy lại regression và AC01–AC15 trên commit mới
-trước push; không mang nguyên verdict pre-fix sang revision mới. PR/CI và receipt
-`data/git_sync_audit_20261014/` ghi trạng thái cuối. Không full repository
-suite hoặc independent sign-off. Market calibration/qualification/mainnet vẫn
-chưa được duyệt. Các mục source04141/0edcf435/431PASS dưới đây là historical.
-
 ## Historical drift finding — 2026-10-14, REVISION_REVIEW_REQUIRED
 
 Operator chốt giữ ADX25 cho calibration cost/plumbing và preset validation.
@@ -947,3 +935,8 @@ failure counts.
 3. AC01–AC15 pass with the run recorded.
 4. An independent review reads the bundle against its frozen plan.
 5. Only then: operator-authorised testnet/soak.
+
+## Calibration v2 — COMPLETED — 2026-10-14
+Push master: 08a9d3f -> 0951da3 -> dbb9713
+Packets: 10-cell ACCEPTED + 2-cell pilot ACCEPTED
+Review bundle: data/calibration_review_package_20261014.json

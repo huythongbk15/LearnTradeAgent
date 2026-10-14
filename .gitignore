@@ -266,6 +266,7 @@ CALIB_FIX_TODO.md
 # Local calibration/acceptance evidence; never source or operator approval
 /calibration_result*.json
 /data/calibration_*/
+/data/calibration_review_package_*.json
 /data/git_sync_audit_*/
 /data/acceptance_runs/ac01_15_*/
 *.sqlite3-shm
