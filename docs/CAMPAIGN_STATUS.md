@@ -10,8 +10,9 @@ Selected integration update: separate automated reviewer
 `/root/review_readiness_integration` reports no blocking findings in the scoped
 Python/docs changes; did not rerun tests. Receipt:
 `data/readiness_integration_20261016_01/automated_review.json`.
-Local selected-code commit is authorized on codex/readiness-integration-20261016;
-no push/market execution authorized. Final commit/verification identity is recorded
+Selected implementation commit:2fc02acae9e02ee259718afa76312411ed354867 on
+codex/readiness-integration-20261016;15reviewed files, no push or market execution.
+Final commit/verification identity is recorded
 in that local integration evidence directory, not inferred from older snapshots.
 This is not human sign-off or whole-tree clearance. Unrelated user-owned untracked
 scripts/run_wfo_b_phase.sh remains excluded; it contains rm -rf of an old packet
@@ -63,8 +64,11 @@ same directory. Telemetry is now implemented as noted above; next is review and
 separately approved market diagnostic. Vol Target sizing semantics need
 clarification (traced bridge uses fixed25% target, not observed vol sizing).
 
-Current checkout: `master`, HEAD `9b69462`, with local changes. The integration
-branch description below is historical, not the current branch/status.
+Current integration branch: `codex/readiness-integration-20261016`.
+The original checkout baseline was master9b69462. The implementation commit
+above contains the selected changes; untracked/unrelated work remains preserved.
+Post-commit QA is recorded in data/readiness_integration_20261016_01/verified.json.
+The older integration-branch description below is historical.
 
 | Work | Evidence | Verdict |
 |---|---|---|

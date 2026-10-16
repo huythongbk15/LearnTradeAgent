@@ -14,6 +14,12 @@ BLOCKED_REVIEW_INTEGRATION. Independent review and clean integration are still
 required BEFORE freeze (workflow section5). The agent must not synthesize
 approved_by or treat generic continuation as approval for an unseen fingerprint.
 No new packet frozen/measurement executed. Details in current tracker.
+Selected implementation is now local commit2fc02ac on
+codex/readiness-integration-20261016, same Python tree bytes. Separate automated
+code review found no blockers; that is not human sign-off or permission to run.
+An unrelated untracked campaign script keeps source capture dirty, so clean
+source/freeze prerequisites remain pending. See post-commit integration evidence
+in data/readiness_integration_20261016_01; do not use the old master SHA as current.
 
 Historical integration snapshot2026-10-14 (superseded by update above):
 

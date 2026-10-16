@@ -26,8 +26,11 @@ independent acceptance or proof of alpha/execution readiness.
 
 Read [closure](VALIDATION_CLOSURE_20261016.md) and
 [current tracker](../CAMPAIGN_STATUS.md) before older handoffs below.
-The current branch is master9b69462 with local changes, not the historical
-integration branch. New telemetry is implemented; two historical market
+The selected implementation is committed as2fc02ac on
+codex/readiness-integration-20261016 (not pushed), based on master9b69462.
+Unrelated work is preserved and the untracked old campaign script keeps source
+capture dirty; do not freeze/execute until this prerequisite is resolved.
+New telemetry is implemented; two historical market
 validation packets both ABSTAIN. No qualified winner is established.
 
 | Order | Work | Exit criterion / authority |

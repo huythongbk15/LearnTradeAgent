@@ -12,6 +12,10 @@ approval. Receipt and subsequent commit verification are stored under
 `data/readiness_integration_20261016_01/`. Only reviewed code/tests/docs are
 selected; operational DB/state, raw packets, unrelated .gitignore edits and
 QwenPaw environment-specific tests are excluded.
+Implementation commit2fc02acae9e02ee259718afa76312411ed354867 contains15selected
+files on codex/readiness-integration-20261016. Source tree hash remains04ba6a07…;
+post-commit QA, rather than pre-commit evidence alone, is required and recorded
+under the integration evidence directory. Nothing is pushed.
 
 Whole-source cleanliness remains separate: untracked user-owned
 scripts/run_wfo_b_phase.sh is excluded and not executed/edited. It contains a
