@@ -74,8 +74,8 @@ _RSI_WARMUP = 14 + 2
 _BBANDS_WARMUP = 20 + 2
 _FUNDING_CARRY_WARMUP = 20 + 2  # vol_window(20) + buffer for pct_change + rolling
 _VOLATILITY_BREAKOUT_WARMUP = 20 + 14 + 2  # bb_period(20) + atr(14) + buffer
-_ENSEMBLE_MA_ADX_WARMUP = 80 + 14 + 2  # max sub-strategy lookback + buffer
-_MA_ADX_REGIME_WARMUP = 80 + 14 + 2  # base MA + ADX + buffer
+_ENSEMBLE_MA_ADX_WARMUP = 252 + 14 + 2  # ATR then lagged regime percentile
+_MA_ADX_REGIME_WARMUP = 252 + 14 + 2  # ATR then lagged regime percentile
 _TREND_PULLBACK_WARMUP = 80 + 14 + 2  # slow MA + ADX + buffer
 _MA_CROSSOVER_WARMUP = 50 + 1  # slow period + 1
 _RANGE_MEAN_REVERSION_WARMUP = 20 + 2  # BB period + buffer
@@ -683,6 +683,16 @@ def compute_effective_params_hash(strategy_id: str, params: Mapping[str, Any] | 
 def resolved_warmup_bars(strategy_id: str, params: Mapping[str, Any] | None = None) -> int:
     """Registered history requirement; MA lookback follows effective periods."""
     baseline = _CANDIDATE_WARMUPS[strategy_id]
+    if strategy_id in {"ensemble_ma_adx", "ma_adx_regime"}:
+        normalized = validate_params(strategy_id, params)
+        atr = normalized.get("atr_period", 14)
+        return max(
+            baseline,
+            normalized["regime_lookback"] + atr + 2,
+            2 * atr + 2,
+            normalized.get("fast_period", 30) + 1,
+            normalized.get("slow_period", 100) + 1,
+        )
     if strategy_id not in {"ma_crossover", "enhanced_ma"}:
         return baseline
     normalized = validate_params(strategy_id, params)
@@ -702,7 +712,7 @@ def resolved_warmup_bars(strategy_id: str, params: Mapping[str, Any] | None = No
 
 def campaign_history_contract(strategy_id: str, grid: Mapping) -> dict:
     """Use one conservative simulation prefix for all candidates in a grid."""
-    if strategy_id in {"ma_crossover", "enhanced_ma"}:
+    if strategy_id in {"ma_crossover", "enhanced_ma", "ensemble_ma_adx", "ma_adx_regime"}:
         keys = list(grid)
         warmups = [resolved_warmup_bars(strategy_id, dict(zip(keys, values)))
                    for values in product(*(grid[key] for key in keys))]

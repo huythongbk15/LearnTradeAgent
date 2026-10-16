@@ -151,7 +151,10 @@ class TestDefaultCandidateRegistry:
 
     def test_adapters_forecast_deterministically_in_research(self):
         registry = build_default_registry()
-        window = build_ohlcv_window(_frame(250), observed_at=_OBS_AT, bars=201)
+        bars = max(registry.describe(sid).warmup_bars for sid in registry.list_ids()) + 1
+        # Explicit synthetic fixture funding, never implicit price-derived carry.
+        frame = _frame(bars + 10).with_columns(pl.lit(0.0001).alias("funding_rate"))
+        window = build_ohlcv_window(frame, observed_at=_OBS_AT, bars=bars)
         obs_features = {FEATURE_OHLCV_WINDOW: window}
         from trading_agent.research.forecast import MarketObservation
 

@@ -17,7 +17,8 @@ latest forward-filled funding rate so the position is closed promptly when
 funding reverts.
 
 Requires columns: open, high, low, close, volume (polars DataFrame)
-Optional columns: funding_rate (float) — real Binance funding rates merged by scripts/merge_funding_rates.py
+Required extra column: funding_rate (float), point-in-time available real rates.
+Missing rates are never synthesized from prices; leading unknown values stay null.
 """
 
 from __future__ import annotations
@@ -44,30 +45,22 @@ class FundingCarryStrategy(Strategy):
         self.fr_lookback_bars = int(self.params.get("fr_lookback_bars", 22))  # full warmup window
 
     def compute_indicators(self, df: pl.DataFrame) -> pl.DataFrame:
+        if "funding_rate" not in df.columns:
+            raise ValueError("funding_carry requires real point-in-time funding_rate input")
         vol = df["close"].pct_change().rolling_std(self.vol_window).alias("real_vol")
         exprs = [vol]
         # Real funding rate is merged into parquet via scripts/merge_funding_rates.py.
-        # If not present, fall back to synthetic (momentum-based, for dev/testing only).
+        # Forward fill only: future observations must never backfill the past.
         if "funding_rate" in df.columns:
             fr_expr = (
                 pl.col("funding_rate")
                 .forward_fill()
-                .backward_fill()
-                .fill_null(0.0)
             )
             exprs.append(fr_expr.alias("fr_filled"))
             # Rolling minimum over the full warmup window so transient
             # negative-funding episodes inside the inference window are
             # still detected at the decision (last) bar.
             exprs.append(fr_expr.rolling_min(self.fr_lookback_bars).forward_fill().alias("fr_min"))
-        else:
-            synthetic = (
-                (pl.col("close").pct_change().rolling_mean(12) * 1.5)
-                .clip(-0.001, 0.001)
-                .fill_null(0.0)
-            )
-            exprs.append(synthetic.alias("fr_filled"))
-            exprs.append(synthetic.rolling_min(self.fr_lookback_bars).forward_fill().alias("fr_min"))
         return df.with_columns(*exprs).with_columns([
             pl.col("real_vol").rolling_mean(self.vol_window).alias("vol_median"),
         ])

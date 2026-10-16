@@ -11,6 +11,24 @@
 
 ### Current action order — 2026-10-16
 
+Diagnostic2cells was subsequently approved/executed and ACCEPTED_CALIBRATION;
+both research decisions ABSTAIN. Current next steps are R0/R1 in
+[multi-strategy research plan](MULTI_STRATEGY_RESEARCH_PLAN.md), not the historical
+freeze request below. No new campaign approval or live authority is implied.
+
+**Latest authority:** `data/retire_wfo_wrapper_20261016_01/integrated_verified.json`
+at revisioncdf39ce:139regression tests +AC01–AC15 +Ruff PASS, source clean and
+350protected file hashes unchanged. `preflight_current.json`:12/12technical
+checks PASS. Older preflight/integration blockers below are historical.
+Next: ask for authorization to freeze the draft two-cell `ma_vol_target`
+telemetry diagnostic (`--strategies ma_vol_target`, existing pre-holdout input,
+20/80defaults,1x costs,1worker,0retries). Do not interpret this as strategy
+selection or change ADX25. Operator must approve the exact fresh fingerprint
+before execution; never fill approved_by on their behalf. No campaign is running
+as part of this closure. Source changes require fresh verification/refreeze.
+
+#### Historical snapshots
+
 Preflight completed without freeze/measurement:11technical checks pass, including
 same source04ba6a07, unchanged protected files and existing6795-bar input SHA.
 Authority: `data/readiness_preflight_20261016_01/preflight.json`.

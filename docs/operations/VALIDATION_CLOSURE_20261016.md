@@ -5,6 +5,25 @@ packets, and current-state documentation. Not qualification or live acceptance.
 
 ## Latest combined closure — LOCAL_VERIFIED_REVIEW_PENDING
 
+**Current research follow-up:** diagnostic
+`data/calibration_telemetry_btc4h_20261016_01` was subsequently authorized and
+executed: ACCEPTED_CALIBRATION,2cells completed, both ABSTAIN. Detailed metrics
+and authority history are in [tracker](../CAMPAIGN_STATUS.md). No qualification
+or live acceptance. Next work follows [multi-strategy plan](MULTI_STRATEGY_RESEARCH_PLAN.md),
+starting with raw/accounting review and compatibility inventory, not another
+automatic campaign. Freeze/approval blockers below describe earlier snapshots.
+
+Current integrated revision: `cdf39ce132a22bac32e5daff8c95f009bf9ff567`.
+Fresh verification:139 regression tests, AC01–AC15 and Ruff PASS;350protected
+files and execution-source identity stable. Source scope clean, not a claim that
+all unrelated workspace files are clean. Authority:
+`data/retire_wfo_wrapper_20261016_01/integrated_verified.json`.
+Read-only preflight12/12PASS in `preflight_current.json` in the same directory.
+No strategy qualifies from this engineering evidence. Next authority boundary:
+explicit fresh diagnostic freeze authorization, followed by operator approval
+of the frozen fingerprint before measurement. No freeze/execution was performed.
+The older receipts and blockers below are retained as historical snapshots.
+
 Selected-code integration follow-up: automated read-only reviewer
 `/root/review_readiness_integration` found no blocking integration issues;
 optional lifecycle lookup profiling is deferred. This is not a human/market

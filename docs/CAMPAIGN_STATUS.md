@@ -6,6 +6,124 @@ were fragmenting the state across ~60 files.
 
 ## Current — 2026-10-16, LOCAL_TESTED / RESEARCH_ABSTAIN / REVIEW_PENDING
 
+### Latest integrated engineering evidence (supersedes older snapshots below)
+
+Compatibility integration handoff: selected strategy/history/funding fixes,
+regression tests and linked roadmap are being committed separately. Exact commit
+and post-commit verification are authoritative in
+`data/retire_wfo_wrapper_20261016_01/compatibility_commit_receipt.json` and
+`data/compatibility_post_commit_20261016_01/compatibility_verified.json`.
+Check those receipts rather than treating the earlier dirty-source snapshots
+below as current integration status. Review here is author self-review, not
+independent reviewer sign-off. No new freeze/execution/push/merge is included.
+
+Next-phase plan: [Nghiên cứu nhiều strategy](operations/MULTI_STRATEGY_RESEARCH_PLAN.md).
+Latest scoped pool audit:108regression tests +Ruff PASS. Prefix-append causality
+checked for17default candidates on one deterministic fixture;2named_ls runtime
+tests confirm SELL/reduce_only, not short. Source unchanged fromb22da73a AC
+snapshot; protected files unchanged except explicit test extension. Receipt:
+`data/retire_wfo_wrapper_20261016_01/pool_audit_receipt.json`.
+No full17candidate execution parity/qualification claimed. Next boundary is
+review/integration of dirty source patch, then separately approved5candidate
+calibration feasibility; old2cell approval does not authorize new source/matrix.
+Engineering follow-up (uncommitted source patch).
+Final local verification PASS:205regression tests, AC01–AC15 PASS, Ruff PASS,
+git diff --check clean;383protected files/source identity stable before/after.
+Source tree `b22da73aac8f82ef9a1094836b56c844516f88ecee6518c898f113c2e5f00a90`
+on dirtycdf39ce; not yet committed/reviewed as an integrated release.
+Receipt `data/retire_wfo_wrapper_20261016_01/compatibility_verified.json`.
+Fixed regime-history resolver and grid max for ensemble_ma_adx/ma_adx_regime
+(default96→268bars), removed funding
+synthetic fallback and backward fill; missing funding now fails closed.
+7failing synthetic regressions reproduced before fix;89targeted tests and Ruff
+PASS after fix. Integrated verification authority:
+`data/retire_wfo_wrapper_20261016_01/compatibility_verified.json` (check status
+and source identity, not this progress text). Old diagnostic remains historical
+on cleancdf39ce, not re-executed/resealed. Calibration allowlist/gates/ADX25 and
+research_only unchanged. Source changed: no reuse/freeze under old approval.
+Historical R0/R1 snapshot below predates these fixes; broader economics/parity,
+true funding/portfolio/short semantics still need evidence, not a PASS relabel.
+R0/R1 audit update:28scoped raw/accounting assertions PASS, packet unchanged;
+17candidate defaults/warmup inventoried;51factory/contract/PIT tests PASS.
+Evidence `data/retire_wfo_wrapper_20261016_01/r0_r1_audit.json` and
+compatibility_tests.json. R0 SCOPED_RECONCILIATION_PASS, R1 INVENTORY_COMPLETE /
+COMPATIBILITY_PARTIAL, not final acceptance. Blockers:252bar regime lookback vs
+97bar bridge window for2candidates; funding fallback/PIT; single-asset stat/CS
+approximations and unproven short execution. See plan for17-row matrix and exact
+follow-ups. No new market campaign, strategy/gate changes or live authority.
+R0 raw/accounting review → R1 compatibility inventory17candidates → R2 bounded
+5strategy feasibility proposal → R3 sample/fold protocol → R4 qualification →
+R5 operational paper/shadow. Plan only; no new campaign/budget approved.
+
+### Diagnostic executed following explicit delegated approval
+
+User subsequently authorized agent-created approval and execution in chat
+("cứ làm đi tôi cho phép"); this is a one-run exception to the operator-created
+file workflow, not permission to generate future approvals. Approval provenance
+is recorded outside the packet in
+`data/retire_wfo_wrapper_20261016_01/operator_approval_delegated.json` and copied
+by the executor into the packet. It is not a human digital signature.
+Packet `data/calibration_telemetry_btc4h_20261016_01` is now
+**ACCEPTED_CALIBRATION**, producer and separate CLI verifier PASS all12checks.
+Two cells completed, both ABSTAIN. Supervisor58.43s; execution49.61s/CPU25.89s.
+Logs: `data/retire_wfo_wrapper_20261016_01/authorized_execution.json`.
+
+| Validation window | Trades | Return | Sharpe | Max DD | Win rate | PF |
+|---|---:|---:|---:|---:|---:|---:|
+| 2024H1 | 9 | +1.91% | 0.555 | 6.48% | 33.33% | 1.253 |
+| 2025H2 | 8 | -3.73% | -1.376 | 6.36% | 25.00% | 0.327 |
+
+Both fail minimum30validation trades; late also fails Sharpe>=0. No OOS or
+qualification claim. Telemetry: early1092bars=1074HOLD+9BUY+9SELL,12runtime
+submissions/6flat exits; late1104bars=1088HOLD+8BUY+8SELL,14submissions/2flat
+exits. Missing trade-bar attribution0both. Early9closes=6stop+3signal; late8=
+2stop+6signal. Late carry-in/out true, so do not equate BUY count with closed
+trades. No extra terminal gate rejection is observed in these two windows;
+signal sparsity dominates this measured simulator-gate scope, not proof about
+all raw forecasts or other strategies. Source/input/config stable per C10;
+338historical market-packet files independently rehashed unchanged.
+
+Next: review measurement/accounting and close attribution, then preregister a
+sample-feasible multi-strategy qualification plan before requesting another
+budget. No automatic campaign retries/grid expansion or lower thresholds.
+ADX25 unchanged; this subject has no ADX parameter. No holdout/promotion/live.
+All freeze-only/awaiting-approval statements below are historical snapshots.
+
+Freeze follow-up authorized and completed (no execution):
+`data/calibration_telemetry_btc4h_20261016_01/calibration_manifest.json`.
+Fingerprint `60b7ac42f968d34363ed900530c4dd1ee68b1262f1879a5732cc1bf17be67878`.
+Exactly2cells, ma_vol_target20/80,1x,1worker,0retries; per-cell wall180s/CPU120s,
+aggregate wall1800s/CPU1200s, sampled RSS2GiB. Identity grid is trial-history
+binding, not an instruction to execute all grid combinations. Receipt:
+`data/retire_wfo_wrapper_20261016_01/freeze_receipt.json`. Protected files,
+registry and source unchanged. Supervisor initially looked for manifest.json
+instead of calibration_manifest.json after successful freeze; recovered by
+read-only inspection, no retry or packet edit. Awaiting operator approval of
+this exact fingerprint; do not auto-create approval or execute from a generic
+continuation. Earlier no-freeze statements below describe pre-freeze snapshots.
+
+Revision `cdf39ce132a22bac32e5daff8c95f009bf9ff567`: **139 regression tests PASS,
+AC01–AC15 PASS, Ruff PASS**, with source and350protected file hashes unchanged
+before/after. Execution source is clean; the whole workspace is not declared clean.
+Receipt: `data/retire_wfo_wrapper_20261016_01/integrated_verified.json`.
+Read-only preflight:12/12technical checks PASS; receipt
+`data/retire_wfo_wrapper_20261016_01/preflight_current.json`. Existing input6795bars,
+early/late measurement1092/1104bars, input/manifest hashes and logical registry
+match. Older BLOCKED_REVIEW_INTEGRATION receipts below are historical, not the
+current technical verdict. Separate automated reviews found no scoped blockers;
+this does not replace operator consent, human acceptance or strategy qualification.
+
+**Next: obtain explicit authorization to freeze a fresh two-cell telemetry
+diagnostic**, then operator approval of its exact fingerprint before execution.
+Use `--strategies ma_vol_target` for the bounded proposal, not the default five
+strategies/ten cells. It measures crossover/filter/order/close attribution, not
+the best strategy; defaults20/80 are a plumbing subject, not a selected winner.
+Keep ADX25 unchanged. No new packet frozen, approval created, market campaign,
+holdout access, policy activation, live orders, push or merge occurred here.
+If source changes, invalidate this current-revision claim and reverify/refreeze.
+
+### Earlier integration and preflight history
+
 Selected integration update: separate automated reviewer
 `/root/review_readiness_integration` reports no blocking findings in the scoped
 Python/docs changes; did not rerun tests. Receipt:
