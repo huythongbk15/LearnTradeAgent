@@ -6,6 +6,7 @@ import os
 import shutil
 import sqlite3
 import sys
+import tempfile
 
 import pytest
 
@@ -539,3 +540,115 @@ def test_older_worker_contract_requires_refreeze(measured):
     del plan["worker_authority_contract"]
     with pytest.raises(ValueError, match="refreeze"):
         packet.validate_plan(plan, measured)
+
+
+# --- Strategy validation regression tests (F001/F002) ---
+
+def test_expected_strategies_none_returns_canonical_defaults():
+    """None expected_strategies falls back to VALID_STRATEGIES."""
+    result = packet._validate_expected_strategies(None)
+    assert result == packet.VALID_STRATEGIES
+    assert len(result) == 5
+
+
+def test_expected_strategies_rejects_empty_list():
+    """Empty list must raise; cannot silently fall back to all strategies."""
+    with pytest.raises(ValueError, match="non-empty"):
+        packet._validate_expected_strategies([])
+
+
+def test_expected_strategies_rejects_duplicates():
+    """Duplicate strategy names must be rejected."""
+    with pytest.raises(ValueError, match="duplicate"):
+        packet._validate_expected_strategies(["ma_adx", "ma_adx"])
+
+
+def test_expected_strategies_rejects_invalid_name():
+    """Invalid strategy names must be rejected."""
+    with pytest.raises(ValueError, match="invalid strategy"):
+        packet._validate_expected_strategies(["bogus"])
+
+
+def test_expected_strategies_accepts_single_strategy():
+    """Pilot single-strategy must work."""
+    result = packet._validate_expected_strategies(["ma_vol_target"])
+    assert result == ("ma_vol_target",)
+
+
+def test_expected_strategies_accepts_and_sorts_subset():
+    """Subset accepted, sorted for deterministic comparison."""
+    result = packet._validate_expected_strategies(["ma_adx", "rsi"])
+    assert result == ("ma_adx", "rsi")
+
+
+def test_verify_packet_accepts_valid_synthetic(measured):
+    """_validate_expected_strategies is the single source of truth for strategy
+    name/dedup checks; verifier uses it for both REAL_MARKET and synthetic.
+
+    The measured synthetic fixture must be ACCEPTED — verifier rejecting a valid
+    packet would be a critical regression."""
+    result = packet.verify_packet(measured)
+    assert result["status"] == "ACCEPTED_CALIBRATION", result
+    assert result["qualified"] is False  # calibration != qualification
+    assert result["live_authorized"] is False
+
+
+def test_freeze_plan_synthetic_default_produces_two_cells():
+    """Producer + verifier must agree: synthetic mode -> 1 strategy (rsi) -> 2 cells (early/late).
+
+    Synthetic mode always uses rsi (active_strategies = (\"rsi\",)); the strategies
+    parameter is for REAL_MARKET only. This test locks the producer's
+    expected_strategies and cell count so the verifier cannot disagree.
+    """
+    from trading_agent.backtest.synthetic_data import generate_synthetic_ohlcv
+    frame = generate_synthetic_ohlcv(n_bars=800, seed=7)
+    with tempfile.NamedTemporaryFile(suffix=".parquet") as f:
+        frame.write_parquet(f.name)
+        out = f.name + "_out"
+        result = execution.freeze_plan(out, f.name, synthetic=True)
+        assert len(result["cells"]) == 2
+        assert result["expected_strategies"] == ["rsi"]
+        result_exec = execution.execute(out)
+        assert result_exec["status"] == "ACCEPTED_CALIBRATION"
+
+
+def test_freeze_plan_synthetic_strategy_param_ignored():
+    """Synthetic mode ignores user-supplied strategies: active_strategies is
+    always (\"rsi\",) regardless of the strategies kwarg. This prevents
+    accidental scope expansion when a caller passes strategies to a
+    synthetic test."""
+    from trading_agent.backtest.synthetic_data import generate_synthetic_ohlcv
+    frame = generate_synthetic_ohlcv(n_bars=800, seed=7)
+    with tempfile.NamedTemporaryFile(suffix=".parquet") as f:
+        frame.write_parquet(f.name)
+        result = execution.freeze_plan(
+            f.name + "_out", f.name, synthetic=True, strategies=["ma_adx"]
+        )
+        assert result["expected_strategies"] == ["rsi"]  # synthetic ignores strategies
+
+
+@pytest.mark.parametrize("strategies, message", [
+    ([], "non-empty"),
+    (["ma_adx", "ma_adx"], "duplicate"),
+    (["bogus"], "invalid strategy"),
+    ("ma_adx", "non-empty"),
+    (42, "non-empty"),
+])
+def test_freeze_plan_empty_strategies_rejected(tmp_path, monkeypatch, strategies, message):
+    """API: freeze_plan(strategies=[]) in REAL_MARKET mode must raise
+    ValueError, not silently fall back to all 5 strategies (scope expansion bug).
+
+    Calls freeze_plan() with REAL_MARKET (synthetic=False) + strategies=[] and
+    verifies ValueError is raised before any data loading or output directory creation.
+    """
+    import polars as pl
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("invalid strategy request reached data or registry access")
+
+    monkeypatch.setattr(pl, "read_parquet", forbidden)
+    monkeypatch.setattr(execution, "registry_snapshot", forbidden)
+    out = tmp_path / "not-created"
+    with pytest.raises(ValueError, match=message):
+        execution.freeze_plan(out, tmp_path / "missing.parquet", synthetic=False, strategies=strategies)
+    assert not out.exists()

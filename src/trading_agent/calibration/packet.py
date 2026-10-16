@@ -30,6 +30,35 @@ def read(path):
     return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
+# Canonical strategy set for REAL_MARKET calibration validation.
+VALID_STRATEGIES = ("rsi", "bbands", "enhanced_ma", "ma_adx", "ma_vol_target")
+
+
+def _validate_expected_strategies(value):
+    """Validate expected_strategies: non-empty, valid names, no duplicates.
+
+    Returns the normalized sorted tuple for deterministic comparison.
+    Raises ValueError on invalid input. This is the single source of truth
+    for strategy-name validation in both freeze_plan and verify paths.
+    """
+    if value is None:
+        return VALID_STRATEGIES
+    if not isinstance(value, (list, tuple)) or len(value) == 0:
+        raise ValueError("expected_strategies must be a non-empty list")
+    seen = set()
+    normalized = []
+    for item in value:
+        if not isinstance(item, str) or item not in VALID_STRATEGIES:
+            raise ValueError(
+                f"invalid strategy '{item}'; valid: {VALID_STRATEGIES}"
+            )
+        if item in seen:
+            raise ValueError(f"duplicate strategy '{item}' in expected_strategies")
+        seen.add(item)
+        normalized.append(item)
+    return tuple(sorted(normalized))
+
+
 def contained(root, relative):
     path = Path(relative)
     if path.is_absolute() or ".." in path.parts or path.as_posix() != relative:
@@ -206,7 +235,7 @@ def validate_plan(plan, root):
     ):
         raise ValueError("invalid captured source fingerprint")
     if plan["evidence_class"] == "REAL_MARKET":
-        strategies = set(plan.get("expected_strategies", ("rsi", "bbands", "enhanced_ma", "ma_adx", "ma_vol_target")))
+        strategies = set(_validate_expected_strategies(plan.get("expected_strategies")))
         expected = {f"{s}_cal_{w}" for s in strategies for w in ("early", "late")}
         operational = (
             Path(__file__).resolve().parents[3]
@@ -400,9 +429,8 @@ def verify_calibration_packet(root, *, require_terminal=True):
                 Path(__file__).resolve().parents[3]
                 / "data/wfo/experiments_parallel.sqlite3"
             )
-            expected_strategies = manifest.get(
-                "expected_strategies",
-                ("rsi", "bbands", "enhanced_ma", "ma_adx", "ma_vol_target"),
+            expected_strategies = _validate_expected_strategies(
+                manifest.get("expected_strategies")
             )
             if (
                 Path(manifest["registry_path"]).resolve() != expected.resolve()

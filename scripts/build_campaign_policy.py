@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
-"""Run a WFO campaign that writes a real policy into the real promotion store.
+"""RETIRED ENTRYPOINT — execution and legacy dry-run are blocked.
+
+Use plan_promotable_campaign.py --protocol <research_protocol.json> for
+metadata-only planning. Historical implementation below is retained for audit,
+not an operational route or permission to open data/publish a policy.
+
+Historical description (superseded):
+Run a WFO campaign that writes a real policy into the real promotion store.
 
 This is the missing link between research and runtime. Every campaign so far
 stopped at "the gate allowed it" or "the gate refused it"; nothing has
@@ -83,6 +90,14 @@ def main() -> None:
     )
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
+
+    # Retired: this CLI predates canonical trial/resource/sensitivity contracts.
+    # Stop before reading prices, creating a registry or publishing a policy.
+    raise SystemExit(
+        "RETIRED_ENTRYPOINT: no execution/publication, including legacy dry-run. "
+        "Use plan_promotable_campaign.py --protocol <research_protocol.json> "
+        "for metadata-only geometry, then the reviewed canonical campaign workflow."
+    )
 
     n_bars, folds, need = fold_plan(
         args.symbol,

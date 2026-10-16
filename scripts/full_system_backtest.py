@@ -211,6 +211,7 @@ class FullSystemSimulator:
         adaptive_posterior_provider=None,
         adaptive_runtime_provider=None,
         source_df_override: pl.DataFrame | None = None,
+        funnel_enabled: bool = True,
     ):
         resolved_symbol = symbol or os.getenv("SYMBOL", SYMBOL)
         resolved_timeframe = timeframe or os.getenv("TIMEFRAME", TIMEFRAME)
@@ -542,6 +543,7 @@ class FullSystemSimulator:
         self._run_start = 0
         self._run_end = 0
         self._run_data_quality: DataQualityReport | None = None
+        self._funnel_records = [] if funnel_enabled else None
 
     def _position_pct(self, price: float) -> float:
         """% portfolio đang nằm trong vị thế."""
@@ -754,6 +756,16 @@ class FullSystemSimulator:
             _SimClock.current = bar_open_at
 
             # 1. Mark at the next tradable open before any decision.
+            funnel_row = None
+            if self._funnel_records is not None:
+                pos = self.engine.exchange.get_position(self.symbol)
+                funnel_row = {
+                    "execution_bar": i, "decision_bar": signal_index,
+                    "action": "HOLD", "terminal": "no_signal",
+                    "runtime_called": False, "orders": [],
+                    "position_before": bool(pos and pos.is_active and pos.quantity > 0),
+                    "position_after": False,
+                }
             self._update_position_excursion(price)
             self.engine.update_prices({self.symbol: price})
             self._stamp_new_trades(
@@ -855,6 +867,19 @@ class FullSystemSimulator:
                 else:
                     signal = 0
 
+            if funnel_row is not None:
+                funnel_row["action"] = "BUY" if signal > 0 else "SELL" if signal < 0 else "HOLD"
+                if i == start:
+                    funnel_row["terminal"] = "bootstrap"
+                elif signal == 0:
+                    funnel_row["terminal"] = "no_signal"
+                elif signal_index % freq != 0:
+                    funnel_row["terminal"] = "cadence"
+                elif breaker_on:
+                    funnel_row["terminal"] = "circuit_breaker"
+                elif any("Cooldown" in a for a in alerts):
+                    funnel_row["terminal"] = "cooldown"
+
             # 3. Execute signal theo chu kỳ (chỉ khi chưa bị chặn)
             if (
                 i > start
@@ -884,6 +909,8 @@ class FullSystemSimulator:
                             and not adaptive_manage_existing
                         ):
                             signal = 0  # Already long, skip
+                            if funnel_row is not None:
+                                funnel_row["terminal"] = "already_long"
                     elif signal == -1:  # SELL (exit to flat)
                         if (
                             not position
@@ -892,6 +919,8 @@ class FullSystemSimulator:
                         ):
                             # No position to exit, skip SELL signal
                             signal = 0
+                            if funnel_row is not None:
+                                funnel_row["terminal"] = "flat_exit"
 
                     if signal != 0:
                         signal_name = "BUY" if signal == 1 else "SELL"
@@ -952,6 +981,24 @@ class FullSystemSimulator:
                         self.signal_log[-1]["authority_trace"] = dict(
                             self.engine.last_strategy_execution
                         )
+                        if funnel_row is not None:
+                            trace = self.engine.last_strategy_execution
+                            funnel_row["runtime_called"] = True
+                            funnel_row["terminal"] = "runtime_" + str(trace.get("result", "unknown"))
+                            funnel_row["authority_result"] = str(trace.get("result", "unknown"))
+                            funnel_row["authority_reason"] = str(trace.get("authority_block_reason", ""))
+                            funnel_row["prepare_status"] = str(trace.get("prepare_status", "unknown"))
+                            funnel_row["runtime_signal"] = str(trace.get("signal", "unknown"))
+                            lifecycle = getattr(self.engine, "lifecycle", None)
+                            lifecycle_orders = getattr(getattr(lifecycle, "state", None), "orders", {})
+                            funnel_row["orders"] = [
+                                {"order_id": str(order.id), "side": order.side.value,
+                                 "status": order.status.value,
+                                 "intent_ids": [str(key) for key, state in lifecycle_orders.items()
+                                                if state.broker_order_id == str(order.id)],
+                                 "filled_quantity_snapshot": float(order.filled_amount or 0)}
+                                for order in orders
+                            ]
                         for order in orders:
                             side = order.side.value
                             amount = float(order.filled_amount or order.amount)
@@ -1033,6 +1080,11 @@ class FullSystemSimulator:
                 (bar_close_at.isoformat(), self.engine.exchange.get_total_equity())
             )
 
+            if funnel_row is not None:
+                pos = self.engine.exchange.get_position(self.symbol)
+                funnel_row["position_after"] = bool(pos and pos.is_active and pos.quantity > 0)
+                self._funnel_records.append(funnel_row)
+
             # Progress
             if (i - start) % 2000 == 0 and i > start:
                 eq = self.equity_curve[-1][1]
@@ -1046,6 +1098,13 @@ class FullSystemSimulator:
         return self._report()
 
     # ── Báo cáo ────────────────────────────────────────────────────────
+    def _export_execution_funnel(self):
+        if self._funnel_records is None:
+            return None
+        from trading_agent.backtest.execution_funnel import export_funnel
+
+        return export_funnel(self._funnel_records, self.trade_log, start=self._run_start, end=self._run_end)
+
     def _report(self) -> dict[str, object]:
         if not self.equity_curve:
             print("❌ No data")
@@ -1232,6 +1291,7 @@ class FullSystemSimulator:
             "profit_factor": profit_factor,
             "circuit_breakers": len(self.circuit_breakers),
             "signals_seen": len(self.signal_log),
+            "execution_funnel": self._export_execution_funnel(),
             "signals": self.signal_log,
             "routing_decisions": self.routing_decisions,
             "open_positions": len(open_positions),

@@ -2,6 +2,21 @@
 
 ## Trạng thái
 
+Current update2026-10-16: combined source04ba6a07… at dirty master9b69462 has
+134regression PASS, AC01–AC15:15PASS, Ruff PASS, with source/config/tests and
+348protected files stable. Authority: `data/readiness_closure_20261016_01/verified.json`.
+The existing subset support binds expected_strategies into the plan and uses
+the same strategy-name validator in producer/verifier. A proposed ma_vol_target
+subset has2cells, not a completed five-family study.
+Read-only preflight11checks pass at
+`data/readiness_preflight_20261016_01/preflight.json`, but status is
+BLOCKED_REVIEW_INTEGRATION. Independent review and clean integration are still
+required BEFORE freeze (workflow section5). The agent must not synthesize
+approved_by or treat generic continuation as approval for an unseen fingerprint.
+No new packet frozen/measurement executed. Details in current tracker.
+
+Historical integration snapshot2026-10-14 (superseded by update above):
+
 Protocol producer/worker/verifier hiện thống nhất `protocol_version: "2.0"`.
 Local snapshot source32bfdb61…: 80scoped tests PASS và AC01–AC15:15PASS được
 đối chiếu raw SHA/identity tại `data/calibration_v2_recheck_20261014/review.json`.

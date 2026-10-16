@@ -22,6 +22,7 @@ def main():
     parser.add_argument("--input", type=Path)
     parser.add_argument("--boundary", type=Path)
     parser.add_argument("--approval", type=Path)
+    parser.add_argument("--strategies", nargs="+", help="filter to specific strategies (e.g. ma_vol_target)")
     parser.add_argument("--key", help=argparse.SUPPRESS)
     args = parser.parse_args()
     from trading_agent.calibration.execution import execute, freeze_plan, worker
@@ -45,7 +46,7 @@ def main():
     elif args.freeze:
         if args.input is None or args.boundary is None:
             parser.error("--freeze requires --input and --boundary")
-        result = freeze_plan(args.out, args.input, boundary_path=args.boundary, synthetic=False)
+        result = freeze_plan(args.out, args.input, boundary_path=args.boundary, synthetic=False, strategies=args.strategies)
         print(
             json.dumps(
                 {

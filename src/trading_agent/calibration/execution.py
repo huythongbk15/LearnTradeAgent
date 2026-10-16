@@ -69,7 +69,12 @@ def capture_identity(input_path):
     }
 
 
-def freeze_plan(out, input_path, *, synthetic=False, boundary_path=None):
+def freeze_plan(out, input_path, *, synthetic=False, boundary_path=None, strategies=None):
+    from trading_agent.calibration.packet import _validate_expected_strategies
+
+    # Validate explicit input before imports, file access, or output creation.
+    requested_strategies = _validate_expected_strategies(strategies)
+    active_strategies = ("rsi",) if synthetic else requested_strategies
     import polars as pl
     from trading_agent.backtest.selection_eligibility import freeze_selection_contract
     from trading_agent.research.trials import (
@@ -169,7 +174,7 @@ def freeze_plan(out, input_path, *, synthetic=False, boundary_path=None):
         ]
     )
     cells = []
-    for strategy in ("rsi",) if synthetic else STRATEGIES:
+    for strategy in active_strategies:
         params = validate_params(strategy, None)
         descriptor = build_default_registry().describe(strategy)
         grid = calibration_grid(strategy, synthetic=synthetic)
@@ -232,6 +237,7 @@ def freeze_plan(out, input_path, *, synthetic=False, boundary_path=None):
         "boundary": boundary,
         "registry_path": str(registry),
         "cells": cells,
+        "expected_strategies": list(active_strategies),
         "cost": {"name": "1x", "fee_multiplier": 1.0, "slippage_multiplier": 1.0},
         "selection_contract": freeze_selection_contract(
             min_validation_trades=30, min_validation_sharpe=0.0

@@ -1400,6 +1400,12 @@ def _run_cell_impl(
         # accidentally treat pre-window observations as OOS data.
         report["signals"] = []
         report["signals_seen"] = 0
+        from trading_agent.backtest.execution_funnel import isolate_funnel
+
+        report["execution_funnel"] = isolate_funnel(
+            report.get("execution_funnel"), m_trades,
+            start=measurement_start, end=measurement_end,
+        )
         report["benchmarks"] = {}
         # Keep the legacy top-level summary consistent with the authoritative
         # measurement-only metrics.  Downstream consumers must never observe a

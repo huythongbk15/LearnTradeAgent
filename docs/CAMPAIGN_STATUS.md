@@ -4,7 +4,84 @@ Single source of truth for the measured-accounting and campaign-publication
 work. Supersedes the per-session `*_TODO.md` files, which are gitignored and
 were fragmenting the state across ~60 files.
 
-## Current integration — 2026-10-14, COMMIT_PREPARATION_VALIDATION_PENDING
+## Current — 2026-10-16, LOCAL_TESTED / RESEARCH_ABSTAIN / REVIEW_PENDING
+
+Selected integration update: separate automated reviewer
+`/root/review_readiness_integration` reports no blocking findings in the scoped
+Python/docs changes; did not rerun tests. Receipt:
+`data/readiness_integration_20261016_01/automated_review.json`.
+Local selected-code commit is authorized on codex/readiness-integration-20261016;
+no push/market execution authorized. Final commit/verification identity is recorded
+in that local integration evidence directory, not inferred from older snapshots.
+This is not human sign-off or whole-tree clearance. Unrelated user-owned untracked
+scripts/run_wfo_b_phase.sh remains excluded; it contains rm -rf of an old packet
+and must not be executed. Its presence keeps source dirty even after selected
+Python changes are committed. No freeze until source-integrity prerequisites
+are genuinely resolved; do not hide it with ignore rules or delete user work.
+
+Preflight update: `data/readiness_preflight_20261016_01/preflight.json` has11/11
+technical checks true (NOT C1–C10 packet acceptance). Verified source04ba6a07,
+all protected files, input bytes and logical registry remain unchanged. Exact
+early/late windows contain1092/1104bars. Status BLOCKED_REVIEW_INTEGRATION:
+independent review not supplied, clean integration not established, frozen
+fingerprint approval absent. No packet frozen, approval created or measurement
+started. Boundary draft is prepared separately, not approved. Next action is
+review/integration authorization, NOT another market run or repeated test suite.
+
+**Latest combined verification: LOCAL_VERIFIED_REVIEW_PENDING.**
+`data/readiness_closure_20261016_01/verified.json`:134 regression tests PASS,
+AC01–AC15:15PASS, Ruff PASS; source/config/tests/348protected files stable
+before/after. Source tree04ba6a07cc3e66a8311191093f32b14761b33bf85150b9dbbaca7e21193eba64
+at dirty master9b69462. AC packet: `data/acceptance_runs/ac01_15_20261016_081845_utc`.
+This supersedes the narrower verification scope immediately below; not full
+repository testing, independent sign-off, Git integration or live readiness.
+
+Metadata-only geometry planner repaired; stale build_campaign_policy CLI retired
+before data/registry/policy writes. Plans now use canonical p<=0.10, history and
+pre-holdout timestamps, with trade adequacy UNKNOWN and no invented ETA/ranking.
+For existing BTC4h metadata, validation3/6/9/12months gives6/5/4/3folds;
+minimum binomial clearing counts are6/5/4/impossible respectively. These are
+geometry checks, NOT qualification or strategy recommendations.
+
+Next approval item: `data/readiness_closure_20261016_01/diagnostic_proposal.json`
+(DRAFT,2 fixed ma_vol_target calibration cells, existing pre-holdout bytes,
+1worker,0retries,180s/cell,1800s total upper bound,2GiB RSS contract).
+No new market evaluation/holdout/activation/broker/live was performed.
+
+Measurement telemetry IMPLEMENTED/LOCAL_TESTED: execution-bar scoped terminal
+reasons, runtime/authority status, returned-order intent links, fill snapshots
+and close attribution. Broad regression120PASS; Ruff PASS. Evidence:
+`data/funnel_trace_20261016/telemetry_tests_final.json`. No mandatory-gate source
+file edited; no new AC/full-repo/independent acceptance claim. Next is source
+review/integration and explicit diagnostic budget approval, not automatic rerun.
+
+Follow-up funnel trace complete: historical exporter deliberately removed
+signals/authority traces; per-filter attribution is not recoverable from these
+packets. Read-only lifecycle audit PASS;45 synthetic contract tests PASS.
+Evidence: `data/funnel_trace_20261016/result.json`, `contract_tests.json` in the
+same directory. Telemetry is now implemented as noted above; next is review and
+separately approved market diagnostic. Vol Target sizing semantics need
+clarification (traced bridge uses fixed25% target, not observed vol sizing).
+
+Current checkout: `master`, HEAD `9b69462`, with local changes. The integration
+branch description below is historical, not the current branch/status.
+
+| Work | Evidence | Verdict |
+|---|---|---|
+| MA ADX BTC4h v4 | `data/wfo_ma_adx_btc_4h_v4` | 18 inner cells complete; 2/2 folds ABSTAIN; no OOS |
+| Vol Target BTC4h v1 | `data/wfo_vol_target_btc_4h_v1` | 8 inner cells complete; 2/2 folds ABSTAIN; no OOS |
+| Input-contract patch | `data/calibration_closure_20261016_tests.json` | 70 module tests PASS; not full-repo or integrated acceptance |
+| Packet diagnosis | `data/calibration_closure_20261016/review_result.json` | 26 raw hashes match; closed-trade attribution matches |
+| Prior integrated AC | `data/acceptance_runs/ac01_15_20261015_091209_utc` | 15/15 PASS on c9a255d2; historical after source change |
+
+Each validation window has540 x4h bars; candidates have0–6 closed trades versus
+minimum30. Some also fail Sharpe. No winner qualified. Independent review remains
+pending; verifier summary is not reviewer sign-off. Next: trace signal/filter
+funnel and review fold feasibility before requesting new research budget.
+No new market campaign/holdout/publish/live authorization.
+See [closure and next decision](operations/VALIDATION_CLOSURE_20261016.md).
+
+## Historical integration — 2026-10-14, COMMIT_PREPARATION_PENDING
 
 Nhánh tích hợp: `codex/calibration-integration-20261014`, base `dbb9713`.
 Operator đã duyệt đồng bộ code/tests/docs lên PR; không cấp quyền market/live.
@@ -14,6 +91,16 @@ Evidence local-only: `data/calibration_v2_recheck_20261014/review.json`,
 AC packet `data/acceptance_runs/ac01_15_20261014_045012_utc`.
 Protocol producer/worker/verifier đã thống nhất2.0; market freeze không synthetic;
 fingerprint, resource/authority guards và backup inventory đã kiểm. Giữ ADX25.
+
+## Phase B — Validation-Only WFO Campaigns (2026-10-15)
+
+Two validation-only WFO campaigns completed successfully:
+
+- **ma_adx** (`data/wfo_ma_adx_btc_4h_v4/`): 18 cells (9 param combos x 2 folds), protocol `791fe675...`, duration 18m37s, peak RSS 708.8 MB. Both folds ABSTAIN (insufficient validation trades: 0-4 each). Exact coverage: PASS. live_authorized: false.
+
+- **vol_target** (`data/wfo_vol_target_btc_4h_v1/`): 8 cells (4 param combos x 2 folds), protocol `7f50d1ef...`, duration 8m41s, peak RSS 708.1 MB. Both folds ABSTAIN (insufficient validation trades: 4-6 each). Exact coverage: PASS. live_authorized: false.
+
+ABSTAIN reason: All candidates have 0-6 validation trades (minimum required: 30) due to 3-month validation windows at 4h timeframe — insufficient observation, NOT strategy failure. Next step: analyze window geometry, signal frequency, and filter settings before next campaign.
 
 ## Historical drift finding — 2026-10-14, REVISION_REVIEW_REQUIRED
 
@@ -939,4 +1026,4 @@ failure counts.
 ## Calibration v2 — COMPLETED — 2026-10-14
 Push master: 08a9d3f -> 0951da3 -> dbb9713
 Packets: 10-cell ACCEPTED + 2-cell pilot ACCEPTED
-Review bundle: data/calibration_review_package_20261014.json
+Verifier bundle: data/calibration_review_package_20261014.json (self-generated fingerprint/verifier summary, not an independent review — reviewer_id is "independent_review_package" with no actual independent reviewer sign-off)

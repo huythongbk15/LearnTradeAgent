@@ -9,6 +9,69 @@
 
 ## 1. Mục tiêu, phạm vi và nguồn sự thật
 
+### Current action order — 2026-10-16
+
+Preflight completed without freeze/measurement:11technical checks pass, including
+same source04ba6a07, unchanged protected files and existing6795-bar input SHA.
+Authority: `data/readiness_preflight_20261016_01/preflight.json`.
+Status BLOCKED_REVIEW_INTEGRATION. Do not repeat the unchanged suite or create
+an approval to bypass the independent-review/clean-integration prerequisites.
+After authorized review and integration, refreeze/reverify the integrated source
+and request the operator's exact fingerprint approval. No broker/live authority.
+
+Engineering snapshot verified locally:134 regression tests,15AC checks and
+Ruff PASS on source04ba6a07…; source/config/tests/348protected files unchanged.
+Authority: `data/readiness_closure_20261016_01/verified.json`. This is not
+independent acceptance or proof of alpha/execution readiness.
+
+Read [closure](VALIDATION_CLOSURE_20261016.md) and
+[current tracker](../CAMPAIGN_STATUS.md) before older handoffs below.
+The current branch is master9b69462 with local changes, not the historical
+integration branch. New telemetry is implemented; two historical market
+validation packets both ABSTAIN. No qualified winner is established.
+
+| Order | Work | Exit criterion / authority |
+|---|---|---|
+| 1 | Review and integrate input/telemetry/planner fixes | Same-source regression and AC evidence, reviewer findings closed; no automatic Git publication |
+| 2 | Bounded telemetry diagnostic | Operator approves exact fresh calibration fingerprint and budget;2 fixed cells, no OOS/holdout/promotion |
+| 3 | Decide research protocol | Explain signal vs filter attrition and sample feasibility; freeze folds/grid/cost/sensitivity/trial budget; no threshold relaxation |
+| 4 | Qualify one candidate | Actual validation/OOS/statistical/sensitivity evidence, followed by separately controlled holdout/review; NO_TRADE if none passes |
+| 5 | Bind candidate to runtime | Exact strategy/params/artifact/source/timeframe/release identity, no silent Enhanced MA fallback; prove in replay/paper first |
+| 6 | Operational acceptance | Operator-authorized paper/testnet, reconciliation/protection/restart/kill-switch/rollback drills, then separate canary decision |
+
+Diagnostic proposal: `data/readiness_closure_20261016_01/diagnostic_proposal.json`.
+It is DRAFT, not a frozen plan or operator approval. The existing calibration
+producer/worker/verifier is the execution path; do not create a parallel runner.
+Canonical defaults20/80 are a representative plumbing subject, not a selected
+winner. Keep fixed sizing semantics explicit; no new vol-sizing strategy here.
+ADX25 calibration / research grid30 remain unchanged.
+
+`build_campaign_policy.py` is retired and exits before both execution and its
+old dry-run data scan. Use `plan_promotable_campaign.py --protocol <packet JSON>`
+for metadata-only geometry; it no longer ranks combinations or invents an ETA.
+This is an intentional CLI compatibility break to remove the stale route,
+not a change to native promotion criteria. Existing canonical promotion services
+are not disabled. Do not re-enable the legacy fresh-registry/sensitivity-off path.
+
+Current Binance live script still binds Enhanced MA explicitly. Do not point
+ma_vol_target evidence at that runner or relabel it Enhanced MA. Wiring another
+strategy requires reviewed runtime/evidence identity work after qualification;
+the existence of RealPolicyResolver/adaptive code is not proof this link is live.
+
+Score semantics to preserve during review: SelectionPolicyBuilder subtracts
+0.32*median_fold_trades from median_test_return_pct to obtain selection_score /
+net_fold_edge_pct. Treat that as a score with an additional cost-floor margin,
+not a second measured portfolio return. Verify the underlying return/cost units
+before comparing it with raw net returns; do not silently retune the floor.
+
+Input metadata warning: historical parallel protocols bind7946 bars extending
+past the registered holdout boundary. Their measured windows are earlier; this
+alone does not establish look-ahead contamination. New proposals must bind an
+exact pre-holdout dataset (the diagnostic uses existing6795-bar bytes). Planner
+timestamp counting finds6796 pre-boundary opens in the broader file; that is
+not permission to add a bar to the immutable6795-bar input or claim equivalent
+input identity. No holdout price column was read by the revised planner.
+
 ### Integration update — 2026-10-14
 
 Đọc [integration handoff](CAMPAIGN_EVIDENCE_HANDOFF.md#integration-handoff--2026-10-14-validation_pending)
