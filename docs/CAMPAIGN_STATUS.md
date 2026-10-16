@@ -14,11 +14,12 @@ Selected implementation commit:2fc02acae9e02ee259718afa76312411ed354867 on
 codex/readiness-integration-20261016;15reviewed files, no push or market execution.
 Final commit/verification identity is recorded
 in that local integration evidence directory, not inferred from older snapshots.
-This is not human sign-off or whole-tree clearance. Unrelated user-owned untracked
-scripts/run_wfo_b_phase.sh remains excluded; it contains rm -rf of an old packet
-and must not be executed. Its presence keeps source dirty even after selected
-Python changes are committed. No freeze until source-integrity prerequisites
-are genuinely resolved; do not hide it with ignore rules or delete user work.
+This is not human sign-off or whole-tree clearance. Following explicit user
+authorization, scripts/run_wfo_b_phase.sh is now an inert retired stub (exit64),
+with no data reads, deletion or campaign launch. The original is backed up in
+data/retire_wfo_wrapper_20261016_01/. Five focused tests pass. Separate review,
+commit and post-commit source checks belong to that evidence directory; do not
+infer whole-workspace cleanliness. No freeze, approval, execution or push here.
 
 Preflight update: `data/readiness_preflight_20261016_01/preflight.json` has11/11
 technical checks true (NOT C1–C10 packet acceptance). Verified source04ba6a07,

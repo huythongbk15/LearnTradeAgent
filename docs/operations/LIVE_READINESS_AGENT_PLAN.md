@@ -28,8 +28,10 @@ Read [closure](VALIDATION_CLOSURE_20261016.md) and
 [current tracker](../CAMPAIGN_STATUS.md) before older handoffs below.
 The selected implementation is committed as2fc02ac on
 codex/readiness-integration-20261016 (not pushed), based on master9b69462.
-Unrelated work is preserved and the untracked old campaign script keeps source
-capture dirty; do not freeze/execute until this prerequisite is resolved.
+Unrelated work is preserved. The old campaign script is now an inert retired
+stub following explicit authorization; see data/retire_wfo_wrapper_20261016_01/
+for review and post-commit source checks. Reverify source identity before any
+fresh freeze; this retirement does not authorize freeze or execution.
 New telemetry is implemented; two historical market
 validation packets both ABSTAIN. No qualified winner is established.
 

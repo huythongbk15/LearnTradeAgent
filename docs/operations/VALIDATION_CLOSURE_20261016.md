@@ -17,12 +17,13 @@ files on codex/readiness-integration-20261016. Source tree hash remains04ba6a07â
 post-commit QA, rather than pre-commit evidence alone, is required and recorded
 under the integration evidence directory. Nothing is pushed.
 
-Whole-source cleanliness remains separate: untracked user-owned
-scripts/run_wfo_b_phase.sh is excluded and not executed/edited. It contains a
-destructive old-packet deletion. Source capture includes untracked script names,
-so committing the selected Python changes cannot honestly establish a clean
-integration while this script is present. Resolve its disposition with the user,
-not by silently ignoring or removing it. No diagnostic freeze/execution here.
+Wrapper follow-up explicitly authorized by the user: scripts/run_wfo_b_phase.sh
+is retired as an inert exit64 stub. Original bytes are backed up under
+data/retire_wfo_wrapper_20261016_01/; five focused tests cover syntax and rejection
+of normal/execute/force-resume/help calls without packet changes. Separate review
+and post-commit source identity are recorded there. Earlier dirty-source receipts
+remain historical; whole-workspace cleanliness is not claimed. No packet deletion,
+diagnostic freeze, campaign execution or push is authorized by this change.
 
 `data/readiness_closure_20261016_01/verified.json`:134 regression tests PASS,
 AC01â€“AC15:15PASS, Ruff PASS. Before/after source/config/tests and348protected
