@@ -131,6 +131,10 @@ class CanonicalExecutionService:
     ) -> ExecutionSubmission:
         """Authorize and submit one planner-produced intent durably."""
 
+        if not isinstance(permission_context, PermissionContext):
+            raise ExecutionBlockedError(
+                "submission requires a PermissionContext; previews/results are not authorization"
+            )
         if planning.status is not OrderPlanningStatus.ORDER_REQUIRED:
             raise ExecutionBlockedError(
                 f"planner status {planning.status.value} cannot be submitted"

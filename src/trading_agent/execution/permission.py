@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from datetime import datetime
 from enum import Enum
 from typing import Sequence
 
@@ -105,8 +106,50 @@ class PermissionContext:
             raise TypeError("exposure_effect must be an ExposureEffect")
 
 
+@dataclass(frozen=True)
+class HistoricalPermissionPreview:
+    """Diagnostic only. Not a PermissionResult, context, or authorization token."""
+
+    permission: OrderPermission
+    reason: PermissionReason
+    detail: str
+    reference_time: datetime
+
+
+def preview_historical_order_permission(
+    ctx: PermissionContext, *, reference_time: datetime
+) -> HistoricalPermissionPreview:
+    """Inspect historical inputs without granting runtime submission permission.
+
+    Production submit_planned re-evaluates its PermissionContext against the real
+    clock. This result deliberately has no allowed() method and cannot substitute
+    for that context or durable authorization.
+    """
+    if not isinstance(ctx, PermissionContext):
+        raise TypeError(
+            "historical preview requires a PermissionContext, not a preview/result"
+        )
+    if not isinstance(reference_time, datetime) or reference_time.utcoffset() is None:
+        raise ValueError("historical preview requires an aware reference_time")
+    result = _evaluate_order_permission(ctx, reference_time=reference_time)
+    return HistoricalPermissionPreview(
+        result.permission, result.reason, result.detail, reference_time
+    )
+
+
 def evaluate_order_permission(ctx: PermissionContext) -> PermissionResult:
-    """Return one authoritative, fail-closed order permission decision."""
+    """Authoritative runtime decision; no historical clock override accepted."""
+    if not isinstance(ctx, PermissionContext):
+        raise TypeError(
+            "runtime permission requires a PermissionContext, not a preview/result"
+        )
+    return _evaluate_order_permission(ctx)
+
+
+def _evaluate_order_permission(
+    ctx: PermissionContext, *, reference_time: datetime | None = None
+) -> PermissionResult:
+    """Shared checks; only the diagnostic preview supplies a reference time."""
 
     side = ctx.order_side.strip().lower()
     if (
@@ -199,7 +242,11 @@ def evaluate_order_permission(ctx: PermissionContext) -> PermissionResult:
             or not isinstance(price, TrustedPrice)
             or not math.isfinite(price.price)
             or price.price <= 0
-            or not price.is_fresh(ctx.max_price_age_seconds)
+            or not (
+                price.is_fresh(ctx.max_price_age_seconds)
+                if reference_time is None
+                else price.is_fresh_at(ctx.max_price_age_seconds, reference_time)
+            )
         )
         if price_untrusted:
             return degraded(
@@ -254,11 +301,13 @@ def evaluate_order_permission(ctx: PermissionContext) -> PermissionResult:
                     PermissionReason.HIGH_RISK_NEW_EXPOSURE,
                     f"risk_level={risk.risk_level.value} max_new_exposure={risk.max_new_exposure} reduce_only={risk.reduce_only} blocks new exposure",
                 )
-            if ctx.exposure_effect == ExposureEffect.NEUTRAL and (
-                risk.allowed_target_exposure <= 1e-12 or risk.max_new_exposure <= 1e-12
-            ) and not (
-                side == "sell"
-                and risk.reduce_only
+            if (
+                ctx.exposure_effect == ExposureEffect.NEUTRAL
+                and (
+                    risk.allowed_target_exposure <= 1e-12
+                    or risk.max_new_exposure <= 1e-12
+                )
+                and not (side == "sell" and risk.reduce_only)
             ):
                 # Neutral exposure is blocked only when risk params explicitly
                 # forbid any exposure, NOT merely because reduce_only is set.

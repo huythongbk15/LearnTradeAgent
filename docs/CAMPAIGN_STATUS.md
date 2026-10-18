@@ -4,9 +4,226 @@ Single source of truth for the measured-accounting and campaign-publication
 work. Supersedes the per-session `*_TODO.md` files, which are gitignored and
 were fragmenting the state across ~60 files.
 
-## Current — 2026-10-16, LOCAL_TESTED / RESEARCH_ABSTAIN / REVIEW_PENDING
+## Current — 2026-10-18, LOCAL_TESTED / RESEARCH_ABSTAIN / REVIEW_PENDING
 
 ### Latest integrated engineering evidence (supersedes older snapshots below)
+
+Operator approved recovery of the prior Git lock blocker on18/10. Rechecked
+Git processes, file users and exact empty lock inode/mtime; recoverably renamed
+the unused lock to index.lock.backup_20261018 in the review directory, not deleted.
+lock_backup.json records recovery; integration_blocker.json/commit_execution.json
+retain the earlier failure. Local commit identity and subsequent verification
+are recorded separately in the same directory. No remote push/merge or paper/
+live authority is implied by this engineering integration.
+
+2026-10-18 integration self-review:126regressions PASS,42lifecycle/accounting
+tests PASS, lint PASS, fresh AC01–AC15 PASS/identity_stable=true on the same
+source/test snapshot. Explicit typed boundary now rejects historical preview,
+permission result, dict or missing context at runtime permission/submit entry;
+tests confirm even ALLOW preview cannot create intent/events/orders. No sizing,
+signals, thresholds or admission qualifications relaxed.25%entry contract kept.
+Review `data/bnb_integration_review_20261018_01/review.json` binds pre/post source,
+all tests and53historical artifacts.9-file integration whitelist excludes user
+wfo_wrapper.sh, MULTI_STRATEGY_RESEARCH_PLAN, tool guards and data/state changes.
+Precommit AC: `data/acceptance_runs/ac01_15_20261018_004800_utc/verification.json`;
+local integration identity/verification recorded separately under the review
+directory. No remote push/merge or market campaign included. This is self-review,
+not independent signoff or release acceptance.
+Paper/live remain NO_GO:7closedtrades in latest case are not OOS qualification;
+DSR/PBO/cost-stress/stability bundle not verified for this case; runtime
+calibration/OOD/regime are unknown. No formal evidence was fabricated. The
+requirements diagnostic is scoped to this case, not all global/historical
+registries. Next authority decision concerns genuine qualification evidence,
+not bypassing gates with a positive simulation or operator sizing approval.
+
+2026-10-17 operator decision **ENTRY_ALLOCATION_25_PERCENT_CONFIRMED** for this
+BNB4h MA ADX25 case: keep25%entry-reference notional allocation, allow price-driven
+MTM exposure drift; no automatic25%rebalance or scale-in while long. Fees/spread/
+impact remain separately accounted, not included in a hard all-in25%cost cap.
+Existing signal exits, experiment stop/halt/cooldown and all admission/gates
+unchanged. This is not global approval for other strategies or live/promotion.
+Decision and9contract tests PASS:
+`data/bnb_entry_allocation_decision_20261017_01/decision.json`, tests_execution.json.
+No strategy/source or old packet edits, no new market simulation required.
+The earlier request to choose entry-vs-MTM cap is now resolved; economic
+qualification, tested-source integration and genuine runtime admission remain open.
+
+2026-10-17 fixed-case V2 execution research completed:
+**PASS_EXECUTION_RESEARCH_ONLY**, not runtime/paper/live acceptance.1080bars,
+14orders all filled,7round trips, flat final; equity10000→11684.6222, fees40.7750,
+net+16.8462%, DD magnitude8.3089%, Sharpe2.2135. Independent arithmetic program
+verified persisted cash/fees/trades/1080marks and520protected hashes; identical
+seed replay and fill-journal reconstruction PASS (not engine process resume).
+Economic evidence remains insufficient: besttrade1863.33 exceeds totalnet1684.62;
+remaining trades−178.70. Entry25% allocation drifted to peak close exposure40.13%.
+V2 costs/closed-bar stops/sizing differ from old baseline; do not rank16.85%vs11.87%.
+Evidence `data/bnb_execution_replay_20261017_01/{manifest,result,audit}.json`.
+Important correction: prior admission/clock trace had32bar-action timing
+mismatches despite same signal counts. New sandbox uses canonical research
+signal generator and verifies1080exact actions/execution bars before fills.
+Old receipts retained, not relabelled as signal-parity evidence.
+96targeted tests PASS, lint PASS; fresh AC01–AC15 PASS/identity_stable=true:
+`data/acceptance_runs/ac01_15_20261017_142332_utc/verification.json`.
+Local dirty source tree9540f44ad83eed543e0244538a6a247faa7f85c7ea47684cb920959f8ba82ce7,
+HEADb897c32; not committed/pushed or clean release signoff. No gate weakening,
+holdout/data download, qualified policy or broker/account IO. Next: define
+stop contract and review/integrate tested source; entry-vs-hard-MTM decision is
+now resolved by the operator decision above. No new
+strategy sweep or automatic promotion based on this positive result.
+
+2026-10-17 historical clock diagnostic completed. Runtime still uses real clock;
+new historical preview is diagnostic-only, not PermissionResult/authorization.
+BNB1080bars:7BUY proposals; runtime stale BLOCK7; historical preview kill-switch
+BLOCK7; conditional preview without kill-switch missing_calibration_evidence
+BLOCK7. UNKNOWN calibration/OOD/regime retained.0orders/fills, no promotions.
+Evidence `data/bnb_adx_clock_sandbox_20261017_01/result.json`, manifest.json,
+trace.json;508source/original packet hashes stable during run, runtime98.47s.
+82targeted tests PASS,42lifecycle/accounting regressions PASS, lint PASS.
+Fresh AC01–AC15 PASS with identity_stable=true:
+`data/acceptance_runs/ac01_15_20261017_140720_utc/verification.json`.
+This is a local dirty source snapshot, not clean commit/release acceptance:
+tree605839ae1d03134aeb628bd3df92dcc8cb1a7de482116270545bb0b46db4d634,
+HEADb897c32. No holdout/OOS, publish, real broker/account or live permission.
+Risk/evidence applicability for deterministic MA remains unresolved; accepted
+research calibration protocol is not proof of predictive probability calibration.
+See clock/evidence contract section in the observations report for next scope.
+
+2026-10-17 operator-approved local sandbox completed:
+**PASS_ADMISSION_BLOCKED_NOT_TRADING_ACCEPTANCE**. Fixed BNB4h MA20/80 ADX14/25,
+1080previously observed validation bars; BUY7/SELL9/HOLD1064. Seven BUY proposals
+were planned and blocked by stale historical market data. No orders/fills,
+promotion or live IO; equity10000cash. Flat restart PASS, filled restart not
+exercised.508source/original packet file hashes unchanged; runtime137.72s.
+Evidence `data/bnb_adx_admission_sandbox_20261017_04/result.json`, manifest.json,
+trace.json;47targeted tests PASS and lint PASS. Failed attempts01–03 preserved
+(datetime schema and enum integration issues fixed in new runner/tests).
+Runner never submits; it does not implement a new permission/promotion lane.
+Economic verdict unchanged. Full trade sandbox remains incomplete: requires
+reviewed simulation-clock and deterministic-strategy evidence/risk contracts,
+not retimestamping data or inventing KNOWN evidence. Details and limitations in
+the observations report. No gate edits or fresh AC01–AC15 claim at this step.
+
+2026-10-17 admission review: **BLOCKED_BY_ADMISSION_CONTRACT** for continuous
+paper of the unqualified BNB case.17new boundary cases + resolver regression:
+38PASS, network denied,507source/original packet hashes unchanged. Evidence:
+`data/bnb_adx_operational_20261017_01/admission_boundary_receipt.json`.
+PAPER requires PAPER_ELIGIBLE; EXPLORATORY research permission is not paper
+permission, even with cached runtime. Production gates unchanged.
+Do not launch tournament_paper_trader: historical router-only loop, different
+defaults, placeholder challenger scores, and destructive output cleanup;
+not a continuous execution runner. Detailed findings and five-part proposed
+local operational sandbox contract are in the observations report. New lane
+needs an explicit operator scope decision; no paper session started here.
+
+BNB/MA ADX25 operational follow-up: **OFFLINE_CASE_REPLAY_PASS**, not continuous
+paper acceptance.393+627events replayed on isolated copies; startup restore==
+full projection, duplicate IDs idempotent,20measured strategy order links/fills
+match durable intent/risk/authorization and paper ledger. Net fills reconstruct
+positions0/3.318BNB and equity11462.57/11800.07. Original packet33files unchanged.
+42generic lifecycle/paper/accounting tests PASS with network denied and global
+monitoring writes disabled; initial wrapperCWD40PASS/2relative-pathFAIL retained,
+correctedCWD42PASS without editing source/tests. Evidence:
+`data/bnb_adx_operational_20261017_01/offline_replay_receipt.json`, chain_receipt.json,
+safety_tests_corrected_cwd.json. Case card updated in observations report.
+No policy created/promoted, no real broker/account IO or case orders submitted.
+Research remains insufficient; realtime paper NOT_STARTED because no eligible
+policy activation path established. Do not bypass promotion or relabel replay
+as continuous soak. No production code changes or new market campaign here.
+
+Current narrow case: **BNB/USDT4h MA20/80 ADX14/25, step1 complete**.
+Accounting/benchmark review verdict: ACCOUNTING_RECONCILED /
+INSUFFICIENT_EVIDENCE_OF_ALPHA. No new simulator/campaign or code/gate changes.
+Strategy return11.87%/2.44%, initial25%allocation buy/hold22.89%/2.53%; strategy
+DD6.97%/2.15% vs14.86%/6.72%, but average exposure10.02%/9.29% vs36.34%/23.49%:
+not equal-risk alpha comparison. Ex-post exposure-matched sensitivity is labelled
+descriptive only. Fold0one trade1435.89USD exceeds totalnet1215.88; fold1closed
+PnL−88.11 plusopen369.26 gives total281.15.7/4closed trades remain insufficient.
+Exact evidence `data/bnb_adx_case_20261017_01/step1_results.json`;34protected
+files/input unchanged. Case card is at top of
+[observations report](operations/MULTIPAIR_OBSERVATIONS_20261017.md).
+Scope now one complete lifecycle, not more pairs/strategies/AI frameworks.
+No OOS/holdout/paper session or live approval created. Potential next step is
+separately approved operational-only paper/shadow, with no qualification bypass.
+Earlier broad research priorities below are historical and not current authority.
+
+2026-10-17 multi-pair observations: [report](operations/MULTIPAIR_OBSERVATIONS_20261017.md).
+Existing WFO validation-only runner used, no production code/gate changes.
+Planned40cells/20packets;16cells/8packets accepted before BNB/RSI second cell
+timeout180s stopped batch.11packets unexecuted,1INCOMPLETE, no retry.
+ETH5strategies and BNB3MAvariants measured; no SOL/XRP results yet. No group
+meets30trades and positiveSharpe inbothfolds. BNBMA/ETHvol-target positive
+observations remain underpowered; RSIETH32tradefold still has negativeSharpe.
+Raw SHA/accounting16checks each PASS, historical packets/source stable.
+Exact evidence `data/multipair_screen_20261017_01/reviewed_summary.json`.
+Cross-strategy windows differ due canonical history-dependent gaps; compare
+pair effects within same strategy, not fair winner ranking or priorBTCpooling.
+Next useful step is bounded coverage of missing pairs with explicit schedule/
+budget, not automatic timeout retry or architecture expansion. No new run
+authorized by this tracker update, no holdout/OOS/promotion/live.
+
+R3 metadata follow-up complete: see section6 in
+[multi-strategy plan](operations/MULTI_STRATEGY_RESEARCH_PLAN.md).
+ExactBTC4h6795bars gives6/5/4/3folds for3/6/9/12month validation; p≤.10 requires
+6/5/4/impossible cost-clearing folds. Long validations overlap. RSI9month density
+scaling is near30 but not measured adequacy/profitability; no winner chosen.
+Inventory10existingpre-holdout inputs across5pairs×1h/4h: strict timestamps,
+zero abnormal intervals, last close respects cutoff. BTC1h25198bars has same
+6/5/4/3calendar-fold geometry, not 4xindependent evidence. No price backtest.
+Authority `data/research_r3_geometry_20261016_01/analysis.json`.
+Recommended next: explicit1h calibration producer/verifier contract + synthetic
+compatibility tests before any new pilot budget. Current market calibration is
+hardcoded4h; synthetic1h is not market1h support. No implementation, approval,
+freeze or new campaign performed during this metadata analysis.
+
+### Latest result — POOL5 completed, feasibility ABSTAIN
+
+User explicitly approved the displayed fingerprint/budget ("duyệt chạy đi").
+Delegated approval provenance is recorded in
+`data/pool5_freeze_20261016_01/operator_approval.json`, not reused from2cells.
+Packet `data/calibration_feasibility_pool5_btc4h_20261016_01`:
+**ACCEPTED_CALIBRATION**,10/10COMPLETED,10/10ABSTAIN; producer/shared CLI verifier
+both PASS12checks (not independent algorithms). Supervisor336.56s,
+execution327.52s, CPU194.60s; all approved budgets respected.
+382protected files unchanged; operational registry append expected and logical
+history/seal verified. Source/input/config stable on clean b897c32.
+Receipt `data/pool5_freeze_20261016_01/execution_handoff.json`; raw summary
+`data/pool5_freeze_20261016_01/results_summary.json`. All10raw SHA/bar partitions/
+closed-trade attribution checks PASS; no packet mutation during summary.
+
+| Strategy | 2024H1 trades / return / Sharpe | 2025H2 trades / return / Sharpe |
+|---|---|---|
+| bbands | 21 / -3.35% / -0.90 | 20 / -4.67% / -1.43 |
+| enhanced_ma | 9 / +1.91% / +0.55 | 6 / -3.09% / -1.24 |
+| ma_adx (ADX25) | 7 / +5.28% / +1.27 | 5 / -2.69% / -1.06 |
+| ma_vol_target | 9 / +1.91% / +0.55 | 8 / -3.73% / -1.38 |
+| rsi | 22 / -1.49% / -0.41 | 21 / -5.25% / -2.08 |
+
+Every cell fails30trade minimum;7/10also fail Sharpe>0. The early ma_adx positive
+result is NOT a winner or qualification. RSI/BB have denser actions, but many
+already-long/flat exits and negative returns: more emitted signals alone does
+not solve sample adequacy or economics. Gate reasons are distinct from normal
+execution terminals. No OOS/sensitivity/holdout/promotion/live was run.
+
+R2 fixed-default feasibility is complete for these5candidates/2windows, NOT
+full strategy search. R3 next: metadata-only joint trade/fold feasibility and
+preregister a new hypothesis if necessary. Preserve all trials; do not lower
+thresholds, rerun a larger grid or switch TF/pair without a separate plan/budget.
+Older FROZEN_NOT_EXECUTED statuses below are historical.
+
+Latest authorized action: **POOL5 FROZEN, NOT EXECUTED** on reviewed clean
+sourceb897c32. Packet:
+`data/calibration_feasibility_pool5_btc4h_20261016_01`.
+Fingerprint `0b5ff99f4752c512718e6727686597a5194b9a023f3c04b063ff9f93e3725f87`.
+5strategies×2windows=10cells: enhanced_ma/ma_adx/ma_vol_target/rsi/bbands;
+fixed defaults, ADX25 for the two ADX subjects. Gates remain30trades and
+Sharpe>0. Budget180s wall/120s CPU per cell,1800s wall/1200s CPU total,
+sampled RSS2GiB,1worker,0retries; caps are not ETA. No new approval created and
+old2cell approval not reused. Source/registry/383protected files unchanged.
+Authority: `data/pool5_freeze_20261016_01/freeze_receipt.json`.
+Initial supervisor check assumed caller order rather than sorted canonical
+strategy order; corrected via read-only inspection, no refreeze/packet edit.
+Await exact fingerprint/budget approval before execute. No holdout/live authority.
+Older next-freeze statements below are historical.
 
 Compatibility integration handoff: selected strategy/history/funding fixes,
 regression tests and linked roadmap are being committed separately. Exact commit

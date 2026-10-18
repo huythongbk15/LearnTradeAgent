@@ -148,15 +148,29 @@ class TrustedPrice:
     sequence_id: int | None = None
 
     def is_fresh(self, max_age_seconds: float) -> bool:
+        """Authoritative runtime check: always use the real wall clock."""
+        return self.is_fresh_at(max_age_seconds, datetime.now(UTC))
+
+    def is_fresh_at(self, max_age_seconds: float, reference_time: datetime) -> bool:
         """Reject stale, future, or absurd timestamps.
 
-        Strict exchange timestamp validation:
+        Pure clock-relative check, also used by non-authorizing historical previews.
+        Runtime callers must use is_fresh(), not a caller-supplied market clock.
+
+        Strict timestamp validation:
         - Exchange timestamp must not be in the future
         - Exchange timestamp must not be older than max_age_seconds
         - Wall clock received_at must not be older than max_age_seconds
         - No 2x buffer for exchange latency — strict equality with tolerance
         """
-        now = datetime.now(UTC)
+        if not math.isfinite(max_age_seconds) or max_age_seconds <= 0:
+            return False
+        if any(
+            not isinstance(value, datetime) or value.utcoffset() is None
+            for value in (reference_time, self.received_at, self.exchange_timestamp)
+        ):
+            return False
+        now = reference_time
         if self.received_at > now:
             return False  # future timestamp / clock skew
         age = (now - self.received_at).total_seconds()
