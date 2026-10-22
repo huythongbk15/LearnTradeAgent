@@ -1,0 +1,18 @@
+{
+  "cmd": [
+    ".venv/bin/python",
+    "-m",
+    "ruff",
+    "check",
+    "src/trading_agent/backtest/preregistration_binding.py",
+    "scripts/run_wfo_parallel.py",
+    "tests/test_ledger_and_binding_invariants.py",
+    "tests/test_di_adx_state_edge_launcher_integration.py"
+  ],
+  "rc": 0,
+  "elapsed_sec": 0.5753974914550781,
+  "stdout": [
+    "All checks passed!"
+  ],
+  "stderr": []
+}

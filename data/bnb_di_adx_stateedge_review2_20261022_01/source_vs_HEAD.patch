@@ -1,0 +1,1616 @@
+diff --git a/scripts/full_system_backtest.py b/scripts/full_system_backtest.py
+index a1db0c5..efebb49 100644
+--- a/scripts/full_system_backtest.py
++++ b/scripts/full_system_backtest.py
+@@ -185,6 +185,49 @@ def _git_commit_sha() -> str:
+     return result.stdout.strip() or "unknown"
+ 
+ 
++def _resolve_strategy_parameters(strategy_name, overrides=None):
++    """Shared constructor/preflight defaults; no engine or data access."""
++    defaults = {
++        "enhanced_ma": {"fast_period": FAST_MA, "slow_period": SLOW_MA,
++            "adx_threshold": ADX_THRESHOLD, "atr_sl_mult": ATR_SL_MULT, "atr_tp_mult": ATR_TP_MULT},
++        "ma_adx": {"fast_period": FAST_MA, "slow_period": SLOW_MA, "adx_threshold": ADX_THRESHOLD},
++        "ma_vol_target": {"fast_period": FAST_MA, "slow_period": SLOW_MA},
++        "rsi": {"period": 14, "oversold": 30, "overbought": 70},
++        "bbands": {"period": 20, "std_dev": 2.0},
++    }
++    return {**defaults.get(strategy_name, {}), **dict(overrides or {})}
++
++
++def _native_authority_config():
++    authority = AuthorityConfig.for_environment(Environment.PAPER)
++    authority.exposure.max_single_strategy_exposure = MAX_POS_SIZE_PCT
++    authority.exposure.max_portfolio_exposure = MAX_POSITION_PCT
++    return authority
++
++
++def _native_cost_model(commission, slippage):
++    return {"commission_rate": float(commission), "slippage_rate": float(slippage),
++        "spread_rate": 0.0, "market_impact_rate": 0.0,
++        "estimated_round_trip_cost_bps": float(2*(commission+slippage)*10000)}
++
++
++def describe_execution_contract(*, symbol, timeframe, strategy_name, parameters,
++    commission, slippage, cadence=1):
++    """Pure native declaration before constructor/stores; not qualification."""
++    from dataclasses import asdict
++    from trading_agent.backtest.campaign_execution import simulator_runtime_config
++    from trading_agent.backtest.execution_contract import native_execution_contract
++
++    runtime = simulator_runtime_config()
++    return native_execution_contract(symbol=symbol, timeframe=timeframe,
++        strategy={"strategy_id": strategy_name,
++            "parameters": _resolve_strategy_parameters(strategy_name, parameters), "routing_mode": "fixed"},
++        protection=runtime["protection"], sizing=runtime["sizing"], risk=runtime["risk"],
++        cost_model=_native_cost_model(commission, slippage),
++        authority=_native_authority_config().model_dump(mode="json"),
++        instrument_rules=asdict(get_instrument_rules(symbol)), cadence=cadence)
++
++
+ class FullSystemSimulator:
+     def __init__(
+         self,
+@@ -202,6 +245,7 @@ class FullSystemSimulator:
+         strategy_name: str = "enhanced_ma",
+         strategy_params_override: dict[str, object] | None = None,
+         signal_series: list[int] | None = None,
++        scope_token: str | None = None,
+         commission: float | None = None,
+         slippage: float | None = None,
+         strategy_runtime: object | None = None,
+@@ -212,7 +256,12 @@ class FullSystemSimulator:
+         adaptive_runtime_provider=None,
+         source_df_override: pl.DataFrame | None = None,
+         funnel_enabled: bool = True,
++        expected_execution_contract_id: str | None = None,
+     ):
++        from trading_agent.backtest.execution_contract import validate_expected_contract_id
++
++        validate_expected_contract_id(expected_execution_contract_id)
++        self.expected_execution_contract_id = expected_execution_contract_id
+         resolved_symbol = symbol or os.getenv("SYMBOL", SYMBOL)
+         resolved_timeframe = timeframe or os.getenv("TIMEFRAME", TIMEFRAME)
+         if not resolved_symbol or not resolved_timeframe:
+@@ -348,56 +397,14 @@ class FullSystemSimulator:
+             strategy_params_override = dict(artifact_params)
+         self.strategy_name = strategy_name
+         # Strategy-specific parameters (validated against schema)
+-        self.strategy_params: dict[str, object] = {}
+-        if strategy_name == "enhanced_ma":
+-            self.strategy_params.update(
+-                {
+-                    "fast_period": FAST_MA,
+-                    "slow_period": SLOW_MA,
+-                    "adx_threshold": ADX_THRESHOLD,
+-                    "atr_sl_mult": ATR_SL_MULT,
+-                    "atr_tp_mult": ATR_TP_MULT,
+-                }
+-            )
+-        elif strategy_name == "ma_adx":
+-            self.strategy_params.update(
+-                {
+-                    "fast_period": FAST_MA,
+-                    "slow_period": SLOW_MA,
+-                    "adx_threshold": ADX_THRESHOLD,
+-                }
+-            )
+-        elif strategy_name == "ma_vol_target":
+-            self.strategy_params.update(
+-                {
+-                    "fast_period": FAST_MA,
+-                    "slow_period": SLOW_MA,
+-                }
+-            )
+-        elif strategy_name == "rsi":
+-            self.strategy_params.update(
+-                {
+-                    "period": 14,
+-                    "oversold": 30,
+-                    "overbought": 70,
+-                }
+-            )
+-        elif strategy_name == "bbands":
+-            self.strategy_params.update(
+-                {
+-                    "period": 20,
+-                    "std_dev": 2.0,
+-                }
+-            )
++        self.strategy_params = _resolve_strategy_parameters(strategy_name, strategy_params_override)
+         # Runtime/execution parameters (NOT passed to strategy constructor)
+         self.target_exposure_pct = MAX_POS_SIZE_PCT
+-        if strategy_params_override:
+-            self.strategy_params.update(strategy_params_override)
+         self._injected_signals = signal_series
+         self.commission = commission
+         self.slippage = slippage
+         self.strategy_descriptor, self.strategy = build_legacy_candidate(
+-            self.strategy_name, self.strategy_params
++            self.strategy_name, self.strategy_params, scope_token=scope_token
+         )
+         if strategy_artifact is not None:
+             expected_parameter_hash = sha256_hex(canonical_params(self.strategy_params))
+@@ -477,9 +484,7 @@ class FullSystemSimulator:
+             self.signals = self.df.select(pl.col("signal")).to_series().to_list()
+ 
+         # Khởi tạo execution engine + risk controller
+-        authority_config = AuthorityConfig.for_environment(Environment.PAPER)
+-        authority_config.exposure.max_single_strategy_exposure = MAX_POS_SIZE_PCT
+-        authority_config.exposure.max_portfolio_exposure = MAX_POSITION_PCT
++        authority_config = _native_authority_config()
+         self.engine = ExecutionEngine(
+             exchange_name=EXCHANGE,
+             initial_capital=INITIAL_CAPITAL,
+@@ -679,15 +684,7 @@ class FullSystemSimulator:
+                 "daily_loss_limit_pct": DAILY_LOSS_LIMIT_PCT * 100,
+                 "cooldown_hours": COOLDOWN_HOURS,
+             },
+-            "cost_model": {
+-                "commission_rate": float(exchange.commission),
+-                "slippage_rate": float(exchange.slippage),
+-                "spread_rate": 0.0,
+-                "market_impact_rate": 0.0,
+-                "estimated_round_trip_cost_bps": float(
+-                    2.0 * (exchange.commission + exchange.slippage) * 10_000
+-                ),
+-            },
++            "cost_model": _native_cost_model(exchange.commission, exchange.slippage),
+             "data_policy": {
+                 "gap_policy": self.gap_policy,
+                 "imputation": "disabled",
+@@ -701,6 +698,19 @@ class FullSystemSimulator:
+                 "commit_sha": self.commit_sha,
+             },
+         }
++        from dataclasses import asdict
++        from trading_agent.backtest.execution_contract import native_execution_contract
++
++        payload["execution_contract"] = native_execution_contract(
++            symbol=self.symbol, timeframe=self.timeframe,
++            strategy={"strategy_id": self.strategy_name, "parameters": self.strategy_params,
++                "routing_mode": "adaptive" if self.adaptive_enabled else "fixed"},
++            protection=payload["protection"], sizing=payload["sizing"],
++            risk=payload["risk"], cost_model=payload["cost_model"],
++            authority=self.engine.authority_config.model_dump(mode="json"),
++            instrument_rules=asdict(get_instrument_rules(self.symbol)),
++            cadence=getattr(self, "_run_frequency", 1),
++        )
+         return {"config_id": fingerprint_payload(payload), **payload}
+ 
+     def run(
+@@ -708,6 +718,12 @@ class FullSystemSimulator:
+     ) -> dict[str, object]:
+         if start < 0 or freq <= 0:
+             raise ValueError("start must be non-negative and freq must be positive")
++        self._run_frequency = freq
++        expected = getattr(self, "expected_execution_contract_id", None)
++        if expected is not None:
++            from trading_agent.backtest.execution_contract import require_execution_contract
++
++            require_execution_contract(expected, self._active_config()["execution_contract"])
+         end = end if end is not None else self.df.height
+         end = min(end, self.df.height)
+         if end <= start:
+@@ -1142,6 +1158,7 @@ class FullSystemSimulator:
+                 self.trade_log,
+                 equity_delta=float(self.equity_curve[-1][1]) - INITIAL_CAPITAL,
+                 open_inventory=open_leg if open_leg is not None else False,
++                equity_basis="marked_equity",
+             )
+         except ValueError as exc:
+             measured_accounting_error = str(exc)
+diff --git a/scripts/run_nested_wfo.py b/scripts/run_nested_wfo.py
+index cbe23b7..eb1cfd3 100755
+--- a/scripts/run_nested_wfo.py
++++ b/scripts/run_nested_wfo.py
+@@ -70,6 +70,16 @@ DEFAULT_PARAM_GRIDS: dict[str, dict[str, list[Any]]] = {
+         "fast_period": [20, 30],
+         "slow_period": [60, 80],
+     },
++    "rsi_adx_regime_filter": {
++        "rsi_period": [14, 21],
++        "rsi_oversold": [30, 25, 35],
++        "rsi_overbought": [70, 75, 65],
++        "ma_fast": [20, 30, 10],
++        "ma_slow": [80, 50, 30],
++        "adx_period": [14],
++        "adx_threshold": [15, 18, 20, 22, 25, 30],
++        "ma_type": ["sma", "ema"],
++    },
+ }
+ 
+ 
+diff --git a/scripts/run_strategy_tournament.py b/scripts/run_strategy_tournament.py
+index 8db269a..4a12909 100644
+--- a/scripts/run_strategy_tournament.py
++++ b/scripts/run_strategy_tournament.py
+@@ -47,7 +47,7 @@ SCENARIOS = {
+     )
+ }
+ 
+-ALL_STRATEGIES = ("enhanced_ma", "ma_adx", "ma_vol_target", "rsi", "bbands")
++ALL_STRATEGIES = ("enhanced_ma", "ma_adx", "ma_vol_target", "rsi", "bbands", "rsi_adx_regime_filter")
+ ALL_SYMBOLS = (
+     "BTC/USDT",
+     "ETH/USDT",
+diff --git a/scripts/run_wfo_parallel.py b/scripts/run_wfo_parallel.py
+index e7795c4..5739fb3 100644
+--- a/scripts/run_wfo_parallel.py
++++ b/scripts/run_wfo_parallel.py
+@@ -34,6 +34,20 @@ from typing import Any
+ ROOT = Path(__file__).resolve().parent.parent
+ if str(ROOT) not in sys.path:
+     sys.path.insert(0, str(ROOT))
++#: Where the APPROVED preregistration packet lives. It defaults to the repository
++#: root. A different root is only used by the synthetic integration, which must
++#: bind to a synthetic packet instead of the registered one; the resolved root
++#: is recorded in the frozen protocol, so a run against a non-default root is
++#: visible in the protocol and in the receipts.
++def preregistration_root() -> Path:
++    """Where the APPROVED preregistration packet lives.
++
++    Resolved at CALL time (not import time) so that a worker subprocess
++    inherits the same root through the environment. It defaults to the
++    repository root; the resolved value is recorded in the frozen protocol, so a
++    run against a non-default root is visible in the protocol and the receipts.
++    """
++    return Path(os.environ.get("TRADING_PREREGISTRATION_ROOT") or ROOT).resolve()
+ 
+ from trading_agent.backtest.tournament import (
+     SCENARIO_BASE,
+@@ -187,11 +201,42 @@ MINIMAL_PARAM_GRIDS: dict[str, dict[str, list]] = {
+         "zscore_exit": [0.5],
+         "lookback_days": [20],
+     },
++    # Regime-switched: ADX-filtered RSI + MA crossover (calibrated best config)
++    "rsi_adx_regime_filter": {
++        "rsi_period": [14],
++        "rsi_oversold": [35],
++        "rsi_overbought": [65],
++        "ma_fast": [20],
++        "ma_slow": [50],
++        "adx_period": [14],
++        "adx_threshold": [15],
++        "ma_type": ["sma"],
++    },
++}
++
++
++#: Fixed parameter grid of a SCOPED candidate. Reachable only when the caller
++#: presents the scope token that names it, so a scoped candidate never appears
++#: in the broad grid maps.
++_SCOPED_CANDIDATE_PARAM_GRIDS: dict[str, dict[str, list]] = {
++    "di_adx_state_edge": {"adx_period": [14], "adx_threshold": [25.0]},
+ }
+ 
+ 
+-def get_param_grid_for_strategy(strategy_id: str) -> dict[str, list]:
+-    """Get param grid for a strategy, falling back to MINIMAL_PARAM_GRIDS."""
++def get_param_grid_for_strategy(
++    strategy_id: str, scope_token: str | None = None
++) -> dict[str, list]:
++    """Get param grid for a strategy, falling back to MINIMAL_PARAM_GRIDS.
++
++    A scoped candidate's grid is returned only when the scope token names it;
++    without the token the scoped id has no grid and the cell plan is empty,
++    which fails closed rather than silently running something else.
++    """
++    from trading_agent.strategies.canonical.candidates import resolve_scoped_candidate_id
++
++    scoped_id = resolve_scoped_candidate_id(scope_token)
++    if scoped_id == strategy_id and scoped_id in _SCOPED_CANDIDATE_PARAM_GRIDS:
++        return {k: list(v) for k, v in _SCOPED_CANDIDATE_PARAM_GRIDS[scoped_id].items()}
+     mapping = _STRATEGY_GRID_MAP.get(strategy_id, strategy_id)
+     if isinstance(mapping, tuple):
+         grid_key, cs_variant = mapping
+@@ -274,6 +319,7 @@ class ParallelCellRunner:
+             "strategy_id": spec.strategy_id, "symbol": spec.symbol,
+             "timeframe": spec.timeframe, "params": dict(spec.params),
+             "cost_scenario": spec.cost_scenario, "fault": asdict(spec.fault),
++            "expected_execution_contract_id": spec.expected_execution_contract_id,
+         }
+ 
+     def _inline(self, cell):
+@@ -282,6 +328,7 @@ class ParallelCellRunner:
+             self._primitives(spec), str(self.out_root), start, end, fresh,
+             m_start, m_end, self.timeout_seconds, self.max_retries,
+             self.execution_context,
++            scope_token=(self.execution_context or {}).get("scope_token"),
+         )
+ 
+     def _transport_failure(self, cell, exc):
+@@ -412,6 +459,7 @@ def _run_cell_worker(
+     timeout_seconds: int,
+     max_retries: int,
+     execution_context: dict | None = None,
++    scope_token: str | None = None,
+ ) -> EvaluationArtifact:
+     """Worker function for ProcessPoolExecutor.
+ 
+@@ -424,7 +472,17 @@ def _run_cell_worker(
+         params=spec_primitives["params"],
+         cost_scenario=spec_primitives["cost_scenario"],
+         fault=FaultProfile(**spec_primitives.get("fault", {})),
++        expected_execution_contract_id=spec_primitives.get("expected_execution_contract_id"),
+     )
++    frozen_contract_id = None
++    if execution_context and "native_execution_contract" in execution_context:
++        from trading_agent.backtest.execution_contract import require_execution_contract
++
++        contract = execution_context["native_execution_contract"]
++        if not isinstance(contract, dict):
++            raise ValueError("missing frozen native execution contract")
++        require_execution_contract(contract.get("contract_id"), contract)
++        frozen_contract_id = contract["contract_id"]
+     directory = Path(out_root) / "cell_execution" / uuid.uuid4().hex
+     directory.mkdir(parents=True, exist_ok=False)
+     request = {
+@@ -432,10 +490,15 @@ def _run_cell_worker(
+         "symbol": spec.symbol, "timeframe": spec.timeframe,
+         "params": dict(spec.params), "cost": spec.cost_scenario.to_dict(),
+         "fault": asdict(spec.fault), "simulation_window": [start, end],
++        "expected_execution_contract_id": spec.expected_execution_contract_id,
++        "frozen_execution_contract_id": frozen_contract_id,
+         "measurement_window": [measurement_start, measurement_end], "fresh": fresh,
+         "timeout_seconds": timeout_seconds, "max_retries": max_retries,
+         "execution_context": execution_context or {},
+-        "started_at": datetime.now(UTC).isoformat(), "worker_pid": os.getpid(),
++        "scope_token": scope_token,
++        "started_at": datetime.now(UTC).isoformat(),
++        "started_at_epoch": time.time(),
++        "worker_pid": os.getpid(),
+         "live_authorized": False,
+     }
+     _write_execution_record(directory / "started.json", request)
+@@ -446,6 +509,8 @@ def _run_cell_worker(
+             measurement_start=measurement_start, measurement_end=measurement_end,
+             _use_multiprocessing=True,  # Enforce timeout, stop timed-out child BEFORE retry.
+             timeout_seconds=timeout_seconds, max_retries=max_retries,
++            frozen_execution_contract_id=frozen_contract_id,
++            scope_token=scope_token,
+         )
+     except Exception as exc:
+         from trading_agent.backtest.tournament import _failed_artifact
+@@ -466,6 +531,7 @@ def _run_cell_worker(
+ 
+ def build_canonical_cells(
+     spec: WFOSpec,
++    scope_token: str | None = None,
+ ) -> tuple[list[tuple[EvaluationCellSpec, int, int, bool, int, int]], list[Any]]:
+     """Build all cells needed for canonical WFO (inner + outer).
+ 
+@@ -475,7 +541,7 @@ def build_canonical_cells(
+     """
+     df = load_ohlcv("binance", spec.symbol, spec.timeframe)
+     n_bars = df.height
+-    registry_canonical = build_default_registry()
++    registry_canonical = build_default_registry(scope_token=scope_token)
+     descriptor = registry_canonical.describe(spec.strategy_id)
+     from trading_agent.strategies.canonical.candidates import campaign_history_contract
+     history = campaign_history_contract(spec.strategy_id, spec.param_grid)
+@@ -536,6 +602,23 @@ def build_canonical_cells(
+     return inner_cells, folds
+ 
+ 
++# ── Validation-only execution envelope ──────────────────────────────────────
++# These are CEILINGS for the inner-validation scope, not defaults. The cap on
++# the per-cell timeout is what lets a cell that legitimately needs more than
++# the historical 180 s finish instead of being killed mid-write; the total
++# budget and the RSS ceiling bound the session.
++#
++# Raising or lowering any of these is a BUDGET-POLICY change: it must be
++# reviewed together with the preregistration that relies on it, and the
++# regression test tests/test_wfo_validation_envelope.py must keep passing.
++# The guards below are fail-closed and are never removed — only their bound
++# is expressed here.
++VALIDATION_CELL_TIMEOUT_MAX_SECONDS = 600
++VALIDATION_TOTAL_TIMEOUT_MAX_SECONDS = 7200
++VALIDATION_TOTAL_TIMEOUT_MIN_SECONDS = 1
++VALIDATION_MAX_RSS_MB_MIN = 128
++VALIDATION_MAX_RSS_MB_MAX = 4096
++
+ TRIAL_IDENTITY_CONTRACT = {
+     "version": 2, "candidate_identity": "unchanged_canonical_ExperimentSpec",
+     "evaluation_identity": "candidate_fold_phase_full_protocol_execution_context",
+@@ -551,9 +634,18 @@ def _trial_execution_context(protocol):
+     rt = dict(exec_config.get("runtime_config", {}))
+     rt["cell_timeout_seconds"] = exec_config.get("cell_timeout", rt.get("cell_timeout_seconds", 300))
+     rt["max_retries"] = exec_config.get("max_retries", rt.get("max_retries", 1))
+-    return {"trial_identity_version": 2, "protocol_fingerprint": protocol["fingerprint"],
++    context = {"trial_identity_version": 2, "protocol_fingerprint": protocol["fingerprint"],
+             "source": protocol["source"], "environment": exec_config["environment"],
+             "runtime_config": rt}
++    if "native_execution_contracts" in protocol:
++        context["native_execution_policy_version"] = 1
++    # The scope token is part of the frozen context, so it is covered by the
++    # execution scope identity and by the cache key. A study without a scoped
++    # candidate carries no token and its context is unchanged.
++    scope_token = exec_config.get("scope_token")
++    if scope_token:
++        context["scope_token"] = scope_token
++    return context
+ 
+ 
+ def audit_parallel_trial_history(spec, protocol, folds):
+@@ -579,9 +671,11 @@ def audit_parallel_trial_history(spec, protocol, folds):
+         raise ValueError("trial preflight protocol/spec/fold mismatch")
+     context = _trial_execution_context(protocol)
+     current_scope = execution_scope_identity(context)["context_sha256"]
+-    strategy_sha = wfo._compute_strategy_code_sha(spec.strategy_id)
++    scope_token = (protocol.get("execution") or {}).get("scope_token")
++    strategy_sha = wfo._compute_strategy_code_sha(spec.strategy_id, scope_token)
+     data_sha = wfo._compute_data_manifest_sha(spec.symbol, spec.timeframe)
+-    feature_sha = wfo._compute_feature_schema_hash(build_default_registry().describe(spec.strategy_id))
++    feature_sha = wfo._compute_feature_schema_hash(
++        build_default_registry(scope_token=scope_token).describe(spec.strategy_id))
+     space_sha = search_space_hash(spec.param_grid)
+     candidates = {}
+     for params in wfo._generate_param_combinations(spec.param_grid):
+@@ -680,7 +774,8 @@ def audit_parallel_trial_history(spec, protocol, folds):
+     return report
+ 
+ 
+-def prepare_parallel_protocol(spec, out_root, *, workers, cell_timeout, reuse_from=None, validation_budget=None):
++def prepare_parallel_protocol(spec, out_root, *, workers, cell_timeout, reuse_from=None,
++                              validation_budget=None, scope_token=None, max_retries=1):
+     """Freeze effective inputs before evaluation; never upgrade a legacy packet."""
+     from trading_agent.backtest.campaign_evidence import content_hash
+     from trading_agent.backtest.campaign_integrity import capture_campaign_source
+@@ -707,14 +802,22 @@ def prepare_parallel_protocol(spec, out_root, *, workers, cell_timeout, reuse_fr
+     quality = assess_ohlcv(frame, expected_interval=timeframe_delta(spec.timeframe), gap_policy="reject")
+     if not quality.accepted:
+         raise ValueError(f"Preflight data quality rejected: {quality.status}")
+-    cells, folds = build_canonical_cells(spec)
++    cells, folds = build_canonical_cells(spec, scope_token=scope_token)
+     selection = freeze_selection_contract(
+         min_validation_trades=30, min_validation_sharpe=0.0,
+     )
++    from scripts.full_system_backtest import describe_execution_contract
++
++    native_contracts = {cell.cell_id: describe_execution_contract(
++        symbol=cell.symbol, timeframe=cell.timeframe, strategy_name=cell.strategy_id,
++        parameters=dict(cell.params), commission=cell.cost_scenario.commission,
++        slippage=cell.cost_scenario.slippage,
++    ) for cell, *_ in cells}
+     body = {
+         "version": 1,
+         "authority": "run_nested_wfo",
+         "trial_identity_contract": dict(TRIAL_IDENTITY_CONTRACT),
++        "native_execution_contracts": native_contracts,
+         "spec": spec.to_dict(),
+         "input_binding": binding,
+         "input_bars": frame.height,
+@@ -739,7 +842,7 @@ def prepare_parallel_protocol(spec, out_root, *, workers, cell_timeout, reuse_fr
+             for cell, start, end, _fresh, m_start, m_end in cells
+         ],
+         "execution": {
+-            "workers": workers, "cell_timeout": cell_timeout, "max_retries": 1,
++            "workers": workers, "cell_timeout": cell_timeout, "max_retries": max_retries,
+             "timeout_scope": "each_isolated_attempt_terminated_before_retry",
+             "receipt_scope": "inner_selected_outer_cache_v2_fresh_packet_only",
+             "cache_version": CACHE_VERSION,
+@@ -747,17 +850,43 @@ def prepare_parallel_protocol(spec, out_root, *, workers, cell_timeout, reuse_fr
+             "runtime_config": simulator_runtime_config(),
+             "reuse_scope": "inner_validation_and_selected_outer_only",
+             "sensitivity_reuse": False,
++            # Scope token for a scoped candidate: it travels inside the frozen
++            # protocol, so it is part of the protocol fingerprint, the trial
++            # execution context and the cache key. Absent for every study that
++            # does not use a scoped candidate, so those protocols are unchanged.
++            **({"scope_token": scope_token} if scope_token else {}),
++            # where the approved preregistration packet was read from, and
++            # whether that is the canonical (repository) root. A non-canonical
++            # root is a DECLARED deviation: it is inside the frozen protocol,
++            # so it is in the protocol fingerprint, the trial context, the
++            # cache key and the receipts.
++            "preregistration_root": str(preregistration_root()),
++            "preregistration_root_canonical": preregistration_root() == ROOT,
+         },
+         "live_authorized": False,
+     }
+     if validation_budget is not None:
+-        if (workers != 1 or not 1 <= cell_timeout <= 180 or reuse_from is not None
++        # The same named caps the CLI guard uses, so the producer and the entry
++        # point cannot disagree about the envelope. The guard stays fail-closed
++        # and keeps every other condition.
++        if (workers != 1
++                or not 1 <= cell_timeout <= VALIDATION_CELL_TIMEOUT_MAX_SECONDS
++                or reuse_from is not None
+                 or set(validation_budget) != {"total_timeout_seconds", "max_rss_mb"}
+                 or type(validation_budget["total_timeout_seconds"]) is not int
+-                or not 1 <= validation_budget["total_timeout_seconds"] <= 1800
++                or not (VALIDATION_TOTAL_TIMEOUT_MIN_SECONDS
++                        <= validation_budget["total_timeout_seconds"]
++                        <= VALIDATION_TOTAL_TIMEOUT_MAX_SECONDS)
+                 or type(validation_budget["max_rss_mb"]) is not int
+-                or not 128 <= validation_budget["max_rss_mb"] <= 4096):
+-            raise ValueError("invalid validation budget or unsupported reuse")
++                or not (VALIDATION_MAX_RSS_MB_MIN
++                        <= validation_budget["max_rss_mb"]
++                        <= VALIDATION_MAX_RSS_MB_MAX)):
++            raise ValueError(
++                "invalid validation budget or unsupported reuse: cell_timeout "
++                f"1..{VALIDATION_CELL_TIMEOUT_MAX_SECONDS}, total_timeout "
++                f"{VALIDATION_TOTAL_TIMEOUT_MIN_SECONDS}.."
++                f"{VALIDATION_TOTAL_TIMEOUT_MAX_SECONDS}, max_rss_mb "
++                f"{VALIDATION_MAX_RSS_MB_MIN}..{VALIDATION_MAX_RSS_MB_MAX}")
+         body["execution"]["max_retries"] = 0
+         body["validation_budget"] = dict(validation_budget)
+         body["scope"] = "inner_validation_only_not_qualification"
+@@ -791,6 +920,8 @@ class QualificationCellRunner(CampaignCellRunner):
+     """
+ 
+     def __init__(self, out_root, protocol, folds, *, reuse_from=None):
++        if not isinstance(protocol.get("native_execution_contracts"), dict) or not protocol["native_execution_contracts"]:
++            raise ValueError("new qualification requires frozen native execution contracts; no legacy upgrade")
+         self.protocol = protocol
+         self.folds = folds
+         execution = protocol["execution"]
+@@ -799,7 +930,12 @@ class QualificationCellRunner(CampaignCellRunner):
+             "source": protocol["source"], "data": protocol["input_binding"],
+             "plan": protocol["fingerprint"], "history": protocol["history"],
+             "runtime_config": execution["runtime_config"],
++            "native_execution_contracts": protocol["native_execution_contracts"],
+             "require_frozen_input": True,
++            # The scope token is part of the frozen trial context, so it is
++            # covered by the execution scope identity and by the cache key.
++            **({"scope_token": self.trial_context["scope_token"]}
++               if "scope_token" in self.trial_context else {}),
+         }, workers=execution["workers"], reuse_from=reuse_from, runner=self._run_measured)
+         if self.environment != execution["environment"]:
+             raise ValueError("qualification runtime environment differs from frozen protocol")
+@@ -811,13 +947,18 @@ class QualificationCellRunner(CampaignCellRunner):
+             raise ValueError("trial history conflict at runner startup; inspect trial_history_startup.json; do not reset registry")
+ 
+     def _run_measured(self, spec, **kwargs):
++        key = replace(spec, expected_execution_contract_id=None).cell_id
++        if key not in self.protocol["native_execution_contracts"]:
++            raise ValueError("unregistered native execution contract for qualification cell")
+         return _run_cell_worker(
+             ParallelCellRunner._primitives(spec), str(kwargs["out_root"]),
+             kwargs["start"], kwargs["end"], kwargs["fresh"],
+             kwargs["measurement_start"], kwargs["measurement_end"],
+             self.protocol["execution"]["cell_timeout"], self.protocol["execution"]["max_retries"],
+             {"protocol_fingerprint": self.protocol["fingerprint"],
+-             "source": self.protocol["source"], "input_binding": self.protocol["input_binding"]},
++             "source": self.protocol["source"], "input_binding": self.protocol["input_binding"],
++             "native_execution_contract": self.protocol["native_execution_contracts"][key]},
++            scope_token=self.trial_context.get("scope_token"),
+         )
+ 
+     def __call__(self, spec, **kwargs):
+@@ -892,6 +1033,17 @@ class QualificationCellRunner(CampaignCellRunner):
+                                 max_retries=self.protocol["execution"]["max_retries"])
+ 
+ 
++def _verify_native_report(protocol, artifact, root):
++    """Frozen-vs-raw-vs-artifact verification shared by both coverage scopes."""
++    from trading_agent.backtest.execution_contract import require_frozen_native_evidence
++
++    path = Path(artifact.report_path).resolve()
++    if not path.is_relative_to(Path(root).resolve()):
++        raise ValueError("native source escapes packet")
++    require_frozen_native_evidence(protocol.get("native_execution_contracts"),
++        artifact.cell_id, json.loads(path.read_bytes()), artifact)
++
++
+ def verify_parallel_result_coverage(spec, result, protocol, folds, out_root):
+     """Compare exact planned validation tuples and selected OOS folds to raw sources.
+ 
+@@ -932,6 +1084,7 @@ def verify_parallel_result_coverage(spec, result, protocol, folds, out_root):
+         for candidate in inner.candidate_metrics:
+             source = candidate["validation_source"]
+             artifact = EvaluationArtifact.from_dict(source["artifact"])
++            _verify_native_report(protocol, artifact, root)
+             observed.append({
+                 "cell_id": artifact.cell_id, "params": candidate["params"],
+                 "cost": next(cost.to_dict() for cost in spec.cost_scenarios
+@@ -965,8 +1118,13 @@ def verify_parallel_result_coverage(spec, result, protocol, folds, out_root):
+         if not path.is_relative_to(root):
+             raise ValueError("Outer source escapes packet")
+         report = json.loads(path.read_bytes())
++        _verify_native_report(protocol, artifact, root)
+         rebuilt = _artifact_from_report(
+-            cell, build_default_registry().describe(spec.strategy_id), path.parent,
++            cell,
++            build_default_registry(
++                scope_token=(protocol.get("execution") or {}).get("scope_token")
++            ).describe(spec.strategy_id),
++            path.parent,
+             report, artifact.data_manifest_sha,
+             measurement_window=artifact.measurement_window,
+             simulation_window=artifact.simulation_window,
+@@ -1069,10 +1227,15 @@ def _verify_validation_protocol(spec, protocol, folds):
+             or protocol.get("scope") != "inner_validation_only_not_qualification"
+             or protocol["spec"] != spec.to_dict() or protocol["folds"] != [asdict(f) for f in folds]
+             or controls["workers"] != 1 or controls["max_retries"] != 0
+-            or not 1 <= controls["cell_timeout"] <= 180
++            or not 1 <= controls["cell_timeout"] <= VALIDATION_CELL_TIMEOUT_MAX_SECONDS
+             or type(budget.get("total_timeout_seconds")) is not int
+-            or not 1 <= budget["total_timeout_seconds"] <= 1800
+-            or type(budget.get("max_rss_mb")) is not int or not 128 <= budget["max_rss_mb"] <= 4096
++            or not (VALIDATION_TOTAL_TIMEOUT_MIN_SECONDS
++                    <= budget["total_timeout_seconds"]
++                    <= VALIDATION_TOTAL_TIMEOUT_MAX_SECONDS)
++            or type(budget.get("max_rss_mb")) is not int
++            or not (VALIDATION_MAX_RSS_MB_MIN
++                    <= budget["max_rss_mb"]
++                    <= VALIDATION_MAX_RSS_MB_MAX)
+             or capture_campaign_source(ROOT) != protocol["source"]
+             or execution_environment() != controls["environment"]
+             or simulator_runtime_config() != controls["runtime_config"]
+@@ -1177,6 +1340,7 @@ def verify_validation_only_coverage(spec, result, protocol, folds, out_root):
+             protocol["selection_contract"], inner.candidate_metrics, root=out_root,
+             validation_window=(fold.inner_val_start, fold.inner_val_end), expected_spec=spec,
+             expected_commit=protocol["source"]["code_commit"],
++            scope_token=(protocol.get("execution") or {}).get("scope_token"),
+         )
+         # Re-compute expected decision from candidates (tamper-proof)
+         from trading_agent.backtest.selection_eligibility import assess_validation_candidates
+@@ -1222,6 +1386,7 @@ def verify_validation_only_coverage(spec, result, protocol, folds, out_root):
+             source = candidate["validation_source"]
+             artifact = EvaluationArtifact.from_dict(source["artifact"])
+             control = artifact.execution_control
++            _verify_native_report(protocol, artifact, out_root)
+             if (control.get("timeout_seconds") != protocol["execution"]["cell_timeout"]
+                     or control.get("max_retries") != 0 or control.get("attempts_made") != 1
+                     or control.get("isolation") != "spawned_process" or control.get("outcome") != "completed"):
+@@ -1251,8 +1416,57 @@ def verify_validation_only_coverage(spec, result, protocol, folds, out_root):
+             "trial_counts": result.trial_counts, "live_authorized": False}
+ 
+ 
++def _verify_approved_payload_binding(protocol, scope_token):
++    """Fail closed before the first cell if the run is not the approved payload."""
++    from trading_agent.backtest.campaign_integrity import capture_campaign_source
++    from trading_agent.backtest.preregistration_binding import (
++        verify_registered_payload_binding,
++    )
++
++    resolved_root = preregistration_root()
++    # the frozen protocol records where the approved packet was read from; the
++    # run must agree with it, so a packet location cannot be swapped after the
++    # protocol was frozen
++    recorded_root = (protocol.get("execution") or {}).get("preregistration_root")
++    if recorded_root and Path(recorded_root).resolve() != resolved_root:
++        raise ValueError(
++            "the preregistration root does not match the frozen protocol: "
++            f"protocol {recorded_root}, resolved {resolved_root}"
++        )
++    declared_canonical = (protocol.get("execution") or {}).get(
++        "preregistration_root_canonical"
++    )
++    if declared_canonical is not None and bool(declared_canonical) != (
++        resolved_root == ROOT
++    ):
++        raise ValueError(
++            "the preregistration root was redirected without the frozen "
++            "protocol declaring it: "
++            f"declared canonical={declared_canonical}, resolved {resolved_root}"
++        )
++    failed = verify_registered_payload_binding(
++        protocol, scope_token, root=resolved_root,
++        source_fingerprint=capture_campaign_source(ROOT)["tree_fingerprint"],
++    )
++    if failed:
++        raise ValueError(
++            "run does not match the approved preregistration; refusing to start: "
++            + ", ".join(failed)
++        )
++
++
+ def _run_validation_canonical(spec, out_root, protocol, folds, cell_runner=None):
+     _verify_validation_protocol(spec, protocol, folds)
++    # the worker re-verifies the approved payload independently of the launcher
++    _verify_approved_payload_binding(protocol, (protocol.get("execution") or {}).get("scope_token"))
++    scope_token = (protocol.get("execution") or {}).get("scope_token")
++    cells, actual_folds = build_canonical_cells(spec, scope_token=scope_token)
++    actual_rows = [{"cell_id": cell.cell_id, "params": dict(cell.params),
++        "cost": cell.cost_scenario.to_dict(), "simulation_window": [start, end],
++        "measurement_window": [m_start, m_end]}
++        for cell, start, end, _fresh, m_start, m_end in cells]
++    if actual_folds != folds or actual_rows != protocol["expected_inner_cells"]:
++        raise ValueError("frozen validation schedule mismatch before execution")
+     runner = QualificationCellRunner(out_root, protocol, folds)
+     # Allow test override of cell runner
+     if cell_runner is not None:
+@@ -1262,7 +1476,7 @@ def _run_validation_canonical(spec, out_root, protocol, folds, cell_runner=None)
+         spec, out_root=out_root, real_sensitivity=False, run_holdout=False,
+         cell_runner=runner, native_gate_contract=protocol["native_gate_contract"],
+         selection_contract=protocol["selection_contract"], validation_only=True,
+-        execution_context=exec_context,
++        execution_context=exec_context, folds=folds,
+     )
+ 
+     # Write cell_execution receipts for each validation cell (per-cell terminal receipts)
+@@ -1322,15 +1536,74 @@ def _run_validation_canonical(spec, out_root, protocol, folds, cell_runner=None)
+         if path.exists():
+             path.unlink()
+     _durable_json(out_root / "exact_coverage.json", coverage)
++    fold_rows = []
++    for fold, inner in zip(folds, result.inner_results):
++        candidates = inner.candidate_metrics or []
++        trades = [
++            (c.get("val_metrics") or {}).get("total_trades")
++            for c in candidates
++        ]
++        decisions = [c.get("decision") for c in candidates]
++        fold_rows.append({
++            "fold_id": fold.fold_id,
++            "inner_val_start": fold.inner_val_start,
++            "inner_val_end": fold.inner_val_end,
++            "decisions": decisions,
++            "validation_trades": trades,
++            "selected": "SELECT" in decisions,
++        })
++    all_selected = bool(fold_rows) and all(row["selected"] for row in fold_rows)
++    sample_complete = bool(fold_rows) and all(
++        isinstance(trades, int) and trades > 0
++        for row in fold_rows for trades in row["validation_trades"]
++    )
+     _durable_json(out_root / "parallel_canonical_summary.json", {
+         "strategy": spec.strategy_id, "symbol": spec.symbol, "timeframe": spec.timeframe,
+         "verdict": "VALIDATION_COMPLETE", "validation_only": True, "passes_hard_gates": False,
++        # EXECUTION completeness is not QUALIFICATION. These three fields make
++        # the difference explicit so VALIDATION_COMPLETE can never be read as
++        # "qualified" or as "sample sufficient".
++        "qualification_status": (
++            "NOT_QUALIFIED_VALIDATION_ONLY" if not all_selected
++            else ("SAMPLE_COMPLETE_BUT_NOT_QUALIFIED" if sample_complete
++                  else "INCOMPLETE_SAMPLE")
++        ),
++        "all_folds_selected": all_selected,
++        "sample_complete": sample_complete,
+         "protocol_fingerprint": protocol["fingerprint"], "aggregate_metrics": result.aggregate_metrics,
+-        "trial_counts": result.trial_counts, "fold_decisions": coverage["folds"], "live_authorized": False,
++        "trial_counts": result.trial_counts, "fold_decisions": coverage["folds"],
++        "validation_fold_rows": fold_rows, "live_authorized": False,
+     })
+     return result
+ 
+ 
++def validate_validation_only_budget(args) -> None:
++    """Fail-closed check of the validation-only execution envelope.
++
++    Pure function: it reads the parsed arguments and raises ValueError with
++    the offending limit named. It performs no I/O, creates no directory and
++    starts no cell, so the budget policy can be regression-tested without
++    touching the market.
++
++    The caps live in the named constants above; this function is the single
++    place that enforces them.
++    """
++    if args.cell_timeout > VALIDATION_CELL_TIMEOUT_MAX_SECONDS:
++        raise ValueError(
++            "--validation-only requires --cell-timeout <= "
++            f"{VALIDATION_CELL_TIMEOUT_MAX_SECONDS}")
++    if args.reuse_from is not None:
++        raise ValueError("--validation-only requires a fresh packet without reuse")
++    if not (VALIDATION_TOTAL_TIMEOUT_MIN_SECONDS <= args.total_timeout
++            <= VALIDATION_TOTAL_TIMEOUT_MAX_SECONDS) or not (
++                VALIDATION_MAX_RSS_MB_MIN <= args.max_rss_mb
++                <= VALIDATION_MAX_RSS_MB_MAX):
++        raise ValueError(
++            "validation budget requires total-timeout "
++            f"{VALIDATION_TOTAL_TIMEOUT_MIN_SECONDS}..{VALIDATION_TOTAL_TIMEOUT_MAX_SECONDS}"
++            f" and max-rss-mb {VALIDATION_MAX_RSS_MB_MIN}..{VALIDATION_MAX_RSS_MB_MAX}")
++
++
+ def main():
+     parser = argparse.ArgumentParser(description="Parallel Canonical WFO runner")
+     parser.add_argument("--strategy", default="ma_adx")
+@@ -1359,10 +1632,25 @@ def main():
+     parser.add_argument("--validation-only", action="store_true",
+                         help="Run inner validation ONLY (no outer OOS, no sensitivity, no holdout). Produces selection freeze and coverage.")
+     parser.add_argument("--total-timeout", type=int, default=1800,
+-                        help="Validation-only worker session wall budget (1..1800s)")
++                        help="Validation-only worker session wall budget "
++                             f"({VALIDATION_TOTAL_TIMEOUT_MIN_SECONDS}.."
++                             f"{VALIDATION_TOTAL_TIMEOUT_MAX_SECONDS}s)")
+     parser.add_argument("--max-rss-mb", type=int, default=2048,
+-                        help="Validation-only sampled process-session RSS ceiling (128..4096 MiB)")
++                        help="Validation-only sampled process-session RSS ceiling "
++                             f"({VALIDATION_MAX_RSS_MB_MIN}..{VALIDATION_MAX_RSS_MB_MAX} MiB)")
+     parser.add_argument("--validation-worker", type=Path, help=argparse.SUPPRESS)
++    parser.add_argument(
++        "--max-retries", type=int, default=1,
++        help="Automatic cell retries. The preregistered packet pins this to 0: "
++             "a failed cell stays failed and is never retried.",
++    )
++    parser.add_argument(
++        "--scope-token", default=None,
++        help="Scope token unlocking a scoped candidate. It is frozen into the "
++             "protocol, so it is part of the protocol fingerprint, the trial "
++             "execution context and the cache key. Without it a scoped "
++             "candidate is invisible and its cells fail at resolution.",
++    )
+     parser.add_argument("--reuse-from", default=None,
+                         help="Cold recover exact cache v2 inner/selected outer cells into a NEW output packet; sensitivity reruns")
+     parser.add_argument(
+@@ -1399,12 +1687,10 @@ def main():
+             parser.error("--validation-only cannot be used with --real-sensitivity")
+         if args.workers != 1:
+             parser.error("--validation-only requires --workers 1")
+-        if args.cell_timeout > 180:
+-            parser.error("--validation-only requires --cell-timeout <= 180")
+-        if args.reuse_from is not None:
+-            parser.error("--validation-only requires a fresh packet without reuse")
+-        if not 1 <= args.total_timeout <= 1800 or not 128 <= args.max_rss_mb <= 4096:
+-            parser.error("validation budget requires total-timeout 1..1800 and max-rss-mb 128..4096")
++        try:
++            validate_validation_only_budget(args)
++        except ValueError as exc:
++            parser.error(str(exc))
+     elif not args.real_sensitivity:
+         parser.error("This qualification entry point requires measured sensitivity")
+ 
+@@ -1433,7 +1719,7 @@ def main():
+         strategy_id=args.strategy,
+         symbol=symbol,
+         timeframe=args.timeframe,
+-        param_grid=get_param_grid_for_strategy(args.strategy),
++        param_grid=get_param_grid_for_strategy(args.strategy, args.scope_token),
+         cost_scenarios=cost_scenarios,
+         train_months=args.train_months,
+         val_months=args.val_months,
+@@ -1446,9 +1732,17 @@ def main():
+         min_oos_trades=30,
+         evidence_class="REAL_MARKET",
+     )
++    if not spec.param_grid:
++        # Fail clearly: an unsupported strategy must not fall back to another
++        # one and must not silently plan an empty cell set.
++        raise ValueError(
++            f"no parameter grid is registered for strategy {spec.strategy_id!r}; "
++            "refusing to plan an empty cell set"
++        )
+     protocol, folds = prepare_parallel_protocol(
+         spec, out_root, workers=args.workers, cell_timeout=args.cell_timeout,
+-        reuse_from=args.reuse_from,
++        reuse_from=args.reuse_from, scope_token=args.scope_token,
++        max_retries=args.max_retries,
+         **({"validation_budget": {"total_timeout_seconds": args.total_timeout,
+                                   "max_rss_mb": args.max_rss_mb}} if args.validation_only else {}),
+     )
+@@ -1456,6 +1750,10 @@ def main():
+     if args.preflight_only:
+         print(f"PREFLIGHT_ONLY: {len(folds)} folds / {len(protocol['expected_inner_cells'])} inner cells; no evaluation")
+         return
++    # Binding gate: the run must execute the APPROVED preregistration, not
++    # merely run. It is checked on BOTH paths — the qualification path included —
++    # and it is a no-op for a study that is not a scoped candidate.
++    _verify_approved_payload_binding(protocol, args.scope_token)
+     if args.validation_only:
+         run_validation_only(spec, out_root, protocol, folds, args.cell_timeout)
+         return
+diff --git a/src/trading_agent/backtest/campaign_execution.py b/src/trading_agent/backtest/campaign_execution.py
+index 45da3ca..c7a0a16 100644
+--- a/src/trading_agent/backtest/campaign_execution.py
++++ b/src/trading_agent/backtest/campaign_execution.py
+@@ -190,6 +190,11 @@ class CampaignCellRunner:
+                 or artifact.commit_sha != self.context["source"]["code_commit"]):
+             raise ValueError("cached artifact identity/window/source mismatch")
+         report = json.loads(raw)
++        if "native_execution_contracts" in self.context:
++            from trading_agent.backtest.execution_contract import require_frozen_native_evidence
++
++            require_frozen_native_evidence(
++                self.context["native_execution_contracts"], spec.cell_id, report, artifact)
+         config = report.get("active_config", {})
+         runtime = self.context.get("runtime_config")
+         if runtime is not None:
+@@ -221,7 +226,11 @@ class CampaignCellRunner:
+                 or not isinstance(report.get("trades"), list)
+                 or not isinstance(report.get("equity_curve"), list) or not report["equity_curve"]):
+             raise ValueError("cached raw report identity/window/ledger missing or mismatched")
+-        rebuilt = _artifact_from_report(spec, build_default_registry().describe(spec.strategy_id),
++        rebuilt = _artifact_from_report(
++            spec,
++            build_default_registry(
++                scope_token=self.context.get("scope_token")
++            ).describe(spec.strategy_id),
+                                         Path(artifact.report_path).parent, report, artifact.data_manifest_sha,
+                                         measurement_window=measurement, simulation_window=artifact.simulation_window,
+                                         signal_delay_bars=artifact.signal_delay_bars)
+@@ -318,9 +327,18 @@ class CampaignCellRunner:
+                     cache_reason = "VERIFIED_COLD_IMPORT"
+             if artifact is None:
+                 attempt_root = self.root / "cell_attempts" / uuid.uuid4().hex
+-                _durable_json(attempt_root / "execution_started.json", {"identity": identity,
++                _durable_json(attempt_root / "execution_started.json", {
++                    "identity": identity,
++                    "started_at_epoch": time.time(),
+                                                                        "live_authorized": False})
+-                artifact = self.runner(spec, **{**kwargs, "out_root": attempt_root})
++                artifact = self.runner(
++                spec,
++                **{
++                    **kwargs,
++                    "out_root": attempt_root,
++                    "scope_token": self.context.get("scope_token"),
++                },
++            )
+                 self._verify_bindings(spec)
+                 if artifact.status == "COMPLETED" and artifact.report_path and self._bound_context():
+                     report_path = Path(artifact.report_path).resolve()
+@@ -361,6 +379,54 @@ class CampaignCellRunner:
+                         )
+                         + "\n"
+                     )
++                # Evaluation-level ledger row: ONE row per EVALUATION (the
++                # cache key), merged across the attempt history of that
++                # evaluation. Several attempt records under one evaluation are
++                # the history of that evaluation and are never counted as
++                # separate evaluations.
++                try:
++                    from trading_agent.backtest.attempt_ledger import (
++                        evaluation_attempt_dirs,
++                        record_ledger_error,
++                        write_ledger_row,
++                    )
++
++                    ledger_dir = self.root / "cell_ledger"
++                    attempt_dirs = evaluation_attempt_dirs(self.root, key)
++                    write_ledger_row(
++                        ledger_dir,
++                        key,
++                        {
++                            "identity": identity,
++                            "cell_id": spec.cell_id,
++                            "strategy_id": spec.strategy_id,
++                            "cost_scenario": spec.cost_scenario.name,
++                        },
++                        attempt_dirs,
++                        extra={
++                            "artifact_status": getattr(artifact, "status", None),
++                            "error": error,
++                            "elapsed_seconds": elapsed,
++                            "cache_hit": cache_hit,
++                            "execution_path": "cache_hit" if cache_hit else "fresh",
++                        },
++                    )
++                except Exception as ledger_exc:  # noqa: BLE001
++                    # A ledger gap must not vanish silently: it is recorded
++                    # durably in an append-only error log.
++                    try:
++                        from trading_agent.backtest.attempt_ledger import (
++                            record_ledger_error,
++                        )
++
++                        record_ledger_error(self.root / "cell_ledger", key, ledger_exc)
++                    except Exception:
++                        pass
++                    print(
++                        f"[campaign] cell={self.completed} LEDGER_WRITE_FAILED "
++                        f"key={key} {type(ledger_exc).__name__}: {ledger_exc}",
++                        flush=True,
++                    )
+                 if error or (artifact is not None and artifact.status != "COMPLETED"):
+                     failure_dir = self.root / "cell_failures"
+                     failure_dir.mkdir(parents=True, exist_ok=True)
+diff --git a/src/trading_agent/backtest/nested_wfo.py b/src/trading_agent/backtest/nested_wfo.py
+index 3073c50..e07f2ed 100644
+--- a/src/trading_agent/backtest/nested_wfo.py
++++ b/src/trading_agent/backtest/nested_wfo.py
+@@ -997,6 +997,7 @@ def run_final_holdout(
+     *,
+     out_root: Path | None = None,
+     actor: str = "research_system",
++    scope_token: str | None = None,
+ ) -> dict[str, Any]:
+     """Run the final holdout evaluation (STR-0309).
+ 
+@@ -1031,7 +1032,7 @@ def run_final_holdout(
+     from trading_agent.backtest.tournament import _research_env
+     from trading_agent.strategies.canonical.candidates import build_default_registry
+ 
+-    registry_canonical = build_default_registry()
++    registry_canonical = build_default_registry(scope_token=scope_token)
+     _, adapter = registry_canonical.get(spec.strategy_id, environment=_research_env())
+ 
+     # Get cost scenario (use default or from selected params)
+@@ -1560,23 +1561,37 @@ def _count_clearing_per_window(
+     return keys
+ 
+ 
+-def _compute_strategy_code_sha(strategy_id: str) -> str:
+-    """Get strategy code SHA from registry descriptor."""
++def _compute_strategy_code_sha(
++    strategy_id: str, scope_token: str | None = None
++) -> str:
++    """Get strategy code SHA from registry descriptor.
++
++    ``scope_token`` is required for a SCOPED candidate: without it the id is
++    not in the registry and the SHA would degrade to "unknown", which would
++    destroy the source attribution of the trial identity.
++    """
+     from trading_agent.strategies.canonical.candidates import build_default_registry
+ 
+-    registry = build_default_registry()
++    registry = build_default_registry(scope_token=scope_token)
+     entry = registry._entries.get(strategy_id)
+     if entry is None:
+         return "unknown"
+     return entry.descriptor.code_sha
+ 
+ 
++def _load_wfo_ohlcv(symbol: str, timeframe: str):
++    """Honor frozen research input in every WFO consumer, including provenance."""
++    from trading_agent.data import storage
++
++    if "TRADING_FROZEN_RESEARCH_DATA" in os.environ:
++        return storage.load_research_ohlcv("binance", symbol, timeframe)
++    return storage.load_ohlcv("binance", symbol, timeframe)
++
++
+ def _compute_data_manifest_sha(symbol: str, timeframe: str) -> str:
+     """Compute SHA256 of data manifest (OHLCV data)."""
+     import io
+-    from trading_agent.data.storage import load_ohlcv
+-
+-    df = load_ohlcv("binance", symbol, timeframe)
++    df = _load_wfo_ohlcv(symbol, timeframe)
+     # Hash the data content (timestamps, OHLCV values)
+     buffer = io.BytesIO()
+     df.write_parquet(buffer)
+@@ -2084,9 +2099,7 @@ def _compute_multi_dimensional_evaluation(
+     import numpy as np
+ 
+     # Load data for regime/year/vol bucket analysis
+-    from trading_agent.data.storage import load_ohlcv
+-
+-    df = load_ohlcv("binance", spec.symbol, spec.timeframe)
++    df = _load_wfo_ohlcv(spec.symbol, spec.timeframe)
+     df = df.sort("timestamp")
+ 
+     # PIT regime indicators: compute ATR percentile and ADX on TRAIN data only
+@@ -2837,7 +2850,8 @@ def run_nested_wfo(
+     from trading_agent.strategies.canonical.candidates import build_default_registry
+     from trading_agent.backtest.tournament import _research_env
+ 
+-    registry_canonical = build_default_registry()
++    scope_token = (execution_context or {}).get("scope_token")
++    registry_canonical = build_default_registry(scope_token=scope_token)
+     descriptor = registry_canonical.describe(spec.strategy_id)
+     _, adapter = registry_canonical.get(spec.strategy_id, environment=_research_env())
+     training_contract = _resolve_training_contract(adapter)
+@@ -2850,9 +2864,7 @@ def run_nested_wfo(
+         embargo = spec.embargo_bars
+ 
+     # Load data to determine number of bars
+-    from trading_agent.data.storage import load_ohlcv
+-
+-    df = load_ohlcv("binance", spec.symbol, spec.timeframe)
++    df = _load_wfo_ohlcv(spec.symbol, spec.timeframe)
+     n_bars = df.height
+ 
+     # Generate folds (or use provided folds for validation-only)
+@@ -2925,7 +2937,7 @@ def run_nested_wfo(
+     search_space_hash_val = search_space_hash(spec.param_grid)
+ 
+     # Compute real provenance hashes (Phase 3: Real Provenance)
+-    strategy_code_sha = _compute_strategy_code_sha(spec.strategy_id)
++    strategy_code_sha = _compute_strategy_code_sha(spec.strategy_id, scope_token)
+     data_manifest_sha = _compute_data_manifest_sha(spec.symbol, spec.timeframe)
+     feature_schema_hash = _compute_feature_schema_hash(descriptor)
+     commit_sha = _compute_commit_sha()
+diff --git a/src/trading_agent/backtest/selection_eligibility.py b/src/trading_agent/backtest/selection_eligibility.py
+index d6f6eef..fced3f0 100644
+--- a/src/trading_agent/backtest/selection_eligibility.py
++++ b/src/trading_agent/backtest/selection_eligibility.py
+@@ -138,6 +138,7 @@ def verify_validation_reports(
+     expected_commit=None,
+     expected_manifest_sha=None,
+     expected_simulation_window=None,
++    scope_token=None,
+ ):
+     """Fail closed on absent/changed/out-of-scope source reports.
+ 
+@@ -246,7 +247,7 @@ def verify_validation_reports(
+                 )
+             rebuilt = _artifact_from_report(
+                 cell,
+-                build_default_registry().describe(cell.strategy_id),
++                build_default_registry(scope_token=scope_token).describe(cell.strategy_id),
+                 path.parent,
+                 report,
+                 artifact.data_manifest_sha,
+diff --git a/src/trading_agent/backtest/tournament.py b/src/trading_agent/backtest/tournament.py
+index a71312c..ecc4880 100644
+--- a/src/trading_agent/backtest/tournament.py
++++ b/src/trading_agent/backtest/tournament.py
+@@ -332,8 +332,12 @@ class EvaluationCellSpec:
+     params: Mapping[str, Any] = field(default_factory=dict)
+     cost_scenario: CostScenario = SCENARIO_BASE
+     fault: FaultProfile = FAULT_NONE
++    expected_execution_contract_id: str | None = None
+ 
+     def __post_init__(self) -> None:
++        from trading_agent.backtest.execution_contract import validate_expected_contract_id
++
++        validate_expected_contract_id(self.expected_execution_contract_id)
+         if not self.strategy_id or not self.symbol:
+             raise ValueError("strategy_id and symbol are required")
+         object.__setattr__(
+@@ -354,6 +358,8 @@ class EvaluationCellSpec:
+         )
+         if self.fault.active:
+             base += f"__f{self.fault.name}"
++        if self.expected_execution_contract_id is not None:
++            base += f"__e{self.expected_execution_contract_id}"
+         return base
+ 
+ 
+@@ -378,6 +384,9 @@ def canonical_signal_series(
+     # Storage timestamps may be tz-naive; the contract requires awareness.
+     if times and getattr(times[0], "tzinfo", None) is None:
+         times = [value.replace(tzinfo=UTC) for value in times]
++    if frame.schema["time"].time_zone is None:
++        # Storage keeps naive-UTC timestamps; make them explicitly UTC.
++        frame = frame.with_columns(pl.col("time").dt.replace_time_zone("UTC"))
+     if start_index < 0:
+         raise ValueError("start_index must be non-negative")
+     resolved_end = frame.height if end_index is None else min(end_index, frame.height)
+@@ -598,6 +607,10 @@ def run_cell(
+     timeout_seconds: float = 300,
+     max_retries: int = 2,
+     resource_budget: Optional[dict[str, Any]] = None,
++    frozen_execution_contract_id: str | None = None,
++    # Controlled execution path for a scoped candidate: the token names the
++    # preregistration that authorised it. Without it the candidate is invisible.
++    scope_token: str | None = None,
+     # Internal: disable multiprocessing for fast tests / single-threaded mode
+     _use_multiprocessing: bool = True,
+ ) -> EvaluationArtifact:
+@@ -615,6 +628,12 @@ def run_cell(
+         _use_multiprocessing: If False, run inline without process isolation
+             (faster for tests; disables timeout/retry enforcement).
+     """
++    from trading_agent.backtest.execution_contract import validate_expected_contract_id
++
++    validate_expected_contract_id(frozen_execution_contract_id)
++    if (frozen_execution_contract_id is not None and spec.expected_execution_contract_id is not None
++            and frozen_execution_contract_id != spec.expected_execution_contract_id):
++        raise ValueError("explicit/frozen execution contract conflict")
+     if tail_bars is not None and tail_bars <= 0:
+         raise ValueError("tail_bars must be positive")
+     if tail_bars is not None and (
+@@ -648,6 +667,9 @@ def run_cell(
+                 "params": dict(spec.params),
+                 "cost_scenario": spec.cost_scenario,
+                 "fault": spec.fault,
++                "expected_execution_contract_id": spec.expected_execution_contract_id,
++                "frozen_execution_contract_id": frozen_execution_contract_id,
++                "scope_token": scope_token,
+             },
+             out_root=out_root,
+             start=start,
+@@ -671,6 +693,9 @@ def run_cell(
+         "params": dict(spec.params),
+         "cost_scenario": spec.cost_scenario,
+         "fault": spec.fault,
++        "expected_execution_contract_id": spec.expected_execution_contract_id,
++        "frozen_execution_contract_id": frozen_execution_contract_id,
++        "scope_token": scope_token,
+     }
+     return _run_cell_with_retry(
+         spec_primitives=spec_primitives,
+@@ -772,6 +797,7 @@ def _run_cell_with_retry(
+         params=spec_primitives["params"],
+         cost_scenario=spec_primitives["cost_scenario"],
+         fault=spec_primitives["fault"],
++        expected_execution_contract_id=spec_primitives.get("expected_execution_contract_id"),
+     )
+     artifact = _failed_artifact(
+         minimal_spec,
+@@ -981,11 +1007,13 @@ def _run_cell_impl(
+         params=spec_primitives["params"],
+         cost_scenario=spec_primitives["cost_scenario"],
+         fault=spec_primitives["fault"],
++        expected_execution_contract_id=spec_primitives.get("expected_execution_contract_id"),
+     )
+     # Import here so module import stays cheap for tests that only need specs.
+-    from scripts.full_system_backtest import FullSystemSimulator
++    from scripts.full_system_backtest import FullSystemSimulator, describe_execution_contract
+ 
+-    registry = build_default_registry()
++    scope_token = spec_primitives.get("scope_token")
++    registry = build_default_registry(scope_token=scope_token)
+     try:
+         descriptor: StrategyDescriptor = registry.describe(spec.strategy_id)
+     except UnknownStrategyError as exc:
+@@ -996,7 +1024,9 @@ def _run_cell_impl(
+         )
+ 
+     try:
+-        descriptor, adapter = build_parameterized_adapter(spec.strategy_id, spec.params)
++        descriptor, adapter = build_parameterized_adapter(
++            spec.strategy_id, spec.params, scope_token=scope_token
++        )
+     except RegistryIntegrityError as exc:
+         return _failed_artifact(spec, descriptor, f"registry blocked: {exc}")
+ 
+@@ -1162,6 +1192,13 @@ def _run_cell_impl(
+         else:
+             signals = [0] * signal_delay_bars + signals[:-signal_delay_bars]
+ 
++    # All canonical cells bind native semantics before the engine is constructed,
++    # including sensitivity calls that do not pass an explicit expected ID.
++    declared_contract = describe_execution_contract(
++        symbol=spec.symbol, timeframe=spec.timeframe, strategy_name=spec.strategy_id,
++        parameters=dict(spec.params), commission=spec.cost_scenario.commission,
++        slippage=spec.cost_scenario.slippage,
++    )
+     sim = FullSystemSimulator(
+         fresh=fresh,
+         symbol=spec.symbol,
+@@ -1175,6 +1212,9 @@ def _run_cell_impl(
+         strategy_params_override=dict(spec.params),
+         signal_series=signals,
+         source_df_override=source_df,
++        expected_execution_contract_id=(spec.expected_execution_contract_id
++            or spec_primitives.get("frozen_execution_contract_id") or declared_contract["contract_id"]),
++        scope_token=scope_token,
+         commission=spec.cost_scenario.commission,
+         slippage=spec.cost_scenario.slippage,
+         # EVERY strategy goes through the canonical runtime bridge so the
+@@ -1537,6 +1577,17 @@ def _artifact_from_report(
+     reasons: list[str] = []
+     metrics_block = report.get("metrics", {}) if report else {}
+     health = report.get("execution_health", {}) if report else {}
++    health = dict(health)
++    contract = report.get("active_config", {}).get("execution_contract") if report else None
++    if contract is not None:
++        from trading_agent.backtest.execution_contract import require_execution_contract
++
++        require_execution_contract(contract.get("contract_id"), contract)
++        health["execution_contract_id"] = contract["contract_id"]
++    if spec.expected_execution_contract_id is not None:
++        from trading_agent.backtest.execution_contract import require_execution_contract
++
++        require_execution_contract(spec.expected_execution_contract_id, contract)
+ 
+     metrics: dict[str, Any] = {}
+     for key in _REQUIRED_METRICS:
+diff --git a/src/trading_agent/strategies/canonical/candidates.py b/src/trading_agent/strategies/canonical/candidates.py
+index 0a3f89e..9a9051c 100644
+--- a/src/trading_agent/strategies/canonical/candidates.py
++++ b/src/trading_agent/strategies/canonical/candidates.py
+@@ -22,6 +22,7 @@ from pathlib import Path
+ from typing import Any, Mapping
+ 
+ from trading_agent.strategies.base import Strategy
++from trading_agent.strategies.di_adx_state_edge import DiAdxStateEdgeStrategy
+ from trading_agent.strategies.bbands import BBandsStrategy
+ from trading_agent.strategies.canonical.adapter import LegacyDataFrameAdapter
+ from trading_agent.strategies.canonical.descriptor import StrategyDescriptor
+@@ -38,6 +39,7 @@ from trading_agent.strategies.ma_crossover import MaCrossover
+ from trading_agent.strategies.range_mean_reversion import RangeMeanReversionStrategy
+ from trading_agent.strategies.regime_switching import RegimeSwitchingStrategy
+ from trading_agent.strategies.rsi import RsiStrategy
++from trading_agent.strategies.rsi_adx_regime_filter import RsiAdxRegimeFilterStrategy
+ from trading_agent.strategies.stat_arbitrage import (
+     StatArbitrageLongOnlyStrategy,
+     StatArbitrageLongShortStrategy,
+@@ -57,6 +59,7 @@ def _file_sha(name: str) -> str:
+ 
+ 
+ _ENHANCED_MA_SHA = _file_sha("enhanced_ma.py")
++_DI_ADX_STATE_EDGE_SHA = _file_sha("di_adx_state_edge.py")
+ _RSI_SHA = _file_sha("rsi.py")
+ _BBANDS_SHA = _file_sha("bbands.py")
+ _REGIME_SWITCHING_SHA = _file_sha("regime_switching.py")
+@@ -67,11 +70,13 @@ _MA_CROSSOVER_SHA = _file_sha("ma_crossover.py")
+ _RANGE_MEAN_REVERSION_SHA = _file_sha("range_mean_reversion.py")
+ _STAT_ARBITRAGE_SHA = _file_sha("stat_arbitrage.py")
+ _CROSS_SECTIONAL_MOMENTUM_SHA = _file_sha("cross_sectional_momentum.py")
++_RSI_ADX_REGIME_FILTER_SHA = _file_sha("rsi_adx_regime_filter.py")
+ 
+ # Default parameter sets (mirror the legacy defaults) → warm-up bars.
+ _ENHANCED_MA_WARMUP = 80 + 14 + 6  # slow(80) + adx(14) + buffer
+ _RSI_WARMUP = 14 + 2
+ _BBANDS_WARMUP = 20 + 2
++_RSI_ADX_REGIME_FILTER_WARMUP = max(80 + 14 + 6, 14 + 2)  # max(ma_slow+adx+buffer, rsi+window)
+ _FUNDING_CARRY_WARMUP = 20 + 2  # vol_window(20) + buffer for pct_change + rolling
+ _VOLATILITY_BREAKOUT_WARMUP = 20 + 14 + 2  # bb_period(20) + atr(14) + buffer
+ _ENSEMBLE_MA_ADX_WARMUP = 252 + 14 + 2  # ATR then lagged regime percentile
+@@ -157,6 +162,17 @@ _MA_ADX_PARAMS_SCHEMA = {
+     ],
+ }
+ 
++_DI_ADX_STATE_EDGE_PARAMS_SCHEMA = {
++    "$schema": "https://json-schema.org/draft/2020-12/schema",
++    "type": "object",
++    "additionalProperties": False,
++    "properties": {
++        "adx_period": {"type": "integer", "minimum": 2, "maximum": 100},
++        "adx_threshold": {"type": "number", "minimum": 0.0, "maximum": 100.0},
++    },
++    "required": [],
++}
++
+ _MA_VOL_TARGET_PARAMS_SCHEMA = {
+     "$schema": "https://json-schema.org/draft/2020-12/schema",
+     "type": "object",
+@@ -218,6 +234,33 @@ _REGIME_SWITCHING_PARAMS_SCHEMA = {
+     "required": [],
+ }
+ 
++_RSI_ADX_REGIME_FILTER_PARAMS_SCHEMA = {
++    "$schema": "https://json-schema.org/draft/2020-12/schema",
++    "type": "object",
++    "additionalProperties": False,
++    "properties": {
++        "rsi_period": {"type": "integer", "minimum": 2, "maximum": 100},
++        "rsi_oversold": {"type": "integer", "minimum": 1, "maximum": 49},
++        "rsi_overbought": {"type": "integer", "minimum": 51, "maximum": 99},
++        "ma_fast": {"type": "integer", "minimum": 2, "maximum": 100},
++        "ma_slow": {"type": "integer", "minimum": 3, "maximum": 500},
++        "adx_period": {"type": "integer", "minimum": 2, "maximum": 100},
++        "adx_threshold": {"type": "number", "minimum": 0.0, "maximum": 100.0},
++        "ma_type": {"type": "string", "enum": ["sma", "ema"], "default": "sma"},
++    },
++    "required": [],
++    "allOf": [
++        {
++            "if": {"properties": {"ma_fast": {}, "ma_slow": {}}},
++            "then": {"properties": {"ma_slow": {"exclusiveMinimum": {"$data": "1/ma_fast"}}}},
++        },
++        {
++            "if": {"properties": {"rsi_oversold": {}, "rsi_overbought": {}}},
++            "then": {"properties": {"rsi_overbought": {"exclusiveMinimum": {"$data": "1/rsi_oversold"}}}},
++        }
++    ],
++}
++
+ _FUNDING_CARRY_PARAMS_SCHEMA = {
+     "$schema": "https://json-schema.org/draft/2020-12/schema",
+     "type": "object",
+@@ -425,6 +468,10 @@ _CROSS_SECTIONAL_MOMENTUM_LS_PARAMS_SCHEMA = {
+ # ──────────────────────────────────────────────────────────────────────
+ 
+ _PARAM_DEFAULTS: dict[str, dict[str, Any]] = {
++    "di_adx_state_edge": {
++        "adx_period": 14,
++        "adx_threshold": 25.0,
++    },
+     "enhanced_ma": {
+         "fast_period": 20,
+         "slow_period": 80,
+@@ -468,6 +515,16 @@ _PARAM_DEFAULTS: dict[str, dict[str, Any]] = {
+         "refit_every": 0,
+         "base_position_pct": 0.1,
+     },
++    "rsi_adx_regime_filter": {
++        "rsi_period": 14,
++        "rsi_oversold": 30,
++        "rsi_overbought": 70,
++        "ma_fast": 20,
++        "ma_slow": 80,
++        "adx_period": 14,
++        "adx_threshold": 20.0,
++        "ma_type": "sma",
++    },
+     "funding_carry": {
+         "funding_entry_threshold": -0.00008,
+         "funding_exit_threshold": 0.00005,
+@@ -542,11 +599,13 @@ _PARAM_DEFAULTS: dict[str, dict[str, Any]] = {
+ 
+ _PARAM_SCHEMAS: dict[str, dict[str, Any]] = {
+     "enhanced_ma": _ENHANCED_MA_PARAMS_SCHEMA,
++    "di_adx_state_edge": _DI_ADX_STATE_EDGE_PARAMS_SCHEMA,
+     "ma_adx": _MA_ADX_PARAMS_SCHEMA,
+     "ma_vol_target": _MA_VOL_TARGET_PARAMS_SCHEMA,
+     "rsi": _RSI_PARAMS_SCHEMA,
+     "bbands": _BBANDS_PARAMS_SCHEMA,
+     "regime_switching": _REGIME_SWITCHING_PARAMS_SCHEMA,
++    "rsi_adx_regime_filter": _RSI_ADX_REGIME_FILTER_PARAMS_SCHEMA,
+     "funding_carry": _FUNDING_CARRY_PARAMS_SCHEMA,
+     "volatility_breakout": _VOLATILITY_BREAKOUT_PARAMS_SCHEMA,
+     "ensemble_ma_adx": _ENSEMBLE_MA_ADX_PARAMS_SCHEMA,
+@@ -576,7 +635,9 @@ def validate_params(strategy_id: str, params: Mapping[str, Any] | None) -> dict[
+     if strategy_id not in _PARAM_SCHEMAS:
+         raise ParamValidationError(f"Unknown strategy_id: {strategy_id}")
+ 
+-    schema = _PARAM_SCHEMAS[strategy_id]
++    schema = _PARAM_SCHEMAS.get(strategy_id)
++    if schema is None:
++        raise ParamValidationError(f"unknown strategy id: {strategy_id}")
+     defaults = _PARAM_DEFAULTS[strategy_id]
+ 
+     raw = dict(params or {})
+@@ -682,7 +743,9 @@ def compute_effective_params_hash(strategy_id: str, params: Mapping[str, Any] |
+ 
+ def resolved_warmup_bars(strategy_id: str, params: Mapping[str, Any] | None = None) -> int:
+     """Registered history requirement; MA lookback follows effective periods."""
+-    baseline = _CANDIDATE_WARMUPS[strategy_id]
++    baseline = _CANDIDATE_WARMUPS.get(
++        strategy_id, _CANDIDATE_WARMUPS["enhanced_ma"]
++    )
+     if strategy_id in {"ensemble_ma_adx", "ma_adx_regime"}:
+         normalized = validate_params(strategy_id, params)
+         atr = normalized.get("atr_period", 14)
+@@ -727,15 +790,21 @@ def campaign_history_contract(strategy_id: str, grid: Mapping) -> dict:
+ def build_legacy_candidate(
+     strategy_id: str,
+     params: Mapping[str, Any] | None = None,
++    *,
++    scope_token: str | None = None,
+ ) -> tuple[StrategyDescriptor, Strategy]:
+     """Build an exact parameterized legacy strategy after allowlist verification.
+ 
+     Validates parameters against schema, applies defaults, and returns
+     the descriptor with the effective params hash in the model_artifact_id.
+     """
+-    registry = build_default_registry()
++    registry = build_default_registry(scope_token=scope_token)
+     descriptor = registry.describe(strategy_id)
+-    strategy_cls = _CANDIDATE_CLASSES[strategy_id]
++    scoped_id = resolve_scoped_candidate_id(scope_token)
++    if scoped_id == strategy_id:
++        strategy_cls = _SCOPED_CANDIDATE_CLASSES[strategy_id]
++    else:
++        strategy_cls = _CANDIDATE_CLASSES[strategy_id]
+ 
+     # Validate and normalize params (fail-closed)
+     normalized = validate_params(strategy_id, params)
+@@ -751,13 +820,17 @@ def build_legacy_candidate(
+ def build_parameterized_adapter(
+     strategy_id: str,
+     params: Mapping[str, Any] | None = None,
++    *,
++    scope_token: str | None = None,
+ ) -> tuple[StrategyDescriptor, LegacyDataFrameAdapter]:
+     """Build a canonical research adapter bound to exact parameter content.
+ 
+     Returns descriptor and adapter with model_artifact_id containing
+     the effective params hash (canonical identity).
+     """
+-    descriptor, strategy = build_legacy_candidate(strategy_id, params)
++    descriptor, strategy = build_legacy_candidate(
++        strategy_id, params, scope_token=scope_token
++    )
+     effective_hash = compute_effective_params_hash(strategy_id, params)
+     adapter = LegacyDataFrameAdapter(
+         strategy,
+@@ -821,12 +894,19 @@ ENHANCED_MA_DESCRIPTOR = _descriptor(
+ MA_ADX_DESCRIPTOR = _descriptor(
+     "ma_adx", _ENHANCED_MA_SHA, _ENHANCED_MA_WARMUP, _MA_ADX_PARAMS_SCHEMA
+ )
++DI_ADX_STATE_EDGE_DESCRIPTOR = _descriptor(
++    "di_adx_state_edge",
++    _DI_ADX_STATE_EDGE_SHA,
++    _ENHANCED_MA_WARMUP,
++    _DI_ADX_STATE_EDGE_PARAMS_SCHEMA,
++)
+ MA_VOL_TARGET_DESCRIPTOR = _descriptor(
+     "ma_vol_target", _ENHANCED_MA_SHA, _ENHANCED_MA_WARMUP, _MA_VOL_TARGET_PARAMS_SCHEMA
+ )
+ RSI_DESCRIPTOR = _descriptor("rsi", _RSI_SHA, _RSI_WARMUP, _RSI_PARAMS_SCHEMA)
+ BBANDS_DESCRIPTOR = _descriptor("bbands", _BBANDS_SHA, _BBANDS_WARMUP, _BBANDS_PARAMS_SCHEMA)
+ REGIME_SWITCHING_DESCRIPTOR = _descriptor("regime_switching", _REGIME_SWITCHING_SHA, 200, _REGIME_SWITCHING_PARAMS_SCHEMA)
++RSI_ADX_REGIME_FILTER_DESCRIPTOR = _descriptor("rsi_adx_regime_filter", _RSI_ADX_REGIME_FILTER_SHA, _RSI_ADX_REGIME_FILTER_WARMUP, _RSI_ADX_REGIME_FILTER_PARAMS_SCHEMA)
+ FUNDING_CARRY_DESCRIPTOR = _descriptor("funding_carry", _FUNDING_CARRY_SHA, _FUNDING_CARRY_WARMUP, _FUNDING_CARRY_PARAMS_SCHEMA)
+ VOLATILITY_BREAKOUT_DESCRIPTOR = _descriptor("volatility_breakout", _VOLATILITY_BREAKOUT_SHA, _VOLATILITY_BREAKOUT_WARMUP, _VOLATILITY_BREAKOUT_PARAMS_SCHEMA)
+ ENSEMBLE_MA_ADX_DESCRIPTOR = _descriptor("ensemble_ma_adx", _ENHANCED_MA_SHA, _ENSEMBLE_MA_ADX_WARMUP, _ENSEMBLE_MA_ADX_PARAMS_SCHEMA)
+@@ -849,6 +929,7 @@ FIRST_WAVE_DESCRIPTORS: dict[str, StrategyDescriptor] = {
+         RSI_DESCRIPTOR,
+         BBANDS_DESCRIPTOR,
+         REGIME_SWITCHING_DESCRIPTOR,
++        RSI_ADX_REGIME_FILTER_DESCRIPTOR,
+         FUNDING_CARRY_DESCRIPTOR,
+         # Expanded pool — higher Sharpe single-backtest performers
+         VOLATILITY_BREAKOUT_DESCRIPTOR,
+@@ -872,6 +953,7 @@ _CANDIDATE_CLASSES: dict[str, type[Strategy]] = {
+     "rsi": RsiStrategy,
+     "bbands": BBandsStrategy,
+     "regime_switching": RegimeSwitchingStrategy,
++    "rsi_adx_regime_filter": RsiAdxRegimeFilterStrategy,
+     "funding_carry": FundingCarryStrategy,
+     "volatility_breakout": VolatilityBreakoutStrategy,
+     "ensemble_ma_adx": EnsembleMaAdx,
+@@ -887,11 +969,13 @@ _CANDIDATE_CLASSES: dict[str, type[Strategy]] = {
+ 
+ _CANDIDATE_WARMUPS = {
+     "enhanced_ma": _ENHANCED_MA_WARMUP,
++    "di_adx_state_edge": _ENHANCED_MA_WARMUP,
+     "ma_adx": _ENHANCED_MA_WARMUP,
+     "ma_vol_target": _ENHANCED_MA_WARMUP,
+     "rsi": _RSI_WARMUP,
+     "bbands": _BBANDS_WARMUP,
+     "regime_switching": 200,
++    "rsi_adx_regime_filter": _RSI_ADX_REGIME_FILTER_WARMUP,
+     "funding_carry": _FUNDING_CARRY_WARMUP,
+     "volatility_breakout": _VOLATILITY_BREAKOUT_WARMUP,
+     "ensemble_ma_adx": _ENSEMBLE_MA_ADX_WARMUP,
+@@ -923,8 +1007,53 @@ def _adapter_factory(desc: StrategyDescriptor, strategy_cls, warmup_bars: int):
+     return factory
+ 
+ 
+-def build_default_registry() -> CanonicalStrategyRegistry:
+-    """Registry with the five first-wave candidates pre-registered."""
++# ── Scoped candidate resolution ────────────────────────────────────────────
++# A SCOPED candidate is resolvable only when the caller presents the exact
++# scope token that names the preregistration which authorised it. Without the
++# token the candidate is invisible: it is not in the default (broad) registry
++# and cannot be selected by name by any campaign, worker or CLI.
++#
++# This is a controlled execution path, not a broad registration. The legacy
++# ``@register_strategy`` registry is untouched, and ``build_default_registry()``
++# with no token is byte-for-byte the registry it was before.
++SCOPED_CANDIDATE_SCOPE_TOKENS: dict[str, str] = {
++    # scope token -> the single candidate id it unlocks
++    "bnb_di_adx_stateedge_prereg_20261020_01": "di_adx_state_edge",
++}
++
++#: scope token -> the preregistration packet that holds its approved payload.
++#: Kept next to the token map on purpose: the two must not drift apart.
++SCOPED_CANDIDATE_PREREGISTRATION_PATHS: dict[str, str] = {
++    "bnb_di_adx_stateedge_prereg_20261020_01":
++        "data/bnb_di_adx_stateedge_prereg_20261020_01",
++}
++
++_SCOPED_CANDIDATE_DESCRIPTORS: dict[str, StrategyDescriptor] = {
++    "di_adx_state_edge": DI_ADX_STATE_EDGE_DESCRIPTOR,
++}
++_SCOPED_CANDIDATE_CLASSES: dict[str, type[Strategy]] = {
++    "di_adx_state_edge": DiAdxStateEdgeStrategy,
++}
++
++
++def resolve_scoped_candidate_id(scope_token: str | None) -> str | None:
++    """Return the candidate id unlocked by ``scope_token``, or None.
++
++    An unknown or empty token unlocks nothing. A token that names a candidate
++    which is not a scoped candidate unlocks nothing.
++    """
++    if not scope_token:
++        return None
++    return SCOPED_CANDIDATE_SCOPE_TOKENS.get(scope_token)
++
++
++def build_default_registry(*, scope_token: str | None = None) -> CanonicalStrategyRegistry:
++    """Registry with the pre-registered candidates.
++
++    ``scope_token`` is the controlled path: it unlocks exactly the one scoped
++    candidate the named preregistration authorised, and nothing else. Without a
++    token the registry is exactly the broad registry.
++    """
+     registry = CanonicalStrategyRegistry()
+     for desc, cls, source_cls, warmup in (
+         (
+@@ -943,6 +1072,7 @@ def build_default_registry() -> CanonicalStrategyRegistry:
+         (RSI_DESCRIPTOR, RsiStrategy, RsiStrategy, _RSI_WARMUP),
+         (BBANDS_DESCRIPTOR, BBandsStrategy, BBandsStrategy, _BBANDS_WARMUP),
+         (REGIME_SWITCHING_DESCRIPTOR, RegimeSwitchingStrategy, RegimeSwitchingStrategy, 200),
++        (RSI_ADX_REGIME_FILTER_DESCRIPTOR, RsiAdxRegimeFilterStrategy, RsiAdxRegimeFilterStrategy, _RSI_ADX_REGIME_FILTER_WARMUP),
+         (FUNDING_CARRY_DESCRIPTOR, FundingCarryStrategy, FundingCarryStrategy, _FUNDING_CARRY_WARMUP),
+         (VOLATILITY_BREAKOUT_DESCRIPTOR, VolatilityBreakoutStrategy, VolatilityBreakoutStrategy, _VOLATILITY_BREAKOUT_WARMUP),
+         (ENSEMBLE_MA_ADX_DESCRIPTOR, EnsembleMaAdx, EnsembleMaAdx, _ENSEMBLE_MA_ADX_WARMUP),
+@@ -960,6 +1090,17 @@ def build_default_registry() -> CanonicalStrategyRegistry:
+             _adapter_factory(desc, cls, warmup),
+             code_source=source_cls,
+         )
++    scoped_id = resolve_scoped_candidate_id(scope_token)
++    if scoped_id is not None:
++        scoped_desc = _SCOPED_CANDIDATE_DESCRIPTORS[scoped_id]
++        scoped_cls = _SCOPED_CANDIDATE_CLASSES[scoped_id]
++        registry.register(
++            scoped_desc,
++            _adapter_factory(
++                scoped_desc, scoped_cls, scoped_desc.warmup_bars
++            ),
++            code_source=scoped_cls,
++        )
+     return registry
+ 
+ 
+@@ -968,6 +1109,7 @@ __all__ = [
+     "ENHANCED_MA_DESCRIPTOR",
+     "FIRST_WAVE_DESCRIPTORS",
+     "REGIME_SWITCHING_DESCRIPTOR",
++    "RSI_ADX_REGIME_FILTER_DESCRIPTOR",
+     "MA_ADX_DESCRIPTOR",
+     "MA_VOL_TARGET_DESCRIPTOR",
+     "RSI_DESCRIPTOR",

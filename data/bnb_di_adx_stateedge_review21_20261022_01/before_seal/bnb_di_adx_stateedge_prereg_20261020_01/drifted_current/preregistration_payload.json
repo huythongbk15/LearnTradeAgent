@@ -1,0 +1,897 @@
+{
+  "authority": "run_nested_wfo",
+  "budget": {
+    "cell_timeout_seconds": 300,
+    "central_cells": 15,
+    "envelope_checks": "the same named caps (VALIDATION_CELL_TIMEOUT_MAX_SECONDS=600, VALIDATION_TOTAL_TIMEOUT_MAX_SECONDS=7200, VALIDATION_MAX_RSS_MB_MIN=128, VALIDATION_MAX_RSS_MB_MAX=4096) are enforced in three places: the CLI guard, the protocol producer, and the protocol verifier. The registered 300/5400 values sit inside them.",
+    "envelope_is_expected_not_guaranteed": true,
+    "final_review_round": {
+      "cap_seconds": 600,
+      "check_list": [
+        "five token hops: launcher -> worker -> registry -> simulator, and the execution/cache identity",
+        "file path and sha256 are the pre-holdout artifact; accept the 6795-row decode scope explicitly, evaluation confined to [0,5600)",
+        "fault receipts and the fact that the aggregator does not certify a packet without coverage",
+        "test IDs, source and manifests match the revision under review"
+      ],
+      "may": [
+        "read source/artifact/receipts",
+        "run the existing targeted suites",
+        "run a synthetic check",
+        "recompute the identities",
+        "compare test IDs"
+      ],
+      "may_not": [
+        "change any strategy, gate, policy, budget or identity",
+        "open a market cell",
+        "extend the preregistration",
+        "start an optimisation round"
+      ],
+      "purpose": "one bounded independent review of the five token hops, the data scope, the timeout/ledger receipts and identity A/B/C",
+      "registered": true,
+      "stop_condition": "cap reached or check list exhausted; the review stops and reports",
+      "taken_from_market_run_budget": false,
+      "verdict_kind": "AUTHOR_AUTOMATED_VERIFICATION — the script, its assertions and its runner are all the author's. It is NOT an independent review. An independent review requires a reviewer other than the author to read the source, the assertions and the receipts on the exact A/B/C and to reproduce the checks independently.",
+      "verdicts": [
+        "ACCEPTED_FOR_BOUNDED_VALIDATION",
+        "CHANGES_REQUIRED",
+        "BLOCKED"
+      ]
+    },
+    "geometry_note": "the CLI default for --val-months is 3 and would NOT reproduce the frozen six-month windows; the geometry is therefore pinned explicitly. purge and embargo are not CLI options: they are derived from the descriptor warmup (100) as max(warmup, horizon) = 100, matching the control.",
+    "integration_review_status": "entrypoint_chain_verified_synthetic",
+    "max_retries": 0,
+    "max_retries_note": "the validation-only protocol verification requires max_retries == 0; the protocol producer default is 1, so --max-retries 0 is mandatory in the registered command",
+    "max_rss_mb": 2048,
+    "probe_reuses_first_central_cell": true,
+    "probe_stops_run_without_raising_timeout": true,
+    "registered_command": ".venv/bin/python scripts/run_wfo_parallel.py --strategy di_adx_state_edge --symbol BNB/USDT --timeframe 4h --cost all --workers 1 --train-months 12 --val-months 6 --test-months 3 --step-months 3 --cell-timeout 300 --total-timeout 5400 --max-rss-mb 2048 --max-retries 0 --scope-token bnb_di_adx_stateedge_prereg_20261020_01 --validation-only --no-real-sensitivity --out <NEW_PACKET_DIR>",
+    "sensitivity_cells_in_this_packet": 0,
+    "shared_ceiling_impact": "raising the validation-only ceiling from 180 s/cell and 1800 s total to 600 s/cell and 7200 s total affects EVERY validation-only study, not only this candidate: the frozen control and any other workstream now accept a larger budget. The candidate's own registered budget (15 x 300 s, 5400 s total) does not fit the previous envelope, so the change is necessary for it, but the shared effect is disclosed here rather than left implicit.",
+    "supplementary_review_budget": {
+      "actual_spent_seconds": 290.3,
+      "grant_record": "granted in chat by the operator; NOT recorded on disk",
+      "granted_envelope_seconds": 420,
+      "market_cells_run": 0,
+      "overspend_reason": "the registered 240 s was an estimate made before the round; the round needed the 7-test control regression (98 s), the acceptance re-capture under the final identity (50 s) and the launcher integration (120 s). Disclosed rather than reconciled: the on-disk 240 s no longer matches the round that was actually run.",
+      "overspend_vs_registered_seconds": 50.3,
+      "purpose": "close the rev18 fixes of independent review #1 and re-seal the acceptance evidence on the final identity",
+      "registered_test_seconds": 240
+    },
+    "total_timeout_seconds": 5400,
+    "workers": 1
+  },
+  "candidate": {
+    "params": {
+      "adx_period": 14,
+      "adx_threshold": 25
+    },
+    "registry_state": "scoped_only_not_broadly_registered",
+    "scope_token": "bnb_di_adx_stateedge_prereg_20261020_01",
+    "strategy_id": "di_adx_state_edge",
+    "symbol": "BNB/USDT",
+    "timeframe": "4h"
+  },
+  "claims": {
+    "live": false,
+    "oos": false,
+    "profitability_claimed": false,
+    "qualification": false,
+    "trade_count_claimed": false
+  },
+  "control": {
+    "packet_state": "FAILED_INCOMPLETE_unchanged",
+    "strategy_id": "ma_adx"
+  },
+  "costs": {
+    "1x": {
+      "fee_multiplier": 1,
+      "slippage_multiplier": 1
+    },
+    "2x": {
+      "fee_multiplier": 2,
+      "slippage_multiplier": 2
+    },
+    "slip_stress": {
+      "fee_multiplier": 1,
+      "slippage_multiplier": 5
+    }
+  },
+  "data": {
+    "decoded_but_not_evaluated": [
+      5600,
+      6795
+    ],
+    "evaluated_scope": [
+      0,
+      5600
+    ],
+    "file_last_bar": "2026-02-06T08:00:00Z",
+    "freshness_claim": "none_reused_data_research",
+    "holdout_accessed": false,
+    "holdout_opens": "2026-02-06T16:00:00Z",
+    "path": "data/existing_research_audit_20261008/BNB_USDT__4h__pre_holdout.parquet",
+    "read_scope": "whole frozen pre-holdout file (6795 rows) - bytes read for the sha256 binding and all rows decoded by read_parquet before any start/end slice",
+    "read_semantics_verified_by": "timestamp-only metadata probe (0 bars at/after the holdout start)",
+    "reserved_holdout_bars_in_file": 0,
+    "rows_not_used": [
+      5600,
+      6795
+    ],
+    "rows_used": [
+      0,
+      5600
+    ],
+    "scope_change_request": {
+      "approval_fields": [
+        "approval_state",
+        "approved_scope",
+        "approved_by",
+        "approved_at"
+      ],
+      "approval_note": "approval_state is the SINGLE authoritative state. The procedure edits exactly these four fields; the binding gate consults only approval_state, approved_by, approved_at and approved_scope (which must equal expected_approved_scope). There is no second status field, so following the procedure cannot be rejected by a state the procedure never sets.",
+      "approval_state": "PENDING_OPERATOR_APPROVAL",
+      "approved_at": null,
+      "approved_by": null,
+      "approved_scope": null,
+      "approver_role": "operator (scope approval) + a reviewer other than the author (code/assertion/receipt review)",
+      "binding_rule": "this request is part of the payload identity B. Approving it means editing approval_state/approved_scope/approved_by/approved_at in this payload, which PRODUCES A NEW B. A market run must use the protocol fingerprint of the B that carries the APPROVED state; any later payload edit produces a new B and invalidates the approval, requiring a fresh approval before the run.",
+      "change": "registered scope moves from 'only the confirmed-exposed part' to 'evaluation confined to [0,5600); the read covers the whole pre-holdout file (6795 rows decoded)'",
+      "condition_for_acceptance": "reviewer verifies the file path and sha256 are the pre-holdout artifact and that the timestamp-only probe shows no reserved-holdout bar",
+      "expected_approved_scope": "read+decode 6795 rows of the pre-holdout file; evaluate only [0,5600); 0 reserved-holdout bars (last bar 2026-02-06T08:00:00Z, holdout opens 2026-02-06T16:00:00Z)",
+      "if_refused": "a decode-limiting loader change would be required - a framework change, not proposed here",
+      "not_claimed": "[5600,6795) is not 'unexposed'; it is read and decoded, not evaluated",
+      "requested": true
+    },
+    "scope_wording": "evaluation is confined to [0,5600); the read covers the whole pre-holdout file",
+    "sha256": "379677360902c9734780e496398abb02ea6390531b840e2262bd9d7881e6485f"
+  },
+  "execution_binding": {
+    "blocks_before_first_cell": true,
+    "checked_fields": [
+      "approval_state",
+      "approved_by",
+      "approved_at",
+      "approved_scope",
+      "identity_A_source",
+      "identity_B_preregistration",
+      "input_sha256",
+      "params",
+      "strategy_id",
+      "symbol",
+      "timeframe",
+      "windows",
+      "costs",
+      "cell_timeout",
+      "total_timeout",
+      "max_rss_mb",
+      "max_retries",
+      "scope_token",
+      "runtime_config",
+      "native_execution_contracts",
+      "preregistration_root"
+    ],
+    "enforced_in": [
+      "the launcher, before the worker is spawned",
+      "the worker, independently, before its first cell"
+    ],
+    "fails_closed": true,
+    "identity_B_note": "identity B is the sha256 of this payload; the payload records identity A (the source fingerprint) and the manifest records identity B. A payload edited after approval no longer matches the manifest's identity B and is refused, so an edit cannot be laundered through.",
+    "note": "the binding applies ONLY to a scoped candidate: for any other study it is a no-op, so the control and every ordinary run are unaffected; a scoped candidate without its token still fails closed at the registry/grid resolution. The gate runs in the launcher AND in the worker, on the validation path AND on the qualification path.",
+    "rule": "running is not running THE APPROVED PAYLOAD. Before the first cell the frozen protocol is verified field by field against the approved preregistration; any single differing field blocks the run.",
+    "canonical_root_rule": "REAL_MARKET reads canonical repository packet only; noncanonical root restricted to explicitly frozen SYNTHETIC_TEST_ONLY evidence."
+  },
+  "execution_contract": {
+    "changed_fields": [
+      "strategy.strategy_id",
+      "strategy.parameters"
+    ],
+    "fingerprint": "ebee638a18d3604207fd47f21e2130692ef0b0423ef3711c0a13af1eeacddc02",
+    "inherited_from": "control_native_execution_contract",
+    "unchanged": [
+      "engine",
+      "signal_timing",
+      "protective_stop",
+      "sizing",
+      "authority.exposure",
+      "risk",
+      "cooldown_trigger",
+      "accounting",
+      "cost_model",
+      "price_path",
+      "cadence_bars"
+    ],
+    "runtime_config": {
+      "initial_capital": 10000,
+      "protection": {
+        "stop_loss": {
+          "enabled": true,
+          "distance_pct": 5
+        },
+        "take_profit": {
+          "enabled": false
+        },
+        "trailing_stop": {
+          "enabled": false
+        }
+      },
+      "sizing": {
+        "method": "artifact_target_authority_capped",
+        "requested_target_exposure_pct": 25,
+        "max_target_exposure_pct": 25,
+        "max_position_pct": 50
+      },
+      "risk": {
+        "max_drawdown_pct": 15,
+        "daily_loss_limit_pct": 8,
+        "cooldown_hours": 24
+      },
+      "intrabar_price_path": "open_then_low_then_close"
+    },
+    "native_contract_bodies_by_cost": {
+      "1x": {
+        "accounting": "cash_plus_inventory_marked_at_close_no_forced_liquidation",
+        "authority": {
+          "environment": "paper",
+          "execution": {
+            "claim_timeout_seconds": 10,
+            "default_sl_pct": 0.02,
+            "default_tp_pct": 0.04,
+            "max_price_age_seconds": 60,
+            "max_reconciliation_drift": 0.02,
+            "max_stale_bars": 3,
+            "order_timeout_seconds": 300,
+            "protection_order_timeout_seconds": 86400,
+            "reconciliation_interval_seconds": 30
+          },
+          "exposure": {
+            "max_correlated_exposure": 0.4,
+            "max_portfolio_exposure": 0.5,
+            "max_single_strategy_exposure": 0.25,
+            "max_single_symbol_exposure": 0.25,
+            "max_trade_notional": 1000000,
+            "min_trade_notional": 10,
+            "risk_scale_default": 0.75,
+            "risk_scale_max": 1,
+            "risk_scale_min": 0.25
+          },
+          "live": {
+            "broker_type": "paper",
+            "event_store_path": "data/execution/events.db",
+            "exchange_name": "binance",
+            "kill_switch_enabled": true,
+            "manual_block_persist": true,
+            "max_daily_loss_pct": 0.05,
+            "max_drawdown_pct": 0.15,
+            "rest_timeout_seconds": 30,
+            "snapshot_interval_seconds": 60,
+            "state_dir": "data/live_state",
+            "ws_max_reconnect_attempts": 10,
+            "ws_reconnect_interval_seconds": 5
+          },
+          "logging": {
+            "audit_log_path": "logs/audit.jsonl",
+            "causation_log_path": "logs/causation.jsonl",
+            "decision_log_path": "logs/decisions.jsonl",
+            "include_authority_chain": true,
+            "include_causation_id": true,
+            "include_exposure_delta": true,
+            "json_format": true,
+            "level": "INFO"
+          },
+          "research": {
+            "calibration_min_samples": 30,
+            "calibration_window_days": 90,
+            "canary_soak_days": 30,
+            "drift_check_interval_hours": 24,
+            "drift_ks_threshold": 0.05,
+            "drift_psi_threshold": 0.2,
+            "maximum_ece": 0.1,
+            "maximum_pbo": 0.2,
+            "maximum_reality_gap": 0.5,
+            "minimum_dsr": 0.95,
+            "minimum_trades": 30,
+            "shadow_soak_days": 30,
+            "testnet_soak_days": 30
+          },
+          "risk_profile": "moderate",
+          "simulator": {
+            "base_latency_ms": 50,
+            "fill_model": "queue",
+            "impact_coefficient": 0.1,
+            "impact_model": "square_root",
+            "latency_jitter_ms": 20,
+            "maker_fee_bps": 1,
+            "partial_fill_prob": 0.1,
+            "slippage_bps": 2,
+            "taker_fee_bps": 5
+          },
+          "symbols": [
+            "BTC/USDT",
+            "ETH/USDT",
+            "SOL/USDT",
+            "XRP/USDT",
+            "BNB/USDT",
+            "ZEC/USDT",
+            "DOGE/USDT",
+            "TRX/USDT",
+            "ADA/USDT",
+            "NEAR/USDT"
+          ],
+          "timeframe": "1h",
+          "version": "1.0.0"
+        },
+        "cadence_bars": 1,
+        "cooldown_trigger": "risk_circuit_breaker_not_every_sell_fill",
+        "cost_model": {
+          "commission_rate": 0.001,
+          "estimated_round_trip_cost_bps": 30,
+          "market_impact_rate": 0,
+          "slippage_rate": 0.0005,
+          "spread_rate": 0
+        },
+        "engine": "FullSystemSimulator_authority_PaperExchange_v1",
+        "instrument_rules": {
+          "asset_class": "spot",
+          "max_leverage": 1,
+          "max_notional": 1000000,
+          "max_order_qty": 10000,
+          "min_notional": 10,
+          "min_order_qty": 0.001,
+          "price_precision": 2,
+          "qty_step": 0.001,
+          "spot_long_only": true,
+          "symbol": "BNB/USDT"
+        },
+        "price_path": "open_then_low_then_close",
+        "protection": {
+          "stop_loss": {
+            "distance_pct": 5,
+            "enabled": true
+          },
+          "take_profit": {
+            "enabled": false
+          },
+          "trailing_stop": {
+            "enabled": false
+          }
+        },
+        "protective_stop": "current_price_trigger_with_slippage_not_prior_low_next_open",
+        "risk": {
+          "cooldown_hours": 24,
+          "daily_loss_limit_pct": 8,
+          "max_drawdown_pct": 15
+        },
+        "schema_version": 1,
+        "scope": "base_engine_semantics_fault_profile_bound_separately",
+        "signal_timing": "canonical_i_minus_1_to_open_i",
+        "sizing": {
+          "max_position_pct": 50,
+          "max_target_exposure_pct": 25,
+          "method": "artifact_target_authority_capped",
+          "requested_target_exposure_pct": 25
+        },
+        "strategy": {
+          "strategy_id": "di_adx_state_edge",
+          "parameters": {
+            "adx_period": 14,
+            "adx_threshold": 25
+          },
+          "routing_mode": "fixed"
+        },
+        "symbol": "BNB/USDT",
+        "timeframe": "4h"
+      },
+      "2x": {
+        "accounting": "cash_plus_inventory_marked_at_close_no_forced_liquidation",
+        "authority": {
+          "environment": "paper",
+          "execution": {
+            "claim_timeout_seconds": 10,
+            "default_sl_pct": 0.02,
+            "default_tp_pct": 0.04,
+            "max_price_age_seconds": 60,
+            "max_reconciliation_drift": 0.02,
+            "max_stale_bars": 3,
+            "order_timeout_seconds": 300,
+            "protection_order_timeout_seconds": 86400,
+            "reconciliation_interval_seconds": 30
+          },
+          "exposure": {
+            "max_correlated_exposure": 0.4,
+            "max_portfolio_exposure": 0.5,
+            "max_single_strategy_exposure": 0.25,
+            "max_single_symbol_exposure": 0.25,
+            "max_trade_notional": 1000000,
+            "min_trade_notional": 10,
+            "risk_scale_default": 0.75,
+            "risk_scale_max": 1,
+            "risk_scale_min": 0.25
+          },
+          "live": {
+            "broker_type": "paper",
+            "event_store_path": "data/execution/events.db",
+            "exchange_name": "binance",
+            "kill_switch_enabled": true,
+            "manual_block_persist": true,
+            "max_daily_loss_pct": 0.05,
+            "max_drawdown_pct": 0.15,
+            "rest_timeout_seconds": 30,
+            "snapshot_interval_seconds": 60,
+            "state_dir": "data/live_state",
+            "ws_max_reconnect_attempts": 10,
+            "ws_reconnect_interval_seconds": 5
+          },
+          "logging": {
+            "audit_log_path": "logs/audit.jsonl",
+            "causation_log_path": "logs/causation.jsonl",
+            "decision_log_path": "logs/decisions.jsonl",
+            "include_authority_chain": true,
+            "include_causation_id": true,
+            "include_exposure_delta": true,
+            "json_format": true,
+            "level": "INFO"
+          },
+          "research": {
+            "calibration_min_samples": 30,
+            "calibration_window_days": 90,
+            "canary_soak_days": 30,
+            "drift_check_interval_hours": 24,
+            "drift_ks_threshold": 0.05,
+            "drift_psi_threshold": 0.2,
+            "maximum_ece": 0.1,
+            "maximum_pbo": 0.2,
+            "maximum_reality_gap": 0.5,
+            "minimum_dsr": 0.95,
+            "minimum_trades": 30,
+            "shadow_soak_days": 30,
+            "testnet_soak_days": 30
+          },
+          "risk_profile": "moderate",
+          "simulator": {
+            "base_latency_ms": 50,
+            "fill_model": "queue",
+            "impact_coefficient": 0.1,
+            "impact_model": "square_root",
+            "latency_jitter_ms": 20,
+            "maker_fee_bps": 1,
+            "partial_fill_prob": 0.1,
+            "slippage_bps": 2,
+            "taker_fee_bps": 5
+          },
+          "symbols": [
+            "BTC/USDT",
+            "ETH/USDT",
+            "SOL/USDT",
+            "XRP/USDT",
+            "BNB/USDT",
+            "ZEC/USDT",
+            "DOGE/USDT",
+            "TRX/USDT",
+            "ADA/USDT",
+            "NEAR/USDT"
+          ],
+          "timeframe": "1h",
+          "version": "1.0.0"
+        },
+        "cadence_bars": 1,
+        "cooldown_trigger": "risk_circuit_breaker_not_every_sell_fill",
+        "cost_model": {
+          "commission_rate": 0.002,
+          "estimated_round_trip_cost_bps": 60,
+          "market_impact_rate": 0,
+          "slippage_rate": 0.001,
+          "spread_rate": 0
+        },
+        "engine": "FullSystemSimulator_authority_PaperExchange_v1",
+        "instrument_rules": {
+          "asset_class": "spot",
+          "max_leverage": 1,
+          "max_notional": 1000000,
+          "max_order_qty": 10000,
+          "min_notional": 10,
+          "min_order_qty": 0.001,
+          "price_precision": 2,
+          "qty_step": 0.001,
+          "spot_long_only": true,
+          "symbol": "BNB/USDT"
+        },
+        "price_path": "open_then_low_then_close",
+        "protection": {
+          "stop_loss": {
+            "distance_pct": 5,
+            "enabled": true
+          },
+          "take_profit": {
+            "enabled": false
+          },
+          "trailing_stop": {
+            "enabled": false
+          }
+        },
+        "protective_stop": "current_price_trigger_with_slippage_not_prior_low_next_open",
+        "risk": {
+          "cooldown_hours": 24,
+          "daily_loss_limit_pct": 8,
+          "max_drawdown_pct": 15
+        },
+        "schema_version": 1,
+        "scope": "base_engine_semantics_fault_profile_bound_separately",
+        "signal_timing": "canonical_i_minus_1_to_open_i",
+        "sizing": {
+          "max_position_pct": 50,
+          "max_target_exposure_pct": 25,
+          "method": "artifact_target_authority_capped",
+          "requested_target_exposure_pct": 25
+        },
+        "strategy": {
+          "strategy_id": "di_adx_state_edge",
+          "parameters": {
+            "adx_period": 14,
+            "adx_threshold": 25
+          },
+          "routing_mode": "fixed"
+        },
+        "symbol": "BNB/USDT",
+        "timeframe": "4h"
+      },
+      "slip_stress": {
+        "accounting": "cash_plus_inventory_marked_at_close_no_forced_liquidation",
+        "authority": {
+          "environment": "paper",
+          "execution": {
+            "claim_timeout_seconds": 10,
+            "default_sl_pct": 0.02,
+            "default_tp_pct": 0.04,
+            "max_price_age_seconds": 60,
+            "max_reconciliation_drift": 0.02,
+            "max_stale_bars": 3,
+            "order_timeout_seconds": 300,
+            "protection_order_timeout_seconds": 86400,
+            "reconciliation_interval_seconds": 30
+          },
+          "exposure": {
+            "max_correlated_exposure": 0.4,
+            "max_portfolio_exposure": 0.5,
+            "max_single_strategy_exposure": 0.25,
+            "max_single_symbol_exposure": 0.25,
+            "max_trade_notional": 1000000,
+            "min_trade_notional": 10,
+            "risk_scale_default": 0.75,
+            "risk_scale_max": 1,
+            "risk_scale_min": 0.25
+          },
+          "live": {
+            "broker_type": "paper",
+            "event_store_path": "data/execution/events.db",
+            "exchange_name": "binance",
+            "kill_switch_enabled": true,
+            "manual_block_persist": true,
+            "max_daily_loss_pct": 0.05,
+            "max_drawdown_pct": 0.15,
+            "rest_timeout_seconds": 30,
+            "snapshot_interval_seconds": 60,
+            "state_dir": "data/live_state",
+            "ws_max_reconnect_attempts": 10,
+            "ws_reconnect_interval_seconds": 5
+          },
+          "logging": {
+            "audit_log_path": "logs/audit.jsonl",
+            "causation_log_path": "logs/causation.jsonl",
+            "decision_log_path": "logs/decisions.jsonl",
+            "include_authority_chain": true,
+            "include_causation_id": true,
+            "include_exposure_delta": true,
+            "json_format": true,
+            "level": "INFO"
+          },
+          "research": {
+            "calibration_min_samples": 30,
+            "calibration_window_days": 90,
+            "canary_soak_days": 30,
+            "drift_check_interval_hours": 24,
+            "drift_ks_threshold": 0.05,
+            "drift_psi_threshold": 0.2,
+            "maximum_ece": 0.1,
+            "maximum_pbo": 0.2,
+            "maximum_reality_gap": 0.5,
+            "minimum_dsr": 0.95,
+            "minimum_trades": 30,
+            "shadow_soak_days": 30,
+            "testnet_soak_days": 30
+          },
+          "risk_profile": "moderate",
+          "simulator": {
+            "base_latency_ms": 50,
+            "fill_model": "queue",
+            "impact_coefficient": 0.1,
+            "impact_model": "square_root",
+            "latency_jitter_ms": 20,
+            "maker_fee_bps": 1,
+            "partial_fill_prob": 0.1,
+            "slippage_bps": 2,
+            "taker_fee_bps": 5
+          },
+          "symbols": [
+            "BTC/USDT",
+            "ETH/USDT",
+            "SOL/USDT",
+            "XRP/USDT",
+            "BNB/USDT",
+            "ZEC/USDT",
+            "DOGE/USDT",
+            "TRX/USDT",
+            "ADA/USDT",
+            "NEAR/USDT"
+          ],
+          "timeframe": "1h",
+          "version": "1.0.0"
+        },
+        "cadence_bars": 1,
+        "cooldown_trigger": "risk_circuit_breaker_not_every_sell_fill",
+        "cost_model": {
+          "commission_rate": 0.001,
+          "estimated_round_trip_cost_bps": 70,
+          "market_impact_rate": 0,
+          "slippage_rate": 0.0025,
+          "spread_rate": 0
+        },
+        "engine": "FullSystemSimulator_authority_PaperExchange_v1",
+        "instrument_rules": {
+          "asset_class": "spot",
+          "max_leverage": 1,
+          "max_notional": 1000000,
+          "max_order_qty": 10000,
+          "min_notional": 10,
+          "min_order_qty": 0.001,
+          "price_precision": 2,
+          "qty_step": 0.001,
+          "spot_long_only": true,
+          "symbol": "BNB/USDT"
+        },
+        "price_path": "open_then_low_then_close",
+        "protection": {
+          "stop_loss": {
+            "distance_pct": 5,
+            "enabled": true
+          },
+          "take_profit": {
+            "enabled": false
+          },
+          "trailing_stop": {
+            "enabled": false
+          }
+        },
+        "protective_stop": "current_price_trigger_with_slippage_not_prior_low_next_open",
+        "risk": {
+          "cooldown_hours": 24,
+          "daily_loss_limit_pct": 8,
+          "max_drawdown_pct": 15
+        },
+        "schema_version": 1,
+        "scope": "base_engine_semantics_fault_profile_bound_separately",
+        "signal_timing": "canonical_i_minus_1_to_open_i",
+        "sizing": {
+          "max_position_pct": 50,
+          "max_target_exposure_pct": 25,
+          "method": "artifact_target_authority_capped",
+          "requested_target_exposure_pct": 25
+        },
+        "strategy": {
+          "strategy_id": "di_adx_state_edge",
+          "parameters": {
+            "adx_period": 14,
+            "adx_threshold": 25
+          },
+          "routing_mode": "fixed"
+        },
+        "symbol": "BNB/USDT",
+        "timeframe": "4h"
+      }
+    },
+    "baseline_provenance": {
+      "path": "data/bnb_native_adx25_validation_run_20261019_01/research_protocol.json",
+      "sha256": "e20edf655703703f51a16c89a93ae01950f2b7362cbd39e01dec6711cb9a5b54",
+      "note": "Inherited runtime and per-cost native semantics copied from frozen control, not current environment; only strategy identity/params replaced. No operator approval."
+    }
+  },
+  "gates": {
+    "min_oos_trades": 30,
+    "native_gate_contract_fingerprint": "ebee638a18d3604207fd47f21e2130692ef0b0423ef3711c0a13af1eeacddc02",
+    "selection_contract": {
+      "invalid_candidate_action": "REJECT",
+      "min_validation_sharpe": 0,
+      "min_validation_trades": 30,
+      "no_eligible_action": "ABSTAIN"
+    },
+    "threshold_changes": "none"
+  },
+  "geometry": {
+    "buffer_bars": 100,
+    "embargo_bars": 100,
+    "folds": 5,
+    "inner_validation_windows": [
+      [
+        2360,
+        3440
+      ],
+      [
+        2900,
+        3980
+      ],
+      [
+        3440,
+        4520
+      ],
+      [
+        3980,
+        5060
+      ],
+      [
+        4520,
+        5600
+      ]
+    ],
+    "purge_bars": 100,
+    "step_months": 3,
+    "test_months": 3,
+    "train_months": 12,
+    "val_months": 6,
+    "warmup_bars": 100
+  },
+  "hypothesis": {
+    "control_reference": "7/6/8/8/6 gate actions, 30 BUY fills, 28 closed trades at 2x",
+    "falsified_if": "the candidate's per-fold eligible observations are not higher than the control's",
+    "scope_of_claim": "sample feasibility only - carries no profitability claim",
+    "statement": "on the control's own windows and with the control's own execution contract, the state-edge trigger produces MORE eligible validation observations per fold than the control's event-crossover trigger, without relaxing any gate"
+  },
+  "identity_A_dirty_diff_sha256": "1865dc28229abb82fd28eab83c2e29d33901067a3b8896937954ddf68d5685ee",
+  "identity_A_source_fingerprint": "c4b7479bd88dee4352dec7d9d2c03ab2ea2be18f65a0630bb6e543f9980b4b74",
+  "ledger": {
+    "actual_total_reported_separately_from_accounted_total": true,
+    "evaluation_attempt_roots": "the runner creates cell_attempts/<uuid>/ per ATTEMPT; the attempt history of one evaluation is the set of attempt roots whose recorded identity hashes to that evaluation's cache key.",
+    "evaluation_vs_attempt": "the cache key identifies the EVALUATION (one planned cell). The worker's cell_execution/<uuid>/ directories under the runner's attempt directory are the ATTEMPTS of that evaluation. One row is written per evaluation (cell_ledger/<key>.json) with the attempt count and the attempt outcomes, so a retried or resumed evaluation stays ONE evaluation and is never counted twice.",
+    "fields": [
+      "evaluation_id",
+      "kind",
+      "fold_id",
+      "measurement_window",
+      "simulation_window",
+      "params",
+      "cost",
+      "status",
+      "elapsed_seconds",
+      "registry_counted",
+      "receipt_ref"
+    ],
+    "fresh_cache_failure": "the row records the execution path (fresh or cache_hit) and the artifact status; a cache hit has no attempt root of its own and is classified from the attempt history already on disk.",
+    "interrupted_requires_stopped_process": "INTERRUPTED requires the worker process to be gone; a missing result.json while the worker is alive is RUNNING, not INTERRUPTED",
+    "latest_attempt_ordering": "by the producer's real start time (started_at_epoch, falling back to the ISO started_at); never by directory name. The worker and the runner both write started_at_epoch.",
+    "layers": {
+      "runner_layer": {
+        "failure": "cell_failures/<cache_key>__<uuid>.json",
+        "started": "cell_attempts/<cache_key>/execution_started.json",
+        "written_by": "campaign_execution.CampaignCellRunner._execute_cell"
+      },
+      "worker_layer": {
+        "result": "cell_execution/<uuid>/result.json",
+        "started": "cell_execution/<uuid>/started.json",
+        "written_by": "run_wfo_parallel._run_cell_worker"
+      }
+    },
+    "ledger_failure_not_silent": "a ledger write failure is appended to cell_ledger/_ledger_errors.jsonl (durable, append-only) and logged loudly; it is never only printed.",
+    "ledger_merge": "one row per evaluation, MERGED across its attempts: the row keeps the attempt history and updates the counts and the outcome, so a retried or resumed evaluation stays one evaluation.",
+    "no_reconciler_function": "there is no separate reconciler function in the codebase: the reconciliation is the runner-layer cell_failures record plus the absence of a completion receipt (exact_coverage.json / parallel_canonical_summary.json), and the coverage verification fails closed when a fold is not SELECTed.",
+    "planned_source": "protocol.expected_inner_cells",
+    "reconciler_note": "there is no separate reconciler function in the codebase: the reconciliation is the runner-layer cell_failures record plus the absence of a completion receipt (exact_coverage.json / parallel_canonical_summary.json), and the coverage verification fails closed when a fold is not SELECTed.",
+    "reconciliation_rule": "the two layers are linked by the cache key: the runner's attempt directory holds the worker's cell_execution/<uuid>/ directory. The worker writes started.json BEFORE execution and result.json AFTER it -- and it writes the result even when the cell failed, so the result carries the artifact and its status. Therefore: an attempt is COMPLETED when result.json exists and its artifact status is COMPLETED; FAILED when result.json exists and the artifact is not completed; and INTERRUPTED only when result.json is MISSING AND the worker process is GONE. While the worker process is still alive the attempt is RUNNING, not INTERRUPTED. The runner layer records the attempt start in cell_attempts/<key>/execution_started.json and the failure in cell_failures/<key>__<uuid>.json; the start record alone proves only that the attempt STARTED and is NOT sufficient to classify it.",
+    "records_only_attempted": true,
+    "statuses": [
+      "planned",
+      "attempted",
+      "completed",
+      "failed"
+    ],
+    "verified_by": "src/trading_agent/backtest/attempt_ledger.py implements the classification; the runner writes one evaluation-level row per cell.",
+    "written": "durably_after_each_attempt",
+    "written_only_at_terminal": false
+  },
+  "manifest_change_rule": {
+    "bookkeeping_only_if": "no report, receipt, verdict, or logged output changes",
+    "may_not_be_used_to_legitimise_post_acceptance_content_edits": true,
+    "otherwise": "evidence_changed_requires_reverification_and_rereview_of_the_affected_part"
+  },
+  "run_authority": {
+    "authorises": [],
+    "auto_retries": 0,
+    "does_not_authorise": [
+      "market run",
+      "broad registration",
+      "budget",
+      "paper",
+      "live",
+      "broker",
+      "publish",
+      "push",
+      "merge"
+    ],
+    "preregistration_is_not_run_permission": true,
+    "run_requires": [
+      "independent review passes",
+      "explicit operator scope/budget approval",
+      "a frozen source and preregistration fingerprint at that moment"
+    ]
+  },
+  "scope": "inner_validation_only_not_qualification",
+  "scope_token_binding": {
+    "blocked_before_data_read_and_simulation": {
+      "claim_corrected": "the earlier payload wording said wrong token is blocked before the data read; that is true only at execution time. The plan-time path reads the data first.",
+      "execution_time": "BLOCKED BEFORE the data read and before the engine: the cell resolves the descriptor and the adapter before the loader is called, so a wrong token at execution time stops the cell with no engine artifact.",
+      "plan_time": "BLOCKED AFTER the loader read, before any cell is planned: build_canonical_cells calls load_ohlcv first and resolves the registry afterwards, so a wrong token at plan time does not prevent the data read. The plan then fails closed and no cell runs."
+    },
+    "cache_key": "content_hash over the complete execution context",
+    "carried_in": "execution_context",
+    "covered_by": "execution_scope_identity(context_sha256) over the complete context",
+    "failure_point": "registry resolution, before data read and before the engine",
+    "hops_verified": [
+      "launcher CLI --scope-token -> prepare_parallel_protocol -> protocol.execution.scope_token",
+      "protocol -> _trial_execution_context -> context.scope_token",
+      "context -> build_canonical_cells(scope_token=) -> registry resolution",
+      "context -> prepare_parallel_protocol -> audit_parallel_trial_history -> feature schema hash",
+      "context -> QualificationCellRunner cell-runner context -> cache key",
+      "context -> _run_measured -> _run_cell_worker -> run_cell(scope_token=) -> registry/adapter/simulator",
+      "protocol -> verify_parallel_result_coverage -> artifact rebuild"
+    ],
+    "integration_review_findings": {
+      "hops_found_broken_and_fixed": [
+        "CLI param grid: the scoped candidate had no grid, so the CLI planned 0 cells",
+        "protocol producer budget guard still used the old 180/1800/128/4096 literals and rejected the registered budget",
+        "protocol verifier budget guard still used the old literals",
+        "nested_wfo.run_nested_wfo built the registry without the token",
+        "nested_wfo._compute_strategy_code_sha degraded to 'unknown' for a scoped candidate, losing source attribution in the trial identity",
+        "campaign_execution artifact rebuild/validation built the registry without the token",
+        "selection_eligibility.verify_validation_reports built the registry without the token"
+      ],
+      "hops_outside_the_validation_only_scope": {
+        "note": "these resolve the registry WITHOUT the token and therefore fail closed for a scoped candidate. None is executed by the registered command (--validation-only --no-real-sensitivity). The QUALIFICATION path is OUT OF SCOPE for this candidate: on that path the selection attribution rebuild at nested_wfo.py does not receive the token, so the path is not functional for this candidate and must be fixed before it is used. The DSR caveat and these paths do not block this validation round, because neither is executed nor used to claim qualification.",
+        "sites": [
+          "src/trading_agent/backtest/wfo_sensitivity.py (sensitivity arm)",
+          "src/trading_agent/research/selection_policy.py (promotion gate)",
+          "src/trading_agent/calibration/execution.py, src/trading_agent/calibration/packet.py (calibration)",
+          "src/trading_agent/execution/live_admission.py (live admission)",
+          "src/trading_agent/backtest/nested_wfo.py (selection attribution rebuild on the qualification path - not reached in validation-only)",
+          "src/trading_agent/backtest/campaign_integrity.py, src/trading_agent/calibration/packet.py (trial identity rebuilds)"
+        ]
+      },
+      "reviewer_verdict": "CHANGES_REQUIRED"
+    },
+    "integration_test": "tests/test_di_adx_state_edge_entrypoint_integration.py — synthetic end-to-end through the intended entrypoint chain",
+    "token": "bnb_di_adx_stateedge_prereg_20261020_01",
+    "wrong_or_missing_token": "fail_closed"
+  },
+  "sensitivity": {
+    "executed_in_this_packet": false,
+    "failure_action": "FAIL_recorded_never_N_A",
+    "not_probed": [
+      "adx_period"
+    ],
+    "probe_axis": {
+      "name": "adx_threshold",
+      "values": [
+        20,
+        25,
+        30
+      ]
+    },
+    "reason": "requires_outer_oos_results_which_scope_excludes",
+    "rule_fingerprint": "4748b799a2f41ee6f1fc9e94c3b0164f279d0fc59d3c3f3f16c3f8e82aa17116",
+    "sensitivity_verified_achievable_here": false
+  },
+  "terminal_outcomes": [
+    "ACCEPTED_VALIDATION",
+    "ABSTAIN_INSUFFICIENT_SAMPLE",
+    "INCOMPLETE",
+    "NOT_QUALIFIED",
+    "REJECT"
+  ],
+  "version": 15
+}

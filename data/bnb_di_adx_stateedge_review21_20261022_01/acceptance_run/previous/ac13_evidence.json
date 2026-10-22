@@ -1,0 +1,49 @@
+{
+  "ac_id": "AC13",
+  "oracle": "independent bundle construction + decision verification",
+  "cases": [
+    {
+      "name": "C1_correct_hash",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "C2_tamper_detected",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "C3_no_expect_passes",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "C4_synthetic_rejected",
+      "status": "PASS",
+      "detail": "rejected"
+    },
+    {
+      "name": "C5_real_approves",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "C6_draft_rejected",
+      "status": "PASS",
+      "detail": "rejected"
+    },
+    {
+      "name": "C7_expired_rejected",
+      "status": "PASS",
+      "detail": "rejected"
+    },
+    {
+      "name": "C8_validated_accepted",
+      "status": "PASS",
+      "detail": ""
+    }
+  ],
+  "all_pass": true,
+  "total_checks": 8,
+  "passed": 8
+}

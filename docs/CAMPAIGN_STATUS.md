@@ -4,26 +4,59 @@ Single source of truth for the measured-accounting and campaign-publication
 work. Supersedes the per-session `*_TODO.md` files, which are gitignored and
 were fragmenting the state across ~60 files.
 
-## Current — 2026-10-22, rev21 / ACCEPTED_FOR_BOUNDED_VALIDATION / NO_LIVE
+## Current — 2026-10-22, rev24 / CHANGES_REQUIRED (round 3) / NO_LIVE
 
-Independent final review is complete: **ACCEPTED_FOR_BOUNDED_VALIDATION**,
-technical readiness only, no execution authorization. R20-1/R20-2 are closed:
-payload binds runtime/native policy inherited from frozen control; REAL_MARKET
-root substitution is blocked and fixtures explicitly carry synthetic class.
-72 tests PASS, AC01–AC15 ALL PASS and targeted lint PASS on current source.
-Final production approval check is BINDING COHERENT, rc3 expected: scope/run
-approval remain pending. No market campaign was executed.
+**Three independent review rounds have now run and every one of them returned
+`CHANGES_REQUIRED`.** Round 3 (two fresh-context, read-only reviewers on rev23)
+confirmed that no measurement, identity, gate or fail-closed behaviour is wrong —
+both reviewers checked the seventeen native quantities themselves, and the second
+one went further and showed the two re-execution outputs are **byte-identical** to
+the stdout recorded in the earlier receipts — and that every remaining defect is
+in the text/provenance layer. All ten findings are fixed in rev24; **acceptance
+awaits a round-4 re-check**, and no market run is authorised.
 
-A `b3aa44f026939863018a15de44a57c5b81e1bde9176b2c7483c7d3b7a65db427`;
-B `fe9cf95ee72b27036a52616b79a6f2e8f1edfb56481a4f0d97b547a713aa4373`;
-three manifests rev21, 107 entries checked by independent reviewer.
-[Final independent review](../data/bnb_di_adx_stateedge_review21_20261022_01/INDEPENDENT_REVIEW_FINAL.md)
-and [operator handoff](../data/bnb_di_adx_stateedge_review21_20261022_01/FINAL_HANDOFF.md).
+**Identities (rev24).** A `d82bd081dfe999c3568268fd1b2a220db08ec4bdc87f24dc759582eb219a0825`
+(source, committed at `7d5f3c9`, `git diff 7d5f3c9 HEAD -- src scripts` is empty,
+so the worktree is clean and A is reproducible); B
+`1e96538d2796e0975fd1e90a9ddf03be609abc40a69c4ebd09aa5c21020504b6`; C = the
+`manifest.json` of the **five** sealed packets (evidence, preregistration, native
+review, and the operator's two review packets), **220 sealed entries**, all
+re-hashed from disk. The manifests' `code_commit` and `identity_A_dirty_diff_sha256`
+are now **read at seal time** (they were copy-forwarded before — round-3 finding
+N3), and `rev21` + `rev22` are archived under `revisions/`, so the archive policy
+the preregistration declares is now true.
 
-Remaining: operator approve canonical data scope and separately authorize ONE
-15-cell/300s-cell/5400s-total/1-worker/2048MiB/0-retry native validation-only run.
-Approval produces a new B and requires preserved revision + binding verification;
-no market run is inferred from the engineering verdict. No live/qualification claim.
+**What round 3 changed.** N1 the approval verifier compared 9 of the 14 sealed
+assertion files and said "every" — it now iterates the sealed record, with the
+old nine as a floor. N1b the fault-injection test still called a live-pid fixture
+INTERRUPTED — its framing is now true. N2 the preregistration defined identity C
+three different ways — it now defines it once. N5 the scope-token map was compared
+with itself — it is now compared with the candidate the named preregistration
+packet actually registers (fail closed, with a regression test). N6 the native
+contract check was a membership test, so a 1x cell could have run a 2x body — it
+is now an equality test against the approved body of that cell's own cost (with
+a regression test). N7/N8 three stale hashes in the working set and a receipt
+that still said "F9 OPEN" — refreshed. N9 the F9 output did not record the
+source it ran under — the re-execution now carries a sidecar identity, and the
+record names both runs. N10 the manifest could exclude a verdict file — the
+exclusion is gone; everything the .gitignore does not exclude is sealed. D2 the
+tracker carried a hash (`c92a9ff4…`) that existed in no artifact — replaced by
+the manifest's own, with the correction visible. D3/D5/D6/D7/D8/D9 the tracker's
+revision, counts, labels, commit and "the data/ tree is untracked" statement
+were stale or wrong — corrected.
+
+**Verification on this revision.** 211 tests PASS across the fourteen sealed
+assertion files; AC01–AC15 ALL PASS (rc 0) re-captured into the packet on
+identity A (`acceptance_run_rev24/`); F9 re-executed twice — 20.0 s each, 30 s
+cap, no retry — with **all seventeen quantities reproduced exactly** and the two
+runs **byte-identical**; the source fix is committed, so A is a clean,
+reproducible content hash.
+
+Remaining: the operator approves the data scope and separately authorises ONE
+15-cell / 300 s-per-cell / 5400 s-total / 1-worker / 2048 MiB / 0-retry
+validation-only run. Approval produces a new B and requires a preserved revision
+plus binding verification; no market run is inferred from any engineering
+verdict. No live, qualification, OOS or holdout claim.
 
 ## Historical — rev20 / independent review CHANGES_REQUIRED
 
@@ -63,8 +96,8 @@ qualification, OOS or live claim. Control remains FAILED/INCOMPLETE.
 
 ## Historical — 2026-10-20/21, rev19 / RESEARCH_HOLD / NO_LIVE
 
-**Latest: rev21 — independent review #2 ALSO returned `CHANGES_REQUIRED` (12 new
-findings + 5 partial); those findings are fixed in code and the revision is
+**Latest: rev21 — independent review #2 ALSO returned `CHANGES_REQUIRED` (2
+findings: R20-1 and R20-2); those findings are fixed in code and the revision is
 re-sealed; review #3, the F9 re-execution and the operator approval are still
 PENDING — no market run.**
 [Contract + synthetic](../data/bnb_di_adx_stateedge_20261020_01/RESULTS.md) ·
@@ -79,8 +112,11 @@ used 290.3 s: the 7-test control regression back to 29/29, 20/20 invariants
 including a new "a non-scoped study is not blocked" regression, the launcher
 plan-level geometry, AC01–AC15 re-captured **into the packet on the final
 identity**, and the launcher integration end to end). Round 2, on the verified
-revision, returned **CHANGES_REQUIRED again** with 12 new findings and 5
-partials. The most serious were: the **payload still pinned a stale identity
+revision, returned **CHANGES_REQUIRED again**. (Corrected 2026-10-22: the
+count "12 new findings and 5 partials" in earlier versions of this line was
+wrong — review #1 raised **19 findings (F1–F19)** and review #2 raised **2
+findings (R20-1, R20-2)**; the list that follows is review #1's.) The most
+serious were: the **payload still pinned a stale identity
 A**, so the binding gate would have refused the registered run; the approval
 verifier consulted a payload field that no longer exists; the "assertion files
 unchanged" check was **vacuous** because no test file is covered by any
@@ -103,7 +139,13 @@ produced it is in the packet; the ledger's accounting fields can no longer be
 fabricated; the two token maps share one source of truth; the stale verdict
 files are archived; and the receipts, the procedure, the native RESULTS.md, the
 §0 identity table and the archive disclosure are corrected.
-**3. Not met, and why.** **F9 is still open and it is needed before a run**: the
+**3. Not met, and why.** **F9 was open and it was needed before a run — it was
+closed on 2026-10-21 by a budgeted re-execution** (30 s cap, 20.0 s spend, no
+retry): the three native analysis scripts were re-run on the hash-verified
+frozen pre-holdout input and **all seventeen quantities quoted in the native
+`RESULTS.md` were reproduced exactly** (0 mismatches). Record:
+`../data/bnb_native_review_20261020_01/F9_REEXECUTION_DIFF.json`. The reason it
+was needed: the
 preregistration's hypothesis cites the control's funnel (`7/6/8/8/6` gate
 actions → 30 fills → 28 closed trades) and §12 says the control review
 "derives from" the native `RESULTS.md`, whose measurements were produced under
@@ -118,8 +160,10 @@ qualification. The revision archive remains **partial**: rev8, rev10, rev12, rev
 and rev15 itself are unrecoverable, and the current manifest cannot repair that.
 **4. Identities and receipts.** A source
 `b3aa44f026939863018a15de44a57c5b81e1bde9176b2c7483c7d3b7a65db427` (dirty
-`c92a9ff4e0a4cb1a97ee7c2d0c4b3d4d24e8b5f1a1b2e1c2f0e6d3a4b5c6d7`, see the
-manifests), B preregistration
+`de09328a5d10994ad5d2e0a00a2efa2cac1e8c52befcede5c1cc46a336851209`, see the
+manifests. *Corrected 2026-10-22: this line previously carried the hash
+`c92a9ff4…`, which existed in no manifest and in no artifact — it was an
+erroneous value and has been replaced by the manifest's own.)*, B preregistration
 `fe9cf95ee72b27036a52616b79a6f2e8f1edfb56481a4f0d97b547a713aa4373`, C evidence
 manifest **rev21** at three packets, 0 mismatch, with the archived manifests
 themselves sealed by C. Approval remains `PENDING_OPERATOR_APPROVAL`; I did not

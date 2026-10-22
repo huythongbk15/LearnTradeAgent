@@ -1,7 +1,13 @@
 # Revision archive — **partial, and this is stated rather than hidden**
 
-Held here: `rev1` … `rev7`, `rev11`, `rev15`, and the current revision's manifest
-at the packet root.
+Held here: `rev1` … `rev7`, `rev11`, `rev15`, `rev21`, `rev22`, and the current
+revision's manifest at the packet root.
+
+**`rev21` and `rev22` were archived on 2026-10-22** (round 3). Their manifests
+are recoverable from git — `git show b8d490c:data/bnb_di_adx_stateedge_20261020_01/manifest.json`
+is rev21 and `git show ef3cf40:…` is rev22 — and they are now filed here, so
+the archive policy the preregistration declares ('every manifest is archived
+before it is superseded') is no longer violated by this round.
 
 **Missing**: `rev8`, `rev9`, `rev10`, `rev12`, `rev13`, `rev14`. Those
 manifests were regenerated **in place** during the earlier rounds instead of being

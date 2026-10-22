@@ -1,0 +1,21 @@
+{
+  "cmd": [
+    ".venv/bin/python",
+    "-m",
+    "pytest",
+    "-o",
+    "addopts=",
+    "-q",
+    "-x",
+    "tests/test_ledger_and_binding_invariants.py",
+    "tests/test_attempt_ledger_snapshot.py",
+    "tests/test_wfo_validation_envelope.py"
+  ],
+  "rc": 0,
+  "elapsed_sec": 45.07333469390869,
+  "stdout": [
+    "........................................                                 [100%]",
+    "40 passed in 40.52s"
+  ],
+  "stderr": []
+}

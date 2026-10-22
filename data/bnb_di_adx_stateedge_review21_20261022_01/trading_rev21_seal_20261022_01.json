@@ -1,0 +1,12 @@
+{
+  "cmd": [
+    ".venv/bin/python",
+    "data/bnb_di_adx_stateedge_review21_20261022_01/seal_verified_revision.py"
+  ],
+  "rc": 0,
+  "elapsed_sec": 2.994696855545044,
+  "stdout": [
+    "{\"A\": \"b3aa44f026939863018a15de44a57c5b81e1bde9176b2c7483c7d3b7a65db427\", \"B\": \"fe9cf95ee72b27036a52616b79a6f2e8f1edfb56481a4f0d97b547a713aa4373\", \"revision\": \"rev21\", \"approval\": \"PENDING\"}"
+  ],
+  "stderr": []
+}

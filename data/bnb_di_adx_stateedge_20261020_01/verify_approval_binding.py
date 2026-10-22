@@ -12,7 +12,8 @@ What it asserts:
      approval fields (approval_state, approved_scope, approved_by, approved_at)
      and the payload version;
   2. identity A (source) is UNCHANGED — no code moved;
-  3. every assertion file is byte-identical to the sealed manifest — so the
+  3. every assertion file listed in the sealed record
+     (evidence/assertion_files.json) is byte-identical to the record — so the
      suites need not be re-run;
   4. identity B recomputed from the edited payload matches the value recorded in
      the manifests, and the pre-approval B is recorded so the approval is
@@ -157,16 +158,21 @@ def main() -> int:
     else:
         record = json.loads(ASSERTION_RECORD.read_text())
         recorded_hashes = record.get("files", {})
-        for rel in ASSERTION_FILES:
+        # The SEAL is the source of truth: every file listed in the record must
+        # be on disk with the recorded bytes. (A list hard-coded here covered
+        # only 9 of the 14 sealed files, so five files - among them the one
+        # that carries the control-path evidence - were never compared.)
+        for rel, recorded_hash in recorded_hashes.items():
             path = ROOT / rel
             if not path.exists():
                 changed_tests.append(f"{rel} (missing)")
                 continue
+            if recorded_hash != sha256(path):
+                changed_tests.append(f"{rel} (hash differs)")
+        # a record that shrank below the floor is also a failure
+        for rel in ASSERTION_FILES:
             if rel not in recorded_hashes:
                 changed_tests.append(f"{rel} (not in the sealed record)")
-                continue
-            if recorded_hashes[rel] != sha256(path):
-                changed_tests.append(f"{rel} (hash differs)")
         print(f"assertion files unchanged: {not changed_tests}")
         if changed_tests:
             problems.append(

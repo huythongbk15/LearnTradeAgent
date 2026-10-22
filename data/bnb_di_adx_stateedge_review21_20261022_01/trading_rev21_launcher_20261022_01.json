@@ -1,0 +1,19 @@
+{
+  "cmd": [
+    ".venv/bin/python",
+    "-m",
+    "pytest",
+    "-o",
+    "addopts=",
+    "-q",
+    "-x",
+    "tests/test_di_adx_state_edge_launcher_integration.py::test_l2_validation_launcher_completes_with_terminal_coverage"
+  ],
+  "rc": 0,
+  "elapsed_sec": 98.75407767295837,
+  "stdout": [
+    ".                                                                        [100%]",
+    "1 passed in 97.67s (0:01:37)"
+  ],
+  "stderr": []
+}

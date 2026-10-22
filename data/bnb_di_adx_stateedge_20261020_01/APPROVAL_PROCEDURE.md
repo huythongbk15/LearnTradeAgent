@@ -74,8 +74,9 @@ loudly when a file is unrecorded (identity A does not cover `tests/`).
 
 It must report `BINDING COHERENT` and `the scope change is APPROVED`, and it
 checks that: only the approval fields changed; **identity A is unchanged** (no
-code moved); **every assertion file is byte-identical** to the sealed manifest —
-which is why the suites need **not** be re-run; the manifests' `identity_B`
+code moved); **every assertion file listed in the sealed record**
+(`evidence/assertion_files.json`) is byte-identical to that record — which is
+why the suites need **not** be re-run; the manifests' `identity_B`
 matches the recomputed B; the affected manifest entries re-hash; and the
 pre-approval B is not silently reused.
 

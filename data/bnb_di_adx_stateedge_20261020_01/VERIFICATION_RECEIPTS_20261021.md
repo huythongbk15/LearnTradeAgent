@@ -99,10 +99,13 @@ root pinning, gate on the qualification path), F16/F17 (ledger accounting
 fields, token-map consistency), F18 (fault-test framing), and **F7** (the
 acceptance evidence is now sealed inside the packet **on identity A**).
 
-**Still OPEN**: **F9** — the native packet's episode/funnel measurements must
-be re-executed on the frozen pre-holdout input and diffed against
-`RESULTS.md`. That is a market-data operation on the pre-holdout file and was
-outside the reviewers' mandate; it needs its own budget.
+**CLOSED 2026-10-21 (F9)**: the native packet's episode/funnel measurements were
+re-executed on the hash-verified frozen pre-holdout input under the current
+source, and **all seventeen quantities quoted in the native `RESULTS.md` were
+reproduced exactly** (0 mismatches). Budget 30 s, spend 20.0 s, no retry; the
+old report was kept and only its caveat block was rewritten afterwards. The
+record is `../bnb_native_review_20261020_01/F9_REEXECUTION_DIFF.json` and the
+new outputs are in `../bnb_native_review_20261020_01/reexecution_20261021/`.
 
 ## Budget accounting
 

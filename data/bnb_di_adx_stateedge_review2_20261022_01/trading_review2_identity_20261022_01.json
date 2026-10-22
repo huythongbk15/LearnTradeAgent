@@ -1,0 +1,22 @@
+{
+  "cmd": [
+    ".venv/bin/python",
+    "-c",
+    "import pathlib,json; from trading_agent.backtest.campaign_integrity import capture_campaign_source; from trading_agent.backtest.preregistration_binding import preregistration_fingerprint; print(json.dumps(capture_campaign_source(pathlib.Path(\".\")),indent=2)); p=json.loads(pathlib.Path(\"data/bnb_di_adx_stateedge_prereg_20261020_01/preregistration_payload.json\").read_text()); print(\"CURRENT_B\",preregistration_fingerprint(p)); print(\"PROCESSES\"); [print(x.name,x.joinpath(\"cmdline\").read_bytes().replace(bytes([0]),b\" \")[:500]) for x in pathlib.Path(\"/proc\").iterdir() if x.name.isdigit() and x.joinpath(\"cmdline\").exists() and any(t in x.joinpath(\"cmdline\").read_bytes() for t in (b\"run_wfo\",b\"full_system_backtest\",b\"run_calibration\"))]"
+  ],
+  "rc": 0,
+  "elapsed_sec": 20.956750631332397,
+  "stdout": [
+    "{",
+    "  \"code_commit\": \"4078892d738790872dc2d4f494e3973a62612347\",",
+    "  \"tree_fingerprint\": \"c4b7479bd88dee4352dec7d9d2c03ab2ea2be18f65a0630bb6e543f9980b4b74\",",
+    "  \"worktree_dirty\": true,",
+    "  \"dirty_diff_sha256\": \"1865dc28229abb82fd28eab83c2e29d33901067a3b8896937954ddf68d5685ee\"",
+    "}",
+    "CURRENT_B 1338572d57628e9ba1c29b655856547d1c945f4695ee7cc9aef0545c8ce88145",
+    "PROCESSES",
+    "942501 b'.venv/bin/python scripts/qwenpaw_control/controlled_exec.py --timeout 60 --heartbeat 30 --result-file /tmp/trading_review2_identity_20261022_01.json -- .venv/bin/python -c import pathlib,json; from trading_agent.backtest.campaign_integrity import capture_campaign_source; from trading_agent.backtest.preregistration_binding import preregistration_fingerprint; print(json.dumps(capture_campaign_source(pathlib.Path(\".\")),indent=2)); p=json.loads(pathlib.Path(\"data/bnb_di_adx_stateedge_prereg_20261020'",
+    "942502 b'.venv/bin/python -c import pathlib,json; from trading_agent.backtest.campaign_integrity import capture_campaign_source; from trading_agent.backtest.preregistration_binding import preregistration_fingerprint; print(json.dumps(capture_campaign_source(pathlib.Path(\".\")),indent=2)); p=json.loads(pathlib.Path(\"data/bnb_di_adx_stateedge_prereg_20261020_01/preregistration_payload.json\").read_text()); print(\"CURRENT_B\",preregistration_fingerprint(p)); print(\"PROCESSES\"); [print(x.name,x.joinpath(\"cmdlin'"
+  ],
+  "stderr": []
+}

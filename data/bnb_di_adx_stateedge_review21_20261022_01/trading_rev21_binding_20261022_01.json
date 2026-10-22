@@ -1,0 +1,31 @@
+{
+  "cmd": [
+    ".venv/bin/python",
+    "data/bnb_di_adx_stateedge_20261020_01/verify_approval_binding.py"
+  ],
+  "rc": 3,
+  "elapsed_sec": 0.15255069732666016,
+  "stdout": [
+    "=== scope approval binding ===",
+    "approval_state      : PENDING_OPERATOR_APPROVAL",
+    "approved_scope      : None",
+    "approved_by         : None",
+    "approved_at         : None",
+    "",
+    "payload fields changed vs the pre-approval snapshot:",
+    "pre-approval  B = fe9cf95ee72b27036a52616b79a6f2e8f1edfb56481a4f0d97b547a713aa4373",
+    "post-approval B = fe9cf95ee72b27036a52616b79a6f2e8f1edfb56481a4f0d97b547a713aa4373",
+    "",
+    "identity A recomputed = b3aa44f026939863018a15de44a57c5b81e1bde9176b2c7483c7d3b7a65db427",
+    "identity A in manifest = b3aa44f026939863018a15de44a57c5b81e1bde9176b2c7483c7d3b7a65db427",
+    "assertion files unchanged: True",
+    "manifest identity_B matches the recomputed B: True",
+    "affected manifest entries re-hash: True",
+    "",
+    "BINDING COHERENT, but the scope change is still PENDING_OPERATOR_APPROVAL.",
+    "A market run is NOT authorised: record the approval in the payload first",
+    "(this changes identity B), then refresh the manifests and re-run this",
+    "verifier."
+  ],
+  "stderr": []
+}

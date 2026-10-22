@@ -1,4 +1,4 @@
-# `di_adx_state_edge` — contract + synthetic evidence — 2026-10-20 (rev2)
+# `di_adx_state_edge` — contract + synthetic evidence — 2026-10-20 (rev24)
 
 Path B **step 1 (contract) and step 2 (synthetic)**. Step 3 (preregistration) is
 drafted and lives in `../bnb_di_adx_stateedge_prereg_20261020_01/PREREGISTRATION.md`;
@@ -59,7 +59,7 @@ Full text: [`STATE_EDGE_CONTRACT.md`](STATE_EDGE_CONTRACT.md). Load-bearing clau
 - Verified at runtime: candidate absent from the legacy and default registries;
   the control `ma_adx` present and unchanged; the scoped registry resolves the
   candidate only with the right token. Regression:
-  `tests/test_di_adx_state_edge_scoped_path.py` (8 tests).
+  `tests/test_di_adx_state_edge_scoped_path.py` (11 tests).
 - Broad registration remains a **separate, later** decision and is not
   preregistered here. The scope token is a **scope control, not a capability
   control** — it is not a security boundary.
@@ -344,12 +344,13 @@ explicit "preregistration is not a run authorisation").
 | File | Content |
 |---|---|
 | `STATE_EDGE_CONTRACT.md` | the contract (step 1), with the MA exclusion and the frozen native-contract field list |
-| `acceptance_receipt.json`, `acceptance_stdout.txt` | AC01–AC15 against this packet's identity |
-| `source_identity_before.json`, `source_identity_after.json` | identical |
+| `acceptance_receipt.json`, `acceptance_stdout.txt` | AC01–AC15 as captured **inside this packet** — bound to identity `30283d31…` (an EARLIER source identity, not the current one) |
+| `acceptance_run_rev24/acceptance_stdout.txt`, `acceptance_run_rev24/source_identity_{before,after}.json` | AC01–AC15 **re-run on the current identity A** `d82bd081…` — all 15 acceptance checks PASS, rc 0 |
+| `source_identity_before.json`, `source_identity_after.json` | identical — the capture of the EARLIER acceptance run (identity `30283d31…`); the capture of the current one is in `acceptance_run_rev24/` |
 | `../bnb_di_adx_stateedge_prereg_20261020_01/PREREGISTRATION.md` | the single preregistration (step 3) |
 | `../bnb_native_review_20261020_01/RESULTS.md` | the control review the candidate derives its motivation from |
 | `src/trading_agent/strategies/di_adx_state_edge.py` | implementation (unregistered) |
-| `tests/test_di_adx_state_edge_contract.py` | synthetic suite, 13 passed |
+| `tests/test_di_adx_state_edge_contract.py` | synthetic suite, 15 passed |
 
 No market run. No holdout read. No policy, gate, sizing, authority or
 protection change. No registration. No publish, push or merge. The control

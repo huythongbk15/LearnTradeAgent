@@ -1,0 +1,129 @@
+{
+  "packet": "data/bnb_di_adx_stateedge_prereg_20261020_01",
+  "revision": "rev22",
+  "identity_A_source_fingerprint": "b3aa44f026939863018a15de44a57c5b81e1bde9176b2c7483c7d3b7a65db427",
+  "identity_A_dirty_diff_sha256": "085f12e1595afec8f3c3ae2150379fa824da747c7cbcce1f6bd15e4b47a1c1bf",
+  "code_commit": "4078892d738790872dc2d4f494e3973a62612347",
+  "identity_B_preregistration_fingerprint": "fe9cf95ee72b27036a52616b79a6f2e8f1edfb56481a4f0d97b547a713aa4373",
+  "input_sha256": "379677360902c9734780e496398abb02ea6390531b840e2262bd9d7881e6485f",
+  "holdout_rows_read": 0,
+  "files": [
+    {
+      "path": "PREREGISTRATION.md",
+      "sha256": "e7c653c102bff4e565e1ac0bee96aa3f84f8fed9599b996ceefddafecf189494",
+      "bytes": 112231
+    },
+    {
+      "path": "evidence/rev21_verification.json",
+      "sha256": "4ceaff642fc84836dea1c62e4623be97a574fda19194487a8cf74d71f74238b8",
+      "bytes": 9811
+    },
+    {
+      "path": "evidence/review2_verification.json",
+      "sha256": "574295edf4dc34a7e36bcf417e13978d818487f57aebf286de425d32702a26b3",
+      "bytes": 3163
+    },
+    {
+      "path": "pre_approval_payload.json",
+      "sha256": "181e57e868a20072307cdd8e5cded5980eac5f0b398bcb7b3c0ce03c4fd30092",
+      "bytes": 38655
+    },
+    {
+      "path": "preregistration_payload.json",
+      "sha256": "181e57e868a20072307cdd8e5cded5980eac5f0b398bcb7b3c0ce03c4fd30092",
+      "bytes": 38655
+    },
+    {
+      "path": "revisions/rev1/README.md",
+      "sha256": "edb9aa7ad461a1d0e156b03481e010340dc11eba7df9eb62f601172fc4d9eeb0",
+      "bytes": 591
+    },
+    {
+      "path": "revisions/rev1/manifest.json",
+      "sha256": "3d53c1f86abd119868ba71591c14e5f387c0359ad5392ecd337d2e430649d0e0",
+      "bytes": 608
+    },
+    {
+      "path": "revisions/rev11/README.md",
+      "sha256": "274609893994db5fbedafff97f8cbaf42b2a67b45448933bccd3f1ea3e6c8966",
+      "bytes": 1849
+    },
+    {
+      "path": "revisions/rev11/manifest.json",
+      "sha256": "8ada22e06d2b8cf74074fc810e545e5b6b3cc60b5d7da2c3a9f9b82f917ef1d7",
+      "bytes": 1914
+    },
+    {
+      "path": "revisions/rev15/README.md",
+      "sha256": "58b4a24ce948af9d5abd44bc54b0d4109e3c5da660e8e627997fba236223ec8b",
+      "bytes": 743
+    },
+    {
+      "path": "revisions/rev15/manifest.json",
+      "sha256": "6cbf214c9377aeeecf485dc6191daa5404e23b72b03a1ef5071c0f8d38c9edb2",
+      "bytes": 2074
+    },
+    {
+      "path": "revisions/rev2/README.md",
+      "sha256": "73744e684b4c211f5d902636c5e48cb2d160709c9214c02e813e96bb48439e7b",
+      "bytes": 603
+    },
+    {
+      "path": "revisions/rev2/manifest.json",
+      "sha256": "01078783858d06d882fb6d6183772ae8da2e7cba69015c26a02bdb351bb50baa",
+      "bytes": 1085
+    },
+    {
+      "path": "revisions/rev3/README.md",
+      "sha256": "e3820c24b898162ad0ce8232d5339468f75c169c3f4f9dbf8cdf28a5dec6a5c9",
+      "bytes": 793
+    },
+    {
+      "path": "revisions/rev3/manifest.json",
+      "sha256": "93338d93de316bb3d3e15b24964866750338c7989d231098f56311f1e2aecc60",
+      "bytes": 1243
+    },
+    {
+      "path": "revisions/rev4/README.md",
+      "sha256": "2f57b338597f69229b2054a5caaa126555ea97fccbbccc4d0315cdf1bacb873f",
+      "bytes": 530
+    },
+    {
+      "path": "revisions/rev4/manifest.json",
+      "sha256": "157e1512c49cb2cc91e6490967369d2d28ffca8566f17e4502551da48a525787",
+      "bytes": 1401
+    },
+    {
+      "path": "revisions/rev5/README.md",
+      "sha256": "22eb8149bb53a8210be4c10251a27b30ad8bb2f1b0d367423b9790e77a8e4ee8",
+      "bytes": 784
+    },
+    {
+      "path": "revisions/rev5/manifest.json",
+      "sha256": "77cfb848e3a051a3a85af3f755a18c6bbe042328e88aecfce8c7de255fa23ff5",
+      "bytes": 1559
+    },
+    {
+      "path": "revisions/rev6/README.md",
+      "sha256": "1ea85bd757257de1887d99ab54220ccbae1af3f77a57ddada93cd2dad9dbffae",
+      "bytes": 707
+    },
+    {
+      "path": "revisions/rev6/manifest.json",
+      "sha256": "3d861b41317caab554ba8301591794c8a46e38255b1aa347bf2d5ecdbbfcf1ae",
+      "bytes": 1717
+    },
+    {
+      "path": "revisions/rev7/manifest.json",
+      "sha256": "a24908cfda8703327f9e91980498eb3ec15c2162ea0eebf38b88501447c158b9",
+      "bytes": 1913
+    }
+  ],
+  "file_count": 22,
+  "excluded_review_own_outputs": [],
+  "revision_provenance": "data/bnb_di_adx_stateedge_review21_20261022_01/before_seal",
+  "review_status": "VERIFIED_PENDING_FINAL_INDEPENDENT_REVIEW",
+  "current_verification_index": "data/bnb_di_adx_stateedge_review21_20261022_01/verification_index.json",
+  "historical_evidence_note": "Prior acceptance and review2 evidence remain historical; current source evidence is in evidence/rev21_verification.json. No old PASS is relabelled.",
+  "excluded_from_manifest": []
+}
