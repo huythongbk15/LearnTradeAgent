@@ -71,9 +71,20 @@ def scoped_token_map_is_consistent() -> bool:
     for token, candidate in SCOPED_CANDIDATE_SCOPE_TOKENS.items():
         if not candidate:
             return False
-        if candidate not in set(SCOPED_CANDIDATE_SCOPE_TOKENS.values()):
+        relative = SCOPED_CANDIDATE_PREREGISTRATION_PATHS.get(token)
+        if not relative:
             return False
-        if not SCOPED_CANDIDATE_PREREGISTRATION_PATHS.get(token):
+        # The two maps must agree about the WORLD, not about themselves: the
+        # preregistration packet the token names must register exactly the
+        # candidate the token unlocks. A packet that names another candidate
+        # (or cannot be read) is a disagreement.
+        repository_root = Path(__file__).resolve().parents[3]
+        payload_path = repository_root / relative / "preregistration_payload.json"
+        try:
+            registered = json.loads(payload_path.read_text())["candidate"]["strategy_id"]
+        except (OSError, ValueError, KeyError, TypeError):
+            return False
+        if registered != candidate:
             return False
     return True
 
@@ -168,17 +179,35 @@ def verify_registered_payload_binding(
     normalised_params = normalise_singleton_grid(spec.get("param_grid"))
     expected_scope = request.get("expected_approved_scope")
     approved_contract = payload.get("execution_contract") or {}
-    expected_bodies = list((approved_contract.get("native_contract_bodies_by_cost") or {}).values())
+    approved_bodies = dict(approved_contract.get("native_contract_bodies_by_cost") or {})
     contracts = protocol.get("native_execution_contracts") or {}
-    contracts_match = bool(expected_bodies) and isinstance(contracts, dict) and bool(contracts)
+    # Each cell carries the cost scenario it was built for, so every contract
+    # is compared against the approved body of ITS OWN cost — not against the
+    # set of approved bodies. Membership alone would let a 1x cell run a 2x
+    # body.
+    cell_cost_names = {
+        cell.get("cell_id"): (cell.get("cost") or {}).get("name")
+        for cell in (protocol.get("expected_inner_cells") or [])
+    }
+    contracts_match = bool(approved_bodies) and isinstance(contracts, dict) and bool(contracts)
     if contracts_match:
         from trading_agent.backtest.execution_contract import require_execution_contract
 
         try:
-            for contract in contracts.values():
+            for cell_id, contract in contracts.items():
                 require_execution_contract(contract.get("contract_id"), contract)
-                if contract.get("body") not in expected_bodies:
+                # A contract is attributed to the cost of the cell it was built
+                # for. The launcher keys the contracts by cell id; a synthetic
+                # protocol may key them by cost name. Either way the body must
+                # EQUAL the approved body of that one cost — membership in the
+                # approved set would let a 1x cell run a 2x body.
+                cost_name = cell_cost_names.get(cell_id)
+                if cost_name is None and cell_id in approved_bodies:
+                    cost_name = cell_id
+                approved_body = approved_bodies.get(cost_name)
+                if approved_body is None or contract.get("body") != approved_body:
                     contracts_match = False
+                    break
         except (TypeError, ValueError, AttributeError):
             contracts_match = False
 

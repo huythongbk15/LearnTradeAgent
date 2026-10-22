@@ -122,8 +122,9 @@ def test_f2_killed_attempt_leaves_a_durable_record_and_no_completed_artifact(tmp
 
     The cell worker writes ``started.json`` before it executes and ``result.json``
     only when it finishes. A killed attempt therefore has a start record and no
-    result record: that combination is an INTERRUPTED attempt, and it must not
-    be reconcilable to anything else.
+    result record. Whatever the ledger calls that combination — INTERRUPTED
+    when the worker process is gone, RUNNING while it is still alive — it must
+    never be reconcilable to a completed attempt.
     """
     from trading_agent.backtest.tournament import EvaluationCellSpec, SCENARIO_BASE
 
@@ -153,7 +154,11 @@ def test_f2_killed_attempt_leaves_a_durable_record_and_no_completed_artifact(tmp
     )
 
     # the reconciliation the preregistration mandates: a start record without a
-    # result record is INTERRUPTED -- never COMPLETED, never silently dropped.
+    # result record is never COMPLETED — it is INTERRUPTED once the worker
+    # process is gone, RUNNING while it is still alive — and never silently
+    # dropped. (This fixture uses a live worker pid, so the ledger classifies
+    # it RUNNING; the dead-pid INTERRUPTED case is covered by the ledger
+    # invariants suite.)
     started = json.loads((attempt_dir / "started.json").read_text())
     assert started["max_retries"] == 0, "the attempt must not be retryable"
     for name in ("report.json", "execution_finished.json", "exact_coverage.json"):
