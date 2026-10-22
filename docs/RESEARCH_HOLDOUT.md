@@ -1,12 +1,14 @@
 # Final Holdout Policy (P2)
 
-> Trạng thái: **FROZEN** — `data/research_manifest.json` (freeze 2026-08-11)
+> Trạng thái: **FROZEN** — `data/research_manifest.json`.
+> Metadata verified 2026-10-19; owner: research operator.
+> Freeze metadata: `2026-09-06T11:33:21.967798+07:00`.
 
 ## Holdout window
 
 | | |
 | --- | --- |
-| **Window** | 2026-02-06 00:00 UTC → 2026-08-05 (180 ngày, 6 tháng cuối) |
+| **Window** | 2026-02-06 16:00 UTC → 2026-08-05 16:00 UTC |
 | **Timeframe** | 1h |
 | **Datasets** | 71 file parquet đã fingerprint SHA-256 |
 | **Manifest** | `data/research_manifest.json` (integrity SHA-256 tự tham chiếu) |
@@ -30,15 +32,18 @@ Window được căn theo **end chung sớm nhất** trên toàn bộ symbol c�
    guard_training_window(start=..., end=...)  # raises HoldoutError nếu overlap
    ```
 
-## Cách tạo lại / mở rộng
+## Xác minh / mở rộng
 
-```bash
-# xem window (không ghi)
-python scripts/generate_holdout_manifest.py --months 6
+Manifest SHA-256:
+`c1802ba532f7a7a17e7794fb2fb001f36c08f404b3a530be4026b870a65b2247`.
+[Inventory metadata](../data/bnb_qualification_readiness_20261019_01/inventory.json)
+đã kiểm integrity mà không đọc giá holdout. Timestamp naive trong manifest được
+helper chuẩn hóa UTC. Timeframe1h trong metadata không cấp quyền dùng holdout4h.
 
-# freeze manifest mới (ghi đè; chỉ làm khi thực sự muốn thay thế)
-python scripts/generate_holdout_manifest.py --months 6 --write
-```
+Không chạy generator với `--write` để ghi đè manifest đã freeze. Đề xuất mở rộng
+phải được duyệt riêng, dùng artifact mới và giữ bản cũ. Dữ liệu nằm trước boundary
+không tự động là unseen/OOS; cần exposure ledger. Metadata inventory không chứng
+minh holdout chưa từng bị truy cập trong toàn bộ lịch sử dự án.
 
 ## Ghi chú triển khai P2 còn lại (chưa hoàn thành)
 

@@ -73,6 +73,10 @@ def test_protocol_is_frozen_before_work_and_rejects_packet_reuse(planned, tmp_pa
     assert seen["purge"] >= protocol["history"]["warmup_bars"]
     assert len(protocol["expected_inner_cells"]) == 1
     assert protocol["live_authorized"] is False
+    expected_cell = protocol["expected_inner_cells"][0]
+    contract = protocol["native_execution_contracts"][expected_cell["cell_id"]]
+    assert contract["body"]["strategy"]["parameters"]["fast_period"] == 20
+    assert module._trial_execution_context(protocol)["native_execution_policy_version"] == 1
     assert not (tmp_path / "parallel_canonical_summary.json").exists()
     with pytest.raises(ValueError, match="new output"):
         module.prepare_parallel_protocol(spec, tmp_path, workers=1, cell_timeout=60)
@@ -100,6 +104,10 @@ def coverage_fixture(planned, tmp_path):
         report = {"metrics": metrics, "commit_sha": "b" * 40,
                   "measurement_window": list(window),
                   "execution_health": {"unknown_orders": 0, "manual_interventions": 0, "unprotected_positions": 0}}
+        from scripts.full_system_backtest import describe_execution_contract
+        report["active_config"] = {"execution_contract": describe_execution_contract(
+            symbol=spec.symbol, timeframe=spec.timeframe, strategy_name=spec.strategy_id,
+            parameters=params, commission=cost.commission, slippage=cost.slippage)}
         path = directory / "report.json"
         path.write_text(json.dumps(report))
         request_cell = tournament.EvaluationCellSpec(spec.strategy_id, spec.symbol, spec.timeframe, params, cost)

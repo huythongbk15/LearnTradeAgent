@@ -1,0 +1,16 @@
+{
+  "packet": "data/bnb_di_adx_stateedge_prereg_20261020_01",
+  "source_fingerprint": "0f22cce6e5ecb9c41e8724f04b291d61380c0dfefabf4a4e6dc4ae946fbe86d4",
+  "dirty_diff_sha256": "582da16992805bead0608e8ccba6c82009dee346f75752a21ba88f77a47d310f",
+  "code_commit": "4078892d738790872dc2d4f494e3973a62612347",
+  "input_sha256": "379677360902c9734780e496398abb02ea6390531b840e2262bd9d7881e6485f",
+  "holdout_rows_read": 0,
+  "files": [
+    {
+      "path": "PREREGISTRATION.md",
+      "sha256": "03c418923d9756d62983184e108d377f090a811d23f841601bd098161df34f9e",
+      "bytes": 33091
+    }
+  ],
+  "file_count": 1
+}

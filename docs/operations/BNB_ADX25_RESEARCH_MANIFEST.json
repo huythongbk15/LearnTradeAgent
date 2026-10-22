@@ -1,0 +1,89 @@
+{
+  "schema_version": "documentation_template_1",
+  "runtime_config": false,
+  "prepared_proposal": {
+    "path": "data/bnb_ablation_preparation_20261018_01/plan.json",
+    "sha256": "e0787c11df084aa9a022f7ffbc9fb611cb021e37875140f87a3cbc8162a0dae1",
+    "status": "PROPOSED_AWAITING_OPERATOR_APPROVAL",
+    "note": "Documentation draft below is not the runner schema; bound execution identity/config and scoped reuse decisions are in the separate proposal. No market run authorized."
+  },
+  "status": "REFERENCE_ONLY_EXECUTION_RECORDED_SEPARATELY",
+  "execution_record": {
+    "packet": "data/bnb_ablation_20261018_01",
+    "audit": "data/bnb_ablation_20261018_01/audit.json",
+    "approval": "data/bnb_ablation_preparation_20261018_01/operator_approval.json",
+    "status": "COMPLETED_EXPLORATORY_AUDITED_NOT_QUALIFIED",
+    "note": "The frozen runtime proposal and approval are separate immutable artifacts. Draft identity/approval fields below are template history, not current authorization. No further run is approved."
+  },
+  "scope": "EXPLORATORY_ALREADY_SEEN_VALIDATION_NOT_OOS",
+  "question": "Gói ADX>25 kèm DI alignment cho cả BUY/SELL có thêm giá trị so với MA20/80 thuần trên BNB/USDT 4h sau chi phí, hay chủ yếu thay đổi exposure? Không cô lập riêng ngưỡng ADX.",
+  "primary_comparison": "ma20_80_adx14_threshold25 minus ma20_80_without_adx",
+  "decision_rule": {
+    "status": "PROPOSED_NOT_OPERATOR_FROZEN",
+    "primary_metric": "paired net marked return difference in percentage points over identical calendar",
+    "secondary_metrics": ["DD magnitude", "mean/peak exposure", "time in market", "fees", "trade concentration", "closed trades and terminal inventory"],
+    "classification": "Net return higher and DD no higher: descriptive favorable result only. Lower return and higher DD: descriptive unfavorable result. Otherwise: trade-off/inconclusive. Equality within declared numerical tolerance is no improvement.",
+    "numerical_tolerance": "return 1e-8 percentage points; DD 1e-8 percentage points; numerical comparison only, not statistical significance",
+    "qualification": "No winner/promotion or alpha claim from this already-seen single window, regardless of classification",
+    "selection_score_used": false
+  },
+  "preflight": {
+    "receipt": "data/bnb_adx_preflight_20261018_01/receipt.json",
+    "source_identity_location": "receipt.source; historical snapshot, recheck before execution freeze",
+    "calendar_sha256": "6ae6833f785dce71a339118240d1c6a5fe68caf150eb2780561194ffdfedeffb",
+    "common_warmup_bars": 100,
+    "canonical_parity_bars_per_arm": 1080,
+    "control_signal_adapter": "ma_vol_target with fast20/slow80, signal-only; fixed sizing must override any volatility targeting in future execution",
+    "cost_score_review": "data/bnb_adx_preflight_20261018_01/score_cost_review.json",
+    "execution_compatibility": "PENDING: source differs from historical replay; signal parity alone does not establish execution parity"
+  },
+  "identity": {
+    "execution_commit": null,
+    "execution_tree_sha256": null,
+    "dirty_diff_sha256": null,
+    "runner_path_and_sha256": null,
+    "trial_registry_snapshot": null,
+    "data_path": "data/existing_research_audit_20261008/BNB_USDT__4h__pre_holdout.parquet",
+    "data_sha256": "379677360902c9734780e496398abb02ea6390531b840e2262bd9d7881e6485f",
+    "evaluation_index_half_open": [2360, 3440],
+    "evaluation_utc_half_open": ["2024-01-29T08:00:00Z", "2024-07-27T08:00:00Z"],
+    "timezone_interpretation": "UTC; input stores naive datetime",
+    "common_calendar_mask_and_warmup_hash": null,
+    "context_index": 2359,
+    "already_seen": true
+  },
+  "arms": [
+    {"id": "cash", "role": "zero_interest_benchmark", "status": "NOT_RUN_COMPARABLE_ENGINE"},
+    {"id": "buy_hold_initial25", "role": "not_risk_matched_benchmark", "status": "NOT_RUN_COMPARABLE_ENGINE"},
+    {"id": "ma20_80_without_adx", "role": "signal_control", "status": "NOT_RUN_COMPARABLE_ENGINE"},
+    {"id": "ma20_80_adx14_threshold25", "role": "filter_ablation", "status": "HISTORICAL_ONLY_REUSE_REQUIRES_REVIEW"}
+  ],
+  "execution": {
+    "reference_manifest": "data/bnb_execution_replay_20261017_01/manifest.json",
+    "reference_manifest_sha256": "898dd76b69d25e26a2f47951ba3f7089f00561900f78faf2ebfaa4ae407a8106",
+    "reference_is_new_run_identity": false,
+    "engine": "existing MarketReplayEngine V2, exploratory simulation only",
+    "signal_timing": "canonical signal at j uses head(j); execution at j+1; confirm parity for both MA arms",
+    "initial_cash_quote": 10000,
+    "entry_reference_notional_fraction": 0.25,
+    "hard_mtm_exposure_cap": false,
+    "rebalance_or_scale_in": false,
+    "strategy_stop": "5% average fill cost; prior completed low triggers next-open market exit",
+    "strategy_cooldown_hours_after_sell_fill": 24,
+    "take_profit_and_trailing": false,
+    "risk_halt": "DD15% / UTC day loss8%, prior closed marks",
+    "cost_and_microstructure": "Copy full reviewed reference SimulationConfig, including fee, spread, depth, latency, impact, precision; no silent defaults",
+    "seed": 42,
+    "terminal_mark": "no forced liquidation; carry marked at final close",
+    "benchmark_exit_policy": "cash stays cash; buy-hold enters once, no strategy stop/cooldown; common fee/mark and safety conventions; report policy distinction",
+    "benchmark_entry_and_safety_details_frozen": false
+  },
+  "budget": {"approved_seconds": null, "cell_timeout_seconds": null, "concurrency": 1, "retries": 0},
+  "approval": {"execution_approved": false, "manifest_sha256": null, "operator_receipt": null},
+  "authority": {"network": false, "new_data": false, "holdout": false, "promotion": false, "paper": false, "live": false},
+  "reuse": {"old_packets_immutable": true, "compatibility_receipt": null, "cross_source_auto_reuse": false},
+  "artifacts": ["frozen_manifest", "execution_receipt", "signals", "orders", "fills", "equity_marks", "arithmetic_audit", "evidence_card"],
+  "preflight_remaining": [
+    "No pending preflight for completed run; independent review of execution packet is the next action. Any further run needs a new approved proposal."
+  ]
+}

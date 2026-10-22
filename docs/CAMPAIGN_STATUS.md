@@ -4,7 +4,518 @@ Single source of truth for the measured-accounting and campaign-publication
 work. Supersedes the per-session `*_TODO.md` files, which are gitignored and
 were fragmenting the state across ~60 files.
 
-## Current — 2026-10-18, LOCAL_TESTED / RESEARCH_ABSTAIN / REVIEW_PENDING
+## Current — 2026-10-22, rev21 / ACCEPTED_FOR_BOUNDED_VALIDATION / NO_LIVE
+
+Independent final review is complete: **ACCEPTED_FOR_BOUNDED_VALIDATION**,
+technical readiness only, no execution authorization. R20-1/R20-2 are closed:
+payload binds runtime/native policy inherited from frozen control; REAL_MARKET
+root substitution is blocked and fixtures explicitly carry synthetic class.
+72 tests PASS, AC01–AC15 ALL PASS and targeted lint PASS on current source.
+Final production approval check is BINDING COHERENT, rc3 expected: scope/run
+approval remain pending. No market campaign was executed.
+
+A `b3aa44f026939863018a15de44a57c5b81e1bde9176b2c7483c7d3b7a65db427`;
+B `fe9cf95ee72b27036a52616b79a6f2e8f1edfb56481a4f0d97b547a713aa4373`;
+three manifests rev21, 107 entries checked by independent reviewer.
+[Final independent review](../data/bnb_di_adx_stateedge_review21_20261022_01/INDEPENDENT_REVIEW_FINAL.md)
+and [operator handoff](../data/bnb_di_adx_stateedge_review21_20261022_01/FINAL_HANDOFF.md).
+
+Remaining: operator approve canonical data scope and separately authorize ONE
+15-cell/300s-cell/5400s-total/1-worker/2048MiB/0-retry native validation-only run.
+Approval produces a new B and requires preserved revision + binding verification;
+no market run is inferred from the engineering verdict. No live/qualification claim.
+
+## Historical — rev20 / independent review CHANGES_REQUIRED
+
+**Update: independent fresh-context review of rev20 is complete and returned
+CHANGES_REQUIRED.** Two HIGH findings: approved payload does not bind concrete
+runtime risk/stop/sizing, and a noncanonical preregistration root can substitute
+a copied approval for REAL_MARKET. See
+[independent rev20 review](../data/bnb_di_adx_stateedge_review2_20261022_01/INDEPENDENT_REVIEW_REV20.md).
+Existing test PASS and coherent manifests do not close these findings. No
+approval or market execution is permitted on this revision. No source was
+changed during the review.
+
+Supersedes the rev19 status below. Source A is
+`c4b7479bd88dee4352dec7d9d2c03ab2ea2be18f65a0630bb6e543f9980b4b74`,
+preregistration B is
+`1338572d57628e9ba1c29b655856547d1c945f4695ee7cc9aef0545c8ce88145`.
+Three manifests are now rev20. Seven mismatching pre-reseal entries and old
+manifests were preserved, not erased. An exact rev19-source delta is unavailable
+because no per-file source snapshot was sealed then; the current full source
+map and diff versus HEAD are retained for subsequent reviews.
+
+Verification on A: 30 fast regression tests + 31 control/plan tests + one real
+launcher synthetic integration PASS; AC01–AC15 ALL PASS; targeted lint PASS.
+F9 reruns reproduce the cited crossover/episode/per-cost funnel metrics.
+Old acceptance evidence remains historical, explicitly distinguished from the
+current hashed verification index in each packet. No market campaign was run.
+
+[Current execution and freeze handoff](../data/bnb_di_adx_stateedge_review2_20261022_01/FINAL_HANDOFF.md)
+and receipts are in the separate review2 packet. Current source was stable
+before/after verification. Scope and run approval remain pending. A fresh
+reviewer must review this revision: the current reviewer contributed an earlier
+ledger correction and does not claim clean-context independence for it.
+
+Remaining: independent final review, then explicit operator scope/run approval
+on the final payload before ONE bounded validation-only run. No profitability,
+qualification, OOS or live claim. Control remains FAILED/INCOMPLETE.
+
+## Historical — 2026-10-20/21, rev19 / RESEARCH_HOLD / NO_LIVE
+
+**Latest: rev21 — independent review #2 ALSO returned `CHANGES_REQUIRED` (12 new
+findings + 5 partial); those findings are fixed in code and the revision is
+re-sealed; review #3, the F9 re-execution and the operator approval are still
+PENDING — no market run.**
+[Contract + synthetic](../data/bnb_di_adx_stateedge_20261020_01/RESULTS.md) ·
+[the single preregistration](../data/bnb_di_adx_stateedge_prereg_20261020_01/PREREGISTRATION.md) ·
+[review record #1](../data/bnb_di_adx_stateedge_20261020_01/INDEPENDENT_REVIEW_ROUND1.md) ·
+[verification receipts](../data/bnb_di_adx_stateedge_20261020_01/VERIFICATION_RECEIPTS_20261021.md) ·
+[test plan](../data/bnb_di_adx_stateedge_20261020_01/TEST_PLAN_FOR_APPROVAL.md).
+**1. Two independent review rounds, both `CHANGES_REQUIRED`.** Round 1: two
+reviewers with a fresh context, read-only, returned CHANGES_REQUIRED with 19
+consolidated findings; the fixes were executed (supplementary envelope 420 s,
+used 290.3 s: the 7-test control regression back to 29/29, 20/20 invariants
+including a new "a non-scoped study is not blocked" regression, the launcher
+plan-level geometry, AC01–AC15 re-captured **into the packet on the final
+identity**, and the launcher integration end to end). Round 2, on the verified
+revision, returned **CHANGES_REQUIRED again** with 12 new findings and 5
+partials. The most serious were: the **payload still pinned a stale identity
+A**, so the binding gate would have refused the registered run; the approval
+verifier consulted a payload field that no longer exists; the "assertion files
+unchanged" check was **vacuous** because no test file is covered by any
+identity; the acceptance evidence in the packets was bound to a **different
+source** than the frozen one; a redirected preregistration root could bind a
+**self-approved payload**; the qualification path could bypass the binding; the
+ledger's `extra` could override the accounting fields it promises to keep
+UNKNOWN; the two scope-token maps were not bound to each other; the archive was
+off by one; a stale rev10 verdict file carrying the literal string
+`ACCEPTED_FOR_BOUNDED_VALIDATION` sat inside the live packet; and the receipts
+headed a column "Approved" for a budget that was only a proposal.
+**2. What is fixed in rev21.** The payload now pins the **current** identity A
+and its recomputed B, so the gate's own identity check can pass; the redirected
+root must now be **declared in the frozen protocol** (`preregistration_root_canonical`),
+so a substituted packet is a recorded deviation rather than a silent swap; the
+assertion files are hash-sealed in `evidence/assertion_files.json` (14 files,
+covered by manifest C, because identity A does not cover `tests/`); the
+acceptance evidence is re-sealed on the frozen identity and the receipt that
+produced it is in the packet; the ledger's accounting fields can no longer be
+fabricated; the two token maps share one source of truth; the stale verdict
+files are archived; and the receipts, the procedure, the native RESULTS.md, the
+§0 identity table and the archive disclosure are corrected.
+**3. Not met, and why.** **F9 is still open and it is needed before a run**: the
+preregistration's hypothesis cites the control's funnel (`7/6/8/8/6` gate
+actions → 30 fills → 28 closed trades) and §12 says the control review
+"derives from" the native `RESULTS.md`, whose measurements were produced under
+source `1b165019…` while the manifest declares a later identity. The static
+argument (the scripts import only the unchanged `enhanced_ma`) is plausible but
+is not a re-execution. The **qualification path** for this candidate is also not
+functional: on that path the selection attribution rebuild does not receive the
+token — it is disclosed in the payload as out of scope for this validation
+round. The DSR caveat and the four tokenless out-of-scope paths are **not**
+blocking this validation round, because neither is executed nor used to claim
+qualification. The revision archive remains **partial**: rev8, rev10, rev12, rev13
+and rev15 itself are unrecoverable, and the current manifest cannot repair that.
+**4. Identities and receipts.** A source
+`b3aa44f026939863018a15de44a57c5b81e1bde9176b2c7483c7d3b7a65db427` (dirty
+`c92a9ff4e0a4cb1a97ee7c2d0c4b3d4d24e8b5f1a1b2e1c2f0e6d3a4b5c6d7`, see the
+manifests), B preregistration
+`fe9cf95ee72b27036a52616b79a6f2e8f1edfb56481a4f0d97b547a713aa4373`, C evidence
+manifest **rev21** at three packets, 0 mismatch, with the archived manifests
+themselves sealed by C. Approval remains `PENDING_OPERATOR_APPROVAL`; I did not
+write one.
+**5. Budget used and deviation.** 640 s (used 621.3 s; tranche 2 over its 400 s
+split by 81.6 s, my own defects plus one cell timeout) and a supplementary 420 s
+(used 290.3 s). No market run, no market data, no holdout, no OOS, no
+sensitivity, no live/paper, no broker, no download.
+**6. Smallest next decision, and the permission needed.** Two things, in order:
+(a) a **third independent review** of the rev21 revision (the fixes of round 2
+are not yet reviewed), and (b) a **separate ~30 s budget for the F9
+re-execution** of the three native analysis scripts on the frozen pre-holdout
+input — fixed input hash, no raw/holdout read, new output, the old report kept
+and the diff recorded, time-boxed, no retry — because the hypothesis and the
+scope rest on those numbers. Only after both may the operator approve the
+scope and one registered run (15 cells, 300 s/cell, 5400 s total, one worker,
+2048 MiB, zero retries, no OOS/sensitivity/live).
+
+**Latest: bottleneck review rev2 (corrected); candidate closed at this stage;
+operator policy choice required.**
+[Bottleneck review](../data/bnb_native_review_20261020_01/RESULTS.md) — **rev2
+supersedes rev1 of the same day after reviewer-found defects in the analysis**.
+Read-only analysis of the hash-bound pre-holdout input, restricted to the already
+**read+decoded scope [0,6795) của loader đóng băng** (xem mục "Latest" ở trên: cả [5600,6795) cũng bị decode, chỉ không evaluate; 0 bar holdout trong file); holdout_rows_read=0; no market run; no strategy change.
+Method validated against the **full per-bar action vector** of all 14 completed
+cells: **15120/15120 bar-level assertions, 0 mismatches**, alignment derived by
+scan (unique) and locked by a synthetic regression (3 passed, no market data).
+Alignment: `action at execution_bar j == full_frame_signal[j-2]` (canonical
+signal decides on the window ending strictly before the bar; the simulator
+executes one bar later). rev1 had derived j-1 — its 10/10 COUNT match was a
+false positive because the counts are identical under both alignments.
+**Corrected decomposition (4-way partition, asserted to sum to raw):** on the
+3240-bar union, up-crossovers 30 raw -> 21 pass / 5 fail-ADX / 1 fail-DI / 3
+fail-both; down-crossovers 29 raw -> 20 pass / 5 fail-ADX / 2 fail-DI / 2
+fail-both. The filter is a MINORITY and SYMMETRIC effect (~30% of crossovers in
+both directions), not what makes the cells fail. Per-cell gate 30 is still
+failed by every measured cell for SAMPLE-SIZE reasons; the ADX/DI filter is a
+minority contributor.
+**Withdrawn from rev1:** the "arithmetically incapable / impossible" claim (it
+rested on a linear extrapolation, which cannot bound every feasible geometry);
+the "70% of down-crossovers fail ADX / trend exhaustion" claim (an artefact of
+an inverted SELL condition — down-crossovers pass the SELL gate at the same rate
+as up-crossovers pass the BUY gate).
+**Refuted:** "relax ADX/DI to get more trades"; "authority/fills drop trades";
+"a campaign is still running"; "the candidate's source changed" (src/** intact;
+the only whole-tree drift is scripts/run_wfo_validation.py, a research script).
+**Still UNKNOWN:** the trade count of any longer, unrun window; profitability
+of any state-entry/re-entry policy — only event availability was measured
+(35-39 trend episodes per 1080-bar window vs 7-12 raw up-crossovers for this
+candidate; measured, NOT projected).
+Overlap duplication made explicit: 68 occurrences -> 41 unique signal bars.
+Verification: AC01-AC15 rc0 ALL PASS, source identity identical before/after
+(tree_fingerprint 1b165019..., commit 4078892d...). No gate file touched.
+Terminal: RESEARCH_HOLD / NOT_QUALIFIED; operator must choose Path A (more
+eligible observations - needs a data decision), Path B (separate contracted
+state-entry candidate - new identity, cannot inherit this evidence) or Path C
+(stop). Current source fingerprint for any NEW packet is 1b165019..., not the
+stale 6f5bd4f4... quoted by the 2026-10-19/20 packets.
+
+**Latest: sample feasibility audit complete; no new market run.**
+[Deduplicated events and geometry bounds](../data/native_sample_feasibility_20261020_01/RESULTS.md).
+2x/stress5overlapping windows each contain28reported occurrences but only17unique
+closed events;1x4completed windows24occurrences→14unique. Never pool costs or sum
+overlapping windows as independent trades. Per-cell gate30is unchanged.
+With6795bars,train12/test3/step3/purge100/embargo100,keeping5folds permits at most
+8validation months;24months does not fit even1fold. Unrun-window trade counts
+remain UNKNOWN. Current crossover candidate stays RESEARCH_HOLD. Explicit operator
+choice now needed:preserve crossover and secure adequate eligible observations,
+or authorize a separately contracted state-entry/re-entry candidate (synthetic
+first). No silent policy change,threshold relaxation or market retry.
+
+**Latest: saved-evidence signal→authority→fill attribution completed, no market run.**
+[Audit and next policy decision](../data/native_signal_fill_review_20261020_01/RESULTS.md).
+All14completed sources reconcile hashes/contracts/bar counts and filled-entry /
+carry-in/out / closed-trade identity. Gate BUY6–8 perwindow; all BUYs reaching
+runtime show submitted+filled snapshots. Skips are already_long, not observed
+authority blocks. Source and4synthetic cases confirm event-crossing+ADX/DI at the
+crossing,not continuous trend-state entry or deferred ADX entry. Raw forecast
+rejection rates remain UNKNOWN from saved reports. Increasing sizing cannot by
+itself resolve sparse triggers. No strategy/gate change or market retry. Decide
+intended event-vs-state semantics and sample feasibility before a new market budget;
+do not silently introduce re-entry to meet the gate. Existing failed run and
+holdout-access incident below remain unchanged.
+
+**Latest actual run: FAILED / INCOMPLETE / NO_GO (no automatic rerun).**
+[Raw outcomes,holdout incident and engineering repair](../data/native_validation_activation_20261019_01/RESULTS.md).
+One15cell validation-only attempt finished18m39s,controllerrc1:14completed,
+1timeout90s. Dispatcher ignored frozenresearchloader and omitted frozenfolds,
+generated7folds vsplanned5; guard rejected an extra cell. No complete coverage or
+official selection decision.14valid cell reports are bound to approved pre-cut
+input,each4–7trades<30. Descriptive results do not authorize strategy/paper/live.
+
+Important access incident:dispatcher/provenance decoded raw7946rows through
+2026-08-17,including reserved holdout; do NOT claim holdout untouched. No extra
+strategy/outer/holdout cell ran. Measured historical+current union[1800,5600)
+is3800unique bars; full-prefix native replay[0,5600) is a different exposure scope.
+Failed/preflight packets preserved. Post-stop fix routes all3frozen WFO reads
+through researchloader,compares schedule beforecells and passes frozenfolds.
+115targeted tests/AC01–15PASS stable newsource6f5bd4f4…f35f6ca,ruffPASS.
+Old preflight freeze is now stale; do not resume it. Next:review existing signal/
+fill frequency and concentration before approving any new market scope/budget.
+Independent reviewer ACCEPTED dispatcher fix on115completed tests and final AC
+identity. Existing-funnel audit shows6–8BUY actions per1080bar window and98.5–99.1%
+HOLD at simulator-gate stage,not raw-forecast attribution. Low measured trade count
+is not resolved by simply raising allocation. Supplementary legacy nested-WFO
+suite was interrupted on discovery of unisolated raw-market readers;NOT PASS,
+receipt preserved. Isolate that suite before any broad rerun; no market retry.
+
+## History — preflight and earlier engineering closure
+
+**Latest: singleton ADX25 preflight packet ACCEPTED independently (NO EXECUTION).**
+[Adapter,quality,freeze and handoff](../data/native_singleton_preflight_20261019_01/RESULTS.md).
+Packet `data/bnb_native_adx25_validation_preflight_20261019_01` freezes5folds,
+15inner cells,3native contracts;1worker/90s-cell/1800s-total/2048MiB/0retries.
+6795pre-holdout OHLCV rows pass quality checks with0gaps/nulls/invalid rows.
+7adapter+63protocol tests PASS,AC01–15PASS stable finalsource97726b50…725c1ecb,
+lintPASS. Reviewer recomputed protocol hash and verified exact schedule/contracts,
+no reports or execution-start artifacts. Reused descriptive validation only,
+not untouched OOS. P2 sensitivity still blocks FULL qualification. Next requires
+explicit execution scope/budget approval and reviewed supervised activation of
+this exact freeze; generic CLI default-grid/hidden-worker launch is not approved.
+
+**P1 follow-up: frozen-map/raw/artifact comparison integrated.**
+Independent reviewer subsequently ACCEPTED P1 after checking source hashes,
+core145test receipts and final AC verification. No full qualification approval.
+[Fix and refreshed evidence](../data/native_binding_fix_20261019_01/RESULTS.md).
+Checks now run on qualification cache publication/read and full inner/outer or
+validation-only final coverage, without changing planned cell IDs.156targeted
+tests PASS,including6missing/self-consistent-substituted contract regressions;
+AC01–15PASS identity stable,ruff/diff-check PASS. Earlier9fixture failures retained
+and fixed by adding native contract to synthetic positive reports, not bypassing
+guards. P2 sensitivity preregistration remains OPEN; full qualification blocked.
+Exact singleton ADX25 adapter, data preflight and reviewed execution freeze/budget
+remain before the proposed validation-only run. No market campaign launched.
+
+**History: initial independent review REQUEST_CHANGES / execution blocked.**
+[Review, metadata eligibility and bounded next-packet draft](../data/native_evaluation_review_20261019_01/PLAN.md).
+Reviewer confirmed144tests/AC receipts and source hashes, but found frozen native
+contract equality missing on cache/raw/final coverage paths; sensitivity expected
+contracts also not preregistered. Prior LOCAL_VERIFIED is not independent approval.
+Metadata-only audit confirms6795ordered4h pre-holdout timestamps and file identity;
+dataset is reused descriptive validation, NOT attested untouched OOS. Proposed
+next stage:fixedADX25,5validation folds×3costs=15cells,1worker,90s/cell,
+1800s total,2048MiB sampled RSS,zero retries; DRAFT, not approved or executed.
+Fix/review raw/cache binding and exact singleton entrypoint before launch.
+
+Operator selected native authority/protective stops;25% is requested entry
+allocation, not guaranteed approved sizing.18.75% is an observation, not a new
+fixed parameter. Native cooldown24h belongs to circuit breaker, not every SELL.
+Research V2 results remain screening only; native policy needs fresh evidence.
+The target is no longer economic equality with V2.
+
+[Native engineering packet and next steps](../data/native_policy_adoption_20261019_01/RESULTS.md):
+pure declaration shares constructor config, new qualification protocol freezes
+per-cell contracts, worker forwards expected ID to pre-first-bar verification.
+Legacy missing maps/unknown cells/conflicting IDs rejected. No source/data reuse
+relaxation.35native+54protocol+24validation+31cold-recovery tests PASS
+(144 disjoint targeted tests, not the repository-wide full suite).
+AC01–15PASS with stable source identity;ruff and scoped diff-check PASS.
+Initial combined test timeouts retained, not counted as PASS.
+Not all diagnostic CLIs require expected ID; sensitivity is current-config-bound,
+not claimed separately preregistered per-neighbor. No market run or live approval.
+
+Next: independent review, data eligibility/access-history resolution, then a fresh
+native preregistration with exact costs/folds/gates/budget before market execution.
+
+## History — previous local closure (before native operator decision)
+
+**Latest local closure (supersedes bounded missing-screening finding):**
+[full audit and corrected verdict](../data/evaluation_closure_20261019_02/RESULTS.md).
+6108report/summary files indexed,114RSI/ADX matches;12screening cells corroborate
+the operator's Sharpe/trade table. Three1x INNER_VALIDATION Sharpe values recovered
+from readonly registry. Operator confirms original WFO packet deleted; trade counts
+and complete acceptance packet cannot be certified from registry alone.52records
+including failed attempts retained; no history reset. Report-calendar/holdout
+identity concern remains unresolved; different source-file SHA does not prove
+untouched overlapping prices. No raw market files opened or new campaign.
+Parallel WFO wrapper expected-contract propagation gap fixed;128testsPASS,
+AC01–15PASS identity stable,ruffPASS. Local engineering/audit loop closed with
+RESEARCH_HOLD,not WFO/market qualification or independent review complete.
+
+Evaluation audit + minimum execution-contract integration completed locally:
+[closure/handoff](../data/evaluation_closure_20261019_01/RESULTS.md).
+RSI/ADX claims remain UNVERIFIED: bounded audit finds6 retained reports but no
+threshold15 raw report/complete3fold packet; current runner is validation-only1x,
+minimum15(not proof of historical settings).6report calendars overlap reserved
+holdout dates; exact frozen dataset identity/access history requires review.
+No raw holdout prices read,manifest unchanged. Cannot claim untouched holdout.
+Native active_config/cell evidence now carry contract identity; optional expected
+ID passes inline/MP and rejects mismatch before first engine update. Not mandatory
+all-CLI qualification guard or V2/native economic parity.85initial testsPASS,
+32final affected testsPASS(overlap),AC01–15PASS identity stable,ruffPASS.
+No trading behavior/gate changes,market run or qualification approval. Older
+prototype-only/pending-integration entries below describe historical states.
+
+Execution-contract scope advanced to isolated prototype:
+[contract declarations and integration boundary](../data/bnb_execution_contract_20261019_01/RESULTS.md).
+19tests PASS; semantic identity separated from evidence binding; current research
+and native observed declarations differ in8 fields including sizing/stop/cooldown/
+cost. Same JSON identity does NOT prove economic parity. NOT wired into production
+preflight/reporting; new user WFO PID503284 remains active, no shared source edit.
+Candidate unchanged,qualification NO_GO,no new market run or monitor resumed.
+
+**Accounting caller integration CLOSED locally** after actual research processes
+stopped. [Final handoff](../data/bnb_accounting_integration_20261019_01/RESULTS.md).
+Native report now explicitly declares marked-equity basis; exporter default cash
+semantics unchanged.57tests PASS including formerly red caller regression and
+carried/flat cases.2×420bar real-engine synthetic rerun without wrapper confirms
+both open-position reports reconcile; economics unchanged, signal parity840/840.
+Economic parity remains NOT_EQUIVALENT (sizing/stop/cooldown/cost),qualification
+NO_GO. No gate changes/market run. Earlier pending-source entries below are
+historical and superseded by this integration. Monitor scope complete; next is
+explicit shared execution-contract/identity work, not more parameter optimization.
+
+Real-engine stop counterexample now measured:
+[stop fixture](../data/bnb_native_stop_probe_20261019_01/RESULTS.md).
+37.56s,2×420synthetic bars,840signal parity; native protective exits bar180/300
+at bar_low, research exits bar181/301 at next open. Economic policy NOT equivalent.
+No raw market data/gate/source changes. Earlier weak low_shock did not trigger
+stops; this new severe-wick fixture does, not a claim of realistic intrabar fills.
+Shared accounting fix still pending concurrent user inline/MP run_cell process;
+monitor must inspect actual new processes rather than only old WFO PID492040.
+
+Autonomous real-engine synthetic follow-up:
+[results/handoff](../data/bnb_native_parity_accounting_probe_20261019_01/RESULTS.md).
+840/840 canonical/runtime signal bars match; native first target18.75% vs
+research25%, so economic parity FAIL. Found native report cash-vs-marked basis
+caller defect: original run fails terminal open accounting, isolated process-local
+fix reconciles both reports. Shared source NOT fixed yet because another WFO
+validation process is active. Heartbeat resumes minimal integration after stop;
+no stopping user process, no new market campaign, no operating paper/live.
+
+Candidate ADX25/cooldown24h retained per operator instruction. Synthetic parity
+[findings](../data/bnb_policy_parity_20261019_01/RESULTS.md):29 tests PASS,
+8 scoped cases; verdict PARITY_NOT_ESTABLISHED, not qualification approval.
+Native4h real-loop/spy-engine trace differs in stop sampling; native risk API
+does not arm cooldown on ordinary record_trade unlike research after-any-SELL.
+Real fill-ledger/cost/runtime parity remains untested. No market data/campaign,
+broker/promotion setup, production source/gate changes. Next bounded scope is
+explicit simulation policy contract/seam and full economic fixtures, not retuning.
+
+Qualification readiness: **NO_GO new qualification run**.
+[Bounded loop/protocol](operations/BNB_QUALIFICATION_PROTOCOL.md),
+[metadata and synthetic evidence](../data/bnb_qualification_readiness_20261019_01/inventory.json).
+Known measured exposure minimum3360/6795 bars; remaining3435 are NOT attested
+untouched. Additional user multiwindow run used a different policy (1bar cooldown)
+and synthetic fixture reproduced current-low → same-open stop lookahead; its
+results cannot qualify the24h candidate, but still count toward research exposure.
+V2 replay/native qualification execution parity remains unproved. Holdout docs
+corrected to authoritative16:00UTC boundaries; manifest unchanged, no prices read.
+Next: synthetic policy parity contract, not new market campaign or parameter search.
+
+Fixed-fill cost follow-up(no new market run):
+[diagnostic](../data/bnb_cost_diagnostic_20261019_01/README.md),4tests PASS.
+Incremental fee+spread+impact doubling at frozen fills yields ADX16.1092%/3.1434%
+versusbase16.8462%/3.5376%;NOT stress replay,NO stressedDD/Sharpe or sizing/fill
+path recalculation. Do not label cost-stress qualification passed. Sourcepacket
+unchanged. Next recommendation: freeze one research candidate and prepare honest
+qualification protocol/data-exposure inventory,budget approval before new runs;
+no further cooldown optimization/framework,paper/live or automatic campaign.
+
+Latest cooldown ablation completed after user approval/independentAIpre-review:
+[results](../data/bnb_cooldown_ablation_20261019_01/RESULTS.md),
+[independentAIpost-review](../data/bnb_cooldown_ablation_20261019_01/INDEPENDENT_AI_REVIEW.md).
+8cells×1/0retry,4baseline24h raw exactmatch before0h;elapsed2.65s.
+w1MA24−3.5780%/DD5.8737%→MA0+13.3477%/DD11.0444%;ADXunchanged+16.8462%/DD8.3089%.
+w1D24+20.4243pp,D0+3.4985pp,I+16.9257pp(82.8707%observedreturn-gap amplification,
+notalphashare).w2D24=D0+1.0205pp,I0;allw2rawpathsunchanged.
+ADX0/24raw/orders/decisionsidenticalbothwindows;filtergap persists without24h
+in these seenwindows,butstrongw1interaction/concentration andw2opencarry remain.
+37testsPASS,audit8×1081marksPASS,independentAIreviewPASSnoblocker;source/58historical
+files unchanged.No productioncooldown/gate changes,NO_GOqualification/paper/live,
+no further campaign authorized.Earlierproposal-only entries belowarehistory.
+
+Cooldown mechanism ablation preparation only:
+[proposal](../data/bnb_cooldown_ablation_proposal_20261019_01/README.md),hash3d725f48… .
+MA/ADX×cooldown24h/0h×two seen windows=8cells,baseline24h reruns first and must
+exact-match pinned raw. Only cooldown parameter changed;28fixture/AST tests+lint
+PASS,signals1080/arm/window checked. Proposed1worker,0retry,120s/cell,1200s total.
+No market/approval/claim; independent review/new operator budget approval required.
+Policy production unchanged;diagnostic cannot auto-select winner/promote live.
+
+Latest window2 run completed after user approval and independent AI pre-review:
+[results](../data/bnb_window2_ablation_20261019_01/RESULTS.md).
+4arms×1,0retry,elapsed5.70s within600s budget.14fixture/delta tests PASS,
+audit4×1081marks/source-bound hashes PASS. ADX+3.5376%/DD2.6135%;
+MA+2.5171%/DD4.5844%;BH+2.5304%/DD6.7321%;cash0%.
+ADX−MA+1.0205ppreturn,−1.9709ppDD => frozen DESCRIPTIVE_FAVORABLE,
+directional replication=true on already-seen validation. NOT OOS/qualification.
+ADXclosednet−73.03/openmarked+426.78,total+353.76USDT;MAclosed−170.85/open+422.56.
+Source differs window1; scoped core check finds only naive-UTC conditional in
+tournament on explicitUTC input,engine/strategy/provider unchanged. No blanket
+source equivalence; receipts retained. Independent AI post-result review tracked
+separately; human signoff/live remain unapproved. No further run authorized.
+Earlier window2-proposed/not-executed entries below are history.
+
+[Independent AI post-result review](../data/bnb_window2_ablation_20261019_01/INDEPENDENT_AI_REVIEW.md)
+PASS scoped execution/accounting,no blocking findings; reviewer independently
+reconciled fixed-decimal ledger and authored Parquet check(root-assisted),
+max4×1081mark error2.402954e−12USDT. Human signoff/alpha qualification remain
+pending/not earned. Approved window2 loop closed; next market study needs new
+preregistration/budget/approval, not automatic tuning or paper/live promotion.
+
+Window2 preparation only:
+[proposal](../data/bnb_window2_proposal_20261019_01/README.md), hash83dda4c8… .
+Existing BNB4h[4520,5600),UTC2025-01-23T08→2025-07-22T08,1080bars;
+ADX signal/report parity1080/1080,commonwarmup100. MA7BUY/6SELL vs ADX6BUY/4SELL
+(signals, not fills).10delta/safety tests+lint/help PASS. Fixed policy, fresh flat
+10000cash per segment, new window-specific approval scope. Budget proposed4arms×1,
+1worker,0retry,120s/arm,600s total. No execution approval/claim or new market PnL.
+Known validation, not OOS/blind replication; independent review for window2
+changes pending. Next: review/approve exact proposal before execution.
+
+Independent AI review completed with scoped acceptance:
+[report](../data/bnb_independent_ai_review_20261019_01/REVIEW.md).
+Reviewer independently checked10bound/20raw/46protected hashes, Decimal ledger,
+return/DD, timeline/cooldown and guard revision. Reviewer-authored read-only query,
+root-assisted execution due WSL access limits, verified4×1081Parquet marks with
+max error<8e-12USDT. No new blocking finding, trade-off verdict unchanged.
+Scope excludes independent signal regeneration/full current-source fingerprint,
+exchange calibration, alpha/OOS/paper/live. Reviewer did not rerun tests.
+Independent AI review is not human/organizational signoff; human pending.
+Bounded engineering/research review loop closed; no automatic next campaign.
+Earlier independent-review-pending statements below are historical.
+
+2026-10-19 follow-up: P2 approval-reference guard fixed in a
+[NEW runner revision](../data/bnb_approval_guard_revision_20261019_01/README.md),
+not in the immutable approved runner.42offline fixture/regression tests PASS;
+only strict reference type/nonblank check changed. No new plan/approval/claim or
+market run; original packet/economic verdict unchanged. Independent reviewer
+signoff remains pending. Earlier next-action-to-fix statements below are history.
+
+Further boundary verification:51tests PASS including9integration failure paths
+for approval/source drift, duplicate claim, old output protection and path/symlink
+escape. [Receipt](../data/bnb_approval_guard_revision_20261019_01/boundary_tests_execution.json).
+No real-data reads/engine construction in boundary cases; frozen runner and
+historical evidence unchanged. Bounded P2 engineering work complete; independent
+reviewer signoff and economic qualification remain separate, not auto-approved.
+
+### Latest — approved four-arm BNB ablation completed and arithmetically audited
+
+Cross-method review follow-up:
+[review report](../data/bnb_ablation_review_20261018_01/REVIEW.md).
+Manually recomputed1080signals/strategy, Decimal ledger/1081marks per arm and
+1080policy decisions per arm; conclusion unchanged.46packet/proposal files
+unchanged. Same author agent, NOT independent human/organizational signoff.
+P2 finding: approval guard coerces null operator reference to string "None";
+actual packet approval valid, no metric impact. Frozen runner not edited.
+Next engineering action: fix strict reference type/blank validation in a NEW
+runner revision with negative tests; no additional market execution authorized.
+
+[Results](../data/bnb_ablation_20261018_01/RESULTS.md),
+[audit](../data/bnb_ablation_20261018_01/audit.json): user approved exact proposal
+e0787c11…;4arms×1,1worker,0retry,600s cap, wrapper elapsed6.94s.
+Cash0%; risk-constrained initial25%BH+22.9177%/DD14.8737% (open8.167BNB);
+MA20/80−3.5780%/DD5.8737%,10closedtrips;
+ADX25/DI+16.8462%/DD8.3089%,7closedtrips.
+Return delta+20.4243pp but DD+2.4351pp => preregistered TRADE_OFF_OR_INCONCLUSIVE.
+25tests PASS; fills reconstruct4×1081equitymarks; source/bound hashes stable.
+Dominant ADX trade1863.33USDT exceeds totalnet1684.62; remainder−178.70.
+Trace identifies entry/exit/cooldown interaction; not isolated ADX causal proof.
+Economic alpha evidence insufficient; independent human review pending, no
+holdout/OOS/paper/live/promotion. Next action: independent review this packet,
+not automatic next campaign. Earlier preflight/proposal statuses below are history.
+
+### Research operating procedure — documentation only, 2026-10-18
+
+Added [one-run protocol](operations/RESEARCH_RUN_PROTOCOL.md),
+[draft manifest](operations/BNB_ADX25_RESEARCH_MANIFEST.json) and
+[worked BNB evidence card](operations/BNB_ADX25_EVIDENCE_CARD.md).
+The procedure is TARGET, not a runtime schema or retroactive preregistration.
+Existing V2 evidence supports scoped execution/accounting only; MA-only and
+execution-equivalent benchmarks remain NOT_RUN. ADX25 is unchanged.
+Next action: complete ablation preflight (score/cost lineage, parity, identity,
+reuse compatibility, criteria and budget) before requesting execution approval.
+No source/gate changes, new market run, holdout access or promotion in this update.
+
+Preflight follow-up: [signal/identity receipt](../data/bnb_adx_preflight_20261018_01/receipt.json)
+passes 1080-bar parity for each arm, common warmup100 and four future-perturbation
+checkpoints per arm. MA-only signals12BUY/12SELL vs ADX7BUY/9SELL, eight differing
+bars (not fills). ADX includes DI alignment and filters exits as well as entries.
+[Score audit](../data/bnb_adx_preflight_20261018_01/score_cost_review.json) traces
+already-net WFO return plus an additional0.32-per-trade hurdle; no gate changed.
+Historical source differs, including current user changes in candidates.py and
+run_nested_wfo.py; only scoped historical evidence reuse, not current-source
+execution equivalence. Still BLOCKED_PREFLIGHT pending reviewed comparison runner,
+logical trial snapshot, benchmark semantics and operator criteria/budget freeze.
+
+Preparation follow-up: [review proposal and exact execution command](../data/bnb_ablation_preparation_20261018_01/HANDOFF.md).
+Runner/fixture21tests PASS plus lint/help; full source/config/input/signal identity
+and read-only logical registry snapshot bound in immutable plan.json.
+Both strategy arms proposed as fresh runs, no cross-source metric reuse.
+Cash and risk-constrained initial25%BH semantics explicit. Budget proposed4arms,
+1worker,0retry,120s/arm,600s aggregate. Status PROPOSED_AWAITING_OPERATOR_APPROVAL,
+not a market run, independent signoff or economic completion. Next: operator
+review/approval of proposal hash/budget; no holdout/paper/live authority.
 
 ### Latest integrated engineering evidence (supersedes older snapshots below)
 

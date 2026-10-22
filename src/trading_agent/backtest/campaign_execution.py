@@ -190,6 +190,11 @@ class CampaignCellRunner:
                 or artifact.commit_sha != self.context["source"]["code_commit"]):
             raise ValueError("cached artifact identity/window/source mismatch")
         report = json.loads(raw)
+        if "native_execution_contracts" in self.context:
+            from trading_agent.backtest.execution_contract import require_frozen_native_evidence
+
+            require_frozen_native_evidence(
+                self.context["native_execution_contracts"], spec.cell_id, report, artifact)
         config = report.get("active_config", {})
         runtime = self.context.get("runtime_config")
         if runtime is not None:
@@ -221,7 +226,11 @@ class CampaignCellRunner:
                 or not isinstance(report.get("trades"), list)
                 or not isinstance(report.get("equity_curve"), list) or not report["equity_curve"]):
             raise ValueError("cached raw report identity/window/ledger missing or mismatched")
-        rebuilt = _artifact_from_report(spec, build_default_registry().describe(spec.strategy_id),
+        rebuilt = _artifact_from_report(
+            spec,
+            build_default_registry(
+                scope_token=self.context.get("scope_token")
+            ).describe(spec.strategy_id),
                                         Path(artifact.report_path).parent, report, artifact.data_manifest_sha,
                                         measurement_window=measurement, simulation_window=artifact.simulation_window,
                                         signal_delay_bars=artifact.signal_delay_bars)
@@ -318,9 +327,18 @@ class CampaignCellRunner:
                     cache_reason = "VERIFIED_COLD_IMPORT"
             if artifact is None:
                 attempt_root = self.root / "cell_attempts" / uuid.uuid4().hex
-                _durable_json(attempt_root / "execution_started.json", {"identity": identity,
+                _durable_json(attempt_root / "execution_started.json", {
+                    "identity": identity,
+                    "started_at_epoch": time.time(),
                                                                        "live_authorized": False})
-                artifact = self.runner(spec, **{**kwargs, "out_root": attempt_root})
+                artifact = self.runner(
+                spec,
+                **{
+                    **kwargs,
+                    "out_root": attempt_root,
+                    "scope_token": self.context.get("scope_token"),
+                },
+            )
                 self._verify_bindings(spec)
                 if artifact.status == "COMPLETED" and artifact.report_path and self._bound_context():
                     report_path = Path(artifact.report_path).resolve()
@@ -360,6 +378,54 @@ class CampaignCellRunner:
                             )
                         )
                         + "\n"
+                    )
+                # Evaluation-level ledger row: ONE row per EVALUATION (the
+                # cache key), merged across the attempt history of that
+                # evaluation. Several attempt records under one evaluation are
+                # the history of that evaluation and are never counted as
+                # separate evaluations.
+                try:
+                    from trading_agent.backtest.attempt_ledger import (
+                        evaluation_attempt_dirs,
+                        record_ledger_error,
+                        write_ledger_row,
+                    )
+
+                    ledger_dir = self.root / "cell_ledger"
+                    attempt_dirs = evaluation_attempt_dirs(self.root, key)
+                    write_ledger_row(
+                        ledger_dir,
+                        key,
+                        {
+                            "identity": identity,
+                            "cell_id": spec.cell_id,
+                            "strategy_id": spec.strategy_id,
+                            "cost_scenario": spec.cost_scenario.name,
+                        },
+                        attempt_dirs,
+                        extra={
+                            "artifact_status": getattr(artifact, "status", None),
+                            "error": error,
+                            "elapsed_seconds": elapsed,
+                            "cache_hit": cache_hit,
+                            "execution_path": "cache_hit" if cache_hit else "fresh",
+                        },
+                    )
+                except Exception as ledger_exc:  # noqa: BLE001
+                    # A ledger gap must not vanish silently: it is recorded
+                    # durably in an append-only error log.
+                    try:
+                        from trading_agent.backtest.attempt_ledger import (
+                            record_ledger_error,
+                        )
+
+                        record_ledger_error(self.root / "cell_ledger", key, ledger_exc)
+                    except Exception:
+                        pass
+                    print(
+                        f"[campaign] cell={self.completed} LEDGER_WRITE_FAILED "
+                        f"key={key} {type(ledger_exc).__name__}: {ledger_exc}",
+                        flush=True,
                     )
                 if error or (artifact is not None and artifact.status != "COMPLETED"):
                     failure_dir = self.root / "cell_failures"

@@ -1,0 +1,38 @@
+{
+  "packet": "data/bnb_di_adx_stateedge_prereg_20261020_01",
+  "revision": "rev4",
+  "identity_A_source_fingerprint": "94bcc703d6e1ffb86893b81982a8e1f9b401f2ec0f3766f6a852c165113de2d9",
+  "identity_A_dirty_diff_sha256": "1e99f7c4a49ab0a74234246a25e9bc7afcb1d721d92629ad705e9fad648fe841",
+  "code_commit": "4078892d738790872dc2d4f494e3973a62612347",
+  "identity_B_preregistration_fingerprint": "117ea187065ec16c320ce51917c07221dc1c2f34ed4c227307d50b7ce79997fd",
+  "input_sha256": "379677360902c9734780e496398abb02ea6390531b840e2262bd9d7881e6485f",
+  "holdout_rows_read": 0,
+  "files": [
+    {
+      "path": "PREREGISTRATION.md",
+      "sha256": "bb47feda43c71ce19ac34d03ef836b670804c56e2ad93db3e804f600d96181f0",
+      "bytes": 60506
+    },
+    {
+      "path": "preregistration_payload.json",
+      "sha256": "ac4179916cfdc7cbfa5da104505208b11066865c9478eeedc487fe868ae9537b",
+      "bytes": 5559
+    },
+    {
+      "path": "revisions/rev1/README.md",
+      "sha256": "edb9aa7ad461a1d0e156b03481e010340dc11eba7df9eb62f601172fc4d9eeb0",
+      "bytes": 591
+    },
+    {
+      "path": "revisions/rev2/README.md",
+      "sha256": "73744e684b4c211f5d902636c5e48cb2d160709c9214c02e813e96bb48439e7b",
+      "bytes": 603
+    },
+    {
+      "path": "revisions/rev3/README.md",
+      "sha256": "e3820c24b898162ad0ce8232d5339468f75c169c3f4f9dbf8cdf28a5dec6a5c9",
+      "bytes": 793
+    }
+  ],
+  "file_count": 5
+}

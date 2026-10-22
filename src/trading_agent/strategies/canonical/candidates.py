@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from trading_agent.strategies.base import Strategy
+from trading_agent.strategies.di_adx_state_edge import DiAdxStateEdgeStrategy
 from trading_agent.strategies.bbands import BBandsStrategy
 from trading_agent.strategies.canonical.adapter import LegacyDataFrameAdapter
 from trading_agent.strategies.canonical.descriptor import StrategyDescriptor
@@ -38,6 +39,7 @@ from trading_agent.strategies.ma_crossover import MaCrossover
 from trading_agent.strategies.range_mean_reversion import RangeMeanReversionStrategy
 from trading_agent.strategies.regime_switching import RegimeSwitchingStrategy
 from trading_agent.strategies.rsi import RsiStrategy
+from trading_agent.strategies.rsi_adx_regime_filter import RsiAdxRegimeFilterStrategy
 from trading_agent.strategies.stat_arbitrage import (
     StatArbitrageLongOnlyStrategy,
     StatArbitrageLongShortStrategy,
@@ -57,6 +59,7 @@ def _file_sha(name: str) -> str:
 
 
 _ENHANCED_MA_SHA = _file_sha("enhanced_ma.py")
+_DI_ADX_STATE_EDGE_SHA = _file_sha("di_adx_state_edge.py")
 _RSI_SHA = _file_sha("rsi.py")
 _BBANDS_SHA = _file_sha("bbands.py")
 _REGIME_SWITCHING_SHA = _file_sha("regime_switching.py")
@@ -67,11 +70,13 @@ _MA_CROSSOVER_SHA = _file_sha("ma_crossover.py")
 _RANGE_MEAN_REVERSION_SHA = _file_sha("range_mean_reversion.py")
 _STAT_ARBITRAGE_SHA = _file_sha("stat_arbitrage.py")
 _CROSS_SECTIONAL_MOMENTUM_SHA = _file_sha("cross_sectional_momentum.py")
+_RSI_ADX_REGIME_FILTER_SHA = _file_sha("rsi_adx_regime_filter.py")
 
 # Default parameter sets (mirror the legacy defaults) → warm-up bars.
 _ENHANCED_MA_WARMUP = 80 + 14 + 6  # slow(80) + adx(14) + buffer
 _RSI_WARMUP = 14 + 2
 _BBANDS_WARMUP = 20 + 2
+_RSI_ADX_REGIME_FILTER_WARMUP = max(80 + 14 + 6, 14 + 2)  # max(ma_slow+adx+buffer, rsi+window)
 _FUNDING_CARRY_WARMUP = 20 + 2  # vol_window(20) + buffer for pct_change + rolling
 _VOLATILITY_BREAKOUT_WARMUP = 20 + 14 + 2  # bb_period(20) + atr(14) + buffer
 _ENSEMBLE_MA_ADX_WARMUP = 252 + 14 + 2  # ATR then lagged regime percentile
@@ -157,6 +162,17 @@ _MA_ADX_PARAMS_SCHEMA = {
     ],
 }
 
+_DI_ADX_STATE_EDGE_PARAMS_SCHEMA = {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "adx_period": {"type": "integer", "minimum": 2, "maximum": 100},
+        "adx_threshold": {"type": "number", "minimum": 0.0, "maximum": 100.0},
+    },
+    "required": [],
+}
+
 _MA_VOL_TARGET_PARAMS_SCHEMA = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "type": "object",
@@ -216,6 +232,33 @@ _REGIME_SWITCHING_PARAMS_SCHEMA = {
         "base_position_pct": {"type": "number", "minimum": 0.01, "maximum": 0.5},
     },
     "required": [],
+}
+
+_RSI_ADX_REGIME_FILTER_PARAMS_SCHEMA = {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "rsi_period": {"type": "integer", "minimum": 2, "maximum": 100},
+        "rsi_oversold": {"type": "integer", "minimum": 1, "maximum": 49},
+        "rsi_overbought": {"type": "integer", "minimum": 51, "maximum": 99},
+        "ma_fast": {"type": "integer", "minimum": 2, "maximum": 100},
+        "ma_slow": {"type": "integer", "minimum": 3, "maximum": 500},
+        "adx_period": {"type": "integer", "minimum": 2, "maximum": 100},
+        "adx_threshold": {"type": "number", "minimum": 0.0, "maximum": 100.0},
+        "ma_type": {"type": "string", "enum": ["sma", "ema"], "default": "sma"},
+    },
+    "required": [],
+    "allOf": [
+        {
+            "if": {"properties": {"ma_fast": {}, "ma_slow": {}}},
+            "then": {"properties": {"ma_slow": {"exclusiveMinimum": {"$data": "1/ma_fast"}}}},
+        },
+        {
+            "if": {"properties": {"rsi_oversold": {}, "rsi_overbought": {}}},
+            "then": {"properties": {"rsi_overbought": {"exclusiveMinimum": {"$data": "1/rsi_oversold"}}}},
+        }
+    ],
 }
 
 _FUNDING_CARRY_PARAMS_SCHEMA = {
@@ -425,6 +468,10 @@ _CROSS_SECTIONAL_MOMENTUM_LS_PARAMS_SCHEMA = {
 # ──────────────────────────────────────────────────────────────────────
 
 _PARAM_DEFAULTS: dict[str, dict[str, Any]] = {
+    "di_adx_state_edge": {
+        "adx_period": 14,
+        "adx_threshold": 25.0,
+    },
     "enhanced_ma": {
         "fast_period": 20,
         "slow_period": 80,
@@ -467,6 +514,16 @@ _PARAM_DEFAULTS: dict[str, dict[str, Any]] = {
         "regime_smoothing": 3,
         "refit_every": 0,
         "base_position_pct": 0.1,
+    },
+    "rsi_adx_regime_filter": {
+        "rsi_period": 14,
+        "rsi_oversold": 30,
+        "rsi_overbought": 70,
+        "ma_fast": 20,
+        "ma_slow": 80,
+        "adx_period": 14,
+        "adx_threshold": 20.0,
+        "ma_type": "sma",
     },
     "funding_carry": {
         "funding_entry_threshold": -0.00008,
@@ -542,11 +599,13 @@ _PARAM_DEFAULTS: dict[str, dict[str, Any]] = {
 
 _PARAM_SCHEMAS: dict[str, dict[str, Any]] = {
     "enhanced_ma": _ENHANCED_MA_PARAMS_SCHEMA,
+    "di_adx_state_edge": _DI_ADX_STATE_EDGE_PARAMS_SCHEMA,
     "ma_adx": _MA_ADX_PARAMS_SCHEMA,
     "ma_vol_target": _MA_VOL_TARGET_PARAMS_SCHEMA,
     "rsi": _RSI_PARAMS_SCHEMA,
     "bbands": _BBANDS_PARAMS_SCHEMA,
     "regime_switching": _REGIME_SWITCHING_PARAMS_SCHEMA,
+    "rsi_adx_regime_filter": _RSI_ADX_REGIME_FILTER_PARAMS_SCHEMA,
     "funding_carry": _FUNDING_CARRY_PARAMS_SCHEMA,
     "volatility_breakout": _VOLATILITY_BREAKOUT_PARAMS_SCHEMA,
     "ensemble_ma_adx": _ENSEMBLE_MA_ADX_PARAMS_SCHEMA,
@@ -576,7 +635,9 @@ def validate_params(strategy_id: str, params: Mapping[str, Any] | None) -> dict[
     if strategy_id not in _PARAM_SCHEMAS:
         raise ParamValidationError(f"Unknown strategy_id: {strategy_id}")
 
-    schema = _PARAM_SCHEMAS[strategy_id]
+    schema = _PARAM_SCHEMAS.get(strategy_id)
+    if schema is None:
+        raise ParamValidationError(f"unknown strategy id: {strategy_id}")
     defaults = _PARAM_DEFAULTS[strategy_id]
 
     raw = dict(params or {})
@@ -682,7 +743,9 @@ def compute_effective_params_hash(strategy_id: str, params: Mapping[str, Any] | 
 
 def resolved_warmup_bars(strategy_id: str, params: Mapping[str, Any] | None = None) -> int:
     """Registered history requirement; MA lookback follows effective periods."""
-    baseline = _CANDIDATE_WARMUPS[strategy_id]
+    baseline = _CANDIDATE_WARMUPS.get(
+        strategy_id, _CANDIDATE_WARMUPS["enhanced_ma"]
+    )
     if strategy_id in {"ensemble_ma_adx", "ma_adx_regime"}:
         normalized = validate_params(strategy_id, params)
         atr = normalized.get("atr_period", 14)
@@ -727,15 +790,21 @@ def campaign_history_contract(strategy_id: str, grid: Mapping) -> dict:
 def build_legacy_candidate(
     strategy_id: str,
     params: Mapping[str, Any] | None = None,
+    *,
+    scope_token: str | None = None,
 ) -> tuple[StrategyDescriptor, Strategy]:
     """Build an exact parameterized legacy strategy after allowlist verification.
 
     Validates parameters against schema, applies defaults, and returns
     the descriptor with the effective params hash in the model_artifact_id.
     """
-    registry = build_default_registry()
+    registry = build_default_registry(scope_token=scope_token)
     descriptor = registry.describe(strategy_id)
-    strategy_cls = _CANDIDATE_CLASSES[strategy_id]
+    scoped_id = resolve_scoped_candidate_id(scope_token)
+    if scoped_id == strategy_id:
+        strategy_cls = _SCOPED_CANDIDATE_CLASSES[strategy_id]
+    else:
+        strategy_cls = _CANDIDATE_CLASSES[strategy_id]
 
     # Validate and normalize params (fail-closed)
     normalized = validate_params(strategy_id, params)
@@ -751,13 +820,17 @@ def build_legacy_candidate(
 def build_parameterized_adapter(
     strategy_id: str,
     params: Mapping[str, Any] | None = None,
+    *,
+    scope_token: str | None = None,
 ) -> tuple[StrategyDescriptor, LegacyDataFrameAdapter]:
     """Build a canonical research adapter bound to exact parameter content.
 
     Returns descriptor and adapter with model_artifact_id containing
     the effective params hash (canonical identity).
     """
-    descriptor, strategy = build_legacy_candidate(strategy_id, params)
+    descriptor, strategy = build_legacy_candidate(
+        strategy_id, params, scope_token=scope_token
+    )
     effective_hash = compute_effective_params_hash(strategy_id, params)
     adapter = LegacyDataFrameAdapter(
         strategy,
@@ -821,12 +894,19 @@ ENHANCED_MA_DESCRIPTOR = _descriptor(
 MA_ADX_DESCRIPTOR = _descriptor(
     "ma_adx", _ENHANCED_MA_SHA, _ENHANCED_MA_WARMUP, _MA_ADX_PARAMS_SCHEMA
 )
+DI_ADX_STATE_EDGE_DESCRIPTOR = _descriptor(
+    "di_adx_state_edge",
+    _DI_ADX_STATE_EDGE_SHA,
+    _ENHANCED_MA_WARMUP,
+    _DI_ADX_STATE_EDGE_PARAMS_SCHEMA,
+)
 MA_VOL_TARGET_DESCRIPTOR = _descriptor(
     "ma_vol_target", _ENHANCED_MA_SHA, _ENHANCED_MA_WARMUP, _MA_VOL_TARGET_PARAMS_SCHEMA
 )
 RSI_DESCRIPTOR = _descriptor("rsi", _RSI_SHA, _RSI_WARMUP, _RSI_PARAMS_SCHEMA)
 BBANDS_DESCRIPTOR = _descriptor("bbands", _BBANDS_SHA, _BBANDS_WARMUP, _BBANDS_PARAMS_SCHEMA)
 REGIME_SWITCHING_DESCRIPTOR = _descriptor("regime_switching", _REGIME_SWITCHING_SHA, 200, _REGIME_SWITCHING_PARAMS_SCHEMA)
+RSI_ADX_REGIME_FILTER_DESCRIPTOR = _descriptor("rsi_adx_regime_filter", _RSI_ADX_REGIME_FILTER_SHA, _RSI_ADX_REGIME_FILTER_WARMUP, _RSI_ADX_REGIME_FILTER_PARAMS_SCHEMA)
 FUNDING_CARRY_DESCRIPTOR = _descriptor("funding_carry", _FUNDING_CARRY_SHA, _FUNDING_CARRY_WARMUP, _FUNDING_CARRY_PARAMS_SCHEMA)
 VOLATILITY_BREAKOUT_DESCRIPTOR = _descriptor("volatility_breakout", _VOLATILITY_BREAKOUT_SHA, _VOLATILITY_BREAKOUT_WARMUP, _VOLATILITY_BREAKOUT_PARAMS_SCHEMA)
 ENSEMBLE_MA_ADX_DESCRIPTOR = _descriptor("ensemble_ma_adx", _ENHANCED_MA_SHA, _ENSEMBLE_MA_ADX_WARMUP, _ENSEMBLE_MA_ADX_PARAMS_SCHEMA)
@@ -849,6 +929,7 @@ FIRST_WAVE_DESCRIPTORS: dict[str, StrategyDescriptor] = {
         RSI_DESCRIPTOR,
         BBANDS_DESCRIPTOR,
         REGIME_SWITCHING_DESCRIPTOR,
+        RSI_ADX_REGIME_FILTER_DESCRIPTOR,
         FUNDING_CARRY_DESCRIPTOR,
         # Expanded pool — higher Sharpe single-backtest performers
         VOLATILITY_BREAKOUT_DESCRIPTOR,
@@ -872,6 +953,7 @@ _CANDIDATE_CLASSES: dict[str, type[Strategy]] = {
     "rsi": RsiStrategy,
     "bbands": BBandsStrategy,
     "regime_switching": RegimeSwitchingStrategy,
+    "rsi_adx_regime_filter": RsiAdxRegimeFilterStrategy,
     "funding_carry": FundingCarryStrategy,
     "volatility_breakout": VolatilityBreakoutStrategy,
     "ensemble_ma_adx": EnsembleMaAdx,
@@ -887,11 +969,13 @@ _CANDIDATE_CLASSES: dict[str, type[Strategy]] = {
 
 _CANDIDATE_WARMUPS = {
     "enhanced_ma": _ENHANCED_MA_WARMUP,
+    "di_adx_state_edge": _ENHANCED_MA_WARMUP,
     "ma_adx": _ENHANCED_MA_WARMUP,
     "ma_vol_target": _ENHANCED_MA_WARMUP,
     "rsi": _RSI_WARMUP,
     "bbands": _BBANDS_WARMUP,
     "regime_switching": 200,
+    "rsi_adx_regime_filter": _RSI_ADX_REGIME_FILTER_WARMUP,
     "funding_carry": _FUNDING_CARRY_WARMUP,
     "volatility_breakout": _VOLATILITY_BREAKOUT_WARMUP,
     "ensemble_ma_adx": _ENSEMBLE_MA_ADX_WARMUP,
@@ -923,8 +1007,53 @@ def _adapter_factory(desc: StrategyDescriptor, strategy_cls, warmup_bars: int):
     return factory
 
 
-def build_default_registry() -> CanonicalStrategyRegistry:
-    """Registry with the five first-wave candidates pre-registered."""
+# ── Scoped candidate resolution ────────────────────────────────────────────
+# A SCOPED candidate is resolvable only when the caller presents the exact
+# scope token that names the preregistration which authorised it. Without the
+# token the candidate is invisible: it is not in the default (broad) registry
+# and cannot be selected by name by any campaign, worker or CLI.
+#
+# This is a controlled execution path, not a broad registration. The legacy
+# ``@register_strategy`` registry is untouched, and ``build_default_registry()``
+# with no token is byte-for-byte the registry it was before.
+SCOPED_CANDIDATE_SCOPE_TOKENS: dict[str, str] = {
+    # scope token -> the single candidate id it unlocks
+    "bnb_di_adx_stateedge_prereg_20261020_01": "di_adx_state_edge",
+}
+
+#: scope token -> the preregistration packet that holds its approved payload.
+#: Kept next to the token map on purpose: the two must not drift apart.
+SCOPED_CANDIDATE_PREREGISTRATION_PATHS: dict[str, str] = {
+    "bnb_di_adx_stateedge_prereg_20261020_01":
+        "data/bnb_di_adx_stateedge_prereg_20261020_01",
+}
+
+_SCOPED_CANDIDATE_DESCRIPTORS: dict[str, StrategyDescriptor] = {
+    "di_adx_state_edge": DI_ADX_STATE_EDGE_DESCRIPTOR,
+}
+_SCOPED_CANDIDATE_CLASSES: dict[str, type[Strategy]] = {
+    "di_adx_state_edge": DiAdxStateEdgeStrategy,
+}
+
+
+def resolve_scoped_candidate_id(scope_token: str | None) -> str | None:
+    """Return the candidate id unlocked by ``scope_token``, or None.
+
+    An unknown or empty token unlocks nothing. A token that names a candidate
+    which is not a scoped candidate unlocks nothing.
+    """
+    if not scope_token:
+        return None
+    return SCOPED_CANDIDATE_SCOPE_TOKENS.get(scope_token)
+
+
+def build_default_registry(*, scope_token: str | None = None) -> CanonicalStrategyRegistry:
+    """Registry with the pre-registered candidates.
+
+    ``scope_token`` is the controlled path: it unlocks exactly the one scoped
+    candidate the named preregistration authorised, and nothing else. Without a
+    token the registry is exactly the broad registry.
+    """
     registry = CanonicalStrategyRegistry()
     for desc, cls, source_cls, warmup in (
         (
@@ -943,6 +1072,7 @@ def build_default_registry() -> CanonicalStrategyRegistry:
         (RSI_DESCRIPTOR, RsiStrategy, RsiStrategy, _RSI_WARMUP),
         (BBANDS_DESCRIPTOR, BBandsStrategy, BBandsStrategy, _BBANDS_WARMUP),
         (REGIME_SWITCHING_DESCRIPTOR, RegimeSwitchingStrategy, RegimeSwitchingStrategy, 200),
+        (RSI_ADX_REGIME_FILTER_DESCRIPTOR, RsiAdxRegimeFilterStrategy, RsiAdxRegimeFilterStrategy, _RSI_ADX_REGIME_FILTER_WARMUP),
         (FUNDING_CARRY_DESCRIPTOR, FundingCarryStrategy, FundingCarryStrategy, _FUNDING_CARRY_WARMUP),
         (VOLATILITY_BREAKOUT_DESCRIPTOR, VolatilityBreakoutStrategy, VolatilityBreakoutStrategy, _VOLATILITY_BREAKOUT_WARMUP),
         (ENSEMBLE_MA_ADX_DESCRIPTOR, EnsembleMaAdx, EnsembleMaAdx, _ENSEMBLE_MA_ADX_WARMUP),
@@ -960,6 +1090,17 @@ def build_default_registry() -> CanonicalStrategyRegistry:
             _adapter_factory(desc, cls, warmup),
             code_source=source_cls,
         )
+    scoped_id = resolve_scoped_candidate_id(scope_token)
+    if scoped_id is not None:
+        scoped_desc = _SCOPED_CANDIDATE_DESCRIPTORS[scoped_id]
+        scoped_cls = _SCOPED_CANDIDATE_CLASSES[scoped_id]
+        registry.register(
+            scoped_desc,
+            _adapter_factory(
+                scoped_desc, scoped_cls, scoped_desc.warmup_bars
+            ),
+            code_source=scoped_cls,
+        )
     return registry
 
 
@@ -968,6 +1109,7 @@ __all__ = [
     "ENHANCED_MA_DESCRIPTOR",
     "FIRST_WAVE_DESCRIPTORS",
     "REGIME_SWITCHING_DESCRIPTOR",
+    "RSI_ADX_REGIME_FILTER_DESCRIPTOR",
     "MA_ADX_DESCRIPTOR",
     "MA_VOL_TARGET_DESCRIPTOR",
     "RSI_DESCRIPTOR",

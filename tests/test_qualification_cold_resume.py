@@ -54,6 +54,11 @@ def research(tmp_path, monkeypatch):
                                   "slippage_rate": spec.cost_scenario.slippage},
                       execution_timing="decision_on_closed_bar_execute_next_bar_open",
                       data_policy={"gap_policy": "record"})
+        from scripts.full_system_backtest import describe_execution_contract
+        config["execution_contract"] = describe_execution_contract(
+            symbol=spec.symbol, timeframe=spec.timeframe, strategy_name=spec.strategy_id,
+            parameters=dict(spec.params), commission=spec.cost_scenario.commission,
+            slippage=spec.cost_scenario.slippage)
         config["config_id"] = fingerprint_payload(config)
         metrics = {key: 1.0 for key in tournament._REQUIRED_METRICS}
         metrics.update(total_trades=30, sharpe=float(spec.params["period"]) / 10)
@@ -433,3 +438,62 @@ def test_forged_risk_config_is_not_a_reusable_report(tmp_path, research):
     with pytest.raises(ValueError, match="risk/sizing/protection"):
         recovered.run_batch(module.build_canonical_cells(spec)[0])
     assert len(calls) == 2
+
+
+def _mutate_native_report(report, mutation):
+    config = report["active_config"]
+    if mutation == "missing":
+        config.pop("execution_contract")
+    else:
+        body = copy.deepcopy(config["execution_contract"]["body"])
+        body["authority"]["risk_profile"] = "substituted"
+        encoded = json.dumps(body, sort_keys=True, separators=(",", ":"), allow_nan=False)
+        config["execution_contract"] = {"body": body,
+            "contract_id": hashlib.sha256(encoded.encode()).hexdigest()}
+    config["config_id"] = fingerprint_payload({k:v for k,v in config.items() if k != "config_id"})
+
+
+@pytest.mark.parametrize("mutation", ["missing", "substituted"])
+@pytest.mark.parametrize("stage", ["publication", "cache_read", "final_coverage"])
+def test_frozen_native_contract_rejects_consistent_substitution(tmp_path, research, monkeypatch, mutation, stage):
+    spec, calls = research
+    root = tmp_path / "packet"
+    protocol, folds = prepare(root, spec)
+    runner = module.QualificationCellRunner(root, protocol, folds)
+    cells, _ = module.build_canonical_cells(spec)
+    cell, start, end, fresh, mstart, mend = cells[0]
+
+    def mutate_artifact(artifact):
+        path = Path(artifact.report_path)
+        report = json.loads(path.read_bytes())
+        _mutate_native_report(report, mutation)
+        path.write_text(json.dumps(report))
+        # Deliberately rebuild valid checksums and derived contract identity:
+        # self-integrity alone must NOT certify the preregistered native policy.
+        rebuilt = tournament._artifact_from_report(cell, module.build_default_registry().describe(cell.strategy_id),
+            path.parent, report, artifact.data_manifest_sha, measurement_window=artifact.measurement_window,
+            simulation_window=artifact.simulation_window)
+        return rebuilt
+
+    if stage == "publication":
+        original = module.run_cell
+        monkeypatch.setattr(module, "run_cell", lambda *a, **kw: mutate_artifact(original(*a, **kw)))
+        with pytest.raises(ValueError, match="execution contract"):
+            runner.run_batch([cells[0]])
+        assert not list(root.glob("cell_resume_cache/*.json"))
+        return
+
+    artifact = runner.run_batch([cells[0]])[0]
+    forged = mutate_artifact(artifact)
+    if stage == "final_coverage":
+        with pytest.raises(ValueError, match="execution contract"):
+            module._verify_native_report(protocol, forged, root)
+        return
+    path = next(root.glob("cell_resume_cache/*.json"))
+    record = json.loads(path.read_bytes())
+    record["artifact"] = forged.to_dict()
+    record["artifact_hash"] = content_hash(record["artifact"])
+    record["report_sha256"] = hashlib.sha256(Path(forged.report_path).read_bytes()).hexdigest()
+    path.write_text(json.dumps(record))
+    with pytest.raises(ValueError, match="execution contract"):
+        runner._load_cache(path, root.resolve(), record["identity"], cell, record["identity"]["window"])

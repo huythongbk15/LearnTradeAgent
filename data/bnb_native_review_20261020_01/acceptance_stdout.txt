@@ -1,0 +1,194 @@
+Integrated AC01-AC15 run
+Revision: 4078892d738790872dc2d4f494e3973a62612347
+Directory: /home/huythong/.qwenpaw/workspaces/trading/data/acceptance_runs/ac01_15_20261020_081342_utc
+
+Source fingerprint: 1b1650196a8907ebc7c5cbf354b0761d11a2c112fa8b9afd14d3adb46927d21a
+Identity stable: True
+
+AC02: PASS (rc=0)
+AC03: PASS (rc=0)
+AC04: PASS (rc=0)
+AC05: PASS (rc=0)
+AC06: PASS (rc=0)
+AC07: PASS (rc=0)
+AC08: PASS (rc=0)
+AC09: PASS (rc=0)
+AC10: PASS (rc=0)
+AC11: PASS (rc=0)
+AC12: PASS (rc=0)
+AC13: PASS (rc=0)
+AC14: PASS (rc=0)
+AC15: PASS (rc=0)
+AC01: PASS (rc=0)
+
+--- AC02 (rc=0) ---
+[PASS] C5_alias_none: hash=54c9893584870e16, same as explicit=True
+[PASS] C5_dedup_identity: duplicate configs → same hash (no extra independent trial)
+[PASS] C6_different: explicit=54c9893584870e16, different=5dd735ab7c2840c8
+[PASS] C7_schema_present: keys=['overbought', 'oversold', 'period']
+[PASS] C7_schema_version: semver=1.0.0
+
+============================================================
+AC02 Evidence: ALL PASS (13 checks)
+============================================================
+Evidence written to /tmp/ac02_evidence.json
+
+--- AC03 (rc=0) ---
+[PASS] C4_holdout_starts_after_0: start_bar=27183, end_bar=31503
+[PASS] C4_holdout_valid_range: range=4320 bars
+[PASS] C5_overlap_rejects: holdout overlap correctly rejected
+[PASS] C5_pre_holdout_ok: pre-holdout window allowed
+[PASS] C6_tamper_detected: tampered manifest correctly rejected
+
+============================================================
+AC03 Evidence: ALL PASS (13 checks)
+============================================================
+Evidence written to /tmp/ac03_evidence.json
+
+--- AC04 (rc=0) ---
+[PASS] C4_different_hash_after_tamper: tampered=sha256:388519680ac54d6fe...
+[PASS] C4_verify_integrity_ok: untampered verifies
+[PASS] C5_atomic_no_temp_left: no .tmp file after atomic save
+[PASS] C6_hash_still_matches_after_open: opened holdout_id unchanged from original
+[PASS] C6_opened_flag_set: opened=True, by=researcher
+
+============================================================
+AC04 Evidence: ALL PASS (9 checks)
+============================================================
+Evidence written to /tmp/ac04_evidence.json
+
+--- AC05 (rc=0) ---
+[PASS] C4_wrong_net_detected: error=-14.0; gross must not move with net
+[PASS] C5_valid_report_ok: violations=[]
+[PASS] C5_nan_rejected: NaN equity rejected: ['final_equity must be a finite number', 'non-finite number at report.final_equity']
+[PASS] C5_nan_sharpe_rejected: NaN sharpe rejected: ['sharpe must be a finite number', 'non-finite number at report.sharpe']
+[PASS] C6_zero_trades_valid: violations=[]
+
+============================================================
+AC05 Evidence: ALL PASS (16 checks)
+============================================================
+Evidence written to /tmp/ac05_evidence.json
+
+--- AC06 (rc=0) ---
+[PASS] C4_expired_rejected: rejected
+[PASS] C5_missing_rejected: rejected
+[PASS] C6_draft_rejected: rejected
+[PASS] C7_future_training_rejected: rejected
+[PASS] C8_content_addressed: 949dea3d5cf0 vs 2e62325c710c
+
+============================================================
+AC06 Evidence: ALL PASS (8 checks)
+============================================================
+Evidence written to /tmp/ac06_evidence.json
+
+--- AC07 (rc=0) ---
+[PASS] C4_atomic_concurrent: successes=1, box=[('router_A', True), ('router_B', False)]
+[PASS] C4_winner_holder: winner=router_A
+[PASS] C5_released: 
+[PASS] C5_reclaim: reclaim=True
+[PASS] C6_idempotency_key: first=True, dup=False
+
+============================================================
+AC07 Evidence: ALL PASS (8 checks)
+============================================================
+Evidence: /tmp/ac07_evidence.json
+
+--- AC08 (rc=0) ---
+[PASS] C8_reconciliation: perm=OrderPermission.BLOCK, reason=PermissionReason.RECONCILIATION_UNRESOLVED
+[PASS] C9_unknown_broker: perm=OrderPermission.BLOCK, reason=PermissionReason.UNKNOWN_BROKER_STATE
+[PASS] C10_missing_risk: perm=OrderPermission.BLOCK, reason=PermissionReason.MISSING_RISK_DECISION
+[PASS] C11_draft_no_risk: perm=OrderPermission.ALLOW, reason=PermissionReason.NORMAL
+[PASS] C12_missing_calib: perm=OrderPermission.BLOCK, reason=PermissionReason.MISSING_CALIBRATION_EVIDENCE
+
+============================================================
+AC08 Evidence: ALL PASS (12 checks)
+============================================================
+Evidence written to /tmp/ac08_evidence.json
+
+--- AC09 (rc=0) ---
+[PASS] C3_dup_rejected: duplicate append returned False
+[PASS] C3_idempotent_state: filled=100.0, fees=0.0562 unchanged
+[PASS] C4_partial_fill_size: system=40.0, oracle=40.0
+[PASS] C4_partial_avg_price: system=0.500000, oracle=0.50
+[PASS] C4_partial_status: system=IntentStatus.PARTIALLY_FILLED
+
+============================================================
+AC09 Evidence: ALL PASS (12 checks)
+============================================================
+Evidence written to /tmp/ac09_evidence.json
+
+--- AC10 (rc=0) ---
+[PASS] C2_cancel_confirmed: system=IntentStatus.CANCELED, oracle=CANCELED
+[PASS] C3_idempotent_replay: status=IntentStatus.CANCELED, filled=0.0 unchanged
+[PASS] C4_seq_gap_rejected: sequence gap correctly raises
+[PASS] C5_crash_recovery: recovered_status=IntentStatus.CANCELED, filled=0.0
+[PASS] C6_timeout_status: system=IntentStatus.CANCEL_REQUESTED, oracle=CANCEL_REQUESTED (no confirm)
+
+============================================================
+AC10 Evidence: ALL PASS (6 checks)
+============================================================
+Evidence written to /tmp/ac10_evidence.json
+
+--- AC11 (rc=0) ---
+[PASS] C5_order_independent: normal=0.1500, reversed=0.1500
+[PASS] C6_symbol_cap: max=0.0750, cap=0.3
+[PASS] C7_strategy_cap: total=0.1500, cap=0.4
+[PASS] C8_cash_avail: cash_used=15000.00
+[PASS] C9_liquidity_caps: approved=0.000100, oracle=0.000100
+
+============================================================
+AC11 Evidence: ALL PASS (9 checks)
+============================================================
+Evidence: /tmp/ac11_evidence.json
+
+--- AC12 (rc=0) ---
+Exchange binance health: unknown -> degraded (failures=0, latency=10ms)
+Exchange kraken health: unknown -> degraded (failures=1, latency=0ms)
+[PASS] C6_multi_exchange: bin=1, krk=1
+Exchange binance health: unknown -> degraded (failures=1, latency=0ms)
+[PASS] C7_error_rate: err_rate=0.3600, fails=2
+
+============================================================
+AC12 Evidence: ALL PASS (11 checks)
+============================================================
+Evidence: /tmp/ac12_evidence.json
+
+--- AC13 (rc=0) ---
+[PASS] C4_synthetic_rejected: rejected
+[PASS] C5_real_approves: 
+[PASS] C6_draft_rejected: rejected
+[PASS] C7_expired_rejected: rejected
+[PASS] C8_validated_accepted: 
+
+============================================================
+AC13 Evidence: ALL PASS (8 checks)
+============================================================
+Evidence: /tmp/ac13_evidence.json
+
+--- AC14 (rc=0) ---
+[PASS] C9_sharpe_ci_bounds_incumbent: lower=-28.6031, sharpe=-4.4628, upper=15.2976
+[PASS] C10_adaptive_trades: trades=22
+[PASS] C11_strategy_selection_valid: routed 600 bars
+[PASS] C12_regime_aware_routing: adaptive_switches=44, incumbent_switches=38
+
+=== AC14 CONCLUSION: PASS ===
+Return gap: -3.17% (NOT a pass/fail criterion per contract)
+Drawdown ratio: 1.84
+Total checks: 12, Pass: 12
+AC14 ALL CHECKS PASS
+
+--- AC15 (rc=0) ---
+[PASS] C5_monotonic: monotonic=True
+[PASS] C6_price_variation: std/mean=0.0337
+[PASS] C7_seed_range: seed=160609431
+[PASS] C8_strategy_identical: params_match=True
+[PASS] C9_regime_affects: different with/without regimes
+
+============================================================
+AC15 Evidence: ALL PASS (11 checks)
+============================================================
+Evidence: /tmp/ac15_evidence.json
+
+--- AC01 (rc=0) ---
+.......                                                                  [100%]
+7 passed in 4.14s

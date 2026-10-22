@@ -56,6 +56,24 @@ def test_worker_enforces_isolation_preserves_fault_and_context(tmp_path, monkeyp
     assert record["elapsed_sec"] >= 0 and record["live_authorized"] is False
 
 
+def test_parallel_worker_preserves_expected_execution_contract(tmp_path, monkeypatch):
+    from dataclasses import replace
+
+    original, start, end, fresh, m_start, m_end = cell()
+    spec = replace(original, expected_execution_contract_id="a"*64)
+    seen = []
+    def fake(specification, **kwargs):
+        seen.append(specification.expected_execution_contract_id)
+        return _failed_artifact(specification, None, "synthetic_failure")
+    monkeypatch.setattr(module, "run_cell", fake)
+    artifact = module._run_cell_worker(module.ParallelCellRunner._primitives(spec), str(tmp_path),
+        start, end, fresh, m_start, m_end, 2, 0)
+    assert seen == ["a"*64]
+    record = receipts(tmp_path)[0]
+    assert record["request"]["expected_execution_contract_id"] == "a"*64
+    assert artifact.cell_id == spec.cell_id
+
+
 def test_worker_exception_is_durable_failure(tmp_path, monkeypatch):
     monkeypatch.setattr(module, "run_cell", lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("injected")))
     with module.ParallelCellRunner(1, tmp_path) as runner:

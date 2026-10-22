@@ -17,7 +17,7 @@ Trang này quản lý task, dependency và evidence review; không cấp quyền
 | --- | --- | --- |
 | Hiểu toàn hệ thống | [Core System](CORE_SYSTEM.md) | [Architecture](ARCHITECTURE.md) |
 | Chạy/kiểm tra local | [Getting Started](getting-started.md) | [Main-flow Validation](operations/MAIN_FLOW_VALIDATION.md) |
-| Nghiên cứu/chọn strategy | [Research-to-Production](guides/RESEARCH_TO_PRODUCTION.md) | [Research Methodology](RESEARCH_METHODOLOGY.md), [Evidence Artifacts](reference/EVIDENCE_ARTIFACTS.md) |
+| Nghiên cứu/chọn strategy | [Quy trình chạy nghiên cứu](operations/RESEARCH_RUN_PROTOCOL.md) | [Research-to-Production](guides/RESEARCH_TO_PRODUCTION.md), [Research Methodology](RESEARCH_METHODOLOGY.md), [Evidence Artifacts](reference/EVIDENCE_ARTIFACTS.md) |
 | Vận hành paper/testnet | [Live Trading Runbook](LIVE_TRADING_RUNBOOK.md) | [S7 Evidence Runbook](S7_OPERATIONAL_EVIDENCE_RUNBOOK.md) |
 | Đánh giá mức hoàn thiện | [Capability Matrix](CAPABILITY_MATRIX.md) | [Adaptive Roadmap Status](ADAPTIVE_ROADMAP_STATUS.md), [Live Readiness](LIVE_TRADING_TODO.md) |
 | Theo dõi tiến độ và phase còn lại | [Tiến độ và lộ trình phase](vi/TIEN_DO_VA_LO_TRINH_PHASE.md) | Bảng trạng thái, backlog, dependency và exit gate |

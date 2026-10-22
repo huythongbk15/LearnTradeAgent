@@ -1,0 +1,19 @@
+{
+  "cmd": [
+    "bash",
+    "-c",
+    ".venv/bin/python -c \"\nimport sys,json,pathlib; sys.path.insert(0,\\\".\\\")\nfrom trading_agent.backtest.campaign_integrity import capture_campaign_source\nprint(json.dumps(capture_campaign_source(pathlib.Path(\\\".\\\")), indent=1))\n\" > data/bnb_native_review_20261020_01/source_identity_before.json && .venv/bin/python scripts/run_acceptance_ac01_15.py > data/bnb_native_review_20261020_01/acceptance_stdout.txt 2>&1; echo \"AC_RC=$?\"; .venv/bin/python -c \"\nimport sys,json,pathlib; sys.path.insert(0,\\\".\\\")\nfrom trading_agent.backtest.campaign_integrity import capture_campaign_source\nprint(json.dumps(capture_campaign_source(pathlib.Path(\\\".\\\")), indent=1))\n\" > data/bnb_native_review_20261020_01/source_identity_after.json; tail -6 data/bnb_native_review_20261020_01/acceptance_stdout.txt"
+  ],
+  "rc": 0,
+  "elapsed_sec": 59.8346791267395,
+  "stdout": [
+    "AC_RC=0",
+    "============================================================",
+    "Evidence: /tmp/ac15_evidence.json",
+    "",
+    "--- AC01 (rc=0) ---",
+    ".......                                                                  [100%]",
+    "7 passed in 4.14s"
+  ],
+  "stderr": []
+}

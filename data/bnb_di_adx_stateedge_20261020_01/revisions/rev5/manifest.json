@@ -1,0 +1,63 @@
+{
+  "packet": "data/bnb_di_adx_stateedge_20261020_01",
+  "revision": "rev5",
+  "identity_A_source_fingerprint": "8d27b8f11431e23c95f2b30c7efb075ec0173cbd03fa0e084a1939c99de23e56",
+  "identity_A_dirty_diff_sha256": "9299dc8f8d5f50008c38e104f3c4bbbcc8af247c78117aa98a80ade0657f6f39",
+  "code_commit": "4078892d738790872dc2d4f494e3973a62612347",
+  "identity_B_preregistration_fingerprint": "117ea187065ec16c320ce51917c07221dc1c2f34ed4c227307d50b7ce79997fd",
+  "input_sha256": "379677360902c9734780e496398abb02ea6390531b840e2262bd9d7881e6485f",
+  "holdout_rows_read": 0,
+  "files": [
+    {
+      "path": "RESULTS.md",
+      "sha256": "32e43643a9bff5229f8c8c4af2c47525bfaa5cc7b75af43692e1ad8499a84956",
+      "bytes": 21627
+    },
+    {
+      "path": "STATE_EDGE_CONTRACT.md",
+      "sha256": "e0e515d82d428b460c17202c1e3d30dac3e4a1b55f4e38991440403168e4f57e",
+      "bytes": 13685
+    },
+    {
+      "path": "acceptance_receipt.json",
+      "sha256": "8d2989365ba1f86eff0cec1b8eb61b0c1125b4d8367fca73de6f9c6ad5ea45b7",
+      "bytes": 898
+    },
+    {
+      "path": "acceptance_stdout.txt",
+      "sha256": "5cb3eb54552b9e5b1b623a517ff1c950dbca054e9485f0409b0a4e6352cc7c37",
+      "bytes": 7890
+    },
+    {
+      "path": "revisions/rev1/README.md",
+      "sha256": "052851fb6149f6ce7f95f94c01c544ba39f38d447175061503aed74277634f3b",
+      "bytes": 1501
+    },
+    {
+      "path": "revisions/rev2/README.md",
+      "sha256": "ff42f34eac5e5357081293e4d949369cf0f503c53c67d5841e01bdcc56bc4e12",
+      "bytes": 689
+    },
+    {
+      "path": "revisions/rev3/README.md",
+      "sha256": "b243cb8a805556cf37cef39e81b02a76cd8529574b41938ec1877dc49ef03876",
+      "bytes": 583
+    },
+    {
+      "path": "revisions/rev4/README.md",
+      "sha256": "2f57b338597f69229b2054a5caaa126555ea97fccbbccc4d0315cdf1bacb873f",
+      "bytes": 530
+    },
+    {
+      "path": "source_identity_after.json",
+      "sha256": "81db025bb6e4270f97ffef6f8889d02ce7d1ce9785eadaf250b4364d9523d961",
+      "bytes": 267
+    },
+    {
+      "path": "source_identity_before.json",
+      "sha256": "81db025bb6e4270f97ffef6f8889d02ce7d1ce9785eadaf250b4364d9523d961",
+      "bytes": 267
+    }
+  ],
+  "file_count": 10
+}

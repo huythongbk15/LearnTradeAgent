@@ -1,0 +1,74 @@
+{
+  "packet": "data/bnb_native_review_20261020_01",
+  "revision": "rev14",
+  "identity_A_source_fingerprint": "bf684ba7d55bb65164911a14ae5e85a766974ed89f655e9054acc17d4fbbac6d",
+  "identity_A_dirty_diff_sha256": "2cbc73b69da853c3266979a6039def3ebc89ccb575d43dcd9b372b8400116b7a",
+  "code_commit": "4078892d738790872dc2d4f494e3973a62612347",
+  "identity_B_preregistration_fingerprint": "6d7f65491d1222c458b8cbf5a044a93ba4418cd1eaaa5f6becc5bf36852943cf",
+  "input_sha256": "379677360902c9734780e496398abb02ea6390531b840e2262bd9d7881e6485f",
+  "holdout_rows_read": 0,
+  "files": [
+    {
+      "path": "RESULTS.md",
+      "sha256": "9cf5b98569f3ce2a860a3a6a186bedebcdfe46c3572d4b7cb986d9bea4217155",
+      "bytes": 21475
+    },
+    {
+      "path": "acceptance_receipt.json",
+      "sha256": "f1506f43741b020df0aaf2f8cb3ad5ec3d1e0bb48400352307cae159d1045546",
+      "bytes": 1210
+    },
+    {
+      "path": "acceptance_stdout.txt",
+      "sha256": "9358a7248efaa693f4dbe22e2c92d9c15daf6e0e25bd413b4b133b39e5a3e982",
+      "bytes": 7890
+    },
+    {
+      "path": "decompose_crossover_bottleneck.py",
+      "sha256": "675a9e300784f9388979a029165760970c470551b9e1b23881ffc7154dbe7785",
+      "bytes": 14770
+    },
+    {
+      "path": "layer_accounting.py",
+      "sha256": "e57cd94104c32a60977f186bf3559c4e28f749d435601689ba10be75a8f86cd5",
+      "bytes": 5695
+    },
+    {
+      "path": "round2_execution.json",
+      "sha256": "5987a24603dde9ddadebd4352526576ea0a81881ef248eef28017399af205de8",
+      "bytes": 7551
+    },
+    {
+      "path": "round3_execution.json",
+      "sha256": "3f1ead7658203f77832158c1b676382b386837ed418346aeaebd85036965e778",
+      "bytes": 7215
+    },
+    {
+      "path": "round5_execution.json",
+      "sha256": "e206ba9892b9f7c076bafeac8bf9d0e3b046fedabe9f34d6371e57ddd751b5a3",
+      "bytes": 16189
+    },
+    {
+      "path": "round6_layer_execution.json",
+      "sha256": "2bf0bd3b487d7f9ce51379ee59fa61251e4670648659340f1e363f7937a604e5",
+      "bytes": 15701
+    },
+    {
+      "path": "source_identity_after.json",
+      "sha256": "6b83fa7dd0f1ba166708589f46cc404eaab63883120f21db2e95902d7a522519",
+      "bytes": 267
+    },
+    {
+      "path": "source_identity_before.json",
+      "sha256": "6b83fa7dd0f1ba166708589f46cc404eaab63883120f21db2e95902d7a522519",
+      "bytes": 267
+    },
+    {
+      "path": "trend_state_event_availability.py",
+      "sha256": "3218a11c8a2b7781b9e064130afc6ed1073d8e5bd87543dbd94373560ac6f8b8",
+      "bytes": 5526
+    }
+  ],
+  "file_count": 12,
+  "excluded_review_own_outputs": []
+}

@@ -253,6 +253,10 @@ out.json
 *_TODO.md
 CLEANUP_TODO.md
 WFO_BTC_TODO.md
+summary.txt
+FINAL_SUMMARY.txt
+run_batch.json
+run_verify.json
 
 # Policy stores quarantined by scripts/quarantine_policies.py (runtime artifacts,
 # not source). See POLICY_RETURN_AUDIT.md.
@@ -272,3 +276,31 @@ CALIB_FIX_TODO.md
 *.sqlite3-shm
 *.sqlite3-wal
 /data/qwenpaw_process_registry.db-journal
+WFO_MA_ADX_TODO.md
+
+REGIME_EVAL_TODO.md
+BUGFIX_TODO.md
+
+REGIME_HANDOFF.md
+REGIME_EVAL_TODO.md
+BUGFIX_TODO.md
+
+AUDIT_REPORT.md
+SYSTEM_AUDIT_TODO.md
+
+BNB_NATIVE_REVIEW_TODO.md
+
+# Runtime research evidence and market data (added 2026-10-21) — not source.
+# The sealed evidence packets of the current work line are committed explicitly
+# (data/bnb_native_review_*, data/bnb_di_adx_stateedge_*); everything below is
+# runtime state, multi-GB backtest output, or market data.
+data/existing_research_*/
+data/wfo_*/
+data/campaign_evidence_*/
+data/multipair_screen_*/
+data/acceptance_runs/
+data/bnb_native_adx25_validation_run_*/
+data/bnb_accounting_integration_*/
+data/bnb_adx_admission_sandbox_*/
+data/bnb_ablation_*/
+data/native_*/

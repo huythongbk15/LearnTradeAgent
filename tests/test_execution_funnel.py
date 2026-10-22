@@ -152,8 +152,17 @@ def test_real_paper_engine_parity(tmp_path):
             report_path=tmp_path / str(enabled) / "report.json",
             funnel_enabled=enabled,
         )
+        from scripts.full_system_backtest import describe_execution_contract
+        declaration = describe_execution_contract(symbol="BTC/USDT", timeframe="1h",
+            strategy_name="ma_vol_target", parameters=params,
+            commission=sim.engine.exchange.commission, slippage=sim.engine.exchange.slippage)
+        assert declaration == sim._active_config()["execution_contract"]
+        sim.expected_execution_contract_id = declaration["contract_id"]
         reports.append(sim.run())
     on, off = reports
+    from trading_agent.backtest.execution_contract import require_execution_contract
+    contract = on["active_config"]["execution_contract"]
+    require_execution_contract(contract["contract_id"], off["active_config"]["execution_contract"])
     assert on["total_trades"] > 0
     assert on["metrics"] == off["metrics"]
     assert on["equity_curve"] == off["equity_curve"]

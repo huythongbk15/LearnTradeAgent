@@ -1,0 +1,17 @@
+{
+  "cmd": [
+    "bash",
+    "-c",
+    "\nP=data/bnb_di_adx_stateedge_20261020_01\n.venv/bin/python -c \"\nimport sys,json,pathlib; sys.path.insert(0,\\\".\\\")\nfrom trading_agent.backtest.campaign_integrity import capture_campaign_source\nprint(json.dumps(capture_campaign_source(pathlib.Path(\\\".\\\")), indent=1))\n\" > $P/source_identity_before.json\n.venv/bin/python scripts/run_acceptance_ac01_15.py > $P/acceptance_stdout.txt 2>&1; echo \"AC_RC=$?\"\n.venv/bin/python -c \"\nimport sys,json,pathlib; sys.path.insert(0,\\\".\\\")\nfrom trading_agent.backtest.campaign_integrity import capture_campaign_source\nprint(json.dumps(capture_campaign_source(pathlib.Path(\\\".\\\")), indent=1))\n\" > $P/source_identity_after.json\nRUN=$(ls -dt data/acceptance_runs/ac01_15_* 2>/dev/null | head -1)\nif [ -n \"$RUN\" ]; then rm -rf $P/acceptance_run; cp -r \"$RUN\" $P/acceptance_run; echo \"COPIED $RUN\"; fi\ntail -3 $P/acceptance_stdout.txt"
+  ],
+  "rc": 0,
+  "elapsed_sec": 49.81895112991333,
+  "stdout": [
+    "AC_RC=0",
+    "COPIED data/acceptance_runs/ac01_15_20261021_152054_utc",
+    "--- AC01 (rc=0) ---",
+    ".......                                                                  [100%]",
+    "7 passed in 3.70s"
+  ],
+  "stderr": []
+}

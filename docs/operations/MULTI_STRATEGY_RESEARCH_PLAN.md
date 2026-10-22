@@ -243,6 +243,22 @@ Không chạy tất cả17ngay để "tìm một cái PASS".
 
 ## 5. Thiết kế R2 đề xuất — chưa freeze/chưa duyệt
 
+**Update: thiết kế này đã được duyệt và chạy**, không còn pending execution.
+Packet `data/calibration_feasibility_pool5_btc4h_20261016_01`, fingerprint
+`0b5ff99f4752c512718e6727686597a5194b9a023f3c04b063ff9f93e3725f87`,
+sourceb897c32: ACCEPTED_CALIBRATION,10COMPLETED/10ABSTAIN; all thiếu30trades,
+7cells còn fail Sharpe>0. Supervisor336.56s, execution327.52s, CPU194.60s.
+Evidence ngoài packet: `data/pool5_freeze_20261016_01/results_summary.json`
+và execution_handoff.json. Source/input/config/382protected files giữ nguyên;
+registry append được kiểm qua canonical verifier. Đây là calibration feasibility,
+chưa OOS hoặc strategy qualification. Bảng metrics trong CAMPAIGN_STATUS.md.
+
+R2 closed trong phạm vi fixed defaults trên2windows, không đóng R1 broad parity
+hay R4qualification. R3 chưa có thiết kế vừa đủ mẫu vừa đủ folds được chứng minh.
+Không chọnma_adx chỉ vì early+5.28%/Sharpe1.27 trên7trades. RSI/BB tạo nhiều
+actions/trades hơn nhưng cả2windows lỗ; không suy "tăng tần suất = tốt hơn".
+Các bullet dưới là thiết kế đã chạy, không phải quyền chạy lại packet.
+
 - BTC/USDT4h, input pre-holdout hiện hữu6795bars, không download.
 - Hai cửa sổ cố định2024H1 và2025H2, không chọn theo lợi nhuận.
 - 5strategy được calibration hỗ trợ,1resolved default/candidate,1xcost.
@@ -255,6 +271,94 @@ Không chạy tất cả17ngay để "tìm một cái PASS".
   không dùng return ranking của hai cửa sổ để tuyên bố best strategy.
 
 ## 6. R3: tiêu chí chọn thiết kế, không ép thiết kế để PASS
+
+### R3 metadata đã hoàn tất — quyết định sau POOL5
+
+Authority: `data/research_r3_geometry_20261016_01/analysis.json` và
+close_boundary_execution.json. Source sạchb897c32. Không chạy simulator,
+không freeze protocol, không thay registry. Packet POOL5 và các input được hash
+trước/sau; chỉ đọc timestamp columns, không đánh giá holdout prices.
+
+Đã inventory10input hiện hữu: BTC/ETH/BNB/SOL/XRP ×1h/4h. Mỗi input4h có6795bars,
+1h có25198bars. Timestamps tăng nghiêm ngặt,0nonstandard intervals; cả last open
+và last close không vượt holdout cutoff2026-02-06T16:00Z. Đây chưa là OHLCV
+quality/parity/cost proof cho1h hoặc mọi pair.
+
+BTC1h SHA: `45ba1b1bc6a91986eda445de8026cab9995fcabe011a735244a4c7cf0e0825ce`.
+BTC4h giữ SHA99114c33… đã dùng POOL5. Không cần download hoặc resample để **đề
+xuất** nghiên cứu1h. Hai input bắt đầu khác nhau, không coi là cùng history.
+
+Tính lại bằng `_get_fold_indices` trên exact6795bars, train12/test3/step3months,
+purge/embargo100bars theo current default-five contract:
+
+| Validation (tháng30ngày) | Folds | Số cost-clearing tối thiểu để p≤.10 | Nhận xét |
+|---|---:|---:|---|
+| 3 | 6 | 6/6 | Validation không overlap, nhưng mẫu còn thưa |
+| 6 | 5 | 5/5 | Validation overlap; POOL5 đã thiếu30trades ở ~6tháng |
+| 9 | 4 | 4/4 | Overlap; density scaling RSI gần đủ, chưa được đo |
+| 12 | 3 | Không thể | Kể cả3/3 thì p=.125, không đạt gate |
+
+ExactBTC1h25198bars cũng cho6/5/4/3folds với cùng tháng và100bar gaps. Nhiều bars
+hơn không đồng nghĩa nhiều tháng/folds độc lập hơn. Không dùng4h trade density
+để dự báo1h, hoặc gọi các folds overlap là independent statistical trials.
+
+| Candidate | Bars4h cần cho30closes theo mật độ2cửa sổ đã đo | Quyết định |
+|---|---:|---|
+| enhanced_ma | 3640–5520 | Không mở grid4h hiện tại; thiếu feasibility proof |
+| ma_adx | 4680–6624 | Không chọn từ7trades đầu dương; giữADX25 |
+| ma_vol_target | 3640–4140 | Không kéo window tới20–23tháng để bù trades rồi bỏ gate folds |
+| rsi | 1490–1578 | 9tháng có scaling30.82–32.64trades, nhưng2windows lỗ; không đủ đề cử winner |
+| bbands | 1560–1656 | 9tháng scaling29.35–31.15; không bảo đảm30 |
+
+Các khoảng trên là phép chia density, **không forecast/power analysis hoặc
+trade adequacy thực đo ở cửa sổ mới**. Protocol9tháng không bị chứng minh bất
+khả thi toán học cho mọi strategy; kết luận đúng là chưa được chứng minh khả
+thi và hiệu quả. Không cherry-pick9tháng RSI sau khi xem cả5candidate để tuyên
+bố alpha. Các observations này phải tính vào trial history nghiên cứu tiếp.
+
+### Phương án đề nghị và work packages tiếp theo
+
+**Chọn tiếp engineering hỗ trợ explicit1h trước, chưa chọn strategy.** Lý do:
+dữ liệu1h có sẵn, có thể đo hypothesis tần suất/chi phí mới mà không hạ gates.
+Chưa có bằng chứng1h sẽ tốt hơn. Không mở5pairs ngay; giữBTC trước để không
+nhân trial burden và nhu cầu broker/capital. Không chạy lại WFO4h lớn chỉ vì
+muốn một packet có PASS.
+
+| Lựa chọn | Kết luận hiện tại | Điều kiện thay đổi |
+|---|---|---|
+| Lặp grid4h hiện có | Không khuyến nghị ở bước kế | Hypothesis mới, sample/fold/cost proof và budget riêng |
+| 4h validation9tháng RSI/BB | Chưa chọn làm qualification | Đăng ký như nghiên cứu mới; sample thực đo, overlap/power review; không rank từ2windows |
+| BTC1h fixed-five feasibility | Hướng đo tiếp được đề xuất | Engineering contract1h và approval mới, không default4h trá hình |
+| Mở nhiều pairs/17strategy/short | Hoãn | Compatibility/data/execution và multiple-testing plan riêng |
+
+1. **E1 — explicit timeframe contract (chưa triển khai):** calibration market
+   hiện hardcode4h trong execution.py; synthetic-demo1h không chứng minh market1h
+   support. Bổ sung một contract có version cho timeframe, byte binding, timestamp
+   spacing/bar-close boundary, warmup theo bars và window calendar. Producer và
+   verifier phải cùng hiểu1h; giữ tương thích xác minh packetv2 cũ, không mutate
+   hoặc reseal chúng. Không chỉ thêm CLI flag rồi đổi label báo cáo.
+2. **E2 — tests trước market:** synthetic1h/4h roundtrip, wrong-TF input rejected,
+   missing/gapped/duplicated timestamps, close-at-cutoff handling đúng policy,
+   params/feature/cost/receipt drift, old packet read-only verification, AC01–AC15.
+   Re-review/integrate trên source mới trước freeze; approvalb897c32 không reuse.
+3. **E3 — budget pilot trước10cells:** đề xuất riêng phép đo1h nhỏ để biết wall/
+   CPU/RSS trên ~4xmeasurement bars; vẫn chưa chạy. Xác định cells/limits/exit
+   trước freeze. Timeout là INCOMPLETE, không tự tăng budget hay retry.
+4. **E4 — fixed-five1h feasibility:** chỉ sau pilot và budget/fingerprint approval
+   riêng, cùng2calendar windows đã preregister, cùng fixed defaults,1xcost và
+   gates30trades/Sharpe>0. Period20/80 ở1h tương ứng horizon khác4h; ghi rõ đó là
+   hypothesis khác, không "cùng strategy performance". Không tuning song song.
+5. **E5 — chọn qualification protocol:** chỉ candidate có sample adequacy và
+   economics đáng nghiên cứu mới đề xuất grid/folds/cost stress/sensitivity/trial
+   burden. Vẫn chưa gọi qualified trước outer/native gates và review độc lập.
+
+Exit/stop: drift hoặc unsupported contract → dừng engineering; pilot timeout →
+giữ packet và xin quyết định; feasibility tất cảABSTAIN → báo NO_SUPPORTED_WINNER,
+không tự mở pair/strategy/holdout. Nếu không có thiết kế đủ bằng chứng trong dữ
+liệu cho phép, giữ paper-only/no-live là kết quả đúng.
+
+R3 status: **METADATA_COMPLETE / NEXT_HYPOTHESIS_PROPOSED**, chưa full protocol
+freeze hay đủ quyềnE3/E4market run. Các đoạn dưới là constraints/background.
 
 Đã có planner metadata cho historical input7946bars,6796timestamp trước cutoff:
 validation3/6/9/12months cho6/5/4/3folds và binomial p<=.10 cần6/5/4/impossible

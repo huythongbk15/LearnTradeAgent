@@ -1,0 +1,122 @@
+{
+  "packet": "data/bnb_di_adx_stateedge_20261020_01",
+  "revision": "rev14",
+  "identity_A_source_fingerprint": "bf684ba7d55bb65164911a14ae5e85a766974ed89f655e9054acc17d4fbbac6d",
+  "identity_A_dirty_diff_sha256": "2cbc73b69da853c3266979a6039def3ebc89ccb575d43dcd9b372b8400116b7a",
+  "code_commit": "4078892d738790872dc2d4f494e3973a62612347",
+  "identity_B_preregistration_fingerprint": "6d7f65491d1222c458b8cbf5a044a93ba4418cd1eaaa5f6becc5bf36852943cf",
+  "input_sha256": "379677360902c9734780e496398abb02ea6390531b840e2262bd9d7881e6485f",
+  "holdout_rows_read": 0,
+  "files": [
+    {
+      "path": "APPROVAL_PROCEDURE.md",
+      "sha256": "7dd2ff6919fb4897ea6bfeb1ccf2c69203bbc1cb8b0e8dbab8bbf2eb01d9a57c",
+      "bytes": 4023
+    },
+    {
+      "path": "BUDGET_OVERRUN.md",
+      "sha256": "af726f8fa290dd873ec430e283fec0e7cef8cf246e364d76e0673bf8cc09d7b2",
+      "bytes": 3856
+    },
+    {
+      "path": "RESULTS.md",
+      "sha256": "438814ec5ca27a831b6dbbcf6cec26d12a14b6347c4700a6155cd9ee2ba2a4d5",
+      "bytes": 24708
+    },
+    {
+      "path": "REVIEWERS_WORKING_SET.md",
+      "sha256": "7522c09d36e0d8160ef1efe0edbe9a07bc9bf9a6a6705efb37aede67631885a5",
+      "bytes": 30062
+    },
+    {
+      "path": "STATE_EDGE_CONTRACT.md",
+      "sha256": "e0e515d82d428b460c17202c1e3d30dac3e4a1b55f4e38991440403168e4f57e",
+      "bytes": 13685
+    },
+    {
+      "path": "TEST_PLAN_FOR_APPROVAL.md",
+      "sha256": "7d0070285d2025e220682fda510cf02ba55d7c198fbe4af4d7ff3a3f0544693e",
+      "bytes": 4322
+    },
+    {
+      "path": "acceptance_receipt.json",
+      "sha256": "f8bc43b61a05424e5895e5b5fafad304b07ea7a0cfec4ef8fb2e2cee397622f2",
+      "bytes": 899
+    },
+    {
+      "path": "acceptance_stdout.txt",
+      "sha256": "5e6a7ab168f55849b6e589c1aed7d2a516728783acd8f7881d258d49f543ba31",
+      "bytes": 7890
+    },
+    {
+      "path": "make_reviewers_working_set.py",
+      "sha256": "755dea3c1467664c6738d6784e1a8a6711f63ee261da44e3938b17b1b7b0c30a",
+      "bytes": 9139
+    },
+    {
+      "path": "pre_approval_payload.json",
+      "sha256": "e874577b4e73894fdd6a9813bee93b89a141e53b7c0f1ac754e3dfcdbe8cbe11",
+      "bytes": 11710
+    },
+    {
+      "path": "review_round_600s.py",
+      "sha256": "c9b0332817c8c26437ddb47f56266b0b50edcc5f3d89c74c654a8ce3f98d26d7",
+      "bytes": 17008
+    },
+    {
+      "path": "revisions/rev1/README.md",
+      "sha256": "052851fb6149f6ce7f95f94c01c544ba39f38d447175061503aed74277634f3b",
+      "bytes": 1501
+    },
+    {
+      "path": "revisions/rev11/README.md",
+      "sha256": "274609893994db5fbedafff97f8cbaf42b2a67b45448933bccd3f1ea3e6c8966",
+      "bytes": 1849
+    },
+    {
+      "path": "revisions/rev2/README.md",
+      "sha256": "ff42f34eac5e5357081293e4d949369cf0f503c53c67d5841e01bdcc56bc4e12",
+      "bytes": 689
+    },
+    {
+      "path": "revisions/rev3/README.md",
+      "sha256": "b243cb8a805556cf37cef39e81b02a76cd8529574b41938ec1877dc49ef03876",
+      "bytes": 583
+    },
+    {
+      "path": "revisions/rev4/README.md",
+      "sha256": "2f57b338597f69229b2054a5caaa126555ea97fccbbccc4d0315cdf1bacb873f",
+      "bytes": 530
+    },
+    {
+      "path": "revisions/rev5/README.md",
+      "sha256": "22eb8149bb53a8210be4c10251a27b30ad8bb2f1b0d367423b9790e77a8e4ee8",
+      "bytes": 784
+    },
+    {
+      "path": "revisions/rev6/README.md",
+      "sha256": "1ea85bd757257de1887d99ab54220ccbae1af3f77a57ddada93cd2dad9dbffae",
+      "bytes": 707
+    },
+    {
+      "path": "source_identity_after.json",
+      "sha256": "587957f7198d29fea7cf9519d4109aec1319098568dd886c8327b85e793c4277",
+      "bytes": 267
+    },
+    {
+      "path": "source_identity_before.json",
+      "sha256": "587957f7198d29fea7cf9519d4109aec1319098568dd886c8327b85e793c4277",
+      "bytes": 267
+    },
+    {
+      "path": "verify_approval_binding.py",
+      "sha256": "31164cfe8b5a501d788a9a8b7cf8285011cbebc2e2825011be2b97b072f59f25",
+      "bytes": 9001
+    }
+  ],
+  "file_count": 21,
+  "excluded_review_own_outputs": [
+    "review_round_execution.json",
+    "review_verdict.json"
+  ]
+}

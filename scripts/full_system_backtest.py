@@ -185,6 +185,49 @@ def _git_commit_sha() -> str:
     return result.stdout.strip() or "unknown"
 
 
+def _resolve_strategy_parameters(strategy_name, overrides=None):
+    """Shared constructor/preflight defaults; no engine or data access."""
+    defaults = {
+        "enhanced_ma": {"fast_period": FAST_MA, "slow_period": SLOW_MA,
+            "adx_threshold": ADX_THRESHOLD, "atr_sl_mult": ATR_SL_MULT, "atr_tp_mult": ATR_TP_MULT},
+        "ma_adx": {"fast_period": FAST_MA, "slow_period": SLOW_MA, "adx_threshold": ADX_THRESHOLD},
+        "ma_vol_target": {"fast_period": FAST_MA, "slow_period": SLOW_MA},
+        "rsi": {"period": 14, "oversold": 30, "overbought": 70},
+        "bbands": {"period": 20, "std_dev": 2.0},
+    }
+    return {**defaults.get(strategy_name, {}), **dict(overrides or {})}
+
+
+def _native_authority_config():
+    authority = AuthorityConfig.for_environment(Environment.PAPER)
+    authority.exposure.max_single_strategy_exposure = MAX_POS_SIZE_PCT
+    authority.exposure.max_portfolio_exposure = MAX_POSITION_PCT
+    return authority
+
+
+def _native_cost_model(commission, slippage):
+    return {"commission_rate": float(commission), "slippage_rate": float(slippage),
+        "spread_rate": 0.0, "market_impact_rate": 0.0,
+        "estimated_round_trip_cost_bps": float(2*(commission+slippage)*10000)}
+
+
+def describe_execution_contract(*, symbol, timeframe, strategy_name, parameters,
+    commission, slippage, cadence=1):
+    """Pure native declaration before constructor/stores; not qualification."""
+    from dataclasses import asdict
+    from trading_agent.backtest.campaign_execution import simulator_runtime_config
+    from trading_agent.backtest.execution_contract import native_execution_contract
+
+    runtime = simulator_runtime_config()
+    return native_execution_contract(symbol=symbol, timeframe=timeframe,
+        strategy={"strategy_id": strategy_name,
+            "parameters": _resolve_strategy_parameters(strategy_name, parameters), "routing_mode": "fixed"},
+        protection=runtime["protection"], sizing=runtime["sizing"], risk=runtime["risk"],
+        cost_model=_native_cost_model(commission, slippage),
+        authority=_native_authority_config().model_dump(mode="json"),
+        instrument_rules=asdict(get_instrument_rules(symbol)), cadence=cadence)
+
+
 class FullSystemSimulator:
     def __init__(
         self,
@@ -202,6 +245,7 @@ class FullSystemSimulator:
         strategy_name: str = "enhanced_ma",
         strategy_params_override: dict[str, object] | None = None,
         signal_series: list[int] | None = None,
+        scope_token: str | None = None,
         commission: float | None = None,
         slippage: float | None = None,
         strategy_runtime: object | None = None,
@@ -212,7 +256,12 @@ class FullSystemSimulator:
         adaptive_runtime_provider=None,
         source_df_override: pl.DataFrame | None = None,
         funnel_enabled: bool = True,
+        expected_execution_contract_id: str | None = None,
     ):
+        from trading_agent.backtest.execution_contract import validate_expected_contract_id
+
+        validate_expected_contract_id(expected_execution_contract_id)
+        self.expected_execution_contract_id = expected_execution_contract_id
         resolved_symbol = symbol or os.getenv("SYMBOL", SYMBOL)
         resolved_timeframe = timeframe or os.getenv("TIMEFRAME", TIMEFRAME)
         if not resolved_symbol or not resolved_timeframe:
@@ -348,56 +397,14 @@ class FullSystemSimulator:
             strategy_params_override = dict(artifact_params)
         self.strategy_name = strategy_name
         # Strategy-specific parameters (validated against schema)
-        self.strategy_params: dict[str, object] = {}
-        if strategy_name == "enhanced_ma":
-            self.strategy_params.update(
-                {
-                    "fast_period": FAST_MA,
-                    "slow_period": SLOW_MA,
-                    "adx_threshold": ADX_THRESHOLD,
-                    "atr_sl_mult": ATR_SL_MULT,
-                    "atr_tp_mult": ATR_TP_MULT,
-                }
-            )
-        elif strategy_name == "ma_adx":
-            self.strategy_params.update(
-                {
-                    "fast_period": FAST_MA,
-                    "slow_period": SLOW_MA,
-                    "adx_threshold": ADX_THRESHOLD,
-                }
-            )
-        elif strategy_name == "ma_vol_target":
-            self.strategy_params.update(
-                {
-                    "fast_period": FAST_MA,
-                    "slow_period": SLOW_MA,
-                }
-            )
-        elif strategy_name == "rsi":
-            self.strategy_params.update(
-                {
-                    "period": 14,
-                    "oversold": 30,
-                    "overbought": 70,
-                }
-            )
-        elif strategy_name == "bbands":
-            self.strategy_params.update(
-                {
-                    "period": 20,
-                    "std_dev": 2.0,
-                }
-            )
+        self.strategy_params = _resolve_strategy_parameters(strategy_name, strategy_params_override)
         # Runtime/execution parameters (NOT passed to strategy constructor)
         self.target_exposure_pct = MAX_POS_SIZE_PCT
-        if strategy_params_override:
-            self.strategy_params.update(strategy_params_override)
         self._injected_signals = signal_series
         self.commission = commission
         self.slippage = slippage
         self.strategy_descriptor, self.strategy = build_legacy_candidate(
-            self.strategy_name, self.strategy_params
+            self.strategy_name, self.strategy_params, scope_token=scope_token
         )
         if strategy_artifact is not None:
             expected_parameter_hash = sha256_hex(canonical_params(self.strategy_params))
@@ -477,9 +484,7 @@ class FullSystemSimulator:
             self.signals = self.df.select(pl.col("signal")).to_series().to_list()
 
         # Khởi tạo execution engine + risk controller
-        authority_config = AuthorityConfig.for_environment(Environment.PAPER)
-        authority_config.exposure.max_single_strategy_exposure = MAX_POS_SIZE_PCT
-        authority_config.exposure.max_portfolio_exposure = MAX_POSITION_PCT
+        authority_config = _native_authority_config()
         self.engine = ExecutionEngine(
             exchange_name=EXCHANGE,
             initial_capital=INITIAL_CAPITAL,
@@ -679,15 +684,7 @@ class FullSystemSimulator:
                 "daily_loss_limit_pct": DAILY_LOSS_LIMIT_PCT * 100,
                 "cooldown_hours": COOLDOWN_HOURS,
             },
-            "cost_model": {
-                "commission_rate": float(exchange.commission),
-                "slippage_rate": float(exchange.slippage),
-                "spread_rate": 0.0,
-                "market_impact_rate": 0.0,
-                "estimated_round_trip_cost_bps": float(
-                    2.0 * (exchange.commission + exchange.slippage) * 10_000
-                ),
-            },
+            "cost_model": _native_cost_model(exchange.commission, exchange.slippage),
             "data_policy": {
                 "gap_policy": self.gap_policy,
                 "imputation": "disabled",
@@ -701,6 +698,19 @@ class FullSystemSimulator:
                 "commit_sha": self.commit_sha,
             },
         }
+        from dataclasses import asdict
+        from trading_agent.backtest.execution_contract import native_execution_contract
+
+        payload["execution_contract"] = native_execution_contract(
+            symbol=self.symbol, timeframe=self.timeframe,
+            strategy={"strategy_id": self.strategy_name, "parameters": self.strategy_params,
+                "routing_mode": "adaptive" if self.adaptive_enabled else "fixed"},
+            protection=payload["protection"], sizing=payload["sizing"],
+            risk=payload["risk"], cost_model=payload["cost_model"],
+            authority=self.engine.authority_config.model_dump(mode="json"),
+            instrument_rules=asdict(get_instrument_rules(self.symbol)),
+            cadence=getattr(self, "_run_frequency", 1),
+        )
         return {"config_id": fingerprint_payload(payload), **payload}
 
     def run(
@@ -708,6 +718,12 @@ class FullSystemSimulator:
     ) -> dict[str, object]:
         if start < 0 or freq <= 0:
             raise ValueError("start must be non-negative and freq must be positive")
+        self._run_frequency = freq
+        expected = getattr(self, "expected_execution_contract_id", None)
+        if expected is not None:
+            from trading_agent.backtest.execution_contract import require_execution_contract
+
+            require_execution_contract(expected, self._active_config()["execution_contract"])
         end = end if end is not None else self.df.height
         end = min(end, self.df.height)
         if end <= start:
@@ -1142,6 +1158,7 @@ class FullSystemSimulator:
                 self.trade_log,
                 equity_delta=float(self.equity_curve[-1][1]) - INITIAL_CAPITAL,
                 open_inventory=open_leg if open_leg is not None else False,
+                equity_basis="marked_equity",
             )
         except ValueError as exc:
             measured_accounting_error = str(exc)

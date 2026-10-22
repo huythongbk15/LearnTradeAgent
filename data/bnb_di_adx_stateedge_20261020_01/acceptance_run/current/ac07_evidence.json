@@ -1,0 +1,50 @@
+{
+  "ac_id": "AC07",
+  "oracle": "independent atomic claim",
+  "cases": [
+    {
+      "name": "C1_first_claim",
+      "status": "PASS",
+      "detail": "first=True"
+    },
+    {
+      "name": "C2_dup_rejected",
+      "status": "PASS",
+      "detail": "second=False"
+    },
+    {
+      "name": "C3_holder_unchanged",
+      "status": "PASS",
+      "detail": "holder=router_A"
+    },
+    {
+      "name": "C4_atomic_concurrent",
+      "status": "PASS",
+      "detail": "successes=1, box=[('router_A', True), ('router_B', False)]"
+    },
+    {
+      "name": "C4_winner_holder",
+      "status": "PASS",
+      "detail": "winner=router_A"
+    },
+    {
+      "name": "C5_released",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "C5_reclaim",
+      "status": "PASS",
+      "detail": "reclaim=True"
+    },
+    {
+      "name": "C6_idempotency_key",
+      "status": "PASS",
+      "detail": "first=True, dup=False"
+    }
+  ],
+  "all_pass": true,
+  "total_checks": 8,
+  "passed": 8,
+  "intent_id": "intent_router_001"
+}

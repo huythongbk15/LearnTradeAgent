@@ -138,6 +138,7 @@ def verify_validation_reports(
     expected_commit=None,
     expected_manifest_sha=None,
     expected_simulation_window=None,
+    scope_token=None,
 ):
     """Fail closed on absent/changed/out-of-scope source reports.
 
@@ -246,7 +247,7 @@ def verify_validation_reports(
                 )
             rebuilt = _artifact_from_report(
                 cell,
-                build_default_registry().describe(cell.strategy_id),
+                build_default_registry(scope_token=scope_token).describe(cell.strategy_id),
                 path.parent,
                 report,
                 artifact.data_manifest_sha,

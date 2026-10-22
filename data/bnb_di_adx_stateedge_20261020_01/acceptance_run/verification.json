@@ -1,0 +1,113 @@
+{
+  "identity_stable": true,
+  "status": "PASS",
+  "checks": [
+    {
+      "id": "AC02",
+      "returncode": 0,
+      "worker_returncode": 0,
+      "log": "/home/huythong/.qwenpaw/workspaces/trading/data/acceptance_runs/ac01_15_20261021_152054_utc/current/ac02.log",
+      "evidence_sha256": "296c6db8c6a5b9420bbb79fa861d0fdaa5faa1af54b45658f76eaf9b3bf174e0"
+    },
+    {
+      "id": "AC03",
+      "returncode": 0,
+      "worker_returncode": 0,
+      "log": "/home/huythong/.qwenpaw/workspaces/trading/data/acceptance_runs/ac01_15_20261021_152054_utc/current/ac03.log",
+      "evidence_sha256": "a7a704b7301303376101125f83ab28c60aa32921ef4ee50bbd0250aefd8462ec"
+    },
+    {
+      "id": "AC04",
+      "returncode": 0,
+      "worker_returncode": 0,
+      "log": "/home/huythong/.qwenpaw/workspaces/trading/data/acceptance_runs/ac01_15_20261021_152054_utc/current/ac04.log",
+      "evidence_sha256": "7280eaf0d79cd3698d97ffd5376d75cc46bbe67fd96975c35116769f21e00603"
+    },
+    {
+      "id": "AC05",
+      "returncode": 0,
+      "worker_returncode": 0,
+      "log": "/home/huythong/.qwenpaw/workspaces/trading/data/acceptance_runs/ac01_15_20261021_152054_utc/current/ac05.log",
+      "evidence_sha256": "c562a59ec6f75a2150811caac6656bc8d49f3eb85bb37d773f0850fd6b723512"
+    },
+    {
+      "id": "AC06",
+      "returncode": 0,
+      "worker_returncode": 0,
+      "log": "/home/huythong/.qwenpaw/workspaces/trading/data/acceptance_runs/ac01_15_20261021_152054_utc/current/ac06.log",
+      "evidence_sha256": "7e8cdbf2daba4b956a93d4aaac7cce2944b0e07341f3194ad811cae8afe28f01"
+    },
+    {
+      "id": "AC07",
+      "returncode": 0,
+      "worker_returncode": 0,
+      "log": "/home/huythong/.qwenpaw/workspaces/trading/data/acceptance_runs/ac01_15_20261021_152054_utc/current/ac07.log",
+      "evidence_sha256": "6ed97508966d8f07898f70286e7d6322a285fca4af69b9adca83aa4a59f9e8c9"
+    },
+    {
+      "id": "AC08",
+      "returncode": 0,
+      "worker_returncode": 0,
+      "log": "/home/huythong/.qwenpaw/workspaces/trading/data/acceptance_runs/ac01_15_20261021_152054_utc/current/ac08.log",
+      "evidence_sha256": "c44a7b462a0777cfda32ed6256ae8739e8bef0b96ce6eb0708b34e20f05556ec"
+    },
+    {
+      "id": "AC09",
+      "returncode": 0,
+      "worker_returncode": 0,
+      "log": "/home/huythong/.qwenpaw/workspaces/trading/data/acceptance_runs/ac01_15_20261021_152054_utc/current/ac09.log",
+      "evidence_sha256": "2d7e1784abc8936555831d66de0129ffd649e72172217af255fc734c12ed8b4c"
+    },
+    {
+      "id": "AC10",
+      "returncode": 0,
+      "worker_returncode": 0,
+      "log": "/home/huythong/.qwenpaw/workspaces/trading/data/acceptance_runs/ac01_15_20261021_152054_utc/current/ac10.log",
+      "evidence_sha256": "678b9bff918e9d913e94448a480ed3aef18c32131fc377b9af1b2758a101a2e4"
+    },
+    {
+      "id": "AC11",
+      "returncode": 0,
+      "worker_returncode": 0,
+      "log": "/home/huythong/.qwenpaw/workspaces/trading/data/acceptance_runs/ac01_15_20261021_152054_utc/current/ac11.log",
+      "evidence_sha256": "a1bfc16f48d3c55bbd085dd1a6ded76d730ccd7ff6ddfcb9dc2b99636345118d"
+    },
+    {
+      "id": "AC12",
+      "returncode": 0,
+      "worker_returncode": 0,
+      "log": "/home/huythong/.qwenpaw/workspaces/trading/data/acceptance_runs/ac01_15_20261021_152054_utc/current/ac12.log",
+      "evidence_sha256": "01307957a0ddb9afb0c097fb9aa0f6dc9fa900e972758f5c95fb6eb61b84d191"
+    },
+    {
+      "id": "AC13",
+      "returncode": 0,
+      "worker_returncode": 0,
+      "log": "/home/huythong/.qwenpaw/workspaces/trading/data/acceptance_runs/ac01_15_20261021_152054_utc/current/ac13.log",
+      "evidence_sha256": "29ea5b415df73e6ffa7743eec9f59db65e9efa8a540ab0c2418d0089afffbf0a"
+    },
+    {
+      "id": "AC14",
+      "returncode": 0,
+      "worker_returncode": 0,
+      "log": "/home/huythong/.qwenpaw/workspaces/trading/data/acceptance_runs/ac01_15_20261021_152054_utc/current/ac14.log",
+      "evidence_sha256": "080072a925c1630956c9d97285b6fe5f85b3eb41104973b8148022ad6a0ce79d"
+    },
+    {
+      "id": "AC15",
+      "returncode": 0,
+      "worker_returncode": 0,
+      "log": "/home/huythong/.qwenpaw/workspaces/trading/data/acceptance_runs/ac01_15_20261021_152054_utc/current/ac15.log",
+      "evidence_sha256": "c7e155de6dd9845c20f1c9c0402c41ef8c754235bd39f2b03ebd1a6d7afec38f"
+    },
+    {
+      "id": "AC01",
+      "returncode": 0,
+      "worker_returncode": 0,
+      "log": "/home/huythong/.qwenpaw/workspaces/trading/data/acceptance_runs/ac01_15_20261021_152054_utc/current/ac01.log",
+      "evidence_sha256": null
+    }
+  ],
+  "scope": "engineering_acceptance_not_market_qualification",
+  "live_authorized": false
+}

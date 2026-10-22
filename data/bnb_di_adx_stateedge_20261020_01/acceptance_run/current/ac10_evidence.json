@@ -1,0 +1,40 @@
+{
+  "ac_id": "AC10",
+  "oracle": "independent hand-trace of cancel/timeout/idempotency/seq-gaps/crash-recovery",
+  "cases": [
+    {
+      "name": "C1_cancel_requested",
+      "status": "PASS",
+      "detail": "system=IntentStatus.CANCEL_REQUESTED, oracle=CANCEL_REQUESTED"
+    },
+    {
+      "name": "C2_cancel_confirmed",
+      "status": "PASS",
+      "detail": "system=IntentStatus.CANCELED, oracle=CANCELED"
+    },
+    {
+      "name": "C3_idempotent_replay",
+      "status": "PASS",
+      "detail": "status=IntentStatus.CANCELED, filled=0.0 unchanged"
+    },
+    {
+      "name": "C4_seq_gap_rejected",
+      "status": "PASS",
+      "detail": "sequence gap correctly raises"
+    },
+    {
+      "name": "C5_crash_recovery",
+      "status": "PASS",
+      "detail": "recovered_status=IntentStatus.CANCELED, filled=0.0"
+    },
+    {
+      "name": "C6_timeout_status",
+      "status": "PASS",
+      "detail": "system=IntentStatus.CANCEL_REQUESTED, oracle=CANCEL_REQUESTED (no confirm)"
+    }
+  ],
+  "all_pass": true,
+  "total_checks": 6,
+  "passed": 6,
+  "order_id": "order_cancel_001"
+}

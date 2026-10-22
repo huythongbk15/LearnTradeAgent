@@ -1,0 +1,20 @@
+{
+  "files": {
+    "tests/test_attempt_ledger_snapshot.py": "cc0e7f1752f66cc0a68945a23f3cb37d606f4a248cc401924787324da3541ba2",
+    "tests/test_di_adx_state_edge_contract.py": "0e3f470e8ad50908fc96e6414d2be6779137729c27c15d2fc4b47d2326f28156",
+    "tests/test_di_adx_state_edge_entrypoint_integration.py": "f615b9957fc3f1e3a996afab2da690dbc4f54329ba7b2974223e3d697733d9bd",
+    "tests/test_di_adx_state_edge_launcher_integration.py": "945215f916a75c70767bf48cb0edca42e0d0c9066080f8cc35764bf2652da93b",
+    "tests/test_di_adx_state_edge_scoped_path.py": "82f66bba325c9e8772aa0d74894bb4badc4902843313e3c5d148bef6a9ce73c5",
+    "tests/test_execution_funnel.py": "1e4c8b54236bb2d6129a3aa499b3ea122b5c345f1532623c73d176a102683790",
+    "tests/test_indicator_window_equivalence.py": "9efccc9bc19fe530249f7bbf75bc8b60d51d6fa65251c9dbd1ce8ff4a06f73bc",
+    "tests/test_ledger_and_binding_invariants.py": "97e99b0d3acdda6592ed13cbefcce822ba718ed986111821e4f8f15a8af09e5b",
+    "tests/test_parallel_cell_execution.py": "89cb8ae84a8efe4a006e7354c1b29fde9456782f32c7cf9b79b0409982a7144f",
+    "tests/test_parallel_research_protocol.py": "48622601381f8ecc8419df4f1c640ef6fa79972292c47a79cab01bd8778fa072",
+    "tests/test_qualification_cold_resume.py": "d43c66838aebf5bbacf94425125a03eb5161f13b96cfc1422293094defe00b1b",
+    "tests/test_validation_only_workflow.py": "71f443191d5a677a4175dd10377731487c7656b8f6029803c1135e1ebd394473",
+    "tests/test_validation_timeout_and_ledger_faults.py": "f4d371a772c627ddbe19b59607873972b100915840972f176b0a7457f5bc383d",
+    "tests/test_wfo_validation_envelope.py": "0e61343674bd2ae715d88bb212c82b9e1d1a22c9cc5aa70fb59048cbcc9b0b6c"
+  },
+  "note": "rev21: refreshed after R20-1/R20-2 regressions, with prior record preserved in before_seal. Refreshed for rev20: the nine core assertion files plus the five pre-existing test files that carry the F1 control-path regression evidence and the additive changes of this revision. The record is the sealed authority for the assertion hashes; identity A does not cover tests/.",
+  "root": "repository root"
+}

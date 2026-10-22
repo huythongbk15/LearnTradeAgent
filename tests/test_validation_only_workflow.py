@@ -9,6 +9,10 @@ from pathlib import Path
 import pytest
 
 from scripts import run_wfo_parallel as worker
+from scripts.run_wfo_parallel import (
+    VALIDATION_CELL_TIMEOUT_MAX_SECONDS,
+    VALIDATION_TOTAL_TIMEOUT_MAX_SECONDS,
+)
 from trading_agent.backtest import nested_wfo, tournament
 from trading_agent.backtest.campaign_evidence import content_hash
 from trading_agent.research.trials import ExperimentRegistry
@@ -73,6 +77,61 @@ def execute(validation):
             kwargs.setdefault("max_retries", protocol["execution"]["max_retries"])
             return worker.run_cell(spec, **kwargs)
     return worker._run_validation_canonical(spec, root, protocol, folds, cell_runner=MockCellRunner(root, protocol, folds))
+
+
+def test_frozen_validation_never_reads_raw_or_regenerates_folds(validation, monkeypatch):
+    from trading_agent.data import storage
+    spec, root, protocol, folds, calls, _ = validation
+    def forbidden(*args, **kwargs):
+        pytest.fail("raw loader/fold regeneration forbidden for frozen validation")
+    monkeypatch.setattr(storage, "load_ohlcv", forbidden)
+    monkeypatch.setattr(nested_wfo, "_get_fold_indices", forbidden)
+    result = execute(validation)
+    assert [r.fold_id for r in result.inner_results] == [f.fold_id for f in folds]
+    assert len(calls) == len(protocol["expected_inner_cells"])
+
+
+def test_schedule_mismatch_fails_before_any_cell_or_study(validation, monkeypatch):
+    spec, root, protocol, folds, calls, _ = validation
+    cells, _ = worker.build_canonical_cells(spec)
+    # the builder gained an optional scope_token kwarg; the stub must accept it
+    monkeypatch.setattr(
+        worker, "build_canonical_cells", lambda s, *a, **k: (cells[:-1], folds)
+    )
+    with pytest.raises(ValueError, match="schedule mismatch before execution"):
+        execute(validation)
+    assert not calls and not (root / "cell_attempts").exists()
+    assert not (root / "study_manifests").exists()
+
+
+def test_frozen_provenance_hash_and_slice_loader_do_not_read_raw(tmp_path, monkeypatch):
+    import hashlib
+    import io
+    import polars as pl
+    from datetime import datetime
+    from trading_agent.data import storage
+    frame = pl.DataFrame({"timestamp":[datetime(2024,1,1)],
+        "open":[100.],"high":[101.],"low":[99.],"close":[100.],"volume":[1.]})
+    path = tmp_path / "synthetic.parquet"
+    frame.write_parquet(path)
+    def forbidden(*args, **kwargs):
+        pytest.fail("provenance/slice attempted raw read")
+    monkeypatch.setattr(storage, "load_ohlcv", forbidden)
+    monkeypatch.delenv("TRADING_FROZEN_RESEARCH_DATA", raising=False)
+    with storage.frozen_research_data(path, exchange="binance", symbol="BTC/USDT", timeframe="1h"):
+        buffer = io.BytesIO()
+        frame.write_parquet(buffer)
+        assert nested_wfo._compute_data_manifest_sha("BTC/USDT", "1h") == hashlib.sha256(buffer.getvalue()).hexdigest()
+        from types import SimpleNamespace
+        seen = []
+        def stop_after_frozen_read(df):
+            seen.append(df)
+            raise RuntimeError("synthetic slice stop")
+        monkeypatch.setattr(nested_wfo, "add_regime_indicators", stop_after_frozen_read)
+        with pytest.raises(RuntimeError, match="synthetic slice stop"):
+            nested_wfo._compute_multi_dimensional_evaluation(
+                SimpleNamespace(symbol="BTC/USDT", timeframe="1h"), [], [])
+        assert seen[0].equals(frame)
 
 
 def test_all_windows_independent_and_only_inner_registry_rows(validation):
@@ -209,8 +268,15 @@ def test_supervisor_stops_child_session_not_only_leader(tmp_path):
 
 @pytest.mark.parametrize("flags", [
     ["--workers", "2", "--cell-timeout", "60"],
-    ["--workers", "1", "--cell-timeout", "181"],
-    ["--workers", "1", "--cell-timeout", "60", "--total-timeout", "1801"],
+    # The envelope caps are policy, not literals: take them from the constants
+    # so this test tracks the reviewed policy instead of a hard-coded number.
+    # literal 601 pins the APPROVED policy value (the constant-derived case
+    # below would follow any change to the cap silently)
+    ["--workers", "1", "--cell-timeout", "601"],
+    ["--workers", "1", "--cell-timeout", str(VALIDATION_CELL_TIMEOUT_MAX_SECONDS + 1)],
+    ["--workers", "1", "--cell-timeout", "60", "--total-timeout", "7201"],
+    ["--workers", "1", "--cell-timeout", "60",
+     "--total-timeout", str(VALIDATION_TOTAL_TIMEOUT_MAX_SECONDS + 1)],
     ["--workers", "1", "--cell-timeout", "60", "--max-rss-mb", "100"],
     ["--workers", "1", "--cell-timeout", "60", "--reuse-from", "old"],
 ])

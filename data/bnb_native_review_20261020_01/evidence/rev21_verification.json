@@ -1,0 +1,98 @@
+{
+  "source": {
+    "code_commit": "4078892d738790872dc2d4f494e3973a62612347",
+    "tree_fingerprint": "b3aa44f026939863018a15de44a57c5b81e1bde9176b2c7483c7d3b7a65db427",
+    "worktree_dirty": true,
+    "dirty_diff_sha256": "de09328a5d10994ad5d2e0a00a2efa2cac1e8c52befcede5c1cc46a336851209"
+  },
+  "B": "fe9cf95ee72b27036a52616b79a6f2e8f1edfb56481a4f0d97b547a713aa4373",
+  "receipts": {
+    "fast": {
+      "path": "data/bnb_di_adx_stateedge_review21_20261022_01/trading_rev21_fast_20261022_01.json",
+      "sha256": "79b727447f79020d336e924fc5a84eeb79b8a557207fbc8582f57636f786d905",
+      "elapsed_sec": 45.07333469390869
+    },
+    "lint": {
+      "path": "data/bnb_di_adx_stateedge_review21_20261022_01/trading_rev21_lint_20261022_01.json",
+      "sha256": "39de0acafba0d1634231355c6c4f8338abd12fa79496115c9ddc231cb353791d",
+      "elapsed_sec": 0.5753974914550781
+    },
+    "source_before": {
+      "path": "data/bnb_di_adx_stateedge_review21_20261022_01/trading_rev21_source_before_20261022_01.json",
+      "sha256": "03f1c39dbc0047daa20de0112d78e139968e4b3cc10a3ad64d5e2d75b1868767",
+      "elapsed_sec": 0.1401064395904541
+    },
+    "control_plan": {
+      "path": "data/bnb_di_adx_stateedge_review21_20261022_01/trading_rev21_control_plan_20261022_01.json",
+      "sha256": "5107247144495eabb75079bf9aa93479ad586a5d0d788af2829fb54764e3ec14",
+      "elapsed_sec": 65.23417568206787
+    },
+    "ac": {
+      "path": "data/bnb_di_adx_stateedge_review21_20261022_01/trading_rev21_ac_20261022_01.json",
+      "sha256": "cb2eaaaff00a270fdb96bdde0e7c56f0c3f7efc3692e9a6181a6bcc53f36372a",
+      "elapsed_sec": 60.72046089172363
+    },
+    "launcher": {
+      "path": "data/bnb_di_adx_stateedge_review21_20261022_01/trading_rev21_launcher_20261022_01.json",
+      "sha256": "05c50eac1ac7513cf894dbddec74d58b43b2e989bbc05510409cc1fdf315b213",
+      "elapsed_sec": 98.75407767295837
+    }
+  },
+  "scope_approval": "PENDING_OPERATOR_APPROVAL",
+  "market_run": false,
+  "closed_source_findings": [
+    "R20-1",
+    "R20-2"
+  ],
+  "independent_review": "PENDING_FINAL_IDENTITIES",
+  "acceptance_evidence": {
+    "data/bnb_di_adx_stateedge_review21_20261022_01/acceptance_run/verification.json": "2ec42c91b4b028805e8609b955ac9e74f578900de97b0c85d52749e69fac8f92",
+    "data/bnb_di_adx_stateedge_review21_20261022_01/acceptance_run/identity_after.json": "a0b45d48d670b3c540e21bbbf42cfe9c47c94cc469e197bedbb7aae90dda2869",
+    "data/bnb_di_adx_stateedge_review21_20261022_01/acceptance_run/SUMMARY.txt": "7d1b4ce267d34c2d108c8926406c6eae4feb8b58226f889bd3d6845bf5994547",
+    "data/bnb_di_adx_stateedge_review21_20261022_01/acceptance_run/identity_before.json": "a0b45d48d670b3c540e21bbbf42cfe9c47c94cc469e197bedbb7aae90dda2869",
+    "data/bnb_di_adx_stateedge_review21_20261022_01/acceptance_run/current/ac06.log": "bbc306b8589b7d953bf23dd7416e28673c289d0dc62f5bfc4748e754af26fcd3",
+    "data/bnb_di_adx_stateedge_review21_20261022_01/acceptance_run/current/ac04_evidence.json": "1efb2e1cf7c1fda0c11a7364fca092e83230623efb0a1cc511376806f629d8bd",
+    "data/bnb_di_adx_stateedge_review21_20261022_01/acceptance_run/current/ac13.log": "f5f48fc938254bf03cda1097aad85b6a8a95cdf5b7929cb58757242751677201",
+    "data/bnb_di_adx_stateedge_review21_20261022_01/acceptance_run/current/ac09_evidence.json": "2d7e1784abc8936555831d66de0129ffd649e72172217af255fc734c12ed8b4c",
+    "data/bnb_di_adx_stateedge_review21_20261022_01/acceptance_run/current/ac07_evidence.json": "be60cb42d92150db6eec52aabf115c588a538761ce189d15b750886435570337",
+    "data/bnb_di_adx_stateedge_review21_20261022_01/acceptance_run/current/ac10_evidence.json": "678b9bff918e9d913e94448a480ed3aef18c32131fc377b9af1b2758a101a2e4",
+    "data/bnb_di_adx_stateedge_review21_20261022_01/acceptance_run/current/ac03.log": "1d589c59cbd3d67b47aaaba349563066190ba93f87e60bcc0aa09e6804056e69",
+    "data/bnb_di_adx_stateedge_review21_20261022_01/acceptance_run/current/ac06_evidence.json": "7e8cdbf2daba4b956a93d4aaac7cce2944b0e07341f3194ad811cae8afe28f01",
+    "data/bnb_di_adx_stateedge_review21_20261022_01/acceptance_run/current/ac15.log": "1ee1bfe57ac2c37d1d3c46c82cc7710fd4a365e8576c85ab3906bb22d6d178e5",
+    "data/bnb_di_adx_stateedge_review21_20261022_01/acceptance_run/current/ac05_evidence.json": "c562a59ec6f75a2150811caac6656bc8d49f3eb85bb37d773f0850fd6b723512",
+    "data/bnb_di_adx_stateedge_review21_20261022_01/acceptance_run/current/ac08_evidence.json": "c44a7b462a0777cfda32ed6256ae8739e8bef0b96ce6eb0708b34e20f05556ec",
+    "data/bnb_di_adx_stateedge_review21_20261022_01/acceptance_run/current/ac14_evidence.json": "2504697faf0d93e04908dca3d0f1fb5f9c4a420dc47e30d203c76a6b3cfa222a",
+    "data/bnb_di_adx_stateedge_review21_20261022_01/acceptance_run/current/ac15_evidence.json": "c7e155de6dd9845c20f1c9c0402c41ef8c754235bd39f2b03ebd1a6d7afec38f",
+    "data/bnb_di_adx_stateedge_review21_20261022_01/acceptance_run/current/ac12.log": "04fea437d60a741a10ff299307bf6eb3076617248091e4c0d135c2bb543249f3",
+    "data/bnb_di_adx_stateedge_review21_20261022_01/acceptance_run/current/ac11.log": "f07c02d3898a06dea0f84c504542da2e8373b0fd571843413e03651847260d02",
+    "data/bnb_di_adx_stateedge_review21_20261022_01/acceptance_run/current/ac13_evidence.json": "29ea5b415df73e6ffa7743eec9f59db65e9efa8a540ab0c2418d0089afffbf0a",
+    "data/bnb_di_adx_stateedge_review21_20261022_01/acceptance_run/current/ac03_evidence.json": "a7a704b7301303376101125f83ab28c60aa32921ef4ee50bbd0250aefd8462ec",
+    "data/bnb_di_adx_stateedge_review21_20261022_01/acceptance_run/current/ac09.log": "8d36f26bfef399227a7fdea3dda7fa65c0d8de804190ebf4d0c2f12effca0632",
+    "data/bnb_di_adx_stateedge_review21_20261022_01/acceptance_run/current/ac12_evidence.json": "01307957a0ddb9afb0c097fb9aa0f6dc9fa900e972758f5c95fb6eb61b84d191",
+    "data/bnb_di_adx_stateedge_review21_20261022_01/acceptance_run/current/ac14.log": "8d39fbf77d71c84e345ca5c326c99a270c3fa45ef9804ca1b2e17ad716dc8a33",
+    "data/bnb_di_adx_stateedge_review21_20261022_01/acceptance_run/current/ac08.log": "3f6c7009e06f5433d62844f02e06095449bf74d81fe99f1631f284fdfd02aa36",
+    "data/bnb_di_adx_stateedge_review21_20261022_01/acceptance_run/current/ac02_evidence.json": "296c6db8c6a5b9420bbb79fa861d0fdaa5faa1af54b45658f76eaf9b3bf174e0",
+    "data/bnb_di_adx_stateedge_review21_20261022_01/acceptance_run/current/ac04.log": "b8a91523e63570a7b9788db8324ac5a8908fbe4f83d2c9b5e7c94165f13bf7ab",
+    "data/bnb_di_adx_stateedge_review21_20261022_01/acceptance_run/current/ac02.log": "9e864216e3cafd94fed3697b5fd36c70ec1dd1a24be7091900de5836afb838ee",
+    "data/bnb_di_adx_stateedge_review21_20261022_01/acceptance_run/current/ac05.log": "8c9f0163bd32ebe904fc90ec7eb8da7ff645f6c947f6d4ae043efd6b280fac23",
+    "data/bnb_di_adx_stateedge_review21_20261022_01/acceptance_run/current/ac01.log": "225e9220107e030421d0377907f265bf989f1344051567458c0a5f92794c3720",
+    "data/bnb_di_adx_stateedge_review21_20261022_01/acceptance_run/current/ac11_evidence.json": "a1bfc16f48d3c55bbd085dd1a6ded76d730ccd7ff6ddfcb9dc2b99636345118d",
+    "data/bnb_di_adx_stateedge_review21_20261022_01/acceptance_run/current/ac07.log": "5ae01a3fafc13c1dee1ad44a1f76e565b46f26e81484a02cd459586fcb332d45",
+    "data/bnb_di_adx_stateedge_review21_20261022_01/acceptance_run/current/ac10.log": "e56b634ad87469a6788b07caa5ab4e3e9099acb0ed956cea121eb98918d9850d",
+    "data/bnb_di_adx_stateedge_review21_20261022_01/acceptance_run/previous/ac04_evidence.json": "68284292481bd875334fcc8a61048ac9222bc228a236ada255814afd6c2a74e7",
+    "data/bnb_di_adx_stateedge_review21_20261022_01/acceptance_run/previous/ac09_evidence.json": "2d7e1784abc8936555831d66de0129ffd649e72172217af255fc734c12ed8b4c",
+    "data/bnb_di_adx_stateedge_review21_20261022_01/acceptance_run/previous/ac07_evidence.json": "6ed97508966d8f07898f70286e7d6322a285fca4af69b9adca83aa4a59f9e8c9",
+    "data/bnb_di_adx_stateedge_review21_20261022_01/acceptance_run/previous/ac10_evidence.json": "678b9bff918e9d913e94448a480ed3aef18c32131fc377b9af1b2758a101a2e4",
+    "data/bnb_di_adx_stateedge_review21_20261022_01/acceptance_run/previous/ac06_evidence.json": "7e8cdbf2daba4b956a93d4aaac7cce2944b0e07341f3194ad811cae8afe28f01",
+    "data/bnb_di_adx_stateedge_review21_20261022_01/acceptance_run/previous/ac05_evidence.json": "c562a59ec6f75a2150811caac6656bc8d49f3eb85bb37d773f0850fd6b723512",
+    "data/bnb_di_adx_stateedge_review21_20261022_01/acceptance_run/previous/ac08_evidence.json": "c44a7b462a0777cfda32ed6256ae8739e8bef0b96ce6eb0708b34e20f05556ec",
+    "data/bnb_di_adx_stateedge_review21_20261022_01/acceptance_run/previous/ac14_evidence.json": "2504697faf0d93e04908dca3d0f1fb5f9c4a420dc47e30d203c76a6b3cfa222a",
+    "data/bnb_di_adx_stateedge_review21_20261022_01/acceptance_run/previous/ac15_evidence.json": "c7e155de6dd9845c20f1c9c0402c41ef8c754235bd39f2b03ebd1a6d7afec38f",
+    "data/bnb_di_adx_stateedge_review21_20261022_01/acceptance_run/previous/ac13_evidence.json": "29ea5b415df73e6ffa7743eec9f59db65e9efa8a540ab0c2418d0089afffbf0a",
+    "data/bnb_di_adx_stateedge_review21_20261022_01/acceptance_run/previous/ac01_evidence.json": "1ae8a8ad4f27df189ef9836d93fd63529cfb4e57cd97e1cec24e1ee5654a0ae7",
+    "data/bnb_di_adx_stateedge_review21_20261022_01/acceptance_run/previous/ac03_evidence.json": "a7a704b7301303376101125f83ab28c60aa32921ef4ee50bbd0250aefd8462ec",
+    "data/bnb_di_adx_stateedge_review21_20261022_01/acceptance_run/previous/ac12_evidence.json": "01307957a0ddb9afb0c097fb9aa0f6dc9fa900e972758f5c95fb6eb61b84d191",
+    "data/bnb_di_adx_stateedge_review21_20261022_01/acceptance_run/previous/ac02_evidence.json": "296c6db8c6a5b9420bbb79fa861d0fdaa5faa1af54b45658f76eaf9b3bf174e0",
+    "data/bnb_di_adx_stateedge_review21_20261022_01/acceptance_run/previous/ac11_evidence.json": "a1bfc16f48d3c55bbd085dd1a6ded76d730ccd7ff6ddfcb9dc2b99636345118d"
+  }
+}

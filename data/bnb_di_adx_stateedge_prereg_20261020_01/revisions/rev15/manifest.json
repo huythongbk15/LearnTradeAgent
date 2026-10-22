@@ -1,0 +1,59 @@
+{
+  "packet": "data/bnb_di_adx_stateedge_prereg_20261020_01",
+  "revision": "rev14",
+  "identity_A_source_fingerprint": "bf684ba7d55bb65164911a14ae5e85a766974ed89f655e9054acc17d4fbbac6d",
+  "identity_A_dirty_diff_sha256": "2cbc73b69da853c3266979a6039def3ebc89ccb575d43dcd9b372b8400116b7a",
+  "code_commit": "4078892d738790872dc2d4f494e3973a62612347",
+  "identity_B_preregistration_fingerprint": "6d7f65491d1222c458b8cbf5a044a93ba4418cd1eaaa5f6becc5bf36852943cf",
+  "input_sha256": "379677360902c9734780e496398abb02ea6390531b840e2262bd9d7881e6485f",
+  "holdout_rows_read": 0,
+  "files": [
+    {
+      "path": "PREREGISTRATION.md",
+      "sha256": "9888ddd7c02bb3abc3f9c2e2954b1822e31fb1acc5e6f1265b5d59ff21576533",
+      "bytes": 91554
+    },
+    {
+      "path": "preregistration_payload.json",
+      "sha256": "0c058b33457fa9e5eff98d1e72bf366e2a5b46a94928d16de4675fe32a2bbc1f",
+      "bytes": 19842
+    },
+    {
+      "path": "revisions/rev1/README.md",
+      "sha256": "edb9aa7ad461a1d0e156b03481e010340dc11eba7df9eb62f601172fc4d9eeb0",
+      "bytes": 591
+    },
+    {
+      "path": "revisions/rev11/README.md",
+      "sha256": "274609893994db5fbedafff97f8cbaf42b2a67b45448933bccd3f1ea3e6c8966",
+      "bytes": 1849
+    },
+    {
+      "path": "revisions/rev2/README.md",
+      "sha256": "73744e684b4c211f5d902636c5e48cb2d160709c9214c02e813e96bb48439e7b",
+      "bytes": 603
+    },
+    {
+      "path": "revisions/rev3/README.md",
+      "sha256": "e3820c24b898162ad0ce8232d5339468f75c169c3f4f9dbf8cdf28a5dec6a5c9",
+      "bytes": 793
+    },
+    {
+      "path": "revisions/rev4/README.md",
+      "sha256": "2f57b338597f69229b2054a5caaa126555ea97fccbbccc4d0315cdf1bacb873f",
+      "bytes": 530
+    },
+    {
+      "path": "revisions/rev5/README.md",
+      "sha256": "22eb8149bb53a8210be4c10251a27b30ad8bb2f1b0d367423b9790e77a8e4ee8",
+      "bytes": 784
+    },
+    {
+      "path": "revisions/rev6/README.md",
+      "sha256": "1ea85bd757257de1887d99ab54220ccbae1af3f77a57ddada93cd2dad9dbffae",
+      "bytes": 707
+    }
+  ],
+  "file_count": 9,
+  "excluded_review_own_outputs": []
+}

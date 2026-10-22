@@ -1,0 +1,54 @@
+{
+  "packet": "data/bnb_di_adx_stateedge_prereg_20261020_01",
+  "revision": "rev11",
+  "identity_A_source_fingerprint": "8d27b8f11431e23c95f2b30c7efb075ec0173cbd03fa0e084a1939c99de23e56",
+  "identity_A_dirty_diff_sha256": "9299dc8f8d5f50008c38e104f3c4bbbcc8af247c78117aa98a80ade0657f6f39",
+  "code_commit": "4078892d738790872dc2d4f494e3973a62612347",
+  "identity_B_preregistration_fingerprint": "6f500d7059499194a7484804eaf440778aa0465e84c12d7ed1596c9b6c5cc305",
+  "input_sha256": "379677360902c9734780e496398abb02ea6390531b840e2262bd9d7881e6485f",
+  "holdout_rows_read": 0,
+  "files": [
+    {
+      "path": "PREREGISTRATION.md",
+      "sha256": "82730f06d01fb933ffab66cb2c4c44a2d1d5d133e07619dbfe57a35c81f59664",
+      "bytes": 78045
+    },
+    {
+      "path": "preregistration_payload.json",
+      "sha256": "e874577b4e73894fdd6a9813bee93b89a141e53b7c0f1ac754e3dfcdbe8cbe11",
+      "bytes": 11710
+    },
+    {
+      "path": "revisions/rev1/README.md",
+      "sha256": "edb9aa7ad461a1d0e156b03481e010340dc11eba7df9eb62f601172fc4d9eeb0",
+      "bytes": 591
+    },
+    {
+      "path": "revisions/rev2/README.md",
+      "sha256": "73744e684b4c211f5d902636c5e48cb2d160709c9214c02e813e96bb48439e7b",
+      "bytes": 603
+    },
+    {
+      "path": "revisions/rev3/README.md",
+      "sha256": "e3820c24b898162ad0ce8232d5339468f75c169c3f4f9dbf8cdf28a5dec6a5c9",
+      "bytes": 793
+    },
+    {
+      "path": "revisions/rev4/README.md",
+      "sha256": "2f57b338597f69229b2054a5caaa126555ea97fccbbccc4d0315cdf1bacb873f",
+      "bytes": 530
+    },
+    {
+      "path": "revisions/rev5/README.md",
+      "sha256": "22eb8149bb53a8210be4c10251a27b30ad8bb2f1b0d367423b9790e77a8e4ee8",
+      "bytes": 784
+    },
+    {
+      "path": "revisions/rev6/README.md",
+      "sha256": "1ea85bd757257de1887d99ab54220ccbae1af3f77a57ddada93cd2dad9dbffae",
+      "bytes": 707
+    }
+  ],
+  "file_count": 8,
+  "excluded_review_own_outputs": []
+}

@@ -1,0 +1,64 @@
+{
+  "source": {
+    "code_commit": "4078892d738790872dc2d4f494e3973a62612347",
+    "tree_fingerprint": "c4b7479bd88dee4352dec7d9d2c03ab2ea2be18f65a0630bb6e543f9980b4b74",
+    "worktree_dirty": true,
+    "dirty_diff_sha256": "1865dc28229abb82fd28eab83c2e29d33901067a3b8896937954ddf68d5685ee"
+  },
+  "B": "1338572d57628e9ba1c29b655856547d1c945f4695ee7cc9aef0545c8ce88145",
+  "receipts": {
+    "identity": {
+      "path": "data/bnb_di_adx_stateedge_review2_20261022_01/trading_review2_identity_20261022_01.json",
+      "elapsed_sec": 20.956750631332397,
+      "sha256": "b27715e2eb0e686ba3c0c8c8f531849940a8f27e3b880fd8291abfa6fd5b3a5f"
+    },
+    "fasttests": {
+      "path": "data/bnb_di_adx_stateedge_review2_20261022_01/trading_review2_fasttests_20261022_01.json",
+      "elapsed_sec": 32.39217925071716,
+      "sha256": "baf360eeeb993b8c77e8caf54574f4d669c5180ce2ecef9af264a944f7ef609c"
+    },
+    "ac": {
+      "path": "data/bnb_di_adx_stateedge_review2_20261022_01/trading_review2_ac_20261022_01.json",
+      "elapsed_sec": 43.257184743881226,
+      "sha256": "53873fce37647be6268c7db3ce17e8e255aefc7f12e749ba5fab7d0e20b7b272"
+    },
+    "f9_decompose": {
+      "path": "data/bnb_di_adx_stateedge_review2_20261022_01/trading_review2_f9_decompose_20261022_01.json",
+      "elapsed_sec": 3.453979730606079,
+      "sha256": "b382e1f5d3e5a1004bb412fccfd6bf3fac2c6546c606b7e5385785cfe42f180c"
+    },
+    "f9_episodes": {
+      "path": "data/bnb_di_adx_stateedge_review2_20261022_01/trading_review2_f9_episodes_20261022_01.json",
+      "elapsed_sec": 2.3161368370056152,
+      "sha256": "49fb2c880a4d6cfba1b5ab9adb8b60c802c72b4ab31c949b7c5150b6417fd435"
+    },
+    "f9_layers": {
+      "path": "data/bnb_di_adx_stateedge_review2_20261022_01/trading_review2_f9_layers_20261022_01.json",
+      "elapsed_sec": 0.1552572250366211,
+      "sha256": "c8ca70435563856cbd3366c8a886df85c95ea2f8220718ea73c46a6db2eaef77"
+    },
+    "source_after": {
+      "path": "data/bnb_di_adx_stateedge_review2_20261022_01/trading_review2_source_after_20261022_01.json",
+      "elapsed_sec": 0.12978100776672363,
+      "sha256": "3da256cf2930c4c47af6716b8e1909817f63a28905bcbb2a0f22d60d1641db0b"
+    },
+    "control_plan": {
+      "path": "data/bnb_di_adx_stateedge_review2_20261022_01/trading_review2_control_plan_20261022_01.json",
+      "elapsed_sec": 93.16112184524536,
+      "sha256": "6605086731f02344aaefb36cf6d4f8b02da91bdb4c9c4f41e59da2c2712e2759"
+    },
+    "launcher": {
+      "path": "data/bnb_di_adx_stateedge_review2_20261022_01/trading_review2_launcher_20261022_01.json",
+      "elapsed_sec": 126.23122477531433,
+      "sha256": "b6e4b15fa7db59f81fa56e4af84bf964e168238576a6a3897207df5397a0da74"
+    },
+    "lint": {
+      "path": "data/bnb_di_adx_stateedge_review2_20261022_01/trading_review2_lint_20261022_01.json",
+      "elapsed_sec": 1.0149762630462646,
+      "sha256": "175c12ab8f934c0d2583ac88ef3ce1ebb0aba2dfc97bb990fa8c8abf4e3dd737"
+    }
+  },
+  "scope_approval": "PENDING_OPERATOR_APPROVAL",
+  "market_run": false,
+  "history_limit": "Exact rev19 source delta unavailable: no sealed per-file source snapshot; current full source map and diff vs HEAD retained."
+}

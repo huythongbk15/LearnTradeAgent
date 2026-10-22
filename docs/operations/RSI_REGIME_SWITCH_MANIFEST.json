@@ -1,0 +1,62 @@
+{
+  "schema_version": "documentation_template_1",
+  "runtime_config": false,
+  "status": "BLOCKED_PREFLIGHT",
+  "scope": "REGIME_SWITCH_VALIDATION_NOT_OOS",
+  "question": "Liệu ADX-regime-switch (ADX<20 th\u00e1b RSI, ADX>35 th\u00e1b ma_adx) gi\u1eedm drawdown trong trending regime so v\u1edb RSI-alone, \u0111\u00f2ng th\u1ed3i duy tr\xec Sharpe>1.0 trong sideway regime kh\xf4ng?",
+  "primary_comparison": "rsi_plus_ma_adx_regime_switch minus rsi_alone_on_common_calendar",
+  "decision_rule": {
+    "primary_metric": "net_return_pct",
+    "sideway_regime_sharpe_min": 1.0,
+    "trending_regime_mdd_max_pct": 4.0,
+    "profit_factor_min": 1.0,
+    "trade_count_min": 30,
+    "cost_3x_survival_pf_min": 0.95
+  },
+  "decision_rule_method": "preregistered before experiment; threshold from prior calibration cost analysis (RSI breakeven ~2.3x)",
+  "identity": {
+    "execution_commit": "cdf39ce",
+    "execution_tree": "working tree has 9 modified + 18 untracked (evidence bundles from validation-only phase)",
+    "runner_path": "scripts/run_strategy_tournament.py",
+    "data_path_4h": "data/existing_research_audit_20261008/BNB_USDT__4h__pre_holdout.parquet",
+    "data_path_1h": "data/existing_research_audit_20261008/BTC_USDT__1h__pre_holdout.parquet",
+    "data_sha256_1h": "45ba1b1bc6a91986eda445de8026cab9995fcabe011a735244a4c7cf0e0825ce",
+    "data_bytes_1h": 598799,
+    "evaluation_index_half_open": [56897, 58897],
+    "evaluation_utc_half_open": ["2026-06-30T00:00:00Z", "2026-09-21T00:00:00Z"],
+    "timezone_interpretation": "UTC; input stores naive datetime",
+    "common_calendar_mask_and_warmup_hash": null,
+    "context_index": 56896,
+    "already_seen": true,
+    "source_note": "Sideway regime window; will also test 5000 bars for mixed regime"
+  },
+  "arms": [
+    {"id": "cash", "role": "zero_interest_benchmark", "status": "NOT_RUN"},
+    {"id": "buy_hold_25pct", "role": "not_risk_matched_benchmark", "status": "NOT_RUN"},
+    {"id": "rsi_alone", "role": "control_signal", "status": "NOT_RUN"},
+    {"id": "rsi_adx_regime_switch", "role": "signal_of_interest", "status": "NOT_RUN", "components": ["rsi_alone_when_ADX_lt_20", "ma_adx_when_ADX_gt_35"]}
+  ],
+  "execution": {
+    "scenario": "1x_cost",
+    "engine": "full_system_backtest V2",
+    "initial_cash_quote": 10000,
+    "entry_reference_notional_fraction": 0.25,
+    "strategy_stop": "5% stop loss, next-open exit",
+    "strategy_cooldown": "24h after sell fill",
+    "cost_and_microstructure": "fee 0.1%, spread 10bps, depth/impact configured per strategy",
+    "seed": 42,
+    "terminal_mark": "no forced liquidation; carry marked at final close"
+  },
+  "budget": {"approved_seconds": 200, "cell_timeout_seconds": 180, "concurrency": 4, "retries": 0},
+  "approval": {"execution_approved": false, "manifest_sha256": null, "operator_receipt": null},
+  "authority": {"network": false, "new_data": false, "holdout": false, "promotion": false, "paper": false, "live": false},
+  "reuse": {"old_packets_immutable": true, "compatibility_receipt": null, "cross_source_auto_reuse": false},
+  "artifacts": ["frozen_manifest", "execution_receipt", "signals", "orders", "fills", "equity_marks", "arithmetic_audit", "evidence_card"],
+  "preflight_remaining": [
+    "Audit selection score cost lineage and units; do not change gate to obtain a winner",
+    "Review adapter parity and common calendar for RSI-alone versus regime-switch",
+    "Freeze benchmark entry/risk semantics and decision rule",
+    "Bind current source, runner, registry and full execution config",
+    "Review historical evidence reuse compatibility, budget and operator approval"
+  ]
+}

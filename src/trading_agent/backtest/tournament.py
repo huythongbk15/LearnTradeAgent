@@ -332,8 +332,12 @@ class EvaluationCellSpec:
     params: Mapping[str, Any] = field(default_factory=dict)
     cost_scenario: CostScenario = SCENARIO_BASE
     fault: FaultProfile = FAULT_NONE
+    expected_execution_contract_id: str | None = None
 
     def __post_init__(self) -> None:
+        from trading_agent.backtest.execution_contract import validate_expected_contract_id
+
+        validate_expected_contract_id(self.expected_execution_contract_id)
         if not self.strategy_id or not self.symbol:
             raise ValueError("strategy_id and symbol are required")
         object.__setattr__(
@@ -354,6 +358,8 @@ class EvaluationCellSpec:
         )
         if self.fault.active:
             base += f"__f{self.fault.name}"
+        if self.expected_execution_contract_id is not None:
+            base += f"__e{self.expected_execution_contract_id}"
         return base
 
 
@@ -378,6 +384,9 @@ def canonical_signal_series(
     # Storage timestamps may be tz-naive; the contract requires awareness.
     if times and getattr(times[0], "tzinfo", None) is None:
         times = [value.replace(tzinfo=UTC) for value in times]
+    if frame.schema["time"].time_zone is None:
+        # Storage keeps naive-UTC timestamps; make them explicitly UTC.
+        frame = frame.with_columns(pl.col("time").dt.replace_time_zone("UTC"))
     if start_index < 0:
         raise ValueError("start_index must be non-negative")
     resolved_end = frame.height if end_index is None else min(end_index, frame.height)
@@ -598,6 +607,10 @@ def run_cell(
     timeout_seconds: float = 300,
     max_retries: int = 2,
     resource_budget: Optional[dict[str, Any]] = None,
+    frozen_execution_contract_id: str | None = None,
+    # Controlled execution path for a scoped candidate: the token names the
+    # preregistration that authorised it. Without it the candidate is invisible.
+    scope_token: str | None = None,
     # Internal: disable multiprocessing for fast tests / single-threaded mode
     _use_multiprocessing: bool = True,
 ) -> EvaluationArtifact:
@@ -615,6 +628,12 @@ def run_cell(
         _use_multiprocessing: If False, run inline without process isolation
             (faster for tests; disables timeout/retry enforcement).
     """
+    from trading_agent.backtest.execution_contract import validate_expected_contract_id
+
+    validate_expected_contract_id(frozen_execution_contract_id)
+    if (frozen_execution_contract_id is not None and spec.expected_execution_contract_id is not None
+            and frozen_execution_contract_id != spec.expected_execution_contract_id):
+        raise ValueError("explicit/frozen execution contract conflict")
     if tail_bars is not None and tail_bars <= 0:
         raise ValueError("tail_bars must be positive")
     if tail_bars is not None and (
@@ -648,6 +667,9 @@ def run_cell(
                 "params": dict(spec.params),
                 "cost_scenario": spec.cost_scenario,
                 "fault": spec.fault,
+                "expected_execution_contract_id": spec.expected_execution_contract_id,
+                "frozen_execution_contract_id": frozen_execution_contract_id,
+                "scope_token": scope_token,
             },
             out_root=out_root,
             start=start,
@@ -671,6 +693,9 @@ def run_cell(
         "params": dict(spec.params),
         "cost_scenario": spec.cost_scenario,
         "fault": spec.fault,
+        "expected_execution_contract_id": spec.expected_execution_contract_id,
+        "frozen_execution_contract_id": frozen_execution_contract_id,
+        "scope_token": scope_token,
     }
     return _run_cell_with_retry(
         spec_primitives=spec_primitives,
@@ -772,6 +797,7 @@ def _run_cell_with_retry(
         params=spec_primitives["params"],
         cost_scenario=spec_primitives["cost_scenario"],
         fault=spec_primitives["fault"],
+        expected_execution_contract_id=spec_primitives.get("expected_execution_contract_id"),
     )
     artifact = _failed_artifact(
         minimal_spec,
@@ -981,11 +1007,13 @@ def _run_cell_impl(
         params=spec_primitives["params"],
         cost_scenario=spec_primitives["cost_scenario"],
         fault=spec_primitives["fault"],
+        expected_execution_contract_id=spec_primitives.get("expected_execution_contract_id"),
     )
     # Import here so module import stays cheap for tests that only need specs.
-    from scripts.full_system_backtest import FullSystemSimulator
+    from scripts.full_system_backtest import FullSystemSimulator, describe_execution_contract
 
-    registry = build_default_registry()
+    scope_token = spec_primitives.get("scope_token")
+    registry = build_default_registry(scope_token=scope_token)
     try:
         descriptor: StrategyDescriptor = registry.describe(spec.strategy_id)
     except UnknownStrategyError as exc:
@@ -996,7 +1024,9 @@ def _run_cell_impl(
         )
 
     try:
-        descriptor, adapter = build_parameterized_adapter(spec.strategy_id, spec.params)
+        descriptor, adapter = build_parameterized_adapter(
+            spec.strategy_id, spec.params, scope_token=scope_token
+        )
     except RegistryIntegrityError as exc:
         return _failed_artifact(spec, descriptor, f"registry blocked: {exc}")
 
@@ -1162,6 +1192,13 @@ def _run_cell_impl(
         else:
             signals = [0] * signal_delay_bars + signals[:-signal_delay_bars]
 
+    # All canonical cells bind native semantics before the engine is constructed,
+    # including sensitivity calls that do not pass an explicit expected ID.
+    declared_contract = describe_execution_contract(
+        symbol=spec.symbol, timeframe=spec.timeframe, strategy_name=spec.strategy_id,
+        parameters=dict(spec.params), commission=spec.cost_scenario.commission,
+        slippage=spec.cost_scenario.slippage,
+    )
     sim = FullSystemSimulator(
         fresh=fresh,
         symbol=spec.symbol,
@@ -1175,6 +1212,9 @@ def _run_cell_impl(
         strategy_params_override=dict(spec.params),
         signal_series=signals,
         source_df_override=source_df,
+        expected_execution_contract_id=(spec.expected_execution_contract_id
+            or spec_primitives.get("frozen_execution_contract_id") or declared_contract["contract_id"]),
+        scope_token=scope_token,
         commission=spec.cost_scenario.commission,
         slippage=spec.cost_scenario.slippage,
         # EVERY strategy goes through the canonical runtime bridge so the
@@ -1537,6 +1577,17 @@ def _artifact_from_report(
     reasons: list[str] = []
     metrics_block = report.get("metrics", {}) if report else {}
     health = report.get("execution_health", {}) if report else {}
+    health = dict(health)
+    contract = report.get("active_config", {}).get("execution_contract") if report else None
+    if contract is not None:
+        from trading_agent.backtest.execution_contract import require_execution_contract
+
+        require_execution_contract(contract.get("contract_id"), contract)
+        health["execution_contract_id"] = contract["contract_id"]
+    if spec.expected_execution_contract_id is not None:
+        from trading_agent.backtest.execution_contract import require_execution_contract
+
+        require_execution_contract(spec.expected_execution_contract_id, contract)
 
     metrics: dict[str, Any] = {}
     for key in _REQUIRED_METRICS:

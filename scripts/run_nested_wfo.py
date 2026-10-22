@@ -70,6 +70,16 @@ DEFAULT_PARAM_GRIDS: dict[str, dict[str, list[Any]]] = {
         "fast_period": [20, 30],
         "slow_period": [60, 80],
     },
+    "rsi_adx_regime_filter": {
+        "rsi_period": [14, 21],
+        "rsi_oversold": [30, 25, 35],
+        "rsi_overbought": [70, 75, 65],
+        "ma_fast": [20, 30, 10],
+        "ma_slow": [80, 50, 30],
+        "adx_period": [14],
+        "adx_threshold": [15, 18, 20, 22, 25, 30],
+        "ma_type": ["sma", "ema"],
+    },
 }
 
 

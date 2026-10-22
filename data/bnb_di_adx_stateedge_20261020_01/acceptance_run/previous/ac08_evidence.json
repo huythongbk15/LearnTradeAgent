@@ -1,0 +1,69 @@
+{
+  "ac_id": "AC08",
+  "oracle": "independent hand-verified decisions",
+  "cases": [
+    {
+      "name": "C1_valid_buy",
+      "status": "PASS",
+      "detail": "perm=OrderPermission.ALLOW, reason=PermissionReason.NORMAL"
+    },
+    {
+      "name": "C2_invalid_size",
+      "status": "PASS",
+      "detail": "perm=OrderPermission.BLOCK, reason=PermissionReason.INVALID_ORDER"
+    },
+    {
+      "name": "C3_invalid_side",
+      "status": "PASS",
+      "detail": "perm=OrderPermission.BLOCK, reason=PermissionReason.INVALID_ORDER"
+    },
+    {
+      "name": "C4_insufficient_inventory",
+      "status": "PASS",
+      "detail": "perm=OrderPermission.BLOCK, reason=PermissionReason.INSUFFICIENT_INVENTORY"
+    },
+    {
+      "name": "C5_kill_switch",
+      "status": "PASS",
+      "detail": "perm=OrderPermission.BLOCK, reason=PermissionReason.KILL_SWITCH_NEUTRAL"
+    },
+    {
+      "name": "C6_manual_blocked",
+      "status": "PASS",
+      "detail": "perm=OrderPermission.BLOCK, reason=PermissionReason.MANUAL_BLOCKED"
+    },
+    {
+      "name": "C7_stale_price",
+      "status": "PASS",
+      "detail": "perm=OrderPermission.BLOCK, reason=PermissionReason.STALE_MARKET_DATA"
+    },
+    {
+      "name": "C8_reconciliation",
+      "status": "PASS",
+      "detail": "perm=OrderPermission.BLOCK, reason=PermissionReason.RECONCILIATION_UNRESOLVED"
+    },
+    {
+      "name": "C9_unknown_broker",
+      "status": "PASS",
+      "detail": "perm=OrderPermission.BLOCK, reason=PermissionReason.UNKNOWN_BROKER_STATE"
+    },
+    {
+      "name": "C10_missing_risk",
+      "status": "PASS",
+      "detail": "perm=OrderPermission.BLOCK, reason=PermissionReason.MISSING_RISK_DECISION"
+    },
+    {
+      "name": "C11_draft_no_risk",
+      "status": "PASS",
+      "detail": "perm=OrderPermission.ALLOW, reason=PermissionReason.NORMAL"
+    },
+    {
+      "name": "C12_missing_calib",
+      "status": "PASS",
+      "detail": "perm=OrderPermission.BLOCK, reason=PermissionReason.MISSING_CALIBRATION_EVIDENCE"
+    }
+  ],
+  "all_pass": true,
+  "total_checks": 12,
+  "passed": 12
+}

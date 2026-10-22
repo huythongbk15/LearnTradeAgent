@@ -997,6 +997,7 @@ def run_final_holdout(
     *,
     out_root: Path | None = None,
     actor: str = "research_system",
+    scope_token: str | None = None,
 ) -> dict[str, Any]:
     """Run the final holdout evaluation (STR-0309).
 
@@ -1031,7 +1032,7 @@ def run_final_holdout(
     from trading_agent.backtest.tournament import _research_env
     from trading_agent.strategies.canonical.candidates import build_default_registry
 
-    registry_canonical = build_default_registry()
+    registry_canonical = build_default_registry(scope_token=scope_token)
     _, adapter = registry_canonical.get(spec.strategy_id, environment=_research_env())
 
     # Get cost scenario (use default or from selected params)
@@ -1560,23 +1561,37 @@ def _count_clearing_per_window(
     return keys
 
 
-def _compute_strategy_code_sha(strategy_id: str) -> str:
-    """Get strategy code SHA from registry descriptor."""
+def _compute_strategy_code_sha(
+    strategy_id: str, scope_token: str | None = None
+) -> str:
+    """Get strategy code SHA from registry descriptor.
+
+    ``scope_token`` is required for a SCOPED candidate: without it the id is
+    not in the registry and the SHA would degrade to "unknown", which would
+    destroy the source attribution of the trial identity.
+    """
     from trading_agent.strategies.canonical.candidates import build_default_registry
 
-    registry = build_default_registry()
+    registry = build_default_registry(scope_token=scope_token)
     entry = registry._entries.get(strategy_id)
     if entry is None:
         return "unknown"
     return entry.descriptor.code_sha
 
 
+def _load_wfo_ohlcv(symbol: str, timeframe: str):
+    """Honor frozen research input in every WFO consumer, including provenance."""
+    from trading_agent.data import storage
+
+    if "TRADING_FROZEN_RESEARCH_DATA" in os.environ:
+        return storage.load_research_ohlcv("binance", symbol, timeframe)
+    return storage.load_ohlcv("binance", symbol, timeframe)
+
+
 def _compute_data_manifest_sha(symbol: str, timeframe: str) -> str:
     """Compute SHA256 of data manifest (OHLCV data)."""
     import io
-    from trading_agent.data.storage import load_ohlcv
-
-    df = load_ohlcv("binance", symbol, timeframe)
+    df = _load_wfo_ohlcv(symbol, timeframe)
     # Hash the data content (timestamps, OHLCV values)
     buffer = io.BytesIO()
     df.write_parquet(buffer)
@@ -2084,9 +2099,7 @@ def _compute_multi_dimensional_evaluation(
     import numpy as np
 
     # Load data for regime/year/vol bucket analysis
-    from trading_agent.data.storage import load_ohlcv
-
-    df = load_ohlcv("binance", spec.symbol, spec.timeframe)
+    df = _load_wfo_ohlcv(spec.symbol, spec.timeframe)
     df = df.sort("timestamp")
 
     # PIT regime indicators: compute ATR percentile and ADX on TRAIN data only
@@ -2837,7 +2850,8 @@ def run_nested_wfo(
     from trading_agent.strategies.canonical.candidates import build_default_registry
     from trading_agent.backtest.tournament import _research_env
 
-    registry_canonical = build_default_registry()
+    scope_token = (execution_context or {}).get("scope_token")
+    registry_canonical = build_default_registry(scope_token=scope_token)
     descriptor = registry_canonical.describe(spec.strategy_id)
     _, adapter = registry_canonical.get(spec.strategy_id, environment=_research_env())
     training_contract = _resolve_training_contract(adapter)
@@ -2850,9 +2864,7 @@ def run_nested_wfo(
         embargo = spec.embargo_bars
 
     # Load data to determine number of bars
-    from trading_agent.data.storage import load_ohlcv
-
-    df = load_ohlcv("binance", spec.symbol, spec.timeframe)
+    df = _load_wfo_ohlcv(spec.symbol, spec.timeframe)
     n_bars = df.height
 
     # Generate folds (or use provided folds for validation-only)
@@ -2925,7 +2937,7 @@ def run_nested_wfo(
     search_space_hash_val = search_space_hash(spec.param_grid)
 
     # Compute real provenance hashes (Phase 3: Real Provenance)
-    strategy_code_sha = _compute_strategy_code_sha(spec.strategy_id)
+    strategy_code_sha = _compute_strategy_code_sha(spec.strategy_id, scope_token)
     data_manifest_sha = _compute_data_manifest_sha(spec.symbol, spec.timeframe)
     feature_schema_hash = _compute_feature_schema_hash(descriptor)
     commit_sha = _compute_commit_sha()

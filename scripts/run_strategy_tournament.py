@@ -47,7 +47,7 @@ SCENARIOS = {
     )
 }
 
-ALL_STRATEGIES = ("enhanced_ma", "ma_adx", "ma_vol_target", "rsi", "bbands")
+ALL_STRATEGIES = ("enhanced_ma", "ma_adx", "ma_vol_target", "rsi", "bbands", "rsi_adx_regime_filter")
 ALL_SYMBOLS = (
     "BTC/USDT",
     "ETH/USDT",

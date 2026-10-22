@@ -1,0 +1,41 @@
+{
+  "packet": "data/bnb_di_adx_stateedge_20261020_01",
+  "source_fingerprint": "0f22cce6e5ecb9c41e8724f04b291d61380c0dfefabf4a4e6dc4ae946fbe86d4",
+  "dirty_diff_sha256": "582da16992805bead0608e8ccba6c82009dee346f75752a21ba88f77a47d310f",
+  "code_commit": "4078892d738790872dc2d4f494e3973a62612347",
+  "input_sha256": "379677360902c9734780e496398abb02ea6390531b840e2262bd9d7881e6485f",
+  "holdout_rows_read": 0,
+  "files": [
+    {
+      "path": "RESULTS.md",
+      "sha256": "8a634ac9b3538687fb6109ef51e025b2c9e160764ab888e1fe78707dc9904b69",
+      "bytes": 16229
+    },
+    {
+      "path": "STATE_EDGE_CONTRACT.md",
+      "sha256": "eb9002d1dea798d93df4b6f48a1ff76fbdeb14b67aa4b2746ccc2d55eef00b8f",
+      "bytes": 12509
+    },
+    {
+      "path": "acceptance_receipt.json",
+      "sha256": "168eca67e3bdd46d3a78d2ed6b9931b4cc6a73a337d239ce21c59dc9c386d5ae",
+      "bytes": 898
+    },
+    {
+      "path": "acceptance_stdout.txt",
+      "sha256": "9564121bd94af82c2763018a5d0dd11e2d29e1c6e883dec616504319e4a5063d",
+      "bytes": 7890
+    },
+    {
+      "path": "source_identity_after.json",
+      "sha256": "83336659578c9f74e2e6f0c1f50c9cae13ac011b4cd554ded2dc4ff79b8defdc",
+      "bytes": 267
+    },
+    {
+      "path": "source_identity_before.json",
+      "sha256": "83336659578c9f74e2e6f0c1f50c9cae13ac011b4cd554ded2dc4ff79b8defdc",
+      "bytes": 267
+    }
+  ],
+  "file_count": 6
+}

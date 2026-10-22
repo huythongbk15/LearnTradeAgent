@@ -34,6 +34,20 @@ from typing import Any
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+#: Where the APPROVED preregistration packet lives. It defaults to the repository
+#: root. A different root is only used by the synthetic integration, which must
+#: bind to a synthetic packet instead of the registered one; the resolved root
+#: is recorded in the frozen protocol, so a run against a non-default root is
+#: visible in the protocol and in the receipts.
+def preregistration_root() -> Path:
+    """Where the APPROVED preregistration packet lives.
+
+    Resolved at CALL time (not import time) so that a worker subprocess
+    inherits the same root through the environment. It defaults to the
+    repository root; the resolved value is recorded in the frozen protocol, so a
+    run against a non-default root is visible in the protocol and the receipts.
+    """
+    return Path(os.environ.get("TRADING_PREREGISTRATION_ROOT") or ROOT).resolve()
 
 from trading_agent.backtest.tournament import (
     SCENARIO_BASE,
@@ -187,11 +201,42 @@ MINIMAL_PARAM_GRIDS: dict[str, dict[str, list]] = {
         "zscore_exit": [0.5],
         "lookback_days": [20],
     },
+    # Regime-switched: ADX-filtered RSI + MA crossover (calibrated best config)
+    "rsi_adx_regime_filter": {
+        "rsi_period": [14],
+        "rsi_oversold": [35],
+        "rsi_overbought": [65],
+        "ma_fast": [20],
+        "ma_slow": [50],
+        "adx_period": [14],
+        "adx_threshold": [15],
+        "ma_type": ["sma"],
+    },
 }
 
 
-def get_param_grid_for_strategy(strategy_id: str) -> dict[str, list]:
-    """Get param grid for a strategy, falling back to MINIMAL_PARAM_GRIDS."""
+#: Fixed parameter grid of a SCOPED candidate. Reachable only when the caller
+#: presents the scope token that names it, so a scoped candidate never appears
+#: in the broad grid maps.
+_SCOPED_CANDIDATE_PARAM_GRIDS: dict[str, dict[str, list]] = {
+    "di_adx_state_edge": {"adx_period": [14], "adx_threshold": [25.0]},
+}
+
+
+def get_param_grid_for_strategy(
+    strategy_id: str, scope_token: str | None = None
+) -> dict[str, list]:
+    """Get param grid for a strategy, falling back to MINIMAL_PARAM_GRIDS.
+
+    A scoped candidate's grid is returned only when the scope token names it;
+    without the token the scoped id has no grid and the cell plan is empty,
+    which fails closed rather than silently running something else.
+    """
+    from trading_agent.strategies.canonical.candidates import resolve_scoped_candidate_id
+
+    scoped_id = resolve_scoped_candidate_id(scope_token)
+    if scoped_id == strategy_id and scoped_id in _SCOPED_CANDIDATE_PARAM_GRIDS:
+        return {k: list(v) for k, v in _SCOPED_CANDIDATE_PARAM_GRIDS[scoped_id].items()}
     mapping = _STRATEGY_GRID_MAP.get(strategy_id, strategy_id)
     if isinstance(mapping, tuple):
         grid_key, cs_variant = mapping
@@ -274,6 +319,7 @@ class ParallelCellRunner:
             "strategy_id": spec.strategy_id, "symbol": spec.symbol,
             "timeframe": spec.timeframe, "params": dict(spec.params),
             "cost_scenario": spec.cost_scenario, "fault": asdict(spec.fault),
+            "expected_execution_contract_id": spec.expected_execution_contract_id,
         }
 
     def _inline(self, cell):
@@ -282,6 +328,7 @@ class ParallelCellRunner:
             self._primitives(spec), str(self.out_root), start, end, fresh,
             m_start, m_end, self.timeout_seconds, self.max_retries,
             self.execution_context,
+            scope_token=(self.execution_context or {}).get("scope_token"),
         )
 
     def _transport_failure(self, cell, exc):
@@ -412,6 +459,7 @@ def _run_cell_worker(
     timeout_seconds: int,
     max_retries: int,
     execution_context: dict | None = None,
+    scope_token: str | None = None,
 ) -> EvaluationArtifact:
     """Worker function for ProcessPoolExecutor.
 
@@ -424,7 +472,17 @@ def _run_cell_worker(
         params=spec_primitives["params"],
         cost_scenario=spec_primitives["cost_scenario"],
         fault=FaultProfile(**spec_primitives.get("fault", {})),
+        expected_execution_contract_id=spec_primitives.get("expected_execution_contract_id"),
     )
+    frozen_contract_id = None
+    if execution_context and "native_execution_contract" in execution_context:
+        from trading_agent.backtest.execution_contract import require_execution_contract
+
+        contract = execution_context["native_execution_contract"]
+        if not isinstance(contract, dict):
+            raise ValueError("missing frozen native execution contract")
+        require_execution_contract(contract.get("contract_id"), contract)
+        frozen_contract_id = contract["contract_id"]
     directory = Path(out_root) / "cell_execution" / uuid.uuid4().hex
     directory.mkdir(parents=True, exist_ok=False)
     request = {
@@ -432,10 +490,15 @@ def _run_cell_worker(
         "symbol": spec.symbol, "timeframe": spec.timeframe,
         "params": dict(spec.params), "cost": spec.cost_scenario.to_dict(),
         "fault": asdict(spec.fault), "simulation_window": [start, end],
+        "expected_execution_contract_id": spec.expected_execution_contract_id,
+        "frozen_execution_contract_id": frozen_contract_id,
         "measurement_window": [measurement_start, measurement_end], "fresh": fresh,
         "timeout_seconds": timeout_seconds, "max_retries": max_retries,
         "execution_context": execution_context or {},
-        "started_at": datetime.now(UTC).isoformat(), "worker_pid": os.getpid(),
+        "scope_token": scope_token,
+        "started_at": datetime.now(UTC).isoformat(),
+        "started_at_epoch": time.time(),
+        "worker_pid": os.getpid(),
         "live_authorized": False,
     }
     _write_execution_record(directory / "started.json", request)
@@ -446,6 +509,8 @@ def _run_cell_worker(
             measurement_start=measurement_start, measurement_end=measurement_end,
             _use_multiprocessing=True,  # Enforce timeout, stop timed-out child BEFORE retry.
             timeout_seconds=timeout_seconds, max_retries=max_retries,
+            frozen_execution_contract_id=frozen_contract_id,
+            scope_token=scope_token,
         )
     except Exception as exc:
         from trading_agent.backtest.tournament import _failed_artifact
@@ -466,6 +531,7 @@ def _run_cell_worker(
 
 def build_canonical_cells(
     spec: WFOSpec,
+    scope_token: str | None = None,
 ) -> tuple[list[tuple[EvaluationCellSpec, int, int, bool, int, int]], list[Any]]:
     """Build all cells needed for canonical WFO (inner + outer).
 
@@ -475,7 +541,7 @@ def build_canonical_cells(
     """
     df = load_ohlcv("binance", spec.symbol, spec.timeframe)
     n_bars = df.height
-    registry_canonical = build_default_registry()
+    registry_canonical = build_default_registry(scope_token=scope_token)
     descriptor = registry_canonical.describe(spec.strategy_id)
     from trading_agent.strategies.canonical.candidates import campaign_history_contract
     history = campaign_history_contract(spec.strategy_id, spec.param_grid)
@@ -536,6 +602,23 @@ def build_canonical_cells(
     return inner_cells, folds
 
 
+# ── Validation-only execution envelope ──────────────────────────────────────
+# These are CEILINGS for the inner-validation scope, not defaults. The cap on
+# the per-cell timeout is what lets a cell that legitimately needs more than
+# the historical 180 s finish instead of being killed mid-write; the total
+# budget and the RSS ceiling bound the session.
+#
+# Raising or lowering any of these is a BUDGET-POLICY change: it must be
+# reviewed together with the preregistration that relies on it, and the
+# regression test tests/test_wfo_validation_envelope.py must keep passing.
+# The guards below are fail-closed and are never removed — only their bound
+# is expressed here.
+VALIDATION_CELL_TIMEOUT_MAX_SECONDS = 600
+VALIDATION_TOTAL_TIMEOUT_MAX_SECONDS = 7200
+VALIDATION_TOTAL_TIMEOUT_MIN_SECONDS = 1
+VALIDATION_MAX_RSS_MB_MIN = 128
+VALIDATION_MAX_RSS_MB_MAX = 4096
+
 TRIAL_IDENTITY_CONTRACT = {
     "version": 2, "candidate_identity": "unchanged_canonical_ExperimentSpec",
     "evaluation_identity": "candidate_fold_phase_full_protocol_execution_context",
@@ -551,9 +634,18 @@ def _trial_execution_context(protocol):
     rt = dict(exec_config.get("runtime_config", {}))
     rt["cell_timeout_seconds"] = exec_config.get("cell_timeout", rt.get("cell_timeout_seconds", 300))
     rt["max_retries"] = exec_config.get("max_retries", rt.get("max_retries", 1))
-    return {"trial_identity_version": 2, "protocol_fingerprint": protocol["fingerprint"],
+    context = {"trial_identity_version": 2, "protocol_fingerprint": protocol["fingerprint"],
             "source": protocol["source"], "environment": exec_config["environment"],
             "runtime_config": rt}
+    if "native_execution_contracts" in protocol:
+        context["native_execution_policy_version"] = 1
+    # The scope token is part of the frozen context, so it is covered by the
+    # execution scope identity and by the cache key. A study without a scoped
+    # candidate carries no token and its context is unchanged.
+    scope_token = exec_config.get("scope_token")
+    if scope_token:
+        context["scope_token"] = scope_token
+    return context
 
 
 def audit_parallel_trial_history(spec, protocol, folds):
@@ -579,9 +671,11 @@ def audit_parallel_trial_history(spec, protocol, folds):
         raise ValueError("trial preflight protocol/spec/fold mismatch")
     context = _trial_execution_context(protocol)
     current_scope = execution_scope_identity(context)["context_sha256"]
-    strategy_sha = wfo._compute_strategy_code_sha(spec.strategy_id)
+    scope_token = (protocol.get("execution") or {}).get("scope_token")
+    strategy_sha = wfo._compute_strategy_code_sha(spec.strategy_id, scope_token)
     data_sha = wfo._compute_data_manifest_sha(spec.symbol, spec.timeframe)
-    feature_sha = wfo._compute_feature_schema_hash(build_default_registry().describe(spec.strategy_id))
+    feature_sha = wfo._compute_feature_schema_hash(
+        build_default_registry(scope_token=scope_token).describe(spec.strategy_id))
     space_sha = search_space_hash(spec.param_grid)
     candidates = {}
     for params in wfo._generate_param_combinations(spec.param_grid):
@@ -680,7 +774,8 @@ def audit_parallel_trial_history(spec, protocol, folds):
     return report
 
 
-def prepare_parallel_protocol(spec, out_root, *, workers, cell_timeout, reuse_from=None, validation_budget=None):
+def prepare_parallel_protocol(spec, out_root, *, workers, cell_timeout, reuse_from=None,
+                              validation_budget=None, scope_token=None, max_retries=1):
     """Freeze effective inputs before evaluation; never upgrade a legacy packet."""
     from trading_agent.backtest.campaign_evidence import content_hash
     from trading_agent.backtest.campaign_integrity import capture_campaign_source
@@ -707,14 +802,22 @@ def prepare_parallel_protocol(spec, out_root, *, workers, cell_timeout, reuse_fr
     quality = assess_ohlcv(frame, expected_interval=timeframe_delta(spec.timeframe), gap_policy="reject")
     if not quality.accepted:
         raise ValueError(f"Preflight data quality rejected: {quality.status}")
-    cells, folds = build_canonical_cells(spec)
+    cells, folds = build_canonical_cells(spec, scope_token=scope_token)
     selection = freeze_selection_contract(
         min_validation_trades=30, min_validation_sharpe=0.0,
     )
+    from scripts.full_system_backtest import describe_execution_contract
+
+    native_contracts = {cell.cell_id: describe_execution_contract(
+        symbol=cell.symbol, timeframe=cell.timeframe, strategy_name=cell.strategy_id,
+        parameters=dict(cell.params), commission=cell.cost_scenario.commission,
+        slippage=cell.cost_scenario.slippage,
+    ) for cell, *_ in cells}
     body = {
         "version": 1,
         "authority": "run_nested_wfo",
         "trial_identity_contract": dict(TRIAL_IDENTITY_CONTRACT),
+        "native_execution_contracts": native_contracts,
         "spec": spec.to_dict(),
         "input_binding": binding,
         "input_bars": frame.height,
@@ -739,7 +842,7 @@ def prepare_parallel_protocol(spec, out_root, *, workers, cell_timeout, reuse_fr
             for cell, start, end, _fresh, m_start, m_end in cells
         ],
         "execution": {
-            "workers": workers, "cell_timeout": cell_timeout, "max_retries": 1,
+            "workers": workers, "cell_timeout": cell_timeout, "max_retries": max_retries,
             "timeout_scope": "each_isolated_attempt_terminated_before_retry",
             "receipt_scope": "inner_selected_outer_cache_v2_fresh_packet_only",
             "cache_version": CACHE_VERSION,
@@ -747,17 +850,43 @@ def prepare_parallel_protocol(spec, out_root, *, workers, cell_timeout, reuse_fr
             "runtime_config": simulator_runtime_config(),
             "reuse_scope": "inner_validation_and_selected_outer_only",
             "sensitivity_reuse": False,
+            # Scope token for a scoped candidate: it travels inside the frozen
+            # protocol, so it is part of the protocol fingerprint, the trial
+            # execution context and the cache key. Absent for every study that
+            # does not use a scoped candidate, so those protocols are unchanged.
+            **({"scope_token": scope_token} if scope_token else {}),
+            # where the approved preregistration packet was read from, and
+            # whether that is the canonical (repository) root. A non-canonical
+            # root is a DECLARED deviation: it is inside the frozen protocol,
+            # so it is in the protocol fingerprint, the trial context, the
+            # cache key and the receipts.
+            "preregistration_root": str(preregistration_root()),
+            "preregistration_root_canonical": preregistration_root() == ROOT,
         },
         "live_authorized": False,
     }
     if validation_budget is not None:
-        if (workers != 1 or not 1 <= cell_timeout <= 180 or reuse_from is not None
+        # The same named caps the CLI guard uses, so the producer and the entry
+        # point cannot disagree about the envelope. The guard stays fail-closed
+        # and keeps every other condition.
+        if (workers != 1
+                or not 1 <= cell_timeout <= VALIDATION_CELL_TIMEOUT_MAX_SECONDS
+                or reuse_from is not None
                 or set(validation_budget) != {"total_timeout_seconds", "max_rss_mb"}
                 or type(validation_budget["total_timeout_seconds"]) is not int
-                or not 1 <= validation_budget["total_timeout_seconds"] <= 1800
+                or not (VALIDATION_TOTAL_TIMEOUT_MIN_SECONDS
+                        <= validation_budget["total_timeout_seconds"]
+                        <= VALIDATION_TOTAL_TIMEOUT_MAX_SECONDS)
                 or type(validation_budget["max_rss_mb"]) is not int
-                or not 128 <= validation_budget["max_rss_mb"] <= 4096):
-            raise ValueError("invalid validation budget or unsupported reuse")
+                or not (VALIDATION_MAX_RSS_MB_MIN
+                        <= validation_budget["max_rss_mb"]
+                        <= VALIDATION_MAX_RSS_MB_MAX)):
+            raise ValueError(
+                "invalid validation budget or unsupported reuse: cell_timeout "
+                f"1..{VALIDATION_CELL_TIMEOUT_MAX_SECONDS}, total_timeout "
+                f"{VALIDATION_TOTAL_TIMEOUT_MIN_SECONDS}.."
+                f"{VALIDATION_TOTAL_TIMEOUT_MAX_SECONDS}, max_rss_mb "
+                f"{VALIDATION_MAX_RSS_MB_MIN}..{VALIDATION_MAX_RSS_MB_MAX}")
         body["execution"]["max_retries"] = 0
         body["validation_budget"] = dict(validation_budget)
         body["scope"] = "inner_validation_only_not_qualification"
@@ -791,6 +920,8 @@ class QualificationCellRunner(CampaignCellRunner):
     """
 
     def __init__(self, out_root, protocol, folds, *, reuse_from=None):
+        if not isinstance(protocol.get("native_execution_contracts"), dict) or not protocol["native_execution_contracts"]:
+            raise ValueError("new qualification requires frozen native execution contracts; no legacy upgrade")
         self.protocol = protocol
         self.folds = folds
         execution = protocol["execution"]
@@ -799,7 +930,12 @@ class QualificationCellRunner(CampaignCellRunner):
             "source": protocol["source"], "data": protocol["input_binding"],
             "plan": protocol["fingerprint"], "history": protocol["history"],
             "runtime_config": execution["runtime_config"],
+            "native_execution_contracts": protocol["native_execution_contracts"],
             "require_frozen_input": True,
+            # The scope token is part of the frozen trial context, so it is
+            # covered by the execution scope identity and by the cache key.
+            **({"scope_token": self.trial_context["scope_token"]}
+               if "scope_token" in self.trial_context else {}),
         }, workers=execution["workers"], reuse_from=reuse_from, runner=self._run_measured)
         if self.environment != execution["environment"]:
             raise ValueError("qualification runtime environment differs from frozen protocol")
@@ -811,13 +947,18 @@ class QualificationCellRunner(CampaignCellRunner):
             raise ValueError("trial history conflict at runner startup; inspect trial_history_startup.json; do not reset registry")
 
     def _run_measured(self, spec, **kwargs):
+        key = replace(spec, expected_execution_contract_id=None).cell_id
+        if key not in self.protocol["native_execution_contracts"]:
+            raise ValueError("unregistered native execution contract for qualification cell")
         return _run_cell_worker(
             ParallelCellRunner._primitives(spec), str(kwargs["out_root"]),
             kwargs["start"], kwargs["end"], kwargs["fresh"],
             kwargs["measurement_start"], kwargs["measurement_end"],
             self.protocol["execution"]["cell_timeout"], self.protocol["execution"]["max_retries"],
             {"protocol_fingerprint": self.protocol["fingerprint"],
-             "source": self.protocol["source"], "input_binding": self.protocol["input_binding"]},
+             "source": self.protocol["source"], "input_binding": self.protocol["input_binding"],
+             "native_execution_contract": self.protocol["native_execution_contracts"][key]},
+            scope_token=self.trial_context.get("scope_token"),
         )
 
     def __call__(self, spec, **kwargs):
@@ -892,6 +1033,17 @@ class QualificationCellRunner(CampaignCellRunner):
                                 max_retries=self.protocol["execution"]["max_retries"])
 
 
+def _verify_native_report(protocol, artifact, root):
+    """Frozen-vs-raw-vs-artifact verification shared by both coverage scopes."""
+    from trading_agent.backtest.execution_contract import require_frozen_native_evidence
+
+    path = Path(artifact.report_path).resolve()
+    if not path.is_relative_to(Path(root).resolve()):
+        raise ValueError("native source escapes packet")
+    require_frozen_native_evidence(protocol.get("native_execution_contracts"),
+        artifact.cell_id, json.loads(path.read_bytes()), artifact)
+
+
 def verify_parallel_result_coverage(spec, result, protocol, folds, out_root):
     """Compare exact planned validation tuples and selected OOS folds to raw sources.
 
@@ -932,6 +1084,7 @@ def verify_parallel_result_coverage(spec, result, protocol, folds, out_root):
         for candidate in inner.candidate_metrics:
             source = candidate["validation_source"]
             artifact = EvaluationArtifact.from_dict(source["artifact"])
+            _verify_native_report(protocol, artifact, root)
             observed.append({
                 "cell_id": artifact.cell_id, "params": candidate["params"],
                 "cost": next(cost.to_dict() for cost in spec.cost_scenarios
@@ -965,8 +1118,13 @@ def verify_parallel_result_coverage(spec, result, protocol, folds, out_root):
         if not path.is_relative_to(root):
             raise ValueError("Outer source escapes packet")
         report = json.loads(path.read_bytes())
+        _verify_native_report(protocol, artifact, root)
         rebuilt = _artifact_from_report(
-            cell, build_default_registry().describe(spec.strategy_id), path.parent,
+            cell,
+            build_default_registry(
+                scope_token=(protocol.get("execution") or {}).get("scope_token")
+            ).describe(spec.strategy_id),
+            path.parent,
             report, artifact.data_manifest_sha,
             measurement_window=artifact.measurement_window,
             simulation_window=artifact.simulation_window,
@@ -1069,10 +1227,15 @@ def _verify_validation_protocol(spec, protocol, folds):
             or protocol.get("scope") != "inner_validation_only_not_qualification"
             or protocol["spec"] != spec.to_dict() or protocol["folds"] != [asdict(f) for f in folds]
             or controls["workers"] != 1 or controls["max_retries"] != 0
-            or not 1 <= controls["cell_timeout"] <= 180
+            or not 1 <= controls["cell_timeout"] <= VALIDATION_CELL_TIMEOUT_MAX_SECONDS
             or type(budget.get("total_timeout_seconds")) is not int
-            or not 1 <= budget["total_timeout_seconds"] <= 1800
-            or type(budget.get("max_rss_mb")) is not int or not 128 <= budget["max_rss_mb"] <= 4096
+            or not (VALIDATION_TOTAL_TIMEOUT_MIN_SECONDS
+                    <= budget["total_timeout_seconds"]
+                    <= VALIDATION_TOTAL_TIMEOUT_MAX_SECONDS)
+            or type(budget.get("max_rss_mb")) is not int
+            or not (VALIDATION_MAX_RSS_MB_MIN
+                    <= budget["max_rss_mb"]
+                    <= VALIDATION_MAX_RSS_MB_MAX)
             or capture_campaign_source(ROOT) != protocol["source"]
             or execution_environment() != controls["environment"]
             or simulator_runtime_config() != controls["runtime_config"]
@@ -1177,6 +1340,7 @@ def verify_validation_only_coverage(spec, result, protocol, folds, out_root):
             protocol["selection_contract"], inner.candidate_metrics, root=out_root,
             validation_window=(fold.inner_val_start, fold.inner_val_end), expected_spec=spec,
             expected_commit=protocol["source"]["code_commit"],
+            scope_token=(protocol.get("execution") or {}).get("scope_token"),
         )
         # Re-compute expected decision from candidates (tamper-proof)
         from trading_agent.backtest.selection_eligibility import assess_validation_candidates
@@ -1222,6 +1386,7 @@ def verify_validation_only_coverage(spec, result, protocol, folds, out_root):
             source = candidate["validation_source"]
             artifact = EvaluationArtifact.from_dict(source["artifact"])
             control = artifact.execution_control
+            _verify_native_report(protocol, artifact, out_root)
             if (control.get("timeout_seconds") != protocol["execution"]["cell_timeout"]
                     or control.get("max_retries") != 0 or control.get("attempts_made") != 1
                     or control.get("isolation") != "spawned_process" or control.get("outcome") != "completed"):
@@ -1246,13 +1411,63 @@ def verify_validation_only_coverage(spec, result, protocol, folds, out_root):
     if audit["conflicts"] or audit["current_context_rows"] != len(observed):
         raise ValueError("canonical validation trial accounting incomplete or conflicting")
     return {"status": "PASS", "scope": "inner_validation_only_not_qualification",
+            "evidence_class": spec.evidence_class,
             "protocol_fingerprint": protocol["fingerprint"], "inner_cells": len(observed),
             "folds": decisions, "reports": reports, "outer_folds": 0, "sensitivity_cells": 0,
             "trial_counts": result.trial_counts, "live_authorized": False}
 
 
+def _verify_approved_payload_binding(protocol, scope_token):
+    """Fail closed before the first cell if the run is not the approved payload."""
+    from trading_agent.backtest.campaign_integrity import capture_campaign_source
+    from trading_agent.backtest.preregistration_binding import (
+        verify_registered_payload_binding,
+    )
+
+    resolved_root = preregistration_root()
+    # the frozen protocol records where the approved packet was read from; the
+    # run must agree with it, so a packet location cannot be swapped after the
+    # protocol was frozen
+    recorded_root = (protocol.get("execution") or {}).get("preregistration_root")
+    if recorded_root and Path(recorded_root).resolve() != resolved_root:
+        raise ValueError(
+            "the preregistration root does not match the frozen protocol: "
+            f"protocol {recorded_root}, resolved {resolved_root}"
+        )
+    declared_canonical = (protocol.get("execution") or {}).get(
+        "preregistration_root_canonical"
+    )
+    if declared_canonical is not None and bool(declared_canonical) != (
+        resolved_root == ROOT
+    ):
+        raise ValueError(
+            "the preregistration root was redirected without the frozen "
+            "protocol declaring it: "
+            f"declared canonical={declared_canonical}, resolved {resolved_root}"
+        )
+    failed = verify_registered_payload_binding(
+        protocol, scope_token, root=resolved_root,
+        source_fingerprint=capture_campaign_source(ROOT)["tree_fingerprint"],
+    )
+    if failed:
+        raise ValueError(
+            "run does not match the approved preregistration; refusing to start: "
+            + ", ".join(failed)
+        )
+
+
 def _run_validation_canonical(spec, out_root, protocol, folds, cell_runner=None):
     _verify_validation_protocol(spec, protocol, folds)
+    # the worker re-verifies the approved payload independently of the launcher
+    _verify_approved_payload_binding(protocol, (protocol.get("execution") or {}).get("scope_token"))
+    scope_token = (protocol.get("execution") or {}).get("scope_token")
+    cells, actual_folds = build_canonical_cells(spec, scope_token=scope_token)
+    actual_rows = [{"cell_id": cell.cell_id, "params": dict(cell.params),
+        "cost": cell.cost_scenario.to_dict(), "simulation_window": [start, end],
+        "measurement_window": [m_start, m_end]}
+        for cell, start, end, _fresh, m_start, m_end in cells]
+    if actual_folds != folds or actual_rows != protocol["expected_inner_cells"]:
+        raise ValueError("frozen validation schedule mismatch before execution")
     runner = QualificationCellRunner(out_root, protocol, folds)
     # Allow test override of cell runner
     if cell_runner is not None:
@@ -1262,7 +1477,7 @@ def _run_validation_canonical(spec, out_root, protocol, folds, cell_runner=None)
         spec, out_root=out_root, real_sensitivity=False, run_holdout=False,
         cell_runner=runner, native_gate_contract=protocol["native_gate_contract"],
         selection_contract=protocol["selection_contract"], validation_only=True,
-        execution_context=exec_context,
+        execution_context=exec_context, folds=folds,
     )
 
     # Write cell_execution receipts for each validation cell (per-cell terminal receipts)
@@ -1322,13 +1537,73 @@ def _run_validation_canonical(spec, out_root, protocol, folds, cell_runner=None)
         if path.exists():
             path.unlink()
     _durable_json(out_root / "exact_coverage.json", coverage)
+    fold_rows = []
+    for fold, inner in zip(folds, result.inner_results):
+        candidates = inner.candidate_metrics or []
+        trades = [
+            (c.get("val_metrics") or {}).get("total_trades")
+            for c in candidates
+        ]
+        decisions = [c.get("decision") for c in candidates]
+        fold_rows.append({
+            "fold_id": fold.fold_id,
+            "inner_val_start": fold.inner_val_start,
+            "inner_val_end": fold.inner_val_end,
+            "decisions": decisions,
+            "validation_trades": trades,
+            "selected": "SELECT" in decisions,
+        })
+    all_selected = bool(fold_rows) and all(row["selected"] for row in fold_rows)
+    sample_complete = bool(fold_rows) and all(
+        isinstance(trades, int) and trades > 0
+        for row in fold_rows for trades in row["validation_trades"]
+    )
     _durable_json(out_root / "parallel_canonical_summary.json", {
         "strategy": spec.strategy_id, "symbol": spec.symbol, "timeframe": spec.timeframe,
+        "evidence_class": spec.evidence_class,
         "verdict": "VALIDATION_COMPLETE", "validation_only": True, "passes_hard_gates": False,
+        # EXECUTION completeness is not QUALIFICATION. These three fields make
+        # the difference explicit so VALIDATION_COMPLETE can never be read as
+        # "qualified" or as "sample sufficient".
+        "qualification_status": (
+            "NOT_QUALIFIED_VALIDATION_ONLY" if not all_selected
+            else ("SAMPLE_COMPLETE_BUT_NOT_QUALIFIED" if sample_complete
+                  else "INCOMPLETE_SAMPLE")
+        ),
+        "all_folds_selected": all_selected,
+        "sample_complete": sample_complete,
         "protocol_fingerprint": protocol["fingerprint"], "aggregate_metrics": result.aggregate_metrics,
-        "trial_counts": result.trial_counts, "fold_decisions": coverage["folds"], "live_authorized": False,
+        "trial_counts": result.trial_counts, "fold_decisions": coverage["folds"],
+        "validation_fold_rows": fold_rows, "live_authorized": False,
     })
     return result
+
+
+def validate_validation_only_budget(args) -> None:
+    """Fail-closed check of the validation-only execution envelope.
+
+    Pure function: it reads the parsed arguments and raises ValueError with
+    the offending limit named. It performs no I/O, creates no directory and
+    starts no cell, so the budget policy can be regression-tested without
+    touching the market.
+
+    The caps live in the named constants above; this function is the single
+    place that enforces them.
+    """
+    if args.cell_timeout > VALIDATION_CELL_TIMEOUT_MAX_SECONDS:
+        raise ValueError(
+            "--validation-only requires --cell-timeout <= "
+            f"{VALIDATION_CELL_TIMEOUT_MAX_SECONDS}")
+    if args.reuse_from is not None:
+        raise ValueError("--validation-only requires a fresh packet without reuse")
+    if not (VALIDATION_TOTAL_TIMEOUT_MIN_SECONDS <= args.total_timeout
+            <= VALIDATION_TOTAL_TIMEOUT_MAX_SECONDS) or not (
+                VALIDATION_MAX_RSS_MB_MIN <= args.max_rss_mb
+                <= VALIDATION_MAX_RSS_MB_MAX):
+        raise ValueError(
+            "validation budget requires total-timeout "
+            f"{VALIDATION_TOTAL_TIMEOUT_MIN_SECONDS}..{VALIDATION_TOTAL_TIMEOUT_MAX_SECONDS}"
+            f" and max-rss-mb {VALIDATION_MAX_RSS_MB_MIN}..{VALIDATION_MAX_RSS_MB_MAX}")
 
 
 def main():
@@ -1358,11 +1633,28 @@ def main():
                         help="Freeze protocol and exact validation inventory; do not evaluate")
     parser.add_argument("--validation-only", action="store_true",
                         help="Run inner validation ONLY (no outer OOS, no sensitivity, no holdout). Produces selection freeze and coverage.")
+    parser.add_argument("--synthetic-test-only", action="store_true",
+                        help="Label validation/preflight fixtures SYNTHETIC_TEST_ONLY; never market evidence")
     parser.add_argument("--total-timeout", type=int, default=1800,
-                        help="Validation-only worker session wall budget (1..1800s)")
+                        help="Validation-only worker session wall budget "
+                             f"({VALIDATION_TOTAL_TIMEOUT_MIN_SECONDS}.."
+                             f"{VALIDATION_TOTAL_TIMEOUT_MAX_SECONDS}s)")
     parser.add_argument("--max-rss-mb", type=int, default=2048,
-                        help="Validation-only sampled process-session RSS ceiling (128..4096 MiB)")
+                        help="Validation-only sampled process-session RSS ceiling "
+                             f"({VALIDATION_MAX_RSS_MB_MIN}..{VALIDATION_MAX_RSS_MB_MAX} MiB)")
     parser.add_argument("--validation-worker", type=Path, help=argparse.SUPPRESS)
+    parser.add_argument(
+        "--max-retries", type=int, default=1,
+        help="Automatic cell retries. The preregistered packet pins this to 0: "
+             "a failed cell stays failed and is never retried.",
+    )
+    parser.add_argument(
+        "--scope-token", default=None,
+        help="Scope token unlocking a scoped candidate. It is frozen into the "
+             "protocol, so it is part of the protocol fingerprint, the trial "
+             "execution context and the cache key. Without it a scoped "
+             "candidate is invisible and its cells fail at resolution.",
+    )
     parser.add_argument("--reuse-from", default=None,
                         help="Cold recover exact cache v2 inner/selected outer cells into a NEW output packet; sensitivity reruns")
     parser.add_argument(
@@ -1390,6 +1682,11 @@ def main():
         return
     if args.run_holdout:
         parser.error("This research entry point does not authorize holdout execution")
+    if args.synthetic_test_only and not (args.validation_only or args.preflight_only):
+        parser.error("--synthetic-test-only requires validation-only or preflight-only")
+    if (not args.synthetic_test_only and preregistration_root() != ROOT
+            and args.scope_token):
+        parser.error("REAL_MARKET requires the canonical preregistration root")
     if not 1 <= args.workers <= 4 or args.cell_timeout < 1:
         parser.error("workers must be 1..4 and cell timeout must be positive")
     if args.validation_only:
@@ -1399,12 +1696,10 @@ def main():
             parser.error("--validation-only cannot be used with --real-sensitivity")
         if args.workers != 1:
             parser.error("--validation-only requires --workers 1")
-        if args.cell_timeout > 180:
-            parser.error("--validation-only requires --cell-timeout <= 180")
-        if args.reuse_from is not None:
-            parser.error("--validation-only requires a fresh packet without reuse")
-        if not 1 <= args.total_timeout <= 1800 or not 128 <= args.max_rss_mb <= 4096:
-            parser.error("validation budget requires total-timeout 1..1800 and max-rss-mb 128..4096")
+        try:
+            validate_validation_only_budget(args)
+        except ValueError as exc:
+            parser.error(str(exc))
     elif not args.real_sensitivity:
         parser.error("This qualification entry point requires measured sensitivity")
 
@@ -1433,7 +1728,7 @@ def main():
         strategy_id=args.strategy,
         symbol=symbol,
         timeframe=args.timeframe,
-        param_grid=get_param_grid_for_strategy(args.strategy),
+        param_grid=get_param_grid_for_strategy(args.strategy, args.scope_token),
         cost_scenarios=cost_scenarios,
         train_months=args.train_months,
         val_months=args.val_months,
@@ -1444,11 +1739,19 @@ def main():
         evaluator_version="v1",
         seed=42,
         min_oos_trades=30,
-        evidence_class="REAL_MARKET",
+        evidence_class="SYNTHETIC_TEST_ONLY" if args.synthetic_test_only else "REAL_MARKET",
     )
+    if not spec.param_grid:
+        # Fail clearly: an unsupported strategy must not fall back to another
+        # one and must not silently plan an empty cell set.
+        raise ValueError(
+            f"no parameter grid is registered for strategy {spec.strategy_id!r}; "
+            "refusing to plan an empty cell set"
+        )
     protocol, folds = prepare_parallel_protocol(
         spec, out_root, workers=args.workers, cell_timeout=args.cell_timeout,
-        reuse_from=args.reuse_from,
+        reuse_from=args.reuse_from, scope_token=args.scope_token,
+        max_retries=args.max_retries,
         **({"validation_budget": {"total_timeout_seconds": args.total_timeout,
                                   "max_rss_mb": args.max_rss_mb}} if args.validation_only else {}),
     )
@@ -1456,6 +1759,10 @@ def main():
     if args.preflight_only:
         print(f"PREFLIGHT_ONLY: {len(folds)} folds / {len(protocol['expected_inner_cells'])} inner cells; no evaluation")
         return
+    # Binding gate: the run must execute the APPROVED preregistration, not
+    # merely run. It is checked on BOTH paths — the qualification path included —
+    # and it is a no-op for a study that is not a scoped candidate.
+    _verify_approved_payload_binding(protocol, args.scope_token)
     if args.validation_only:
         run_validation_only(spec, out_root, protocol, folds, args.cell_timeout)
         return
