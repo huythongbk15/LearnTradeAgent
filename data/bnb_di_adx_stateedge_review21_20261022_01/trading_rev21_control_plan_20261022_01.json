@@ -1,0 +1,22 @@
+{
+  "cmd": [
+    ".venv/bin/python",
+    "-m",
+    "pytest",
+    "-o",
+    "addopts=",
+    "-q",
+    "-x",
+    "tests/test_validation_only_workflow.py",
+    "tests/test_di_adx_state_edge_launcher_integration.py",
+    "-k",
+    "not test_l2_validation_launcher_completes_with_terminal_coverage"
+  ],
+  "rc": 0,
+  "elapsed_sec": 65.23417568206787,
+  "stdout": [
+    "...............................                                          [100%]",
+    "31 passed, 1 deselected in 64.11s (0:01:04)"
+  ],
+  "stderr": []
+}

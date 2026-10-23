@@ -30,7 +30,7 @@
       "registered": true,
       "stop_condition": "cap reached or check list exhausted; the review stops and reports",
       "taken_from_market_run_budget": false,
-      "verdict_kind": "AUTHOR_AUTOMATED_VERIFICATION — the script, its assertions and its runner are all the author's. It is NOT an independent review. An independent review requires a reviewer other than the author to read the source, the assertions and the receipts on the exact A/B/C and to reproduce the checks independently.",
+      "verdict_kind": "AUTHOR_AUTOMATED_VERIFICATION \u2014 the script, its assertions and its runner are all the author's. It is NOT an independent review. An independent review requires a reviewer other than the author to read the source, the assertions and the receipts on the exact A/B/C and to reproduce the checks independently.",
       "verdicts": [
         "ACCEPTED_FOR_BOUNDED_VALIDATION",
         "CHANGES_REQUIRED",
@@ -744,8 +744,8 @@
     "scope_of_claim": "sample feasibility only - carries no profitability claim",
     "statement": "on the control's own windows and with the control's own execution contract, the state-edge trigger produces MORE eligible validation observations per fold than the control's event-crossover trigger, without relaxing any gate"
   },
-  "identity_A_dirty_diff_sha256": "de09328a5d10994ad5d2e0a00a2efa2cac1e8c52befcede5c1cc46a336851209",
-  "identity_A_source_fingerprint": "b3aa44f026939863018a15de44a57c5b81e1bde9176b2c7483c7d3b7a65db427",
+  "identity_A_dirty_diff_sha256": null,
+  "identity_A_source_fingerprint": "d82bd081dfe999c3568268fd1b2a220db08ec4bdc87f24dc759582eb219a0825",
   "ledger": {
     "actual_total_reported_separately_from_accounted_total": true,
     "evaluation_attempt_roots": "the runner creates cell_attempts/<uuid>/ per ATTEMPT; the attempt history of one evaluation is the set of attempt roots whose recorded identity hashes to that evaluation's cache key.",
@@ -864,7 +864,7 @@
       },
       "reviewer_verdict": "CHANGES_REQUIRED"
     },
-    "integration_test": "tests/test_di_adx_state_edge_entrypoint_integration.py — synthetic end-to-end through the intended entrypoint chain",
+    "integration_test": "tests/test_di_adx_state_edge_entrypoint_integration.py \u2014 synthetic end-to-end through the intended entrypoint chain",
     "token": "bnb_di_adx_stateedge_prereg_20261020_01",
     "wrong_or_missing_token": "fail_closed"
   },

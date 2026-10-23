@@ -1,0 +1,77 @@
+{
+  "ac_id": "AC03",
+  "oracle": "independent: SHA-256 manifest, date parse, bar index mapping",
+  "cases": [
+    {
+      "name": "C1_integrity_match",
+      "status": "PASS",
+      "detail": "manifest integrity SHA-256 verified: 05afffe13a860d6e..."
+    },
+    {
+      "name": "C1_has_freeze_date",
+      "status": "PASS",
+      "detail": "freeze_date=2026-09-06T04:33:21.967798+00:00"
+    },
+    {
+      "name": "C1_has_commit",
+      "status": "PASS",
+      "detail": "commit=5d0e477b2826a583b9d30a58e19415178b73e9e5"
+    },
+    {
+      "name": "C2_window_start",
+      "status": "PASS",
+      "detail": "oracle=2026-02-06, system=2026-02-06"
+    },
+    {
+      "name": "C2_window_end",
+      "status": "PASS",
+      "detail": "oracle=2026-08-05, system=2026-08-05"
+    },
+    {
+      "name": "C3_holdout_resolved",
+      "status": "PASS",
+      "detail": "holdout resolved for 31783 bars"
+    },
+    {
+      "name": "C3_start_bar_match",
+      "status": "PASS",
+      "detail": "system=27183, oracle=27183"
+    },
+    {
+      "name": "C3_end_bar_match",
+      "status": "PASS",
+      "detail": "system=31503, oracle=31503"
+    },
+    {
+      "name": "C4_holdout_starts_after_0",
+      "status": "PASS",
+      "detail": "start_bar=27183, end_bar=31503"
+    },
+    {
+      "name": "C4_holdout_valid_range",
+      "status": "PASS",
+      "detail": "range=4320 bars"
+    },
+    {
+      "name": "C5_overlap_rejects",
+      "status": "PASS",
+      "detail": "holdout overlap correctly rejected"
+    },
+    {
+      "name": "C5_pre_holdout_ok",
+      "status": "PASS",
+      "detail": "pre-holdout window allowed"
+    },
+    {
+      "name": "C6_tamper_detected",
+      "status": "PASS",
+      "detail": "tampered manifest correctly rejected"
+    }
+  ],
+  "all_pass": true,
+  "total_checks": 13,
+  "passed": 13,
+  "manifest_freeze_date": "2026-09-06T04:33:21.967798+00:00",
+  "holdout_window": "2026-02-06..2026-08-05",
+  "data_bars": 31783
+}

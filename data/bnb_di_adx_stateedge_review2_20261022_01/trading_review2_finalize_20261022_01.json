@@ -1,0 +1,12 @@
+{
+  "cmd": [
+    ".venv/bin/python",
+    "data/bnb_di_adx_stateedge_review2_20261022_01/finalize_evidence.py"
+  ],
+  "rc": 0,
+  "elapsed_sec": 3.1948087215423584,
+  "stdout": [
+    "{\"status\": \"SEALED_PENDING_EXTERNAL_REVIEW\", \"A\": \"c4b7479bd88dee4352dec7d9d2c03ab2ea2be18f65a0630bb6e543f9980b4b74\", \"B\": \"1338572d57628e9ba1c29b655856547d1c945f4695ee7cc9aef0545c8ce88145\", \"preserved_mismatches\": 7, \"market_authorized\": false}"
+  ],
+  "stderr": []
+}

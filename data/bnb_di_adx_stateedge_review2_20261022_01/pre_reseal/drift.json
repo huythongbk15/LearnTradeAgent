@@ -1,0 +1,51 @@
+[
+  {
+    "packet": "bnb_di_adx_stateedge_20261020_01",
+    "path": "acceptance_receipt.json",
+    "sha256": "f8bc43b61a05424e5895e5b5fafad304b07ea7a0cfec4ef8fb2e2cee397622f2",
+    "bytes": 899,
+    "observed_sha256": "f19a0cbc5752f0dec0d9d8374d522e2f3ac27576530643c8e3f70fc753a22271"
+  },
+  {
+    "packet": "bnb_di_adx_stateedge_20261020_01",
+    "path": "make_reviewers_working_set.py",
+    "sha256": "755dea3c1467664c6738d6784e1a8a6711f63ee261da44e3938b17b1b7b0c30a",
+    "bytes": 9139,
+    "observed_sha256": "3d3670c83572f3ed84d5c33cb4f3d1e1a69955ef4ca94f6382925274fedc8e6d"
+  },
+  {
+    "packet": "bnb_di_adx_stateedge_20261020_01",
+    "path": "pre_approval_payload.json",
+    "sha256": "94d81e913108d18f9fc79db601e8c085a20826a2dae0852d1008f2ce80f524b9",
+    "bytes": 20388,
+    "observed_sha256": "c9cdc7e6fa6adadd6928efffa5380470c398ace42a5114892188bed85b3a5c76"
+  },
+  {
+    "packet": "bnb_di_adx_stateedge_20261020_01",
+    "path": "revisions/rev11/README.md",
+    "sha256": "274609893994db5fbedafff97f8cbaf42b2a67b45448933bccd3f1ea3e6c8966",
+    "bytes": 1849,
+    "observed_sha256": "6bd91b6b30307177dcd763baa797c2e660da480485335ee8a1e06484f2c7ef02"
+  },
+  {
+    "packet": "bnb_di_adx_stateedge_prereg_20261020_01",
+    "path": "PREREGISTRATION.md",
+    "sha256": "f1dab9ab0a1595a78b7f5812b7480ebdecb9ad8c0eaf5e45145f2a443c47750f",
+    "bytes": 92454,
+    "observed_sha256": "fd757054abdfa38720fa0ed141cf81f6fd25397dc1337d346b16a001137933af"
+  },
+  {
+    "packet": "bnb_di_adx_stateedge_prereg_20261020_01",
+    "path": "pre_approval_payload.json",
+    "sha256": "94d81e913108d18f9fc79db601e8c085a20826a2dae0852d1008f2ce80f524b9",
+    "bytes": 20388,
+    "observed_sha256": "c9cdc7e6fa6adadd6928efffa5380470c398ace42a5114892188bed85b3a5c76"
+  },
+  {
+    "packet": "bnb_di_adx_stateedge_prereg_20261020_01",
+    "path": "preregistration_payload.json",
+    "sha256": "94d81e913108d18f9fc79db601e8c085a20826a2dae0852d1008f2ce80f524b9",
+    "bytes": 20388,
+    "observed_sha256": "c9cdc7e6fa6adadd6928efffa5380470c398ace42a5114892188bed85b3a5c76"
+  }
+]

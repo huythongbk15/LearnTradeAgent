@@ -1,0 +1,482 @@
+{
+  "purpose": "F9 \u2014 re-execute the three native analysis scripts on the frozen pre-holdout input under the current source, and diff the result against the numbers quoted in RESULTS.md. Two independent runs, on two different source identities, produced byte-identical output.",
+  "input": {
+    "path": "data/existing_research_audit_20261008/BNB_USDT__4h__pre_holdout.parquet",
+    "binding": "the campaign protocol's input_binding, hash-verified by the scripts themselves",
+    "raw_or_holdout_read": false,
+    "rows_evaluated": "head(5600) of the pre-holdout file",
+    "executed": [
+      "trend_state_event_availability.py",
+      "decompose_crossover_bottleneck.py",
+      "layer_accounting.py"
+    ]
+  },
+  "budget": {
+    "cap_seconds": 30,
+    "actual_seconds": 20.0,
+    "retries": 0,
+    "on_failure": "stop, no retry",
+    "receipts": [
+      "/tmp/f9_reexecution.json",
+      "/tmp/round3_verification.json"
+    ]
+  },
+  "old_report_measurement_body_unchanged": "data/bnb_native_review_20261020_01/RESULTS.md \u2014 its measurement body was NOT changed; only the caveat block was rewritten afterwards, to record the re-execution. The pre-rewrite bytes are in git (commit ef3cf40).",
+  "runs": [
+    {
+      "run": "2026-10-21",
+      "output_dir": "data/bnb_native_review_20261020_01/reexecution_20261021",
+      "source_identity": null,
+      "output_sha256": {
+        "decompose_crossover_bottleneck.json": "5125c12fb0aaf02d311305fa456af95de3e016d78ed7634d7feef8b91d86d37f",
+        "layer_accounting.json": "ab06a0afccafc78f4fa100ca83dab08d1ed3ed73b8aec8994f1e04663d805c13",
+        "trend_state_event_availability.json": "9e668bfc08a66ccfd6d7ec5bb32ff5416666ab0147d47f7099c20cc16d6ea438"
+      },
+      "checks": [
+        {
+          "quantity": "gate pass BUY per window",
+          "results_md": [
+            7,
+            6,
+            8,
+            8,
+            6
+          ],
+          "re_execution": [
+            7,
+            6,
+            8,
+            8,
+            6
+          ],
+          "match": true,
+          "source": "RESULTS.md per-window table"
+        },
+        {
+          "quantity": "gate pass SELL per window",
+          "results_md": [
+            9,
+            7,
+            7,
+            6,
+            4
+          ],
+          "re_execution": [
+            9,
+            7,
+            7,
+            6,
+            4
+          ],
+          "match": true,
+          "source": "RESULTS.md per-window table"
+        },
+        {
+          "quantity": "per-bar assertions",
+          "results_md": [
+            15120
+          ],
+          "re_execution": [
+            15120
+          ],
+          "match": true,
+          "source": "RESULTS.md alignment section"
+        },
+        {
+          "quantity": "per-bar mismatches",
+          "results_md": [
+            0
+          ],
+          "re_execution": [
+            0
+          ],
+          "match": true,
+          "source": "RESULTS.md alignment section"
+        },
+        {
+          "quantity": "derived alignment shift",
+          "results_md": [
+            2
+          ],
+          "re_execution": [
+            2
+          ],
+          "match": true,
+          "source": "RESULTS.md alignment section"
+        },
+        {
+          "quantity": "union up raw crossovers",
+          "results_md": [
+            30
+          ],
+          "re_execution": [
+            30
+          ],
+          "match": true,
+          "source": "RESULTS.md union section"
+        },
+        {
+          "quantity": "union up gate pass",
+          "results_md": [
+            21
+          ],
+          "re_execution": [
+            21
+          ],
+          "match": true,
+          "source": "RESULTS.md union section"
+        },
+        {
+          "quantity": "union down raw crossovers",
+          "results_md": [
+            29
+          ],
+          "re_execution": [
+            29
+          ],
+          "match": true,
+          "source": "RESULTS.md union section"
+        },
+        {
+          "quantity": "union down gate pass",
+          "results_md": [
+            20
+          ],
+          "re_execution": [
+            20
+          ],
+          "match": true,
+          "source": "RESULTS.md union section"
+        },
+        {
+          "quantity": "union unique signal bars",
+          "results_md": [
+            41
+          ],
+          "re_execution": [
+            41
+          ],
+          "match": true,
+          "source": "RESULTS.md union section"
+        },
+        {
+          "quantity": "union overlap duplicates",
+          "results_md": [
+            27
+          ],
+          "re_execution": [
+            27
+          ],
+          "match": true,
+          "source": "RESULTS.md union section"
+        },
+        {
+          "quantity": "state episodes per window",
+          "results_md": [
+            35,
+            35,
+            37,
+            39,
+            38
+          ],
+          "re_execution": [
+            35,
+            35,
+            37,
+            39,
+            38
+          ],
+          "match": true,
+          "source": "RESULTS.md episodes section"
+        },
+        {
+          "quantity": "BUY gate actions @2x",
+          "results_md": [
+            35
+          ],
+          "re_execution": [
+            35
+          ],
+          "match": true,
+          "source": "RESULTS.md layer accounting"
+        },
+        {
+          "quantity": "SELL gate actions @2x",
+          "results_md": [
+            33
+          ],
+          "re_execution": [
+            33
+          ],
+          "match": true,
+          "source": "RESULTS.md layer accounting"
+        },
+        {
+          "quantity": "runtime BUY fills @2x",
+          "results_md": [
+            30
+          ],
+          "re_execution": [
+            30
+          ],
+          "match": true,
+          "source": "RESULTS.md layer accounting"
+        },
+        {
+          "quantity": "closed trades @2x",
+          "results_md": [
+            28
+          ],
+          "re_execution": [
+            28
+          ],
+          "match": true,
+          "source": "RESULTS.md layer accounting"
+        },
+        {
+          "quantity": "carry-out positions @2x",
+          "results_md": [
+            2
+          ],
+          "re_execution": [
+            2
+          ],
+          "match": true,
+          "source": "RESULTS.md layer accounting"
+        }
+      ],
+      "all_match": true
+    },
+    {
+      "run": "2026-10-22",
+      "output_dir": "data/bnb_native_review_20261020_01/reexecution_20261022",
+      "source_identity": {
+        "code_commit": "ef3cf405a7e39431a9202eb6a27ab25341dd33b6",
+        "tree_fingerprint": "d82bd081dfe999c3568268fd1b2a220db08ec4bdc87f24dc759582eb219a0825",
+        "worktree_dirty": true,
+        "dirty_diff_sha256": "f9b051783ac46db45a95cd6b1aaa6634e1b574d20ee3013d43b9e1764934ceb8"
+      },
+      "output_sha256": {
+        "decompose_crossover_bottleneck.json": "5125c12fb0aaf02d311305fa456af95de3e016d78ed7634d7feef8b91d86d37f",
+        "layer_accounting.json": "ab06a0afccafc78f4fa100ca83dab08d1ed3ed73b8aec8994f1e04663d805c13",
+        "trend_state_event_availability.json": "9e668bfc08a66ccfd6d7ec5bb32ff5416666ab0147d47f7099c20cc16d6ea438"
+      },
+      "checks": [
+        {
+          "quantity": "gate pass BUY per window",
+          "results_md": [
+            7,
+            6,
+            8,
+            8,
+            6
+          ],
+          "re_execution": [
+            7,
+            6,
+            8,
+            8,
+            6
+          ],
+          "match": true,
+          "source": "RESULTS.md per-window table"
+        },
+        {
+          "quantity": "gate pass SELL per window",
+          "results_md": [
+            9,
+            7,
+            7,
+            6,
+            4
+          ],
+          "re_execution": [
+            9,
+            7,
+            7,
+            6,
+            4
+          ],
+          "match": true,
+          "source": "RESULTS.md per-window table"
+        },
+        {
+          "quantity": "per-bar assertions",
+          "results_md": [
+            15120
+          ],
+          "re_execution": [
+            15120
+          ],
+          "match": true,
+          "source": "RESULTS.md alignment section"
+        },
+        {
+          "quantity": "per-bar mismatches",
+          "results_md": [
+            0
+          ],
+          "re_execution": [
+            0
+          ],
+          "match": true,
+          "source": "RESULTS.md alignment section"
+        },
+        {
+          "quantity": "derived alignment shift",
+          "results_md": [
+            2
+          ],
+          "re_execution": [
+            2
+          ],
+          "match": true,
+          "source": "RESULTS.md alignment section"
+        },
+        {
+          "quantity": "union up raw crossovers",
+          "results_md": [
+            30
+          ],
+          "re_execution": [
+            30
+          ],
+          "match": true,
+          "source": "RESULTS.md union section"
+        },
+        {
+          "quantity": "union up gate pass",
+          "results_md": [
+            21
+          ],
+          "re_execution": [
+            21
+          ],
+          "match": true,
+          "source": "RESULTS.md union section"
+        },
+        {
+          "quantity": "union down raw crossovers",
+          "results_md": [
+            29
+          ],
+          "re_execution": [
+            29
+          ],
+          "match": true,
+          "source": "RESULTS.md union section"
+        },
+        {
+          "quantity": "union down gate pass",
+          "results_md": [
+            20
+          ],
+          "re_execution": [
+            20
+          ],
+          "match": true,
+          "source": "RESULTS.md union section"
+        },
+        {
+          "quantity": "union unique signal bars",
+          "results_md": [
+            41
+          ],
+          "re_execution": [
+            41
+          ],
+          "match": true,
+          "source": "RESULTS.md union section"
+        },
+        {
+          "quantity": "union overlap duplicates",
+          "results_md": [
+            27
+          ],
+          "re_execution": [
+            27
+          ],
+          "match": true,
+          "source": "RESULTS.md union section"
+        },
+        {
+          "quantity": "state episodes per window",
+          "results_md": [
+            35,
+            35,
+            37,
+            39,
+            38
+          ],
+          "re_execution": [
+            35,
+            35,
+            37,
+            39,
+            38
+          ],
+          "match": true,
+          "source": "RESULTS.md episodes section"
+        },
+        {
+          "quantity": "BUY gate actions @2x",
+          "results_md": [
+            35
+          ],
+          "re_execution": [
+            35
+          ],
+          "match": true,
+          "source": "RESULTS.md layer accounting"
+        },
+        {
+          "quantity": "SELL gate actions @2x",
+          "results_md": [
+            33
+          ],
+          "re_execution": [
+            33
+          ],
+          "match": true,
+          "source": "RESULTS.md layer accounting"
+        },
+        {
+          "quantity": "runtime BUY fills @2x",
+          "results_md": [
+            30
+          ],
+          "re_execution": [
+            30
+          ],
+          "match": true,
+          "source": "RESULTS.md layer accounting"
+        },
+        {
+          "quantity": "closed trades @2x",
+          "results_md": [
+            28
+          ],
+          "re_execution": [
+            28
+          ],
+          "match": true,
+          "source": "RESULTS.md layer accounting"
+        },
+        {
+          "quantity": "carry-out positions @2x",
+          "results_md": [
+            2
+          ],
+          "re_execution": [
+            2
+          ],
+          "match": true,
+          "source": "RESULTS.md layer accounting"
+        }
+      ],
+      "all_match": true
+    }
+  ],
+  "second_run_byte_identical_to_first": true,
+  "verdict": "REPRODUCES: all seventeen quantities quoted in RESULTS.md were reproduced exactly in both runs, and the two runs produced byte-identical output files"
+}

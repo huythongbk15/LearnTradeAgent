@@ -37,10 +37,9 @@ reviewer was right to separate them.
 
 | Identity | Covers | Changes when | Frozen value (current revision) |
 |---|---|---|---|
-| **A — source identity** | the code that will execute: `src/**/*.py` + `scripts/**/*.py` (what `capture_campaign_source` hashes) | any source or script changes | `tree_fingerprint b3aa44f026939863018a15de44a57c5b81e1bde9176b2c7483c7d3b7a65db427`, `dirty_diff_sha256 de09328a5d10994ad5d2e0a00a2efa2cac1e8c52befcede5c1cc46a336851209` |
-| **B — experiment / preregistration identity** | the frozen decisions: candidate, parameter set, data binding, fold plan, cost set, gates, sensitivity rule, budget, terminal outcomes, scope — the §12.1 payload | any of those decisions changes | `fe9cf95ee72b27036a52616b79a6f2e8f1edfb56481a4f0d97b547a713aa4373` |
-| **C — evidence manifest** | the bytes of the evidence packet: preregistration text, contract, receipts, scripts, results, the sealed assertion-file hashes (`evidence/assertion_files.json`), and the archived manifests under `revisions/` — identity A does **not** cover `tests/`, so the assertion files are pinned here instead | any packet file changes | the three `manifest.json` files |
-| **C — evidence manifest** | the bytes of the evidence packet: preregistration text, contract, receipts, scripts, test files, results | any packet file changes | `data/bnb_di_adx_stateedge_20261020_01/manifest.json` (+ `manifest.json` of the prereg packet), regenerated per revision |
+| **A — source identity** | the code that will execute: `src/**/*.py` + `scripts/**/*.py` (what `capture_campaign_source` hashes) | any source or script changes | `tree_fingerprint d82bd081dfe999c3568268fd1b2a220db08ec4bdc87f24dc759582eb219a0825`, `dirty_diff_sha256 none — the source is committed; `git diff 7d5f3c9 -- src scripts` is empty` |
+| **B — experiment / preregistration identity** | the frozen decisions: candidate, parameter set, data binding, fold plan, cost set, gates, sensitivity rule, budget, terminal outcomes, scope — the §12.1 payload | any of those decisions changes | `1e96538d2796e0975fd1e90a9ddf03be609abc40a69c4ebd09aa5c21020504b6` |
+| **C — evidence manifest** | the bytes of the evidence packet: preregistration text, contract, receipts, scripts, results, the sealed assertion-file hashes (`evidence/assertion_files.json`), and the archived manifests under `revisions/` — identity A does **not** cover `tests/`, so the assertion files are pinned here instead | any packet file changes | the `manifest.json` files of the **five** sealed packets: evidence, preregistration, native review, and the operator's two review packets |
 
 Rules that follow from the separation:
 
@@ -523,7 +522,7 @@ broadly selectable. The mechanism, implemented in this revision:
 | Simulator | `scripts/full_system_backtest.py` — `FullSystemSimulator(..., scope_token=...)` | default `None` ⇒ byte-identical behaviour |
 | Worker | `campaign_execution.py` | the token travels in the execution context, so an approved packet resolves the candidate without touching the broad registry |
 
-**Properties this gives, and how they are checked** (`tests/test_di_adx_state_edge_scoped_path.py`, 8 tests):
+**Properties this gives, and how they are checked** (`tests/test_di_adx_state_edge_scoped_path.py`, 11 tests):
 - the candidate is **absent** from the legacy `@register_strategy` registry and
   from the default canonical registry — no campaign, worker or CLI can name it;
 - the **correct** token resolves it (legacy candidate + canonical adapter);
@@ -1439,7 +1438,7 @@ manifest (C).
     "statement": "on the control's own windows and with the control's own execution contract, the state-edge trigger produces MORE eligible validation observations per fold than the control's event-crossover trigger, without relaxing any gate"
   },
   "identity_A_dirty_diff_sha256": "de09328a5d10994ad5d2e0a00a2efa2cac1e8c52befcede5c1cc46a336851209",
-  "identity_A_source_fingerprint": "b3aa44f026939863018a15de44a57c5b81e1bde9176b2c7483c7d3b7a65db427",
+  "identity_A_source_fingerprint": "d82bd081dfe999c3568268fd1b2a220db08ec4bdc87f24dc759582eb219a0825",
   "ledger": {
     "actual_total_reported_separately_from_accounted_total": true,
     "evaluation_attempt_roots": "the runner creates cell_attempts/<uuid>/ per ATTEMPT; the attempt history of one evaluation is the set of attempt roots whose recorded identity hashes to that evaluation's cache key.",
@@ -1687,7 +1686,7 @@ one without re-deriving the packet.
 
 | # | To confirm | Evidence pointer | What would falsify it |
 |---|---|---|---|
-| **R1** | **The candidate has a controlled execution path even though it is not broadly registered.** | §9; `tests/test_di_adx_state_edge_scoped_path.py` (8 tests): absent from the legacy and default registries; resolves only with the exact scope token; missing/wrong token fails closed; the control still resolves; the token is plumbed through `run_cell` → `_run_cell_impl` → registry/adapter/simulator and through the worker's execution context. | the candidate being resolvable **without** a token, or the token not reaching the cell's resolution. |
+| **R1** | **The candidate has a controlled execution path even though it is not broadly registered.** | §9; `tests/test_di_adx_state_edge_scoped_path.py` (11 tests): absent from the legacy and default registries; resolves only with the exact scope token; missing/wrong token fails closed; the control still resolves; the token is plumbed through `run_cell` → `_run_cell_impl` → registry/adapter/simulator and through the worker's execution context. | the candidate being resolvable **without** a token, or the token not reaching the cell's resolution. |
 | **R2** | **A completed validation can carry the verdict "sufficient coverage, but not yet qualified", and a missing sensitivity is not hidden as a PASS.** | §10 terminal outcomes (`ACCEPTED_VALIDATION` = screening-positive, **not** qualification); §6.2 marks the outer gates NOT-EVALUATED in this scope; §7.2 records that the neighbour arm is NOT EXECUTED and `sensitivity_verified` is unreachable here; §7.2a states the DSR may not be cited as qualification evidence while the trial-count limit is unresolved; §7.2b requires the ledger to show every evaluation with its `registry_counted` flag. | a packet that reports a PASS on the outer/qualification gates, or that reports the DSR as qualification evidence, or that omits the uncounted evaluations from the ledger. |
 | **R3** | **A new preregistration with a new manifest is locked, and the old failed packet/control is kept unchanged.** | §0 (the three identities); §12.1 (identity B); §14 (identity A + C); `revisions/rev1/` keeps the previous manifest; the control packet `bnb_native_adx25_validation_run_20261019_01` is untouched and still FAILED/INCOMPLETE. | the control packet being edited, resumed or relabelled, or the previous revision's manifest being overwritten instead of kept. |
 
@@ -1825,15 +1824,15 @@ payload — which **produces a new B**.
 
 ## 14. Freeze — revision and hash for the pending review
 
-**Preregistration rev21.** Any change after this point invalidates the freeze
+**Preregistration rev24.** Any change after this point invalidates the freeze
 and requires a new revision record (and, if it touches source, a new identity A).
 
 | Identity | Value |
 |---|---|
-| **A — source** | `tree_fingerprint b3aa44f026939863018a15de44a57c5b81e1bde9176b2c7483c7d3b7a65db427`, `dirty_diff_sha256 de09328a5d10994ad5d2e0a00a2efa2cac1e8c52befcede5c1cc46a336851209`, `code_commit 4078892d738790872dc2d4f494e3973a62612347` |
-| **B — preregistration** | `fe9cf95ee72b27036a52616b79a6f2e8f1edfb56481a4f0d97b547a713aa4373` |
-| **C — evidence manifest** | `data/bnb_di_adx_stateedge_20261020_01/manifest.json` and `data/bnb_di_adx_stateedge_prereg_20261020_01/manifest.json` |
-| Previous revisions | kept under `revisions/` in both packets. **The archive is partial and the loss is not repairable.** Unrecoverable: rev8, rev10, rev12, rev13 entirely, and rev15 itself (its manifest was overwritten by rev14's). Surviving under **mislabelled** directories: rev9's manifest under `revisions/rev7/manifest.json`, rev14's under `revisions/rev15/manifest.json`. The current manifest cannot recover them — it is a per-revision snapshot with no delta against any prior manifest — and the `data/` tree is untracked, so git cannot either. The loss is recorded as unrecoverable history in `revisions/README.md` and in the tracker report, and it is **not** repaired by fabricating manifests. From this revision on, every manifest is archived before it is superseded, and the archived manifests are themselves sealed by manifest C. |
+| **A — source** | `tree_fingerprint d82bd081dfe999c3568268fd1b2a220db08ec4bdc87f24dc759582eb219a0825`, `dirty_diff_sha256 none — the source is committed`, `code_commit 7d5f3c9b65a20f5fcc94d6e545426923a7cf1a48` |
+| **B — preregistration** | `1e96538d2796e0975fd1e90a9ddf03be609abc40a69c4ebd09aa5c21020504b6` |
+| **C — evidence manifest** | the `manifest.json` files of the **five** sealed packets: `data/bnb_di_adx_stateedge_20261020_01/manifest.json`, `data/bnb_di_adx_stateedge_prereg_20261020_01/manifest.json`, `data/bnb_native_review_20261020_01/manifest.json`, `data/bnb_di_adx_stateedge_review2_20261022_01/manifest.json` and `data/bnb_di_adx_stateedge_review21_20261022_01/manifest.json` |
+| Previous revisions | kept under `revisions/` in both packets. **The archive is partial and the loss is not repairable.** Unrecoverable: rev8, rev10, rev12, rev13 entirely, and rev15 itself (its manifest was overwritten by rev14's). Surviving under **mislabelled** directories: rev9's manifest under `revisions/rev7/manifest.json`, rev14's under `revisions/rev15/manifest.json`. The current manifest cannot recover them — it is a per-revision snapshot with no delta against any prior manifest — and the `data/` tree is untracked, so git cannot either. The loss is recorded as unrecoverable history in `revisions/README.md` and in the tracker report, and it is **not** repaired by fabricating manifests. From this revision on, every manifest is archived before it is superseded, and the archived manifests are themselves sealed by manifest C. (Correction, 2026-10-22: the `data/` tree is now **tracked** in git, so git *can* see the packets — but the lost revisions were never committed, and `git log --all -- revisions/rev8* revisions/rev13*` is empty, so git cannot recover them either.) |
 | AC01–AC15 | rc 0, ALL PASS, identity identical before/after the acceptance run |
 | Control packet | `bnb_native_adx25_validation_run_20261019_01` — **unchanged**, still FAILED/INCOMPLETE |
 

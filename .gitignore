@@ -24,6 +24,9 @@ logs/
 # Session-local TODO files
 *_TODO.md
 AC14_EVIDENCE_TODO.md
+# Root clutter relocated 2026-10-23. Not sealed evidence.
+/archive/session-notes/
+/archive/scratch-outputs/
 # Workstream B temporary files
 WORKSTREAM_B_RUN.sh
 data/wfo/*.sqlite3
@@ -304,3 +307,14 @@ data/bnb_accounting_integration_*/
 data/bnb_adx_admission_sandbox_*/
 data/bnb_ablation_*/
 data/native_*/
+
+# Everything under data/ is runtime research output from earlier work lines,
+# unless it is one of the five sealed evidence packets of the current work
+# line. The packets are re-included explicitly; their contents are then
+# filtered by the rules above (e.g. *.log stays out).
+data/*
+!data/bnb_di_adx_stateedge_20261020_01/
+!data/bnb_di_adx_stateedge_prereg_20261020_01/
+!data/bnb_di_adx_stateedge_review2_20261022_01/
+!data/bnb_di_adx_stateedge_review21_20261022_01/
+!data/bnb_native_review_20261020_01/

@@ -1,0 +1,69 @@
+{
+  "packet": "data/bnb_di_adx_stateedge_prereg_20261020_01",
+  "revision": "rev19",
+  "identity_A_source_fingerprint": "30283d31a24aa20455d0c82863b8b4f0ab1aba3e33ded38d5266e10447db7cf0",
+  "identity_A_dirty_diff_sha256": "085f12e1595afec8f3c3ae2150379fa824da747c7cbcce1f6bd15e4b47a1c1bf",
+  "code_commit": "4078892d738790872dc2d4f494e3973a62612347",
+  "identity_B_preregistration_fingerprint": "c2d9ec62d2532852f789dfd30457f7b2b04db63251dae9b9751a6d3b4cc00875",
+  "input_sha256": "379677360902c9734780e496398abb02ea6390531b840e2262bd9d7881e6485f",
+  "holdout_rows_read": 0,
+  "files": [
+    {
+      "path": "PREREGISTRATION.md",
+      "sha256": "f1dab9ab0a1595a78b7f5812b7480ebdecb9ad8c0eaf5e45145f2a443c47750f",
+      "bytes": 92454
+    },
+    {
+      "path": "pre_approval_payload.json",
+      "sha256": "94d81e913108d18f9fc79db601e8c085a20826a2dae0852d1008f2ce80f524b9",
+      "bytes": 20388
+    },
+    {
+      "path": "preregistration_payload.json",
+      "sha256": "94d81e913108d18f9fc79db601e8c085a20826a2dae0852d1008f2ce80f524b9",
+      "bytes": 20388
+    },
+    {
+      "path": "revisions/rev1/README.md",
+      "sha256": "edb9aa7ad461a1d0e156b03481e010340dc11eba7df9eb62f601172fc4d9eeb0",
+      "bytes": 591
+    },
+    {
+      "path": "revisions/rev11/README.md",
+      "sha256": "274609893994db5fbedafff97f8cbaf42b2a67b45448933bccd3f1ea3e6c8966",
+      "bytes": 1849
+    },
+    {
+      "path": "revisions/rev15/README.md",
+      "sha256": "58b4a24ce948af9d5abd44bc54b0d4109e3c5da660e8e627997fba236223ec8b",
+      "bytes": 743
+    },
+    {
+      "path": "revisions/rev2/README.md",
+      "sha256": "73744e684b4c211f5d902636c5e48cb2d160709c9214c02e813e96bb48439e7b",
+      "bytes": 603
+    },
+    {
+      "path": "revisions/rev3/README.md",
+      "sha256": "e3820c24b898162ad0ce8232d5339468f75c169c3f4f9dbf8cdf28a5dec6a5c9",
+      "bytes": 793
+    },
+    {
+      "path": "revisions/rev4/README.md",
+      "sha256": "2f57b338597f69229b2054a5caaa126555ea97fccbbccc4d0315cdf1bacb873f",
+      "bytes": 530
+    },
+    {
+      "path": "revisions/rev5/README.md",
+      "sha256": "22eb8149bb53a8210be4c10251a27b30ad8bb2f1b0d367423b9790e77a8e4ee8",
+      "bytes": 784
+    },
+    {
+      "path": "revisions/rev6/README.md",
+      "sha256": "1ea85bd757257de1887d99ab54220ccbae1af3f77a57ddada93cd2dad9dbffae",
+      "bytes": 707
+    }
+  ],
+  "file_count": 11,
+  "excluded_review_own_outputs": []
+}

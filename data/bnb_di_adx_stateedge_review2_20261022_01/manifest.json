@@ -1,0 +1,181 @@
+{
+  "packet": "data/bnb_di_adx_stateedge_review2_20261022_01",
+  "revision": "rev24",
+  "identity_A_source_fingerprint": "d82bd081dfe999c3568268fd1b2a220db08ec4bdc87f24dc759582eb219a0825",
+  "identity_A_dirty_diff_sha256": null,
+  "code_commit": "7d5f3c9b65a20f5fcc94d6e545426923a7cf1a48",
+  "code_commit_note": "the commit that contains the sealed source. HEAD may be a later commit that touches only data/ \u2014 verify the source content with `git diff 7d5f3c9b65a20f5fcc94d6e545426923a7cf1a48 HEAD -- src scripts` (empty). identity A is the content hash of src/**/*.py + scripts/**/*.py and is reproducible from either commit.",
+  "identity_B_preregistration_fingerprint": "1e96538d2796e0975fd1e90a9ddf03be609abc40a69c4ebd09aa5c21020504b6",
+  "input_sha256": null,
+  "holdout_rows_read": 0,
+  "files": [
+    {
+      "path": "EXECUTION_RESULTS.md",
+      "sha256": "cd77b8e8791ae7225c3466d88fc96968cbfcba096d8e09adbb9c964a9416775f",
+      "bytes": 3119
+    },
+    {
+      "path": "FINAL_HANDOFF.md",
+      "sha256": "aba9b9553a17eb87c1cd01873887b463afaf705d9e0e051a2cedfe4bac1176c9",
+      "bytes": 3060
+    },
+    {
+      "path": "INDEPENDENT_REVIEW_REV20.md",
+      "sha256": "f779d7165f72e7c9f1d90bf8dca747a0e32c1d2ba178afebdb7ce7078e1e8123",
+      "bytes": 3150
+    },
+    {
+      "path": "RESULTS.md",
+      "sha256": "7e6b354f9c346c85e1f6fbddf4254a159ad4e41e69f1a5c238908211dcbe5489",
+      "bytes": 3428
+    },
+    {
+      "path": "finalize_evidence.py",
+      "sha256": "654d64e62508fc528992911988ef32efb6b94d71ffd408838db257090303defe",
+      "bytes": 6317
+    },
+    {
+      "path": "pre_reseal/bnb_di_adx_stateedge_20261020_01/drifted_current/acceptance_receipt.json",
+      "sha256": "f19a0cbc5752f0dec0d9d8374d522e2f3ac27576530643c8e3f70fc753a22271",
+      "bytes": 1249
+    },
+    {
+      "path": "pre_reseal/bnb_di_adx_stateedge_20261020_01/drifted_current/make_reviewers_working_set.py",
+      "sha256": "3d3670c83572f3ed84d5c33cb4f3d1e1a69955ef4ca94f6382925274fedc8e6d",
+      "bytes": 9556
+    },
+    {
+      "path": "pre_reseal/bnb_di_adx_stateedge_20261020_01/drifted_current/pre_approval_payload.json",
+      "sha256": "c9cdc7e6fa6adadd6928efffa5380470c398ace42a5114892188bed85b3a5c76",
+      "bytes": 21901
+    },
+    {
+      "path": "pre_reseal/bnb_di_adx_stateedge_20261020_01/drifted_current/revisions/rev11/README.md",
+      "sha256": "6bd91b6b30307177dcd763baa797c2e660da480485335ee8a1e06484f2c7ef02",
+      "bytes": 396
+    },
+    {
+      "path": "pre_reseal/bnb_di_adx_stateedge_20261020_01/manifest.json",
+      "sha256": "bf57ad073ca79b19d49c62cf784d0de1cfe0383c4b52a573c411e1760334d6fd",
+      "bytes": 13594
+    },
+    {
+      "path": "pre_reseal/bnb_di_adx_stateedge_prereg_20261020_01/drifted_current/PREREGISTRATION.md",
+      "sha256": "fd757054abdfa38720fa0ed141cf81f6fd25397dc1337d346b16a001137933af",
+      "bytes": 94607
+    },
+    {
+      "path": "pre_reseal/bnb_di_adx_stateedge_prereg_20261020_01/drifted_current/pre_approval_payload.json",
+      "sha256": "c9cdc7e6fa6adadd6928efffa5380470c398ace42a5114892188bed85b3a5c76",
+      "bytes": 21901
+    },
+    {
+      "path": "pre_reseal/bnb_di_adx_stateedge_prereg_20261020_01/drifted_current/preregistration_payload.json",
+      "sha256": "c9cdc7e6fa6adadd6928efffa5380470c398ace42a5114892188bed85b3a5c76",
+      "bytes": 21901
+    },
+    {
+      "path": "pre_reseal/bnb_di_adx_stateedge_prereg_20261020_01/manifest.json",
+      "sha256": "15c5ddd8da168ede32959edb20eab35e0e457a7006d75def1b15dc4b08bd4a90",
+      "bytes": 2396
+    },
+    {
+      "path": "pre_reseal/bnb_native_review_20261020_01/manifest.json",
+      "sha256": "0543f2d5e1736eaf840a0d757c60f31c396c7526a03ea8c1351f28641abfa538",
+      "bytes": 2703
+    },
+    {
+      "path": "pre_reseal/drift.json",
+      "sha256": "f330bf3ad89a5f41e4298d342b3e0f9e49411ff19b39b0a9eb6c159397d00e61",
+      "bytes": 2062
+    },
+    {
+      "path": "source_files_sha256.json",
+      "sha256": "60cb9d92da490c3d223fff746a6b537ecaf1accf8781e59817f80251591311ca",
+      "bytes": 53891
+    },
+    {
+      "path": "source_vs_HEAD.patch",
+      "sha256": "62cc1d0d204313e09815b78da7c507abc0098f7c0c89e18e8c9a5ea3ab781a22",
+      "bytes": 81145
+    },
+    {
+      "path": "trading_review2_ac_20261022_01.json",
+      "sha256": "53873fce37647be6268c7db3ce17e8e255aefc7f12e749ba5fab7d0e20b7b272",
+      "bytes": 9412
+    },
+    {
+      "path": "trading_review2_binding_final_20261022_01.json",
+      "sha256": "7fef250482be0d101414c6231558dbeaef2885cbee129cbac3bd2fd8786e0055",
+      "bytes": 1248
+    },
+    {
+      "path": "trading_review2_control_plan_20261022_01.json",
+      "sha256": "6605086731f02344aaefb36cf6d4f8b02da91bdb4c9c4f41e59da2c2712e2759",
+      "bytes": 518
+    },
+    {
+      "path": "trading_review2_f9_decompose_20261022_01.json",
+      "sha256": "b382e1f5d3e5a1004bb412fccfd6bf3fac2c6546c606b7e5385785cfe42f180c",
+      "bytes": 16188
+    },
+    {
+      "path": "trading_review2_f9_episodes_20261022_01.json",
+      "sha256": "49fb2c880a4d6cfba1b5ab9adb8b60c802c72b4ab31c949b7c5150b6417fd435",
+      "bytes": 7216
+    },
+    {
+      "path": "trading_review2_f9_layers_20261022_01.json",
+      "sha256": "c8ca70435563856cbd3366c8a886df85c95ea2f8220718ea73c46a6db2eaef77",
+      "bytes": 15700
+    },
+    {
+      "path": "trading_review2_fasttests_20261022_01.json",
+      "sha256": "baf360eeeb993b8c77e8caf54574f4d669c5180ce2ecef9af264a944f7ef609c",
+      "bytes": 447
+    },
+    {
+      "path": "trading_review2_finalize_20261022_01.json",
+      "sha256": "b321d62129a96294032d8833e556b7a6b78c41d69779d57d5b2c3c1cebfc3565",
+      "bytes": 466
+    },
+    {
+      "path": "trading_review2_identity_20261022_01.json",
+      "sha256": "b27715e2eb0e686ba3c0c8c8f531849940a8f27e3b880fd8291abfa6fd5b3a5f",
+      "bytes": 2378
+    },
+    {
+      "path": "trading_review2_launcher_20261022_01.json",
+      "sha256": "b6e4b15fa7db59f81fa56e4af84bf964e168238576a6a3897207df5397a0da74",
+      "bytes": 439
+    },
+    {
+      "path": "trading_review2_lint_20261022_01.json",
+      "sha256": "175c12ab8f934c0d2583ac88ef3ce1ebb0aba2dfc97bb990fa8c8abf4e3dd737",
+      "bytes": 393
+    },
+    {
+      "path": "trading_review2_precheck_20261022_02.json",
+      "sha256": "40cc00391732e72d2707d72b3156a0e04faeef1af12dfe1282cc89f770585463",
+      "bytes": 11727
+    },
+    {
+      "path": "trading_review2_source_after_20261022_01.json",
+      "sha256": "3da256cf2930c4c47af6716b8e1909817f63a28905bcbb2a0f22d60d1641db0b",
+      "bytes": 641
+    },
+    {
+      "path": "verification_index.json",
+      "sha256": "574295edf4dc34a7e36bcf417e13978d818487f57aebf286de425d32702a26b3",
+      "bytes": 3163
+    },
+    {
+      "path": "verified_source.json",
+      "sha256": "4344b9037b9cbd8ff704bafe33c2e785bdb893d440dc7fa058aa99e88063bd4a",
+      "bytes": 271
+    }
+  ],
+  "file_count": 33,
+  "excluded_from_manifest": [],
+  "review_status": "VERIFIED_PENDING_FINAL_INDEPENDENT_REVIEW"
+}

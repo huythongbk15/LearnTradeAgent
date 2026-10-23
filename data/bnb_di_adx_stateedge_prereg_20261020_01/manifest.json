@@ -1,17 +1,18 @@
 {
   "packet": "data/bnb_di_adx_stateedge_prereg_20261020_01",
-  "revision": "rev22",
-  "identity_A_source_fingerprint": "b3aa44f026939863018a15de44a57c5b81e1bde9176b2c7483c7d3b7a65db427",
-  "identity_A_dirty_diff_sha256": "085f12e1595afec8f3c3ae2150379fa824da747c7cbcce1f6bd15e4b47a1c1bf",
-  "code_commit": "4078892d738790872dc2d4f494e3973a62612347",
-  "identity_B_preregistration_fingerprint": "fe9cf95ee72b27036a52616b79a6f2e8f1edfb56481a4f0d97b547a713aa4373",
+  "revision": "rev24",
+  "identity_A_source_fingerprint": "d82bd081dfe999c3568268fd1b2a220db08ec4bdc87f24dc759582eb219a0825",
+  "identity_A_dirty_diff_sha256": null,
+  "code_commit": "7d5f3c9b65a20f5fcc94d6e545426923a7cf1a48",
+  "code_commit_note": "the commit that contains the sealed source. HEAD may be a later commit that touches only data/ \u2014 verify the source content with `git diff 7d5f3c9b65a20f5fcc94d6e545426923a7cf1a48 HEAD -- src scripts` (empty). identity A is the content hash of src/**/*.py + scripts/**/*.py and is reproducible from either commit.",
+  "identity_B_preregistration_fingerprint": "1e96538d2796e0975fd1e90a9ddf03be609abc40a69c4ebd09aa5c21020504b6",
   "input_sha256": "379677360902c9734780e496398abb02ea6390531b840e2262bd9d7881e6485f",
   "holdout_rows_read": 0,
   "files": [
     {
       "path": "PREREGISTRATION.md",
-      "sha256": "e7c653c102bff4e565e1ac0bee96aa3f84f8fed9599b996ceefddafecf189494",
-      "bytes": 112231
+      "sha256": "326ab4d7f3637cf2ae74b2884265529198df754903d260d88c1d51f9d96861e0",
+      "bytes": 112517
     },
     {
       "path": "evidence/rev21_verification.json",
@@ -25,13 +26,13 @@
     },
     {
       "path": "pre_approval_payload.json",
-      "sha256": "181e57e868a20072307cdd8e5cded5980eac5f0b398bcb7b3c0ce03c4fd30092",
-      "bytes": 38655
+      "sha256": "08a5ebb072a378709d707b0bab664321f6af0956781bbd4636a5242b2567af11",
+      "bytes": 38600
     },
     {
       "path": "preregistration_payload.json",
-      "sha256": "181e57e868a20072307cdd8e5cded5980eac5f0b398bcb7b3c0ce03c4fd30092",
-      "bytes": 38655
+      "sha256": "08a5ebb072a378709d707b0bab664321f6af0956781bbd4636a5242b2567af11",
+      "bytes": 38600
     },
     {
       "path": "revisions/rev1/README.md",
@@ -72,6 +73,16 @@
       "path": "revisions/rev2/manifest.json",
       "sha256": "01078783858d06d882fb6d6183772ae8da2e7cba69015c26a02bdb351bb50baa",
       "bytes": 1085
+    },
+    {
+      "path": "revisions/rev21/manifest.json",
+      "sha256": "68ea0f7d686851e4611636e13464db6bb2a5cf48af06644c50fa7e2648155376",
+      "bytes": 4638
+    },
+    {
+      "path": "revisions/rev22/manifest.json",
+      "sha256": "ce7016d6b7d479598a4b28d82f6e22f1b7825e81af66fd039416c548f26f373a",
+      "bytes": 4670
     },
     {
       "path": "revisions/rev3/README.md",
@@ -119,11 +130,9 @@
       "bytes": 1913
     }
   ],
-  "file_count": 22,
-  "excluded_review_own_outputs": [],
-  "revision_provenance": "data/bnb_di_adx_stateedge_review21_20261022_01/before_seal",
+  "file_count": 24,
+  "excluded_from_manifest": [],
   "review_status": "VERIFIED_PENDING_FINAL_INDEPENDENT_REVIEW",
   "current_verification_index": "data/bnb_di_adx_stateedge_review21_20261022_01/verification_index.json",
-  "historical_evidence_note": "Prior acceptance and review2 evidence remain historical; current source evidence is in evidence/rev21_verification.json. No old PASS is relabelled.",
-  "excluded_from_manifest": []
+  "historical_evidence_note": "Prior acceptance and review2 evidence remain historical; current source evidence is in evidence/rev21_verification.json. No old PASS is relabelled."
 }

@@ -20,10 +20,12 @@ import pytest
 sys.path.insert(0, ".")
 
 from trading_agent.backtest import attempt_ledger as ledger
+from trading_agent.backtest import preregistration_binding as binding
 from trading_agent.backtest.preregistration_binding import (
     load_approved_payload,
     normalise_singleton_grid,
     preregistration_fingerprint,
+    scoped_token_map_is_consistent,
     verify_registered_payload_binding,
 )
 
@@ -264,6 +266,62 @@ def test_binding_accepts_the_registered_grid_and_rejects_a_changed_one(tmp_path)
         mutated, SCOPE_TOKEN, root=root, source_fingerprint=source
     )
     assert failed == ["params"]
+
+
+def test_binding_rejects_a_contract_body_swapped_between_costs(tmp_path):
+    """The native contract of a cell must be the approved body of ITS cost.
+
+    Membership in the set of approved bodies is not enough: a protocol that
+    hands the 1x cells a 2x body (or the other way round) would pass such a
+    check, and the cost gate would no longer describe the run.
+    """
+    root, payload = _approved_payload_copy(tmp_path)
+    _approve(root, payload)
+    source = payload["identity_A_source_fingerprint"]
+    protocol = _protocol(payload)
+    contracts = protocol["native_execution_contracts"]
+    names = sorted(contracts)
+    assert len(names) >= 2, "the fixture must have at least two cost scenarios"
+    first, second = names[0], names[1]
+    contracts[first]["body"], contracts[second]["body"] = (
+        copy.deepcopy(contracts[second]["body"]),
+        copy.deepcopy(contracts[first]["body"]),
+    )
+    for key in (first, second):
+        from trading_agent.backtest.campaign_evidence import content_hash
+        contracts[key]["contract_id"] = content_hash(contracts[key]["body"])
+    failed = verify_registered_payload_binding(
+        protocol, SCOPE_TOKEN, root=root, source_fingerprint=source
+    )
+    assert failed == ["native_execution_contracts"], failed
+
+
+def test_scope_token_map_must_agree_with_the_packet_it_names(tmp_path, monkeypatch):
+    """The token map and the preregistration map must agree about the world.
+
+    Comparing the token map with itself proves nothing. The check has to
+    compare the candidate the token unlocks with the candidate the named
+    preregistration packet actually registers.
+    """
+    assert scoped_token_map_is_consistent() is True
+
+    # a packet that registers a different candidate is a disagreement
+    packet = tmp_path / "other_packet"
+    packet.mkdir(parents=True)
+    payload = _payload()
+    payload["candidate"]["strategy_id"] = "some_other_candidate"
+    (packet / "preregistration_payload.json").write_text(json.dumps(payload))
+    monkeypatch.setitem(
+        binding.SCOPED_CANDIDATE_PREREGISTRATION_PATHS, SCOPE_TOKEN, str(packet)
+    )
+    assert scoped_token_map_is_consistent() is False
+
+    # an unreadable packet is a disagreement too (fail closed)
+    monkeypatch.setitem(
+        binding.SCOPED_CANDIDATE_PREREGISTRATION_PATHS, SCOPE_TOKEN,
+        str(tmp_path / "does_not_exist"),
+    )
+    assert scoped_token_map_is_consistent() is False
 
 
 def test_binding_rejects_every_mutated_field(tmp_path):

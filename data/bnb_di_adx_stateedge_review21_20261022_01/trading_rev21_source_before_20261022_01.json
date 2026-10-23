@@ -1,0 +1,18 @@
+{
+  "cmd": [
+    ".venv/bin/python",
+    "-c",
+    "import pathlib,json; from trading_agent.backtest.campaign_integrity import capture_campaign_source; print(json.dumps(capture_campaign_source(pathlib.Path(\".\")),indent=2))"
+  ],
+  "rc": 0,
+  "elapsed_sec": 0.1401064395904541,
+  "stdout": [
+    "{",
+    "  \"code_commit\": \"4078892d738790872dc2d4f494e3973a62612347\",",
+    "  \"tree_fingerprint\": \"b3aa44f026939863018a15de44a57c5b81e1bde9176b2c7483c7d3b7a65db427\",",
+    "  \"worktree_dirty\": true,",
+    "  \"dirty_diff_sha256\": \"de09328a5d10994ad5d2e0a00a2efa2cac1e8c52befcede5c1cc46a336851209\"",
+    "}"
+  ],
+  "stderr": []
+}

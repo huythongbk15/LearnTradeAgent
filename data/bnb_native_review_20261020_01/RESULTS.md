@@ -1,4 +1,4 @@
-# BNB native ADX25 — bottleneck review — 2026-10-20 (rev2, corrected)
+# BNB native ADX25 — bottleneck review — 2026-10-20 (rev2, corrected; F9 re-executed and reproduced 2026-10-21)
 
 **rev2 supersedes rev1 of the same day.** Reviewer found four defects in rev1's
 analysis; all four are corrected here and the affected claims are retracted.
@@ -8,16 +8,28 @@ Source identity (before == after, unchanged across both revisions):
 `tree_fingerprint = 1b1650196a8907ebc7c5cbf354b0761d11a2c112fa8b9afd14d3adb46927d21a`,
 `code_commit = 4078892d738790872dc2d4f494e3973a62612347`, `worktree_dirty = true`.
 
-> **Source-identity caveat (added 2026-10-21, independent review round 1).**
-> The measurements in this document were produced under source `1b165019…`. The
-> manifest of this packet now declares a later identity, because the packet was
-> re-sealed when the scoped-candidate work landed. The three analysis scripts
-> here import only `trading_agent.strategies.enhanced_ma.MaAdxCrossover`
-> (`enhanced_ma.py` is unchanged against HEAD) and `layer_accounting.py` imports
-> no `trading_agent` module at all, so the results are *plausibly*
-> source-stable — but that is a static argument, not a re-execution.
-> **Re-executing the three scripts on the frozen pre-holdout input and
-> diffing the output against this document is still OPEN.**
+> **Source-identity caveat — CLOSED 2026-10-21 by re-execution (finding F9).**
+> The measurements in this document were produced under source `1b165019…`, and
+> this packet was later re-sealed when the scoped-candidate work landed. The
+> three analysis scripts here import only
+> `trading_agent.strategies.enhanced_ma.MaAdxCrossover` (`enhanced_ma.py` is
+> unchanged against HEAD) and `layer_accounting.py` imports no `trading_agent`
+> module at all, so the results were *plausibly* source-stable — a static
+> argument. **That argument has now been replaced by an execution:** the three
+> scripts were re-run on the hash-verified frozen pre-holdout input under the
+> current source, into a NEW output directory
+> (`reexecution_20261021/`), and **all seventeen quantities quoted in this
+> document were reproduced exactly** (0 mismatches). The diff is recorded in
+> `F9_REEXECUTION_DIFF.json`; the budget was 30 s, the spend 20.0 s, with no
+> retry. The **measurement body of this report was not changed** — only this
+> caveat block was rewritten afterwards, to record the re-execution; the
+> pre-rewrite bytes are in git.
+> **Re-executed again on 2026-10-22** after the round-3 source fix, under
+> identity A `d82bd081dfe999c3568268fd1b2a220db08ec4bdc87f24dc759582eb219a0825`
+> (the sidecar `reexecution_20261022/source_identity.json` records it): the
+> three output files came back **byte-identical** to the first re-execution
+> — the same three sha256 digests — so the measurement is stable across two
+> independent runs on two different source identities.
 No gate file touched; the AC01–AC15 receipt from rev1 still binds this identity.
 
 ---

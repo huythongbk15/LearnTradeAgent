@@ -726,12 +726,12 @@ They must fail clearly for this candidate; they are not a fallback path.
 ## 4. The receipts
 
 - `data/bnb_di_adx_stateedge_20261020_01/acceptance_receipt.json` — sha256 `f19a0cbc5752f0dec0d9d8374d522e2f3ac27576530643c8e3f70fc753a22271`
-- `data/bnb_di_adx_stateedge_20261020_01/pre_approval_payload.json` — sha256 `ccd809ed82d09f61fcdcc3a303e7d9a5c7ea212bcab7e5273d3cda83a393edf9`
+- `data/bnb_di_adx_stateedge_20261020_01/pre_approval_payload.json` — sha256 `08a5ebb072a378709d707b0bab664321f6af0956781bbd4636a5242b2567af11`
 - `data/bnb_di_adx_stateedge_20261020_01/source_identity_after.json` — sha256 `cd7494ec0adc37f7f7ae05bf92b28c35f858b9ba70a88135c3df193312fb988b`
 - `data/bnb_di_adx_stateedge_20261020_01/source_identity_before.json` — sha256 `cd7494ec0adc37f7f7ae05bf92b28c35f858b9ba70a88135c3df193312fb988b`
-- `data/bnb_di_adx_stateedge_prereg_20261020_01/manifest.json` — sha256 `b4119e93f7cb3ee3d5a7abde7c32f9aaed91adcfb0f7b51bb2629cb34c498a81`
-- `data/bnb_di_adx_stateedge_prereg_20261020_01/pre_approval_payload.json` — sha256 `ccd809ed82d09f61fcdcc3a303e7d9a5c7ea212bcab7e5273d3cda83a393edf9`
-- `data/bnb_di_adx_stateedge_prereg_20261020_01/preregistration_payload.json` — sha256 `ccd809ed82d09f61fcdcc3a303e7d9a5c7ea212bcab7e5273d3cda83a393edf9`
+- `data/bnb_di_adx_stateedge_prereg_20261020_01/manifest.json` — sha256 `fd60e230de38e7846655d5b9ac7bd273d2ccbf36c9f401dca7825e5e2f817107`
+- `data/bnb_di_adx_stateedge_prereg_20261020_01/pre_approval_payload.json` — sha256 `08a5ebb072a378709d707b0bab664321f6af0956781bbd4636a5242b2567af11`
+- `data/bnb_di_adx_stateedge_prereg_20261020_01/preregistration_payload.json` — sha256 `08a5ebb072a378709d707b0bab664321f6af0956781bbd4636a5242b2567af11`
 
 The three evidence manifests are named above by path; their hashes are
 NOT repeated here, because a manifest cannot contain the hash of a

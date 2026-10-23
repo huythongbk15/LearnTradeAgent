@@ -487,7 +487,7 @@ Runner/evidence/ops vẫn cần các đầu việc sau:
 | B03 | Soak tổng hợp theo symbol; failed runs, duplicate/unrelated events có thể tạo false PASS | [Soak tracker](../../scripts/testnet_soak_tracker.py) | L1.2 |
 | B04 | Cost floor/selection score cần thống nhất net/gross, turnover/notional và margin | [Live safety](../../src/trading_agent/execution/live_safety.py), [policy builder](../../src/trading_agent/research/selection_policy.py), [generator](../../scripts/generate_live_strategy_evidence.py) | L1.1 |
 | B05 | Chưa có published `data/live_strategy_evidence.json`; promotion store rỗng tại baseline | Local-only: `data/live_strategy_evidence.rejected.json`, `data/campaign_evidence_9month/campaign_summary.json`, `data/campaign_evidence_sa/campaign_summary.json` | L2 |
-| B06 | Payoff script thiếu per-trade records; break-even constant sai; snapshot handover khác artifact | [Payoff analysis](../../scripts/analyse_payoff_distribution.py), root `HANDOVER_2026_10_03.md` | L1.1, L1.4 |
+| B06 | Payoff script thiếu per-trade records; break-even constant sai; snapshot handover khác artifact | [Payoff analysis](../../scripts/analyse_payoff_distribution.py), [handover 2026-10-03](../archive/session-reports/HANDOVER_2026_10_03.md) | L1.1, L1.4 |
 | B07 | Dữ liệu hourly có nhiều phiên bản, cutoff/gaps khác nhau; chưa đủ release-bound ops evidence trong workspace đã kiểm tra | `data/raw/binance/`, [live TODO](../LIVE_TRADING_TODO.md) | L1.4, L3 |
 
 Agent phải xác nhận lại B01–B07 trên revision nhận việc; ghi RESOLVED nếu có

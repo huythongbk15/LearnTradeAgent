@@ -1,0 +1,46 @@
+{
+  "ac_id": "AC01",
+  "oracle": "prefix contract: output at cut t must equal full-series[:t]; mutation/append after t must not change prefix; HMM fit frozen on past window",
+  "cases": [
+    {
+      "name": "test_rule_based_future_mutation_and_append[220]",
+      "status": "PASS"
+    },
+    {
+      "name": "test_rule_based_future_mutation_and_append[310]",
+      "status": "PASS"
+    },
+    {
+      "name": "test_enhanced_ma_features_and_signals_prefix[220]",
+      "status": "PASS"
+    },
+    {
+      "name": "test_enhanced_ma_features_and_signals_prefix[310]",
+      "status": "PASS"
+    },
+    {
+      "name": "test_hmm_frozen_training_prefix",
+      "status": "PASS"
+    },
+    {
+      "name": "test_hmm_cache_respects_new_input_length",
+      "status": "PASS"
+    }
+  ],
+  "all_pass": true,
+  "total_checks": 6,
+  "passed": 6,
+  "seed": 2209,
+  "cutoffs": [
+    220,
+    310
+  ],
+  "hmm_fit_cutoff": 180,
+  "atol_rtol": "1e-10",
+  "fixes_applied": [
+    "rule-based index alignment (iloc after dropna)",
+    "HMM cache key includes _predict_cache_len",
+    "fit cutoff param on detect_all/detect",
+    "16 datetime.now()->UTC"
+  ]
+}
