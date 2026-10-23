@@ -10,7 +10,7 @@ origin and what superseded it.
 > validation. Within-campaign comparisons are internally consistent (one
 > commit each, no pooling) so relative readings hold; the absolute numbers
 > cannot be cited as current-pipeline evidence. See
-> `CAMPAIGN_REPRODUCIBILITY_ROOT_CAUSE.md`.
+> `../../../CAMPAIGN_REPRODUCIBILITY_ROOT_CAUSE.md`.
 
 ---
 
@@ -149,5 +149,5 @@ of which symbol and which window you happened to look at.
 The 9/9 folds, the selection_score 0.5 and the promotion it carried were
 all consistent with a strategy that rarely holds a position. That is what
 the 2,690 fabricated policies and the 4 attributable ones in
-`POLICY_RETURN_AUDIT.md` are the same story at a larger scale: the
+`../../../POLICY_RETURN_AUDIT.md` are the same story at a larger scale: the
 promotion machinery was measuring the wrong thing throughout.

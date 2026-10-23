@@ -2954,14 +2954,57 @@
 ├── docs
 │   ├── architecture
 │   │   └── STRATEGY_LIFECYCLE.md
+│   ├── archive
+│   │   ├── root-outputs
+│   │   │   ├── count_cells.py
+│   │   │   ├── jobs.json.3ea73dfd.final-mode-migrate.bak
+│   │   │   ├── kill2.json
+│   │   │   ├── kill3.json
+│   │   │   ├── kill4.json
+│   │   │   ├── verify_and_commit.sh
+│   │   │   ├── vol_btc_bg.json
+│   │   │   └── wfo_funding_carry_output.json
+│   │   └── session-reports
+│   │       ├── AC_TRACKER.md
+│   │       ├── CAMPAIGN_RESULT_SA.md
+│   │       ├── CLEANUP_TODO.md
+│   │       ├── COMBINED_ASSESSMENT.md
+│   │       ├── DEEP_REVIEW_2026_10_03.md
+│   │       ├── E2E_SYSTEM_TEST_RESULT.md
+│   │       ├── ENHANCED_MA_MEASUREMENTS.md
+│   │       ├── EVIDENCE_BASE_AUDIT.md
+│   │       ├── EXECUTION_PRIORITY_UPDATE.md
+│   │       ├── HANDOVER_2026_09_28.md
+│   │       ├── HANDOVER_2026_10_03.md
+│   │       ├── LIVE_READINESS_PLAN_REVIEW.md
+│   │       ├── PHASE1_AUDIT_REPORT.md
+│   │       ├── R04_COMPLETION_SUMMARY.md
+│   │       ├── README.md
+│   │       ├── SIMULATOR_DISCREPANCY.md
+│   │       ├── STRATEGY_RESEARCH_AUDIT.md
+│   │       ├── SYSTEM_REVIEW.md
+│   │       └── SYSTEM_REVIEW_LAYER_BY_LAYER.md
 │   ├── guides
 │   │   └── RESEARCH_TO_PRODUCTION.md
 │   ├── operations
+│   │   ├── BNB_ADX25_EVIDENCE_CARD.md
+│   │   ├── BNB_ADX25_RESEARCH_MANIFEST.json
+│   │   ├── BNB_QUALIFICATION_PROTOCOL.md
 │   │   ├── CAMPAIGN_EVIDENCE_CONTRACT.md
 │   │   ├── CAMPAIGN_EVIDENCE_HANDOFF.md
 │   │   ├── L2_SELECTION_RULE.md
 │   │   ├── LIVE_READINESS_AGENT_PLAN.md
-│   │   └── MAIN_FLOW_VALIDATION.md
+│   │   ├── MAIN_FLOW_VALIDATION.md
+│   │   ├── MULTIPAIR_OBSERVATIONS_20261017.md
+│   │   ├── MULTI_STRATEGY_RESEARCH_PLAN.md
+│   │   ├── QWENPAW_TOOL_NAME_GUARD.md
+│   │   ├── RESEARCH_LESSONS_LEARNED_20261018.md
+│   │   ├── RESEARCH_RUN_PROTOCOL.md
+│   │   ├── RSI_REGIME_SWITCH_EVIDENCE_CARD.md
+│   │   ├── RSI_REGIME_SWITCH_MANIFEST.json
+│   │   └── VALIDATION_CLOSURE_20261016.md
+│   ├── proposals
+│   │   └── regime_switched_strategy_design.md
 │   ├── reference
 │   │   └── EVIDENCE_ARTIFACTS.md
 │   ├── schemas
@@ -3209,6 +3252,7 @@
 │   ├── plan_window_structure.py
 │   ├── portfolio_holdout.py
 │   ├── portfolio_holdout_adaptive.py
+│   ├── preflight_bnb_native_validation.py
 │   ├── probe_daily_tradeability.py
 │   ├── probe_registry_window_density.py
 │   ├── probe_timeframe_trade_frequency.py
@@ -3228,6 +3272,9 @@
 │   ├── restore.sh
 │   ├── review_wave_ef.py
 │   ├── run_acceptance_ac01_15.py
+│   ├── run_bnb_adx25_comparison.py
+│   ├── run_bnb_adx25_multwindow.py
+│   ├── run_bnb_operational_sandbox.py
 │   ├── run_calibration.py
 │   ├── run_campaign_binding_smoke.py
 │   ├── run_canonical_strategy.py
@@ -3240,11 +3287,13 @@
 │   ├── run_strategy_tournament.py
 │   ├── run_test_suite.py
 │   ├── run_tournament_shadow.py
+│   ├── run_wfo_b_phase.sh
 │   ├── run_wfo_evidence.py
 │   ├── run_wfo_full_campaign.sh
 │   ├── run_wfo_minimal.py
 │   ├── run_wfo_parallel.py
 │   ├── run_wfo_remaining.sh
+│   ├── run_wfo_validation.py
 │   ├── select_l2_candidate.py
 │   ├── sign_and_verify.sh
 │   ├── simulate_execution.py
@@ -3283,7 +3332,8 @@
 │   ├── wfo_1d_paper_eligible.py
 │   ├── wfo_ma_adx.py
 │   ├── wfo_optimize.py
-│   └── wfo_tier_c.py
+│   ├── wfo_tier_c.py
+│   └── wfo_wrapper.sh
 ├── src
 │   └── trading_agent
 │       ├── agents
@@ -3333,15 +3383,19 @@
 │       │   │   └── backtest_report_v2.schema.json
 │       │   ├── __init__.py
 │       │   ├── accounting_evidence.py
+│       │   ├── attempt_ledger.py
 │       │   ├── campaign_evidence.py
 │       │   ├── campaign_execution.py
 │       │   ├── campaign_integrity.py
 │       │   ├── campaign_plan.py
 │       │   ├── campaign_writer.py
 │       │   ├── engine.py
+│       │   ├── execution_contract.py
+│       │   ├── execution_funnel.py
 │       │   ├── native_gate_contract.py
 │       │   ├── nested_wfo.py
 │       │   ├── portfolio_backtest.py
+│       │   ├── preregistration_binding.py
 │       │   ├── provenance.py
 │       │   ├── report_v2.py
 │       │   ├── reporting.py
@@ -3577,6 +3631,7 @@
 │       │   ├── base.py
 │       │   ├── bbands.py
 │       │   ├── cross_sectional_momentum.py
+│       │   ├── di_adx_state_edge.py
 │       │   ├── enhanced_ma.py
 │       │   ├── funding_carry.py
 │       │   ├── ma_crossover.py
@@ -3585,6 +3640,7 @@
 │       │   ├── range_mean_reversion.py
 │       │   ├── regime_switching.py
 │       │   ├── rsi.py
+│       │   ├── rsi_adx_regime_filter.py
 │       │   ├── sandbox.py
 │       │   ├── stat_arbitrage.py
 │       │   ├── trend_pullback.py
@@ -3601,6 +3657,7 @@
 │   ├── authority
 │   │   ├── test_approval_chain.py
 │   │   ├── test_execution_permission.py
+│   │   ├── test_operational_paper_boundary.py
 │   │   ├── test_resolver.py
 │   │   └── test_strategy_tournament_significance.py
 │   ├── backtest
@@ -3611,12 +3668,14 @@
 │   │   ├── test_cancel_stop_regressions.py
 │   │   ├── test_canonical_pipeline.py
 │   │   ├── test_e2e_paper_flow.py
+│   │   ├── test_historical_permission_preview.py
 │   │   ├── test_instrument_registry.py
 │   │   └── test_paper_exchange_telemetry.py
 │   ├── strategies
 │   │   ├── test_candidate_factory.py
 │   │   ├── test_canonical_contract.py
 │   │   ├── test_canonical_wave_c.py
+│   │   ├── test_research_compatibility_guards.py
 │   │   └── test_s1_exit_gate.py
 │   ├── __init__.py
 │   ├── conftest.py
@@ -3633,6 +3692,7 @@
 │   ├── test_alert_pager.py
 │   ├── test_alpaca_safety.py
 │   ├── test_atr_improvements.py.legacy
+│   ├── test_attempt_ledger_snapshot.py
 │   ├── test_audit_correlation.py
 │   ├── test_audit_report_cli.py
 │   ├── test_audit_ship_offhost.py
@@ -3641,6 +3701,8 @@
 │   ├── test_backtest_reporting.py
 │   ├── test_binance_live_runner.py
 │   ├── test_binance_testnet_acceptance.py
+│   ├── test_bnb_native_preflight.py
+│   ├── test_bnb_operational_sandbox.py
 │   ├── test_calibrated_decision.py
 │   ├── test_calibration.py
 │   ├── test_calibration_packet.py
@@ -3668,11 +3730,18 @@
 │   ├── test_controlled_exec_result.py
 │   ├── test_data_trust.py
 │   ├── test_decision_trace.py
+│   ├── test_di_adx_state_edge_contract.py
+│   ├── test_di_adx_state_edge_entrypoint_integration.py
+│   ├── test_di_adx_state_edge_launcher_integration.py
+│   ├── test_di_adx_state_edge_scoped_path.py
 │   ├── test_direct_broker_write_guard.py
 │   ├── test_e2e_authority_chain.py
 │   ├── test_enhanced_ma_exit_safety.py
 │   ├── test_evaluation_execution_identity.py
+│   ├── test_evaluation_ledger_layers.py
 │   ├── test_execution_algorithms.py
+│   ├── test_execution_contract.py
+│   ├── test_execution_funnel.py
 │   ├── test_execution_hardening.py
 │   ├── test_execution_lifecycle.py
 │   ├── test_execution_reuse_integration.py
@@ -3685,11 +3754,14 @@
 │   ├── test_fill_model_latency.py
 │   ├── test_forecast_promotion_contract.py
 │   ├── test_frozen_research_input.py
+│   ├── test_full_system_accounting_basis.py
 │   ├── test_full_system_cli_contracts.py
 │   ├── test_generator_evidence_integrity.py
 │   ├── test_golden_execute_promoted.py
 │   ├── test_holdout_manifest.py
+│   ├── test_indicator_window_equivalence.py
 │   ├── test_l2_selection_rule.py
+│   ├── test_ledger_and_binding_invariants.py
 │   ├── test_legacy_cutover_migration.py
 │   ├── test_live_account_session.py
 │   ├── test_live_audit_watchdog.py
@@ -3713,6 +3785,7 @@
 │   ├── test_multi_pair_runtime.py
 │   ├── test_native_campaign_rows.py
 │   ├── test_native_gate_contract.py
+│   ├── test_native_policy_binding.py
 │   ├── test_nested_wfo.py
 │   ├── test_nested_wfo_evidence.py
 │   ├── test_online_methodology.py
@@ -3738,6 +3811,7 @@
 │   ├── test_promotion_spread_criteria.py
 │   ├── test_qualification_cold_resume.py
 │   ├── test_quant_methodology.py
+│   ├── test_qwenpaw_shell_name_guard.py
 │   ├── test_r01_param_schema.py
 │   ├── test_r02_canonical_authority.py
 │   ├── test_r03_provenance_completeness.py
@@ -3749,9 +3823,11 @@
 │   ├── test_regime_lookahead.py
 │   ├── test_research_cadence_sensitivity.py
 │   ├── test_research_data_resolution.py
+│   ├── test_research_geometry_planner.py
 │   ├── test_research_governance.py
 │   ├── test_research_memory.py
 │   ├── test_research_stats.py
+│   ├── test_retired_wfo_wrapper.py
 │   ├── test_risk_decision.py
 │   ├── test_run_real_wfo_campaign_script.py
 │   ├── test_s3_3_real_return_stats.py
@@ -3779,14 +3855,17 @@
 │   ├── test_temporal_leakage_regression.py
 │   ├── test_testnet_soak_tracker.py
 │   ├── test_tier3_live.py
+│   ├── test_tool_dispatch_audit.py
 │   ├── test_tournament_e2e.py
 │   ├── test_tournament_research_memory_integration.py
 │   ├── test_uncertainty_drift_methodology.py
 │   ├── test_validation_only_workflow.py
+│   ├── test_validation_timeout_and_ledger_faults.py
 │   ├── test_verify_account_hardening.py
 │   ├── test_verify_github_controls.py
 │   ├── test_verify_provenance.py
-│   └── test_web_security.py
+│   ├── test_web_security.py
+│   └── test_wfo_validation_envelope.py
 ├── webui
 │   ├── backend
 │   │   ├── __init__.py
@@ -3820,50 +3899,24 @@
 ├── .gitignore
 ├── .mcp
 ├── .trivyignore
-├── AC_TRACKER.md
 ├── CAMPAIGN_REPRODUCIBILITY_ROOT_CAUSE.md
-├── CAMPAIGN_RESULT_SA.md
-├── CLEANUP_TODO.md
-├── COMBINED_ASSESSMENT.md
 ├── Caddyfile.oracle
-├── DEEP_REVIEW_2026_10_03.md
 ├── Dockerfile
-├── E2E_SYSTEM_TEST_RESULT.md
-├── ENHANCED_MA_MEASUREMENTS.md
-├── EVIDENCE_BASE_AUDIT.md
-├── EXECUTION_PRIORITY_UPDATE.md
 ├── GATE_SEMANTICS_AND_RERANK.md
-├── HANDOVER_2026_09_28.md
-├── HANDOVER_2026_10_03.md
-├── LIVE_READINESS_PLAN_REVIEW.md
 ├── Makefile
-├── PHASE1_AUDIT_REPORT.md
 ├── POLICY_RETURN_AUDIT.md
 ├── R00_BASELINE.json
 ├── R01_PARITY_REPORT.md
-├── R04_COMPLETION_SUMMARY.md
 ├── README.md
-├── SIMULATOR_DISCREPANCY.md
-├── STRATEGY_RESEARCH_AUDIT.md
-├── SYSTEM_REVIEW.md
-├── SYSTEM_REVIEW_LAYER_BY_LAYER.md
-├── count_cells.py
 ├── credentials.example.yaml
 ├── docker-compose.lite.yml
 ├── docker-compose.oracle.yml
 ├── docker-compose.prod.yml
 ├── docker-compose.yml
-├── jobs.json.3ea73dfd.final-mode-migrate.bak
-├── kill2.json
-├── kill3.json
-├── kill4.json
 ├── pyproject.toml
 ├── requirements-web.txt
 ├── requirements.lock
 ├── smoke_p0.py
-├── uv.lock
-├── verify_and_commit.sh
-├── vol_btc_bg.json
-└── wfo_funding_carry_output.json
+└── uv.lock
 ```
 

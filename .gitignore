@@ -24,6 +24,9 @@ logs/
 # Session-local TODO files
 *_TODO.md
 AC14_EVIDENCE_TODO.md
+# Root clutter relocated 2026-10-23. Not sealed evidence.
+/archive/session-notes/
+/archive/scratch-outputs/
 # Workstream B temporary files
 WORKSTREAM_B_RUN.sh
 data/wfo/*.sqlite3

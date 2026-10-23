@@ -58,7 +58,7 @@ generation works for the canonical strategies. Risk policy, order
 planning, LLM enrichment determinism, monitoring, hit-rate analysis and
 correlation all pass. None of these touch the promotion gate, which is
 consistent with the position reached in
-`CAMPAIGN_REPRODUCIBILITY_ROOT_CAUSE.md`: the harness bugs were in the
+`../../../CAMPAIGN_REPRODUCIBILITY_ROOT_CAUSE.md`: the harness bugs were in the
 campaign path, not the execution path.
 
 **T1B is worth reading carefully.** All 12 strategies cleared a 0.40 hit

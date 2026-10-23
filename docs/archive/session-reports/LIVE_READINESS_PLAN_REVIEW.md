@@ -123,7 +123,7 @@ the campaign and recorded in D01.
 
 L1.1 says cost floor and selection score must be reconciled net/gross. That
 is correct and it is unresolved. Two decisions in
-`GATE_SEMANTICS_AND_RERANK.md` are still open and both change L2's outcome:
+`../../../GATE_SEMANTICS_AND_RERANK.md` are still open and both change L2's outcome:
 
 - p≤0.20, n≥14 — chosen, but as judgement rather than derivation
 - fold independence versus fold count — the 270-bar window makes folds

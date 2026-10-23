@@ -200,7 +200,7 @@ five-trade result. A rule fixed before the campaign and recorded in D01
 costs nothing and removes the choice.
 
 **3. Two gate decisions are deferred and are load-bearing.** p≤0.20 and n≥14
-(`GATE_SEMANTICS_AND_RERANK.md`), and fold independence versus fold count —
+(`../../../GATE_SEMANTICS_AND_RERANK.md`), and fold independence versus fold count —
 the 270-bar window that makes folds tradeable also makes them overlap,
 which the binomial test assumes away. Both change L2's outcome. The plan's
 rule against self-amending thresholds means they must be settled at L1 and
