@@ -358,6 +358,15 @@ def test_binding_rejects_every_mutated_field(tmp_path):
 
 def test_pending_approval_cannot_start_a_run(tmp_path):
     root, payload = _approved_payload_copy(tmp_path)
+    # On-disk payload is APPROVED; reset to PENDING for this precondition test.
+    request = payload["data"]["scope_change_request"]
+    request["approval_state"] = "PENDING_OPERATOR_APPROVAL"
+    request["approved_scope"] = None
+    request["approved_by"] = None
+    request["approved_at"] = None
+    (root / PREREG_REL / "preregistration_payload.json").write_text(
+        json.dumps(payload, indent=2, sort_keys=True)
+    )
     _write_manifest(root, payload)
     protocol = _protocol(payload)
     failed = verify_registered_payload_binding(

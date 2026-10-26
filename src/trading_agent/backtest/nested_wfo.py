@@ -3602,43 +3602,24 @@ def run_nested_wfo(
                         idempotent=True,
                         execution_context=exec_ctx,
                     )
-        # Write cell_timings.jsonl for validation cells (placeholder timing info)
-        timings_path = out_root / "cell_timings.jsonl"
-        with timings_path.open("a", encoding="utf-8") as stream:
-            for inner in inner_results:
-                fold_obj = next((f for f in folds if f.fold_id == inner.fold_id), None)
-                for candidate in inner.candidate_metrics:
-                    artifact = candidate.get("artifact")
-                    stream.write(
-                        json.dumps(
-                            dict(
-                                key=f"{inner.fold_id}_{candidate.get('cost_scenario', '1x')}_{candidate.get('params', {})}",
-                                cell_id=getattr(artifact, "cell_id", "") if artifact else "",
-                                window={"timeout_seconds": 60, "max_retries": 0, "simulation_window": [inner.val_start, inner.val_end]},
-                                elapsed_sec=0.0,
-                                cache_hit=False,
-                                cache_reason="validation_only",
-                                status=getattr(artifact, "status", "COMPLETED") if artifact else "COMPLETED",
-                                error=None,
-                                strategy_id=spec.strategy_id,
-                                params=dict(candidate.get("params", {})),
-                                execution_control=dict(getattr(artifact, "execution_control", {}) or {}) if artifact else {},
-                                workers=1,
-                            )
-                        )
-                        + "\n"
-                    )
+        # cell_timings.jsonl is written once per execution by campaign_execution.py
+        # (QualificationCellRunner._execute_cell finally block). Do NOT write a
+        # second fold-summary here with placeholder timeout/elapsed; that would
+        # double-count timings and report a fake 60s window.
         # validation-only: override best_params with eligibility contract assessment
         final_inner_results = inner_results
         if selection_contract is not None:
             from trading_agent.backtest.selection_eligibility import (
-                assess_validation_candidates, verify_selection_contract,
+                annotate_candidate_decisions,
+                assess_validation_candidates,
+                verify_selection_contract,
             )
             verify_selection_contract(selection_contract)
             final_inner_results = []
             final_freezes = []
             for inner in inner_results:
                 decision = assess_validation_candidates(selection_contract, inner.candidate_metrics)
+                annotate_candidate_decisions(inner.candidate_metrics, decision)
                 selected = decision.get("selected")
                 if selected:
                     best_params = {**selected["params"], "cost_scenario": selected["cost_scenario"]}

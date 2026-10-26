@@ -7,9 +7,11 @@
 > **Mainnet:** NO-GO. Tài liệu này không cấp quyền kết nối tài khoản, deploy hay gửi lệnh.
 > **Primary type:** how-to — quy trình giao việc, thực hiện và nghiệm thu cho agent.
 
+> Điều phối hiện hành25/10/2026: dùng [playbook E2E](MULTI_STRATEGY_RESEARCH_PLAN.md) và [tracker](../CAMPAIGN_STATUS.md) để chọn task/dependency/authority. File này giữ contracts L0–L4; các handoff/action orders có ngày cũ là lịch sử, không authority hiện tại hoặc chứng nhận readiness. Không có thay đổi thresholds/permission từ banner này.
+
 ## 1. Mục tiêu, phạm vi và nguồn sự thật
 
-### Current action order — 2026-10-16
+### Historical action order — 2026-10-16
 
 Diagnostic2cells was subsequently approved/executed and ACCEPTED_CALIBRATION;
 both research decisions ABSTAIN. Current next steps are R0/R1 in
@@ -105,7 +107,7 @@ AC15PASS, không phải full repo suite/independent sign-off/market approval.
 Giữ ADX25 calibration, grid30 research; không chạy campaign/holdout/publish/live.
 Các đoạn "Latest integration" ngày10/10 phía dưới là historical handoffs.
 
-### Kế hoạch điều phối hiện hành — 2026-10-10
+### Kế hoạch điều phối lịch sử — 2026-10-10
 
 **Latest integration (đọc trước các handoff lịch sử bên dưới):**
 [Canonical validation-only repair](CAMPAIGN_EVIDENCE_HANDOFF.md#canonical-validation-only-repair--2026-10-10-local_verified_review_pending).
@@ -1003,3 +1005,4 @@ tuyên bố generic strategy routing đã hoàn tất chỉ vì resolver hỗ tr
 
 Recheck tài liệu exchange ở thời điểm thực hiện L3/L4. Tham chiếu ngoài không thay
 runtime contracts, operator approval hoặc evidence riêng của project.
+

@@ -17,10 +17,10 @@ import argparse
 import concurrent.futures
 import hashlib
 import json
+import math
 import multiprocessing as mp
 import os
 import signal
-import subprocess
 import sys
 import time
 import uuid
@@ -250,6 +250,51 @@ def get_param_grid_for_strategy(
     if grid:
         return grid
     return MINIMAL_PARAM_GRIDS.get(strategy_id, {})
+
+
+def fixed_parameter_grid(strategy_id: str, payload: str, scope_token=None) -> dict[str, list]:
+    """Strict scalar JSON -> normalized singleton grid; no I/O or search."""
+    from trading_agent.strategies.canonical.candidates import validate_params
+
+    def reject_constant(value):
+        raise ValueError(f"non-finite JSON constant: {value}")
+
+    def unique_object(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError(f"duplicate fixed parameter: {key}")
+            result[key] = value
+        return result
+
+    raw = json.loads(payload, parse_constant=reject_constant, object_pairs_hook=unique_object)
+    if not isinstance(raw, dict):
+        raise ValueError("--fixed-params requires a JSON object of scalar values")
+    descriptor = build_default_registry(scope_token=scope_token).describe(strategy_id)
+    properties = descriptor.parameters_schema["properties"]
+    for key, value in raw.items():
+        if key not in properties:
+            raise ValueError(f"unknown fixed parameter: {key}")
+        schema = properties[key]
+        kind = schema.get("type")
+        valid_type = {
+            "integer": type(value) is int,
+            "number": type(value) in (int, float),
+            "string": type(value) is str,
+            "boolean": type(value) is bool,
+        }.get(kind, False)
+        if not valid_type:
+            raise ValueError(f"{key}: expected scalar {kind}")
+        if isinstance(value, float) and not math.isfinite(value):
+            raise ValueError(f"{key}: must be finite")
+        if "enum" in schema and value not in schema["enum"]:
+            raise ValueError(f"{key}: not in allowed enum")
+    normalized = validate_params(strategy_id, raw)
+    # These shared names are not cross-checked by the legacy validator.
+    for left, right in (("ma_fast", "ma_slow"), ("rsi_oversold", "rsi_overbought")):
+        if left in normalized and right in normalized and normalized[left] >= normalized[right]:
+            raise ValueError(f"{left} must be < {right}")
+    return {key: [value] for key, value in normalized.items()}
 
 
 def get_cost_scenarios(cost_arg: str) -> tuple[CostScenario, ...]:
@@ -775,9 +820,13 @@ def audit_parallel_trial_history(spec, protocol, folds):
 
 
 def prepare_parallel_protocol(spec, out_root, *, workers, cell_timeout, reuse_from=None,
-                              validation_budget=None, scope_token=None, max_retries=1):
+                              validation_budget=None, scope_token=None, max_retries=1,
+                              stop_on_failure=False):
     """Freeze effective inputs before evaluation; never upgrade a legacy packet."""
     from trading_agent.backtest.campaign_evidence import content_hash
+    if type(stop_on_failure) is not bool or (stop_on_failure and (
+            validation_budget is None or workers != 1)):
+        raise ValueError("stop-on-failure requires serial validation-only budget")
     from trading_agent.backtest.campaign_integrity import capture_campaign_source
     from trading_agent.backtest.native_gate_contract import freeze_native_gate_contract
     from trading_agent.backtest.selection_eligibility import freeze_selection_contract
@@ -890,6 +939,8 @@ def prepare_parallel_protocol(spec, out_root, *, workers, cell_timeout, reuse_fr
         body["execution"]["max_retries"] = 0
         body["validation_budget"] = dict(validation_budget)
         body["scope"] = "inner_validation_only_not_qualification"
+    if stop_on_failure:
+        body["execution"]["stop_on_failure"] = True
     protocol = {**body, "fingerprint": content_hash(body)}
     # Research protocol is already deterministic and binds the full execution
     # context. Do not add an unhashed derived field or relax source/dirty binding.
@@ -910,6 +961,14 @@ def prepare_parallel_protocol(spec, out_root, *, workers, cell_timeout, reuse_fr
         raise ValueError("trial history conflict before evaluation; inspect trial_history_preflight.json; do not reset registry")
     _durable_json(out_root / "research_protocol.json", protocol)
     return protocol, folds
+
+
+class ValidationStoppedAfterFailure(RuntimeError):
+    """A real failed attempt stopped dispatch; remaining cells are not attempts."""
+
+    def __init__(self, receipt):
+        super().__init__("validation stopped after first failed cell")
+        self.receipt = receipt
 
 
 class QualificationCellRunner(CampaignCellRunner):
@@ -960,6 +1019,38 @@ class QualificationCellRunner(CampaignCellRunner):
              "native_execution_contract": self.protocol["native_execution_contracts"][key]},
             scope_token=self.trial_context.get("scope_token"),
         )
+
+    def run_batch(self, cells):
+        if not self.protocol["execution"].get("stop_on_failure", False):
+            return super().run_batch(cells)
+        if self.workers != 1 or self.protocol.get("scope") != "inner_validation_only_not_qualification":
+            raise ValueError("stop-on-failure is serial validation-only")
+        from trading_agent.backtest.campaign_evidence import content_hash
+        observations = getattr(self, "_serial_observations", [])
+        self._serial_observations = observations
+        artifacts = []
+        for spec, start, end, fresh, measurement_start, measurement_end in cells:
+            artifact = self(spec, out_root=self.root, start=start, end=end, fresh=fresh,
+                            measurement_start=measurement_start, measurement_end=measurement_end,
+                            _cache_stage="INNER_VALIDATION")
+            row = {"cell_id": spec.cell_id, "params": dict(spec.params),
+                   "cost": spec.cost_scenario.to_dict(), "simulation_window": [start, end],
+                   "measurement_window": [measurement_start, measurement_end]}
+            observations.append({"planned_cell": row, "status": artifact.status,
+                                 "artifact": artifact.to_dict()})
+            artifacts.append(artifact)
+            if artifact.status != "COMPLETED":
+                attempted = {content_hash(o["planned_cell"]) for o in observations}
+                receipt = {
+                    "protocol_fingerprint": self.protocol["fingerprint"],
+                    "reason": "stop_on_first_failed_cell", "attempted": list(observations),
+                    "not_attempted": [r for r in self.protocol["expected_inner_cells"]
+                                      if content_hash(r) not in attempted],
+                    "live_authorized": False,
+                }
+                _durable_json(self.root / "stop_on_failure.json", receipt)
+                raise ValidationStoppedAfterFailure(receipt)
+        return artifacts
 
     def __call__(self, spec, **kwargs):
         from trading_agent.backtest.campaign_evidence import content_hash
@@ -1200,6 +1291,21 @@ def run_validation_only(spec: WFOSpec, out_root: Path, protocol: dict, folds, ce
             raise RuntimeError(f"validation worker {outcome['status']}; inspect worker logs")
         summary = json.loads((out_root / "parallel_canonical_summary.json").read_bytes())
         coverage = json.loads((out_root / "exact_coverage.json").read_bytes())
+        if (summary.get("protocol_fingerprint") != protocol["fingerprint"]
+                or coverage.get("protocol_fingerprint") != protocol["fingerprint"]):
+            raise ValueError("worker evidence protocol mismatch")
+        _verify_validation_protocol(spec, protocol, folds)
+        if coverage.get("status") == "INCOMPLETE":
+            terminal = json.loads((out_root / "terminal_INCOMPLETE.json").read_bytes())
+            if (summary.get("verdict") != "VALIDATION_INCOMPLETE"
+                    or terminal != coverage or not coverage.get("failed_cells")
+                    or summary.get("live_authorized") is not False
+                    or coverage.get("live_authorized") is not False):
+                raise ValueError("missing or inconsistent worker INCOMPLETE evidence")
+            outcome.update(status="INCOMPLETE", reason=coverage["reason"],
+                           failed_cells=coverage["failed_cells"],
+                           completed_cells=coverage["completed_cells"])
+            return
         if (summary["verdict"] != "VALIDATION_COMPLETE" or coverage["status"] != "PASS"
                 or summary["protocol_fingerprint"] != protocol["fingerprint"]
                 or coverage["protocol_fingerprint"] != protocol["fingerprint"]):
@@ -1224,6 +1330,7 @@ def _verify_validation_protocol(spec, protocol, folds):
     controls = protocol["execution"]
     budget = protocol.get("validation_budget", {})
     if (content_hash({k: v for k, v in protocol.items() if k != "fingerprint"}) != protocol["fingerprint"]
+            or ("stop_on_failure" in controls and controls["stop_on_failure"] is not True)
             or protocol.get("scope") != "inner_validation_only_not_qualification"
             or protocol["spec"] != spec.to_dict() or protocol["folds"] != [asdict(f) for f in folds]
             or controls["workers"] != 1 or controls["max_retries"] != 0
@@ -1245,176 +1352,45 @@ def _verify_validation_protocol(spec, protocol, folds):
 
 
 def _validation_group_rss_mb(group):
-    """Linux RSS sum of the owned process session, including spawned cells."""
-    rss_kb = 0
-    for path in Path("/proc").iterdir():
-        if not path.name.isdigit():
-            continue
-        try:
-            stat = (path / "stat").read_text().rsplit(")", 1)[1].split()
-            if int(stat[2]) == group:  # state, ppid, pgrp
-                status = (path / "status").read_text().splitlines()
-                rss_kb += next((int(line.split()[1]) for line in status if line.startswith("VmRSS:")), 0)
-        except (FileNotFoundError, ProcessLookupError):
-            continue
-    return rss_kb / 1024
+    from trading_agent.backtest.validation_supervisor import _validation_group_rss_mb as read_rss
+
+    return read_rss(group)
 
 
 def _validation_group_pids(group):
-    """Return all PIDs in the process group, including zombies."""
-    pids = []
-    for path in Path("/proc").iterdir():
-        if not path.name.isdigit():
-            continue
-        try:
-            stat = (path / "stat").read_text().rsplit(")", 1)[1].split()
-            if int(stat[2]) == group:
-                pids.append(int(path.name))
-        except (FileNotFoundError, ProcessLookupError):
-            continue
-    return pids
+    from trading_agent.backtest.validation_supervisor import _validation_group_pids as read_pids
+
+    return read_pids(group)
 
 
 def _wait_for_all_reaped(group, deadline):
-    """Wait until all processes in group are reaped (no PIDs exist)."""
-    while _validation_group_pids(group):
-        if time.monotonic() >= deadline:
-            return False
-        time.sleep(0.01)
-    return True
+    from trading_agent.backtest.validation_supervisor import _wait_for_all_reaped as wait_reaped
+
+    return wait_reaped(group, deadline, group_pids=_validation_group_pids)
 
 
 def _supervise_validation(command, out_root, *, total_timeout_seconds, max_rss_mb):
-    if not sys.platform.startswith("linux"):
-        raise RuntimeError("validation budget supervision requires Linux")
-    started = time.monotonic()
-    peak = 0.0
-    status = None
-    with (out_root / "worker_stdout.log").open("x") as stdout, (out_root / "worker_stderr.log").open("x") as stderr:
-        process = subprocess.Popen(command, cwd=ROOT, stdout=stdout, stderr=stderr, start_new_session=True)
-        try:
-            while process.poll() is None:
-                peak = max(peak, _validation_group_rss_mb(process.pid))
-                if time.monotonic() - started >= total_timeout_seconds:
-                    status = "TIMEOUT"
-                    break
-                if peak > max_rss_mb:
-                    status = "MEMORY_LIMIT"
-                    break
-                time.sleep(0.05)
-        finally:
-            # Always clean our session, even if the leader exited first.
-            cleanup_deadline = time.monotonic() + 5
-            for sig in (signal.SIGTERM, signal.SIGKILL):
-                try:
-                    os.killpg(process.pid, sig)
-                except ProcessLookupError:
-                    break
-                if sig == signal.SIGTERM:
-                    time.sleep(0.2)
-            process.wait(timeout=max(0, cleanup_deadline - time.monotonic()))
-            # Wait for ALL processes in group to be reaped (including zombies)
-            if not _wait_for_all_reaped(process.pid, cleanup_deadline):
-                remaining = _validation_group_pids(process.pid)
-                raise RuntimeError(f"owned validation session did not stop within cleanup grace; remaining PIDs: {remaining}")
-    return {"status": status or ("COMPLETED" if process.returncode == 0 else "WORKER_ERROR"),
-            "worker_exit_code": process.returncode, "elapsed_seconds": time.monotonic() - started,
-            "sampled_group_peak_rss_mb": peak, "rss_sample_interval_seconds": 0.05,
-            "budget_enforcement": "owned_session_wall_deadline_and_sampled_RSS_not_hard_allocator_cap"}
+    from trading_agent.backtest.validation_supervisor import _supervise_validation as supervise
+
+    return supervise(
+        command, out_root, total_timeout_seconds=total_timeout_seconds,
+        max_rss_mb=max_rss_mb, cwd=ROOT, group_rss_mb=_validation_group_rss_mb,
+        wait_for_all_reaped=_wait_for_all_reaped, group_pids=_validation_group_pids,
+    )
 
 
 def verify_validation_only_coverage(spec, result, protocol, folds, out_root):
-    from trading_agent.backtest.campaign_evidence import content_hash
-    from trading_agent.backtest.selection_eligibility import verify_validation_reports
-    from trading_agent.backtest.nested_wfo import InnerSelectionFreeze
-    _verify_validation_protocol(spec, protocol, folds)
-    if (result.outer_results or result.final_holdout or result.passes_hard_gates
-            or [r.fold_id for r in result.inner_results] != [f.fold_id for f in folds]):
-        raise ValueError("validation fold coverage or prohibited OOS/holdout mismatch")
-    observed, reports, decisions = [], [], []
-    for fold, inner in zip(folds, result.inner_results):
-        if (inner.val_start, inner.val_end) != (fold.inner_val_start, fold.inner_val_end):
-            raise ValueError("validation fold window mismatch")
-        # Verify report attribution (this is the actual purpose of verify_validation_reports)
-        verify_validation_reports(
-            protocol["selection_contract"], inner.candidate_metrics, root=out_root,
-            validation_window=(fold.inner_val_start, fold.inner_val_end), expected_spec=spec,
-            expected_commit=protocol["source"]["code_commit"],
-            scope_token=(protocol.get("execution") or {}).get("scope_token"),
-        )
-        # Re-compute expected decision from candidates (tamper-proof)
-        from trading_agent.backtest.selection_eligibility import assess_validation_candidates
-        expected_decision = assess_validation_candidates(protocol["selection_contract"], inner.candidate_metrics)
-        expected_decision_with_fold = {**expected_decision, "fold_id": fold.fold_id}
-        # Read the decision from the file (written by nested_wfo via assess_validation_candidates)
-        saved = json.loads((out_root / f"selection_decision_{fold.fold_id}.json").read_bytes())
-        # Compare ignoring fields added by nested_wfo after assess_validation_candidates
-        def strip_augmented_fields(d):
-            if not isinstance(d, dict):
-                return d
-            result = {}
-            for k, v in d.items():
-                if k in ("report_sha256", "report_path"):
-                    continue
-                if isinstance(v, list):
-                    result[k] = [strip_augmented_fields(item) for item in v]
-                elif isinstance(v, dict):
-                    result[k] = strip_augmented_fields(v)
-                else:
-                    result[k] = v
-            return result
-        if strip_augmented_fields(saved) != strip_augmented_fields(expected_decision_with_fold):
-            raise ValueError("validation selection decision differs from raw evidence")
-        decision = expected_decision_with_fold
-        selected = decision.get("selected")
-        expected_best = {**selected["params"], "cost_scenario": selected["cost_scenario"]} if selected else {}
-        if inner.best_params != expected_best:
-            raise ValueError("validation best params differ from eligibility contract")
-        freezes = [f for f in result.inner_selection_freezes if f.fold_id == fold.fold_id]
-        if len(freezes) != int(selected is not None):
-            raise ValueError("missing, duplicate or unexpected validation freeze")
-        for freeze in freezes:
-            path = out_root / "inner_selection_freezes" / f"{freeze.freeze_id.removeprefix('sha256:')}.json"
-            raw = json.loads(path.read_bytes())
-            parsed = InnerSelectionFreeze.from_dict(raw)
-            if (raw["freeze_id"] != parsed.freeze_id or parsed.to_dict() != freeze.to_dict()
-                    or parsed.best_params != expected_best or parsed.inner_val_start != fold.inner_val_start
-                    or parsed.inner_val_end != fold.inner_val_end):
-                raise ValueError("invalid validation freeze")
-        decisions.append({"fold_id": fold.fold_id, "decision": decision["decision"]})
-        for candidate in inner.candidate_metrics:
-            source = candidate["validation_source"]
-            artifact = EvaluationArtifact.from_dict(source["artifact"])
-            control = artifact.execution_control
-            _verify_native_report(protocol, artifact, out_root)
-            if (control.get("timeout_seconds") != protocol["execution"]["cell_timeout"]
-                    or control.get("max_retries") != 0 or control.get("attempts_made") != 1
-                    or control.get("isolation") != "spawned_process" or control.get("outcome") != "completed"):
-                raise ValueError("validation execution controls differ from protocol")
-            observed.append({"cell_id": artifact.cell_id, "params": candidate["params"],
-                "cost": next(c.to_dict() for c in spec.cost_scenarios if c.name == candidate["cost_scenario"]),
-                "simulation_window": list(artifact.simulation_window),
-                "measurement_window": list(artifact.measurement_window)})
-            reports.append({"path": source["report_path"], "sha256": source["report_sha256"]})
-    if Counter(map(content_hash, observed)) != Counter(map(content_hash, protocol["expected_inner_cells"])):
-        raise ValueError("missing, duplicate or unexpected validation cells")
-    # Verify raw report SHA256 matches actual file content
-    import hashlib
-    for report_info in reports:
-        report_path = Path(report_info["path"])
-        if report_path.exists():
-            actual_sha = hashlib.sha256(report_path.read_bytes()).hexdigest()
-            expected_sha = report_info["sha256"]
-            if actual_sha != expected_sha:
-                raise ValueError(f"Report SHA256 mismatch: {report_path} actual={actual_sha} expected={expected_sha}")
-    audit = audit_parallel_trial_history(spec, protocol, folds)
-    if audit["conflicts"] or audit["current_context_rows"] != len(observed):
-        raise ValueError("canonical validation trial accounting incomplete or conflicting")
-    return {"status": "PASS", "scope": "inner_validation_only_not_qualification",
-            "evidence_class": spec.evidence_class,
-            "protocol_fingerprint": protocol["fingerprint"], "inner_cells": len(observed),
-            "folds": decisions, "reports": reports, "outer_folds": 0, "sensitivity_cells": 0,
-            "trial_counts": result.trial_counts, "live_authorized": False}
+    """Compatibility adapter with launcher collaborators resolved at call time."""
+    from trading_agent.backtest.validation_reporting import (
+        verify_validation_only_coverage as verify_coverage,
+    )
+
+    return verify_coverage(
+        spec, result, protocol, folds, out_root,
+        verify_protocol=_verify_validation_protocol,
+        verify_native_report=_verify_native_report,
+        audit_trial_history=audit_parallel_trial_history,
+    )
 
 
 def _verify_approved_payload_binding(protocol, scope_token):
@@ -1473,110 +1449,48 @@ def _run_validation_canonical(spec, out_root, protocol, folds, cell_runner=None)
     if cell_runner is not None:
         runner = cell_runner
     exec_context = _trial_execution_context(protocol)
-    result = run_nested_wfo(
-        spec, out_root=out_root, real_sensitivity=False, run_holdout=False,
-        cell_runner=runner, native_gate_contract=protocol["native_gate_contract"],
-        selection_contract=protocol["selection_contract"], validation_only=True,
-        execution_context=exec_context, folds=folds,
+    try:
+        result = run_nested_wfo(
+            spec, out_root=out_root, real_sensitivity=False, run_holdout=False,
+            cell_runner=runner, native_gate_contract=protocol["native_gate_contract"],
+            selection_contract=protocol["selection_contract"], validation_only=True,
+            execution_context=exec_context, folds=folds,
+        )
+    except ValidationStoppedAfterFailure as exc:
+        _publish_stopped_validation(spec, protocol, out_root, exc.receipt)
+        return None
+
+    from trading_agent.backtest.validation_reporting import publish_validation_result
+
+    return publish_validation_result(
+        spec, result, protocol, folds, out_root,
+        verify_coverage=verify_validation_only_coverage, write_json=_durable_json,
     )
 
-    # Write cell_execution receipts for each validation cell (per-cell terminal receipts)
-    cell_exec_dir = out_root / "cell_execution"
-    cell_exec_dir.mkdir(parents=True, exist_ok=True)
 
-    # Verify raw report SHA256 and write receipts
-    import hashlib
-    for fold, inner in zip(folds, result.inner_results):
-        for candidate in inner.candidate_metrics:
-            source = candidate["validation_source"]
-            report_path = Path(source["report_path"])
-            if report_path.exists():
-                raw_bytes = report_path.read_bytes()
-                report_sha256 = hashlib.sha256(raw_bytes).hexdigest()
-
-                # Verify SHA256 matches cached value if available
-                if "report_sha256" in source and source["report_sha256"] != report_sha256:
-                    raise ValueError(f"Report SHA256 mismatch for {report_path}: cached={source['report_sha256']} actual={report_sha256}")
-
-                # Write cell_execution receipt
-                exec_dir = cell_exec_dir / uuid.uuid4().hex
-                exec_dir.mkdir(parents=True, exist_ok=False)
-                _durable_json(exec_dir / "started.json", {
-                    "cell_id": candidate.get("cell_id", source.get("cell_id", "unknown")),
-                    "strategy_id": spec.strategy_id,
-                    "symbol": spec.symbol,
-                    "timeframe": spec.timeframe,
-                    "params": candidate["params"],
-                    "cost": next((c.to_dict() for c in spec.cost_scenarios if c.name == candidate["cost_scenario"]), {}),
-                    "validation_window": {"start": inner.val_start, "end": inner.val_end},
-                    "report_sha256": report_sha256,
-                    "report_path": str(report_path),
-                    "status": "COMPLETED",
-                    "live_authorized": False,
-                    "scope": "validation_receipt_not_qualification",
-                })
-                _durable_json(exec_dir / "result.json", {
-                    "report_sha256": report_sha256,
-                    "report_path": str(report_path),
-                    "status": "COMPLETED",
-                    "metrics": candidate.get("val_metrics", {}),
-                    "live_authorized": False,
-                })
-
-    coverage = verify_validation_only_coverage(spec, result, protocol, folds, out_root)
-
-    # Write inner_selection_freezes (already written by nested_wfo, but verify here)
-    freeze_dir = out_root / "inner_selection_freezes"
-    # Directory may not exist if all decisions are ABSTAIN (no freezes written)
-    # Create it if missing for consistent structure
-    if not freeze_dir.exists():
-        freeze_dir.mkdir(parents=True, exist_ok=True)
-
-    # Remove existing files first (tests reuse temp directories)
-    for path in [out_root / "exact_coverage.json", out_root / "parallel_canonical_summary.json"]:
-        if path.exists():
-            path.unlink()
+def _publish_stopped_validation(spec, protocol, out_root, receipt):
+    """Abort receipts only: never fake artifacts/attempts or grant coverage PASS."""
+    attempted = receipt["attempted"]
+    coverage = {
+        "status": "INCOMPLETE", "scope": "inner_validation_only_not_qualification",
+        "evidence_class": spec.evidence_class, "reason": receipt["reason"],
+        "protocol_fingerprint": protocol["fingerprint"],
+        "failed_cells": [o for o in attempted if o["status"] != "COMPLETED"],
+        "completed_cells": sum(o["status"] == "COMPLETED" for o in attempted),
+        "attempted_cells": len(attempted), "not_attempted_cells": receipt["not_attempted"],
+        "trial_accounting_status": "INCOMPLETE_BATCH_ABORTED_BEFORE_REGISTRATION",
+        "live_authorized": False,
+    }
+    _durable_json(out_root / "terminal_INCOMPLETE.json", coverage)
     _durable_json(out_root / "exact_coverage.json", coverage)
-    fold_rows = []
-    for fold, inner in zip(folds, result.inner_results):
-        candidates = inner.candidate_metrics or []
-        trades = [
-            (c.get("val_metrics") or {}).get("total_trades")
-            for c in candidates
-        ]
-        decisions = [c.get("decision") for c in candidates]
-        fold_rows.append({
-            "fold_id": fold.fold_id,
-            "inner_val_start": fold.inner_val_start,
-            "inner_val_end": fold.inner_val_end,
-            "decisions": decisions,
-            "validation_trades": trades,
-            "selected": "SELECT" in decisions,
-        })
-    all_selected = bool(fold_rows) and all(row["selected"] for row in fold_rows)
-    sample_complete = bool(fold_rows) and all(
-        isinstance(trades, int) and trades > 0
-        for row in fold_rows for trades in row["validation_trades"]
-    )
     _durable_json(out_root / "parallel_canonical_summary.json", {
         "strategy": spec.strategy_id, "symbol": spec.symbol, "timeframe": spec.timeframe,
-        "evidence_class": spec.evidence_class,
-        "verdict": "VALIDATION_COMPLETE", "validation_only": True, "passes_hard_gates": False,
-        # EXECUTION completeness is not QUALIFICATION. These three fields make
-        # the difference explicit so VALIDATION_COMPLETE can never be read as
-        # "qualified" or as "sample sufficient".
-        "qualification_status": (
-            "NOT_QUALIFIED_VALIDATION_ONLY" if not all_selected
-            else ("SAMPLE_COMPLETE_BUT_NOT_QUALIFIED" if sample_complete
-                  else "INCOMPLETE_SAMPLE")
-        ),
-        "all_folds_selected": all_selected,
-        "sample_complete": sample_complete,
-        "protocol_fingerprint": protocol["fingerprint"], "aggregate_metrics": result.aggregate_metrics,
-        "trial_counts": result.trial_counts, "fold_decisions": coverage["folds"],
-        "validation_fold_rows": fold_rows, "live_authorized": False,
+        "evidence_class": spec.evidence_class, "verdict": "VALIDATION_INCOMPLETE",
+        "qualification_status": "NOT_QUALIFIED_VALIDATION_ONLY", "validation_only": True,
+        "passes_hard_gates": False, "all_folds_selected": False, "sample_complete": False,
+        "protocol_fingerprint": protocol["fingerprint"], "stop_on_failure": receipt,
+        "live_authorized": False,
     })
-    return result
 
 
 def validate_validation_only_budget(args) -> None:
@@ -1609,6 +1523,8 @@ def validate_validation_only_budget(args) -> None:
 def main():
     parser = argparse.ArgumentParser(description="Parallel Canonical WFO runner")
     parser.add_argument("--strategy", default="ma_adx")
+    parser.add_argument("--fixed-params", default=None,
+                        help="Scalar JSON object for one fixed candidate; defaults are resolved and frozen. Validation/preflight only, not a search grid.")
     parser.add_argument("--symbol", default="SOL/USDT")
     parser.add_argument("--timeframe", default="1h")
     parser.add_argument(
@@ -1633,6 +1549,8 @@ def main():
                         help="Freeze protocol and exact validation inventory; do not evaluate")
     parser.add_argument("--validation-only", action="store_true",
                         help="Run inner validation ONLY (no outer OOS, no sensitivity, no holdout). Produces selection freeze and coverage.")
+    parser.add_argument("--stop-on-failure", action="store_true",
+                        help="Serial validation-only: stop dispatch after first failed attempt; preserve unattempted cells.")
     parser.add_argument("--synthetic-test-only", action="store_true",
                         help="Label validation/preflight fixtures SYNTHETIC_TEST_ONLY; never market evidence")
     parser.add_argument("--total-timeout", type=int, default=1800,
@@ -1670,6 +1588,10 @@ def main():
         help="Disable real sensitivity",
     )
     args = parser.parse_args()
+    if args.stop_on_failure and (not args.validation_only or args.validation_worker is not None):
+        parser.error("--stop-on-failure requires validation-only and cannot override a worker protocol")
+    if args.fixed_params is not None and args.validation_worker is not None:
+        parser.error("--fixed-params cannot override a frozen validation worker protocol")
     if args.validation_worker is not None:
         from trading_agent.backtest.nested_wfo import NestedFold
         root = args.validation_worker.resolve()
@@ -1703,6 +1625,16 @@ def main():
     elif not args.real_sensitivity:
         parser.error("This qualification entry point requires measured sensitivity")
 
+    if args.fixed_params is not None:
+        if not (args.validation_only or args.preflight_only):
+            parser.error("--fixed-params requires validation-only or preflight-only")
+        try:
+            param_grid = fixed_parameter_grid(args.strategy, args.fixed_params, args.scope_token)
+        except (ValueError, KeyError) as exc:
+            parser.error(str(exc))
+    else:
+        param_grid = get_param_grid_for_strategy(args.strategy, args.scope_token)
+
     out_root = Path(args.out)
     out_root.mkdir(parents=True, exist_ok=True)
 
@@ -1728,7 +1660,7 @@ def main():
         strategy_id=args.strategy,
         symbol=symbol,
         timeframe=args.timeframe,
-        param_grid=get_param_grid_for_strategy(args.strategy, args.scope_token),
+        param_grid=param_grid,
         cost_scenarios=cost_scenarios,
         train_months=args.train_months,
         val_months=args.val_months,
@@ -1752,6 +1684,7 @@ def main():
         spec, out_root, workers=args.workers, cell_timeout=args.cell_timeout,
         reuse_from=args.reuse_from, scope_token=args.scope_token,
         max_retries=args.max_retries,
+        **({"stop_on_failure": True} if args.stop_on_failure else {}),
         **({"validation_budget": {"total_timeout_seconds": args.total_timeout,
                                   "max_rss_mb": args.max_rss_mb}} if args.validation_only else {}),
     )
@@ -1771,7 +1704,7 @@ def main():
         f"Running CANONICAL WFO for {args.strategy} {args.symbol} {args.timeframe}...",
         flush=True,
     )
-    print(f"  Params: {get_param_grid_for_strategy(args.strategy)}", flush=True)
+    print(f"  Params: {spec.param_grid}", flush=True)
     print(f"  Cost: {[c.name for c in cost_scenarios]}", flush=True)
     print(f"  Workers: {args.workers}", flush=True)
     print(f"  Out: {out_root}", flush=True)

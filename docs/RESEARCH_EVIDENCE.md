@@ -1,5 +1,7 @@
 # Research Evidence
 
+**Current decision — 2026-10-23:** chưa có candidate qualified. [Inventory có primary reports](../data/strategy_evidence_inventory_20261023_01/RESULTS.md) và [tracker](CAMPAIGN_STATUS.md) là điểm đọc trạng thái gần nhất. Các số liệu 08/2026 và đề xuất testnet bên dưới là lịch sử, không phải khuyến nghị hiện tại. Không dùng nhãn “untouched” của snapshot cũ thay cho lịch sử exposure thực tế; giữ reserved holdout đóng, không relabel dữ liệu đã thấy.
+
 > Tài liệu này phân biệt rõ từng loại bằng chứng nghiên cứu và mức độ tin cậy của chúng.
 > **Backtest không phải production validation.** Một config "tốt trong backtest" chỉ là
 > *candidate research configuration* cho tới khi có statistical validation + testnet/paper

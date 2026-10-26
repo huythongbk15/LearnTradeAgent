@@ -6,9 +6,9 @@ Logic:
   - ADX < adx_threshold (default 20)  → RANGE regime → use RSI signal
   - ADX >= adx_threshold              → TREND regime → use MA crossover signal
 
-This addresses regime dependence: RSI loses money in trending markets,
-ma_adx has low trade density. Combining them via ADX filter gives
-both signal density and regime robustness.
+This implements a range/trend hypothesis; trade density, profitability and
+regime robustness require empirical validation. RSI and ADX below use simple
+rolling approximations, not Wilder's recursive smoothing.
 
 Parameters:
     rsi_period (14), rsi_oversold (30), rsi_overbought (70),
@@ -41,7 +41,6 @@ class RsiAdxRegimeFilterStrategy(Strategy):
     adx_period : int      (default 14)
     adx_threshold : int   (default 20)
     ma_type : str         (default "sma") — "sma" or "ema"
-    rsi_maintain : float  (default 7.0) — EMA alpha for smoothed RSI
     """
 
     name = "rsi_adx_regime_filter"
@@ -65,7 +64,15 @@ class RsiAdxRegimeFilterStrategy(Strategy):
         avg_gain = gain.rolling_mean(window_size=self.rsi_period)
         avg_loss = loss.rolling_mean(window_size=self.rsi_period)
         rs = avg_gain / (avg_loss + 1e-9)
-        rsi = (100 - 100 / (1 + rs)).alias("rsi")
+        # Exact zero cases are policy semantics, not numerical near-zero tests.
+        # Keep rolling warmup nulls and the historical mixed-window formula.
+        rsi = (
+            pl.when((avg_gain == 0) & (avg_loss == 0)).then(50.0)
+            .when(avg_loss == 0).then(100.0)
+            .when(avg_gain == 0).then(0.0)
+            .otherwise(100 - 100 / (1 + rs))
+            .alias("rsi")
+        )
 
         # --- MA computation ---
         if self.ma_type == "ema":
@@ -91,12 +98,13 @@ class RsiAdxRegimeFilterStrategy(Strategy):
         up_move = (high - high.shift(1)).alias("_up_move")
         down_move = (low.shift(1) - low).alias("_down_move")
 
-        plus_dm = pl.when(up_move > down_move).then(up_move).otherwise(0.0).alias("_plus_dm")
-        minus_dm = pl.when(down_move > up_move).then(down_move).otherwise(0.0).alias("_minus_dm")
+        plus_dm = pl.when((up_move > down_move) & (up_move > 0)).then(up_move).otherwise(0.0).alias("_plus_dm")
+        minus_dm = pl.when((down_move > up_move) & (down_move > 0)).then(down_move).otherwise(0.0).alias("_minus_dm")
 
         # Smooth with Wilder's (EMA-like) — use rolling mean as approximation
-        plus_di = (plus_dm / tr * 100).rolling_mean(window_size=self.adx_period).alias("_plus_di")
-        minus_di = (minus_dm / tr * 100).rolling_mean(window_size=self.adx_period).alias("_minus_di")
+        # A zero-range bar has no directional movement; avoid 0/0 -> NaN.
+        plus_di = pl.when(tr > 0).then(plus_dm / tr * 100).otherwise(0.0).rolling_mean(window_size=self.adx_period).alias("_plus_di")
+        minus_di = pl.when(tr > 0).then(minus_dm / tr * 100).otherwise(0.0).rolling_mean(window_size=self.adx_period).alias("_minus_di")
 
         # DX and ADX
         dx = ((plus_di - minus_di).abs() /

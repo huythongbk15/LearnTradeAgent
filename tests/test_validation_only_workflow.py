@@ -151,8 +151,124 @@ def test_all_windows_independent_and_only_inner_registry_rows(validation):
     assert len(coverage["reports"]) == 4
     for forbidden in ("outer_one_shot", "sensitivity", "wfo_decision.json", "wfo_result.json"):
         assert not (root / forbidden).exists()
-    timings = [json.loads(line) for line in (root / "cell_timings.jsonl").read_text().splitlines()]
-    assert all(r["window"]["timeout_seconds"] == 60 and r["window"]["max_retries"] == 0 for r in timings)
+
+
+def test_coverage_verifier_does_not_touch_execution_timing_log(tmp_path, validation):
+    """Gọi coverage verifier không làm thay đổi execution timing log (campaign_execution.py là nguồn duy nhất)."""
+    spec, root, protocol, folds, calls, _ = validation
+    result = execute(validation)
+    assert result is not None
+    # cell_timings.jsonl may not exist (verifier never writes it); if it does,
+    # its content must be unchanged after verify_validation_only_coverage runs.
+    timings_path = root / "cell_timings.jsonl"
+    before = timings_path.read_text().splitlines() if timings_path.exists() else []
+    # Re-run coverage directly against the same result/out_root
+    from scripts.run_wfo_parallel import verify_validation_only_coverage
+    coverage = verify_validation_only_coverage(spec, result, protocol, folds, root)
+    assert coverage["status"] == "PASS"
+    after = timings_path.read_text().splitlines() if timings_path.exists() else []
+    assert before == after, "coverage verifier must not append to cell_timings.jsonl"
+
+
+def test_mixed_completed_failed_terminal_incomplete_coherent(validation, monkeypatch):
+    """Mixed COMPLETED/FAILED -> terminal INCOMPLETE, summary verdict VALIDATION_INCOMPLETE."""
+    spec, root, protocol, folds, calls, mods = validation
+    original = worker.run_cell
+
+    def measured_one_fail(cell, **kw):
+        # Fail only fold_000 period=21 (one cell) -> 1 failed, rest completed
+        if cell.params["period"] == 21 and kw["measurement_start"] == folds[0].inner_val_start:
+            return tournament._failed_artifact(cell, None, "synthetic_failure",
+                measurement_window=(kw["measurement_start"], kw["measurement_end"]),
+                simulation_window=(kw["start"], kw["end"]))
+        return original(cell, **kw)
+
+    monkeypatch.setattr(worker, "run_cell", measured_one_fail)
+    result = execute(validation)
+    coverage = json.loads((root / "exact_coverage.json").read_bytes())
+    assert coverage["status"] == "INCOMPLETE"
+    assert coverage["reason"] == "failed_cells"
+    assert len(coverage["failed_cells"]) == 1
+    assert (root / "terminal_INCOMPLETE.json").exists()
+    summary = json.loads((root / "parallel_canonical_summary.json").read_bytes())
+    assert summary["verdict"] == "VALIDATION_INCOMPLETE"
+    assert summary["qualification_status"] == "NOT_QUALIFIED_VALIDATION_ONLY"
+
+
+def test_mixed_packet_corrupted_completed_report_still_detected(validation, monkeypatch):
+    """Một cell FAILED không che được report COMPLETED bị sửa/hash sai -> ValueError."""
+    spec, root, protocol, folds, calls, mods = validation
+    original = worker.run_cell
+
+    def measured_with_corruption(cell, **kw):
+        # Return a completed artifact, then alter its report only after the
+        # source hash has been captured, just before coverage verification.
+        if cell.params["period"] == 21 and kw["measurement_start"] == folds[0].inner_val_start:
+            return tournament._failed_artifact(cell, None, "synthetic_failure",
+                measurement_window=(kw["measurement_start"], kw["measurement_end"]),
+                simulation_window=(kw["start"], kw["end"]))
+        return original(cell, **kw)
+
+    monkeypatch.setattr(worker, "run_cell", measured_with_corruption)
+    original_verify = worker.verify_validation_only_coverage
+
+    def corrupt_then_verify(spec, result, protocol, folds, root):
+        completed = next(c for c in result.inner_results[0].candidate_metrics
+                         if c["validation_source"]["artifact"]["status"] == "COMPLETED")
+        (root / completed["validation_source"]["report_path"]).write_text("{}")
+        return original_verify(spec, result, protocol, folds, root)
+
+    monkeypatch.setattr(worker, "verify_validation_only_coverage", corrupt_then_verify)
+    with pytest.raises(ValueError, match="Report SHA256 mismatch|mismatch"):
+        execute(validation)
+
+
+def test_supervisor_records_coherent_incomplete_not_worker_error(validation, monkeypatch):
+    spec, root, protocol, folds, _, mods = validation
+    mods["fail"] = True
+
+    def synthetic_worker(*args, **kwargs):
+        execute(validation)
+        return {"status": "COMPLETED", "worker_exit_code": 0}
+
+    monkeypatch.setattr(worker, "_supervise_validation", synthetic_worker)
+    worker.run_validation_only(spec, root, protocol, folds, 60)
+    finished = json.loads((root / "execution_finished.json").read_text())
+    assert finished["status"] == "INCOMPLETE"
+    assert finished["worker_exit_code"] == 0
+    assert finished["completed_cells"] == 2
+    assert len(finished["failed_cells"]) == 2
+    assert finished["live_authorized"] is False
+    assert "error" not in finished
+
+
+@pytest.mark.parametrize("mutation", ["missing_hash", "missing_file", "bad_native", "bad_control"])
+def test_failed_cell_never_masks_completed_integrity_failure(validation, monkeypatch, mutation):
+    validation[-1]["fail"] = True
+    original_verify = worker.verify_validation_only_coverage
+
+    def mutate_then_verify(spec, result, protocol, folds, root):
+        completed = next(c for c in result.inner_results[0].candidate_metrics
+                         if c["validation_source"]["artifact"]["status"] == "COMPLETED")
+        source = completed["validation_source"]
+        if mutation == "missing_hash":
+            source["report_sha256"] = ""
+        elif mutation == "missing_file":
+            (root / source["report_path"]).unlink()  # owned synthetic fixture
+        elif mutation == "bad_control":
+            artifact = tournament.EvaluationArtifact.from_dict(source["artifact"])
+            source["artifact"] = replace(artifact, execution_control={
+                **artifact.execution_control, "timeout_seconds": 999,
+            }).to_dict()
+        else:
+            monkeypatch.setattr(worker, "_verify_native_report", lambda *a: (_ for _ in ()).throw(
+                ValueError("synthetic native mismatch")))
+        return original_verify(spec, result, protocol, folds, root)
+
+    monkeypatch.setattr(worker, "verify_validation_only_coverage", mutate_then_verify)
+    with pytest.raises(ValueError):
+        execute(validation)
+    assert not (validation[1] / "terminal_INCOMPLETE.json").exists()
 
 
 @pytest.mark.parametrize("trades", [0, 4, 29])
@@ -175,13 +291,17 @@ def test_tie_break_is_canonical(validation):
 def test_failed_trial_retained_but_never_complete_coverage(validation):
     spec, root, _, _, _, mods = validation
     mods["fail"] = True
-    with pytest.raises(ValueError):
-        execute(validation)
+    result = execute(validation)
+    # FAILED cells -> terminal INCOMPLETE (coverage doc exists), never a ValueError crash
+    coverage = json.loads((root / "exact_coverage.json").read_bytes())
+    assert coverage["status"] == "INCOMPLETE"
+    assert coverage["reason"] == "failed_cells"
+    assert len(coverage["failed_cells"]) == 2
+    assert (root / "terminal_INCOMPLETE.json").exists()
+    assert (root / "parallel_canonical_summary.json").exists()
     rows = ExperimentRegistry(spec.registry_path).evaluations()
     assert len(rows) == 4
     assert sum(row.metadata["status"] == "FAILED" for row in rows) == 2
-    assert not (root / "exact_coverage.json").exists()
-    assert not (root / "parallel_canonical_summary.json").exists()
 
 
 @pytest.mark.parametrize("mutation", ["missing", "duplicate", "window", "metrics", "decision", "report", "control", "accounting", "freeze"])
@@ -286,3 +406,14 @@ def test_cli_rejects_invalid_validation_budget_before_preflight(monkeypatch, fla
     with pytest.raises(SystemExit) as exc:
         worker.main()
     assert exc.value.code == 2
+
+
+def test_all_complete_not_flagged_incomplete(validation):
+    """All-complete path -> PASS, never INCOMPLETE, artifact read from validation_source."""
+    spec, root, protocol, folds, calls, mods = validation
+    assert mods["fail"] is False
+    result = execute(validation)
+    coverage = json.loads((root / "exact_coverage.json").read_bytes())
+    assert coverage["status"] == "PASS"
+    assert "failed_cells" not in coverage
+    assert not (root / "terminal_INCOMPLETE.json").exists()
