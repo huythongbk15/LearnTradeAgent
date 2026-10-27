@@ -4,7 +4,33 @@ Single source of truth for the measured-accounting and campaign-publication
 work. Supersedes the per-session `*_TODO.md` files, which are gitignored and
 were fragmenting the state across ~60 files.
 
-## Current — 2026-10-26 / VOLBREAK_DIAGNOSTIC_POSITIVE / NOT_QUALIFIED
+## Current — 2026-10-27 / H-LIQ-REVERSAL-01 / RESEARCH_ABSTAIN
+
+### 2026-10-27 — H-LIQ-REVERSAL-01 closed RESEARCH_ABSTAIN
+
+H-LIQ-REVERSAL-01 completed one authorized validation-only packet, 3/3 cells,
+coverage PASS, in data/liq_reversal_validation_run_20261027_01. Protocol
+f65b1804…, input 45ba1b…, dirty source a9133770… on commit 3b1cfcda,
+measurement [6510,15150). Trades 95/94/94. Sharpe −1.931 / −3.164 / −3.591.
+Return −7.90 / −12.74 / −14.38%. Gross is already negative. Selection ABSTAIN.
+Sample complete, all_folds_selected false. No open inventory. Registry
+sidecar data/liq_reversal_registry_closeout_20261027_01 is
+RECONCILED_READ_ONLY_3_OF_3: one INNER_VALIDATION row per cost and the
+stored Sharpe matches the sealed report. The sealed ledgers still say
+UNKNOWN_NOT_RECONCILED. provenance_eligible stays false. Supervisor 733.795s, sampled RSS 753.54 MiB,
+one attempt per cell. Independent pre-run review accepted one run; post-run
+review VERIFIED_RESEARCH_ABSTAIN_NOT_QUALIFIED. `no_further_run_authority` is
+true. Not confirmation and not a ranking. Mainnet stays NO-GO.
+[Result](../data/liq_reversal_validation_run_20261027_01/RESULTS.md).
+[Post-run review](../data/liq_reversal_validation_run_20261027_01/POST_RUN_REVIEW.md).
+[Registry sidecar](../data/liq_reversal_registry_closeout_20261027_01/RESULTS.md).
+
+Next action: pause new strategies. Synthesize the closed measurements below.
+Do not rerun [6510,15150), retune 1.5%/6, or change the native stop to rescue
+this result. The rejection covers this fixed rule and native policy on this
+window only. Runtime parity, paper, and testnet stay blocked because no
+subject is qualified. The bottleneck is an economic hypothesis with an edge.
+
 
 Closeout update: registry attribution is now RECONCILED_READ_ONLY_9_OF_9
 for H-PULLBACK-01, H-PULLBACK-TEMPORAL-01 and H-VOLBREAK-01. Each exact
@@ -38,33 +64,41 @@ outside it.
 
 Still required, in order, before any live order:
 
-1. One unclosed hypothesis with a mechanism other than the closed MA, RSI,
-   pullback and breakout measurements.
-2. One bounded validation on the frozen BTC file. Not started.
-3. Only if that measurement selects a cost-robust candidate: a confirmation
+1. A mechanism that is not a retune of a closed rule. Research is paused
+   while the closed measurements are read together. No new strategy is opened
+   from this closeout.
+2. H-LIQ-REVERSAL-01 already had its one bounded validation and is closed.
+   A future hypothesis would need its own measurement. That measurement has
+   not been defined.
+3. Only if a future measurement selects a cost-robust candidate: a confirmation
    cohort that is not the exposed 25198-row file, and a DSR/PBO method locked
    before the outer result is read.
-4. `QUALIFIED_RESEARCH` on this revision, or on a later revision if source
-   changes again.
+4. `QUALIFIED_RESEARCH` on a revision that matches the measured source.
 5. One binding change in `scripts/live_enhanced_ma_binance.py` to that
    qualified subject, then runtime parity on the same input.
 6. Operator account, capital and loss budget. Testnet evidence is still 30
    continuous days, 100 complete lifecycles, 0 unresolved orders and 0 safety
    breaches, then a separate canary approval.
 
-Not required to start step 2: a new runner, a new pair, or a reconciled
-registry. Registry SQL stays UNKNOWN_NOT_RECONCILED and blocks a
-reconciliation claim only. Volbreak confirmation stays declined.
+Closed measurements on the exposed BTC 1h file, long-only:
+
+- RSI/ADX and MA20/50 abstain. The trend and oscillator cluster does not
+  clear the Sharpe floor.
+- H-PULLBACK-01 has 25 trades, below the 30-trade sample, so it abstains.
+- H-PULLBACK-TEMPORAL-01 has 40 trades and negative Sharpe at every cost.
+  Gross was positive and net was negative.
+- H-VOLBREAK-01 gross stays positive, and only 1x clears the inner Sharpe
+  floor. 2x and slippage stress fail. Confirmation was declined.
+- H-LIQ-REVERSAL-01 gross is already negative. At 1x the 91 signal exits lose
+  as well as the 4 stops. BUY signals stay 95 at every cost. Stress costs
+  record circuit_breakers 1 and funnel terminals 2 and 3, with 94 closed
+  trades. Their gap from 1x is an execution-path change plus fees.
+
+The repeated failure is the absence of a cost-robust edge on this window.
+It is not a missing runner and it is not an unfinished audit. Mainnet stays
+NO-GO.
 [Packet index](../data/research_packet_index_20261026_01/INDEX.md).
 [E3 proposal](../data/volatility_breakout_e3_proposal_20261026_01/E3_PROPOSAL.md).
-
-Chosen hypothesis: H-LIQ-REVERSAL-01, status PREPARED_NOT_AUTHORIZED,
-`run_authority` NONE. On spot, a single large down hour is temporary liquidity
-demand. The question is whether buying after that completed bar recovers
-enough, after 1x costs and under 2x and slippage stress, before a short hold
-expires. The signal is the completed hourly return, not RSI, ADX, a moving
-average cross, or a band breakout. No new data, no holdout, no ranking against
-the closed packets, and no cells in this revision.
 
 H-PULLBACK-TEMPORAL-01 is closed. One authorized packet completed 3/3 cells,
 coverage PASS, in data/trend_pullback_temporal_validation_run_20261026_01.

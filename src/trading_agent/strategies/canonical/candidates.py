@@ -36,6 +36,7 @@ from trading_agent.strategies.enhanced_ma import (
 )
 from trading_agent.strategies.funding_carry import FundingCarryStrategy
 from trading_agent.strategies.ma_crossover import MaCrossover
+from trading_agent.strategies.liquidity_reversal import LiquidityReversalStrategy
 from trading_agent.strategies.range_mean_reversion import RangeMeanReversionStrategy
 from trading_agent.strategies.regime_switching import RegimeSwitchingStrategy
 from trading_agent.strategies.rsi import RsiStrategy
@@ -60,6 +61,7 @@ def _file_sha(name: str) -> str:
 
 _ENHANCED_MA_SHA = _file_sha("enhanced_ma.py")
 _DI_ADX_STATE_EDGE_SHA = _file_sha("di_adx_state_edge.py")
+_LIQUIDITY_REVERSAL_SHA = _file_sha("liquidity_reversal.py")
 _RSI_SHA = _file_sha("rsi.py")
 _BBANDS_SHA = _file_sha("bbands.py")
 _REGIME_SWITCHING_SHA = _file_sha("regime_switching.py")
@@ -171,6 +173,15 @@ _DI_ADX_STATE_EDGE_PARAMS_SCHEMA = {
         "adx_threshold": {"type": "number", "minimum": 0.0, "maximum": 100.0},
     },
     "required": [],
+}
+
+_LIQUIDITY_REVERSAL_PARAMS_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "drop_threshold": {"type": "number", "minimum": 0.015, "maximum": 0.015},
+        "hold_bars": {"type": "integer", "minimum": 6, "maximum": 6},
+    },
 }
 
 _MA_VOL_TARGET_PARAMS_SCHEMA = {
@@ -468,6 +479,7 @@ _CROSS_SECTIONAL_MOMENTUM_LS_PARAMS_SCHEMA = {
 # ──────────────────────────────────────────────────────────────────────
 
 _PARAM_DEFAULTS: dict[str, dict[str, Any]] = {
+    "liquidity_reversal": {"drop_threshold": 0.015, "hold_bars": 6},
     "di_adx_state_edge": {
         "adx_period": 14,
         "adx_threshold": 25.0,
@@ -598,6 +610,7 @@ _PARAM_DEFAULTS: dict[str, dict[str, Any]] = {
 }
 
 _PARAM_SCHEMAS: dict[str, dict[str, Any]] = {
+    "liquidity_reversal": _LIQUIDITY_REVERSAL_PARAMS_SCHEMA,
     "enhanced_ma": _ENHANCED_MA_PARAMS_SCHEMA,
     "di_adx_state_edge": _DI_ADX_STATE_EDGE_PARAMS_SCHEMA,
     "ma_adx": _MA_ADX_PARAMS_SCHEMA,
@@ -900,6 +913,11 @@ DI_ADX_STATE_EDGE_DESCRIPTOR = _descriptor(
     _ENHANCED_MA_WARMUP,
     _DI_ADX_STATE_EDGE_PARAMS_SCHEMA,
 )
+LIQUIDITY_REVERSAL_DESCRIPTOR = replace(
+    _descriptor("liquidity_reversal", _LIQUIDITY_REVERSAL_SHA, 15,
+                _LIQUIDITY_REVERSAL_PARAMS_SCHEMA),
+    supported_symbols=("BTC/USDT",),
+)
 MA_VOL_TARGET_DESCRIPTOR = _descriptor(
     "ma_vol_target", _ENHANCED_MA_SHA, _ENHANCED_MA_WARMUP, _MA_VOL_TARGET_PARAMS_SCHEMA
 )
@@ -947,6 +965,7 @@ FIRST_WAVE_DESCRIPTORS: dict[str, StrategyDescriptor] = {
 }
 
 _CANDIDATE_CLASSES: dict[str, type[Strategy]] = {
+    "liquidity_reversal": LiquidityReversalStrategy,
     "enhanced_ma": EnhancedMaCrossover,
     "ma_adx": MaAdxCrossover,
     "ma_vol_target": MaVolTargetCrossover,
@@ -968,6 +987,7 @@ _CANDIDATE_CLASSES: dict[str, type[Strategy]] = {
 }
 
 _CANDIDATE_WARMUPS = {
+    "liquidity_reversal": 15,
     "enhanced_ma": _ENHANCED_MA_WARMUP,
     "di_adx_state_edge": _ENHANCED_MA_WARMUP,
     "ma_adx": _ENHANCED_MA_WARMUP,
@@ -1056,6 +1076,8 @@ def build_default_registry(*, scope_token: str | None = None) -> CanonicalStrate
     """
     registry = CanonicalStrategyRegistry()
     for desc, cls, source_cls, warmup in (
+        (LIQUIDITY_REVERSAL_DESCRIPTOR, LiquidityReversalStrategy,
+         LiquidityReversalStrategy, 15),
         (
             ENHANCED_MA_DESCRIPTOR,
             EnhancedMaCrossover,
