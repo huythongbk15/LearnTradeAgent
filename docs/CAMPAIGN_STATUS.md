@@ -31,6 +31,28 @@ measurement needs a mechanism outside the closed families and a separate
 authorization. Runtime parity, paper, and testnet stay blocked. Mainnet
 stays NO-GO.
 
+27/10 desk-research follow-up is complete, documentation only. The
+[decision memo](RESEARCH_EVIDENCE.md) distinguishes failed specific rules
+from entire strategy families and checks primary literature against the
+BTC spot1h long-only constraints. No new eligible mechanism was established
+in the reviewed sources. Recommended action remains PAUSED on the current
+profile; attention/new information or horizon/universe changes are separate
+scope decisions, not chosen strategies or run authority. Six admission
+questions must be answered before presenting any future proposal. No source,
+tests, sealed packets, market prices or runtime were changed by this follow-up.
+
+External-information feasibility is also complete on paper. Existing
+sentiment/news modules inspected do not establish an eligible external
+information archive: the agent uses technical inputs, the aggregator has
+synthetic news and no implemented live fetch, and the LLM extractor consumes
+caller-supplied articles. Google Trends official API access/lag/resolution
+and GDELT availability/archive limits are documented in the same decision
+memo. No provider data request or LLM call was made. A metadata-only pilot
+envelope stays NOT_AUTHORIZED. Decision 27/10: do not spend the 20-request
+pilot. A metadata sample cannot establish 2023 vintage, a confirmation cohort,
+or an edge after costs. PAUSED and the current price-only scope stay.
+Market authority NONE.
+
 
 Closeout update: registry attribution is now RECONCILED_READ_ONLY_9_OF_9
 for H-PULLBACK-01, H-PULLBACK-TEMPORAL-01 and H-VOLBREAK-01. Each exact

@@ -1,6 +1,6 @@
 # Playbook E2E — từ nghiên cứu đến vận hành có kiểm chứng
 
-Cập nhật: **25/10/2026, Asia/Ho_Chi_Minh**. Chủ sở hữu: operator/maintainer. Đây là kế hoạch giao việc, **không cấp quyền chạy campaign, kết nối sàn hoặc live**.
+Cập nhật: **27/10/2026, Asia/Ho_Chi_Minh**. Chủ sở hữu: operator/maintainer. Đây là kế hoạch giao việc, **không cấp quyền chạy campaign, kết nối sàn hoặc live**. Hiện PAUSED; [memo quyết định sau các phép đo](../RESEARCH_EVIDENCE.md) là tài liệu đọc tiếp, chưa có candidate mới.
 
 ## 1. Đích đến và phạm vi
 
@@ -10,7 +10,7 @@ Phải phân biệt ba mức hoàn thành:
 
 | Mức | Khi nào được tuyên bố | Hiện tại |
 | --- | --- | --- |
-| E2E-MEASUREMENT-CLOSED | Input/source/config được bind; native execution, coverage và accounting được kiểm; có verdict kể cả ABSTAIN/INCOMPLETE | Đã có với RSI/ADX, MA baseline, H-PULLBACK-01 và H-PULLBACK-TEMPORAL-01. Không có winner. |
+| E2E-MEASUREMENT-CLOSED | Input/source/config được bind; native execution, coverage và accounting được kiểm; có verdict kể cả ABSTAIN/INCOMPLETE | Đã có với RSI/ADX, MA baseline, hai pullback, volbreak và H-LIQ. Các verdict khác nhau, không có qualified winner. |
 | E2E-PAPER-ACCEPTED | Một policy đủ điều kiện nghiên cứu được bind đúng runtime; parity và vận hành paper/testnet/shadow có evidence theo contract | Chưa đạt cho candidate hiện tại |
 | LIVE-CANARY-ELIGIBLE | Research, release, vận hành và risk/account gates đủ trên exact subject; reviewer và operator chấp thuận | NO-GO; vẫn chưa phải quyền đặt lệnh hoặc tăng vốn |
 
@@ -49,7 +49,7 @@ Thứ tự xử lý mâu thuẫn: AGENTS.md và giới hạn quyền → executa
 | [Pullback admission](../../data/trend_pullback_admission_20261025_01/RESULTS.md) | 4/4 synthetic functions; có native trade thật; source không đổi | Không chứng minh samples/edge, không independent review |
 | [Pullback preregistration](../../data/trend_pullback_prereg_20261025_01/RESULTS.md) | 1 fold/3 cells đã preflight; PREPARED_NOT_AUTHORIZED | Chưa có quyền market run từ tài liệu này |
 
-Source tham chiếu hiện tại: 8df9a071be0df86feda26425ad66d269341f06a29803e8a22040931b57fa178d. Đây là snapshot, không hard-code làm source tương lai. Tests/config/payload có hash riêng; A phủ src/scripts không tự phủ tests. Worktree dirty khiến study provenance_eligible=false theo code hiện tại; hash ổn định không thay thế clean/reviewed release.
+Source8df9a071… và các hàng preparation bên trên là snapshot lịch sử của RSI/MA/pullback, không phải revision hiện tại hoặc pending authority. Trạng thái/revision hiện hành đọc ở tracker; H-LIQ giữ source đo a9133770… dù source sau đó đã được commit. Tests/config/payload có hash riêng; A phủ src/scripts không tự phủ tests. Dirty measured source không trở thành provenance-eligible chỉ vì commit về sau.
 
 ## 3. Vai trò, quyền và cách nhiều agent làm việc
 
@@ -208,6 +208,8 @@ Trước mỗi vòng, trả lời: kết quả mới có đổi quyết định 
 | NOW-04 | Execute/review current exploratory / execution + evidence | DONE26/10 | 3/3COMPLETED,coveragePASS,25trades/cost<30,ABSTAIN; independent post-runVERIFIED_INCOMPLETE_SAMPLE_ABSTAIN; registrySQLreconciliation vẫnUNKNOWN;không qualification |
 | NEXT-01 | Spot research / research | PAUSED_AFTER_CLOSED_MEASUREMENTS 27/10 | H-LIQ-REVERSAL-01 rejects the fixed 1.5%/6 rule with native policy on [6510,15150) only. Gross was negative. Do not open another strategy from this closeout. |
 | NEXT-02 | Measured liquidity-reversal source / maintainer | INTEGRATED_WITH_STATUS | The strategy patch is committed after the dirty-tree measurement. Packet source stays a9133770 and does not become qualified. |
+| NEXT-DESK | Decision memo / research, documentation only | COMPLETE27/10 — PAUSED | Existing RESEARCH_EVIDENCE.md now separates measured failure, literature applicability and product-scope choices. No eligible new mechanism established in the sources reviewed. No candidate/run/data authority. Reopen only with the six admission questions answered and separate operator scope. |
+| NEXT-DATA-DECISION | External-information feasibility / operator | DECLINED 27/10 — PAUSED | Metadata pilot stays NOT_AUTHORIZED. Trends is not an hourly BTC feed. GDELT cadence is undocumented as an edge, and 20 requests would not create a 2023 point-in-time cohort. No provider request, source change, or market run. |
 | NEXT-03 | Qualification → runtime → ops / các owners | BLOCKED_BY_DEPENDENCIES | Đi tuần tự E3–E6, không tự tạo live authority |
 
 H-PULLBACK-01 đóng INCOMPLETE_SAMPLE_ABSTAIN. H-PULLBACK-TEMPORAL-01 đóng VERIFIED_RESEARCH_ABSTAIN_NOT_QUALIFIED. H-VOLBREAK-01 đã đo xong và được review: VERIFIED_DIAGNOSTIC_POSITIVE_NOT_QUALIFIED. Đề xuất E3 ghi BLOCKED_DATA_OR_METHOD tại [E3 proposal](../../data/volatility_breakout_e3_proposal_20261026_01/E3_PROPOSAL.md). Không chạy cell qualification. Mainnet NO-GO.
