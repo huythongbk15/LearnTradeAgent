@@ -25,11 +25,11 @@ true. Not confirmation and not a ranking. Mainnet stays NO-GO.
 [Post-run review](../data/liq_reversal_validation_run_20261027_01/POST_RUN_REVIEW.md).
 [Registry sidecar](../data/liq_reversal_registry_closeout_20261027_01/RESULTS.md).
 
-Next action: pause new strategies. Synthesize the closed measurements below.
-Do not rerun [6510,15150), retune 1.5%/6, or change the native stop to rescue
-this result. The rejection covers this fixed rule and native policy on this
-window only. Runtime parity, paper, and testnet stay blocked because no
-subject is qualified. The bottleneck is an economic hypothesis with an edge.
+Next action: PAUSED. The synthesis below is the current reading. Do not open
+a strategy, rerun a closed window, or retune a closed rule. A later
+measurement needs a mechanism outside the closed families and a separate
+authorization. Runtime parity, paper, and testnet stay blocked. Mainnet
+stays NO-GO.
 
 
 Closeout update: registry attribution is now RECONCILED_READ_ONLY_9_OF_9
@@ -39,8 +39,10 @@ Sharpe matches the sealed raw report. This is an integrator read-only
 sidecar, not independent review or qualification. Original UNKNOWN fields
 and the sealed packet index remain historical and unchanged.
 [Registry closeout and remaining integration](../data/research_closeout_20261026_01/RESULTS.md).
-No further volatility-breakout confirmation is planned. Clean reviewed
-integration remains open; no new market run, promotion or live authority.
+No further volatility-breakout confirmation is planned. The measured
+liquidity-reversal source is on commit e7d7dd5c and the worktree is clean.
+The H-LIQ packet itself remains the dirty-tree record a9133770. That commit
+does not qualify any study.
 
 H-VOLBREAK-01 completed 3/3 cells, coverage PASS, in
 data/volatility_breakout_validation_run_20261026_01. Protocol ac1c79d5…,
@@ -80,23 +82,27 @@ Still required, in order, before any live order:
    continuous days, 100 complete lifecycles, 0 unresolved orders and 0 safety
    breaches, then a separate canary approval.
 
-Closed measurements on the exposed BTC 1h file, long-only:
+Why the closed long-only BTC 1h measurements failed:
 
-- RSI/ADX and MA20/50 abstain. The trend and oscillator cluster does not
-  clear the Sharpe floor.
-- H-PULLBACK-01 has 25 trades, below the 30-trade sample, so it abstains.
-- H-PULLBACK-TEMPORAL-01 has 40 trades and negative Sharpe at every cost.
-  Gross was positive and net was negative.
-- H-VOLBREAK-01 gross stays positive, and only 1x clears the inner Sharpe
-  floor. 2x and slippage stress fail. Confirmation was declined.
-- H-LIQ-REVERSAL-01 gross is already negative. At 1x the 91 signal exits lose
-  as well as the 4 stops. BUY signals stay 95 at every cost. Stress costs
-  record circuit_breakers 1 and funnel terminals 2 and 3, with 94 closed
-  trades. Their gap from 1x is an execution-path change plus fees.
+- Sample: H-PULLBACK-01 has 25 trades, under the 30-trade floor, so the
+  fold abstains. Its 1x Sharpe is positive and is not a qualification.
+- Price path: MA20/50 (64 trades, Sharpe −0.162 / −1.544 / −1.995) and
+  H-PULLBACK-TEMPORAL-01 (40 trades, Sharpe −0.201 / −1.167 / −1.476) do
+  not clear the floor. Temporal gross is positive and net is negative, so
+  that continuation lost to costs. RSI fixed policy abstains at 39 trades.
+  These windows are not ranked against each other.
+- Cost-fragile gross: H-VOLBREAK-01 gross stays positive and only 1x clears
+  the inner floor (Sharpe 0.321). 2x and slippage stress fail. Confirmation
+  was declined. This does not reject every expansion rule.
+- Gross loss: H-LIQ-REVERSAL-01 gross is negative on the fixed 1.5% drop and
+  6-bar hold. At 1x the 91 signal exits lose as well as the 4 stops. BUY
+  signals stay 95 at every cost. Stress costs record circuit_breakers 1 and
+  funnel terminals 2 and 3, with 94 closed trades, so the gap from 1x is an
+  execution-path change plus fees. This rejects that rule and native policy
+  on [6510,15150) only.
 
-The repeated failure is the absence of a cost-robust edge on this window.
-It is not a missing runner and it is not an unfinished audit. Mainnet stays
-NO-GO.
+The repeated failure is the absence of a cost-robust edge. It is not a
+missing runner and it is not an unfinished audit. Mainnet stays NO-GO.
 [Packet index](../data/research_packet_index_20261026_01/INDEX.md).
 [E3 proposal](../data/volatility_breakout_e3_proposal_20261026_01/E3_PROPOSAL.md).
 
