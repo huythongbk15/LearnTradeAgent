@@ -112,7 +112,8 @@ def run_arm(frame, signals, arm_name, start, stop):
                 total_fees += fee
                 trade_log.append({"bar": i, "type": "stop_exit", "qty": position,
                                   "price": exit_price, "cash_after": cash})
-                position = 0.0; avg_fill_price = 0.0
+                position = 0.0
+                avg_fill_price = 0.0
                 cooldown_until = i + COOLDOWN_BARS
                 exited = True
 
@@ -127,7 +128,8 @@ def run_arm(frame, signals, arm_name, start, stop):
             fee = entry_notional * COMMISSION
             cash -= entry_notional + fee
             total_fees += fee
-            position = qty; avg_fill_price = entry_price
+            position = qty
+            avg_fill_price = entry_price
             trade_log.append({"bar": i, "type": "entry", "qty": qty,
                               "price": entry_price, "cash_after": cash})
             cooldown_until = -1
@@ -141,7 +143,8 @@ def run_arm(frame, signals, arm_name, start, stop):
             total_fees += fee
             trade_log.append({"bar": i, "type": "sell_signal_exit", "qty": position,
                               "price": exit_price, "cash_after": cash, "signal": signal})
-            position = 0.0; avg_fill_price = 0.0
+            position = 0.0
+            avg_fill_price = 0.0
             cooldown_until = i + COOLDOWN_BARS
 
         equity = cash + position * prices_close[i]
@@ -220,8 +223,10 @@ def profit_factor(arm_result):
             qty = curr.get("qty", 0)
             if entry > 0:
                 pnl = qty * (exit_p - entry)
-                if pnl > 0: wins.append(pnl)
-                elif pnl < 0: losses.append(-pnl)
+                if pnl > 0:
+                    wins.append(pnl)
+                elif pnl < 0:
+                    losses.append(-pnl)
     gross_wins = sum(wins)
     gross_losses = sum(losses)
     pf = gross_wins / (gross_losses + 1e-9)
