@@ -187,3 +187,11 @@ ignore = ["F841", "E402"]
 "src/trading_agent/exchanges/**" = []
 "src/trading_agent/risk/**" = []
 "scripts/live_*.py" = []
+
+[tool.uv]
+# Runtime image scan: compromised CA bundle and image-decoder fixes.
+# Keep these transitive security floors in every regenerated lock.
+constraint-dependencies = [
+    "certifi>=2026.10.18",
+    "pillow>=13.0.0",
+]
