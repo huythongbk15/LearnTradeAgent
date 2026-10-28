@@ -2987,6 +2987,8 @@
 │   ├── guides
 │   │   └── RESEARCH_TO_PRODUCTION.md
 │   ├── operations
+│   │   ├── archive
+│   │   │   └── MULTI_STRATEGY_RESEARCH_PLAN_PRE_E2E_20261025.md
 │   │   ├── BNB_ADX25_EVIDENCE_CARD.md
 │   │   ├── BNB_ADX25_RESEARCH_MANIFEST.json
 │   │   ├── BNB_QUALIFICATION_PROTOCOL.md
@@ -3002,7 +3004,9 @@
 │   │   ├── RESEARCH_RUN_PROTOCOL.md
 │   │   ├── RSI_REGIME_SWITCH_EVIDENCE_CARD.md
 │   │   ├── RSI_REGIME_SWITCH_MANIFEST.json
-│   │   └── VALIDATION_CLOSURE_20261016.md
+│   │   ├── VALIDATION_CLOSURE_20261016.md
+│   │   ├── VALIDATION_REFACTOR_AGENT_PLAYBOOK.md
+│   │   └── VALIDATION_REFACTOR_PLAN.md
 │   ├── proposals
 │   │   └── regime_switched_strategy_design.md
 │   ├── reference
@@ -3403,6 +3407,8 @@
 │       │   ├── selection_eligibility.py
 │       │   ├── synthetic_data.py
 │       │   ├── tournament.py
+│       │   ├── validation_reporting.py
+│       │   ├── validation_supervisor.py
 │       │   └── wfo_sensitivity.py
 │       ├── calibration
 │       │   ├── __init__.py
@@ -3634,6 +3640,7 @@
 │       │   ├── di_adx_state_edge.py
 │       │   ├── enhanced_ma.py
 │       │   ├── funding_carry.py
+│       │   ├── liquidity_reversal.py
 │       │   ├── ma_crossover.py
 │       │   ├── online_learning_strategy.py
 │       │   ├── options_strategies.py
@@ -3763,6 +3770,7 @@
 │   ├── test_l2_selection_rule.py
 │   ├── test_ledger_and_binding_invariants.py
 │   ├── test_legacy_cutover_migration.py
+│   ├── test_liquidity_reversal_admission.py
 │   ├── test_live_account_session.py
 │   ├── test_live_audit_watchdog.py
 │   ├── test_live_broker_balances.py
@@ -3829,6 +3837,10 @@
 │   ├── test_research_stats.py
 │   ├── test_retired_wfo_wrapper.py
 │   ├── test_risk_decision.py
+│   ├── test_rsi_adx_branch_lifecycle.py
+│   ├── test_rsi_adx_indicator_contract.py
+│   ├── test_rsi_adx_native_timing.py
+│   ├── test_rsi_adx_rsi_edges.py
 │   ├── test_run_real_wfo_campaign_script.py
 │   ├── test_s3_3_real_return_stats.py
 │   ├── test_s3_7_holdout_fail_closed.py
@@ -3858,13 +3870,20 @@
 │   ├── test_tool_dispatch_audit.py
 │   ├── test_tournament_e2e.py
 │   ├── test_tournament_research_memory_integration.py
+│   ├── test_trend_pullback_admission.py
 │   ├── test_uncertainty_drift_methodology.py
+│   ├── test_validation_fail_fast.py
 │   ├── test_validation_only_workflow.py
+│   ├── test_validation_publication.py
+│   ├── test_validation_reporting_adapter.py
+│   ├── test_validation_supervisor_adapter.py
 │   ├── test_validation_timeout_and_ledger_faults.py
 │   ├── test_verify_account_hardening.py
 │   ├── test_verify_github_controls.py
 │   ├── test_verify_provenance.py
+│   ├── test_volatility_breakout_admission.py
 │   ├── test_web_security.py
+│   ├── test_wfo_fixed_params.py
 │   └── test_wfo_validation_envelope.py
 ├── webui
 │   ├── backend

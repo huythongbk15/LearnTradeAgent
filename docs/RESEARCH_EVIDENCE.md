@@ -4,6 +4,15 @@
 
 ## Memo quyết định sau các phép đo đã đóng — 27/10/2026
 
+**Bổ sung phạm vi thiết kế27/10:** user đã duyệt lập kế hoạch BTC context cho
+ETH/BNB và policy có thể khác theo pair, xem
+[playbook §10](operations/MULTI_STRATEGY_RESEARCH_PLAN.md#10-kế-hoạch-btc-context-và-policy-riêng-theo-pair).
+Phương pháp kiểm chứng chung không buộc params giống nhau. Nhận định thiếu
+eligible mechanism của desk review dưới đây áp dụng profile BTC-only trước
+đó; không bác cross-asset context hoặc chứng nhận nó có edge. Market vẫn
+PAUSED, chưa data admission/implementation/run mới. External-news pilot giữ
+quyết định không đầu tư; ưu tiên làm rõ dữ liệu thị trường hiện có trước.
+
 ### Những điều đã học và giới hạn
 
 Các raw packet trong tracker phân biệt được thiếu mẫu, net không đủ sau
@@ -163,6 +172,61 @@ liệu, **không phải xếp hạng alpha hoặc bằng chứng nó dẫn tới
 bằng đổi nguồn thông tin. Feasibility trên giấy đã hoàn tất, source changes=0,
 candidate mới=0, market evaluation=0, run_authority NONE. Không tự lặp thêm
 desk review hoặc implementation nếu chưa có câu hỏi/scope mới.
+
+### Thiết kế bối cảnh BTC — ghi nhận 27/10, chưa phải hypothesis
+
+**Steering bổ sung:** user muốn khảo sát rộng thông tin có giả thuyết tác động
+đến altcoin rồi tìm evidence, không giới hạn sáufeature. [Playbook §10.8](operations/MULTI_STRATEGY_RESEARCH_PLAN.md)
+ghi catalog12nhóm, source/PIT admission, groupwise incremental/interaction
+tests và bằng chứng theo pair. “Có thể tác động” là giả thuyết; predictive
+value, economic value và causal identification là các kết luận khác nhau.
+Chưa có collection/evaluation/market authority mới; policy cuối chỉ giữ phần
+đã chứng minh, không bắt mọi nguồn cùng vào model hoặc phải đủ mới bắt đầu.
+
+Nghiên cứu từng pair cô lập bỏ mất thông tin mà quyết định altcoin có thể cần.
+Hướng ghi ở đây thống nhất **phương pháp kiểm chứng**, không ép mọi pair dùng
+cùng tín hiệu và cùng tham số. Một cấu trúc policy chung là đủ. Mỗi pair được
+phép có phản ứng và tham số riêng, chốt hoặc học trong training, không chọn lại
+sau khi thấy validation. Không dựng router hoặc một bộ máy riêng cho từng
+pair. Feature catalog có thể rộng; đưa hàng chục input chưa kiểm chứng vào
+runtime không phải mục tiêu.
+
+BTC vừa có thể là tài sản giao dịch, vừa là đầu vào bối cảnh. Biến thị trường
+không thay strategy. Chúng là đầu vào để policy quyết định giao dịch gì, lúc
+nào, theo hướng nào và với bao nhiêu vốn.
+
+| Tầng | Thông tin được phép xét | Câu hỏi |
+| --- | --- | --- |
+| Thị trường | Return, volatility, drawdown và hướng BTC đã biết tại thời điểm quyết định | Có nhận thêm rủi ro altcoin không? |
+| Quan hệ | Phần dư sau beta quá khứ, sức mạnh tương đối, lead–lag nếu được định nghĩa trước | Pair mạnh/yếu hơn phần BTC giải thích, hay chỉ đi theo BTC? |
+| Từng pair | Tín hiệu, thanh khoản, spread, phí, sizing, entry/exit của chính pair đó | Lợi thế USDT có đủ trả phí không? |
+
+Độ lệch ETH, khi được dùng, là
+`r_ETH,t − beta_{t−1} × r_BTC,t`. Beta chỉ ước lượng từ dữ liệu trước thời điểm
+quyết định. Phần dư phân biệt ETH đi cùng thị trường với ETH mạnh riêng. Hai
+bẫy đi cùng định nghĩa: phần dư dương không có nghĩa giá USDT tăng, vì ETH có
+thể giảm ít hơn BTC; và phần dư không mặc định hồi về, vì tỷ giá ETH/BTC hoặc
+BNB/BTC có thể đổi xu hướng lâu dài.
+
+BTC dominance không tái tạo được từ OHLCV của BTC, ETH và BNB. Nó cần vốn hóa
+và universe nhất quán, và không phải đo trực tiếp dòng tiền. Chưa có nguồn đó
+thì dominance nằm ngoài thiết kế.
+
+Literature về dự báo chéo giữa các cryptocurrency, gồm vai trò dẫn dắt của BTC,
+không được dùng làm edge. Kết quả ở cadence phút không chứng minh còn khai thác
+được ở 1h với độ trễ thực thi và phí hiện tại.
+
+Nếu sau này có proposal, kiểm theo ba bước lồng nhau trên cùng cửa sổ đã đóng
+băng trước: pair-only, rồi thêm bối cảnh BTC, rồi thêm phần dư. Bước sau chỉ
+được giữ khi cải thiện kết quả ngoài sample sau phí so với bước trước, theo
+metric chốt trước khi đọc. Thất bại đóng bước đó. Mua ETH và BNB cùng lúc có
+thể vẫn là hai lệnh vào cùng một rủi ro BTC; một policy sau này phải có trần
+exposure chung, không được cộng hai lệnh như hai cược độc lập.
+
+Màn hình ETH/BNB ngày 17/10 là lịch sử underpowered, cửa sổ khác nhau, và không
+phải admission của thiết kế này. Chưa kiểm file giá hiện có có đủ điều kiện
+aligned 1h hay không. Sáu điều kiện rời PAUSED vẫn chưa đủ câu trả lời.
+`run_authority` NONE. Không tải dữ liệu, không sửa strategy, không mở campaign.
 
 ## Snapshot lịch sử 08/2026 — không phải trạng thái admission hiện tại
 
