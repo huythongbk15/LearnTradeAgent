@@ -3693,6 +3693,9 @@
 │   │   ├── test_integration_cycle_guards.py
 │   │   └── test_paper_exchange_telemetry.py
 │   ├── fixtures
+│   │   ├── prereg_packet_plus
+│   │   │   ├── manifest.json
+│   │   │   └── preregistration_payload.json
 │   │   └── btc_context_admission_metadata.json
 │   ├── strategies
 │   │   ├── test_candidate_factory.py
@@ -3729,6 +3732,7 @@
 │   ├── test_btc_context_features.py
 │   ├── test_btc_context_prereg.py
 │   ├── test_btc_context_rule.py
+│   ├── test_btc_plus_hard_checks.py
 │   ├── test_calibrated_decision.py
 │   ├── test_calibration.py
 │   ├── test_calibration_packet.py
