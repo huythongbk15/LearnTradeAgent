@@ -499,6 +499,7 @@ class TestE2EAuthorityChain:
             min_notional=10.0,
         )
         engine = ExecutionEngine(
+            state_dir=tmp_path / "engine",
             exchange_name="testnet",
             exchange=exchange,
             authority_config=config,

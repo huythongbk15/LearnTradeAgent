@@ -46,7 +46,8 @@ def test_analyze_report_carries_trace_id() -> None:
     assert re.fullmatch(r"[0-9a-f]{12}", report.trace_id)
 
 
-def test_trace_logs_cover_all_stages() -> None:
+def test_trace_logs_cover_all_stages(caplog) -> None:
+    caplog.set_level(logging.INFO)
     handler = _Tracer()
     root = logging.getLogger()
     root.addHandler(handler)

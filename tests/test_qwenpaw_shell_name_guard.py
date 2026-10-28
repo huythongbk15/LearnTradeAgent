@@ -26,6 +26,8 @@ from types import SimpleNamespace
 import pytest
 
 QP_SITE = Path('/home/huythong/.qwenpaw/venv/lib/python3.12/site-packages')
+if not (QP_SITE / 'qwenpaw/agents/react_agent.py').is_file():
+    pytest.skip("optional installed QwenPaw runtime is absent", allow_module_level=True)
 
 # Markers that only exist once the guard hotfix is present in the runtime.
 _GUARD_MARKERS = ("_shell_guard_count", "TOOL_NAME_LOOP_STOP")

@@ -2995,6 +2995,7 @@
 │   │   ├── BNB_QUALIFICATION_PROTOCOL.md
 │   │   ├── CAMPAIGN_EVIDENCE_CONTRACT.md
 │   │   ├── CAMPAIGN_EVIDENCE_HANDOFF.md
+│   │   ├── INTEGRATION_REVIEW_20261028.md
 │   │   ├── L2_SELECTION_RULE.md
 │   │   ├── LIVE_READINESS_AGENT_PLAN.md
 │   │   ├── MAIN_FLOW_VALIDATION.md
@@ -3691,6 +3692,8 @@
 │   │   ├── test_instrument_registry.py
 │   │   ├── test_integration_cycle_guards.py
 │   │   └── test_paper_exchange_telemetry.py
+│   ├── fixtures
+│   │   └── btc_context_admission_metadata.json
 │   ├── strategies
 │   │   ├── test_candidate_factory.py
 │   │   ├── test_canonical_contract.py

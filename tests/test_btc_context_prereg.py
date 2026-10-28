@@ -34,7 +34,7 @@ from trading_agent.research.btc_context_prereg import (
     keep_added_arm,
 )
 
-ROOT = Path("/home/huythong/.qwenpaw/workspaces/trading")
+FIXTURE = Path(__file__).parent / "fixtures/btc_context_admission_metadata.json"
 
 
 def test_feature_sets_match_the_x1_catalog():
@@ -67,12 +67,10 @@ def test_clock_ends_before_holdout_and_warmup_covers_the_residual():
 
 
 def test_inputs_match_the_x0_receipts():
-    alignment = json.loads(
-        (ROOT / "data/x0_context_admission_20261027_01/timestamp_alignment.json").read_text()
-    )
-    quality = json.loads(
-        (ROOT / "data/x0_context_admission_20261027_01/price_quality.json").read_text()
-    )
+    metadata = json.loads(FIXTURE.read_text())
+    assert metadata["evidence_class"] == "RECORDED_METADATA_NOT_MARKET_DATA"
+    alignment = metadata["alignment"]
+    quality = metadata["quality"]
     for item in alignment["files"].values():
         assert item["rows"] == CLOCK_ROWS
         assert item["timestamps_identical_to_btc"] is True

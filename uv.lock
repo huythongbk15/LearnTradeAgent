@@ -1508,7 +1508,7 @@ requires-dist = [
     { name = "hypothesis", marker = "extra == 'dev'", specifier = ">=6.100,<7.0" },
     { name = "kubernetes", marker = "extra == 'infra'", specifier = ">=28.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.11,<2.0" },
-    { name = "numpy", specifier = ">=1.26" },
+    { name = "numpy", specifier = ">=2.0,<3.0" },
     { name = "pandas", specifier = ">=2.0" },
     { name = "polars", specifier = ">=1.43.2" },
     { name = "pyarrow", specifier = ">=15.0" },
