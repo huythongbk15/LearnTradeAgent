@@ -36,3 +36,7 @@ Repairs preserve assertions: lock metadata now matches the existing NumPy requir
 6. Five slow synthetic tests fail because measured sensitivity requires every planned outer fold. Determine whether fixtures fail to produce coverage or orchestration mishandles missing coverage. Preserve fail-closed sensitivity requirements and register any source change with fresh AC evidence.
 
 Merge only after the repaired revision passes full CI. Do not use administrator override, force-push, relaxed assertions, or stale AC receipts to declare completion. Mainnet remains NO-GO.
+
+## Follow-up on 44ce8f09
+
+GitHub acceptance-evidence passed, matching the local final AC pass. CI-p0 improved to 596 passed / 2 failed / 3 skipped; the two remaining failures still shared the default event-store path despite isolated paper-state directories. The follow-up pins explicit temporary event-store paths; the four related tests passed under two xdist workers (8.97s). Lock freshness now passed, but export differed because CI installed a newer uv with different marker normalization. CI now pins uv 0.11.28 to match the verified exporter. These follow-up changes need fresh remote CI; the fast/slow blockers above remain open.

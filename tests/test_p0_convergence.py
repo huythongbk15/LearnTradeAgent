@@ -1055,7 +1055,7 @@ class TestEnginePaperE2E:
         from trading_agent.agents.base import AgentMessage
         from trading_agent.execution.engine import ExecutionEngine
 
-        engine = ExecutionEngine(state_dir=tmp_path / "engine")
+        engine = ExecutionEngine(state_dir=tmp_path / "engine", event_store_path=tmp_path / "events.db")
 
         signal = AgentMessage(
             role="trader",
@@ -1072,7 +1072,7 @@ class TestEnginePaperE2E:
         from trading_agent.agents.base import AgentMessage
         from trading_agent.execution.engine import ExecutionEngine
         
-        engine = ExecutionEngine(state_dir=tmp_path / "engine")
+        engine = ExecutionEngine(state_dir=tmp_path / "engine", event_store_path=tmp_path / "events.db")
         
         signal = AgentMessage(
             role="trader",
