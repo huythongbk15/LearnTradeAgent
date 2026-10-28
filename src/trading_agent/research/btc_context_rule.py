@@ -19,6 +19,8 @@ from trading_agent.research.btc_context_features import (
 )
 
 ENTRY_RULE_ID = "H-OWN24-CONTEXT-01"
+PLUS_ENTRY_RULE_ID = "H-OWN24-PLUS-BTCRETURN-01"
+PLUS_ARM = "PLUS"
 OWN_RETURN_BARS = 24
 HOLD_BARS = 24
 FILL_DELAY_BARS = 2
@@ -61,6 +63,21 @@ def _available(feature: FeatureValue) -> bool:
     return feature.value is not None
 
 
+def rule_fingerprint_plus() -> str:
+    payload = {
+        "id": PLUS_ENTRY_RULE_ID,
+        "base_rule": ENTRY_RULE_ID,
+        "plus_predicate": "btc_simple_return_24_strictly_positive",
+        "missing_plus_returns_hold": True,
+        "hold_bars": HOLD_BARS,
+        "fill_delay_bars": FILL_DELAY_BARS,
+        "threshold": ENTRY_THRESHOLD,
+        "shared_across_targets": SHARED_ACROSS_TARGETS,
+    }
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    return hashlib.sha256(encoded).hexdigest()
+
+
 def entry_allowed(
     arm: str,
     own_return: FeatureValue,
@@ -76,7 +93,14 @@ def entry_allowed(
         return _positive(own_return) and _a1_context(context)
     if arm == "A2":
         return _positive(own_return) and _a1_context(context) and _a2_context(context)
-    raise ValueError("arm must be A0, A1 or A2")
+    if arm == PLUS_ARM:
+        return _positive(own_return) and _plus_context(context)
+    raise ValueError("arm must be A0, A1, A2 or PLUS")
+
+
+def _plus_context(features: dict[str, FeatureValue]) -> bool:
+    """PLUS adds only BTC 24-bar return > 0. Missing BTC return => HOLD."""
+    return _positive(_value(features, "btc_simple_return_24"))
 
 
 def _a1_context(features: dict[str, FeatureValue]) -> bool:

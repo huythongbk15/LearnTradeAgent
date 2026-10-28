@@ -276,6 +276,50 @@ def test_missing_fill_identity_blocks_new_action_without_inventing_flat(setup):
     assert engine.exchange.get_position(SYMBOL).quantity == quantity
 
 
+def test_reconciled_flat_allows_new_entry_after_residual_close(setup):
+    """Residual reconciliation → flat confirmed → new BUY entry is allowed.
+
+    Fail-closed residual accounting keeps the position open until the
+    residual is genuinely closed. Once reconciled to flat with inventory
+    known, the entry path re-opens and BUY is permitted on pair return > 0.
+    This proves residual does not block BUY forever.
+    """
+    engine, runtime, _ = setup
+    start = Clock.current
+    execute(engine, runtime, start, 0)
+    original = engine.exchange.get_position(SYMBOL).quantity
+
+    # Partial exit leaves genuine residual (not flat).
+    Clock.current = start + timedelta(hours=6)
+    engine.update_prices({SYMBOL: 1100.0})
+    assert engine._cancel_resting_protection(SYMBOL)[0]
+    engine.exchange.place_order(SYMBOL, "sell", amount=math.floor(original / 2 / 0.0001) * 0.0001)
+    position = engine.exchange.get_position(SYMBOL)
+    assert position and position.quantity > 0 and position.opened_at == start
+    residual_qty = position.quantity
+
+    # Reconcile the residual by selling it outright → flat confirmed.
+    engine.exchange.place_order(SYMBOL, "sell", amount=residual_qty)
+    assert engine.exchange.get_position(SYMBOL) is None
+
+    # Reconciled flat cycle: inventory known, quantity 0, no active fill cycle.
+    record = PositionCycleRecord(quantity=0.0, inventory_known=True)
+    snapshot = PortfolioSnapshot(
+        equity=10000, available_cash=10000, positions={SYMBOL: 0.0},
+        symbol_exposures={SYMBOL: 0.0}, gross_exposure=0.0,
+        reconciliation_state=ReconciliationState.RECONCILED,
+        position_cycles={SYMBOL: record},
+    )
+    Clock.current = start + timedelta(hours=30)
+    engine.update_prices({SYMBOL: 1100.0})
+    prepared = engine._prepare_from_runtime(
+        runtime, entry_frame(Clock.current), observation(Clock.current, 30),
+        portfolio_snapshot=snapshot,
+    )
+    assert prepared.prepare_status == "ok"
+    assert prepared.signal == "BUY"  # pair return 1000 -> 1100 > 0, entry path open
+
+
 def test_historical_cycle_snapshot_expires_without_reading_the_broker(setup, monkeypatch):
     engine, runtime, _ = setup
 

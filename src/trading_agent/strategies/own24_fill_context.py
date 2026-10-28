@@ -11,7 +11,7 @@ import polars as pl
 
 from trading_agent.execution.position_cycle import PositionCycleView
 from trading_agent.research.btc_context_features import contract_fingerprint
-from trading_agent.research.btc_context_rule import rule_fingerprint
+from trading_agent.research.btc_context_rule import rule_fingerprint, rule_fingerprint_plus
 from trading_agent.strategies.own24_context import Own24ContextStrategy
 
 HOLDING_HOURS = 24
@@ -28,6 +28,21 @@ def fill_policy_fingerprint():
         "exit_priority": "expiry_before_context",
         "unknown_inventory": "hold_no_new_exposure",
     }
+    return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+
+
+def fill_policy_fingerprint_plus():
+    payload = dict(
+        policy="own24_fill_context_v1_synthetic_stage_plus",
+        entry_rule=rule_fingerprint_plus(),
+        features=contract_fingerprint(),
+        entry_window="exclude_decision_bar_as_in_canonical_bridge",
+        holding_hours=HOLDING_HOURS,
+        clock="first_positive_fill_of_current_cycle_no_reset_on_partial",
+        exit_priority="expiry_before_context",
+        unknown_inventory="hold_no_new_exposure",
+        plus_predicate="btc_simple_return_24_strictly_positive",
+    )
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
 
 
