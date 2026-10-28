@@ -1,0 +1,63 @@
+{
+  "data": {
+    "scope_change_request": {
+      "approval_state": "APPROVED",
+      "approved_by": "reviewer",
+      "approved_at": "2026-10-28T16:00:00+00:00",
+      "expected_approved_scope": "scope_plus",
+      "approved_scope": "scope_plus"
+    },
+    "sha256": "abc123inputhash"
+  },
+  "candidate": {
+    "params": {
+      "arm": "A0"
+    },
+    "strategy_id": "cand_plus",
+    "symbol": "ETH/USDT",
+    "timeframe": "1h"
+  },
+  "geometry": {
+    "inner_validation_windows": [
+      [
+        0,
+        100
+      ]
+    ]
+  },
+  "costs": {
+    "1x": {
+      "fee_multiplier": 1.0,
+      "slippage_multiplier": 1.0
+    },
+    "2x": {
+      "fee_multiplier": 2.0,
+      "slippage_multiplier": 2.0
+    },
+    "slip_stress": {
+      "fee_multiplier": 1.0,
+      "slippage_multiplier": 5.0
+    }
+  },
+  "budget": {
+    "cell_timeout_seconds": 600,
+    "total_timeout_seconds": 7920,
+    "max_rss_mb": 1024,
+    "max_retries": 0
+  },
+  "scope_token_binding": {
+    "token": "tok_plus"
+  },
+  "execution_contract": {
+    "runtime_config": {
+      "mode": "paper"
+    },
+    "native_contract_bodies_by_cost": {
+      "1x": {
+        "schema_version": 1,
+        "a": 1
+      }
+    }
+  },
+  "identity_A_source_fingerprint": "src_sha_plus"
+}

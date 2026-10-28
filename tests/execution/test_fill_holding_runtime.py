@@ -434,3 +434,39 @@ def test_order_wrapper_preserves_broker_fill_state_and_quantity(state, status):
     assert order.status == status
     assert order.filled_amount == actual
     assert order.avg_fill_price == 1100
+def test_residual_reconcile_flat_allows_new_buy_through_live_engine(setup):
+    """Reconcile residual to flat via the real engine; no hand-built
+    ``quantity=0`` snapshot. After flat is confirmed by the broker, the live
+    engine reads the broker itself (no portfolio_snapshot), builds the flat
+    cycle itself, and permits a new BUY on pair return > 0."""
+    engine, runtime, _ = setup
+    t0 = Clock.current
+    orders = execute(engine, runtime, t0, 0)
+    assert orders and orders[0].status == OrderStatus.FILLED
+    original = engine.exchange.get_position(SYMBOL).quantity
+
+    # partial exit leaves genuine residual
+    t6 = t0 + timedelta(hours=6)
+    Clock.current = t6
+    engine.update_prices({SYMBOL: 1100.0})
+    assert engine._cancel_resting_protection(SYMBOL)[0]
+    engine.exchange.place_order(SYMBOL, "sell",
+        amount=math.floor(original / 2 / 0.0001) * 0.0001)
+    position = engine.exchange.get_position(SYMBOL)
+    assert position and position.quantity > 0 and position.opened_at == t0
+    residual_qty = position.quantity
+
+    # reconcile residual by selling outright -> flat confirmed by broker
+    engine.exchange.place_order(SYMBOL, "sell", amount=residual_qty)
+    assert engine.exchange.get_position(SYMBOL) is None
+
+    # live engine path: NO portfolio_snapshot -> reads broker, builds flat
+    # cycle itself, then allows entry (BUY) on pair return > 0
+    t30 = t0 + timedelta(hours=30)
+    Clock.current = t30
+    engine.update_prices({SYMBOL: 1100.0})
+    orders = execute(engine, runtime, t30, 30)
+    assert orders and orders[0].status == OrderStatus.FILLED, orders
+    position = engine.exchange.get_position(SYMBOL)
+    assert position is not None
+    assert position.opened_at == t30
