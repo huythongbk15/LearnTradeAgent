@@ -7,28 +7,19 @@ drives the live engine end-to-end (no hand-rolled ``quantity=0`` snapshot).
 """
 from __future__ import annotations
 
-import datetime as dt
 import hashlib
 import json
-import math
-import os
-import signal
-import subprocess
 import sys
 import time
 from pathlib import Path
 
-import polars as pl
-import pytest
 from types import SimpleNamespace
 
-from trading_agent.execution.types import OrderStatus
 from trading_agent.research.btc_context_prereg import (
     PLUS_BUDGET,
     PLUS_CELL_TOTAL_SECONDS,
     PLUS_RUN_HARD_CAP_SECONDS,
     PLUS_RUN_TOTAL_SECONDS,
-    plus_packet_contract,
 )
 from trading_agent.strategies.canonical.candidates import (
     SCOPED_CANDIDATE_PREREGISTRATION_PATHS,
@@ -43,12 +34,6 @@ from trading_agent.backtest.tournament import (
     EvaluationCellSpec,
     SCENARIO_BASE,
     FAULT_NONE,
-)
-from tests.execution.test_fill_holding_runtime import (
-    Clock,
-    SYMBOL,
-    observation,
-    entry_frame,
 )
 
 REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
@@ -122,7 +107,7 @@ def test_binding_passes_on_approved_payload():
         protocol = _base_protocol(payload)
         failed = verify_registered_payload_binding(
             protocol, "tok_plus",
-            root=REPOSITORY_ROOT, source_fingerprint="f2a0a2e65d88a1f1c0999eadc3bda6a010e7a0cb20f495878610802b3fe71b75",
+            root=REPOSITORY_ROOT, source_fingerprint="5e8ec5ec74d35b20d5bcf0b409d53b772e3c86f126c37fd1619d0951f1224d59",
         )
         assert failed == [], failed
     finally:
@@ -137,7 +122,7 @@ def test_binding_rejects_tampered_input_hash():
         protocol["input_binding"]["sha256"] = "00" * 32
         failed = verify_registered_payload_binding(
             protocol, "tok_plus", root=REPOSITORY_ROOT,
-            source_fingerprint="f2a0a2e65d88a1f1c0999eadc3bda6a010e7a0cb20f495878610802b3fe71b75",
+            source_fingerprint="5e8ec5ec74d35b20d5bcf0b409d53b772e3c86f126c37fd1619d0951f1224d59",
         )
         assert "input_sha256" in failed
     finally:
@@ -166,7 +151,7 @@ def test_binding_rejects_tampered_cell_timeout():
         protocol["execution"]["cell_timeout"] = 9999
         failed = verify_registered_payload_binding(
             protocol, "tok_plus", root=REPOSITORY_ROOT,
-            source_fingerprint="f2a0a2e65d88a1f1c0999eadc3bda6a010e7a0cb20f495878610802b3fe71b75",
+            source_fingerprint="5e8ec5ec74d35b20d5bcf0b409d53b772e3c86f126c37fd1619d0951f1224d59",
         )
         assert "cell_timeout" in failed
     finally:
@@ -181,7 +166,7 @@ def test_binding_rejects_tampered_total_timeout():
         protocol["validation_budget"]["total_timeout_seconds"] = 9999
         failed = verify_registered_payload_binding(
             protocol, "tok_plus", root=REPOSITORY_ROOT,
-            source_fingerprint="f2a0a2e65d88a1f1c0999eadc3bda6a010e7a0cb20f495878610802b3fe71b75",
+            source_fingerprint="5e8ec5ec74d35b20d5bcf0b409d53b772e3c86f126c37fd1619d0951f1224d59",
         )
         assert "total_timeout" in failed
     finally:
@@ -197,7 +182,7 @@ def test_binding_rejects_tampered_symbol():
         protocol["spec"]["symbol"] = "BTC/USDT"
         failed = verify_registered_payload_binding(
             protocol, "tok_plus", root=REPOSITORY_ROOT,
-            source_fingerprint="f2a0a2e65d88a1f1c0999eadc3bda6a010e7a0cb20f495878610802b3fe71b75",
+            source_fingerprint="5e8ec5ec74d35b20d5bcf0b409d53b772e3c86f126c37fd1619d0951f1224d59",
         )
         assert "symbol" in failed
     finally:
@@ -215,7 +200,7 @@ def test_binding_failure_never_starts_a_worker():
         protocol["input_binding"]["sha256"] = "00" * 32
         failed = verify_registered_payload_binding(
             protocol, "tok_plus", root=REPOSITORY_ROOT,
-            source_fingerprint="f2a0a2e65d88a1f1c0999eadc3bda6a010e7a0cb20f495878610802b3fe71b75",
+            source_fingerprint="5e8ec5ec74d35b20d5bcf0b409d53b772e3c86f126c37fd1619d0951f1224d59",
         )
         assert failed, "binding should fail closed before any worker starts"
     finally:
@@ -315,7 +300,7 @@ def test_launcher_calls_binding_gate_and_passes_plus_timeout(monkeypatch, tmp_pa
         return SimpleNamespace(status="COMPLETED", report_path=None)
 
     payload, manifest = _load_packet()
-    source_fingerprint = "f2a0a2e65d88a1f1c0999eadc3bda6a010e7a0cb20f495878610802b3fe71b75"
+    source_fingerprint = "5e8ec5ec74d35b20d5bcf0b409d53b772e3c86f126c37fd1619d0951f1224d59"
     _install_scope_token()
     try:
         context = {

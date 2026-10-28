@@ -28,7 +28,6 @@ from trading_agent.research.btc_context_rule import (
     rule_fingerprint_plus,
 )
 from trading_agent.strategies.own24_fill_context import (
-    fill_policy_fingerprint,
     fill_policy_fingerprint_plus,
 )
 
