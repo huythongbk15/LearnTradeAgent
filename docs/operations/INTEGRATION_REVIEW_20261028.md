@@ -2,7 +2,7 @@
 
 PR: https://github.com/huythongbk15/LearnTradeAgent/pull/64
 
-Status: PUSHED; MERGE BLOCKED BY FULL CI. No strategy qualification or market-run authorization is granted by this integration.
+Status: FINAL FIXTURES VERIFIED LOCALLY; FULL CI REQUIRED BEFORE MERGE. No strategy qualification or market-run authorization is granted by this integration.
 
 ## Integrated scope
 
@@ -40,3 +40,22 @@ Merge only after the repaired revision passes full CI. Do not use administrator 
 ## Follow-up on 44ce8f09
 
 GitHub acceptance-evidence passed, matching the local final AC pass. CI-p0 improved to 596 passed / 2 failed / 3 skipped; the two remaining failures still shared the default event-store path despite isolated paper-state directories. The follow-up pins explicit temporary event-store paths; the four related tests passed under two xdist workers (8.97s). Lock freshness now passed, but export differed because CI installed a newer uv with different marker normalization. CI now pins uv 0.11.28 to match the verified exporter. These follow-up changes need fresh remote CI; the fast/slow blockers above remain open.
+
+## Final fixture investigation
+
+The blocker list above is historical. Commits 3f793a1f and 4171186a supplied synthetic canonical-data/registry fixtures, corrected catalog and open-trade expectations, and aligned publisher stubs. Later investigation established concrete isolation defects rather than merely labelling failures flaky:
+
+- Fault injection assigned `TRADING_FROZEN_RESEARCH_DATA` directly. It now uses pytest's scoped environment patch, and a subprocess regression proves a caller-owned binding is restored. The affected binding sequence passed 5/5.
+- R03 helpers assigned six loader/planner/runner globals directly. An autouse restoration fixture now registers their originals before each test. Running the R03 module before its formerly affected campaign tests passed 37/37 in one process.
+- S3 tests patched loaders only in the parent; spawned workers did not inherit those patches. The fixtures now hash-bind a temporary synthetic parquet through `frozen_research_data`. Statistical/holdout tests passed 11/11 with two workers, without relaxing sensitivity coverage or reading local market files.
+- CI previously checked locks but installed unconstrained dependency versions. All three Python test/evidence jobs now install hashed `requirements.lock` first and install the project with `--no-deps`.
+
+Local full-shard attempts are retained as failed attempts, not reported as full-suite PASS. One attempt lacked the virtualenv on PATH, which broke legacy child commands expecting `python`; three launcher tests subsequently passed 3/3 with the project interpreter on PATH. The final verdict must use the new full GitHub CI run on the committed revision. Do not merge while any required check is failing. No market campaign was run; strategy, gates, risk policy and old packets remain unchanged.
+
+PR #64 was merged by another session at 92a65cfa before the final fixture patch landed. The remaining corrections are reviewed in PR #65. On its first run, ci-fast passed and the slow main lane passed 53 tests; this exposed six previously unreachable fault-lane tests still depending on untracked market prices. Their cells now bind deterministic synthetic input. The price fixture preserves RSI transitions while keeping lows above all possible native 5% stops, so a later stop fill cannot resolve the injected cancel race before terminal assertions. UNKNOWN/manual and all other fault assertions remain unchanged. The full fault module passed 15/15 locally; fresh full CI is still required for the updated PR.
+
+## Runtime image security follow-up
+
+On b5a8cfca, CI passed P0 (598), fast (2317), slow (53 main + 6 fault), acceptance and integration checks. Container build and smoke also passed. Trivy then found six fixable CRITICAL findings: certifi 2026.6.17 (GHSA-6q48-6c7w-9gw2, fixed from 2026.10.18) and five Pillow findings fixed in 13.0.0. No scanner exception or threshold change was made.
+
+The dependency resolver confirmed that ccxt 4.5.73 pins certifi 2026.6.17 exactly, so retaining that SDK version is incompatible with the security fix. Security floors are now recorded in pyproject.toml and the hashed lock is regenerated: certifi 2026.10.23, Pillow 13.0.0, ccxt 4.5.90 and Streamlit 1.66.1, with their required transitive resolution changes. Numerical dependencies remain locked. The SDK update requires fresh full CI, including execution-boundary tests and a new container scan; previous green tests do not certify the new dependency graph.

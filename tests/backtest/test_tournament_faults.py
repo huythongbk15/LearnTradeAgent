@@ -1,8 +1,7 @@
 """STR-0206 fault-scenario tests.
 
-Unit tests run in the default suite; the per-profile integration cells hit
-real binance data and are marked ``slow`` (run explicitly via
-``pytest -m slow`` before a baseline tournament).
+Unit tests run in the default suite. Slow per-profile cells use a deterministic
+synthetic file hash-bound into spawned workers; no market files are read.
 """
 
 from __future__ import annotations
@@ -82,14 +81,30 @@ from trading_agent.backtest.tournament import FaultProfile  # noqa: E402
 
 
 def _run(profile: FaultProfile, tmp_path: Path):
+    import polars as pl
     from trading_agent.backtest.tournament import run_cell
+    from trading_agent.backtest.synthetic_data import generate_synthetic_ohlcv
+    from trading_agent.data.storage import frozen_research_data
 
     spec = EvaluationCellSpec("rsi", "BTC/USDT", params={"period": 14}, fault=profile)
-    return run_cell(
-        spec,
-        out_root=tmp_path / profile.name,
-        end=400,
+    data = tmp_path / "synthetic-fault-input.parquet"
+    frame = generate_synthetic_ohlcv(n_bars=400, seed=7)
+    # Keep RSI transitions, but prevent a later 5% stop fill from resolving
+    # the injected cancel race before the terminal-state assertions. This is
+    # fixture geometry, not a change to the engine's native protective stop.
+    frame = frame.with_columns(
+        [(100.0 + (pl.col(name) - 100.0) * 0.1).alias(name)
+         for name in ("open", "high", "low", "close")]
+        + [(pl.col("atr") * 0.1).alias("atr")]
     )
+    assert frame["low"].min() > frame["high"].max() * 0.95
+    frame.write_parquet(data)
+    with frozen_research_data(data, exchange="binance", symbol="BTC/USDT", timeframe="1h"):
+        return run_cell(
+            spec,
+            out_root=tmp_path / profile.name,
+            end=400,
+        )
 
 
 @pytest.mark.slow
@@ -98,7 +113,7 @@ def _run(profile: FaultProfile, tmp_path: Path):
 class TestFaultScenarioCells:
     """Each scenario must either complete cleanly or fail CLOSED.
 
-    Verified behaviour on real binance data (see tournament_index.json):
+    Required behaviour through the real engine on synthetic prices:
     - gap/stale cells survive with clean terminal state;
     - broker rejections escalate to UNKNOWN terminal state (deliberate P0
       decision — reconciliation is a runtime-ops concern, never silent);

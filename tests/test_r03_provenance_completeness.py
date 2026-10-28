@@ -46,6 +46,22 @@ from trading_agent.backtest.provenance import (
 )
 
 
+@pytest.fixture(autouse=True)
+def restore_legacy_wfo_test_doubles(monkeypatch):
+    """Restore the six globals that legacy fixture helpers replace directly."""
+    from trading_agent.backtest import nested_wfo, tournament
+    from trading_agent.data import storage
+
+    for module, names in (
+        (storage, ("load_ohlcv",)),
+        (tournament, ("load_ohlcv", "run_cell")),
+        (nested_wfo, ("_resolve_frozen_holdout_window", "_get_fold_indices", "run_cell")),
+    ):
+        for name in names:
+            # Register the original value before a helper assigns its double.
+            monkeypatch.setattr(module, name, getattr(module, name))
+
+
 # =============================================================================
 # Test 1: provenance_digest is stable and identity-bound
 # =============================================================================
