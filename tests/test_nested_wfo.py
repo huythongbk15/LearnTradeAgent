@@ -304,7 +304,6 @@ class TestExperimentRegistryIntegration:
     def test_registry_uses_real_hashes_not_placeholders(self, monkeypatch, tmp_path):
         """Registry should use real SHA256, not 'canonical'/'wfo' placeholders."""
         import polars as pl
-        from trading_agent.data import storage
 
         # Synthetic fixture so the test does not depend on gitignored market data
         df = pl.DataFrame({

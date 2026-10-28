@@ -191,7 +191,7 @@ def test_f2b_interrupted_attempt_is_refused_by_the_aggregation(tmp_path, monkeyp
         "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
         "exchange": "binance", "symbol": "BTC/USDT", "timeframe": "1h",
     }
-    os.environ["TRADING_FROZEN_RESEARCH_DATA"] = json.dumps(binding)
+    monkeypatch.setenv("TRADING_FROZEN_RESEARCH_DATA", json.dumps(binding))
     fold = nested_wfo.NestedFold("fold_000", 0, 150, 200, 240, 250, 300, 50, 10)
 
     # the synthetic frame and a fixed fold plan / no holdout, exactly as the
