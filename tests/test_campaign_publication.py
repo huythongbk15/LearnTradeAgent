@@ -39,7 +39,7 @@ def test_publish_writes_exact_bytes_when_verdict_passes(monkeypatch, tmp_path):
     monkeypatch.setattr(
         cw,
         "require_wfo_campaign_evidence",
-        lambda result, out_root, *, data_root, source_binding: captured.setdefault(
+        lambda result, out_root, *, data_root, source_binding, selection_evidence_root=None: captured.setdefault(
             "called", True
         ),
     )
@@ -64,7 +64,7 @@ def test_publish_refuses_a_fail_verdict(monkeypatch, tmp_path):
     monkeypatch.setattr(
         cw,
         "require_wfo_campaign_evidence",
-        lambda result, out_root, *, data_root, source_binding: (_ for _ in ()).throw(
+        lambda result, out_root, *, data_root, source_binding, selection_evidence_root=None: (_ for _ in ()).throw(
             ValueError("campaign is measured but NOT_QUALIFIED")
         ),
     )
@@ -86,7 +86,7 @@ def test_publish_is_idempotent_for_identical_bytes(monkeypatch, tmp_path):
     monkeypatch.setattr(
         cw,
         "require_wfo_campaign_evidence",
-        lambda result, out_root, *, data_root, source_binding: None,
+        lambda result, out_root, *, data_root, source_binding, selection_evidence_root=None: None,
     )
     first = cw.publish_campaign_bundle(
         object(), bundle, tmp_path, data_root=tmp_path, source_binding={"code_commit": "a" * 40, "tree_fingerprint": "b" * 64}
@@ -105,7 +105,7 @@ def test_publish_refuses_to_overwrite_differing_evidence(monkeypatch, tmp_path):
     monkeypatch.setattr(
         cw,
         "require_wfo_campaign_evidence",
-        lambda result, out_root, *, data_root, source_binding: None,
+        lambda result, out_root, *, data_root, source_binding, selection_evidence_root=None: None,
     )
     cw.publish_campaign_bundle(
         object(), bundle, tmp_path, data_root=tmp_path, source_binding={"code_commit": "a" * 40, "tree_fingerprint": "b" * 64}

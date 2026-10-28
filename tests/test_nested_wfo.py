@@ -812,8 +812,12 @@ class TestHardGates:
 class TestFinalHoldout:
     """Test final holdout freeze (STR-0309)."""
 
+    @pytest.mark.integration
     def test_resolve_frozen_holdout_window(self):
-        """Frozen holdout window resolves from research_manifest.json."""
+        """Frozen holdout window resolves from research_manifest.json.
+
+        Requires untracked local market data (data/raw/binance/*).
+        """
         from trading_agent.data.storage import load_ohlcv
         from trading_agent.backtest.nested_wfo import (
             _resolve_frozen_holdout_window,
@@ -825,6 +829,7 @@ class TestFinalHoldout:
         h_start, h_end, _manifest = hb
         assert 0 < h_start < h_end < df.height
 
+    @pytest.mark.integration
     def test_guard_rejects_overlapping_fold(self):
         """Guard raises HoldoutError if a fold's data window touches holdout."""
         from trading_agent.data.storage import load_ohlcv
@@ -855,6 +860,7 @@ class TestFinalHoldout:
         with pytest.raises(HoldoutError):
             _guard_fold_against_holdout(overlap, df, descriptor, h_start, h_end)
 
+    @pytest.mark.integration
     def test_guard_accepts_safe_fold(self):
         """Guard accepts a fold fully before the holdout."""
         from trading_agent.data.storage import load_ohlcv
@@ -884,6 +890,7 @@ class TestFinalHoldout:
         # Should not raise
         _guard_fold_against_holdout(safe, df, descriptor, h_start, h_end)
 
+    @pytest.mark.integration
     def test_fold_filtering_excludes_holdout(self):
         """Folds overlapping the frozen holdout are dropped."""
         from trading_agent.data.storage import load_ohlcv

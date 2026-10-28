@@ -97,7 +97,14 @@ class TestABTestComparison:
 
 
 class TestFullRunSkipLLM:
-    """Full run_ab_test with --skip-llm-on on real historical data (>=300 bars)."""
+    """Full run_ab_test with --skip-llm-on on real historical data (>=300 bars).
+
+    These are integration tests that require untracked local market data
+    (data/raw/binance/* is gitignored).  They are excluded from CI shards
+    and run locally when the data is present.
+    """
+
+    @pytest.mark.integration
 
     @staticmethod
     def _run_btc(start, end):

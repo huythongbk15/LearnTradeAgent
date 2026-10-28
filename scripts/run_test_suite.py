@@ -31,8 +31,11 @@ PROFILES = {
     "profile": Profile("", durations=True),
     # Non-overlapping CI shards.  Together with ``slow`` they cover every test
     # exactly once while allowing GitHub Actions to run all shards in parallel.
-    "ci-p0": Profile("p0 and not slow"),
-    "ci-fast": Profile("not p0 and not slow"),
+    # ``integration`` marks tests that require untracked local market data
+    # (gitignored under data/raw/**); those run locally but are excluded from
+    # CI shards on a clean checkout.
+    "ci-p0": Profile("p0 and not slow and not integration"),
+    "ci-fast": Profile("not p0 and not slow and not integration"),
 }
 
 
