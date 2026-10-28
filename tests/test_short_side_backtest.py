@@ -53,7 +53,12 @@ def candles(opens: list[float], closes: list[float] | None = None) -> pl.DataFra
 
 class TestShortSideEntryExit:
     def test_short_entry_sell_high_return_low(self):
-        """Short at 100 (bar 1), exit at 90 (bar 3) → profit."""
+        """Short at 100 (bar 1), exit at 90 (bar 3) → profit.
+
+        The +1 signal at index 2 also opens a long at bar 3 that is never
+        closed, so total_trades counts both the closed short and the open
+        long; open_trades isolates the carried position.
+        """
         # Signal at index 0 (-1) → short at bar 1's open=100
         # Signal at index 2 (+1) → close short at bar 3's open=90
         result = BacktestEngine(
@@ -67,14 +72,19 @@ class TestShortSideEntryExit:
             timeframe="1d",
         ).run(candles([100.0, 100.0, 90.0, 90.0]))
 
-        assert result.total_trades == 1
+        assert result.total_trades == 2  # 1 closed short + 1 open long
+        assert result.open_trades == 1
+        assert result.total_trades - result.open_trades == 1  # closed only
         assert result.trades[0].direction == -1  # short
         assert result.trades[0].pnl_abs > 0  # profitable short
         assert result.trades[0].entry_price == pytest.approx(100.0)
         assert result.trades[0].exit_price == pytest.approx(90.0)
 
     def test_short_loss_when_price_rises(self):
-        """Short at 100 (bar 1), exit at 110 (bar 3) → loss."""
+        """Short at 100 (bar 1), exit at 110 (bar 3) → loss.
+
+        Same geometry as above: 1 closed short + 1 open long never closed.
+        """
         result = BacktestEngine(
             StaticSignals([-1, 0, 1, 0]),
             initial_capital=10_000,
@@ -86,7 +96,9 @@ class TestShortSideEntryExit:
             timeframe="1d",
         ).run(candles([100.0, 100.0, 110.0, 110.0]))
 
-        assert result.total_trades == 1
+        assert result.total_trades == 2  # 1 closed short + 1 open long
+        assert result.open_trades == 1
+        assert result.total_trades - result.open_trades == 1  # closed only
         assert result.trades[0].direction == -1
         assert result.trades[0].pnl_abs < 0  # losing short
 
@@ -144,16 +156,20 @@ class TestShortSideEntryExit:
         assert result.equity_curve["equity"][-1] == pytest.approx(10_000.0)
 
     def test_switch_from_short_to_long(self):
-        """Signal -1 then +1: close short, open long."""
+        """Signal -1 then +1: close short, open long.
+
+        Bars: short(100→90) closed, long(90→110) closed at bar 5, then
+        -1 at index 4 closes long and opens a short that is never closed.
+        total_trades = 3 (2 closed + 1 open), open_trades = 1.
+        """
         # Bar 0: signal=-1 → short at bar 1 open=100
-        # Bar 2: signal=+1 → close short at bar 3 open=90, open long at 90
+        # Bar 2: signal=+1 → close short at bar 3 open=90, open long at bar 3 (open=90)
         # Bar 4: signal=0 → hold
         # Bar 5: signal=0 → hold
-        # Wait, need signal=+1 at index 4 to close long at bar 5... no, need +1 at index 5
         # Actually: signal -1 at 0 → short at bar 1 (open=100)
         # signal +1 at 2 → close short at bar 3 (open=90), open long at bar 3 (open=90)
-        # signal -1 at 4 → close long at bar 5 (open=110)
-        # That gives us 2 trades: short(100→90 profit) + long(90→110 profit)
+        # signal -1 at 4 → close long at bar 5 (open=110), open short at bar 5 (open=110)
+        # That gives us 3 trades: 2 closed + 1 open short
         result = BacktestEngine(
             StaticSignals([-1, 0, 1, 0, -1, 0]),
             initial_capital=10_000,
@@ -165,7 +181,9 @@ class TestShortSideEntryExit:
             timeframe="1d",
         ).run(candles([100.0, 100.0, 90.0, 90.0, 110.0, 110.0]))
 
-        assert result.total_trades == 2
+        assert result.total_trades == 3  # 2 closed + 1 open
+        assert result.open_trades == 1
+        assert result.total_trades - result.open_trades == 2  # closed only
         assert result.trades[0].direction == -1  # short
         assert result.trades[0].pnl_abs > 0  # profit: short 100→90
         assert result.trades[1].direction == 1  # long

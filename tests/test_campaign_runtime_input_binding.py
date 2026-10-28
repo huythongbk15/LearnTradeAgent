@@ -64,6 +64,9 @@ def test_entrypoint_passes_frozen_input_and_fold_limit(monkeypatch, tmp_path, co
         raise RuntimeError("verified runtime binding")
 
     monkeypatch.setattr(nested_wfo, "run_nested_wfo", inspect_runtime)
-    with pytest.raises(RuntimeError, match="verified runtime binding"):
-        module.main()
+    try:
+        with pytest.raises(RuntimeError, match="verified runtime binding"):
+            module.main()
+    finally:
+        os.environ.pop("TRADING_FROZEN_RESEARCH_DATA", None)
     assert "TRADING_FROZEN_RESEARCH_DATA" not in os.environ

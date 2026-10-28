@@ -301,8 +301,25 @@ class TestOuterFoldFreeze:
 class TestExperimentRegistryIntegration:
     """Test experiment registry integration (STR-0305)."""
 
-    def test_registry_uses_real_hashes_not_placeholders(self):
+    def test_registry_uses_real_hashes_not_placeholders(self, monkeypatch, tmp_path):
         """Registry should use real SHA256, not 'canonical'/'wfo' placeholders."""
+        import polars as pl
+        from trading_agent.data import storage
+
+        # Synthetic fixture so the test does not depend on gitignored market data
+        df = pl.DataFrame({
+            "timestamp": [0, 1, 2],
+            "open": [100.0, 101.0, 102.0],
+            "high": [101.0, 102.0, 103.0],
+            "low": [99.0, 100.0, 101.0],
+            "close": [100.5, 101.5, 102.5],
+            "volume": [10.0, 10.0, 10.0],
+        })
+        monkeypatch.setattr(
+            "trading_agent.backtest.nested_wfo._load_wfo_ohlcv",
+            lambda symbol, timeframe: df,
+        )
+
         strategy_sha = _compute_strategy_code_sha("enhanced_ma")
         data_sha = _compute_data_manifest_sha("BTC/USDT", "1h")
         descriptor = build_default_registry().describe("enhanced_ma")
@@ -322,8 +339,24 @@ class TestExperimentRegistryIntegration:
         sha2 = _compute_strategy_code_sha("enhanced_ma")
         assert sha == sha2
 
-    def test_data_manifest_sha_real(self):
+    def test_data_manifest_sha_real(self, monkeypatch, tmp_path):
         """Data manifest SHA should be real hash of data."""
+        import polars as pl
+
+        # Synthetic fixture so the test does not depend on gitignored market data
+        df = pl.DataFrame({
+            "timestamp": [0, 1, 2],
+            "open": [100.0, 101.0, 102.0],
+            "high": [101.0, 102.0, 103.0],
+            "low": [99.0, 100.0, 101.0],
+            "close": [100.5, 101.5, 102.5],
+            "volume": [10.0, 10.0, 10.0],
+        })
+        monkeypatch.setattr(
+            "trading_agent.backtest.nested_wfo._load_wfo_ohlcv",
+            lambda symbol, timeframe: df,
+        )
+
         sha = _compute_data_manifest_sha("BTC/USDT", "1h")
         assert sha != "unknown"
         assert sha != "wfo"

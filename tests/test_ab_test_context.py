@@ -96,6 +96,7 @@ class TestABTestComparison:
         json.dumps(d)
 
 
+@pytest.mark.integration
 class TestFullRunSkipLLM:
     """Full run_ab_test with --skip-llm-on on real historical data (>=300 bars).
 
@@ -103,8 +104,6 @@ class TestFullRunSkipLLM:
     (data/raw/binance/* is gitignored).  They are excluded from CI shards
     and run locally when the data is present.
     """
-
-    @pytest.mark.integration
 
     @staticmethod
     def _run_btc(start, end):
