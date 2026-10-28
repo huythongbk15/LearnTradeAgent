@@ -2,7 +2,7 @@
 
 PR: https://github.com/huythongbk15/LearnTradeAgent/pull/64
 
-Status: PUSHED; MERGE BLOCKED BY FULL CI. No strategy qualification or market-run authorization is granted by this integration.
+Status: FINAL FIXTURES VERIFIED LOCALLY; FULL CI REQUIRED BEFORE MERGE. No strategy qualification or market-run authorization is granted by this integration.
 
 ## Integrated scope
 
@@ -40,3 +40,14 @@ Merge only after the repaired revision passes full CI. Do not use administrator 
 ## Follow-up on 44ce8f09
 
 GitHub acceptance-evidence passed, matching the local final AC pass. CI-p0 improved to 596 passed / 2 failed / 3 skipped; the two remaining failures still shared the default event-store path despite isolated paper-state directories. The follow-up pins explicit temporary event-store paths; the four related tests passed under two xdist workers (8.97s). Lock freshness now passed, but export differed because CI installed a newer uv with different marker normalization. CI now pins uv 0.11.28 to match the verified exporter. These follow-up changes need fresh remote CI; the fast/slow blockers above remain open.
+
+## Final fixture investigation
+
+The blocker list above is historical. Commits 3f793a1f and 4171186a supplied synthetic canonical-data/registry fixtures, corrected catalog and open-trade expectations, and aligned publisher stubs. Later investigation established concrete isolation defects rather than merely labelling failures flaky:
+
+- Fault injection assigned `TRADING_FROZEN_RESEARCH_DATA` directly. It now uses pytest's scoped environment patch, and a subprocess regression proves a caller-owned binding is restored. The affected binding sequence passed 5/5.
+- R03 helpers assigned six loader/planner/runner globals directly. An autouse restoration fixture now registers their originals before each test. Running the R03 module before its formerly affected campaign tests passed 37/37 in one process.
+- S3 tests patched loaders only in the parent; spawned workers did not inherit those patches. The fixtures now hash-bind a temporary synthetic parquet through `frozen_research_data`. Statistical/holdout tests passed 11/11 with two workers, without relaxing sensitivity coverage or reading local market files.
+- CI previously checked locks but installed unconstrained dependency versions. All three Python test/evidence jobs now install hashed `requirements.lock` first and install the project with `--no-deps`.
+
+Local full-shard attempts are retained as failed attempts, not reported as full-suite PASS. One attempt lacked the virtualenv on PATH, which broke legacy child commands expecting `python`; three launcher tests subsequently passed 3/3 with the project interpreter on PATH. The final verdict must use the new full GitHub CI run on the committed revision. Do not merge while any required check is failing. No market campaign was run; strategy, gates, risk policy and old packets remain unchanged.

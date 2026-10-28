@@ -84,7 +84,7 @@ def _fake_folds():
 
 
 @pytest.fixture
-def patched(monkeypatch):
+def patched(monkeypatch, tmp_path):
     df = _synthetic_df()
     folds = _fake_folds()
 
@@ -101,7 +101,12 @@ def patched(monkeypatch):
         "trading_agent.backtest.nested_wfo._get_fold_indices",
         lambda *a, **kw: folds,
     )
-    return df, folds
+    from trading_agent.data.storage import frozen_research_data
+
+    data = tmp_path / "synthetic-input.parquet"
+    df.write_parquet(data)
+    with frozen_research_data(data, exchange="binance", symbol="BTC/USDT", timeframe="1h"):
+        yield df, folds
 
 
 def _make_spec(tmp_path):
