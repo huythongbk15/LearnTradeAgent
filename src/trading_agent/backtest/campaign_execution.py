@@ -19,6 +19,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from trading_agent.backtest.campaign_evidence import content_hash
+from trading_agent.backtest.campaign_integrity import capture_campaign_source
 from trading_agent.backtest.tournament import EvaluationArtifact, run_cell
 from trading_agent.backtest.preregistration_binding import (
     load_approved_payload,
@@ -309,9 +310,10 @@ class CampaignCellRunner:
             scope_token = self.context.get("scope_token")
             if scope_token and spec.strategy_id in set(SCOPED_CANDIDATE_SCOPE_TOKENS.values()):
                 source = self.context.get("source") or {}
-                source_fingerprint = source.get("code_commit")
+                captured = capture_campaign_source(ROOT)
+                source_fingerprint = captured["tree_fingerprint"]
                 if not source_fingerprint:
-                    raise ValueError("scoped candidate run requires source.code_commit")
+                    raise ValueError("scoped candidate run requires source.tree_fingerprint")
                 payload, _manifest = load_approved_payload(scope_token, ROOT)
                 approved_contract = payload.get("execution_contract") or {}
                 approved_bodies = dict(approved_contract.get("native_contract_bodies_by_cost") or {})

@@ -122,7 +122,7 @@ def test_binding_passes_on_approved_payload():
         protocol = _base_protocol(payload)
         failed = verify_registered_payload_binding(
             protocol, "tok_plus",
-            root=REPOSITORY_ROOT, source_fingerprint="8f9f5aff",
+            root=REPOSITORY_ROOT, source_fingerprint="f4ca47168d0d89cb8549ab69b7adf1c2c3277985ac3ab9f8aef28bf857d0da10",
         )
         assert failed == [], failed
     finally:
@@ -137,7 +137,7 @@ def test_binding_rejects_tampered_input_hash():
         protocol["input_binding"]["sha256"] = "00" * 32
         failed = verify_registered_payload_binding(
             protocol, "tok_plus", root=REPOSITORY_ROOT,
-            source_fingerprint="8f9f5aff",
+            source_fingerprint="f4ca47168d0d89cb8549ab69b7adf1c2c3277985ac3ab9f8aef28bf857d0da10",
         )
         assert "input_sha256" in failed
     finally:
@@ -166,7 +166,7 @@ def test_binding_rejects_tampered_cell_timeout():
         protocol["execution"]["cell_timeout"] = 9999
         failed = verify_registered_payload_binding(
             protocol, "tok_plus", root=REPOSITORY_ROOT,
-            source_fingerprint="8f9f5aff",
+            source_fingerprint="f4ca47168d0d89cb8549ab69b7adf1c2c3277985ac3ab9f8aef28bf857d0da10",
         )
         assert "cell_timeout" in failed
     finally:
@@ -181,7 +181,7 @@ def test_binding_rejects_tampered_total_timeout():
         protocol["validation_budget"]["total_timeout_seconds"] = 9999
         failed = verify_registered_payload_binding(
             protocol, "tok_plus", root=REPOSITORY_ROOT,
-            source_fingerprint="8f9f5aff",
+            source_fingerprint="f4ca47168d0d89cb8549ab69b7adf1c2c3277985ac3ab9f8aef28bf857d0da10",
         )
         assert "total_timeout" in failed
     finally:
@@ -197,7 +197,7 @@ def test_binding_rejects_tampered_symbol():
         protocol["spec"]["symbol"] = "BTC/USDT"
         failed = verify_registered_payload_binding(
             protocol, "tok_plus", root=REPOSITORY_ROOT,
-            source_fingerprint="8f9f5aff",
+            source_fingerprint="f4ca47168d0d89cb8549ab69b7adf1c2c3277985ac3ab9f8aef28bf857d0da10",
         )
         assert "symbol" in failed
     finally:
@@ -215,7 +215,7 @@ def test_binding_failure_never_starts_a_worker():
         protocol["input_binding"]["sha256"] = "00" * 32
         failed = verify_registered_payload_binding(
             protocol, "tok_plus", root=REPOSITORY_ROOT,
-            source_fingerprint="8f9f5aff",
+            source_fingerprint="f4ca47168d0d89cb8549ab69b7adf1c2c3277985ac3ab9f8aef28bf857d0da10",
         )
         assert failed, "binding should fail closed before any worker starts"
     finally:
@@ -315,12 +315,15 @@ def test_launcher_calls_binding_gate_and_passes_plus_timeout(monkeypatch, tmp_pa
         return SimpleNamespace(status="COMPLETED", report_path=None)
 
     payload, manifest = _load_packet()
-    source_sha = "8f9f5aff"
+    source_fingerprint = "f4ca47168d0d89cb8549ab69b7adf1c2c3277985ac3ab9f8aef28bf857d0da10"
     _install_scope_token()
     try:
         context = {
             "scope_token": "tok_plus",
-            "source": {"code_commit": source_sha, "tree_fingerprint": source_sha},
+            "source": {
+                "code_commit": "8d0632587a7ae0aa92bb3b9e3c14a58f456d6d54",
+                "tree_fingerprint": source_fingerprint,
+            },
         }
         runner = CampaignCellRunner(tmp_path, context, runner=fake_runner)
         spec = EvaluationCellSpec(
