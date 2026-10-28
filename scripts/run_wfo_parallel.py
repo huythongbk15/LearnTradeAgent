@@ -59,6 +59,7 @@ from trading_agent.backtest.tournament import (
 )
 from trading_agent.backtest.nested_wfo import (
     WFOSpec,
+    NestedFold,
     _get_fold_indices,
     _resolve_frozen_holdout_window,
     _default_purge_embargo,
@@ -212,6 +213,7 @@ MINIMAL_PARAM_GRIDS: dict[str, dict[str, list]] = {
         "adx_threshold": [15],
         "ma_type": ["sma"],
     },
+    "own24_context": {"arm": ["A0", "A1", "A2"]},
 }
 
 
@@ -574,17 +576,46 @@ def _run_cell_worker(
     return artifact
 
 
+def _explicit_measurement_fold(n_bars: int, measurement: dict) -> NestedFold:
+    """One fixed validation span. Parameters are already frozen, so train does not select them."""
+    required = ("measurement_start", "measurement_end", "purge_bars", "embargo_bars")
+    if set(measurement) != set(required):
+        raise ValueError("explicit measurement must contain exactly the locked window fields")
+    start = measurement["measurement_start"]
+    end = measurement["measurement_end"]
+    purge = measurement["purge_bars"]
+    embargo = measurement["embargo_bars"]
+    if any(type(value) is not int for value in (start, end, purge, embargo)):
+        raise ValueError("explicit measurement fields must be integers")
+    if not (0 <= start < end <= n_bars) or purge < 1 or embargo < 1:
+        raise ValueError("explicit measurement is outside the loaded frame")
+    return NestedFold(
+        fold_id="fold_000",
+        inner_train_start=0,
+        inner_train_end=start,
+        inner_val_start=start,
+        inner_val_end=end,
+        outer_test_start=end,
+        outer_test_end=end,
+        purge=purge,
+        embargo=embargo,
+    )
+
+
 def build_canonical_cells(
     spec: WFOSpec,
     scope_token: str | None = None,
+    *,
+    frame=None,
+    explicit_measurement: dict | None = None,
 ) -> tuple[list[tuple[EvaluationCellSpec, int, int, bool, int, int]], list[Any]]:
     """Build all cells needed for canonical WFO (inner + outer).
 
-    Returns:
-        - inner_cells: list of (spec, start, end, fresh, m_start, m_end) for inner validation
-        - folds: list of fold objects for outer test scheduling
+    ``explicit_measurement`` locks one validation window. It is only the
+    indexed span already named by a preregistration. Month geometry remains
+    the path for every call that does not pass it.
     """
-    df = load_ohlcv("binance", spec.symbol, spec.timeframe)
+    df = frame if frame is not None else load_ohlcv("binance", spec.symbol, spec.timeframe)
     n_bars = df.height
     registry_canonical = build_default_registry(scope_token=scope_token)
     descriptor = registry_canonical.describe(spec.strategy_id)
@@ -594,20 +625,25 @@ def build_canonical_cells(
     purge, embargo = _default_purge_embargo(descriptor)
     purge = spec.purge_bars or purge
     embargo = spec.embargo_bars or embargo
-    folds = _get_fold_indices(
-        n_bars=n_bars,
-        timeframe=spec.timeframe,
-        train_months=spec.train_months,
-        val_months=spec.val_months,
-        test_months=spec.test_months,
-        step_months=spec.step_months,
-        purge=purge,
-        embargo=embargo,
-    )
+    if explicit_measurement is None:
+        folds = _get_fold_indices(
+            n_bars=n_bars,
+            timeframe=spec.timeframe,
+            train_months=spec.train_months,
+            val_months=spec.val_months,
+            test_months=spec.test_months,
+            step_months=spec.step_months,
+            purge=purge,
+            embargo=embargo,
+        )
+    else:
+        folds = [_explicit_measurement_fold(n_bars, explicit_measurement)]
     # Drop folds overlapping holdout
     holdout_bars = _resolve_frozen_holdout_window(df, spec)
     if holdout_bars is not None:
         h_start, _h_end, _manifest = holdout_bars
+        if explicit_measurement is not None and folds[0].inner_val_end > h_start:
+            raise ValueError("explicit measurement reaches the frozen holdout")
         folds = [f for f in folds if f.outer_test_end <= h_start]
     if not folds:
         raise ValueError("No eligible pre-holdout folds")
@@ -821,7 +857,7 @@ def audit_parallel_trial_history(spec, protocol, folds):
 
 def prepare_parallel_protocol(spec, out_root, *, workers, cell_timeout, reuse_from=None,
                               validation_budget=None, scope_token=None, max_retries=1,
-                              stop_on_failure=False):
+                              stop_on_failure=False, explicit_measurement=None):
     """Freeze effective inputs before evaluation; never upgrade a legacy packet."""
     from trading_agent.backtest.campaign_evidence import content_hash
     if type(stop_on_failure) is not bool or (stop_on_failure and (
@@ -851,7 +887,11 @@ def prepare_parallel_protocol(spec, out_root, *, workers, cell_timeout, reuse_fr
     quality = assess_ohlcv(frame, expected_interval=timeframe_delta(spec.timeframe), gap_policy="reject")
     if not quality.accepted:
         raise ValueError(f"Preflight data quality rejected: {quality.status}")
-    cells, folds = build_canonical_cells(spec, scope_token=scope_token)
+    if explicit_measurement is not None and validation_budget is None:
+        raise ValueError("explicit measurement requires validation-only")
+    cells, folds = build_canonical_cells(
+        spec, scope_token=scope_token, frame=frame, explicit_measurement=explicit_measurement,
+    )
     selection = freeze_selection_contract(
         min_validation_trades=30, min_validation_sharpe=0.0,
     )
@@ -884,6 +924,7 @@ def prepare_parallel_protocol(spec, out_root, *, workers, cell_timeout, reuse_fr
         "native_gate_contract": freeze_native_gate_contract(spec, run_holdout=False),
         "selection_contract": selection,
         "folds": [asdict(fold) for fold in folds],
+        **({"explicit_measurement": dict(explicit_measurement)} if explicit_measurement is not None else {}),
         "expected_inner_cells": [
             {"cell_id": cell.cell_id, "params": dict(cell.params),
              "cost": cell.cost_scenario.to_dict(), "simulation_window": [start, end],
@@ -1437,7 +1478,10 @@ def _run_validation_canonical(spec, out_root, protocol, folds, cell_runner=None)
     # the worker re-verifies the approved payload independently of the launcher
     _verify_approved_payload_binding(protocol, (protocol.get("execution") or {}).get("scope_token"))
     scope_token = (protocol.get("execution") or {}).get("scope_token")
-    cells, actual_folds = build_canonical_cells(spec, scope_token=scope_token)
+    explicit_measurement = protocol.get("explicit_measurement")
+    cells, actual_folds = build_canonical_cells(
+        spec, scope_token=scope_token, explicit_measurement=explicit_measurement,
+    )
     actual_rows = [{"cell_id": cell.cell_id, "params": dict(cell.params),
         "cost": cell.cost_scenario.to_dict(), "simulation_window": [start, end],
         "measurement_window": [m_start, m_end]}
@@ -1525,6 +1569,8 @@ def main():
     parser.add_argument("--strategy", default="ma_adx")
     parser.add_argument("--fixed-params", default=None,
                         help="Scalar JSON object for one fixed candidate; defaults are resolved and frozen. Validation/preflight only, not a search grid.")
+    parser.add_argument("--explicit-measurement", default=None,
+                        help="Validation-only locked window start:end:purge:embargo")
     parser.add_argument("--symbol", default="SOL/USDT")
     parser.add_argument("--timeframe", default="1h")
     parser.add_argument(
@@ -1553,6 +1599,8 @@ def main():
                         help="Serial validation-only: stop dispatch after first failed attempt; preserve unattempted cells.")
     parser.add_argument("--synthetic-test-only", action="store_true",
                         help="Label validation/preflight fixtures SYNTHETIC_TEST_ONLY; never market evidence")
+    parser.add_argument("--fill-cycle-synthetic", action="store_true",
+                        help="Run the synthetic fill-cycle timer proof. Refuses frozen market input and does not qualify.")
     parser.add_argument("--total-timeout", type=int, default=1800,
                         help="Validation-only worker session wall budget "
                              f"({VALIDATION_TOTAL_TIMEOUT_MIN_SECONDS}.."
@@ -1588,6 +1636,16 @@ def main():
         help="Disable real sensitivity",
     )
     args = parser.parse_args()
+    if args.fill_cycle_synthetic:
+        if any((
+            args.run_holdout, args.validation_only, args.preflight_only,
+            args.explicit_measurement is not None, args.validation_worker is not None,
+        )):
+            parser.error("--fill-cycle-synthetic does not run market validation")
+        if os.environ.get("TRADING_FROZEN_RESEARCH_DATA"):
+            parser.error("fill-cycle synthetic refuses a frozen market input")
+        from trading_agent.backtest.fill_cycle_synthetic import run_fill_cycle_synthetic
+        raise SystemExit(run_fill_cycle_synthetic(Path(args.out)))
     if args.stop_on_failure and (not args.validation_only or args.validation_worker is not None):
         parser.error("--stop-on-failure requires validation-only and cannot override a worker protocol")
     if args.fixed_params is not None and args.validation_worker is not None:
@@ -1611,6 +1669,20 @@ def main():
         parser.error("REAL_MARKET requires the canonical preregistration root")
     if not 1 <= args.workers <= 4 or args.cell_timeout < 1:
         parser.error("workers must be 1..4 and cell timeout must be positive")
+    if args.explicit_measurement is not None and not args.validation_only:
+        parser.error("--explicit-measurement requires validation-only")
+    explicit_measurement = None
+    if args.explicit_measurement is not None:
+        parts = args.explicit_measurement.split(":")
+        if len(parts) != 4 or not all(part.isdigit() for part in parts):
+            parser.error("--explicit-measurement must be start:end:purge:embargo")
+        start, end, purge, embargo = (int(part) for part in parts)
+        explicit_measurement = {
+            "measurement_start": start,
+            "measurement_end": end,
+            "purge_bars": purge,
+            "embargo_bars": embargo,
+        }
     if args.validation_only:
         if args.run_holdout:
             parser.error("--validation-only cannot be used with --run-holdout")
@@ -1687,6 +1759,7 @@ def main():
         **({"stop_on_failure": True} if args.stop_on_failure else {}),
         **({"validation_budget": {"total_timeout_seconds": args.total_timeout,
                                   "max_rss_mb": args.max_rss_mb}} if args.validation_only else {}),
+        **({"explicit_measurement": explicit_measurement} if explicit_measurement is not None else {}),
     )
     print(f"  Protocol: {protocol['fingerprint']}", flush=True)
     if args.preflight_only:

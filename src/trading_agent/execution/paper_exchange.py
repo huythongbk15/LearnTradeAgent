@@ -218,6 +218,7 @@ class PaperExchange:
         max_price_age_seconds: float = 300.0,
         price_persist_interval: int = 1,
         telemetry: PaperExchangeTelemetrySink | None = _DEFAULT_TELEMETRY,
+        defer_durable_state: bool = False,
     ):
         if initial_balance <= 0:
             raise ValueError("initial_balance must be positive")
@@ -238,6 +239,7 @@ class PaperExchange:
         self.max_price_age_seconds = float(max_price_age_seconds)
         self.price_persist_interval = int(price_persist_interval)
         self.telemetry = telemetry
+        self.defer_durable_state = bool(defer_durable_state)
         self._state_lock = threading.RLock()
 
         # In-memory state
@@ -581,7 +583,7 @@ class PaperExchange:
 
     def flush_state(self) -> None:
         """Durably persist the latest paper state after a batched backtest run."""
-        self._save_state()
+        self._save_state(force=True)
 
     @_synchronized
     def close_all_positions(self, reason: str = "manual") -> dict[str, list[str]]:
@@ -1126,7 +1128,9 @@ class PaperExchange:
                 f"Paper state is unreadable; refusing unsafe reset: {path}"
             ) from e
 
-    def _save_state(self):
+    def _save_state(self, *, force: bool = False):
+        if self.defer_durable_state and not force:
+            return
         path = self._state_path()
         path.parent.mkdir(parents=True, exist_ok=True)
         with self._state_lock:

@@ -17,8 +17,10 @@ from __future__ import annotations
 import enum
 import logging
 import math
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from types import MappingProxyType
 from typing import Any
 
 from trading_agent.authority.causation import CausationChain, new_chain
@@ -62,6 +64,9 @@ class PortfolioSnapshot:
     reserved_inventory: float = 0.0
     observed_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     reconciliation_state: ReconciliationState = ReconciliationState.NOT_RUN
+    # None means this snapshot has no fill-cycle attribution. A position-aware
+    # replay must refuse it instead of reading a live position.
+    position_cycles: Mapping[str, Any] | None = None
 
     def __post_init__(self) -> None:
         for name in (
@@ -75,6 +80,16 @@ class PortfolioSnapshot:
                 raise ValueError(
                     f"PortfolioSnapshot.{name} must be finite ≥ 0, got {v}"
                 )
+        if self.position_cycles is not None:
+            from trading_agent.execution.position_cycle import PositionCycleRecord
+
+            if not isinstance(self.position_cycles, Mapping):
+                raise ValueError("position_cycles must be a symbol map")
+            for symbol, record in self.position_cycles.items():
+                if not isinstance(symbol, str) or not symbol or not isinstance(record, PositionCycleRecord):
+                    raise ValueError("position cycle record invalid")
+            object.__setattr__(self, "position_cycles", MappingProxyType(dict(self.position_cycles)))
+            object.__setattr__(self, "positions", dict(self.positions))
 
     @property
     def new_exposure_allowed(self) -> bool:
