@@ -3,11 +3,11 @@
 Status: CURRENT — ghi nhận evidence lịch sử; không phải preregistration hồi tố
 Owner: research operator; independent reviewer pending
 Verified: 2026-10-18
-Evidence: [result](../../data/bnb_execution_replay_20261017_01/result.json), [arithmetic audit](../../data/bnb_execution_replay_20261017_01/audit.json)
+Evidence: result — local evidence `data/bnb_execution_replay_20261017_01/result.json`, arithmetic audit — local evidence `data/bnb_execution_replay_20261017_01/audit.json`
 
 ## Kết quả mới nhất — bốn nhánh đã chạy và đối soát, 2026-10-18
 
-2026-10-19 cooldown ablation:[8cell results](../../data/bnb_cooldown_ablation_20261019_01/RESULTS.md).
+2026-10-19 cooldown ablation:8cell results — local evidence `data/bnb_cooldown_ablation_20261019_01/RESULTS.md`.
 Default24 baselines exact-match; window1 ADX−MA gap shrinks20.4243→3.4985pp at0h,
 interaction16.9257pp;w2gap1.0205ppunchanged.ADXraw0/24identicalbothwindows.
 Filter benefit persists descriptively,but24h greatly amplifiedw1comparison.
@@ -15,7 +15,7 @@ MA0w1DDworsens5.8737→11.0444%;noautomaticproductioncooldownchange.
 37tests/audit/independentAIreviewPASS,notOOS/alpha/humansignoff/livequalification.
 Phần bên dưới là lịch sử các lượt trước,không thay thế ablation mới.
 
-2026-10-19 window2: [results và bảng hai windows riêng](../../data/bnb_window2_ablation_20261019_01/RESULTS.md).
+2026-10-19 window2: results và bảng hai windows riêng — local evidence `data/bnb_window2_ablation_20261019_01/RESULTS.md`.
 ADX+3.5376%/DD2.6135%;MA+2.5171%/DD4.5844%;delta+1.0205ppreturn,
 −1.9709ppDD => favorable mô tả, directional replication=true.
 Closed ADX−73.03USDT/openmarked+426.78USDT; chưa liquidation.
@@ -23,24 +23,24 @@ Independent AI post-result review PASS có giới hạn,không human/alpha quali
 Window1 vẫn trade-off; không gộp/reset equity hoặc averageSharpe haiwindows.
 Phần bên dưới là lịch sử window1,không phải kết quả mới nhất window2.
 
-2026-10-19: [reviewer AI khác đã chấp nhận có giới hạn](../../data/bnb_independent_ai_review_20261019_01/REVIEW.md)
+2026-10-19: reviewer AI khác đã chấp nhận có giới hạn — local evidence `data/bnb_independent_ai_review_20261019_01/REVIEW.md`
 kế toán, kết luận trade-off và guard revision. Không có finding mới chặn packet.
 Đã đối chiếu4×1081marks với Parquet bằng script reviewer viết/root hỗ trợ chạy.
 Chưa independent human signoff, chưa tái sinh signals độc lập/kiểm đủ source,
 không alpha/OOS/paper/live qualification. Vòng review giới hạn này đã đóng.
 
 2026-10-19: lỗi approval-reference P2 đã sửa trong
-[runner revision mới](../../data/bnb_approval_guard_revision_20261019_01/README.md),
+runner revision mới — local evidence `data/bnb_approval_guard_revision_20261019_01/README.md`,
 42tests PASS, không sửa runner/packet đã freeze và không chạy market mới.
 
-[Cross-method review](../../data/bnb_ablation_review_20261018_01/REVIEW.md)
+Cross-method review — local evidence `data/bnb_ablation_review_20261018_01/REVIEW.md`
 xác nhận signals/Decimal ledger/policy decisions, kết luận không đổi.
 Đây vẫn là cùng agent tác giả, không independent human signoff.
 Finding P2: approval-reference guard chấp nhận null do ép str; actual approval
 hợp lệ nên không ảnh hưởng packet. Chưa sửa frozen runner.
 
-[Báo cáo kết quả](../../data/bnb_ablation_20261018_01/RESULTS.md),
-[audit](../../data/bnb_ablation_20261018_01/audit.json):
+Báo cáo kết quả — local evidence `data/bnb_ablation_20261018_01/RESULTS.md`,
+audit — local evidence `data/bnb_ablation_20261018_01/audit.json`:
 cash0%; risk-constrained initial25%BH+22.9177%,DD14.8737%;
 MA thuần−3.5780%,DD5.8737%,10roundtrips;
 ADX+16.8462%,DD8.3089%,7roundtrips.
@@ -60,11 +60,11 @@ ADX25 có thêm giá trị so với MA20/80 không ADX sau chi phí hay chỉ đ
 Replay một strategy lịch sử chưa trả lời câu hỏi; lượt bốn nhánh mới ở trên
 đã cho phép kết luận mô tả trade-off, chưa chứng minh alpha.
 
-- BNB/USDT 4h, MA20/80 + ADX14/25; window [2360,3440),
+- BNB/USDT 4h, MA20/80 + ADX14/25; window 2360,3440),
   UTC [2024-01-29 08:00, 2024-07-27 08:00); đã được quan sát/chọn, không OOS.
-- [Input](../../data/existing_research_audit_20261008/BNB_USDT__4h__pre_holdout.parquet)
+- [Input — local evidence `data/existing_research_audit_20261008/BNB_USDT__4h__pre_holdout.parquet`
   SHA256 `379677360902c9734780e496398abb02ea6390531b840e2262bd9d7881e6485f`.
-- [Manifest lịch sử](../../data/bnb_execution_replay_20261017_01/manifest.json)
+- Manifest lịch sử — local evidence `data/bnb_execution_replay_20261017_01/manifest.json`
   SHA256 `898dd76b69d25e26a2f47951ba3f7089f00561900f78faf2ebfaa4ae407a8106`.
   Source commit `b897c32126014056e49493e6f9e6cefebec26e6c`, dirty tree
   `9540f44ad83eed543e0244538a6a247faa7f85c7ea47684cb920959f8ba82ce7`.
@@ -101,7 +101,7 @@ không suy ra alpha bền vững từ Sharpe hoặc profit factor của bảy tr
 - Canonical signal parity 1080/1080 bar với report nguồn. Trace sandbox cũ lệch
   timing 32 bar, không dùng trace đó làm bằng chứng parity.
 - 25% reference notional khi vào lệnh, không hard MTM cap hoặc scale-in/rebalance;
-  [operator decision](../../data/bnb_entry_allocation_decision_20261017_01/decision.json).
+  operator decision — local evidence `data/bnb_entry_allocation_decision_20261017_01/decision.json`.
   Entry fees/impact tính riêng; peak 40.13% không tự động vi phạm quyết định này.
 - Closed-bar stop 5%, next-open exit, cooldown24h; không giống intrabar stop cũ.
   Fee0.1%, spread10bps và simulated depth/impact: full config trong manifest,
@@ -184,8 +184,8 @@ Per protocol Step F.6: "next action thay đổi quyết định?"
 - Arithmetic self-verification from trade_log: ✅ Phase B + C verified
 - Independent human review: ⏳ PENDING (operator)
 
-[Receipt](../../data/bnb_adx_preflight_20261018_01/receipt.json) và
-[execution receipt](../../data/bnb_adx_preflight_20261018_01/execution.json):
+Receipt — local evidence `data/bnb_adx_preflight_20261018_01/receipt.json` và
+execution receipt — local evidence `data/bnb_adx_preflight_20261018_01/execution.json`:
 **PASS_SIGNAL_PREFLIGHT_NOT_EXECUTION_READY**, không chạy engine hay gửi lệnh.
 
 - Hai nhánh cùng 1080 bar, warmup100, cùng cutoff feature `execution_index−2`.
@@ -200,7 +200,7 @@ Per protocol Step F.6: "next action thay đổi quyết định?"
   application, receipt ghi nhận thay đổi `canonical/candidates.py` và
   `run_nested_wfo.py`. Không sửa các thay đổi của người dùng. Chỉ tái dùng evidence
   cũ cho kế toán/parity đã kiểm, chưa reuse metrics như một arm execution hiện tại.
-- [Cost/score review](../../data/bnb_adx_preflight_20261018_01/score_cost_review.json):
+- Cost/score review — local evidence `data/bnb_adx_preflight_20261018_01/score_cost_review.json`:
   return built-in WFO đã net phí/slippage. `0.32×trades` là hurdle thêm; không
   gọi đó là chi phí chưa tính hoặc realized net edge. Hệ số rate theo notional
   không tự chuyển thành portfolio-return cost khi entry chỉ25%. Comment ví dụ
@@ -212,7 +212,7 @@ freeze. Chưa có metrics execution mới hay independent human signoff.
 
 ### Preparation follow-up — 2026-10-18
 
-[Proposal/handoff](../../data/bnb_ablation_preparation_20261018_01/HANDOFF.md)
+Proposal/handoff — local evidence `data/bnb_ablation_preparation_20261018_01/HANDOFF.md`
 đã có runner đối chứng, full config/source/data/signal hashes và logical registry
 snapshot.21synthetic tests PASS, lint/help PASS; không market run mới.
 Proposal không thay thế hay sửa manifest historical; draft documentation vẫn

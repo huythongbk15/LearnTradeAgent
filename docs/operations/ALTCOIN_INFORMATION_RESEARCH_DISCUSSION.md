@@ -27,7 +27,7 @@ chỉ vì được giao đọc tài liệu này.
 | [Campaign status](../CAMPAIGN_STATUS.md) | Trạng thái hiện tại và quyền thực thi; đọc mục mới nhất, không lấy snapshot cũ làm hiện trạng |
 | [Research evidence](../RESEARCH_EVIDENCE.md) | Kết quả đã đóng, giới hạn suy luận và các hướng đã từ chối |
 | Inventory hiện có — local evidence `data/confirmation_design_20261026_01/RESULTS.md` | Metadata/exposure; không phải chứng nhận dữ liệu ETH/BNB đủ điều kiện |
-| [AGENTS.md](../../AGENTS.md) | Quy tắc công cụ, an toàn, verification của workspace |
+| `AGENTS.md` (workspace local) | Quy tắc công cụ, an toàn, verification của workspace |
 
 Brief dựa trên kế hoạch hiện có, **không phải một audit source mới**. Khi phát biểu
 về implementation, agent phải đọc file thật và chỉ rõ revision/file:line.

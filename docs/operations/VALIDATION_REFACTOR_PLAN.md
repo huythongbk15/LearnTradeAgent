@@ -3,11 +3,11 @@
 > **Status:** CURRENT — phạm vi extraction hai boundary đã nghiệm thu; phần deferred không thuộc nghiệm thu và tài liệu không cấp quyền chạy.
 > **Owner:** integration owner; mỗi task có một agent chịu trách nhiệm.
 > **Verified:** 2026-10-23 — source/tests/receipts và review độc lập cho bounded scope; không phải chứng nhận vận hành.
-> **Evidence:** [engineering baseline](../../data/bnb_validation_incomplete_fix_20261023_01/RESULTS.md), [verification](../../data/bnb_validation_incomplete_fix_20261023_01/VERIFICATION.md), [campaign status](../CAMPAIGN_STATUS.md).
+> **Evidence:** engineering baseline — local evidence `data/bnb_validation_incomplete_fix_20261023_01/RESULTS.md`, verification — local evidence `data/bnb_validation_incomplete_fix_20261023_01/VERIFICATION.md`, [campaign status](../CAMPAIGN_STATUS.md).
 
 ## 1. Quyết định đề xuất
 
-**Trạng thái mới nhất:** C00–C05 đã đóng cho phạm vi coverage/publication và Linux supervisor. [Final handoff](../../data/validation_refactor_final_20261023_01/RESULTS.md) chứa exact revision, test scope, budget và verdict độc lập. Các đề xuất và checkpoint bên dưới được giữ như lịch sử quyết định, không phải backlog để agent tự chạy lại.
+**Trạng thái mới nhất:** C00–C05 đã đóng cho phạm vi coverage/publication và Linux supervisor. Final handoff — local evidence `data/validation_refactor_final_20261023_01/RESULTS.md` chứa exact revision, test scope, budget và verdict độc lập. Các đề xuất và checkpoint bên dưới được giữ như lịch sử quyết định, không phải backlog để agent tự chạy lại.
 
 **Tái cấu trúc có giới hạn, không viết lại hệ thống.** Vòng đầu chỉ tách reporting/terminal của validation và supervisor khỏi launcher. Tối đa hai module production mới; không thêm runner, scheduler, registry, gate hay tracker chiến dịch.
 
@@ -143,19 +143,19 @@ Kết quả phải ghi rõ exact source/assertion hashes, diff scope, test IDs/r
 - Reviewer khác tác giả: ACCEPTED_FOR_REFACTOR_SCOPE cho coverage extraction; không phải nghiệm thu toàn phase hoặc market qualification.
 - C03 chưa bắt đầu; C04/C05 toàn scope chưa hoàn tất. Không chuyển simulator hoặc sửa nested WFO/gates trong checkpoint này.
 
-Receipts, source map, test scope và kết quả tích hợp: [checkpoint evidence](../../data/validation_refactor_c02_20261023_01/RESULTS.md). Trạng thái TARGET của toàn kế hoạch vẫn giữ nguyên. Bước tiếp theo là terminal publication slice trong C02, rồi mới đánh giá tách supervisor; không rerun market để kiểm refactor.
+Receipts, source map, test scope và kết quả tích hợp: checkpoint evidence — local evidence `data/validation_refactor_c02_20261023_01/RESULTS.md`. Trạng thái TARGET của toàn kế hoạch vẫn giữ nguyên. Bước tiếp theo là terminal publication slice trong C02, rồi mới đánh giá tách supervisor; không rerun market để kiểm refactor.
 
 ### Tiếp nối: terminal publication
 
 Đã đưa publication sau native execution sang `validation_reporting.publish_validation_result`. Launcher truyền coverage verifier và durable writer tại call time; thứ tự receipts → coverage → terminal/summary, schema và verdict giữ nguyên. Reviewer khác tác giả chấp nhận extraction theo source/assertion review, không tự chứng nhận receipts thực thi.
 
-Coverage và publication đã tách; phần orchestration/đọc kiểm receipt của supervisor vẫn ở launcher, chưa tuyên bố toàn C02–C05 hoàn tất. C03 chưa bắt đầu. Checkpoint mới: [publication evidence](../../data/validation_refactor_c02_publication_20261023_01/RESULTS.md). Việc tiếp theo là khóa boundary supervisor và characterization của nó; chỉ tách nếu giữ được globals/test seams và cleanup semantics, không gộp simulator hoặc đổi runner.
+Coverage và publication đã tách; phần orchestration/đọc kiểm receipt của supervisor vẫn ở launcher, chưa tuyên bố toàn C02–C05 hoàn tất. C03 chưa bắt đầu. Checkpoint mới: publication evidence — local evidence `data/validation_refactor_c02_publication_20261023_01/RESULTS.md`. Việc tiếp theo là khóa boundary supervisor và characterization của nó; chỉ tách nếu giữ được globals/test seams và cleanup semantics, không gộp simulator hoặc đổi runner.
 
 ### Tiếp nối: C03 supervisor
 
 Đã tách bốn hàm RSS/PID/reap/supervision sang `validation_supervisor.py`, với adapter tại launcher truyền cwd và collaborator tại call time. Linux refusal, deadline/RSS sampling, TERM→KILL và cleanup-error propagation giữ nguyên. Đúng hai module production mới trong toàn scope; không tạo runner hoặc authority mới.
 
-Reviewer khác tác giả chấp nhận source/assertion extraction. Test process thật và regression/AC được báo riêng trong [C03 evidence](../../data/validation_refactor_c03_20261023_01/RESULTS.md). Orchestration và kiểm coherence các terminal receipt vẫn ở launcher như caller; không đổi thuật toán.
+Reviewer khác tác giả chấp nhận source/assertion extraction. Test process thật và regression/AC được báo riêng trong C03 evidence — local evidence `data/validation_refactor_c03_20261023_01/RESULTS.md`. Orchestration và kiểm coherence các terminal receipt vẫn ở launcher như caller; không đổi thuật toán.
 
 C04 cuối scope vẫn còn cold-reuse/compatibility và launcher end-to-end trên exact source C03; không kế thừa launcher PASS của source C02. C05 nghiệm thu toàn scope cũng còn mở. Cần một budget tích hợp riêng nếu caps không vừa phần còn lại của trần 850s; không tự mở thêm module, phase tối ưu hoặc campaign.
 
@@ -165,4 +165,4 @@ C04 cuối scope vẫn còn cold-reuse/compatibility và launcher end-to-end tr�
 
 Operator đã duyệt vòng 415s; thực dùng 110,661s, không retry. Cold-reuse 4/4 và một launcher synthetic 1/1 PASS trên A `fe166b1923280620e942824e9fec5353844cb75dc9039bf030760fc1a1076b38`, source/assertions/config không đổi. Reviewer context riêng đã đọc source, assertions, hashes và receipts rồi chốt **ACCEPTED_FOR_REFACTOR_SCOPE**. AC C03 giữ nguyên identity, không gán bằng chứng từ source khác.
 
-Phạm vi này đã hoàn tất; không mở module/phase refactor tiếp theo. [Evidence và giới hạn nghiệm thu](../../data/validation_refactor_final_20261023_01/RESULTS.md). Quay lại câu hỏi research cốt lõi theo §7 khi operator chọn hướng; không tự rerun candidate hoặc mở live.
+Phạm vi này đã hoàn tất; không mở module/phase refactor tiếp theo. Evidence và giới hạn nghiệm thu — local evidence `data/validation_refactor_final_20261023_01/RESULTS.md`. Quay lại câu hỏi research cốt lõi theo §7 khi operator chọn hướng; không tự rerun candidate hoặc mở live.

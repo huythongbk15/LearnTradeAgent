@@ -2,8 +2,8 @@
 
 Status: CURRENT readiness decision; qualification execution NOT APPROVED.
 Owner: research operator. Verified: 2026-10-19.
-Evidence: [inventory](../../data/bnb_qualification_readiness_20261019_01/inventory.json),
-[inspection source](../../data/bnb_qualification_readiness_20261019_01/inventory.py).
+Evidence: inventory — local evidence `data/bnb_qualification_readiness_20261019_01/inventory.json`,
+inspection source — local evidence `data/bnb_qualification_readiness_20261019_01/inventory.py`.
 
 ## Kết luận hiện tại
 
@@ -105,7 +105,7 @@ C manifest rev12. AC01-AC15 rc0 ALL PASS, identity trước/sau giống nhau.
 scope approval PENDING · chưa chạy market · chưa qualified.**
 
 Sample feasibility đã kiểm bằng reports+số học,không market run:
-[kết quả](../../data/native_sample_feasibility_20261020_01/RESULTS.md).
+kết quả — local evidence `data/native_sample_feasibility_20261020_01/RESULTS.md`.
 2x/stress có17unique closed events,chứ không phải28giao dịch độc lập từ tổngfold.
 Giữ5folds trên6795bars chỉ cho validation tối đa8tháng với train/test/gaps hiện tại.
 Không đổi gate30. Cần operator chọn giữ event-crossover và bổ sung observation
@@ -113,7 +113,7 @@ Không đổi gate30. Cần operator chọn giữ event-crossover và bổ sung 
 policy hoặc duyệt budget mới. Chưa lựa chọn thay operator,không tự mởpaper/live.
 
 2026-10-20:đã đối soát14report về signal→authority→fill và inventory:
-[kết quả](../../data/native_signal_fill_review_20261020_01/RESULTS.md).
+kết quả — local evidence `data/native_signal_fill_review_20261020_01/RESULTS.md`.
 BUY xuống runtime đều có filled snapshots; các skip là already_long. Strategy
 hiện tại là event-crossover với ADX/DI ngay lúc giao cắt,không tự late-entry/re-entry
 khi ADX mạnh lên sau đó. Không tăng sizing/tắt authority để tạo thêm giao dịch.
@@ -121,7 +121,7 @@ Cần chốt ý định event-vs-state và thiết kế sample/data trước cam
 semantics là candidate mới,chưa được tự động duyệt. Không market run/gate change.
 
 **Actual validation attempt FAILED/INCOMPLETE; không tiếp tục dùng freeze cũ.**
-[Kết quả thật,incident và fix](../../data/native_validation_activation_20261019_01/RESULTS.md).
+Kết quả thật,incident và fix — local evidence `data/native_validation_activation_20261019_01/RESULTS.md`.
 14/15cells hoàn tất,một timeout; dispatcher rawloader7folds lệch5folds frozen bị
 guard chặn. Raw file chứa holdout đã bị decode ngoài ý định; không gọi untouched.
 14cell metrics đúng pre-cut input nhưng chỉ4–7trades,đều dưới gate30. Không có
@@ -132,27 +132,27 @@ concentration và preregister scope/budget/sourcefreeze mới. P2sensitivity v�
 Các thông tin preflight accepted dưới đây là lịch sử,trước lượt chạy thất bại.
 
 Preflight singleton ADX25 hiện đã tạo và được review độc lập ACCEPTED:
-[packet và bằng chứng](../../data/native_singleton_preflight_20261019_01/RESULTS.md).
+packet và bằng chứng — local evidence `data/native_singleton_preflight_20261019_01/RESULTS.md`.
 Đúng5folds/15inner cells/3contracts,quality6795barsPASS,70targeted tests và
 AC01–15PASS. Chưa chạy cells; chưa approval execution. Không còn thiếu adapter
 preflight; bước tiếp là phê duyệt scope/budget và đường kích hoạt supervised đúng
 frozen protocol. Các nhận định adapter còn thiếu bên dưới là lịch sử.
 
 P1 đã được sửa và có156targeted tests/AC01–15PASS trên source mới:
-[bằng chứng fix](../../data/native_binding_fix_20261019_01/RESULTS.md).
+bằng chứng fix — local evidence `data/native_binding_fix_20261019_01/RESULTS.md`.
 Đã kiểm frozen-vs-raw-vs-artifact ở cache publication/read và coverage;
 không đổi planned cell_id. P2 sensitivity vẫn chưa hoàn tất cho FULL qualification.
 Review ban đầu và kế hoạch bị chặn bên dưới được giữ làm lịch sử; trước chạy
 validation-only vẫn phải có singleton ADX25 adapter và freeze/budget đúng scope.
 
 Review độc lập mới trả REQUEST_CHANGES:
-[review và packet dự thảo có budget](../../data/native_evaluation_review_20261019_01/PLAN.md).
+review và packet dự thảo có budget — local evidence `data/native_evaluation_review_20261019_01/PLAN.md`.
 Phải sửa expected-vs-raw/cache/final contract binding trước chạy; sensitivity
 preregistration còn thiếu cho FULL qualification. Dữ liệu hiện có chỉ đủ nhãn
 revalidation đã quan sát, không chứng minh untouched OOS. Packet tiếp theo đề xuất
 validation-only15cells,1800s/2048MiB/1worker/0retry; chưa approve/freeze thực thi.
 
-Xem [native adoption packet](../../data/native_policy_adoption_20261019_01/RESULTS.md).
+Xem native adoption packet — local evidence `data/native_policy_adoption_20261019_01/RESULTS.md`.
 Pure preflight declaration và frozen contract theo cell đã nối vào canonical
 qualification worker; mismatch phải bị chặn trước bar đầu tiên. Legacy protocol
 không có map contract bị từ chối, không âm thầm nâng cấp packet cũ.
@@ -169,7 +169,7 @@ mọi neighbor/sensitivity cell có expected ID riêng freeze trong map qualific
 
 ## Lịch sử trước quyết định native — không phải target parity hiện tại
 
-Latest [evaluation closure](../../data/evaluation_closure_20261019_02/RESULTS.md)
+Latest evaluation closure — local evidence `data/evaluation_closure_20261019_02/RESULTS.md`
 đã sửa thêm outer parallel wrapper làm rơi expected contract.12screening cells và
 3validation Sharpe của RSI/ADX đã được corroborate; packet WFO gốc bị xóa nên
 không coi là nghiệm thu.128tests/AC01–15PASS không thay thế market evidence.
@@ -177,28 +177,28 @@ Local audit loop đóng với RESEARCH_HOLD; native/research economic parity, ma
 all-CLI enforcement và independent review vẫn chưa hoàn tất.
 
 Native reporting + optional expected cell-contract check đã được tích hợp:
-[evaluation closure](../../data/evaluation_closure_20261019_01/RESULTS.md).
+evaluation closure — local evidence `data/evaluation_closure_20261019_01/RESULTS.md`.
 Expected ID mismatch chặn trước price update đầu tiên; không đổi trading policy.
 Chưa bắt buộc ở mọi CLI, chưa economic parity. Audit RSI/ADX cũng phát hiện
 report calendars giao khoảng holdout; cần xác minh exact data/access history
 trước tuyên bố untouched hoặc một qualification scope mới. Old prototype notes
 bên dưới là lịch sử, không phải trạng thái tích hợp hiện tại.
 
-[Execution-contract prototype](../../data/bnb_execution_contract_20261019_01/RESULTS.md)
+Execution-contract prototype — local evidence `data/bnb_execution_contract_20261019_01/RESULTS.md`
 đã có19tests PASS, tách semantic identity khỏi evidence binding và ghi rõ reference
 research không đổi. Prototype chưa nối vào preflight/reporting: WFO mới đang chạy.
 Không được gọi identity match là behavioral parity, hoặc coi prototype là gate.
 
 Operator đã cho phép tự hoàn tất vòng engineering, không cần duyệt từng thao tác
-nội bộ. [Real-engine synthetic handoff](../../data/bnb_native_parity_accounting_probe_20261019_01/RESULTS.md):
+nội bộ. Real-engine synthetic handoff — local evidence `data/bnb_native_parity_accounting_probe_20261019_01/RESULTS.md`:
 signal parity840/840; economic parity không đạt, sizing native18.75% khác25%.
 Caller accounting thiếu marked-equity basis đã được tích hợp sau khi các process
-research dừng: [integration handoff](../../data/bnb_accounting_integration_20261019_01/RESULTS.md).
+research dừng: integration handoff — local evidence `data/bnb_accounting_integration_20261019_01/RESULTS.md`.
 57tests PASS; caller regression đã xanh,2 native synthetic cases không wrapper
 đối soát vị thế mở thành công. Economic parity vẫn không đạt; không mở market run.
 
 Synthetic counterexample pass đã chạy:
-[parity findings](../../data/bnb_policy_parity_20261019_01/RESULTS.md).
+parity findings — local evidence `data/bnb_policy_parity_20261019_01/RESULTS.md`.
 29 regression tests PASS không có nghĩa parity PASS. Direct4h native loop trace
 xác nhận khác stop sampling; RiskController API không arm cooldown sau ordinary
 record_trade. Full sell/reentry, fill-ledger, cost và risk-reset parity chưa đạt.

@@ -3,11 +3,11 @@
 > **Status:** CURRENT — quy trình đã áp dụng tới C05 cho bounded scope; không cấp quyền execution mới.
 > **Owner:** một integration owner do operator chỉ định.
 > **Verified:** 2026-10-23 — đối chiếu source surface; không phải nghiệm thu implementation.
-> **Evidence:** [kế hoạch và invariant](VALIDATION_REFACTOR_PLAN.md), [baseline verification](../../data/bnb_validation_incomplete_fix_20261023_01/VERIFICATION.md).
+> **Evidence:** [kế hoạch và invariant](VALIDATION_REFACTOR_PLAN.md), baseline verification — local evidence `data/bnb_validation_incomplete_fix_20261023_01/VERIFICATION.md`.
 
 ## 1. Hợp đồng chung
 
-Phạm vi refactor hai boundary đã nghiệm thu; xem [final handoff](../../data/validation_refactor_final_20261023_01/RESULTS.md). Không nhận lại các task C00–C05 như backlog mới. Playbook giữ để truy vết cách làm và chỉ tái sử dụng khi có task/budget mới được giao.
+Phạm vi refactor hai boundary đã nghiệm thu; xem final handoff — local evidence `data/validation_refactor_final_20261023_01/RESULTS.md`. Không nhận lại các task C00–C05 như backlog mới. Playbook giữ để truy vết cách làm và chỉ tái sử dụng khi có task/budget mới được giao.
 
 Đọc AGENTS.md, [Core System](../CORE_SYSTEM.md), phần hiện tại của [Campaign Status](../CAMPAIGN_STATUS.md), rồi kế hoạch liên kết trên. Đây là refactor validation, không phải phát triển strategy hoặc permission chạy market.
 
