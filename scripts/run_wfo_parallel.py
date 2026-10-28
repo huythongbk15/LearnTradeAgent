@@ -1599,6 +1599,10 @@ def main():
                         help="Serial validation-only: stop dispatch after first failed attempt; preserve unattempted cells.")
     parser.add_argument("--synthetic-test-only", action="store_true",
                         help="Label validation/preflight fixtures SYNTHETIC_TEST_ONLY; never market evidence")
+    parser.add_argument("--fill-cycle-arm", choices=("A0", "PLUS"), default="A0",
+                        help="Arm for the isolated synthetic fill-cycle proof only.")
+    parser.add_argument("--fill-cycle-btc-context", choices=("up", "down", "missing"),
+                        default="missing", help="Synthetic BTC direction; never reads market prices.")
     parser.add_argument("--fill-cycle-synthetic", action="store_true",
                         help="Run the synthetic fill-cycle timer proof. Refuses frozen market input and does not qualify.")
     parser.add_argument("--total-timeout", type=int, default=1800,
@@ -1645,7 +1649,11 @@ def main():
         if os.environ.get("TRADING_FROZEN_RESEARCH_DATA"):
             parser.error("fill-cycle synthetic refuses a frozen market input")
         from trading_agent.backtest.fill_cycle_synthetic import run_fill_cycle_synthetic
-        raise SystemExit(run_fill_cycle_synthetic(Path(args.out)))
+        raise SystemExit(run_fill_cycle_synthetic(
+            Path(args.out), arm=args.fill_cycle_arm, btc_context=args.fill_cycle_btc_context,
+        ))
+    if args.fill_cycle_arm != "A0" or args.fill_cycle_btc_context != "missing":
+        parser.error("fill-cycle arm/context require --fill-cycle-synthetic")
     if args.stop_on_failure and (not args.validation_only or args.validation_worker is not None):
         parser.error("--stop-on-failure requires validation-only and cannot override a worker protocol")
     if args.fixed_params is not None and args.validation_worker is not None:

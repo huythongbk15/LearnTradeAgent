@@ -203,8 +203,8 @@ def plussed_execution_authority() -> dict[str, object]:
         "market_run": False,
         "live_authorized": False,
         "qualification_possible_on_this_bundle": False,
-        "reason": "PATH_READY_RUN_NOT_STARTED",
-        "blockers": LAUNCHER_BLOCKERS,
+        "reason": "DEVELOPMENT_ENTRYPOINT_NOT_IMPLEMENTED",
+        "blockers": ("development_fill_cycle_entrypoint", "frozen_packet_and_authorization"),
         "entry_rule_id": PLUS_ENTRY_RULE_ID,
         "rule_fingerprint": rule_fingerprint_plus(),
         "feature_contract": CONTRACT_VERSION,
@@ -332,7 +332,8 @@ def plus_packet_contract() -> dict[str, object]:
     """
     return {
         "packet_id": "btc-plus-contrast-20261028",
-        "revision": "a550dad0",
+        "revision": None,
+        "source_identity_rule": "capture_campaign_source_tree_at_packet_freeze",
         "source": plus_code_sha(),
         "rule_fingerprint": rule_fingerprint_plus(),
         "fill_policy_fingerprint": fill_policy_fingerprint_plus(),
@@ -343,7 +344,12 @@ def plus_packet_contract() -> dict[str, object]:
             "holdout": [HOLDOUT_START_UTC, HOLDOUT_END_UTC],
         },
         "costs": list(PLUS_COSTS),
-        "command": "pytest tests/research/test_btc_plus_contrast.py -k plus --timeout=600",
+        "command": None,
+        "execution_readiness": "DEVELOPMENT_ENTRYPOINT_NOT_IMPLEMENTED",
+        "synthetic_check_command": (
+            ".venv/bin/python scripts/run_wfo_parallel.py --fill-cycle-synthetic "
+            "--fill-cycle-arm PLUS --fill-cycle-btc-context up --out <NEW_SYNTHETIC_PACKET>"
+        ),
         "authorization": {
             "market_run": False,
             "live_authorized": False,

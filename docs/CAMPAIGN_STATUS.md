@@ -6,6 +6,22 @@ were fragmenting the state across ~60 files.
 
 ## Current — 2026-10-28 / MARKET_PAUSED / FILL_TIMER_SYNTHETIC
 
+### 2026-10-28 — PLUS fill-policy wiring verified on synthetic
+
+The separate fill policy now accepts PLUS and applies only the pair/BTC 24h
+positive-return predicate. The legacy own24_context constructor/source is
+unchanged. The existing synthetic launcher produced real reports: A0 has one
+24h trade for BTC up/down; PLUS has one for up and none for down/missing.
+Terminal positions/orders are zero in all five cases. Net PnL per constructed
+flat-price trade is -5.62485 USDT from cost/slippage; this is wiring evidence,
+not predictive/economic value. Final regression: **142 PASS**, Ruff/diff clean,
+source stable `d5561a10…`; no new AC/full-CI claim and no market cells.
+PLUS market contract now explicitly says DEVELOPMENT_ENTRYPOINT_NOT_IMPLEMENTED;
+the nonexistent pytest command and stale revision are removed. The simulator
+still refuses market input for the fill-cycle prototype.
+Local evidence: `data/plus_execution_readiness_audit_20261028_01/FINAL_RESULTS.md`
+and five preserved raw reports in `final_verification_reports/`. Mainnet NO-GO.
+
 ### 2026-10-28 — fill-timer native runtime prototype verified
 
 Opt-in immutable position-cycle input now carries actual first-fill time,
