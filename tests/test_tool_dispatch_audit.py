@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 import sys
 from pathlib import Path
 from typing import Any
@@ -28,7 +27,8 @@ _QP_SITE_PACKAGES = "/home/huythong/.qwenpaw/venv/lib/python3.12/site-packages"
 if _QP_SITE_PACKAGES not in sys.path:
     sys.path.insert(0, _QP_SITE_PACKAGES)
 
-logging.disable(logging.CRITICAL)
+pytest.importorskip("agentscope", reason="optional QwenPaw runtime dependency")
+pytest.importorskip("qwenpaw", reason="optional installed QwenPaw runtime")
 
 # Import framework pieces (must come after sys.path manipulation)
 from agentscope.tool import FunctionTool, Toolkit  # noqa: E402

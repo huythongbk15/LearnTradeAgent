@@ -179,9 +179,11 @@ class ExecutionEngine:
         instrument_rules: InstrumentRules | None = None,
         state_dir: str | Path | None = None,
         event_store_path: str | Path | None = None,
+        event_store_synchronous: str = "FULL",
         allow_backtest_new_exposure: bool | None = None,
         paper_price_persist_interval: int = 1,
         disable_paper_telemetry: bool = False,
+        defer_paper_state_persistence: bool = False,
         protective_stop_loss_pct: float = 0.05,
         authority_config: AuthorityConfig | None = None,
         promotion_store: PromotionStateStore | None = None,
@@ -240,12 +242,14 @@ class ExecutionEngine:
             slippage=legacy_config.slippage if slippage is None else slippage,
             state_dir=state_dir or STATE_DIR,
             price_persist_interval=paper_price_persist_interval,
+            defer_durable_state=defer_paper_state_persistence,
             **paper_exchange_kwargs,
         )
 
         # ── Canonical execution stack ─────────────────────────────────
         self.store = store or ExecutionEventStore(
-            event_store_path or "data/execution/events.db"
+            event_store_path or "data/execution/events.db",
+            synchronous=event_store_synchronous,
         )
         if store is None:
             self.store.connect()
@@ -387,10 +391,35 @@ class ExecutionEngine:
                 prepare_status=status,
             )
 
+        position_state = None
+        if callable(getattr(strategy_runtime.strategy, "generate_signal_with_position", None)):
+            if observation is None or not observation.is_closed:
+                return _no_action("bad_observation")
+            cutoff = observation.bar_close_at
+            if cutoff is None or cutoff > observation.observed_at:
+                return _no_action("position_cycle_clock_unavailable")
+            if portfolio_snapshot is not None:
+                # The snapshot is the whole cycle input. Do not read the broker.
+                built = self._position_cycle_from_snapshot(portfolio_snapshot, symbol, cutoff)
+                if isinstance(built, str):
+                    return _no_action(built)
+                position_state = built
+            else:
+                self._sync_protective_orders()
+                from trading_agent.execution.position_cycle import cycle_record_from_position
+
+                with self.exchange._state_lock:
+                    try:
+                        position_state = cycle_record_from_position(
+                            self.exchange.get_position(symbol)
+                        ).view(symbol, cutoff)
+                    except (TypeError, ValueError):
+                        return _no_action("position_cycle_unknown")
+
         # Execute strategy to get signal
         strategy_output = strategy_runtime.execute(
             market_data=market_data,
-            portfolio_state=None,  # Portfolio state injected by authority chain
+            portfolio_state=position_state,
             observation_id=observation.observation_id if observation else None,
             data_manifest_id=getattr(observation, "data_manifest_id", None),
             feature_artifact_id=getattr(observation, "feature_artifact_id", None),
@@ -532,6 +561,21 @@ class ExecutionEngine:
             total_portfolio_exposure=total_portfolio_exposure,
             prepare_status="ok",
         )
+
+    @staticmethod
+    def _position_cycle_from_snapshot(snapshot, symbol: str, cutoff: datetime):
+        """Build a cycle view from snapshot fields only."""
+        cycles = getattr(snapshot, "position_cycles", None)
+        if cycles is None or symbol not in cycles:
+            return "position_cycle_snapshot_unavailable"
+        record = cycles[symbol]
+        booked = float(snapshot.positions.get(symbol, 0.0))
+        if not math.isclose(booked, float(record.quantity), rel_tol=0.0, abs_tol=1e-12):
+            return "position_cycle_unknown"
+        try:
+            return record.view(symbol, cutoff)
+        except (TypeError, ValueError):
+            return "position_cycle_unknown"
 
     def prepare_promoted_strategy(
         self,
@@ -1212,6 +1256,8 @@ class ExecutionEngine:
         strategy_runtime: StrategyRuntime,
         market_data: Any,
         observation: EnrichedMarketObservation | None = None,
+        *,
+        portfolio_snapshot: PortfolioSnapshot | None = None,
     ) -> list[Order]:
         """Execute a promoted strategy through the full authority chain.
 
@@ -1231,7 +1277,8 @@ class ExecutionEngine:
 
         # Stage 1: resolve + StrategyOutput + DecisionAuthority (no I/O)
         prepared = self._prepare_from_runtime(
-            strategy_runtime, market_data, observation
+            strategy_runtime, market_data, observation,
+            portfolio_snapshot=portfolio_snapshot,
         )
         self.last_strategy_execution.update(
             {
@@ -1251,7 +1298,7 @@ class ExecutionEngine:
             return []
 
         # Stage 2: single-pair allocation (batch runtime uses allocate_batch)
-        allocation_request = self.build_allocation_request(prepared)
+        allocation_request = self.build_allocation_request(prepared, portfolio_snapshot)
         allocation_result = self.portfolio_allocator.allocate(allocation_request)
         self.last_strategy_execution.update(
             {
@@ -1402,7 +1449,12 @@ class ExecutionEngine:
 
     @staticmethod
     def _is_protective_intent(intent_id: str) -> bool:
-        return intent_id.startswith("prot_") and intent_id.endswith("_submit")
+        if not intent_id.startswith("prot_"):
+            return False
+        _, separator, suffix = intent_id.rpartition("_submit")
+        return bool(separator) and (
+            not suffix or (suffix.startswith("_retry") and suffix[6:].isdigit())
+        )
 
     def _protective_intents(self, symbol: str | None = None):
         return [
@@ -1696,44 +1748,11 @@ class ExecutionEngine:
             )
         orders: list[Order] = []
         for pos in self.exchange.get_all_positions():
-            if pos.quantity <= 0:
+            if not pos.is_active or pos.quantity <= 0:
                 continue
-            symbol = pos.symbol
-            price_info = self._get_current_price(symbol)
-            if price_info is None:
-                continue
-            current_price, _ = price_info
-            # Use canonical emergency reduce through lifecycle
-            emergency = EmergencyReduceRequest(
-                intent_id=f"emergency-close-{symbol}-{uuid.uuid4().hex}",
-                symbol=symbol,
-                side="sell",
-                quantity=pos.quantity,
-                reason=reason,
-                metadata={"order_type": "market", "time_in_force": "gtc"},
-            )
-            try:
-                result = self.execution_service.emergency_close(emergency).result
-                if result.state == BrokerSubmitState.FILLED and result.broker_order_id:
-                    raw = result.raw_response or {}
-                    orders.append(
-                        Order(
-                            id=result.broker_order_id,
-                            symbol=symbol,
-                            side=OrderSide.SELL,
-                            type=OrderType.MARKET,
-                            amount=pos.quantity,
-                            status=OrderStatus.FILLED,
-                            filled_amount=float(
-                                raw.get("filled_qty", raw.get("filled_amount", 0)) or 0
-                            ),
-                            avg_fill_price=float(
-                                raw.get("avg_fill_price", raw.get("price", 0)) or 0
-                            ),
-                        )
-                    )
-            except Exception as e:
-                logger.error(f"Emergency reduce failed for {symbol}: {e}")
+            order = self.close_position(pos.symbol, reason=reason)
+            if order is not None:
+                orders.append(order)
         return orders
 
     def close_position(self, symbol: str, reason: str = "manual") -> Order | None:
@@ -1748,17 +1767,38 @@ class ExecutionEngine:
         price_info = self._get_current_price(symbol)
         if price_info is None:
             return None
-        current_price, _ = price_info
+        # A stop belongs to the position being closed. Leaving it at the
+        # venue can sell a later entry and leave a residual position. Reuse
+        # the typed cancellation/reconciliation path used by normal exits.
+        cancel_ok, canceled_intents = self._cancel_resting_protection(symbol)
+        if not cancel_ok:
+            return None
+        # Cancellation can race a stop fill. Never sell the stale quantity.
+        pos = self.exchange.get_position(symbol)
+        if not pos or not pos.is_active or pos.quantity <= 0:
+            return None
+        if self._get_current_price(symbol) is None:
+            if canceled_intents:
+                self._mark_protection_gap(
+                    symbol, canceled_intents, "price unavailable after emergency stop cancellation",
+                )
+            return None
+        quantity = pos.quantity
         emergency = EmergencyReduceRequest(
             intent_id=f"emergency-close-{symbol}-{uuid.uuid4().hex}",
             symbol=symbol,
             side="sell",
-            quantity=pos.quantity,
+            quantity=quantity,
             reason=reason,
             metadata={"order_type": "market", "time_in_force": "gtc"},
         )
         try:
             result = self.execution_service.emergency_close(emergency).result
+            remaining = self.exchange.get_position(symbol)
+            if canceled_intents and remaining and remaining.is_active and remaining.quantity > 0:
+                self._mark_protection_gap(
+                    symbol, canceled_intents, "emergency exit left inventory after stop cancellation",
+                )
             if result.state == BrokerSubmitState.FILLED and result.broker_order_id:
                 raw = result.raw_response or {}
                 return Order(
@@ -1766,7 +1806,7 @@ class ExecutionEngine:
                     symbol=symbol,
                     side=OrderSide.SELL,
                     type=OrderType.MARKET,
-                    amount=pos.quantity,
+                    amount=quantity,
                     status=OrderStatus.FILLED,
                     filled_amount=float(
                         raw.get("filled_qty", raw.get("filled_amount", 0)) or 0
@@ -1776,6 +1816,10 @@ class ExecutionEngine:
                     ),
                 )
         except Exception as e:
+            if canceled_intents:
+                self._mark_protection_gap(
+                    symbol, canceled_intents, "emergency exit failed after stop cancellation",
+                )
             logger.error(f"Emergency reduce failed for {symbol}: {e}")
         return None
 
@@ -1907,29 +1951,25 @@ class ExecutionEngine:
         """Convert a BrokerSubmitResult to an Order for backward compatibility."""
         order_side = OrderSide.BUY if side.lower() == "buy" else OrderSide.SELL
         state = getattr(result, "state", None)
-        if state == BrokerSubmitState.UNKNOWN:
+        if state in {BrokerSubmitState.UNKNOWN, BrokerSubmitState.ACCEPTED,
+                     BrokerSubmitState.ACKNOWLEDGED, BrokerSubmitState.OPEN}:
             # UNKNOWN is not a rejection; it means the broker did not confirm
             # the final state. Treat as OPEN for reconciliation downstream.
             status = OrderStatus.OPEN
-        elif result.success:
+        elif state == BrokerSubmitState.PARTIALLY_FILLED:
+            status = OrderStatus.PARTIALLY_FILLED
+        elif state == BrokerSubmitState.FILLED:
             status = OrderStatus.FILLED
         else:
             status = OrderStatus.REJECTED
         raw = result.raw_response or {}
-        success = result.state in {
-            BrokerSubmitState.ACCEPTED,
-            BrokerSubmitState.OPEN,
-            BrokerSubmitState.PARTIALLY_FILLED,
-            BrokerSubmitState.FILLED,
-        }
-        filled_amount = float(
-            raw.get(
-                "filled",
-                raw.get("accumulated_quantity", quantity if success else 0),
-            )
-            or 0
-        )
-        avg_fill_price = float((raw.get("average") or raw.get("price") or 0))
+        filled_amount = float(next(
+            (raw[key] for key in ("filled_qty", "filled_amount", "filled_quantity",
+                                  "filled", "accumulated_quantity")
+             if raw.get(key) is not None),
+            quantity if state == BrokerSubmitState.FILLED else 0,
+        ) or 0)
+        avg_fill_price = float((raw.get("avg_fill_price") or raw.get("average") or raw.get("price") or 0))
         return Order(
             id=result.broker_order_id or "",
             symbol=symbol,

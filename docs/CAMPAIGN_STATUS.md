@@ -4,7 +4,442 @@ Single source of truth for the measured-accounting and campaign-publication
 work. Supersedes the per-session `*_TODO.md` files, which are gitignored and
 were fragmenting the state across ~60 files.
 
-## Current — 2026-10-22, rev24 / CHANGES_REQUIRED (round 3) / NO_LIVE
+## Current — 2026-10-28 / MARKET_PAUSED / FILL_TIMER_SYNTHETIC
+
+### 2026-10-28 — fill-timer native runtime prototype verified
+
+Opt-in immutable position-cycle input now carries actual first-fill time,
+entry-order identity and remaining inventory into a separate, unregistered
+`own24_fill_context` policy. It holds until24h from the first fill, keeps the
+clock through partial fills/exits and restart, and prioritises expiry over
+missing market context. Historical snapshots lacking cycle attribution are
+refused; no live-state fallback. Legacy `own24_context` bytes are unchanged.
+The broker Order wrapper also preserves PARTIALLY_FILLED and confirmed fill
+quantity instead of reporting partial/ACK/OPEN as fully filled.
+
+The 28/10 native receipt remains 118 PASS on source `69f2a648…`. A same-agent
+review of that exact source found the driver skipped HOLD and historical
+snapshots could not carry a fill cycle. Those two gaps are now closed on
+synthetic data: every cadence bar asks the runtime, including HOLD, and the
+order still passes through the existing authority and protection. A historical
+snapshot without cycle fields is still refused and is not filled from live
+state. Partial remainder and a restored position keep the first fill.
+
+Launcher proof: `scripts/run_wfo_parallel.py --fill-cycle-synthetic` ran
+launcher → worker → simulator → report → summary. One ETH synthetic round trip
+held 24 hours. 36 targeted tests PASS in 20.64s. Precomputed signals and a
+frozen market binding are rejected. This is not qualification, not a market
+rerun, and not multi-pair parity. H-OWN24 stays closed. Mainnet NO-GO.
+The design wave now has its window locked and its entry rule unset:
+W-INFORMATION-GATE-01 — local evidence `data/w_information_gate_20261028_01/RESULTS.md`.
+Twelve cells would be two sessions of six, 3600s each, because 12 × 600s
+equals the 7200s cap. No cells run until a mechanism other than H-OWN24
+is written and separately authorized.
+Results, receipts and bounded next steps — local evidence `data/x2_fill_timer_synthetic_20261027_01/RESULTS.md`.
+
+### 2026-10-27 — H-LIQ-REVERSAL-01 closed RESEARCH_ABSTAIN
+
+H-LIQ-REVERSAL-01 completed one authorized validation-only packet, 3/3 cells,
+coverage PASS, in data/liq_reversal_validation_run_20261027_01. Protocol
+f65b1804…, input 45ba1b…, dirty source a9133770… on commit 3b1cfcda,
+measurement 6510,15150). Trades 95/94/94. Sharpe −1.931 / −3.164 / −3.591.
+Return −7.90 / −12.74 / −14.38%. Gross is already negative. Selection ABSTAIN.
+Sample complete, all_folds_selected false. No open inventory. Registry
+sidecar data/liq_reversal_registry_closeout_20261027_01 is
+RECONCILED_READ_ONLY_3_OF_3: one INNER_VALIDATION row per cost and the
+stored Sharpe matches the sealed report. The sealed ledgers still say
+UNKNOWN_NOT_RECONCILED. provenance_eligible stays false. Supervisor 733.795s, sampled RSS 753.54 MiB,
+one attempt per cell. Independent pre-run review accepted one run; post-run
+review VERIFIED_RESEARCH_ABSTAIN_NOT_QUALIFIED. `no_further_run_authority` is
+true. Not confirmation and not a ranking. Mainnet stays NO-GO.
+[Result — local evidence `data/liq_reversal_validation_run_20261027_01/RESULTS.md`.
+Post-run review — local evidence `data/liq_reversal_validation_run_20261027_01/POST_RUN_REVIEW.md`.
+Registry sidecar — local evidence `data/liq_reversal_registry_closeout_20261027_01/RESULTS.md`.
+
+Review follow-up27/10: **CHANGES_REQUIRED / MARKET_PAUSED**. Existing reports
+show a holding-contract mismatch (742/890 ETH A0/1x signal closes are under
+24h), persistent ETH A1/slip inventory (~0.0003 ETH) blocking later entries,
+and cross-source A0 versus A1 comparisons without established equivalence.
+The measurements remain negative diagnostics of the executed implementation;
+they do not reject BTC context or the wider information pool. A nonfinite
+metric label guard was fixed; 46 targeted tests PASS on the new code. Market
+packets are preserved. Next: synthetic exit/residual contracts, exact source
+comparability, then D1–D8 information-design discussion; no market rerun.
+Review and actionable handoff — local evidence `data/x2_context_review_20261027_01/RESULTS.md`.
+
+Execution follow-up27/10 identified the ETH residual's concrete source: an old
+0.3511 ETH stop survived emergency close and later sold a new0.3514 ETH entry.
+Engine emergency close now cancels/reconciles owned protection (including
+retry stops), rereads inventory after cancel/fill races and marks gaps if exit
+fails. **69 targeted tests PASS**, including7 new local-paper regressions.
+Old market packets are unchanged; no market rerun. Holding-from-fill is still
+OPEN: runtime currently has no fill-cycle view and precomputed signals cannot
+implement that timer. The bounded integration contract is in the
+new handoff — local evidence `data/x2_execution_followup_20261027_01/RESULTS.md`.
+This fix changes source; prior campaign approval/evidence does not transfer.
+
+Prior run summary (labels require the review caveats above):
+H-OWN24-CONTEXT-01 has no IMPROVES cell.
+A0 is negative on ETH at all three costs and on BNB at 1x and 2x. Where the
+execution path is stable, A1 versus A0 and A2 versus A1 are NO_INCREMENT or
+NO_CONFIRMATION. ETH slip contrasts are INCONCLUSIVE because A1 slip fell
+to 311 trades. BNB A0 slip was not accepted. Not qualification. Mainnet
+stays NO-GO.
+Result — local evidence `data/x2_context_run_20261027_01/RESULTS.md`.
+User27/10 authorised a plan for BTC/USDT context and ETH/USDT plus BNB/USDT
+targets, with shared verification and possibly pair-specific policy/params.
+[Plan §10](operations/MULTI_STRATEGY_RESEARCH_PLAN.md#10-kế-hoạch-btc-context-và-policy-riêng-theo-pair)
+defines X0–X6, causal input/feature binding, A0/A1/A2 and separate parameter
+personalisation evidence. This changes research design, not current runtime
+or market authority. X0 metadata result:
+ETH/BNB clock check — local evidence `data/x0_context_admission_20261027_01/RESULTS.md`.
+The two pre-holdout 1h files match all 25198 frozen-BTC timestamps and both
+passed `assess_ohlcv` with `gap_policy=reject`: 0 gaps, 0 nulls, 0 invalid
+OHLC, every `is_closed` true. Prices of those two hashes are now read.
+Status QUALITY_ACCEPTED_DEVELOPMENT_INPUT_NOT_CONFIRMATION. No implementation
+or run approval here.
+Do not rerun a closed packet/retune its rule or inherit its authority.
+Runtime parity, paper, testnet and mainnet remain blocked.
+
+Steering27/10 expands the candidate information pool: research broadly across
+market/relative/liquidity/positioning/dominance/events/on-chain/macro/attention
+groups, then retain what adds reproducible predictive/economic value per
+target. The six-feature draft is a baseline, not a discovery cap. Plan §10.8
+adds source/available-at profiles, group/interaction tests, nested time-aware
+selection, trial burden and a per-pair evidence table. Feature importance or
+ablation alone does not identify a causal market effect. New provider groups
+are NOT_ADMITTED until checked; the declined news pilot stays declined.
+X0 clock check is recorded and is not a price screen, a new collector, or a
+market run. Market authority remains NONE.
+
+27/10 desk-research follow-up is complete, documentation only. The
+[decision memo](RESEARCH_EVIDENCE.md) distinguishes failed specific rules
+from entire strategy families and checks primary literature against the
+BTC spot1h long-only constraints. No new eligible mechanism was established
+in the reviewed sources. Recommended action remains PAUSED on the current
+profile; attention/new information or horizon/universe changes are separate
+scope decisions, not chosen strategies or run authority. Six admission
+questions must be answered before presenting any future proposal. No source,
+tests, sealed packets, market prices or runtime were changed by this follow-up.
+
+External-information feasibility is also complete on paper. Existing
+sentiment/news modules inspected do not establish an eligible external
+information archive: the agent uses technical inputs, the aggregator has
+synthetic news and no implemented live fetch, and the LLM extractor consumes
+caller-supplied articles. Google Trends official API access/lag/resolution
+and GDELT availability/archive limits are documented in the same decision
+memo. No provider data request or LLM call was made. A metadata-only pilot
+envelope stays NOT_AUTHORIZED. Decision 27/10: do not spend the 20-request
+pilot. A metadata sample cannot establish 2023 vintage, a confirmation cohort,
+or an edge after costs. PAUSED and the current price-only scope stay.
+Market authority NONE.
+
+27/10 design note, not a hypothesis and not run authority: validate with one
+method, while signals and parameters may differ by pair. BTC is both a
+tradable asset and a lagged context. A shared policy may consume BTC
+return, volatility, drawdown and a past-only beta residual. Relative strength
+is not a positive USDT return, and the residual is not assumed to mean-revert.
+BTC dominance is out of scope without a consistent market-cap source. A later
+proposal would have to pass pair-only, then BTC context, then the residual,
+each showing an after-cost out-of-sample gain on a pre-frozen window. The
+17/10 ETH/BNB screen is not that evidence. Literature on minute-level
+cross-crypto predictability is not evidence at 1h. PAUSED remains.
+[Design note](RESEARCH_EVIDENCE.md).
+
+
+Closeout update: registry attribution is now RECONCILED_READ_ONLY_9_OF_9
+for H-PULLBACK-01, H-PULLBACK-TEMPORAL-01 and H-VOLBREAK-01. Each exact
+execution context has one matching INNER_VALIDATION registry row and its
+Sharpe matches the sealed raw report. This is an integrator read-only
+sidecar, not independent review or qualification. Original UNKNOWN fields
+and the sealed packet index remain historical and unchanged.
+Registry closeout and remaining integration — local evidence `data/research_closeout_20261026_01/RESULTS.md`.
+No further volatility-breakout confirmation is planned. The measured
+liquidity-reversal source is on commit e7d7dd5c and the worktree is clean.
+The H-LIQ packet itself remains the dirty-tree record a9133770. That commit
+does not qualify any study.
+
+H-VOLBREAK-01 completed 3/3 cells, coverage PASS, in
+data/volatility_breakout_validation_run_20261026_01. Protocol ac1c79d5…,
+input 45ba1b…, tree d2864272… dirty, measurement 6552,15192). Each cost has
+53 closed trades. Selection SELECTS 1x only: Sharpe 0.321 / −1.266 / −1.767,
+return +0.575 / −2.385 / −3.352%. 2x and slip stress fail the Sharpe floor.
+No open inventory. Report accounting reconciles. Registry SQL remains
+UNKNOWN_NOT_RECONCILED. Supervisor 726.946s, sampled RSS 757.45 MiB, no retry.
+Verdict DIAGNOSTIC_POSITIVE_NOT_QUALIFIED. Separate-agent post-run review:
+VERIFIED_DIAGNOSTIC_POSITIVE_NOT_QUALIFIED. Exposed window, dirty tree,
+strategy_qualified false. Not confirmation and not a ranking against pullback.
+`no_further_run_authority` is true. Mainnet stays NO-GO.
+[Volbreak result — local evidence `data/volatility_breakout_validation_run_20261026_01/RESULTS.md`.
+Post-run review — local evidence `data/volatility_breakout_validation_run_20261026_01/POST_RUN_REVIEW.md`.
+Pre-run review — local evidence `data/volatility_breakout_review_20261026_01/REVIEW.md`.
+
+The previously selected minimum spot runtime path is Binance Spot,
+BTC/USDT, 1h, long-only, one pair. The new research design in §10 does not
+activate ETH/BNB trading or qualification. The runner still pins
+`expected_strategy_name="enhanced_ma"`. Futures, margin and funding carry stay
+outside it.
+
+Still required, in order, before any live order:
+
+1. A mechanism that is not a retune of a closed rule. Research is paused
+   while the closed measurements are read together. No new strategy is opened
+   from this closeout.
+2. H-LIQ-REVERSAL-01 already had its one bounded validation and is closed.
+   A future hypothesis would need its own measurement. That measurement has
+   not been defined.
+3. Only if a future measurement selects a cost-robust candidate: a confirmation
+   cohort that is not the exposed 25198-row file, and a DSR/PBO method locked
+   before the outer result is read.
+4. `QUALIFIED_RESEARCH` on a revision that matches the measured source.
+5. Bind the exact qualified subject throughout `scripts/live_enhanced_ma_binance.py`
+   (constructor, strategy labels and admission expectation, not just one string),
+   then prove runtime parity including any required BTC context on the same input.
+6. Operator account, capital and loss budget. Testnet evidence is still 30
+   continuous days, 100 complete lifecycles, 0 unresolved orders and 0 safety
+   breaches, then a separate canary approval.
+
+Why the closed long-only BTC 1h measurements failed:
+
+- Sample: H-PULLBACK-01 has 25 trades, under the 30-trade floor, so the
+  fold abstains. Its 1x Sharpe is positive and is not a qualification.
+- Price path: MA20/50 (64 trades, Sharpe −0.162 / −1.544 / −1.995) and
+  H-PULLBACK-TEMPORAL-01 (40 trades, Sharpe −0.201 / −1.167 / −1.476) do
+  not clear the floor. Temporal gross is positive and net is negative, so
+  that continuation lost to costs. RSI fixed policy abstains at 39 trades.
+  These windows are not ranked against each other.
+- Cost-fragile gross: H-VOLBREAK-01 gross stays positive and only 1x clears
+  the inner floor (Sharpe 0.321). 2x and slippage stress fail. Confirmation
+  was declined. This does not reject every expansion rule.
+- Gross loss: H-LIQ-REVERSAL-01 gross is negative on the fixed 1.5% drop and
+  6-bar hold. At 1x the 91 signal exits lose as well as the 4 stops. BUY
+  signals stay 95 at every cost. Stress costs record circuit_breakers 1 and
+  funnel terminals 2 and 3, with 94 closed trades, so the gap from 1x is an
+  execution-path change plus fees. This rejects that rule and native policy
+  on 6510,15150) only.
+
+The repeated failure is the absence of a cost-robust edge. It is not a
+missing runner and it is not an unfinished audit. Mainnet stays NO-GO.
+[Packet index — local evidence `data/research_packet_index_20261026_01/INDEX.md`.
+E3 proposal — local evidence `data/volatility_breakout_e3_proposal_20261026_01/E3_PROPOSAL.md`.
+
+H-PULLBACK-TEMPORAL-01 is closed. One authorized packet completed 3/3 cells,
+coverage PASS, in data/trend_pullback_temporal_validation_run_20261026_01.
+Protocol 6733c156…, input 45ba1b…, tree d2864272…, measurement 6672,15312),
+600/2100s, 1 worker, 0 retry. Each cost has 40 closed trades. Selection ABSTAIN
+because validation Sharpe is not above the floor: −0.201 / −1.167 / −1.476.
+Return −0.479 / −2.696 / −3.424%. No open inventory. Accounting inside the
+reports reconciles. Registry SQL remains UNKNOWN_NOT_RECONCILED. Supervisor
+675.299s, sampled RSS 753.38 MiB, no retry. This window was already exposed.
+It is not confirmation, not a ranking against H-PULLBACK-01, and not
+qualification. `no_further_run_authority` is true. Mainnet stays NO-GO.
+[Temporal result — local evidence `data/trend_pullback_temporal_validation_run_20261026_01/RESULTS.md`.
+Separate-agent post-run review: VERIFIED_RESEARCH_ABSTAIN_NOT_QUALIFIED.
+Protocol objects match; file bytes differ only by JSON key order.
+Post-run review — local evidence `data/trend_pullback_temporal_validation_run_20261026_01/POST_RUN_REVIEW.md`.
+Pre-run review — local evidence `data/trend_pullback_temporal_review_20261026_01/REVIEW.md`.
+
+Temporal proposal — local evidence `data/trend_pullback_temporal_prereg_20261026_01/RESULTS.md`.
+Inventory — local evidence `data/confirmation_design_20261026_01/RESULTS.md` and
+design/tasks — local evidence `data/confirmation_design_20261026_01/CONFIRMATION_DESIGN.md`.
+
+H-PULLBACK-01 one authorized packet completed3/3cells,coveragePASS in
+data/trend_pullback_validation_run_20261025_01 (directory created25/10; actual
+execution26/10). Separate-agent review accepted current source d2864272… and
+protocol081fce81…; authorization hash-binds the verdict, proposal, assertions,
+config and adapters. Exact fresh protocol matches preparation _02. One fold,
+three cost cells,600s/cell2100stotal,1worker2048MiB0retry/fail-fast.
+Eachcost25closedtrades<30,selectionABSTAIN,sample_complete=false. Sharpe
+0.695/−0.633/−1.060;return+0.721/−0.688/−1.154%. No terminal inventory;
+accounting reconciled. Supervisor245.659s,RSS719.61MiB,no retry/cache/timeout.
+Results and next decision — local evidence `data/trend_pullback_validation_run_20261025_01/RESULTS.md`.
+Review — local evidence `data/trend_pullback_validation_run_20261025_01/REVIEW.md`.
+Earlier BLOCKED_REVIEW below concerns old preparation _01, superseded by this
+new source-bound preparation/review; old packet is preserved.
+
+Reporting follow-up: sample_complete now requires the frozen minimum trade count
+for every candidate; empty/missing/invalid counts fail the sample check. 99 targeted
+tests PASS plus lint; no strategy/gate edits or market run. Source now d2864272…;
+correction evidence — local evidence `data/sample_completeness_fix_20261025_01/RESULTS.md`.
+Pullback old preparation is historical for source8df9a071… and cannot activate on
+this changed source. New preparation — local evidence `data/trend_pullback_prereg_20261025_02/RESULTS.md`
+has one fold/three cells and unchanged scope/budget, protocol081fce81…;
+Preparation remains historically PREPARED_NOT_AUTHORIZED; separate run authority
+and accepted review are now recorded in the new execution packet. Prior admissions/AC are not
+relabeled as fresh tests; old packets and their economic verdicts remain intact.
+
+Current coordination: [E2E delivery playbook](operations/MULTI_STRATEGY_RESEARCH_PLAN.md).
+One tracker, stage-specific evidence and bounded loops; no until-profitable search.
+NOW-02 accepted on d2864272…; NOW-03 operator authority recorded; NOW-04 measured
+and separately reviewed VERIFIED_INCOMPLETE_SAMPLE_ABSTAIN
+(review — local evidence `data/trend_pullback_validation_run_20261025_01/POST_RUN_REVIEW.md`).
+H-PULLBACK-TEMPORAL-01 is now also closed RESEARCH_ABSTAIN / NOT_QUALIFIED on
+the later exposed window. No automatic run, retune, next catalog strategy, or
+qualification. A new hypothesis needs a different mechanism and a new operator
+decision.
+The historical BLOCKED_REVIEW below refers to preparation _01 and source8df9a071….
+Independent review — local evidence `data/trend_pullback_independent_review_20261025_01/REVIEW.md`.
+Older research-plan snapshots are archived; current RSI/MA/BNB verdicts below
+are unchanged.
+
+MA crossover defaults20/50 BTC1h authorized run completed3/3 cells, coverage PASS,
+64closed trades/cost, one attempt each, zero retry/cache/timeout. Sharpe
+-0.162/-1.544/-1.995; marked return -0.481/-4.002/-5.149%. Selection ABSTAIN,
+NOT_QUALIFIED_VALIDATION_ONLY. No promotion or automatic follow-up run.
+Baseline results, inventory accounting and benchmark — local evidence `data/ma_simple_baseline_validation_run_20261024_01/RESULTS.md`.
+
+1x closed net-363.76 plus open PnL315.51 gives marked delta-48.24; not a closed
+profit. Passive25%context on same window+3.436%, not native/risk-matched or alpha.
+Source8df9a071… stable; no src/scripts/gate edits. Original ledgers keep historical
+UNKNOWN fields; new read-only sidecar reconciles3/3 attempts to exact registry
+contexts/metrics without rewriting receipts. Study provenance_eligible=false
+because worktree_dirty=true; this remains a release/qualification limitation,
+not a cause of negative Sharpe. Integrator verification, no independent review.
+Registry reconciliation — local evidence `data/ma_simple_baseline_validation_run_20261024_01/postrun_registry_review_20261025_01/RESULTS.md`.
+
+RSI fixed-policy packet remains ABSTAIN (39trades/cost). BNB state-edge packet
+remains INCOMPLETE/HOLD; two unknown cells not filled. No candidate qualified,
+mainnet NO-GO. MA window822,5142) differs from RSI[920,5240), so no paired ranking.
+[RSI results — local evidence `data/rsi_fixed_validation_run_20261024_01/RESULTS.md`.
+
+H-BRANCH-01 closed:16reports compared,6synthetic cases PASS,12,960action records
+matched; mixed-branch trades not shown to be the cause of loss. Strategy unchanged.
+Branch attribution — local evidence `data/rsi_branch_attribution_20261024_01/RESULTS.md`.
+Comparison — local evidence `data/economic_comparison_20261024_01/RESULTS.md`,
+synthetic proof — local evidence `data/rsi_branch_synthetic_20261024_01/RESULTS.md`, and
+historical baseline proposal/reference — local evidence `data/measurement_reference_20261024_01/RESULTS.md`
+are supporting history, not current pending authorization or fresh run authority.
+
+H-PULLBACK-01 preparation complete, PREPARED_NOT_AUTHORIZED:existing default
+trend_pullback,SMA20/80,ADX25,volume1.5; admission4/4syntheticfunctions PASS.
+Publicpreflight1fold/3cells,simulation0,5232),measurement[912,5232),warmup96.
+Envelopeproposed600s/cell/2100stotal/1worker/2048MiBsampledRSS/0retry/failfast.
+Source8df9a071…stable; no newstrategy/engineevaluation, no inherited approval.
+Old discovery10trades/Sharpe-3.018 retained; no resetting trial burden. Data2023
+alreadyexposed,diagnostic only; dirtysource cannot be promoted by positive result.
+[Exact plan and run constraints — local evidence `data/trend_pullback_prereg_20261025_01/RESULTS.md`.
+Admission — local evidence `data/trend_pullback_admission_20261025_01/RESULTS.md`.
+Independent review on 2026-10-25 blocked activation: strategy bytes and the
+frozen protocol still match, current src/scripts fingerprint does not.
+Review — local evidence `data/trend_pullback_independent_review_20261025_01/REVIEW.md`.
+
+### Historical preparation — 2026-10-24 (superseded by execution above)
+
+New candidate data revision reuses the already-frozen20261008 pre-holdout input,
+not current mixed raw files. Fresh byte hash45ba1b… matches historical receipt;
+25198 contiguous hourly rows,0 reserved timestamps. New byte-identical copy has
+fresh OHLCV quality PASS; previously exposed research, not untouched/OOS. Raw
+parent provenance remains incomplete; old raw manifest mismatch not repaired.
+6160-row deterministic prefix and one-fold/3-cost proposal prepared; no strategy
+run. Proposal600s/cell/2100s total is unapproved, stop/probe enforcement still
+needs review. No official protocol/run authority or independent data review.
+Data layout, revision and proposal — local evidence `data/btc1h_preholdout_layout_20261024_01/RESULTS.md`.
+
+### Historical update — 2026-10-23 (superseded where noted)
+
+Latest: fixed-param launcher accepted by separate reviewer for synthetic scope
+on source4930c28c…. Data admission is DATA_IDENTITY_BLOCKED: timestamp-only probe
+found physical BTC1h SHA392712…/907723B differs from declared aedecd…/892340B.
+This proves file-byte mismatch, not necessarily changed prices.27183 pre-holdout
+rows have1 non-hourly step; extended/full53456 have15. No OHLCV decoded, but
+whole-file bytes were hashed and holdout timestamps read. Manifest/raw files
+unchanged; no market run. Need explicit data-revision/read scope decision.
+Review and metadata preflight — local evidence `data/fixed_params_review_20261023_01/RESULTS.md`.
+
+Fixed-policy launcher input implemented: --fixed-params scalar JSON resolves
+defaults into frozen singleton params; existing catalog grids are unchanged.
+102 distinct selected synthetic/regression cases verified plus lint; one native
+integration preserved full packet, coverage complete but NOT_QUALIFIED and sample
+incomplete. Source4930c28c… stable. Parameter-input blocker below is historical;
+new launcher patch still needs independent review and data/windows/budget remain
+unapproved. No market run, strategy/gate change or inherited run authority.
+Fixed-param verification — local evidence `data/fixed_params_validation_20261023_01/RESULTS.md`.
+
+RSI neutral-contract review: separate reviewer accepted SYNTHETIC_SCOPE on
+source5a2a71ec…, rehashed482 source files and evidence with0 mismatch; inherited
+context/no fresh tests. Review — local evidence `data/rsi_admission_review_20261023_01/REVIEW.md`.
+Next economic admission is BLOCKED_PARAMETER_BINDING: shared CLI pins the old
+15/35/65/20/50 configuration rather than proposed20/30/70/20/80 defaults.
+Read-only preflight and smallest next slice — local evidence `data/rsi_admission_review_20261023_01/NEXT_MEASUREMENT.md`.
+No source edit, market-data decode, test execution or market-run authorization.
+
+Latest RSI/ADX update: operator-approved neutral edge contract is implemented:
+flat RSI50/NO_TRADE, only-loss0, only-gain100; mixed rolling formula unchanged.
+48/48 integrated synthetic cases and lint PASS on stable source5a2a71ec…;
+source delta this turn is one strategy file. Prior flat-BUY characterization
+below is historical, not current behavior. No independent review or market run.
+Neutral RSI contract and receipts — local evidence `data/rsi_neutral_contract_20261023_01/RESULTS.md`.
+
+RSI/ADX test-only follow-up:11/11 synthetic cases PASS, lint PASS. Native action
+timing and real closed-trade entry fills match the two-bar chain on one fixture.
+Flat RSI0 emits BUY continuously; this requires an explicit semantics decision
+before economic admission. No production source change or market authorization.
+Native contract and limitations — local evidence `data/rsi_native_contract_20261023_01/RESULTS.md`.
+
+RSI/ADX proposed-subject admission follow-up: synthetic tests reproduced negative
+directional movement on inside bars and non-finite zero-range indicators. Minimal
+indicator correction is verified by39/39 final cases plus lint; no parameter,
+native policy, gate or market-run change. This is new source, not inherited
+economics or AC evidence. Adapter parity is not engine/fill parity; flat RSI
+semantics and admission review remain open. No independent review of this patch.
+Synthetic correction and all attempts — local evidence `data/rsi_dm_synthetic_fix_20261023_01/RESULTS.md`.
+
+The authorized native state-edge market packet
+`data/bnb_di_adx_stateedge_validation_run_20261023_01/` remains INCOMPLETE:
+13/15 completed, 2 fold-004 timeouts at 300s, original controller WORKER_ERROR.
+It has not been rewritten or rerun. Completed cells have 34–38 trades but
+mixed economics; no stable edge or qualification is established.
+
+The orchestration correction now preserves failure reasons, validates COMPLETED
+reports even in mixed packets, avoids duplicate timing emission, and propagates
+consistent INCOMPLETE to supervisor receipts. Regression: 95 tests PASS and lint
+PASS on source `a50046b389bffd47fb5f19295ee34ccb139f7ba2c55175ae0b9e4eef28778b96`.
+AC01–AC15 ALL PASS on the same stable source. Full evidence and receipts are in
+the separate engineering evidence packet:
+fix and verification — local evidence `data/bnb_validation_incomplete_fix_20261023_01/RESULTS.md`.
+Old source approvals/manifests are historical, not authority for this changed
+source. No strategy/gate/window change, timeout increase, retry, market profile
+or market rerun. Further market work needs a new explicit decision; default is
+to retain RESEARCH_HOLD and analyze the existing partial evidence.
+
+Bounded validation refactor is now accepted on source
+`fe166b1923280620e942824e9fec5353844cb75dc9039bf030760fc1a1076b38`:
+final engineering handoff — local evidence `data/validation_refactor_final_20261023_01/RESULTS.md`.
+This does not rewrite or reattribute the historical market packet.
+
+Report-only economic review of all 13 completed cells confirms sufficient
+observed inner trade counts but weak temporal robustness: F2 gross is positive
+and below recorded cost; F3 gross is already negative; F0 closed net turns
+negative in every cost scenario after subtracting its best trade. These are
+post-hoc validation diagnostics, not OOS gates or a formal strategy rejection.
+Recommendation: no rerun merely to fill two missing cells; candidate remains
+HOLD / NOT_QUALIFIED, with archive as an operator decision. No raw OHLCV read,
+market execution, strategy change or new run authority in this review.
+report-only economic evidence — local evidence `data/bnb_stateedge_economic_review_20261023_01/RESULTS.md`.
+
+Follow-up inventory reviewed 22 raw reports across selected screening/discovery
+and RSI/ADX packets. Source declares18 broad bindings plus the scoped state-edge
+candidate; older17-count snapshots are historical. No next-market candidate is
+admitted by this bounded review. Three RSI/ADX reports currently exist in the
+separate20261020_d packet and corroborate25/22/22 trades, but planning/data-scope
+alignment and provenance remain unresolved; this does not restore the deleted
+packet's original chain or establish qualification. See
+inventory and conditional shortlist — local evidence `data/strategy_evidence_inventory_20261023_01/RESULTS.md`.
+No new market run, source change, archive decision or approval was performed.
+
+RSI/ADX metadata lineage audit is now CLOSED as LEGACY_DESCRIPTIVE_ONLY, not
+qualification. All3 native `data_manifest_id=9471…` values reproduce exactly
+from metadata; they are not direct parquet-file SHA256 values. Earlier
+different-file-hash wording comparing9471… with frozen-file SHA aedec… is not a
+valid file-identity conclusion; historical artifacts are preserved with this
+erratum. Current source supports a legacy-planning vs canonical-native loader
+split consistent with31783/58897rows, but original planning-frame binding is not
+fully recoverable. Packet D protocol786a…/timeout900 differs from old recovered
+protocol937a…/timeout300 despite identical scores. Keep descriptive evidence,
+do not reseal/admit it or reopen an endless audit loop. No new run authority.
+lineage closure and typed-hash proof — local evidence `data/rsi_lineage_closure_20261023_01/RESULTS.md`.
+
+## Historical — 2026-10-22, rev24 / CHANGES_REQUIRED (round 3) / NO_LIVE
 
 **Three independent review rounds have now run and every one of them returned
 `CHANGES_REQUIRED`.** Round 3 (two fresh-context, read-only reviewers on rev23)
@@ -224,7 +659,7 @@ state-entry candidate - new identity, cannot inherit this evidence) or Path C
 stale 6f5bd4f4... quoted by the 2026-10-19/20 packets.
 
 **Latest: sample feasibility audit complete; no new market run.**
-[Deduplicated events and geometry bounds](../data/native_sample_feasibility_20261020_01/RESULTS.md).
+Deduplicated events and geometry bounds — local evidence `data/native_sample_feasibility_20261020_01/RESULTS.md`.
 2x/stress5overlapping windows each contain28reported occurrences but only17unique
 closed events;1x4completed windows24occurrences→14unique. Never pool costs or sum
 overlapping windows as independent trades. Per-cell gate30is unchanged.
@@ -236,7 +671,7 @@ or authorize a separately contracted state-entry/re-entry candidate (synthetic
 first). No silent policy change,threshold relaxation or market retry.
 
 **Latest: saved-evidence signal→authority→fill attribution completed, no market run.**
-[Audit and next policy decision](../data/native_signal_fill_review_20261020_01/RESULTS.md).
+Audit and next policy decision — local evidence `data/native_signal_fill_review_20261020_01/RESULTS.md`.
 All14completed sources reconcile hashes/contracts/bar counts and filled-entry /
 carry-in/out / closed-trade identity. Gate BUY6–8 perwindow; all BUYs reaching
 runtime show submitted+filled snapshots. Skips are already_long, not observed
@@ -249,7 +684,7 @@ do not silently introduce re-entry to meet the gate. Existing failed run and
 holdout-access incident below remain unchanged.
 
 **Latest actual run: FAILED / INCOMPLETE / NO_GO (no automatic rerun).**
-[Raw outcomes,holdout incident and engineering repair](../data/native_validation_activation_20261019_01/RESULTS.md).
+Raw outcomes,holdout incident and engineering repair — local evidence `data/native_validation_activation_20261019_01/RESULTS.md`.
 One15cell validation-only attempt finished18m39s,controllerrc1:14completed,
 1timeout90s. Dispatcher ignored frozenresearchloader and omitted frozenfolds,
 generated7folds vsplanned5; guard rejected an extra cell. No complete coverage or
@@ -258,7 +693,7 @@ input,each4–7trades<30. Descriptive results do not authorize strategy/paper/li
 
 Important access incident:dispatcher/provenance decoded raw7946rows through
 2026-08-17,including reserved holdout; do NOT claim holdout untouched. No extra
-strategy/outer/holdout cell ran. Measured historical+current union[1800,5600)
+strategy/outer/holdout cell ran. Measured historical+current union1800,5600)
 is3800unique bars; full-prefix native replay[0,5600) is a different exposure scope.
 Failed/preflight packets preserved. Post-stop fix routes all3frozen WFO reads
 through researchloader,compares schedule beforecells and passes frozenfolds.
@@ -275,7 +710,7 @@ receipt preserved. Isolate that suite before any broad rerun; no market retry.
 ## History — preflight and earlier engineering closure
 
 **Latest: singleton ADX25 preflight packet ACCEPTED independently (NO EXECUTION).**
-[Adapter,quality,freeze and handoff](../data/native_singleton_preflight_20261019_01/RESULTS.md).
+[Adapter,quality,freeze and handoff — local evidence `data/native_singleton_preflight_20261019_01/RESULTS.md`.
 Packet `data/bnb_native_adx25_validation_preflight_20261019_01` freezes5folds,
 15inner cells,3native contracts;1worker/90s-cell/1800s-total/2048MiB/0retries.
 6795pre-holdout OHLCV rows pass quality checks with0gaps/nulls/invalid rows.
@@ -289,7 +724,7 @@ this exact freeze; generic CLI default-grid/hidden-worker launch is not approved
 **P1 follow-up: frozen-map/raw/artifact comparison integrated.**
 Independent reviewer subsequently ACCEPTED P1 after checking source hashes,
 core145test receipts and final AC verification. No full qualification approval.
-[Fix and refreshed evidence](../data/native_binding_fix_20261019_01/RESULTS.md).
+Fix and refreshed evidence — local evidence `data/native_binding_fix_20261019_01/RESULTS.md`.
 Checks now run on qualification cache publication/read and full inner/outer or
 validation-only final coverage, without changing planned cell IDs.156targeted
 tests PASS,including6missing/self-consistent-substituted contract regressions;
@@ -300,7 +735,7 @@ Exact singleton ADX25 adapter, data preflight and reviewed execution freeze/budg
 remain before the proposed validation-only run. No market campaign launched.
 
 **History: initial independent review REQUEST_CHANGES / execution blocked.**
-[Review, metadata eligibility and bounded next-packet draft](../data/native_evaluation_review_20261019_01/PLAN.md).
+Review, metadata eligibility and bounded next-packet draft — local evidence `data/native_evaluation_review_20261019_01/PLAN.md`.
 Reviewer confirmed144tests/AC receipts and source hashes, but found frozen native
 contract equality missing on cache/raw/final coverage paths; sensitivity expected
 contracts also not preregistered. Prior LOCAL_VERIFIED is not independent approval.
@@ -316,7 +751,7 @@ fixed parameter. Native cooldown24h belongs to circuit breaker, not every SELL.
 Research V2 results remain screening only; native policy needs fresh evidence.
 The target is no longer economic equality with V2.
 
-[Native engineering packet and next steps](../data/native_policy_adoption_20261019_01/RESULTS.md):
+Native engineering packet and next steps — local evidence `data/native_policy_adoption_20261019_01/RESULTS.md`:
 pure declaration shares constructor config, new qualification protocol freezes
 per-cell contracts, worker forwards expected ID to pre-first-bar verification.
 Legacy missing maps/unknown cells/conflicting IDs rejected. No source/data reuse
@@ -333,7 +768,7 @@ native preregistration with exact costs/folds/gates/budget before market executi
 ## History — previous local closure (before native operator decision)
 
 **Latest local closure (supersedes bounded missing-screening finding):**
-[full audit and corrected verdict](../data/evaluation_closure_20261019_02/RESULTS.md).
+full audit and corrected verdict — local evidence `data/evaluation_closure_20261019_02/RESULTS.md`.
 6108report/summary files indexed,114RSI/ADX matches;12screening cells corroborate
 the operator's Sharpe/trade table. Three1x INNER_VALIDATION Sharpe values recovered
 from readonly registry. Operator confirms original WFO packet deleted; trade counts
@@ -346,7 +781,7 @@ AC01–15PASS identity stable,ruffPASS. Local engineering/audit loop closed with
 RESEARCH_HOLD,not WFO/market qualification or independent review complete.
 
 Evaluation audit + minimum execution-contract integration completed locally:
-[closure/handoff](../data/evaluation_closure_20261019_01/RESULTS.md).
+closure/handoff — local evidence `data/evaluation_closure_20261019_01/RESULTS.md`.
 RSI/ADX claims remain UNVERIFIED: bounded audit finds6 retained reports but no
 threshold15 raw report/complete3fold packet; current runner is validation-only1x,
 minimum15(not proof of historical settings).6report calendars overlap reserved
@@ -360,7 +795,7 @@ No trading behavior/gate changes,market run or qualification approval. Older
 prototype-only/pending-integration entries below describe historical states.
 
 Execution-contract scope advanced to isolated prototype:
-[contract declarations and integration boundary](../data/bnb_execution_contract_20261019_01/RESULTS.md).
+contract declarations and integration boundary — local evidence `data/bnb_execution_contract_20261019_01/RESULTS.md`.
 19tests PASS; semantic identity separated from evidence binding; current research
 and native observed declarations differ in8 fields including sizing/stop/cooldown/
 cost. Same JSON identity does NOT prove economic parity. NOT wired into production
@@ -368,7 +803,7 @@ preflight/reporting; new user WFO PID503284 remains active, no shared source edi
 Candidate unchanged,qualification NO_GO,no new market run or monitor resumed.
 
 **Accounting caller integration CLOSED locally** after actual research processes
-stopped. [Final handoff](../data/bnb_accounting_integration_20261019_01/RESULTS.md).
+stopped. Final handoff — local evidence `data/bnb_accounting_integration_20261019_01/RESULTS.md`.
 Native report now explicitly declares marked-equity basis; exporter default cash
 semantics unchanged.57tests PASS including formerly red caller regression and
 carried/flat cases.2×420bar real-engine synthetic rerun without wrapper confirms
@@ -379,7 +814,7 @@ historical and superseded by this integration. Monitor scope complete; next is
 explicit shared execution-contract/identity work, not more parameter optimization.
 
 Real-engine stop counterexample now measured:
-[stop fixture](../data/bnb_native_stop_probe_20261019_01/RESULTS.md).
+stop fixture — local evidence `data/bnb_native_stop_probe_20261019_01/RESULTS.md`.
 37.56s,2×420synthetic bars,840signal parity; native protective exits bar180/300
 at bar_low, research exits bar181/301 at next open. Economic policy NOT equivalent.
 No raw market data/gate/source changes. Earlier weak low_shock did not trigger
@@ -388,7 +823,7 @@ Shared accounting fix still pending concurrent user inline/MP run_cell process;
 monitor must inspect actual new processes rather than only old WFO PID492040.
 
 Autonomous real-engine synthetic follow-up:
-[results/handoff](../data/bnb_native_parity_accounting_probe_20261019_01/RESULTS.md).
+results/handoff — local evidence `data/bnb_native_parity_accounting_probe_20261019_01/RESULTS.md`.
 840/840 canonical/runtime signal bars match; native first target18.75% vs
 research25%, so economic parity FAIL. Found native report cash-vs-marked basis
 caller defect: original run fails terminal open accounting, isolated process-local
@@ -397,7 +832,7 @@ validation process is active. Heartbeat resumes minimal integration after stop;
 no stopping user process, no new market campaign, no operating paper/live.
 
 Candidate ADX25/cooldown24h retained per operator instruction. Synthetic parity
-[findings](../data/bnb_policy_parity_20261019_01/RESULTS.md):29 tests PASS,
+findings — local evidence `data/bnb_policy_parity_20261019_01/RESULTS.md`:29 tests PASS,
 8 scoped cases; verdict PARITY_NOT_ESTABLISHED, not qualification approval.
 Native4h real-loop/spy-engine trace differs in stop sampling; native risk API
 does not arm cooldown on ordinary record_trade unlike research after-any-SELL.
@@ -407,7 +842,7 @@ explicit simulation policy contract/seam and full economic fixtures, not retunin
 
 Qualification readiness: **NO_GO new qualification run**.
 [Bounded loop/protocol](operations/BNB_QUALIFICATION_PROTOCOL.md),
-[metadata and synthetic evidence](../data/bnb_qualification_readiness_20261019_01/inventory.json).
+metadata and synthetic evidence — local evidence `data/bnb_qualification_readiness_20261019_01/inventory.json`.
 Known measured exposure minimum3360/6795 bars; remaining3435 are NOT attested
 untouched. Additional user multiwindow run used a different policy (1bar cooldown)
 and synthetic fixture reproduced current-low → same-open stop lookahead; its
@@ -417,7 +852,7 @@ corrected to authoritative16:00UTC boundaries; manifest unchanged, no prices rea
 Next: synthetic policy parity contract, not new market campaign or parameter search.
 
 Fixed-fill cost follow-up(no new market run):
-[diagnostic](../data/bnb_cost_diagnostic_20261019_01/README.md),4tests PASS.
+diagnostic — local evidence `data/bnb_cost_diagnostic_20261019_01/README.md`,4tests PASS.
 Incremental fee+spread+impact doubling at frozen fills yields ADX16.1092%/3.1434%
 versusbase16.8462%/3.5376%;NOT stress replay,NO stressedDD/Sharpe or sizing/fill
 path recalculation. Do not label cost-stress qualification passed. Sourcepacket
@@ -426,8 +861,8 @@ qualification protocol/data-exposure inventory,budget approval before new runs;
 no further cooldown optimization/framework,paper/live or automatic campaign.
 
 Latest cooldown ablation completed after user approval/independentAIpre-review:
-[results](../data/bnb_cooldown_ablation_20261019_01/RESULTS.md),
-[independentAIpost-review](../data/bnb_cooldown_ablation_20261019_01/INDEPENDENT_AI_REVIEW.md).
+results — local evidence `data/bnb_cooldown_ablation_20261019_01/RESULTS.md`,
+independentAIpost-review — local evidence `data/bnb_cooldown_ablation_20261019_01/INDEPENDENT_AI_REVIEW.md`.
 8cells×1/0retry,4baseline24h raw exactmatch before0h;elapsed2.65s.
 w1MA24−3.5780%/DD5.8737%→MA0+13.3477%/DD11.0444%;ADXunchanged+16.8462%/DD8.3089%.
 w1D24+20.4243pp,D0+3.4985pp,I+16.9257pp(82.8707%observedreturn-gap amplification,
@@ -439,7 +874,7 @@ files unchanged.No productioncooldown/gate changes,NO_GOqualification/paper/live
 no further campaign authorized.Earlierproposal-only entries belowarehistory.
 
 Cooldown mechanism ablation preparation only:
-[proposal](../data/bnb_cooldown_ablation_proposal_20261019_01/README.md),hash3d725f48… .
+proposal — local evidence `data/bnb_cooldown_ablation_proposal_20261019_01/README.md`,hash3d725f48… .
 MA/ADX×cooldown24h/0h×two seen windows=8cells,baseline24h reruns first and must
 exact-match pinned raw. Only cooldown parameter changed;28fixture/AST tests+lint
 PASS,signals1080/arm/window checked. Proposed1worker,0retry,120s/cell,1200s total.
@@ -447,7 +882,7 @@ No market/approval/claim; independent review/new operator budget approval requir
 Policy production unchanged;diagnostic cannot auto-select winner/promote live.
 
 Latest window2 run completed after user approval and independent AI pre-review:
-[results](../data/bnb_window2_ablation_20261019_01/RESULTS.md).
+results — local evidence `data/bnb_window2_ablation_20261019_01/RESULTS.md`.
 4arms×1,0retry,elapsed5.70s within600s budget.14fixture/delta tests PASS,
 audit4×1081marks/source-bound hashes PASS. ADX+3.5376%/DD2.6135%;
 MA+2.5171%/DD4.5844%;BH+2.5304%/DD6.7321%;cash0%.
@@ -460,7 +895,7 @@ source equivalence; receipts retained. Independent AI post-result review tracked
 separately; human signoff/live remain unapproved. No further run authorized.
 Earlier window2-proposed/not-executed entries below are history.
 
-[Independent AI post-result review](../data/bnb_window2_ablation_20261019_01/INDEPENDENT_AI_REVIEW.md)
+Independent AI post-result review — local evidence `data/bnb_window2_ablation_20261019_01/INDEPENDENT_AI_REVIEW.md`
 PASS scoped execution/accounting,no blocking findings; reviewer independently
 reconciled fixed-decimal ledger and authored Parquet check(root-assisted),
 max4×1081mark error2.402954e−12USDT. Human signoff/alpha qualification remain
@@ -468,8 +903,8 @@ pending/not earned. Approved window2 loop closed; next market study needs new
 preregistration/budget/approval, not automatic tuning or paper/live promotion.
 
 Window2 preparation only:
-[proposal](../data/bnb_window2_proposal_20261019_01/README.md), hash83dda4c8… .
-Existing BNB4h[4520,5600),UTC2025-01-23T08→2025-07-22T08,1080bars;
+proposal — local evidence `data/bnb_window2_proposal_20261019_01/README.md`, hash83dda4c8… .
+Existing BNB4h4520,5600),UTC2025-01-23T08→2025-07-22T08,1080bars;
 ADX signal/report parity1080/1080,commonwarmup100. MA7BUY/6SELL vs ADX6BUY/4SELL
 (signals, not fills).10delta/safety tests+lint/help PASS. Fixed policy, fresh flat
 10000cash per segment, new window-specific approval scope. Budget proposed4arms×1,
@@ -478,7 +913,7 @@ Known validation, not OOS/blind replication; independent review for window2
 changes pending. Next: review/approve exact proposal before execution.
 
 Independent AI review completed with scoped acceptance:
-[report](../data/bnb_independent_ai_review_20261019_01/REVIEW.md).
+[report — local evidence `data/bnb_independent_ai_review_20261019_01/REVIEW.md`.
 Reviewer independently checked10bound/20raw/46protected hashes, Decimal ledger,
 return/DD, timeline/cooldown and guard revision. Reviewer-authored read-only query,
 root-assisted execution due WSL access limits, verified4×1081Parquet marks with
@@ -490,7 +925,7 @@ Bounded engineering/research review loop closed; no automatic next campaign.
 Earlier independent-review-pending statements below are historical.
 
 2026-10-19 follow-up: P2 approval-reference guard fixed in a
-[NEW runner revision](../data/bnb_approval_guard_revision_20261019_01/README.md),
+NEW runner revision — local evidence `data/bnb_approval_guard_revision_20261019_01/README.md`,
 not in the immutable approved runner.42offline fixture/regression tests PASS;
 only strict reference type/nonblank check changed. No new plan/approval/claim or
 market run; original packet/economic verdict unchanged. Independent reviewer
@@ -498,7 +933,7 @@ signoff remains pending. Earlier next-action-to-fix statements below are history
 
 Further boundary verification:51tests PASS including9integration failure paths
 for approval/source drift, duplicate claim, old output protection and path/symlink
-escape. [Receipt](../data/bnb_approval_guard_revision_20261019_01/boundary_tests_execution.json).
+escape. Receipt — local evidence `data/bnb_approval_guard_revision_20261019_01/boundary_tests_execution.json`.
 No real-data reads/engine construction in boundary cases; frozen runner and
 historical evidence unchanged. Bounded P2 engineering work complete; independent
 reviewer signoff and economic qualification remain separate, not auto-approved.
@@ -506,7 +941,7 @@ reviewer signoff and economic qualification remain separate, not auto-approved.
 ### Latest — approved four-arm BNB ablation completed and arithmetically audited
 
 Cross-method review follow-up:
-[review report](../data/bnb_ablation_review_20261018_01/REVIEW.md).
+review report — local evidence `data/bnb_ablation_review_20261018_01/REVIEW.md`.
 Manually recomputed1080signals/strategy, Decimal ledger/1081marks per arm and
 1080policy decisions per arm; conclusion unchanged.46packet/proposal files
 unchanged. Same author agent, NOT independent human/organizational signoff.
@@ -515,8 +950,8 @@ actual packet approval valid, no metric impact. Frozen runner not edited.
 Next engineering action: fix strict reference type/blank validation in a NEW
 runner revision with negative tests; no additional market execution authorized.
 
-[Results](../data/bnb_ablation_20261018_01/RESULTS.md),
-[audit](../data/bnb_ablation_20261018_01/audit.json): user approved exact proposal
+Results — local evidence `data/bnb_ablation_20261018_01/RESULTS.md`,
+audit — local evidence `data/bnb_ablation_20261018_01/audit.json`: user approved exact proposal
 e0787c11…;4arms×1,1worker,0retry,600s cap, wrapper elapsed6.94s.
 Cash0%; risk-constrained initial25%BH+22.9177%/DD14.8737% (open8.167BNB);
 MA20/80−3.5780%/DD5.8737%,10closedtrips;
@@ -541,18 +976,18 @@ Next action: complete ablation preflight (score/cost lineage, parity, identity,
 reuse compatibility, criteria and budget) before requesting execution approval.
 No source/gate changes, new market run, holdout access or promotion in this update.
 
-Preflight follow-up: [signal/identity receipt](../data/bnb_adx_preflight_20261018_01/receipt.json)
+Preflight follow-up: signal/identity receipt — local evidence `data/bnb_adx_preflight_20261018_01/receipt.json`
 passes 1080-bar parity for each arm, common warmup100 and four future-perturbation
 checkpoints per arm. MA-only signals12BUY/12SELL vs ADX7BUY/9SELL, eight differing
 bars (not fills). ADX includes DI alignment and filters exits as well as entries.
-[Score audit](../data/bnb_adx_preflight_20261018_01/score_cost_review.json) traces
+Score audit — local evidence `data/bnb_adx_preflight_20261018_01/score_cost_review.json` traces
 already-net WFO return plus an additional0.32-per-trade hurdle; no gate changed.
 Historical source differs, including current user changes in candidates.py and
 run_nested_wfo.py; only scoped historical evidence reuse, not current-source
 execution equivalence. Still BLOCKED_PREFLIGHT pending reviewed comparison runner,
 logical trial snapshot, benchmark semantics and operator criteria/budget freeze.
 
-Preparation follow-up: [review proposal and exact execution command](../data/bnb_ablation_preparation_20261018_01/HANDOFF.md).
+Preparation follow-up: review proposal and exact execution command — local evidence `data/bnb_ablation_preparation_20261018_01/HANDOFF.md`.
 Runner/fixture21tests PASS plus lint/help; full source/config/input/signal identity
 and read-only logical registry snapshot bound in immutable plan.json.
 Both strategy arms proposed as fresh runs, no cross-source metric reuse.
@@ -1922,3 +2357,13 @@ failure counts.
 Push master: 08a9d3f -> 0951da3 -> dbb9713
 Packets: 10-cell ACCEPTED + 2-cell pilot ACCEPTED
 Verifier bundle: data/calibration_review_package_20261014.json (self-generated fingerprint/verifier summary, not an independent review — reviewer_id is "independent_review_package" with no actual independent reviewer sign-off)
+
+
+
+
+
+
+
+
+
+

@@ -21,6 +21,9 @@ logs/
 /runtime/
 *.log
 
+# Local agent forks. Any porcelain path makes research provenance dirty.
+/.qwenpaw/
+
 # Session-local TODO files
 *_TODO.md
 AC14_EVIDENCE_TODO.md

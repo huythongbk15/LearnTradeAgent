@@ -15,6 +15,11 @@ def test_all_first_wave_candidates_build_with_bound_parameters():
         "ma_vol_target": {"fast_period": 20, "slow_period": 80},
         "rsi": {"period": 14},
         "bbands": {"period": 20},
+        "rsi_adx_regime_filter": {
+            "rsi_period": 14, "rsi_oversold": 30, "rsi_overbought": 70,
+            "ma_fast": 20, "ma_slow": 80, "adx_period": 14,
+            "adx_threshold": 20.0, "ma_type": "sma",
+        },
         "regime_switching": {
             "regime_method": "hybrid",
             "lookback": 200,

@@ -111,14 +111,14 @@ def _make_spec(tmp_path):
     return replace(spec, registry_path=str(tmp_path / "wfo.sqlite3"))
 
 
-def test_run_holdout_without_frozen_manifest_fail_closed(patched, tmp_path):
+def test_run_holdout_without_frozen_manifest_fail_closed(patched, tmp_path, monkeypatch):
     """run_holdout=True with NO frozen manifest → ERROR status, gate FAIL,
     passes_hard_gates=False. No last-10% fallback silently allowed."""
     _df, _folds = patched
     # Remove the frozen-manifest patch so no frozen window is resolved.
     import trading_agent.backtest.nested_wfo as nw
 
-    nw._resolve_frozen_holdout_window = lambda *a, **kw: None
+    monkeypatch.setattr(nw, "_resolve_frozen_holdout_window", lambda *a, **kw: None)
 
     spec = _make_spec(tmp_path)
     result = run_nested_wfo(spec, out_root=tmp_path / "wfo_ev", run_holdout=True)

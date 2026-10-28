@@ -1,0 +1,37 @@
+{
+  "evidence_class": "RECORDED_METADATA_NOT_MARKET_DATA",
+  "source_receipt_sha256": {
+    "timestamp_alignment.json": "dfa4eeb646892e84c7eba40e899bd361f4064de1f9bffabc7570517fce05f22c",
+    "price_quality.json": "ee29d3a65c8e782cc8990506a198d1388cdc4012a39cd09624145e91d5f88c15"
+  },
+  "alignment": {
+    "files": {
+      "data/btc1h_preholdout_revision_20261024_01/input.parquet": {
+        "rows": 25198,
+        "timestamps_identical_to_btc": true
+      },
+      "data/existing_research_audit_20261008/ETH_USDT__1h__pre_holdout.parquet": {
+        "rows": 25198,
+        "timestamps_identical_to_btc": true
+      },
+      "data/existing_research_audit_20261008/BNB_USDT__1h__pre_holdout.parquet": {
+        "rows": 25198,
+        "timestamps_identical_to_btc": true
+      }
+    }
+  },
+  "quality": {
+    "files": [
+      {
+        "path": "data/existing_research_audit_20261008/ETH_USDT__1h__pre_holdout.parquet",
+        "sha256": "50c1edff5ac70a62c5939eaf32c52d711af6aa95a4a75d9551c4d86494f9cb23",
+        "accepted": true
+      },
+      {
+        "path": "data/existing_research_audit_20261008/BNB_USDT__1h__pre_holdout.parquet",
+        "sha256": "2301c4ee9f3fecc791150f62d10c57b98fedb68679388bc3489ef4aaf6e42eb6",
+        "accepted": true
+      }
+    ]
+  }
+}

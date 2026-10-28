@@ -1276,7 +1276,7 @@ class TestExecutionEngineE2EDeprecated:
     def test_execute_signal_raises_runtime_error(self, tmp_path):
         from trading_agent.execution.engine import ExecutionEngine
 
-        engine = ExecutionEngine()
+        engine = ExecutionEngine(state_dir=tmp_path / "engine", event_store_path=tmp_path / "events.db")
         from trading_agent.agents.base import AgentMessage
 
         signal = AgentMessage(
@@ -1723,11 +1723,11 @@ class TestP1ConvergenceProofs:
             assert math.isfinite(order.authorized_quantity)
             assert order.authorized_quantity == 0.5
 
-    def test_exchange_timestamp_no_fallback_fabrication(self):
+    def test_exchange_timestamp_no_fallback_fabrication(self, tmp_path):
         """_get_current_price must return None when exchange timestamp is missing."""
         from trading_agent.execution.engine import ExecutionEngine
 
-        engine = ExecutionEngine(exchange_name="paper")
+        engine = ExecutionEngine(exchange_name="paper", state_dir=tmp_path / "engine", event_store_path=tmp_path / "events.db")
         # Seed price cache WITHOUT timestamps
         engine.exchange._last_price_cache["BTC/USDT"] = 50000.0
         # No timestamp entry -> must reject

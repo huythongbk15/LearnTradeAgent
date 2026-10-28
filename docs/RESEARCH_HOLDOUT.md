@@ -36,7 +36,7 @@ Window được căn theo **end chung sớm nhất** trên toàn bộ symbol c�
 
 Manifest SHA-256:
 `c1802ba532f7a7a17e7794fb2fb001f36c08f404b3a530be4026b870a65b2247`.
-[Inventory metadata](../data/bnb_qualification_readiness_20261019_01/inventory.json)
+Inventory metadata — local evidence `data/bnb_qualification_readiness_20261019_01/inventory.json`
 đã kiểm integrity mà không đọc giá holdout. Timestamp naive trong manifest được
 helper chuẩn hóa UTC. Timeframe1h trong metadata không cấp quyền dùng holdout4h.
 

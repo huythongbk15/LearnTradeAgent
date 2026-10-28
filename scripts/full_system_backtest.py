@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import math
 import json
 import os
 import subprocess
@@ -23,6 +24,7 @@ import sys
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 # Do not disable logging process-wide at import time.  The simulator is also
 # imported as a library by tournament/WFO runs, where INFO-level decision trace
@@ -187,7 +189,7 @@ def _git_commit_sha() -> str:
 
 def _resolve_strategy_parameters(strategy_name, overrides=None):
     """Shared constructor/preflight defaults; no engine or data access."""
-    defaults = {
+    defaults: dict[str, dict[str, Any]] = {
         "enhanced_ma": {"fast_period": FAST_MA, "slow_period": SLOW_MA,
             "adx_threshold": ADX_THRESHOLD, "atr_sl_mult": ATR_SL_MULT, "atr_tp_mult": ATR_TP_MULT},
         "ma_adx": {"fast_period": FAST_MA, "slow_period": SLOW_MA, "adx_threshold": ADX_THRESHOLD},
@@ -257,7 +259,16 @@ class FullSystemSimulator:
         source_df_override: pl.DataFrame | None = None,
         funnel_enabled: bool = True,
         expected_execution_contract_id: str | None = None,
+        execution_cycle_strategy: object | None = None,
+        execution_cycle_synthetic_only: bool = False,
     ):
+        if execution_cycle_strategy is not None and (
+            not execution_cycle_synthetic_only
+            or source_df_override is None
+            or os.environ.get("TRADING_FROZEN_RESEARCH_DATA")
+            or not str(data_manifest_id or "").startswith("synthetic-")
+        ):
+            raise ValueError("execution-cycle driver requires explicit synthetic-only input")
         from trading_agent.backtest.execution_contract import validate_expected_contract_id
 
         validate_expected_contract_id(expected_execution_contract_id)
@@ -395,17 +406,68 @@ class FullSystemSimulator:
                     "strategy params override conflicts with the supplied strategy artifact"
                 )
             strategy_params_override = dict(artifact_params)
-        self.strategy_name = strategy_name
-        # Strategy-specific parameters (validated against schema)
-        self.strategy_params = _resolve_strategy_parameters(strategy_name, strategy_params_override)
+        self._execution_cycle = execution_cycle_strategy is not None
+        self.strategy: Any
+        if self._execution_cycle:
+            assert execution_cycle_strategy is not None
+            if signal_series is not None:
+                raise ValueError(
+                    "precomputed signal series cannot drive a fill-cycle policy"
+                )
+            if not getattr(execution_cycle_strategy, "requires_execution_cycle", False):
+                raise ValueError(
+                    "execution-cycle driver requires requires_execution_cycle"
+                )
+            from trading_agent.strategies.canonical.candidates import build_default_registry
+
+            try:
+                build_default_registry().describe(getattr(execution_cycle_strategy, "name"))
+            except (KeyError, ValueError):
+                registered = False
+            else:
+                registered = True
+            if registered:
+                raise ValueError(
+                    "fill-cycle policy must stay outside the campaign registry"
+                )
+            if strategy_runtime is not None and getattr(
+                strategy_runtime, "strategy", None
+            ) is not execution_cycle_strategy:
+                raise ValueError(
+                    "execution-cycle runtime must wrap the supplied strategy"
+                )
+            self.strategy = execution_cycle_strategy
+            self.strategy_name = getattr(execution_cycle_strategy, "name")
+            self.strategy_params = dict(getattr(execution_cycle_strategy, "params"))
+            if strategy_params_override is not None and dict(
+                strategy_params_override
+            ) != self.strategy_params:
+                raise ValueError(
+                    "strategy params override conflicts with the fill-cycle strategy"
+                )
+            module_path = sys.modules[type(execution_cycle_strategy).__module__].__file__
+            if module_path is None:
+                raise ValueError("execution-cycle strategy needs an attributable source file")
+            code_path = Path(module_path)
+            self.strategy_descriptor = type("CycleDescriptor", (), {})()
+            self.strategy_descriptor.code_sha = hashlib.sha256(
+                code_path.read_bytes()
+            ).hexdigest()
+        else:
+            self.strategy_name = strategy_name
+            # Strategy-specific parameters (validated against schema)
+            self.strategy_params = _resolve_strategy_parameters(
+                strategy_name, strategy_params_override
+            )
         # Runtime/execution parameters (NOT passed to strategy constructor)
         self.target_exposure_pct = MAX_POS_SIZE_PCT
         self._injected_signals = signal_series
         self.commission = commission
         self.slippage = slippage
-        self.strategy_descriptor, self.strategy = build_legacy_candidate(
-            self.strategy_name, self.strategy_params, scope_token=scope_token
-        )
+        if not self._execution_cycle:
+            self.strategy_descriptor, self.strategy = build_legacy_candidate(
+                self.strategy_name, self.strategy_params, scope_token=scope_token
+            )
         if strategy_artifact is not None:
             expected_parameter_hash = sha256_hex(canonical_params(self.strategy_params))
             if strategy_artifact.code_sha != self.strategy_descriptor.code_sha:
@@ -473,7 +535,12 @@ class FullSystemSimulator:
 
         # Generate all signals upfront (tournament cells inject their own
         # canonical per-bar signal series instead).
-        if self._injected_signals is not None:
+        if self._execution_cycle:
+            # Price-only series cannot express a fill-timed exit. Every cadence
+            # bar asks the runtime, including a market HOLD.
+            print("🔧 Fill-cycle policy: expiry is checked by the runtime...")
+            self.signals = [0] * self.df.height
+        elif self._injected_signals is not None:
             print("🔧 Using injected canonical signal series...")
             self.signals = list(self._injected_signals)
         else:
@@ -493,9 +560,11 @@ class FullSystemSimulator:
             instrument_rules=get_instrument_rules(self.symbol),
             state_dir=self.state_dir,
             event_store_path=self.state_dir / "events.db",
+            event_store_synchronous="NORMAL",
             allow_backtest_new_exposure=allow_new_exposure,
             paper_price_persist_interval=state_flush_bars,
             disable_paper_telemetry=True,
+            defer_paper_state_persistence=True,
             protective_stop_loss_pct=STOP_LOSS_PCT,
             authority_config=authority_config,
             promotion_store=self.promotion_store,
@@ -503,8 +572,38 @@ class FullSystemSimulator:
         )
         if self.engine.resolver is None:
             raise RuntimeError("paper strategy resolver was not initialized")
-        self.strategy_runtime = None
-        if strategy_runtime is not None:
+        self.strategy_runtime: Any = None
+        if self._execution_cycle and strategy_runtime is None:
+            from trading_agent.authority.resolver import StrategyRuntime
+            from trading_agent.strategies.own24_fill_context import fill_policy_fingerprint
+
+            cycle_metadata = {
+                "symbol": self.symbol,
+                "timeframe": self.timeframe,
+                "parameters": self.strategy_params,
+                "calibration_state": "KNOWN",
+                "ood_state": "KNOWN",
+                "regime_state": "KNOWN",
+                "forecast_fingerprint": fill_policy_fingerprint(),
+                "evidence_class": "SYNTHETIC_TEST_ONLY",
+                "policy": fill_policy_fingerprint(),
+            }
+            self.strategy_runtime = StrategyRuntime(
+                strategy=self.strategy,
+                artifact_id=self.strategy_artifact_id,
+                strategy_name=self.strategy_name,
+                symbol=self.symbol,
+                timeframe=self.timeframe,
+                environment=Environment.PAPER,
+                parameters={
+                    **self.strategy_params,
+                    "target_exposure_pct": self.target_exposure_pct,
+                },
+                promoted_at=datetime.now(UTC),
+                promotion_stage="paper_eligible",
+                artifact_metadata=cycle_metadata,
+            )
+        elif strategy_runtime is not None:
             # Tournament cells with canonical-only strategies bring their
             # own runtime (bridge over the canonical contract); the artifact
             # above was registered + promoted through the same stores, so
@@ -548,7 +647,7 @@ class FullSystemSimulator:
         self._run_start = 0
         self._run_end = 0
         self._run_data_quality: DataQualityReport | None = None
-        self._funnel_records = [] if funnel_enabled else None
+        self._funnel_records: list[dict[str, Any]] | None = [] if funnel_enabled else None
 
     def _position_pct(self, price: float) -> float:
         """% portfolio đang nằm trong vị thế."""
@@ -566,10 +665,16 @@ class FullSystemSimulator:
         reference_price: float,
         regime_info: dict[str, object],
         strategy_id: str | None = None,
+        preserve_first_fill: bool = False,
     ) -> None:
         """Attach deterministic simulation evidence to the active position."""
+        from trading_agent.execution.position_cycle import later_fill_must_keep_clock
+
         position = self.engine.exchange.get_position(self.symbol)
         if not position or not position.is_active:
+            return
+        if preserve_first_fill and later_fill_must_keep_clock(position):
+            position.updated_at = at
             return
         position.opened_at = at
         position.updated_at = at
@@ -712,6 +817,142 @@ class FullSystemSimulator:
             cadence=getattr(self, "_run_frequency", 1),
         )
         return {"config_id": fingerprint_payload(payload), **payload}
+
+    def _execute_fill_cycle_bar(
+        self,
+        *,
+        active_runtime,
+        execution_bar: int,
+        signal_index: int,
+        price: float,
+        bar_open_at: datetime,
+        decision_row: dict,
+        decision_ts,
+        decision_bar_open_at: datetime,
+        decision_bar_close_at: datetime,
+        funnel_row: dict | None,
+    ) -> None:
+        """One replay decision. The snapshot, not a later broker read, is the cycle."""
+        from trading_agent.authority.portfolio import PortfolioSnapshot, ReconciliationState
+        from trading_agent.execution.position_cycle import cycle_record_from_position
+
+        position = self.engine.exchange.get_position(self.symbol)
+        try:
+            record = cycle_record_from_position(position)
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError(
+                f"fill-cycle replay rejected: position_cycle_unknown: {exc}"
+            ) from exc
+        equity = float(self.engine.exchange.get_total_equity())
+        cash = float(self.engine.exchange.get_balance("USDT"))
+        mark = float(position.current_price) if position is not None and record.quantity > 0 else 0.0
+        exposure = (record.quantity * mark / equity) if equity > 0 and mark > 0 else 0.0
+        snapshot = PortfolioSnapshot(
+            equity=equity,
+            available_cash=cash,
+            positions={self.symbol: record.quantity},
+            symbol_exposures={self.symbol: exposure},
+            gross_exposure=exposure,
+            reconciliation_state=ReconciliationState.RECONCILED,
+            observed_at=decision_bar_close_at,
+            position_cycles={self.symbol: record},
+        )
+        observation = EnrichedMarketObservation(
+            observation_id=f"obs-{self.symbol}-{signal_index}",
+            symbol=self.symbol,
+            observed_at=decision_bar_close_at,
+            open=float(decision_row["open"]),
+            high=float(decision_row["high"]),
+            low=float(decision_row["low"]),
+            close=float(decision_row["close"]),
+            volume=float(decision_row.get("volume", 0.0)),
+            features={},
+            venue=self.exchange,
+            source="synthetic_fill_cycle",
+            timeframe=self.timeframe,
+            bar_open_at=decision_bar_open_at,
+            bar_close_at=decision_bar_close_at,
+            is_closed=True,
+            data_manifest_id=self.data_manifest_id,
+            feature_artifact_id=self.feature_artifact_id,
+        )
+        columns = ["timestamp", "open", "high", "low", "close", "volume"]
+        if "btc_close" in self.df.columns:
+            columns.append("btc_close")
+        market_data = self.df.slice(0, signal_index + 1).select(columns)
+        orders = self.engine.execute_strategy(
+            active_runtime,
+            market_data,
+            observation,
+            portfolio_snapshot=snapshot,
+        )
+        status = str(self.engine.last_strategy_execution.get("prepare_status", ""))
+        if status in {
+            "position_cycle_unknown",
+            "position_cycle_snapshot_unavailable",
+            "position_cycle_clock_unavailable",
+            "bad_observation",
+            "no_price",
+        }:
+            raise RuntimeError(f"fill-cycle replay rejected: {status}")
+        if funnel_row is not None:
+            trace = self.engine.last_strategy_execution
+            funnel_row["runtime_called"] = True
+            funnel_row["action"] = str(trace.get("signal", "HOLD"))
+            funnel_row["prepare_status"] = status
+            funnel_row["terminal"] = "runtime_" + str(trace.get("result", "unknown"))
+            funnel_row["authority_result"] = str(trace.get("result", "unknown"))
+            funnel_row["runtime_signal"] = str(trace.get("signal", "unknown"))
+        if not orders:
+            return
+        regime_info = {
+            "vol_regime": decision_row.get("vol_regime"),
+            "trend_regime": decision_row.get("trend_regime"),
+            "trend_dir": decision_row.get("trend_dir"),
+            "adx": decision_row.get("adx"),
+            "atr_pctl": decision_row.get("atr_pctl"),
+        }
+        for order in orders:
+            side = order.side.value
+            amount = float(order.filled_amount or 0.0)
+            if not math.isfinite(amount) or amount <= 0:
+                continue
+            self.signal_log.append(
+                {
+                    "timestamp": str(decision_ts),
+                    "executed_at": str(bar_open_at),
+                    "price": price,
+                    "signal": side.upper(),
+                    "confidence": 0.5,
+                    "fill_cycle": True,
+                    "authority_trace": dict(self.engine.last_strategy_execution),
+                }
+            )
+            if side == "buy":
+                self._attach_entry_context(
+                    at=bar_open_at,
+                    bar_index=execution_bar,
+                    reference_price=price,
+                    regime_info=regime_info,
+                    strategy_id=getattr(active_runtime, "strategy_name", self.strategy_name),
+                    preserve_first_fill=True,
+                )
+            self.trade_log.append(
+                {
+                    "timestamp": str(bar_open_at),
+                    "side": side,
+                    "amount": amount,
+                    "price": price,
+                    "pnl": 0.0,
+                    "equity": float(self.engine.exchange.get_total_equity()),
+                }
+            )
+        self._stamp_new_trades(
+            at=bar_open_at,
+            bar_index=execution_bar,
+            reference_price=price,
+            reference_type="bar_open",
+        )
 
     def run(
         self, start: int = 0, end: int | None = None, freq: int = 1
@@ -883,10 +1124,17 @@ class FullSystemSimulator:
                 else:
                     signal = 0
 
+            cycle_policy = bool(
+                getattr(getattr(active_runtime, "strategy", None), "requires_execution_cycle", False)
+            )
+            cadence_due = i > start and signal_index % freq == 0
             if funnel_row is not None:
+                assert self._funnel_records is not None
                 funnel_row["action"] = "BUY" if signal > 0 else "SELL" if signal < 0 else "HOLD"
                 if i == start:
                     funnel_row["terminal"] = "bootstrap"
+                elif cycle_policy and cadence_due:
+                    funnel_row["terminal"] = "cycle_check"
                 elif signal == 0:
                     funnel_row["terminal"] = "no_signal"
                 elif signal_index % freq != 0:
@@ -896,8 +1144,23 @@ class FullSystemSimulator:
                 elif any("Cooldown" in a for a in alerts):
                     funnel_row["terminal"] = "cooldown"
 
-            # 3. Execute signal theo chu kỳ (chỉ khi chưa bị chặn)
-            if (
+            # Fill-cycle policies must ask the runtime on HOLD too. The exit
+            # still goes through execute_strategy, authority and protection.
+            # Cooldown and a resting breaker must not hide an expired hold.
+            if cycle_policy and cadence_due:
+                self._execute_fill_cycle_bar(
+                    active_runtime=active_runtime,
+                    execution_bar=i,
+                    signal_index=signal_index,
+                    price=price,
+                    bar_open_at=bar_open_at,
+                    decision_row=decision_row,
+                    decision_ts=decision_ts,
+                    decision_bar_open_at=decision_bar_open_at,
+                    decision_bar_close_at=decision_bar_close_at,
+                    funnel_row=funnel_row,
+                )
+            elif (
                 i > start
                 and signal_index % freq == 0
                 and not breaker_on
@@ -986,9 +1249,10 @@ class FullSystemSimulator:
                         )
 
                         # Execute
-                        market_data = self.df.slice(0, signal_index + 1).select(
-                            "timestamp", "open", "high", "low", "close", "volume"
-                        )
+                        columns = ["timestamp", "open", "high", "low", "close", "volume"]
+                        if "btc_close" in self.df.columns:
+                            columns.append("btc_close")
+                        market_data = self.df.slice(0, signal_index + 1).select(columns)
                         orders = self.engine.execute_strategy(
                             active_runtime,
                             market_data,
@@ -1099,6 +1363,7 @@ class FullSystemSimulator:
             if funnel_row is not None:
                 pos = self.engine.exchange.get_position(self.symbol)
                 funnel_row["position_after"] = bool(pos and pos.is_active and pos.quantity > 0)
+                assert self._funnel_records is not None
                 self._funnel_records.append(funnel_row)
 
             # Progress

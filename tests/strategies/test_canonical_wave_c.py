@@ -124,18 +124,24 @@ class TestDefaultCandidateRegistry:
     def test_default_candidates_registered_with_verified_hashes(self):
         registry = build_default_registry()
         expected = [
-            "enhanced_ma", "ma_adx", "ma_vol_target", "rsi", "bbands",
-            "regime_switching", "funding_carry", "volatility_breakout",
-            "ensemble_ma_adx", "ma_adx_regime", "trend_pullback", "ma_crossover",
-            "range_mean_reversion", "stat_arbitrage_lo", "stat_arbitrage_ls",
-            "cross_sectional_momentum_lo", "cross_sectional_momentum_ls",
+            "bbands", "cross_sectional_momentum_lo", "cross_sectional_momentum_ls",
+            "enhanced_ma", "ensemble_ma_adx", "funding_carry", "liquidity_reversal",
+            "ma_adx", "ma_adx_regime", "ma_crossover", "ma_vol_target", "own24_context",
+            "range_mean_reversion", "regime_switching", "rsi", "rsi_adx_regime_filter",
+            "stat_arbitrage_lo", "stat_arbitrage_ls", "trend_pullback", "volatility_breakout",
         ]
         assert sorted(registry.list_ids()) == sorted(expected)
         for strategy_id in registry.list_ids():
             desc = registry.describe(strategy_id)
             assert desc.research_only is True
             assert desc.required_features == (FEATURE_OHLCV_WINDOW,)
-            assert desc.supports_symbol("BTC/USDT")
+            # own24_context is pair-scoped to BNB/USDT + ETH/USDT; every other
+            # candidate supports BTC/USDT and rejects unknown symbols.
+            if strategy_id == "own24_context":
+                assert desc.supports_symbol("BNB/USDT")
+                assert desc.supports_symbol("ETH/USDT")
+            else:
+                assert desc.supports_symbol("BTC/USDT")
             assert not desc.supports_symbol("XXX/USDT")
 
     @pytest.mark.parametrize(

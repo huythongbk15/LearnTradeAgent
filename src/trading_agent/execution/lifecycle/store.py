@@ -226,8 +226,11 @@ def source_event_checksum(rows: Sequence[Mapping[str, Any] | sqlite3.Row]) -> st
 class ExecutionEventStore:
     """Append-only SQLite store for execution lifecycle events."""
 
-    def __init__(self, path: str | Path):
+    def __init__(self, path: str | Path, *, synchronous: str = "FULL"):
+        if synchronous not in {"FULL", "NORMAL"}:
+            raise ValueError("event store synchronous must be FULL or NORMAL")
         self.path = Path(path)
+        self.synchronous = synchronous
         self._conn: sqlite3.Connection | None = None
 
     # ── Connection ──────────────────────────────────────────────────────
@@ -237,7 +240,7 @@ class ExecutionEventStore:
         conn = sqlite3.connect(str(self.path), timeout=30.0, isolation_level=None)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA synchronous=FULL")
+        conn.execute(f"PRAGMA synchronous={self.synchronous}")
         conn.execute("PRAGMA foreign_keys=ON")
         conn.executescript(_SCHEMA)
         conn.commit()

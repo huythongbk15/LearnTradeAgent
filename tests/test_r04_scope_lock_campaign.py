@@ -182,7 +182,7 @@ class TestCampaignScope:
         scope = r04_default_scope()
         assert scope.allows_pair("BTC/USDT")
         assert not scope.allows_pair("UNKNOWN/USDT")
-        assert scope.allows_strategy("rsi")
+        assert scope.allows_strategy("trend_pullback")
         assert not scope.allows_strategy("unknown")
         assert scope.allows_cost_scenario("1x")
         assert not scope.allows_cost_scenario("unknown")
@@ -400,11 +400,11 @@ class TestScopeImmutability:
         from dataclasses import replace
 
         scope = r04_default_scope()
-        new_pairs = scope.pairs + ("XRP/USDT",)
+        new_pairs = scope.pairs + ("ADA/USDT",)
         new_scope = replace(scope, pairs=new_pairs)
         assert new_scope.scope_id != scope.scope_id
         # Old scope unchanged
-        assert "XRP/USDT" not in scope.pairs
+        assert "ADA/USDT" not in scope.pairs
 
 
 # =============================================================================

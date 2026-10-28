@@ -1,9 +1,11 @@
 # Quy trình chạy một nghiên cứu có thể kết luận
 
-Status: TARGET — quy trình vận hành đề xuất; chưa có lượt chạy mới theo mẫu này
+Status: REFERENCE_CHECKLIST — checklist cho một phép đo, không phải approval hoặc trạng thái execution hiện tại.
 Owner: research operator + reviewer
 Verified: 2026-10-18 (đường dẫn, mẫu và số liệu ví dụ)
 Evidence: [BNB evidence card](BNB_ADX25_EVIDENCE_CARD.md), [tracker](../CAMPAIGN_STATUS.md)
+
+> Điều phối hiện hành25/10/2026: [playbook E2E](MULTI_STRATEGY_RESEARCH_PLAN.md) định nghĩa stages/loops/authority; [tracker](../CAMPAIGN_STATUS.md) giữ tiến độ. Case/budget lịch sử trong checklist này không cấp quyền chạy lại.
 
 ## Mục đích và ranh giới
 
@@ -111,4 +113,5 @@ Mỗi vòng: đọc tracker → kiểm bằng chứng → chọn một thiếu s
 đổi nhãn thành OOS. Thay đổi promotion/gate phải chạy AC01–AC15 theo AGENTS.md.
 Checklist này không cấp quyền chạy campaign; quyền thực thi phải được duyệt riêng.
 
-Case đầu tiên và bước tiếp hiện tại: [BNB card](BNB_ADX25_EVIDENCE_CARD.md).
+Case minh họa lịch sử: [BNB card](BNB_ADX25_EVIDENCE_CARD.md). Bước tiếp hiện tại theo [playbook E2E](MULTI_STRATEGY_RESEARCH_PLAN.md) và [tracker](../CAMPAIGN_STATUS.md), không tự tiếp tục BNB từ card cũ.
+

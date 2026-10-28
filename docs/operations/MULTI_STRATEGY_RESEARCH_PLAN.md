@@ -1,403 +1,600 @@
-# Kế hoạch nghiên cứu nhiều strategy — từ diagnostic đến qualification
+# Playbook E2E — từ nghiên cứu đến vận hành có kiểm chứng
 
-Ngày: 2026-10-16. Trạng thái: **DRAFT — chưa cấp quyền chạy campaign mới**.
-Baseline engineering: `cdf39ce132a22bac32e5daff8c95f009bf9ff567`.
-Integration follow-up: exact selected commit identity is recorded in
-`data/retire_wfo_wrapper_20261016_01/compatibility_commit_receipt.json`;
-fresh post-commit evidence in `data/compatibility_post_commit_20261016_01/`.
-Earlier dirty-patch receipts below remain historical. Author self-review does
-not replace independent sign-off or operator approval for a new campaign.
-Không thay thế [quy trình calibration](../CALIBRATION_PROTOCOL.md) hoặc native
-gate contract. Không phải khuyến nghị đầu tư hay chứng nhận live.
+Cập nhật: **27/10/2026, Asia/Ho_Chi_Minh**. Chủ sở hữu: operator/maintainer. Đây là kế hoạch giao việc, **không cấp quyền chạy campaign, kết nối sàn hoặc live**. Market vẫn PAUSED. User duyệt lập kế hoạch BTC context + policy riêng theo pair: xem §10. Phê duyệt lập kế hoạch chưa là implementation/data-read/market authority. [Memo](../RESEARCH_EVIDENCE.md) giữ lịch sử quyết định và limits.
 
-## 1. Kết luận và luồng quyết định
+## 1. Đích đến và phạm vi
 
-Mục tiêu không phải tìm strategy có backtest đẹp nhất, mà tìm candidate có
-đủ dữ liệu, thực thi đúng, vượt kiểm định ngoài mẫu sau chi phí và có đường
-triển khai an toàn. ABSTAIN là kết quả hợp lệ; không bắt buộc phải có winner.
+Mục tiêu sản phẩm đầu tiên: một policy cho **một pair/timeframe** đã qualify, đi hết data → research → qualification → policy → runtime → vận hành được giám sát. Phạm vi nghiên cứu có thể có BTC làm context cho ETH/BNB theo §10; không bắt mọi pair dùng cùng params. Không thêm sàn, portfolio/short/funding engine, ML/router hoặc framework để thay cho bằng chứng còn thiếu.
 
-```text
-17 candidate trong registry
-  → kiểm semantics / dữ liệu / khả năng thực thi từng candidate
-  → đo feasibility validation-only với default cố định
-  → kiểm đồng thời số trades và số folds khả dụng
-  → preregister protocol + grid nhỏ + costs + sensitivity + trial burden
-  → nested WFO trên dữ liệu pre-holdout, lựa chọn chỉ bằng inner validation
-  → review độc lập và qualification theo native gates
-  → paper/shadow + kiểm operational readiness
-  → xin phê duyệt riêng trước pilot live
+Phải phân biệt ba mức hoàn thành:
 
-Bất kỳ bước nào thiếu bằng chứng → BLOCKED / ABSTAIN, không tự mở rộng scope.
+| Mức | Khi nào được tuyên bố | Hiện tại |
+| --- | --- | --- |
+| E2E-MEASUREMENT-CLOSED | Input/source/config được bind; native execution, coverage và accounting được kiểm; có verdict kể cả ABSTAIN/INCOMPLETE | Đã có với RSI/ADX, MA baseline, hai pullback, volbreak và H-LIQ. Các verdict khác nhau, không có qualified winner. |
+| E2E-PAPER-ACCEPTED | Một policy đủ điều kiện nghiên cứu được bind đúng runtime; parity và vận hành paper/testnet/shadow có evidence theo contract | Chưa đạt cho candidate hiện tại |
+| LIVE-CANARY-ELIGIBLE | Research, release, vận hành và risk/account gates đủ trên exact subject; reviewer và operator chấp thuận | NO-GO; vẫn chưa phải quyền đặt lệnh hoặc tăng vốn |
+
+Không thể hứa rằng lặp hữu hạn sẽ tìm được edge. **NO_SUPPORTED_WINNER / NO_TRADE là kết quả hợp lệ.** Nếu mục tiêu kinh tế không đạt, đóng hypothesis thay vì thay đổi tiêu chuẩn để gọi hoàn thành.
+
+Luồng chính:
+
+~~~text
+E0: source/data/authority
+  → E1: admission + preregistration + review
+  → E2: một phép đo exploratory có ngân sách
+  → E3: qualification/OOS/sensitivity + review
+  → E4: policy binding + runtime parity
+  → E5: paper/testnet/shadow + release evidence
+  → E6: xét live canary → báo cáo canary → xét scale riêng
+
+Engineering lỗi → loop sửa có giới hạn, giữ failed receipts
+Thiếu data/sample → HOLD → đề xuất observation/design mới, không nới gate
+Economics không đạt → đóng hypothesis → chỉ mở hypothesis mới khi được duyệt
+Safety/identity/approval lỗi → BLOCK, không tự chuyển stage
+~~~
+
+## 2. Nguồn sự thật và trạng thái bắt đầu
+
+Chỉ dùng **[CAMPAIGN_STATUS](../CAMPAIGN_STATUS.md)** để cập nhật tiến độ. File này định nghĩa cách làm; packet lưu evidence. Không tạo tracker/TODO mới cho từng agent hoặc sao chép metrics vào nhiều tài liệu.
+
+Thứ tự xử lý mâu thuẫn: AGENTS.md và giới hạn quyền → executable contracts/policy được freeze → raw evidence trên đúng revision → tracker → kế hoạch → snapshot lịch sử. Nếu contract/code/document không khớp, dừng phần bị ảnh hưởng và ghi finding; không chọn nguồn dễ PASS hơn.
+
+| Thành phần | Trạng thái có bằng chứng | Việc không được suy ra |
+| --- | --- | --- |
+| RSI/ADX BTC1h — local evidence `data/rsi_fixed_validation_run_20261024_01/RESULTS.md` | 3/3 cells; 39 trades/cost; ABSTAIN | Không có winner, không qualification |
+| MA20/50 BTC1h — local evidence `data/ma_simple_baseline_validation_run_20261024_01/RESULTS.md` | 3/3 cells; 64 trades/cost; ABSTAIN; closed và open PnL được tách | Không rank trực tiếp với RSI vì khác window |
+| MA registry sidecar — local evidence `data/ma_simple_baseline_validation_run_20261024_01/postrun_registry_review_20261025_01/RESULTS.md` | Read-only reconcile 3/3; original receipts giữ nguyên | Không chứng nhận DSR, không nâng economic verdict |
+| BNB state-edge — local evidence `data/bnb_stateedge_economic_review_20261023_01/RESULTS.md` | 13/15 cells; INCOMPLETE/HOLD | Hai timeout vẫn UNKNOWN; không tự rerun để điền bảng |
+| H-BRANCH-01 — local evidence `data/rsi_branch_attribution_20261024_01/RESULTS.md` | Đóng điều tra; không có căn cứ sửa owner-lock để cứu economics | Không chọn range-only từ subgroup hậu nghiệm |
+| Pullback admission — local evidence `data/trend_pullback_admission_20261025_01/RESULTS.md` | 4/4 synthetic functions; có native trade thật; source không đổi | Không chứng minh samples/edge, không independent review |
+| Pullback preregistration — local evidence `data/trend_pullback_prereg_20261025_01/RESULTS.md` | 1 fold/3 cells đã preflight; PREPARED_NOT_AUTHORIZED | Chưa có quyền market run từ tài liệu này |
+
+Source8df9a071… và các hàng preparation bên trên là snapshot lịch sử của RSI/MA/pullback, không phải revision hiện tại hoặc pending authority. Trạng thái/revision hiện hành đọc ở tracker; H-LIQ giữ source đo a9133770… dù source sau đó đã được commit. Tests/config/payload có hash riêng; A phủ src/scripts không tự phủ tests. Dirty measured source không trở thành provenance-eligible chỉ vì commit về sau.
+
+## 3. Vai trò, quyền và cách nhiều agent làm việc
+
+| Vai trò | Trách nhiệm | Không tự làm |
+| --- | --- | --- |
+| Coordinator/integrator | Đọc tracker, chọn task đủ dependency, claim file/interface, gom revision, kiểm budget và bàn giao | Tự duyệt nghiên cứu/live hoặc gán self-review thành independent |
+| Research owner | Hypothesis, params, exposure/trial history, data/fold/cost design và economic verdict | Chọn window/threshold theo outcome, xóa negative trials |
+| Engineering/execution owner | Reproduce bug, patch nhỏ, native tests; chạy đúng một approved command | Đổi strategy/gates để sửa orchestration; tăng timeout/retry ngoài quyền |
+| Evidence reviewer | Đọc raw material, source/assertions; kiểm độc lập arithmetic/negative cases/binding | Chỉ chạy lại script tác giả rồi gọi independent review |
+| Ops/risk owner | Runtime mapping, account/environment boundaries, monitoring, recovery và release gates | Mở external session hoặc tăng risk/capital nếu chưa được duyệt |
+| Human operator | Chọn scope, cấp ngân sách/quyền đọc/chạy; chấp thuận account/live/capital | Approval của agent không thay thế operator |
+
+Một người có thể kiêm nhiều vai, nhưng author không tự đóng independent review. Reviewer có thể là agent khác tác giả với context/material phù hợp; phải công bố provenance và giới hạn, không giả danh bên thứ ba. **File này không cấp quyền tự spawn agent**: chỉ delegate khi user hoặc instruction áp dụng cho phép.
+
+Quy tắc phối hợp:
+
+1. Một writer cho mỗi file/interface. Claim owner + base revision + files ở task row hiện có; tránh sửa cùng source từ hai agent.
+2. Không chỉnh src/scripts dùng chung khi campaign đang chạy; xác minh process thực tế, không tin registry stale. Không dừng process của user.
+3. Local unit tests trên stores riêng có thể độc lập; AC01–AC15 phải serialize vì có shared producer paths. Market run hiện tại một worker, không chạy chồng campaign để tiết kiệm thời gian.
+4. Sau integration: capture source/config/tests mới, chạy affected suites đúng revision; không cộng test counts giữa các SHAs thành PASS.
+5. Chỉ review lại phần bị invalidate. Approval-only change không mặc nhiên cần full suite; phải chứng minh source/assertions không đổi và binding mới đúng. Code change không được dùng receipt cũ như receipt mới.
+
+## 4. Work packages chi tiết
+
+### E0 — Khóa điểm xuất phát, dữ liệu và authority
+
+**Owner:** integrator + research owner. **Output:** một baseline record trong tracker, không một tracker mới.
+
+- E0.1: đọc AGENTS.md, tracker Current, proposal và code consumer; kiểm tool/schema thật. Thiếu execute_shell_command: báo TOOL_UNAVAILABLE; không invent alias hoặc dùng shell. Fallback chỉ khi được cho phép cụ thể. Không suy quyền từ chat cũ về push/live.
+- E0.2: kiểm actual PID/descendants, git status/diff và source/config/lockfile/assertion hashes. Phân loại user edits, task edits, unrelated edits; không reset, stash/clean hoặc commit/push tự ý. Không đưa secrets vào artifact.
+- E0.3: giữ các failed/old packets. Nếu cần integration sạch cho qualification/release, đề xuất đúng diff/commit và xin quyền cần thiết; clean source mới không kế thừa qualification cũ chỉ vì tên strategy giống nhau.
+- E0.4: lập data exposure record: physical file SHA riêng quality/metadata hash; timezone/open-close cutoff, rows, gaps, duplicate/NaN, prefix đọc/decoded/evaluated. UNKNOWN không được suy thành untouched. Timestamp preflight không là proof OHLCV quality hoặc historical non-exposure.
+- E0.5: kiểm đủ eligible observations cho stage dự kiến. Current exposed 2023 input chỉ exploratory; confirmation cho mục tiêu 2026 cần design/observation scope riêng. Không tự download, mở reserved holdout hoặc sửa manifest để che mismatch.
+
+**Exit:** source/config/input/authority nhất quán, mỗi UNKNOWN có owner và ảnh hưởng. Thay đổi sau freeze → dừng, ghi invalidation, tạo revision/packet mới nếu được duyệt. Không mua thêm audit khi không còn câu hỏi quyết định cụ thể.
+
+### E1 — Admission và đóng băng một câu hỏi
+
+**Owner:** research + execution; reviewer khác author cho official acceptance. **Output:** một proposal + frozen protocol + reviewer verdict.
+
+- E1.1: đúng một strategy/pair/TF/parameter set, cơ chế có thể bác bỏ, lịch sử thử nghiệm và lý do chọn không phải max Sharpe. Phân biệt signal, filter, sizing và allocation.
+- E1.2: đọc constructor/generate_signals, schema/default/registry, adapter và runner. Tên strategy không là proof semantics. Ví dụ pullback thực tế SMA20/80/ADX25/volume1.5, không EMA/Fibonacci/institutional flow; RSI period đang không tham gia signal nên không mở grid giả.
+- E1.3: native synthetic positive và negative controls: có actual fills/trade, per-bar causality/timing, entry/exit, protection và inventory theo scope. Không gọi zero-trade identity là positive PASS. Ghi rõ injection so với actual indicators.
+- E1.4: public preflight-only phải sinh đúng folds/cells/windows, không chỉ CLI chạy được. Pin params/cost bodies, history, source/config/environment, budget, trial burden, analytical comparisons và terminal outcomes.
+- E1.5: reviewer kiểm source/assertions/raw receipts; ít nhất một positive/negative critical path khi scope/budget cho phép. Script của tác giả chỉ là self-verification. CHANGES_REQUIRED có severity, reproduction và file/interface ảnh hưởng; không lặp full review không thay đổi.
+- E1.6: operator cấp authority riêng cho exact proposal/protocol/read scope/budget/output/environment. Fresh authorization record, không sửa proposal cũ để giả đã duyệt. Authority ≠ technical verdict; broad research CLI có thể chạy được không có nghĩa operator đã cho phép.
+
+**Exit:** APPROVED_FOR_ONE_BOUNDED_RUN, hoặc BLOCKED_REVIEW / WAITING_OPERATOR. Đổi source, params, data/window, risk/cost, budget hay scope sau duyệt phải invalidate và review lại phần liên quan.
+
+### E2 — Một phép đo exploratory, raw review và terminal verdict
+
+**Owner:** execution → evidence reviewer → research owner. **Output:** packet mới đã seal + một quyết định.
+
+1. Trước launch: kiểm actual competing processes; exact source/input/config/proposal hashes và output chưa dùng. Re-freeze qua launcher phải khớp prepared protocol; không copy protocol sang output khác mà bỏ kiểm binding.
+2. Chạy existing launcher/supervisor/native engine bằng controlled_exec, .venv/bin/python, result file, heartbeat, timeout/RSS và one-worker/zero-retry đã duyệt. Không custom runner, monkeypatch hoặc bypass gate.
+3. Cell đầu là official budget probe, tính một lần; stop-on-first technical failure. Không coi các cell NOT_ATTEMPTED là FAILED/completed hoặc tạo worker receipts giả.
+4. Sau stop: kiểm process group/descendants thuộc run đã cleanup; giữ timeout/failed receipts. Không kill process không thuộc run.
+5. Coverage: planned ↔ attempted ↔ completed/failed/unattempted; mỗi report SHA/source/params/cost/window khớp. Missing report không PASS. STARTED/no result/worker alive là RUNNING; worker chết là INTERRUPTED, không SELECT.
+6. Accounting: fills/trade sum → closed gross-cost-net; closed net + open PnL → marked equity. Denominator là measurement opening equity. Không double-charge cost/inventory hoặc dùng gross_profit của winning trades như gross alpha.
+7. Economics: samples, net expectancy/Sharpe/PF/DD, turnover/exposure, cost stress, concentration, reason/regime attribution với limits. Cash và passive benchmark phải cùng measurement window; khác native protection/authority phải công bố, không gọi risk-matched alpha.
+8. Registry: nối evaluation key/attempt/report tới candidate ID, context, fold/phase/metric; query-only snapshot nếu cần. Ledger UNKNOWN lịch sử giữ nguyên, append sidecar thay vì sửa receipt đã seal.
+9. Review mới phải phân biệt engineering/economic/qualification verdict; update tracker và đúng một next action. Không tự mở campaign khác.
+
+| Trường hợp | Verdict | Được làm tiếp |
+| --- | --- | --- |
+| Drift/technical failure/timeout/coverage gap | INCOMPLETE_TECHNICAL | Điều tra read-only; fix loop khi còn đúng quyền/budget; không tự rerun market |
+| Complete nhưng thiếu sample contract | INCOMPLETE_SAMPLE / ABSTAIN | Đề xuất observations/design mới; không hạ trade gate hoặc kéo dài window hậu nghiệm |
+| Đủ mẫu, economics/selection không đạt | RESEARCH_ABSTAIN / NOT_QUALIFIED | Đóng hypothesis; hypothesis mới chỉ khi có lý do và authority mới |
+| Selection đạt | DIAGNOSTIC_POSITIVE_NOT_QUALIFIED | Đề xuất E3; không publish/paper/live tự động |
+
+### E3 — Qualification: chứng minh ngoài sample đã chọn
+
+**Owner:** research + quant reviewer. **Dependencies:** candidate đáng nghiên cứu, clean/reviewed qualification revision và eligible data/methodology. **Output:** applicable gate report + independent verdict; không chỉ summary xanh.
+
+- E3.1: trước khi đọc outcome, đóng folds/train/inner/outer/purge/embargo, overlap/dependence, selection/tie-break, costs, sensitivity, historical trials, gate applicability và toàn budget. Planner metadata chỉ chứng minh geometry, không power hoặc samples thực tế.
+- E3.2: inner chọn params theo protocol; outer chỉ đánh giá lựa chọn trước đó, không dùng outer/holdout để chọn lại strategy/window. Exposed data không được relabel untouched.
+- E3.3: historical selection burden gồm các khám phá ngoài registry; NO_MATCHING_HISTORY ở IDs mới không xóa thử nghiệm cũ. Khép câu hỏi DSR/PBO/dependence với reviewer trước claim, không chỉ điền số metric cho đủ schema.
+- E3.4: sensitivity thực tế theo path qualification: cost2x, delay, neighbors và các arm applicable. Current neighbor implementation cần đủ giá trị axis và outer scope; không dùng synthetic hoặc validation-only thay real measured sensitivity. Fixed singleton parameter stability=1 không chứng minh robustness.
+- E3.5: read/re-freeze current native gate contract; không đổi thresholds để candidate pass. Snapshot hiện tại có 20 gates, canonical_stats_verified và sensitivity_verified. Ví dụ: OOS Sharpe≥0.8, PF≥1.2, DD≤10%, Calmar≥0.5, DSR≥0.95, PBO≤0.2, ≥30 OOS trades; fold/cost/concentration/delay/neighbor gates cũng bắt buộc. Đây không phải toàn bộ gate set hoặc quyền áp chúng lên inner diagnostic.
+- E3.6: holdout chỉ mở theo approval/protocol riêng sau design freeze; nếu đã expose hoặc thiếu eligibility thì không gọi là independent final test. Thiếu data/inference/sensitivity → BLOCKED_DATA_OR_METHOD, không waive/N/A để vượt gate.
+- E3.7: reviewer kiểm raw continuous OOS equity, accounting, source/data/cost identity, full applicable gate results, trial burden và limits. Chỉ có QUALIFIED_RESEARCH khi toàn contract đạt trên exact subject; thiếu evidence là NOT_QUALIFIED.
+
+Không có budget E3 mặc định từ 2100s exploratory. Tất cả folds/arms/probes/cleanup phải được đếm và duyệt trước; không bắt đầu khi budget hoặc một metric bắt buộc còn UNKNOWN.
+
+### E4 — Đưa đúng qualified policy vào đúng runtime
+
+**Owner:** execution + evidence/risk; đối chiếu L0/L1/L2 của [live readiness plan](LIVE_READINESS_AGENT_PLAN.md).
+
+- E4.1: map actual entry point → resolver/artifact → strategy params/features/history → forecast → risk → target exposure → authority/planner → broker. Chứng minh đúng pair/TF/source/artifact/config/instrument rules, không silent fallback Enhanced MA.
+- E4.2: hiện script live_enhanced_ma_binance.py còn bind enhanced_ma ở consumer được đọc. Pullback research PASS hypothetical không tự chạy được ở đó. Chỉ sửa wiring có scope sau qualification; không xây generic live platform trước khi có candidate.
+- E4.3: replay cùng input/timestamps; freeze tolerances trước comparison. Kiểm vector tín hiệu và actual order/fill/mark/carry; khác sizing/stop/cooldown/cost/timing phải giải thích. Signal parity không bằng economic parity.
+- E4.4: negative admission: missing/expired/wrong strategy/hash/environment/account/policy hoặc non-qualified evidence phải chặn BUY. Safe reduction giữ đúng policy; không khóa exits chỉ để no-order test PASS.
+- E4.5: local fault drills: duplicate/partial/UNKNOWN fill, restart/cancel/stop races, missing protection, stale data, persistence/recovery. Isolated fixtures, không account calls hoặc fabricated live-eligible artifacts.
+
+**Exit:** RUNTIME_PARITY_ACCEPTED trên integrated revision và qualified subject. Local plumbing có thể chuẩn bị sớm bằng non-promotable fixtures, nhưng không dùng để bỏ dependency research khi activate vận hành.
+
+### E5 — Vận hành paper/testnet/shadow và release
+
+**Owner:** ops/risk + execution + reviewer. **Dependencies:** exact admitted subject, environment/account approval, risk/loss budget/expiry, release và monitoring phù hợp. Xem [S7 runbook](../S7_OPERATIONAL_EVIDENCE_RUNBOOK.md), [production policy](../PRODUCTION_POLICY.md), live readiness L3.
+
+- E5.1: tách environment/account stores, stable account identity, credentials scoped/withdrawal restrictions, symbol rules hiện hành, single leader/fencing và kill-switch owner. Không mở account/network session từ tài liệu này.
+- E5.2: prove actual alerts đến observer, ledger/exchange reconciliation, exactly applicable protection, restart/network/UNKNOWN submit/cancel, backup/restore và rollback không replay submit. Dry-run không là proof drill thật.
+- E5.3: policy-bound shadow và testnet evidence có đúng timestamps, unique lifecycle IDs, source/release/policy identity, healthy intervals, sample outcomes mature đúng lúc. Không gộp Alpaca paper/Binance testnet/Demo hoặc các subject khác nhau.
+- E5.4: theo current contracts, testnet tối thiểu30 continuous days/100 unique complete lifecycles/0 unresolved orders/0 safety breaches; shadow tối thiểu30days/30observations/ECE≤0.10 và0critical alerts cùng các applicability rules. Recheck executable contract khi thực hiện; không lấy checkbox lịch sử làm acceptance hiện tại.
+- E5.5: CI/release integrity: exact image/source/dependencies, signatures/SBOM/SLSA và verified artifact bindings theo release gate. Chưa truy cập/kiểm CI hoặc host thật thì NOT_VERIFIED; không push/deploy để tự chứng nhận.
+- E5.6: integrate evidence review và permission expiry/rollback plan. Subject/release change phải đánh giá invalidation/reuse; không cộng ngày soak khác identity hoặc ép giao dịch chỉ để đủ count.
+
+**Exit:** E2E-PAPER-ACCEPTED và release review đủ điều kiện, hoặc HOLD/NO_GO. Những elapsed-time gates cần wall-clock thật; không thể hoàn tất bằng một phiên test nhanh hoặc tạo timestamps giả.
+
+### E6 — Live canary và xét scale riêng
+
+**Owner:** human operator + risk/ops/reviewer. Đây là decision gate, không lệnh tự chạy.
+
+E0–E5 đủ và approval ký đúng subject/account/release/pairs/risk-capital-loss budget/expiry/rollback owner → chỉ mới CANARY_ELIGIBLE. Actual canary cần permission riêng; deployment không auto-enable mainnet. Theo current S7, canary cần tối thiểu30days và0safety/loss-budget breaches trước scale review. Scale luôn là approval mới, không có cơ chế tự tăng vốn để bù lỗ.
+
+Safety incident/unknown inventory/unresolved submit/failed protection/stale data/paging failure/drift/budget hoặc expiry → BLOCK new exposure, safe reduction theo quyền và escalate operator; không tự cancel protection hoặc đóng tài khoản ngoài runbook.
+
+## 5. Vòng lặp có giới hạn — không chạy tới khi tình cờ có lãi
+
+Các cap dưới là **đề xuất cho approval profile**, không tự cấp budget. Budget đã duyệt riêng có ưu tiên; không lấy ngân sách market bù engineering review.
+
+| Loop | Cách làm | Giới hạn mặc định đề xuất | Điểm thoát |
+| --- | --- | --- | --- |
+| L-ENG | Evidence failure → reproduce → patch tối thiểu → affected tests → review → source/binding mới | Tối đa2 repair iterations; 180s/command và600s tổng local verification nếu được duyệt; test fail dừng để đọc receipt, không rerun command chưa sửa | Pass trên revision mới, hoặc UNVERIFIED/BLOCKED cần budget/scope mới; market run không auto retry |
+| L-REVIEW | Findings có code/evidence → đóng finding → reviewer kiểm delta | Tối đa2 review rounds trong batch; không chạy cùng suite nguyên vẹn lặp lại chỉ để có thêm PASS | ACCEPTED trong scope hoặc NEEDS_DECISION với đúng blockers; không tự cấp independent label |
+| L-MARKET | Một approved frozen candidate →3cells → raw review → terminal verdict | Current pullback proposal:600s/cell/2100s tổng,1worker,2048MiB sampledRSS,0retry; không automatic next hypothesis | Dừng sau một verdict, kể cả âm hoặc thiếu mẫu |
+| L-HYPOTHESIS | Tổng hợp negative evidence → một thesis mới có cơ chế và quyết định cần trả lời → prereg | Không có quota tự động; nếu muốn autonomous batch, operator phải chốt trước số hypotheses/danh sách/rules/trial ledger và tổng budget; không dùng until-profitable | Có qualified research, hoặc hết approved search budget/eligible data → NO_SUPPORTED_WINNER |
+| L-OPS | Observe authorized health → reconcile → mature outcomes → acceptance/incident review | Theo calendar, capital/loss/expiry của environment; không busy-wait hoặc tạo hoạt động giả | Accepted/HOLD/incident/expiry; không tự bật live hoặc tăng vốn |
+
+Nếu chạm selection_policy.py, live_safety.py, nested_wfo.py hoặc evidence_ac*.py: **AC01–AC15 bắt buộc theo AGENTS.md**. Nếu cap600s không đủ affected tests+AC, dừng và xin điều chỉnh trước; không bỏ AC hoặc claim done. Tests cần .venv/bin/python và pytest -o addopts="". Không chạy full suite vô điều kiện sau thay đổi tài liệu/approval-only; chọn đúng surface, ghi skipped/NOT_RUN minh bạch.
+
+Quy tắc chung mỗi iteration:
+
+~~~text
+READ tracker + exact task + authority + actual processes
+IF dependency/identity/permission/budget thiếu: WAITING_INPUT, không thực thi
+SELECT đúng một uncertainty và tiêu chí bác bỏ
+DECLARE files/interfaces/output/cap/stop trước khi làm
+EXECUTE trong scope bằng công cụ/schema thật, lưu receipt bền
+VERIFY raw evidence + negative cases + identities; không chỉ đọc SUMMARY
+IF technical failure: giữ receipts, phân loại trước mọi patch; chỉ loop nếu còn quyền/budget
+IF economic/sample failure: đóng attempt; chỉ proposal mới, không tự rerun/tune
+IF scope-pass: xin review/authority cho stage tiếp; không tự nhảy stage
+UPDATE tracker: verdict + evidence + remaining budget + exactly one next action
+~~~
+
+Trước mỗi vòng, trả lời: kết quả mới có đổi quyết định nào không? Nếu không, không thêm lần seal/audit/test không cần thiết. Source change invalidate đúng dependencies; report/receipt/verdict content change là evidence change, không chỉ refresh bookkeeping. Proposal ≠ approval; self-verification ≠ independent review.
+
+## 6. Các việc cụ thể ngay bây giờ
+
+| ID | Đầu việc / owner | Trạng thái | Xong khi |
+| --- | --- | --- | --- |
+| NOW-01 | E2E playbook / integrator | Hoàn tất tài liệu ở lượt này | Một current plan, old history giữ nguyên, links hợp lệ; không campaign/production edit |
+| NOW-02 | Pullback exact review / reviewer khác author | DONE26/10 | Separate-agent review accepted source d2864272… và protocol081fce81…; verdict trong execution packet, review cũ giữ nguyên |
+| NOW-03 | Pullback one-run authority / operator | DONE26/10 | Authorization pin hashes cho đúng một packet3cells,read6160rows,measurement912,5232),600/2100s/1worker/2048MiB/0retry/failfast |
+| NOW-04 | Execute/review current exploratory / execution + evidence | DONE26/10 | 3/3COMPLETED,coveragePASS,25trades/cost<30,ABSTAIN; independent post-runVERIFIED_INCOMPLETE_SAMPLE_ABSTAIN; registrySQLreconciliation vẫnUNKNOWN;không qualification |
+| NEXT-01 | Spot research / research | PAUSED_AFTER_CLOSED_MEASUREMENTS 27/10 | H-LIQ-REVERSAL-01 rejects the fixed 1.5%/6 rule with native policy on [6510,15150) only. Gross was negative. Do not open another strategy from this closeout. |
+| NEXT-02 | Measured liquidity-reversal source / maintainer | INTEGRATED_WITH_STATUS | The strategy patch is committed after the dirty-tree measurement. Packet source stays a9133770 and does not become qualified. |
+| NEXT-DESK | Decision memo / research, documentation only | COMPLETE27/10 — PAUSED | Existing RESEARCH_EVIDENCE.md now separates measured failure, literature applicability and product-scope choices. No eligible new mechanism established in the sources reviewed. No candidate/run/data authority. Reopen only with the six admission questions answered and separate operator scope. |
+| NEXT-DATA-DECISION | External-information feasibility / operator | DECLINED 27/10 — PAUSED | Metadata pilot stays NOT_AUTHORIZED. Trends is not an hourly BTC feed. GDELT cadence is undocumented as an edge, and 20 requests would not create a 2023 point-in-time cohort. No provider request, source change, or market run. |
+| NEXT-03 | Qualification → runtime → ops / các owners | BLOCKED_BY_DEPENDENCIES | Đi tuần tự E3–E6, không tự tạo live authority |
+| NEXT-CONTEXT-DESIGN | Shared validation, pair-specific policy / research | PLAN_COMPLETE27/10 — MARKET_PAUSED | One validation method. Pair signals and parameters may differ. BTC context and a past-only beta residual are allowed design inputs, not a strategy and not dominance. §10 defines X0–X6, A0/A1/A2 and identity/budget contracts. No data pull, router, implementation or campaign authority. |
+
+H-PULLBACK-01 đóng INCOMPLETE_SAMPLE_ABSTAIN. H-PULLBACK-TEMPORAL-01 đóng VERIFIED_RESEARCH_ABSTAIN_NOT_QUALIFIED. H-VOLBREAK-01 đã đo xong và được review: VERIFIED_DIAGNOSTIC_POSITIVE_NOT_QUALIFIED. Đề xuất E3 ghi BLOCKED_DATA_OR_METHOD tại [E3 proposal — local evidence `data/volatility_breakout_e3_proposal_20261026_01/E3_PROPOSAL.md`. Không chạy cell qualification. Mainnet NO-GO.
+
+## 7. Handoff, evidence và định nghĩa DONE
+
+Mỗi task row ở tracker tối thiểu có:
+
+~~~text
+Task/stage; owner; reviewer/provenance; base và tested source/config/assertion identity
+Question; non-goals; dependency/approval references; allowed files/interfaces
+Input physical SHA/quality/UTC windows; read/decode/evaluation/exposure scopes
+Planned/attempted/completed/failed/unattempted; attempts và trial accounting
+Command/schema; per-command và aggregate cap; rc; wall/RSS; cleanup evidence
+Raw paths/hashes; arithmetic and negative checks; changed/unchanged artifacts
+Engineering verdict; economic verdict; qualification/operational authority verdict
+UNKNOWN/NOT_RUN/blocked; remaining budget; exactly one next action và owner
+~~~
+
+DONE phải nghĩa là deliverable được kiểm trên đúng revision và scope, không phải “đã code” hoặc một dòng VERIFIED. Chính author có thể LOCAL_VERIFIED; independent acceptance cần người review khác với evidence thật. Kết quả âm vẫn là DONE cho task đo; không tự đổi thành OPEN để tiếp tục thử cho tới khi xanh.
+
+Giữ packet cũ, failed receipts và negative trials. Không ghi đè immutable files; sidecar phải nêu mình bổ sung gì và hash/link bản gốc. Hash identity không chứng minh nội dung assertion đúng. Snapshot registry logic không phải full DB audit/DSR validation. Không ship evidence ra ngoài máy nếu chưa có quyền.
+
+## 8. Điều gì thật sự đưa dự án gần sử dụng hơn
+
+Đừng đo tiến độ bằng số strategy, số file hoặc số vòng review. Đo bằng:
+
+1. Một câu hỏi được trả lời bằng native evidence đáng tin, kể cả NO_TRADE.
+2. Một candidate vượt qualification trên observations đủ điều kiện, sau costs và uncertainty hợp lệ.
+3. Exact qualified policy chạy đúng runtime, không fallback hoặc giảm protections.
+4. Đủ lifecycle/reconciliation/alerts/recovery và elapsed-time gates của đúng environment.
+5. Operator đủ thông tin để duyệt hoặc từ chối canary bằng risk/loss budget rõ ràng.
+
+Hiện chúng ta đã có(1), chưa có(2)–(5) cho candidate sẵn sàng live. Không có ETA đảm bảo tìm được edge; thời gian operational soak không thể rút bằng compute. Giữ mainnet NO-GO đến khi toàn bộ contract và approval đạt.
+
+## 9. Tài liệu liên quan và lịch sử
+
+- [Tracker duy nhất](../CAMPAIGN_STATUS.md): trạng thái/evidence hiện hành.
+- [Research run protocol](RESEARCH_RUN_PROTOCOL.md): checklist cho một phép đo, không là approval.
+- [Live readiness L0–L4](LIVE_READINESS_AGENT_PLAN.md): task contracts chi tiết; handoffs lịch sử không là quyền hiện tại.
+- [S7 evidence](../S7_OPERATIONAL_EVIDENCE_RUNBOOK.md), [production policy](../PRODUCTION_POLICY.md), [capability matrix](../CAPABILITY_MATRIX.md): acceptance/maturity, không bị playbook này waive.
+- Pullback exact proposal — local evidence `data/trend_pullback_prereg_20261025_01/RESULTS.md`: source/protocol/input/budget cụ thể; không dùng số budget của BNB cũ hoặc candidate khác.
+- [Bản kế hoạch trước E2E, archive nguyên bytes](archive/MULTI_STRATEGY_RESEARCH_PLAN_PRE_E2E_20261025.md): chỉ để truy vết; link tương đối bên trong snapshot có gốc cũ docs/operations, không là hướng dẫn execution hiện hành.
+
+File này thay thế thứ tự công việc trong các snapshot cũ, không thay executable risk/research/release contracts, không đổi thresholds và không tự cấp bất kỳ external/live authority nào.
+
+## 10. Kế hoạch BTC context và policy riêng theo pair
+
+**Ngày27/10/2026: RESEARCH_DESIGN_COMPLETE / MARKET_PAUSED.** Thống nhất cách
+kiểm chứng; cho phép policy/params khác theo pair khi có evidence. Không ép
+một rule lên mọi coin, cũng không xây optimizer riêng cho từng coin. User mới
+duyệt lập kế hoạch; không có candidate, data-read hoặc market budget mới.
+
+### 10.1 Câu hỏi và phạm vi
+
+Câu hỏi chính: BTC context và quan hệ tương đối có bổ sung giá trị quyết định
+ngoài own history của ETH/BNB **sau costs và native execution** không? Câu hỏi
+thứ hai: cá thể hóa params có tốt hơn shared params ngoài sample không?
+Không mặc định mọi pair phải khác hoặc giống nhau.
+
+Universe dự kiến: BTC/USDT làm context, ETH/USDT và BNB/USDT là hai target,
+Binance Spot, long-only, USDT accounting. Chưa chứng nhận data eligibility
+của hai target. Target thiếu data ⇒ HOLD target ấy, không tự thay coin.
+Dùng nến1h trước; holding/forecast horizon là field riêng, chốt ở X2; chưa
+nhân thêm4h/1d. BTC không là trading target trong batch này. V1 live vẫn chỉ
+một qualified target, không mở portfolio từ việc có hai research targets.
+
+Không thêm short/funding/perp, news/LLM collector, ML/router platform hoặc
+17-strategy tournament. Các rule cũ giữ verdict đóng; không relabel một
+retune thành cơ chế mới. External-news metadata pilot vẫn bị từ chối.
+
+```mermaid
+flowchart LR
+    D[BTC + target input bundle] --> J[Join bar đã đóng và available-at]
+    J --> O[Own history của pair]
+    J --> C[BTC context + relative relation]
+    O --> P[Policy và params theo pair]
+    C --> P
+    P --> F[Canonical forecast]
+    F --> R[Risk và authority hiện có]
+    R --> E[Native engine]
+    E --> V[Review A0/A1/A2: GO hoặc HOLD]
 ```
 
-## 2. Bằng chứng đã có và giới hạn
+### 10.2 Input và feature contract tối thiểu
 
-Packet `data/calibration_telemetry_btc4h_20261016_01`:
-`ACCEPTED_CALIBRATION`; producer và verifier CLI cùng PASS12checks. Đây là cùng
-shared verifier chạy hai lần, **không phải hai thuật toán kiểm chứng độc lập**.
-Supervisor58.43s; execution49.61s; CPU25.89s. Fingerprint:
-`60b7ac42f968d34363ed900530c4dd1ee68b1262f1879a5732cc1bf17be67878`.
+**Bind một bundle BTC+target:** path/byteSHA/exchange/symbol/timeframe của
+tất cả inputs; quality/exposure/read-decode-evaluation scopes; timestamp
+convention, join/missing-data policy, feature code/schema/config, source và
+dependency identity. Bundle hash phải đi qua protocol/cache/trial context/
+worker/raw report. BTC đổi ⇒ invalidate cả hai target dùng BTC; ETH đổi ⇒
+invalidate study ETH. Không reuse chỉ vì target file không đổi.
 
-| Cửa sổ | Bars đo | Trades | Return | Sharpe | Max DD | PF | Verdict |
-|---|---:|---:|---:|---:|---:|---:|---|
-| 2024H1 | 1092 | 9 | +1.91% | 0.555 | 6.48% | 1.253 | ABSTAIN: thiếu30trades |
-| 2025H2 | 1104 | 8 | -3.73% | -1.376 | 6.36% | 0.327 | ABSTAIN: thiếu30trades, Sharpe dưới sàn |
+Inventory26/10 — local evidence `data/confirmation_design_20261026_01/RESULTS.md` chỉ
+ghi hash/metadata/timestamps; không chứng nhận quality/exposure ETH/BNB. Nó
+còn ghi mismatch và reserved rows trong raw containers. Không decode whole
+raw rồi filter để vượt quyền đọc; nếu không có bounded eligible artifact
+thì BLOCKED_DATA. Không download/sửa manifest/mở holdout từ kế hoạch này.
+Giá chưa được chứng minh untouched giữ UNKNOWN; không relabel confirmation.
 
-Early:1074HOLD/9BUY/9SELL,12runtime submissions,6flat exits;9closes gồm6stop
-và3signal. Late:1088HOLD/8BUY/8SELL,14submissions,2flat exits;8closes gồm2stop
-và6signal. Không thiếu attribution. Late có carry-in và carry-out: không so
-BUY count với closed trades theo quan hệ một-một hoặc bỏ unrealized inventory.
-Returned orders không gồm mọi protective order; fill snapshot không phải fill
-event count. Telemetry đo simulator-gate signal, không phải raw forecast posterior.
+UTC, bar-open/bar-close và available-at phải rõ. BTC/target chỉ join trên
+bar đã đóng; không backward-fill, không dùng BTC tương lai, không inner-join
+lặng lẽ xóa đoạn xấu. Gap/stale context ⇒ block new entry; protection và
+exit/reduce an toàn vẫn theo authority. V1 không forward-fill OHLCV qua gap.
 
-Kết luận giới hạn: tín hiệu thưa là nút thắt trong hai cửa sổ này; chưa có bằng
-chứng rằng tất cả strategy đều thưa hoặc tất cả filters đều tốt. `ma_vol_target`
-trong bridge hiện tại là crossover với target exposure cố định25%, chưa chứng
-minh realized-volatility targeting. Không đổi tên bằng chứng thành OOS.
+Feature draft **6 values** dưới đây là baseline khởi đầu, **không giới hạn
+danh mục nghiên cứu**. Theo steering mới27/10, lập danh mục rộng và kiểm giá
+trị thông tin theo §10.8 trước khi chọn feature cho policy. Lookback24/168
+là seed để review, chưa có evidence edge; không mở grid ngầm:
 
-Quy đổi thô, không dự báo:9/1092 và8/1104 tương ứng khoảng3640 và4140bars để
-đạt30closes nếu mật độ giữ nguyên (~20–23tháng ở4h). Tính mùa vụ, regime,
-overlap và carry làm giả định này không ổn định. Không dùng làm ETA hay tự chọn
-window; kiểm bằng phép đo đã preregister. Không cộng trades khác pair/fold để
-vượt gate từng candidate/fold.
+| Nhóm | Draft | Câu hỏi |
+| --- | --- | --- |
+| C1 BTC context | Log return1bar, return24bar, realized volatility24bar | Bối cảnh hướng/biến động BTC có giúp quyết định target? |
+| C2 Relation | Beta và correlation target–BTC trên168returns **trước current return** | Mức nhạy thị trường và sự ổn định quan hệ? |
+| C2 Relation | Tổng24bar residual `r_target[s] − beta[s−1]×r_BTC[s]` | Target mạnh/yếu hơn phần BTC giải thích? |
 
-## 3. Inventory và phạm vi khả dụng
+Beta OLS trên returns, không regression mù price levels. Mỗi beta[s−1] chỉ
+dùng dữ liệu tới s−1; varianceBTC gần0/gap/thiếu history/nonfinite ⇒ feature
+unavailable, không fill0. Epsilon, min-history và estimator convention chốt
+ở X1. Mọi thresholds/scalers học trong train, freeze theo fold; rolling
+feature không là quyền online retune. Relative strength dương không bảo đảm
+returnUSDT dương; ratio lệch không mặc định mean-revert/cointegrate.
+ETH/BTC hoặc BNB/BTC tính từ closesUSDT không là cross-pair executable fills.
 
-Nguồn: `src/trading_agent/strategies/canonical/candidates.py`,
-`src/trading_agent/calibration/execution.py` và validator trong `packet.py`.
-Registry có17candidate; điều này không chứng minh tất cả có feature/parity/live
-support. Docstring còn nhắc "five" không phải giới hạn registry thực tế.
+DOM tạm hiểu **BTC dominance**; nếu là Depth of Market thì phải làm rõ
+trước code vì cần order-book contract khác. BTC.D thật cần market caps,
+universe/stablecoin treatment/vintage/available-at nhất quán; không giả từ
+tổng3prices/volumes. Nếu chưa có eligible history thì DOM **DEFERRED**. V1
+không phụ thuộc DOM, không proxy giả; thêm nó sau là C3/attempt/budget riêng,
+không thêm sau khi nhìn A2. Market cap/dominance không là cash flow trực tiếp.
 
-| Nhóm | Candidate IDs | Xử lý trước chạy |
-|---|---|---|
-| Calibration hiện hỗ trợ | enhanced_ma, ma_adx, ma_vol_target, rsi, bbands | Kiểm default, semantics, dữ liệu, raw attribution; không đổi gate |
-| Pool mở rộng cần compatibility audit | volatility_breakout, trend_pullback, ma_crossover, range_mean_reversion, ensemble_ma_adx, ma_adx_regime, regime_switching | Xác minh code path/feature/parity/leakage và runner support; không tự truyền vào CLI calibration |
-| Chiến lược cần kiểm hợp đồng dữ liệu/thị trường đặc thù | funding_carry, stat_arbitrage_lo, stat_arbitrage_ls, cross_sectional_momentum_lo, cross_sectional_momentum_ls | Đọc implementation, xác minh funding/reference/universe/short semantics thực tế; thiếu dữ liệu thì BLOCKED, không giả lập thành OHLC đơn pair |
+### 10.3 Các phase, owner và điều kiện dừng
 
-Giữ ADX25 cho nghiên cứu ma_adx đã thống nhất. Ghi resolved params, không suy
-từ biến môi trường chung; ma_vol_target không có tham số ADX. Chưa khẳng định
-defaults của mọi candidate đều dùng ADX25. Strategy có tham số ADX khác phải
-được chỉ rõ và review, không âm thầm sửa code/config hoặc frozen packet.
+| Phase | Owner / công việc | Deliverable | Exit hoặc stop |
+| --- | --- | --- | --- |
+| X0 Data admission | Data owner đối chiếu BTC/ETH/BNB và catalog nguồn ứng viên §10.8; không tự mở provider | Bundle draft + information/source inventory + gaps/exposure/read-scope request | Mỗi nhóm có ADMITTED/NOT_ADMITTED/UNKNOWN; thiếu một nhóm không tự bị gán neutral; chưa strategy |
+| X1 Feature contract | Engineer + research chốt formulas/availability/roles/identity cho nhóm được admit, synthetic trước | Versioned catalog + reference values + evidence-table schema | Point-in-time/gap/identity tests đạt; chỉ đúng nhóm được phép, chưa market |
+| X2 Pair policy preregistration | X2a preregister phép kiểm giá trị thông tin theo nhóm; X2b chỉ chọn policy/configs sau discovery có evidence | Feature/group/interaction trial ledger, nested time design; sau đó entry/exit/horizon/params/budget riêng | Information selection chỉ trong train/inner; confirmation/outer không được dùng chọn feature. Independent design review; chưa run |
+| X3 Integration | Engineer nối bundle/context qua đường validation hiện có | Minimal patch + full-launcher synthetic + pinned assertions/source | Positive/negative chain đạt, no dropped context hop; gate-file changes có AC01–15 |
+| X4 Exploratory batch | Execution theo exact operator authority,1worker/0retry | Planned/attempted/completed, raw reports, paired comparisons, independent verdict | COMPLETE_DIAGNOSTIC/INCOMPLETE/HOLD; không tự thêm pair/feature/window/retry |
+| X5 Confirmation | Quant reviewer khóa cohort/method trước outer | Applicable research gates trên exact selected subject | QUALIFIED_RESEARCH hoặc NOT_QUALIFIED; exposed data không confirmation |
+| X6 Runtime và ops | Ops nối đúng một qualified target/context feed, chứng minh parity | E4–E6 evidence, account/risk approval, canary proposal | Theo gates hiện hành; live permission riêng |
 
-## 4. Các phase và exit criteria giao agent
+X2 không DONE chỉ vì có feature list. Phải nêu nguồn payoff, dự đoán hướng
+nào, khi nào không mua, absoluteUSDT net objective, timing và lý do params
+từng pair **trước kết quả**. Không tự chọn ML/forecast regression hoặc đưa
+stateful estimator vào legacy adapter; fold-local fitting cần support review
+riêng. Rolling beta ở X1 là feature, không tự thành fitted alpha model.
 
-### R0/R1 audit đã thực hiện — 2026-10-16
+### 10.4 Đối chứng A0/A1/A2 và params theo pair
 
-#### Engineering follow-up: fixes có regression proof
+- **A0:** pair-only control dùng own history.
+- **A1:** A0 + BTC context C1.
+- **A2:** A1 + relation C2.
 
-#### Pool audit tiếp nối — source không đổi, test coverage mở rộng
+X2 định nghĩa explicit remove/neutralize feature mà A0 vẫn là valid baseline,
+không zero-trade fixture vì bỏ mất chính trigger. Cùng cấu trúc policy,
+cadence/entry-exit, native safety, capital và search budget; không cho A2 thêm
+params/trials ngoài protocol. Nếu train-fit per arm thì cùng recipe/budget
+và phải tính search burden. Không mở lại tuning closedBTC rule để làm control.
 
-`pool_audit_receipt.json` trong `data/retire_wfo_wrapper_20261016_01/` ghi:
-108targeted regression tests PASS, Ruff PASS;17/17default candidates giữ nguyên
-prefix signals khi thêm future rows trên deterministic synthetic fixture.
-Hai candidate `_ls` được chạy qua StrategyRuntime trong test: negative signal
-trả SELL và reduce_only=True. Không đặt broker order. Code source giữ nguyên
-treeb22da73a/dirty patch đã chạy AC01–AC15; chỉ mở rộng tests. Không cộng108với
-205để báo tổng vì chúng overlap;205là integrated snapshot trước mở rộng test.
-Tất cả protected files của snapshot trước vẫn khớp, trừ đúng file test được
-mở rộng có SHA mới trong receipt. Không thay packet hoặc registry.
+So A1−A0/A2−A1 trên **cùng pair, UTC calendar, cost, policy và input bundle**.
+Bộ timestamp đủ điều kiện cho so sánh phải chốt chung trước khi đo; report
+mọi missing/stale mask, không cho A1/A2 hưởng lợi chỉ vì bị loại đoạn giá mà
+A0 còn giao dịch. Giữ toàn calendar trong accounting; không xóa gaps khỏi
+equity rồi tính Sharpe như thời gian liên tục.
+Báo net marked return/PnL, Sharpe/PF/DD, trades, turnover/cost/exposure, tail
+loss, authority skips; đọc signal/fill/stop/breaker path để giải thích. Không
+gọi pure feature alpha khi sizing/path đổi. Không drop cost âm/pool hai coin
+thành independent samples. Gaps, calendar overlap và return dependence được
+chốt trong inference design. Không dùng một trận bullmarket để chọn regime.
 
-R1 disposition: inventory17/17 và scoped causality/runtime-mapping proofs xong;
-**chưa full execution/economic parity cho17candidate**. Các blocker còn lại đã
-được phân loại, không còn coi là lỗi history/funding backfill chưa sửa:
+Muốn claim params riêng tốt hơn thì cần preregister **shared-param vs
+pair-specific-param** contrast với cùng family/training budget/cost. Nó thêm
+trials/cells; không nhét vào18cell core sau outcome. V1 có thể dùng fixed pair
+configs có lý do và ghi **chưa chứng minh personalization tốt hơn**. ETH pass,
+BNB fail thì đóng đúng BNB, không hạ gate để đủ bảng hai target.
 
-| Phạm vi | Disposition | Hành động hợp lý |
-|---|---|---|
-| 5calibration candidates | Có runner, vẫn research-only | Review/tích hợp source mới trước freeze R2; xin budget/fingerprint riêng |
-| Regime history2candidates | FIXED có prefix regression | Chưa mở calibration allowlist; không dùng weights/MA dynamic claims quá implementation |
-| Funding | Missing data fail-closed/PIT fill fixed | BLOCKED cho qualification tới có rate publication binding và funding accrual tests |
-| Stat/CS đơn tài sản | Approximation được xác nhận qua code | Nghiên cứu dưới hypothesis/nhãn đúng hoặc thiết kế multi-asset riêng; không rename packet cũ |
-| Hai `_ls` | CLOSE_LONG_ONLY_RUNTIME_CONFIRMED | BLOCKED cho long-short; không cần triển khai short để hoàn thành mục tiêu spot long-only |
+### 10.5 Budget, statistics và verdict
 
-Khuyến nghị phạm vi gần nhất: tiếp tục **spot long-only, BTC/USDT4h** với5candidate
-runner đã hỗ trợ; không mở derivatives/short hoặc xây portfolio engine chỉ để
-sử dụng hết tên strategy. Khi ít mẫu, R2 có thể tiếp tục trả ABSTAIN và R3 phải
-đánh giá feasibility; không có cam kết phải tìm ra winner. Approval đã dùng cho
-2cells cũ không áp dụng source mới hay10cells đề xuất.
+Core2targets×3arms×3costs×Ffolds,1fixed config/target = **18F evaluations**.
+Nếu grid có M_ETH/M_BNB configs: `9F×(M_ETH+M_BNB)` inner evaluations,
+chưa tính param contrast, outer, sensitivity/probes. Feature/window/model
+alternatives cũng là search; ba cost và hai coin cùng BTC không independent.
 
-Final local closure: **205regression tests PASS, AC01–AC15 PASS, Ruff PASS,
-git diff --check clean**;383protected file hashes và source identity ổn định.
-Tree `b22da73aac8f82ef9a1094836b56c844516f88ecee6518c898f113c2e5f00a90`,
-dirty patch trêncdf39ce. Chưa commit hoặc independent integration review cho
-patch này. Không cộng89targeted tests vào205để báo294tests; scope có overlap.
+Không kế thừa600/2100s của H-LIQ. Public plan-only đếm exact cells trước;
+wall envelope gồm cell bounds + orchestration/cleanup, RSS và per-command
+caps.18cells×600s =10800s trước overhead, không nhét vào2100s. Synthetic
+representative probe đo engineering cost; market first cell chỉ là official
+probe nếu được duyệt, tính một lần. Stagewise schedule/stop rule phải freeze
+trước outcome, không dừng control rồi hoàn tất riêng arm đang dương.
 
-Source mới là patch trêncdf39ce, chưa commit; không dùng source identity cũ để
-freeze/reuse. Trạng thái xác minh cuối nằm tại
-`data/retire_wfo_wrapper_20261016_01/compatibility_verified.json`, không suy PASS
-từ kết quả từng bước bên dưới.
+Native selection/qualification gates không đổi. X2 phải khóa incremental
+context acceptance: primary endpoint, minimum economically meaningful gain,
+uncertainty/dependence method, risk non-inferiority và cost robustness. Không
+invent cutoff sau Sharpe. Thiếu sample/method ⇒ INCONCLUSIVE; A2 dương nhưng
+không hơn A0 không chứng minh context edge; hơn A0 mà net âm chưa đủ để đầu
+tư confirmation. Inner SELECT không là qualification.
 
-- Regression ban đầu:7FAIL/2PASS tái hiện percentile null ở bounded history và
-  funding backfill/fallback. Receipt `compatibility_red.json` trong cùng thư mục.
-- Đã sửa default history của ensemble_ma_adx/ma_adx_regime từ96 thành268bars.
-  Resolver tính regime_lookback+ATR+buffer và MA/ADX requirements theo params;
-  campaign history lấy max toàn grid cho hai candidate này. Test252/400lookback
-  so percentile và last signal của bounded window với full prefix cùng fixture.
-  Đây là scoped finite-history proof, chưa all-regime/economic parity.
-- Funding thiếu cột funding_rate giờ fail closed; bỏ momentum-derived fallback
-  và backward_fill. Chỉ forward_fill, giữ leading unknown là null/HOLD. Synthetic
-  future-append test chứng minh rate tương lai không backfill past. Input vẫn cần
-  publication-time/lag/accrual binding trước nghiên cứu funding thực tế; có cột
-  không tự chứng minh nguồn thật hoặc settlement economics.
-- Fixture registry determinism giờ lấy max descriptor history và cung cấp funding
-  giả lập **tường minh trong test**, không hạ history để giữ fixture cũ PASS.
-- 89targeted regressions PASS; Ruff PASS. Không thay thresholds, defaultsADX25,
-  short authority, calibration allowlist hoặc research_only.
+DSR/PBO phải xét attempts cũ/mới, pair/arm/feature/model/params; SQL không tự
+bao hết search history. PBO cần candidate/loss matrix hợp lệ; không grid giả
+hoặc waive singleton. Method/cohort thiếu ⇒ BLOCKED_DATA_OR_METHOD ở X5.
 
-Hai HISTORY_REVIEW blockers trong bảng lịch sử bên dưới đã được sửa về engineering,
-nhưng vẫn BLOCKED_R2 vì calibration chưa hỗ trợ chúng và chưa có qualification.
-Funding chuyển từ synthetic/PIT defect sang BLOCKED_DATA_ECONOMICS_REVIEW; không
-coi missing-data fail-closed là đã có dữ liệu funding hợp lệ. Các label/short
-blockers giữ nguyên có chủ đích, không "fix" bằng cách cấp quyền short.
-`authority/resolver.py` ánh xạ last_val<0 thành SELL với reduce_only=True:
-đây là close-long semantics, không engine mở short.
+### 10.6 Điểm nối code và kiểm chứng bắt buộc
 
-Thêm giới hạn semantics cần giữ trong inventory: `_get_regime_weights` của
-ensemble_ma_adx hiện gán base_weight hằng, không chứng minh dynamic weighting;
-ma_adx_regime dùng base MAs và dynamic ADX threshold, không thực sự thay MA
-period theo regime. Không quảng bá tên strategy thành năng lực chưa triển khai.
+Impact map, chưa là instruction sửa toàn bộ:
 
-Phần dưới giữ nguyên audit lịch sử trêncdf39ce; không đọc warmup96 trong bảng
-như trạng thái source mới. Không rerun/reseal packet diagnostic cũ sau sửa.
+| Interface | Hiện trạng đã đọc | X1/X3 phải chứng minh |
+| --- | --- | --- |
+| `research/forecast.py:MarketObservation.features` | Có feature container, chưa tự chứng minh lineage/as-of | Schema/version/availability/context hash |
+| `strategies/canonical/adapter.py` | Legacy adapter đọc một ohlcv_window | Consumer thật sự đọc closed context, không chỉ thêm cột |
+| `backtest/tournament.py:canonical_signal_series` | Window kết thúc trước j, simulator execute open j+1 | BTC/target cùng cutoff; không đọc current-row close j như closed input; giữ k+2 hoặc identity mới nếu đổi |
+| `scripts/run_wfo_parallel.py` và worker | Bound protocol/cell/cache/request/report | Verify multi-input ở planner và worker, không hidden global reads |
+| `backtest/nested_wfo.py` | Existing fold/gate/trial provenance | Purge/embargo theo max history/horizon, pair/arm identity; chạm file phải AC01–15 |
+| Engine/authority/live consumer | Native protections; live còn EnhancedMA-specific | Không bypass; runtime wiring sau qualification; BTC feed thiếu không vô hiệu protection |
 
-Evidence: `data/retire_wfo_wrapper_20261016_01/r0_r1_audit.json`.
-R0:28assertions PASS (14/cell): SHA raw, bar/terminal partitions, records trong
-measurement window, unique close IDs, close attribution/reasons, metric identity,
-return basis, accounting presence, quyết định ABSTAIN và hai phương trình PnL.
-Packet inventory trước/sau không đổi; source giữ nguyêncdf39ce.
+Synthetic phải có: mutate BTC tương lai không đổi quá khứ; barBTC j chưa
+đóng không ảnh hưởng decisionj; missing/stale/gap chặn entry nhưng giữ exit/
+protection; zero variance; beta/residual tính tay; full-vs-window parity hoặc
+state contract rõ; đổi BTC bytes/cache miss; wrong target/arm/bundle reject;
+actual native fills/stop/terminal inventory; **full launcher chain** một
+positive và negative case trên isolated stores. Unit từng mảnh không thay
+integration. Không profile market trước admission synthetic.
 
-- Early: opening equity9896.638114 → final10085.639654; delta189.001540.
-  Gross241.008658 − fees34.671372 − slippage17.335746 = net189.001540.
-- Late: opening9851.170326 → final9483.533685; delta−367.636640.
-  Closed gross−322.187156 − fees27.280067 − slippage13.640413 = net−363.107636;
-  cộng open unrealized−4.529005 = total−367.636640.
-- Return dựa opening equity tại measurement, **không phải** initial capital10000
-  của full simulation. Vì vậy final equity và return headline không được đối
-  chiếu với10000 để kết luận lỗi. Spread/impact bằng0 trong paper model không
-  chứng minh chi phí live bằng0.
+Hai nghiên cứu single-pair không chứng minh portfolio. ETH+BNB cùng lúc cần
+shared-capital/correlated-exposure authority evidence; chưa có thì live chỉ
+một qualified target. Không cộng hai25% exposures rồi gọi diversified;
+không tự thêm beta hedge/short hoặc giảm protections.
 
-R0 status: **SCOPED_RECONCILIATION_PASS**, chưa independent full fill-ledger
-reconstruction/sign-off. Không nâng thành final accounting acceptance.
+### 10.7 Giao việc và bước kế tiếp
 
-R1 inventory:17/17default params validate và resolved warmup lấy trực tiếp từ
-code; source SHA, symbols, features, params đầy đủ trong JSON. Tất cả descriptor
-đang `research_only=True`; không candidate nào được inventory này chứng nhận live.
-51tests PASS trong candidate_factory, canonical_contract, canonical_wave_c và
-regime_lookahead; đây là generic/factory/PIT coverage, không17economic parity proofs.
-Receipt: `data/retire_wfo_wrapper_20261016_01/compatibility_tests.json`.
+Một tracker CAMPAIGN_STATUS; X0…X6 là IDs của work packages trong kế hoạch,
+không tạo thêm TODO/tracker. Handoff theo §7: identities, question/scope,
+budget/commands, raw receipts, uncertainty/verdict và một next action.
+Một writer/interface; reviewer khác author công bố independence và kiểm gì
+ngoài chạy author script. Có thể giao agent riêng sau khi được user cho phép;
+tài liệu không tự spawn/delegate hoặc cho nhiều writer sửa chung source.
 
-| Candidate | Default warmup bars | Calibration CLI | Trạng thái/giới hạn sau audit |
-|---|---:|---|---|
-| enhanced_ma | 100 | Có | SUPPORTED_CALIBRATION_ONLY; defaults20/80,ADX25; chưa qualification |
-| ma_adx | 100 | Có | SUPPORTED_CALIBRATION_ONLY; defaults20/80,ADX25 |
-| ma_vol_target | 100 | Có | SUPPORTED_CALIBRATION_ONLY; đã đo2cells; fixed-exposure crossover |
-| rsi | 16 | Có | SUPPORTED_CALIBRATION_ONLY;14/30/70; chưa market feasibility mới |
-| bbands | 22 | Có | SUPPORTED_CALIBRATION_ONLY;20/2; chưa market feasibility mới |
-| regime_switching | 200 | Không | BLOCKED_R2; cần rolling-refit/state/parity audit cho hybrid200 |
-| funding_carry | 22 | Không | BLOCKED_SEMANTICS; thiếu funding có synthetic fallback; cần real funding binding, accrual và PIT tests |
-| volatility_breakout | 36 | Không | BLOCKED_R2; constructor/schema có, chưa per-candidate execution parity |
-| ensemble_ma_adx | 96 | Không | BLOCKED_HISTORY_REVIEW; regime_lookback252 nhưng canonical bridge chỉ cấp warmup+1=97bars |
-| ma_adx_regime | 96 | Không | BLOCKED_HISTORY_REVIEW; cùng bất tương xứng252vs97; cần test full-prefix vs bounded window |
-| trend_pullback | 96 | Không | BLOCKED_R2; defaultsADX25, cần feature/runtime parity |
-| ma_crossover | 51 | Không | BLOCKED_R2;20/50, chưa mở calibration contract |
-| range_mean_reversion | 22 | Không | BLOCKED_R2; cần xác minh VWAP/zscore/state semantics |
-| stat_arbitrage_lo | 22 | Không | BLOCKED_LABEL; code hiện single-asset rolling zscore, không cointegration/hedge pair |
-| stat_arbitrage_ls | 22 | Không | BLOCKED_LABEL_SHORT; single-asset zscore; bridge -1=SELL không chứng minh short |
-| cross_sectional_momentum_lo | 61 | Không | BLOCKED_LABEL; hiện single-asset rolling momentum/MA, không universe ranking |
-| cross_sectional_momentum_ls | 61 | Không | BLOCKED_LABEL_SHORT; cùng fallback; chưa long-short execution proof |
+**X0 đã có kết quả 27/10.** Hai file ETH/BNB 1h pre-holdout khớp toàn bộ
+25198 timestamp của BTC frozen và đều qua `assess_ohlcv` `gap_policy=reject`.
+Trạng thái QUALITY_ACCEPTED_DEVELOPMENT_INPUT_NOT_CONFIRMATION: input
+development, không phải confirmation. Kết quả:
+X0 — local evidence `data/x0_context_admission_20261027_01/RESULTS.md`. Raw 1h vẫn
+bị loại vì chứa reserved rows. Không mở implementation, data download, DOM
+collection hay market batch từ kết quả này. X1 contract `x1-20261027-01`
+nằm ở `src/trading_agent/research/btc_context_features.py`; 11 synthetic
+tests passed trước khi nối strategy. X2 đã khóa đối chứng A0/A1/A2 và luật
+`H-OWN24-CONTEXT-01`. Phiên diagnostic 27/10 dừng INCOMPLETE_TECHNICAL ở
+cell ETH A0 1x vì hết 600 giây, 0 cell hoàn tất; không nâng trần và không
+chạy lại. Kết quả:
+X2 run — local evidence `data/x2_context_run_20261027_01/RESULTS.md`.
+X3 review đạt và exact operator authorization mới tới X4.
+NO_INCREMENTAL_CONTEXT_VALUE và NO_SUPPORTED_WINNER vẫn là kết quả hợp lệ;
+không tự thêm coin khi thất bại.
 
-"BLOCKED_R2" chỉ nói runner calibration hiện không hỗ trợ và thiếu evidence,
-không khẳng định mọi runner đều không chạy được. Các bản OHLC fallback có thể
-nghiên cứu như hypothesis riêng được đặt nhãn đúng; không dùng kết quả của nó
-để quảng bá pairs arbitrage hoặc cross-sectional portfolio.
+Cơ sở: [Cross-cryptocurrency return predictability](https://www.sciencedirect.com/science/article/abs/pii/S0165188924000551)
+nghiên cứu minute-level, không chứng minh net alpha ở1h/k+2 của repo.
+[CoinGecko market-cap definitions](https://www.coingecko.com/learn/what-is-market-cap-in-crypto)
+phân biệt dominance với cash inflow. Primary preview/provider docs đã đọc,
+không replicate hoặc dùng kết luận paper làm gatePASS.
 
-Funding code có forward_fill rồi backward_fill khi funding_rate tồn tại:
-cần test point-in-time availability/publication lag, đặc biệt prefix có leading
-null; không mặc nhiên gọi whole-window indicator output là causal. Chưa kết luận
-packet vừa đo bị ảnh hưởng: packet đó dùng ma_vol_target, không funding.
+### 10.8 Nghiên cứu nhiều thông tin để tìm phần thực sự có ích
 
-R1 status: **INVENTORY_COMPLETE / COMPATIBILITY_PARTIAL**. Chưa đóng toàn bộ
-exit criteria R1: cần per-candidate feature/runtime parity và history probes,
-không sửa `research_only` để ép sử dụng. Ưu tiên tiếp theo:
+Phiên thảo luận nhiều agent dùng [brief chung](ALTCOIN_INFORMATION_RESEARCH_DISCUSSION.md):
+vai trò, câu hỏi D1–D8, mẫu contribution, phản biện và điều kiện bàn giao.
+Brief không thay kế hoạch này hoặc cấp quyền chạy nghiên cứu.
 
-1. Chứng minh history252vs97 cho hai regime candidates bằng synthetic prefix tests;
-   xác định degradation/fallback thực tế trước sửa warmup, không sửa theo tên biến.
-2. Rà soát funding fallback/PIT, short mapping và nhãn các đơn-asset approximations;
-   giữ BLOCKED cho đúng market semantics cho tới có bằng chứng.
-3. Chốt5candidate calibration với ADX25 đã resolve; xin budget/fingerprint riêng
-   nếu muốn R2. Không mở toàn bộ17candidate chỉ vì factory tests PASS.
+**Steering27/10:** danh mục thông tin rộng, policy cuối chỉ giữ phần có bằng
+chứng. Không loại trước một biến chỉ để giữ con số6; cũng không coi càng nhiều
+cột thì càng có edge. Phân biệt candidate feature pool, admitted dataset và
+selected policy inputs. Các nhóm dưới là **ứng viên có giả thuyết liên quan**,
+chưa được xác nhận là nguyên nhân trực tiếp hoặc có predictive value.
 
-| Phase | Công việc nhỏ | Artifact / điều kiện hoàn thành | Quyền chạy |
-|---|---|---|---|
-| R0 — evidence review | Đối chiếu2raw reports, quyết định, PnL basis, carry, costs và close IDs; kiểm bar partitions | Review receipt ngoài packet; nêu mismatch hoặc PASS theo từng assertion; không sửa/reseal | Chỉ đọc |
-| R1 — compatibility | Lập1row/candidate: source SHA, research_only, params, warmup, feature inputs, symbol/TF, execution support, parity tests | Đủ17rows; trạng thái SUPPORTED/BLOCKED kèm code/test evidence; không coi descriptor là proof | Code audit + synthetic tests, chưa market |
-| R2 — feasibility | Đề xuất calibration 5strategy×2windows với default cố định, không grid search; ma_vol_target đã đo dùng như historical observation, không relabel thành same-source run | Freeze matrix + source/input/config/cost/budget; cấp quyền riêng. Nếu muốn omit/reuse2cells cũ phải có explicit manifest/verifier support, không copy JSON thủ công | Chưa được duyệt |
-| R3 — geometry/protocol | Đánh giá density/trade adequacy và folds cùng lúc; chọn1protocol trước outer; ghi mọi trial đã xem | Exact pre-holdout input SHA; windows, purge/embargo, grid, cost scenarios, sensitivity matrix, gate hashes, history/trial burden, limits và stop rules | Metadata-only trước; execution cần approval |
-| R4 — qualification | Chạy nested WFO đúng protocol; inner chọn, outer chỉ đánh giá; mandatory sensitivity và native gates | Raw/seal/source/registry hợp lệ + independent review. Báo riêng engineering verdict và research verdict | Budget/fingerprint approval riêng |
-| R5 — operational | Paper/shadow, parity và order lifecycle/recovery/risk-stop; kiểm nối selection policy vào runner thực tế | Operational evidence và owner sign-off; không coi research winner tự nối vào live runner | Không live nếu chưa cấp quyền riêng |
+| ID / nhóm | Thông tin ứng viên | Vai trò và điều cần phân biệt | Admission hiện tại |
+| --- | --- | --- | --- |
+| G0 Own-pair | Returns nhiều horizon, volatility/drawdown, volume surprise, candle/range structure | Thông tin riêng hay chỉ cùng một trend được biến đổi? | Chưa xác minh eligible ETH/BNB; không mặc định mọi window đã có quyền đọc |
+| G1 BTC | Return/hướng, volatility, drawdown, shock và trạng thái volume | Market context/lead–lag hay phản ứng đồng thời đã nằm trong giá target? | Dùng đúng BTC artifact được bind, không tái dùng approval cũ |
+| G2 ETH/benchmark | ETH context cho BNB, BTC-versus-ETH relative strength | ETH có bổ sung sau BTC không; khác loading không tự là forecast | Chỉ dùng historical closed context; không future target leakage |
+| G3 Cross-asset relation | Lagged beta/correlation, residual, ratio, relative momentum/dispersion | Predict absolute USDT hay chỉ relative ranking; continuation hay reversal phải đặt trước | Pair/time alignment contract còn phải hoàn tất |
+| G4 Market breadth | Advance/decline, share above fixed trend, return/volume dispersion | Basket strength khác betaBTC? Universe point-in-time và survivorship có đúng không? | BTC/ETH/BNB chỉ là breadth của3asset, không gọi toàn thị trường |
+| G5 Liquidity/order flow | Spread, depth/imbalance, taker buy/sell, trade counts, impact proxies | Entry edge hay execution-cost/feasibility variable? | OHLCV không tái tạo true depth/spread; data mới NOT_ADMITTED |
+| G6 Derivatives positioning | Funding, open interest và changes, basis, liquidation reports | Crowding/leverage context hay phản ứng sau giá? Provider/exchange coverage thế nào? | Chỉ là information-candidate; không mở perp/short. Không có quyền collection mới |
+| G7 Dominance/capital structure | BTC.D, ETH.D, stablecoin supply/share, market cap | Market composition khác actual inflow; universe/supply revision có được giữ không? | DOM vẫn DEFERRED nếu chưa có eligible vintage; không proxy giả từ3OHLCV |
+| G8 Coin-specific events | Unlock schedule, listings/delistings, network outage/upgrade, governance | Thông tin đã announce lúc nào, forecast hay realized event? | Cần first-known/versioned announcements; không dùng lịch đã sửa để backdate |
+| G9 On-chain/flows | Exchange-flow estimates, address activity, concentration, BTC/ETH ETF-flow releases nếu phù hợp | Transfer/internal move khác trade/inflow; attribution và report lag ra sao? | Sources/timestamps/coverage chưa admit, không có quyền tải |
+| G10 Macro/calendar | USD/rates/equity context, scheduled releases, actual/expected surprises, trading-session calendar | Có thêm thông tin ngoài crypto factor không; holiday/session/timezone và revision? | Expected phải là vintage trước release; actual/revised không backfill |
+| G11 News/attention | Volume tin/attention, event categories, sentiment nếu có nguồn đáng tin | Tin dẫn giá hay chỉ tường thuật giá đã chạy? Duplicate/entity/model bias? | Metadata pilot đã DECLINED; catalog hóa không mở lại collector/LLM |
 
-Ưu tiên R0/R1 trước R2. 5strategy là giới hạn runner calibration hiện có, không
-phải tuyên bố pool17strategy đã được chọn lọc kinh tế. Nếu5strategy đều thiếu
-mẫu: báo INFEASIBLE_WITH_CURRENT_PROTOCOL, rồi đề xuất thay đổi hypothesis
-(TF/pair/family/history) như một nghiên cứu mới, tính trial burden và xin duyệt.
-Không chạy tất cả17ngay để "tìm một cái PASS".
+Không lấy toàn bộ nguồn mới ngay. X0 phân loại: (A) có thể tính từ dataset đã
+được admit; (B) có field/archive nhưng chưa chứng minh PIT/quality; (C) cần
+nguồn mới. B/C vẫn có trong danh mục, nhưng NOT_ADMITTED không thể xuất hiện
+như feature0 trong market experiment. Thứ tự làm dựa trên khả năng trả lời
+câu hỏi, availability/quality và chi phí, không dựa trên Sharpe đã xem.
+Không mua API, tải dữ liệu hoặc sửa profile giao dịch từ việc liệt kê G6–G11.
 
-## 5. Thiết kế R2 đề xuất — chưa freeze/chưa duyệt
+**Mỗi feature phải có một hồ sơ đủ tái lập:** ID/group; driver/proxy/
+consequence/execution/risk role; mechanism và competing explanation;
+source/raw hash/entity/universe; event/published/first-seen/ingested/available
+timestamps và revisions; formula/units/lag/lookback/horizon; stale/missing
+policy; target/pair; correlation group; owner; permitted read/evaluation
+scope; compute/data cost; trial/dependency identity. Nếu chưa biết thì ghi
+UNKNOWN. Không để tên “dòng tiền”, “sentiment”, “smart money” thay definition.
 
-**Update: thiết kế này đã được duyệt và chạy**, không còn pending execution.
-Packet `data/calibration_feasibility_pool5_btc4h_20261016_01`, fingerprint
-`0b5ff99f4752c512718e6727686597a5194b9a023f3c04b063ff9f93e3725f87`,
-sourceb897c32: ACCEPTED_CALIBRATION,10COMPLETED/10ABSTAIN; all thiếu30trades,
-7cells còn fail Sharpe>0. Supervisor336.56s, execution327.52s, CPU194.60s.
-Evidence ngoài packet: `data/pool5_freeze_20261016_01/results_summary.json`
-và execution_handoff.json. Source/input/config/382protected files giữ nguyên;
-registry append được kiểm qua canonical verifier. Đây là calibration feasibility,
-chưa OOS hoặc strategy qualification. Bảng metrics trong CAMPAIGN_STATUS.md.
+#### Kiểm chứng theo funnel, không đưa mọi biến vào một optimizer
 
-R2 closed trong phạm vi fixed defaults trên2windows, không đóng R1 broad parity
-hay R4qualification. R3 chưa có thiết kế vừa đủ mẫu vừa đủ folds được chứng minh.
-Không chọnma_adx chỉ vì early+5.28%/Sharpe1.27 trên7trades. RSI/BB tạo nhiều
-actions/trades hơn nhưng cả2windows lỗ; không suy "tăng tần suất = tốt hơn".
-Các bullet dưới là thiết kế đã chạy, không phải quyền chạy lại packet.
+1. **Admission và timing trước payoff.** Kiểm PIT/quality/entity/source và
+   causal alignment bằng metadata/synthetic trước. Loại leakage, invalid hoặc
+   duplicate engineering features; không kết luận chúng không có kinh tế.
+   Một bộ dữ liệu lấy hôm nay không tự phục hồi historical available-at.
+2. **Chốt mục tiêu.** Forecast label là absolute futureUSDT return/risk hoặc
+   execution cost theo horizon/timing được freeze; residual/relative return
+   là target phụ nếu cần. Tách raw return predictability khỏi policy PnL.
+   Với k+2, label không được giả mua ở closek. Các label overlap phải purge/
+   embargo và mature trước fit; own/BTC/ETH data đều theo cùng time split.
+3. **Discovery trong train/inner.** Bounded simple reference model hoặc
+   deterministic tests được chốt trước; scalers, correlation clustering,
+   lag/horizon choices, feature selection và interaction search đều fold-local.
+   Không fit chọn toàn sample rồi mới WFO; không random split các hourly rows.
+   Chưa thêm model class vào legacy path trước khi kiểm fold-local fit support.
+4. **Kiểm theo nhóm và giá trị bổ sung.** A0/A1/A2 vẫn là baseline bắt đầu.
+   Các nhóm được admit khác có add-group và drop-group contrasts với reference
+   đã freeze. Ghi cả marginal và conditional incremental value. Hai biến
+   thay thế nhau có thể có importance riêng thấp mà nhóm vẫn hữu ích.
+5. **Interactions có giả thuyết.** Ví dụ BTC stress × relative strength hoặc
+   OI change × price move chỉ là candidate interactions; phải preregister
+   trước outcome và đếm trials. Không duyệt mọi tổ hợp `2^G` hoặc mọi lag.
+   Univariate yếu không đủ loại tương tác đã đăng ký; không đổi pair/horizon
+   tới khi một interaction dương.
+6. **Importance có kiểm soát.** Ưu tiên held-out group ablation, stability
+   across development folds và conditional/group tests. Nếu dùng permutation,
+   cần block/time-preserving design thích hợp, không xáo ngẫu nhiên từng row
+   rồi coi là mẫu thị trường hợp lệ. Correlated features và realistic-support
+   violations phải được công bố. SHAP/tree importance chỉ hỗ trợ giải thích
+   model, không chứng minh nhân quả hoặc khả năng trả phí.
+7. **Economic test dưới native policy.** Chỉ nhóm/tập đã được chọn trong
+   discovery mới vào một protocol mới có authority: cùng calendar/masks,
+   costs/risks, actual signals→fills→PnL, turnover/exposure/tail loss/skip path.
+   Cải thiện forecast score hoặc giảm lỗ chưa đủ để claim tradable edge.
+8. **Confirmation khóa riêng.** Outer/cohort đủ điều kiện chỉ dùng xác nhận
+   pipeline đã freeze, không làm feature-selection feedback. Nếu đọc outer
+   rồi chọn lại nhóm thì nó đã thành development exposure và cần cohort mới.
+   Không mở reserved holdout. Uncertainty/multiple-testing/dependence design
+   và minimum economic improvement phải chốt trước; absence-of-evidence giữ
+   INCONCLUSIVE khi power/sample thiếu.
 
-- BTC/USDT4h, input pre-holdout hiện hữu6795bars, không download.
-- Hai cửa sổ cố định2024H1 và2025H2, không chọn theo lợi nhuận.
-- 5strategy được calibration hỗ trợ,1resolved default/candidate,1xcost.
-- Dự kiến10cells nếu dùng nguyên contract hiện có,1worker,0retries.
-- Budget đề xuất theo contract:180s wall/120s CPU mỗi cell;1800s wall/1200s CPU
-  aggregate, sampled RSS2GiB. Không suy ETA10cells từ2cells MA.
-- Giữ minimum30validation trades và Sharpe floor hiện hành; output count không
-  phải quyền promotion. Default không khớp ADX25 hoặc semantics → dừng trước freeze.
-- Đây là feasibility diagnostic: đủ mẫu chỉ cho phép đề xuất qualification,
-  không dùng return ranking của hai cửa sổ để tuyên bố best strategy.
+Các contrasts bổ sung tăng sốcells/trials:18F trong §10.5 **chỉ còn là core
+baseline**, không là budget toàn broad study. Catalog không tự tạo market
+trial nhưng mọi price-return scan/feature screen đã thực thi đều ghi trong
+research ledger, kể cả không register SQL. Selection của groups, interactions,
+pair/horizon/model cũng tính search burden; không reset qua từng wave.
+Không chạy nghiên cứu vô hạn để tới bảng importance đẹp.
 
-## 6. R3: tiêu chí chọn thiết kế, không ép thiết kế để PASS
+#### Bằng chứng cần nhận được cho từng pair
 
-### R3 metadata đã hoàn tất — quyết định sau POOL5
+Output không phải một bảng “top10 features” chung. Mỗi feature/group có:
 
-Authority: `data/research_r3_geometry_20261016_01/analysis.json` và
-close_boundary_execution.json. Source sạchb897c32. Không chạy simulator,
-không freeze protocol, không thay registry. Packet POOL5 và các input được hash
-trước/sau; chỉ đọc timestamp columns, không đánh giá holdout prices.
+- Status: NOT_ADMITTED / INCONCLUSIVE / REDUNDANT_CONDITIONAL / PREDICTIVE_ONLY /
+  ECONOMICALLY_USEFUL_IN_SCOPE / REJECTED_IN_SCOPE; nêu exact scope/model/
+  dataset/horizon. Redundant không nghĩa biến vô dụng với mọi model.
+- Incremental forecast metric và economic metric so với reference; uncertainty
+  interval/method và effective sample limits; cost levels, regimes được chốt,
+  direction/lag stability; subset/interaction dependencies; compute/data cost.
+- Evidence level riêng: association, incremental prediction, native economic
+  contribution, confirmed generalization. **Causal effect UNKNOWN** trừ khi
+  có identification design riêng phù hợp (ví dụ natural experiment với giả
+  định/controls được review); ablation input không là can thiệp thị trường.
 
-Đã inventory10input hiện hữu: BTC/ETH/BNB/SOL/XRP ×1h/4h. Mỗi input4h có6795bars,
-1h có25198bars. Timestamps tăng nghiêm ngặt,0nonstandard intervals; cả last open
-và last close không vượt holdout cutoff2026-02-06T16:00Z. Đây chưa là OHLCV
-quality/parity/cost proof cho1h hoặc mọi pair.
+Một biến có thể hữu ích cho risk hoặc spread prediction mà không dự báo
+direction. Giữ đúng vai trò: execution/risk input không bị ép thành BUY,
+không cho feature screening tự sửa protections. Cuối cùng chọn policy nhỏ
+nhất giữ được giá trị ngoài sample cho từng pair, không giữ mọi nguồn chỉ
+vì đã tốn công thu thập. Không có nhóm nào đạt cũng là kết quả hợp lệ.
 
-BTC1h SHA: `45ba1b1bc6a91986eda445de8026cab9995fcabe011a735244a4c7cf0e0825ce`.
-BTC4h giữ SHA99114c33… đã dùng POOL5. Không cần download hoặc resample để **đề
-xuất** nghiên cứu1h. Hai input bắt đầu khác nhau, không coi là cùng history.
+#### Giao việc tiếp theo trong phạm vi hiện tại
 
-Tính lại bằng `_get_fold_indices` trên exact6795bars, train12/test3/step3months,
-purge/embargo100bars theo current default-five contract:
+X0 proposal sẽ lập catalog G0–G11 và bảng available/UNKNOWN từ metadata/docs
+đang có, rồi đề xuất **một wave data/feature admission cụ thể**. Chưa tự chạy
+payoff screen, collection hoặc market batch. X1/X2 mở rộng từ6feature seed
+sang thông tin đã admit, không ép toàn12group phải có đủ mới được làm gì.
+Kế hoạch lớn này không tạo ngân sách hoặc quyền mới cho nguồn đã bị từ chối.
 
-| Validation (tháng30ngày) | Folds | Số cost-clearing tối thiểu để p≤.10 | Nhận xét |
-|---|---:|---:|---|
-| 3 | 6 | 6/6 | Validation không overlap, nhưng mẫu còn thưa |
-| 6 | 5 | 5/5 | Validation overlap; POOL5 đã thiếu30trades ở ~6tháng |
-| 9 | 4 | 4/4 | Overlap; density scaling RSI gần đủ, chưa được đo |
-| 12 | 3 | Không thể | Kể cả3/3 thì p=.125, không đạt gate |
-
-ExactBTC1h25198bars cũng cho6/5/4/3folds với cùng tháng và100bar gaps. Nhiều bars
-hơn không đồng nghĩa nhiều tháng/folds độc lập hơn. Không dùng4h trade density
-để dự báo1h, hoặc gọi các folds overlap là independent statistical trials.
-
-| Candidate | Bars4h cần cho30closes theo mật độ2cửa sổ đã đo | Quyết định |
-|---|---:|---|
-| enhanced_ma | 3640–5520 | Không mở grid4h hiện tại; thiếu feasibility proof |
-| ma_adx | 4680–6624 | Không chọn từ7trades đầu dương; giữADX25 |
-| ma_vol_target | 3640–4140 | Không kéo window tới20–23tháng để bù trades rồi bỏ gate folds |
-| rsi | 1490–1578 | 9tháng có scaling30.82–32.64trades, nhưng2windows lỗ; không đủ đề cử winner |
-| bbands | 1560–1656 | 9tháng scaling29.35–31.15; không bảo đảm30 |
-
-Các khoảng trên là phép chia density, **không forecast/power analysis hoặc
-trade adequacy thực đo ở cửa sổ mới**. Protocol9tháng không bị chứng minh bất
-khả thi toán học cho mọi strategy; kết luận đúng là chưa được chứng minh khả
-thi và hiệu quả. Không cherry-pick9tháng RSI sau khi xem cả5candidate để tuyên
-bố alpha. Các observations này phải tính vào trial history nghiên cứu tiếp.
-
-### Phương án đề nghị và work packages tiếp theo
-
-**Chọn tiếp engineering hỗ trợ explicit1h trước, chưa chọn strategy.** Lý do:
-dữ liệu1h có sẵn, có thể đo hypothesis tần suất/chi phí mới mà không hạ gates.
-Chưa có bằng chứng1h sẽ tốt hơn. Không mở5pairs ngay; giữBTC trước để không
-nhân trial burden và nhu cầu broker/capital. Không chạy lại WFO4h lớn chỉ vì
-muốn một packet có PASS.
-
-| Lựa chọn | Kết luận hiện tại | Điều kiện thay đổi |
-|---|---|---|
-| Lặp grid4h hiện có | Không khuyến nghị ở bước kế | Hypothesis mới, sample/fold/cost proof và budget riêng |
-| 4h validation9tháng RSI/BB | Chưa chọn làm qualification | Đăng ký như nghiên cứu mới; sample thực đo, overlap/power review; không rank từ2windows |
-| BTC1h fixed-five feasibility | Hướng đo tiếp được đề xuất | Engineering contract1h và approval mới, không default4h trá hình |
-| Mở nhiều pairs/17strategy/short | Hoãn | Compatibility/data/execution và multiple-testing plan riêng |
-
-1. **E1 — explicit timeframe contract (chưa triển khai):** calibration market
-   hiện hardcode4h trong execution.py; synthetic-demo1h không chứng minh market1h
-   support. Bổ sung một contract có version cho timeframe, byte binding, timestamp
-   spacing/bar-close boundary, warmup theo bars và window calendar. Producer và
-   verifier phải cùng hiểu1h; giữ tương thích xác minh packetv2 cũ, không mutate
-   hoặc reseal chúng. Không chỉ thêm CLI flag rồi đổi label báo cáo.
-2. **E2 — tests trước market:** synthetic1h/4h roundtrip, wrong-TF input rejected,
-   missing/gapped/duplicated timestamps, close-at-cutoff handling đúng policy,
-   params/feature/cost/receipt drift, old packet read-only verification, AC01–AC15.
-   Re-review/integrate trên source mới trước freeze; approvalb897c32 không reuse.
-3. **E3 — budget pilot trước10cells:** đề xuất riêng phép đo1h nhỏ để biết wall/
-   CPU/RSS trên ~4xmeasurement bars; vẫn chưa chạy. Xác định cells/limits/exit
-   trước freeze. Timeout là INCOMPLETE, không tự tăng budget hay retry.
-4. **E4 — fixed-five1h feasibility:** chỉ sau pilot và budget/fingerprint approval
-   riêng, cùng2calendar windows đã preregister, cùng fixed defaults,1xcost và
-   gates30trades/Sharpe>0. Period20/80 ở1h tương ứng horizon khác4h; ghi rõ đó là
-   hypothesis khác, không "cùng strategy performance". Không tuning song song.
-5. **E5 — chọn qualification protocol:** chỉ candidate có sample adequacy và
-   economics đáng nghiên cứu mới đề xuất grid/folds/cost stress/sensitivity/trial
-   burden. Vẫn chưa gọi qualified trước outer/native gates và review độc lập.
-
-Exit/stop: drift hoặc unsupported contract → dừng engineering; pilot timeout →
-giữ packet và xin quyết định; feasibility tất cảABSTAIN → báo NO_SUPPORTED_WINNER,
-không tự mở pair/strategy/holdout. Nếu không có thiết kế đủ bằng chứng trong dữ
-liệu cho phép, giữ paper-only/no-live là kết quả đúng.
-
-R3 status: **METADATA_COMPLETE / NEXT_HYPOTHESIS_PROPOSED**, chưa full protocol
-freeze hay đủ quyềnE3/E4market run. Các đoạn dưới là constraints/background.
-
-Đã có planner metadata cho historical input7946bars,6796timestamp trước cutoff:
-validation3/6/9/12months cho6/5/4/3folds và binomial p<=.10 cần6/5/4/impossible
-folds cost-clearing. Đây là bằng chứng lịch sử, không phải kết quả trên input
-6795bars của diagnostic. Phải recompute trên exact bound input mới.
-
-Tradeoff bắt buộc ghi trong protocol:
-
-1. Cửa sổ dài hơn có thể tăng trades nhưng giảm folds; folds overlap không tạo
-   quan sát độc lập. Binomial geometry-pass không chứng minh statistical power.
-2. 1h cần input/feature/cost và bar alignment phù hợp đã có; không tự resample4h
-   thành1h, không dùng thêm holdout để bù lịch sử. Chi phí/turnover phải đo lại.
-3. Nhiều pair không phải nhiều mẫu độc lập; universe và phép gộp phải preregister.
-4. Chọn policy bằng inner validation; không lựa lại grid/window sau khi xem outer.
-   Historical observations/trials phải giữ, không reset multiple-testing burden.
-5. Không tự tách semantic identity khỏi execution/source binding để reuse. Chỉ
-   reuse nếu contract có kiểm compatibility, source lineage và explicit support.
-6. Dừng nếu không tồn tại thiết kế vừa đủ trades vừa đủ fold evidence trong dữ
-   liệu được phép. Trình lựa chọn mới, không bỏ sensitivity, giảm gate hay mở holdout.
-
-## 7. Handoff bắt buộc và definition of done
-
-Mỗi phase ghi: source HEAD+tree+dirty scope; input/config/manifest SHA; danh sách
-đã xem và chưa xem; test commands/results; tài nguyên đo; exact verdict; remaining
-blockers và quyền cần thêm. Artifact mới nằm ngoài sealed packet cũ.
-
-Nếu sửa promotion/gate/evidence paths thuộc AGENTS.md: chạy AC01–AC15. Các thay
-đổi engineering khác chạy tests đúng phạm vi; không cộng số tests lịch sử vào
-số tests revision hiện tại. Đổi source sau freeze → reverify/refreeze và xin
-approval mới, không reseal. Không tự commit/push/merge, mở tài khoản hay gửi lệnh.
-
-Agent tự kiểm cuối vòng:
-
-- Tôi vừa chứng minh engineering, feasibility, OOS qualification hay live readiness?
-- Mỗi kết luận trỏ được raw report/test trên đúng revision không?
-- Có strategy bị bỏ qua chỉ vì runner chưa hỗ trợ không? Có gắn BLOCKED rõ không?
-- Có đổi cửa sổ/params/threshold sau khi xem kết quả hoặc bỏ lịch sử trials không?
-- Bước tiếp theo có thật sự giảm một uncertainty cụ thể, trong budget được duyệt?
-
-Nếu không trả lời được: giữ trạng thái pending và nêu missing evidence. Không
-tự lặp campaign. Kế hoạch này hoàn tất khi R0/R1 có bằng chứng, R2/R3 được duyệt
-riêng nếu cần chạy, và không còn nhầm calibration PASS thành strategy qualified.
+Cơ sở phương pháp: [Permutation importance under correlated features](https://scikit-learn.org/stable/auto_examples/inspection/plot_permutation_importance_multicollinear.html)
+cho thấy importance từng biến có thể gây hiểu nhầm khi inputs tương quan;
+[Nested model selection](https://scikit-learn.org/1.5/auto_examples/model_selection/plot_nested_cross_validation_iris.html)
+giải thích selection bias khi dùng cùng data để chọn/evaluate. Đây là ví dụ
+phương pháp của thư viện, không phải trading validation; phải thêm time-aware
+splits, trial accounting và native economics riêng của repo.

@@ -26,7 +26,6 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import math
 import sys
 from pathlib import Path
 
@@ -44,6 +43,7 @@ WINDOWS = {
     "window_2_bull": [2360, 3440],
     "window_3_post_trend": [3440, 4080],
 }
+START, STOP = WINDOWS["window_2_bull"]
 SYMBOL = "BNB/USDT"
 TIMEFRAME = "4h"
 INITIAL_CASH = 10000.0
@@ -87,7 +87,6 @@ def get_signals(frame, strategy_id, params):
     from trading_agent.strategies.canonical.candidates import (
         build_parameterized_adapter,
     )
-    from trading_agent.strategies.canonical.adapter import LegacyDataFrameAdapter
     from trading_agent.backtest.tournament import canonical_signal_series
 
     descriptor, adapter = build_parameterized_adapter(strategy_id, params)
@@ -114,8 +113,6 @@ def run_arm(frame, signals, arm_name, with_filter=True, stop_loss_pct=STOP_LOSS_
     Cooldown: 24h post-sell.
     Fees: commission 0.1%, spread 10bps on entry/exit.
     """
-    import numpy as np
-
     prices_open = frame["open"].to_list()
     prices_high = frame["high"].to_list()
     prices_low = frame["low"].to_list()

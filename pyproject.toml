@@ -112,6 +112,7 @@ markers = [
     "r04: R04 scope lock and campaign orchestration tests",
     "r05: R05 real policy and replay clock tests",
     "xdist_group: pytest-xdist group marker (auto-applied by conftest to DB-sensitive modules)",
+    "integration: tests requiring untracked local market data; excluded from CI shards",
 ]
 # --dist loadgroup ensures xdist_group("shared_db") tests run on a single
 # worker, eliminating SQLite file-lock races between parallel test processes.

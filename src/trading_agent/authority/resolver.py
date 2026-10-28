@@ -71,12 +71,20 @@ class StrategyRuntime:
         research_run_id: str | None = None,
     ) -> "StrategyOutput":
         """Execute strategy on current market data → StrategyOutput."""
-        # First compute indicators, then generate signals
-        if hasattr(self.strategy, "compute_indicators"):
-            market_data = self.strategy.compute_indicators(market_data)
+        # Position-aware policies must handle expiry before accessing market
+        # context. Legacy strategies retain their original indicator/signal path.
+        position_signal = getattr(self.strategy, "generate_signal_with_position", None)
+        if callable(position_signal):
+            signal = position_signal(market_data, portfolio_state)
+        else:
+            if hasattr(self.strategy, "compute_indicators"):
+                market_data = self.strategy.compute_indicators(market_data)
+            signal = None
 
         # Try both singular and plural method names for backward compatibility
-        if hasattr(self.strategy, "generate_signal"):
+        if callable(position_signal):
+            pass
+        elif hasattr(self.strategy, "generate_signal"):
             signal = self.strategy.generate_signal(market_data)
         elif hasattr(self.strategy, "generate_signals"):
             signal = self.strategy.generate_signals(market_data)

@@ -70,6 +70,13 @@ def _is_forbidden_call(node: ast.Call, file_path: Path) -> tuple[bool, str | Non
         if len(attrs) >= 2:
             root = attrs[0]
             child = attrs[1]
+            # Engine.close_position routes through canonical emergency reduce;
+            # allow only this exact internal dispatch, never self.exchange.*.
+            if (
+                file_path == Path("src/trading_agent/execution/engine.py")
+                and attrs == ["self", "close_position"]
+            ):
+                return False, None
 
             # Canonical lifecycle/gateway/storage calls are safe
             if root in ("lifecycle", "store", "gateway", "lc", "engine", "simulator"):
@@ -141,6 +148,13 @@ def _get_python_files(directories: list[Path]) -> list[Path]:
 
 class TestDirectBrokerWriteGuard:
     """Static analysis guard against direct broker/exchange calls."""
+
+    def test_engine_internal_close_does_not_allow_venue_close(self):
+        path = Path("src/trading_agent/execution/engine.py")
+        internal = ast.parse("self.close_position(symbol)").body[0].value
+        venue = ast.parse("self.exchange.close_position(symbol)").body[0].value
+        assert _is_forbidden_call(internal, path) == (False, None)
+        assert _is_forbidden_call(venue, path) == (True, "close_position")
 
     def test_no_direct_broker_calls_outside_boundaries(self):
         """Ensure no direct broker calls outside canonical boundaries."""

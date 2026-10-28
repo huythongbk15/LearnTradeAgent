@@ -35,7 +35,7 @@ Audit ngày 07/09/2026 dựa trên HEAD `f8dda19c8324ae07d0b89e4c5edd094fd72eba7
 
 Bằng chứng kiểm tra tại mốc audit: 24 test approval/permission/tournament-control đạt; mypy đạt 28 file được cấu hình; Ruff còn 12 lỗi trong script S6 local. Đây không phải full regression. Các số này là lịch sử, agent không được sao chép thành kết quả mới.
 
-Artifact [Enhanced MA parallel](../../data/backtests/wfo_parallel_summary_enhanced_ma/wfo_decision.json) cần tái thẩm định, không xóa hoặc sửa thành tích lịch sử. Artifact [RSI BTC canonical](../../data/backtests/wfo_real_20260906/wfo_summary.json) có `NO_TRADE`; không suy rộng thành mọi strategy đều thất bại. [S5 synthetic](../../data/backtests/s5_adaptive_campaign/s5_campaign_summary.json) chỉ là diagnostic. Đường dẫn ở đây là locator; ticket evidence phải ghi thêm content hash vì đường dẫn có thể bị ghi đè.
+Artifact Enhanced MA parallel — local evidence `data/backtests/wfo_parallel_summary_enhanced_ma/wfo_decision.json` cần tái thẩm định, không xóa hoặc sửa thành tích lịch sử. Artifact RSI BTC canonical — local evidence `data/backtests/wfo_real_20260906/wfo_summary.json` có `NO_TRADE`; không suy rộng thành mọi strategy đều thất bại. S5 synthetic — local evidence `data/backtests/s5_adaptive_campaign/s5_campaign_summary.json` chỉ là diagnostic. Đường dẫn ở đây là locator; ticket evidence phải ghi thêm content hash vì đường dẫn có thể bị ghi đè.
 
 ## 3. Thứ tự và nguyên tắc phối hợp
 

@@ -2,9 +2,10 @@
 AC03 Evidence Script — Freeze and Holdout Restart.
 
 Independent oracle: reads research_manifest.json from scratch, computes SHA-256
-integrity, parses holdout window dates, loads OHCLV data independently, and
+integrity, parses holdout window dates, creates a synthetic hourly clock, and
 maps holdout to bar indices — WITHOUT using load_manifest/holdout_window functions.
 Then verifies the production code matches.
+This is engineering evidence, not market-data or economic qualification.
 """
 import hashlib
 import json
@@ -13,6 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
+import polars as pl
 
 # ── Independent oracle ─────────────────────────────────────────────────
 MANIFEST_PATH = Path("data/research_manifest.json")
@@ -64,7 +66,6 @@ from trading_agent.alpha_research.holdout import (
     holdout_window, load_manifest, guard_training_window,
     HoldoutError,
 )
-from trading_agent.data.storage import load_ohlcv
 from trading_agent.backtest.nested_wfo import (
     _resolve_frozen_holdout_window,
 )
@@ -93,8 +94,13 @@ check("C2_window_end", oracle_end == sys_end,
       f"oracle={oracle_end.date()}, system={sys_end.date()}")
 
 # ── C3: Bar mapping matches production code ────────────────────────────
-# Use the same symbol/timeframe as manifest (1h)
-df = load_ohlcv("binance", "ADA_USDT", "1h")
+# Only timestamps are required by the holdout mapper. Never read reserved prices
+# or depend on an untracked market file to prove an engineering boundary.
+clock = pd.date_range(
+    oracle_start - pd.Timedelta(days=2),
+    oracle_end + pd.Timedelta(days=2), freq="h",
+)
+df = pl.DataFrame({"timestamp": clock.to_pydatetime().tolist()})
 n_bars = df.height
 
 holdout = _resolve_frozen_holdout_window(df, spec=None)  # spec not needed for manifest load
@@ -169,6 +175,7 @@ print(f"AC03 Evidence: {'ALL PASS' if all_pass else 'FAIL'} ({len(results)} chec
 print(f"{'='*60}")
 
 evidence = {
+    "evidence_class": "SYNTHETIC_TIMESTAMP_ENGINEERING_CHECK",
     "ac_id": "AC03",
     "oracle": "independent: SHA-256 manifest, date parse, bar index mapping",
     "cases": results,

@@ -2987,11 +2987,15 @@
 │   ├── guides
 │   │   └── RESEARCH_TO_PRODUCTION.md
 │   ├── operations
+│   │   ├── archive
+│   │   │   └── MULTI_STRATEGY_RESEARCH_PLAN_PRE_E2E_20261025.md
+│   │   ├── ALTCOIN_INFORMATION_RESEARCH_DISCUSSION.md
 │   │   ├── BNB_ADX25_EVIDENCE_CARD.md
 │   │   ├── BNB_ADX25_RESEARCH_MANIFEST.json
 │   │   ├── BNB_QUALIFICATION_PROTOCOL.md
 │   │   ├── CAMPAIGN_EVIDENCE_CONTRACT.md
 │   │   ├── CAMPAIGN_EVIDENCE_HANDOFF.md
+│   │   ├── INTEGRATION_REVIEW_20261028.md
 │   │   ├── L2_SELECTION_RULE.md
 │   │   ├── LIVE_READINESS_AGENT_PLAN.md
 │   │   ├── MAIN_FLOW_VALIDATION.md
@@ -3002,7 +3006,9 @@
 │   │   ├── RESEARCH_RUN_PROTOCOL.md
 │   │   ├── RSI_REGIME_SWITCH_EVIDENCE_CARD.md
 │   │   ├── RSI_REGIME_SWITCH_MANIFEST.json
-│   │   └── VALIDATION_CLOSURE_20261016.md
+│   │   ├── VALIDATION_CLOSURE_20261016.md
+│   │   ├── VALIDATION_REFACTOR_AGENT_PLAYBOOK.md
+│   │   └── VALIDATION_REFACTOR_PLAN.md
 │   ├── proposals
 │   │   └── regime_switched_strategy_design.md
 │   ├── reference
@@ -3392,6 +3398,7 @@
 │       │   ├── engine.py
 │       │   ├── execution_contract.py
 │       │   ├── execution_funnel.py
+│       │   ├── fill_cycle_synthetic.py
 │       │   ├── native_gate_contract.py
 │       │   ├── nested_wfo.py
 │       │   ├── portfolio_backtest.py
@@ -3403,6 +3410,8 @@
 │       │   ├── selection_eligibility.py
 │       │   ├── synthetic_data.py
 │       │   ├── tournament.py
+│       │   ├── validation_reporting.py
+│       │   ├── validation_supervisor.py
 │       │   └── wfo_sensitivity.py
 │       ├── calibration
 │       │   ├── __init__.py
@@ -3518,6 +3527,7 @@
 │       │   ├── multi_pair_runtime.py
 │       │   ├── paper_exchange.py
 │       │   ├── permission.py
+│       │   ├── position_cycle.py
 │       │   ├── proposal.py
 │       │   ├── proposal_executor.py
 │       │   ├── risk_controller.py
@@ -3588,9 +3598,13 @@
 │       ├── research
 │       │   ├── __init__.py
 │       │   ├── artifact.py
+│       │   ├── btc_context_features.py
+│       │   ├── btc_context_prereg.py
+│       │   ├── btc_context_rule.py
 │       │   ├── calibration.py
 │       │   ├── drift.py
 │       │   ├── forecast.py
+│       │   ├── information_gate_prereg.py
 │       │   ├── lifecycle.py
 │       │   ├── param_grids.py
 │       │   ├── policy_resolver.py
@@ -3634,9 +3648,12 @@
 │       │   ├── di_adx_state_edge.py
 │       │   ├── enhanced_ma.py
 │       │   ├── funding_carry.py
+│       │   ├── liquidity_reversal.py
 │       │   ├── ma_crossover.py
 │       │   ├── online_learning_strategy.py
 │       │   ├── options_strategies.py
+│       │   ├── own24_context.py
+│       │   ├── own24_fill_context.py
 │       │   ├── range_mean_reversion.py
 │       │   ├── regime_switching.py
 │       │   ├── rsi.py
@@ -3668,9 +3685,15 @@
 │   │   ├── test_cancel_stop_regressions.py
 │   │   ├── test_canonical_pipeline.py
 │   │   ├── test_e2e_paper_flow.py
+│   │   ├── test_emergency_close_protection.py
+│   │   ├── test_fill_cycle_driver.py
+│   │   ├── test_fill_holding_runtime.py
 │   │   ├── test_historical_permission_preview.py
 │   │   ├── test_instrument_registry.py
+│   │   ├── test_integration_cycle_guards.py
 │   │   └── test_paper_exchange_telemetry.py
+│   ├── fixtures
+│   │   └── btc_context_admission_metadata.json
 │   ├── strategies
 │   │   ├── test_candidate_factory.py
 │   │   ├── test_canonical_contract.py
@@ -3703,6 +3726,9 @@
 │   ├── test_binance_testnet_acceptance.py
 │   ├── test_bnb_native_preflight.py
 │   ├── test_bnb_operational_sandbox.py
+│   ├── test_btc_context_features.py
+│   ├── test_btc_context_prereg.py
+│   ├── test_btc_context_rule.py
 │   ├── test_calibrated_decision.py
 │   ├── test_calibration.py
 │   ├── test_calibration_packet.py
@@ -3739,6 +3765,7 @@
 │   ├── test_enhanced_ma_exit_safety.py
 │   ├── test_evaluation_execution_identity.py
 │   ├── test_evaluation_ledger_layers.py
+│   ├── test_event_store_synchronous.py
 │   ├── test_execution_algorithms.py
 │   ├── test_execution_contract.py
 │   ├── test_execution_funnel.py
@@ -3760,9 +3787,11 @@
 │   ├── test_golden_execute_promoted.py
 │   ├── test_holdout_manifest.py
 │   ├── test_indicator_window_equivalence.py
+│   ├── test_information_gate_prereg.py
 │   ├── test_l2_selection_rule.py
 │   ├── test_ledger_and_binding_invariants.py
 │   ├── test_legacy_cutover_migration.py
+│   ├── test_liquidity_reversal_admission.py
 │   ├── test_live_account_session.py
 │   ├── test_live_audit_watchdog.py
 │   ├── test_live_broker_balances.py
@@ -3792,6 +3821,7 @@
 │   ├── test_open_inventory_accounting.py
 │   ├── test_order_permission.py
 │   ├── test_order_planner_context.py
+│   ├── test_own24_context_window.py
 │   ├── test_p0_convergence.py
 │   ├── test_p4_p7.py
 │   ├── test_paper_exchange_accounting.py
@@ -3829,6 +3859,10 @@
 │   ├── test_research_stats.py
 │   ├── test_retired_wfo_wrapper.py
 │   ├── test_risk_decision.py
+│   ├── test_rsi_adx_branch_lifecycle.py
+│   ├── test_rsi_adx_indicator_contract.py
+│   ├── test_rsi_adx_native_timing.py
+│   ├── test_rsi_adx_rsi_edges.py
 │   ├── test_run_real_wfo_campaign_script.py
 │   ├── test_s3_3_real_return_stats.py
 │   ├── test_s3_7_holdout_fail_closed.py
@@ -3858,13 +3892,20 @@
 │   ├── test_tool_dispatch_audit.py
 │   ├── test_tournament_e2e.py
 │   ├── test_tournament_research_memory_integration.py
+│   ├── test_trend_pullback_admission.py
 │   ├── test_uncertainty_drift_methodology.py
+│   ├── test_validation_fail_fast.py
 │   ├── test_validation_only_workflow.py
+│   ├── test_validation_publication.py
+│   ├── test_validation_reporting_adapter.py
+│   ├── test_validation_supervisor_adapter.py
 │   ├── test_validation_timeout_and_ledger_faults.py
 │   ├── test_verify_account_hardening.py
 │   ├── test_verify_github_controls.py
 │   ├── test_verify_provenance.py
+│   ├── test_volatility_breakout_admission.py
 │   ├── test_web_security.py
+│   ├── test_wfo_fixed_params.py
 │   └── test_wfo_validation_envelope.py
 ├── webui
 │   ├── backend

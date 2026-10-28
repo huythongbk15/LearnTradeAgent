@@ -128,6 +128,30 @@ def assess_validation_candidates(contract, candidates: Sequence[Mapping]):
     }
 
 
+def annotate_candidate_decisions(candidates, decision) -> None:
+    """Copy a SELECT onto the winning candidate metrics.
+
+    Assessment returns a separate object. The validation summary treats a fold
+    as selected only when a candidate carries decision SELECT. Leaving the
+    metrics untouched publishes all_folds_selected false after a real SELECT.
+    """
+    selected = decision.get("selected") if isinstance(decision, Mapping) else None
+    if not selected:
+        return
+    matched = False
+    for candidate in candidates:
+        if not isinstance(candidate, dict):
+            continue
+        if (
+            candidate.get("params") == selected.get("params")
+            and candidate.get("cost_scenario") == selected.get("cost_scenario")
+        ):
+            candidate["decision"] = "SELECT"
+            matched = True
+    if not matched:
+        raise ValueError("selected candidate is missing from the fold metrics")
+
+
 def verify_validation_reports(
     contract,
     candidates,

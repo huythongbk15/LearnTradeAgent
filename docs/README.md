@@ -10,6 +10,8 @@ Nhãn `CURRENT` mô tả behavior hoặc quy trình đang tồn tại; `TARGET` 
 
 ## Bắt đầu nhanh
 
+Phạm vi tinh gọn validation đã nghiệm thu: [Kế hoạch và checkpoint](operations/VALIDATION_REFACTOR_PLAN.md), [Playbook nhiều agent](operations/VALIDATION_REFACTOR_AGENT_PLAYBOOK.md), Final handoff và evidence — local evidence `data/validation_refactor_final_20261023_01/RESULTS.md`. Không cấp quyền chạy research hoặc live.
+
 Mục tiêu gần nhất là live readiness: đọc [Quy trình agent L0–L4](operations/LIVE_READINESS_AGENT_PLAN.md).
 Trang này quản lý task, dependency và evidence review; không cấp quyền mainnet.
 
