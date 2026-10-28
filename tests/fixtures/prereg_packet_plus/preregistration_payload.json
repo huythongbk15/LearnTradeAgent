@@ -41,7 +41,10 @@
   },
   "budget": {
     "cell_timeout_seconds": 600,
+    "cell_orchestration_overhead_seconds": 60,
     "total_timeout_seconds": 7920,
+    "run_hard_cap_seconds": 8520,
+    "launcher_limit_not_increased": true,
     "max_rss_mb": 1024,
     "max_retries": 0
   },
@@ -59,5 +62,5 @@
       }
     }
   },
-  "identity_A_source_fingerprint": "src_sha_plus"
+  "identity_A_source_fingerprint": "8f9f5aff"
 }

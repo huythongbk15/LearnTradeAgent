@@ -20,6 +20,7 @@ from pathlib import Path
 
 import polars as pl
 import pytest
+from types import SimpleNamespace
 
 from trading_agent.execution.types import OrderStatus
 from trading_agent.research.btc_context_prereg import (
@@ -37,6 +38,12 @@ from trading_agent.backtest.preregistration_binding import (
     verify_registered_payload_binding,
 )
 from trading_agent.backtest.validation_supervisor import _supervise_validation
+from trading_agent.backtest.campaign_execution import CampaignCellRunner
+from trading_agent.backtest.tournament import (
+    EvaluationCellSpec,
+    SCENARIO_BASE,
+    FAULT_NONE,
+)
 from tests.execution.test_fill_holding_runtime import (
     Clock,
     SYMBOL,
@@ -115,7 +122,7 @@ def test_binding_passes_on_approved_payload():
         protocol = _base_protocol(payload)
         failed = verify_registered_payload_binding(
             protocol, "tok_plus",
-            root=REPOSITORY_ROOT, source_fingerprint="src_sha_plus",
+            root=REPOSITORY_ROOT, source_fingerprint="8f9f5aff",
         )
         assert failed == [], failed
     finally:
@@ -130,7 +137,7 @@ def test_binding_rejects_tampered_input_hash():
         protocol["input_binding"]["sha256"] = "00" * 32
         failed = verify_registered_payload_binding(
             protocol, "tok_plus", root=REPOSITORY_ROOT,
-            source_fingerprint="src_sha_plus",
+            source_fingerprint="8f9f5aff",
         )
         assert "input_sha256" in failed
     finally:
@@ -159,7 +166,7 @@ def test_binding_rejects_tampered_cell_timeout():
         protocol["execution"]["cell_timeout"] = 9999
         failed = verify_registered_payload_binding(
             protocol, "tok_plus", root=REPOSITORY_ROOT,
-            source_fingerprint="src_sha_plus",
+            source_fingerprint="8f9f5aff",
         )
         assert "cell_timeout" in failed
     finally:
@@ -174,7 +181,7 @@ def test_binding_rejects_tampered_total_timeout():
         protocol["validation_budget"]["total_timeout_seconds"] = 9999
         failed = verify_registered_payload_binding(
             protocol, "tok_plus", root=REPOSITORY_ROOT,
-            source_fingerprint="src_sha_plus",
+            source_fingerprint="8f9f5aff",
         )
         assert "total_timeout" in failed
     finally:
@@ -190,7 +197,7 @@ def test_binding_rejects_tampered_symbol():
         protocol["spec"]["symbol"] = "BTC/USDT"
         failed = verify_registered_payload_binding(
             protocol, "tok_plus", root=REPOSITORY_ROOT,
-            source_fingerprint="src_sha_plus",
+            source_fingerprint="8f9f5aff",
         )
         assert "symbol" in failed
     finally:
@@ -208,7 +215,7 @@ def test_binding_failure_never_starts_a_worker():
         protocol["input_binding"]["sha256"] = "00" * 32
         failed = verify_registered_payload_binding(
             protocol, "tok_plus", root=REPOSITORY_ROOT,
-            source_fingerprint="src_sha_plus",
+            source_fingerprint="8f9f5aff",
         )
         assert failed, "binding should fail closed before any worker starts"
     finally:
@@ -283,3 +290,58 @@ def test_plus_budget_figures():
     assert PLUS_BUDGET["cell_timeout_seconds"] == 600
     assert PLUS_BUDGET["cell_orchestration_overhead_seconds"] == 60
     assert PLUS_BUDGET["launcher_limit_not_increased"] is True
+
+
+def test_launcher_calls_binding_gate_and_passes_plus_timeout(monkeypatch, tmp_path):
+    """Launcher (CampaignCellRunner) must call the preregistration binding gate
+    for the PLUS scoped candidate and hand the worker a 600s cell timeout."""
+    verify_calls = []
+    real_verify = verify_registered_payload_binding
+
+    def spy_verify(protocol, scope_token, *, root, source_fingerprint):
+        verify_calls.append((dict(protocol), scope_token, source_fingerprint))
+        return real_verify(protocol, scope_token, root=root, source_fingerprint=source_fingerprint)
+
+    monkeypatch.setattr(
+        "trading_agent.backtest.campaign_execution.verify_registered_payload_binding",
+        spy_verify,
+        raising=False,
+    )
+
+    runner_calls = []
+
+    def fake_runner(spec, **kwargs):
+        runner_calls.append((spec, dict(kwargs)))
+        return SimpleNamespace(status="COMPLETED", report_path=None)
+
+    payload, manifest = _load_packet()
+    source_sha = "8f9f5aff"
+    _install_scope_token()
+    try:
+        context = {
+            "scope_token": "tok_plus",
+            "source": {"code_commit": source_sha, "tree_fingerprint": source_sha},
+        }
+        runner = CampaignCellRunner(tmp_path, context, runner=fake_runner)
+        spec = EvaluationCellSpec(
+            strategy_id="cand_plus",
+            symbol="ETH/USDT",
+            timeframe="1h",
+            params={"arm": "A0"},
+            cost_scenario=SCENARIO_BASE,
+            fault=FAULT_NONE,
+        )
+        artifact = runner(spec, out_root=tmp_path)
+
+        assert artifact.status == "COMPLETED"
+        assert verify_calls, "launcher must call the preregistration binding gate for PLUS"
+        _, scope_token, src_fp = verify_calls[0]
+        assert scope_token == "tok_plus"
+        assert src_fp == source_sha
+        assert runner_calls, "launcher must hand a command to the worker"
+        _, kwargs = runner_calls[0]
+        assert kwargs.get("scope_token") == "tok_plus"
+        assert kwargs.get("timeout_seconds") == PLUS_BUDGET["cell_timeout_seconds"], kwargs
+    finally:
+        _uninstall_scope_token()
+

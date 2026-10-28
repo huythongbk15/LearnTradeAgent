@@ -20,6 +20,12 @@ from pathlib import Path
 
 from trading_agent.backtest.campaign_evidence import content_hash
 from trading_agent.backtest.tournament import EvaluationArtifact, run_cell
+from trading_agent.backtest.preregistration_binding import (
+    load_approved_payload,
+    verify_registered_payload_binding,
+)
+from trading_agent.strategies.canonical.candidates import SCOPED_CANDIDATE_SCOPE_TOKENS
+from trading_agent.research.btc_context_prereg import PLUS_BUDGET
 
 ROOT = Path(__file__).resolve().parents[3]
 CACHE_VERSION = 2
@@ -298,6 +304,67 @@ class CampaignCellRunner:
         error = None
         try:
             self._verify_bindings(spec)
+            # Preregistration binding gate for scoped candidates (PLUS): refuse
+            # before any worker is spawned or market data is read.
+            scope_token = self.context.get("scope_token")
+            if scope_token and spec.strategy_id in set(SCOPED_CANDIDATE_SCOPE_TOKENS.values()):
+                source = self.context.get("source") or {}
+                source_fingerprint = source.get("code_commit")
+                if not source_fingerprint:
+                    raise ValueError("scoped candidate run requires source.code_commit")
+                payload, _manifest = load_approved_payload(scope_token, ROOT)
+                approved_contract = payload.get("execution_contract") or {}
+                approved_bodies = dict(approved_contract.get("native_contract_bodies_by_cost") or {})
+                # Build one execution contract per approved cost, keyed by cell id.
+                contracts = {}
+                inner_cells = []
+                for idx, (cost_name, body) in enumerate(approved_bodies.items()):
+                    cell_id = f"c{idx + 1}"
+                    encoded = json.dumps(body, sort_keys=True, separators=(",", ":"), allow_nan=False)
+                    contracts[cell_id] = {
+                        "contract_id": hashlib.sha256(encoded.encode()).hexdigest(),
+                        "body": body,
+                    }
+                    inner_cells.append({"cell_id": cell_id, "cost": {"name": cost_name}})
+                protocol = {
+                    "spec": {
+                        "strategy_id": spec.strategy_id,
+                        "symbol": spec.symbol,
+                        "timeframe": spec.timeframe,
+                        "param_grid": {k: [v] for k, v in dict(spec.params).items()},
+                        "cost_scenarios": [
+                            {
+                                "name": name,
+                                "fee_multiplier": value["fee_multiplier"],
+                                "slippage_multiplier": value["slippage_multiplier"],
+                            }
+                            for name, value in payload["costs"].items()
+                        ],
+                        "evidence_class": "SYNTHETIC_TEST_ONLY",
+                    },
+                    "execution": {
+                        "cell_timeout": PLUS_BUDGET["cell_timeout_seconds"],
+                        "runtime_config": dict(approved_contract.get("runtime_config") or {}),
+                        "max_retries": payload["budget"]["max_retries"],
+                        "scope_token": scope_token,
+                    },
+                    "validation_budget": {
+                        "total_timeout_seconds": PLUS_BUDGET["run_total_seconds"],
+                        "max_rss_mb": payload["budget"]["max_rss_mb"],
+                    },
+                    "folds": [
+                        {"inner_val_start": w[0], "inner_val_end": w[1]}
+                        for w in payload["geometry"]["inner_validation_windows"]
+                    ],
+                    "input_binding": {"sha256": payload["data"]["sha256"]},
+                    "native_execution_contracts": contracts,
+                    "expected_inner_cells": inner_cells,
+                }
+                failed = verify_registered_payload_binding(
+                    protocol, scope_token, root=ROOT, source_fingerprint=source_fingerprint
+                )
+                if failed:
+                    raise ValueError(f"preregistration binding failed: {', '.join(failed)}")
             if (self.resume or self.reuse_root is not None) and not self._bound_context():
                 raise ValueError("resume requires bound source/data/plan")
             if cache_path.exists():
@@ -331,14 +398,14 @@ class CampaignCellRunner:
                     "identity": identity,
                     "started_at_epoch": time.time(),
                                                                        "live_authorized": False})
-                artifact = self.runner(
-                spec,
-                **{
+                runner_kwargs = {
                     **kwargs,
                     "out_root": attempt_root,
                     "scope_token": self.context.get("scope_token"),
-                },
-            )
+                }
+                if scope_token and spec.strategy_id in set(SCOPED_CANDIDATE_SCOPE_TOKENS.values()):
+                    runner_kwargs["timeout_seconds"] = PLUS_BUDGET["cell_timeout_seconds"]
+                artifact = self.runner(spec, **runner_kwargs)
                 self._verify_bindings(spec)
                 if artifact.status == "COMPLETED" and artifact.report_path and self._bound_context():
                     report_path = Path(artifact.report_path).resolve()
