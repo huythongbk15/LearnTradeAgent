@@ -93,3 +93,50 @@ def _a2_context(features: dict[str, FeatureValue]) -> bool:
         and _available(_value(features, "corr_168_ex_current"))
         and _positive(_value(features, "residual_sum_24"))
     )
+
+
+# ── New predicate: PLUS (minimal BTC context) ──────────────────────────
+# Distinct identity from H-OWN24-CONTEXT-01. PLUS adds exactly one condition
+# over BASE: btc_simple_return_24 strictly positive. Missing BTC return =>
+# PLUS HOLD. btc_log_return_1 / btc_realized_vol_24 are NOT part of this
+# predicate, so they cannot create availability noise.
+PLUS_ENTRY_RULE_ID = "H-OWN24-PLUS-BTCRETURN-01"
+PLUS_ARM = "PLUS"
+
+
+def _a1_minimal_context(features: dict[str, FeatureValue]) -> bool:
+    """Only btc_simple_return_24 > 0. Missing key/value => not positive."""
+    feature = features.get("btc_simple_return_24")
+    return isinstance(feature, FeatureValue) and _positive(feature)
+
+
+def entry_allowed_plus(
+    own_return: FeatureValue,
+    features: dict[str, FeatureValue] | None = None,
+) -> bool:
+    """PLUS entry: own 24h return > 0 AND btc 24h return > 0.
+
+    own_return must be own_simple_return_24. features may omit btc keys;
+    absence is treated as not-positive (HOLD), not as an error.
+    """
+    if own_return.name != "own_simple_return_24":
+        raise ValueError("PLUS must read the pair's own 24-bar return")
+    return _positive(own_return) and _a1_minimal_context(features or {})
+
+
+def rule_fingerprint_plus() -> str:
+    """Identity of the PLUS predicate. Changes if the predicate changes."""
+    payload = {
+        "id": PLUS_ENTRY_RULE_ID,
+        "own_return": "simple_24_strictly_positive",
+        "plus_gate": "btc_simple_return_24_strictly_positive_only",
+        "btc_log_return_1_required": False,
+        "btc_realized_vol_24_required": False,
+        "missing_btc_return_holds": True,
+        "hold_bars": HOLD_BARS,
+        "fill_delay_bars": FILL_DELAY_BARS,
+        "threshold": ENTRY_THRESHOLD,
+        "shared_across_targets": SHARED_ACROSS_TARGETS,
+    }
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    return hashlib.sha256(encoded).hexdigest()

@@ -4,9 +4,15 @@ from datetime import UTC, datetime, timedelta
 
 from trading_agent.research.btc_context_features import FeatureValue, own_simple_return_24
 from trading_agent.research.btc_context_rule import (
+    ENTRY_RULE_ID,
     FILL_DELAY_BARS,
     HOLD_BARS,
+    PLUS_ARM,
+    PLUS_ENTRY_RULE_ID,
     entry_allowed,
+    entry_allowed_plus,
+    rule_fingerprint,
+    rule_fingerprint_plus,
 )
 
 
@@ -81,3 +87,36 @@ def test_own_return_ignores_a_future_close():
 def test_hold_matches_the_signal_horizon_and_keeps_native_delay():
     assert HOLD_BARS == 24
     assert FILL_DELAY_BARS == 2
+
+
+def test_plus_predicate_btc_return_only_changes_decision():
+    """Same pair data: flip BTC return +/- must flip PLUS BUY/HOLD, BASE unchanged."""
+    own_up = own(0.01)
+    own_down = own(-0.01)
+    btc_up = context(btc_simple_return_24=0.02)  # log1/vol may be present
+    btc_down = context(btc_simple_return_24=-0.02)
+
+    # BASE: pair-only, BTC ignored
+    assert entry_allowed("A0", own_up, btc_down) is True
+    assert entry_allowed("A0", own_up, btc_up) is True
+
+    # PLUS: own > 0 AND btc_simple_return_24 > 0
+    assert entry_allowed_plus(own_up, btc_up) is True
+    assert entry_allowed_plus(own_up, btc_down) is False  # BTC down => HOLD
+    assert entry_allowed_plus(own_down, btc_up) is False  # own down => HOLD
+
+
+def test_plus_missing_btc_return_holds_without_log1_or_vol():
+    """Missing btc_simple_return_24 => HOLD; no log1/vol requirement."""
+    own_up = own(0.01)
+    missing_return = context(btc_simple_return_24=None)
+    assert entry_allowed_plus(own_up, missing_return) is False
+
+
+def test_plus_predicate_uses_distinct_identity_and_fingerprint():
+    assert PLUS_ENTRY_RULE_ID != ENTRY_RULE_ID
+    assert PLUS_ARM != "A1"
+    fp = rule_fingerprint_plus()
+    assert len(fp) == 64
+    # Predicate content must be reflected in the fingerprint.
+    assert rule_fingerprint_plus() != rule_fingerprint()

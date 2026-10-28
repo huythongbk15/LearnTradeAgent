@@ -16,7 +16,14 @@ from trading_agent.research.btc_context_features import (
 from trading_agent.research.btc_context_rule import (
     CANONICAL_WARMUP_BARS,
     ENTRY_RULE_ID,
+    ENTRY_THRESHOLD,
+    FILL_DELAY_BARS,
+    HOLD_BARS,
+    PLUS_ENTRY_RULE_ID,
+    PLUS_ARM,
+    SHARED_ACROSS_TARGETS,
     rule_fingerprint,
+    rule_fingerprint_plus,
 )
 
 C1_FEATURES: tuple[str, ...] = FEATURE_NAMES[:3]
@@ -29,6 +36,13 @@ FOLDS = 1
 CELL_TIMEOUT_SECONDS = 600
 WORKER_COUNT = 1
 MAX_RETRIES = 0
+
+# ── BASE vs PLUS contrast (new identity, not A1 old) ────────────────────
+BASE_ARM = "A0"  # pair-only, H-OWN24-CONTEXT-01
+PLUS_ARM = "PLUS"  # A0 + btc_simple_return_24 > 0, H-OWN24-PLUS-BTCRETURN-01
+PLUS_ARMS = (BASE_ARM, PLUS_ARM)
+PLUS_COSTS = COSTS
+PLUS_FOLDS = FOLDS
 
 INPUTS: dict[str, dict[str, str]] = {
     "BTC/USDT": {
@@ -69,6 +83,30 @@ EMBARGO_BARS = CANONICAL_WARMUP_BARS
 
 MIN_TRADES = 30
 PRIMARY_METRIC = "marked_net_usdt_return"
+
+# Eligibility / timing / cost / budget (development bundle only)
+PLUS_ELIGIBILITY = {
+    "min_trades": MIN_TRADES,
+    "primary_metric": PRIMARY_METRIC,
+    "hold_bars": HOLD_BARS,
+    "fill_delay_bars": FILL_DELAY_BARS,
+    "threshold": ENTRY_THRESHOLD,
+    "shared_across_targets": SHARED_ACROSS_TARGETS,
+}
+PLUS_TIMING = {
+    "simulation_start": SIMULATION_START,
+    "simulation_stop": SIMULATION_STOP,
+    "measurement_start": MEASUREMENT_START,
+    "measurement_stop": MEASUREMENT_STOP,
+    "purge_bars": PURGE_BARS,
+    "embargo_bars": EMBARGO_BARS,
+    "holdout_start_utc": HOLDOUT_START_UTC,
+    "holdout_end_utc": HOLDOUT_END_UTC,
+    "clock_first_utc": CLOCK_FIRST_UTC,
+    "clock_last_utc": CLOCK_LAST_UTC,
+}
+PLUS_BUDGET_SECONDS = len(TARGETS) * len(PLUS_ARMS) * len(PLUS_COSTS) * PLUS_FOLDS * CELL_TIMEOUT_SECONDS
+
 LAUNCHER_BLOCKERS: tuple[str, ...] = ()
 CLOSED_RULES_NOT_CONTROLS: tuple[str, ...] = (
     "H-PULLBACK-01",
@@ -88,7 +126,9 @@ def arm_features(arm: str) -> tuple[str, ...]:
         return C1_FEATURES
     if arm == "A2":
         return C1_FEATURES + C2_FEATURES
-    raise ValueError("arm must be A0, A1 or A2")
+    if arm == PLUS_ARM:
+        return ("btc_simple_return_24",)
+    raise ValueError("arm must be A0, A1, A2 or PLUS")
 
 
 def cell_count() -> int:
@@ -96,8 +136,17 @@ def cell_count() -> int:
     return len(TARGETS) * len(ARMS) * len(COSTS) * FOLDS
 
 
+def plus_cell_count() -> int:
+    """BASE vs PLUS cell count (development bundle only)."""
+    return len(TARGETS) * len(PLUS_ARMS) * len(PLUS_COSTS) * PLUS_FOLDS
+
+
 def cell_budget_seconds() -> int:
     return cell_count() * CELL_TIMEOUT_SECONDS
+
+
+def plus_cell_budget_seconds() -> int:
+    return PLUS_BUDGET_SECONDS
 
 
 def execution_authority() -> dict[str, object]:
@@ -114,6 +163,38 @@ def execution_authority() -> dict[str, object]:
         "rule_fingerprint": rule_fingerprint(),
         "feature_contract": CONTRACT_VERSION,
         "feature_fingerprint": contract_fingerprint(),
+    }
+
+
+def plussed_execution_authority() -> dict[str, object]:
+    """Authority snapshot for the BASE vs PLUS contrast.
+
+    Not a market authorization. IMPROVES on this bundle is diagnostic only
+    and does not qualify a strategy or authorize confirmation.
+    """
+    return {
+        "market_run": False,
+        "live_authorized": False,
+        "qualification_possible_on_this_bundle": False,
+        "reason": "PATH_READY_RUN_NOT_STARTED",
+        "blockers": LAUNCHER_BLOCKERS,
+        "entry_rule_id": PLUS_ENTRY_RULE_ID,
+        "rule_fingerprint": rule_fingerprint_plus(),
+        "feature_contract": CONTRACT_VERSION,
+        "feature_fingerprint": contract_fingerprint(),
+        "arms": PLUS_ARMS,
+        "costs": PLUS_COSTS,
+        "targets": TARGETS,
+        "folds": PLUS_FOLDS,
+        "cell_count": plus_cell_count(),
+        "budget_seconds": plus_cell_budget_seconds(),
+        "eligibility": PLUS_ELIGIBILITY,
+        "timing": PLUS_TIMING,
+        "verdict_criteria": {
+            "improves_label": "marked_net_return higher AND max_drawdown <= previous AND sharpe > 0 AND marked_net_return > 0 AND same_execution_path",
+            "improves_is_not_qualification": True,
+            "holdout_not_opened": True,
+        },
     }
 
 
