@@ -361,6 +361,7 @@
 │   ├── research_pipeline_v2.py
 │   ├── research_report.py
 │   ├── research_walkforward.py
+│   ├── resolve_unsubmitted_order.py
 │   ├── restore.sh
 │   ├── review_wave_ef.py
 │   ├── run_acceptance_ac01_15.py
@@ -958,6 +959,7 @@
 │   ├── test_research_governance.py
 │   ├── test_research_memory.py
 │   ├── test_research_stats.py
+│   ├── test_resolve_unsubmitted_order.py
 │   ├── test_retired_wfo_wrapper.py
 │   ├── test_risk_decision.py
 │   ├── test_rsi_adx_branch_lifecycle.py

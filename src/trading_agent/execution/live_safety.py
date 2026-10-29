@@ -53,6 +53,11 @@ ORDER_LEDGER_TERMINAL_STATUSES = frozenset(
         "expired",
     }
 )
+# Ledger states an intent can be in without any submission having happened.
+# Only these may be closed by resolve_unsubmitted_order().
+UNSUBMITTED_RECOVERABLE_STATUSES = frozenset(
+    {"reserved", "reconciling", "manual_intervention"}
+)
 ORDER_LEDGER_TRANSITIONS = {
     "reserved": {
         "submitted",
@@ -1368,6 +1373,85 @@ class LiveRiskStateStore:
             )
             record["status_history"] = history[-100:]
         self.save(now=current)
+
+    def resolve_unsubmitted_order(
+        self,
+        order_key: str,
+        *,
+        evidence: Mapping[str, object],
+        now: datetime | None = None,
+    ) -> bool:
+        """Close an intent that provably never reached the venue (operator recovery).
+
+        A crash between reserving an intent and sending it leaves a ledger entry
+        that reconciliation can only park in ``manual_intervention``: the venue
+        has nothing to confirm. This is the one supported way out. It accepts
+        only entries with no submission evidence of any kind, requires the
+        caller's venue evidence, and records that evidence in the history.
+        Returns False if the entry was already resolved this way.
+        """
+
+        record = self.state.order_ledger.get(order_key)
+        if not isinstance(record, dict):
+            raise LiveSafetyError(f"order intent is not present in ledger: {order_key}")
+        status = str(record.get("status") or "reserved").strip().lower()
+        if status == "rejected" and record.get("resolution") == "operator_unsubmitted":
+            return False
+        if status not in UNSUBMITTED_RECOVERABLE_STATUSES:
+            raise LiveSafetyError(
+                f"{order_key} is {status}; only {sorted(UNSUBMITTED_RECOVERABLE_STATUSES)}"
+                " intents can be resolved as never submitted"
+            )
+        if (
+            str(record.get("exchange_order_id") or "")
+            or float(str(record.get("filled_quantity") or 0.0)) > 0
+            or float(str(record.get("quote_cost") or 0.0)) > 0
+            or record.get("trade_ids")
+        ):
+            raise LiveSafetyError(
+                f"{order_key} carries venue evidence; it cannot be resolved as never submitted"
+            )
+        required = {
+            "venue_lookup": "not_found",
+            "open_orders_with_client_id": 0,
+            "trades_since_reservation": 0,
+        }
+        for key, expected in required.items():
+            if evidence.get(key) != expected:
+                raise LiveSafetyError(
+                    f"unsubmitted-order evidence {key}={evidence.get(key)!r}, need {expected!r}"
+                )
+        if not str(evidence.get("checked_at") or "").strip():
+            raise LiveSafetyError("unsubmitted-order evidence needs checked_at")
+
+        current = now or datetime.now(UTC)
+        timestamp = current.astimezone(UTC).isoformat()
+        record.update(
+            {
+                "status": "rejected",
+                "resolution": "operator_unsubmitted",
+                "error": "operator recovery: intent never reached the venue",
+                "updated_at": timestamp,
+            }
+        )
+        history = record.get("status_history")
+        if not isinstance(history, list):
+            history = []
+        history.append(
+            {
+                "status": "rejected",
+                "exchange_status": str(record.get("exchange_status") or ""),
+                "filled_quantity": 0.0,
+                "quote_cost": 0.0,
+                "at": timestamp,
+                "resolution": "operator_unsubmitted",
+                "previous_status": status,
+                "evidence": dict(evidence),
+            }
+        )
+        record["status_history"] = history[-100:]
+        self.save(now=current)
+        return True
 
     def unfinished_orders(self) -> dict[str, dict[str, object]]:
         unfinished = {
