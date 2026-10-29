@@ -14,6 +14,12 @@ All12 raw report audits PASS:7976 signal exits exactly24h, no BUY during breaker
 
 [Full report](../data/plus_context_matrix_20261029_01/RESULTS.md), MATRIX_RESULTS.json, RAW_AUDIT.json and wave_protocol.json hold primary evidence. CLOSED_NO_SUPPORTED_INCREMENT / NOT_QUALIFIED. No further run, confirmation, paper/testnet/live authority; no independent review claimed. CI remains separate. Static draft authority functions are design snapshots; protocols and this tracker record actual progress.
 
+### 2026-10-29 — thinning launcher synthetic proof closed
+
+Control thinning and scoped synthetic launcher verified; 36/36 fixture cells completed in160.95s. Six PLUS cells plus30 controls (five seeds per pair/cost), calibration5/10 on synthetic[216,240), evaluation[240,280). These fixture windows/counts are NOT the frozen market study windows/p. 75/75 targeted tests and lint PASS; raw audit verifies per-cost contracts, hash entry timing,24h exits, marked equity accounting, flat inventory/orders and cross-cost deterministic entry vectors. Source19b1c257… stable.
+
+Initial attempt01 stopped before simulation because synthetic manifest label lacked required prefix; retained INCOMPLETE. Fixed label; fresh attempt02 completed, no cell retries. No guard/gate thresholds changed. Evidence:data/btc_thinning_launcher_synthetic_20261029_02/RAW_AUDIT.json and RESULTS.md. SYNTHETIC_VERIFIED, NOT_AUTHORIZED_TO_RUN, no economic conclusion. Existing market runner unchanged; calibration on real bound input and complete market execution binding/admission remain outside this proof.
+
 ### Historical pilot status (before matrix completion)
 
 ### 2026-10-29 — bounded development pilot closed NO_INCREMENT
