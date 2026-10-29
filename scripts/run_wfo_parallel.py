@@ -1046,6 +1046,29 @@ class QualificationCellRunner(CampaignCellRunner):
         if audit["conflicts"]:
             raise ValueError("trial history conflict at runner startup; inspect trial_history_startup.json; do not reset registry")
 
+    def _preregistration_gate_inputs(self):
+        """The cell gate checks this frozen protocol, not the PLUS constants.
+
+        The recorded packet root must still be the one resolved now, and the
+        protocol's own evidence class decides whether a non-repository root is
+        admissible at all (only SYNTHETIC_TEST_ONLY).
+        """
+        execution = self.protocol["execution"]
+        recorded = Path(execution.get("preregistration_root") or ROOT).resolve()
+        if recorded != preregistration_root():
+            raise ValueError(
+                "the preregistration root does not match the frozen protocol: "
+                f"protocol {recorded}, resolved {preregistration_root()}"
+            )
+        return {
+            "root": recorded,
+            "evidence_class": self.protocol["spec"]["evidence_class"],
+            "cell_timeout": execution["cell_timeout"],
+            "total_timeout_seconds": (self.protocol.get("validation_budget") or {}).get(
+                "total_timeout_seconds"
+            ),
+        }
+
     def _run_measured(self, spec, **kwargs):
         key = replace(spec, expected_execution_contract_id=None).cell_id
         if key not in self.protocol["native_execution_contracts"]:
