@@ -14,7 +14,7 @@ from typing import Any, Dict
 from trading_agent.authority.config import AuthorityConfig, Environment
 from trading_agent.authority.loader import PromotedStrategy
 from trading_agent.authority.promotion_store import PromotionStateStore
-from trading_agent.strategies.base import Strategy
+from trading_agent.strategies.base import LazyStrategyClass, Strategy
 from trading_agent.strategies.ma_crossover import MaCrossover
 from trading_agent.strategies.rsi import RsiStrategy
 from trading_agent.strategies.bbands import BBandsStrategy
@@ -23,8 +23,14 @@ from trading_agent.strategies.enhanced_ma import (
     MaAdxCrossover,
     MaVolTargetCrossover,
 )
-from trading_agent.strategies.online_learning_strategy import OnlineLearningStrategy
-from trading_agent.strategies.regime_switching import RegimeSwitchingStrategy
+
+# ml-based strategies are imported only when a promoted runtime names them.
+_ONLINE_LEARNING = LazyStrategyClass(
+    "trading_agent.strategies.online_learning_strategy", "OnlineLearningStrategy"
+)
+_REGIME_SWITCHING = LazyStrategyClass(
+    "trading_agent.strategies.regime_switching", "RegimeSwitchingStrategy"
+)
 
 logger = __import__("logging").getLogger(__name__)
 
@@ -204,15 +210,15 @@ class RuntimeStrategyResolver:
         "regime_switching": StrategyType.REGIME_SWITCHING,
     }
 
-    _STRATEGY_CLASSES: Dict[StrategyType, type[Strategy]] = {
+    _STRATEGY_CLASSES: Dict[StrategyType, type[Strategy] | LazyStrategyClass] = {
         StrategyType.MA_CROSSOVER: MaCrossover,
         StrategyType.ENHANCED_MA: EnhancedMaCrossover,
         StrategyType.MA_ADX: MaAdxCrossover,
         StrategyType.MA_VOL_TARGET: MaVolTargetCrossover,
         StrategyType.RSI: RsiStrategy,
         StrategyType.BBANDS: BBandsStrategy,
-        StrategyType.ONLINE_LEARNING: OnlineLearningStrategy,
-        StrategyType.REGIME_SWITCHING: RegimeSwitchingStrategy,
+        StrategyType.ONLINE_LEARNING: _ONLINE_LEARNING,
+        StrategyType.REGIME_SWITCHING: _REGIME_SWITCHING,
     }
 
     def __init__(
@@ -289,7 +295,7 @@ class RuntimeStrategyResolver:
             logger.warning(f"Unknown strategy name: {strategy_name}")
             return None
 
-        strategy_cls = self._STRATEGY_CLASSES.get(strategy_type)
+        strategy_cls = self._strategy_class(strategy_type)
         if not strategy_cls:
             logger.warning(f"No class for strategy type: {strategy_type}")
             return None
@@ -592,14 +598,18 @@ class RuntimeStrategyResolver:
                 raise ValueError(f"Timeframe {timeframe} not supported")
         return params
 
+    def _strategy_class(self, strategy_type: StrategyType) -> type[Strategy] | None:
+        cls = self._STRATEGY_CLASSES.get(strategy_type)
+        return cls.resolve() if isinstance(cls, LazyStrategyClass) else cls
+
     def get_strategy_class(self, strategy_type: StrategyType) -> type[Strategy] | None:
-        return self._STRATEGY_CLASSES.get(strategy_type)
+        return self._strategy_class(strategy_type)
 
     def get_strategy_class_by_name(self, strategy_name: str) -> type[Strategy] | None:
         strategy_type = self._STRATEGY_MAP.get(strategy_name)
         if strategy_type is None:
             return None
-        return self._STRATEGY_CLASSES.get(strategy_type)
+        return self._strategy_class(strategy_type)
 
     def _is_symbol_allowed(self, symbol: str) -> bool:
         """Check if symbol is allowed in current environment."""

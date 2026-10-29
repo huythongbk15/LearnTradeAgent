@@ -21,7 +21,7 @@ from itertools import product
 from pathlib import Path
 from typing import Any, Mapping
 
-from trading_agent.strategies.base import Strategy
+from trading_agent.strategies.base import LazyStrategyClass, Strategy
 from trading_agent.strategies.di_adx_state_edge import DiAdxStateEdgeStrategy
 from trading_agent.strategies.bbands import BBandsStrategy
 from trading_agent.strategies.canonical.adapter import LegacyDataFrameAdapter
@@ -39,7 +39,6 @@ from trading_agent.strategies.ma_crossover import MaCrossover
 from trading_agent.strategies.liquidity_reversal import LiquidityReversalStrategy
 from trading_agent.strategies.own24_context import Own24ContextStrategy, WARMUP_BARS as _OWN24_WARMUP
 from trading_agent.strategies.range_mean_reversion import RangeMeanReversionStrategy
-from trading_agent.strategies.regime_switching import RegimeSwitchingStrategy
 from trading_agent.strategies.rsi import RsiStrategy
 from trading_agent.strategies.rsi_adx_regime_filter import RsiAdxRegimeFilterStrategy
 from trading_agent.strategies.stat_arbitrage import (
@@ -61,6 +60,12 @@ def _file_sha(name: str) -> str:
 
 
 _ENHANCED_MA_SHA = _file_sha("enhanced_ma.py")
+# regime_switching imports ml (sklearn/hmmlearn). The allowlist names it by a
+# fixed module path and imports it only when an adapter is built; its source
+# hash is taken from the same file either way.
+RegimeSwitchingStrategy = LazyStrategyClass(
+    "trading_agent.strategies.regime_switching", "RegimeSwitchingStrategy"
+)
 _DI_ADX_STATE_EDGE_SHA = _file_sha("di_adx_state_edge.py")
 _LIQUIDITY_REVERSAL_SHA = _file_sha("liquidity_reversal.py")
 _OWN24_CONTEXT_SHA = _file_sha("own24_context.py")
@@ -982,7 +987,7 @@ FIRST_WAVE_DESCRIPTORS: dict[str, StrategyDescriptor] = {
     )
 }
 
-_CANDIDATE_CLASSES: dict[str, type[Strategy]] = {
+_CANDIDATE_CLASSES: dict[str, type[Strategy] | LazyStrategyClass] = {
     "liquidity_reversal": LiquidityReversalStrategy,
     "own24_context": Own24ContextStrategy,
     "enhanced_ma": EnhancedMaCrossover,
@@ -1115,7 +1120,7 @@ def build_default_registry(*, scope_token: str | None = None) -> CanonicalStrate
         ),
         (RSI_DESCRIPTOR, RsiStrategy, RsiStrategy, _RSI_WARMUP),
         (BBANDS_DESCRIPTOR, BBandsStrategy, BBandsStrategy, _BBANDS_WARMUP),
-        (REGIME_SWITCHING_DESCRIPTOR, RegimeSwitchingStrategy, RegimeSwitchingStrategy, 200),
+        (REGIME_SWITCHING_DESCRIPTOR, RegimeSwitchingStrategy, _STRATEGIES_DIR / "regime_switching.py", 200),
         (RSI_ADX_REGIME_FILTER_DESCRIPTOR, RsiAdxRegimeFilterStrategy, RsiAdxRegimeFilterStrategy, _RSI_ADX_REGIME_FILTER_WARMUP),
         (FUNDING_CARRY_DESCRIPTOR, FundingCarryStrategy, FundingCarryStrategy, _FUNDING_CARRY_WARMUP),
         (VOLATILITY_BREAKOUT_DESCRIPTOR, VolatilityBreakoutStrategy, VolatilityBreakoutStrategy, _VOLATILITY_BREAKOUT_WARMUP),

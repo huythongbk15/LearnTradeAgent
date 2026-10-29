@@ -37,27 +37,25 @@ else:  # a package module: import it by name
 print(json.dumps(sorted(sys.modules)))
 """
 
-_R3 = (
-    "R3: strategies/__init__ eagerly imports every strategy; agent_ensemble "
-    "loads agents (and through it llm), the ml-based ones load ml/sklearn"
+_RESEARCH_INIT = (
+    "research/__init__ eagerly imports drift (scipy) and calibration/uncertainty "
+    "(sklearn); reached via execution.canonical.risk_decision"
 )
 
 
-def _open(name: str, reason: str = _R3):
+def _open(name: str, reason: str = _RESEARCH_INIT):
     return pytest.param(name, marks=pytest.mark.xfail(strict=True, reason=reason))
 
 
 FORBIDDEN = (
-    # order_planner and authority/__init__ no longer import it; it still
-    # arrives through agents (agents.swarm.specialized imports trading_agent.llm).
-    _open("trading_agent.llm"),
+    "trading_agent.llm",
+    "trading_agent.agents",
+    "trading_agent.ml",
     "trading_agent.backtest",
     "trading_agent.alpha_research",
-    _open("trading_agent.agents"),
-    _open("trading_agent.ml"),
+    "hmmlearn",
     _open("sklearn"),
     _open("scipy"),
-    _open("hmmlearn"),
 )
 
 
@@ -92,8 +90,7 @@ def test_runner_does_not_load(loaded_modules, forbidden):
     assert forbidden not in _roots(loaded_modules)
 
 
-# The cuts already made, checked directly so they stay cut while the
-# package-level items above are still xfail.
+# Direct checks for individual cuts, independent of the package-level list.
 
 def test_runner_does_not_load_the_adaptive_router(loaded_modules):
     assert "trading_agent.authority.adaptive_router" not in loaded_modules
@@ -102,3 +99,21 @@ def test_runner_does_not_load_the_adaptive_router(loaded_modules):
 def test_order_planner_does_not_load_the_llm_layer():
     loaded = _load("trading_agent.execution.canonical.order_planner")
     assert not {m for m in loaded if m.startswith("trading_agent.llm")}
+
+
+def test_admission_registry_build_does_not_load_ml_or_agents():
+    # live_admission builds the full canonical allowlist on every run.
+    env = dict(os.environ, PYTHONPATH=str(ROOT / "src"))
+    code = (
+        "import json, sys\n"
+        "from trading_agent.strategies.canonical import build_default_registry\n"
+        "build_default_registry().describe('regime_switching')\n"
+        "print(json.dumps(sorted(sys.modules)))\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code], cwd=ROOT, env=env,
+        capture_output=True, text=True, timeout=180,
+    )
+    assert result.returncode == 0, result.stderr[-4000:]
+    roots = _roots(set(json.loads(result.stdout.strip().splitlines()[-1])))
+    assert not roots & {"trading_agent.ml", "trading_agent.agents", "trading_agent.llm", "hmmlearn"}

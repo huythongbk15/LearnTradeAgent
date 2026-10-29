@@ -3794,6 +3794,7 @@
 │   ├── test_indicator_window_equivalence.py
 │   ├── test_information_gate_prereg.py
 │   ├── test_l2_selection_rule.py
+│   ├── test_lazy_strategy_registry.py
 │   ├── test_ledger_and_binding_invariants.py
 │   ├── test_legacy_cutover_migration.py
 │   ├── test_liquidity_reversal_admission.py
