@@ -88,12 +88,15 @@ def test_hung_child_terminated_before_worker_returns(tmp_path, monkeypatch):
     monkeypatch.setattr(tournament, "_cell_process_entry", hung_entry)
     spec, start, end, fresh, m_start, m_end = cell()
     started = time.perf_counter()
+    # The spawned child re-imports the package before it can record its pid;
+    # on a loaded CI runner that alone can exceed a 3s deadline. The child
+    # still sleeps 20s, so 8s keeps the hang well past the deadline.
     result = module._run_cell_worker(module.ParallelCellRunner._primitives(spec), str(tmp_path),
-                                    start, end, fresh, m_start, m_end, 3, 0)
+                                    start, end, fresh, m_start, m_end, 8, 0)
     elapsed = time.perf_counter() - started
     assert result.status == "FAILED" and "timeout" in result.failure_reasons[0]
     assert result.execution_control["attempts_made"] == 1
-    assert elapsed < 10
+    assert elapsed < 15
     pid = int((tmp_path / "hung_pid.txt").read_text())
     with pytest.raises(ProcessLookupError):
         os.kill(pid, 0)
