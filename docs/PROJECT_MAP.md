@@ -209,6 +209,13 @@
 │   │   ├── drill_lib.sh
 │   │   ├── network_drill.sh
 │   │   └── restart_drill.sh
+│   ├── ops
+│   │   ├── windows
+│   │   │   ├── check_health.ps1
+│   │   │   └── register_tasks.ps1
+│   │   ├── README.md
+│   │   ├── check_binance_testnet_health.sh
+│   │   └── run_binance_testnet_cycle.sh
 │   ├── qwenpaw_control
 │   │   ├── Makefile
 │   │   ├── _wvo_check.sh

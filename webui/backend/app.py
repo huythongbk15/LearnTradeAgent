@@ -1109,12 +1109,28 @@ def health() -> dict:
     return {"status": "ok", "time": time.time()}
 
 
+def _dist_file(full_path: str) -> Path | None:
+    """The built frontend file for ``full_path``, or None.
+
+    Containment uses resolved paths: joining an absolute path ("//etc/passwd"),
+    a ``..`` segment or a symlink must never reach a file outside ``DIST_DIR``
+    (the project ``.env`` sits a few directories above it).
+    """
+    if not full_path:
+        return None
+    root = DIST_DIR.resolve()
+    candidate = (DIST_DIR / full_path).resolve()
+    if not candidate.is_relative_to(root) or not candidate.is_file():
+        return None
+    return candidate
+
+
 if DIST_DIR.exists():
     app.mount("/assets", StaticFiles(directory=DIST_DIR / "assets"), name="assets")
 
     @app.get("/{full_path:path}")
     def spa(full_path: str) -> FileResponse:
-        f = DIST_DIR / full_path
-        if full_path and f.is_file():
+        f = _dist_file(full_path)
+        if f is not None:
             return FileResponse(f)
         return FileResponse(DIST_DIR / "index.html")
