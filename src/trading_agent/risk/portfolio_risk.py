@@ -16,7 +16,6 @@ from dataclasses import dataclass, field
 from typing import Sequence
 
 import numpy as np
-import scipy.stats as stats
 
 
 @dataclass
@@ -76,6 +75,10 @@ class ParametricVaR:
     """Gaussian (variance-covariance) VaR / CVaR."""
 
     def __init__(self, confidence: float = 0.95):
+        # scipy only for the parametric model, so importing this module (the
+        # Alpaca runner does) does not load it.
+        from scipy import stats
+
         self.confidence = confidence
         self.z = stats.norm.ppf(confidence)
         self.z_cvar = stats.norm.ppf(confidence)
@@ -92,6 +95,8 @@ class ParametricVaR:
         # VaR = -mu + sigma * z_critical (positive loss)
         var = sigma * self.z - mu
         # CVaR (normal): mu - sigma * phi(z)/(1-alpha), negative return = loss
+        from scipy import stats
+
         phi = stats.norm.pdf(self.z)
         cvar = mu - sigma * phi / (1 - self.confidence)
         return RiskMetrics(

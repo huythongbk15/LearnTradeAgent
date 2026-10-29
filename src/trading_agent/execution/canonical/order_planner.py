@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
 from collections.abc import Mapping
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from trading_agent.execution.canonical.events import IdempotencyKeys
 from trading_agent.execution.canonical.market_observation import (
@@ -20,8 +20,12 @@ from trading_agent.execution.canonical.market_observation import (
     EnrichedMarketObservation,
 )
 from trading_agent.execution.canonical.risk_decision import UnifiedRiskDecision
-from trading_agent.llm.context_enrichment import MarketContext
 from trading_agent.research.forecast import TargetExposure
+
+if TYPE_CHECKING:
+    # Annotation only: importing the LLM layer at runtime would load
+    # trading_agent.llm and trading_agent.agents into every live runner.
+    from trading_agent.llm.context_enrichment import MarketContext
 
 
 logger = logging.getLogger(__name__)

@@ -18,6 +18,7 @@ from __future__ import annotations
 import hashlib
 import inspect
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable
 
 from trading_agent.authority.config import Environment
@@ -54,7 +55,9 @@ def _source_code_sha(
 ) -> str:
     """sha256 of the source file defining *code_source* (or the factory)."""
     target = code_source if code_source is not None else factory
-    if inspect.ismodule(target):
+    if isinstance(target, Path):  # the source file itself, for lazily imported classes
+        path = str(target)
+    elif inspect.ismodule(target):
         path = getattr(target, "__file__", None)
     elif isinstance(target, type):
         path = inspect.getsourcefile(target)
@@ -68,7 +71,7 @@ def _source_code_sha(
             raise RegistryIntegrityError("factory must be a plain function")
         path = inspect.getsourcefile(fn)
     else:
-        raise RegistryIntegrityError("code_source must be a module, class or function")
+        raise RegistryIntegrityError("code_source must be a module, class, function or Path")
     if not path:
         raise RegistryIntegrityError("cannot locate source file for verification")
     with open(path, "rb") as handle:

@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from enum import Enum
 
 import numpy as np
-from scipy import stats as sp_stats
 
 
 class DriftLevel(Enum):
@@ -205,6 +204,10 @@ class DriftMonitor:
                 scale = float(np.std(ref))
             if scale <= 1e-12:
                 scale = max(abs(float(np.mean(ref))), 1.0) * 1e-9
+            # Imported here so the live runners, which import this module via
+            # the promotion lifecycle, do not load scipy.
+            from scipy import stats as sp_stats
+
             wasserstein = float(sp_stats.wasserstein_distance(ref, cur) / scale)
             ks = float(sp_stats.ks_2samp(ref, cur).statistic)
         return [

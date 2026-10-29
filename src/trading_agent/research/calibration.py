@@ -13,9 +13,6 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-from scipy.optimize import minimize_scalar
-from sklearn.isotonic import IsotonicRegression
-from sklearn.linear_model import LogisticRegression
 
 
 class CalibrationState(Enum):
@@ -133,7 +130,11 @@ def _fit_parameters(
     probabilities: np.ndarray,
     outcomes: np.ndarray,
 ) -> dict[str, Any]:
+    # Fitting is research-time work; importing sklearn/scipy here keeps them
+    # out of the live runners, which only apply stored calibrators.
     if method == CalibrationMethod.ISOTONIC:
+        from sklearn.isotonic import IsotonicRegression
+
         model = IsotonicRegression(out_of_bounds="clip", increasing=True)
         model.fit(probabilities, outcomes)
         return {
@@ -142,6 +143,8 @@ def _fit_parameters(
         }
     logits = _logit(probabilities)
     if method == CalibrationMethod.PLATT:
+        from sklearn.linear_model import LogisticRegression
+
         model = LogisticRegression(C=1e6, solver="lbfgs", random_state=0)
         model.fit(logits.reshape(-1, 1), outcomes.astype(int))
         return {
@@ -149,6 +152,7 @@ def _fit_parameters(
             "intercept": float(model.intercept_[0]),
         }
     if method == CalibrationMethod.TEMPERATURE:
+        from scipy.optimize import minimize_scalar
 
         def loss(log_temperature: float) -> float:
             temperature = math.exp(log_temperature)

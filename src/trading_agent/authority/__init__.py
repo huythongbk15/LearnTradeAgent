@@ -104,15 +104,28 @@ from trading_agent.authority.promotion_store import (
     PromotionRecord,
 )
 
-from trading_agent.authority.adaptive_router import (
-    AdaptiveForecastResult,
-    AdaptiveForecastRuntime,
-    AdaptiveRouterConfig,
-    AdaptiveStrategyRouter,
-    HandoverState,
-    RouterStateStore,
-    RoutingDecision,
-)
+# The adaptive router pulls in the LLM layer and ml.regime_detection. The live
+# runners import this package but never route adaptively, so its names are
+# resolved on first access instead of at import (PEP 562).
+_ADAPTIVE_ROUTER_EXPORTS = frozenset({
+    "AdaptiveForecastResult",
+    "AdaptiveForecastRuntime",
+    "AdaptiveRouterConfig",
+    "AdaptiveStrategyRouter",
+    "HandoverState",
+    "RouterStateStore",
+    "RoutingDecision",
+})
+
+
+def __getattr__(name: str):
+    if name in _ADAPTIVE_ROUTER_EXPORTS:
+        from trading_agent.authority import adaptive_router
+
+        value = getattr(adaptive_router, name)
+        globals()[name] = value
+        return value
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 __all__ = [
     # Config
