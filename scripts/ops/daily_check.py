@@ -33,8 +33,8 @@ CADENCE = timedelta(hours=2)
 GAP_LIMIT = timedelta(hours=2, minutes=15)
 MAX_CYCLE_SECONDS = 60.0
 M1_RUNS, M1_HOURS = 24, 48
-# First scheduled cycle after the tasks were made headless (02:01 local, UTC+7).
-DEFAULT_M1_START = "2026-10-29T19:00:00+00:00"
+# First clean headless cycle (task run 2026-10-29 17:41:59Z, rc=0, 18 s).
+DEFAULT_M1_START = "2026-10-29T17:41:00+00:00"
 TERMINAL_LIFECYCLE = {"exec.fill_received", "exec.order_rejected", "exec.cancel_confirmed"}
 CYCLE_LINE = re.compile(r"^=== (\S+Z) cycle (start|end|killed by) ?(\S*)")
 PID_FIELD = re.compile(r"pid=(\d+)")

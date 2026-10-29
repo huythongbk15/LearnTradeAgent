@@ -14,7 +14,7 @@ alpha.
 
 | Gate | Pass criteria (measured by `scripts/ops/daily_check.py`) | Status |
 | --- | --- | --- |
-| **M1 Stable schedule** | Over ≥ 48 h from the M1 start: ≥ 24 execution cycles; each has `run_completed`; 0 `run_failed`/`run_interrupted`; no gap > 2 h 15 min between execution starts; every cycle < 60 s; health check green; no manual intervention | Clock starts with the first clean headless cycle |
+| **M1 Stable schedule** | Over ≥ 48 h from the M1 start: ≥ 24 execution cycles; each has `run_completed`; 0 `run_failed`/`run_interrupted`; no gap > 2 h 15 min between execution starts; every cycle < 60 s; health check green; no manual intervention | **Running since 2026-10-29 17:41Z** (first clean headless cycle, 18 s) |
 | **M2 Observable** | `status` command + one overview page answer within 10 s: what runs, which stage, why blocked, where the evidence is | After M1 holds for ~1–2 days |
 | **M3 Order lifecycle** | ≥ 10 complete buy → fill → stop → exit cycles on testnet; venue = ledger = lifecycle; 0 stuck reservations | **Blocked:** nothing is promoted to testnet (see decision below) |
 | **M4 L3 soak** | 30 days, 100 lifecycles, 0 unexplained failures (`docs/LIVE_TRADING_TODO.md`) | After M3 |
