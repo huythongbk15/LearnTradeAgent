@@ -24,6 +24,10 @@ logs/
 # Local agent forks. Any porcelain path makes research provenance dirty.
 /.qwenpaw/
 
+# QwenPaw checkpoint store (shadow git, index, heads). Runtime state of the
+# agent, not project source; committed by mistake in 09d3ce3d.
+/checkpoints/
+
 # Session-local TODO files
 *_TODO.md
 AC14_EVIDENCE_TODO.md
