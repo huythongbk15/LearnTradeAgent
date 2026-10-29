@@ -37,6 +37,7 @@ M1_RUNS, M1_HOURS = 24, 48
 DEFAULT_M1_START = "2026-10-29T19:00:00+00:00"
 TERMINAL_LIFECYCLE = {"exec.fill_received", "exec.order_rejected", "exec.cancel_confirmed"}
 CYCLE_LINE = re.compile(r"^=== (\S+Z) cycle (start|end|killed by) ?(\S*)")
+PID_FIELD = re.compile(r"pid=(\d+)")
 
 
 def wrapper_cycles(log: Path, since: datetime) -> list[dict]:
@@ -52,7 +53,10 @@ def wrapper_cycles(log: Path, since: datetime) -> list[dict]:
         if at < since:
             continue
         if match[2] == "start":
-            cycles.append({"start": at, "end": None, "result": "running?"})
+            pid = PID_FIELD.search(line)
+            alive = bool(pid) and Path(f"/proc/{pid[1]}").exists()
+            cycles.append({"start": at, "end": None,
+                           "result": "running" if alive else "died, no end line"})
         elif cycles and cycles[-1]["end"] is None:
             cycles[-1]["end"] = at
             cycles[-1]["result"] = match[3] if match[2] == "end" else f"killed {match[3]}"
@@ -99,8 +103,8 @@ def main() -> int:
         took = (cycle["end"] - cycle["start"]).total_seconds() if cycle["end"] else None
         print(f"  {cycle['start']:%m-%d %H:%M}Z  {cycle['result']:<14} "
               f"{'' if took is None else f'{took:.0f} s'}")
-        if cycle["result"] != "rc=0" and cycle["end"] is not None:
-            issues.append(f"cycle {cycle['start']:%H:%M}Z ended {cycle['result']}")
+        if cycle["result"] not in ("rc=0", "running"):
+            issues.append(f"cycle {cycle['start']:%H:%M}Z: {cycle['result']}")
     starts = [c["start"] for c in cycles] + [now]
     for earlier, later in zip(starts, starts[1:]):
         if later - earlier > GAP_LIMIT and later > m1_start:
@@ -152,10 +156,12 @@ def main() -> int:
         and (r["terminal"]["_timestamp"] - r["started"]).total_seconds() <= MAX_CYCLE_SECONDS
     ]
     hours = max(0.0, (now - m1_start).total_seconds() / 3600)
-    m1_ok = len(clean) == len(m1_runs) and not issues
+    m1_issues = [c for c in cycles if c["start"] >= m1_start and c["result"] not in ("rc=0", "running")]
+    m1_ok = len(clean) == len(m1_runs) and not m1_issues
     print(f"M1       {len(clean)}/{M1_RUNS} clean cycles, {hours:.1f}/{M1_HOURS} h since "
           f"{m1_start:%m-%d %H:%MZ}; "
-          + ("PASSED" if m1_ok and len(clean) >= M1_RUNS and hours >= M1_HOURS
+          + ("not started" if now < m1_start
+             else "PASSED" if m1_ok and len(clean) >= M1_RUNS and hours >= M1_HOURS
              else "on track" if m1_ok else "RESET NEEDED (see issues)"))
 
     if issues:
