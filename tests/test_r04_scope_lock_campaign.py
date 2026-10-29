@@ -422,7 +422,7 @@ class TestCampaignOrchestratorSmoke:
 
         result = subprocess.run(
             [
-                "python",
+                sys.executable,
                 "scripts/run_s3_campaign.py",
                 "--phase",
                 "smoke",
@@ -506,7 +506,7 @@ class TestCampaignOutputIsolation:
         out_dir = tmp_path / "smoke"
         result = subprocess.run(
             [
-                "python",
+                sys.executable,
                 "scripts/run_s3_campaign.py",
                 "--phase",
                 "smoke",

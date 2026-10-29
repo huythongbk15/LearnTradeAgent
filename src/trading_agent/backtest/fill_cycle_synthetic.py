@@ -55,9 +55,15 @@ def _write_summary(out_root: Path, payload: dict) -> None:
     )
 
 
-def run_fill_cycle_synthetic(out_root: Path) -> int:
+def run_fill_cycle_synthetic(
+    out_root: Path, *, arm: str = "A0", btc_context: str = "missing",
+) -> int:
     """Worker used by the launcher. Returns 0 only when the 24h proof is present."""
     out_root = Path(out_root)
+    if arm not in {"A0", "PLUS"} or btc_context not in {"up", "down", "missing"}:
+        raise ValueError("unsupported synthetic arm/context")
+    if (out_root / "report.json").exists() or (out_root / "summary.json").exists():
+        raise ValueError("synthetic packet already contains evidence; use a new directory")
     if os.environ.get("TRADING_FROZEN_RESEARCH_DATA"):
         _write_summary(out_root, {
             "status": "REJECTED",
@@ -67,6 +73,11 @@ def run_fill_cycle_synthetic(out_root: Path) -> int:
     from trading_agent.strategies.own24_fill_context import Own24FillContextStrategy
 
     frame = synthetic_frame()
+    if btc_context != "missing":
+        direction = 1 if btc_context == "up" else -1
+        frame = frame.with_columns(pl.Series(
+            "btc_close", [100.0 * (1.001 ** (direction * i)) for i in range(frame.height)],
+        ))
     simulator_type = _simulator_type()
     simulator = simulator_type(
         fresh=True,
@@ -78,7 +89,7 @@ def run_fill_cycle_synthetic(out_root: Path) -> int:
         data_manifest_id="synthetic-fill-cycle-v1",
         gap_policy="reject",
         source_df_override=frame,
-        execution_cycle_strategy=Own24FillContextStrategy({"arm": "A0"}),
+        execution_cycle_strategy=Own24FillContextStrategy({"arm": arm}),
         execution_cycle_synthetic_only=True,
         funnel_enabled=False,
     )
@@ -94,7 +105,9 @@ def run_fill_cycle_synthetic(out_root: Path) -> int:
         store = getattr(getattr(simulator, "engine", None), "store", None)
         if store is not None:
             store.close()
-    return _accept_report(out_root, report)
+    if arm == "PLUS" and btc_context != "up":
+        return _accept_blocked_report(out_root, report, arm=arm, btc_context=btc_context)
+    return _accept_report(out_root, report, arm=arm, btc_context=btc_context)
 
 
 def reject_precomputed_signals(out_root: Path) -> int:
@@ -134,7 +147,9 @@ def reject_precomputed_signals(out_root: Path) -> int:
     return 2
 
 
-def _accept_report(out_root: Path, report: dict) -> int:
+def _accept_report(
+    out_root: Path, report: dict, *, arm: str = "A0", btc_context: str = "missing",
+) -> int:
     trades = list(report.get("trades") or [])
     reason = None
     holding = None
@@ -168,6 +183,7 @@ def _accept_report(out_root: Path, report: dict) -> int:
         return 2
     _write_summary(out_root, {
         "status": "SYNTHETIC_FILL_CYCLE_OBSERVED",
+        "arm": arm, "btc_context": btc_context,
         "holding_hours": 24,
         "entry_time": trades[0]["entry_time"],
         "exit_time": trades[0]["exit_time"],
@@ -179,3 +195,23 @@ def _accept_report(out_root: Path, report: dict) -> int:
         "verdict": "TIMER_PATH_OBSERVED_NOT_AN_EDGE",
     })
     return 0
+
+
+def _accept_blocked_report(out_root: Path, report: dict, *, arm: str, btc_context: str) -> int:
+    """A negative control must have a real empty report, not a fabricated PASS."""
+    reason = None
+    if not (out_root / "report.json").is_file():
+        reason = "missing_report"
+    elif report.get("total_trades") != 0 or report.get("trades"):
+        reason = "blocked_context_generated_trades"
+    elif report.get("open_positions") != 0 or report.get("open_orders") != 0:
+        reason = "blocked_context_left_inventory_or_orders"
+    elif report.get("measured_accounting") is None:
+        reason = "missing_measured_accounting"
+    _write_summary(out_root, {
+        "status": "REJECTED" if reason else "SYNTHETIC_CONTEXT_BLOCK_OBSERVED",
+        "reason": reason, "arm": arm, "btc_context": btc_context,
+        "total_trades": report.get("total_trades"),
+        "verdict": "CONTEXT_WIRING_ONLY_NOT_AN_EDGE",
+    })
+    return 2 if reason else 0

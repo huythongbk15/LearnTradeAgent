@@ -31,8 +31,10 @@ def test_existing_packet_never_overwritten(tmp_path):
 
 @pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux supervisor")
 def test_deadline_stops_actual_worker_and_keeps_logs(tmp_path):
-    code = "import os,time; print(os.getpid(), flush=True); time.sleep(30)"
-    result = profile.supervise([sys.executable, "-c", code], tmp_path, timeout=0.2, memory_mb=512)
+    # A Python worker can take longer than the deadline just to start under
+    # parallel test load; ``exec`` keeps the shell's pid for the sleep.
+    result = profile.supervise(["sh", "-c", "echo $$; exec sleep 30"], tmp_path,
+                               timeout=0.5, memory_mb=512)
     assert result["status"] == "TIMEOUT"
     assert result["wall_seconds"] < 3
     pid = int((tmp_path / "stdout.log").read_text().strip())

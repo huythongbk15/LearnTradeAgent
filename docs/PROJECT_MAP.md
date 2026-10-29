@@ -3398,6 +3398,7 @@
 │       │   ├── engine.py
 │       │   ├── execution_contract.py
 │       │   ├── execution_funnel.py
+│       │   ├── fill_cycle_development.py
 │       │   ├── fill_cycle_synthetic.py
 │       │   ├── native_gate_contract.py
 │       │   ├── nested_wfo.py
@@ -3409,6 +3410,9 @@
 │       │   ├── scope_lock.py
 │       │   ├── selection_eligibility.py
 │       │   ├── synthetic_data.py
+│       │   ├── thinning_execution.py
+│       │   ├── thinning_preparation.py
+│       │   ├── thinning_synthetic.py
 │       │   ├── tournament.py
 │       │   ├── validation_reporting.py
 │       │   ├── validation_supervisor.py
@@ -3654,6 +3658,7 @@
 │       │   ├── options_strategies.py
 │       │   ├── own24_context.py
 │       │   ├── own24_fill_context.py
+│       │   ├── own24_thinned_fill.py
 │       │   ├── range_mean_reversion.py
 │       │   ├── regime_switching.py
 │       │   ├── rsi.py
@@ -3782,7 +3787,11 @@
 │   ├── test_experiment_registry.py
 │   ├── test_fill_cost_components.py
 │   ├── test_fill_cost_validation.py
+│   ├── test_fill_cycle_development.py
+│   ├── test_fill_cycle_risk_halt.py
 │   ├── test_fill_model_latency.py
+│   ├── test_fill_plus_launcher.py
+│   ├── test_fill_plus_policy_wiring.py
 │   ├── test_forecast_promotion_contract.py
 │   ├── test_frozen_research_input.py
 │   ├── test_full_system_accounting_basis.py
@@ -3826,6 +3835,7 @@
 │   ├── test_order_permission.py
 │   ├── test_order_planner_context.py
 │   ├── test_own24_context_window.py
+│   ├── test_own24_thinned_fill.py
 │   ├── test_p0_convergence.py
 │   ├── test_p4_p7.py
 │   ├── test_paper_exchange_accounting.py
@@ -3892,6 +3902,10 @@
 │   ├── test_t4a_confidence_scaling.py
 │   ├── test_temporal_leakage_regression.py
 │   ├── test_testnet_soak_tracker.py
+│   ├── test_thinned_fill_integration.py
+│   ├── test_thinning_execution.py
+│   ├── test_thinning_preparation.py
+│   ├── test_thinning_synthetic_launcher.py
 │   ├── test_tier3_live.py
 │   ├── test_tool_dispatch_audit.py
 │   ├── test_tournament_e2e.py

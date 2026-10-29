@@ -4,7 +4,84 @@ Single source of truth for the measured-accounting and campaign-publication
 work. Supersedes the per-session `*_TODO.md` files, which are gitignored and
 were fragmenting the state across ~60 files.
 
-## Current — 2026-10-28 / MARKET_PAUSED / FILL_TIMER_SYNTHETIC
+## Current — 2026-10-29 / MARKET_PAUSED / PLUS_MATRIX_NO_SUPPORTED_INCREMENT
+
+### Full BASE–PLUS development matrix closed
+
+12 logical cells: ten new cells plus two sealed ETH1x references. All six comparisons completed, zero IMPROVES. BNB return improves by3.88/4.55/6.03pp but remains negative; ETH1x worsens1.98pp, ETH stress improves1.49/1.90pp but remains negative. All returns and Sharpes are negative. PLUS gross PnL worsens in all six comparisons while modeled costs fall. No exposure-matched control was measured; this does not reject BTC information in general.
+
+All12 raw report audits PASS:7976 signal exits exactly24h, no BUY during breaker intervals, no missing required return features, reconciled marked equity, zero terminal inventory/orders or unresolved health. QA counts are not independent observations. 131 tests and AC01–15 PASS on source d6afc7b26a809cb318d911c4d69dcfec8f4d142ba1c0135a07a24e26469840ce. ETH1x retains earlier sealed source; core equivalence is recorded, but no single-revision qualification is claimed. All14 known attempts including the defective pilot remain disclosed. Total market execution2737.42s; new batch1950.07s; zero retries.
+
+Full report (local evidence `data/plus_context_matrix_20261029_01/RESULTS.md`), MATRIX_RESULTS.json, RAW_AUDIT.json and wave_protocol.json hold primary evidence. CLOSED_NO_SUPPORTED_INCREMENT / NOT_QUALIFIED. No further run, confirmation, paper/testnet/live authority; no independent review claimed. CI remains separate. Static draft authority functions are design snapshots; protocols and this tracker record actual progress.
+
+### 2026-10-29 — scoped thinning execution engineering complete on synthetic
+
+Worker/admission implemented in thinning_execution.py; original BASE/PLUS lane retained through typed-request dispatch. 128/128 regression tests PASS plus one full E2E:36/36 real subprocess workers on generated synthetic parquet,193.35s controlled, one worker/no retry. Harness injects fixture ROOT/source context only; validator, CLI main, supervisor, worker, native engine and metric exporter run for real. Approval in this harness is synthetic-fixture-only, not operator authorization.
+
+Raw SQLite audit reproduces incremental BUY-fill denominator for all36 cells, including matching report/protocol/metric hashes, per-cost contracts, entry hash timing,24h exit and terminal flat. Separate bound-worker carry regression proves final marked equity−10000 and positive BUY notional even with no closed trade. Partial fills counted as deltas; duplicate event ids idempotent, conflicting duplicates rejected; zero denominator remains undefined. Summary keeps all six pair–cost groups and five seeds, descriptive only.
+
+Code commit3f3a1512, source49c4e4a223256f320dc95c9866d25be1b5b75a19d22f45961291c8999d79f269. Actual pending packet:data/btc_thinning_execution_pending_20261029_01/. Approval fields remain null/PENDING_OPERATOR_APPROVAL. Actual --run negative test returned NOT_AUTHORIZED_TO_RUN before creating cells/execution journal; market cells0. Exact calibration remains ETH3647/4356,BNB3267/4325. No holdout/OOS/live, no push.
+
+Evidence and limits:data/thinning_execution_e2e_20261029_01/RESULTS.md. Source snapshot still includes user-owned untracked analysis scripts; not a clean independently reviewed integrated release. Old preparation-only limitation is superseded by this worker proof; prior packets stay unchanged. Next gate is clean integration/review of exact source and explicit scope/budget authorization; no further engineering feature or run is scheduled automatically.
+
+### 2026-10-29 — fixed calibration and36-cell preparation verified
+
+PREPARED_NOT_AUTHORIZED. Calibration[216,8760), evaluation[8760,25198), ETH/BNB1h only. Exact p:ETH3647/4356 (83.7236%), BNB3267/4325 (75.5376%), missing0 of8544 calibration rows per target. Independent Arrow/direct-ratio implementation reproduces counts (same-author audit, not independent reviewer). All input hashes and full clocks rechecked; only timestamp+close decoded, full already-exposed25198rows per file, only prefix used to compute p. No strategy/simulator market evaluation.
+
+Packet:data/btc_thinning_development_preparation_20261029_01/. Binds frozen design v5 hash, current source28d5537a…, runtime/config, exact calibration counts,36cell identities/seeds, per-cost native contracts, windows/flat10000initialization, metrics and proposed budget23400s. Execution entrypoint absent, authorization NOT_AUTHORIZED_TO_RUN; actual authority check raises PermissionError. Rehashed approval/field tamper rejected. 87/87 final targeted tests PASS; lint PASS. Local code commit e65af9da.
+
+Source snapshot remains worktree_dirty=true due preserved user analysis scripts, not a clean reviewed integrated release. Preparation source differs from earlier synthetic proof; old acceptance evidence not reassigned. No market qualification or independent review claimed. Full market worker/launcher admission remains unimplemented; this preparation packet cannot be activated merely by editing an approval field. No further execution is scheduled.
+
+### 2026-10-29 — thinning launcher synthetic proof closed
+
+Control thinning and scoped synthetic launcher verified; 36/36 fixture cells completed in160.95s. Six PLUS cells plus30 controls (five seeds per pair/cost), calibration5/10 on synthetic[216,240), evaluation[240,280). These fixture windows/counts are NOT the frozen market study windows/p. 75/75 targeted tests and lint PASS; raw audit verifies per-cost contracts, hash entry timing,24h exits, marked equity accounting, flat inventory/orders and cross-cost deterministic entry vectors. Source19b1c257… stable.
+
+Initial attempt01 stopped before simulation because synthetic manifest label lacked required prefix; retained INCOMPLETE. Fixed label; fresh attempt02 completed, no cell retries. No guard/gate thresholds changed. Evidence:data/btc_thinning_launcher_synthetic_20261029_02/RAW_AUDIT.json and RESULTS.md. SYNTHETIC_VERIFIED, NOT_AUTHORIZED_TO_RUN, no economic conclusion. Existing market runner unchanged; calibration on real bound input and complete market execution binding/admission remain outside this proof.
+
+### Historical pilot status (before matrix completion)
+
+### 2026-10-29 — bounded development pilot closed NO_INCREMENT
+
+Two fixed ETH/USDT 1h cells (BASE A0 vs PLUS BTC-return24>0), cost1x,
+window[216,25198), shared source/input/native policy completed. After correcting
+risk admission, BASE:785 trades, return-44.48135%, Sharpe-2.07383, DD45.64071%;
+PLUS:717 trades, return-46.45637%, Sharpe-2.33912, DD48.08630%. PLUS worsens return
+by1.97502pp: model costs fall357.96405USDT but gross alpha PnL falls555.46643USDT.
+Verdict NO_INCREMENT, not qualified. This is exposed development, not OOS or
+full twelve-cell coverage. BNB/2x/slip remain unmeasured.
+
+The first two-cell attempt is preserved as diagnostic: fill-cycle flat entry
+could bypass breaker/cooldown, and emergency exits were mislabeled signal.
+Two synthetic regressions failed before fix. Corrected source uses authoritative
+risk state, blocks flat entries, keeps reducing expiry and stamps risk exits at
+the risk phase. Actual corrected reports have all688/625 signal exits at24h,
+no BUY in active breaker intervals,96 risk-entry halts per arm, no terminal
+inventory/orders or unresolved execution health. No thresholds/params retuned.
+119 integrated tests and fresh AC01–15 PASS on source0f77fa29… (commitfd9049c9).
+Both market attempts total787.356s under the original1500s envelope; no cell retries.
+Source stayed stable; no more market authority, no confirmation/paper/testnet/live.
+Local evidence: data/plus_eth1x_development_20261029_02/RESULTS.md, raw_audit.json,
+protocol/receipts/reports; original attempt01 and its findings retained. Full CI
+and independent review are separate; no independent acceptance claimed.
+
+### Historical 2026-10-28 — synthetic-stage status
+
+
+### 2026-10-28 — PLUS fill-policy wiring verified on synthetic
+
+The separate fill policy now accepts PLUS and applies only the pair/BTC 24h
+positive-return predicate. The legacy own24_context constructor/source is
+unchanged. The existing synthetic launcher produced real reports: A0 has one
+24h trade for BTC up/down; PLUS has one for up and none for down/missing.
+Terminal positions/orders are zero in all five cases. Net PnL per constructed
+flat-price trade is -5.62485 USDT from cost/slippage; this is wiring evidence,
+not predictive/economic value. Final regression: **142 PASS**, Ruff/diff clean,
+source stable `d5561a10…`; no new AC/full-CI claim and no market cells.
+PLUS market contract now explicitly says DEVELOPMENT_ENTRYPOINT_NOT_IMPLEMENTED;
+the nonexistent pytest command and stale revision are removed. The simulator
+still refuses market input for the fill-cycle prototype.
+Local evidence: `data/plus_execution_readiness_audit_20261028_01/FINAL_RESULTS.md`
+and five preserved raw reports in `final_verification_reports/`. Mainnet NO-GO.
 
 ### 2026-10-28 — fill-timer native runtime prototype verified
 

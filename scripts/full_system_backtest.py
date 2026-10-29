@@ -261,8 +261,20 @@ class FullSystemSimulator:
         expected_execution_contract_id: str | None = None,
         execution_cycle_strategy: object | None = None,
         execution_cycle_synthetic_only: bool = False,
+        execution_cycle_development_input: object | None = None,
     ):
-        if execution_cycle_strategy is not None and (
+        if execution_cycle_development_input is not None:
+            if execution_cycle_synthetic_only or execution_cycle_strategy is None:
+                raise ValueError("development cycle input cannot use the synthetic lane")
+            from trading_agent.backtest.fill_cycle_development import verify_simulator_input
+
+            verify_simulator_input(
+                execution_cycle_development_input, source_df_override, symbol=symbol,
+                timeframe=timeframe, strategy=execution_cycle_strategy,
+                manifest=data_manifest_id, contract_id=expected_execution_contract_id,
+                state_dir=state_dir, report_path=report_path, fresh=fresh,
+            )
+        elif execution_cycle_strategy is not None and (
             not execution_cycle_synthetic_only
             or source_df_override is None
             or os.environ.get("TRADING_FROZEN_RESEARCH_DATA")
@@ -575,7 +587,12 @@ class FullSystemSimulator:
         self.strategy_runtime: Any = None
         if self._execution_cycle and strategy_runtime is None:
             from trading_agent.authority.resolver import StrategyRuntime
-            from trading_agent.strategies.own24_fill_context import fill_policy_fingerprint
+            from trading_agent.strategies.own24_fill_context import (
+                fill_policy_fingerprint, fill_policy_fingerprint_plus,
+            )
+
+            policy_fingerprint = (fill_policy_fingerprint_plus()
+                if self.strategy_params.get("arm") == "PLUS" else fill_policy_fingerprint())
 
             cycle_metadata = {
                 "symbol": self.symbol,
@@ -584,9 +601,10 @@ class FullSystemSimulator:
                 "calibration_state": "KNOWN",
                 "ood_state": "KNOWN",
                 "regime_state": "KNOWN",
-                "forecast_fingerprint": fill_policy_fingerprint(),
-                "evidence_class": "SYNTHETIC_TEST_ONLY",
-                "policy": fill_policy_fingerprint(),
+                "forecast_fingerprint": policy_fingerprint,
+                "evidence_class": ("DEVELOPMENT_EXPOSED_NOT_CONFIRMATION"
+                    if execution_cycle_development_input is not None else "SYNTHETIC_TEST_ONLY"),
+                "policy": policy_fingerprint,
             }
             self.strategy_runtime = StrategyRuntime(
                 strategy=self.strategy,
@@ -715,12 +733,17 @@ class FullSystemSimulator:
         bar_index: int,
         reference_price: float,
         reference_type: str,
+        reason_override: str | None = None,
     ) -> None:
         """Replace wall-clock broker timestamps with simulated-bar evidence."""
         for trade in self.engine.exchange.get_trade_history(limit=1_000_000):
             if trade.id in self._stamped_trade_ids:
                 continue
             metadata = trade.metadata
+            if reason_override is not None:
+                metadata["original_close_reason"] = trade.reason
+                metadata["exit_trigger"] = reason_override
+                trade.reason = reason_override
             simulation = metadata.get("simulation")
             if not isinstance(simulation, dict):
                 simulation = {}
@@ -831,6 +854,7 @@ class FullSystemSimulator:
         decision_bar_open_at: datetime,
         decision_bar_close_at: datetime,
         funnel_row: dict | None,
+        entry_halted: bool = False,
     ) -> None:
         """One replay decision. The snapshot, not a later broker read, is the cycle."""
         from trading_agent.authority.portfolio import PortfolioSnapshot, ReconciliationState
@@ -843,6 +867,11 @@ class FullSystemSimulator:
             raise RuntimeError(
                 f"fill-cycle replay rejected: position_cycle_unknown: {exc}"
             ) from exc
+        if entry_halted and record.quantity == 0:
+            if funnel_row is not None:
+                funnel_row["action"] = "HOLD"
+                funnel_row["terminal"] = "risk_entry_halt"
+            return
         equity = float(self.engine.exchange.get_total_equity())
         cash = float(self.engine.exchange.get_balance("USDT"))
         mark = float(position.current_price) if position is not None and record.quantity > 0 else 0.0
@@ -868,7 +897,8 @@ class FullSystemSimulator:
             volume=float(decision_row.get("volume", 0.0)),
             features={},
             venue=self.exchange,
-            source="synthetic_fill_cycle",
+            source=("development_fill_cycle" if self.data_manifest_id.startswith("development:")
+                    else "synthetic_fill_cycle"),
             timeframe=self.timeframe,
             bar_open_at=decision_bar_open_at,
             bar_close_at=decision_bar_close_at,
@@ -1034,7 +1064,16 @@ class FullSystemSimulator:
 
             # 2. Risk checks (max DD, daily loss, circuit breaker)
             alerts = self.risk.check_all()
-            breaker_on = any("CIRCUIT BREAKER ACTIVE" in a for a in alerts)
+            risk_status = self.risk.get_status()
+            breaker_on = bool(risk_status["circuit_breaker_active"])
+            entry_halted = breaker_on or bool(risk_status["cooldown_active"])
+            if breaker_on:
+                # Risk may close at this open before the strategy is consulted.
+                # Stamp immediately; otherwise a later low/next bar misdates it.
+                self._stamp_new_trades(
+                    at=bar_open_at, bar_index=i, reference_price=price,
+                    reference_type="bar_open", reason_override="circuit_breaker",
+                )
             if breaker_on and not self._breaker_active:
                 self.circuit_breakers.append(f"{ts}: {alerts[0]}")
                 print(
@@ -1159,6 +1198,7 @@ class FullSystemSimulator:
                     decision_bar_open_at=decision_bar_open_at,
                     decision_bar_close_at=decision_bar_close_at,
                     funnel_row=funnel_row,
+                    entry_halted=entry_halted,
                 )
             elif (
                 i > start

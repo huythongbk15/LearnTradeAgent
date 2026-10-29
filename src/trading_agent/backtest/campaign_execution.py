@@ -282,6 +282,21 @@ class CampaignCellRunner:
         with _cell_lock(self.root / "cell_locks" / f"{key}.lock"):
             return self._execute_cell(spec, **kwargs)
 
+    def _preregistration_gate_inputs(self):
+        """Packet root, evidence class and run budget the cell gate checks.
+
+        Without a frozen protocol the gate compares the repository packet with
+        the PLUS budget constants. Runners that hold a frozen protocol override
+        this so the gate checks that run's own root and budget instead. Kept
+        out of ``self.context`` so cache identities do not change.
+        """
+        return {
+            "root": ROOT,
+            "evidence_class": "SYNTHETIC_TEST_ONLY",
+            "cell_timeout": PLUS_BUDGET["cell_timeout_seconds"],
+            "total_timeout_seconds": PLUS_BUDGET["run_total_seconds"],
+        }
+
     def _identity(self, spec, window, stage):
         return dict(version=CACHE_VERSION, environment=self.environment,
                     stage=stage, context=self.context, cell_id=spec.cell_id,
@@ -314,7 +329,8 @@ class CampaignCellRunner:
                 source_fingerprint = captured["tree_fingerprint"]
                 if not source_fingerprint:
                     raise ValueError("scoped candidate run requires source.tree_fingerprint")
-                payload, _manifest = load_approved_payload(scope_token, ROOT)
+                gate = self._preregistration_gate_inputs()
+                payload, _manifest = load_approved_payload(scope_token, gate["root"])
                 approved_contract = payload.get("execution_contract") or {}
                 approved_bodies = dict(approved_contract.get("native_contract_bodies_by_cost") or {})
                 # Build one execution contract per approved cost, keyed by cell id.
@@ -342,16 +358,16 @@ class CampaignCellRunner:
                             }
                             for name, value in payload["costs"].items()
                         ],
-                        "evidence_class": "SYNTHETIC_TEST_ONLY",
+                        "evidence_class": gate["evidence_class"],
                     },
                     "execution": {
-                        "cell_timeout": PLUS_BUDGET["cell_timeout_seconds"],
+                        "cell_timeout": gate["cell_timeout"],
                         "runtime_config": dict(approved_contract.get("runtime_config") or {}),
                         "max_retries": payload["budget"]["max_retries"],
                         "scope_token": scope_token,
                     },
                     "validation_budget": {
-                        "total_timeout_seconds": PLUS_BUDGET["run_total_seconds"],
+                        "total_timeout_seconds": gate["total_timeout_seconds"],
                         "max_rss_mb": payload["budget"]["max_rss_mb"],
                     },
                     "folds": [
@@ -363,7 +379,8 @@ class CampaignCellRunner:
                     "expected_inner_cells": inner_cells,
                 }
                 failed = verify_registered_payload_binding(
-                    protocol, scope_token, root=ROOT, source_fingerprint=source_fingerprint
+                    protocol, scope_token, root=gate["root"],
+                    source_fingerprint=source_fingerprint,
                 )
                 if failed:
                     raise ValueError(f"preregistration binding failed: {', '.join(failed)}")
