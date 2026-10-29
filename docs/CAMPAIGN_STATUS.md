@@ -4,7 +4,34 @@ Single source of truth for the measured-accounting and campaign-publication
 work. Supersedes the per-session `*_TODO.md` files, which are gitignored and
 were fragmenting the state across ~60 files.
 
-## Current — 2026-10-28 / MARKET_PAUSED / FILL_TIMER_SYNTHETIC
+## Current — 2026-10-29 / MARKET_PAUSED / PLUS_ETH_1X_NO_INCREMENT
+
+### 2026-10-29 — bounded development pilot closed NO_INCREMENT
+
+Two fixed ETH/USDT 1h cells (BASE A0 vs PLUS BTC-return24>0), cost1x,
+window[216,25198), shared source/input/native policy completed. After correcting
+risk admission, BASE:785 trades, return-44.48135%, Sharpe-2.07383, DD45.64071%;
+PLUS:717 trades, return-46.45637%, Sharpe-2.33912, DD48.08630%. PLUS worsens return
+by1.97502pp: model costs fall357.96405USDT but gross alpha PnL falls555.46643USDT.
+Verdict NO_INCREMENT, not qualified. This is exposed development, not OOS or
+full twelve-cell coverage. BNB/2x/slip remain unmeasured.
+
+The first two-cell attempt is preserved as diagnostic: fill-cycle flat entry
+could bypass breaker/cooldown, and emergency exits were mislabeled signal.
+Two synthetic regressions failed before fix. Corrected source uses authoritative
+risk state, blocks flat entries, keeps reducing expiry and stamps risk exits at
+the risk phase. Actual corrected reports have all688/625 signal exits at24h,
+no BUY in active breaker intervals,96 risk-entry halts per arm, no terminal
+inventory/orders or unresolved execution health. No thresholds/params retuned.
+119 integrated tests and fresh AC01–15 PASS on source0f77fa29… (commitfd9049c9).
+Both market attempts total787.356s under the original1500s envelope; no cell retries.
+Source stayed stable; no more market authority, no confirmation/paper/testnet/live.
+Local evidence: data/plus_eth1x_development_20261029_02/RESULTS.md, raw_audit.json,
+protocol/receipts/reports; original attempt01 and its findings retained. Full CI
+and independent review are separate; no independent acceptance claimed.
+
+### Historical 2026-10-28 — synthetic-stage status
+
 
 ### 2026-10-28 — PLUS fill-policy wiring verified on synthetic
 
