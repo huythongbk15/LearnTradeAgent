@@ -203,8 +203,8 @@ def plussed_execution_authority() -> dict[str, object]:
         "market_run": False,
         "live_authorized": False,
         "qualification_possible_on_this_bundle": False,
-        "reason": "DEVELOPMENT_ENTRYPOINT_NOT_IMPLEMENTED",
-        "blockers": ("development_fill_cycle_entrypoint", "frozen_packet_and_authorization"),
+        "reason": "FULL_WAVE_NOT_AUTHORIZED_ETH_1X_PILOT_AVAILABLE",
+        "blockers": ("full_twelve_cell_entrypoint", "frozen_packet_and_authorization"),
         "entry_rule_id": PLUS_ENTRY_RULE_ID,
         "rule_fingerprint": rule_fingerprint_plus(),
         "feature_contract": CONTRACT_VERSION,
@@ -345,7 +345,11 @@ def plus_packet_contract() -> dict[str, object]:
         },
         "costs": list(PLUS_COSTS),
         "command": None,
-        "execution_readiness": "DEVELOPMENT_ENTRYPOINT_NOT_IMPLEMENTED",
+        "execution_readiness": "BOUNDED_ETH_1X_PILOT_ONLY",
+        "development_pilot_command": (
+            ".venv/bin/python scripts/run_wfo_parallel.py "
+            "--fill-cycle-development <FROZEN_PROTOCOL_JSON> --no-real-sensitivity"
+        ),
         "synthetic_check_command": (
             ".venv/bin/python scripts/run_wfo_parallel.py --fill-cycle-synthetic "
             "--fill-cycle-arm PLUS --fill-cycle-btc-context up --out <NEW_SYNTHETIC_PACKET>"

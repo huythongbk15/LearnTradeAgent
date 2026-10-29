@@ -261,8 +261,20 @@ class FullSystemSimulator:
         expected_execution_contract_id: str | None = None,
         execution_cycle_strategy: object | None = None,
         execution_cycle_synthetic_only: bool = False,
+        execution_cycle_development_input: object | None = None,
     ):
-        if execution_cycle_strategy is not None and (
+        if execution_cycle_development_input is not None:
+            if execution_cycle_synthetic_only or execution_cycle_strategy is None:
+                raise ValueError("development cycle input cannot use the synthetic lane")
+            from trading_agent.backtest.fill_cycle_development import verify_simulator_input
+
+            verify_simulator_input(
+                execution_cycle_development_input, source_df_override, symbol=symbol,
+                timeframe=timeframe, strategy=execution_cycle_strategy,
+                manifest=data_manifest_id, contract_id=expected_execution_contract_id,
+                state_dir=state_dir, report_path=report_path, fresh=fresh,
+            )
+        elif execution_cycle_strategy is not None and (
             not execution_cycle_synthetic_only
             or source_df_override is None
             or os.environ.get("TRADING_FROZEN_RESEARCH_DATA")
@@ -575,7 +587,12 @@ class FullSystemSimulator:
         self.strategy_runtime: Any = None
         if self._execution_cycle and strategy_runtime is None:
             from trading_agent.authority.resolver import StrategyRuntime
-            from trading_agent.strategies.own24_fill_context import fill_policy_fingerprint
+            from trading_agent.strategies.own24_fill_context import (
+                fill_policy_fingerprint, fill_policy_fingerprint_plus,
+            )
+
+            policy_fingerprint = (fill_policy_fingerprint_plus()
+                if self.strategy_params.get("arm") == "PLUS" else fill_policy_fingerprint())
 
             cycle_metadata = {
                 "symbol": self.symbol,
@@ -584,9 +601,10 @@ class FullSystemSimulator:
                 "calibration_state": "KNOWN",
                 "ood_state": "KNOWN",
                 "regime_state": "KNOWN",
-                "forecast_fingerprint": fill_policy_fingerprint(),
-                "evidence_class": "SYNTHETIC_TEST_ONLY",
-                "policy": fill_policy_fingerprint(),
+                "forecast_fingerprint": policy_fingerprint,
+                "evidence_class": ("DEVELOPMENT_EXPOSED_NOT_CONFIRMATION"
+                    if execution_cycle_development_input is not None else "SYNTHETIC_TEST_ONLY"),
+                "policy": policy_fingerprint,
             }
             self.strategy_runtime = StrategyRuntime(
                 strategy=self.strategy,

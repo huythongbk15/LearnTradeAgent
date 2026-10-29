@@ -1599,6 +1599,8 @@ def main():
                         help="Serial validation-only: stop dispatch after first failed attempt; preserve unattempted cells.")
     parser.add_argument("--synthetic-test-only", action="store_true",
                         help="Label validation/preflight fixtures SYNTHETIC_TEST_ONLY; never market evidence")
+    parser.add_argument("--fill-cycle-development", type=Path,
+                        help="Run one frozen, exposed-development fill-cycle contrast; never OOS/live.")
     parser.add_argument("--fill-cycle-arm", choices=("A0", "PLUS"), default="A0",
                         help="Arm for the isolated synthetic fill-cycle proof only.")
     parser.add_argument("--fill-cycle-btc-context", choices=("up", "down", "missing"),
@@ -1640,6 +1642,18 @@ def main():
         help="Disable real sensitivity",
     )
     args = parser.parse_args()
+    if args.fill_cycle_development is not None:
+        if sys.argv[1:] != ["--fill-cycle-development", str(args.fill_cycle_development.resolve()),
+                             "--no-real-sensitivity"]:
+            parser.error("development command must match the frozen command exactly")
+        if any((args.fill_cycle_synthetic, args.run_holdout, args.validation_only,
+                args.preflight_only, args.explicit_measurement is not None,
+                args.validation_worker is not None, args.real_sensitivity,
+                args.fill_cycle_arm != "A0", args.fill_cycle_btc_context != "missing")):
+            parser.error("development fill-cycle requires its frozen protocol and --no-real-sensitivity")
+        from trading_agent.backtest.fill_cycle_development import run_packet
+
+        raise SystemExit(run_packet(args.fill_cycle_development))
     if args.fill_cycle_synthetic:
         if any((
             args.run_holdout, args.validation_only, args.preflight_only,
