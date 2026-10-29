@@ -2995,6 +2995,7 @@
 │   │   ├── BNB_QUALIFICATION_PROTOCOL.md
 │   │   ├── CAMPAIGN_EVIDENCE_CONTRACT.md
 │   │   ├── CAMPAIGN_EVIDENCE_HANDOFF.md
+│   │   ├── CORE_RUNTIME_BOUNDARY.md
 │   │   ├── INTEGRATION_REVIEW_20261028.md
 │   │   ├── L2_SELECTION_RULE.md
 │   │   ├── LIVE_READINESS_AGENT_PLAN.md
@@ -3868,6 +3869,7 @@
 │   ├── test_rsi_adx_native_timing.py
 │   ├── test_rsi_adx_rsi_edges.py
 │   ├── test_run_real_wfo_campaign_script.py
+│   ├── test_runtime_import_boundary.py
 │   ├── test_s3_3_real_return_stats.py
 │   ├── test_s3_7_holdout_fail_closed.py
 │   ├── test_s3_evidence_integrity.py
