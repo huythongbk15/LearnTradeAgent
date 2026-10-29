@@ -1,7 +1,7 @@
 """Bounded development contrast for fill-timed BASE/PLUS; never qualification.
 
-Only the already exposed, hash-pinned ETH/BTC inputs and fixed 1x pair are
-supported. No registry registration, holdout, tuning, network or promotion.
+Only the already exposed, hash-pinned ETH/BNB targets with BTC context and
+the original three cost scenarios are supported. No registry registration, holdout, tuning, network or promotion.
 """
 from __future__ import annotations
 
@@ -27,7 +27,8 @@ from trading_agent.backtest.validation_supervisor import (
     _supervise_validation, _validation_group_pids, _validation_group_rss_mb,
     _wait_for_all_reaped,
 )
-from trading_agent.research.btc_context_prereg import INPUTS, keep_added_arm
+from trading_agent.research.btc_context_prereg import INPUTS, TARGETS, keep_added_arm
+from trading_agent.backtest.tournament import DEFAULT_SCENARIOS
 from trading_agent.strategies.own24_context import attach_btc_close
 from trading_agent.strategies.own24_fill_context import (
     Own24FillContextStrategy, fill_policy_fingerprint_plus,
@@ -51,18 +52,28 @@ def frame_digest(frame):
     return hashlib.sha256(buffer.getvalue()).hexdigest()
 
 
-def _native_contract(arm):
+def _scope(symbol, cost):
+    scenarios = {item.name: item for item in DEFAULT_SCENARIOS}
+    if symbol not in TARGETS or cost not in scenarios:
+        raise ValueError("unregistered development symbol/cost")
+    return scenarios[cost]
+
+
+def _native_contract(arm, symbol="ETH/USDT", cost="1x"):
     from scripts import full_system_backtest as simulator
     from trading_agent.config.loader import config
 
+    scenario = _scope(symbol, cost)
     return simulator.describe_execution_contract(
-        symbol="ETH/USDT", timeframe="1h", strategy_name="own24_fill_context",
-        parameters={"arm": arm}, commission=config.commission, slippage=config.slippage,
+        symbol=symbol, timeframe="1h", strategy_name="own24_fill_context",
+        parameters={"arm": arm}, commission=config.commission * scenario.fee_multiplier,
+        slippage=config.slippage * scenario.slippage_multiplier,
     )
 
 
-def prepare_packet(packet, authorization):
+def prepare_packet(packet, authorization, *, symbol="ETH/USDT", cost="1x"):
     """Freeze one two-cell attempt. Authorization is preserved human evidence."""
+    _scope(symbol, cost)
     packet = Path(packet).resolve()
     if not isinstance(authorization, dict) or not authorization.get("user_instruction"):
         raise ValueError("missing human authorization evidence")
@@ -73,12 +84,12 @@ def prepare_packet(packet, authorization):
         raise ValueError("development contrast requires the existing Binance profile")
     plan = {
         "version": 1, "kind": "EXPOSED_DEVELOPMENT_NOT_QUALIFICATION",
-        "subject": {"strategy_id": "own24_fill_context", "symbol": "ETH/USDT", "timeframe": "1h"},
-        "arms": ARMS, "cost": "1x", "window": WINDOW, "budget": BUDGET,
-        "inputs": {s: INPUTS[s] for s in ("ETH/USDT", "BTC/USDT")},
+        "subject": {"strategy_id": "own24_fill_context", "symbol": symbol, "timeframe": "1h"},
+        "arms": ARMS, "cost": cost, "window": WINDOW, "budget": BUDGET,
+        "inputs": {s: INPUTS[s] for s in (symbol, "BTC/USDT")},
         "source": capture_campaign_source(ROOT), "environment": environment,
         "fill_policy_fingerprint_plus": fill_policy_fingerprint_plus(),
-        "native_contracts": {arm: _native_contract(arm) for arm in ARMS},
+        "native_contracts": {arm: _native_contract(arm, symbol, cost) for arm in ARMS},
         "authorization": authorization, "holdout": False, "live_authorized": False,
         "command": [".venv/bin/python", "scripts/run_wfo_parallel.py",
                     "--fill-cycle-development", str(packet / "protocol.json"),
@@ -96,11 +107,14 @@ def verify_plan(path):
     body = {k: v for k, v in plan.items() if k != "fingerprint"}
     if plan.get("fingerprint") != digest(body):
         raise ValueError("development protocol fingerprint mismatch")
+    symbol = plan.get("subject", {}).get("symbol")
+    cost = plan.get("cost")
+    _scope(symbol, cost)
     expected = {
         "version": 1, "kind": "EXPOSED_DEVELOPMENT_NOT_QUALIFICATION",
-        "subject": {"strategy_id": "own24_fill_context", "symbol": "ETH/USDT", "timeframe": "1h"},
-        "arms": ARMS, "cost": "1x", "window": WINDOW, "budget": BUDGET,
-        "inputs": {s: INPUTS[s] for s in ("ETH/USDT", "BTC/USDT")},
+        "subject": {"strategy_id": "own24_fill_context", "symbol": symbol, "timeframe": "1h"},
+        "arms": ARMS, "cost": cost, "window": WINDOW, "budget": BUDGET,
+        "inputs": {s: INPUTS[s] for s in (symbol, "BTC/USDT")},
         "fill_policy_fingerprint_plus": fill_policy_fingerprint_plus(),
         "holdout": False, "live_authorized": False,
         "command": [".venv/bin/python", "scripts/run_wfo_parallel.py",
@@ -115,7 +129,7 @@ def verify_plan(path):
         raise ValueError("development source mismatch")
     if execution_environment() != plan["environment"]:
         raise ValueError("development runtime environment mismatch")
-    if plan["native_contracts"] != {arm: _native_contract(arm) for arm in ARMS}:
+    if plan["native_contracts"] != {arm: _native_contract(arm, symbol, cost) for arm in ARMS}:
         raise ValueError("development native contract mismatch")
     if os.environ.get("TRADING_FROZEN_RESEARCH_DATA"):
         raise ValueError("conflicting frozen input binding")
@@ -143,7 +157,7 @@ def load_input(path, arm):
         if hashlib.sha256(raw).hexdigest() != binding["sha256"]:
             raise ValueError("input changed before decode")
         frames[symbol] = pl.read_parquet(io.BytesIO(raw)).sort("timestamp")
-    frame = attach_btc_close(frames["ETH/USDT"], frames["BTC/USDT"])
+    frame = attach_btc_close(frames[plan["subject"]["symbol"]], frames["BTC/USDT"])
     if frame.height != WINDOW["end"]:
         raise ValueError("development clock length mismatch")
     return frame, DevelopmentCycleInput(Path(path).resolve(), plan["fingerprint"], arm, frame_digest(frame))
@@ -164,7 +178,7 @@ def verify_simulator_input(request, frame, *, symbol, timeframe, strategy, manif
     if (request.protocol_fingerprint != plan["fingerprint"] or request.arm not in ARMS
             or type(strategy) is not Own24FillContextStrategy
             or strategy.params != {"arm": request.arm}
-            or symbol != "ETH/USDT" or timeframe != "1h"
+            or symbol != plan["subject"]["symbol"] or timeframe != "1h"
             or manifest != "development:" + plan["fingerprint"]
             or contract_id != plan["native_contracts"][request.arm]["contract_id"]
             or request.frame_sha256 != frame_digest(frame)):
@@ -186,7 +200,7 @@ def run_worker(path, arm):
         "protocol_fingerprint": plan["fingerprint"], "max_retries": 0})
     model = plan["native_contracts"][arm]["body"]["cost_model"]
     simulator = FullSystemSimulator(
-        fresh=True, symbol="ETH/USDT", timeframe="1h", state_dir=out / "execution",
+        fresh=True, symbol=plan["subject"]["symbol"], timeframe="1h", state_dir=out / "execution",
         report_path=out / "report.json", run_id=out.parent.parent.name + "_" + arm,
         data_manifest_id="development:" + plan["fingerprint"], gap_policy="reject",
         source_df_override=frame, execution_cycle_strategy=Own24FillContextStrategy({"arm": arm}),
@@ -208,6 +222,16 @@ def run_worker(path, arm):
             "evidence_class": "DEVELOPMENT_EXPOSED_NOT_CONFIRMATION", "live_authorized": False})
     finally:
         simulator.engine.store.close()
+
+
+def summarize_report(report):
+    """Primary PnL includes any marked carry; closed-trade PnL stays explicit."""
+    row = {k: report[k] for k in ("total_trades", "total_return_pct", "sharpe",
+        "max_drawdown_pct", "profit_factor", "open_positions", "open_orders")}
+    row["closed_trade_net_pnl"] = report["metrics"]["net_pnl"]
+    row["net_pnl"] = report["final_equity"] - report["initial_capital"]
+    row["measured_accounting_error"] = report.get("measured_accounting_error")
+    return row
 
 
 def run_packet(path):
@@ -243,6 +267,7 @@ def run_packet(path):
             break
     complete = len(outcomes) == 2 and all(r["status"] == "COMPLETED" for r in outcomes)
     result = {"status": "COMPLETED" if complete else "INCOMPLETE", "outcomes": outcomes,
+        "subject": plan["subject"], "cost": plan["cost"],
         "elapsed_seconds": time.monotonic() - started, "protocol_fingerprint": plan["fingerprint"],
         "live_authorized": False, "qualified": False, "holdout_opened": False,
         "evidence_class": "DEVELOPMENT_EXPOSED_NOT_CONFIRMATION"}
@@ -254,9 +279,7 @@ def run_packet(path):
                 proof = json.loads((root / "cells" / arm / "result.json").read_bytes())
                 if hashlib.sha256((root / "cells" / arm / "report.json").read_bytes()).hexdigest() != proof["report_sha256"]:
                     raise ValueError("completed report hash mismatch")
-                rows[arm] = {k: report[k] for k in ("total_trades", "total_return_pct", "sharpe",
-                    "max_drawdown_pct", "profit_factor", "open_positions", "open_orders")}
-                rows[arm]["net_pnl"] = report["metrics"]["net_pnl"]
+                rows[arm] = summarize_report(report)
                 if not all(math.isfinite(float(rows[arm][k])) for k in ("total_return_pct", "sharpe", "max_drawdown_pct")):
                     raise ValueError("non-finite development metrics")
             common = []

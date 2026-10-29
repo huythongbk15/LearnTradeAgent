@@ -15,7 +15,7 @@ from trading_agent.strategies.own24_fill_context import Own24FillContextStrategy
 def packet(tmp_path, monkeypatch):
     frame = synthetic_frame().with_columns(pl.lit(True).alias("is_closed"))
     inputs = {}
-    for symbol, name in [("ETH/USDT", "eth.parquet"), ("BTC/USDT", "btc.parquet")]:
+    for symbol, name in [("ETH/USDT", "eth.parquet"), ("BNB/USDT", "bnb.parquet"), ("BTC/USDT", "btc.parquet")]:
         path = tmp_path / name
         frame.write_parquet(path)
         inputs[symbol] = {"path": name, "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
@@ -43,7 +43,7 @@ def test_registered_development_input_and_plan_match(packet):
 @pytest.mark.parametrize("field,value", [
     ("budget", {"cell_timeout_seconds": 601}),
     ("window", {"start": 0, "end": 280}),
-    ("arms", ["A0"]), ("cost", "2x"), ("live_authorized", True),
+    ("arms", ["A0"]), ("cost", "unsupported"), ("live_authorized", True),
 ])
 def test_changed_scope_is_rejected_even_after_rehash(packet, field, value):
     path, plan = packet
@@ -71,7 +71,7 @@ def test_input_tamper_is_refused_before_decode(packet, monkeypatch):
 
 def arguments(path, plan, arm="PLUS"):
     cell = path.parent / "cells" / arm
-    return {"symbol": "ETH/USDT", "timeframe": "1h", "strategy": Own24FillContextStrategy({"arm": arm}),
+    return {"symbol": plan["subject"]["symbol"], "timeframe": "1h", "strategy": Own24FillContextStrategy({"arm": arm}),
         "manifest": "development:" + plan["fingerprint"],
         "contract_id": plan["native_contracts"][arm]["contract_id"],
         "state_dir": cell / "execution", "report_path": cell / "report.json", "fresh": True}
@@ -98,15 +98,20 @@ def test_simulator_cannot_write_outside_registered_cell(packet):
     assert not kwargs["state_dir"].exists()
 
 
-def test_real_simulator_with_bound_fixture_retains_fill_and_policy_identity(packet, monkeypatch):
+@pytest.mark.parametrize("symbol,cost", [("ETH/USDT", "1x"), ("BNB/USDT", "2x"), ("BNB/USDT", "slip_stress")])
+def test_real_simulator_with_bound_fixture_retains_fill_and_policy_identity(packet, monkeypatch, symbol, cost):
     from scripts.full_system_backtest import FullSystemSimulator
 
     path, plan = packet
+    if symbol != "ETH/USDT" or cost != "1x":
+        target = path.parent.parent / "alternate_subject"
+        plan = development.prepare_packet(target, {"user_instruction": "synthetic fixture"}, symbol=symbol, cost=cost)
+        path = target / "protocol.json"
     frame, request = development.load_input(path, "PLUS")
     kwargs = arguments(path, plan)
     model = plan["native_contracts"]["PLUS"]["body"]["cost_model"]
     simulator = FullSystemSimulator(
-        fresh=True, symbol="ETH/USDT", timeframe="1h",
+        fresh=True, symbol=symbol, timeframe="1h",
         state_dir=kwargs["state_dir"], report_path=kwargs["report_path"],
         data_manifest_id=kwargs["manifest"], source_df_override=frame,
         execution_cycle_strategy=kwargs["strategy"], execution_cycle_development_input=request,
@@ -177,3 +182,44 @@ def test_bad_binding_blocks_real_constructor_before_state_creation(packet):
 def test_development_budget_is_explicit_and_fixed():
     assert development.BUDGET == {"cell_timeout_seconds": 600, "total_timeout_seconds": 1000,
         "max_rss_mb": 2048, "workers": 1, "max_retries": 0}
+
+
+@pytest.mark.parametrize("symbol", ["ETH/USDT", "BNB/USDT"])
+@pytest.mark.parametrize("cost,fee,slip", [("1x", 1, 1), ("2x", 2, 2), ("slip_stress", 1, 5)])
+def test_only_registered_pair_cost_scopes_and_native_multipliers(packet, symbol, cost, fee, slip):
+    path, _ = packet
+    target = path.parent.parent / (symbol.replace("/", "_") + cost)
+    plan = development.prepare_packet(target, {"user_instruction": "synthetic fixture"}, symbol=symbol, cost=cost)
+    assert development.verify_plan(target / "protocol.json") == plan
+    base = development._native_contract("A0")["body"]["cost_model"]
+    actual = plan["native_contracts"]["PLUS"]["body"]["cost_model"]
+    assert actual["commission_rate"] == pytest.approx(base["commission_rate"] * fee)
+    assert actual["slippage_rate"] == pytest.approx(base["slippage_rate"] * slip)
+    assert set(plan["inputs"]) == {symbol, "BTC/USDT"}
+
+
+def test_cost_change_cannot_reuse_a_contract_from_another_cost(packet):
+    path, plan = packet
+    plan["cost"] = "2x"
+    plan["fingerprint"] = development.digest({k: v for k, v in plan.items() if k != "fingerprint"})
+    path.write_text(json.dumps(plan))
+    with pytest.raises(ValueError, match="native contract mismatch"):
+        development.verify_plan(path)
+
+
+def test_unknown_pair_refused_before_packet_creation(tmp_path):
+    target = tmp_path / "unknown"
+    with pytest.raises(ValueError, match="symbol/cost"):
+        development.prepare_packet(target, {"user_instruction": "fixture"}, symbol="ADA/USDT")
+    assert not target.exists()
+
+
+@pytest.mark.parametrize("final_equity,closed,expected", [(10200.0, 100.0, 200.0), (9800.0, 100.0, -200.0)])
+def test_marked_carry_cannot_be_hidden_by_profitable_closed_trades(final_equity, closed, expected):
+    report = {"initial_capital": 10000.0, "final_equity": final_equity,
+        "metrics": {"net_pnl": closed}, "total_trades": 31, "total_return_pct": expected / 100,
+        "sharpe": 0.1, "max_drawdown_pct": 2.0, "profit_factor": 1.1,
+        "open_positions": 1, "open_orders": 1}
+    row = development.summarize_report(report)
+    assert row["net_pnl"] == expected
+    assert row["closed_trade_net_pnl"] == closed
