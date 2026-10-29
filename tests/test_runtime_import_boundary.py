@@ -46,6 +46,32 @@ FORBIDDEN = (
     "hmmlearn",
     "sklearn",
     "scipy",
+    # Tier 2 (frozen) packages: not loaded today, must stay that way.
+    "trading_agent.features",
+    "trading_agent.enterprise",
+    "trading_agent.messaging",
+    "trading_agent.infrastructure",
+    "trading_agent.online_learning",
+)
+
+_TIER2_VIA_PACKAGE_INIT = (
+    "Tier 2 module still loaded by an eager package __init__ "
+    "(exchanges/__init__, strategies/__init__); not cut yet"
+)
+
+# Tier 2 modules checked by exact module name (their packages are core).
+FORBIDDEN_MODULES = (
+    "trading_agent.exchanges.dex",
+    "trading_agent.exchanges.futures",
+    *(
+        pytest.param(name, marks=pytest.mark.xfail(strict=True, reason=_TIER2_VIA_PACKAGE_INIT))
+        for name in (
+            "trading_agent.exchanges.oanda_adapter",
+            "trading_agent.exchanges.order_router",
+            "trading_agent.exchanges.websocket_manager",
+            "trading_agent.strategies.options_strategies",
+        )
+    ),
 )
 
 
@@ -78,6 +104,11 @@ def loaded_modules(request) -> set[str]:
 @pytest.mark.parametrize("forbidden", FORBIDDEN)
 def test_runner_does_not_load(loaded_modules, forbidden):
     assert forbidden not in _roots(loaded_modules)
+
+
+@pytest.mark.parametrize("forbidden", FORBIDDEN_MODULES)
+def test_runner_does_not_load_module(loaded_modules, forbidden):
+    assert not {m for m in loaded_modules if m == forbidden or m.startswith(forbidden + ".")}
 
 
 # Direct checks for individual cuts, independent of the package-level list.
