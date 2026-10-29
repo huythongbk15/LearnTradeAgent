@@ -150,7 +150,10 @@ def main(argv: list[str] | None = None) -> int:
         print("Not signed.")
         return 1
     write_authorization(path, authorization, key=key)
-    print(f"Signed: {path}. The next scheduled cycle starts the track.")
+    if path == DEFAULT_PATH:
+        print(f"Signed: {path}. The next scheduled cycle starts the track.")
+    else:
+        print(f"Signed: {path}. Only runners given this path will use it.")
     return 0
 
 
