@@ -98,7 +98,7 @@ def test_simulator_cannot_write_outside_registered_cell(packet):
     assert not kwargs["state_dir"].exists()
 
 
-def test_real_simulator_with_bound_fixture_retains_fill_and_policy_identity(packet):
+def test_real_simulator_with_bound_fixture_retains_fill_and_policy_identity(packet, monkeypatch):
     from scripts.full_system_backtest import FullSystemSimulator
 
     path, plan = packet
@@ -113,10 +113,19 @@ def test_real_simulator_with_bound_fixture_retains_fill_and_policy_identity(pack
         expected_execution_contract_id=kwargs["contract_id"],
         commission=model["commission_rate"], slippage=model["slippage_rate"], gap_policy="reject",
     )
+    sources = []
+    execute = simulator.engine.execute_strategy
+
+    def record_source(runtime, data, observation, **kwargs):
+        sources.append(observation.source)
+        return execute(runtime, data, observation, **kwargs)
+
+    monkeypatch.setattr(simulator.engine, "execute_strategy", record_source)
     try:
         assert simulator.strategy_runtime.artifact_metadata["policy"] == fill_policy_fingerprint_plus()
         report = simulator.run(start=240, end=280)
         assert report["total_trades"] == 1
+        assert sources and set(sources) == {"development_fill_cycle"}
         assert report["open_positions"] == 0
         assert report["active_config"]["execution_contract"] == plan["native_contracts"]["PLUS"]
     finally:

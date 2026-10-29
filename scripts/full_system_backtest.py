@@ -897,7 +897,8 @@ class FullSystemSimulator:
             volume=float(decision_row.get("volume", 0.0)),
             features={},
             venue=self.exchange,
-            source="synthetic_fill_cycle",
+            source=("development_fill_cycle" if self.data_manifest_id.startswith("development:")
+                    else "synthetic_fill_cycle"),
             timeframe=self.timeframe,
             bar_open_at=decision_bar_open_at,
             bar_close_at=decision_bar_close_at,
