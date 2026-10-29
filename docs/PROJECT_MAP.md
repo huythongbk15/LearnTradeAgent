@@ -87,6 +87,7 @@
 │   │   ├── MAIN_FLOW_VALIDATION.md
 │   │   ├── MULTIPAIR_OBSERVATIONS_20261017.md
 │   │   ├── MULTI_STRATEGY_RESEARCH_PLAN.md
+│   │   ├── OPERABLE_SYSTEM_PLAN.md
 │   │   ├── QWENPAW_TOOL_NAME_GUARD.md
 │   │   ├── RESEARCH_LESSONS_LEARNED_20261018.md
 │   │   ├── RESEARCH_RUN_PROTOCOL.md
@@ -214,7 +215,9 @@
 │   │   │   ├── check_health.ps1
 │   │   │   └── register_tasks.ps1
 │   │   ├── README.md
+│   │   ├── authorize_operational_track.py
 │   │   ├── check_binance_testnet_health.sh
+│   │   ├── daily_check.py
 │   │   └── run_binance_testnet_cycle.sh
 │   ├── qwenpaw_control
 │   │   ├── Makefile
@@ -623,6 +626,8 @@
 │       │   ├── live_safety.py
 │       │   ├── monitoring.py
 │       │   ├── multi_pair_runtime.py
+│       │   ├── operational_authorization.py
+│       │   ├── operational_driver.py
 │       │   ├── paper_exchange.py
 │       │   ├── permission.py
 │       │   ├── position_cycle.py
@@ -927,6 +932,7 @@
 │   ├── test_nested_wfo_evidence.py
 │   ├── test_online_methodology.py
 │   ├── test_open_inventory_accounting.py
+│   ├── test_operational_track.py
 │   ├── test_order_permission.py
 │   ├── test_order_planner_context.py
 │   ├── test_own24_context_window.py
@@ -1009,6 +1015,7 @@
 │   ├── test_tournament_research_memory_integration.py
 │   ├── test_trend_pullback_admission.py
 │   ├── test_uncertainty_drift_methodology.py
+│   ├── test_validation_binding_regression.py
 │   ├── test_validation_fail_fast.py
 │   ├── test_validation_only_workflow.py
 │   ├── test_validation_publication.py

@@ -2,7 +2,8 @@
 """Daily read-only check of the scheduled Binance testnet runner.
 
 Reports expected vs actual cycles, each execution run's outcome and duration,
-the health check, ledger and lifecycle consistency, and M1 progress
+the health check, ledger and lifecycle consistency, M1 progress and, while the
+operational track is authorized, M3 progress
 (docs/operations/OPERABLE_SYSTEM_PLAN.md). Exit 0 when nothing needs attention,
 1 otherwise. Reads files only: no exchange call and no write.
 
@@ -33,6 +34,8 @@ CADENCE = timedelta(hours=2)
 GAP_LIMIT = timedelta(hours=2, minutes=15)
 MAX_CYCLE_SECONDS = 60.0
 M1_RUNS, M1_HOURS = 24, 48
+M3_LIFECYCLES, M3_EACH_EXIT = 10, 3
+OPERATIONAL_REASON = "OPERATIONAL_EXERCISER"
 # First clean headless cycle (task run 2026-10-29 17:41:59Z, rc=0, 18 s).
 DEFAULT_M1_START = "2026-10-29T17:41:00+00:00"
 TERMINAL_LIFECYCLE = {"exec.fill_received", "exec.order_rejected", "exec.cancel_confirmed"}
@@ -77,6 +80,73 @@ def open_lifecycle_intents(accounts: Path) -> list[str]:
     finally:
         con.close()
     return [f"{aid} ends at {event}" for aid, event in rows if event not in TERMINAL_LIFECYCLE]
+
+
+def m3_progress(events: list[dict], runs: list[dict], *, now: datetime) -> list[str]:
+    """Lifecycles of the operational track since the authorization in force."""
+    from trading_agent.execution.live_safety import account_fingerprint
+    from trading_agent.execution.operational_authorization import (
+        DEFAULT_PATH,
+        EXCHANGE,
+        OperationalAuthorizationError,
+        load_authorization,
+    )
+    from trading_agent.execution.operational_driver import driver_code_sha
+
+    path = Path(os.getenv("LIVE_OPERATIONAL_AUTHORIZATION", str(DEFAULT_PATH)))
+    account_id = os.getenv("LIVE_ACCOUNT_ID", "").strip()
+    try:
+        authorization = load_authorization(
+            path,
+            key=os.getenv("LIVE_SAFETY_HMAC_KEY", ""),
+            account_fingerprint=account_fingerprint(exchange=EXCHANGE, api_key=account_id)
+            if account_id
+            else "",
+            driver_code_sha=driver_code_sha(),
+            now=now,
+        )
+    except OperationalAuthorizationError as exc:
+        print(f"M3       operational track inactive: {exc}")
+        return []
+    if authorization is None:
+        print("M3       operational track not authorized (entries locked)")
+        return []
+    since = authorization.issued_at
+    recent = [event for event in events if event["_timestamp"] >= since]
+
+    def fills(side: str, operational: bool) -> int:
+        return sum(
+            1
+            for event in recent
+            if event["event"] == "order_filled"
+            and event.get("details", {}).get("side") == side
+            and (event.get("details", {}).get("reason") == OPERATIONAL_REASON) == operational
+        )
+
+    opened, sold = fills("BUY", True), fills("SELL", True)
+    stopped = sum(1 for event in recent if event["event"] == "protective_stop_filled")
+    other = fills("SELL", False)
+    closed = sold + stopped + other
+    failed = [
+        run for run in runs
+        if run["started"] >= since and run["terminal"]
+        and run["terminal"]["event"] != "run_completed"
+    ]
+    passed = (
+        closed >= M3_LIFECYCLES and sold >= M3_EACH_EXIT and stopped >= M3_EACH_EXIT
+        and not failed
+    )
+    print(
+        f"M3       {closed}/{M3_LIFECYCLES} lifecycles closed since {since:%m-%d %H:%MZ} "
+        f"(sell {sold}, venue stop {stopped}, other {other}; opened {opened}); "
+        f"authorization {authorization.authorization_id} until "
+        f"{authorization.expires_at:%m-%d %H:%MZ}; "
+        + ("PASSED" if passed else "RESET NEEDED (see issues)" if failed else "in progress")
+    )
+    return [
+        f"M3: execution run at {run['started']:%m-%d %H:%M}Z ended {run['terminal']['event']}"
+        for run in failed
+    ]
 
 
 def main() -> int:
@@ -163,6 +233,8 @@ def main() -> int:
           + ("not started" if now < m1_start
              else "PASSED" if m1_ok and len(clean) >= M1_RUNS and hours >= M1_HOURS
              else "on track" if m1_ok else "RESET NEEDED (see issues)"))
+
+    issues.extend(m3_progress(events, runs, now=now))
 
     if issues:
         print("ISSUES")

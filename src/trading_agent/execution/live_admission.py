@@ -34,7 +34,10 @@ from trading_agent.execution.canonical.order_planner import (
     OrderPlanner,
     OrderPlanningResult,
 )
-from trading_agent.execution.canonical.risk_decision import UnifiedRiskDecision
+from trading_agent.execution.canonical.risk_decision import (
+    OperationalEvidenceWaiver,
+    UnifiedRiskDecision,
+)
 from trading_agent.execution.lifecycle.lifecycle import (
     ExecutionLifecycle,
     ExposureEffect,
@@ -68,6 +71,10 @@ class LiveBuyAdmission:
 
 class PromotedLiveAdmissionProducer:
     """Prepare a whole reconciled batch from authoritative promotion stores."""
+
+    decision_reason = "PROMOTED_STRATEGY"
+    # Only the testnet operational producer sets a waiver.
+    _evidence_waiver: OperationalEvidenceWaiver | None = None
 
     def __init__(
         self,
@@ -126,20 +133,8 @@ class PromotedLiveAdmissionProducer:
             raise LiveSafetyError(
                 "mainnet admission requires signed evidence runtime bindings"
             )
-        registry = build_default_registry()
-        artifact_store = getattr(self.resolver, "_artifact_store", None)
+        self._verify_runtime_sources(runtimes)
         for symbol, runtime in runtimes.items():
-            artifact = (
-                artifact_store.get(runtime.artifact_id) if artifact_store else None
-            )
-            if (
-                artifact is None
-                or artifact.code_sha
-                != registry.describe(runtime.strategy_name).code_sha
-            ):
-                raise LiveSafetyError(
-                    "promoted runtime does not match registered current source"
-                )
             if expected_artifact_ids is not None and (
                 expected_artifact_ids.get(symbol) != runtime.artifact_id
                 or runtime.strategy_name != expected_strategy_name
@@ -302,6 +297,7 @@ class PromotedLiveAdmissionProducer:
                 max_new_exposure=exposure.allowed_max_new_exposure,
                 reduce_only=sell,
                 authority_chain=tuple(exposure.causation_chain.links),
+                evidence_waiver=self._evidence_waiver,
             )
             quote = quotes[symbol]
             portfolio = CurrentPortfolioState(
@@ -358,7 +354,7 @@ class PromotedLiveAdmissionProducer:
                     "candle_timestamp": observation.bar_open_at,
                     "atr": states[symbol].get("atr"),
                     "observed_high": states[symbol].get("recent_high"),
-                    "reason": "PROMOTED_STRATEGY",
+                    "reason": self.decision_reason,
                     "risk_decision": risk,
                     "order_planning": planning,
                     "permission_context": context,
@@ -368,3 +364,20 @@ class PromotedLiveAdmissionProducer:
             decisions,
             key=lambda item: (item["action"] != "SELL", item["market_symbol"]),
         )
+
+    def _verify_runtime_sources(self, runtimes: dict) -> None:
+        """Every runtime must be the registered current source of its artifact."""
+        registry = build_default_registry()
+        artifact_store = getattr(self.resolver, "_artifact_store", None)
+        for runtime in runtimes.values():
+            artifact = (
+                artifact_store.get(runtime.artifact_id) if artifact_store else None
+            )
+            if (
+                artifact is None
+                or artifact.code_sha
+                != registry.describe(runtime.strategy_name).code_sha
+            ):
+                raise LiveSafetyError(
+                    "promoted runtime does not match registered current source"
+                )

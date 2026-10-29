@@ -44,6 +44,53 @@ class EvidenceState(str, Enum):
 
 
 @dataclass(frozen=True)
+class OperationalEvidenceWaiver:
+    """Operator waiver of calibration/OOD/regime evidence on testnet.
+
+    The testnet operational track (docs/operations/OPERABLE_SYSTEM_PLAN.md)
+    drives orders with a deterministic driver that has no forecast, so its
+    evidence is honestly UNKNOWN. This waiver lets UNKNOWN (never MISSING or
+    STALE) evidence through the permission gate, on testnet only, until it
+    expires. It is serialized with the decision because the lifecycle is
+    event-sourced and replays decisions from its store; the constructor still
+    refuses any environment other than testnet.
+    """
+
+    authorization_id: str
+    environment: str
+    expires_at: datetime
+
+    def __post_init__(self) -> None:
+        if self.environment != "testnet":
+            raise ValueError("an evidence waiver is valid on testnet only")
+        if not self.authorization_id:
+            raise ValueError("an evidence waiver needs an authorization ID")
+        if (
+            not isinstance(self.expires_at, datetime)
+            or self.expires_at.utcoffset() is None
+        ):
+            raise ValueError("an evidence waiver needs an aware expiry")
+
+    def active_at(self, moment: datetime) -> bool:
+        return self.environment == "testnet" and moment < self.expires_at
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "authorization_id": self.authorization_id,
+            "environment": self.environment,
+            "expires_at": self.expires_at.isoformat(),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> OperationalEvidenceWaiver:
+        return cls(
+            authorization_id=str(data["authorization_id"]),
+            environment=str(data["environment"]),
+            expires_at=datetime.fromisoformat(str(data["expires_at"])),
+        )
+
+
+@dataclass(frozen=True)
 class UnifiedRiskDecision:
     """Single canonical risk decision for the execution pipeline.
 
@@ -89,8 +136,13 @@ class UnifiedRiskDecision:
     authority_chain: tuple[Any, ...] = field(
         default_factory=tuple
     )  # CausationLink chain
+    evidence_waiver: OperationalEvidenceWaiver | None = None
 
     def __post_init__(self) -> None:
+        if self.evidence_waiver is not None and not isinstance(
+            self.evidence_waiver, OperationalEvidenceWaiver
+        ):
+            raise TypeError("evidence_waiver must be an OperationalEvidenceWaiver")
         # Validate numeric ranges without mutating the frozen instance.
         for name in (
             "requested_target_exposure",
@@ -201,6 +253,11 @@ class UnifiedRiskDecision:
                 }
                 for link in self.authority_chain
             ],
+            **(
+                {"evidence_waiver": self.evidence_waiver.to_dict()}
+                if self.evidence_waiver is not None
+                else {}
+            ),
         }
 
     @classmethod
@@ -252,6 +309,11 @@ class UnifiedRiskDecision:
             metadata=data.get("metadata", {}),
             warnings=tuple(data.get("warnings", [])),
             authority_chain=authority_chain,
+            evidence_waiver=(
+                OperationalEvidenceWaiver.from_dict(data["evidence_waiver"])
+                if data.get("evidence_waiver")
+                else None
+            ),
         )
 
 

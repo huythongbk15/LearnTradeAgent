@@ -11,8 +11,30 @@ and add a health check that alerts from Windows.
 | `check_binance_testnet_health.sh` | WSL | `scripts/check_live_audit.py`: exit 2 when execution runs stop arriving, fail, or die without a terminal event |
 | `windows/check_health.ps1` | Windows, every 30 min | Runs the check through `wsl.exe`; raises a toast and logs to `%LOCALAPPDATA%\TradingAgent\health.log` on failure, including when WSL cannot be reached |
 | `windows/register_tasks.ps1` | Windows, once | Registers both tasks (`-WhatIf` prints them only) |
+| `daily_check.py` | WSL, daily | Read-only report: cycles, outcomes, ledger/lifecycle consistency, M1 and M3 progress |
+| `authorize_operational_track.py` | WSL, by the operator | Signs, shows (`--show`) or revokes (`--revoke`) the testnet operational track |
 
 Before registering the tasks, comment out the runner line in the WSL crontab so
 that a cron daemon started later cannot double-schedule it. Tasks run while the
 user is logged on; a sleeping or logged-off machine misses cycles, and the next
 health check reports them as stale.
+
+## Operational (E2E) track
+
+Nothing is promoted to testnet, so the runner locks entries. To exercise the
+whole order path anyway, the operator signs a time-limited authorization. The
+runner then drives the lifecycle exerciser instead of a strategy: a small BUY
+when flat (at most $20), an exchange-native stop, a SELL after about 4 h, and
+every third lifecycle a stop close to the price so that the venue closes it.
+It is testnet only and is never research or promotion evidence.
+
+```bash
+.venv/bin/python scripts/ops/authorize_operational_track.py --approver NAME --reason "M3 E2E"
+.venv/bin/python scripts/ops/authorize_operational_track.py --show
+.venv/bin/python scripts/ops/authorize_operational_track.py --revoke
+```
+
+The authorization is bound to the account and to the driver source, and
+expires (14 days by default). New entries stop on their own after a failed or
+killed execution run, at the lifecycle cap, or past the daily loss limit; exits
+continue. Signing again after a review resumes them.

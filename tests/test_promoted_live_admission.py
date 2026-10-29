@@ -326,6 +326,8 @@ def install_exchange_boundary(monkeypatch, tmp_path, broker, frame):
         "TRADING_ENTRY_KILL_SWITCH": "false",
         "LIVE_PROMOTION_DB": str(tmp_path / "promotions.db"),
         "LIVE_ARTIFACT_DB": str(tmp_path / "artifacts.db"),
+        # Never pick up a real operator authorization from the working tree.
+        "LIVE_OPERATIONAL_AUTHORIZATION": str(tmp_path / "operational_authorization.json"),
     }.items():
         monkeypatch.setenv(name, value)
     original_session = runner.LiveAccountSession

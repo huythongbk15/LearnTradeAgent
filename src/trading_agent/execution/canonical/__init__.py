@@ -56,6 +56,7 @@ from trading_agent.execution.canonical.risk_decision import (
     RiskLevel,
     UnifiedRiskDecision,
     EvidenceState,
+    OperationalEvidenceWaiver,
 )
 from trading_agent.execution.canonical.broker_gateway import (
     BrokerGateway,
@@ -74,6 +75,7 @@ __all__ = [
     "RiskDecisionAdapter",
     "RiskLevel",
     "EvidenceState",
+    "OperationalEvidenceWaiver",
     # Legacy adapter
     "LegacyDecisionAdapter",
     # Market observation

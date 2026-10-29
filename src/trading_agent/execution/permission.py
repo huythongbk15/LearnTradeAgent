@@ -15,12 +15,13 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Sequence
 
 from trading_agent.execution.canonical import (
     EvidenceState,
+    OperationalEvidenceWaiver,
     UnifiedRiskDecision,
 )
 from trading_agent.execution.lifecycle.lifecycle import (
@@ -317,21 +318,33 @@ def _evaluate_order_permission(
                     "neutral exposure not allowed under current risk decision",
                 )
 
-        # Evidence fail-closed for INCREASE: all evidence must be KNOWN
+        # Evidence fail-closed for INCREASE: all evidence must be KNOWN. An
+        # active testnet operational waiver also admits UNKNOWN (never
+        # computed) evidence; MISSING and STALE still block.
         if risk is not None and ctx.exposure_effect == ExposureEffect.INCREASE:
-            if risk.calibration_state is not EvidenceState.KNOWN:
+            waiver = getattr(risk, "evidence_waiver", None)
+            waived = isinstance(waiver, OperationalEvidenceWaiver) and waiver.active_at(
+                reference_time or datetime.now(UTC)
+            )
+
+            def evidence_ok(state: EvidenceState) -> bool:
+                return state is EvidenceState.KNOWN or (
+                    waived and state is EvidenceState.UNKNOWN
+                )
+
+            if not evidence_ok(risk.calibration_state):
                 return PermissionResult(
                     OrderPermission.BLOCK,
                     PermissionReason.MISSING_CALIBRATION_EVIDENCE,
                     f"calibration_state={risk.calibration_state.value}",
                 )
-            if risk.ood_state is not EvidenceState.KNOWN:
+            if not evidence_ok(risk.ood_state):
                 return PermissionResult(
                     OrderPermission.BLOCK,
                     PermissionReason.MISSING_OOD_EVIDENCE,
                     f"ood_state={risk.ood_state.value}",
                 )
-            if risk.regime_state is not EvidenceState.KNOWN:
+            if not evidence_ok(risk.regime_state):
                 return PermissionResult(
                     OrderPermission.BLOCK,
                     PermissionReason.MISSING_REGIME_EVIDENCE,
