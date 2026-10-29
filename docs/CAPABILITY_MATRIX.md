@@ -37,15 +37,15 @@
 | Binance Spot — order lifecycle (P0.2) | yes | yes | testnet partial | **NO** |
 | Trusted time & market data (P0.3) | yes | yes | testnet partial | **NO** |
 | Alpaca Paper (LiveBroker) | yes | yes | paper validated (live paper từ 2026-08-08) | N/A (paper) |
-| OANDA (forex) | yes | partial | not validated | **NO** |
-| DEX (Uniswap V3 / Jupiter / PancakeSwap) | yes | integration/dry-run | not validated | **NO** |
-| Futures / Options adapters | yes | integration | not validated | **NO** |
-| Order router / smart routing | yes | integration | not validated | **NO** |
+| OANDA (forex) — *Tầng 2, frozen* | yes | partial | not validated | **NO** |
+| DEX (Uniswap V3 / Jupiter / PancakeSwap) — *Tầng 2, frozen* | yes | integration/dry-run | not validated | **NO** |
+| Futures / Options adapters — *Tầng 2, frozen* | yes | integration | not validated | **NO** |
+| Order router / smart routing — *Tầng 2, frozen* | yes | integration | not validated | **NO** |
 | Portfolio optimizer (BL / HRP / risk parity) | yes | yes | research only | **NO** |
-| Strategy plugin marketplace + sandbox | yes | yes | dry-run | **NO** |
+| Strategy plugin marketplace + sandbox — *Tầng 2, frozen* | yes | yes | dry-run | **NO** |
 | Adaptive ML (soft regime posterior / constrained online experts) | yes | yes | research only; adaptive lost fixed baseline on current synthetic benchmark | **NO** |
-| Multi-region (K8s) | yes | dry-run | no real cluster validation | **NO** |
-| Chaos engineering | yes | dry-run | no production validation | **NO** |
+| Multi-region (K8s) — *Tầng 2, frozen* | yes | dry-run | no real cluster validation | **NO** |
+| Chaos engineering — *Tầng 2, frozen* | yes | dry-run | no production validation | **NO** |
 | Event sourcing + messaging | yes | yes | dry-run | **NO** |
 | Risk decision semantics (RiskDecision: target/max_new/reduce_only) | yes | yes | dry-run | **NO** |
 | Unified order permission gate (ALLOW/REDUCE_ONLY/BLOCK) | yes | yes | dry-run | **NO** |
@@ -53,6 +53,16 @@
 | Monitoring (metrics server, alerts) | yes | partial | not wired to live runner (P1.3) | **NO** |
 | CI/CD + supply chain (Trivy/SBOM/sign) | yes | CI runs | artifacts on master | **NO** (mainnet) |
 | Docker image (runtime) | yes | CI build + smoke | not soak-tested | **NO** |
+
+## Phân tầng phạm vi (2026-10-29)
+
+Theo [CORE_RUNTIME_BOUNDARY.md](operations/CORE_RUNTIME_BOUNDARY.md):
+
+- **Tầng 0, lõi runtime:** những gì runner testnet/paper thật sự dùng (execution, exchanges CCXT/Alpaca, authority, strategy đang deploy). Các mục khác chỉ được ưu tiên sau khi lõi này qua L0.
+- **Tầng 1, nghiên cứu offline:** backtest, research, calibration, ml, portfolio optimizer. Giữ nguyên, nhưng runner không được import.
+- **Tầng 2, frozen:** các dòng đánh dấu *Tầng 2, frozen* ở trên, cùng các package `features` (không được import ở đâu), `enterprise`, `messaging`, `infrastructure`, `online_learning`. Không phát triển thêm và không xóa ở bước này.
+
+`tests/test_runtime_import_boundary.py` thi hành ranh giới: runner không được nạp Tầng 1/Tầng 2. Các module Tầng 2 còn bị nạp qua `__init__` của package được theo dõi bằng xfail strict.
 
 ## Ghi chú
 

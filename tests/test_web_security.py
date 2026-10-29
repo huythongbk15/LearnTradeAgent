@@ -196,3 +196,27 @@ def test_local_reset_passes_non_interactive_flag_after_confirmation(monkeypatch)
 
     assert response.status_code == 200
     assert calls == [(["execution", "reset", "--yes"], 120)]
+
+
+@pytest.mark.parametrize(
+    "requested",
+    ["/etc/passwd", "../.env", "../../../../.env", "assets/../../outside.txt", "link.txt"],
+)
+def test_spa_fallback_never_serves_files_outside_dist(tmp_path, monkeypatch, requested):
+    dist = tmp_path / "webui" / "frontend" / "dist"
+    (dist / "assets").mkdir(parents=True)
+    (dist / "index.html").write_text("<html></html>")
+    (tmp_path / "outside.txt").write_text("secret")
+    (tmp_path / ".env").write_text("TOKEN=secret")
+    (dist / "link.txt").symlink_to(tmp_path / ".env")
+    monkeypatch.setattr(backend, "DIST_DIR", dist)
+    assert backend._dist_file(requested) is None
+
+
+def test_spa_fallback_serves_files_inside_dist(tmp_path, monkeypatch):
+    dist = tmp_path / "dist"
+    (dist / "assets").mkdir(parents=True)
+    (dist / "favicon.ico").write_bytes(b"\x00")
+    monkeypatch.setattr(backend, "DIST_DIR", dist)
+    assert backend._dist_file("favicon.ico") == (dist / "favicon.ico").resolve()
+    assert backend._dist_file("") is None

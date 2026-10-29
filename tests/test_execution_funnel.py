@@ -79,7 +79,19 @@ def run_loop(monkeypatch, *, enabled, signals, alerts=None, blocked=False, stop=
     sim.gap_policy, sim.gap_exceptions = "record", ()
     sim.engine, sim.adaptive_enabled = engine, False
     risk_alerts = iter(alerts or [[] for _ in range(count)])
-    sim.risk = SimpleNamespace(check_all=lambda: next(risk_alerts))
+    last_alerts = [[]]
+
+    def check_all():
+        last_alerts[0] = next(risk_alerts)
+        return last_alerts[0]
+
+    def get_status():
+        return {
+            "circuit_breaker_active": any("CIRCUIT BREAKER ACTIVE" in a for a in last_alerts[0]),
+            "cooldown_active": any("Cooldown" in a for a in last_alerts[0]),
+        }
+
+    sim.risk = SimpleNamespace(check_all=check_all, get_status=get_status)
     sim._breaker_active = False
     sim.strategy_runtime = SimpleNamespace(strategy_name="fixture")
     sim.strategy_name = "fixture"

@@ -3,16 +3,15 @@
 Strategy implementations for the trading agent system.
 """
 
-import trading_agent.strategies.agent_ensemble  # noqa: F401
 import trading_agent.strategies.bbands  # noqa: F401
 import trading_agent.strategies.enhanced_ma  # noqa: F401
 
-# Import strategy modules to register them
+# Import strategy modules to register them. agent_ensemble and regime_switching
+# register on first lookup (see strategies.base._LAZY_STRATEGY_MODULES);
+# online_learning_strategy registers nothing and is imported by its users.
 import trading_agent.strategies.cross_sectional_momentum  # noqa: F401
 import trading_agent.strategies.ma_crossover  # noqa: F401
-import trading_agent.strategies.online_learning_strategy  # noqa: F401
 import trading_agent.strategies.range_mean_reversion  # noqa: F401
-import trading_agent.strategies.regime_switching  # noqa: F401
 import trading_agent.strategies.rsi  # noqa: F401
 import trading_agent.strategies.stat_arbitrage  # noqa: F401
 import trading_agent.strategies.trend_pullback  # noqa: F401

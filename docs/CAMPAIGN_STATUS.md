@@ -12,7 +12,7 @@ were fragmenting the state across ~60 files.
 
 All12 raw report audits PASS:7976 signal exits exactly24h, no BUY during breaker intervals, no missing required return features, reconciled marked equity, zero terminal inventory/orders or unresolved health. QA counts are not independent observations. 131 tests and AC01–15 PASS on source d6afc7b26a809cb318d911c4d69dcfec8f4d142ba1c0135a07a24e26469840ce. ETH1x retains earlier sealed source; core equivalence is recorded, but no single-revision qualification is claimed. All14 known attempts including the defective pilot remain disclosed. Total market execution2737.42s; new batch1950.07s; zero retries.
 
-[Full report](../data/plus_context_matrix_20261029_01/RESULTS.md), MATRIX_RESULTS.json, RAW_AUDIT.json and wave_protocol.json hold primary evidence. CLOSED_NO_SUPPORTED_INCREMENT / NOT_QUALIFIED. No further run, confirmation, paper/testnet/live authority; no independent review claimed. CI remains separate. Static draft authority functions are design snapshots; protocols and this tracker record actual progress.
+Full report (local evidence `data/plus_context_matrix_20261029_01/RESULTS.md`), MATRIX_RESULTS.json, RAW_AUDIT.json and wave_protocol.json hold primary evidence. CLOSED_NO_SUPPORTED_INCREMENT / NOT_QUALIFIED. No further run, confirmation, paper/testnet/live authority; no independent review claimed. CI remains separate. Static draft authority functions are design snapshots; protocols and this tracker record actual progress.
 
 ### 2026-10-29 — validation binding bypass resolved on integrated source
 

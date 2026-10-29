@@ -15,6 +15,7 @@ from pathlib import Path
 
 from types import SimpleNamespace
 
+
 from trading_agent.research.btc_context_prereg import (
     PLUS_BUDGET,
     PLUS_CELL_TOTAL_SECONDS,
@@ -373,4 +374,3 @@ def test_launcher_calls_binding_gate_and_passes_plus_timeout(monkeypatch, tmp_pa
         assert kwargs.get("timeout_seconds") == PLUS_BUDGET["cell_timeout_seconds"], kwargs
     finally:
         _uninstall_scope_token()
-
