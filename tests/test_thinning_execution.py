@@ -202,7 +202,7 @@ def test_complete_summary_keeps_all_six_groups_and_all_seeds(pending):
     assert not lane.coverage(pending)["comparisons"]
 
 
-@pytest.mark.integration
+@pytest.mark.slow
 def test_real_cli_supervisor_worker_matrix_on_synthetic_inputs(pending,monkeypatch):
     """Only fixture location/source context injected; admission/engine/supervisor real."""
     import sys
@@ -214,7 +214,7 @@ def test_real_cli_supervisor_worker_matrix_on_synthetic_inputs(pending,monkeypat
               "EVALUATION":list(lane.prep.EVALUATION)}
     bootstrap=pending.parent.parent/"synthetic_worker_bootstrap.py"
     bootstrap.write_text(
-        "import sys,json\nfrom pathlib import Path\nsys.path.insert(0,"+repr(str(repo))+")\n"
+        "import sys,json\nfrom pathlib import Path\nsys.path[:0]=["+repr(str(repo/"src"))+","+repr(str(repo))+"]\n"
         "from trading_agent.backtest import thinning_execution as lane\n"
         "settings=json.loads("+repr(json.dumps(settings))+")\n"
         "for key,value in settings.items():\n"
