@@ -650,3 +650,67 @@ def test_strategy_evidence_signature_and_build_are_bound(tmp_path):
             integrity_key=key,
             now=now,
         )
+
+
+# ── Operator recovery for intents that never reached the venue ─────────────
+
+_UNSUBMITTED_EVIDENCE = {
+    "venue_lookup": "not_found",
+    "open_orders_with_client_id": 0,
+    "trades_since_reservation": 0,
+    "checked_at": "2026-10-29T14:41:44+00:00",
+}
+
+
+def _parked_intent(tmp_path, key="lta-parked"):
+    store = LiveRiskStateStore(
+        tmp_path / "risk.json",
+        integrity_key="unsubmitted-store-integrity-key-with-32-plus-characters",
+    )
+    store.reserve_order(key, symbol="SOL/USDT", side="sell", quantity=4.0)
+    store.update_order(key, status="reconciling")
+    store.update_order(key, status="manual_intervention", error="client order ID not found")
+    return store, key
+
+
+def test_unsubmitted_intent_is_closed_with_its_evidence_and_signed(tmp_path):
+    store, key = _parked_intent(tmp_path)
+    assert store.unsubmitted_resolution_refusals(key) == []
+    assert store.unsubmitted_resolution_refusals(key, _UNSUBMITTED_EVIDENCE) == []
+
+    assert store.resolve_unsubmitted_order(key, evidence=_UNSUBMITTED_EVIDENCE) is True
+
+    reloaded = LiveRiskStateStore(
+        tmp_path / "risk.json",
+        integrity_key="unsubmitted-store-integrity-key-with-32-plus-characters",
+    )
+    record = reloaded.state.order_ledger[key]
+    assert record["status"] == "rejected"
+    assert record["resolution"] == "operator_unsubmitted"
+    assert record["status_history"][-1]["previous_status"] == "manual_intervention"
+    assert record["status_history"][-1]["evidence"] == _UNSUBMITTED_EVIDENCE
+    assert key not in reloaded.unfinished_orders()
+    assert reloaded.resolve_unsubmitted_order(key, evidence=_UNSUBMITTED_EVIDENCE) is False
+
+
+def test_unsubmitted_refusals_cover_missing_status_and_venue_evidence(tmp_path):
+    store, key = _parked_intent(tmp_path)
+    assert store.unsubmitted_resolution_refusals("lta-unknown") == [
+        "order intent is not present in ledger: lta-unknown"
+    ]
+    store.state.order_ledger[key].update(status="submitted", quote_cost=5.0, fees={"USDT": 0.1})
+    refusals = store.unsubmitted_resolution_refusals(key)
+    assert any("ledger status is submitted" in r for r in refusals)
+    assert any("venue evidence" in r for r in refusals)
+    store.state.order_ledger[key]["filled_quantity"] = "not-a-number"
+    assert any("venue evidence" in r for r in store.unsubmitted_resolution_refusals(key))
+
+
+def test_unsubmitted_resolution_requires_every_evidence_field(tmp_path):
+    store, key = _parked_intent(tmp_path)
+    bad = {"venue_lookup": "found", "open_orders_with_client_id": 1, "trades_since_reservation": 2}
+    refusals = store.unsubmitted_resolution_refusals(key, bad)
+    assert len(refusals) == 4  # three wrong values and no checked_at
+    with pytest.raises(LiveSafetyError, match="cannot resolve"):
+        store.resolve_unsubmitted_order(key, evidence=bad)
+    assert store.state.order_ledger[key]["status"] == "manual_intervention"
