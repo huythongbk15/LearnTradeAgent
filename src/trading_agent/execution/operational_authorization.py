@@ -31,6 +31,9 @@ DEFAULT_PATH = Path("data/execution/operational_authorization.json")
 MAX_ORDER_USD_CEILING = 25.0
 MAX_VALIDITY = timedelta(days=30)
 MAX_TIGHT_STOP_PCT = 0.02
+# Two ledger orders per lifecycle; the ledger prunes beyond ~1000 orders and
+# the lifecycle count is read from it.
+MAX_LIFECYCLES_CEILING = 300
 
 
 class OperationalAuthorizationError(ValueError):
@@ -130,8 +133,8 @@ class OperationalAuthorization:
             problems.append(f"max_order_usd must be in (0, {MAX_ORDER_USD_CEILING:g}]")
         if not 1 <= self.max_open_positions <= len(self.symbols):
             problems.append("max_open_positions must be between 1 and the symbol count")
-        if self.max_lifecycles < 1:
-            problems.append("max_lifecycles must be at least 1")
+        if not 1 <= self.max_lifecycles <= MAX_LIFECYCLES_CEILING:
+            problems.append(f"max_lifecycles must be in [1, {MAX_LIFECYCLES_CEILING}]")
         if not self.max_daily_loss_usd > 0:
             problems.append("max_daily_loss_usd must be positive")
         if not self.hold_minutes > 0:

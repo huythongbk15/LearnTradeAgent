@@ -22,6 +22,7 @@ from pathlib import Path
 
 from trading_agent.authority.config import AuthorityConfig, Environment
 from trading_agent.authority.resolver import StrategyRuntime
+from trading_agent.execution.canonical.instrument_registry import get_instrument_rules
 from trading_agent.execution.canonical.risk_decision import OperationalEvidenceWaiver
 from trading_agent.execution.live_admission import PromotedLiveAdmissionProducer
 from trading_agent.execution.live_safety import LiveRiskLimits, LiveSafetyError
@@ -45,6 +46,11 @@ _OPENING_STATUSES = frozenset(
         "unknown",
     }
 )
+
+
+def flat_below_usd(symbol: str) -> float:
+    """A position worth less than the venue minimum cannot be sold: treat it as flat."""
+    return max(1.0, get_instrument_rules(symbol).min_notional)
 
 
 def driver_code_sha() -> str:
@@ -104,14 +110,16 @@ def entry_block_reason(
     view: TrackLedgerView,
     *,
     daily_loss_usd: float,
-    previous_run_outcome: str | None,
+    run_failure: str | None,
 ) -> str | None:
-    """Why the track must not open anything this cycle (exits continue)."""
-    if previous_run_outcome not in (None, "run_completed"):
-        return (
-            f"previous execution run ended with {previous_run_outcome}; "
-            "review it, then re-authorize"
-        )
+    """Why the track must not open anything this cycle (exits continue).
+
+    ``run_failure`` describes any execution run since the authorization that
+    did not complete (or why that cannot be checked); it stays a block until
+    the operator re-authorizes.
+    """
+    if run_failure is not None:
+        return f"{run_failure}; review it, then re-authorize"
     if view.lifecycles_opened >= authorization.max_lifecycles:
         return (
             f"lifecycle cap reached "
@@ -217,13 +225,11 @@ class OperationalRuntimeResolver:
         view: TrackLedgerView,
         entry_symbols: frozenset[str],
         now: datetime,
-        flat_below_usd: float = 1.0,
     ) -> None:
         self.authorization = authorization
         self.view = view
         self.entry_symbols = entry_symbols
         self.now = now
-        self.flat_below_usd = flat_below_usd
         self.config = AuthorityConfig(environment=Environment.TESTNET)
         self.artifact_id = "ops-" + hashlib.sha256(
             f"{authorization.authorization_id}|{authorization.driver_code_sha}".encode()
@@ -252,7 +258,7 @@ class OperationalRuntimeResolver:
             entry_at=entry.entry_at if entry else None,
             may_enter=symbol in self.entry_symbols,
             now=self.now,
-            flat_below_usd=self.flat_below_usd,
+            flat_below_usd=flat_below_usd(symbol),
         )
         fingerprint = hashlib.sha256(
             f"{self.artifact_id}|{symbol}|{timeframe}".encode()

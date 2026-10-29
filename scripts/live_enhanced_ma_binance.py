@@ -118,6 +118,7 @@ from trading_agent.execution.operational_driver import (
     OperationalTrack,
     driver_code_sha,
     entry_block_reason,
+    flat_below_usd,
     plan_entries,
     tight_stop_symbols,
     track_ledger_view,
@@ -2609,25 +2610,32 @@ def build_canonical_execution_stack(
         raise
 
 
-def _previous_execution_outcome(audit_log: str | None, since: datetime) -> str | None:
-    """Terminal event of the last execution run since ``since``, other than this one."""
+def _execution_failure_since(audit_log: str | None, since: datetime) -> str | None:
+    """Any execution run since ``since`` that did not complete, other than this one.
+
+    Fails closed: without a readable audit log nothing proves the runs were clean.
+    """
     if not audit_log:
-        return None
+        return "no audit log to check earlier runs"
     from check_live_audit import AuditHealthError, _runs, load_events
 
     try:
         events = load_events(audit_log)
-    except AuditHealthError:
-        return None
+    except AuditHealthError as exc:
+        return f"audit log unreadable ({exc})"
     runs = [
         run
         for run in _runs(sorted(events, key=lambda event: event["_timestamp"]))
-        if run["execute"] and run["started"] >= since and run["pid"] != os.getpid()
+        if run["execute"] and run["started"] >= since
     ]
-    if not runs:
-        return None
-    terminal = runs[-1]["terminal"]
-    return str(terminal["event"]) if terminal else "no terminal event"
+    # This run has started but not ended; an older run may share its pid.
+    if runs and runs[-1]["pid"] == os.getpid() and runs[-1]["terminal"] is None:
+        runs.pop()
+    for run in runs:
+        outcome = run["terminal"]["event"] if run["terminal"] else "no terminal event"
+        if outcome != "run_completed":
+            return f"execution run at {run['started']:%m-%d %H:%MZ} ended with {outcome}"
+    return None
 
 
 def load_operational_track(
@@ -2667,15 +2675,13 @@ def load_operational_track(
         item["symbol"]
         for item in positions
         if item["symbol"] in authorization.symbols
-        and float(item.get("market_value") or 0.0) >= 1.0
+        and float(item.get("market_value") or 0.0) >= flat_below_usd(item["symbol"])
     )
     blocked = entry_block_reason(
         authorization,
         view,
         daily_loss_usd=daily_loss_usd,
-        previous_run_outcome=_previous_execution_outcome(
-            audit_log, authorization.issued_at
-        ),
+        run_failure=_execution_failure_since(audit_log, authorization.issued_at),
     )
     entries = plan_entries(
         authorization, view, held_symbols=set(held), block_reason=blocked

@@ -44,6 +44,9 @@ _RULE_SPECS: Final[dict[str, tuple[float, float, int]]] = {
     "TRX/USDT": (0.1, 100_000_000.0, 5),
     "ADA/USDT": (0.1, 10_000_000.0, 4),
     "NEAR/USDT": (0.01, 1_000_000.0, 3),
+    # Live testnet runner universe, outside the ten-pair research set. Binance
+    # AVAXUSDT filters (2026-10-29): LOT_SIZE 0.01, maxQty 90000, tick 0.001.
+    "AVAX/USDT": (0.01, 90_000.0, 3),
 }
 
 

@@ -43,10 +43,17 @@ permission → lifecycle, ledger and reservations → stops → reconciliation.
   third lifecycle gets a stop 0.3 % below the price so the venue closes it.
 - Evidence stays honestly `UNKNOWN`. The permission gate admits UNKNOWN (never
   MISSING or STALE) only with an active testnet waiver from the authorization.
-- New entries stop on their own after a failed or killed execution run, at the
-  cap or past the loss limit; exits continue. Re-signing after a review resumes.
+- New entries stop on their own after any failed or killed execution run since
+  the authorization (or when the audit log cannot prove otherwise), at the cap
+  or past the loss limit; exits continue. Re-signing after a review resumes.
+- A position worth less than the venue minimum notional counts as flat.
 - Never research or promotion evidence; the driver is not in the strategy
   registry; mainnet refuses the waiver.
+
+Known risks, to be confirmed or cleared by the run itself: the daily loss limit
+reads whole-account equity (the testnet account is otherwise all cash); with
+non-zero trading fees in the base asset, a venue-filled stop would leave dust
+that the runner treats as a changed position (testnet fees are 0 today).
 
 ## Loops
 
@@ -74,3 +81,4 @@ features wait until after M2. Every incident gets one line below.
 | 2026-10-29 17:01 | First scheduled cycle killed in seconds, no trace | Interactive wsl.exe console closed (0xC000013A) | Headless tasks, wrapper signal trap, runner handles SIGHUP |
 | 2026-10-29 (E2E tests) | Producer SELL of a protected position blocked: `SELL_QUANTITY_EXCEEDS_AVAILABLE_INVENTORY` | OrderPlanner lattice `n * step` in binary exceeded the inventory (19801 × 1e-05 = 0.19801000000000002) | Lattice points rounded to the step's decimals |
 | 2026-10-29 (E2E tests) | A stop the venue filled stayed open in the canonical lifecycle | Orphan-stop cleanup cleared local state but never booked the fill | Cleanup books the fill and records `protective_stop_filled` |
+| 2026-10-29 (review) | Any canonical AVAX order would crash the whole batch | AVAX/USDT, a default runner symbol, had no instrument rules | Rules from Binance testnet filters; test that every default symbol has rules |

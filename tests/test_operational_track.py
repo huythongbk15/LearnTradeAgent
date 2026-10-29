@@ -164,6 +164,7 @@ def test_authorization_for_another_context_is_refused(tmp_path, overrides, loade
         {"tight_stop_pct": 0.05},
         {"expires_at": datetime.now(UTC) + timedelta(days=40)},
         {"approver": " "},
+        {"max_lifecycles": 301},
     ],
 )
 def test_authorization_beyond_hard_limits_cannot_be_written(tmp_path, overrides):
@@ -268,15 +269,13 @@ def test_entry_caps_blocks_and_tight_stop_rotation():
     assert plan_entries(auth, view, held_symbols={"A"}, block_reason=None) == {"B"}
     assert plan_entries(auth, view, held_symbols=set(), block_reason="x") == frozenset()
     fresh = TrackLedgerView(lifecycles_opened=0, latest_entries={})
-    assert entry_block_reason(auth, fresh, daily_loss_usd=0, previous_run_outcome=None) is None
+    assert entry_block_reason(auth, fresh, daily_loss_usd=0, run_failure=None) is None
     assert "run_failed" in entry_block_reason(
-        auth, fresh, daily_loss_usd=0, previous_run_outcome="run_failed"
+        auth, fresh, daily_loss_usd=0, run_failure="run at 19:01Z ended with run_failed"
     )
-    assert "daily loss" in entry_block_reason(
-        auth, fresh, daily_loss_usd=11, previous_run_outcome="run_completed"
-    )
+    assert "daily loss" in entry_block_reason(auth, fresh, daily_loss_usd=11, run_failure=None)
     capped = TrackLedgerView(lifecycles_opened=5, latest_entries={})
-    assert "cap" in entry_block_reason(auth, capped, daily_loss_usd=0, previous_run_outcome=None)
+    assert "cap" in entry_block_reason(auth, capped, daily_loss_usd=0, run_failure=None)
     from trading_agent.execution.operational_driver import TrackEntry
 
     rotation = TrackLedgerView(
@@ -514,22 +513,65 @@ def test_tight_stop_lifecycle_is_closed_by_the_venue_and_booked(tmp_path, monkey
     assert "sell 0, venue stop 1, other 0; opened 1" in _m3_line(tmp_path, capsys)
 
 
-def test_a_failed_execution_run_blocks_new_entries_until_reauthorized(tmp_path, monkeypatch):
+def _write_runs(tmp_path, *outcomes, torn=False):
+    now = datetime.now(UTC)
+    with (tmp_path / "audit.jsonl").open("w") as handle:
+        for pid, outcome in enumerate(outcomes, start=10):
+            at = (now - timedelta(minutes=len(outcomes) - pid + 10)).isoformat()
+            handle.write(json.dumps(
+                {"event": "run_started", "pid": pid, "timestamp": at, "details": {"execute": True}}
+            ) + "\n")
+            handle.write(json.dumps(
+                {"event": outcome, "pid": pid, "timestamp": at, "details": {}}
+            ) + "\n")
+        if torn:
+            handle.write('{"event": "run_sta')
+
+
+@pytest.mark.parametrize(
+    ("outcomes", "torn", "expected"),
+    [
+        (("run_failed",), False, "run_failed"),
+        # A later clean, entry-blocked run does not clear the block.
+        (("run_failed", "run_completed"), False, "run_failed"),
+        (("run_interrupted", "run_completed", "run_completed"), False, "run_interrupted"),
+        # Without a readable audit log nothing proves earlier runs were clean.
+        (("run_completed",), True, "audit log unreadable"),
+    ],
+)
+def test_a_failed_execution_run_blocks_new_entries_until_reauthorized(
+    tmp_path, monkeypatch, outcomes, torn, expected
+):
     broker = AccountingBroker()
     install_exchange_boundary(monkeypatch, tmp_path, broker, market_frame())
     _authorize(tmp_path)
-    now = datetime.now(UTC).isoformat()
-    with (tmp_path / "audit.jsonl").open("w") as handle:
-        for event in ("run_started", "run_failed"):
-            details = {"execute": True} if event == "run_started" else {"error": "x"}
-            handle.write(
-                json.dumps({"event": event, "pid": 1, "timestamp": now, "details": details}) + "\n"
-            )
-
+    _write_runs(tmp_path, *outcomes, torn=torn)
+    blocked = runner._execution_failure_since(
+        str(tmp_path / "audit.jsonl"), datetime.now(UTC) - timedelta(hours=1)
+    )
+    assert expected in blocked
+    if torn:
+        return
     assert runner.run(_testnet_args(tmp_path)) == 0
     assert broker.transactions == []
-    blocked = _events(tmp_path, "operational_track_active")[0]["details"]["entries_blocked"]
-    assert "run_failed" in blocked
+    details = _events(tmp_path, "operational_track_active")[0]["details"]
+    assert expected in details["entries_blocked"]
+
+
+def test_clean_earlier_runs_do_not_block(tmp_path):
+    _write_runs(tmp_path, "run_completed", "run_completed")
+    since = datetime.now(UTC) - timedelta(hours=1)
+    assert runner._execution_failure_since(str(tmp_path / "audit.jsonl"), since) is None
+    assert "no audit log" in runner._execution_failure_since(None, since)
+
+
+def test_every_default_runner_symbol_has_instrument_rules():
+    from trading_agent.execution.canonical.instrument_registry import get_instrument_rules
+
+    defaults = runner.build_parser().parse_args([]).symbols.split(",")
+    assert defaults == ["BTC/USDT", "SOL/USDT", "AVAX/USDT"]
+    for symbol in defaults:
+        assert get_instrument_rules(symbol).qty_step > 0
 
 
 # ── Operator CLI ────────────────────────────────────────────────────────────
