@@ -16,7 +16,7 @@ registry, so research campaigns cannot select it.
 from __future__ import annotations
 
 import hashlib
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -24,7 +24,7 @@ from trading_agent.authority.config import AuthorityConfig, Environment
 from trading_agent.authority.resolver import StrategyRuntime
 from trading_agent.execution.canonical.risk_decision import OperationalEvidenceWaiver
 from trading_agent.execution.live_admission import PromotedLiveAdmissionProducer
-from trading_agent.execution.live_safety import LiveSafetyError
+from trading_agent.execution.live_safety import LiveRiskLimits, LiveSafetyError
 from trading_agent.execution.operational_authorization import (
     DRIVER,
     OperationalAuthorization,
@@ -311,3 +311,34 @@ class OperationalLiveAdmissionProducer(PromotedLiveAdmissionProducer):
                 or runtime.environment is not Environment.TESTNET
             ):
                 raise LiveSafetyError("runtime is not the authorized operational driver")
+
+
+@dataclass(frozen=True)
+class OperationalTrack:
+    """The operator-authorized exerciser as resolved for one runner cycle."""
+
+    authorization: OperationalAuthorization
+    view: TrackLedgerView
+    held: frozenset[str]
+    entries: frozenset[str]
+    entries_blocked: str | None
+    producer: OperationalLiveAdmissionProducer
+
+    def limits(self, limits: LiveRiskLimits) -> LiveRiskLimits:
+        return replace(
+            limits,
+            max_order_notional_usd=min(
+                limits.max_order_notional_usd, self.authorization.max_order_usd
+            ),
+        )
+
+    def audit_details(self) -> dict:
+        return {
+            "authorization_id": self.authorization.authorization_id,
+            "expires_at": self.authorization.expires_at.isoformat(),
+            "lifecycles_opened": self.view.lifecycles_opened,
+            "max_lifecycles": self.authorization.max_lifecycles,
+            "held": sorted(self.held),
+            "may_open": sorted(self.entries),
+            "entries_blocked": self.entries_blocked,
+        }

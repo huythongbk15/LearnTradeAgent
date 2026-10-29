@@ -19,7 +19,7 @@ import sys
 import time
 from collections.abc import Mapping
 from contextlib import suppress
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -109,14 +109,13 @@ from trading_agent.execution.live_admission import (
 )
 from trading_agent.execution.operational_authorization import (
     DEFAULT_PATH as OPERATIONAL_AUTHORIZATION_PATH,
-    OperationalAuthorization,
     OperationalAuthorizationError,
     load_authorization,
 )
 from trading_agent.execution.operational_driver import (
     OperationalLiveAdmissionProducer,
     OperationalRuntimeResolver,
-    TrackLedgerView,
+    OperationalTrack,
     driver_code_sha,
     entry_block_reason,
     plan_entries,
@@ -2608,37 +2607,6 @@ def build_canonical_execution_stack(
     except Exception:
         event_store.close()
         raise
-
-
-@dataclass(frozen=True)
-class OperationalTrack:
-    """The operator-authorized testnet exerciser, as resolved for one cycle."""
-
-    authorization: OperationalAuthorization
-    view: TrackLedgerView
-    held: frozenset[str]
-    entries: frozenset[str]
-    entries_blocked: str | None
-    producer: OperationalLiveAdmissionProducer
-
-    def limits(self, limits: LiveRiskLimits) -> LiveRiskLimits:
-        return replace(
-            limits,
-            max_order_notional_usd=min(
-                limits.max_order_notional_usd, self.authorization.max_order_usd
-            ),
-        )
-
-    def audit_details(self) -> dict:
-        return {
-            "authorization_id": self.authorization.authorization_id,
-            "expires_at": self.authorization.expires_at.isoformat(),
-            "lifecycles_opened": self.view.lifecycles_opened,
-            "max_lifecycles": self.authorization.max_lifecycles,
-            "held": sorted(self.held),
-            "may_open": sorted(self.entries),
-            "entries_blocked": self.entries_blocked,
-        }
 
 
 def _previous_execution_outcome(audit_log: str | None, since: datetime) -> str | None:
