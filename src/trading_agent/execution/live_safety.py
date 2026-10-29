@@ -1374,6 +1374,59 @@ class LiveRiskStateStore:
             record["status_history"] = history[-100:]
         self.save(now=current)
 
+    def unsubmitted_resolution_refusals(
+        self,
+        order_key: str,
+        evidence: Mapping[str, object] | None = None,
+    ) -> list[str]:
+        """Why ``order_key`` cannot be closed as never submitted ([] if it can).
+
+        The single definition of the ledger and evidence conditions. Callers
+        that change other books (the canonical lifecycle) must call this first,
+        so that a refusal never leaves one book changed and the other not.
+        ``evidence=None`` checks the ledger only.
+        """
+
+        record = self.state.order_ledger.get(order_key)
+        if not isinstance(record, dict):
+            return [f"order intent is not present in ledger: {order_key}"]
+        refusals: list[str] = []
+        status = str(record.get("status") or "reserved").strip().lower()
+        if status not in UNSUBMITTED_RECOVERABLE_STATUSES:
+            refusals.append(
+                f"ledger status is {status}; only "
+                f"{sorted(UNSUBMITTED_RECOVERABLE_STATUSES)} can be resolved as never submitted"
+            )
+        try:
+            filled = float(str(record.get("filled_quantity") or 0.0))
+            quote_cost = float(str(record.get("quote_cost") or 0.0))
+        except (TypeError, ValueError):
+            filled, quote_cost = math.nan, math.nan
+        if (
+            str(record.get("exchange_order_id") or "")
+            or not (filled == 0.0 and quote_cost == 0.0)
+            or record.get("trade_ids")
+            or record.get("fees")
+        ):
+            refusals.append(
+                "ledger carries venue evidence (exchange order ID, fills, quote cost,"
+                " fees or trade IDs)"
+            )
+        if evidence is not None:
+            required = {
+                "venue_lookup": "not_found",
+                "open_orders_with_client_id": 0,
+                "trades_since_reservation": 0,
+            }
+            for key, expected in required.items():
+                if evidence.get(key) != expected:
+                    refusals.append(
+                        f"unsubmitted-order evidence {key}={evidence.get(key)!r}, need {expected!r}"
+                    )
+            if not str(evidence.get("checked_at") or "").strip():
+                refusals.append("unsubmitted-order evidence needs checked_at")
+        return refusals
+
     def resolve_unsubmitted_order(
         self,
         order_key: str,
@@ -1386,43 +1439,22 @@ class LiveRiskStateStore:
         A crash between reserving an intent and sending it leaves a ledger entry
         that reconciliation can only park in ``manual_intervention``: the venue
         has nothing to confirm. This is the one supported way out. It accepts
-        only entries with no submission evidence of any kind, requires the
-        caller's venue evidence, and records that evidence in the history.
+        only entries for which ``unsubmitted_resolution_refusals`` is empty and
+        records the venue evidence in the history.
         Returns False if the entry was already resolved this way.
         """
 
         record = self.state.order_ledger.get(order_key)
-        if not isinstance(record, dict):
-            raise LiveSafetyError(f"order intent is not present in ledger: {order_key}")
-        status = str(record.get("status") or "reserved").strip().lower()
-        if status == "rejected" and record.get("resolution") == "operator_unsubmitted":
-            return False
-        if status not in UNSUBMITTED_RECOVERABLE_STATUSES:
-            raise LiveSafetyError(
-                f"{order_key} is {status}; only {sorted(UNSUBMITTED_RECOVERABLE_STATUSES)}"
-                " intents can be resolved as never submitted"
-            )
         if (
-            str(record.get("exchange_order_id") or "")
-            or float(str(record.get("filled_quantity") or 0.0)) > 0
-            or float(str(record.get("quote_cost") or 0.0)) > 0
-            or record.get("trade_ids")
+            isinstance(record, dict)
+            and str(record.get("status")) == "rejected"
+            and record.get("resolution") == "operator_unsubmitted"
         ):
-            raise LiveSafetyError(
-                f"{order_key} carries venue evidence; it cannot be resolved as never submitted"
-            )
-        required = {
-            "venue_lookup": "not_found",
-            "open_orders_with_client_id": 0,
-            "trades_since_reservation": 0,
-        }
-        for key, expected in required.items():
-            if evidence.get(key) != expected:
-                raise LiveSafetyError(
-                    f"unsubmitted-order evidence {key}={evidence.get(key)!r}, need {expected!r}"
-                )
-        if not str(evidence.get("checked_at") or "").strip():
-            raise LiveSafetyError("unsubmitted-order evidence needs checked_at")
+            return False
+        refusals = self.unsubmitted_resolution_refusals(order_key, evidence)
+        if refusals:
+            raise LiveSafetyError(f"cannot resolve {order_key}: " + "; ".join(refusals))
+        status = str(record.get("status") or "reserved").strip().lower()
 
         current = now or datetime.now(UTC)
         timestamp = current.astimezone(UTC).isoformat()

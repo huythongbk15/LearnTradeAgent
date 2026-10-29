@@ -48,7 +48,6 @@ from trading_agent.execution.lifecycle.lifecycle import (  # noqa: E402
 )
 from trading_agent.execution.lifecycle.store import ExecutionEventStore  # noqa: E402
 from trading_agent.execution.live_safety import (  # noqa: E402
-    UNSUBMITTED_RECOVERABLE_STATUSES,
     LiveAccountSession,
     LiveRiskStateStore,
     LiveSafetyError,
@@ -148,14 +147,9 @@ def resolve(
     ):
         return Report(order_key, False, already_resolved=True)
 
-    refusals: list[str] = []
-    status = str(record.get("status") or "reserved").lower()
-    if status not in UNSUBMITTED_RECOVERABLE_STATUSES:
-        refusals.append(f"ledger status is {status}")
-    if record.get("exchange_order_id") or record.get("trade_ids"):
-        refusals.append("ledger carries an exchange order ID or trade IDs")
-    if float(str(record.get("filled_quantity") or 0.0)) > 0:
-        refusals.append("ledger records fills")
+    # Ledger conditions come from the store, the same check that guards the
+    # write, so the report and the apply step cannot disagree.
+    refusals: list[str] = store.unsubmitted_resolution_refusals(order_key)
     symbol = str(record.get("symbol") or "")
     if not symbol:
         refusals.append("ledger entry has no symbol")
@@ -169,9 +163,15 @@ def resolve(
 
     intent_id = str(record.get("canonical_intent_id") or order_key)
     lifecycle_events: list[str] = []
-    if event_store_path is not None and Path(event_store_path).is_file():
+    # The canonical lifecycle is the second book. Without it there is no proof
+    # that broker IO never started, and nothing to close there, so refuse.
+    if event_store_path is None or not Path(event_store_path).is_file():
+        refusals.append(f"lifecycle store not found: {event_store_path}")
+    else:
         events = ExecutionEventStore(str(event_store_path)).connect().read_events(intent_id)
         lifecycle_events = [event.event_type.value for event in events]
+        if not events:
+            refusals.append(f"lifecycle has no record of this intent: {intent_id}")
         seen = {event.event_type for event in events} & SUBMISSION_EVIDENCE_EVENTS
         if seen:
             refusals.append(
@@ -199,21 +199,27 @@ def resolve(
         if trades:
             refusals.append(f"{trades} trade(s) on {symbol} since the reservation")
 
+    # Ledger plus venue evidence, exactly as the store will check it on write.
+    for reason in store.unsubmitted_resolution_refusals(order_key, evidence):
+        if reason not in refusals:
+            refusals.append(reason)
     report = Report(order_key, not refusals, reasons=tuple(refusals), evidence=evidence)
     if not apply or refusals:
         return report
 
-    if event_store_path is not None and Path(event_store_path).is_file():
-        event_store = ExecutionEventStore(str(event_store_path)).connect()
-        lifecycle = ExecutionLifecycle(event_store)
-        lifecycle.load()
-        order = lifecycle.state.order(intent_id)
-        if order is not None and order.status != IntentStatus.REJECTED:
-            lifecycle.reject_order(
-                intent_id, reason="operator recovery: intent never reached the venue"
-            )
-        if event_store.submission_claim(intent_id) is not None:
-            event_store.release_submission_claim(intent_id)
+    # Every check has passed; only now change the lifecycle, then the ledger.
+    event_store = ExecutionEventStore(str(event_store_path)).connect()
+    lifecycle = ExecutionLifecycle(event_store)
+    lifecycle.load()
+    order = lifecycle.state.order(intent_id)
+    if order is None:
+        raise LiveSafetyError(f"lifecycle lost intent {intent_id} during recovery")
+    if order.status != IntentStatus.REJECTED:
+        lifecycle.reject_order(
+            intent_id, reason="operator recovery: intent never reached the venue"
+        )
+    if event_store.submission_claim(intent_id) is not None:
+        event_store.release_submission_claim(intent_id)
     store.resolve_unsubmitted_order(order_key, evidence=evidence, now=current)
     if audit_log:
         append_live_audit_event(

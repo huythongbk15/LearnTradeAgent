@@ -228,3 +228,62 @@ def test_store_method_refuses_filled_entries(tmp_path):
             "trades_since_reservation": 0, "checked_at": "t"}
     with pytest.raises(LiveSafetyError, match="filled"):
         store.resolve_unsubmitted_order(ORDER_KEY, evidence=good, now=NOW)
+
+
+@pytest.mark.parametrize("db_name", [None, "missing.db"])
+def test_refuses_without_the_lifecycle_store(tmp_path, db_name):
+    store = _stuck_ledger(tmp_path)
+    before = (tmp_path / "risk.json").read_bytes()
+    db = None if db_name is None else tmp_path / db_name
+
+    report = _resolve(store, db, FakeVenue(), apply=True)
+
+    assert not report.applied and not report.eligible
+    assert any("lifecycle" in r for r in report.reasons)
+    assert (tmp_path / "risk.json").read_bytes() == before
+
+
+def test_refuses_when_the_lifecycle_has_no_record_of_the_intent(tmp_path):
+    db = tmp_path / "events.db"
+    ExecutionEventStore(str(db)).connect()  # an existing but unrelated store
+    report = _resolve(_stuck_ledger(tmp_path), db, FakeVenue(), apply=True)
+    assert not report.applied
+    assert any("no record of this intent" in r for r in report.reasons)
+
+
+@pytest.mark.parametrize("field", ["quote_cost", "fees"])
+def test_ledger_cost_evidence_refuses_before_the_lifecycle_is_touched(tmp_path, field):
+    db = tmp_path / "events.db"
+    lc = _authorized_sell(db)
+    assert lc.store.claim_submission(
+        intent_id=ORDER_KEY, claimed_by=ORDER_KEY, idempotency_key=ORDER_KEY, payload_hash="h"
+    )
+    store = LiveRiskStateStore(tmp_path / "risk.json", integrity_key=KEY)
+    store.reserve_order(ORDER_KEY, symbol="SOL/USDT", side="sell", quantity=4.0, now=RESERVED_AT)
+    cost = {"quote_cost": 5.0} if field == "quote_cost" else {"fees": {"USDT": 0.01}}
+    store.update_order(ORDER_KEY, status="reconciling", now=RESERVED_AT, **cost)
+    store.update_order(ORDER_KEY, status="manual_intervention", now=RESERVED_AT)
+
+    report = _resolve(store, db, FakeVenue(), apply=True)
+
+    assert not report.applied and any("venue evidence" in r for r in report.reasons)
+    after = _lifecycle(db)
+    after.load()
+    assert after.order(ORDER_KEY).status == IntentStatus.AUTHORIZED
+    assert after.store.submission_claim(ORDER_KEY) is not None
+    assert store.state.order_ledger[ORDER_KEY]["status"] == "manual_intervention"
+
+
+def test_rerun_completes_after_a_crash_between_the_two_books(tmp_path):
+    db = tmp_path / "events.db"
+    lc = _authorized_sell(db)
+    lc.reject_order(ORDER_KEY, reason="operator recovery: intent never reached the venue")
+    store = _stuck_ledger(tmp_path)  # ledger write never happened
+
+    report = _resolve(store, db, FakeVenue(), apply=True)
+
+    assert report.applied, report.reasons
+    assert store.state.order_ledger[ORDER_KEY]["resolution"] == "operator_unsubmitted"
+    after = _lifecycle(db)
+    after.load()
+    assert after.order(ORDER_KEY).status == IntentStatus.REJECTED
