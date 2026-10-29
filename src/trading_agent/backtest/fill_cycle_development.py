@@ -34,7 +34,7 @@ from trading_agent.strategies.own24_fill_context import (
 )
 
 ROOT = Path(__file__).resolve().parents[3]
-BUDGET = {"cell_timeout_seconds": 600, "total_timeout_seconds": 1500,
+BUDGET = {"cell_timeout_seconds": 600, "total_timeout_seconds": 1000,
           "max_rss_mb": 2048, "workers": 1, "max_retries": 0}
 WINDOW = {"start": 216, "end": 25198}
 ARMS = ["A0", "PLUS"]

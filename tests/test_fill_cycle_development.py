@@ -166,5 +166,5 @@ def test_bad_binding_blocks_real_constructor_before_state_creation(packet):
 
 
 def test_development_budget_is_explicit_and_fixed():
-    assert development.BUDGET == {"cell_timeout_seconds": 600, "total_timeout_seconds": 1500,
+    assert development.BUDGET == {"cell_timeout_seconds": 600, "total_timeout_seconds": 1000,
         "max_rss_mb": 2048, "workers": 1, "max_retries": 0}

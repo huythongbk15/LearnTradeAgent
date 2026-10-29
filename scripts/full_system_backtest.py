@@ -733,12 +733,17 @@ class FullSystemSimulator:
         bar_index: int,
         reference_price: float,
         reference_type: str,
+        reason_override: str | None = None,
     ) -> None:
         """Replace wall-clock broker timestamps with simulated-bar evidence."""
         for trade in self.engine.exchange.get_trade_history(limit=1_000_000):
             if trade.id in self._stamped_trade_ids:
                 continue
             metadata = trade.metadata
+            if reason_override is not None:
+                metadata["original_close_reason"] = trade.reason
+                metadata["exit_trigger"] = reason_override
+                trade.reason = reason_override
             simulation = metadata.get("simulation")
             if not isinstance(simulation, dict):
                 simulation = {}
@@ -849,6 +854,7 @@ class FullSystemSimulator:
         decision_bar_open_at: datetime,
         decision_bar_close_at: datetime,
         funnel_row: dict | None,
+        entry_halted: bool = False,
     ) -> None:
         """One replay decision. The snapshot, not a later broker read, is the cycle."""
         from trading_agent.authority.portfolio import PortfolioSnapshot, ReconciliationState
@@ -861,6 +867,11 @@ class FullSystemSimulator:
             raise RuntimeError(
                 f"fill-cycle replay rejected: position_cycle_unknown: {exc}"
             ) from exc
+        if entry_halted and record.quantity == 0:
+            if funnel_row is not None:
+                funnel_row["action"] = "HOLD"
+                funnel_row["terminal"] = "risk_entry_halt"
+            return
         equity = float(self.engine.exchange.get_total_equity())
         cash = float(self.engine.exchange.get_balance("USDT"))
         mark = float(position.current_price) if position is not None and record.quantity > 0 else 0.0
@@ -1052,7 +1063,16 @@ class FullSystemSimulator:
 
             # 2. Risk checks (max DD, daily loss, circuit breaker)
             alerts = self.risk.check_all()
-            breaker_on = any("CIRCUIT BREAKER ACTIVE" in a for a in alerts)
+            risk_status = self.risk.get_status()
+            breaker_on = bool(risk_status["circuit_breaker_active"])
+            entry_halted = breaker_on or bool(risk_status["cooldown_active"])
+            if breaker_on:
+                # Risk may close at this open before the strategy is consulted.
+                # Stamp immediately; otherwise a later low/next bar misdates it.
+                self._stamp_new_trades(
+                    at=bar_open_at, bar_index=i, reference_price=price,
+                    reference_type="bar_open", reason_override="circuit_breaker",
+                )
             if breaker_on and not self._breaker_active:
                 self.circuit_breakers.append(f"{ts}: {alerts[0]}")
                 print(
@@ -1177,6 +1197,7 @@ class FullSystemSimulator:
                     decision_bar_open_at=decision_bar_open_at,
                     decision_bar_close_at=decision_bar_close_at,
                     funnel_row=funnel_row,
+                    entry_halted=entry_halted,
                 )
             elif (
                 i > start
