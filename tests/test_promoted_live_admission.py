@@ -444,8 +444,14 @@ def test_full_entrypoint_invalid_authority_creates_zero_exchange_orders(
             str(tmp_path / "audit.jsonl"),
         ]
     )
-    with pytest.raises(LiveSafetyError):
-        runner.run(args)
+    if fault == "missing_promotion":
+        # Testnet with nothing promoted locks entries and completes the cycle
+        # (operator decision 2026-10-29); it still opens nothing.
+        assert runner.run(args) == 0
+    else:
+        # A promoted runtime with broken authority still fails closed.
+        with pytest.raises(LiveSafetyError):
+            runner.run(args)
     assert broker.orders == {} and broker.transactions == []
 
 
@@ -559,3 +565,62 @@ def test_full_entrypoint_partial_sell_cancels_residual_and_protects_inventory(
     active = state.protective_order_state("BTC/USDT")["active"]
     assert active["quantity"] == pytest.approx(float(broker.quantity))
     assert broker.cancel_calls >= 2
+
+
+# ── Testnet without a promoted runtime: entries locked, exits managed ─────
+
+
+def _testnet_args(tmp_path):
+    return runner.build_parser().parse_args(
+        [
+            "--execute", "--testnet", "--symbols", "BTC/USDT", "--weights", "20",
+            "--state-file", str(tmp_path / "risk.json"),
+            "--audit-log", str(tmp_path / "audit.jsonl"),
+        ]
+    )
+
+
+def _audit_events(tmp_path):
+    import json
+
+    return [
+        json.loads(line)["event"]
+        for line in (tmp_path / "audit.jsonl").read_text().splitlines()
+        if line.strip()
+    ]
+
+
+@pytest.mark.parametrize("stores", ["absent", "empty"])
+def test_testnet_without_promoted_runtime_locks_entries_and_completes(
+    tmp_path, monkeypatch, stores
+):
+    if stores == "empty":
+        PromotionStateStore(tmp_path / "promotions.db")
+        PersistentArtifactStore(tmp_path / "artifacts.db")
+    broker = AccountingBroker()
+    install_exchange_boundary(monkeypatch, tmp_path, broker, market_frame())
+
+    assert runner.run(_testnet_args(tmp_path)) == 0
+
+    assert broker.transactions == []  # a buy signal, but nothing may open exposure
+    events = _audit_events(tmp_path)
+    assert "entries_locked_no_promoted_runtime" in events
+    assert "run_failed" not in events
+
+
+def test_testnet_without_promoted_runtime_still_exits_a_held_position(
+    tmp_path, monkeypatch
+):
+    broker = AccountingBroker()
+    broker.quantity = Decimal("2")
+    broker.price = Decimal("98")  # the sell frame closes at 98
+    install_exchange_boundary(monkeypatch, tmp_path, broker, market_frame(sell=True))
+    # No ATR trail exit: the sell must come from the strategy signal through
+    # the entry-locked path, not from the forced safety-exit path.
+    monkeypatch.setattr(runner, "apply_atr_protection", lambda **kwargs: None)
+
+    assert runner.run(_testnet_args(tmp_path)) == 0
+
+    sides = [side for side, *_ in broker.transactions]
+    assert "sell" in sides and "buy" not in sides
+    assert "entries_locked_no_promoted_runtime" in _audit_events(tmp_path)

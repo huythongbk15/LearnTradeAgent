@@ -2844,6 +2844,7 @@ def run_locked(
                     if profile == "mainnet-canary"
                     else Environment.PRODUCTION
                 )
+                no_promoted_runtime = None
                 if admission_producer is None:
                     promotion_path = Path(
                         os.getenv(
@@ -2853,72 +2854,109 @@ def run_locked(
                     artifact_path = Path(
                         os.getenv("LIVE_ARTIFACT_DB", "data/research/artifacts.db")
                     )
-                    if not promotion_path.is_file() or not artifact_path.is_file():
+                    have_stores = promotion_path.is_file() and artifact_path.is_file()
+                    if args.testnet and (
+                        not have_stores
+                        or not PromotionStateStore(promotion_path).list_eligible(
+                            environment.value
+                        )
+                    ):
+                        no_promoted_runtime = (
+                            "no strategy is promoted to testnet "
+                            f"({promotion_path} / {artifact_path})"
+                        )
+                    elif not have_stores:
                         raise LiveSafetyError(
                             "existing authoritative LIVE_PROMOTION_DB and LIVE_ARTIFACT_DB are required"
                         )
-                    config = AuthorityConfig(environment=environment)
-                    admission_producer = PromotedLiveAdmissionProducer(
-                        RuntimeStrategyResolver(
-                            config,
-                            promotion_store=PromotionStateStore(promotion_path),
-                            artifact_store=PersistentArtifactStore(artifact_path),
+                    else:
+                        config = AuthorityConfig(environment=environment)
+                        admission_producer = PromotedLiveAdmissionProducer(
+                            RuntimeStrategyResolver(
+                                config,
+                                promotion_store=PromotionStateStore(promotion_path),
+                                artifact_store=PersistentArtifactStore(artifact_path),
+                            ),
+                            config=config,
+                        )
+                if no_promoted_runtime is not None:
+                    # Testnet only: without a promoted runtime nothing may open
+                    # exposure (no BUY admission exists), but held positions are
+                    # still managed and exited. Mainnet keeps failing closed above.
+                    print(
+                        f"⛔ ENTRY LOCK: {no_promoted_runtime}; "
+                        "buys are blocked while sells remain enabled"
+                    )
+                    if args.audit_log:
+                        append_live_audit_event(
+                            args.audit_log,
+                            "entries_locked_no_promoted_runtime",
+                            {"reason": no_promoted_runtime},
+                        )
+                    decisions = build_decisions(
+                        allocations=allocations,
+                        states=states,
+                        positions=positions,
+                        equity=equity,
+                        locked_reason=risk_locked_reason,
+                        entries_locked_reason=entries_locked_reason
+                        or no_promoted_runtime,
+                        limits=limits,
+                    )
+                else:
+                    _, gross = position_snapshot(positions)
+                    exposures = {
+                        item["symbol"]: float(item["market_value"]) / equity
+                        for item in positions
+                    }
+                    snapshot = PortfolioSnapshot(
+                        equity=equity,
+                        available_cash=float(account["cash"]),
+                        positions={
+                            item["symbol"]: float(item["qty"]) for item in positions
+                        },
+                        symbol_exposures=exposures,
+                        gross_exposure=gross / equity,
+                        untracked_symbols=tuple(
+                            sorted(set(exposures) - set(allocation_map))
                         ),
-                        config=config,
+                        untracked_exposure=sum(
+                            v for k, v in exposures.items() if k not in allocation_map
+                        ),
+                        untracked_valued=True,
+                        reconciliation_state=PortfolioReconciliation.RECONCILED,
                     )
-                _, gross = position_snapshot(positions)
-                exposures = {
-                    item["symbol"]: float(item["market_value"]) / equity
-                    for item in positions
-                }
-                snapshot = PortfolioSnapshot(
-                    equity=equity,
-                    available_cash=float(account["cash"]),
-                    positions={
-                        item["symbol"]: float(item["qty"]) for item in positions
-                    },
-                    symbol_exposures=exposures,
-                    gross_exposure=gross / equity,
-                    untracked_symbols=tuple(
-                        sorted(set(exposures) - set(allocation_map))
-                    ),
-                    untracked_exposure=sum(
-                        v for k, v in exposures.items() if k not in allocation_map
-                    ),
-                    untracked_valued=True,
-                    reconciliation_state=PortfolioReconciliation.RECONCILED,
-                )
-                quotes = {
-                    pair: trusted_broker_quote(broker, pair, buy=True)
-                    for pair in allocation_map
-                }
-                if any(quote is None for quote in quotes.values()):
-                    raise LiveSafetyError(
-                        "canonical live producer has unknown quote receipt"
+                    quotes = {
+                        pair: trusted_broker_quote(broker, pair, buy=True)
+                        for pair in allocation_map
+                    }
+                    if any(quote is None for quote in quotes.values()):
+                        raise LiveSafetyError(
+                            "canonical live producer has unknown quote receipt"
+                        )
+                    decisions = admission_producer.produce(
+                        inputs=market_inputs,
+                        quotes=quotes,
+                        snapshot=snapshot,
+                        allocations=allocation_map,
+                        lifecycle=canonical_lifecycle,
+                        environment=environment,
+                        limits=limits,
+                        states=states,
+                        expected_artifact_ids=expected_artifact_ids,
+                        expected_strategy_name="enhanced_ma"
+                        if expected_artifact_ids
+                        else None,
+                        expected_parameters=STRATEGY_PARAMS
+                        if expected_artifact_ids
+                        else None,
                     )
-                decisions = admission_producer.produce(
-                    inputs=market_inputs,
-                    quotes=quotes,
-                    snapshot=snapshot,
-                    allocations=allocation_map,
-                    lifecycle=canonical_lifecycle,
-                    environment=environment,
-                    limits=limits,
-                    states=states,
-                    expected_artifact_ids=expected_artifact_ids,
-                    expected_strategy_name="enhanced_ma"
-                    if expected_artifact_ids
-                    else None,
-                    expected_parameters=STRATEGY_PARAMS
-                    if expected_artifact_ids
-                    else None,
-                )
-                if entries_locked_reason:
-                    decisions = [
-                        decision
-                        for decision in decisions
-                        if decision["action"] != "BUY"
-                    ]
+                    if entries_locked_reason:
+                        decisions = [
+                            decision
+                            for decision in decisions
+                            if decision["action"] != "BUY"
+                        ]
         if expected_artifact_ids is not None:
             for decision in decisions:
                 if decision["action"] == "BUY":
