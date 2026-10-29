@@ -14,6 +14,16 @@ All12 raw report audits PASS:7976 signal exits exactly24h, no BUY during breaker
 
 [Full report](../data/plus_context_matrix_20261029_01/RESULTS.md), MATRIX_RESULTS.json, RAW_AUDIT.json and wave_protocol.json hold primary evidence. CLOSED_NO_SUPPORTED_INCREMENT / NOT_QUALIFIED. No further run, confirmation, paper/testnet/live authority; no independent review claimed. CI remains separate. Static draft authority functions are design snapshots; protocols and this tracker record actual progress.
 
+### 2026-10-29 — scoped thinning execution engineering complete on synthetic
+
+Worker/admission implemented in thinning_execution.py; original BASE/PLUS lane retained through typed-request dispatch. 128/128 regression tests PASS plus one full E2E:36/36 real subprocess workers on generated synthetic parquet,193.35s controlled, one worker/no retry. Harness injects fixture ROOT/source context only; validator, CLI main, supervisor, worker, native engine and metric exporter run for real. Approval in this harness is synthetic-fixture-only, not operator authorization.
+
+Raw SQLite audit reproduces incremental BUY-fill denominator for all36 cells, including matching report/protocol/metric hashes, per-cost contracts, entry hash timing,24h exit and terminal flat. Separate bound-worker carry regression proves final marked equity−10000 and positive BUY notional even with no closed trade. Partial fills counted as deltas; duplicate event ids idempotent, conflicting duplicates rejected; zero denominator remains undefined. Summary keeps all six pair–cost groups and five seeds, descriptive only.
+
+Code commit3f3a1512, source49c4e4a223256f320dc95c9866d25be1b5b75a19d22f45961291c8999d79f269. Actual pending packet:data/btc_thinning_execution_pending_20261029_01/. Approval fields remain null/PENDING_OPERATOR_APPROVAL. Actual --run negative test returned NOT_AUTHORIZED_TO_RUN before creating cells/execution journal; market cells0. Exact calibration remains ETH3647/4356,BNB3267/4325. No holdout/OOS/live, no push.
+
+Evidence and limits:data/thinning_execution_e2e_20261029_01/RESULTS.md. Source snapshot still includes user-owned untracked analysis scripts; not a clean independently reviewed integrated release. Old preparation-only limitation is superseded by this worker proof; prior packets stay unchanged. Next gate is clean integration/review of exact source and explicit scope/budget authorization; no further engineering feature or run is scheduled automatically.
+
 ### 2026-10-29 — fixed calibration and36-cell preparation verified
 
 PREPARED_NOT_AUTHORIZED. Calibration[216,8760), evaluation[8760,25198), ETH/BNB1h only. Exact p:ETH3647/4356 (83.7236%), BNB3267/4325 (75.5376%), missing0 of8544 calibration rows per target. Independent Arrow/direct-ratio implementation reproduces counts (same-author audit, not independent reviewer). All input hashes and full clocks rechecked; only timestamp+close decoded, full already-exposed25198rows per file, only prefix used to compute p. No strategy/simulator market evaluation.
