@@ -14,6 +14,16 @@ All12 raw report audits PASS:7976 signal exits exactly24h, no BUY during breaker
 
 [Full report](../data/plus_context_matrix_20261029_01/RESULTS.md), MATRIX_RESULTS.json, RAW_AUDIT.json and wave_protocol.json hold primary evidence. CLOSED_NO_SUPPORTED_INCREMENT / NOT_QUALIFIED. No further run, confirmation, paper/testnet/live authority; no independent review claimed. CI remains separate. Static draft authority functions are design snapshots; protocols and this tracker record actual progress.
 
+### 2026-10-29 — validation binding bypass resolved on integrated source
+
+P1 from data/revision_integration_review_20261029_01/ is fixed in local commit5cdda1af. CampaignCellRunner always performs scoped admission regardless of caller validation_only flag. QualificationCellRunner verifies its actual frozen protocol plus subject/token/native-cell membership, preserving legitimate validation instead of reconstructing a PLUS-specific envelope. No threshold/approval relaxation.
+
+Fix was first tested in an isolated source snapshot while the other agent ran CI. After shared tests ended and baseline SHA matched, patch integrated. On MAIN:60/60 gate/cache/input/protocol regressions PASS,3/3 canonical launcher integration PASS including real synthetic worker/coverage. Fresh AC01–15 ALL PASS, source5b2c0ac3efb41ffef7b117029974ac9ffec540b0e668f114c5536733aac55d0d, identity stable. Lint clean. Broader isolated suite hit240s timeout; retained as incomplete, not reported as all-green CI.
+
+Current operational proposal:data/btc_thinning_execution_pending_20261029_02/, freshly bound to fixed source, calibration unchanged ETH3647/4356 and BNB3267/4325. PENDING_OPERATOR_APPROVAL/null identity fields, zero market cells. Prior proposals/source-specific proofs stay immutable; no silent reseal. Closeout:data/binding_gate_fix_verified_20261029_01/RESULTS.md.
+
+Our fix is committed; user analysis scripts/reports and session/Claude files remain untouched/uncommitted. Source capture remains dirty for those pre-existing analysis scripts; no claim of clean independently reviewed release, full remote CI green, qualification or live authority. No push/merge/market run.
+
 ### 2026-10-29 — scoped thinning execution engineering complete on synthetic
 
 Worker/admission implemented in thinning_execution.py; original BASE/PLUS lane retained through typed-request dispatch. 128/128 regression tests PASS plus one full E2E:36/36 real subprocess workers on generated synthetic parquet,193.35s controlled, one worker/no retry. Harness injects fixture ROOT/source context only; validator, CLI main, supervisor, worker, native engine and metric exporter run for real. Approval in this harness is synthetic-fixture-only, not operator authorization.
