@@ -165,6 +165,14 @@ def load_input(path, arm):
 
 def verify_simulator_input(request, frame, *, symbol, timeframe, strategy, manifest, contract_id,
                            state_dir, report_path, fresh):
+    from trading_agent.backtest.thinning_execution import (
+        ThinningCycleInput, verify_simulator_input as verify_thinning_input,
+    )
+
+    if type(request) is ThinningCycleInput:
+        return verify_thinning_input(request, frame, symbol=symbol, timeframe=timeframe,
+            strategy=strategy, manifest=manifest, contract_id=contract_id,
+            state_dir=state_dir, report_path=report_path, fresh=fresh)
     if type(request) is not DevelopmentCycleInput or frame is None:
         raise ValueError("missing bound development cycle input")
     plan = verify_plan(request.protocol_path)
