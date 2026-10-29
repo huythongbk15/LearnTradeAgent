@@ -568,10 +568,15 @@ def test_clean_earlier_runs_do_not_block(tmp_path):
 def test_every_default_runner_symbol_has_instrument_rules():
     from trading_agent.execution.canonical.instrument_registry import get_instrument_rules
 
+    from trading_agent.execution.canonical.instrument_registry import INSTRUMENT_RULES_1H
+
     defaults = runner.build_parser().parse_args([]).symbols.split(",")
     assert defaults == ["BTC/USDT", "SOL/USDT", "AVAX/USDT"]
     for symbol in defaults:
         assert get_instrument_rules(symbol).qty_step > 0
+    # The live-only extra stays out of the reviewed research universe.
+    assert "AVAX/USDT" not in INSTRUMENT_RULES_1H
+    assert get_instrument_rules("AVAX/USDT").qty_step == 0.01
 
 
 # ── Operator CLI ────────────────────────────────────────────────────────────

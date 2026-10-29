@@ -44,13 +44,19 @@ _RULE_SPECS: Final[dict[str, tuple[float, float, int]]] = {
     "TRX/USDT": (0.1, 100_000_000.0, 5),
     "ADA/USDT": (0.1, 10_000_000.0, 4),
     "NEAR/USDT": (0.01, 1_000_000.0, 3),
-    # Live testnet runner universe, outside the ten-pair research set. Binance
-    # AVAXUSDT filters (2026-10-29): LOT_SIZE 0.01, maxQty 90000, tick 0.001.
+}
+
+# Instruments the live testnet runner trades beyond the reviewed research
+# universe, kept apart so that universe stays exactly as reviewed. Binance
+# AVAXUSDT filters (2026-10-29): LOT_SIZE 0.01, maxQty 90000, tick 0.001.
+_LIVE_RUNNER_SPECS: Final[dict[str, tuple[float, float, int]]] = {
     "AVAX/USDT": (0.01, 90_000.0, 3),
 }
 
 
-def _build_registry() -> dict[str, InstrumentRules]:
+def _build_registry(
+    specs: Mapping[str, tuple[float, float, int]] = _RULE_SPECS,
+) -> dict[str, InstrumentRules]:
     return {
         symbol: InstrumentRules(
             symbol=symbol,
@@ -64,12 +70,15 @@ def _build_registry() -> dict[str, InstrumentRules]:
             min_notional=_MIN_NOTIONAL,
             max_notional=_MAX_NOTIONAL,
         )
-        for symbol, (qty_step, max_order_qty, price_precision) in _RULE_SPECS.items()
+        for symbol, (qty_step, max_order_qty, price_precision) in specs.items()
     }
 
 
 INSTRUMENT_RULES_1H: Final[Mapping[str, InstrumentRules]] = MappingProxyType(
     _build_registry()
+)
+LIVE_RUNNER_RULES_1H: Final[Mapping[str, InstrumentRules]] = MappingProxyType(
+    _build_registry(_LIVE_RUNNER_SPECS)
 )
 
 
@@ -81,17 +90,18 @@ def get_instrument_rules(symbol: str) -> InstrumentRules:
     """Return reviewed rules for *symbol*, rejecting unregistered instruments."""
 
     normalized = symbol.strip().upper()
-    try:
-        return INSTRUMENT_RULES_1H[normalized]
-    except KeyError as exc:
-        supported = ", ".join(TEN_PAIR_1H_SYMBOLS)
+    rules = INSTRUMENT_RULES_1H.get(normalized) or LIVE_RUNNER_RULES_1H.get(normalized)
+    if rules is None:
+        supported = ", ".join((*TEN_PAIR_1H_SYMBOLS, *LIVE_RUNNER_RULES_1H))
         raise UnsupportedInstrumentError(
             f"Unsupported instrument {symbol!r}; supported instruments: {supported}"
-        ) from exc
+        )
+    return rules
 
 
 __all__ = [
     "INSTRUMENT_RULES_1H",
+    "LIVE_RUNNER_RULES_1H",
     "TEN_PAIR_1H_SYMBOLS",
     "UnsupportedInstrumentError",
     "get_instrument_rules",
