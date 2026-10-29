@@ -624,3 +624,61 @@ def test_testnet_without_promoted_runtime_still_exits_a_held_position(
     sides = [side for side, *_ in broker.transactions]
     assert "sell" in sides and "buy" not in sides
     assert "entries_locked_no_promoted_runtime" in _audit_events(tmp_path)
+
+
+# ── Run identity, stages and interruption (I1-I3) ──────────────────────────
+
+
+def _main_argv(tmp_path):
+    return [
+        "live_enhanced_ma_binance.py", "--execute", "--testnet", "--symbols", "BTC/USDT",
+        "--weights", "20", "--state-file", str(tmp_path / "risk.json"),
+        "--audit-log", str(tmp_path / "audit.jsonl"),
+    ]
+
+
+def _audit_records(tmp_path):
+    import json
+
+    return [
+        json.loads(line)
+        for line in (tmp_path / "audit.jsonl").read_text().splitlines()
+        if line.strip()
+    ]
+
+
+def test_main_ties_start_and_end_and_records_identity_and_stages(tmp_path, monkeypatch):
+    broker = AccountingBroker()
+    install_exchange_boundary(monkeypatch, tmp_path, broker, market_frame())
+    monkeypatch.setattr(sys, "argv", _main_argv(tmp_path))
+
+    assert runner.main() == 0
+
+    records = _audit_records(tmp_path)
+    start, end = records[0], records[-1]
+    assert start["event"] == "run_started" and end["event"] == "run_completed"
+    assert start["correlation_id"] and start["correlation_id"] == end["correlation_id"]
+    assert {"boot_id", "starttime_ticks", "source_commit"} <= set(start["details"])
+    stages = [r["details"]["stage"] for r in records if r["event"] == "run_stage"]
+    assert stages[:2] == ["account_read", "signals_computed"]
+    assert all(r["correlation_id"] == start["correlation_id"] for r in records)
+
+
+def test_sigterm_during_a_run_records_run_interrupted(tmp_path, monkeypatch):
+    import signal as os_signal
+
+    def killed_mid_run(args):
+        os.kill(os.getpid(), os_signal.SIGTERM)
+        time.sleep(5)
+        raise AssertionError("SIGTERM did not interrupt the run")
+
+    monkeypatch.setattr(runner, "run", killed_mid_run)
+    monkeypatch.setattr(sys, "argv", _main_argv(tmp_path))
+
+    assert runner.main() == 143
+
+    records = _audit_records(tmp_path)
+    assert [r["event"] for r in records] == ["run_started", "run_interrupted"]
+    assert records[1]["details"]["signal"] == "SIGTERM"
+    assert records[1]["correlation_id"] == records[0]["correlation_id"]
+    assert os_signal.getsignal(os_signal.SIGTERM) is os_signal.SIG_DFL

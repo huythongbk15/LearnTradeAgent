@@ -12,6 +12,8 @@ import argparse
 import asyncio
 import math
 import os
+import signal as os_signal  # a strategy loop variable is named `signal`
+import subprocess
 import random
 import sys
 import time
@@ -70,7 +72,7 @@ from trading_agent.execution.lifecycle.lifecycle import (
     TrustedPrice,
     ExposureEffect,
 )
-from trading_agent.execution.correlation import bind_run_correlation
+from trading_agent.execution.correlation import bind_run_correlation, get_run_id
 from trading_agent.execution.data_trust import (
     BINANCE_MAINNET_TIME_URL,
     BINANCE_TESTNET_TIME_URL,
@@ -2746,6 +2748,7 @@ def run_locked(
             f"DD {float(metrics['drawdown_pct']):.2%}, "
             f"daily loss {float(metrics['daily_loss_pct']):.2%}"
         )
+        _audit_stage(args, "account_read")
         if risk_locked_reason:
             print(
                 f"⛔ CIRCUIT BREAKER: {risk_locked_reason}; "
@@ -2798,6 +2801,7 @@ def run_locked(
             f"clock skew {trust_metrics['clock_skew_s']:+.2f}s, "
             f"sequence gaps {trust_metrics['max_sequence_gap']}"
         )
+        _audit_stage(args, "signals_computed", {"symbols": len(states)})
 
         apply_atr_protection(states=states, positions=positions, store=store)
         for pair, state in states.items():
@@ -3002,6 +3006,7 @@ def run_locked(
             audit_log_path=args.audit_log,
             monitor=monitor,
         )
+        _audit_stage(args, "orders_planned", {"orders": len(prepared)})
         print("\nEXECUTION PLAN")
         for planned in prepared:
             print(
@@ -3046,8 +3051,9 @@ def run(
     admission_producer: PromotedLiveAdmissionProducer | None = None,
 ) -> int:
     # P1.2: one correlation ID per runner invocation; every audit event and
-    # error raised inside the run is tagged with it.
-    run_id = bind_run_correlation()
+    # error raised inside the run is tagged with it. main() binds it before
+    # run_started so that start and terminal events share it.
+    run_id = get_run_id() or bind_run_correlation()
     profile = resolve_trading_profile(args)
     limits = LiveRiskLimits.for_profile(profile)
     allocations = parse_allocations(args.symbols, args.weights, limits)
@@ -3081,8 +3087,47 @@ def run(
         )
 
 
+class RunInterrupted(BaseException):
+    """SIGTERM/SIGINT during a run; a BaseException so no handler swallows it."""
+
+
+def _audit_stage(args: argparse.Namespace, stage: str, details: Mapping | None = None) -> None:
+    """Progress marker between run_started and the terminal event."""
+    if args.audit_log:
+        append_live_audit_event(args.audit_log, "run_stage", {"stage": stage, **(details or {})})
+
+
+def _process_identity() -> dict[str, object]:
+    """boot id + kernel start ticks: tells this run from a later process reusing its PID."""
+    identity: dict[str, object] = {}
+    try:
+        identity["boot_id"] = Path("/proc/sys/kernel/random/boot_id").read_text().strip()
+        stat = Path(f"/proc/{os.getpid()}/stat").read_text()
+        identity["starttime_ticks"] = int(stat.rsplit(")", 1)[1].split()[19])
+    except (OSError, ValueError, IndexError):
+        pass
+    return identity
+
+
+def _source_revision() -> dict[str, object]:
+    root = Path(__file__).resolve().parents[1]
+    try:
+        commit = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "HEAD"],
+            capture_output=True, text=True, timeout=5,
+        ).stdout.strip()
+        dirty = subprocess.run(
+            ["git", "-C", str(root), "status", "--porcelain", "--untracked-files=no"],
+            capture_output=True, text=True, timeout=5,
+        ).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return {"source_commit": "unknown"}
+    return {"source_commit": commit or "unknown", "source_dirty": bool(dirty)}
+
+
 def main() -> int:
     args = build_parser().parse_args()
+    bind_run_correlation()
     append_live_audit_event(
         args.audit_log,
         "run_started",
@@ -3090,12 +3135,25 @@ def main() -> int:
             "execute": bool(args.execute),
             "testnet": bool(args.testnet),
             "symbols": args.symbols,
+            **_process_identity(),
+            **_source_revision(),
         },
     )
+
+    def interrupted(signum, _frame):
+        raise RunInterrupted(os_signal.Signals(signum).name)
+
+    previous = os_signal.signal(os_signal.SIGTERM, interrupted)
     try:
         result = run(args)
         append_live_audit_event(args.audit_log, "run_completed", {"exit_code": result})
         return result
+    except (RunInterrupted, KeyboardInterrupt) as exc:
+        # Killed runs used to leave run_started with no terminal event at all.
+        name = str(exc) if isinstance(exc, RunInterrupted) else "SIGINT"
+        append_live_audit_event(args.audit_log, "run_interrupted", {"signal": name})
+        print(f"INTERRUPTED: {name}", file=sys.stderr)
+        return 130 if name == "SIGINT" else 143
     except Exception as exc:
         append_live_audit_event(
             args.audit_log,
@@ -3104,6 +3162,8 @@ def main() -> int:
         )
         print(f"FATAL: {exc}", file=sys.stderr)
         return 1
+    finally:
+        os_signal.signal(os_signal.SIGTERM, previous)
 
 
 if __name__ == "__main__":
