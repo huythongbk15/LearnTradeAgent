@@ -5,8 +5,8 @@ importing it. See docs/operations/CORE_RUNTIME_BOUNDARY.md. Each entrypoint is
 loaded (not run) in a fresh interpreter, and the loaded package roots are
 compared with the forbidden set.
 
-Edges that are still open are strict xfails: when a later step cuts one, the
-test XPASSes, fails, and the mark has to be removed.
+Research-time fitting (sklearn/scipy) and the strategies that need ml or the
+LLM agents are imported where they are used, not at module import.
 """
 
 from __future__ import annotations
@@ -37,16 +37,6 @@ else:  # a package module: import it by name
 print(json.dumps(sorted(sys.modules)))
 """
 
-_RESEARCH_INIT = (
-    "research/__init__ eagerly imports drift (scipy) and calibration/uncertainty "
-    "(sklearn); reached via execution.canonical.risk_decision"
-)
-
-
-def _open(name: str, reason: str = _RESEARCH_INIT):
-    return pytest.param(name, marks=pytest.mark.xfail(strict=True, reason=reason))
-
-
 FORBIDDEN = (
     "trading_agent.llm",
     "trading_agent.agents",
@@ -54,8 +44,8 @@ FORBIDDEN = (
     "trading_agent.backtest",
     "trading_agent.alpha_research",
     "hmmlearn",
-    _open("sklearn"),
-    _open("scipy"),
+    "sklearn",
+    "scipy",
 )
 
 
