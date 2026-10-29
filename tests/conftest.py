@@ -112,8 +112,17 @@ def pytest_collection_modifyitems(items) -> None:
             item.add_marker(pytest.mark.xdist_group("shared_db"))
 
 
+_LOCAL_MARKET_DATA = PROJECT_ROOT / "data" / "raw" / "binance"
+
+
 def pytest_runtest_setup(item) -> None:
     """Re-seed before every test so ordering cannot leak randomness."""
+    # ``integration`` means "requires untracked local market data"; a clean
+    # checkout or worktree has none, so report a skip instead of a failure.
+    if item.get_closest_marker("integration") and not any(
+        _LOCAL_MARKET_DATA.glob("*/*.parquet")
+    ):
+        pytest.skip(f"local market data absent: {_LOCAL_MARKET_DATA}")
     seed = getattr(item.config.option, "seed", None) or 42
     random.seed(seed)
     np.random.seed(seed)
