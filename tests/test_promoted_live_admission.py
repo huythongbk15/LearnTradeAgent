@@ -664,21 +664,23 @@ def test_main_ties_start_and_end_and_records_identity_and_stages(tmp_path, monke
     assert all(r["correlation_id"] == start["correlation_id"] for r in records)
 
 
-def test_sigterm_during_a_run_records_run_interrupted(tmp_path, monkeypatch):
+@pytest.mark.parametrize(("signame", "code"), [("SIGTERM", 143), ("SIGHUP", 129)])
+def test_signal_during_a_run_records_run_interrupted(tmp_path, monkeypatch, signame, code):
     import signal as os_signal
 
     def killed_mid_run(args):
-        os.kill(os.getpid(), os_signal.SIGTERM)
+        os.kill(os.getpid(), getattr(os_signal, signame))
         time.sleep(5)
         raise AssertionError("SIGTERM did not interrupt the run")
 
     monkeypatch.setattr(runner, "run", killed_mid_run)
     monkeypatch.setattr(sys, "argv", _main_argv(tmp_path))
 
-    assert runner.main() == 143
+    assert runner.main() == code
 
     records = _audit_records(tmp_path)
     assert [r["event"] for r in records] == ["run_started", "run_interrupted"]
-    assert records[1]["details"]["signal"] == "SIGTERM"
+    assert records[1]["details"]["signal"] == signame
     assert records[1]["correlation_id"] == records[0]["correlation_id"]
     assert os_signal.getsignal(os_signal.SIGTERM) is os_signal.SIG_DFL
+    assert os_signal.getsignal(os_signal.SIGHUP) is os_signal.SIG_DFL

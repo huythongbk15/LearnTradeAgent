@@ -3088,7 +3088,7 @@ def run(
 
 
 class RunInterrupted(BaseException):
-    """SIGTERM/SIGINT during a run; a BaseException so no handler swallows it."""
+    """SIGTERM/SIGHUP/SIGINT during a run; a BaseException so no handler swallows it."""
 
 
 def _audit_stage(args: argparse.Namespace, stage: str, details: Mapping | None = None) -> None:
@@ -3143,7 +3143,10 @@ def main() -> int:
     def interrupted(signum, _frame):
         raise RunInterrupted(os_signal.Signals(signum).name)
 
-    previous = os_signal.signal(os_signal.SIGTERM, interrupted)
+    # SIGHUP: WSL hangs up the session when its console is closed, which
+    # killed the first scheduled cycle (2026-10-29 17:01Z) without a trace.
+    handled = (os_signal.SIGTERM, os_signal.SIGHUP)
+    previous = {signum: os_signal.signal(signum, interrupted) for signum in handled}
     try:
         result = run(args)
         append_live_audit_event(args.audit_log, "run_completed", {"exit_code": result})
@@ -3153,7 +3156,7 @@ def main() -> int:
         name = str(exc) if isinstance(exc, RunInterrupted) else "SIGINT"
         append_live_audit_event(args.audit_log, "run_interrupted", {"signal": name})
         print(f"INTERRUPTED: {name}", file=sys.stderr)
-        return 130 if name == "SIGINT" else 143
+        return {"SIGINT": 130, "SIGHUP": 129}.get(name, 143)
     except Exception as exc:
         append_live_audit_event(
             args.audit_log,
@@ -3163,7 +3166,8 @@ def main() -> int:
         print(f"FATAL: {exc}", file=sys.stderr)
         return 1
     finally:
-        os_signal.signal(os_signal.SIGTERM, previous)
+        for signum, handler in previous.items():
+            os_signal.signal(signum, handler)
 
 
 if __name__ == "__main__":
