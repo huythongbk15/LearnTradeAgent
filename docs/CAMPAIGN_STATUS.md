@@ -14,6 +14,14 @@ All12 raw report audits PASS:7976 signal exits exactly24h, no BUY during breaker
 
 [Full report](../data/plus_context_matrix_20261029_01/RESULTS.md), MATRIX_RESULTS.json, RAW_AUDIT.json and wave_protocol.json hold primary evidence. CLOSED_NO_SUPPORTED_INCREMENT / NOT_QUALIFIED. No further run, confirmation, paper/testnet/live authority; no independent review claimed. CI remains separate. Static draft authority functions are design snapshots; protocols and this tracker record actual progress.
 
+### 2026-10-29 — fixed calibration and36-cell preparation verified
+
+PREPARED_NOT_AUTHORIZED. Calibration[216,8760), evaluation[8760,25198), ETH/BNB1h only. Exact p:ETH3647/4356 (83.7236%), BNB3267/4325 (75.5376%), missing0 of8544 calibration rows per target. Independent Arrow/direct-ratio implementation reproduces counts (same-author audit, not independent reviewer). All input hashes and full clocks rechecked; only timestamp+close decoded, full already-exposed25198rows per file, only prefix used to compute p. No strategy/simulator market evaluation.
+
+Packet:data/btc_thinning_development_preparation_20261029_01/. Binds frozen design v5 hash, current source28d5537a…, runtime/config, exact calibration counts,36cell identities/seeds, per-cost native contracts, windows/flat10000initialization, metrics and proposed budget23400s. Execution entrypoint absent, authorization NOT_AUTHORIZED_TO_RUN; actual authority check raises PermissionError. Rehashed approval/field tamper rejected. 87/87 final targeted tests PASS; lint PASS. Local code commit e65af9da.
+
+Source snapshot remains worktree_dirty=true due preserved user analysis scripts, not a clean reviewed integrated release. Preparation source differs from earlier synthetic proof; old acceptance evidence not reassigned. No market qualification or independent review claimed. Full market worker/launcher admission remains unimplemented; this preparation packet cannot be activated merely by editing an approval field. No further execution is scheduled.
+
 ### 2026-10-29 — thinning launcher synthetic proof closed
 
 Control thinning and scoped synthetic launcher verified; 36/36 fixture cells completed in160.95s. Six PLUS cells plus30 controls (five seeds per pair/cost), calibration5/10 on synthetic[216,240), evaluation[240,280). These fixture windows/counts are NOT the frozen market study windows/p. 75/75 targeted tests and lint PASS; raw audit verifies per-cost contracts, hash entry timing,24h exits, marked equity accounting, flat inventory/orders and cross-cost deterministic entry vectors. Source19b1c257… stable.
