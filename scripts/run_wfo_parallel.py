@@ -1046,6 +1046,18 @@ class QualificationCellRunner(CampaignCellRunner):
         if audit["conflicts"]:
             raise ValueError("trial history conflict at runner startup; inspect trial_history_startup.json; do not reset registry")
 
+    def _verify_scoped_admission(self, spec, scope_token):
+        """Verify the actual frozen protocol, not a fabricated PLUS envelope."""
+        declared = self.protocol["spec"]
+        if (scope_token != self.protocol["execution"].get("scope_token")
+                or spec.strategy_id != declared["strategy_id"]
+                or spec.symbol != declared["symbol"] or spec.timeframe != declared["timeframe"]):
+            raise ValueError("preregistration scoped subject/token differs from protocol")
+        key = replace(spec, expected_execution_contract_id=None).cell_id
+        if key not in self.protocol["native_execution_contracts"]:
+            raise ValueError("preregistration cell is not in the frozen protocol")
+        _verify_approved_payload_binding(self.protocol, scope_token)
+
     def _run_measured(self, spec, **kwargs):
         key = replace(spec, expected_execution_contract_id=None).cell_id
         if key not in self.protocol["native_execution_contracts"]:
