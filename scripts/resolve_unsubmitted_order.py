@@ -234,12 +234,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--min-age-minutes", type=float, default=30.0)
     parser.add_argument("--audit-log", default="data/execution/binance_live_audit.jsonl")
     parser.add_argument("--apply", action="store_true", help="close the intent (default: report only)")
+    parser.add_argument(
+        "--root", type=Path, default=ROOT,
+        help="deployment directory holding .env and data/ (default: this repository)",
+    )
     args = parser.parse_args(argv)
+    root = args.root.resolve()
 
     from dotenv import load_dotenv
     import ccxt
 
-    load_dotenv(ROOT / ".env")
+    load_dotenv(root / ".env")
     prefix = "BINANCE_TESTNET_" if args.testnet else "BINANCE_"
     client = ccxt.binance(
         {"apiKey": os.getenv(prefix + "API_KEY", ""), "secret": os.getenv(prefix + "API_SECRET", "")}
@@ -251,18 +256,18 @@ def main(argv: list[str] | None = None) -> int:
         with LiveAccountSession(
             account_id=os.getenv("LIVE_ACCOUNT_ID", ""),
             exchange="binance-testnet" if args.testnet else "binance-mainnet",
-            state_path=args.state_file,
+            state_path=root / args.state_file,
             integrity_key=integrity_key,
-            root=ROOT / "data" / "execution" / "accounts",
+            root=root / "data" / "execution" / "accounts",
         ) as session:
             report = resolve(
-                store=LiveRiskStateStore(args.state_file, integrity_key=integrity_key),
+                store=LiveRiskStateStore(root / args.state_file, integrity_key=integrity_key),
                 event_store_path=session.event_store_path,
                 order_key=args.order_key,
                 venue=CcxtVenueProbe(client),
                 min_age=timedelta(minutes=args.min_age_minutes),
                 apply=args.apply,
-                audit_log=args.audit_log,
+                audit_log=str(root / args.audit_log),
             )
     except LiveSafetyError as exc:
         print(f"FATAL: {exc}")
