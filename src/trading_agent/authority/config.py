@@ -402,16 +402,22 @@ class AuthorityConfig(BaseModel):
         elif env == Environment.TESTNET:
             config.exposure.max_portfolio_exposure = 0.50
             config.exposure.max_single_strategy_exposure = 0.20
+            config.exposure.max_single_symbol_exposure = 0.20
             config.execution.max_price_age_seconds = 30.0
             config.live.max_daily_loss_pct = 0.02
 
         elif env == Environment.SHADOW:
             config.exposure.max_portfolio_exposure = 0.0  # Shadow = no real exposure
+            config.exposure.max_single_strategy_exposure = 0.0
+            config.exposure.max_single_symbol_exposure = 0.0
+            config.exposure.max_correlated_exposure = 0.0
             config.live.kill_switch_enabled = True
 
         elif env == Environment.CANARY:
             config.exposure.max_portfolio_exposure = 0.10
             config.exposure.max_single_strategy_exposure = 0.05
+            config.exposure.max_single_symbol_exposure = 0.05
+            config.exposure.max_correlated_exposure = 0.10
             config.live.max_daily_loss_pct = 0.01
             config.live.max_drawdown_pct = 0.05
 

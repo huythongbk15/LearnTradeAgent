@@ -22,6 +22,7 @@ from tests.test_order_permission import _fresh_price, _sample_risk_decision
 from tests.test_promoted_live_admission import (
     AccountingBroker,
     _testnet_args,
+    assert_testnet_presets,
     install_exchange_boundary,
     market_frame,
     produce,
@@ -352,6 +353,17 @@ def test_operational_producer_runs_the_real_pipeline_on_testnet_only(tmp_path):
             limits=None,
             states={},
         )
+
+
+def test_operational_producer_carries_the_testnet_presets():
+    resolver = OperationalRuntimeResolver(
+        authorization(),
+        view=TrackLedgerView(0, {}),
+        entry_symbols=frozenset({"BTC/USDT"}),
+        now=datetime.now(UTC),
+    )
+    assert_testnet_presets(resolver.config)
+    assert_testnet_presets(OperationalLiveAdmissionProducer(resolver).config)
 
 
 @pytest.mark.parametrize("quantity", [0.19801, 0.29999, 0.10007, 0.2])
