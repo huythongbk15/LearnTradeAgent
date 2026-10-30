@@ -28,6 +28,16 @@ and October-November 2022. A FORWARD_SUPPORTED read of H-XSEC-01 is not proof: i
 because the candidate trades less than its controls, so it shifts the odds about 2 to
 3 times.
 
+Operator decision, 2026-10-30: open no new market hypothesis. That rules out step 2,
+a re-run at another fill hour, a sign-flip successor, a fresh 2020-2022 test and a
+funding overlay. The frozen H-XSEC-01 forward read stays, and testnet work continues
+as infrastructure with no alpha claimed. This means the question cannot be resolved
+at a useful cost, not that no effect exists. Market research reopens only on a written
+proposal that, before any data is read, names who pays and shows a spot long-only book
+on the receiving side; states an effect at or above the 2x break-even with at least
+80% power; uses data not yet read for that question; and says what a PASS would
+change, with a route through the outer gates and no gate lowered.
+
 ### 2026-10-30 — H-TSMOM-01: a trend filter adds no timing skill; round closes empty
 
 NOT_SUPPORTED, by criteria written before the measurement. Local evidence
