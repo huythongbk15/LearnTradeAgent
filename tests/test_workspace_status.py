@@ -146,6 +146,38 @@ def test_a_newer_approved_packet_supersedes_its_pending_proposals(checkout):
     assert ws.pending_packets() == []
 
 
+def test_processes_are_named_by_entrypoint_and_runs_grouped_per_packet(checkout):
+    packet = checkout / "data" / "thinning_pending_20261029_02"
+    protocol = str(packet / "protocol.json")
+    wrapper = [".venv/bin/python", "scripts/qwenpaw_control/controlled_exec.py", "--result-file",
+               str(packet / "execution.json"), "--", ".venv/bin/python", "-m",
+               "trading_agent.backtest.thinning_execution", "--run", protocol]
+    # The wrapper only mentions the run in its arguments; it is not the run.
+    assert ws.describe_process(wrapper) is None
+    run = ws.describe_process([".venv/bin/python", "-m", "trading_agent.backtest.thinning_execution",
+                               "--run", protocol])
+    worker = ws.describe_process(["/x/.venv/bin/python", "-m", "trading_agent.backtest.thinning_execution",
+                                  "--worker", protocol, "ETH_USDT__1x__42"])
+    assert run["script"] == "thinning_execution" and run["packet"] == packet.name and run["cell"] is None
+    assert worker["cell"] == "ETH_USDT__1x__42"
+    (packet / "prepared" / "protocol.json").write_text(json.dumps(
+        {"cells": list(range(36)), "budget": {"hard_deadline_seconds": 23400}}))
+    (packet / "cells" / "ETH_USDT__1x__PLUS").mkdir(parents=True)
+    (packet / "cells" / "ETH_USDT__1x__PLUS" / "execution.json").write_text('{"status": "COMPLETED"}')
+    (packet / "cells" / "ETH_USDT__1x__42").mkdir()
+    now = datetime.now(UTC)
+    started = (now - timedelta(minutes=4)).isoformat()
+    processes = [{**run, "pid": 10, "started_at": started}, {**worker, "pid": 11, "started_at": started}]
+    (item,) = ws.research_runs(processes, now)
+    assert item["state"] == "running" and item["pids"] == [10, 11]
+    assert item["progress"] == {"kind": "ratio", "done": 1, "total": 36,
+                                "why": "cell kế hoạch trong prepared/protocol.json"}
+    assert "ETH_USDT__1x__42" in item["detail"] and "hạn cuối theo budget" in item["next"]
+    (packet / "cells" / "ETH_USDT__1x__42" / "execution.json").write_text('{"status": "TIMEOUT"}')
+    (item,) = ws.research_runs(processes, now)
+    assert item["state"] == "error" and "1 cell không hoàn tất" in item["detail"]
+
+
 def test_a_cycle_never_shows_a_percentage_and_no_denominator_means_none(checkout):
     cycle = ws.doing()["automatic"][0]
     assert cycle["progress"]["kind"] == "step"  # step k of N, not a percentage
