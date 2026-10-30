@@ -6,6 +6,22 @@ were fragmenting the state across ~60 files.
 
 ## Current — 2026-10-30 / THINNING_DEVELOPMENT_COMPLETE (descriptive only; market otherwise paused) / PLUS_MATRIX_NO_SUPPORTED_INCREMENT
 
+### 2026-10-30 — H-XSEC-01 D1 measured: CONTINUE_TO_CONFIRMATION, not proven
+
+CONTINUE_TO_CONFIRMATION under the frozen rule; not qualified. Full results in
+local evidence `data/xsec_01_d1_20261030_01/RESULTS.md`. The operator allowed the
+run without prior review or an approved packet. Over 159 rebalances, candidate
+vs same-exposure basket: +70.9% vs +35.4% at 1x, +63.3% vs +34.9% at 2x, +60.8%
+vs +34.7% at slip stress; above 20/20 random controls at 2x. Holdout rows read: 0.
+It is the first rule here that is net positive at 2x and slip and beats a
+same-exposure control. It is not proven: ZEC gave 49.8% of the PnL and excess
+at 2x falls to +4.6 points without it; the weekly excess t is 1.39; excess came
+in 2 of 4 calendar years; the five best weeks hold all of it. The coin list was
+hand-written on 2026-08-17 with no recorded rule, so hindsight in it is possible.
+Max drawdown is 19.1% against the 10% gate. Side finding: BTC `30m` is wrong
+before 2023-08-10 although it matches the manifest. The forward cohort stays
+sealed; the market stays otherwise PAUSED.
+
 ### 2026-10-30 — H-XSEC-01 simulator built on synthetic data, not run
 
 SYNTHETIC_ONLY_NOT_RUN. No market data was read and no packet was prepared.
