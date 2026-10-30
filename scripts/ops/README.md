@@ -13,6 +13,8 @@ and add a health check that alerts from Windows.
 | `windows/register_tasks.ps1` | Windows, once | Registers both tasks (`-WhatIf` prints them only) |
 | `daily_check.py` | WSL, daily | Read-only report: cycles, outcomes, ledger/lifecycle consistency, M1 and M3 progress |
 | `authorize_operational_track.py` | WSL, by the operator | Signs, shows (`--show`) or revokes (`--revoke`) the testnet operational track |
+| `workspace_server.py` | WSL, started by the operator | Read-only page at `http://127.0.0.1:8765`: what is being done, what was done, what exists ([WORKSPACE_UI.md](../../docs/operations/WORKSPACE_UI.md)) |
+| `workspace_status.py` | WSL | The page's data as JSON: `doing`, `done` or `have` |
 
 Before registering the tasks, comment out the runner line in the WSL crontab so
 that a cron daemon started later cannot double-schedule it. Tasks run while the

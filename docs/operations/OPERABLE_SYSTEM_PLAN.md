@@ -22,7 +22,7 @@ to `TESTNET_ELIGIBLE` replaces the exerciser below; it then runs its own soak.
 | Gate | Pass criteria (measured by `scripts/ops/daily_check.py`) | Status |
 | --- | --- | --- |
 | **M1 Stable schedule** | Over ≥ 48 h from the M1 start: ≥ 24 execution cycles; each has `run_completed`; 0 `run_failed`/`run_interrupted`; no gap > 2 h 15 min between execution starts; every cycle < 60 s; health check green; no manual intervention | **Running since 2026-10-29 17:41Z** (first clean headless cycle, 18 s) |
-| **M2 Observable** | `status` command + one overview page answer within 10 s: what runs, which stage, why blocked, where the evidence is | After M1 holds for ~1–2 days |
+| **M2 Observable** | `status` command + one overview page answer within 10 s: what runs, which stage, why blocked, where the evidence is | **Built, read-only** ([WORKSPACE_UI.md](WORKSPACE_UI.md)): `scripts/ops/workspace_status.py` and the page of `scripts/ops/workspace_server.py`. Passes once the operator has used it through a real failure |
 | **M3 E2E order lifecycle** | ≥ 10 complete lifecycles of the operational track, of which ≥ 3 exit by the venue stop and ≥ 3 by a sell; venue = ledger = lifecycle; 0 stuck reservations; 0 manual intervention | **Built, not enabled.** The operator signs it after M1 passes (`scripts/ops/authorize_operational_track.py`) |
 | **M4 L3 soak** | 30 days, 100 lifecycles, 0 unexplained failures (`docs/LIVE_TRADING_TODO.md`) | After M3 |
 

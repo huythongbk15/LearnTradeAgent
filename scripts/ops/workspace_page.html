@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Toàn cảnh hệ thống</title>
+<style>
+:root{--bg:#f5f6f4;--panel:#fff;--ink:#1d2421;--muted:#5b6661;--faint:#8a948f;--line:#dfe3e0;
+--ok:#1f6b45;--okbg:#e3f2e9;--prog:#1f5a8a;--progbg:#e4eef8;--wait:#8a5a00;--waitbg:#fbefd6;
+--err:#a32d2d;--errbg:#fbe6e6;--un:#5b6661;--unbg:#eef0ee;color-scheme:light}
+@media (prefers-color-scheme:dark){:root{--bg:#141816;--panel:#1c211f;--ink:#e6ebe8;--muted:#a3ada8;--faint:#7b8580;
+--line:#2f3633;--ok:#8fd4ad;--okbg:#1f3a2b;--prog:#9cc6ef;--progbg:#1d3247;--wait:#f0c674;--waitbg:#40331a;
+--err:#f2a3a3;--errbg:#472020;--un:#a3ada8;--unbg:#262c29;color-scheme:dark}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:1180px;margin:0 auto;padding:20px 16px 48px}
+h1{font-size:22px;font-weight:500;margin:0}h2{font-size:17px;font-weight:500;margin:28px 0 10px;display:flex;gap:10px;align-items:baseline}
+h3{font-size:14px;font-weight:500;margin:16px 0 4px;color:var(--muted)}
+.top{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between}
+.chips{display:flex;flex-wrap:wrap;gap:6px}.chip{font-size:12px;padding:2px 9px;border-radius:6px;white-space:nowrap}
+.s-ok,.s-scheduled{background:var(--okbg);color:var(--ok)}.s-progress,.s-running{background:var(--progbg);color:var(--prog)}
+.s-waiting,.s-late,.s-stale{background:var(--waitbg);color:var(--wait)}.s-error{background:var(--errbg);color:var(--err)}
+.s-not_yet,.s-unknown,.s-code_only,.s-none{background:var(--unbg);color:var(--un)}.s-locked{background:var(--errbg);color:var(--err)}
+.muted{color:var(--muted)}.faint{color:var(--faint)}.small{font-size:12px}.src{font:11px/1.5 ui-monospace,Menlo,Consolas,monospace;color:var(--faint);overflow-wrap:anywhere}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-top:16px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px}.big{font-size:24px;font-weight:500;line-height:1.2}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:4px 16px}
+.row{display:grid;grid-template-columns:minmax(0,1fr) 210px;gap:16px;padding:12px 0;border-bottom:1px solid var(--line)}.row:last-child{border:0}
+.row .side{text-align:right}.title{font-weight:500}
+.bar{height:6px;border-radius:3px;background:var(--unbg);overflow:hidden;margin-top:6px}.bar i{display:block;height:100%;background:var(--prog)}
+.tl{margin:8px 0 4px 3px;border-left:2px solid var(--line);padding-left:14px}
+.tl div{position:relative;display:grid;grid-template-columns:70px minmax(0,1fr);gap:8px;padding:2px 0}
+.tl div::before{content:"";position:absolute;left:-19px;top:8px;width:8px;height:8px;border-radius:50%;background:var(--ok)}
+.tl .e-run_failed::before,.tl .e-run_interrupted::before{background:var(--err)}.tl .e-entries_locked_no_promoted_runtime::before{background:var(--wait)}
+.tl .gap::before{background:var(--line)}
+.grid3{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px}
+.li{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;padding:6px 0;border-bottom:1px solid var(--line)}.li:last-child{border:0}
+.li>.chip{flex:none}.pk{padding:6px 0;border-bottom:1px solid var(--line)}.pk .chip{white-space:normal;overflow-wrap:anywhere;display:inline-block;margin-top:2px}
+.filters{display:flex;gap:6px;flex-wrap:wrap}button{font:inherit;color:inherit;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:4px 10px;cursor:pointer}
+button[aria-pressed=true]{background:var(--ink);color:var(--panel)}
+.done-row{display:grid;grid-template-columns:92px minmax(0,1fr);gap:12px;padding:9px 0;border-bottom:1px solid var(--line)}.done-row:last-child{border:0}
+details summary{cursor:pointer;list-style:none}details summary::-webkit-details-marker{display:none}
+.empty{padding:12px 0;color:var(--muted)}.err{color:var(--err)}
+@media (max-width:680px){.row{grid-template-columns:1fr}.row .side{text-align:left}.done-row{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<main>
+<div class="top"><div><h1>Toàn cảnh hệ thống</h1><div class="small muted" id="asof">Đang đọc…</div></div><div class="chips" id="chips"></div></div>
+<div class="cards" id="cards"></div>
+
+<h2>Đang làm gì <span class="small faint">tự làm mới mỗi 10 s</span></h2>
+<div id="doing" class="empty">Đang đọc…</div>
+
+<h2>Đã làm được gì</h2>
+<div class="filters" id="filters"></div>
+<div class="panel" style="margin-top:10px" id="done"><div class="empty">Đang đọc…</div></div>
+
+<h2>Có gì <span class="small faint">đọc lại mỗi giờ</span></h2>
+<div id="have" class="empty">Đang đọc…</div>
+<p class="small faint">Chỉ quan sát: trang không có thao tác nào thay đổi hệ thống. Phần trăm chỉ hiện khi có mẫu số đã khóa trước. Nguồn: docs/operations/WORKSPACE_UI.md</p>
+</main>
+<script>
+const STATE = {ok:"chạy tốt",progress:"đang tiến triển",running:"đang chạy",waiting:"chờ bạn",not_yet:"chưa tới lúc",
+  late:"trễ lịch",stale:"dữ liệu cũ",error:"lỗi",unknown:"không rõ",scheduled:"theo lịch",code_only:"có code, không chạy",locked:"khóa"};
+const FLOW = {all:"Tất cả",operations:"Vận hành",research:"Nghiên cứu",code:"Code"};
+const ROLE = {core:"Lõi vận hành (runner nạp)",research:"Nghiên cứu",strategies:"Strategy",outside:"Ngoài lõi (runner không nạp)",unused:"Không ai dùng",unknown:"Chưa đo được"};
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const chip = (state, text) => `<span class="chip s-${esc(state)}">${esc(text ?? STATE[state] ?? state)}</span>`;
+const when = iso => { if (!iso) return ""; const d = new Date(iso); if (isNaN(d)) return esc(iso);
+  return `${String(d.getUTCDate()).padStart(2,"0")}/${String(d.getUTCMonth()+1).padStart(2,"0")} ${String(d.getUTCHours()).padStart(2,"0")}:${String(d.getUTCMinutes()).padStart(2,"0")}Z`; };
+const ago = iso => { if (!iso) return ""; const s = (Date.now() - new Date(iso)) / 1000; if (isNaN(s)) return "";
+  if (s < 0) return `sau ${Math.round(-s/60)} phút`; if (s < 90) return `${Math.round(s)} s trước`;
+  if (s < 5400) return `${Math.round(s/60)} phút trước`; if (s < 172800) return `${Math.round(s/3600)} giờ trước`; return `${Math.round(s/86400)} ngày trước`; };
+function progress(p) {
+  if (!p || p.kind === "none") return p && p.why ? `<div class="small faint">— ${esc(p.why)}</div>` : "";
+  if (p.kind === "step") return `<div class="small muted">bước ${p.done}/${p.total}</div><div class="small faint">${esc(p.why)}</div>`;
+  const pct = p.total ? Math.round(100 * p.done / p.total) : 0;
+  return `<div class="bar"><i style="width:${pct}%"></i></div><div class="small muted">${p.done}/${p.total} · ${pct}% <span class="faint">· mẫu số: ${esc(p.why)}</span></div>`;
+}
+function itemRow(i) {
+  const timeline = (i.timeline || []).length ? `<div class="tl">${i.timeline.map(t =>
+      `<div class="e-${esc(t.event)}"><span class="small muted">${esc((t.at||"").slice(11,19))}</span><span>${esc(t.label)}${t.detail ? ` <span class="small muted">· ${esc(t.detail)}</span>` : ""}</span></div>`).join("")}
+      <div class="gap"><span class="small faint">—</span><span class="small faint">Bảo vệ stop, gửi lệnh, đối soát: runner chưa ghi mốc</span></div></div>` : "";
+  const next = i.next ? `<div class="small"><span class="muted">Bước kế:</span> <code>${esc(i.next)}</code></div>` : "";
+  return `<div class="row"><div><div class="title">${esc(i.title)}</div>${i.detail ? `<div class="muted">${esc(i.detail)}</div>` : ""}
+    ${progress(i.progress)}${timeline}${next}<div class="src">${esc(i.source)}</div></div>
+    <div class="side">${chip(i.state)}${i.since ? `<div class="small muted">${when(i.since)}</div><div class="small faint">${ago(i.since)}</div>` : ""}</div></div>`;
+}
+function group(title, items, empty) {
+  return `<h3>${esc(title)} ${items.length ? `<span class="faint">(${items.length})</span>` : ""}</h3><div class="panel">${items.length ? items.map(itemRow).join("") : `<div class="empty">${esc(empty)}</div>`}</div>`;
+}
+let doingData = null, haveData = null, doneData = null, flow = "all";
+function renderTop() {
+  if (!doingData) return;
+  const auto = doingData.automatic || [], byTitle = t => auto.find(i => i.title.startsWith(t)) || {};
+  const cycle = byTitle("Chu kỳ"), m1 = byTitle("M1"), health = byTitle("Health"), books = byTitle("Sổ sách");
+  document.getElementById("asof").textContent = `Đọc lúc ${when(doingData.as_of)} · ${ago(doingData.as_of)}`;
+  document.getElementById("chips").innerHTML = [
+    chip(health.state || "unknown", `Health: ${STATE[health.state] || "không rõ"}`),
+    chip(books.state || "unknown", `Sổ sách: ${books.state === "ok" ? "khớp" : STATE[books.state] || "không rõ"}`),
+    doingData.entries_locked ? chip("waiting", "Mua đang khóa") : chip("ok", "Mua được phép"),
+    chip("locked", "Mainnet NO-GO")].join("");
+  const procs = doingData.processes || [], waiting = doingData.waiting || [];
+  const m1p = m1.progress || {}, ids = haveData?.strategies?.ids || [];
+  document.getElementById("cards").innerHTML = [
+    ["Tiến trình đang chạy", procs.length, cycle.next_at ? `chu kỳ kế ${when(cycle.next_at)} (theo lịch)` : ""],
+    ["M1 lịch ổn định", m1p.total ? `${m1p.done}/${m1p.total}` : "—", m1.detail ? esc(m1.detail.split(" · ")[1] || "") : ""],
+    ["Chờ bạn", waiting.filter(w => w.state === "waiting").length, `${waiting.filter(w => w.state === "not_yet").length} việc chưa tới lúc`],
+    ["Strategy được promote", haveData ? `0/${ids.length}` : "—", haveData ? (haveData.strategies.promotion_store ? "có promotion store" : "chưa có promotion store") : ""],
+  ].map(([k, v, s]) => `<div class="card"><div class="small muted">${esc(k)}</div><div class="big">${esc(v)}</div><div class="small faint">${s}</div></div>`).join("");
+}
+function renderDoing() {
+  const d = doingData, el = document.getElementById("doing");
+  if (d.error) { el.innerHTML = `<div class="err">Không đọc được: ${esc(d.error)}</div>`; return; }
+  const procs = (d.processes || []).map(p => ({title: `${p.name} · pid ${p.pid}`, state: "running",
+    detail: `${p.script}${p.packet ? " · packet " + p.packet : ""}`, progress: {kind: "none", why: p.packet ? "" : "không gắn với packet nào"},
+    since: p.started_at, source: "/proc"}));
+  el.className = "";
+  el.innerHTML = group("Chờ bạn", d.waiting || [], "Không có việc nào chờ bạn.")
+    + group("Tự động", d.automatic || [], "Không có việc tự động nào.")
+    + group("Tiến trình đang sống", procs, "Không có tiến trình nào đang chạy lúc này.");
+  renderTop();
+}
+const outcomeState = o => !o ? "none"
+  : /PENDING|PREPARED|AUTHORIZ/.test(o) ? "waiting"
+  : /NOT_|NO_|TERMINATED|FAIL|INCOMPLETE|ABSTAIN/.test(o) ? "error" : "ok";
+let doneShown = 20;
+function renderDone() {
+  const all = (doneData.entries || []).filter(e => flow === "all" || e.flow === flow);
+  const entries = all.slice(0, doneShown);
+  document.getElementById("filters").innerHTML = Object.entries(FLOW).map(([k, v]) =>
+    `<button data-flow="${k}" aria-pressed="${k === flow}">${esc(v)}</button>`).join("");
+  const state = outcomeState;
+  const more = all.length > entries.length
+    ? `<div class="empty"><button data-more="1">Xem thêm ${all.length - entries.length} mục</button></div>` : "";
+  document.getElementById("done").innerHTML = (entries.length ? entries.map(e =>
+    `<div class="done-row"><div class="small muted">${esc(e.date)}<div class="faint">${esc(FLOW[e.flow] || e.flow)}</div></div>
+     <details><summary><span class="title">${esc(e.title)}</span> ${e.outcome ? chip(state(e.outcome), e.outcome) : `<span class="small faint">· không ghi kết luận</span>`}</summary>
+     ${e.detail ? `<div class="muted small" style="margin-top:4px">${esc(e.detail)}</div>` : ""}<div class="src">${esc(e.source)}</div></details></div>`).join("")
+    : `<div class="empty">Không có mục nào.</div>`) + more;
+}
+document.getElementById("done").addEventListener("click", e => {
+  if (e.target.closest("button[data-more]")) { doneShown += 30; renderDone(); } });
+function renderHave() {
+  const h = haveData, el = document.getElementById("have");
+  if (h.error) { el.innerHTML = `<div class="err">Không đọc được: ${esc(h.error)}</div>`; return; }
+  const byRole = {};
+  (h.packages || []).forEach(p => (byRole[p.role] = byRole[p.role] || []).push(p));
+  const code = Object.keys(ROLE).filter(r => byRole[r]).map(r =>
+    `<div class="li"><span>${esc(ROLE[r])}</span><span class="small muted" style="text-align:right">${byRole[r].map(p => `${esc(p.name)} ${p.files}`).join(" · ")}</span></div>`).join("");
+  const r = h.research || {}, s = h.strategies || {};
+  const newest = (r.newest || []).map(n => `<div class="pk"><div class="small">${esc(n.name)}</div>${n.outcome ? chip(outcomeState(n.outcome), n.outcome) : `<span class="small faint">không ghi kết luận</span>`}</div>`).join("");
+  const env = (h.environments || []).map(e => `<div class="li"><span>${esc(e.name)}<div class="small faint">${esc(e.detail)}</div></span>${chip(e.state)}</div>`).join("");
+  el.className = "";
+  el.innerHTML = `<div class="grid3">
+    <div class="panel"><h3>Code · ${h.code_files} file Python</h3>${code}<div class="src">src/trading_agent · runner đo bằng cách nạp thật</div></div>
+    <div class="panel"><h3>Strategy và bằng chứng</h3>
+      <div class="li"><span>Trong registry</span><span>${(s.ids || []).length} id</span></div>
+      <div class="li"><span>Được promote</span><span>${s.promotion_store ? "xem promotion store" : "0 · chưa có promotion store"}</span></div>
+      <details><summary class="small muted" style="padding:6px 0">Xem ${(s.ids || []).length} id</summary><div class="small">${(s.ids || []).map(esc).join(" · ")}</div></details>
+      <div class="li"><span>Packet nghiên cứu</span><span>${r.total} · ${r.with_results} có kết quả · ${r.last_7_days} trong 7 ngày</span></div>
+      <h3>Mới nhất</h3>${newest}<div class="src">${esc(s.source)} · ${esc(r.source)}</div></div>
+    <div class="panel"><h3>Vận hành và môi trường</h3>${env}</div></div>`;
+  renderTop();
+}
+async function load(section) {
+  try { const res = await fetch(`/api/${section}`, {cache: "no-store"}); return await res.json(); }
+  catch (e) { return {error: String(e)}; }
+}
+document.getElementById("filters").addEventListener("click", e => {
+  const b = e.target.closest("button[data-flow]"); if (b) { flow = b.dataset.flow; doneShown = 20; renderDone(); } });
+async function refreshDoing() { doingData = await load("doing"); renderDoing(); }
+(async () => {
+  await refreshDoing();
+  doneData = await load("done"); renderDone();
+  haveData = await load("have"); renderHave();
+  setInterval(refreshDoing, 10000);
+  setInterval(async () => { haveData = await load("have"); renderHave(); }, 3600000);
+})();
+</script>
+</body>
+</html>

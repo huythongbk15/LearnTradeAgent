@@ -82,7 +82,35 @@ def open_lifecycle_intents(accounts: Path) -> list[str]:
     return [f"{aid} ends at {event}" for aid, event in rows if event not in TERMINAL_LIFECYCLE]
 
 
-def m3_progress(events: list[dict], runs: list[dict], *, now: datetime) -> list[str]:
+def m1_status(
+    runs: list[dict], cycles: list[dict], *, m1_start: datetime, now: datetime
+) -> dict:
+    """M1 progress since its start, over all scheduled execution runs."""
+    m1_runs = [r for r in runs if r["started"] >= m1_start]
+    clean = [
+        r for r in m1_runs
+        if r["terminal"] and r["terminal"]["event"] == "run_completed"
+        and (r["terminal"]["_timestamp"] - r["started"]).total_seconds() <= MAX_CYCLE_SECONDS
+    ]
+    hours = max(0.0, (now - m1_start).total_seconds() / 3600)
+    bad_cycles = [c for c in cycles if c["start"] >= m1_start and c["result"] not in ("rc=0", "running")]
+    ok = len(clean) == len(m1_runs) and not bad_cycles
+    if now < m1_start:
+        state = "not started"
+    elif ok and len(clean) >= M1_RUNS and hours >= M1_HOURS:
+        state = "PASSED"
+    else:
+        state = "on track" if ok else "RESET NEEDED (see issues)"
+    # A projection from the schedule, assuming every remaining cycle is clean.
+    last = max((r["started"] for r in m1_runs), default=m1_start)
+    earliest = max(m1_start + timedelta(hours=M1_HOURS),
+                   last + CADENCE * max(0, M1_RUNS - len(clean)))
+    return {"clean": len(clean), "required": M1_RUNS, "hours": hours,
+            "required_hours": M1_HOURS, "start": m1_start, "state": state,
+            "earliest_pass": earliest if ok else None}
+
+
+def m3_status(events: list[dict], runs: list[dict], *, now: datetime) -> dict:
     """Lifecycles of the operational track since the authorization in force."""
     from trading_agent.execution.live_safety import account_fingerprint
     from trading_agent.execution.operational_authorization import (
@@ -106,11 +134,9 @@ def m3_progress(events: list[dict], runs: list[dict], *, now: datetime) -> list[
             now=now,
         )
     except OperationalAuthorizationError as exc:
-        print(f"M3       operational track inactive: {exc}")
-        return []
+        return {"state": "inactive", "reason": str(exc), "failed": []}
     if authorization is None:
-        print("M3       operational track not authorized (entries locked)")
-        return []
+        return {"state": "not authorized", "reason": "no authorization file", "failed": []}
     since = authorization.issued_at
     recent = [event for event in events if event["_timestamp"] >= since]
 
@@ -136,17 +162,36 @@ def m3_progress(events: list[dict], runs: list[dict], *, now: datetime) -> list[
         closed >= M3_LIFECYCLES and sold >= M3_EACH_EXIT and stopped >= M3_EACH_EXIT
         and not failed
     )
-    print(
-        f"M3       {closed}/{M3_LIFECYCLES} lifecycles closed since {since:%m-%d %H:%MZ} "
-        f"(sell {sold}, venue stop {stopped}, other {other}; opened {opened}); "
-        f"authorization {authorization.authorization_id} until "
-        f"{authorization.expires_at:%m-%d %H:%MZ}; "
-        + ("PASSED" if passed else "RESET NEEDED (see issues)" if failed else "in progress")
-    )
-    return [
-        f"M3: execution run at {run['started']:%m-%d %H:%M}Z ended {run['terminal']['event']}"
-        for run in failed
-    ]
+    return {
+        "state": "PASSED" if passed else "RESET NEEDED (see issues)" if failed else "in progress",
+        "authorization_id": authorization.authorization_id,
+        "since": since,
+        "expires_at": authorization.expires_at,
+        "closed": closed, "required": M3_LIFECYCLES, "sold": sold, "stopped": stopped,
+        "other": other, "opened": opened, "each_exit": M3_EACH_EXIT,
+        "failed": [
+            f"execution run at {run['started']:%m-%d %H:%M}Z ended {run['terminal']['event']}"
+            for run in failed
+        ],
+    }
+
+
+def m3_progress(events: list[dict], runs: list[dict], *, now: datetime) -> list[str]:
+    """Print the M3 line; return its issues."""
+    status = m3_status(events, runs, now=now)
+    if status["state"] == "inactive":
+        print(f"M3       operational track inactive: {status['reason']}")
+    elif status["state"] == "not authorized":
+        print("M3       operational track not authorized (entries locked)")
+    else:
+        print(
+            f"M3       {status['closed']}/{M3_LIFECYCLES} lifecycles closed since "
+            f"{status['since']:%m-%d %H:%MZ} (sell {status['sold']}, venue stop "
+            f"{status['stopped']}, other {status['other']}; opened {status['opened']}); "
+            f"authorization {status['authorization_id']} until "
+            f"{status['expires_at']:%m-%d %H:%MZ}; {status['state']}"
+        )
+    return [f"M3: {failure}" for failure in status["failed"]]
 
 
 def main() -> int:
@@ -218,21 +263,9 @@ def main() -> int:
     print(f"Lifecycle open intents {len(open_intents)}")
     issues.extend(f"lifecycle: {item}" for item in open_intents)
 
-    # M1 progress since its start, over all scheduled execution runs.
-    m1_runs = [r for r in runs if r["started"] >= m1_start]
-    clean = [
-        r for r in m1_runs
-        if r["terminal"] and r["terminal"]["event"] == "run_completed"
-        and (r["terminal"]["_timestamp"] - r["started"]).total_seconds() <= MAX_CYCLE_SECONDS
-    ]
-    hours = max(0.0, (now - m1_start).total_seconds() / 3600)
-    m1_issues = [c for c in cycles if c["start"] >= m1_start and c["result"] not in ("rc=0", "running")]
-    m1_ok = len(clean) == len(m1_runs) and not m1_issues
-    print(f"M1       {len(clean)}/{M1_RUNS} clean cycles, {hours:.1f}/{M1_HOURS} h since "
-          f"{m1_start:%m-%d %H:%MZ}; "
-          + ("not started" if now < m1_start
-             else "PASSED" if m1_ok and len(clean) >= M1_RUNS and hours >= M1_HOURS
-             else "on track" if m1_ok else "RESET NEEDED (see issues)"))
+    m1 = m1_status(runs, cycles, m1_start=m1_start, now=now)
+    print(f"M1       {m1['clean']}/{M1_RUNS} clean cycles, {m1['hours']:.1f}/{M1_HOURS} h since "
+          f"{m1_start:%m-%d %H:%MZ}; {m1['state']}")
 
     issues.extend(m3_progress(events, runs, now=now))
 

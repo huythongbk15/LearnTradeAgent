@@ -95,7 +95,8 @@
 │   │   ├── RSI_REGIME_SWITCH_MANIFEST.json
 │   │   ├── VALIDATION_CLOSURE_20261016.md
 │   │   ├── VALIDATION_REFACTOR_AGENT_PLAYBOOK.md
-│   │   └── VALIDATION_REFACTOR_PLAN.md
+│   │   ├── VALIDATION_REFACTOR_PLAN.md
+│   │   └── WORKSPACE_UI.md
 │   ├── proposals
 │   │   └── regime_switched_strategy_design.md
 │   ├── reference
@@ -218,7 +219,10 @@
 │   │   ├── authorize_operational_track.py
 │   │   ├── check_binance_testnet_health.sh
 │   │   ├── daily_check.py
-│   │   └── run_binance_testnet_cycle.sh
+│   │   ├── run_binance_testnet_cycle.sh
+│   │   ├── workspace_page.html
+│   │   ├── workspace_server.py
+│   │   └── workspace_status.py
 │   ├── qwenpaw_control
 │   │   ├── Makefile
 │   │   ├── _wvo_check.sh
@@ -1028,7 +1032,8 @@
 │   ├── test_volatility_breakout_admission.py
 │   ├── test_web_security.py
 │   ├── test_wfo_fixed_params.py
-│   └── test_wfo_validation_envelope.py
+│   ├── test_wfo_validation_envelope.py
+│   └── test_workspace_status.py
 ├── webui
 │   ├── backend
 │   │   ├── __init__.py
