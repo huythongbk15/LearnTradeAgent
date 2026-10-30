@@ -6,6 +6,28 @@ were fragmenting the state across ~60 files.
 
 ## Current — 2026-10-30 / THINNING_DEVELOPMENT_COMPLETE (descriptive only; market otherwise paused) / PLUS_MATRIX_NO_SUPPORTED_INCREMENT
 
+### 2026-10-30 — H-CTX-01: nine market-state parameters, step 1 not passed
+
+STRONG 0, HINT 1 (P6 on T3, IC -0.125), so step 2 did not open and H-CTX-01 stopped
+under its plan section 5. Local evidence `data/xsec_04_context_20261030_01/RESULTS.md`.
+This is exploratory, on 158 weeks of a window already read, and it can only see very
+large effects: 80% power needs |IC| of about 0.20 for HINT and 0.30 for STRONG, while
+2x costs break even at about 0.01 to 0.06 on T1 and T2 and about 0.04 to 0.12 on T3,
+which trades both legs. Anything below about 0.30 stays unresolved. One HINT is the
+ordinary chance outcome (1.2 to 1.3 expected with no signal, family-adjusted p about
+0.31 to 0.39). Four same-session agent audits reproduced the 27 ICs, three of them from
+raw data, and the two that tested for look-ahead found none; this is not an independent
+review. No strategy is improved. The market stays PAUSED, and the frozen H-XSEC-01
+forward read does not change.
+
+Two notes for later reads. BTC 2020-2022 is partly exposed, not unknown as
+`docs/operations/RESEARCH_SYNTHESIS_20261030.md` section 7 says: T8A ran 940 daily
+bars through a 16-strategy pool, and saved commands show BTC runs in March-April 2020
+and October-November 2022. A FORWARD_SUPPORTED read of H-XSEC-01 is not proof: in
+8,000 cohorts resampled from the D1 weeks it fired 22-24% of the time with no skill,
+because the candidate trades less than its controls, so it shifts the odds about 2 to
+3 times.
+
 ### 2026-10-30 — H-TSMOM-01: a trend filter adds no timing skill; round closes empty
 
 NOT_SUPPORTED, by criteria written before the measurement. Local evidence
