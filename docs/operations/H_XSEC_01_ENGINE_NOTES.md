@@ -1,6 +1,6 @@
 # H-XSEC-01: ghi chú engine cho reviewer
 
-Status: CURRENT — đã xây và kiểm trên dữ liệu tổng hợp, chưa chạy trên dữ liệu thị trường. `run_authority: NONE`, market PAUSED.
+Status: CURRENT — đã xây, kiểm trên dữ liệu tổng hợp, và chạy D1 một lần ngày 30/10/2026. `run_authority: NONE`, market PAUSED.
 Owner: research operator
 Verified: 2026-10-30
 Evidence: `src/trading_agent/backtest/xsec_relative_strength.py`, `tests/test_xsec_relative_strength.py`, [đề xuất đã đóng băng](../proposals/H_XSEC_01_RELATIVE_STRENGTH.md)
@@ -58,14 +58,14 @@ Mục 9 của đề xuất ghi "không tìm thấy" backtest nhiều tài sản 
 - Engine chưa so parity với engine native, vì native không có quy tắc này. Mốc 01:00 thứ Hai đã được đối chiếu với quy ước k+2 của native qua tài liệu và code, chưa qua phép đo.
 - Hành vi trên dữ liệu thật: nhãn ngày, nến thiếu, kiểu timestamp. `require_daily_alignment` sẽ kiểm một phần lúc chạy.
 
-## Việc còn lại trước khi chạy D1
+## D1 đã chạy như thế nào
 
-1. **Bốn file lệch manifest.** `verify` từ chối chạy khi còn file lệch. Không còn bản gốc trong máy, nhưng `--prove-inputs` đối chiếu các dòng trước mốc cắt với file khung khác còn khớp manifest: `1h` và `1d` của BTC với `30m` của BTC, `1d` của ETH và BNB với `1h` của chính chúng.
-2. **Reviewer duyệt** source, test và bảng lựa chọn ở trên.
-3. **Chuẩn bị packet** sau khi code đã merge:
+D1 chạy ngày 30/10/2026 trên packet local `data/xsec_01_d1_20261030_01/`, theo quyết định của operator rằng nghiên cứu không cần chặt tới mức đó. Ba bước đã bỏ qua: review độc lập trước khi chạy, packet approved, và merge trước khi chuẩn bị packet.
 
-```bash
-.venv/bin/python -m trading_agent.backtest.xsec_relative_strength --prepare data/xsec_01_d1_<ngày>_01
-```
+`--prove-inputs` trả về FAIL vì chính file tham chiếu BTC `30m` sai trước 10/08/2023, dù khớp manifest. File `4h` của BTC, cũng khớp manifest, đã dùng để phân xử: `1d` khớp 1132/1132 dòng, `1h` khớp 6795 giá đóng cửa và 6794/6795 giá mở cửa. `INPUT_PROOFS` vẫn ghi `30m`, nên kiểm tra này sẽ tiếp tục báo FAIL cho tới khi đổi tham chiếu.
 
-4. **Operator duyệt** đúng packet bằng một packet approved mới. Chạy qua `controlled_exec` với ngân sách 600 giây, 1 worker, 0 retry.
+## Việc còn lại trước lần đọc forward
+
+1. Simulator chặn cứng ở mốc 06/02/2026, nên cần một loader đọc được cohort forward và phải test trên dữ liệu tổng hợp trước.
+2. Đổi tham chiếu của BTC trong `INPUT_PROOFS`.
+3. Operator duyệt đúng packet trước khi đọc, vì `run_authority` là NONE. Chỉ đọc một lần, sau 27/12/2027.
