@@ -44,7 +44,8 @@ continue. Signing again after a review resumes them.
 Before signing, rehearse the track offline: the real runner over 40 simulated
 2 h cycles against a local three-symbol venue, plus fault cases (a stop that
 fills during the exit, a lost order response, a run killed before its stop, a
-crash past the loss limit, a quote off the candle). No network IO.
+crash past the loss limit, fees in the base asset, a quote off the candle that
+holds back one entry or exit). No network IO.
 
 ```bash
 .venv/bin/python -m pytest tests/test_operational_rehearsal.py -m "slow or not slow"

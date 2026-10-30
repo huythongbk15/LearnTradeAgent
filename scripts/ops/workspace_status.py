@@ -67,6 +67,7 @@ EVENT_LABELS = {
     "protective_stop_handed_to_exit": "Hủy stop để bán",
     "protective_stop_filled": "Stop khớp trên sàn",
     "exit_superseded_by_protective_stop": "Stop khớp trước lệnh bán",
+    "order_held_back_by_market": "Thị trường hoãn lệnh",
     "run_completed": "Hoàn tất",
     "run_failed": "Lỗi",
     "run_interrupted": "Bị ngắt",
@@ -518,7 +519,9 @@ def milestone_items(m1: dict, m3: dict) -> list[dict]:
             "M3 · vòng đời lệnh đầu-cuối",
             "ok" if m3["state"] == "PASSED" else "error" if m3["failed"] else "progress",
             detail=(f"bán {m3['sold']} · stop sàn {m3['stopped']} · khác {m3['other']} · "
-                    f"mở {m3['opened']} · giấy phép {m3['authorization_id']} đến {_short(m3['expires_at'])}"),
+                    f"mở {m3['opened']} · "
+                    + (f"thị trường hoãn {m3['held_back']} lệnh · " if m3.get("held_back") else "")
+                    + f"giấy phép {m3['authorization_id']} đến {_short(m3['expires_at'])}"),
             progress=_ratio(m3["closed"], m3["required"], f"cần ≥{m3['each_exit']} bán và ≥{m3['each_exit']} stop sàn"),
             since=m3["since"], source="scripts/ops/daily_check.py",
         ))

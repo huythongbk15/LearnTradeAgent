@@ -92,6 +92,7 @@ from trading_agent.execution.live_safety import (
     LiveRiskLimits,
     LiveRiskStateStore,
     LiveSafetyError,
+    MarketConditionError,
     append_live_audit_event,
     configured_entry_lock_reason,
     make_order_key,
@@ -436,6 +437,14 @@ def _high_since_last_observation(state: dict, record: object) -> float:
     return max(highs, default=float(state["price"]))
 
 
+def _unsellable(pair: str, notional: float) -> bool:
+    """Below the venue's minimum notional: no order can sell it."""
+    try:
+        return notional < flat_below_usd(pair)
+    except (LookupError, ValueError):  # no registered rules: never treat as dust
+        return False
+
+
 def apply_atr_protection(
     *,
     states: dict[str, dict],
@@ -448,7 +457,10 @@ def apply_atr_protection(
     for pair, state in states.items():
         position = position_map.get(pair)
         quantity = float(position["qty"]) if position else 0.0
-        if quantity <= 0:
+        # Dust the venue will not let us sell (fees in the base asset leave it)
+        # has no trail: a breach would force an exit that can never fill, and
+        # the forced path would skip every other decision, cycle after cycle.
+        if quantity <= 0 or _unsellable(pair, quantity * float(state["price"])):
             protection = store.protective_order_state(pair)
             if not protection.get("active") and not protection.get("pending"):
                 store.clear_position_risk(pair)
@@ -852,6 +864,8 @@ def ensure_protective_stops(
         ):
             continue
         stop = state.get("atr_stop")
+        if stop is None and _unsellable(pair, float(position["qty"]) * float(state["price"])):
+            continue  # dust: no stop can be placed for it, nor any sell
         if stop is None:
             raise LiveSafetyError(f"ATR stop is missing for open position {pair}")
         ensure_protective_stop(
@@ -865,6 +879,52 @@ def ensure_protective_stops(
             store=store,
             limits=limits,
             audit_log_path=audit_log_path,
+        )
+
+
+def protect_held_back_exits(
+    *,
+    exits: list[dict],
+    states: dict[str, dict],
+    positions: list[dict],
+    broker: LiveBroker,
+    lifecycle: ExecutionLifecycle,
+    gateway: BrokerGateway,
+    store: LiveRiskStateStore,
+    limits: LiveRiskLimits | None = None,
+    audit_log_path: str | None = None,
+) -> None:
+    """Keep a venue stop under every position whose exit the market held back.
+
+    ensure_protective_stops skipped these symbols because they were exiting.
+    """
+
+    for pair in sorted({decision["market_symbol"] for decision in exits}):
+        state = states[pair]
+        stop = state.get("atr_stop")
+        if stop is None or float(stop) < float(state["price"]):
+            ensure_protective_stops(
+                states={pair: state},
+                positions=positions,
+                broker=broker,
+                lifecycle=lifecycle,
+                gateway=gateway,
+                store=store,
+                limits=limits,
+                audit_log_path=audit_log_path,
+            )
+            continue
+        # The trail is breached, so no new stop can rest below the price: the
+        # stop already on the venue is the exit until the market allows a sell.
+        active = reconcile_protective_stop(
+            pair=pair, broker=broker, store=store, audit_log_path=audit_log_path
+        )
+        if active is None:
+            raise LiveSafetyError(
+                f"exit for {pair} is held back by the market and no venue stop protects it"
+            )
+        _acknowledge_lifecycle_protection(
+            lifecycle, pair=pair, stop=active, evidence_source="RECONCILIATION"
         )
 
 
@@ -913,17 +973,25 @@ def cleanup_orphan_protective_stops(
     store: LiveRiskStateStore,
     audit_log_path: str | None = None,
 ) -> None:
-    """Cancel recorded stops when the exchange balance no longer has a position."""
+    """Cancel recorded stops when the exchange balance no longer has a position.
 
-    held = {
-        position["symbol"]
+    Unsellable dust counts as no position: a venue stop that filled and left
+    dust (fees in the base asset) is booked and cleared like one that left
+    nothing. A stop still resting over dust is kept, never cancelled here.
+    """
+
+    nonzero = {
+        position["symbol"]: float(position.get("market_value") or 0.0)
         for position in positions
         if float(position.get("qty") or 0.0) > 0
     }
+    dust = {pair for pair, value in nonzero.items() if _unsellable(pair, value)}
+    held = set(nonzero) - dust
     for pair in managed_symbols:
         if pair in held:
             continue
         protection = store.protective_order_state(pair)
+        resting = False
         records = [protection.get("pending"), protection.get("active")]
         seen: set[str] = set()
         for record in records:
@@ -940,6 +1008,9 @@ def cleanup_orphan_protective_stops(
             if result is None:
                 continue
             status = str(result.get("status") or "unknown").lower()
+            if status in {"open", "partial"} and pair in dust:
+                resting = True
+                continue
             if status in {"open", "partial"}:
                 exchange_order_id = str(result.get("id") or "")
                 if not exchange_order_id:
@@ -967,6 +1038,8 @@ def cleanup_orphan_protective_stops(
                     result=result,
                     audit_log_path=audit_log_path,
                 )
+        if resting:
+            continue
         if any(isinstance(record, dict) for record in records):
             _audit_protective_event(
                 audit_log_path,
@@ -1482,8 +1555,13 @@ def prepare_orders(
     store: LiveRiskStateStore,
     audit_log_path: str | None = None,
     monitor: DataTrustMonitor | None = None,
+    held_back: list[dict] | None = None,
 ) -> list[dict]:
-    """Preflight the complete batch before any order can be submitted."""
+    """Preflight the complete batch before any order can be submitted.
+
+    An order the market makes unsafe (MarketConditionError) is left out of the
+    batch and appended to ``held_back``; every other failure stops the batch.
+    """
 
     simulated_cash = float(account["cash"])
     equity = float(account["equity"])
@@ -1508,6 +1586,24 @@ def prepare_orders(
                 limits=limits,
                 monitor=monitor,
             )
+        except MarketConditionError as exc:
+            # A thin or moving testnet book would otherwise fail the whole run.
+            # The order is planned again next cycle.
+            print(f"{pair}: {decision['action']} held back by the market: {exc}")
+            if audit_log_path:
+                append_live_audit_event(
+                    audit_log_path,
+                    "order_held_back_by_market",
+                    {
+                        "symbol": pair,
+                        "side": decision["action"],
+                        "reason": decision.get("reason"),
+                        "error": str(exc)[:500],
+                    },
+                )
+            if held_back is not None:
+                held_back.append(decision)
+            continue
         except OrderConstraintError as exc:
             dust = None
             if decision["action"] == "SELL":
@@ -3320,6 +3416,7 @@ def run_locked(
             )
             return 0
 
+        held_back: list[dict] = []
         prepared = prepare_orders(
             decisions=decisions,
             broker=broker,
@@ -3330,6 +3427,7 @@ def run_locked(
             store=store,
             audit_log_path=args.audit_log,
             monitor=monitor,
+            held_back=held_back,
         )
         _audit_stage(args, "orders_planned", {"orders": len(prepared)})
         print("\nEXECUTION PLAN")
@@ -3342,6 +3440,17 @@ def run_locked(
             print("DRY-RUN complete — no orders submitted")
             return 0
 
+        protect_held_back_exits(
+            exits=[decision for decision in held_back if decision["action"] == "SELL"],
+            states=states,
+            positions=positions,
+            broker=broker,
+            lifecycle=canonical_lifecycle,
+            gateway=canonical_gateway,
+            store=store,
+            limits=limits,
+            audit_log_path=args.audit_log,
+        )
         execute_orders(
             orders=prepared,
             broker=broker,

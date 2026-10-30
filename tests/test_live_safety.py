@@ -18,6 +18,7 @@ from trading_agent.execution.live_safety import (
     LiveRiskLimits,
     LiveRiskStateStore,
     LiveSafetyError,
+    MarketConditionError,
     account_fingerprint,
     append_live_audit_event,
     configured_entry_lock_reason,
@@ -443,7 +444,7 @@ def test_buy_order_limits_and_risk_reducing_sell():
 def test_stale_and_divergent_quotes_are_rejected():
     limits = LiveRiskLimits(max_quote_age_seconds=10, max_price_deviation_pct=0.01)
     now = datetime(2026, 8, 10, 12, 0, tzinfo=UTC)
-    with pytest.raises(LiveSafetyError, match="stale"):
+    with pytest.raises(MarketConditionError, match="stale"):
         validate_fresh_quote(
             signal_price=100,
             quote_price=100,
@@ -451,7 +452,7 @@ def test_stale_and_divergent_quotes_are_rejected():
             limits=limits,
             now=now,
         )
-    with pytest.raises(LiveSafetyError, match="deviation"):
+    with pytest.raises(MarketConditionError, match="deviation"):
         validate_fresh_quote(
             signal_price=100,
             quote_price=102,
@@ -467,10 +468,10 @@ def test_wide_spread_and_thin_order_book_are_rejected():
         max_book_slippage_pct=0.003,
         min_book_depth_multiple=1.25,
     )
-    with pytest.raises(LiveSafetyError, match="spread"):
+    with pytest.raises(MarketConditionError, match="spread"):
         validate_spread(bid=100.0, ask=101.0, limits=limits)
     now = datetime(2026, 8, 10, tzinfo=UTC)
-    with pytest.raises(LiveSafetyError, match="depth"):
+    with pytest.raises(MarketConditionError, match="depth"):
         validate_order_book_depth(
             side="BUY",
             quantity=1.0,
@@ -490,6 +491,39 @@ def test_wide_spread_and_thin_order_book_are_rejected():
         now=now,
     )
     assert vwap == pytest.approx(100.05)
+
+
+_NOW = datetime(2026, 8, 10, tzinfo=UTC)
+
+
+@pytest.mark.parametrize(
+    "check",
+    [
+        lambda limits: validate_spread(bid=101.0, ask=100.0, limits=limits),  # crossed
+        lambda limits: validate_fresh_quote(  # clock skew, not the market
+            signal_price=100,
+            quote_price=100,
+            quote_timestamp=_NOW + timedelta(seconds=30),
+            limits=limits,
+            now=_NOW,
+        ),
+        lambda limits: validate_order_book_depth(  # asks out of order
+            side="BUY",
+            quantity=1.0,
+            bids=[(99.9, 2.0)],
+            asks=[(100.1, 1.0), (100.0, 1.0)],
+            book_timestamp=_NOW,
+            limits=limits,
+            now=_NOW,
+        ),
+    ],
+    ids=["crossed", "future_dated", "unsorted_book"],
+)
+def test_bad_data_is_not_a_market_condition(check):
+    """Only the market's state may hold one order back; bad data stops the batch."""
+    with pytest.raises(LiveSafetyError) as raised:
+        check(LiveRiskLimits())
+    assert not isinstance(raised.value, MarketConditionError)
 
 
 def test_client_order_id_is_stable_and_side_specific():

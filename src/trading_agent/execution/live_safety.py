@@ -118,6 +118,15 @@ class DuplicateOrderError(LiveSafetyError):
     """Raised when an execution cycle tries to submit the same intent twice."""
 
 
+class MarketConditionError(LiveSafetyError):
+    """The market, not the system, makes this order unsafe now.
+
+    A wide spread, a quote that moved off the signal or went quiet, or a book
+    too thin for the size. The order can wait for a later cycle; malformed or
+    future-dated data is a plain LiveSafetyError.
+    """
+
+
 class LiveExecutionLock:
     """Hold a non-blocking OS lock for the complete live execution cycle.
 
@@ -1872,12 +1881,12 @@ def validate_fresh_quote(
     if age < -5:
         raise LiveSafetyError(f"quote timestamp is {abs(age):.1f}s in the future")
     if age > limits.max_quote_age_seconds:
-        raise LiveSafetyError(
+        raise MarketConditionError(
             f"quote is stale: {age:.1f}s > {limits.max_quote_age_seconds:.1f}s"
         )
     deviation = abs(quote_price - signal_price) / signal_price
     if deviation > limits.max_price_deviation_pct:
-        raise LiveSafetyError(
+        raise MarketConditionError(
             f"quote deviation too large: {deviation:.2%} > "
             f"{limits.max_price_deviation_pct:.2%}"
         )
@@ -1891,7 +1900,7 @@ def validate_spread(*, bid: float, ask: float, limits: LiveRiskLimits) -> None:
     midpoint = (bid + ask) / 2
     spread = (ask - bid) / midpoint
     if spread > limits.max_spread_pct:
-        raise LiveSafetyError(
+        raise MarketConditionError(
             f"spread is too wide: {spread:.2%} > {limits.max_spread_pct:.2%}"
         )
 
@@ -1917,8 +1926,10 @@ def validate_order_book_depth(
     if timestamp.tzinfo is None:
         timestamp = timestamp.replace(tzinfo=UTC)
     age = (current.astimezone(UTC) - timestamp.astimezone(UTC)).total_seconds()
-    if age < -5 or age > limits.max_quote_age_seconds:
-        raise LiveSafetyError(f"order book timestamp is invalid or stale: {age:.1f}s")
+    if age < -5:
+        raise LiveSafetyError(f"order book timestamp is invalid: {age:.1f}s")
+    if age > limits.max_quote_age_seconds:
+        raise MarketConditionError(f"order book is stale: {age:.1f}s")
 
     normalized_side = side.upper()
     if normalized_side not in {"BUY", "SELL"}:
@@ -1940,7 +1951,7 @@ def validate_order_book_depth(
     required_depth = quantity * limits.min_book_depth_multiple
     total_depth = sum(size for _, size in cleaned)
     if total_depth + 1e-12 < required_depth:
-        raise LiveSafetyError(
+        raise MarketConditionError(
             f"order-book depth is insufficient: {total_depth:.8f} < {required_depth:.8f}"
         )
     remaining = quantity
@@ -1952,12 +1963,12 @@ def validate_order_book_depth(
         if remaining <= 1e-12:
             break
     if remaining > 1e-12:
-        raise LiveSafetyError("order book cannot fill the requested quantity")
+        raise MarketConditionError("order book cannot fill the requested quantity")
     expected_vwap = notional / quantity
     best = cleaned[0][0]
     impact = abs(expected_vwap - best) / best
     if impact > limits.max_book_slippage_pct:
-        raise LiveSafetyError(
+        raise MarketConditionError(
             f"expected book slippage is too high: "
             f"{impact:.2%} > {limits.max_book_slippage_pct:.2%}"
         )

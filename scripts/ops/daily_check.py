@@ -179,6 +179,8 @@ def m3_status(events: list[dict], runs: list[dict], *, now: datetime) -> dict:
     stopped = sum(1 for event in recent if event["event"] == "protective_stop_filled")
     other = fills("SELL", False)
     closed = sold + stopped + other
+    # Orders the market made unsafe in preflight: planned again next cycle.
+    held_back = sum(1 for event in recent if event["event"] == "order_held_back_by_market")
     failed = [
         run for run in runs
         if run["started"] >= since and run["terminal"]
@@ -195,6 +197,7 @@ def m3_status(events: list[dict], runs: list[dict], *, now: datetime) -> dict:
         "expires_at": authorization.expires_at,
         "closed": closed, "required": M3_LIFECYCLES, "sold": sold, "stopped": stopped,
         "other": other, "opened": opened, "each_exit": M3_EACH_EXIT,
+        "held_back": held_back,
         "failed": [
             f"execution run at {run['started']:%m-%d %H:%M}Z ended {run['terminal']['event']}"
             for run in failed
@@ -210,10 +213,13 @@ def m3_progress(events: list[dict], runs: list[dict], *, now: datetime) -> list[
     elif status["state"] == "not authorized":
         print("M3       operational track not authorized (entries locked)")
     else:
+        held = (
+            f"; held back by the market {status['held_back']}" if status["held_back"] else ""
+        )
         print(
             f"M3       {status['closed']}/{M3_LIFECYCLES} lifecycles closed since "
             f"{status['since']:%m-%d %H:%MZ} (sell {status['sold']}, venue stop "
-            f"{status['stopped']}, other {status['other']}; opened {status['opened']}); "
+            f"{status['stopped']}, other {status['other']}; opened {status['opened']}{held}); "
             f"authorization {status['authorization_id']} until "
             f"{status['expires_at']:%m-%d %H:%MZ}; {status['state']}"
         )
