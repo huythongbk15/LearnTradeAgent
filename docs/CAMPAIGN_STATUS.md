@@ -6,6 +6,22 @@ were fragmenting the state across ~60 files.
 
 ## Current — 2026-10-30 / THINNING_DEVELOPMENT_COMPLETE (descriptive only; market otherwise paused) / PLUS_MATRIX_NO_SUPPORTED_INCREMENT
 
+### 2026-10-30 — H-XSEC-01 simulator built on synthetic data, not run
+
+SYNTHETIC_ONLY_NOT_RUN. No market data was read and no packet was prepared.
+`trading_agent.backtest.xsec_relative_strength` implements the frozen D1 screen:
+the weekly simulator, the 22 arms, ledger reconciliation, the decision rule, a
+loader cut before the holdout, and a write-once packet that cannot run while
+pending. It can only run D1. 45 synthetic tests pass, including one planted
+momentum effect (CONTINUE_TO_CONFIRMATION), one planted reversal (REJECT) and
+poison rows after the cutoff; 12 deliberately planted bugs are all caught.
+That is author self-verification, not review. Choices the frozen text left open
+are listed for the reviewer in
+[the engine notes](operations/H_XSEC_01_ENGINE_NOTES.md), which also correct
+proposal section 9: `portfolio_backtest` is a multi-asset engine, but it does
+not fit this design. `verify` refuses to run until the four inputs that differ
+from the research manifest are proven unchanged before the cutoff.
+
 ### 2026-10-30 — research synthesis and H-XSEC-01 design frozen, not run
 
 DESIGN_FROZEN_NOT_RUN. No market run, no price read: data was inventoried from
