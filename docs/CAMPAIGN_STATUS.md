@@ -6,6 +6,20 @@ were fragmenting the state across ~60 files.
 
 ## Current — 2026-10-30 / THINNING_DEVELOPMENT_COMPLETE (descriptive only; market otherwise paused) / PLUS_MATRIX_NO_SUPPORTED_INCREMENT
 
+### 2026-10-30 — H-XSEC-02: the D1 edge does not survive a rule-based universe
+
+NOT_SUPPORTED, by criteria written before any price was downloaded. Local
+evidence `data/xsec_02_explore_20261030_01/RESULTS.md`. Exploratory, same 159
+rebalances; holdout and forward cohort untouched. The weekly universe was the top
+N by trailing 28-day quote volume among 550 Binance spot USDT pairs, delisted
+pairs included. At 2x: top 4 of 13, -0.9% vs basket -2.4%, excess +1.5 points,
+t 0.21; top 9 of 30, -25.3% vs basket -19.7%, excess -5.6 points, t -0.57. At
+zero cost the candidate sits at percentile 78.1 and 54.7 of 1000 random controls.
+Both cells fail the best-coin and calendar-year tests. Most of the D1 edge came
+from a coin list chosen with hindsight: the hand-written basket made +34.9% where
+the rule-based baskets made -2.4% and -19.7%. The D1 verdict stands as recorded
+but is no evidence of an edge. No strategy is improved by this round.
+
 ### 2026-10-30 — H-XSEC-01 D1 measured: CONTINUE_TO_CONFIRMATION, not proven
 
 CONTINUE_TO_CONFIRMATION under the frozen rule; not qualified. Full results in
