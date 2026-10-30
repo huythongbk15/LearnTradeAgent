@@ -5,14 +5,17 @@ Reports expected vs actual cycles, each execution run's outcome and duration,
 the health check, ledger and lifecycle consistency, M1 progress and, while the
 operational track is authorized, M3 progress
 (docs/operations/OPERABLE_SYSTEM_PLAN.md). Exit 0 when nothing needs attention,
-1 otherwise. Reads files only: no exchange call and no write.
+1 otherwise. Reads files only: no exchange call, and no write except the
+report file that ``--report`` names (the scheduled daily task,
+scripts/ops/run_daily_check.sh).
 
-    .venv/bin/python scripts/ops/daily_check.py [--hours 24] [--m1-start ISO]
+    .venv/bin/python scripts/ops/daily_check.py [--hours 24] [--m1-start ISO] [--report PATH]
 """
 
 from __future__ import annotations
 
 import argparse
+import contextlib
 import os
 import re
 import sqlite3
@@ -205,9 +208,11 @@ def m3_status(events: list[dict], runs: list[dict], *, now: datetime) -> dict:
     }
 
 
-def m3_progress(events: list[dict], runs: list[dict], *, now: datetime) -> list[str]:
+def m3_progress(
+    events: list[dict], runs: list[dict], *, now: datetime, status: dict | None = None
+) -> list[str]:
     """Print the M3 line; return its issues."""
-    status = m3_status(events, runs, now=now)
+    status = status or m3_status(events, runs, now=now)
     if status["state"] == "inactive":
         print(f"M3       operational track inactive: {status['reason']}")
     elif status["state"] == "not authorized":
@@ -226,6 +231,18 @@ def m3_progress(events: list[dict], runs: list[dict], *, now: datetime) -> list[
     return [f"M3: {failure}" for failure in status["failed"]]
 
 
+def brief(issues: list[str], m1: dict, m3: dict) -> str:
+    """One ASCII line for a Windows notification: the first issue, then M1 and M3."""
+    # The notification shows ~200 characters: a long issue must not hide M1/M3.
+    head = f"{len(issues)} issue(s): {issues[0][:80]}" if issues else "No issues"
+    track = (
+        f"M3 {m3['state']}"
+        if m3["state"] in ("inactive", "not authorized")
+        else f"M3 {m3['closed']}/{m3['required']} {m3['state']}"
+    )
+    return f"{head} | M1 {m1['clean']}/{M1_RUNS} {m1['state']} | {track}"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--hours", type=float, default=24.0)
@@ -233,8 +250,23 @@ def main() -> int:
     parser.add_argument("--audit-log", default="data/execution/binance_live_audit.jsonl")
     parser.add_argument("--cycle-log", default="logs/binance_testnet.log")
     parser.add_argument("--state-file", default="data/binance_testnet_risk_state_v2.json")
+    parser.add_argument(
+        "--report", help="write the full report here and print only one line"
+    )
     args = parser.parse_args()
     os.chdir(ROOT)
+    if not args.report:
+        return check(args)[0]
+    report = Path(args.report)
+    report.parent.mkdir(parents=True, exist_ok=True)
+    with report.open("w", encoding="utf-8") as handle, contextlib.redirect_stdout(handle):
+        code, line = check(args)
+    print(f"{line} | {report}")
+    return code
+
+
+def check(args: argparse.Namespace) -> tuple[int, str]:
+    """Print the report; return the exit code and its one-line brief."""
     now = datetime.now(UTC)
     since = now - timedelta(hours=args.hours)
     m1_start = datetime.fromisoformat(args.m1_start)
@@ -301,15 +333,16 @@ def main() -> int:
     print(f"M1       {m1['clean']}/{M1_RUNS} clean cycles, {m1['hours']:.1f}/{M1_HOURS} h since "
           f"{m1_start:%m-%d %H:%MZ}; {m1['state']}")
 
-    issues.extend(m3_progress(events, runs, now=now))
+    m3 = m3_status(events, runs, now=now)
+    issues.extend(m3_progress(events, runs, now=now, status=m3))
 
     if issues:
         print("ISSUES")
         for issue in issues:
             print(f"  - {issue}")
-        return 1
+        return 1, brief(issues, m1, m3)
     print("No issues.")
-    return 0
+    return 0, brief(issues, m1, m3)
 
 
 if __name__ == "__main__":

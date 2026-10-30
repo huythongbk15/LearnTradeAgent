@@ -87,9 +87,12 @@ Known risks, to be confirmed or cleared by the run itself:
    `scripts/ops/run_binance_testnet_cycle.sh` every 2 h at :01 local and the
    health check every 30 min (`scripts/ops/windows/`). A Windows toast is raised
    on failure or silence.
-2. **Daily.** Run `.venv/bin/python scripts/ops/daily_check.py`. It reports
+2. **Daily (automatic since 2026-10-30).** Task Scheduler runs
+   `scripts/ops/run_daily_check.sh` at 08:10 local: `daily_check.py` reports
    expected vs actual cycles, outcomes and durations, ledger/lifecycle
-   consistency and M1 progress, and exits non-zero on any issue.
+   consistency, M1 and M3 progress, and exits non-zero on any issue. The full
+   report goes to `logs/daily_check/<UTC date>.txt` and a toast shows the
+   first issue with M1 and M3 every day. Read the report on any issue.
 3. **Weekly.** Compare against the gates, decide continue/fix, and update this file.
 
 Rules: fix only what breaks the current gate's criteria. CI, refactors and new
