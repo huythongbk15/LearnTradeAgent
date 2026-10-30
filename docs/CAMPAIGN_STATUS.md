@@ -14,10 +14,17 @@ records why nothing has qualified: signals that lose before costs, a gross edge
 about equal to costs, or too few trades. No strategy has reached
 RESEARCH_VALIDATED, and no non-test code produces promotion evidence yet.
 [H-XSEC-01](proposals/H_XSEC_01_RELATIVE_STRENGTH.md) proposes one fixed
-cross-sectional relative-strength candidate. Five of the six conditions for
-leaving PAUSED have no decisive answer, so the market stays PAUSED and
-`run_authority` is NONE. The existing `cross_sectional_momentum_lo/ls` strategies
-are single-asset approximations; their 12 attempts of 09-11 produced no result.
+cross-sectional relative-strength candidate. The existing
+`cross_sectional_momentum_lo/ls` strategies are single-asset approximations;
+their 12 attempts of 09-11 produced no result.
+
+Operator decisions, same day: the research profile moves to the 13-coin weekly
+basket (runner, M1 and M3 unchanged; mainnet stays NO-GO), the holdout stays
+sealed, the forward cohort is 30 weeks, and the operator is the reviewer (same
+person in both roles, not the author, not a third party). The data-license
+question has no answer yet; the proposal does not use Binance Vision. Four of
+the six conditions for leaving PAUSED still have no decisive answer and the
+candidate is not frozen, so the market stays PAUSED and `run_authority` is NONE.
 
 ### 2026-10-30 — thinning development execution complete, descriptive only
 
