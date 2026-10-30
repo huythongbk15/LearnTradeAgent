@@ -230,7 +230,7 @@ class OperationalRuntimeResolver:
         self.view = view
         self.entry_symbols = entry_symbols
         self.now = now
-        self.config = AuthorityConfig(environment=Environment.TESTNET)
+        self.config = AuthorityConfig.for_environment(Environment.TESTNET)
         self.artifact_id = "ops-" + hashlib.sha256(
             f"{authorization.authorization_id}|{authorization.driver_code_sha}".encode()
         ).hexdigest()[:28]
