@@ -11,12 +11,16 @@ New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 $log = Join-Path $logDir "health.log"
 $stamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
 
-$output = & wsl.exe -d $Distro -u $User --exec "$Repo/scripts/ops/check_binance_testnet_health.sh" 2>&1 | Out-String
+# PowerShell 5.1 wraps each stderr line of a native command in an ErrorRecord;
+# "$_" turns it back into the plain line the check printed.
+$lines = & wsl.exe -d $Distro -u $User --exec "$Repo/scripts/ops/check_binance_testnet_health.sh" 2>&1 |
+    ForEach-Object { "$_" }
 $code = $LASTEXITCODE
-Add-Content -Path $log -Value "$stamp exit=$code $($output.Trim())"
+$output = ($lines -join " ").Trim()
+Add-Content -Path $log -Value "$stamp exit=$code $output"
 if ($code -eq 0) { exit 0 }
 
-$message = if ($output.Trim()) { $output.Trim() } else { "WSL health check could not run (exit $code)" }
+$message = if ($output) { $output } else { "WSL health check could not run (exit $code)" }
 if ($message.Length -gt 200) { $message = $message.Substring(0, 200) }
 try {
     [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null

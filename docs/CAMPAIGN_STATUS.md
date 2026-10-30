@@ -4,7 +4,25 @@ Single source of truth for the measured-accounting and campaign-publication
 work. Supersedes the per-session `*_TODO.md` files, which are gitignored and
 were fragmenting the state across ~60 files.
 
-## Current — 2026-10-29 / MARKET_PAUSED / PLUS_MATRIX_NO_SUPPORTED_INCREMENT
+## Current — 2026-10-30 / THINNING_EXECUTION_APPROVED_NOT_RUN (market otherwise paused) / PLUS_MATRIX_NO_SUPPORTED_INCREMENT
+
+### 2026-10-30 — thinning execution approved on the current source, not run
+
+APPROVED_NOT_RUN. The operator (huythongbk15) approved the BTC thinning
+development execution at 03:53:54Z. The 10-29 proposal `_02` no longer verified
+(`preparation source mismatch`: source `5cdda1af`, 19 `src` files changed since)
+and stays untouched, as its REVIEW.md asks. A fresh proposal
+`data/btc_thinning_execution_20261030_03/` on source `bc5136fb` differs from `_02`
+only in source and fingerprint: calibration ETH 3647/4356 and BNB 3267/4325 with
+0 missing, the 36 cells, budget, design, windows, inputs and environment are
+identical. The protocol is write-once, so the approval is a separate packet
+prepared again with the same prepared fingerprint:
+`data/btc_thinning_execution_approved_20261030_01/` (scope
+`development-thinning:30e6437d…`, protocol fingerprint `d4bbd2b0…`;
+`thinning_execution.verify(approved=True)` passes). Provenance and accepted
+limits are in its APPROVAL.md: no independent release review or full remote CI,
+market data reopened for this scope only, exposed development diagnostic,
+never qualification or live evidence. Running is a separate operator decision.
 
 ### Full BASE–PLUS development matrix closed
 
@@ -13,6 +31,16 @@ were fragmenting the state across ~60 files.
 All12 raw report audits PASS:7976 signal exits exactly24h, no BUY during breaker intervals, no missing required return features, reconciled marked equity, zero terminal inventory/orders or unresolved health. QA counts are not independent observations. 131 tests and AC01–15 PASS on source d6afc7b26a809cb318d911c4d69dcfec8f4d142ba1c0135a07a24e26469840ce. ETH1x retains earlier sealed source; core equivalence is recorded, but no single-revision qualification is claimed. All14 known attempts including the defective pilot remain disclosed. Total market execution2737.42s; new batch1950.07s; zero retries.
 
 Full report (local evidence `data/plus_context_matrix_20261029_01/RESULTS.md`), MATRIX_RESULTS.json, RAW_AUDIT.json and wave_protocol.json hold primary evidence. CLOSED_NO_SUPPORTED_INCREMENT / NOT_QUALIFIED. No further run, confirmation, paper/testnet/live authority; no independent review claimed. CI remains separate. Static draft authority functions are design snapshots; protocols and this tracker record actual progress.
+
+### 2026-10-29 — validation binding bypass resolved on integrated source
+
+P1 from data/revision_integration_review_20261029_01/ is fixed in local commit5cdda1af. CampaignCellRunner always performs scoped admission regardless of caller validation_only flag. QualificationCellRunner verifies its actual frozen protocol plus subject/token/native-cell membership, preserving legitimate validation instead of reconstructing a PLUS-specific envelope. No threshold/approval relaxation.
+
+Fix was first tested in an isolated source snapshot while the other agent ran CI. After shared tests ended and baseline SHA matched, patch integrated. On MAIN:60/60 gate/cache/input/protocol regressions PASS,3/3 canonical launcher integration PASS including real synthetic worker/coverage. Fresh AC01–15 ALL PASS, source5b2c0ac3efb41ffef7b117029974ac9ffec540b0e668f114c5536733aac55d0d, identity stable. Lint clean. Broader isolated suite hit240s timeout; retained as incomplete, not reported as all-green CI.
+
+Current operational proposal:data/btc_thinning_execution_pending_20261029_02/, freshly bound to fixed source, calibration unchanged ETH3647/4356 and BNB3267/4325. PENDING_OPERATOR_APPROVAL/null identity fields, zero market cells. Prior proposals/source-specific proofs stay immutable; no silent reseal. Closeout:data/binding_gate_fix_verified_20261029_01/RESULTS.md.
+
+Our fix is committed; user analysis scripts/reports and session/Claude files remain untouched/uncommitted. Source capture remains dirty for those pre-existing analysis scripts; no claim of clean independently reviewed release, full remote CI green, qualification or live authority. No push/merge/market run.
 
 ### 2026-10-29 — scoped thinning execution engineering complete on synthetic
 

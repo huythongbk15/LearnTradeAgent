@@ -16,6 +16,7 @@ CRITICAL_EVENTS = frozenset(
         "order_non_terminal",
         "reconciliation_blocked",
         "run_failed",
+        "run_interrupted",
     }
 )
 
@@ -67,7 +68,7 @@ def load_events(path: str | Path) -> list[dict[str, object]]:
 
 
 RUNNER_MARKER = "live_enhanced_ma_binance.py"
-TERMINAL_EVENTS = frozenset({"run_completed", "run_failed"})
+TERMINAL_EVENTS = frozenset({"run_completed", "run_failed", "run_interrupted"})
 
 
 def _process_alive(pid: object) -> bool | None:

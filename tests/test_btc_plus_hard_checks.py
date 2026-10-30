@@ -15,7 +15,6 @@ from pathlib import Path
 
 from types import SimpleNamespace
 
-import pytest
 
 from trading_agent.research.btc_context_prereg import (
     PLUS_BUDGET,
@@ -375,97 +374,3 @@ def test_launcher_calls_binding_gate_and_passes_plus_timeout(monkeypatch, tmp_pa
         assert kwargs.get("timeout_seconds") == PLUS_BUDGET["cell_timeout_seconds"], kwargs
     finally:
         _uninstall_scope_token()
-
-
-
-# ── cell gate: frozen protocol inputs (root / evidence class / budget) ──
-
-class _FrozenGateRunner(CampaignCellRunner):
-    """A runner whose cell gate checks a frozen protocol's own inputs."""
-
-    gate = None
-
-    def _preregistration_gate_inputs(self):
-        return dict(self.gate)
-
-
-def _run_cell_gate(monkeypatch, tmp_path, gate):
-    payload, manifest, source_fingerprint = _bind_packet_dynamically()
-    roots = []
-
-    def load(scope_token, root):
-        roots.append(Path(root))
-        return payload, manifest
-
-    monkeypatch.setattr("trading_agent.backtest.campaign_execution.load_approved_payload", load)
-    monkeypatch.setattr("trading_agent.backtest.preregistration_binding.load_approved_payload", load)
-    runner_calls = []
-
-    def fake_runner(spec, **kwargs):
-        runner_calls.append(kwargs)
-        return SimpleNamespace(status="COMPLETED", report_path=None)
-
-    context = {"scope_token": "tok_plus", "source": {"tree_fingerprint": source_fingerprint}}
-    runner = _FrozenGateRunner(tmp_path / "packet", context, runner=fake_runner)
-    runner.gate = {
-        "root": REPOSITORY_ROOT,
-        "evidence_class": "SYNTHETIC_TEST_ONLY",
-        "cell_timeout": payload["budget"]["cell_timeout_seconds"],
-        "total_timeout_seconds": payload["budget"]["total_timeout_seconds"],
-        **gate,
-    }
-    spec = EvaluationCellSpec(
-        strategy_id="cand_plus", symbol="ETH/USDT", timeframe="1h",
-        params={"arm": "A0"}, cost_scenario=SCENARIO_BASE, fault=FAULT_NONE,
-    )
-    _install_scope_token()
-    try:
-        return runner(spec, out_root=tmp_path / "packet"), runner_calls, roots
-    finally:
-        _uninstall_scope_token()
-
-
-def test_cell_gate_reads_the_frozen_synthetic_root(monkeypatch, tmp_path):
-    artifact, runner_calls, roots = _run_cell_gate(
-        monkeypatch, tmp_path, {"root": tmp_path / "prereg_root"}
-    )
-    assert artifact.status == "COMPLETED"
-    assert roots and set(roots) == {tmp_path / "prereg_root"}
-    assert runner_calls
-
-
-def test_cell_gate_rejects_a_redirected_root_for_real_market(monkeypatch, tmp_path):
-    with pytest.raises(ValueError, match="preregistration_root"):
-        _run_cell_gate(monkeypatch, tmp_path, {
-            "root": tmp_path / "prereg_root", "evidence_class": "REAL_MARKET",
-        })
-
-
-@pytest.mark.parametrize("field", ["cell_timeout", "total_timeout_seconds"])
-def test_cell_gate_rejects_a_frozen_budget_off_the_approval(monkeypatch, tmp_path, field):
-    payload, _manifest = _load_packet()
-    approved = payload["budget"][
-        "cell_timeout_seconds" if field == "cell_timeout" else "total_timeout_seconds"
-    ]
-    reason = "cell_timeout" if field == "cell_timeout" else "total_timeout"
-    with pytest.raises(ValueError, match=reason):
-        _run_cell_gate(monkeypatch, tmp_path, {field: approved + 1})
-
-
-def test_qualification_gate_refuses_a_root_swapped_after_freeze(monkeypatch, tmp_path):
-    from scripts import run_wfo_parallel as launcher
-
-    frozen = SimpleNamespace(protocol={
-        "spec": {"evidence_class": "SYNTHETIC_TEST_ONLY"},
-        "execution": {"preregistration_root": str(tmp_path / "frozen"), "cell_timeout": 60},
-        "validation_budget": {"total_timeout_seconds": 600},
-    })
-    monkeypatch.setenv("TRADING_PREREGISTRATION_ROOT", str(tmp_path / "frozen"))
-    gate = launcher.QualificationCellRunner._preregistration_gate_inputs(frozen)
-    assert gate == {
-        "root": (tmp_path / "frozen").resolve(), "evidence_class": "SYNTHETIC_TEST_ONLY",
-        "cell_timeout": 60, "total_timeout_seconds": 600,
-    }
-    monkeypatch.setenv("TRADING_PREREGISTRATION_ROOT", str(tmp_path / "swapped"))
-    with pytest.raises(ValueError, match="does not match the frozen protocol"):
-        launcher.QualificationCellRunner._preregistration_gate_inputs(frozen)

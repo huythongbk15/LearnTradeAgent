@@ -12,6 +12,8 @@ import argparse
 import asyncio
 import math
 import os
+import signal as os_signal  # a strategy loop variable is named `signal`
+import subprocess
 import random
 import sys
 import time
@@ -70,7 +72,7 @@ from trading_agent.execution.lifecycle.lifecycle import (
     TrustedPrice,
     ExposureEffect,
 )
-from trading_agent.execution.correlation import bind_run_correlation
+from trading_agent.execution.correlation import bind_run_correlation, get_run_id
 from trading_agent.execution.data_trust import (
     BINANCE_MAINNET_TIME_URL,
     BINANCE_TESTNET_TIME_URL,
@@ -104,6 +106,22 @@ from trading_agent.execution.live_safety import (
 from trading_agent.execution.live_admission import (
     LiveBuyAdmission,
     PromotedLiveAdmissionProducer,
+)
+from trading_agent.execution.operational_authorization import (
+    DEFAULT_PATH as OPERATIONAL_AUTHORIZATION_PATH,
+    OperationalAuthorizationError,
+    load_authorization,
+)
+from trading_agent.execution.operational_driver import (
+    OperationalLiveAdmissionProducer,
+    OperationalRuntimeResolver,
+    OperationalTrack,
+    driver_code_sha,
+    entry_block_reason,
+    flat_below_usd,
+    plan_entries,
+    tight_stop_symbols,
+    track_ledger_view,
 )
 from trading_agent.execution.batch_models import wrap_market_data
 from trading_agent.authority.config import AuthorityConfig, Environment
@@ -821,6 +839,31 @@ def cleanup_orphan_protective_stops(
             elif status not in {"filled", "cancelled", "rejected", "expired"}:
                 raise LiveSafetyError(
                     f"orphan protective order has unknown status for {pair}: {status}"
+                )
+            elif status == "filled":
+                # The venue fired the stop and closed the position. Book the
+                # fill in the canonical lifecycle so the intent does not stay
+                # open, then record the exit.
+                order = lifecycle.state.order(client_order_id)
+                if order is not None and order.status.value != "filled":
+                    _record_reconciled_submission(
+                        CanonicalExecutionService(lifecycle=lifecycle, gateway=gateway),
+                        client_order_id,
+                        result,
+                    )
+                _audit_protective_event(
+                    audit_log_path,
+                    "protective_stop_filled",
+                    {
+                        "symbol": pair,
+                        "client_order_id": client_order_id,
+                        "filled_qty": float(
+                            result.get("filled_qty") or result.get("filled") or 0.0
+                        ),
+                        "avg_fill_price": float(
+                            result.get("avg_fill_price") or result.get("average") or 0.0
+                        ),
+                    },
                 )
         if any(isinstance(record, dict) for record in records):
             _audit_protective_event(
@@ -2213,6 +2256,7 @@ def execute_orders(
                     "exchange_order_id": str(result.get("id") or ""),
                     "symbol": pair,
                     "side": planned["action"],
+                    "reason": str(planned.get("reason") or ""),
                     "filled_qty": float(result.get("filled_qty") or 0.0),
                     "average_fill_price": float(result.get("avg_fill_price") or 0.0),
                     "signal_price": float(planned["signal_price"]),
@@ -2566,6 +2610,99 @@ def build_canonical_execution_stack(
         raise
 
 
+def _execution_failure_since(audit_log: str | None, since: datetime) -> str | None:
+    """Any execution run since ``since`` that did not complete, other than this one.
+
+    Fails closed: without a readable audit log nothing proves the runs were clean.
+    """
+    if not audit_log:
+        return "no audit log to check earlier runs"
+    from check_live_audit import AuditHealthError, _runs, load_events
+
+    try:
+        events = load_events(audit_log)
+    except AuditHealthError as exc:
+        return f"audit log unreadable ({exc})"
+    runs = [
+        run
+        for run in _runs(sorted(events, key=lambda event: event["_timestamp"]))
+        if run["execute"] and run["started"] >= since
+    ]
+    # This run has started but not ended; an older run may share its pid.
+    if runs and runs[-1]["pid"] == os.getpid() and runs[-1]["terminal"] is None:
+        runs.pop()
+    for run in runs:
+        outcome = run["terminal"]["event"] if run["terminal"] else "no terminal event"
+        if outcome != "run_completed":
+            return f"execution run at {run['started']:%m-%d %H:%MZ} ended with {outcome}"
+    return None
+
+
+def load_operational_track(
+    *,
+    audit_log: str | None,
+    account_session: LiveAccountSession,
+    store: LiveRiskStateStore,
+    positions: list[dict],
+    daily_loss_usd: float,
+    symbols: list[str],
+    now: datetime | None = None,
+) -> tuple[OperationalTrack | None, str]:
+    """Testnet only: the authorized exerciser for this cycle, or why there is none."""
+    path = Path(
+        os.getenv("LIVE_OPERATIONAL_AUTHORIZATION", str(OPERATIONAL_AUTHORIZATION_PATH))
+    )
+    try:
+        authorization = load_authorization(
+            path,
+            key=os.getenv("LIVE_SAFETY_HMAC_KEY", ""),
+            account_fingerprint=account_session.fingerprint,
+            driver_code_sha=driver_code_sha(),
+            now=now,
+        )
+    except OperationalAuthorizationError as exc:
+        return None, f"operational track inactive: {exc}"
+    if authorization is None:
+        return None, f"operational track not authorized ({path})"
+    if set(authorization.symbols) != set(symbols):
+        return None, "operational track inactive: authorized symbols differ from the runner's"
+    view = track_ledger_view(
+        store.state.order_ledger,
+        symbols=authorization.symbols,
+        issued_at=authorization.issued_at,
+    )
+    held = frozenset(
+        item["symbol"]
+        for item in positions
+        if item["symbol"] in authorization.symbols
+        and float(item.get("market_value") or 0.0) >= flat_below_usd(item["symbol"])
+    )
+    blocked = entry_block_reason(
+        authorization,
+        view,
+        daily_loss_usd=daily_loss_usd,
+        run_failure=_execution_failure_since(audit_log, authorization.issued_at),
+    )
+    entries = plan_entries(
+        authorization, view, held_symbols=set(held), block_reason=blocked
+    )
+    resolver = OperationalRuntimeResolver(
+        authorization,
+        view=view,
+        entry_symbols=entries,
+        now=now or datetime.now(UTC),
+    )
+    track = OperationalTrack(
+        authorization=authorization,
+        view=view,
+        held=held,
+        entries=entries,
+        entries_blocked=blocked,
+        producer=OperationalLiveAdmissionProducer(resolver),
+    )
+    return track, ""
+
+
 def run_locked(
     args: argparse.Namespace,
     *,
@@ -2746,6 +2883,7 @@ def run_locked(
             f"DD {float(metrics['drawdown_pct']):.2%}, "
             f"daily loss {float(metrics['daily_loss_pct']):.2%}"
         )
+        _audit_stage(args, "account_read")
         if risk_locked_reason:
             print(
                 f"⛔ CIRCUIT BREAKER: {risk_locked_reason}; "
@@ -2798,12 +2936,14 @@ def run_locked(
             f"clock skew {trust_metrics['clock_skew_s']:+.2f}s, "
             f"sequence gaps {trust_metrics['max_sequence_gap']}"
         )
+        _audit_stage(args, "signals_computed", {"symbols": len(states)})
 
         apply_atr_protection(states=states, positions=positions, store=store)
         for pair, state in states.items():
             if state.get("risk_exit"):
                 print(f"{pair}: RISK EXIT — {state['risk_exit']}")
 
+        operational: OperationalTrack | None = None
         if buy_admissions is not None:
             # Compatibility injection for consumer-boundary local tests.
             decisions = build_decisions(
@@ -2844,6 +2984,7 @@ def run_locked(
                     if profile == "mainnet-canary"
                     else Environment.PRODUCTION
                 )
+                no_promoted_runtime = None
                 if admission_producer is None:
                     promotion_path = Path(
                         os.getenv(
@@ -2853,72 +2994,140 @@ def run_locked(
                     artifact_path = Path(
                         os.getenv("LIVE_ARTIFACT_DB", "data/research/artifacts.db")
                     )
-                    if not promotion_path.is_file() or not artifact_path.is_file():
+                    have_stores = promotion_path.is_file() and artifact_path.is_file()
+                    if args.testnet and (
+                        not have_stores
+                        or not PromotionStateStore(promotion_path).list_eligible(
+                            environment.value
+                        )
+                    ):
+                        no_promoted_runtime = (
+                            "no strategy is promoted to testnet "
+                            f"({promotion_path} / {artifact_path})"
+                        )
+                    elif not have_stores:
                         raise LiveSafetyError(
                             "existing authoritative LIVE_PROMOTION_DB and LIVE_ARTIFACT_DB are required"
                         )
-                    config = AuthorityConfig(environment=environment)
-                    admission_producer = PromotedLiveAdmissionProducer(
-                        RuntimeStrategyResolver(
-                            config,
-                            promotion_store=PromotionStateStore(promotion_path),
-                            artifact_store=PersistentArtifactStore(artifact_path),
+                    else:
+                        config = AuthorityConfig(environment=environment)
+                        admission_producer = PromotedLiveAdmissionProducer(
+                            RuntimeStrategyResolver(
+                                config,
+                                promotion_store=PromotionStateStore(promotion_path),
+                                artifact_store=PersistentArtifactStore(artifact_path),
+                            ),
+                            config=config,
+                        )
+                if no_promoted_runtime is not None and args.testnet:
+                    # The operator may authorize the operational (E2E) track,
+                    # which drives orders with the exerciser instead.
+                    operational, inactive = load_operational_track(
+                        audit_log=args.audit_log,
+                        account_session=account_session,
+                        store=store,
+                        positions=positions,
+                        daily_loss_usd=float(metrics["daily_loss_pct"]) * equity,
+                        symbols=list(allocation_map),
+                    )
+                    if operational is None:
+                        no_promoted_runtime = f"{no_promoted_runtime}; {inactive}"
+                    else:
+                        admission_producer = operational.producer
+                        limits = operational.limits(limits)
+                        no_promoted_runtime = None
+                        details = operational.audit_details()
+                        print(
+                            f"OPERATIONAL TRACK {details['authorization_id'][:12]}: "
+                            f"lifecycles {details['lifecycles_opened']}/"
+                            f"{details['max_lifecycles']}, held {details['held']}, "
+                            f"may open {details['may_open']}, "
+                            f"expires {details['expires_at']}"
+                        )
+                        if operational.entries_blocked:
+                            print(f"⛔ OPERATIONAL ENTRIES BLOCKED: {operational.entries_blocked}")
+                        if args.audit_log:
+                            append_live_audit_event(
+                                args.audit_log, "operational_track_active", details
+                            )
+                if no_promoted_runtime is not None:
+                    # Testnet only: without a promoted runtime nothing may open
+                    # exposure (no BUY admission exists), but held positions are
+                    # still managed and exited. Mainnet keeps failing closed above.
+                    print(
+                        f"⛔ ENTRY LOCK: {no_promoted_runtime}; "
+                        "buys are blocked while sells remain enabled"
+                    )
+                    if args.audit_log:
+                        append_live_audit_event(
+                            args.audit_log,
+                            "entries_locked_no_promoted_runtime",
+                            {"reason": no_promoted_runtime},
+                        )
+                    decisions = build_decisions(
+                        allocations=allocations,
+                        states=states,
+                        positions=positions,
+                        equity=equity,
+                        locked_reason=risk_locked_reason,
+                        entries_locked_reason=entries_locked_reason
+                        or no_promoted_runtime,
+                        limits=limits,
+                    )
+                else:
+                    _, gross = position_snapshot(positions)
+                    exposures = {
+                        item["symbol"]: float(item["market_value"]) / equity
+                        for item in positions
+                    }
+                    snapshot = PortfolioSnapshot(
+                        equity=equity,
+                        available_cash=float(account["cash"]),
+                        positions={
+                            item["symbol"]: float(item["qty"]) for item in positions
+                        },
+                        symbol_exposures=exposures,
+                        gross_exposure=gross / equity,
+                        untracked_symbols=tuple(
+                            sorted(set(exposures) - set(allocation_map))
                         ),
-                        config=config,
+                        untracked_exposure=sum(
+                            v for k, v in exposures.items() if k not in allocation_map
+                        ),
+                        untracked_valued=True,
+                        reconciliation_state=PortfolioReconciliation.RECONCILED,
                     )
-                _, gross = position_snapshot(positions)
-                exposures = {
-                    item["symbol"]: float(item["market_value"]) / equity
-                    for item in positions
-                }
-                snapshot = PortfolioSnapshot(
-                    equity=equity,
-                    available_cash=float(account["cash"]),
-                    positions={
-                        item["symbol"]: float(item["qty"]) for item in positions
-                    },
-                    symbol_exposures=exposures,
-                    gross_exposure=gross / equity,
-                    untracked_symbols=tuple(
-                        sorted(set(exposures) - set(allocation_map))
-                    ),
-                    untracked_exposure=sum(
-                        v for k, v in exposures.items() if k not in allocation_map
-                    ),
-                    untracked_valued=True,
-                    reconciliation_state=PortfolioReconciliation.RECONCILED,
-                )
-                quotes = {
-                    pair: trusted_broker_quote(broker, pair, buy=True)
-                    for pair in allocation_map
-                }
-                if any(quote is None for quote in quotes.values()):
-                    raise LiveSafetyError(
-                        "canonical live producer has unknown quote receipt"
+                    quotes = {
+                        pair: trusted_broker_quote(broker, pair, buy=True)
+                        for pair in allocation_map
+                    }
+                    if any(quote is None for quote in quotes.values()):
+                        raise LiveSafetyError(
+                            "canonical live producer has unknown quote receipt"
+                        )
+                    decisions = admission_producer.produce(
+                        inputs=market_inputs,
+                        quotes=quotes,
+                        snapshot=snapshot,
+                        allocations=allocation_map,
+                        lifecycle=canonical_lifecycle,
+                        environment=environment,
+                        limits=limits,
+                        states=states,
+                        expected_artifact_ids=expected_artifact_ids,
+                        expected_strategy_name="enhanced_ma"
+                        if expected_artifact_ids
+                        else None,
+                        expected_parameters=STRATEGY_PARAMS
+                        if expected_artifact_ids
+                        else None,
                     )
-                decisions = admission_producer.produce(
-                    inputs=market_inputs,
-                    quotes=quotes,
-                    snapshot=snapshot,
-                    allocations=allocation_map,
-                    lifecycle=canonical_lifecycle,
-                    environment=environment,
-                    limits=limits,
-                    states=states,
-                    expected_artifact_ids=expected_artifact_ids,
-                    expected_strategy_name="enhanced_ma"
-                    if expected_artifact_ids
-                    else None,
-                    expected_parameters=STRATEGY_PARAMS
-                    if expected_artifact_ids
-                    else None,
-                )
-                if entries_locked_reason:
-                    decisions = [
-                        decision
-                        for decision in decisions
-                        if decision["action"] != "BUY"
-                    ]
+                    if entries_locked_reason:
+                        decisions = [
+                            decision
+                            for decision in decisions
+                            if decision["action"] != "BUY"
+                        ]
         if expected_artifact_ids is not None:
             for decision in decisions:
                 if decision["action"] == "BUY":
@@ -2931,6 +3140,29 @@ def run_locked(
                         raise LiveSafetyError(
                             "BUY runtime does not match signed mainnet evidence"
                         )
+        if not args.testnet and any(
+            getattr(decision.get("risk_decision"), "evidence_waiver", None) is not None
+            for decision in decisions
+        ):
+            raise LiveSafetyError("an operational evidence waiver reached a mainnet batch")
+        if operational is not None and args.execute:
+            # Every tight_stop_every-th lifecycle is left to the venue stop.
+            exiting = {d["market_symbol"] for d in decisions if d["action"] == "SELL"}
+            for pair in sorted(
+                tight_stop_symbols(
+                    operational.authorization,
+                    operational.view,
+                    held_symbols=set(operational.held),
+                )
+                - exiting
+            ):
+                reference = float(states[pair]["price"])
+                quote = trusted_broker_quote(broker, pair)
+                if quote is not None:
+                    reference = min(reference, float(quote.price))
+                tight = reference * (1 - operational.authorization.tight_stop_pct)
+                states[pair]["atr_stop"] = max(float(states[pair].get("atr_stop") or 0.0), tight)
+                print(f"{pair}: tight operational stop {tight:,.4f}")
         if args.execute:
             ensure_protective_stops(
                 states=states,
@@ -2964,6 +3196,7 @@ def run_locked(
             audit_log_path=args.audit_log,
             monitor=monitor,
         )
+        _audit_stage(args, "orders_planned", {"orders": len(prepared)})
         print("\nEXECUTION PLAN")
         for planned in prepared:
             print(
@@ -3008,8 +3241,9 @@ def run(
     admission_producer: PromotedLiveAdmissionProducer | None = None,
 ) -> int:
     # P1.2: one correlation ID per runner invocation; every audit event and
-    # error raised inside the run is tagged with it.
-    run_id = bind_run_correlation()
+    # error raised inside the run is tagged with it. main() binds it before
+    # run_started so that start and terminal events share it.
+    run_id = get_run_id() or bind_run_correlation()
     profile = resolve_trading_profile(args)
     limits = LiveRiskLimits.for_profile(profile)
     allocations = parse_allocations(args.symbols, args.weights, limits)
@@ -3043,8 +3277,47 @@ def run(
         )
 
 
+class RunInterrupted(BaseException):
+    """SIGTERM/SIGHUP/SIGINT during a run; a BaseException so no handler swallows it."""
+
+
+def _audit_stage(args: argparse.Namespace, stage: str, details: Mapping | None = None) -> None:
+    """Progress marker between run_started and the terminal event."""
+    if args.audit_log:
+        append_live_audit_event(args.audit_log, "run_stage", {"stage": stage, **(details or {})})
+
+
+def _process_identity() -> dict[str, object]:
+    """boot id + kernel start ticks: tells this run from a later process reusing its PID."""
+    identity: dict[str, object] = {}
+    try:
+        identity["boot_id"] = Path("/proc/sys/kernel/random/boot_id").read_text().strip()
+        stat = Path(f"/proc/{os.getpid()}/stat").read_text()
+        identity["starttime_ticks"] = int(stat.rsplit(")", 1)[1].split()[19])
+    except (OSError, ValueError, IndexError):
+        pass
+    return identity
+
+
+def _source_revision() -> dict[str, object]:
+    root = Path(__file__).resolve().parents[1]
+    try:
+        commit = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "HEAD"],
+            capture_output=True, text=True, timeout=5,
+        ).stdout.strip()
+        dirty = subprocess.run(
+            ["git", "-C", str(root), "status", "--porcelain", "--untracked-files=no"],
+            capture_output=True, text=True, timeout=5,
+        ).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return {"source_commit": "unknown"}
+    return {"source_commit": commit or "unknown", "source_dirty": bool(dirty)}
+
+
 def main() -> int:
     args = build_parser().parse_args()
+    bind_run_correlation()
     append_live_audit_event(
         args.audit_log,
         "run_started",
@@ -3052,12 +3325,28 @@ def main() -> int:
             "execute": bool(args.execute),
             "testnet": bool(args.testnet),
             "symbols": args.symbols,
+            **_process_identity(),
+            **_source_revision(),
         },
     )
+
+    def interrupted(signum, _frame):
+        raise RunInterrupted(os_signal.Signals(signum).name)
+
+    # SIGHUP: WSL hangs up the session when its console is closed, which
+    # killed the first scheduled cycle (2026-10-29 17:01Z) without a trace.
+    handled = (os_signal.SIGTERM, os_signal.SIGHUP)
+    previous = {signum: os_signal.signal(signum, interrupted) for signum in handled}
     try:
         result = run(args)
         append_live_audit_event(args.audit_log, "run_completed", {"exit_code": result})
         return result
+    except (RunInterrupted, KeyboardInterrupt) as exc:
+        # Killed runs used to leave run_started with no terminal event at all.
+        name = str(exc) if isinstance(exc, RunInterrupted) else "SIGINT"
+        append_live_audit_event(args.audit_log, "run_interrupted", {"signal": name})
+        print(f"INTERRUPTED: {name}", file=sys.stderr)
+        return {"SIGINT": 130, "SIGHUP": 129}.get(name, 143)
     except Exception as exc:
         append_live_audit_event(
             args.audit_log,
@@ -3066,6 +3355,9 @@ def main() -> int:
         )
         print(f"FATAL: {exc}", file=sys.stderr)
         return 1
+    finally:
+        for signum, handler in previous.items():
+            os_signal.signal(signum, handler)
 
 
 if __name__ == "__main__":

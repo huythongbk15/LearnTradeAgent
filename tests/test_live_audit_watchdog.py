@@ -123,3 +123,17 @@ def test_unknowable_liveness_falls_back_to_the_run_timeout():
     events = [run("run_started", 3_000, pid=5, execute=True)]
     with pytest.raises(AuditHealthError, match="no terminal heartbeat"):
         check_live(events, alive=lambda pid: None)
+
+
+def test_interrupted_execution_run_is_terminal_and_critical():
+    events = [run("run_started", 300, pid=8, execute=True), run("run_interrupted", 200, pid=8)]
+    with pytest.raises(AuditHealthError, match="critical live audit events: run_interrupted"):
+        check_live(events, alive=lambda pid: False)
+
+
+def test_interrupted_dry_run_is_not_critical():
+    events = [
+        run("run_started", 900, pid=1, execute=True), run("run_completed", 800, pid=1),
+        run("run_started", 300, pid=9, execute=False), run("run_interrupted", 200, pid=9),
+    ]
+    assert check_live(events)["latest_execution_run_pid"] == 1

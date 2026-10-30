@@ -9,6 +9,10 @@ cd "$ROOT"
 LOG="$ROOT/logs/binance_testnet.log"
 mkdir -p "$ROOT/logs"
 echo "=== $(date -u +%FT%TZ) cycle start pid=$$" >> "$LOG"
+# A closed console or a stopped task kills the cycle; leave a line saying so.
+for sig in HUP INT TERM; do
+    trap "echo \"=== \$(date -u +%FT%TZ) cycle killed by SIG$sig\" >> \"$LOG\"; exit 1" "$sig"
+done
 # -u: unbuffered, so the log shows progress while the run is still going.
 TRADING_MODE=testnet "$ROOT/.venv/bin/python" -u scripts/live_enhanced_ma_binance.py \
     --testnet --profile testnet --execute \

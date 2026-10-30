@@ -13,20 +13,22 @@ $settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew `
     -ExecutionTimeLimit (New-TimeSpan -Hours 1) -StartWhenAvailable `
     -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
 
-$runner = New-ScheduledTaskAction -Execute "wsl.exe" `
-    -Argument "-d $Distro -u $User --exec $Repo/scripts/ops/run_binance_testnet_cycle.sh"
+# conhost --headless: no console window, so nothing on screen can be closed.
+# A visible wsl.exe console closed at 00:01 killed the first cycle (0xC000013A).
+$runner = New-ScheduledTaskAction -Execute "conhost.exe" `
+    -Argument "--headless wsl.exe -d $Distro -u $User --exec $Repo/scripts/ops/run_binance_testnet_cycle.sh"
 $runnerTrigger = New-ScheduledTaskTrigger -Once -At $start `
     -RepetitionInterval (New-TimeSpan -Hours 2)
 
 $healthScript = "\\wsl.localhost\$Distro" + ($Repo -replace '/', '\') + "\scripts\ops\windows\check_health.ps1"
-$health = New-ScheduledTaskAction -Execute "powershell.exe" `
-    -Argument "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$healthScript`" -Distro $Distro -User $User -Repo $Repo"
+$health = New-ScheduledTaskAction -Execute "conhost.exe" `
+    -Argument "--headless powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$healthScript`" -Distro $Distro -User $User -Repo $Repo"
 $healthTrigger = New-ScheduledTaskTrigger -Once -At $start.AddMinutes(19) `
     -RepetitionInterval (New-TimeSpan -Minutes 30)
 
 if ($WhatIf) {
-    "Runner : wsl.exe $($runner.Arguments)  every 2h from $start"
-    "Health : powershell.exe $($health.Arguments)  every 30 min from $($start.AddMinutes(19))"
+    "Runner : conhost.exe $($runner.Arguments)  every 2h from $start"
+    "Health : conhost.exe $($health.Arguments)  every 30 min from $($start.AddMinutes(19))"
     exit 0
 }
 Register-ScheduledTask -TaskName "TradingAgent-BinanceTestnet" -Action $runner `

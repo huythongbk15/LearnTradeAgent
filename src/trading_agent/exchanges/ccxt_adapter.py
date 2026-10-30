@@ -70,7 +70,11 @@ class ExchangeConfig:
     password: str = ""  # for exchanges requiring passphrase
     sandbox: bool = False
     testnet: bool = False
-    rate_limit: int = 1200  # ms between requests
+    # ccxt "rateLimit" is milliseconds between requests, scaled by each
+    # endpoint's weight. None keeps ccxt's per-exchange calibration
+    # (Binance: 50 ms, fetchBalance weight 4). The old default 1200 (Binance's
+    # 1200 weight/min read as ms) made every fetch_balance wait 4.8 s.
+    rate_limit: int | None = None
     enable_rate_limit: bool = True
     timeout: int = 30000  # ms
     options: dict = field(default_factory=dict)
@@ -83,10 +87,11 @@ class ExchangeConfig:
             "secret": self.secret,
             "password": self.password,
             "enableRateLimit": self.enable_rate_limit,
-            "rateLimit": self.rate_limit,
             "timeout": self.timeout,
             "options": self.options,
         }
+        if self.rate_limit is not None:
+            config["rateLimit"] = self.rate_limit
         if self.sandbox:
             config["options"]["defaultType"] = "spot"
         return config
@@ -1189,7 +1194,6 @@ def get_default_exchange_configs() -> list[ExchangeConfig]:
             id="binance",
             name="Binance",
             sandbox=False,
-            rate_limit=1200,
             markets=[MarketType.SPOT, MarketType.FUTURES, MarketType.PERPETUAL],
             options={"defaultType": "spot"},
         ),
@@ -1197,7 +1201,6 @@ def get_default_exchange_configs() -> list[ExchangeConfig]:
             id="bybit",
             name="Bybit",
             sandbox=False,
-            rate_limit=1000,
             markets=[MarketType.SPOT, MarketType.FUTURES, MarketType.PERPETUAL],
             options={"defaultType": "spot"},
         ),
@@ -1205,7 +1208,6 @@ def get_default_exchange_configs() -> list[ExchangeConfig]:
             id="okx",
             name="OKX",
             sandbox=False,
-            rate_limit=1000,
             markets=[
                 MarketType.SPOT,
                 MarketType.FUTURES,
@@ -1218,35 +1220,30 @@ def get_default_exchange_configs() -> list[ExchangeConfig]:
             id="coinbase",
             name="Coinbase",
             sandbox=False,
-            rate_limit=1000,
             markets=[MarketType.SPOT],
         ),
         ExchangeConfig(
             id="kraken",
             name="Kraken",
             sandbox=False,
-            rate_limit=1000,
             markets=[MarketType.SPOT, MarketType.FUTURES],
         ),
         ExchangeConfig(
             id="gateio",
             name="Gate.io",
             sandbox=False,
-            rate_limit=1000,
             markets=[MarketType.SPOT, MarketType.FUTURES, MarketType.PERPETUAL],
         ),
         ExchangeConfig(
             id="kucoin",
             name="KuCoin",
             sandbox=False,
-            rate_limit=1000,
             markets=[MarketType.SPOT, MarketType.FUTURES, MarketType.PERPETUAL],
         ),
         ExchangeConfig(
             id="htx",
             name="HTX (Huobi)",
             sandbox=False,
-            rate_limit=1000,
             markets=[MarketType.SPOT, MarketType.FUTURES, MarketType.PERPETUAL],
         ),
     ]

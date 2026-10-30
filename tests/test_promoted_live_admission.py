@@ -326,6 +326,8 @@ def install_exchange_boundary(monkeypatch, tmp_path, broker, frame):
         "TRADING_ENTRY_KILL_SWITCH": "false",
         "LIVE_PROMOTION_DB": str(tmp_path / "promotions.db"),
         "LIVE_ARTIFACT_DB": str(tmp_path / "artifacts.db"),
+        # Never pick up a real operator authorization from the working tree.
+        "LIVE_OPERATIONAL_AUTHORIZATION": str(tmp_path / "operational_authorization.json"),
     }.items():
         monkeypatch.setenv(name, value)
     original_session = runner.LiveAccountSession
@@ -444,8 +446,14 @@ def test_full_entrypoint_invalid_authority_creates_zero_exchange_orders(
             str(tmp_path / "audit.jsonl"),
         ]
     )
-    with pytest.raises(LiveSafetyError):
-        runner.run(args)
+    if fault == "missing_promotion":
+        # Testnet with nothing promoted locks entries and completes the cycle
+        # (operator decision 2026-10-29); it still opens nothing.
+        assert runner.run(args) == 0
+    else:
+        # A promoted runtime with broken authority still fails closed.
+        with pytest.raises(LiveSafetyError):
+            runner.run(args)
     assert broker.orders == {} and broker.transactions == []
 
 
@@ -559,3 +567,122 @@ def test_full_entrypoint_partial_sell_cancels_residual_and_protects_inventory(
     active = state.protective_order_state("BTC/USDT")["active"]
     assert active["quantity"] == pytest.approx(float(broker.quantity))
     assert broker.cancel_calls >= 2
+
+
+# ── Testnet without a promoted runtime: entries locked, exits managed ─────
+
+
+def _testnet_args(tmp_path):
+    return runner.build_parser().parse_args(
+        [
+            "--execute", "--testnet", "--symbols", "BTC/USDT", "--weights", "20",
+            "--state-file", str(tmp_path / "risk.json"),
+            "--audit-log", str(tmp_path / "audit.jsonl"),
+        ]
+    )
+
+
+def _audit_events(tmp_path):
+    import json
+
+    return [
+        json.loads(line)["event"]
+        for line in (tmp_path / "audit.jsonl").read_text().splitlines()
+        if line.strip()
+    ]
+
+
+@pytest.mark.parametrize("stores", ["absent", "empty"])
+def test_testnet_without_promoted_runtime_locks_entries_and_completes(
+    tmp_path, monkeypatch, stores
+):
+    if stores == "empty":
+        PromotionStateStore(tmp_path / "promotions.db")
+        PersistentArtifactStore(tmp_path / "artifacts.db")
+    broker = AccountingBroker()
+    install_exchange_boundary(monkeypatch, tmp_path, broker, market_frame())
+
+    assert runner.run(_testnet_args(tmp_path)) == 0
+
+    assert broker.transactions == []  # a buy signal, but nothing may open exposure
+    events = _audit_events(tmp_path)
+    assert "entries_locked_no_promoted_runtime" in events
+    assert "run_failed" not in events
+
+
+def test_testnet_without_promoted_runtime_still_exits_a_held_position(
+    tmp_path, monkeypatch
+):
+    broker = AccountingBroker()
+    broker.quantity = Decimal("2")
+    broker.price = Decimal("98")  # the sell frame closes at 98
+    install_exchange_boundary(monkeypatch, tmp_path, broker, market_frame(sell=True))
+    # No ATR trail exit: the sell must come from the strategy signal through
+    # the entry-locked path, not from the forced safety-exit path.
+    monkeypatch.setattr(runner, "apply_atr_protection", lambda **kwargs: None)
+
+    assert runner.run(_testnet_args(tmp_path)) == 0
+
+    sides = [side for side, *_ in broker.transactions]
+    assert "sell" in sides and "buy" not in sides
+    assert "entries_locked_no_promoted_runtime" in _audit_events(tmp_path)
+
+
+# ── Run identity, stages and interruption (I1-I3) ──────────────────────────
+
+
+def _main_argv(tmp_path):
+    return [
+        "live_enhanced_ma_binance.py", "--execute", "--testnet", "--symbols", "BTC/USDT",
+        "--weights", "20", "--state-file", str(tmp_path / "risk.json"),
+        "--audit-log", str(tmp_path / "audit.jsonl"),
+    ]
+
+
+def _audit_records(tmp_path):
+    import json
+
+    return [
+        json.loads(line)
+        for line in (tmp_path / "audit.jsonl").read_text().splitlines()
+        if line.strip()
+    ]
+
+
+def test_main_ties_start_and_end_and_records_identity_and_stages(tmp_path, monkeypatch):
+    broker = AccountingBroker()
+    install_exchange_boundary(monkeypatch, tmp_path, broker, market_frame())
+    monkeypatch.setattr(sys, "argv", _main_argv(tmp_path))
+
+    assert runner.main() == 0
+
+    records = _audit_records(tmp_path)
+    start, end = records[0], records[-1]
+    assert start["event"] == "run_started" and end["event"] == "run_completed"
+    assert start["correlation_id"] and start["correlation_id"] == end["correlation_id"]
+    assert {"boot_id", "starttime_ticks", "source_commit"} <= set(start["details"])
+    stages = [r["details"]["stage"] for r in records if r["event"] == "run_stage"]
+    assert stages[:2] == ["account_read", "signals_computed"]
+    assert all(r["correlation_id"] == start["correlation_id"] for r in records)
+
+
+@pytest.mark.parametrize(("signame", "code"), [("SIGTERM", 143), ("SIGHUP", 129)])
+def test_signal_during_a_run_records_run_interrupted(tmp_path, monkeypatch, signame, code):
+    import signal as os_signal
+
+    def killed_mid_run(args):
+        os.kill(os.getpid(), getattr(os_signal, signame))
+        time.sleep(5)
+        raise AssertionError("SIGTERM did not interrupt the run")
+
+    monkeypatch.setattr(runner, "run", killed_mid_run)
+    monkeypatch.setattr(sys, "argv", _main_argv(tmp_path))
+
+    assert runner.main() == code
+
+    records = _audit_records(tmp_path)
+    assert [r["event"] for r in records] == ["run_started", "run_interrupted"]
+    assert records[1]["details"]["signal"] == signame
+    assert records[1]["correlation_id"] == records[0]["correlation_id"]
+    assert os_signal.getsignal(os_signal.SIGTERM) is os_signal.SIG_DFL
+    assert os_signal.getsignal(os_signal.SIGHUP) is os_signal.SIG_DFL

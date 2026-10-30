@@ -244,3 +244,14 @@ class TestConnectivityContract:
         assert adapter._status.value == "healthy"
         assert "BTC/USDT" in adapter._symbol_map
         assert adapter._symbol_map["BTC/USDT"] == BTC_USDT
+
+
+def test_default_config_keeps_ccxt_exchange_rate_limit():
+    # 1200 (Binance's weight/minute) passed as ccxt's ms-per-request made each
+    # fetch_balance (weight 4) wait 4.8 s, ~5 min per live order (2026-10-29).
+    from trading_agent.exchanges.ccxt_adapter import ExchangeConfig
+
+    default = ExchangeConfig(id="binance", name="Binance").to_ccxt_config()
+    assert "rateLimit" not in default and default["enableRateLimit"] is True
+    explicit = ExchangeConfig(id="binance", name="Binance", rate_limit=200).to_ccxt_config()
+    assert explicit["rateLimit"] == 200

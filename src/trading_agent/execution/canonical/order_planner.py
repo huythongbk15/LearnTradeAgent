@@ -10,6 +10,7 @@ import logging
 import math
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from decimal import Decimal
 from enum import Enum
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
@@ -463,6 +464,11 @@ class OrderPlanner:
 
         step = rules.qty_step
         rounding_epsilon = max(step * 1e-12, math.ulp(step) * 8)
+        # Lattice points are the nearest float to their decimal value. In
+        # binary, n * step can land a hair above an inventory of exactly that
+        # size (19801 * 1e-05 = 0.19801000000000002 > 0.19801) and block a
+        # reduce-to-flat sell.
+        step_decimals = max(0, -int(Decimal(repr(float(step))).as_tuple().exponent))
 
         def step_units(value: float) -> float:
             units = value / step
@@ -472,11 +478,13 @@ class OrderPlanner:
                 return float(nearest)
             return units
 
+        # A value within float noise of a lattice point is that point; the
+        # result still never lands on the wrong side of the value itself.
         def ceil_to_step(value: float) -> float:
-            return math.ceil(step_units(value)) * step
+            return max(value, round(math.ceil(step_units(value)) * step, step_decimals))
 
         def floor_to_step(value: float) -> float:
-            return math.floor(step_units(value)) * step
+            return min(value, round(math.floor(step_units(value)) * step, step_decimals))
 
         min_qty_from_notional = rules.min_notional / execution_price
         lower_bound = max(rules.min_order_qty, min_qty_from_notional)
