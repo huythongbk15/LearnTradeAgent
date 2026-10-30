@@ -60,7 +60,7 @@ Mục 9 của đề xuất ghi "không tìm thấy" backtest nhiều tài sản 
 
 ## Việc còn lại trước khi chạy D1
 
-1. **Bốn file lệch manifest.** `verify` từ chối chạy khi còn file lệch. Không còn bản gốc trong máy. Hướng chứng minh, chỉ đọc dòng trước mốc cắt: đối chiếu `1d` của ETH và BNB với `1h` của chính chúng (đã khớp manifest); đối chiếu BTC với file 25198 dòng đã đóng băng trong các packet trước. Vùng BTC trước 24/03/2023 không có file đối chiếu và cần xử lý riêng. Việc này đọc giá, nên cần operator duyệt.
+1. **Bốn file lệch manifest.** `verify` từ chối chạy khi còn file lệch. Không còn bản gốc trong máy, nhưng `--prove-inputs` đối chiếu các dòng trước mốc cắt với file khung khác còn khớp manifest: `1h` và `1d` của BTC với `30m` của BTC, `1d` của ETH và BNB với `1h` của chính chúng.
 2. **Reviewer duyệt** source, test và bảng lựa chọn ở trên.
 3. **Chuẩn bị packet** sau khi code đã merge:
 

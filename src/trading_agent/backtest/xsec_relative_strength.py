@@ -62,6 +62,16 @@ FILL_HOUR = 1  # data through Sunday's close, skip one bar, fill at open: k+2
 CUTOFF = datetime(2026, 2, 6, 12, tzinfo=UTC)  # end of the last D1 bar, before the holdout
 MARK_BAR = CUTOFF - timedelta(hours=1)
 STOPPED_AFTER = timedelta(hours=24)  # no bar for this long before the mark: not trading
+FIRST_DATA_DAY = date(2023, 1, 1)
+# Inputs rewritten after the research manifest froze, each checked against a
+# file of another timeframe that still matches it: (input, column, reference).
+INPUT_PROOFS = (
+    (("BTC/USDT", "1h"), "open", ("BTC/USDT", "30m")),
+    (("BTC/USDT", "1h"), "close", ("BTC/USDT", "30m")),
+    (("BTC/USDT", "1d"), "close", ("BTC/USDT", "30m")),
+    (("ETH/USDT", "1d"), "close", ("ETH/USDT", "1h")),
+    (("BNB/USDT", "1d"), "close", ("BNB/USDT", "1h")),
+)
 
 
 class InvalidRun(ValueError):
@@ -354,9 +364,12 @@ def load_series(symbol: str, *, cutoff: datetime = CUTOFF) -> Series:
 
 def require_daily_alignment(market: Mapping[str, Series], mondays: Sequence[date]) -> None:
     """A daily close must be the close of that day's 23:00 bar, or signals see the future."""
+    sundays = sorted({
+        monday - timedelta(days=days)
+        for monday in mondays for days in (1, 1 + LOOKBACK_DAYS)
+    })
     for symbol, series in market.items():
-        for monday in mondays:
-            sunday = monday - timedelta(days=1)
+        for sunday in sundays:
             bar = datetime.combine(sunday, clock_time(23), UTC)
             index = bisect.bisect_left(series.stamps, bar)
             if index == len(series.stamps) or series.stamps[index] != bar:
@@ -379,20 +392,128 @@ def specification() -> dict:
     }
 
 
+def _binding(symbol: str, timeframe: str, manifest: Mapping) -> tuple[str, dict]:
+    path = _raw_path(symbol, timeframe)
+    sha256 = hashlib.sha256(path.read_bytes()).hexdigest()
+    key = f"{symbol.replace('/', '_')}/{timeframe}"
+    return str(path.relative_to(ROOT)), {
+        "sha256": sha256,
+        "matches_research_manifest": manifest.get(key, {}).get("sha256") == sha256,
+    }
+
+
+def _manifest() -> Mapping:
+    return json.loads((ROOT / RESEARCH_MANIFEST).read_bytes())["datasets"]
+
+
 def input_bindings() -> dict:
     """Hash every input as bytes; no row is decoded."""
-    manifest = json.loads((ROOT / RESEARCH_MANIFEST).read_bytes())["datasets"]
-    bindings = {}
-    for symbol in UNIVERSE:
-        for timeframe in ("1d", "1h"):
-            path = _raw_path(symbol, timeframe)
-            sha256 = hashlib.sha256(path.read_bytes()).hexdigest()
-            key = f"{symbol.replace('/', '_')}/{timeframe}"
-            bindings[str(path.relative_to(ROOT))] = {
-                "sha256": sha256,
-                "matches_research_manifest": manifest.get(key, {}).get("sha256") == sha256,
-            }
-    return bindings
+    manifest = _manifest()
+    return dict(
+        _binding(symbol, timeframe, manifest)
+        for symbol in UNIVERSE for timeframe in ("1d", "1h")
+    )
+
+
+def _bars(symbol: str, timeframe: str, column: str) -> pl.DataFrame:
+    path = _raw_path(symbol, timeframe)
+    _require_increasing(path, "timestamp")
+    first = datetime.combine(FIRST_DATA_DAY, clock_time())
+    return (
+        pl.scan_parquet(path)
+        .filter(pl.col("timestamp") >= first, pl.col("timestamp") < CUTOFF.replace(tzinfo=None))
+        .select(pl.col("timestamp").cast(pl.Datetime("us")), column)
+        .collect()
+    )
+
+
+def _daily_bars(symbol: str) -> pl.DataFrame:
+    path = _raw_path(symbol, "1d")
+    _require_increasing(path, "date")
+    return (
+        pl.scan_parquet(path)
+        .filter(pl.col("date").is_between(FIRST_DATA_DAY, (CUTOFF - timedelta(days=1)).date()))
+        .select("date", "close")
+        .collect()
+    )
+
+
+def _reference_rows(column: str, reference: tuple[str, str], *, daily: bool) -> pl.DataFrame:
+    """The reference rows that must equal an input row, under the input's key."""
+    rows = _bars(*reference, column)
+    half_hours = reference[1] == "30m"
+    stamp = pl.col("timestamp")
+    if daily:
+        last_minute = 30 if half_hours else 0
+        return rows.filter(stamp.dt.hour() == 23, stamp.dt.minute() == last_minute).select(
+            stamp.dt.date().alias("date"), column
+        )
+    if column == "open":
+        return rows.filter(stamp.dt.minute() == 0)
+    # A 1h bar closes with its second 30m bar.
+    return rows.filter(stamp.dt.minute() == 30).with_columns(stamp - timedelta(minutes=30))
+
+
+def _compare(left: pl.DataFrame, right: pl.DataFrame, key: str, column: str) -> dict:
+    joined = left.join(right, on=key, how="left", suffix="_reference")
+    reference = pl.col(f"{column}_reference")
+    differs = (pl.col(column) - reference).abs() > pl.col(column).abs() * 1e-9
+    return {
+        "rows": left.height,
+        "unmatched": joined[f"{column}_reference"].null_count(),
+        "mismatched": joined.filter(differs).height,
+    }
+
+
+def prove_inputs(out: Path) -> dict:
+    """Compare each rewritten input with a manifest-matching file, before the cutoff.
+
+    This reads price rows, so it runs only on the operator's decision.
+    """
+    manifest = _manifest()
+    checks = []
+    for (symbol, timeframe), column, reference in INPUT_PROOFS:
+        input_path, input_binding = _binding(symbol, timeframe, manifest)
+        reference_path, reference_binding = _binding(*reference, manifest)
+        if not reference_binding["matches_research_manifest"]:
+            raise ValueError(f"reference {reference_path} differs from the research manifest")
+        daily = timeframe == "1d"
+        left = _daily_bars(symbol) if daily else _bars(symbol, timeframe, column)
+        compared = _compare(
+            left, _reference_rows(column, reference, daily=daily),
+            "date" if daily else "timestamp", column,
+        )
+        passed = compared["rows"] > 0 and not (compared["unmatched"] or compared["mismatched"])
+        checks.append({
+            "input": input_path, "input_sha256": input_binding["sha256"], "column": column,
+            "reference": reference_path, "reference_sha256": reference_binding["sha256"],
+            **compared, "verdict": "PASS" if passed else "FAIL",
+        })
+    proof = {
+        "scope": SCOPE, "cutoff": CUTOFF.isoformat(), "checks": checks,
+        "verdict": "PASS" if all(c["verdict"] == "PASS" for c in checks) else "FAIL",
+    }
+    _durable_json(out / "input_proof.json", proof)
+    return proof
+
+
+def proven_inputs(proof: Mapping | None, inputs: Mapping) -> set[str]:
+    """Inputs whose every required check passed on exactly these bytes."""
+    if not proof or proof.get("verdict") != "PASS":
+        return set()
+    proven = set()
+    for (symbol, timeframe), _, _ in INPUT_PROOFS:
+        path = str(_raw_path(symbol, timeframe).relative_to(ROOT))
+        checks = [check for check in proof["checks"] if check["input"] == path]
+        required = sum(
+            1 for key, _, _ in INPUT_PROOFS if key == (symbol, timeframe)
+        )
+        if len(checks) == required and all(
+            check["verdict"] == "PASS" and check["input_sha256"] == inputs[path]["sha256"]
+            for check in checks
+        ):
+            proven.add(path)
+    return proven
 
 
 def _proposal_sha256() -> str:
@@ -404,11 +525,13 @@ def command(path: Path) -> list[str]:
             "--run", str(path.resolve())]
 
 
-def _plan_body(path: Path, *, source: dict, inputs: dict, approval: dict) -> dict:
-    scope_id = digest({"spec": specification(), "inputs": inputs, "source": source})
+def _plan_body(
+    path: Path, *, source: dict, inputs: dict, approval: dict, proof: dict | None
+) -> dict:
+    scope_id = digest({"spec": specification(), "inputs": inputs, "source": source, "proof": proof})
     return {
         "scope": SCOPE, "proposal": {"path": PROPOSAL, "sha256": PROPOSAL_SHA256},
-        "specification": specification(), "inputs": inputs, "source": source,
+        "specification": specification(), "inputs": inputs, "input_proof": proof, "source": source,
         "budget": {"hard_deadline_seconds": 600, "workers": 1, "retries": 0},
         "command": command(path), "expected_approved_scope": f"h-xsec-01-d1:{scope_id}",
         "approval": approval, "market_run_authorized": approval["approval_state"] == "APPROVED",
@@ -416,7 +539,7 @@ def _plan_body(path: Path, *, source: dict, inputs: dict, approval: dict) -> dic
     }
 
 
-def freeze(out: Path) -> Path:
+def freeze(out: Path, *, proof_path: Path | None = None) -> Path:
     """Write a pending packet. It binds hashes only and cannot run."""
     if out.exists():
         raise ValueError("fresh packet required")
@@ -427,6 +550,7 @@ def freeze(out: Path) -> Path:
         path, source=capture_campaign_source(ROOT), inputs=input_bindings(),
         approval={"approval_state": "PENDING_OPERATOR_APPROVAL", "approved_by": None,
                   "approved_at": None, "approved_scope": None},
+        proof=json.loads(proof_path.read_bytes()) if proof_path else None,
     )
     plan["fingerprint"] = digest(plan)
     _durable_json(path, plan)
@@ -465,9 +589,14 @@ def verify(path: Path, *, approved: bool = True) -> dict:
     if plan["source"]["tree_fingerprint"] != capture_campaign_source(ROOT)["tree_fingerprint"]:
         raise ValueError("packet source mismatch")
     inputs = input_bindings()
-    if body != _plan_body(path, source=plan["source"], inputs=inputs, approval=approval):
+    proof = plan.get("input_proof")
+    if body != _plan_body(path, source=plan["source"], inputs=inputs, approval=approval, proof=proof):
         raise ValueError("packet differs from the frozen specification or its inputs")
-    unproven = sorted(key for key, value in inputs.items() if not value["matches_research_manifest"])
+    proven = proven_inputs(proof, inputs)
+    unproven = sorted(
+        key for key, value in inputs.items()
+        if not value["matches_research_manifest"] and key not in proven
+    )
     if approved and unproven:
         raise PermissionError(f"INPUT_NOT_PROVEN: {', '.join(unproven)}")
     return plan
@@ -523,9 +652,15 @@ def main() -> int:
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--prepare", type=Path)
     group.add_argument("--run", type=Path)
+    group.add_argument("--prove-inputs", type=Path, help="reads prices before the cutoff")
+    parser.add_argument("--input-proof", type=Path, help="with --prepare")
     args = parser.parse_args()
+    if args.prove_inputs:
+        proof = prove_inputs(args.prove_inputs.resolve())
+        print(json.dumps({"verdict": proof["verdict"]}))
+        return 0 if proof["verdict"] == "PASS" else 2
     if args.prepare:
-        path = freeze(args.prepare.resolve())
+        path = freeze(args.prepare.resolve(), proof_path=args.input_proof)
         plan = verify(path, approved=False)
         print(json.dumps({"status": "PENDING_OPERATOR_APPROVAL", "protocol": str(path),
                           "fingerprint": plan["fingerprint"]}))

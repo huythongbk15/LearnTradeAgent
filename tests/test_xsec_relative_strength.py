@@ -354,10 +354,20 @@ def test_a_shifted_daily_label_is_refused():
     lane.require_daily_alignment(market_of(FOUR_FLAT), [MONDAY])
 
 
+def test_the_start_of_the_lookback_is_aligned_too():
+    market = market_of(FOUR_FLAT)
+    series = market["C0/USDT"]
+    moved = {day: close * 1.01 if day == date(2023, 1, 1) else close
+             for day, close in series.daily.items()}
+    market["C0/USDT"] = Series(moved, series.stamps, series.opens, series.closes)
+    with pytest.raises(lane.InvalidRun, match="2023-01-01"):
+        lane.require_daily_alignment(market, [MONDAY])
+
+
 POISON = 1e12
 
 
-def write_coin(root, symbol, *, shift=0.0, unsorted=False):
+def write_coin(root, symbol, *, shift=0.0, unsorted=False, half_hours=False):
     """Bars through the holdout, priced absurdly from the cutoff on."""
     folder = root / lane.RAW_DATA / symbol.replace("/", "_")
     folder.mkdir(parents=True)
@@ -378,18 +388,25 @@ def write_coin(root, symbol, *, shift=0.0, unsorted=False):
     days = sorted({stamp.date() for stamp in stamps})
     closes = {stamp.date(): price for stamp, price in zip(stamps, prices)}
     pl.DataFrame({"date": days, "close": [closes[day] for day in days]}).write_parquet(folder / "1d.parquet")
+    if half_hours:
+        stamps30 = [stamp + timedelta(minutes=m) for stamp in stamps for m in (0, 30)]
+        prices30 = [price for price in prices for _ in (0, 30)]
+        pl.DataFrame({"timestamp": stamps30, "open": prices30, "close": prices30}).write_parquet(
+            folder / "30m.parquet")
 
 
 @pytest.fixture
 def repo(tmp_path, monkeypatch):
     for index, symbol in enumerate(lane.UNIVERSE):
-        write_coin(tmp_path, symbol, shift=float(index))
+        write_coin(tmp_path, symbol, shift=float(index), half_hours=symbol == "BTC/USDT")
     design = tmp_path / "design.md"
     design.write_bytes(b"synthetic-fixture-design")
     datasets = {}
     for symbol in lane.UNIVERSE:
         key = symbol.replace("/", "_")
-        for timeframe in ("1d", "1h"):
+        for timeframe in ("1d", "1h", "30m"):
+            if timeframe == "30m" and symbol != "BTC/USDT":
+                continue
             raw = (tmp_path / lane.RAW_DATA / key / f"{timeframe}.parquet").read_bytes()
             datasets[f"{key}/{timeframe}"] = {"sha256": hashlib.sha256(raw).hexdigest()}
     (tmp_path / "manifest.json").write_text(json.dumps({"datasets": datasets}))
@@ -514,6 +531,106 @@ def test_an_input_that_differs_from_the_manifest_blocks_the_run(repo):
     with pytest.raises(PermissionError, match="INPUT_NOT_PROVEN"):
         lane.run(path)
     assert not (path.parent / "execution_started.json").exists()
+
+
+REWRITTEN = ("BTC_USDT/1h", "BTC_USDT/1d", "ETH_USDT/1d", "BNB_USDT/1d")
+
+
+def rewrite_after_the_manifest(repo):
+    """As in the real checkout: four inputs no longer match the manifest."""
+    manifest = json.loads((repo / "manifest.json").read_bytes())
+    for key in REWRITTEN:
+        manifest["datasets"][key]["sha256"] = "0" * 64
+    (repo / "manifest.json").write_text(json.dumps(manifest))
+
+
+def set_price(repo, symbol, timeframe, stamp_column, stamp, column, value):
+    path = repo / lane.RAW_DATA / symbol.replace("/", "_") / f"{timeframe}.parquet"
+    frame = pl.read_parquet(path).with_columns(
+        pl.when(pl.col(stamp_column) == stamp).then(value).otherwise(pl.col(column)).alias(column)
+    )
+    frame.write_parquet(path)
+
+
+def test_rewritten_inputs_can_run_once_proven(repo):
+    rewrite_after_the_manifest(repo)
+    proof = lane.prove_inputs(repo / "proof")
+    assert proof["verdict"] == "PASS"
+    assert all(c["rows"] > 0 and c["unmatched"] == 0 and c["mismatched"] == 0 for c in proof["checks"])
+    assert {c["input"].split("binance/")[1] for c in proof["checks"]} == {
+        f"{key}.parquet" for key in REWRITTEN}
+    path = lane.freeze(repo / "packet", proof_path=repo / "proof" / "input_proof.json")
+    approve(path)
+    assert lane.run(path) == 0
+
+
+def test_without_a_proof_the_rewritten_inputs_block_the_run(repo):
+    rewrite_after_the_manifest(repo)
+    path = lane.freeze(repo / "packet")
+    approve(path)
+    with pytest.raises(PermissionError, match="INPUT_NOT_PROVEN"):
+        lane.run(path)
+
+
+@pytest.mark.parametrize("symbol,timeframe,column,stamp_column,stamp", [
+    ("BTC/USDT", "1h", "open", "timestamp", datetime(2023, 2, 6, 1)),
+    ("BTC/USDT", "1h", "close", "timestamp", datetime(2023, 2, 6, 1)),
+    ("BTC/USDT", "1d", "close", "date", date(2023, 1, 8)),
+    ("ETH/USDT", "1d", "close", "date", date(2025, 6, 1)),
+    ("BNB/USDT", "1d", "close", "date", date(2026, 2, 1)),
+])
+def test_one_changed_row_fails_the_proof_and_blocks_the_run(
+    repo, symbol, timeframe, column, stamp_column, stamp
+):
+    rewrite_after_the_manifest(repo)
+    set_price(repo, symbol, timeframe, stamp_column, stamp, column, 123.456)
+    proof = lane.prove_inputs(repo / "proof")
+    assert proof["verdict"] == "FAIL"
+    failed = [c for c in proof["checks"] if c["verdict"] == "FAIL"]
+    assert len(failed) == 1 and failed[0]["mismatched"] == 1 and failed[0]["column"] == column
+    path = lane.freeze(repo / "packet", proof_path=repo / "proof" / "input_proof.json")
+    approve(path)
+    with pytest.raises(PermissionError, match="INPUT_NOT_PROVEN"):
+        lane.run(path)
+
+
+def test_a_row_missing_from_the_reference_fails_the_proof(repo):
+    rewrite_after_the_manifest(repo)
+    path = repo / lane.RAW_DATA / "BTC_USDT" / "30m.parquet"
+    frame = pl.read_parquet(path).filter(pl.col("timestamp") != datetime(2024, 5, 5, 23, 30))
+    frame.write_parquet(path)
+    manifest = json.loads((repo / "manifest.json").read_bytes())
+    manifest["datasets"]["BTC_USDT/30m"]["sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+    (repo / "manifest.json").write_text(json.dumps(manifest))
+    proof = lane.prove_inputs(repo / "proof")
+    assert proof["verdict"] == "FAIL"
+    assert sum(c["unmatched"] for c in proof["checks"]) == 2  # the 1h close and the 1d close
+
+
+def test_a_reference_that_left_the_manifest_is_refused(repo):
+    manifest = json.loads((repo / "manifest.json").read_bytes())
+    manifest["datasets"]["BTC_USDT/30m"]["sha256"] = "0" * 64
+    (repo / "manifest.json").write_text(json.dumps(manifest))
+    with pytest.raises(ValueError, match="reference"):
+        lane.prove_inputs(repo / "proof")
+
+
+def test_a_proof_for_other_bytes_does_not_count(repo):
+    rewrite_after_the_manifest(repo)
+    lane.prove_inputs(repo / "proof")
+    proof = json.loads((repo / "proof" / "input_proof.json").read_bytes())
+    inputs = lane.input_bindings()
+    assert len(lane.proven_inputs(proof, inputs)) == 4
+    btc = f"{lane.RAW_DATA}/BTC_USDT/1h.parquet"
+    assert btc not in lane.proven_inputs(proof, {**inputs, btc: {"sha256": "1" * 64}})
+    one_check_short = {**proof, "checks": [c for c in proof["checks"] if c["column"] != "open"]}
+    assert btc not in lane.proven_inputs(one_check_short, inputs)
+
+
+def test_the_proof_stops_at_the_cutoff(repo):
+    rewrite_after_the_manifest(repo)
+    set_price(repo, "BTC/USDT", "1h", "timestamp", datetime(2026, 2, 8, 5), "close", 123.456)
+    assert lane.prove_inputs(repo / "proof")["verdict"] == "PASS"
 
 
 def test_a_fresh_packet_is_required(repo):
