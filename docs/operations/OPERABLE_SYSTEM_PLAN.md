@@ -23,7 +23,7 @@ to `TESTNET_ELIGIBLE` replaces the exerciser below; it then runs its own soak.
 | --- | --- | --- |
 | **M1 Stable schedule** | Over ≥ 48 h from the M1 start: ≥ 24 execution cycles; each has `run_completed`; 0 `run_failed`/`run_interrupted`; no gap > 2 h 15 min between execution starts; every cycle < 60 s; health check green; no manual intervention | **Running since 2026-10-29 17:41Z** (first clean headless cycle, 18 s) |
 | **M2 Observable** | `status` command + one overview page answer within 10 s: what runs, which stage, why blocked, where the evidence is | **Built, read-only** ([WORKSPACE_UI.md](WORKSPACE_UI.md)): `scripts/ops/workspace_status.py` and the page of `scripts/ops/workspace_server.py`. Passes once the operator has used it through a real failure |
-| **M3 E2E order lifecycle** | ≥ 10 complete lifecycles of the operational track, of which ≥ 3 exit by the venue stop and ≥ 3 by a sell; venue = ledger = lifecycle; 0 stuck reservations; 0 manual intervention | **Built, not enabled.** The operator signs it after M1 passes (`scripts/ops/authorize_operational_track.py`) |
+| **M3 E2E order lifecycle** | ≥ 10 complete lifecycles of the operational track, of which ≥ 3 exit by the venue stop and ≥ 3 by a sell; venue = ledger = lifecycle; 0 stuck reservations; 0 manual intervention | **Built and rehearsed offline, not enabled.** The rehearsal fixes are in the scheduled checkout; the operator signs after M1 passes (`scripts/ops/authorize_operational_track.py`) |
 | **M4 L3 soak** | 30 days, 100 lifecycles, 0 unexplained failures (`docs/LIVE_TRADING_TODO.md`) | After M3 |
 
 **M3 decision (2026-10-29): a testnet operational track.** BUY admission needs a
@@ -50,10 +50,30 @@ permission → lifecycle, ledger and reservations → stops → reconciliation.
 - Never research or promotion evidence; the driver is not in the strategy
   registry; mainnet refuses the waiver.
 
-Known risks, to be confirmed or cleared by the run itself: the daily loss limit
-reads whole-account equity (the testnet account is otherwise all cash); with
-non-zero trading fees in the base asset, a venue-filled stop would leave dust
-that the runner treats as a changed position (testnet fees are 0 today).
+**Offline rehearsal (2026-10-30, `tests/test_operational_rehearsal.py`).** The
+real runner entrypoint over 40 simulated 2 h cycles against a local venue with
+BTC, SOL and AVAX, moving prices, Binance-like filters and resting stops: 45
+lifecycles closed (26 by the track's sell, 19 by the venue stop, 0 by anything
+else), every cycle `run_completed`, venue = ledger = lifecycle after every
+cycle. Fault cases: a stop that fills while the exit cancels it is booked and the
+exit skipped; a lost BUY response is reconciled, the run fails and entries stay
+blocked while exits finish; a run killed between a fill and its stop is
+protected on the next cycle; a −30 % gap fills every stop and the loss limit
+stops entries; a quote 1.5 % off the candle fails the run before any order.
+The rehearsal found the first four incidents dated 2026-10-30 below. With the
+code the scheduler ran before these fixes, the first M3 cycle would have failed
+at its second BUY.
+
+Known risks, to be confirmed or cleared by the run itself:
+- The daily loss limit reads whole-account equity (the testnet account is
+  otherwise all cash).
+- Trading fees charged in the base asset break exits in the rehearsal
+  (`order-book quantity must be finite and positive`; root cause not analysed).
+  The testnet fills so far carry a 0 fee, so the fee rate is most likely 0.
+  The first M3 BUY confirms or refutes it.
+- A quote more than 1 % off the last closed candle fails the run before any
+  order, and the track then stays blocked until re-signed. At :01 that candle
+  closed a minute earlier, so only a late cycle in a fast market is exposed.
 
 ## Loops
 
@@ -82,3 +102,7 @@ features wait until after M2. Every incident gets one line below.
 | 2026-10-29 (E2E tests) | Producer SELL of a protected position blocked: `SELL_QUANTITY_EXCEEDS_AVAILABLE_INVENTORY` | OrderPlanner lattice `n * step` in binary exceeded the inventory (19801 × 1e-05 = 0.19801000000000002) | Lattice points rounded to the step's decimals |
 | 2026-10-29 (E2E tests) | A stop the venue filled stayed open in the canonical lifecycle | Orphan-stop cleanup cleared local state but never booked the fill | Cleanup books the fill and records `protective_stop_filled` |
 | 2026-10-29 (review) | Any canonical AVAX order would crash the whole batch | AVAX/USDT, a default runner symbol, had no instrument rules | Rules from Binance testnet filters; test that every default symbol has rules |
+| 2026-10-30 (rehearsal) | The second BUY of a batch blocked with `protection_gap`; after any BUY, every later BUY would be too | The runner placed venue stops but never gave the lifecycle protective evidence, so a protected fill stayed `PROTECTION_REQUIRED` | `ensure_protective_stop` acknowledges the protection in the lifecycle with broker or reconciliation evidence |
+| 2026-10-30 (rehearsal) | A position bought below the 48 h high was sold one cycle later (`ATR trail breached`) | The live ATR trail peaked at the 48-bar window high, bars before the entry included; the backtest trails from the entry | The trail peak counts only bars that closed after its last observation, which starts at the entry fill |
+| 2026-10-30 (rehearsal) | An exit failed the run when its stop filled during the cancel; the stop intent stayed `cancel_requested` | A failed cancel was fatal even when the venue had already closed the position | The exit books the stop fill and is not sent |
+| 2026-10-30 (rehearsal) | `daily_check` reported resting stops and the reconciliation aggregate as open lifecycle intents | Every non-terminal lifecycle aggregate counted | Stops the ledger holds as active, protection records and `reconciliation_resolved` are expected |

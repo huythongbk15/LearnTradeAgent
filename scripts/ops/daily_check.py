@@ -38,7 +38,13 @@ M3_LIFECYCLES, M3_EACH_EXIT = 10, 3
 OPERATIONAL_REASON = "OPERATIONAL_EXERCISER"
 # First clean headless cycle (task run 2026-10-29 17:41:59Z, rc=0, 18 s).
 DEFAULT_M1_START = "2026-10-29T17:41:00+00:00"
-TERMINAL_LIFECYCLE = {"exec.fill_received", "exec.order_rejected", "exec.cancel_confirmed"}
+TERMINAL_LIFECYCLE = {
+    "exec.fill_received",
+    "exec.order_rejected",
+    "exec.cancel_confirmed",
+    # The account-wide "reconciliation" aggregate after a reconciled submission.
+    "exec.reconciliation_resolved",
+}
 CYCLE_LINE = re.compile(r"^=== (\S+Z) cycle (start|end|killed by) ?(\S*)")
 PID_FIELD = re.compile(r"pid=(\d+)")
 
@@ -66,7 +72,21 @@ def wrapper_cycles(log: Path, since: datetime) -> list[dict]:
     return cycles
 
 
-def open_lifecycle_intents(accounts: Path) -> list[str]:
+def resting_stops(store) -> set[str]:
+    """Client IDs of the venue stops the ledger holds as active protection."""
+    return {
+        str(active["client_order_id"])
+        for symbol in store.state.position_risk
+        if (active := store.protective_order_state(symbol)["active"])
+    }
+
+
+def open_lifecycle_intents(accounts: Path, resting: set[str] = frozenset()) -> list[str]:
+    """Lifecycle aggregates not at a terminal event, other than expected resting stops.
+
+    A protective stop the ledger holds as active is meant to stay open, and
+    protection records (``exec.protective_order_*``) are not orders.
+    """
     stores = sorted(accounts.glob("*/events.db"))
     if len(stores) != 1:
         return [f"expected one account event store, found {len(stores)}"]
@@ -79,7 +99,13 @@ def open_lifecycle_intents(accounts: Path) -> list[str]:
         ).fetchall()
     finally:
         con.close()
-    return [f"{aid} ends at {event}" for aid, event in rows if event not in TERMINAL_LIFECYCLE]
+    return [
+        f"{aid} ends at {event}"
+        for aid, event in rows
+        if event not in TERMINAL_LIFECYCLE
+        and not event.startswith("exec.protective_order_")
+        and not (aid in resting and event == "exec.broker_acknowledged")
+    ]
 
 
 def m1_status(
@@ -259,7 +285,9 @@ def main() -> int:
     print(f"Ledger   unfinished {len(unfinished)}, locked {store.state.locked_reason}")
     if unfinished or store.state.locked_reason:
         issues.append(f"ledger: unfinished {unfinished}, locked {store.state.locked_reason}")
-    open_intents = open_lifecycle_intents(ROOT / "data" / "execution" / "accounts")
+    open_intents = open_lifecycle_intents(
+        ROOT / "data" / "execution" / "accounts", resting_stops(store)
+    )
     print(f"Lifecycle open intents {len(open_intents)}")
     issues.extend(f"lifecycle: {item}" for item in open_intents)
 

@@ -936,6 +936,7 @@
 │   ├── test_nested_wfo_evidence.py
 │   ├── test_online_methodology.py
 │   ├── test_open_inventory_accounting.py
+│   ├── test_operational_rehearsal.py
 │   ├── test_operational_track.py
 │   ├── test_order_permission.py
 │   ├── test_order_planner_context.py

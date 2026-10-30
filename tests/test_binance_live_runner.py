@@ -865,6 +865,41 @@ def test_atr_trail_forces_exit_and_persists_peak(tmp_path):
     assert widened_atr_stop == pytest.approx(100.0)
 
 
+def test_atr_trail_peak_starts_at_the_entry_not_the_window_high(tmp_path):
+    """Like the backtest's trailing_high: bars closed before the BUY never count."""
+    store = LiveRiskStateStore(tmp_path / "state.json")
+    entry = datetime(2026, 10, 30, 3, 1, tzinfo=UTC)
+    # The BUY fill observes its own price (protect_remaining_position).
+    store.observe_position_risk(
+        "BTC/USDT", quantity=0.1, observed_high=90.0, atr=5.0, atr_multiplier=2.0, now=entry
+    )
+    hour = timedelta(hours=1)
+    opened = entry.replace(minute=0)
+    states = {
+        "BTC/USDT": {
+            "state": "LONG",
+            "price": 91.0,
+            "atr": 5.0,
+            "recent_high": 110.0,
+            "bar_highs": [
+                (opened - 2 * hour, 110.0),  # closed 02:00, before the entry
+                (opened - hour, 100.0),  # closed 03:00, before the entry
+                (opened, 92.0),
+                (opened + hour, 93.0),
+            ],
+        }
+    }
+    runner.apply_atr_protection(
+        states=states,
+        positions=[{"symbol": "BTC/USDT", "qty": 0.1}],
+        store=store,
+    )
+    assert states["BTC/USDT"].get("risk_exit") is None
+    assert states["BTC/USDT"]["state"] == "LONG"
+    assert store.state.position_risk["BTC/USDT"]["peak_price"] == pytest.approx(93.0)
+    assert states["BTC/USDT"]["atr_stop"] == pytest.approx(83.0)
+
+
 class ProtectiveBroker:
     def __init__(self, *, timeout_after_accept=False):
         self.orders = {}

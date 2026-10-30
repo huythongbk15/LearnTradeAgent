@@ -154,6 +154,41 @@ def _boot_time() -> float:
     raise OSError("btime missing from /proc/stat")
 
 
+def _entrypoint(args: list[str]) -> str | None:
+    """The script or ``-m`` module a Python command line runs."""
+    rest = args[1:]
+    while rest and rest[0].startswith("-") and rest[0] != "-m":
+        rest = rest[1:]
+    if not rest:
+        return None
+    return (rest[1] if len(rest) > 1 else None) if rest[0] == "-m" else rest[0]
+
+
+def describe_process(args: list[str]) -> dict | None:
+    """What a Python command line is, from its entrypoint only (never from its paths).
+
+    A wrapper whose arguments merely mention a known name is not that process.
+    """
+    if not args or "python" not in Path(args[0]).name:
+        return None
+    entry = _entrypoint(args)
+    if entry is None:
+        return None
+    match = next(((name, flow) for token, name, flow in KNOWN_PROCESSES if token in entry), None)
+    if match is None:
+        return None
+    data = root() / "data"
+    packet = None
+    for arg in args[1:]:
+        candidate = Path(arg) if Path(arg).is_absolute() else root() / arg
+        if _under(candidate, data):
+            packet = candidate.resolve().relative_to(data.resolve()).parts[0]
+            break
+    cell = args[args.index("--worker") + 2] if "--worker" in args[:-2] else None
+    script = Path(entry).name if entry.endswith(".py") else entry.rsplit(".", 1)[-1]
+    return {"name": match[0], "flow": match[1], "script": script, "packet": packet, "cell": cell}
+
+
 def live_processes() -> list[dict]:
     """Known entrypoints alive in /proc now. Only the script and packet are shown."""
     found = []
@@ -161,7 +196,6 @@ def live_processes() -> list[dict]:
         btime, ticks = _boot_time(), os.sysconf("SC_CLK_TCK")
     except (OSError, ValueError):
         return found
-    data = root() / "data"
     for proc in Path("/proc").iterdir():
         if not proc.name.isdigit() or int(proc.name) == os.getpid():
             continue
@@ -170,28 +204,50 @@ def live_processes() -> list[dict]:
             stat = (proc / "stat").read_text()
         except OSError:
             continue
-        args = [a.decode(errors="replace") for a in args if a]
-        if not args or "python" not in Path(args[0]).name:
-            continue
-        match = next(
-            ((token, name, flow) for token, name, flow in KNOWN_PROCESSES
-             if any(token in arg for arg in args[1:])),
-            None,
-        )
-        if match is None:
+        described = describe_process([a.decode(errors="replace") for a in args if a])
+        if described is None:
             continue
         # Field 22 of /proc/<pid>/stat (start time in clock ticks after boot).
         started = datetime.fromtimestamp(btime + int(stat.rsplit(")", 1)[1].split()[19]) / ticks, UTC)
-        packet = None
-        for arg in args[1:]:
-            candidate = Path(arg) if Path(arg).is_absolute() else root() / arg
-            if _under(candidate, data):
-                packet = candidate.resolve().relative_to(data.resolve()).parts[0]
-                break
-        found.append({"pid": int(proc.name), "name": match[1], "flow": match[2],
-                      "script": Path(next(a for a in args[1:] if match[0] in a)).name,
-                      "packet": packet, "started_at": _iso(started)})
+        found.append({"pid": int(proc.name), **described, "started_at": _iso(started)})
     return sorted(found, key=lambda p: p["started_at"] or "")
+
+
+def research_runs(processes: list[dict], now: datetime) -> list[dict]:
+    """One item per research packet with live processes: which cell, how many done."""
+    by_packet: dict[str, list[dict]] = {}
+    for process in processes:
+        if process["flow"] == "research" and process["packet"]:
+            by_packet.setdefault(process["packet"], []).append(process)
+    items = []
+    for name, group in sorted(by_packet.items()):
+        packet = root() / "data" / name
+        prepared = _read_json(packet / "prepared" / "protocol.json")
+        prepared = prepared if isinstance(prepared, dict) else {}
+        cells = prepared.get("cells")
+        receipts = [_read_json(path) for path in (packet / "cells").glob("*/execution.json")]
+        failed = sum(1 for r in receipts if not isinstance(r, dict) or r.get("status") != "COMPLETED")
+        current = next((p["cell"] for p in group if p.get("cell")), None)
+        current_dir = packet / "cells" / current if current else None
+        started = min(datetime.fromisoformat(p["started_at"]) for p in group)
+        detail = (f"cell đang chạy: {current}"
+                  + (f" ({int((now - _mtime(current_dir)).total_seconds() // 60)} phút)"
+                     if current_dir and current_dir.is_dir() else "")
+                  if current else "không thấy worker nào đang chạy cell")
+        if failed:
+            detail += f" · {failed} cell không hoàn tất"
+        deadline = (prepared.get("budget") or {}).get("hard_deadline_seconds")
+        items.append(_item(
+            f"{group[0]['name']} · {name}", "error" if failed else "running",
+            detail=detail,
+            progress=_ratio(len(receipts), len(cells), "cell kế hoạch trong prepared/protocol.json")
+            if isinstance(cells, list) else _none("packet không liệt kê cell"),
+            next_step=f"hạn cuối theo budget: {_short(started + timedelta(seconds=deadline))}"
+            if isinstance(deadline, (int, float)) else "",
+            since=started, source=f"data/{name}/cells/*/execution.json",
+            pids=sorted(p["pid"] for p in group),
+        ))
+    return items
 
 
 def _under(path: Path, parent: Path) -> bool:
@@ -321,7 +377,10 @@ def books_item(base: Path) -> dict:
         store = LiveRiskStateStore(state_file, integrity_key=os.environ.get("LIVE_SAFETY_HMAC_KEY"))
         unfinished = len(store.unfinished_orders())
         locked = store.state.locked_reason
-        intents = daily_check.open_lifecycle_intents(base / "data" / "execution" / "accounts")
+        # A stop the ledger holds as active is meant to stay open at the venue.
+        intents = daily_check.open_lifecycle_intents(
+            base / "data" / "execution" / "accounts", daily_check.resting_stops(store)
+        )
     except (LiveSafetyError, OSError, ValueError) as exc:
         return _item("Sổ sách: ledger và lifecycle", "error",
                      detail=f"không đọc được: {type(exc).__name__}", source=STATE_FILE)
@@ -498,7 +557,7 @@ def doing(now: datetime | None = None) -> dict:
         "waiting": m3_waiting(m1, m3) + pending_packets() + code_items(now),
         "automatic": [cycle_job(events, cycles, now), *milestone_items(m1, m3),
                       health_item(now), books_item(base)],
-        "research_running": [p for p in processes if p["flow"] == "research"],
+        "research_running": research_runs(processes, now),
         "audit": {"error": audit_error, "health": audit_health or "OK"},
         "entries_locked": _entries_lock(events),
     }

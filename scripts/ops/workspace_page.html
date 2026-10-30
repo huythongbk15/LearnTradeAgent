@@ -112,9 +112,12 @@ function renderTop() {
 function renderDoing() {
   const d = doingData, el = document.getElementById("doing");
   if (d.error) { el.innerHTML = `<div class="err">Không đọc được: ${esc(d.error)}</div>`; return; }
-  const procs = (d.processes || []).map(p => ({title: `${p.name} · pid ${p.pid}`, state: "running",
-    detail: `${p.script}${p.packet ? " · packet " + p.packet : ""}`, progress: {kind: "none", why: p.packet ? "" : "không gắn với packet nào"},
-    since: p.started_at, source: "/proc"}));
+  // Research processes are shown once per packet (wrapper, run and worker
+  // together) with their cell progress; everything else one row per process.
+  const procs = (d.research_running || []).concat((d.processes || [])
+    .filter(p => !(p.flow === "research" && p.packet)).map(p => ({title: `${p.name} · pid ${p.pid}`, state: "running",
+    detail: p.script, progress: {kind: "none", why: "không gắn với packet nào"},
+    since: p.started_at, source: "/proc"})));
   el.className = "";
   el.innerHTML = group("Chờ bạn", d.waiting || [], "Không có việc nào chờ bạn.")
     + group("Tự động", d.automatic || [], "Không có việc tự động nào.")
