@@ -138,4 +138,4 @@ Backfill Binance Vision chưa được tải: điều khoản phân biệt nghi�
 - **Khung ngày và tuần** trong repo; tài liệu học thuật có kết quả ở horizon này.
 - **Thông tin ngoài giá** (nhóm G5–G11 của [playbook](MULTI_STRATEGY_RESEARCH_PLAN.md)), funding, perpetual, short và ML; các hướng này đang ngoài phạm vi.
 
-Đề xuất tiếp theo, chưa được duyệt và chưa chạy: [H-XSEC-01](../proposals/H_XSEC_01_RELATIVE_STRENGTH.md).
+Đề xuất tiếp theo, đã đóng băng thiết kế nhưng chưa được duyệt để chạy: [H-XSEC-01](../proposals/H_XSEC_01_RELATIVE_STRENGTH.md).
