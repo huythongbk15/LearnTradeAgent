@@ -49,7 +49,7 @@ OUTCOME_TOKENS = (
     "INCOMPLETE", "ABSTAIN", "QUALIFIED", "PASSED", "PASS", "CURRENT",
 )
 VERDICT_WORDS = (
-    "QUALIFIED", "ABSTAIN", "INCREMENT", "PASS", "FAIL", "AUTHORIZED", "APPROVAL",
+    "QUALIFIED", "ABSTAIN", "INCREMENT", "PASS", "FAIL", "AUTHORIZED", "APPROVAL", "APPROVED",
     "COMPLETE", "CLOSED", "SELECT", "REJECT", "TERMINATED", "CURRENT",
 )
 # Package roles. "core" is decided per package by what the testnet runner loads;
