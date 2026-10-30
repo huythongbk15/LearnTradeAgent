@@ -100,6 +100,7 @@
 │   │   ├── VALIDATION_REFACTOR_PLAN.md
 │   │   └── WORKSPACE_UI.md
 │   ├── proposals
+│   │   ├── H_CTX_01_MARKET_STATE.md
 │   │   ├── H_XSEC_01_RELATIVE_STRENGTH.md
 │   │   └── regime_switched_strategy_design.md
 │   ├── reference
