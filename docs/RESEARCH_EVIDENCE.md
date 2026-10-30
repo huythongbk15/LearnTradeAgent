@@ -6,6 +6,8 @@
 
 Report đầy đủ (local evidence `data/plus_context_matrix_20261029_01/RESULTS.md`) tách results, accounting, execution audit và source equivalence. Hai reference cells ETH1x giữ source cũ; mười cell mới dùng revision344febdf. Không claim qualification trên một revision tích hợp. 131 tests và AC01–15 PASS; không holdout/OOS/live. Không mở vòng retune hay campaign tiếp theo. [Tracker](CAMPAIGN_STATUS.md) là nguồn tiến độ; memo27/10 và đề xuất08/2026 dưới đây là lịch sử.
 
+Tổng hợp toàn bộ lịch sử nghiên cứu: [RESEARCH_SYNTHESIS_20261030](operations/RESEARCH_SYNTHESIS_20261030.md). Đề xuất [H-XSEC-01](proposals/H_XSEC_01_RELATIVE_STRENGTH.md) đã đóng băng thiết kế ngày 30/10/2026, chưa được duyệt để chạy.
+
 ## Memo quyết định sau các phép đo đã đóng — 27/10/2026
 
 **Bổ sung phạm vi thiết kế27/10:** user đã duyệt lập kế hoạch BTC context cho

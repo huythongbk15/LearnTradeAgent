@@ -6,6 +6,33 @@ were fragmenting the state across ~60 files.
 
 ## Current — 2026-10-30 / THINNING_DEVELOPMENT_COMPLETE (descriptive only; market otherwise paused) / PLUS_MATRIX_NO_SUPPORTED_INCREMENT
 
+### 2026-10-30 — research synthesis and H-XSEC-01 design frozen, not run
+
+DESIGN_FROZEN_NOT_RUN. No market run, no price read: data was inventoried from
+parquet footers only. [The synthesis](operations/RESEARCH_SYNTHESIS_20261030.md)
+records why nothing has qualified: signals that lose before costs, a gross edge
+about equal to costs, or too few trades. No strategy has reached
+RESEARCH_VALIDATED, and no non-test code produces promotion evidence yet.
+[H-XSEC-01](proposals/H_XSEC_01_RELATIVE_STRENGTH.md) proposes one fixed
+cross-sectional relative-strength candidate. The existing
+`cross_sectional_momentum_lo/ls` strategies are single-asset approximations;
+their 12 attempts of 09-11 produced no result.
+
+Operator decisions, same day: the research profile moves to the 13-coin weekly
+basket (runner, M1 and M3 unchanged; mainnet stays NO-GO), the holdout stays
+sealed, the forward cohort is 60 weeks, and the operator is the reviewer (same
+person in both roles, not the author, not a third party). The data-license
+question has no answer yet; the proposal does not use Binance Vision.
+
+The operator froze the design at 09:55Z, before any price was read: commit
+`52b0c069`, proposal sha256 `2393194a…`, write-once packet
+`data/xsec_01_freeze_20261030_01/`. The forward cohort runs 2026-11-02 to
+2027-12-27 and is read once, only if D1 continues. Freezing grants no authority
+to run: four of the six conditions for leaving PAUSED still have no decisive
+answer, so the market stays PAUSED and `run_authority` is NONE. Four inputs
+(BTC 1h; BTC, ETH, BNB 1d) were rewritten after the manifest freeze and differ
+from it; preflight must prove their pre-cutoff rows unchanged.
+
 ### 2026-10-30 — thinning development execution complete, descriptive only
 
 DEVELOPMENT_COMPLETE. `data/btc_thinning_execution_approved_20261030_02/` ran
