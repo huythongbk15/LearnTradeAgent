@@ -6,6 +6,19 @@ were fragmenting the state across ~60 files.
 
 ## Current — 2026-10-30 / THINNING_DEVELOPMENT_COMPLETE (descriptive only; market otherwise paused) / PLUS_MATRIX_NO_SUPPORTED_INCREMENT
 
+### 2026-10-30 — research synthesis and H-XSEC-01 proposal, not run
+
+PROPOSED_NOT_APPROVED. No market run, no price read: data was inventoried from
+parquet footers only. [The synthesis](operations/RESEARCH_SYNTHESIS_20261030.md)
+records why nothing has qualified: signals that lose before costs, a gross edge
+about equal to costs, or too few trades. No strategy has reached
+RESEARCH_VALIDATED, and no non-test code produces promotion evidence yet.
+[H-XSEC-01](proposals/H_XSEC_01_RELATIVE_STRENGTH.md) proposes one fixed
+cross-sectional relative-strength candidate. Five of the six conditions for
+leaving PAUSED have no decisive answer, so the market stays PAUSED and
+`run_authority` is NONE. The existing `cross_sectional_momentum_lo/ls` strategies
+are single-asset approximations; their 12 attempts of 09-11 produced no result.
+
 ### 2026-10-30 — thinning development execution complete, descriptive only
 
 DEVELOPMENT_COMPLETE. `data/btc_thinning_execution_approved_20261030_02/` ran

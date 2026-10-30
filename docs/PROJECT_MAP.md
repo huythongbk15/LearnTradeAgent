@@ -91,6 +91,7 @@
 │   │   ├── QWENPAW_TOOL_NAME_GUARD.md
 │   │   ├── RESEARCH_LESSONS_LEARNED_20261018.md
 │   │   ├── RESEARCH_RUN_PROTOCOL.md
+│   │   ├── RESEARCH_SYNTHESIS_20261030.md
 │   │   ├── RSI_REGIME_SWITCH_EVIDENCE_CARD.md
 │   │   ├── RSI_REGIME_SWITCH_MANIFEST.json
 │   │   ├── VALIDATION_CLOSURE_20261016.md
@@ -98,6 +99,7 @@
 │   │   ├── VALIDATION_REFACTOR_PLAN.md
 │   │   └── WORKSPACE_UI.md
 │   ├── proposals
+│   │   ├── H_XSEC_01_RELATIVE_STRENGTH.md
 │   │   └── regime_switched_strategy_design.md
 │   ├── reference
 │   │   └── EVIDENCE_ARTIFACTS.md
@@ -220,6 +222,7 @@
 │   │   ├── check_binance_testnet_health.sh
 │   │   ├── daily_check.py
 │   │   ├── run_binance_testnet_cycle.sh
+│   │   ├── run_daily_check.sh
 │   │   ├── workspace_page.html
 │   │   ├── workspace_server.py
 │   │   └── workspace_status.py
@@ -866,6 +869,7 @@
 │   ├── test_config_effective.py
 │   ├── test_context_enrichment.py
 │   ├── test_controlled_exec_result.py
+│   ├── test_daily_check.py
 │   ├── test_data_trust.py
 │   ├── test_decision_trace.py
 │   ├── test_di_adx_state_edge_contract.py
