@@ -39,8 +39,8 @@ MAX_CYCLE_SECONDS = 60.0
 M1_RUNS, M1_HOURS = 24, 48
 M3_LIFECYCLES, M3_EACH_EXIT = 10, 3
 OPERATIONAL_REASON = "OPERATIONAL_EXERCISER"
-# First clean headless cycle (task run 2026-10-29 17:41:59Z, rc=0, 18 s).
-DEFAULT_M1_START = "2026-10-29T17:41:00+00:00"
+# First clean cycle after the 13:01Z failure (2026-10-30 15:01:01Z, rc=0, 30 s).
+DEFAULT_M1_START = "2026-10-30T15:01:00+00:00"
 TERMINAL_LIFECYCLE = {
     "exec.fill_received",
     "exec.order_rejected",
