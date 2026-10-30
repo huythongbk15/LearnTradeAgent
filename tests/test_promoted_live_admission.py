@@ -76,7 +76,7 @@ def promoted_stores(tmp_path, *, state="KNOWN", fingerprint="local-fixture-forec
             updated_at=datetime.now(UTC),
         )
     )
-    config = AuthorityConfig(environment=Environment.TESTNET)
+    config = AuthorityConfig.for_environment(Environment.TESTNET)
     return (
         artifacts,
         promotions,
@@ -86,6 +86,14 @@ def promoted_stores(tmp_path, *, state="KNOWN", fingerprint="local-fixture-forec
             )
         ),
     )
+
+
+def assert_testnet_presets(config):
+    assert config.environment is Environment.TESTNET
+    assert config.exposure.max_portfolio_exposure == 0.50
+    assert config.exposure.max_single_strategy_exposure == 0.20
+    assert config.execution.max_price_age_seconds == 30.0
+    assert config.live.max_daily_loss_pct == 0.02
 
 
 def market_frame(*, sell=False):
@@ -580,6 +588,27 @@ def _testnet_args(tmp_path):
             "--audit-log", str(tmp_path / "audit.jsonl"),
         ]
     )
+
+
+def test_default_producer_carries_the_testnet_presets(tmp_path, monkeypatch):
+    promoted_stores(tmp_path)
+    install_exchange_boundary(monkeypatch, tmp_path, AccountingBroker(), market_frame())
+    built = []
+
+    class RecordingProducer(PromotedLiveAdmissionProducer):
+        def __init__(self, resolver, *, config=None):
+            super().__init__(resolver, config=config)
+            built.append(self)
+
+    monkeypatch.setattr(runner, "PromotedLiveAdmissionProducer", RecordingProducer)
+    args = _testnet_args(tmp_path)
+    args.execute = False
+
+    assert runner.run(args) == 0
+
+    assert len(built) == 1
+    assert_testnet_presets(built[0].config)
+    assert_testnet_presets(built[0].resolver.config)
 
 
 def _audit_events(tmp_path):

@@ -3241,7 +3241,7 @@ def run_locked(
                             "existing authoritative LIVE_PROMOTION_DB and LIVE_ARTIFACT_DB are required"
                         )
                     else:
-                        config = AuthorityConfig(environment=environment)
+                        config = AuthorityConfig.for_environment(environment)
                         admission_producer = PromotedLiveAdmissionProducer(
                             RuntimeStrategyResolver(
                                 config,
