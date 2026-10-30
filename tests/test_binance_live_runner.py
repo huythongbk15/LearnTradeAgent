@@ -1046,6 +1046,35 @@ def test_minimum_filter_remainder_is_persisted_as_controlled_dust(tmp_path):
     assert event["details"]["context"] == "protective_stop"
 
 
+def test_an_exit_the_market_held_back_stays_under_a_venue_stop(tmp_path):
+    store = initialized_position_store(tmp_path)
+    broker = ProtectiveBroker()
+    lifecycle, gateway = canonical_stack(tmp_path, broker)
+    states = {"BTC/USDT": {"price": 89.0, "atr_stop": 90.0}}  # trail breached
+    held = dict(
+        exits=[{"market_symbol": "BTC/USDT", "action": "SELL"}],
+        states=states,
+        positions=[{"symbol": "BTC/USDT", "qty": 0.1}],
+        broker=broker,
+        lifecycle=lifecycle,
+        gateway=gateway,
+        store=store,
+    )
+    # No stop can rest above the price, and none is resting: unprotected.
+    with pytest.raises(LiveSafetyError, match="no venue stop"):
+        runner.protect_held_back_exits(**held)
+    assert broker.place_calls == 0
+    # Not breached: the exit waits under the trail, as any held position does.
+    states["BTC/USDT"]["price"] = 95.0
+    runner.protect_held_back_exits(**held)
+    assert broker.place_calls == 1
+    assert store.protective_order_state("BTC/USDT")["active"]["stop_price"] == 90.0
+    # Breached with that stop resting: it stays as the exit.
+    states["BTC/USDT"]["price"] = 89.0
+    runner.protect_held_back_exits(**held)
+    assert (broker.place_calls, broker.cancel_calls) == (1, 0)
+
+
 def test_large_or_non_minimum_remainder_still_fails_closed(tmp_path):
     store = initialized_position_store(tmp_path)
     broker = DustRejectedBroker()

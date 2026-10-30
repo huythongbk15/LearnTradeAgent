@@ -59,7 +59,8 @@ cycle. Fault cases: a stop that fills while the exit cancels it is booked and th
 exit skipped; a lost BUY response is reconciled, the run fails and entries stay
 blocked while exits finish; a run killed between a fill and its stop is
 protected on the next cycle; a −30 % gap fills every stop and the loss limit
-stops entries; a quote 1.5 % off the candle fails the run before any order.
+stops entries; a quote 1.5 % off the candle holds back only that symbol's
+entry, or its exit, which waits one cycle under its venue stop.
 The rehearsal found the first four incidents dated 2026-10-30 below. With the
 code the scheduler ran before these fixes, the first M3 cycle would have failed
 at its second BUY.
@@ -71,9 +72,14 @@ Known risks, to be confirmed or cleared by the run itself:
   0 (maker, taker, buyer, seller; standard and tax) for BTC, SOL and AVAX
   (2026-10-30). Mainnet charges spot fees in the base asset; the dust that
   leaves is handled since 2026-10-30 (incident below) and rehearsed.
-- A quote more than 1 % off the last closed candle fails the run before any
-  order, and the track then stays blocked until re-signed. At :01 that candle
-  closed a minute earlier, so only a late cycle in a fast market is exposed.
+- Market conditions: cleared in preflight since 2026-10-30. A wide spread, a
+  quote more than 1 % off the last closed candle or stale, or a book too thin
+  for the size holds back that symbol's order for the cycle
+  (`order_held_back_by_market`; `daily_check` counts them on the M3 line); a
+  held-back exit stays under its venue stop. Bad data (a missing side, a
+  crossed or future-dated quote, a malformed book), latency and every risk
+  limit still fail the run. The re-quote just before each submission still
+  fails the run, so a market that turns within those seconds is exposed.
 
 ## Loops
 
@@ -106,4 +112,5 @@ features wait until after M2. Every incident gets one line below.
 | 2026-10-30 (rehearsal) | A position bought below the 48 h high was sold one cycle later (`ATR trail breached`) | The live ATR trail peaked at the 48-bar window high, bars before the entry included; the backtest trails from the entry | The trail peak counts only bars that closed after its last observation, which starts at the entry fill |
 | 2026-10-30 (rehearsal) | An exit failed the run when its stop filled during the cancel; the stop intent stayed `cancel_requested` | A failed cancel was fatal even when the venue had already closed the position | The exit books the stop fill and is not sent |
 | 2026-10-30 (rehearsal) | `daily_check` reported resting stops and the reconciliation aggregate as open lifecycle intents | Every non-terminal lifecycle aggregate counted | Stops the ledger holds as active, protection records and `reconciliation_resolved` are expected |
+| 2026-10-29 13:30, 14:43 | Two runs failed in preflight: book depth 0.48 < 1.25, quote deviation 1.30 % > 1 % | A market condition on one symbol failed the whole batch; under the operational track that blocks entries until re-signed | 2026-10-30: preflight holds back only that symbol's order (`MarketConditionError`), and a held-back exit keeps its venue stop |
 | 2026-10-30 (rehearsal) | With fees in the base asset, exits stopped for every symbol and later runs failed | Unsellable dust kept a breached software trail, whose forced exit skipped every other decision each cycle; a venue stop that filled but left dust was never booked, so the next BUY inherited its breached stop | Dust below the venue minimum notional has no trail and needs no stop, and orphan-stop cleanup treats it as no position (a stop still resting over it is kept) |

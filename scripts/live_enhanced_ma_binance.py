@@ -92,6 +92,7 @@ from trading_agent.execution.live_safety import (
     LiveRiskLimits,
     LiveRiskStateStore,
     LiveSafetyError,
+    MarketConditionError,
     append_live_audit_event,
     configured_entry_lock_reason,
     make_order_key,
@@ -881,6 +882,52 @@ def ensure_protective_stops(
         )
 
 
+def protect_held_back_exits(
+    *,
+    exits: list[dict],
+    states: dict[str, dict],
+    positions: list[dict],
+    broker: LiveBroker,
+    lifecycle: ExecutionLifecycle,
+    gateway: BrokerGateway,
+    store: LiveRiskStateStore,
+    limits: LiveRiskLimits | None = None,
+    audit_log_path: str | None = None,
+) -> None:
+    """Keep a venue stop under every position whose exit the market held back.
+
+    ensure_protective_stops skipped these symbols because they were exiting.
+    """
+
+    for pair in sorted({decision["market_symbol"] for decision in exits}):
+        state = states[pair]
+        stop = state.get("atr_stop")
+        if stop is None or float(stop) < float(state["price"]):
+            ensure_protective_stops(
+                states={pair: state},
+                positions=positions,
+                broker=broker,
+                lifecycle=lifecycle,
+                gateway=gateway,
+                store=store,
+                limits=limits,
+                audit_log_path=audit_log_path,
+            )
+            continue
+        # The trail is breached, so no new stop can rest below the price: the
+        # stop already on the venue is the exit until the market allows a sell.
+        active = reconcile_protective_stop(
+            pair=pair, broker=broker, store=store, audit_log_path=audit_log_path
+        )
+        if active is None:
+            raise LiveSafetyError(
+                f"exit for {pair} is held back by the market and no venue stop protects it"
+            )
+        _acknowledge_lifecycle_protection(
+            lifecycle, pair=pair, stop=active, evidence_source="RECONCILIATION"
+        )
+
+
 def _book_protective_stop_fill(
     *,
     lifecycle: ExecutionLifecycle,
@@ -1508,8 +1555,13 @@ def prepare_orders(
     store: LiveRiskStateStore,
     audit_log_path: str | None = None,
     monitor: DataTrustMonitor | None = None,
+    held_back: list[dict] | None = None,
 ) -> list[dict]:
-    """Preflight the complete batch before any order can be submitted."""
+    """Preflight the complete batch before any order can be submitted.
+
+    An order the market makes unsafe (MarketConditionError) is left out of the
+    batch and appended to ``held_back``; every other failure stops the batch.
+    """
 
     simulated_cash = float(account["cash"])
     equity = float(account["equity"])
@@ -1534,6 +1586,24 @@ def prepare_orders(
                 limits=limits,
                 monitor=monitor,
             )
+        except MarketConditionError as exc:
+            # A thin or moving testnet book would otherwise fail the whole run.
+            # The order is planned again next cycle.
+            print(f"{pair}: {decision['action']} held back by the market: {exc}")
+            if audit_log_path:
+                append_live_audit_event(
+                    audit_log_path,
+                    "order_held_back_by_market",
+                    {
+                        "symbol": pair,
+                        "side": decision["action"],
+                        "reason": decision.get("reason"),
+                        "error": str(exc)[:500],
+                    },
+                )
+            if held_back is not None:
+                held_back.append(decision)
+            continue
         except OrderConstraintError as exc:
             dust = None
             if decision["action"] == "SELL":
@@ -3346,6 +3416,7 @@ def run_locked(
             )
             return 0
 
+        held_back: list[dict] = []
         prepared = prepare_orders(
             decisions=decisions,
             broker=broker,
@@ -3356,6 +3427,7 @@ def run_locked(
             store=store,
             audit_log_path=args.audit_log,
             monitor=monitor,
+            held_back=held_back,
         )
         _audit_stage(args, "orders_planned", {"orders": len(prepared)})
         print("\nEXECUTION PLAN")
@@ -3368,6 +3440,17 @@ def run_locked(
             print("DRY-RUN complete — no orders submitted")
             return 0
 
+        protect_held_back_exits(
+            exits=[decision for decision in held_back if decision["action"] == "SELL"],
+            states=states,
+            positions=positions,
+            broker=broker,
+            lifecycle=canonical_lifecycle,
+            gateway=canonical_gateway,
+            store=store,
+            limits=limits,
+            audit_log_path=args.audit_log,
+        )
         execute_orders(
             orders=prepared,
             broker=broker,

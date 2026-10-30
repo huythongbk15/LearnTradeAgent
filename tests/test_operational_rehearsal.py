@@ -573,10 +573,47 @@ def test_fees_in_the_base_asset_leave_dust_that_never_blocks_the_track(tmp_path,
         assert rehearsal.venue.held[symbol] <= bought  # bounded by what was bought
 
 
-def test_a_quote_off_the_candle_fails_before_any_order(tmp_path, monkeypatch):
+def _held_back(tmp_path) -> list[dict]:
+    return [e["details"] for e in _audit(tmp_path) if e["event"] == "order_held_back_by_market"]
+
+
+def test_a_quote_off_the_candle_holds_back_only_that_entry(tmp_path, monkeypatch, capsys):
     rehearsal = Rehearsal(tmp_path, monkeypatch, venue=CALM)
     rehearsal.venue.ticker_skew["AVAX/USDT"] = 1.015
-    assert rehearsal.run_cycle() == 1
-    assert rehearsal.venue.fills == []
+    assert rehearsal.run_cycle() == 0
     rehearsal.check_books()
-    assert "quote deviation" in _audit(tmp_path)[-1]["details"]["error"]
+    assert sorted(f[0] for f in rehearsal.venue.fills) == ["BTC/USDT", "SOL/USDT"]
+    (held,) = _held_back(tmp_path)
+    assert (held["symbol"], held["side"]) == ("AVAX/USDT", "BUY")
+    assert "quote deviation" in held["error"]
+    rehearsal.venue.ticker_skew.clear()  # the market settles: the entry is planned again
+    rehearsal.venue.advance()
+    assert rehearsal.run_cycle() == 0
+    rehearsal.check_books()
+    assert "AVAX/USDT" in {f[0] for f in rehearsal.venue.fills if f[1] == "buy"}
+    assert set(rehearsal.outcomes()) == {"run_completed"}
+    line, issues = rehearsal.m3_line(capsys)
+    assert issues == [] and "held back by the market 1)" in line
+
+
+def test_an_exit_the_market_holds_back_keeps_its_stop_and_sells_next_cycle(
+    tmp_path, monkeypatch
+):
+    rehearsal = Rehearsal(tmp_path, monkeypatch, venue=CALM, tight_stop_every=0)
+    for _ in range(2):  # buy, then hold
+        assert rehearsal.run_cycle() == 0
+        rehearsal.check_books()
+        rehearsal.venue.advance()
+    rehearsal.venue.ticker_skew["BTC/USDT"] = 0.985  # the exit cycle: BTC's bid is off
+    assert rehearsal.run_cycle() == 0
+    rehearsal.check_books()  # BTC still held, under its venue stop
+    assert rehearsal.venue.held["BTC/USDT"] > 0
+    assert [(h["symbol"], h["side"]) for h in _held_back(tmp_path)] == [("BTC/USDT", "SELL")]
+    rehearsal.venue.ticker_skew.clear()
+    rehearsal.venue.advance()
+    assert rehearsal.run_cycle() == 0
+    rehearsal.check_books()
+    assert [(f[1], f[4]) for f in rehearsal.venue.fills if f[0] == "BTC/USDT"] == [
+        ("buy", "market"), ("sell", "market")  # sold by the track, a cycle late
+    ]
+    assert set(rehearsal.outcomes()) == {"run_completed"}
