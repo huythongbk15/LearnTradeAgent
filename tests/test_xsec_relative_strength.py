@@ -441,6 +441,14 @@ def test_no_row_at_or_after_the_cutoff_leaves_the_loader(repo):
     assert max(series.daily) == date(2026, 2, 5)
 
 
+def test_a_daily_file_with_only_a_timestamp_loads_the_same(repo):
+    before = lane.load_series("BTC/USDT")
+    path = repo / lane.RAW_DATA / "BTC_USDT" / "1d.parquet"
+    frame = pl.read_parquet(path)
+    frame.select(pl.col("date").cast(pl.Datetime("us")).alias("timestamp"), "close").write_parquet(path)
+    assert lane.load_series("BTC/USDT").daily == before.daily
+
+
 def test_an_unsorted_input_is_refused(repo):
     shutil.rmtree(repo / lane.RAW_DATA / "BTC_USDT")
     write_coin(repo, "BTC/USDT", unsorted=True)

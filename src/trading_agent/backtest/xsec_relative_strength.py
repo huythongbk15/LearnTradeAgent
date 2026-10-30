@@ -329,10 +329,17 @@ def _raw_path(symbol: str, timeframe: str) -> Path:
     return ROOT / RAW_DATA / symbol.replace("/", "_") / f"{timeframe}.parquet"
 
 
-def _require_increasing(path: Path, column: str) -> None:
+def _day(path: Path) -> pl.Expr:
+    """Rewritten daily files carry a date column; the others only a timestamp."""
+    if "date" in pl.scan_parquet(path).collect_schema().names():
+        return pl.col("date")
+    return pl.col("timestamp").dt.date().alias("date")
+
+
+def _require_increasing(path: Path, column: pl.Expr) -> None:
     stamps = pl.scan_parquet(path).select(column).collect().to_series()
     if len(stamps) == 0 or not stamps.is_sorted() or stamps.n_unique() != len(stamps):
-        raise InvalidRun(f"{path.name} is not strictly increasing in {column}")
+        raise InvalidRun(f"{path.name} is not strictly increasing in {stamps.name}")
 
 
 def load_series(symbol: str, *, cutoff: datetime = CUTOFF) -> Series:
@@ -340,18 +347,19 @@ def load_series(symbol: str, *, cutoff: datetime = CUTOFF) -> Series:
     hourly_path, daily_path = _raw_path(symbol, "1h"), _raw_path(symbol, "1d")
     naive_cutoff = cutoff.replace(tzinfo=None)
     last_full_day = (cutoff - timedelta(days=1)).date()
-    _require_increasing(hourly_path, "timestamp")
-    _require_increasing(daily_path, "date")
+    _require_increasing(hourly_path, pl.col("timestamp"))
     hourly = (
         pl.scan_parquet(hourly_path)
         .filter(pl.col("timestamp") < naive_cutoff)
         .select("timestamp", "open", "close")
         .collect()
     )
+    day = _day(daily_path)
+    _require_increasing(daily_path, day)
     daily = (
         pl.scan_parquet(daily_path)
+        .select(day, "close")
         .filter(pl.col("date") <= last_full_day)
-        .select("date", "close")
         .collect()
     )
     return Series(
@@ -417,7 +425,7 @@ def input_bindings() -> dict:
 
 def _bars(symbol: str, timeframe: str, column: str) -> pl.DataFrame:
     path = _raw_path(symbol, timeframe)
-    _require_increasing(path, "timestamp")
+    _require_increasing(path, pl.col("timestamp"))
     first = datetime.combine(FIRST_DATA_DAY, clock_time())
     return (
         pl.scan_parquet(path)
@@ -429,11 +437,12 @@ def _bars(symbol: str, timeframe: str, column: str) -> pl.DataFrame:
 
 def _daily_bars(symbol: str) -> pl.DataFrame:
     path = _raw_path(symbol, "1d")
-    _require_increasing(path, "date")
+    day = _day(path)
+    _require_increasing(path, day)
     return (
         pl.scan_parquet(path)
+        .select(day, "close")
         .filter(pl.col("date").is_between(FIRST_DATA_DAY, (CUTOFF - timedelta(days=1)).date()))
-        .select("date", "close")
         .collect()
     )
 
