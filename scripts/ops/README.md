@@ -9,9 +9,10 @@ and add a health check that alerts from Windows.
 | --- | --- | --- |
 | `run_binance_testnet_cycle.sh` | WSL, every 2 h | One `--execute` testnet cycle, unbuffered, into `logs/binance_testnet.log` |
 | `check_binance_testnet_health.sh` | WSL | `scripts/check_live_audit.py`: exit 2 when execution runs stop arriving, fail, or die without a terminal event |
-| `windows/check_health.ps1` | Windows, every 30 min | Runs the check through `wsl.exe`; raises a toast and logs to `%LOCALAPPDATA%\TradingAgent\health.log` on failure, including when WSL cannot be reached |
-| `windows/register_tasks.ps1` | Windows, once | Registers both tasks (`-WhatIf` prints them only) |
+| `windows/check_health.ps1` | Windows, every 30 min | Runs the check through `wsl.exe`; raises a toast and logs to `%LOCALAPPDATA%\TradingAgent\health.log` on failure, including when WSL cannot be reached. With `-Check`, `-Title`, `-LogName` and `-Always` it runs the daily check too |
+| `windows/register_tasks.ps1` | Windows, once | Registers the three tasks (`-Only DailyCheck` registers one alone; `-WhatIf` prints them only) |
 | `daily_check.py` | WSL, daily | Read-only report: cycles, outcomes, ledger/lifecycle consistency, M1 and M3 progress |
+| `run_daily_check.sh` | WSL, daily at 08:10 local | `daily_check.py --report logs/daily_check/<UTC date>.txt`; its one line (first issue, M1, M3) is the day's toast, logged to `%LOCALAPPDATA%\TradingAgent\daily_check.log` |
 | `authorize_operational_track.py` | WSL, by the operator | Signs, shows (`--show`) or revokes (`--revoke`) the testnet operational track |
 | `workspace_server.py` | WSL, started by the operator | Read-only page at `http://127.0.0.1:8765`: what is being done, what was done, what exists ([WORKSPACE_UI.md](../../docs/operations/WORKSPACE_UI.md)) |
 | `workspace_status.py` | WSL | The page's data as JSON: `doing`, `done` or `have` |
