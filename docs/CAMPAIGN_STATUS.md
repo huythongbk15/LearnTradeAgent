@@ -4,7 +4,36 @@ Single source of truth for the measured-accounting and campaign-publication
 work. Supersedes the per-session `*_TODO.md` files, which are gitignored and
 were fragmenting the state across ~60 files.
 
-## Current — 2026-10-30 / THINNING_EXECUTION_APPROVED_NOT_RUN (market otherwise paused) / PLUS_MATRIX_NO_SUPPORTED_INCREMENT
+## Current — 2026-10-30 / THINNING_DEVELOPMENT_COMPLETE (descriptive only; market otherwise paused) / PLUS_MATRIX_NO_SUPPORTED_INCREMENT
+
+### 2026-10-30 — thinning development execution complete, descriptive only
+
+DEVELOPMENT_COMPLETE. `data/btc_thinning_execution_approved_20261030_02/` ran
+04:03:50Z–05:17Z, 4370 s of its 23 400 s budget, under `controlled_exec`
+(rc 0). All 36 cells COMPLETED and verified. Evidence class
+EXPOSED_DEVELOPMENT_NOT_CONFIRMATION; statistical conclusion
+DESCRIPTIVE_ONLY_NO_CI_OR_EQUIVALENCE_CLAIM; not qualified, not live. The first
+approved packet `_01` never started: its source binding broke when unrelated
+`.py` commits landed after it was prepared (see its APPROVAL.md and `_02`'s).
+
+Primary metric: net return on entry notional. PLUS (own 24 h return > 0 and BTC
+24 h return > 0) against five random-thinning controls of matched intensity.
+
+| Pair | Cost | PLUS | Controls mean (min..max) | PLUS above n of 5 | PLUS marked return | PLUS max DD |
+| --- | --- | --- | --- | --- | --- | --- |
+| ETH/USDT | 1x | −0.497 % | −0.487 % (−0.525..−0.427) | 2 | −35.7 % | 36.3 % |
+| ETH/USDT | 2x | −0.810 % | −0.777 % (−0.821..−0.727) | 1 | −51.1 % | 51.6 % |
+| ETH/USDT | slip stress | −0.901 % | −0.857 % (−0.877..−0.805) | 0 | −54.8 % | 55.2 % |
+| BNB/USDT | 1x | −0.324 % | −0.358 % (−0.390..−0.313) | 4 | −23.0 % | 24.0 % |
+| BNB/USDT | 2x | −0.614 % | −0.660 % (−0.715..−0.627) | 5 | −39.2 % | 39.7 % |
+| BNB/USDT | slip stress | −0.713 % | −0.750 % (−0.787..−0.700) | 4 | −43.9 % | 44.4 % |
+
+Descriptive reading, no preregistered decision rule exists for this diagnostic:
+every arm loses at every cost. On ETH the BTC-context filter does no better
+than dropping the same share of entries at random. On BNB it loses less than
+most random controls but still loses 23–44 % of the portfolio. Nothing here
+supports an increment, a confirmation cohort or a holdout read. This result does
+not define the next step.
 
 ### 2026-10-30 — thinning execution approved on the current source, not run
 
