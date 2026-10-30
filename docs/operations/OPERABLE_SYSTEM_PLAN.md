@@ -67,10 +67,10 @@ at its second BUY.
 Known risks, to be confirmed or cleared by the run itself:
 - The daily loss limit reads whole-account equity (the testnet account is
   otherwise all cash).
-- Trading fees charged in the base asset break exits in the rehearsal
-  (`order-book quantity must be finite and positive`; root cause not analysed).
-  The testnet fills so far carry a 0 fee, so the fee rate is most likely 0.
-  The first M3 BUY confirms or refutes it.
+- Trading fees: cleared for testnet. The account reports every commission as
+  0 (maker, taker, buyer, seller; standard and tax) for BTC, SOL and AVAX
+  (2026-10-30). Mainnet charges spot fees in the base asset; the dust that
+  leaves is handled since 2026-10-30 (incident below) and rehearsed.
 - A quote more than 1 % off the last closed candle fails the run before any
   order, and the track then stays blocked until re-signed. At :01 that candle
   closed a minute earlier, so only a late cycle in a fast market is exposed.
@@ -106,3 +106,4 @@ features wait until after M2. Every incident gets one line below.
 | 2026-10-30 (rehearsal) | A position bought below the 48 h high was sold one cycle later (`ATR trail breached`) | The live ATR trail peaked at the 48-bar window high, bars before the entry included; the backtest trails from the entry | The trail peak counts only bars that closed after its last observation, which starts at the entry fill |
 | 2026-10-30 (rehearsal) | An exit failed the run when its stop filled during the cancel; the stop intent stayed `cancel_requested` | A failed cancel was fatal even when the venue had already closed the position | The exit books the stop fill and is not sent |
 | 2026-10-30 (rehearsal) | `daily_check` reported resting stops and the reconciliation aggregate as open lifecycle intents | Every non-terminal lifecycle aggregate counted | Stops the ledger holds as active, protection records and `reconciliation_resolved` are expected |
+| 2026-10-30 (rehearsal) | With fees in the base asset, exits stopped for every symbol and later runs failed | Unsellable dust kept a breached software trail, whose forced exit skipped every other decision each cycle; a venue stop that filled but left dust was never booked, so the next BUY inherited its breached stop | Dust below the venue minimum notional has no trail and needs no stop, and orphan-stop cleanup treats it as no position (a stop still resting over it is kept) |

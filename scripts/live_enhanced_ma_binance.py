@@ -436,6 +436,14 @@ def _high_since_last_observation(state: dict, record: object) -> float:
     return max(highs, default=float(state["price"]))
 
 
+def _unsellable(pair: str, notional: float) -> bool:
+    """Below the venue's minimum notional: no order can sell it."""
+    try:
+        return notional < flat_below_usd(pair)
+    except (LookupError, ValueError):  # no registered rules: never treat as dust
+        return False
+
+
 def apply_atr_protection(
     *,
     states: dict[str, dict],
@@ -448,7 +456,10 @@ def apply_atr_protection(
     for pair, state in states.items():
         position = position_map.get(pair)
         quantity = float(position["qty"]) if position else 0.0
-        if quantity <= 0:
+        # Dust the venue will not let us sell (fees in the base asset leave it)
+        # has no trail: a breach would force an exit that can never fill, and
+        # the forced path would skip every other decision, cycle after cycle.
+        if quantity <= 0 or _unsellable(pair, quantity * float(state["price"])):
             protection = store.protective_order_state(pair)
             if not protection.get("active") and not protection.get("pending"):
                 store.clear_position_risk(pair)
@@ -852,6 +863,8 @@ def ensure_protective_stops(
         ):
             continue
         stop = state.get("atr_stop")
+        if stop is None and _unsellable(pair, float(position["qty"]) * float(state["price"])):
+            continue  # dust: no stop can be placed for it, nor any sell
         if stop is None:
             raise LiveSafetyError(f"ATR stop is missing for open position {pair}")
         ensure_protective_stop(
@@ -913,17 +926,25 @@ def cleanup_orphan_protective_stops(
     store: LiveRiskStateStore,
     audit_log_path: str | None = None,
 ) -> None:
-    """Cancel recorded stops when the exchange balance no longer has a position."""
+    """Cancel recorded stops when the exchange balance no longer has a position.
 
-    held = {
-        position["symbol"]
+    Unsellable dust counts as no position: a venue stop that filled and left
+    dust (fees in the base asset) is booked and cleared like one that left
+    nothing. A stop still resting over dust is kept, never cancelled here.
+    """
+
+    nonzero = {
+        position["symbol"]: float(position.get("market_value") or 0.0)
         for position in positions
         if float(position.get("qty") or 0.0) > 0
     }
+    dust = {pair for pair, value in nonzero.items() if _unsellable(pair, value)}
+    held = set(nonzero) - dust
     for pair in managed_symbols:
         if pair in held:
             continue
         protection = store.protective_order_state(pair)
+        resting = False
         records = [protection.get("pending"), protection.get("active")]
         seen: set[str] = set()
         for record in records:
@@ -940,6 +961,9 @@ def cleanup_orphan_protective_stops(
             if result is None:
                 continue
             status = str(result.get("status") or "unknown").lower()
+            if status in {"open", "partial"} and pair in dust:
+                resting = True
+                continue
             if status in {"open", "partial"}:
                 exchange_order_id = str(result.get("id") or "")
                 if not exchange_order_id:
@@ -967,6 +991,8 @@ def cleanup_orphan_protective_stops(
                     result=result,
                     audit_log_path=audit_log_path,
                 )
+        if resting:
+            continue
         if any(isinstance(record, dict) for record in records):
             _audit_protective_event(
                 audit_log_path,

@@ -32,6 +32,7 @@ import live_enhanced_ma_binance as runner
 
 from tests.test_operational_track import KEY, authorization
 from tests.test_promoted_live_admission import install_exchange_boundary
+from trading_agent.exchanges.models import OrderConstraintError
 from trading_agent.execution.canonical.instrument_registry import get_instrument_rules
 from trading_agent.execution.live_safety import LiveRiskStateStore
 from trading_agent.execution.operational_authorization import write_authorization
@@ -248,8 +249,16 @@ class Venue:
         return Decimal(str(get_instrument_rules(symbol).qty_step))
 
     def normalize_order_amount(self, symbol, amount, *, reference_price):
+        """As CCXTAdapter.normalize_order_amount: precision, then hard filters."""
         step = self._step(symbol.pair)
-        return float((Decimal(str(amount)) / step).to_integral_value(ROUND_DOWN) * step)
+        normalized = (Decimal(str(amount)) / step).to_integral_value(ROUND_DOWN) * step
+        if normalized <= 0:
+            raise OrderConstraintError(f"amount rounds to zero for {symbol.pair}",
+                                       constraint="amount_zero")
+        if normalized * Decimal(str(reference_price)) < Decimal(str(VENUE_MIN_NOTIONAL)):
+            raise OrderConstraintError(f"order notional is below market minimum for {symbol.pair}",
+                                       constraint="minimum_notional")
+        return float(normalized)
 
     def place_order(self, order):
         symbol = order.symbol.pair
@@ -380,12 +389,15 @@ class Rehearsal:
         ) == [], where
         for symbol in SYMBOLS:
             held = self.venue.held[symbol]
+            base = symbol.split("/")[0]
             ledger = Decimal(0)
             for record in store.state.order_ledger.values():
                 if record.get("symbol") != symbol:
                     continue
                 filled = Decimal(str(record.get("filled_quantity") or 0))
                 ledger += filled if record.get("side") == "BUY" else -filled
+                # A fee charged in the base asset leaves the account with less.
+                ledger -= Decimal(str((record.get("fees") or {}).get(base) or 0))
             stopped = sum(
                 (q for s, side, q, _p, kind in self.venue.fills if s == symbol and kind == "stop"),
                 Decimal(0),
@@ -394,8 +406,11 @@ class Rehearsal:
             stops = self.venue._open_stops(symbol)
             active = store.protective_order_state(symbol).get("active")
             if float(held * self.venue.price(symbol)) >= flat_below_usd(symbol):
+                step = self.venue._step(symbol)
                 assert len(stops) == 1, f"{where}: {symbol} held {held} with stops {stops}"
-                assert Decimal(str(stops[0]["qty"])) == held, f"{where}: {symbol} stop qty"
+                # The stop covers every whole lot; a sub-lot remainder cannot be sold.
+                assert Decimal(str(stops[0]["qty"])) == (held / step).to_integral_value(ROUND_DOWN) * step, \
+                    f"{where}: {symbol} stop qty"
                 assert active and active["client_order_id"] == stops[0]["client_order_id"], where
                 # Within one lifecycle (since its BUY) the stop only tightens.
                 lifecycle = sum(1 for f in self.venue.fills if f[0] == symbol and f[1] == "buy")
@@ -535,6 +550,27 @@ def test_a_crash_past_the_daily_loss_limit_stops_entries_and_the_stops_close_out
         rehearsal.venue.advance()
     assert all("daily loss" in reason for reason in _blocked(tmp_path)[1:])
     assert len([f for f in rehearsal.venue.fills if f[1] == "buy"]) == len(SYMBOLS)
+
+
+def test_fees_in_the_base_asset_leave_dust_that_never_blocks_the_track(tmp_path, monkeypatch):
+    """Mainnet charges spot fees in the base asset: every exit leaves a sub-lot of dust."""
+    rehearsal = Rehearsal(
+        tmp_path, monkeypatch, venue={**CALM, "base_fee_rate": Decimal("0.001")},
+        tight_stop_every=0,
+    )
+    for _ in range(6):
+        assert rehearsal.run_cycle() == 0, f"cycle {rehearsal.cycle - 1} failed"
+        rehearsal.check_books()
+        rehearsal.venue.advance()
+    assert set(rehearsal.outcomes()) == {"run_completed"}
+    sold = {f[0] for f in rehearsal.venue.fills if f[1] == "sell" and f[4] == "market"}
+    assert {"BTC/USDT", "SOL/USDT"} <= sold  # the track's own exits still happen
+    dust = [e for e in _audit(tmp_path) if e["event"] == "position_dust_classified"]
+    assert dust and all(e["details"]["estimated_notional"] < 1 for e in dust)
+    # Dust joins the next lifecycle and is sold with it; it never accumulates.
+    for symbol in SYMBOLS:
+        bought = sum((f[2] for f in rehearsal.venue.fills if f[0] == symbol and f[1] == "buy"), Decimal(0))
+        assert rehearsal.venue.held[symbol] <= bought  # bounded by what was bought
 
 
 def test_a_quote_off_the_candle_fails_before_any_order(tmp_path, monkeypatch):

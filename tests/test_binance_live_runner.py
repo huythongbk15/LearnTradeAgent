@@ -838,6 +838,7 @@ def test_unknown_exchange_status_is_preserved_and_requires_intervention(tmp_path
 
 
 def test_atr_trail_forces_exit_and_persists_peak(tmp_path):
+    # 1 BTC at 90 is worth $90: a real position, not dust below the minimum notional.
     store = LiveRiskStateStore(tmp_path / "state.json")
     states = {
         "BTC/USDT": {
@@ -849,7 +850,7 @@ def test_atr_trail_forces_exit_and_persists_peak(tmp_path):
     }
     runner.apply_atr_protection(
         states=states,
-        positions=[{"symbol": "BTC/USDT", "qty": 0.1}],
+        positions=[{"symbol": "BTC/USDT", "qty": 1.0}],
         store=store,
     )
     assert states["BTC/USDT"]["state"] == "FLAT"
@@ -857,12 +858,32 @@ def test_atr_trail_forces_exit_and_persists_peak(tmp_path):
     assert store.state.position_risk["BTC/USDT"]["peak_price"] == pytest.approx(110.0)
     _, widened_atr_stop = store.observe_position_risk(
         "BTC/USDT",
-        quantity=0.1,
+        quantity=1.0,
         observed_high=110.0,
         atr=20.0,
         atr_multiplier=2.0,
     )
     assert widened_atr_stop == pytest.approx(100.0)
+
+
+def test_unsellable_dust_has_no_trail_and_needs_no_stop(tmp_path):
+    """Dust below the minimum notional (fees in the base asset) cannot force an exit."""
+    store = LiveRiskStateStore(tmp_path / "state.json")
+    store.observe_position_risk(
+        "BTC/USDT", quantity=0.0001, observed_high=110.0, atr=5.0, atr_multiplier=2.0
+    )
+    states = {"BTC/USDT": {"state": "LONG", "price": 90.0, "atr": 5.0, "recent_high": 110.0}}
+    positions = [{"symbol": "BTC/USDT", "qty": 0.0001}]  # $0.009
+    runner.apply_atr_protection(states=states, positions=positions, store=store)
+    assert states["BTC/USDT"].get("risk_exit") is None
+    assert states["BTC/USDT"]["state"] == "LONG"
+    assert states["BTC/USDT"]["atr_stop"] is None
+    assert "BTC/USDT" not in store.state.position_risk
+    # No stop can be placed for it either; that is not a missing protection.
+    runner.ensure_protective_stops(
+        states=states, positions=positions, broker=None, lifecycle=None,
+        gateway=None, store=store,
+    )
 
 
 def test_atr_trail_peak_starts_at_the_entry_not_the_window_high(tmp_path):
@@ -871,7 +892,7 @@ def test_atr_trail_peak_starts_at_the_entry_not_the_window_high(tmp_path):
     entry = datetime(2026, 10, 30, 3, 1, tzinfo=UTC)
     # The BUY fill observes its own price (protect_remaining_position).
     store.observe_position_risk(
-        "BTC/USDT", quantity=0.1, observed_high=90.0, atr=5.0, atr_multiplier=2.0, now=entry
+        "BTC/USDT", quantity=1.0, observed_high=90.0, atr=5.0, atr_multiplier=2.0, now=entry
     )
     hour = timedelta(hours=1)
     opened = entry.replace(minute=0)
@@ -891,7 +912,7 @@ def test_atr_trail_peak_starts_at_the_entry_not_the_window_high(tmp_path):
     }
     runner.apply_atr_protection(
         states=states,
-        positions=[{"symbol": "BTC/USDT", "qty": 0.1}],
+        positions=[{"symbol": "BTC/USDT", "qty": 1.0}],
         store=store,
     )
     assert states["BTC/USDT"].get("risk_exit") is None
