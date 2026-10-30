@@ -40,3 +40,12 @@ The authorization is bound to the account and to the driver source, and
 expires (14 days by default). New entries stop on their own after a failed or
 killed execution run, at the lifecycle cap, or past the daily loss limit; exits
 continue. Signing again after a review resumes them.
+
+Before signing, rehearse the track offline: the real runner over 40 simulated
+2 h cycles against a local three-symbol venue, plus fault cases (a stop that
+fills during the exit, a lost order response, a run killed before its stop, a
+crash past the loss limit, a quote off the candle). No network IO.
+
+```bash
+.venv/bin/python -m pytest tests/test_operational_rehearsal.py -m "slow or not slow"
+```

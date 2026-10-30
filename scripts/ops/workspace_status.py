@@ -377,7 +377,10 @@ def books_item(base: Path) -> dict:
         store = LiveRiskStateStore(state_file, integrity_key=os.environ.get("LIVE_SAFETY_HMAC_KEY"))
         unfinished = len(store.unfinished_orders())
         locked = store.state.locked_reason
-        intents = daily_check.open_lifecycle_intents(base / "data" / "execution" / "accounts")
+        # A stop the ledger holds as active is meant to stay open at the venue.
+        intents = daily_check.open_lifecycle_intents(
+            base / "data" / "execution" / "accounts", daily_check.resting_stops(store)
+        )
     except (LiveSafetyError, OSError, ValueError) as exc:
         return _item("Sổ sách: ledger và lifecycle", "error",
                      detail=f"không đọc được: {type(exc).__name__}", source=STATE_FILE)

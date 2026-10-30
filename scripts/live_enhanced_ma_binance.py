@@ -49,6 +49,7 @@ from trading_agent.execution.canonical import (
     BrokerSubmitResult,
     CancelEvidence,
     CancelState,
+    ProtectiveAckEvidence,
 )
 from trading_agent.execution.canonical.adapters import (
     BrokerSubmitState,
@@ -69,6 +70,7 @@ from trading_agent.execution.lifecycle.lifecycle import (
     EmergencyReduceRequest,
     ExecutionLifecycle,
     PortfolioRiskSnapshot,
+    ProtectionState,
     TrustedPrice,
     ExposureEffect,
 )
@@ -400,10 +402,38 @@ def compute_state(frame: pl.DataFrame) -> dict:
         **numeric_values,
         "trend_up": bool(last["trend_up"][0]),
         "recent_high": float(enriched["high"].tail(ATR_SL_WINDOW).max()),
+        "bar_highs": list(
+            zip(
+                enriched["timestamp"].tail(ATR_SL_WINDOW).to_list(),
+                enriched["high"].tail(ATR_SL_WINDOW).to_list(),
+            )
+        ),
         "candle_timestamp": last["timestamp"][0],
         "n_buy_24h": int((recent == 1).sum()),
         "n_sell_24h": int((recent == -1).sum()),
     }
+
+
+def _high_since_last_observation(state: dict, record: object) -> float:
+    """Highest high among the bars that closed after the trail last looked.
+
+    The trail starts at the entry, like the backtest's ``trailing_high``: a bar
+    that closed before the position existed must not raise its peak, or a
+    position opened below the window high is stopped out on the next cycle. A
+    position the trail never observed falls back to the whole window.
+    """
+    observed_at = record.get("updated_at") if isinstance(record, dict) else None
+    bars = state.get("bar_highs")
+    if not observed_at or bars is None:
+        return float(state["recent_high"])
+    since = datetime.fromisoformat(str(observed_at))
+    highs = [
+        float(high)
+        for opened, high in bars
+        if (opened if opened.tzinfo else opened.replace(tzinfo=UTC)) + timedelta(hours=1)
+        > since
+    ]
+    return max(highs, default=float(state["price"]))
 
 
 def apply_atr_protection(
@@ -427,7 +457,9 @@ def apply_atr_protection(
         peak, stop = store.observe_position_risk(
             pair,
             quantity=quantity,
-            observed_high=float(state["recent_high"]),
+            observed_high=_high_since_last_observation(
+                state, store.state.position_risk.get(pair)
+            ),
             atr=float(state["atr"]),
             atr_multiplier=ATR_SL_MULT,
         )
@@ -582,6 +614,48 @@ def reconcile_protective_stop(
     )
 
 
+def _acknowledge_lifecycle_protection(
+    lifecycle: ExecutionLifecycle,
+    *,
+    pair: str,
+    stop: dict,
+    evidence_source: str,
+) -> None:
+    """Record that a resting venue stop protects every unprotected BUY fill on ``pair``.
+
+    Without this evidence the lifecycle keeps the fill PROTECTION_REQUIRED and
+    blocks every later risk-increasing order on the account.
+    """
+    unprotected = [
+        intent_id
+        for intent_id, protection in lifecycle.state.protection_state.items()
+        if protection is ProtectionState.PROTECTION_REQUIRED
+        and getattr(lifecycle.state.order(intent_id), "symbol", None) == pair
+    ]
+    broker_order_id = str(stop.get("exchange_order_id") or "")
+    for parent in unprotected:
+        created = lifecycle.create_protective_order(
+            pair,
+            "stop_loss",
+            float(stop["stop_price"]),
+            parent_intent_id=parent,
+            metadata={"client_order_id": str(stop.get("client_order_id") or "")},
+        )
+        lifecycle.acknowledge_protective_order(
+            created.aggregate_id,
+            ProtectiveAckEvidence(
+                broker_order_id=broker_order_id,
+                broker_ack_id=broker_order_id,
+                venue="binance",
+                broker_status="open",
+                acknowledged_at=datetime.now(UTC).isoformat(),
+                protected_symbol=pair,
+                protected_quantity=float(stop["quantity"]),
+                evidence_source=evidence_source,
+            ),
+        )
+
+
 def ensure_protective_stop(
     *,
     pair: str,
@@ -644,6 +718,9 @@ def ensure_protective_stop(
         )
         if stop_is_tight_enough and quantity_matches:
             store.clear_position_dust(pair)
+            _acknowledge_lifecycle_protection(
+                lifecycle, pair=pair, stop=active, evidence_source="RECONCILIATION"
+            )
             return active
         desired_stop = max(desired_stop, active_stop)
 
@@ -705,6 +782,9 @@ def ensure_protective_stop(
                 intent_id,
                 recovered,
             )
+            _acknowledge_lifecycle_protection(
+                lifecycle, pair=pair, stop=recovered, evidence_source="RECONCILIATION"
+            )
             return recovered
         raise LiveSafetyError(
             f"protective stop update failed for {pair}; previous stop was retained"
@@ -735,6 +815,9 @@ def ensure_protective_stop(
         status="open",
         quantity=float(result.get("qty") or pending.get("quantity") or 0.0),
         stop_price=float(result.get("stop_price") or pending.get("stop_price") or 0.0),
+    )
+    _acknowledge_lifecycle_protection(
+        lifecycle, pair=pair, stop=confirmed, evidence_source="BROKER"
     )
     _audit_protective_event(
         audit_log_path,
@@ -783,6 +866,41 @@ def ensure_protective_stops(
             limits=limits,
             audit_log_path=audit_log_path,
         )
+
+
+def _book_protective_stop_fill(
+    *,
+    lifecycle: ExecutionLifecycle,
+    gateway: BrokerGateway,
+    pair: str,
+    client_order_id: str,
+    result: dict,
+    audit_log_path: str | None,
+) -> None:
+    """The venue fired the stop and closed the position: book and record the exit.
+
+    Booking the fill in the canonical lifecycle keeps the stop's intent from
+    staying open.
+    """
+    order = lifecycle.state.order(client_order_id)
+    if order is not None and order.status.value != "filled":
+        _record_reconciled_submission(
+            CanonicalExecutionService(lifecycle=lifecycle, gateway=gateway),
+            client_order_id,
+            result,
+        )
+    _audit_protective_event(
+        audit_log_path,
+        "protective_stop_filled",
+        {
+            "symbol": pair,
+            "client_order_id": client_order_id,
+            "filled_qty": float(result.get("filled_qty") or result.get("filled") or 0.0),
+            "avg_fill_price": float(
+                result.get("avg_fill_price") or result.get("average") or 0.0
+            ),
+        },
+    )
 
 
 def cleanup_orphan_protective_stops(
@@ -841,29 +959,13 @@ def cleanup_orphan_protective_stops(
                     f"orphan protective order has unknown status for {pair}: {status}"
                 )
             elif status == "filled":
-                # The venue fired the stop and closed the position. Book the
-                # fill in the canonical lifecycle so the intent does not stay
-                # open, then record the exit.
-                order = lifecycle.state.order(client_order_id)
-                if order is not None and order.status.value != "filled":
-                    _record_reconciled_submission(
-                        CanonicalExecutionService(lifecycle=lifecycle, gateway=gateway),
-                        client_order_id,
-                        result,
-                    )
-                _audit_protective_event(
-                    audit_log_path,
-                    "protective_stop_filled",
-                    {
-                        "symbol": pair,
-                        "client_order_id": client_order_id,
-                        "filled_qty": float(
-                            result.get("filled_qty") or result.get("filled") or 0.0
-                        ),
-                        "avg_fill_price": float(
-                            result.get("avg_fill_price") or result.get("average") or 0.0
-                        ),
-                    },
+                _book_protective_stop_fill(
+                    lifecycle=lifecycle,
+                    gateway=gateway,
+                    pair=pair,
+                    client_order_id=client_order_id,
+                    result=result,
+                    audit_log_path=audit_log_path,
                 )
         if any(isinstance(record, dict) for record in records):
             _audit_protective_event(
@@ -2001,14 +2103,47 @@ def execute_orders(
                     raise LiveSafetyError(
                         f"active protective order ID is missing for {pair}"
                     )
-                _cancel_canonical_order(
-                    lifecycle=lifecycle,
-                    gateway=gateway,
-                    intent_id=str(active_protective.get("client_order_id") or ""),
-                    broker_order_id=protective_exchange_id,
-                    symbol=pair,
-                    reason="hand protective stop to market exit",
-                )
+                stop_client_id = str(active_protective.get("client_order_id") or "")
+                try:
+                    _cancel_canonical_order(
+                        lifecycle=lifecycle,
+                        gateway=gateway,
+                        intent_id=stop_client_id,
+                        broker_order_id=protective_exchange_id,
+                        symbol=pair,
+                        reason="hand protective stop to market exit",
+                    )
+                except LiveSafetyError:
+                    # The venue may have fired the stop while the exit was
+                    # cancelling it; then the position is already closed.
+                    stopped = broker.get_order_by_client_id(stop_client_id, symbol)
+                    if str((stopped or {}).get("status") or "").lower() != "filled":
+                        raise
+                    _book_protective_stop_fill(
+                        lifecycle=lifecycle,
+                        gateway=gateway,
+                        pair=pair,
+                        client_order_id=stop_client_id,
+                        result=stopped,
+                        audit_log_path=audit_log_path,
+                    )
+                    store.clear_position_risk(pair)
+                    store.update_order(
+                        order_key,
+                        status="rejected",
+                        error="protective stop filled before the exit was sent",
+                    )
+                    _audit_protective_event(
+                        audit_log_path,
+                        "exit_superseded_by_protective_stop",
+                        {
+                            "symbol": pair,
+                            "protective_client_order_id": stop_client_id,
+                            "exit_client_order_id": order_key,
+                        },
+                    )
+                    print(f"  ↪ {pair}: protective stop filled first; exit not sent")
+                    continue
                 store.clear_active_protective_order(pair)
                 _audit_protective_event(
                     audit_log_path,
