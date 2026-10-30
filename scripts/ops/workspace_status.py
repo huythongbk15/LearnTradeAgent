@@ -334,36 +334,55 @@ def books_item(base: Path) -> dict:
 
 
 def pending_packets() -> list[dict]:
-    """Research packets waiting for operator approval, newest per family."""
-    families: dict[str, list[Path]] = {}
+    """Research packets waiting for the operator: to approve, or approved but not run.
+
+    Packets are grouped by their protocol ``scope`` (by name otherwise) and only
+    the newest counts: a proposal stays PENDING forever once a newer packet of the
+    same scope supersedes it, because packets are never edited.
+    """
+    scopes: dict[str, list[tuple[Path, dict]]] = {}
     for protocol in (root() / "data").glob("*/protocol.json"):
         document = _read_json(protocol)
         approval = document.get("approval") if isinstance(document, dict) else None
-        if isinstance(approval, dict) and approval.get("approval_state") == "PENDING_OPERATOR_APPROVAL":
-            family = re.sub(r"_\d{2}$", "", protocol.parent.name)
-            families.setdefault(family, []).append(protocol.parent)
+        if isinstance(approval, dict) and approval.get("approval_state"):
+            key = str(document.get("scope") or re.sub(r"_\d{2}$", "", protocol.parent.name))
+            scopes.setdefault(key, []).append((protocol.parent, document))
     items = []
-    for packets in families.values():
-        packets.sort(key=_mtime)
-        newest = packets[-1]
+    for packets in scopes.values():
+        packets.sort(key=lambda p: _mtime(p[0] / "protocol.json"))
+        newest, document = packets[-1]
+        approval = document["approval"]
+        if (newest / "execution_started.json").exists():
+            continue  # running or run: no longer waiting for the operator
         prepared = _read_json(newest / "prepared" / "protocol.json")
         cells = prepared.get("cells") if isinstance(prepared, dict) else None
-        manifest = _read_json(newest / "verification_manifest.json")
-        executed = manifest.get("market_cells_executed") if isinstance(manifest, dict) else None
         progress = (
-            _ratio(int(executed or 0), len(cells), "cell kế hoạch trong prepared/protocol.json")
+            _ratio(len(list((newest / "cells").glob("*/execution.json"))), len(cells),
+                   "cell kế hoạch trong prepared/protocol.json")
             if isinstance(cells, list) else _none("protocol không liệt kê cell")
         )
-        review = newest / "REVIEW.md"
-        items.append(_item(
-            f"Duyệt packet nghiên cứu {newest.name}", "waiting",
-            detail="packet đã chuẩn bị, chờ phê duyệt trước khi chạy"
-                   + (f"; {len(packets) - 1} bản cũ hơn cùng họ" if len(packets) > 1 else ""),
-            progress=progress,
-            next_step=f"xem {review.relative_to(root())}" if review.is_file() else "",
-            since=_mtime(newest / "protocol.json"),
-            source=f"data/{newest.name}/protocol.json",
-        ))
+        older = f"; {len(packets) - 1} packet cũ hơn cùng scope" if len(packets) > 1 else ""
+        if approval["approval_state"] == "APPROVED":
+            command = document.get("command")
+            items.append(_item(
+                f"Chạy packet nghiên cứu đã duyệt {newest.name}", "waiting",
+                detail=f"duyệt bởi {approval.get('approved_by')} lúc "
+                       f"{_short(datetime.fromisoformat(approval['approved_at']))}; chưa chạy{older}",
+                progress=progress,
+                next_step=" ".join(command) if isinstance(command, list) else "",
+                since=_mtime(newest / "protocol.json"),
+                source=f"data/{newest.name}/APPROVAL.md",
+            ))
+        elif approval["approval_state"] == "PENDING_OPERATOR_APPROVAL":
+            review = newest / "REVIEW.md"
+            items.append(_item(
+                f"Duyệt packet nghiên cứu {newest.name}", "waiting",
+                detail=f"packet đã chuẩn bị, chờ phê duyệt trước khi chạy{older}",
+                progress=progress,
+                next_step=f"xem {review.relative_to(root())}" if review.is_file() else "",
+                since=_mtime(newest / "protocol.json"),
+                source=f"data/{newest.name}/protocol.json",
+            ))
     return sorted(items, key=lambda i: i["since"] or "", reverse=True)
 
 

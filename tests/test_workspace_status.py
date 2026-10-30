@@ -108,7 +108,7 @@ def test_doing_shows_waiting_work_the_cycle_timeline_and_milestones(checkout):
     doing = ws.doing()
     (packet,) = [i for i in doing["waiting"] if i["title"].startswith("Duyệt packet")]
     assert packet["title"].endswith("thinning_pending_20261029_02")  # newest of its family
-    assert "1 bản cũ hơn" in packet["detail"]
+    assert "1 packet cũ hơn cùng scope" in packet["detail"]
     assert packet["progress"] == {"kind": "ratio", "done": 0, "total": 36,
                                   "why": "cell kế hoạch trong prepared/protocol.json"}
     (m3_sign,) = [i for i in doing["waiting"] if i["title"] == "Ký giấy phép M3"]
@@ -122,6 +122,28 @@ def test_doing_shows_waiting_work_the_cycle_timeline_and_milestones(checkout):
     health = next(i for i in doing["automatic"] if i["title"].startswith("Health"))
     assert health["state"] == "ok"
     assert doing["entries_locked"] == "operational track not authorized"
+
+
+def test_a_newer_approved_packet_supersedes_its_pending_proposals(checkout):
+    for name in ("thinning_pending_20261029_01", "thinning_pending_20261029_02"):
+        protocol = checkout / "data" / name / "protocol.json"
+        document = json.loads(protocol.read_text())
+        protocol.write_text(json.dumps({**document, "scope": "thinning-v1"}))
+    approved = checkout / "data" / "thinning_approved_20261030_01"
+    (approved / "prepared").mkdir(parents=True)
+    (approved / "prepared" / "protocol.json").write_text(json.dumps({"cells": list(range(36))}))
+    (approved / "protocol.json").write_text(json.dumps({
+        "scope": "thinning-v1", "command": [".venv/bin/python", "-m", "x", "--run", "p"],
+        "approval": {"approval_state": "APPROVED", "approved_by": "operator",
+                     "approved_at": "2026-10-30T03:53:54+00:00", "approved_scope": "s"}}))
+    (item,) = [i for i in ws.pending_packets()]
+    assert item["title"] == "Chạy packet nghiên cứu đã duyệt thinning_approved_20261030_01"
+    assert "2 packet cũ hơn cùng scope" in item["detail"] and "chưa chạy" in item["detail"]
+    assert item["next"] == ".venv/bin/python -m x --run p"
+    assert item["progress"]["done"] == 0 and item["progress"]["total"] == 36
+    # Once it starts, it is not waiting for the operator any more.
+    (approved / "execution_started.json").write_text("{}")
+    assert ws.pending_packets() == []
 
 
 def test_a_cycle_never_shows_a_percentage_and_no_denominator_means_none(checkout):

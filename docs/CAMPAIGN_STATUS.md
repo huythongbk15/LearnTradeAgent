@@ -4,7 +4,25 @@ Single source of truth for the measured-accounting and campaign-publication
 work. Supersedes the per-session `*_TODO.md` files, which are gitignored and
 were fragmenting the state across ~60 files.
 
-## Current — 2026-10-29 / MARKET_PAUSED / PLUS_MATRIX_NO_SUPPORTED_INCREMENT
+## Current — 2026-10-30 / THINNING_EXECUTION_APPROVED_NOT_RUN (market otherwise paused) / PLUS_MATRIX_NO_SUPPORTED_INCREMENT
+
+### 2026-10-30 — thinning execution approved on the current source, not run
+
+APPROVED_NOT_RUN. The operator (huythongbk15) approved the BTC thinning
+development execution at 03:53:54Z. The 10-29 proposal `_02` no longer verified
+(`preparation source mismatch`: source `5cdda1af`, 19 `src` files changed since)
+and stays untouched, as its REVIEW.md asks. A fresh proposal
+`data/btc_thinning_execution_20261030_03/` on source `bc5136fb` differs from `_02`
+only in source and fingerprint: calibration ETH 3647/4356 and BNB 3267/4325 with
+0 missing, the 36 cells, budget, design, windows, inputs and environment are
+identical. The protocol is write-once, so the approval is a separate packet
+prepared again with the same prepared fingerprint:
+`data/btc_thinning_execution_approved_20261030_01/` (scope
+`development-thinning:30e6437d…`, protocol fingerprint `d4bbd2b0…`;
+`thinning_execution.verify(approved=True)` passes). Provenance and accepted
+limits are in its APPROVAL.md: no independent release review or full remote CI,
+market data reopened for this scope only, exposed development diagnostic,
+never qualification or live evidence. Running is a separate operator decision.
 
 ### Full BASE–PLUS development matrix closed
 
