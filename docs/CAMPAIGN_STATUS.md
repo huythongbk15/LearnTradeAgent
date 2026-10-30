@@ -6,6 +6,17 @@ were fragmenting the state across ~60 files.
 
 ## Current — 2026-10-30 / THINNING_DEVELOPMENT_COMPLETE (descriptive only; market otherwise paused) / PLUS_MATRIX_NO_SUPPORTED_INCREMENT
 
+### 2026-10-30 — H-TSMOM-01: a trend filter adds no timing skill; round closes empty
+
+NOT_SUPPORTED, by criteria written before the measurement. Local evidence
+`data/xsec_03_explore_20261030_01/RESULTS.md`. On the H-XSEC-02 universes, holding
+a coin only while its 21-day return is positive: at 2x, N=13 -4.2% vs basket
+-2.4%; N=30 -9.0% vs basket -19.7%. Drawdown fell to 0.57 of the basket's, in line
+with exposure at about half, and random paths with the same exposure did as well
+(percentile 46.5 and 62.5 at zero cost). Lower risk came from investing less, not
+from timing. All four rule-based cells of this round failed. No strategy is
+improved. The market stays PAUSED.
+
 ### 2026-10-30 — H-XSEC-02: the D1 edge does not survive a rule-based universe
 
 NOT_SUPPORTED, by criteria written before any price was downloaded. Local
