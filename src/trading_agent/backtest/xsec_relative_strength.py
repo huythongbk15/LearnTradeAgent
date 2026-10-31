@@ -8,7 +8,9 @@ runtimes through the allocator, while this design compares one fixed rule with
 fixed control arms.
 
 Only the D1 screen can run here. The cutoff is a constant that ends before the
-holdout, so nothing in this module can read the holdout or the forward cohort.
+holdout. Every read of rows filters on a stored column inside the parquet scan,
+so no row at or after the cutoff leaves the reader, and the order checks see only
+the rows kept. A row group that spans the cutoff is still decoded to be filtered.
 
 Pending packets cannot run. Approval is scope control, not authentication;
 operator provenance must be reviewed outside these editable local files.
@@ -329,39 +331,40 @@ def _raw_path(symbol: str, timeframe: str) -> Path:
     return ROOT / RAW_DATA / symbol.replace("/", "_") / f"{timeframe}.parquet"
 
 
-def _day(path: Path) -> pl.Expr:
+def _day_column(path: Path) -> str:
     """Rewritten daily files carry a date column; the others only a timestamp."""
-    if "date" in pl.scan_parquet(path).collect_schema().names():
-        return pl.col("date")
-    return pl.col("timestamp").dt.date().alias("date")
+    names = pl.scan_parquet(path).collect_schema().names()
+    return "date" if "date" in names else "timestamp"
 
 
-def _require_increasing(path: Path, column: pl.Expr) -> None:
-    stamps = pl.scan_parquet(path).select(column).collect().to_series()
+def _require_increasing(path: Path, stamps: pl.Series) -> None:
+    """Takes a column cut at the seal and nowhere else: a sealed row cannot decide a run."""
     if len(stamps) == 0 or not stamps.is_sorted() or stamps.n_unique() != len(stamps):
         raise InvalidRun(f"{path.name} is not strictly increasing in {stamps.name}")
 
 
-def load_series(symbol: str, *, cutoff: datetime = CUTOFF) -> Series:
-    """Load one coin. No row at or after the cutoff leaves the parquet reader."""
+def load_series(symbol: str) -> Series:
+    """Load one coin. No row at or after the cutoff leaves the parquet reader.
+
+    Both filters run inside the scan, on stored columns, and the order checks see
+    only the rows kept. A row group that spans the cutoff is still decoded to be filtered.
+    """
     hourly_path, daily_path = _raw_path(symbol, "1h"), _raw_path(symbol, "1d")
-    naive_cutoff = cutoff.replace(tzinfo=None)
-    last_full_day = (cutoff - timedelta(days=1)).date()
-    _require_increasing(hourly_path, pl.col("timestamp"))
     hourly = (
         pl.scan_parquet(hourly_path)
-        .filter(pl.col("timestamp") < naive_cutoff)
+        .filter(pl.col("timestamp") < CUTOFF.replace(tzinfo=None))
         .select("timestamp", "open", "close")
         .collect()
     )
-    day = _day(daily_path)
-    _require_increasing(daily_path, day)
+    _require_increasing(hourly_path, hourly["timestamp"])
+    day = pl.col(_day_column(daily_path))
     daily = (
         pl.scan_parquet(daily_path)
-        .select(day, "close")
-        .filter(pl.col("date") <= last_full_day)
+        .filter(day < CUTOFF.date())
+        .select(day.cast(pl.Date).alias("date"), "close")
         .collect()
     )
+    _require_increasing(daily_path, daily["date"])
     return Series(
         daily=dict(zip(daily["date"].to_list(), daily["close"].to_list())),
         stamps=[stamp.replace(tzinfo=UTC) for stamp in hourly["timestamp"].to_list()],
@@ -425,26 +428,28 @@ def input_bindings() -> dict:
 
 def _bars(symbol: str, timeframe: str, column: str) -> pl.DataFrame:
     path = _raw_path(symbol, timeframe)
-    _require_increasing(path, pl.col("timestamp"))
     first = datetime.combine(FIRST_DATA_DAY, clock_time())
-    return (
+    bars = (
         pl.scan_parquet(path)
-        .filter(pl.col("timestamp") >= first, pl.col("timestamp") < CUTOFF.replace(tzinfo=None))
+        .filter(pl.col("timestamp") < CUTOFF.replace(tzinfo=None))
         .select(pl.col("timestamp").cast(pl.Datetime("us")), column)
         .collect()
     )
+    _require_increasing(path, bars["timestamp"])
+    return bars.filter(pl.col("timestamp") >= first)
 
 
 def _daily_bars(symbol: str) -> pl.DataFrame:
     path = _raw_path(symbol, "1d")
-    day = _day(path)
-    _require_increasing(path, day)
-    return (
+    day = pl.col(_day_column(path))
+    bars = (
         pl.scan_parquet(path)
-        .select(day, "close")
-        .filter(pl.col("date").is_between(FIRST_DATA_DAY, (CUTOFF - timedelta(days=1)).date()))
+        .filter(day < CUTOFF.date())
+        .select(day.cast(pl.Date).alias("date"), "close")
         .collect()
     )
+    _require_increasing(path, bars["date"])
+    return bars.filter(pl.col("date") >= FIRST_DATA_DAY)
 
 
 def _reference_rows(column: str, reference: tuple[str, str], *, daily: bool) -> pl.DataFrame:
@@ -471,6 +476,7 @@ def _compare(left: pl.DataFrame, right: pl.DataFrame, key: str, column: str) -> 
         "rows": left.height,
         "unmatched": joined[f"{column}_reference"].null_count(),
         "mismatched": joined.filter(differs).height,
+        "missing": right.join(left, on=key, how="anti").height,
     }
 
 
@@ -492,7 +498,9 @@ def prove_inputs(out: Path) -> dict:
             left, _reference_rows(column, reference, daily=daily),
             "date" if daily else "timestamp", column,
         )
-        passed = compared["rows"] > 0 and not (compared["unmatched"] or compared["mismatched"])
+        passed = compared["rows"] > 0 and not (
+            compared["unmatched"] or compared["mismatched"] or compared["missing"]
+        )
         checks.append({
             "input": input_path, "input_sha256": input_binding["sha256"], "column": column,
             "reference": reference_path, "reference_sha256": reference_binding["sha256"],
