@@ -81,6 +81,8 @@
 │   │   ├── CAMPAIGN_EVIDENCE_CONTRACT.md
 │   │   ├── CAMPAIGN_EVIDENCE_HANDOFF.md
 │   │   ├── CORE_RUNTIME_BOUNDARY.md
+│   │   ├── H_CTX_01_RESULTS.md
+│   │   ├── H_XSEC_01_ENGINE_NOTES.md
 │   │   ├── INTEGRATION_REVIEW_20261028.md
 │   │   ├── L2_SELECTION_RULE.md
 │   │   ├── LIVE_READINESS_AGENT_PLAN.md
@@ -99,6 +101,7 @@
 │   │   ├── VALIDATION_REFACTOR_PLAN.md
 │   │   └── WORKSPACE_UI.md
 │   ├── proposals
+│   │   ├── H_CTX_01_MARKET_STATE.md
 │   │   ├── H_XSEC_01_RELATIVE_STRENGTH.md
 │   │   └── regime_switched_strategy_design.md
 │   ├── reference
@@ -520,7 +523,8 @@
 │       │   ├── tournament.py
 │       │   ├── validation_reporting.py
 │       │   ├── validation_supervisor.py
-│       │   └── wfo_sensitivity.py
+│       │   ├── wfo_sensitivity.py
+│       │   └── xsec_relative_strength.py
 │       ├── calibration
 │       │   ├── __init__.py
 │       │   ├── evidence_hash.py
@@ -1039,7 +1043,8 @@
 │   ├── test_web_security.py
 │   ├── test_wfo_fixed_params.py
 │   ├── test_wfo_validation_envelope.py
-│   └── test_workspace_status.py
+│   ├── test_workspace_status.py
+│   └── test_xsec_relative_strength.py
 ├── webui
 │   ├── backend
 │   │   ├── __init__.py
