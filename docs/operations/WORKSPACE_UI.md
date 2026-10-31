@@ -46,6 +46,19 @@ the core, unused) with file counts; the canonical strategy ids and whether any i
 promoted; research packets (how many, how many have results, the newest);
 environments (scheduled, code only, locked).
 
+## Module map
+
+The page's first section is a map of the process modules: the testnet cycle, the
+health and daily checks, data, the research flows and the qualification path,
+with the human gates between them. It shows the milestones, what is blocked and
+who can clear it, then one card per module.
+
+The map's shape is declared in `workspace_page.html`. Every state on it comes from
+`/api/doing` and `/api/have`, so it needs no new process, port or event. The lines
+are declarations and start nothing: only the clock starts a module, and only a
+person opens a gate. The map shows gates and their state, never a command or a
+button.
+
 ## Rules
 
 - A percentage is shown only against a denominator fixed in advance (24 M1

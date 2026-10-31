@@ -339,3 +339,12 @@ def test_the_page_shows_nothing_green_when_it_cannot_read():
     assert 'doingData.entries_known ? chip("ok", "Mua được phép") : chip("unknown", "Mua: không rõ")' in page
     assert 'chip("unknown", "Không đọc được")' in page
     assert 'esc(d.error)}</div>`; renderTop(); return;' in page
+
+
+def test_the_module_map_is_read_only():
+    page = workspace_server.PAGE.read_text(encoding="utf-8")
+    assert 'id="map"' in page and "function moduleCards" in page
+    # Gates are shown, never opened from here.
+    for control in ("<form", "<input", 'method="post"', "authorize_operational_track", "onclick="):
+        assert control not in page
+    assert page.count('fetch(`/api/${section}`') == 1 and "fetch(" not in page.replace('fetch(`/api/${section}`', "")
