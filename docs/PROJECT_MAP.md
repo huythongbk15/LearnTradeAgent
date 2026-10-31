@@ -96,6 +96,7 @@
 │   │   ├── RESEARCH_SYNTHESIS_20261030.md
 │   │   ├── RSI_REGIME_SWITCH_EVIDENCE_CARD.md
 │   │   ├── RSI_REGIME_SWITCH_MANIFEST.json
+│   │   ├── SHORT_SIDE_RESULTS_20261031.md
 │   │   ├── VALIDATION_CLOSURE_20261016.md
 │   │   ├── VALIDATION_REFACTOR_AGENT_PLAYBOOK.md
 │   │   ├── VALIDATION_REFACTOR_PLAN.md
@@ -174,6 +175,7 @@
 │   ├── S7_OPERATIONAL_EVIDENCE_RUNBOOK.md
 │   ├── SECURITY.md
 │   ├── STRATEGY_SIGNOFF_P2PHASE4.md
+│   ├── SYSTEM_OVERVIEW.md
 │   └── getting-started.md
 ├── drivers
 │   ├── mcp

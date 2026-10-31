@@ -1,5 +1,15 @@
 # Multi-Strategy WFO Evidence — 2026-09-05
 
+> **HISTORICAL, superseded. Correction dated 2026-10-31.** This page approves nothing. No strategy won, and none has reached `RESEARCH_VALIDATED` ([tracker](../CAMPAIGN_STATUS.md), [research synthesis](../operations/RESEARCH_SYNTHESIS_20261030.md)). The text below is kept as written on 2026-09-05. Paths under `data/` are local evidence.
+>
+> - **Not a real gate result.** `FINAL_PASS` came from `scripts/aggregate_wfo_cells.py` (since removed), not from nested WFO. Its gates are medians over grid cells, "PBO" is the share of cells with negative Sharpe, and "DSR" is mean/std × √n, which is not a Deflated Sharpe, so the 6.63 below is not a probability. These cells were never scored under the current 20-gate contract.
+> - **12/13 is not a pass.** That tool returns `FINAL_PASS` only when every gate passes. `data/backtests/wfo_parallel_summary_enhanced_ma/wfo_decision.json` now reads 13/13 because the same cells were re-aggregated at 16:55Z from a clean checkout. That gate checks the aggregator's checkout, not the run (cells `c6e5fe55`, decision `b2595225`).
+> - **One configuration, not 12.** In every fold and cost, all 12 parameter sets gave the same result, so the 252 cells are 21 measurements. Until `7bfbebd1` (2026-09-15) `run_cell` built the signal adapter with empty parameters, so the grid never reached the signals. The cells traded the class defaults, fast 20 / slow 80 / ADX 25. The 15 / 50 / 40 shown in each report's `active_config` did not drive entries: all 63 entries at 1x fall two bars after a 20 / 80 / 25 crossover, and only 1 fits 15 / 50 / 40. The sample is 63 trades over 7 folds at 1x; 756 is 12 copies of that. The `ma_adx`, `rsi` and `bbands` grids show the same effect, for the same reason.
+> - **Figures.** The headline medians are 1x only, not 252 cells. The per-cost table does not match the cells: median Sharpe is 1.19 / 0.87 / 0.78 at 1x / 2x / slip_stress. Fold medians at 1x run from −3.26 to +2.58.
+> - **Evidence left out.** The BTC 1h rerun (step 2 of section 5) ended `NO_TRADE` 3/13 the same day (`data/backtests/wfo_parallel_summary_enhanced_ma_btc/wfo_decision.json`). The ETH 1h cells (`data/backtests/wfo_parallel_enhanced_ma_eth/`) were never aggregated into a decision. On the runner's parameters, which are not the ones these cells traded, Enhanced MA had already been rejected on 2026-08-11 (`data/live_strategy_evidence.rejected.json`; [research synthesis](../operations/RESEARCH_SYNTHESIS_20261030.md), section 2). Those folds reach into the holdout, so their figures are not repeated here.
+> - **Older pipeline.** All cells also predate `a65ed290` (2026-09-10). That fix did not touch the `enhanced_ma` path, so it does not explain the results above.
+> - **No path to live.** The "To promote to live" steps in section 5 have no code path.
+
 > **Winner: enhanced_ma** | **Verdict: FINAL_PASS (12/13 gates)**
 
 ## 1. Campaign matrix

@@ -1,6 +1,8 @@
 # Trading Agent System — RUNBOOK (Local-First)
 
 > Hướng dẫn vận hành cho môi trường LOCAL (WSL/Linux), không VPS, không SSH, không GitHub Actions staging.
+>
+> **Hiệu đính 2026-10-31.** Trang này tả stack Docker Compose + cron, không phải cách runner đang chạy. Runner Binance testnet chạy bằng Windows Task Scheduler: xem [scripts/ops/README.md](../scripts/ops/README.md) và [Operable plan](operations/OPERABLE_SYSTEM_PLAN.md). `scripts/crontab_local.txt` không có trong repo. `execution run` hiện in thông báo deprecated rồi dừng với TypeError, nên các lệnh dùng nó trong trang này không chạy.
 
 ---
 

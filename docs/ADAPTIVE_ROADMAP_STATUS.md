@@ -1,6 +1,8 @@
 # Trạng thái Adaptive Strategy Selection & Routing
 
 > Đọc [Core System](CORE_SYSTEM.md) và [Documentation Map](DOCUMENTATION_MAP.md) trước. File này là status/evidence record cho adaptive roadmap, không phải mô tả tổng quát của hệ thống.
+>
+> **Hiệu đính 2026-10-31.** Đây là ảnh chụp 2026-08-31 của code và test, không phải trạng thái vận hành. "Đã hoàn thành" ở S4–S6 nghĩa là có code và test, chưa chạy với bằng chứng thật. Mục "Quyết định phát hành" không còn mô tả cái gì đang được phép: `data/promotion_store/` không còn policy nào (2.690 policy trước đó mang điểm fixture và đã bị cách ly, xem [POLICY_RETURN_AUDIT](../POLICY_RETURN_AUDIT.md)); runner Binance không nạp `adaptive_router` hay selection policy; ngoài test không code nào gọi `ResearchLifecycle.promote`, nên chưa strategy nào đi qua ladder. `PolicyActivationService.advance_stage()` không gọi `ResearchLifecycle`: với policy `VALIDATED`, nó nhận bất kỳ `evidence_ids` khác rỗng và chỉ chặn nhảy stage; ngoài định nghĩa của nó, trong `src` và `scripts` không có lời gọi nào. Xem [System Overview](SYSTEM_OVERVIEW.md).
 
 **Ngày rà soát:** 2026-08-31
 **Phạm vi:** S4 (selection/promotion), S5 (runtime routing), S6 (shared capital), S7 (shadow/testnet/canary)
@@ -121,6 +123,8 @@ Các mục code còn mở có chủ đích:
   mới dùng `ResearchLifecycle` canonical và không được dùng state machine cũ cho release.
 
 ## Quyết định phát hành
+
+> **Ghi chú 2026-10-31.** Các dòng dưới viết ngày 2026-08-31 cho phần code, không mô tả một đường đang chạy. Runner testnet không import `selection_policy`, `adaptive_router`, `strategy_tournament` hay `approval`. `SelectionPolicyBuilder.from_wfo_result()` đòi WFO qua hard gates, promotable và holdout `COMPLETED`; chưa nested WFO nào qua hard gates, nên hiện chưa có đầu vào hợp lệ. Router cũng chưa có gì để chọn: chưa strategy nào đạt `RESEARCH_VALIDATED`.
 
 - **Research / replay / paper:** có thể sử dụng adaptive policy/router sau khi policy được ký và evidence được kiểm tra.
 - **Testnet / shadow:** cho phép chạy theo promotion gate, nhưng phải thu thập evidence thực tế ở trên.

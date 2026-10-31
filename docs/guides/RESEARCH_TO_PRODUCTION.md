@@ -7,6 +7,8 @@ This guide is the end-to-end route for evaluating and promoting strategy logic.
 It deliberately separates available tooling from stages that still require a
 closed exit gate.
 
+> **Correction 2026-10-31.** Steps 1-4 have tooling in the repository; this note did not re-run them. Step 5 has been attempted as nested walk-forward validation, and no strategy passed it. Steps 6-8 have never run for a strategy: no code outside tests turns a passed run into promotion evidence, and the scheduled runner cannot take a promoted strategy without further wiring. Research packets use `scripts/run_wfo_parallel.py` under the [Research Run Protocol](../operations/RESEARCH_RUN_PROTOCOL.md). The `--tail-bars` commands in steps 1 and 3 have no holdout check, so the last bars of a file can sit inside the [frozen holdout](../RESEARCH_HOLDOUT.md). Use them to test the path, not for a research decision.
+
 **Tiếng Việt:** [Từ nghiên cứu đến vận hành strategy](../vi/NGHIEN_CUU_DEN_VAN_HANH.md)
 
 ## 1. Establish a reproducible baseline
@@ -143,17 +145,17 @@ Required controls:
 - expiry/revocation/rollback information;
 - explicit abstain behavior.
 
-## 7. Validate shadow, paper, testnet and canary
+## 7. Validate paper, testnet, shadow and canary
 
 Advance one environment at a time:
 
 ```text
 research evidence
-  → shadow decisions (no orders)
-  → internal paper execution
-  → broker testnet/paper
-  → constrained canary
-  → production eligibility
+  → internal paper execution (PAPER_ELIGIBLE)
+  → broker testnet (TESTNET_ELIGIBLE)
+  → shadow decisions, no orders (SHADOW_ELIGIBLE)
+  → constrained canary (CANARY_ELIGIBLE, CANARY)
+  → production eligibility (PRODUCTION)
 ```
 
 At every boundary compare expected decisions, actual orders, fills, costs, rejects,

@@ -1,7 +1,8 @@
 # Research Methodology and Evidence Policy
 
-Status as of 2026-08-17: methodology is implemented and unit tested; no strategy
-has earned production status. Mainnet remains **NO-GO**.
+Status as of 2026-08-17, corrected against the code on 2026-10-31: methodology is
+implemented and unit tested; no strategy has earned production status. Mainnet
+remains **NO-GO**.
 
 ## Canonical research path
 
@@ -25,9 +26,15 @@ MarketObservation -> ForecastStrategy -> Forecast -> ForecastRiskPolicy
 ```
 
 The strategy receives only `MarketObservation` and returns a frozen `Forecast`.
-Research, backtest, paper, testnet and shadow use the same strategy/risk pipeline;
-their adapters only publish or execute the already-governed decision. Legacy
-DataFrame strategies remain for compatibility but are not the production contract.
+The target is that research, backtest, paper, testnet and shadow use one
+strategy/risk pipeline, with adapters that only publish or execute the
+already-governed decision. That is not yet true end to end. Research cells run
+`tournament.run_cell` and `FullSystemSimulator`, with fills at k+2, a fixed 5%
+stop and a 25% position cap. The Binance testnet runner
+(`scripts/live_enhanced_ma_binance.py`) computes its state by calling the legacy
+`EnhancedMaCrossover` directly, on a 2-hour cycle, with a 2×ATR trailing stop. The
+effect of these differences has not been measured on real data. Legacy DataFrame
+strategies remain for compatibility but are not the production contract.
 An unimplemented legacy plugin adapter raises explicitly and cannot silently emit
 an empty signal list.
 
@@ -47,6 +54,10 @@ Sharpe, drawdown, volatility and return are computed from the resulting return
 series, not from rank correlation. Annualization is derived from timeframe and
 forward horizon. Cost stress and OOS objective use net results.
 
+This accounting is `alpha_research/methodology.py` and serves the alpha-research
+pipeline. The `nested_wfo` gates do not use it. Their metrics come from the
+`FullSystemSimulator` report, built from simulated fills and the equity curve.
+
 ## Leakage controls and model selection
 
 - Robust center/scale and sign are fit on train only, then frozen for validation/test.
@@ -55,10 +66,19 @@ forward horizon. Cost stress and OOS objective use net results.
 - Each outer test fold is evaluated once after selection.
 - The composite is an equal-weight mean of selected, train-standardized factors;
   no grade-string ordering or unverified learned weighting is used.
-- PBO/CSCV operates over the full searched trial space.
-- Effective trial counts come from the append-only SQLite experiment registry;
-  callers cannot reduce multiplicity with a manual number.
-- The final holdout manifest stays immutable and cannot be used for iterative tuning.
+- In `alpha_research/methodology.py`, PBO/CSCV runs over every alpha candidate
+  searched in that run.
+- In `nested_wfo`, PBO/CSCV runs over the validation return columns of the current
+  run's candidates, where a candidate is one parameter set under one cost scenario.
+  Earlier runs are in neither matrix.
+- The `nested_wfo` DSR gate takes its trial count from the append-only SQLite
+  experiment registry, scoped to the current run's candidate IDs, so it does not
+  carry the project's wider search history. The validation packets of 24-27 October
+  2026 record 3, and one records 9.
+- `alpha_research.stats.summarize_sharpe` still accepts a manual `trials` value.
+  `scripts/generate_live_strategy_evidence.py` uses it through `--trials`, default
+  8000, and `live_safety.py` does not check that count.
+- The final holdout manifest must stay immutable and must not be used for iterative tuning. (Correction 2026-10-31: this is a rule, not a guarantee. The manifest was regenerated once on 2026-09-06, among research runners only nested WFO calls the guard, and the window has been scored; see [RESEARCH_HOLDOUT.md](RESEARCH_HOLDOUT.md).)
 
 ## Provenance
 
@@ -131,6 +151,12 @@ EXPLORATORY
 Stages cannot be skipped. Promotion accepts only immutable, content-addressed
 `EvidenceArtifact` records whose subject, source, payload and validator match their
 hash. Boolean assertions such as `artifact_ok=True` are forbidden.
+
+This rule describes `ResearchPromotionGate` and `ResearchLifecycle.promote` in
+`trading_agent.research.promotion`. No code outside tests builds an
+`EvidenceArtifact` or calls `promote` for a strategy, so the ladder has not run on
+a real candidate. `PromotionStateStore.upsert_from_event` does not check evidence
+or stage order, so the rule holds at that store by convention only.
 
 | Target | Required evidence |
 | --- | --- |

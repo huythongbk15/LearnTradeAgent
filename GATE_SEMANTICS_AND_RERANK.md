@@ -29,6 +29,8 @@ Power of the gate at p≤0.10:
 
 **Decision: p ≤ 0.20, with n as the stated binding constraint.**
 
+> **Correction, 2026-10-31.** This decision never reached the gate. `cost_clearing_folds_above_chance_p_le_010` has used p ≤ 0.10 since it was added in `98a06583`, and it still does (`nested_wfo.py`, `native_gate_contract.py`). The threshold in force is 0.10, so n=10 needs 8/10, not 7/10. The p=0.20 text below records a decision the gate did not adopt; only research scripts carry that value (`scripts/rerank_registry.py`, `scripts/plan_window_structure.py`, `scripts/probe_registry_window_density.py` and the retired `scripts/build_campaign_policy.py`). The re-rank in section A was computed at p ≤ 0.20. Its verdicts do not change at 0.10, because no p in that table is at or below 0.20.
+
 `scripts/spread_gate_threshold_options.py` shows p is not the lever at
 n=14 — 0.10, 0.15 and 0.20 all demand the same 10/14. p=0.20 earns its
 place at n=10, where it asks 7/10 instead of 8/10 and lifts power for a
@@ -103,6 +105,8 @@ strategy question asked so far: the 104-cell BTC campaign, the 852-cell
 enhanced_ma review, and the sign-off's 252-cell SOL run are three
 measurements that would not agree with each other if rerun under a
 different campaign configuration.
+
+> **Correction, 2026-10-31.** The `wfo_parallel*` cells in these tables did run. What those campaigns share is recorded in the dated note at the top of [CAMPAIGN_REPRODUCIBILITY_ROOT_CAUSE.md](CAMPAIGN_REPRODUCIBILITY_ROOT_CAUSE.md).
 
 This is the same failure shape as the rest of the investigation, one level
 up. The earlier cases were a check that could pass without the thing being

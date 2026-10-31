@@ -19,7 +19,7 @@ giúp con người điều hướng; identity phải đến từ nội dung cano
 | `EvaluationArtifact` | Tournament cell | Index/selector | Evidence của một cell và trạng thái `COMPLETED`/`FAILED` |
 | Tournament index | Tournament CLI | Selector/reviewer | Kiểm kê không bỏ sót cell |
 | Selection policy | Statistical selector | Router | **MỤC TIÊU:** eligible mapping, uncertainty và abstain rule |
-| `PromotionRecord` | Promotion workflow | Runtime resolver | Cho phép artifact ở một environment/stage |
+| `PromotionRecord` | **MỤC TIÊU:** chưa có promotion workflow. Ngoài test chỉ `FullSystemSimulator` ghi bản ghi này, vào store riêng của từng cell, và runner không đọc chúng | Runtime resolver | Cho phép artifact ở một environment/stage |
 | `RoutingDecision` | Runtime router | Risk/audit | **MỤC TIÊU:** regime, incumbent, candidate và reason |
 | Trade attribution | Fill/ledger analytics | Monitoring/research | **MỤC TIÊU:** alpha, portfolio và execution cost attribution |
 

@@ -2,6 +2,8 @@
 
 > Cập nhật: 2026-08-26 · Commits: `40c5c29` (engine) · `17efa98` (snapshot injection + phasing + reservations + parity) · `5df8360`/`3a46813` (actual-fill safety guards + permanent rejection drop)
 >
+> **Phạm vi (đính chính 2026-10-31).** Tài liệu này chỉ nói về `PortfolioBacktestEngine`. Ngoài test, chưa code nào gọi engine này, nên không cổng nghiên cứu nào lấy số từ đây. Số liệu của `nested_wfo` và các packet validation đến từ `tournament.run_cell` và `FullSystemSimulator`, có đường fill khác: tín hiệu canonical khớp ở k+2 (k là nến đóng cuối cùng mà tín hiệu đọc, nên muộn hơn G2 một nến), stop ghi theo giá thấp nhất của nến. H-XSEC-01 và evidence mainnet dùng bộ đánh giá riêng. Trong trang này, "live" là `MultiPairRuntime` (`trading-agent execution run-promoted`), không phải runner chạy theo lịch. G9 so `MultiPairRuntime` với engine này. Runner testnet Binance (`scripts/live_enhanced_ma_binance.py`) không dùng `MultiPairRuntime`, nên G9 và parity test §8 không áp dụng cho runner đó.
+>
 > **Nguyên tắc số 1:** Backtest CHỈ thay "broker + clock". KHÔNG BAO GIỜ thay decision authority. Mọi quyết định trong backtest đi qua đúng chuỗi authority như live — đây là điều kiện tiên quyết để kết quả backtest có ý nghĩa với live.
 
 ---
@@ -112,10 +114,10 @@ Không dùng mark-to-market xấp xỉ — identity này bắt buộc khớp t�
 
 | # | Guarantee | Cơ chế | Test |
 |---|-----------|--------|------|
-| G1 | **No lookahead** — signals chỉ dùng bars closed ≤ t | `slice_upto(t)`; gate yêu cầu ≥ 2 closed bars | `test_no_lookahead*` |
-| G2 | **Earliest fill t+1** — fill tại OPEN của bar mở SAU decision instant | `clock.fill_for(binding, decision_time, now)`: first bar `open_ts >= dt AND close_ts <= now` | `test_buy_fills_at_next_bar_open` |
-| G3 | **Shared capital pool** — N pair dùng chung 1 cash ledger | `HistoricalSimulationBroker.cash` duy nhất | `test_shared_capital_pool` |
-| G4 | **Determinism** — chạy lại cho kết quả giống hệt | Không randomness: fee/slip bps cố định, adverse slippage, sort ổn định | `test_permutation_determinism`, `test_replay_identical` |
+| G1 | **No lookahead** — signals chỉ dùng bars closed ≤ t | `slice_upto(t)`; gate yêu cầu ≥ 2 closed bars | `test_single_binding_full_ledger_math_and_no_lookahead`, `test_signal_uses_closed_bar_not_forming_bar` |
+| G2 | **Earliest fill t+1** — fill tại OPEN của bar mở SAU decision instant | `clock.fill_for(binding, decision_time, now)`: first bar `open_ts >= dt AND close_ts <= now` | `test_single_binding_full_ledger_math_and_no_lookahead` |
+| G3 | **Shared capital pool** — N pair dùng chung 1 cash ledger | `HistoricalSimulationBroker.cash` duy nhất | `test_two_symbols_share_one_pool_under_caps` |
+| G4 | **Determinism** — chạy lại cho kết quả giống hệt | Không randomness: fee/slip bps cố định, adverse slippage, sort ổn định | `test_binding_permutation_produces_identical_results`, `test_replay_produces_identical_result` |
 | G5 | **Idempotent queuing** — duplicate idempotency_key bị bỏ qua | `broker.queue()` check `_seen_keys` | unit test |
 | G6 | **Never negative cash** — aggregate actual fills không thể âm cash | Cash guard sequential theo phase order (§6) | `TestBrokerFillSafetyGuards` |
 | G7 | **No synthetic proceeds** — SELL không thể bán quá inventory thực | Inventory guard cap at held qty (§6) | `test_oversized_sell_*` |
@@ -347,7 +349,7 @@ broker.reserved_inventory("BTC/USDT")
 
 ## 10. Ma trận kiểm thử
 
-File: `tests/test_portfolio_backtest.py` (14 tests)
+File: `tests/test_portfolio_backtest.py` (18 tests)
 
 | Class | Tests | Phủ gì |
 |---|---|---|
@@ -355,7 +357,7 @@ File: `tests/test_portfolio_backtest.py` (14 tests)
 | `TestBrokerPhaseAndReservations` | 3 | §4 phasing; §5 reservations; snapshot reflection |
 | `TestBrokerFillSafetyGuards` | 4 | §6 guards: gap-up, oversized sell, multi-BUY aggregate, reservation undershoot |
 | `TestBrokerRejectionDrop` | 4 | §6.3 permanent-drop guarantees R1–R4 |
-| *(core engine tests)* | 1+ | no-lookahead, earliest-t+1, shared cap, determinism, replay, per-symbol identity |
+| `TestN1Parity`, `TestSharedCapitalMultiPair`, `TestDeterminism` | 5 | no-lookahead, earliest-t+1, shared cap, determinism, replay, per-symbol identity |
 
 Trạng thái suite: **1085 passed / 9 skipped**, ruff clean.
 

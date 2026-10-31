@@ -9,7 +9,7 @@
 | Strategy | `ma_adx` |
 | Symbol | `SOL/USDT` |
 | Timeframe | 1h |
-| Param combos | 9 (fast_ma × slow_ma × adx_period × adx_threshold) |
+| Param combos | 9 (fast_ma × slow_ma × adx_period × adx_threshold). Correction 2026-10-31: all 9 gave identical results in every fold and cost, because `run_cell` built signals with empty parameters until `7bfbebd1` (2026-09-15); one configuration was measured |
 | Cost scenarios | 3 (1x, 2x, slip_stress) |
 | Outer folds | 7 (2 dropped per STR-0309) |
 | **Total cells** | **189** (9 × 3 × 7) |

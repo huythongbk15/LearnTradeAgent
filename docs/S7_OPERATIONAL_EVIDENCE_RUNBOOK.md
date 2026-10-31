@@ -3,6 +3,8 @@
 Tài liệu này mô tả cách đóng các gate S7 bằng dữ liệu vận hành thật. Không dùng
 fixture, số liệu tổng hợp hoặc chỉnh tay payload để thay thế log gốc.
 
+> **Ghi chú 2026-10-31.** Đây là hợp đồng của evidence, chưa có công cụ thực hiện: ngoài test, không code nào tạo `EvidenceArtifact` hay gọi `ResearchLifecycle.promote`, đường duy nhất tới `ResearchPromotionGate`. Thang hiện có một vòng lặp: `TESTNET_ELIGIBLE` cần `REALITY_GAP` có nguồn testnet hoặc shadow, trong khi bậc trước đó không tạo được evidence này. Lifecycle của track vận hành (M3) không tính làm evidence ở đây.
+
 ## 1. Nguyên tắc bất biến
 
 - Mỗi evidence gắn với đúng `subject_artifact_id`, release commit và image digest.

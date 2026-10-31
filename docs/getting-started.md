@@ -1,37 +1,37 @@
 # ⚡ Quick Start
 
-> 10 lệnh để trải nghiệm toàn bộ hệ thống (Phase 0 → 3).
+> 10 lệnh để thử CLI. Không lệnh nào trong 10 lệnh này đặt lệnh giao dịch: hiện không có strategy nào được promote. Đường đang vận hành xem [System Overview](SYSTEM_OVERVIEW.md).
 
 ```bash
 # 1. Cài đặt
-poetry install
+pip install -e ".[dev,web,infra]"
 
 # 2. Fetch dữ liệu Bitcoin
-poetry run trading-agent data fetch BTC/USDT --since 2026-07-01
+trading-agent data fetch BTC/USDT --since 2026-07-01
 
 # 3. Kiểm tra dữ liệu
-poetry run trading-agent data inspect BTC/USDT
+trading-agent data inspect BTC/USDT
 
 # 4. Chạy backtest
-poetry run trading-agent backtest run ma_crossover BTC/USDT
+trading-agent backtest run ma_crossover BTC/USDT
 
 # 5. Phân tích multi-agent
-poetry run trading-agent agents analyze BTC/USDT
+trading-agent agents analyze BTC/USDT
 
 # 6. Check portfolio
-poetry run trading-agent execution status
+trading-agent execution status
 
-# 7. Full cycle: agents → trade
-poetry run trading-agent execution run BTC/USDT
+# 7. `execution run`: đường agents → trade đã bị bỏ (STR-0211); lệnh này hiện in thông báo deprecated rồi dừng với TypeError, không đặt lệnh
+trading-agent execution run BTC/USDT
 
 # 8. Xem trade history
-poetry run trading-agent execution trades
+trading-agent execution trades
 
 # 9. Xem risk status
-poetry run trading-agent execution risk
+trading-agent execution risk
 
 # 10. Thông tin hệ thống
-poetry run trading-agent info
+trading-agent info
 ```
 
 📍 **Mô hình và luồng chuẩn:** [Core System](CORE_SYSTEM.md) · [Main-flow Validation](operations/MAIN_FLOW_VALIDATION.md)
@@ -83,7 +83,7 @@ trading-agent agents analyze <symbol>          # Multi-agent analysis
 
 # ── Execution (Phase 3) ──
 trading-agent execution status                 # Portfolio summary
-trading-agent execution run <symbol>           # Agents → trade
+trading-agent execution run <symbol>           # Đã bỏ agents → trade; hiện dừng với TypeError
 trading-agent execution trades                 # Trade history
 trading-agent execution close [sym]            # Close position(s)
 trading-agent execution close --all            # Kill switch
@@ -94,6 +94,8 @@ trading-agent execution reset                  # Reset to fresh
 ---
 
 ## Shortcuts (Makefile)
+
+Makefile gọi `poetry`, trong khi `pyproject.toml` không có cấu hình Poetry, repo có `uv.lock` và không có `poetry.lock`. Máy không có Poetry thì chạy thẳng lệnh `trading-agent` ở trên.
 
 ```bash
 make info                 # trading-agent info

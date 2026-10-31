@@ -5,6 +5,8 @@
 The authority chain is the core data backbone connecting every trading decision to its 
 source. It enables full traceability from research predictions through to execution.
 
+> **Correction 2026-10-31.** The examples on this page do not match the code. `CausationLink` has `authority`, `causation_id`, `inputs_hash`, `outputs_hash`, `timestamp` and `metadata`. `AuthorityName` is a string alias, not an enum, so `AuthorityName.DECISION_AUTHORITY` does not exist. `add_link`, `find_links_by_source`, `get_complete_chain`, `DecisionAuthority.promote`, `ExecutionAuthority.authorize` and the violation codes below do not exist. `src/trading_agent/authority/causation.py` is the reference. Traceability from research to execution has never run, because no strategy is promoted.
+
 ## Chain Structure
 
 The authority chain is a sequence of `CausationLink` objects forming a `CausationChain`:

@@ -5,7 +5,14 @@
 > **Verified:** 2026-08-31
 > **Evidence:** [Capability Matrix](CAPABILITY_MATRIX.md), [Main-flow Validation](operations/MAIN_FLOW_VALIDATION.md), tests trong `tests/`
 
-Đây là tài liệu định hướng duy nhất cho câu hỏi: **hệ thống này thực sự làm gì, quyết định được tạo ra ở đâu và khi nào một lệnh được phép đi ra ngoài**. Các tài liệu chi tiết, roadmap và khóa học đều phải được đọc sau trang này.
+> **Hiện trạng 2026-10-31.** Trang này mô tả thiết kế, không phải việc hệ thống đang làm. Hiện trạng đầy đủ: [System Overview](SYSTEM_OVERVIEW.md).
+>
+> - Không strategy nào đạt `RESEARCH_VALIDATED`. Từ 2026-10-30 operator dừng mở market hypothesis mới; tiến độ và mọi ngoại lệ ở [tracker](CAMPAIGN_STATUS.md).
+> - Research và runner là hai hệ thống riêng. Ngoài test, không code nào tạo `EvidenceArtifact` hay gọi `promote`, nên bước `evidence + promotion` của flow dưới đây chưa từng chạy cho strategy thật.
+> - Runner Binance testnet chạy mỗi 2 giờ và tính trạng thái Enhanced MA, nhưng không có runtime được promote nên BUY của strategy bị khóa. Runner quản lý và thoát vị thế; nó chỉ mua khi operator ký track vận hành (M3), bằng bộ kiểm thử vòng đời lệnh, không phải strategy.
+> - Phạm vi đang dùng là Binance Spot, long-only. Mainnet `NO-GO`.
+
+Trang này trả lời: **hệ thống được thiết kế để làm gì, quyết định được tạo ra ở đâu và khi nào một lệnh được phép đi ra ngoài**. Hệ thống đang làm gì thì đọc System Overview trước. Các tài liệu chi tiết, roadmap và khóa học đều phải được đọc sau trang này.
 
 ## 1. Sản phẩm cốt lõi
 
@@ -25,6 +32,8 @@ market data
 ```
 
 Nếu một mắt xích thiếu bằng chứng hoặc không xác định được identity, kết quả hợp lệ là `NO_TRADE`, `BLOCK` hoặc `REDUCE_ONLY`; không được tự động đoán thay thế.
+
+**Ba mục tiêu đang được nêu, chưa được gộp.** (1) Trang này: một vòng lặp tái lập được, giải thích được, giới hạn rủi ro và rollback được. (2) [Playbook §1](operations/MULTI_STRATEGY_RESEARCH_PLAN.md): một policy đã qualify cho một pair/timeframe, đi hết tới vận hành được giám sát. (3) [Operable plan](operations/OPERABLE_SYSTEM_PLAN.md): một lượt chạy trọn vẹn của hệ thống thật trên testnet, lặp lại được theo lịch, không claim alpha. Plan (3) ghi rằng track nghiên cứu không chặn track vận hành, và quyết định operator 2026-10-30 ở [tracker](CAMPAIGN_STATUS.md) dừng market hypothesis mới nhưng giữ việc testnet. Chưa tài liệu nào ghi mục tiêu nào là đích cuối của dự án.
 
 ## 2. Phạm vi và ranh giới
 
@@ -47,11 +56,11 @@ LLM/agents, options, DEX/futures adapters, portfolio optimizers, web dashboard, 
 
 | Trách nhiệm | Điểm vào chuẩn | Kết quả phải có |
 | --- | --- | --- |
-| Nạp và kiểm tra dữ liệu | `src/trading_agent/data/`, `src/trading_agent/features/` | dataset/feature manifest, quality decision |
+| Nạp và kiểm tra dữ liệu | `src/trading_agent/data/`, `src/trading_agent/strategies/canonical/features.py` | dataset/feature manifest, quality decision |
 | Strategy và forecast | `src/trading_agent/strategies/canonical/`, `src/trading_agent/research/forecast.py` | forecast đóng băng, target exposure |
-| Đánh giá ứng viên | `src/trading_agent/backtest/tournament.py`, `src/trading_agent/backtest/portfolio_backtest.py` | evaluation artifact, ledger, attribution |
+| Đánh giá ứng viên | `src/trading_agent/backtest/nested_wfo.py`, `src/trading_agent/backtest/tournament.py` | evaluation artifact, ledger, attribution |
 | Chọn và promote | `src/trading_agent/research/selection_policy.py`, `src/trading_agent/research/promotion.py` | policy/artifact bất biến, audit trail |
-| Quyền hạn runtime | `src/trading_agent/authority/resolver.py`, `src/trading_agent/authority/adaptive_router.py` | `ALLOW` / `REDUCE_ONLY` / `BLOCK`, routing decision |
+| Quyền hạn runtime | `src/trading_agent/authority/resolver.py`, `src/trading_agent/authority/decision.py`, `src/trading_agent/authority/exposure.py` | `ALLOW` / `REDUCE_ONLY` / `BLOCK` (`adaptive_router.py` không nằm trên đường runner: test ranh giới cấm runner nạp nó; chỉ replay opt-in và các script tournament, shadow, research dùng nó) |
 | Phân bổ danh mục | `src/trading_agent/authority/portfolio.py`, `src/trading_agent/risk/` | exposure/risk budget dùng chung |
 | Lập và thực thi lệnh | `src/trading_agent/execution/engine.py`, `src/trading_agent/execution/lifecycle/` | order intent, lifecycle events, fills |
 | Theo dõi và bằng chứng | `src/trading_agent/monitoring/`, `docs/reference/EVIDENCE_ARTIFACTS.md` | metrics, reconciliation, release record |
@@ -60,9 +69,10 @@ Các CLI/script được xem là adapter, không phải nơi định nghĩa busi
 
 - `python -m trading_agent.cli` — giao diện thao tác và health check.
 - `scripts/full_system_backtest.py` — replay toàn vòng với strategy artifact; adaptive routing chỉ bật khi truyền đủ dependency.
-- `scripts/run_strategy_tournament.py` — ma trận cell có `--dry-run` và `--tail-bars`.
+- `scripts/run_strategy_tournament.py` — ma trận cell có `--dry-run` và `--tail-bars`. Hai cờ này không kiểm holdout.
 - `scripts/run_canonical_strategy.py` — chạy một strategy canonical có identity rõ ràng.
 - `scripts/run_wfo_evidence.py` — tạo research evidence; không tự promote.
+- `scripts/run_wfo_parallel.py` — launcher của research packet; gọi `run_nested_wfo`.
 
 ## 4. Các invariant không được phá
 
@@ -102,6 +112,9 @@ Mọi lệnh dài phải chạy qua controlled execution của workspace; xem [D
 
 - P0 và capability code S0–S6 đã có contract/test tương ứng; điều đó không tự đóng S7.
 - Adaptive routing là opt-in và phải có router, posterior provider và runtime provider; không được fallback im lặng về strategy khác.
+- Ghi nhận 2026-10-31: chọn strategy chưa phải một đường đang chạy. Có ba thiết kế chồng nhau: roadmap S0–S7 (nested WFO, selection policy, regime router), tournament tháng 9 (chỉ là replay, không nối runner, và `scripts/run_tournament_shadow.py` nay dừng ở policy đầu tiên) và playbook E0–E6 cùng L2 rule và promotion ladder. [Playbook](operations/MULTI_STRATEGY_RESEARCH_PLAN.md) là nguồn hiện hành cho thứ tự công việc. Promotion store rỗng, và không runner nào đang chạy đọc selection policy hoặc gọi adaptive router.
+- Ghi nhận 2026-10-31: resolver nhận 7 trong 20 strategy canonical. `online_learning` có trong map nhưng không khởi tạo được. `volatility_breakout`, `trend_pullback` và 11 strategy khác trả về `None`.
+- Ghi nhận 2026-10-31: invariant 7 được giữ bằng quy ước, không bằng code. `PromotionStateStore.upsert_from_event` ghi stage bất kỳ mà không kiểm evidence. Ghi trực tiếp như vậy không phải một đường promotion hợp lệ.
 - S2-0208 đã đóng: tournament cell có process isolation, hard timeout/retry,
   resource limits và execution-control provenance. S4-0403 (dọn compatibility
   adapter `ArtifactLifecycle`) vẫn là nợ kỹ thuật đã ghi nhận.

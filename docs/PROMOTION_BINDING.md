@@ -6,6 +6,8 @@ Promotion binding connects the **Research** pipeline to **Runtime** execution th
 content-addressed strategy artifacts. This document describes the binding mechanism
 that ensures only validated, promoted strategies reach the execution engine.
 
+> **Correction 2026-10-31.** This page describes a design and the code that exists for it, exercised in tests. The path has never run for a real strategy. No code outside tests builds `EvidenceArtifact` or calls `ResearchLifecycle.promote`, `PromotionHook` has no caller, `data/promotion_store/` is empty and `data/research/` does not exist, so no strategy is promoted. `scripts/full_system_backtest.py` writes `PAPER_ELIGIBLE` records to its own run store; those are not promotions. The `TESTNET_ELIGIBLE` rung needs a `REALITY_GAP` item sourced from testnet or shadow, which no code produces. `PromotionStateStore.upsert_from_event` writes any stage with no evidence check, so "only validated strategies" holds by convention, not by code. The CLI and the runner also read different stores: `run-promoted` uses `data/state/promotion.db` and `data/state/artifacts.db`; the Binance runner uses `LIVE_PROMOTION_DB` and `LIVE_ARTIFACT_DB`, by default `data/promotion_store/promotions.db` and `data/research/artifacts.db`.
+
 ## Architecture
 
 ```
@@ -62,57 +64,43 @@ Bridge component that:
 1. Maps strategy names to concrete classes
 2. Instantiates Strategy with artifact parameters
 3. Verifies parameter hash integrity (drift detection)
-4. Applies environment constraints (exposure caps, allowed symbols)
+4. Applies environment constraints (allowed symbols and timeframes); exposure caps are applied later by the authority chain
 
 ## Environment Mapping
 
-| Environment | Symbol Restriction | Timeframe Restriction | Drift Handling | Reload Behavior |
-|-------------|-------------------|----------------------|----------------|-----------------|
-| RESEARCH | Unlimited | Unlimited | Warning | Hot Reload |
-| PAPER | Top 50 symbols | 1d, 4h, 1h | Warning | Hot Reload |
-| TESTNET | Top 20 symbols | 1d, 4h | Block | Hot Reload |
-| SHADOW | All disabled | All disabled | N/A | Cold Start |
-| CANARY | Top 10 symbols | 1d only | Block + Alert | Hot Reload |
-| PRODUCTION | Top 5 symbols | 1d, 4h | Block + Kill Switch | Manual Reload |
+| Environment | Minimum stage (`ENV_MIN_STAGE`) |
+|---|---|
+| RESEARCH | EXPLORATORY |
+| PAPER | PAPER_ELIGIBLE |
+| TESTNET | TESTNET_ELIGIBLE |
+| SHADOW | SHADOW_ELIGIBLE |
+| CANARY | CANARY_ELIGIBLE |
+| PRODUCTION | No mapping: nothing resolves |
+
+Apart from a research exemption on symbols, this stage is the only per-environment rule in the resolver. The symbol check reads `config.symbols` (10 symbols by default, without AVAX) and applies only when `symbol` is in the parameters and the environment is not research. The timeframe check allows 1d, 4h, 1h, 15m, 5m and 1m everywhere, and only when `timeframe` is in the parameters. Drift blocks resolution in every environment.
 
 ## Fail-Closed Behavior
 
-If any check fails, the binding returns `None`:
-- **Artifact not found**: `ResolutionOutcome.ARTIFACT_NOT_FOUND`
-- **Parameter drift**: `ResolutionOutcome.PARAMETER_DRIFT`
-- **Symbol not allowed**: `ResolutionOutcome.SYMBOL_NOT_ALLOWED`
-- **Timeframe not supported**: `ResolutionOutcome.TIMEFRAME_NOT_SUPPORTED`
-- **Instantiation failed**: `ResolutionOutcome.INSTANTIATION_FAILED`
+If a check fails, the resolver returns `None` and logs why, except that a `symbol` or `timeframe` parameter outside the allowed set raises `ValueError`. See [Runtime Resolver](RUNTIME_RESOLVER.md).
 
 ## API Usage
 
 ```python
 from trading_agent.authority import RuntimeStrategyResolver, Environment
-from trading_agent.authority.loader import PromotedStrategy
+from trading_agent.authority.decision import DecisionInput
 
-# Create resolver with config
-resolver = RuntimeStrategyResolver(config)
+resolver = RuntimeStrategyResolver(config, promotion_store=store, artifact_store=artifacts)
+runtime = resolver.resolve_for("BTC/USDT", "1h", Environment.TESTNET)
+if runtime is None:
+    return  # fail closed; the reason is in the log
 
-# Resolve a promoted strategy
-strategy = resolver.resolve(promoted_strategy)
-
-if strategy is None:
-    # Check why it failed
-    outcome = resolver.last_outcome  # See ResolutionOutcome enum
-    logger.error(f"Resolution failed: {outcome}")
-    return
-
-# Set up authority chain
-decision_input = DecisionInput(
-    strategy=strategy,
-    signal=signal,
-    ...
-)
+output = runtime.execute(market_data, portfolio_state)
+decision_input = DecisionInput(strategy_output=output, symbol="BTC/USDT", ...)
 ```
 
 ## Tests
 
-See `tests/authority/test_resolver.py` and `tests/authority/test_promotion_binding.py`.
+See `tests/authority/test_resolver.py` and `tests/test_promotion_bridge.py`.
 
 ---
 
@@ -143,7 +131,7 @@ ResearchLifecycle.promote(candidate)
         │    promote() BẮT lỗi ⇒ PromotionError ⇒ stage KHÔNG đổi (atomic)
         │
         ▼
-RuntimeStrategyResolver.resolve_for(env, symbol, timeframe)
+RuntimeStrategyResolver.resolve_for(symbol, timeframe, environment)
         → đọc PromotionStateStore MỖI LẦN resolve (hot-reload friendly by design)
         → trả StrategyRuntime mới ngay không cần restart
 ```
@@ -167,10 +155,11 @@ hook = PromotionHook(
     artifact_store=artifact_store,
     runtime_loader=loader,  # optional — None nếu không cần watcher
 )
-lifecycle = ResearchLifecycle(..., on_event=hook.handle)
+lifecycle = ResearchLifecycle(subject_artifact_id)
+lifecycle.promote(to_stage, evidence=evidence, actor=actor, on_event=hook.as_callback())
 ```
 
-CLI production path (`commands/execution.py run-promoted`) wire sẵn: promote qua lifecycle bất kỳ đâu trong process ⇒ resolver thấy ngay.
+**Hiệu đính 2026-10-31.** Chưa có đường production nào nối hook này. `trading-agent execution run-promoted` (`cli/commands/live.py`) chỉ đọc store và khởi động `RuntimeLoader`; nó không tạo `PromotionHook` hay `ResearchLifecycle`. Ngoài test, không code nào gọi `promote`.
 
 ## Golden flow (kiểm chứng bởi `tests/test_promotion_bridge.py`)
 
@@ -182,4 +171,4 @@ CLI production path (`commands/execution.py run-promoted`) wire sẵn: promote q
 
 ## Phân biệt với Authority Lifecycle stages
 
-`PromotionStateStore.is_stage_compatible()` là nguồn truth duy nhất cho stage ordering (RESEARCH → PAPER_ELIGIBLE → TESTNET → ...). Đừng dùng whitelist cứng `_ALLOWED_STAGES` kiểu cũ — đã bị loại bỏ vì trôi lệch với policy. Xem [ENVIRONMENT_MAPPING.md](ENVIRONMENT_MAPPING.md).
+`PromotionStateStore.is_stage_compatible()` là nguồn truth duy nhất cho stage ordering (RESEARCH → PAPER_ELIGIBLE → TESTNET → ...). Đừng dùng whitelist cứng `_ALLOWED_STAGES` kiểu cũ — đã bị loại bỏ vì trôi lệch với policy. Xem `ENV_MIN_STAGE` trong `src/trading_agent/authority/promotion_store.py`; [ENVIRONMENT_MAPPING.md](ENVIRONMENT_MAPPING.md) là thiết kế chưa được thực thi.

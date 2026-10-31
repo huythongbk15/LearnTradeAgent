@@ -15,6 +15,7 @@ test thành hành động production.
 - Tác vụ quan trọng/dài phải qua `controlled_exec.py`.
 - Không dùng live state directory làm output backtest.
 - Dừng khi thiếu data, sai identity, schema lỗi hoặc thiếu cell không giải thích được.
+- **Cảnh báo holdout (31/10/2026).** `--tail-bars` đếm lùi từ cuối file, còn `scripts/run_strategy_tournament.py` và `scripts/full_system_backtest.py` không kiểm holdout. File 1h của BTC, ETH, BNB kết thúc ngày 21/09/2026, nên 2000 bar bắt đầu khoảng 30/06/2026 và 3000 bar khoảng 19/05/2026, nằm trong cửa sổ đóng băng của [Final Holdout Policy](../RESEARCH_HOLDOUT.md). Các symbol khác kết thúc trong tháng 8/2026 nên cũng rơi vào đó. Chỉ dùng các lệnh này để kiểm đường chạy: không đọc metric và không dùng kết quả cho quyết định nghiên cứu nào.
 
 ## Thang kiểm tra
 

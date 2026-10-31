@@ -3,13 +3,13 @@
 > **Status:** CURRENT
 > **Owner:** Trading systems
 > **Verified:** 2026-08-31
-> **Rule:** đọc [Core System](CORE_SYSTEM.md) trước; tài liệu khác không được định nghĩa một luồng execution khác.
+> **Rule:** đọc [System Overview](SYSTEM_OVERVIEW.md) trước để biết hiện trạng, rồi [Core System](CORE_SYSTEM.md) cho thiết kế; tài liệu khác không được định nghĩa một luồng execution khác.
 
 ## 1. Bốn lớp tài liệu
 
 | Lớp | Câu hỏi trả lời | Tài liệu chính | Trạng thái |
 | --- | --- | --- | --- |
-| **CORE** | Hệ thống là gì và đâu là đường lệnh duy nhất? | [CORE_SYSTEM](CORE_SYSTEM.md), [README](README.md), [ARCHITECTURE](ARCHITECTURE.md) | CURRENT |
+| **CORE** | Hệ thống là gì và đâu là đường lệnh duy nhất? | [System Overview](SYSTEM_OVERVIEW.md), [CORE_SYSTEM](CORE_SYSTEM.md), [README](README.md), [ARCHITECTURE](ARCHITECTURE.md) | CURRENT |
 | **CONTRACTS** | Dữ liệu, strategy, evidence, authority và lifecycle có hợp đồng gì? | [Strategy Lifecycle](architecture/STRATEGY_LIFECYCLE.md), [Backtest Engine](BACKTEST_ENGINE.md), [Promotion Binding](PROMOTION_BINDING.md), [Runtime Resolver](RUNTIME_RESOLVER.md), [Evidence Artifacts](reference/EVIDENCE_ARTIFACTS.md) | CURRENT |
 | **OPERATIONS** | Kiểm tra, vận hành, rollback và release ra sao? | [Main-flow Validation](operations/MAIN_FLOW_VALIDATION.md), [Live Runbook](LIVE_TRADING_RUNBOOK.md), [S7 Evidence](S7_OPERATIONAL_EVIDENCE_RUNBOOK.md), [Security](SECURITY.md), [Deployment](DEPLOYMENT.md) | CURRENT / evidence pending |
 | **RESEARCH & LEARNING** | Làm nghiên cứu và học hệ thống như thế nào? | [Research-to-Production](guides/RESEARCH_TO_PRODUCTION.md), [Research Methodology](RESEARCH_METHODOLOGY.md), [Course V2](tutorials/README.md), [Khóa học tiếng Việt](vi/khoa-hoc/README.md) | CURRENT + TARGET boundaries |
@@ -20,38 +20,41 @@ Các file khác là reference chuyên biệt hoặc historical; không cần đ�
 
 ### Người mới / developer
 
-1. [CORE_SYSTEM.md](CORE_SYSTEM.md)
-2. [Getting Started](getting-started.md)
-3. [ARCHITECTURE.md](ARCHITECTURE.md)
-4. [DEVELOPMENT.md](DEVELOPMENT.md)
+1. [SYSTEM_OVERVIEW.md](SYSTEM_OVERVIEW.md)
+2. [CORE_SYSTEM.md](CORE_SYSTEM.md)
+3. [Getting Started](getting-started.md)
+4. [ARCHITECTURE.md](ARCHITECTURE.md)
+5. [DEVELOPMENT.md](DEVELOPMENT.md)
 
 ### Researcher / strategy engineer
 
-1. [CORE_SYSTEM.md](CORE_SYSTEM.md)
-2. [Research-to-Production](guides/RESEARCH_TO_PRODUCTION.md)
-3. [Research Methodology](RESEARCH_METHODOLOGY.md)
-4. [Evidence Artifacts](reference/EVIDENCE_ARTIFACTS.md)
-5. [Research Holdout](RESEARCH_HOLDOUT.md)
+1. [SYSTEM_OVERVIEW.md](SYSTEM_OVERVIEW.md)
+2. [CORE_SYSTEM.md](CORE_SYSTEM.md)
+3. [Research-to-Production](guides/RESEARCH_TO_PRODUCTION.md)
+4. [Research Methodology](RESEARCH_METHODOLOGY.md)
+5. [Evidence Artifacts](reference/EVIDENCE_ARTIFACTS.md)
+6. [Research Holdout](RESEARCH_HOLDOUT.md)
 
 ### Runtime / execution engineer
 
-1. [CORE_SYSTEM.md](CORE_SYSTEM.md)
-2. [Strategy Lifecycle](architecture/STRATEGY_LIFECYCLE.md)
-3. [Backtest Engine](BACKTEST_ENGINE.md)
-4. [Authority Chain Ops](AUTHORITY_CHAIN_OPS.md)
-5. [Live Trading Runbook](LIVE_TRADING_RUNBOOK.md)
+1. [SYSTEM_OVERVIEW.md](SYSTEM_OVERVIEW.md)
+2. [CORE_SYSTEM.md](CORE_SYSTEM.md)
+3. [Strategy Lifecycle](architecture/STRATEGY_LIFECYCLE.md)
+4. [Backtest Engine](BACKTEST_ENGINE.md)
+5. [Authority Chain Ops](AUTHORITY_CHAIN_OPS.md)
+6. [Live Trading Runbook](LIVE_TRADING_RUNBOOK.md)
 
 ### Operator / release reviewer
 
-Workstream live readiness hiện hành: [Quy trình agent L0–L4](operations/LIVE_READINESS_AGENT_PLAN.md)
-— task/dependency/evidence trên revision tích hợp; checklist cũ không tự chứng nhận release.
+Điều phối hiện hành: [playbook](operations/MULTI_STRATEGY_RESEARCH_PLAN.md) và [tracker](CAMPAIGN_STATUS.md). [Quy trình agent L0–L4](operations/LIVE_READINESS_AGENT_PLAN.md) giữ contract live readiness; checklist cũ không tự chứng nhận release.
 
-1. [CORE_SYSTEM.md](CORE_SYSTEM.md)
-2. [Capability Matrix](CAPABILITY_MATRIX.md)
-3. [Main-flow Validation](operations/MAIN_FLOW_VALIDATION.md)
-4. [Live Readiness](LIVE_TRADING_TODO.md)
-5. [S7 Operational Evidence Runbook](S7_OPERATIONAL_EVIDENCE_RUNBOOK.md)
-6. [Calibration Protocol](CALIBRATION_PROTOCOL.md) — operator approval gate for pre-pilot evidence
+1. [SYSTEM_OVERVIEW.md](SYSTEM_OVERVIEW.md)
+2. [CORE_SYSTEM.md](CORE_SYSTEM.md)
+3. [Capability Matrix](CAPABILITY_MATRIX.md)
+4. [Main-flow Validation](operations/MAIN_FLOW_VALIDATION.md)
+5. [Live Readiness](LIVE_TRADING_TODO.md)
+6. [S7 Operational Evidence Runbook](S7_OPERATIONAL_EVIDENCE_RUNBOOK.md)
+7. [Calibration Protocol](CALIBRATION_PROTOCOL.md) — operator approval gate for pre-pilot evidence
 
 ### Người học bằng tiếng Việt
 
@@ -82,11 +85,14 @@ Workstream live readiness hiện hành: [Quy trình agent L0–L4](operations/LI
 
 | Câu hỏi | Nguồn duy nhất cần ưu tiên |
 | --- | --- |
-| Luồng hệ thống là gì? | [CORE_SYSTEM.md](CORE_SYSTEM.md) |
+| Hệ thống đang thật sự chạy gì, mục tiêu nào đang theo? | [System Overview](SYSTEM_OVERVIEW.md) |
+| Tiến độ và quyết định mới nhất ở đâu? | [CAMPAIGN_STATUS](CAMPAIGN_STATUS.md) |
+| Vận hành testnet đang ở mốc nào? | [Operable plan](operations/OPERABLE_SYSTEM_PLAN.md) |
+| Luồng hệ thống được thiết kế thế nào? | [CORE_SYSTEM.md](CORE_SYSTEM.md) |
 | Code đang đạt đến đâu? | [Capability Matrix](CAPABILITY_MATRIX.md) + tests/CI evidence |
 | Mainnet có được phép không? | [Live Readiness](LIVE_TRADING_TODO.md) |
-| Agent thực hiện các bước tiến tới live theo thứ tự nào? | [Quy trình agent L0–L4](operations/LIVE_READINESS_AGENT_PLAN.md) — tracker của workstream, không thay production/S7 gates |
-| Một strategy đi từ research tới runtime thế nào? | [Strategy Lifecycle](architecture/STRATEGY_LIFECYCLE.md) + [Promotion Binding](PROMOTION_BINDING.md) |
+| Agent thực hiện các bước tiến tới live theo thứ tự nào? | [Playbook](operations/MULTI_STRATEGY_RESEARCH_PLAN.md) + [tracker](CAMPAIGN_STATUS.md); [Quy trình agent L0–L4](operations/LIVE_READINESS_AGENT_PLAN.md) giữ contract, không thay production/S7 gates |
+| Một strategy được thiết kế để đi từ research tới runtime thế nào? (đường này chưa từng chạy, xem [System Overview](SYSTEM_OVERVIEW.md)) | [Strategy Lifecycle](architecture/STRATEGY_LIFECYCLE.md) + [Promotion Binding](PROMOTION_BINDING.md) |
 | Một lệnh đi qua những gate nào? | [ARCHITECTURE.md](ARCHITECTURE.md) + [Runtime Resolver](RUNTIME_RESOLVER.md) |
 | Chạy validation ra sao? | [Main-flow Validation](operations/MAIN_FLOW_VALIDATION.md) |
 | Thiếu evidence S7 cần bổ sung gì? | [S7 Operational Evidence Runbook](S7_OPERATIONAL_EVIDENCE_RUNBOOK.md) |

@@ -19,7 +19,7 @@ artifact identity must come from canonical content.
 | `EvaluationArtifact` | tournament cell | tournament index/selector | Cell status, identities, cost/fault scenario, report and metrics |
 | Tournament index | tournament CLI | selector and reviewer | Visible inventory of completed/failed cells |
 | Selection policy | statistical selector | runtime router | **TARGET:** eligible mapping, score/uncertainty and abstain rules |
-| `PromotionRecord` | promotion workflow | runtime resolver | Environment eligibility and promotion state |
+| `PromotionRecord` | **TARGET:** no promotion workflow exists. Outside tests only `FullSystemSimulator` writes one, into each cell's own store, and the runner never reads those | runtime resolver | Environment eligibility and promotion state |
 | Routing decision | runtime router | risk/execution/audit | **TARGET:** regime evidence, incumbent/candidate and reason |
 | Trade attribution | fills/ledger analytics | monitoring/research | **TARGET:** strategy, route, portfolio and execution cost attribution |
 

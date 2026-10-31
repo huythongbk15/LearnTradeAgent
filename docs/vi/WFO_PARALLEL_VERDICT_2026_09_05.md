@@ -2,6 +2,8 @@
 
 > **Verdict: NO_TRADE** (6/13 hard gates PASS) | **Provenance: ELIGIBLE**
 
+> **Correction dated 2026-10-31.** `NO_TRADE` stands, with three limits. In every fold and cost all 9 parameter sets gave the same result, so this measured one configuration, not a grid: until `7bfbebd1` (2026-09-15) `run_cell` built signals with empty parameters, and `MaAdxCrossover` does not read the grid keys `fast_ma` and `slow_ma` either. The headline medians are 1x only, and the 2x and slip_stress rows below do not match the decision file, which has median Sharpe −0.17 and −0.25 and median return −0.46% and −0.58%. "Provenance eligible" describes the aggregator's checkout (`3ad31df`), not the run (`5dcbab5`). `scripts/aggregate_wfo_cells.py` has been removed, and its PBO and DSR are proxies. See the correction on [the 2026-09-05 page](MULTI_STRATEGY_WFO_2026_09_05.md).
+
 ## 1. Campaign summary
 
 | Field | Value |

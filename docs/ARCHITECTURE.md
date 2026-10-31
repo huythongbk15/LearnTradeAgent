@@ -16,8 +16,8 @@
 │   (src/trading_agent/research)                                         │
 ├───────────────────────────────────────────────────────────────────────┤
 │ DECISION PLANE                                                          │
-│   Strategies / Agents → Portfolio → Risk → Order Intent                 │
-│   (src/trading_agent/agents, portfolio, risk)                           │
+│   StrategyRuntime → DecisionAuthority → Allocator → ExposureAuthority   │
+│   (src/trading_agent/authority)                                         │
 ├───────────────────────────────────────────────────────────────────────┤
 │ EXECUTION PLANE                                                         │
 │   Order Planner → Broker Adapter → Order Lifecycle → Fill Ledger →      │
@@ -50,7 +50,9 @@
 
 ```
 src/trading_agent/
-  cli.py                     — CLI entrypoint (Click), command groups
+  cli/                       — CLI entrypoint (Click), command groups
+  authority/                 — DecisionAuthority, ExposureAuthority, allocator,
+                               RuntimeStrategyResolver, PromotionStateStore
   data/                      — CCXT fetch, validation, storage (Parquet/SQLite)
   backtest/                  — vectorized + event-driven engines, metrics
   strategies/                — ma_crossover, rsi, bbands, enhanced_ma, ensemble...
@@ -121,10 +123,17 @@ MarketObservation
   -> execution lifecycle / environment adapter
 ```
 
-Only the final environment adapter differs between research, backtest, paper,
-testnet and shadow. Strategy logic and risk sizing are shared. No strategy receives
-a broker handle, and an unsupported adapter raises rather than silently returning
-no orders.
+This is the target contract. As of 2026-10-31 it is not how the system runs.
+Research builds signals through `canonical_signal_series`, which calls the
+adapter's `forecast`, then fills them in `FullSystemSimulator` at k+2 on the
+tested timeframe, by default with a 5 % stop and a 25 % requested target. The
+Binance runner computes Enhanced MA state in `compute_state`; its promoted path
+calls `StrategyRuntime.execute`, which calls the strategy's signal method
+directly and produces no frozen `Forecast`. It runs every 2 h, reads the last
+closed 1h bar, and uses a 2×ATR trail, weights of 4/3/3 % and a $100 order cap.
+The two paths share strategy classes, not behaviour, and the difference has not
+been measured on real data. No strategy receives a broker handle, and an
+unsupported adapter raises rather than silently returning no orders.
 
 `execution.permission` is the authoritative order gate for normal orders, smart
 routing, lifecycle submission and safe exits. Sell inventory is reserved
@@ -136,7 +145,7 @@ provably reduce-only exits.
 ## Research evidence boundary
 
 - `research/forecast.py`: immutable observation/forecast/risk/target contracts.
-- `research/promotion.py`: eight-stage, no-skip, content-addressed promotion ladder.
+- `research/promotion.py`: eight-stage, no-skip, content-addressed promotion ladder. Exercised only by tests: no code in `src` or `scripts` builds evidence for it or calls `promote`.
 - `research/trials.py`: append-only WAL experiment/evaluation registry and effective
   trial-count derivation.
 - `alpha_research/feature_store.py`: content-addressed feature artifacts.

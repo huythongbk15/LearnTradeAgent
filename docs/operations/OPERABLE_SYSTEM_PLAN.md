@@ -5,17 +5,22 @@ Owner: operator + agent
 Verified: 2026-10-29
 Evidence: `scripts/ops/daily_check.py`, `data/execution/binance_live_audit.jsonl`, `logs/binance_testnet.log`
 
-This plan is the single source of truth for the main flow. **The end goal is
+This plan is the source of truth for the testnet operations track (M1 to M4). **The end goal of this track is
 one complete end-to-end run of the real system on testnet**, repeatable on a
 schedule: data → signal → decision and risk → order → fill → exchange-native
 stop → exit → reconciliation (venue = ledger = lifecycle) → report. Run it;
 where it breaks, find the root cause and fix it there; run again, until it runs
-clean. Mainnet stays **NO-GO**. Nothing here is a claim of alpha.
+clean. Mainnet stays **NO-GO**. Nothing here is a claim of alpha. This is one of
+three stated project goals; see [System Overview](../SYSTEM_OVERVIEW.md).
 
 Whether a strategy fits (has an edge) is a separate research track (WFO
 validation first). It never blocks this flow, and this flow never produces
-research or promotion evidence. A strategy that passes the existing ladder up
-to `TESTNET_ELIGIBLE` replaces the exerciser below; it then runs its own soak.
+research or promotion evidence. Intended route: a strategy promoted to
+`TESTNET_ELIGIBLE` replaces the exerciser below and runs its own soak. That route
+does not exist yet (checked 2026-10-31): no code outside tests builds
+`EvidenceArtifact` or calls `promote`; the `TESTNET_ELIGIBLE` rung needs a
+`REALITY_GAP` item sourced from testnet or shadow, which no code produces; and
+the resolver accepts 7 of the 20 canonical strategies.
 
 ## Milestones
 
