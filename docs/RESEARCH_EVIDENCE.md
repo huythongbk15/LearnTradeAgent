@@ -6,7 +6,7 @@
 
 Report đầy đủ (local evidence `data/plus_context_matrix_20261029_01/RESULTS.md`) tách results, accounting, execution audit và source equivalence. Hai reference cells ETH1x giữ source cũ; mười cell mới dùng revision344febdf. Không claim qualification trên một revision tích hợp. 131 tests và AC01–15 PASS; không holdout/OOS/live. Không mở vòng retune hay campaign tiếp theo. [Tracker](CAMPAIGN_STATUS.md) là nguồn tiến độ; memo27/10 và đề xuất08/2026 dưới đây là lịch sử.
 
-Tổng hợp toàn bộ lịch sử nghiên cứu: [RESEARCH_SYNTHESIS_20261030](operations/RESEARCH_SYNTHESIS_20261030.md). Đề xuất [H-XSEC-01](proposals/H_XSEC_01_RELATIVE_STRENGTH.md) đã đóng băng thiết kế ngày 30/10/2026, chưa được duyệt để chạy.
+Tổng hợp các đợt nghiên cứu chính tới 30/10/2026, không phải toàn bộ lịch sử: [RESEARCH_SYNTHESIS_20261030](operations/RESEARCH_SYNTHESIS_20261030.md), có đính chính 31/10/2026. Đề xuất [H-XSEC-01](proposals/H_XSEC_01_RELATIVE_STRENGTH.md) đã đóng băng thiết kế ngày 30/10/2026. D1 đã đo cùng ngày, ra `CONTINUE_TO_CONFIRMATION`, chưa qualified, và đọc forward vẫn đóng băng ([tracker](CAMPAIGN_STATUS.md)). Ngoại lệ đo chân short ngày 31/10/2026: [kết quả](operations/SHORT_SIDE_RESULTS_20261031.md).
 
 ## Memo quyết định sau các phép đo đã đóng — 27/10/2026
 
@@ -30,7 +30,7 @@ hạng các rule khác cửa sổ; các cost và window chồng lấn không ph�
 - H-PULLBACK-TEMPORAL-01 có gross dương nhưng chi phí vượt phần đó trên đường
   đã thực thi; đây không phải zero-cost counterfactual của một engine run khác.
 - H-VOLBREAK-01 chỉ có diagnostic positive ở1x; không đáp ứng cost robustness.
-- H-LIQ-REVERSAL-01 thua trước lẫn sau phí dưới policy/timing đã đo. Không
+- H-LIQ-REVERSAL-01 thua trước lẫn sau phí dưới policy/timing đã đo (đính chính 31/10/2026: net vẫn âm, nhưng gross âm là số trong simulator, nơi cả 4 stop khớp ở bar low, nên dấu của gross chưa rõ). Không
   suy từ nhóm stop thua rằng nới/bỏ stop sẽ cải thiện tổng payoff. Stress
   còn đổi circuit-breaker path, không chỉ trừ thêm cùng một khoản phí.
 
@@ -251,7 +251,7 @@ aligned 1h hay không. Sáu điều kiện rời PAUSED vẫn chưa đủ câu t
 | In-sample | Huấn luyện + đánh giá trên cùng dữ liệu | Thấp (overfit risk cao) |
 | Out-of-sample (OOS) | Đánh giá trên dữ liệu không dùng để chọn tham số | Trung bình |
 | Walk-forward (WFO) | Rolling train/test qua nhiều fold | Trung bình–cao nếu đủ fold & min trades |
-| Final untouched holdout | 6 tháng cuối đã freeze trong manifest và chưa được dùng để tune | Cao nhất khi chỉ mở một lần sau khi protocol được khóa |
+| Final untouched holdout | 6 tháng cuối đã freeze trong manifest và chưa được dùng để tune. Đính chính 31/10/2026: cửa sổ 06/02–05/08/2026 của repo không còn thuộc loại này, xem [sổ lộ holdout](RESEARCH_HOLDOUT.md) | Cao nhất khi chỉ mở một lần sau khi protocol được khóa |
 | Paper / Testnet | Thực thi mô phỏng với dữ liệu thật | Cao (nhưng không = live) |
 | Live | Vốn thật | Chỉ sau release gates |
 
@@ -282,6 +282,8 @@ aligned 1h hay không. Sáu điều kiện rời PAUSED vẫn chưa đủ câu t
 
 ### 4. Alpaca Paper live (từ 2026-08-08)
 
+> **Đính chính 31/10/2026.** Đây là evidence lịch sử, Alpaca paper không còn chạy: runner chặn mọi BUY từ 2026-08-22, không có lịch chạy, file cuối cùng nó ghi có ngày 2026-08-29.
+
 - **Loại:** Paper validated (không phải live vốn thật).
 - **Evidence:** equity ~$95-100k, position sync BTC/SOL/AVAX, fills real qua Alpaca paper endpoint.
 - **Kết luận:** xác nhận execution path chạy được ở paper; không chứng minh edge.
@@ -302,13 +304,18 @@ aligned 1h hay không. Sáu điều kiện rời PAUSED vẫn chưa đủ câu t
 | Yêu cầu (prompt mục 6) | Trạng thái |
 | --- | --- |
 | Minimum trades per fold | ✅ **Done** — enforced via `min_trades_check` (tests/test_research_stats.py::TestMinTrades) |
-| 6-12 tháng final untouched holdout | ✅ **Frozen** — immutable manifest exists; intentionally not opened for iterative tuning |
+| 6-12 tháng final untouched holdout | ✅ **Frozen** — immutable manifest exists; intentionally not opened for iterative tuning. **Đính chính 31/10/2026:** đây là dòng của snapshot 08/2026. Cửa sổ hiện không còn untouched: manifest được sinh lại ngày 06/09/2026 và cửa sổ đã bị chấm điểm trên BTC 1h ít nhất 3 lần; xem [sổ lộ holdout](RESEARCH_HOLDOUT.md) |
 | Regime breakdown | Một phần (ghi chú regime dependence) |
 | Block bootstrap confidence intervals | ✅ **Done** — `block_bootstrap_sharpe_ci` + tests |
 | Probabilistic / Deflated Sharpe | ✅ **Done** — `probabilistic_sharpe_ratio`, `deflated_sharpe_ratio` + tests (DSR accounts for ~8000 explored trials) |
 | Fee stress 1x/2x/3x | ✅ **Done** — `scripts/stress_evidence_costs.py`: med Sharpe -0.44/-1.18/-2.06 (1x/2x/3x), **no edge at any level** |
 | Spread / slippage stress | ✅ **Done** — included in cost stress multipliers |
 | Gap / latency / missing candle / partial fill / outage / correlated drawdown scenarios | ✅ **Done** — property tests in `tests/test_live_safety.py` (fail-closed + hypothesis) |
+
+> **Đính chính 31/10/2026.** Bảng trên là ảnh chụp 08/2026.
+>
+> - **DSR ~8000:** 8000 là mặc định nhập tay của `--trials` trong `scripts/generate_live_strategy_evidence.py`, chỉ dùng cho evidence mainnet. Cổng `dsr_ge_095` của `nested_wfo` dùng số thử từ registry, chỉ trong phạm vi candidate của lần chạy; các packet validation 24–27/10 ghi 3, riêng một packet ghi 9.
+> - **Minimum trades per fold:** `min_trades_check` chỉ được gọi trong script trên. Cổng outer của `nested_wfo` cộng lệnh qua các fold; ngưỡng theo từng cửa sổ chỉ có ở selection contract, trên validation.
 
 → Kết luận chung: **`INSUFFICIENT EVIDENCE`** — không config nào được gọi là
 `RECOMMENDED PRODUCTION CONFIG`. Đề xuất enhanced_ma (fast15/slow100/ADX>40,

@@ -1,8 +1,18 @@
 # Campaign evidence contract (L1.4)
 
-**Status:** TARGET specification. No validator exists yet, and none should
-be claimed. This defines what a walk-forward campaign must record so that
-L1.4 and L2 can verify a result rather than trust it.
+**Status:** CURRENT specification, implemented (status corrected 2026-10-31; the
+earlier "no validator exists" line was wrong when written).
+`verify_evidence_bundle` in `backtest/campaign_integrity.py` and `validate_v2` in
+`backtest/campaign_evidence.py` check the eight admissibility rules, and
+`tests/test_campaign_evidence_contract.py` shows that incomplete bundles are
+refused. A valid bundle is not a promotion certificate. This page defines what a
+walk-forward campaign must record so that L1.4 and L2 can verify a result rather
+than trust it. `validate_v2` is the authority for schema v2: it requires more
+than the field lists below, for example `gate_set`, `file_sha256`,
+`worktree_dirty` and `spread_cost`. In the implementation order at the end of
+this page, items 1 and 3 are done, `build_campaign_policy.py` in item 2 is
+retired, and item 4 is not done: `scripts/select_l2_candidate.py` does not read
+`campaign_id`.
 
 Distinct from §7 of `LIVE_READINESS_AGENT_PLAN.md`, which specifies the
 bundle a *task* produces. A campaign is a measurement, and a measurement
@@ -144,8 +154,12 @@ assertion, not a measurement.
 
 ## What this does not settle
 
-**The thresholds themselves.** p≤0.20, n≥14, and the trade-count floor
-were chosen as judgement and recorded in `GATE_SEMANTICS_AND_RERANK.md`.
+**The thresholds themselves.** The gate in code uses p≤0.10. The p≤0.20 recorded in
+`GATE_SEMANTICS_AND_RERANK.md` never reached the gate. n≥14 survives only in
+planning and selection scripts (`scripts/select_l2_candidate.py`,
+`scripts/plan_window_structure.py`), not in the gate, and the outer trade floor
+comes from the spec (`effective_min_oos_trades`). All of these were chosen as
+judgement.
 This contract requires them to be *recorded and fixed before* a campaign
 runs, which is what makes a later change a review event rather than a
 tune-to-fit. It does not say they are correct.

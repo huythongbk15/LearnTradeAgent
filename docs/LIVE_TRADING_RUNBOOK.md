@@ -29,7 +29,7 @@ operational checklist below.
   runner does not recognize is never treated as `open`.
 - Every eligible managed Spot position receives a Binance-native `STOP_LOSS`
   market order immediately after an entry fill. The stop remains at the
-  exchange if the hourly strategy process or host dies. Later runs may tighten
+  exchange if the strategy process or host dies. Later runs may tighten
   it but never widen it.
 - Protective state retains both the last confirmed active stop and a pending
   replacement. Restart/timeout recovery queries both deterministic client
@@ -80,11 +80,13 @@ operational checklist below.
 6. Generate one random `LIVE_SAFETY_HMAC_KEY` of at least 32 characters and keep
    it in the secret manager. Never rotate it without a controlled state migration.
 
-Run the independent audit watchdog from cron/systemd shortly after each hourly
-runner invocation and page on its non-zero exit status:
+Run the independent audit watchdog after each runner invocation and page on its
+non-zero exit status. On the testnet host, Windows Task Scheduler runs it every
+30 min (`scripts/ops/windows/check_health.ps1`) because WSL does not start cron.
+The cycle is every 2 h, so use the script's defaults (9900 s):
 
 ```powershell
-python scripts/check_live_audit.py --max-age-seconds 4500 --lookback-seconds 4500
+python scripts/check_live_audit.py
 ```
 
 ## Stage 1 — tests and dry-run
@@ -117,6 +119,8 @@ $env:LIVE_ORDER_RECONCILE_TIMEOUT_SECONDS = "20"
 python scripts/live_enhanced_ma_binance.py --testnet --profile testnet --execute
 ```
 
+> **Note 2026-10-31.** This stage does not trade a validated strategy. `scripts/live_enhanced_ma_binance.py` computes Enhanced MA state, but on testnet BUY stays locked (`entries_locked_no_promoted_runtime`) until a runtime reaches `TESTNET_ELIGIBLE`, and none has. The runner still manages exits, so a clean run today shows no strategy entry. These parameters were rejected (local evidence: `data/live_strategy_evidence.rejected.json`). Entry coverage today can only come from the operational track, which is never strategy evidence ([OPERABLE_SYSTEM_PLAN](operations/OPERABLE_SYSTEM_PLAN.md)).
+
 Run for at least 30 calendar days and cover entries, exits, exchange rejection,
 network timeout, restart/idempotency and alert delivery. Reconcile every fill
 against the local state and exchange history.
@@ -124,7 +128,7 @@ against the local state and exchange history.
 For each managed position, verify in the Binance Spot Testnet UI/API that:
 
 - exactly one protective sell is open with the expected quantity and stop;
-- terminating the hourly runner leaves that order open at Binance;
+- terminating the runner leaves that order open at Binance;
 - restarting the runner adopts the same client order ID instead of duplicating
   it;
 - a tighter ATR trail produces one replacement and the old stop is terminal;

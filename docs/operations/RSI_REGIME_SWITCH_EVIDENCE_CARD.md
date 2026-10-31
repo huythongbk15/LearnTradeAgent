@@ -5,6 +5,8 @@ Owner: research operator; independent reviewer pending
 Verified: 2026-10-18
 Evidence: STRATEGY_EVALUATION_REPORT.md, RSI_REGIME_SWITCH_MANIFEST.json
 
+> **Đính chính 31/10/2026.** Cửa sổ 5000 bar của card này là 2026-02-25 đến 2026-09-21 và cửa sổ 2000 bar là 2026-06-30 đến 2026-09-21, trên BTC 1h (`data/enemy_t30_5000`, `data/enemy_t30_2000`). Khoảng 78% cửa sổ 5000 bar nằm trong holdout đã đóng băng. Suy luận: chọn ngưỡng trên đó trái quy tắc 1 của [holdout policy](../RESEARCH_HOLDOUT.md). "no holdout" trong card chỉ có nghĩa là chưa có bước holdout chính thức, không có nghĩa cửa sổ đo nằm ngoài holdout. Dòng t=20 và t=40 ghi 5000 bar nhưng không có report 5000 bar BTC nào cùng tham số: `data/enemy_t20_5000` không tồn tại, `data/enemy_t40_5000` không có `report.json`, và các report t=20 trong `data/backtests/tournament` dùng MA hoặc RSI khác. Vì vậy "monotonic" và "sweet spot" chưa có căn cứ.
+
 ## Question and identity
 
 **Question**: Liệu ADX-regime-switched combination (RSI khi ADX<20, ma_adx khi ADX≥20) giúp giảm drawdown trong trending regime so với RSI-alone, đồng thời đạt được ≥30 trades và PF > 1.0 trên 5000 bars?

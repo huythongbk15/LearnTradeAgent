@@ -2,6 +2,8 @@
 
 > **Hướng dẫn nghiệm thu cập nhật 22/09/2026:** dùng [mục 9 — Hợp đồng nghiệm thu toàn hệ thống](KE_HOACH_CUNG_CO_VA_BAN_GIAO_AGENT.md#9-hợp-đồng-nghiệm-thu-toàn-hệ-thống), gồm AC01–AC15, case C01–C10 và sổ theo dõi bằng chứng. Snapshot 09/09 bên dưới là lịch sử, không xác nhận trạng thái code hiện tại. Các tiêu chí mới chưa tái xác minh, không đồng nghĩa chưa triển khai. Chỉ cập nhật maturity sau review evidence đúng revision.
 
+> **Hiệu đính 2026-10-31.** Trang này không còn theo dõi tiến độ. Các nhãn "hiện hành", "hiện tại" và "Mục tiêu gần nhất" bên dưới là của 09/2026. Tiến độ và quyết định mới nhất ở [tracker](../CAMPAIGN_STATUS.md), vận hành testnet ở [Operable plan](../operations/OPERABLE_SYSTEM_PLAN.md).
+
 > Snapshot rà soát: **2026-09-09**, code `09d3ce3` · Readiness: **còn thiếu tích hợp/evidence** · Production mainnet: **NO-GO**
 
 ## Cập nhật điều phối 09/09/2026 — trạng thái hiện hành

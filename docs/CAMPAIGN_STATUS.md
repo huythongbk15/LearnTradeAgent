@@ -6,6 +6,75 @@ were fragmenting the state across ~60 files.
 
 ## Current — 2026-10-30 / THINNING_DEVELOPMENT_COMPLETE (descriptive only; market otherwise paused) / PLUS_MATRIX_NO_SUPPORTED_INCREMENT / NO_NEW_MARKET_HYPOTHESIS; H-XSEC-01 FORWARD READ FROZEN
 
+### 2026-10-31 — operator exception: a short side on perps adds no profit on three rules
+
+One bounded exploratory run on pre-holdout data, at the operator's request of 2026-10-31.
+It is an exception to the stop below, not a reopening: no hypothesis is open, no gate
+changed, and mainnet stays NO-GO. Results in
+[SHORT_SIDE_RESULTS_20261031.md](operations/SHORT_SIDE_RESULTS_20261031.md).
+
+Three rules with existing parameters, one ledger, and the same signals for a spot long,
+a perp long, and a perp long plus short. Spot prices stand in for perp, with real funding
+on 13 coins from 2023. BTC, ETH and BNB 2020-2022 have no funding. At primary settings the
+short lowers the book in all 12 cells, in points of capital a year at 1x and 2x cost, with
+the 2020-2022 block before funding:
+
+| Rule | 2023 to 2026-02-05 | 2020 to 2022 | Word on the first block |
+| --- | ---: | ---: | --- |
+| `volatility_breakout` | -23.3 / -34.2 | -8.2 / -19.8 | clearly worse |
+| SMA 20/80 | -3.3 / -17.1 | -21.7 / -35.0 | cannot tell |
+| 21-day momentum | -6.9 / -9.2 | -6.7 / -9.0 | cannot tell |
+
+It earns only in falling periods (2022: +14.0, +19.7, +19.6 at 1x; the last 36 days of the
+first block: +2.2, +30.5, +1.2 at 1x, not annualized), apart from SMA 20/80 in 2024 (+4.1)
+and momentum in 2025 (+1.0), both at 1x and negative at 2x. It does not cut drawdown. The
+second block reads cannot tell on all three rules, so it does not confirm the word
+clearly worse. No rule reached `worth a designed test`. Cannot tell does not mean no edge.
+A separate rebuild from the protocol, by an agent of the same session and so not an
+independent review, matched every trade but one ZEC long on SMA 20/80, an exact tie,
+which shows only that two builds read the protocol alike. The
+p-values of the random control and its drift/timing split were withdrawn, because that
+control reused holds cut by the stop and treated coins as independent; no word changed.
+
+Also found: the research signal path, tournament and nested WFO, shows each bar only
+warmup+1 rows, so `volatility_breakout` forgets an open position. 38 of the 53
+H-VOLBREAK-01 trades left after 5 bars for that reason. Full-history signals, closer to
+the rule as written but not identical to it, give 56 trades and gross 39.69% against
+19.06% on the same bars, each the sum of per-trade gross on notional. The risk was disclosed in its prereg and a test pins it, but its
+size was never measured. It is no look-ahead, and whether any verdict changes is unknown,
+since no native run has repeated it. On this windowed path the short stays clearly worse
+on the first block; on the second it reads -30.37 / -42.05, so that rule is fragile there.
+Primary figures stay as frozen. Any warmup fix needs its own decision.
+
+### 2026-10-31 — correction: the frozen holdout has been scored
+
+Documentation correction only: no new measurement, no verdict change, no gate change.
+`docs/operations/RESEARCH_SYNTHESIS_20261030.md` section 5 says the window 2026-02-06 to
+2026-08-05 was never scored. That is wrong. Three decision files show
+`final_holdout.status` COMPLETED on bars 27183-31503, all BTC 1h and all after the
+2026-09-06 freeze: rsi (09-06), funding_carry (09-15), ma_vol_target (09-25). All three
+have `passes_hard_gates` false. That is at least three scores: two attempts on 09-24
+failed, and whether two manifests opened on 09-14 produced a score is unknown. 802
+`report.json` files overlap the window, 568 of them dated on or after 09-06.
+
+The manifest was first frozen on 2026-08-11. It was regenerated on 2026-09-06 with a
+window one hour later and 80 datasets instead of 71, against holdout rule 3; commit
+`ea01e060` gives no reason. The known exposure is listed in the
+[holdout ledger](RESEARCH_HOLDOUT.md), which is not proven complete.
+
+Earlier entries saying the holdout stays sealed or should be kept unopened record an
+instruction not to use it, and entries saying a round left it untouched describe that
+round only. They do not mean it was never opened. The window stays out of use and can
+no longer serve as independent confirmation.
+
+The other corrections are recorded at the top of the synthesis. Two change how it reads. 'Signals that lose before
+costs' holds for RSI/ADX. MA 20/50 has no stops and a slightly negative closed gross, but
+one open position shows a gain, so its packet does not conclude a loss before costs. For
+H-LIQ-REVERSAL-01, BASE/PLUS and thinning the sign of gross is unresolved, because every
+stop was booked at the bar low; net stays negative in every case tested. Section 8 is not
+a list of things never measured: daily bars, funding, short and multi-asset ranking all
+have some measurement, thin or not clean.
+
 ### 2026-10-30 — H-CTX-01: nine market-state parameters, step 1 not passed
 
 STRONG 0, HINT 1 (P6 on T3, IC -0.125), so step 2 did not open and H-CTX-01 stopped

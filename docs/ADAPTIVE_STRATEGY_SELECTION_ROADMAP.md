@@ -2,6 +2,8 @@
 
 > **Status:** TARGET + HISTORICAL PHASE RECORD
 > Không dùng file này làm runtime manual. Đọc [Core System](CORE_SYSTEM.md), [Documentation Map](DOCUMENTATION_MAP.md) và [Adaptive Roadmap Status](ADAPTIVE_ROADMAP_STATUS.md) trước; các checkbox chỉ phản ánh kế hoạch/evidence của phase.
+>
+> **Hiệu đính 2026-10-31.** Các ghi chú "đã wire sẵn" ở §2.4 và §10 chỉ đúng ở mức hàm và test: `promote(on_event=...)` có hook, nhưng ngoài test không code nào gọi nó, kể cả `run-promoted`. Ô `[x]` ở S4–S7 nghĩa là có code, không phải đã chạy trên bằng chứng thật. Ô `[x]` của STR-0309 chỉ nói đã có bước freeze: cửa sổ đó sau này đã bị chấm điểm, xem [sổ lộ holdout](RESEARCH_HOLDOUT.md). "Parity live-vs-backtest" ở Milestone D nói về `MultiPairRuntime`, không phải runner testnet. Runtime hiện không chọn strategy theo pair hay regime. Xem [System Overview](SYSTEM_OVERVIEW.md).
 
 > Cập nhật: 2026-08-26
 > Phạm vi: research → strategy selection → regime routing → portfolio → canonical execution

@@ -87,6 +87,8 @@ Nếu baseline không deterministic hoặc report invalid, dừng capstone và k
 
 ## Phase 4 — Mini tournament
 
+> **Cảnh báo holdout (31/10/2026).** `--tail-bars` đếm lùi từ cuối file, còn `scripts/run_strategy_tournament.py` và `scripts/full_system_backtest.py` không kiểm holdout. File 1h của BTC, ETH, BNB kết thúc ngày 21/09/2026, nên 2000 bar bắt đầu khoảng 30/06/2026 và 3000 bar khoảng 19/05/2026, nằm trong cửa sổ đóng băng của [Final Holdout Policy](../../RESEARCH_HOLDOUT.md). Các symbol khác kết thúc trong tháng 8/2026 nên cũng rơi vào đó. Chỉ dùng các lệnh này để kiểm đường chạy: không đọc metric và không dùng kết quả cho quyết định nghiên cứu nào.
+
 Dry-run trước:
 
 ```bash

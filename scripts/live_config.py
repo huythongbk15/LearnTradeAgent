@@ -3,21 +3,21 @@
 Cấu hình dùng chung cho các live runner (P1.4 — tránh config rải rác mỗi file).
 
 Được import bởi:
-  - scripts/live_enhanced_ma.py          (Alpaca paper — runner chính)
-  - scripts/live_enhanced_ma_binance.py  (Binance/testnet)
+  - scripts/live_enhanced_ma.py          (Alpaca paper — không có lịch chạy)
+  - scripts/live_enhanced_ma_binance.py  (Binance/testnet — runner đang chạy theo lịch)
   - scripts/live_cron_runner.py          (wrapper cron)
 """
 
 from __future__ import annotations
 
 # ── Chiến lược ──────────────────────────────────────────────────────────
-# Champion mới (sweep 2026-08-11, ~9.000 combos): MA crossover + ADX + ATR
+# Tham số runner, chọn từ sweep 2026-08-11 (~9.000 combos): MA crossover + ADX + ATR
 # trailing stop + DD circuit breaker (cooldown 0 → price-recovery reset) +
-# price confirmation (chỉ long khi close > slow MA).
-#   - BTC: median Sharpe 0.24 (vẫn < gate 0.5 — downtrend folds 2025-05→11)
-#   - AVAX: PASS (1.236 / 3.48% / DD 8.05% / 29 trades)
-#   - SOL:  gần pass (-0.125 với close_above; 0.94 với slow=100 trail=1.0)
-# Trailing + breaker là strategy-level → backtest & live replay cùng signals.
+# price confirmation (chỉ long khi close > slow MA). Đây không phải strategy đã kiểm chứng:
+# evidence đúng bộ tham số này bị từ chối, xem data/live_strategy_evidence.rejected.json
+# và docs/operations/RESEARCH_SYNTHESIS_20261030.md mục 2.
+# Trailing + breaker nằm trong strategy. Research grid dùng tham số khác, và fill, stop,
+# nhịp chạy của research cũng khác runner.
 TIMEFRAME = "1h"
 LOOKBACK = 1000
 STRATEGY_PARAMS = {

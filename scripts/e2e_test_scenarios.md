@@ -1,5 +1,7 @@
 # E2E SYSTEM TEST — Advanced Trading Evaluation & Order Optimization
 
+> **Correction dated 2026-10-31.** This is a plan from 2026-09-21, not a result. Shadow Sharpe does not measure strategy quality: `scripts/run_tournament_shadow.py` builds the signal window through bar i, scores it on bar i's own return, and counts SELL as a short the long-only system cannot take. On zero-drift synthetic data `trend_pullback` scored +16 to +23 this way, and −9 to +7 when scored on the next bar (local evidence). There was no "P4 production state": the Sharpe quoted beside that phrase is a tournament figure, and nothing has traded in production. Do not use the `shadow_sharpe` thresholds below as acceptance checks.
+
 ## Pivot: Runtime optimization → Trade result quality + optimal execution
 
 ### Core Metrics (what matters):

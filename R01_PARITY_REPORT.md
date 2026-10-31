@@ -1,5 +1,7 @@
 # R01: Adapter LegacyDataFrameAdapter + CanonicalRegistry Parity - COMPLETE
 
+> **Correction, 2026-10-31.** The 100% parity below compares the legacy strategy with itself. `scripts/r01_signal_parity.py` and `scripts/r01_equity_parity.py` take `adapter._strategy` and call its `generate_signals` directly, so both sides run the same function on the same frame. The equity script adds only that those signals give the same result when injected into `FullSystemSimulator`. Neither script calls `canonical_signal_series` or `tournament.run_cell`, which is the path research cells use. That path builds each signal from a rolling window and fills one bar later. This report says nothing about parity between research cells and the legacy simulator, and nothing about the runner.
+
 ## Executive Summary
 **Status: PASS** ✅
 

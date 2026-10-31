@@ -7,6 +7,8 @@ This document defines how a strategy moves from source code to an authorized
 runtime decision. It is a contract map, not a claim that every target stage is
 already production-validated.
 
+> **Correction 2026-10-31.** No strategy has made this trip. Research stops at written evidence cards: no code outside tests builds `EvidenceArtifact` or calls `promote`, and `data/promotion_store/` is empty. The promotion and resolution rows below are code that exists, not stages in use. The Binance runner reads no selection policy and no routing decision. See [System Overview](../SYSTEM_OVERVIEW.md).
+
 **Tiếng Việt:** [Vòng đời chiến lược và ranh giới authority](../vi/VONG_DOI_CHIEN_LUOC.md)
 
 ## Lifecycle
@@ -33,7 +35,7 @@ Strategy implementation
 | Strategy declaration | `strategies/canonical/descriptor.py` | `StrategyDescriptor` | Reject invalid/duplicate identity | **CURRENT** |
 | Registry lookup | `strategies/canonical/registry.py` | Registered adapter + descriptor | Unknown strategy error; no implicit fallback | **CURRENT** |
 | Feature construction | `strategies/canonical/features.py` | Closed-bar OHLCV window | `FeatureUnavailableError` / abstain | **CURRENT** |
-| Runtime compatibility | `strategies/canonical/bridge.py` | Canonical runtime bridge | Stay flat when history is insufficient | **CURRENT** |
+| Runtime compatibility | `strategies/canonical/bridge.py` | Canonical runtime bridge, used by the research tournament only; the resolver does not use it, so a registered strategy is not thereby runnable | Stay flat when history is insufficient | **CURRENT in research only** |
 | Evaluation matrix | `backtest/tournament.py` | `EvaluationArtifact` per cell | Emit `FAILED` evidence instead of hiding a cell | **CURRENT, S2 hardening ongoing** |
 | Statistical selection | Nested WFO + multiple-testing policy | Candidate ranking/evidence | No eligible winner | **TARGET until its exit gate is evidenced** |
 | Policy publication | Selection-policy builder | Immutable policy artifact | Refuse incomplete/unbound policy | **TARGET until its exit gate is evidenced** |

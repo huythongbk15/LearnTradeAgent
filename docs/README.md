@@ -4,7 +4,7 @@
 > **Verified:** 2026-08-31
 > **Mainnet:** `NO-GO` cho tới khi các release gate có evidence thực tế.
 
-Nếu chỉ đọc một trang, hãy đọc [CORE_SYSTEM.md](CORE_SYSTEM.md). Trang đó mô tả sản phẩm cốt lõi, đường lệnh duy nhất, invariant và ranh giới với các tính năng mở rộng.
+Nếu chỉ đọc một trang, hãy đọc [System Overview](SYSTEM_OVERVIEW.md): hệ thống đang thật sự chạy gì, strategy nào đã qua, mục tiêu nào đang được theo. Thiết kế lõi, đường lệnh, invariant và ranh giới với các tính năng mở rộng nằm ở [CORE_SYSTEM.md](CORE_SYSTEM.md).
 
 Nhãn `CURRENT` mô tả behavior hoặc quy trình đang tồn tại; `TARGET` là mục tiêu chưa đủ evidence; `HISTORICAL` chỉ giữ để truy vết. Xem [Documentation Standard](DOCUMENTATION_STANDARD.md) để biết quy ước đầy đủ.
 
@@ -12,22 +12,21 @@ Nhãn `CURRENT` mô tả behavior hoặc quy trình đang tồn tại; `TARGET` 
 
 Phạm vi tinh gọn validation đã nghiệm thu: [Kế hoạch và checkpoint](operations/VALIDATION_REFACTOR_PLAN.md), [Playbook nhiều agent](operations/VALIDATION_REFACTOR_AGENT_PLAYBOOK.md), Final handoff và evidence — local evidence `data/validation_refactor_final_20261023_01/RESULTS.md`. Không cấp quyền chạy research hoặc live.
 
-Mục tiêu gần nhất là live readiness: đọc [Quy trình agent L0–L4](operations/LIVE_READINESS_AGENT_PLAN.md).
-Trang này quản lý task, dependency và evidence review; không cấp quyền mainnet.
+Hiện trạng và bước tiếp theo nằm ở ba nơi: [tracker](CAMPAIGN_STATUS.md) cho quyết định và nghiên cứu, [Operable plan](operations/OPERABLE_SYSTEM_PLAN.md) cho vận hành testnet, [Quy trình agent L0–L4](operations/LIVE_READINESS_AGENT_PLAN.md) cho contract live readiness. Ba mục tiêu đang được nêu, chưa được gộp: xem [System Overview](SYSTEM_OVERVIEW.md). Không trang nào ở đây cấp quyền mainnet.
 
 | Bạn muốn | Đọc trước | Sau đó |
 | --- | --- | --- |
-| Hiểu toàn hệ thống | [Core System](CORE_SYSTEM.md) | [Architecture](ARCHITECTURE.md) |
+| Hiểu toàn hệ thống | [System Overview](SYSTEM_OVERVIEW.md) | [Core System](CORE_SYSTEM.md), [Architecture](ARCHITECTURE.md) |
 | Chạy/kiểm tra local | [Getting Started](getting-started.md) | [Main-flow Validation](operations/MAIN_FLOW_VALIDATION.md) |
 | Nghiên cứu/chọn strategy | [Quy trình chạy nghiên cứu](operations/RESEARCH_RUN_PROTOCOL.md) | [Research-to-Production](guides/RESEARCH_TO_PRODUCTION.md), [Research Methodology](RESEARCH_METHODOLOGY.md), [Evidence Artifacts](reference/EVIDENCE_ARTIFACTS.md) |
 | Vận hành paper/testnet | [Live Trading Runbook](LIVE_TRADING_RUNBOOK.md) | [S7 Evidence Runbook](S7_OPERATIONAL_EVIDENCE_RUNBOOK.md) |
 | Đánh giá mức hoàn thiện | [Capability Matrix](CAPABILITY_MATRIX.md) | [Adaptive Roadmap Status](ADAPTIVE_ROADMAP_STATUS.md), [Live Readiness](LIVE_TRADING_TODO.md) |
-| Theo dõi tiến độ và phase còn lại | [Tiến độ và lộ trình phase](vi/TIEN_DO_VA_LO_TRINH_PHASE.md) | Bảng trạng thái, backlog, dependency và exit gate |
+| Theo dõi tiến độ | [Tracker](CAMPAIGN_STATUS.md) | [Operable plan](operations/OPERABLE_SYSTEM_PLAN.md) cho testnet; [Tiến độ và lộ trình phase](vi/TIEN_DO_VA_LO_TRINH_PHASE.md) chỉ là snapshot 09/2026 |
 | Học bằng tiếng Việt | [Khóa học thực hành](vi/khoa-hoc/README.md) | 12 bài, lab, rubric và capstone |
 
 ## Luồng chuẩn
 
-Đợt củng cố sau audit 07/09/2026: [Kế hoạch thực hiện và bàn giao agent](vi/KE_HOACH_CUNG_CO_VA_BAN_GIAO_AGENT.md) — ticket R00–R09, dependency, phạm vi file và tiêu chí nghiệm thu. Đọc trước khi tiếp tục campaign S3–S7.
+Đợt củng cố sau audit 07/09/2026: [Kế hoạch thực hiện và bàn giao agent](vi/KE_HOACH_CUNG_CO_VA_BAN_GIAO_AGENT.md) — ticket R00–R09, dependency, phạm vi file và tiêu chí nghiệm thu. Đây là kế hoạch 09/2026, giữ để truy vết; thứ tự việc hiện hành ở [playbook](operations/MULTI_STRATEGY_RESEARCH_PLAN.md) và [tracker](CAMPAIGN_STATUS.md).
 
 ```text
 data quality + point-in-time features
@@ -48,7 +47,7 @@ Xem [DOCUMENTATION_MAP.md](DOCUMENTATION_MAP.md) để biết taxonomy, thứ t�
 ## Các hợp đồng quan trọng
 
 - [Strategy Lifecycle](architecture/STRATEGY_LIFECYCLE.md) — research → selection → promotion → runtime.
-- [Backtest Engine](BACKTEST_ENGINE.md) — cell accounting, execution simulation và attribution.
+- [Backtest Engine](BACKTEST_ENGINE.md) — `PortfolioBacktestEngine`; cổng nghiên cứu không lấy số từ engine này.
 - [Promotion Binding](PROMOTION_BINDING.md) — content identity và provenance.
 - [Runtime Resolver](RUNTIME_RESOLVER.md) — authority fail-closed.
 - [Production Policy](PRODUCTION_POLICY.md) — điều kiện đủ để được xét production.

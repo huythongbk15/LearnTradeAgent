@@ -21,17 +21,17 @@ trong code là nguồn quyết định. Hãy cập nhật lại cả hai bản t
 
 | Bạn muốn làm gì? | Đọc trước | Kết quả cần đạt |
 | --- | --- | --- |
-| Hiểu toàn bộ hệ thống | [Vòng đời chiến lược](VONG_DOI_CHIEN_LUOC.md) | Phân biệt research, selection, promotion, runtime và execution |
+| Hiểu toàn bộ hệ thống | [Tổng quan hệ thống](../SYSTEM_OVERVIEW.md) | Biết cái gì đang thật sự chạy, rồi đọc [Vòng đời chiến lược](VONG_DOI_CHIEN_LUOC.md) để phân biệt research, selection, promotion, runtime và execution |
 | Đánh giá một strategy | [Từ nghiên cứu đến vận hành](NGHIEN_CUU_DEN_VAN_HANH.md) | Chạy đúng baseline/tournament và biết khi nào không được promote |
 | Hiểu report và artifact | [Bằng chứng và artifact](BANG_CHUNG_VA_ARTIFACT.md) | Truy được data, code, params, cost và promotion identity |
 | Kiểm tra luồng chính | [Runbook kiểm tra luồng chính](KIEM_TRA_LUONG_CHINH.md) | Thực hiện kiểm tra L0–L5 theo mức rủi ro |
-| Theo dõi tiến độ phase | [Tiến độ và lộ trình phase](TIEN_DO_VA_LO_TRINH_PHASE.md) | Biết phần nào đã đạt, phần nào còn thiếu và điều kiện đóng phase |
+| Theo dõi tiến độ | [Tracker](../CAMPAIGN_STATUS.md) | Biết tiến độ và quyết định mới nhất; testnet xem [Operable plan](../operations/OPERABLE_SYSTEM_PLAN.md). [Tiến độ và lộ trình phase](TIEN_DO_VA_LO_TRINH_PHASE.md) chỉ là snapshot 09/2026 |
 | Tự học và tự thực hành | [Khóa học thực hành đầy đủ](khoa-hoc/README.md) | 12 bài, lab, bài tập, rubric, đáp án và capstone |
 | Tra thuật ngữ | [Thuật ngữ song ngữ](THUAT_NGU.md) | Dùng thống nhất từ chuyên môn trong code và tài liệu |
 
 ## Luồng hệ thống chuẩn
 
-Để cùng triển khai phần còn thiếu, đọc [Kế hoạch củng cố và bàn giao agent](KE_HOACH_CUNG_CO_VA_BAN_GIAO_AGENT.md): thứ tự R00–R09, phân công file, test bắt buộc và mẫu giao việc. Đây là kế hoạch mục tiêu, không phải chứng nhận hoàn thành.
+Để cùng triển khai phần còn thiếu, đọc [Kế hoạch củng cố và bàn giao agent](KE_HOACH_CUNG_CO_VA_BAN_GIAO_AGENT.md): thứ tự R00–R09, phân công file, test bắt buộc và mẫu giao việc. Đây là kế hoạch 09/2026, giữ để truy vết, không phải chứng nhận hoàn thành; thứ tự việc hiện hành ở [playbook](../operations/MULTI_STRATEGY_RESEARCH_PLAN.md) và [tracker](../CAMPAIGN_STATUS.md).
 
 ```text
 Dữ liệu thị trường
@@ -42,13 +42,14 @@ Tournament + mô phỏng execution thực tế
   ↓ kiểm định OOS/thống kê
 Selection policy + promotion artifact bất biến
   ↓ runtime resolver fail-closed
-Strategy/router đang được phép chạy
+Strategy/router được phép chạy (hiện chưa có)
   ↓ ràng buộc portfolio và risk
 Order intent → lifecycle → broker → fill → reconciliation
   ↓
 Attribution → monitoring → rollback → audit
 ```
 
+Luồng trên là thiết kế đích; hiện trạng xem [Tổng quan hệ thống](../SYSTEM_OVERVIEW.md).
 Mỗi mũi tên là một ranh giới authority. Thiếu dữ liệu, thiếu identity hoặc thiếu
 promotion hợp lệ phải dẫn đến từ chối, giảm exposure hoặc `NO_TRADE`; không được
 âm thầm chọn một strategy mặc định.

@@ -70,7 +70,11 @@ Next bounded proposal is `data/readiness_closure_20261016_01/diagnostic_proposal
 not an executed/frozen calibration packet. It uses an existing6795-bar input,
 not the broader7946-bar historical file that extends into/past holdout. Metadata
 reads are not a holdout price evaluation; historical measurement windows remain
-earlier and this finding alone does not prove look-ahead contamination.
+earlier and this finding alone does not prove look-ahead contamination. (Correction
+2026-10-31: true for the parallel WFO protocols that bind the 7946-bar file, whose folds
+end at bar 6340 or earlier. Not true for the 2026-10-12 calibration packets
+`calibration_20261012_013330_utc` and `_031500_utc`: 21 reports simulate past the
+boundary and one has measurement window [5984,7064]; see `docs/RESEARCH_HOLDOUT.md`.)
 
 Remaining external/empirical prerequisites: independent review/integration;
 operator-approved fresh source/protocol/budget; actual measured funnel; a

@@ -4,6 +4,8 @@ Two research cycles completed under RESEARCH_RUN_PROTOCOL.md:
 1. **Phase A**: Regime-switched ensemble (RsiAdxRegimeFilter) — BTC/USDT 1h
 2. **Phase B**: BNB/ADX25 comparison — BNB/USDT 4h
 
+> **Correction dated 2026-10-31.** The Phase A figures below come from the runs in [RSI_REGIME_SWITCH_EVIDENCE_CARD.md](RSI_REGIME_SWITCH_EVIDENCE_CARD.md). Their 2000-bar window is 2026-06-30 to 2026-09-21 and their 5000-bar window is 2026-02-25 to 2026-09-21, so both overlap the frozen holdout. The threshold sweep listed under "What worked" chose t=30 on those bars, and its t=20 and t=40 rows have no 5000-bar BTC report with the same parameters. Read the card's correction before reusing a Phase A number.
+
 ## Key patterns cross-validated
 
 ### Regime dependence (dominant failure mode)

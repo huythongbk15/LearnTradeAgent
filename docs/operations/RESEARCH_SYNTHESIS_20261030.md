@@ -7,6 +7,24 @@ Evidence: [tracker](../CAMPAIGN_STATUS.md), [research evidence](../RESEARCH_EVID
 
 Không có phép đo mới nào được chạy để viết tài liệu này. Dữ liệu thị trường chỉ được kiểm qua metadata (footer parquet), không đọc giá.
 
+> **Đính chính 31/10/2026.** Phần dưới giữ nguyên như đã viết ngày 30/10. Các điểm sau thay thế hoặc bổ sung câu tương ứng. Đây là đối chiếu với code và artifact đã lưu, không chạy backtest mới, và không verdict nào đổi.
+>
+> - **Holdout (dòng Verified, mục 5, mục 7).** Câu "chưa từng được chấm điểm" sai. Cửa sổ đóng băng đã bị chấm điểm trên BTC 1h ít nhất ba lần: `rsi` 06/09, `funding_carry` 15/09, `ma_vol_target` 25/09, đều có `final_holdout.status` COMPLETED trên bar 27183–31503 (`data/backtests/wfo_real_20260906`, `data/backtests/wfo_funding_carry_only`, `data/backtests/wfo/research/vol_target__BTCUSDT_1h`). Cổng `final_holdout_completed` chỉ kiểm lần chạy đã hoàn tất, không kiểm lãi lỗ. Manifest đóng băng lần đầu ngày 11/08 và được sinh lại ngày 06/09. Chi tiết ở [sổ lộ holdout](../RESEARCH_HOLDOUT.md).
+> - **Dữ liệu chưa xem (mục 6).** "Không còn dữ liệu chưa xem" chỉ có căn cứ cho BTC, ETH, BNB 1h. Mức lộ của các symbol và khung khác chưa được kiểm kê, nên không được suy ra là chưa xem. Cohort forward từ 02/11/2026 chưa xảy ra và dành riêng cho H-XSEC-01.
+> - **Mục 8 không phải danh sách "chưa từng đo".**
+>   - Khung ngày đã đo, dù mỏng: BTC 1d có 298 `report.json` và 3 WFO với 13, 1 và 12 lệnh OOS; walk-forward `ma_crossover` 1d trên 10 symbol ngày 24/08, không có gate; T8A-B BTC, ETH, BNB 2020–2022. Khung tuần mới chỉ có ở dạng rebalance.
+>   - Funding đã đo: `funding_carry` có 150 report BTC 1h và một run 7 fold ngoài. Chưa xác minh PnL có gồm dòng tiền funding.
+>   - Phép đo short có funding đầu tiên chạy ngày 31/10/2026: [kết quả](SHORT_SIDE_RESULTS_20261031.md). Short đã đo tới 30/10/2026, nhưng không trên đường nào qua cổng và không trên perp USDT. `scripts/run_cross_asset_backtest.py` dùng trọng số âm thật cho nhánh long-short của `stat_arbitrage_ls` và cross-sectional momentum, trên BTC/USDT và ba cặp chéo BTC, 31.783 bar 1h từ 2023-01-01 đến 2026-08-17 nên cắt qua holdout. Trường `trades` trong kết quả của script là số bar đổi trọng số, không phải số lệnh. Script chỉ tính commission 10 bps, không có slippage, borrow hay funding, và chưa thấy ghi nhận review. `scripts/run_tournament_shadow.py` chấm SELL là −1, nhưng điểm đó có look-ahead. Hai id `*_ls` trong registry là bản xấp xỉ một tài sản; `FullSystemSimulator`, đường đo của `nested_wfo`, coi SELL là thoát về flat, nên các cổng chưa chấm chân short nào. `BacktestEngine` có `long_only=False` và có test, nhưng không tính funding, và không script nào bật chế độ đó. Runtime là Spot long-only: `OrderPlanner` từ chối target âm. Các phép đo này không trả lời việc thêm short có tăng lợi nhuận hay không.
+>   - Xếp hạng chéo: script trên đã xếp hạng 4 instrument đó ngày 17/09. D1 và H-XSEC-02 đo sau khi tài liệu này được viết.
+> - **"Lỗ trước phí" (mục 1, 2).** Gross là số của simulator, nơi mọi stop khớp ở bar low. RSI/ADX cố định âm dù stop khớp ở đâu. MA 20/50 không có stop; closed gross âm nhẹ (−15 đến −20 USDT) nhưng còn một vị thế mở đang lãi, nên RESULTS của nó không kết luận lỗ trước phí. Với H-LIQ-REVERSAL-01, BASE/PLUS và thinning, dấu của gross chưa rõ. Nếu stop khớp ở trigger, số ô chuyển sang dương là 3/3, 9/12, 18/36; nếu khớp dưới trigger 100 bps là 0/3, 4/12, 9/36. H-LIQ-REVERSAL-01 1x đi từ −268 đến khoảng +37 USDT. Net vẫn âm ở mọi ô trong các trường hợp này.
+> - **Đơn vị (mục 2).** Gross, chi phí và net trong bảng "Lãi gộp xấp xỉ bằng phí" tính bằng USDT, không phải %. Return % theo RESULTS: H-VOLBREAK-01 +0.575% ở 1x và −2.385% ở 2x, so với passive +34.4%; H-PULLBACK-01 +0.721%, so với passive +4.9%; H-PULLBACK-TEMPORAL-01 −0.479%, so với passive +31.7%. Các dòng trong bảng khác cửa sổ nên không được xếp hạng với nhau.
+> - **Mục 2, "Quá ít lệnh".** Số 30 ở đây là hai ngưỡng khác nhau. Selection contract đòi candidate có ít nhất 30 lệnh trong từng cửa sổ validation. Cổng outer `min_trades_per_pair_strategy_ge_30` cộng lệnh qua mọi fold, và ngưỡng lấy từ spec nên có thể khác 30.
+> - **Mục 2, chi phí.** Mô phỏng tính 30 bps khứ hồi, spread 0. Các cổng cost-clearing dùng sàn 0.32% × số lệnh, so với return trên vốn đã trừ phí và không scale theo exposure. Sàn này gồm 2 bps spread mà mô phỏng không tính.
+> - **Phạm vi bảng mục 3.** 24 dòng không phải toàn bộ lịch sử. Bảng nhảy từ 11/08 sang 06/10, bỏ sót walk-forward 4h và 1d trên 10 symbol (24/08), WFO SOL 1h (05/09), `wfo_real_20260906`, `wfo_full` 529 ô (14/09), `wfo_funding_carry_only` (15/09), cross-asset (17/09), T8A (23/09) và vol_target BTC 1h (25/09). Bảng cũng thiếu ba mốc dễ bị đọc nhầm là đã có strategy qua: đợt 05/09 ghi `enhanced_ma` Winner/FINAL_PASS ([trang đó](../vi/MULTI_STRATEGY_WFO_2026_09_05.md)), danh sách 18/09 ghi APPROVED cho `enhanced_ma` và `stat_arbitrage_ls` ([trang đó](../STRATEGY_SIGNOFF_P2PHASE4.md)), và tournament 18/09 (replay 720 nến, Sharpe có look-ahead, tự promote khi chạy chế độ live). Cả ba đều không phải bằng chứng qua cổng, nên kết luận mục 1 không đổi.
+> - **Mục 4, cổng outer.** Danh sách thiếu `cost_clearing_folds_above_chance_p_le_010` (binomial p ≤0.10), `cost_clearing_single_window_le_60pct`, `median_return_clears_cost_floor`, `zero_trade_fold_pct_le_50` và `parameter_neighbors_net_pnl_positive`. Hợp đồng native có 20 cổng, thêm 2 cổng holdout khi chạy holdout.
+> - **Mục 4, cách tính.** Net return, Sharpe, PF, max drawdown và Calmar của cổng outer là trung vị qua các fold, không phải số toàn chuỗi. Fold dương là fold có Sharpe >0.
+> - **Mục 5, "DSR tính khoảng 8000 lần thử".** 8000 là giá trị mặc định nhập tay của `--trials` trong `scripts/generate_live_strategy_evidence.py`. Cổng `dsr_ge_095` lấy số thử từ registry, chỉ trong phạm vi candidate của chính lần chạy. Các packet validation 24–27/10 ghi `raw_trial_count` 3, riêng một packet ghi 9.
+
 ## 1. Kết luận
 
 - Khoảng 24 đợt nghiên cứu trên ít nhất 15 họ quy tắc, từ tháng 8 đến 30/10/2026. Không strategy nào đạt RESEARCH_VALIDATED.
@@ -87,6 +105,8 @@ Nguồn mặc định là [tracker](../CAMPAIGN_STATUS.md) và [research evidenc
 | TESTNET_ELIGIBLE | Mô phỏng thực thi ≥100 kịch bản và reality gap ≤0.50, cả hai 0 vi phạm | Thực nghiệm |
 | Runtime | Một artifact 1h cho mỗi symbol của runner, khớp tham số và `code_sha` | Ràng buộc |
 
+> **Đính chính 31/10/2026.** Dòng TESTNET_ELIGIBLE thiếu một điều kiện: `REALITY_GAP` phải có nguồn testnet hoặc shadow, nên mô phỏng không qua được bậc này. Bậc này vì thế lặp vòng: cần bằng chứng testnet trước khi được lên testnet.
+
 Cổng outer trong `nested_wfo` chặt hơn thang trên: Sharpe ≥0.80, PF ≥1.20, max drawdown ≤10%, Calmar ≥0.5, ít nhất 60% fold dương, cùng các cổng chịu phí 2x, trễ một bar và bỏ lệnh tốt nhất.
 
 Hai sự thật tách biệt:
@@ -104,7 +124,7 @@ Track vận hành (M3) mở khóa mua cho bộ kiểm thử vòng đời lệnh,
 
 **Dữ liệu đã lộ.** File BTC 1h từ 24/03/2023 đến 06/02/2026 đã bị đọc và đo. Không còn dataset confirmation chưa đọc cho BTC 1h. ETH và BNB 1h cũng đã bị đọc.
 
-**Holdout.** Cửa sổ 06/02–05/08/2026 đóng băng từ 06/09/2026 và chưa từng được chấm điểm. Không chứng minh được là chưa bị chạm: file BNB 4h và lịch báo cáo RSI từng đi vào vùng này, và chính [holdout policy](../RESEARCH_HOLDOUT.md) ghi metadata không chứng minh điều đó.
+**Holdout.** Cửa sổ 06/02–05/08/2026 đóng băng từ 06/09/2026 và chưa từng được chấm điểm. **(Đính chính 31/10/2026: câu này sai, cửa sổ đã bị chấm điểm ít nhất ba lần trên BTC 1h. Xem đầu trang.)** Không chứng minh được là chưa bị chạm: file BNB 4h và lịch báo cáo RSI từng đi vào vùng này, và chính [holdout policy](../RESEARCH_HOLDOUT.md) ghi metadata không chứng minh điều đó.
 
 **Dữ liệu trong máy** (footer parquet, tháng 10/2026):
 
@@ -119,7 +139,7 @@ Backfill Binance Vision chưa được tải: điều khoản phân biệt nghi�
 ## 6. Vì sao không tinh chỉnh tham số
 
 - Gánh thử nghiệm đã rất lớn. Thêm một vòng tìm tham số chỉ làm DSR và PBO khó qua hơn, và thứ qua được nhiều khả năng là khớp nhiễu.
-- Không còn dữ liệu chưa xem để kiểm tra kết quả tinh chỉnh.
+- Không còn dữ liệu chưa xem để kiểm tra kết quả tinh chỉnh. (Đính chính 31/10/2026: chỉ có căn cứ cho BTC, ETH, BNB 1h, xem đầu trang.)
 - Nguyên nhân mang tính cấu trúc. Tham số không đổi được quan hệ giữa lãi gộp và phí, cũng không tạo thêm lệnh trên cùng khung thời gian.
 - [RESEARCH_EVIDENCE](../RESEARCH_EVIDENCE.md) đã ghi quyết định không retune các họ đã đóng để giữ search budget.
 
@@ -133,6 +153,8 @@ Backfill Binance Vision chưa được tải: điều khoản phân biệt nghi�
 - Mức độ lộ của dữ liệu 2020–2022 của BTC, ETH, BNB.
 
 ## 8. Các hướng chưa từng được đo
+
+> Đính chính 31/10/2026: khung ngày, funding, short và xếp hạng chéo đã có phép đo, tuy mỏng hoặc chưa sạch. Xem đầu trang.
 
 - **Xếp hạng chéo thật sự giữa nhiều coin.** Strategy `cross_sectional_momentum_lo/ls` trong repo là bản xấp xỉ một tài sản, theo docstring của nó. 12 lần chạy ngày 11/09 đều không xong (5 lần chết vì `database is locked`, 7 lần dừng sau bước bỏ fold) và không có spec nào trong registry.
 - **Khung ngày và tuần** trong repo; tài liệu học thuật có kết quả ở horizon này.

@@ -124,6 +124,7 @@ Mọi mục dưới đây **chưa nghiệm thu**. Không ghi DONE theo số test
 - `scripts/r01_signal_parity.py`: 1000/1000 bars identical signals giữa canonical registry adapter và `build_legacy_candidate()`
 - `scripts/r01_equity_parity.py`: FullSystemSimulator với canonical signals injected vs legacy strategy → **0.00% diff** trên mọi metric
 - Xác nhận `LegacyDataFrameAdapter` là zero-overhead wrapper không thay đổi hành vi
+  - *Đính chính 31/10/2026:* hai script trên gọi thẳng `adapter._strategy`, nên 100% parity chỉ so strategy legacy với chính nó. Chúng chưa kiểm đường `canonical_signal_series`/`tournament.run_cell`, xem banner trong `R01_PARITY_REPORT.md`.
 
 **Contract phải duy trì và review (không triển khai lại schema đã có):**
 - **File chính:** `scripts/run_wfo_parallel.py`, `src/trading_agent/strategies/canonical/candidates.py`, strategy constructors; rà các runner/grid khác dùng cùng chiến lược.

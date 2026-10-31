@@ -2,6 +2,8 @@
 
 > Snapshot: **2026-09-04** · Scope: đóng S2/S3/S4/S5/S6 + P1 để mở khóa S7 testnet
 
+> **HISTORICAL, ghi chú 31/10/2026.** Kế hoạch 4 tuần từ 04/09/2026, không còn được theo. Mục 6 không phải gate mainnet hiện hành: quyền mainnet do [Live Readiness](../LIVE_TRADING_TODO.md) quyết định, và mainnet vẫn **NO-GO**. Tiến độ ở [tracker](../CAMPAIGN_STATUS.md).
+
 ## 0. Nguyên tắc chỉ đạo
 
 1. **Fail-closed**: mọi evidence phải chạy qua pipeline thật (real data, real execution simulation), không chấp nhận synthetic stand-in.

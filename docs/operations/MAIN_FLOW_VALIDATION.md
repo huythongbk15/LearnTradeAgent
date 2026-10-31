@@ -16,6 +16,7 @@ test into an unsafe production action.
   so timeout, heartbeat and the final result are recorded.
 - Do not reuse a live state directory for backtests.
 - Stop on missing data, identity mismatch, schema failure or unexplained cell loss.
+- **Holdout warning (2026-10-31).** `--tail-bars` counts back from the end of the input file, and neither `scripts/run_strategy_tournament.py` nor `scripts/full_system_backtest.py` checks the holdout. The canonical BTC, ETH and BNB 1h files end on 2026-09-21, so 2000 bars start around 2026-06-30 and 3000 bars around 2026-05-19, inside the frozen window of [RESEARCH_HOLDOUT.md](../RESEARCH_HOLDOUT.md). The other symbols end in August 2026 and land there too. Use `--tail-bars` commands as plumbing checks only: do not read their metric values, and do not use them for any research decision.
 
 ## Validation ladder
 

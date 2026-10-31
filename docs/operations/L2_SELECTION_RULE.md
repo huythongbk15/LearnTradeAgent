@@ -150,7 +150,17 @@ floor — remain unresolved in `GATE_SEMANTICS_AND_RERANK.md`. The plan puts
 that resolution at L1, before any campaign. This rule assumes they exist and
 states that E5, E6 and the abstention path must be re-read once they are
 set, because they are expressed in those terms.
+
+> **Correction, 2026-10-31.** The gate in force uses p ≤ 0.10
+> (`cost_clearing_folds_above_chance_p_le_010`). `GATE_SEMANTICS_AND_RERANK.md`
+> records p ≤ 0.20, which never reached the gate. `scripts/select_l2_candidate.py`
+> hard-codes `GATE_N_MIN = 14` and `TRADING_WINDOW_FLOOR = 0.50` and reads no p
+> value. These values stay unresolved in practice, so the re-read of E5, E6 and the
+> abstention path above is still owed before this rule is used.
+
 ## Recorded first run
+
+> **Correction dated 2026-10-31.** `data/l2_selection.json` no longer holds the run below. Commit `dba036f3` (2026-10-04) replaced it with a BTC/USDT **1h** run: `data/raw/binance/BTC_USDT/1h_extended.parquet`, 58,897 rows, 12/2/2/2, 33 folds, 1,440-bar windows, `selected: cross_sectional_momentum_lo`. All 17 candidates are eligible there, so the rule screened nothing out. Moving from 1d to 1h changes the fold structure, and this page requires a new decision record for that before any campaign runs; none exists. Neither run was acted on: there is no D01 record, the tracker has no L2 entry, and no campaign record cites either result. The selected strategy is a single-asset approximation, so its rank says nothing about cross-sectional momentum. That window also spans the frozen holdout dates; the selector measures trade density only, not P&L. Treat this rule as a specification, not as a working selection step.
 
 `scripts/select_l2_candidate.py` on BTC/USDT 1d, 12/2/2/2, window 60 bars:
 

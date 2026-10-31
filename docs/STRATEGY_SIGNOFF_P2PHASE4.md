@@ -1,9 +1,19 @@
 # P2 Phase 4 — Strategy Sign-off Review List (16 strategies)
 
+> **HISTORICAL, superseded. Correction dated 2026-10-31.** This list approves nothing and is not a sign-off. No strategy has reached `RESEARCH_VALIDATED`; current state is in [CAMPAIGN_STATUS](CAMPAIGN_STATUS.md). The text below is kept as written on 2026-09-18/19. Paths under `data/` are local evidence.
+>
+> - **No one signed.** The `APPROVED` marks are text in this list. The approval table at the end is empty, RiskManager included. The five `approved` rows in `data/promotion/approvals.sqlite3` are a different thing: one run of `scripts/init_tournament_approval.py` wrote them from literals, signature `unsigned`, within 48 microseconds, for the tournament shadow artifact. Promotion, resolver and runner do not read them.
+> - **`TOURNAMENT_SHADOW_MODE=0` does not wait for signatures.** It is a plain environment read. The 3-symbol paper replay ran in that mode on 2026-09-18, minutes after those rows were written. No code checked them, and it wrote `TOURNAMENT_PROMOTION` rows. That replay covered 720 past bars, scored strategies with same-bar look-ahead, and was never connected to the runner.
+> - **`enhanced_ma`.** Its figures come from [the 2026-09-05 page](vi/MULTI_STRATEGY_WFO_2026_09_05.md): read the correction there. The row leaves out the same-campaign BTC 1h result (`NO_TRADE`, 3/13) and the 2026-08-11 rejection on the runner's parameters, and its ETH 1h cells were never aggregated into a decision. The cost figures 1.27 / 1.13 / 1.15 do not match the cells (1.19 / 0.87 / 0.78).
+> - **`stat_arbitrage_ls`.** One run of a hand-written loop in `scripts/run_cross_asset_backtest.py`, outside the engine: no folds, no OOS. Its −0.5 weights are shorts, which the Spot long-only runner cannot place. It does not show that shorting adds return. Rows 4 to 6 come from the same script. The correction below gives their data, costs and what "Trades" counts.
+> - **Other rows.** The Tier C section predates rows 7–13, which were added on 2026-09-19, so it still calls them pending. Rows 14 to 16 come from the same retired gate set as row 1. The page cited for `trend_pullback` has no `trend_pullback` result. The `ma_adx`, `rsi` and `bbands` rejections each measured one configuration, and an archived audit found no cells on disk for seven rows (`docs/archive/session-reports/EVIDENCE_BASE_AUDIT.md`). That audit calls `wfo_full` clean, which does not mean the grid applied: those cells predate `7bfbebd1`, and parameter sets gave identical results there, so row 3's "best params" are not a measured best if they came from that run.
+
 > **Purpose:** RiskManager sign-off checklist for all 16 active tournament pool strategies.
 > **Pool basis:** `FIRST_WAVE_DESCRIPTORS` minus `funding_carry` (archived as S5/NO_TRADE).
 > **Evidence sources:** WFO campaigns (SOL/USDT 1h), cross-asset backtests (4-symbol universe),
 > S6 campaign, and prior phase results.
+
+> **Correction 2026-10-31.** The cross-asset rows (2, 4, 5, 6) come from `scripts/run_cross_asset_backtest.py`, not the canonical engine. They use 31,783 1h bars from 2023-01-01 to 2026-08-17, so they span the frozen holdout, and by file date they were run on 2026-09-17, after the freeze. The instruments are BTC/USDT and three BTC cross pairs (ETH/BTC, BNB/BTC, XRP/BTC), not USDT perps, and "Trades" counts rebalances that changed the weights. Costs are 10 bps commission only, with no slippage, borrow or funding, and single-bar returns are capped at 15%. No review of the script is on record. These rows are not clean evidence and do not support any short path. Row 3's "holdout failed": in `data/backtests/wfo_full` the verdict `HOLDOUT_FAILED` came from `final_holdout` status ERROR (`Holdout already opened`), so it does not show a scored failure. See [RESEARCH_HOLDOUT.md](RESEARCH_HOLDOUT.md).
 
 ---
 

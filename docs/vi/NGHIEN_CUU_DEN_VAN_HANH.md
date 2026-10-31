@@ -4,6 +4,8 @@
 >
 > Bản đối chiếu: [Research-to-Production Guide](../guides/RESEARCH_TO_PRODUCTION.md)
 
+> **Hiệu đính 2026-10-31.** Bước 1–4 có công cụ trong repo; ghi chú này không chạy lại chúng. Bước 5 đã được thử dưới dạng nested WFO và không strategy nào qua. Bước 6–7 chưa từng chạy cho strategy nào: ngoài test, không code nào biến một lần chạy đạt thành bằng chứng promotion, và runner theo lịch chưa nhận được strategy được promote nếu không nối thêm. Ở bước 8 mới chỉ có các kết luận không promote. Packet nghiên cứu dùng `scripts/run_wfo_parallel.py` theo [Quy trình chạy nghiên cứu](../operations/RESEARCH_RUN_PROTOCOL.md).
+
 Mục tiêu của quy trình không phải tìm strategy có Sharpe cao nhất. Mục tiêu là
 tạo ra một quyết định `PROMOTE`, `DO NOT PROMOTE` hoặc `INSUFFICIENT EVIDENCE`
 có thể tái hiện và kiểm toán.
@@ -11,6 +13,8 @@ có thể tái hiện và kiểm toán.
 ## Bước 1 — Khóa baseline
 
 Trước khi so sánh strategy, chứng minh engine và dữ liệu có tính tái hiện.
+
+> **Cảnh báo holdout (31/10/2026).** `--tail-bars` đếm lùi từ cuối file, còn `scripts/run_strategy_tournament.py` và `scripts/full_system_backtest.py` không kiểm holdout. File 1h của BTC, ETH, BNB kết thúc ngày 21/09/2026, nên 2000 bar bắt đầu khoảng 30/06/2026 và 3000 bar khoảng 19/05/2026, nằm trong cửa sổ đóng băng của [Final Holdout Policy](../RESEARCH_HOLDOUT.md). Các symbol khác kết thúc trong tháng 8/2026 nên cũng rơi vào đó. Chỉ dùng các lệnh này để kiểm đường chạy: không đọc metric và không dùng kết quả cho quyết định nghiên cứu nào.
 
 Smoke một pair bằng local data và state cô lập:
 
@@ -134,14 +138,14 @@ Policy/promotion cần bind:
 - incumbent và abstain behavior;
 - risk budget tối đa.
 
-## Bước 7 — Shadow → paper → testnet → canary
+## Bước 7 — Paper → testnet → shadow → canary
 
 ```text
 Research evidence
-  → Shadow: chỉ tạo decision
-  → Internal paper: mô phỏng order/fill
-  → Broker paper/testnet: kiểm tra protocol và reconciliation
-  → Canary: phạm vi/vốn giới hạn
+  → Internal paper: mô phỏng order/fill (PAPER_ELIGIBLE)
+  → Broker testnet: kiểm tra protocol và reconciliation (TESTNET_ELIGIBLE)
+  → Shadow: chỉ tạo decision (SHADOW_ELIGIBLE)
+  → Canary: phạm vi/vốn giới hạn (CANARY_ELIGIBLE, CANARY)
   → Production: chỉ sau approval hiện hành
 ```
 

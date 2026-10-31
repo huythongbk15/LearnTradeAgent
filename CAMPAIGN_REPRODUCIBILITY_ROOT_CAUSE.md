@@ -1,5 +1,7 @@
 # Why the campaigns disagree — root cause
 
+> **Correction dated 2026-10-31.** Cells on `wfo_parallel*` did run (local evidence): all 252 `enhanced_ma` SOL reports, at `c6e5fe55`, and all 189 `ma_adx` reports, at `5dcbab533c`, have status passed and trades, and all of them predate `a65ed29000`. That commit also leaves the `enhanced_ma` branch unchanged, so "The cause" below and the sign-off section's "may not have run at all" do not hold. The defect those campaigns share is different: until `7bfbebd1` (2026-09-15) `run_cell` built signals from default strategy parameters, so the parameter grid did not reach signal generation. Why the same strategy still differed across commits remains unknown.
+
 `GATE_SEMANTICS_AND_RERANK.md` found the same strategy measured by
 different campaigns differing by up to 227x, and concluded the campaigns
 are not reproducible. This traces where that comes from.

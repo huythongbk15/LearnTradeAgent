@@ -1,7 +1,6 @@
 # 🤖 Trading Agent System
 
-**Multi-Agent AI Trading Platform** — kết hợp LLM agents với chiến lược giao dịch systematic,
-multi-exchange, multi-asset (Crypto + Stocks + Forex + Futures/Options).
+**Hệ thống nghiên cứu và vận hành giao dịch crypto, fail-closed.** Đường đang vận hành là Binance Spot long-only trên testnet. Repo còn có code LLM agents, multi-exchange và Forex, Futures/Options, nhưng các phần đó không nằm trên đường đặt lệnh: agents bị cấm nạp vào runner, còn OANDA, DEX và Futures/Options là Tầng 2 frozen ([Capability Matrix](docs/CAPABILITY_MATRIX.md)).
 
 [![CI](https://github.com/huythongbk15/LearnTradeAgent/actions/workflows/ci.yml/badge.svg)](https://github.com/huythongbk15/LearnTradeAgent/actions/workflows/ci.yml)
 
@@ -18,8 +17,10 @@ multi-exchange, multi-asset (Crypto + Stocks + Forex + Futures/Options).
 >
 > Chi tiết: [`docs/LIVE_TRADING_TODO.md`](docs/LIVE_TRADING_TODO.md) · [`docs/CAPABILITY_MATRIX.md`](docs/CAPABILITY_MATRIX.md)
 
-Kế hoạch thực hiện live readiness cho agent: [L0–L4, constraints và evidence review](docs/operations/LIVE_READINESS_AGENT_PLAN.md).
+Contract live readiness cho agent: [L0–L4, constraints và evidence review](docs/operations/LIVE_READINESS_AGENT_PLAN.md). Điều phối hiện hành ở [tracker](docs/CAMPAIGN_STATUS.md).
 Không suy ra quyền mainnet từ AC PASS, checkbox hoặc deployment thành công.
+
+**Hiện trạng:** [System Overview](docs/SYSTEM_OVERVIEW.md) — cái gì đang thật sự chạy, strategy nào đã qua, mục tiêu nào đang được theo. Tiến độ và quyết định mới nhất: [tracker](docs/CAMPAIGN_STATUS.md).
 
 ---
 
@@ -45,9 +46,9 @@ Hệ thống giao dịch tự động theo hướng nghiên cứu (research-orie
 
 | Mặt | Trạng thái |
 | --- | --- |
-| Research / backtest | Hoạt động, nhiều strategy + WFO — xem [`docs/RESEARCH_EVIDENCE.md`](docs/RESEARCH_EVIDENCE.md) |
-| Paper trading | Hoạt động (Alpaca paper validated) |
-| Testnet (Binance) | Có acceptance lịch sử; cần revalidate canonical runner và release-bound soak — xem [L0–L4](docs/operations/LIVE_READINESS_AGENT_PLAN.md) |
+| Research / backtest | Công cụ hoạt động. Không strategy nào đạt `RESEARCH_VALIDATED`; từ 2026-10-30 operator dừng mở market hypothesis mới — xem [`docs/RESEARCH_EVIDENCE.md`](docs/RESEARCH_EVIDENCE.md) |
+| Paper trading | Không chạy. Alpaca paper có evidence lịch sử từ 2026-08-08, chỉ xác nhận execution path, không chứng minh strategy. Runner không có lịch chạy và từ 2026-08-22 chặn mọi BUY vì không có promoted artifact — xem [`docs/CAPABILITY_MATRIX.md`](docs/CAPABILITY_MATRIX.md) |
+| Testnet (Binance) | Runner chạy mỗi 2 giờ qua Windows Task Scheduler. BUY của strategy bị khóa vì không có strategy nào được promote. Runner quản lý và thoát vị thế; nó chỉ mua khi operator ký track vận hành (M3), bằng bộ kiểm thử vòng đời lệnh, không phải strategy — xem [Operable plan](docs/operations/OPERABLE_SYSTEM_PLAN.md). Có acceptance lịch sử; vẫn cần revalidate canonical runner và release-bound soak — xem [L0–L4](docs/operations/LIVE_READINESS_AGENT_PLAN.md) |
 | Mainnet (vốn thật) | **NO-GO** — xem [`docs/LIVE_TRADING_TODO.md`](docs/LIVE_TRADING_TODO.md) |
 | CI/CD | Xem GitHub Actions badge — không claim "xanh" cố định trong docs |
 | Production validated | Chưa — xem [`docs/CAPABILITY_MATRIX.md`](docs/CAPABILITY_MATRIX.md) |
@@ -78,7 +79,7 @@ Yêu cầu: **Python >=3.12,<3.13**. Credentials template: [`.env.example`](.env
 
 ```
 RESEARCH PLANE   Data → Features → Strategies → Backtest → Statistical Validation → Evidence
-DECISION PLANE   Strategies/Agents → Portfolio → Risk → Order Intent
+DECISION PLANE   StrategyRuntime → DecisionAuthority → Allocator → ExposureAuthority → Order Intent
 EXECUTION PLANE  Order Planner → Broker Adapter → Order Lifecycle → Fill Ledger → Reconciliation → Protective Orders
 CONTROL PLANE    Configuration → Release Gates → Kill Switch → Leader/Fencing → Audit
 OBSERVABILITY    Logs → Metrics → Alerts → Incident Response

@@ -12,16 +12,15 @@ vẫn **NO-GO**; không mục nào ở đây cấp quyền chạy thị trườn
 
 ## 1. Luồng đang vận hành thật
 
-Theo crontab hiện tại (2026-10-29):
+Hiệu đính 2026-10-31. Lịch chạy thật nằm ở `scripts/ops/windows/register_tasks.ps1` (Windows Task Scheduler). WSL không tự chạy cron.
 
 | Lịch | Lệnh | Vai trò |
 | --- | --- | --- |
-| 2 giờ/lần | `scripts/live_enhanced_ma_binance.py --testnet --execute` | Runner Binance testnet (luồng chính) |
-| 2 giờ/lần | `scripts/live_cron_runner.py --execute` → subprocess `scripts/live_enhanced_ma.py` | Alpaca paper |
-| 6 giờ/lần | `scripts/testnet_soak_tracker.py --check` | Theo dõi soak |
-| hằng ngày | `scripts/live_status_report.py`, `trading-agent system daily` | Báo cáo |
+| 2 giờ/lần, phút :01 | `scripts/ops/run_binance_testnet_cycle.sh` → `scripts/live_enhanced_ma_binance.py --testnet --profile testnet --execute` | Runner Binance testnet. BUY của strategy bị khóa khi không có runtime được promote |
+| 30 phút/lần | `scripts/ops/windows/check_health.ps1` → `scripts/ops/check_binance_testnet_health.sh` | Cảnh báo khi cycle dừng hoặc lỗi |
+| hằng ngày 08:10 local | `scripts/ops/run_daily_check.sh` | Báo cáo chỉ đọc |
 
-Ngoài các luồng trên, mọi thứ khác là nghiên cứu offline hoặc chưa dùng.
+Không có lịch chạy thật: Alpaca paper (`scripts/live_cron_runner.py`), `scripts/testnet_soak_tracker.py`, `scripts/live_status_report.py`, `trading-agent system daily`. Các dòng này còn trong crontab nhưng cron không chạy. Ngoài các luồng trên, mọi thứ khác là nghiên cứu offline hoặc chưa dùng.
 
 ## 2. Đo hiện trạng
 
@@ -65,7 +64,7 @@ Bốn cạnh đo lần đầu:
 - `exchanges`: `ccxt_adapter`, `live_broker`, `models`
 - `authority`: `config`, `portfolio`, `resolver`, `promotion_store`, `decision`, `exposure`, `causation`, `loader`
 - `research`: `artifact`, `promotion`, `lifecycle`, `forecast`, `calibration`, `drift` (vì `promotion_store` dùng; xem lại ở R3)
-- `strategies`: `base`, `enhanced_ma` (chiến lược đang deploy)
+- `strategies`: `base`, `enhanced_ma` (code Enhanced MA mà runner dùng để tính state; chưa được promote, BUY bị khóa)
 - `regime.py`
 - Thêm `config`, cảnh báo Telegram và `monitoring` khi nối vào runner (P1.3 trong LIVE_TRADING_TODO)
 

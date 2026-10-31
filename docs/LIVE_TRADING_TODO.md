@@ -7,6 +7,8 @@
 > [Production Policy](PRODUCTION_POLICY.md) và [S7 evidence](S7_OPERATIONAL_EVIDENCE_RUNBOOK.md)
 > vẫn là contracts bắt buộc, không bị thay thế bởi kế hoạch mới.
 
+> **Hiệu đính 31/10/2026.** Từ 25/10/2026, điều phối hiện hành là [playbook](operations/MULTI_STRATEGY_RESEARCH_PLAN.md) và [tracker](CAMPAIGN_STATUS.md). [Quy trình agent L0–L4](operations/LIVE_READINESS_AGENT_PLAN.md) chỉ giữ contract live readiness.
+
 Last updated: 2026-08-14 (Asia/Saigon)
 
 Mainnet status: **NO-GO**. Completion of an engineering checkbox is not
@@ -37,7 +39,7 @@ production/S7 release contracts, integrated evidence review and explicit operato
 
 | Capability | Backtest | Testnet | Mainnet | Required action |
 | --- | --- | --- | --- | --- |
-| Next-bar signal timing | Implemented | Implemented by hourly runner | Not accepted | Preserve timing parity tests |
+| Next-bar signal timing | Implemented | Implemented by runner (1h bars, 2 h cycle) | Not accepted | Preserve timing parity tests |
 | Fee/spread/slippage model | Implemented | Pre-trade market-quality gates | Not calibrated | Compare predicted and actual fills |
 | Intrabar protective stop | Simulated | Acceptance passed (P0.1, 3/3 on testnet.binance.vision) | Not soaked | P0.1 done — P3 soak covers stops |
 | Order idempotency | Implemented in live ledger | Covered by tests | Not soaked | P0.2 lifecycle soak |
@@ -48,7 +50,7 @@ production/S7 release contracts, integrated evidence review and explicit operato
 | State integrity | Signed local state | Implemented | Single-host only | P1.1 durable leader and snapshots |
 | Monitoring/alerting | Modules exist | Not wired to the Binance runner | **Blocked** | P1.3 independent paging |
 | Deployment/restore | CI artifacts exist | Not acceptance-tested | **Blocked** | P1.4/P1.5 drills and topology |
-| Strategy evidence | Six contiguous OOS folds | Evidence gate implemented | Holdout frozen (2026-02-06 → 2026-08-05, 71 datasets) | P2 done — P3 soak confirms |
+| Strategy evidence | Six contiguous OOS folds | Evidence gate implemented | Holdout frozen (2026-02-06 → 2026-08-05, 71 datasets) | P2 done — P3 soak confirms. **Correction 2026-10-31:** only the P2 tooling is done; the evidence was rejected on 2026-08-11 (see P2 below), no strategy has qualified, and a P3 soak tests operations and cannot supply strategy evidence. The manifest now lists 80 datasets; 71 was the 2026-08-11 count |
 
 ## P0 - capital protection and execution correctness
 
@@ -76,7 +78,7 @@ production/S7 release contracts, integrated evidence review and explicit operato
 - [x] Document exchange-held protection and operator reconciliation procedure.
 
 Acceptance: every protectable position has exactly one valid protective order;
-restart and timeout recovery are idempotent; loss of the hourly strategy runner
+restart and timeout recovery are idempotent; loss of the strategy runner
 does not remove protection already held by the exchange.
 
 ### P0.2 Order lifecycle and fill accounting
@@ -198,7 +200,8 @@ does not remove protection already held by the exchange.
 
 - [x] Freeze a 6-12 month final holdout and publish an immutable research manifest.
       (`data/research_manifest.json`: 2026-02-06 → 2026-08-05, 71 datasets
-      fingerprinted; `scripts/generate_holdout_manifest.py`;
+      fingerprinted, 80 since it was regenerated on 2026-09-06;
+      `scripts/generate_holdout_manifest.py`;
       `trading_agent/alpha_research/holdout.py` guard + 6 tests;
       `docs/RESEARCH_HOLDOUT.md` policy.)
 - [x] Add per-fold trade minimums, regime breakdowns, block-bootstrap confidence
@@ -237,7 +240,7 @@ writes `data/testnet_soak_report.json`; `--check` evaluates the thresholds).
 they cannot be completed in a single session.**
 
 - [ ] At least 30 continuous calendar days on Binance Spot Testnet.
-      (Tracker ready. Start the soak: run the Binance testnet runner hourly and
+      (Tracker ready. Start the soak: run the Binance testnet runner on its 2 h schedule and
       `python scripts/testnet_soak_tracker.py --check` daily.)
 - [ ] At least 100 complete order lifecycles.
       (Tracker ready — counts fills paired with protective-stop placements.)

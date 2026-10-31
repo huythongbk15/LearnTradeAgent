@@ -62,6 +62,8 @@ Best recorded return anywhere is 10%; median is 2%. The typical policy
 promises **2%** while needing **4.8%** just to stand still. Every policy in
 every store is insolvent by a factor of 2-3x.
 
+> **Correction, 2026-10-31.** The `/ 2` above does not match what was built. `total_trades` counts closed round trips, and the code charges 0.32% per trade (`nested_wfo`, `selection_policy`, `live_safety.required_return_pct`). That gives 9.6% at 30 trades, not 4.8%. Recommendation 3 below was implemented without the `/ 2`. The finding that these scores are fixtures does not change.
+
 ## Status of the insolvent policies
 
 ```

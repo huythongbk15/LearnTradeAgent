@@ -4,6 +4,8 @@
 >
 > Bản contract đối chiếu: [Strategy Lifecycle](../architecture/STRATEGY_LIFECYCLE.md)
 
+> **Hiệu đính 2026-10-31.** Chưa strategy nào đi hết chuỗi này. Research dừng ở evidence card viết tay: ngoài test, không code nào tạo `EvidenceArtifact` hay gọi `promote`, và `data/promotion_store/` rỗng. Các dòng Promotion và Runtime resolver dưới đây là code đã có, không phải stage đang dùng. Runner Binance không đọc selection policy hay routing decision. Xem [System Overview](../SYSTEM_OVERVIEW.md).
+
 ## 1. Vì sao cần vòng đời tách biệt?
 
 Một trading system an toàn không chọn strategy và gửi order trong cùng một bước.
@@ -39,7 +41,7 @@ Strategy implementation
 | Descriptor | `StrategyDescriptor` | Reject identity/parameter schema không hợp lệ | **HIỆN HÀNH** |
 | Registry | Adapter + descriptor đã allowlist | Unknown strategy phải lỗi rõ ràng | **HIỆN HÀNH** |
 | Feature window | OHLCV đã đóng trước decision time | Thiếu history → abstain | **HIỆN HÀNH** |
-| Canonical bridge | Runtime tương thích authority | Không đủ warmup → giữ flat | **HIỆN HÀNH** |
+| Canonical bridge | Runtime tương thích authority, chỉ tournament nghiên cứu dùng; resolver không dùng, nên strategy có trong registry chưa chắc chạy được | Không đủ warmup → giữ flat | **HIỆN HÀNH, chỉ trong research** |
 | Tournament cell | `EvaluationArtifact` | Tạo artifact `FAILED`, không làm biến mất cell | **HIỆN HÀNH, đang harden S2** |
 | Statistical selector | Ranking + uncertainty | Không đủ bằng chứng → `no winner` | **MỤC TIÊU** đến khi exit gate đóng |
 | Selection policy | Policy bất biến theo pair/regime | Thiếu lineage → reject | **MỤC TIÊU** |

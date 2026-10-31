@@ -2,6 +2,8 @@
 
 > Snapshot: **2026-09-04** · Required cho S7 mainnet gating
 
+> **Ghi chú 31/10/2026.** Trang này là schema mục tiêu, không phải chuỗi duyệt đang chạy. `authority/approval.py` đã có (mục 9 chưa cập nhật), nhưng chỉ `scripts/init_tournament_approval.py` và test gọi nó; promotion, resolver và runner không đọc. 5 dòng `approved` trong `data/promotion/approvals.sqlite3` (local evidence) không phải phê duyệt của người: một script ghi từ literal ngày 18/09/2026, chữ ký `unsigned`, trong 48 micro giây, stage `production`, cho artifact shadow của tournament. Chúng không cho phép strategy nào chạy.
+
 ## 1. Mục đích
 
 Đảm bảo **không một cá nhân/agent đơn lẻ** nào có thể promote strategy lên production. Mỗi promotion cần ≥ 2 approvals từ các vai trò khác nhau, có cryptographic signature.

@@ -44,6 +44,14 @@ D1 đã dùng các lựa chọn này khi chưa có review. Các điểm này n�
 
 Mục 9 của đề xuất ghi "không tìm thấy" backtest nhiều tài sản trong `trading_agent.backtest`. Chưa chính xác: `portfolio_backtest` là engine nhiều tài sản, chỉ là không dùng được cho thiết kế này. Đề xuất không được sửa vì mã hash gắn với toàn bộ file, nên đính chính nằm ở đây.
 
+Thêm ngày 31/10/2026:
+
+Mục 1 ghi "Repo chưa từng đo" quan hệ giữa các coin. Chưa chính xác: `scripts/run_cross_asset_backtest.py` đã xếp hạng 4 instrument (BTC/USDT, ETH/BTC, BNB/BTC, XRP/BTC) trên 31.783 bar 1h ngày 17/09/2026, ngoài engine và chỉ tính commission. Đây là BTC/USDT cộng ba cặp chéo BTC, không phải giỏ coin theo USDT, và chưa thấy ghi nhận review cho script. Điều này không đổi thiết kế H-XSEC-01.
+
+Mục 4 ghi cổng max drawdown ≤10%. Cổng thật trong `nested_wfo` là trung vị qua các fold.
+
+Mục 6 ghi holdout "không chứng minh được là chưa chạm". Thực tế mạnh hơn: cửa sổ này đã bị chấm điểm trên BTC 1h ít nhất 3 lần sau freeze, xem [sổ lộ holdout](../RESEARCH_HOLDOUT.md). Quyết định giữ nguyên, không dùng holdout cho H-XSEC-01.
+
 ## Đã kiểm
 
 - 119 test trên dữ liệu tổng hợp. Không test nào đọc dữ liệu thị trường.

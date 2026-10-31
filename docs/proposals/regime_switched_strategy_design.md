@@ -1,5 +1,7 @@
 # Regime-Switched Strategy Design — Proposal
 
+> **Đính chính 31/10/2026.** Các số "2000 bars" và "5000 bars" ở đây là BTC 1h trên 30/06–21/09/2026 và 25/02–21/09/2026, đều giao holdout đã đóng băng ([evidence card](../operations/RSI_REGIME_SWITCH_EVIDENCE_CARD.md)). Không dùng chúng làm căn cứ cho đề xuất mới. Card ghi kết quả đợt này là `TERMINATED_NOT_QUALIFIED`.
+
 ## Problem Statement
 
 Từ các experiments (tổng hợp trong STRATEGY_EVALUATION_REPORT.md):

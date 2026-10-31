@@ -29,6 +29,8 @@
 | Append-only experiment registry + content-addressed feature artifacts | yes | yes | local research validation | **NO** |
 | Canonical frozen Forecast → RiskDecision → TargetExposure contract | yes | yes | same-logic environment contract tested | **NO** |
 | Eight-stage content-addressed research promotion ladder | yes | yes | no artifact has completed empirical ladder | **NO** |
+| Đường research → runtime (EvidenceArtifact → ladder → PromotionStateStore → resolver) | một phần: gate, hook và store có; không có producer | chỉ test với fixture | chưa từng chạy cho strategy thật | **NO** |
+| Runtime resolver theo tên strategy | 7 trong 20 strategy canonical | yes | chưa có artifact testnet nào | **NO** |
 | Train-only probability calibration + split conformal intervals | yes | yes | synthetic independent-test benchmark only | **NO** |
 | Distributional drift + execution-quality drift | yes | yes | synthetic/unit fixtures only | **NO** |
 | Simulator calibration provenance (synthetic/testnet/shadow/live) | yes | yes | synthetic remains HEURISTIC; empirical dataset absent | **NO** |
@@ -36,10 +38,10 @@
 | Binance Spot — protective stop (P0.1) | yes | yes | acceptance pending | **NO** |
 | Binance Spot — order lifecycle (P0.2) | yes | yes | testnet partial | **NO** |
 | Trusted time & market data (P0.3) | yes | yes | testnet partial | **NO** |
-| Alpaca Paper (LiveBroker) | yes | yes | paper validated (live paper từ 2026-08-08) | N/A (paper) |
+| Alpaca Paper (LiveBroker) | yes | yes | paper validated lịch sử (08/2026); hiện không chạy, runner chặn BUY từ 2026-08-22 | N/A (paper) |
 | OANDA (forex) — *Tầng 2, frozen* | yes | partial | not validated | **NO** |
 | DEX (Uniswap V3 / Jupiter / PancakeSwap) — *Tầng 2, frozen* | yes | integration/dry-run | not validated | **NO** |
-| Futures / Options adapters — *Tầng 2, frozen* | yes | integration | not validated | **NO** |
+| Futures / Options adapters — *Tầng 2, frozen* | có file nhưng không khởi tạo được: Binance, Bybit và Deribit gọi `CCXTAdapter.__init__` sai tham số (đối chiếu 2026-10-31) | chỉ có test ranh giới import, không có test chức năng | not validated | **NO** |
 | Order router / smart routing — *Tầng 2, frozen* | yes | integration | not validated | **NO** |
 | Portfolio optimizer (BL / HRP / risk parity) | yes | yes | research only | **NO** |
 | Strategy plugin marketplace + sandbox — *Tầng 2, frozen* | yes | yes | dry-run | **NO** |
@@ -58,7 +60,7 @@
 
 Theo [CORE_RUNTIME_BOUNDARY.md](operations/CORE_RUNTIME_BOUNDARY.md):
 
-- **Tầng 0, lõi runtime:** những gì runner testnet/paper thật sự dùng (execution, exchanges CCXT/Alpaca, authority, strategy đang deploy). Các mục khác chỉ được ưu tiên sau khi lõi này qua L0.
+- **Tầng 0, lõi runtime:** những gì runner testnet/paper thật sự dùng (execution, exchanges CCXT/Alpaca, authority, code Enhanced MA mà runner dùng để tính state; chưa được promote, BUY bị khóa). Các mục khác chỉ được ưu tiên sau khi lõi này qua L0.
 - **Tầng 1, nghiên cứu offline:** backtest, research, calibration, ml, portfolio optimizer. Giữ nguyên, nhưng runner không được import.
 - **Tầng 2, frozen:** các dòng đánh dấu *Tầng 2, frozen* ở trên, cùng các package `features` (không được import ở đâu), `enterprise`, `messaging`, `infrastructure`, `online_learning`. Không phát triển thêm và không xóa ở bước này.
 
@@ -68,7 +70,9 @@ Theo [CORE_RUNTIME_BOUNDARY.md](operations/CORE_RUNTIME_BOUNDARY.md):
 
 - **Alpaca Paper** được đánh dấu "paper validated" vì có vận hành paper liên tục nhiều ngày
   (equity ~$95-100k, position sync, fill real qua Alpaca paper endpoint). Đây KHÔNG phải production
-  validated — không có vốn thật.
+  validated — không có vốn thật. Đó là evidence lịch sử từ 2026-08-08. `scripts/live_enhanced_ma.py`
+  chặn mọi BUY từ 2026-08-22 vì không có promoted artifact. File cuối cùng runner này ghi có ngày
+  2026-08-29; cron không chạy và Task Scheduler không có task nào cho Alpaca.
 - **Binance Testnet** đã có lệnh SELL filled thành công (P0.3 testnet execute) nhưng chưa đạt
   acceptance gates (P3 trong LIVE_TRADING_TODO.md: 30 ngày soak, 100 lifecycles, 0 unexplained
   failures...).

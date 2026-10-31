@@ -1,5 +1,7 @@
 # Environment Mapping
 
+> **Status: TARGET, not enforced. Correction 2026-10-31.** Do not use this page to decide what runs where. The regime-to-strategy table, the confidence thresholds, the top-N symbol limits, the per-environment timeframes and the drift behaviours below are not read by `AuthorityConfig`, the resolver or the Binance runner. The resolver checks only `config.symbols` and one global timeframe set, and blocks parameter drift the same way everywhere. The runner and `live_admission` have no regime logic. The closest code is `RegimeDetector.REGIME_PARAMS` in `online_learning/regime_detector.py`, a Tier 2 frozen package that the runner is forbidden to load, and `DEFAULT_REGIME_STRATEGIES` in `strategies/regime_switching.py`, which uses other regime labels and belongs to one strategy, not to an environment. `ml` holds more regime code. In code, environment rules are the minimum stage in `ENV_MIN_STAGE` (`authority/promotion_store.py`) and the exposure presets in `AuthorityConfig.for_environment()`. TESTNET, SHADOW and CANARY match the table below. The production preset keeps the default 0.95 portfolio exposure, not the 0.05 below; it is blocked because production has no stage mapping. `AuthorityConfig.load()` reads only the YAML path it is given plus `TA_*` environment variables, and `for_environment` reads no file. For how a strategy is actually chosen, read [System Overview](SYSTEM_OVERVIEW.md).
+
 ## Regime-Specific Strategy Switching — Environment Configuration
 
 ### Regime Detection & Strategy Assignment
