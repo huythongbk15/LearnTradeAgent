@@ -62,9 +62,9 @@ Mục 9 của đề xuất ghi "không tìm thấy" backtest nhiều tài sản 
 
 ## D1 đã chạy như thế nào
 
-D1 chạy ngày 30/10/2026. Operator nói nghiên cứu không cần quá chặt. Agent hiểu câu đó là cho phép chạy khi chưa có review và packet approved, báo lại sau khi chạy, và operator tiếp tục mà không phản đối. Không có quyết định nào của operator về việc chạy khi input proof FAIL.
+D1 chạy ngày 30/10/2026. Operator nói nghiên cứu không cần quá chặt. Agent hiểu câu đó là cho phép chạy khi chưa có review và packet approved, báo lại sau khi chạy, và operator tiếp tục mà không phản đối. Ngày 31/10/2026, sau khi đọc báo cáo, operator chấp nhận việc D1 đã chạy khi input proof FAIL.
 
-Thư mục `data/xsec_01_d1_20261030_01/` chỉ chứa kết quả. `freeze`, `verify` và `run` không được dùng: một script tạm gọi thẳng `_measure()`, nên các lớp bảo vệ của packet không áp dụng. Lần đầu ở commit `3a5ed33a` dừng vì schema của file `1d` trước khi đọc giá nào. Commit `5b656422` tạo ra các con số. Source hash của 26 input có trong bản ghi đóng băng, nhưng không được lấy lại lúc chạy.
+Thư mục `data/xsec_01_d1_20261030_01/` chứa kết quả và các script chạy trong `scripts/`. `freeze`, `verify` và `run` không được dùng: một script tạm gọi thẳng `_measure()`, nên các lớp bảo vệ của packet không áp dụng. Lần đầu ở commit `3a5ed33a` dừng vì schema của file `1d` trước khi đọc giá nào. Commit `5b656422` tạo ra các con số. Source hash của 26 input có trong bản ghi đóng băng, nhưng không được lấy lại lúc chạy.
 
 Đề xuất yêu cầu cắt dữ liệu trước khi đọc. D1 chưa đạt đúng nghĩa đen điều đó: loader ở `5b656422` giải mã toàn bộ cột timestamp của 26 input, kiểm tăng dần cả trên dòng niêm phong, và giải mã close của mười file `1d` chỉ có `timestamp` trước khi bỏ chúng. Row group chứa mốc cắt ở các file khác có thể cũng đã được giải mã; layout của chúng chưa kiểm. Không dòng holdout nào tới simulator, và không giá niêm phong nào lọt vào kết quả. Loader trên master đã sửa để cắt trước, nên khác `5b656422` ở phần đọc dữ liệu; quy tắc mô phỏng không đổi.
 

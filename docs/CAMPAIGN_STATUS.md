@@ -33,7 +33,7 @@ What master cannot show for this round: the simulator here is the library, but t
 scripts that drove the measurements, the raw downloads and the audits are local and
 git-ignored. The H-CTX-01 audit record is
 `data/xsec_04_context_20261030_01/audit/workflow_result.json`. D1's driver scripts are
-in no packet yet.
+in `data/xsec_01_d1_20261030_01/scripts/`.
 
 Operator decision, 2026-10-30: open no new market hypothesis. That rules out step 2,
 a re-run at another fill hour, a sign-flip successor, a fresh 2020-2022 test and a
@@ -88,8 +88,9 @@ an approved packet, told the operator after the run, and the operator continued
 without objecting. `--prove-inputs` returned FAIL on BTC because its 30m reference is
 wrong. D1 ran anyway, against proposal section 7 item 3, after a partial check
 against 4h that covers no fill bar (see the
-[engine notes](operations/H_XSEC_01_ENGINE_NOTES.md)). No operator decision covers
-this step. Commit 5b656422 produced the numbers through a one-off script that called
+[engine notes](operations/H_XSEC_01_ENGINE_NOTES.md)). The operator accepted this
+deviation on 2026-10-31, after the run. The BTC fills before 2023-08-10 stay
+unproven row by row. Commit 5b656422 produced the numbers through a one-off script that called
 `_measure()` directly, so `freeze`, `verify` and `run` were not used.
 
 Over 159 rebalances, candidate vs same-exposure basket: +70.9% vs +35.4% at 1x,
