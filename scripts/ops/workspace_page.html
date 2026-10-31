@@ -89,16 +89,23 @@ function itemRow(i) {
 function group(title, items, empty) {
   return `<h3>${esc(title)} ${items.length ? `<span class="faint">(${items.length})</span>` : ""}</h3><div class="panel">${items.length ? items.map(itemRow).join("") : `<div class="empty">${esc(empty)}</div>`}</div>`;
 }
-let doingData = null, haveData = null, doneData = null, flow = "all";
+let doingData = null, haveData = null, doneData = null, flow = "all", lastGood = "";
 function renderTop() {
   if (!doingData) return;
+  if (doingData.error) {
+    document.getElementById("asof").textContent = lastGood ? `Mất kết nối · lần đọc tốt cuối ${when(lastGood)}, số liệu trên trang là từ lần đó` : "Mất kết nối · chưa đọc được lần nào";
+    document.getElementById("chips").innerHTML = chip("unknown", "Không đọc được") + chip("locked", "Mainnet NO-GO");
+    return;
+  }
+  lastGood = doingData.as_of;
   const auto = doingData.automatic || [], byTitle = t => auto.find(i => i.title.startsWith(t)) || {};
   const cycle = byTitle("Chu kỳ"), m1 = byTitle("M1"), health = byTitle("Health"), books = byTitle("Sổ sách");
   document.getElementById("asof").textContent = `Đọc lúc ${when(doingData.as_of)} · ${ago(doingData.as_of)}`;
   document.getElementById("chips").innerHTML = [
     chip(health.state || "unknown", `Health: ${STATE[health.state] || "không rõ"}`),
     chip(books.state || "unknown", `Sổ sách: ${books.state === "ok" ? "khớp" : STATE[books.state] || "không rõ"}`),
-    doingData.entries_locked ? chip("waiting", "Mua đang khóa") : chip("ok", "Mua được phép"),
+    doingData.entries_locked ? chip("waiting", "Mua đang khóa")
+      : doingData.entries_known ? chip("ok", "Mua được phép") : chip("unknown", "Mua: không rõ"),
     chip("locked", "Mainnet NO-GO")].join("");
   const procs = doingData.processes || [], waiting = doingData.waiting || [];
   const m1p = m1.progress || {}, ids = haveData?.strategies?.ids || [];
@@ -111,7 +118,7 @@ function renderTop() {
 }
 function renderDoing() {
   const d = doingData, el = document.getElementById("doing");
-  if (d.error) { el.innerHTML = `<div class="err">Không đọc được: ${esc(d.error)}</div>`; return; }
+  if (d.error) { el.innerHTML = `<div class="err">Không đọc được: ${esc(d.error)}</div>`; renderTop(); return; }
   // Research processes are shown once per packet (wrapper, run and worker
   // together) with their cell progress; everything else one row per process.
   const procs = (d.research_running || []).concat((d.processes || [])

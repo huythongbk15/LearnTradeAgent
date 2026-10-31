@@ -38,6 +38,7 @@ def test_recent_completed_run_is_healthy():
     [
         "order_submission_unknown",
         "order_non_terminal",
+        "position_protection_failed",
         "reconciliation_blocked",
         "run_failed",
     ],
