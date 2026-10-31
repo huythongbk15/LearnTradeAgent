@@ -4,12 +4,12 @@ Single source of truth for the measured-accounting and campaign-publication
 work. Supersedes the per-session `*_TODO.md` files, which are gitignored and
 were fragmenting the state across ~60 files.
 
-## Current — 2026-10-30 / THINNING_DEVELOPMENT_COMPLETE (descriptive only; market otherwise paused) / PLUS_MATRIX_NO_SUPPORTED_INCREMENT
+## Current — 2026-10-30 / THINNING_DEVELOPMENT_COMPLETE (descriptive only; market otherwise paused) / PLUS_MATRIX_NO_SUPPORTED_INCREMENT / NO_NEW_MARKET_HYPOTHESIS; H-XSEC-01 FORWARD READ FROZEN
 
 ### 2026-10-30 — H-CTX-01: nine market-state parameters, step 1 not passed
 
 STRONG 0, HINT 1 (P6 on T3, IC -0.125), so step 2 did not open and H-CTX-01 stopped
-under its plan section 5. Local evidence `data/xsec_04_context_20261030_01/RESULTS.md`.
+under its plan section 5. Full results in [H_CTX_01_RESULTS.md](operations/H_CTX_01_RESULTS.md).
 This is exploratory, on 158 weeks of a window already read, and it can only see very
 large effects: 80% power needs |IC| of about 0.20 for HINT and 0.30 for STRONG, while
 2x costs break even at about 0.01 to 0.06 on T1 and T2 and about 0.04 to 0.12 on T3,
@@ -26,27 +26,41 @@ bars through a 16-strategy pool, and saved commands show BTC runs in March-April
 and October-November 2022. A FORWARD_SUPPORTED read of H-XSEC-01 is not proof: in
 8,000 cohorts resampled from the D1 weeks it fired 22-24% of the time with no skill,
 because the candidate trades less than its controls, so it shifts the odds about 2 to
-3 times.
+3 times. That figure is one agent's simulation on one already-read market cycle, not
+reproduced (local `data/xsec_04_context_20261030_01/audit/owner/s03_b8.out`).
+
+What master cannot show for this round: the simulator here is the library, but the
+scripts that drove the measurements, the raw downloads and the audits are local and
+git-ignored. The H-CTX-01 audit record is
+`data/xsec_04_context_20261030_01/audit/workflow_result.json`. D1's driver scripts are
+in no packet yet.
 
 Operator decision, 2026-10-30: open no new market hypothesis. That rules out step 2,
 a re-run at another fill hour, a sign-flip successor, a fresh 2020-2022 test and a
 funding overlay. The frozen H-XSEC-01 forward read stays, and testnet work continues
 as infrastructure with no alpha claimed. This means the question cannot be resolved
-at a useful cost, not that no effect exists. Market research reopens only on a written
-proposal that, before any data is read, names who pays and shows a spot long-only book
-on the receiving side; states an effect at or above the 2x break-even with at least
-80% power; uses data not yet read for that question; and says what a PASS would
-change, with a route through the outer gates and no gate lowered.
+at a useful cost, not that no effect exists.
 
-### 2026-10-30 — H-TSMOM-01: a trend filter adds no timing skill; round closes empty
+Recommended reopening test, from the direction review and not confirmed by the
+operator. It adds to the six conditions in [RESEARCH_EVIDENCE.md](RESEARCH_EVIDENCE.md)
+and to operator approval of the exact packet. Before any data is read, a written
+proposal names who pays and shows a spot long-only book on the receiving side. It
+states an effect at or above the 2x break-even, no larger than the best published
+estimate at that horizon, with at least 80% power on the data it will use. It uses
+data not read for this question, which excludes 2023-2026, the sealed holdout and the
+sample behind the published estimate. It says what a PASS would change, with a route
+through the outer gates and DSR at the reviewer's trial count, and no gate lowered.
+
+### 2026-10-30 — H-TSMOM-01: a trend filter adds no timing skill
 
 NOT_SUPPORTED, by criteria written before the measurement. Local evidence
 `data/xsec_03_explore_20261030_01/RESULTS.md`. On the H-XSEC-02 universes, holding
 a coin only while its 21-day return is positive: at 2x, N=13 -4.2% vs basket
 -2.4%; N=30 -9.0% vs basket -19.7%. Drawdown fell to 0.57 of the basket's, in line
-with exposure at about half, and random paths with the same exposure did as well
-(percentile 46.5 and 62.5 at zero cost). Lower risk came from investing less, not
-from timing. All four rule-based cells of this round failed. No strategy is
+with exposure at about half. Its return sits mid-range among random paths with the
+same exposure (percentile 46.5 and 62.5 at zero cost); their drawdown was not
+measured. Lower risk mainly reflects investing less. All four rule-based cells of
+this round failed, and H-XSEC-01 stays open until its forward read. No strategy is
 improved. The market stays PAUSED.
 
 ### 2026-10-30 — H-XSEC-02: the D1 edge does not survive a rule-based universe
@@ -55,21 +69,40 @@ NOT_SUPPORTED, by criteria written before any price was downloaded. Local
 evidence `data/xsec_02_explore_20261030_01/RESULTS.md`. Exploratory, same 159
 rebalances; holdout and forward cohort untouched. The weekly universe was the top
 N by trailing 28-day quote volume among 550 Binance spot USDT pairs, delisted
-pairs included. At 2x: top 4 of 13, -0.9% vs basket -2.4%, excess +1.5 points,
+pairs still listed in exchange info included. Known defects: a regex wrongly dropped
+JUP and SYRUP, PAXG and USTC got in, and pairs fully removed from exchange info
+cannot be seen. The effect on this result and on H-TSMOM-01 was not measured. At 2x: top 4 of 13, -0.9% vs basket -2.4%, excess +1.5 points,
 t 0.21; top 9 of 30, -25.3% vs basket -19.7%, excess -5.6 points, t -0.57. At
 zero cost the candidate sits at percentile 78.1 and 54.7 of 1000 random controls.
-Both cells fail the best-coin and calendar-year tests. Most of the D1 edge came
-from a coin list chosen with hindsight: the hand-written basket made +34.9% where
-the rule-based baskets made -2.4% and -19.7%. The D1 verdict stands as recorded
-but is no evidence of an edge. No strategy is improved by this round.
+Both cells fail the best-coin and calendar-year tests. Excess fell from +28.4 to
++1.5 and -5.6 points once the list came from a rule, so the list explains most of
+D1. Hindsight is the likely reason, not a measured one. The D1 verdict stands as
+recorded but is no evidence of an edge. No strategy is improved by this round.
 
 ### 2026-10-30 — H-XSEC-01 D1 measured: CONTINUE_TO_CONFIRMATION, not proven
 
 CONTINUE_TO_CONFIRMATION under the frozen rule; not qualified. Full results in
-local evidence `data/xsec_01_d1_20261030_01/RESULTS.md`. The operator allowed the
-run without prior review or an approved packet. Over 159 rebalances, candidate
-vs same-exposure basket: +70.9% vs +35.4% at 1x, +63.3% vs +34.9% at 2x, +60.8%
-vs +34.7% at slip stress; above 20/20 random controls at 2x. Holdout rows read: 0.
+local evidence `data/xsec_01_d1_20261030_01/RESULTS.md`. The operator said research
+need not be too strict. The agent read that as permission to run without review or
+an approved packet, told the operator after the run, and the operator continued
+without objecting. `--prove-inputs` returned FAIL on BTC because its 30m reference is
+wrong. D1 ran anyway, against proposal section 7 item 3, after a partial check
+against 4h that covers no fill bar (see the
+[engine notes](operations/H_XSEC_01_ENGINE_NOTES.md)). No operator decision covers
+this step. Commit 5b656422 produced the numbers through a one-off script that called
+`_measure()` directly, so `freeze`, `verify` and `run` were not used.
+
+Over 159 rebalances, candidate vs same-exposure basket: +70.9% vs +35.4% at 1x,
++63.3% vs +34.9% at 2x, +60.8% vs +34.7% at slip stress; above 20/20 random controls
+at 2x, which overstates it because the controls trade more (at zero cost percentile
+99.3, or 86.9 without ZEC). No holdout row reached the simulator (newest bar
+2026-02-06 11:00 UTC) and no sealed price reached the result. D1 still missed the
+frozen 'cut before reading' to the letter: at commit 5b656422 the loader decoded the
+whole timestamp column of all 26 inputs, ran its strictly-increasing check over the
+sealed rows, and decoded the closes of the ten timestamp-only daily files before
+dropping them. A row group spanning the cutoff in the other files may have been
+decoded too; their layout was not checked. The loader on master now cuts first.
+
 It is the first rule here that is net positive at 2x and slip and beats a
 same-exposure control. It is not proven: ZEC gave 49.8% of the PnL and excess
 at 2x falls to +4.6 points without it; the weekly excess t is 1.39; excess came

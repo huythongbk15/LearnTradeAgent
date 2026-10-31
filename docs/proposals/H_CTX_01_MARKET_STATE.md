@@ -1,8 +1,8 @@
 # H-CTX-01: tham số trạng thái thị trường
 
-Status: HISTORICAL — đã khóa và đo ngày 30/10/2026. Bước 1 không đạt (0 STRONG, 1 HINT), H-CTX-01 dừng, bước 2 không mở. Phần dưới giữ nguyên bản đã khóa.
+Status: HISTORICAL — đã khóa và đo ngày 30/10/2026. Bước 1 không đạt (0 STRONG, 1 HINT), H-CTX-01 dừng, bước 2 không mở. Phần dưới giữ nguyên bản đã khóa, kể cả những điểm sau này thấy sai: đo 158 tuần (P3 và P4 là 157), P6 chỉ phủ 24 đến 29 coin và phần thiếu chủ yếu do ghép tên, 0.23 là ngưỡng tới hạn, premium và taker chỉ tải cho BTC.
 Owner: research operator
-Verified: 2026-10-30. Kết quả nằm trong [tracker](../CAMPAIGN_STATUS.md) và packet local `data/xsec_04_context_20261030_01/`.
+Verified: 2026-10-30. Kết quả: [H_CTX_01_RESULTS.md](../operations/H_CTX_01_RESULTS.md).
 Evidence: [tổng hợp nghiên cứu](../operations/RESEARCH_SYNTHESIS_20261030.md), [playbook §10](../operations/MULTI_STRATEGY_RESEARCH_PLAN.md#10-kế-hoạch-btc-context-và-policy-riêng-theo-pair), packet local `data/xsec_02_explore_20261030_01/`, `data/xsec_03_explore_20261030_01/`
 
 ## 1. Vì sao đổi cách tiếp cận
