@@ -7,10 +7,10 @@
 <style>
 :root{--bg:#f5f6f4;--panel:#fff;--ink:#1d2421;--muted:#5b6661;--faint:#8a948f;--line:#dfe3e0;
 --ok:#1f6b45;--okbg:#e3f2e9;--prog:#1f5a8a;--progbg:#e4eef8;--wait:#8a5a00;--waitbg:#fbefd6;
---err:#a32d2d;--errbg:#fbe6e6;--un:#5b6661;--unbg:#eef0ee;color-scheme:light}
+--err:#a32d2d;--errbg:#fbe6e6;--un:#5b6661;--unbg:#eef0ee;--wire:#8a948f;color-scheme:light}
 @media (prefers-color-scheme:dark){:root{--bg:#141816;--panel:#1c211f;--ink:#e6ebe8;--muted:#a3ada8;--faint:#7b8580;
 --line:#2f3633;--ok:#8fd4ad;--okbg:#1f3a2b;--prog:#9cc6ef;--progbg:#1d3247;--wait:#f0c674;--waitbg:#40331a;
---err:#f2a3a3;--errbg:#472020;--un:#a3ada8;--unbg:#262c29;color-scheme:dark}}
+--err:#f2a3a3;--errbg:#472020;--un:#a3ada8;--unbg:#262c29;--wire:#7b8580;color-scheme:dark}}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif}
 main{max-width:1180px;margin:0 auto;padding:20px 16px 48px}
 h1{font-size:22px;font-weight:500;margin:0}h2{font-size:17px;font-weight:500;margin:28px 0 10px;display:flex;gap:10px;align-items:baseline}
@@ -18,8 +18,8 @@ h3{font-size:14px;font-weight:500;margin:16px 0 4px;color:var(--muted)}
 .top{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between}
 .chips{display:flex;flex-wrap:wrap;gap:6px}.chip{font-size:12px;padding:2px 9px;border-radius:6px;white-space:nowrap}
 .s-ok,.s-scheduled{background:var(--okbg);color:var(--ok)}.s-progress,.s-running{background:var(--progbg);color:var(--prog)}
-.s-waiting,.s-late,.s-stale{background:var(--waitbg);color:var(--wait)}.s-error{background:var(--errbg);color:var(--err)}
-.s-not_yet,.s-unknown,.s-code_only,.s-none{background:var(--unbg);color:var(--un)}.s-locked{background:var(--errbg);color:var(--err)}
+.s-waiting,.s-late,.s-stale,.s-blocked{background:var(--waitbg);color:var(--wait)}.s-error{background:var(--errbg);color:var(--err)}
+.s-not_yet,.s-unknown,.s-code_only,.s-idle,.s-none{background:var(--unbg);color:var(--un)}.s-locked{background:var(--errbg);color:var(--err)}
 .muted{color:var(--muted)}.faint{color:var(--faint)}.small{font-size:12px}.src{font:11px/1.5 ui-monospace,Menlo,Consolas,monospace;color:var(--faint);overflow-wrap:anywhere}
 .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-top:16px}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px}.big{font-size:24px;font-weight:500;line-height:1.2}
@@ -40,6 +40,21 @@ button[aria-pressed=true]{background:var(--ink);color:var(--panel)}
 .done-row{display:grid;grid-template-columns:92px minmax(0,1fr);gap:12px;padding:9px 0;border-bottom:1px solid var(--line)}.done-row:last-child{border:0}
 details summary{cursor:pointer;list-style:none}details summary::-webkit-details-marker{display:none}
 .empty{padding:12px 0;color:var(--muted)}.err{color:var(--err)}
+.strip{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.ms{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 12px;min-width:150px;flex:1 1 150px}
+.ms .h{display:flex;gap:8px;align-items:center}.ms .chip{white-space:normal}.arrow{color:var(--faint)}
+.block{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1.4fr) 170px;gap:12px;padding:9px 0;border-bottom:1px solid var(--line);overflow-wrap:anywhere}.block:last-child{border:0}
+.map{position:relative;display:grid;gap:30px 34px;margin-top:10px;padding:12px;background:var(--panel);border:1px solid var(--line);border-radius:12px;
+grid-template-columns:repeat(5,minmax(0,1fr));grid-template-areas:"clock cycle health . ." ". gm3 gprom . ." "data gapp flows gnext qual"}
+.wires{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible}
+.wires path{fill:none;stroke:var(--wire);stroke-width:1.5}.wires .w-time{stroke-dasharray:2 4}.wires .w-poll{stroke-dasharray:7 5}.wires .w-dormant{stroke-dasharray:3 6;opacity:.55}
+.wires marker path{fill:var(--wire);stroke:none}
+.node{position:relative;z-index:1;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:9px 11px;min-width:0;overflow-wrap:anywhere}
+.node .n{font-weight:500;display:block}.node .st{display:block;margin:2px 0}.node .chip{white-space:normal;display:inline-block}
+.node.gate{border-style:dashed}.node.gate .n::before{content:"◆ ";color:var(--wait)}
+.dead{opacity:.55;filter:grayscale(1)}
+.legend{display:flex;flex-wrap:wrap;gap:14px;margin-top:8px;font-size:12px;color:var(--muted)}
+code,.tl span{overflow-wrap:anywhere}
+@media (max-width:860px){.map{display:block;padding:8px}.map .node{margin-bottom:10px}.wires{display:none}.block{grid-template-columns:1fr}}
 @media (max-width:680px){.row{grid-template-columns:1fr}.row .side{text-align:left}.done-row{grid-template-columns:1fr}}
 </style>
 </head>
@@ -47,6 +62,13 @@ details summary{cursor:pointer;list-style:none}details summary::-webkit-details-
 <main>
 <div class="top"><div><h1>Toàn cảnh hệ thống</h1><div class="small muted" id="asof">Đang đọc…</div></div><div class="chips" id="chips"></div></div>
 <div class="cards" id="cards"></div>
+
+<h2>Bản đồ module <span class="small faint">trạng thái đọc từ file, đường nối là khai báo, chỉ đồng hồ tự khởi chạy</span></h2>
+<div class="strip" id="strip"></div>
+<h3>Đang chặn</h3>
+<div class="panel" id="blockers"><div class="empty">Đang đọc…</div></div>
+<div class="map" id="map"><svg class="wires" id="wires" aria-hidden="true"></svg></div>
+<div class="legend"><span>┄┄ theo đồng hồ</span><span>╌╌ đọc mỗi lần chạy</span><span>── chờ biên nhận</span><span>· · chưa dùng tới</span><span>◆ cửa người: chỉ người mở được</span></div>
 
 <h2>Đang làm gì <span class="small faint">tự làm mới mỗi 10 s</span></h2>
 <div id="doing" class="empty">Đang đọc…</div>
@@ -61,7 +83,7 @@ details summary{cursor:pointer;list-style:none}details summary::-webkit-details-
 </main>
 <script>
 const STATE = {ok:"chạy tốt",progress:"đang tiến triển",running:"đang chạy",waiting:"chờ bạn",not_yet:"chưa tới lúc",
-  late:"trễ lịch",stale:"dữ liệu cũ",error:"lỗi",unknown:"không rõ",scheduled:"theo lịch",code_only:"có code, không chạy",locked:"khóa"};
+  late:"trễ lịch",stale:"dữ liệu cũ",error:"lỗi",unknown:"không rõ",scheduled:"theo lịch",code_only:"có code, không chạy",locked:"khóa",idle:"không có việc",blocked:"bị chặn"};
 const FLOW = {all:"Tất cả",operations:"Vận hành",research:"Nghiên cứu",code:"Code"};
 const ROLE = {core:"Lõi vận hành (runner nạp)",research:"Nghiên cứu",strategies:"Strategy",outside:"Ngoài lõi (runner không nạp)",unused:"Không ai dùng",unknown:"Chưa đo được"};
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -95,8 +117,11 @@ function renderTop() {
   if (doingData.error) {
     document.getElementById("asof").textContent = lastGood ? `Mất kết nối · lần đọc tốt cuối ${when(lastGood)}, số liệu trên trang là từ lần đó` : "Mất kết nối · chưa đọc được lần nào";
     document.getElementById("chips").innerHTML = chip("unknown", "Không đọc được") + chip("locked", "Mainnet NO-GO");
+    for (const id of ["strip", "blockers"]) document.getElementById(id).classList.add("dead");
+    for (const el of document.querySelectorAll(".node")) { el.classList.add("dead"); el.querySelector(".st").innerHTML = chip("unknown"); }
     return;
   }
+  for (const id of ["strip", "blockers"]) document.getElementById(id).classList.remove("dead");
   lastGood = doingData.as_of;
   const auto = doingData.automatic || [], byTitle = t => auto.find(i => i.title.startsWith(t)) || {};
   const cycle = byTitle("Chu kỳ"), m1 = byTitle("M1"), health = byTitle("Health"), books = byTitle("Sổ sách");
@@ -115,7 +140,85 @@ function renderTop() {
     ["Chờ bạn", waiting.filter(w => w.state === "waiting").length, `${waiting.filter(w => w.state === "not_yet").length} việc chưa tới lúc`],
     ["Strategy được promote", haveData ? `0/${ids.length}` : "—", haveData ? (haveData.strategies.promotion_store ? "có promotion store" : "chưa có promotion store") : ""],
   ].map(([k, v, s]) => `<div class="card"><div class="small muted">${esc(k)}</div><div class="big">${esc(v)}</div><div class="small faint">${s}</div></div>`).join("");
+  renderMap();
 }
+// The map's shape is declared here; every state on it is read from /api/doing and
+// /api/have. Only the clock starts anything: the other lines start nothing.
+const WIRES = [["clock","cycle","time"],["cycle","health","poll"],["gm3","cycle","poll"],["gprom","cycle","poll"],
+  ["data","gapp","receipt"],["gapp","flows","receipt"],["flows","gnext","receipt"],["gnext","qual","dormant"],["qual","gprom","dormant"]];
+const SEVERITY = ["error","late","stale","unknown","waiting","running","progress","ok"];
+const worst = (...states) => { const seen = states.map(s => s || "unknown"); return SEVERITY.find(s => seen.includes(s)) || "unknown"; };
+const isPacket = i => /packet nghiên cứu/.test(i.title);
+function moduleCards() {
+  const d = doingData, h = haveData, auto = d.automatic || [], waiting = d.waiting || [];
+  const find = (list, title) => list.find(i => i.title.startsWith(title));
+  const cycle = find(auto, "Chu kỳ") || {}, health = find(auto, "Health") || {}, books = find(auto, "Sổ sách") || {};
+  const sign = find(waiting, "Ký giấy phép M3") || find(auto, "M3") || {};
+  const packets = waiting.filter(isPacket), runs = d.research_running || [];
+  return [
+    {id:"clock", name:"Task Scheduler", state: cycle.state === "late" ? "late" : "scheduled",
+     why:"Nguồn khởi chạy duy nhất. Suy từ chu kỳ cuối, vì WSL không đọc được task.", source:"scripts/ops/windows/register_tasks.ps1"},
+    {id:"cycle", name:"Chu kỳ testnet", state: cycle.state, why: cycle.detail, body: progress(cycle.progress), next: cycle.next,
+     waits:"Task Scheduler (2 giờ, :01). ◆ Ký M3 và ◆ Promote chỉ mở lệnh mua.", source: cycle.source},
+    {id:"health", name:"Kiểm tra sức khỏe", state: worst(health.state, books.state),
+     why:`Health: ${STATE[health.state] || "không rõ"}. Sổ sách: ${books.state === "ok" ? "khớp" : STATE[books.state] || "không rõ"}.`,
+     waits:"Task Scheduler (30 phút). Đọc audit của chu kỳ testnet.", source: health.source},
+    {id:"gm3", gate:true, name:"Ký giấy phép M3", state: sign.state, why: sign.detail, source:"scripts/ops/README.md"},
+    {id:"gprom", gate:true, name:"Promote", state: h && !h.error ? "code_only" : "unknown",
+     why: !h || h.error ? "chưa đọc được" : h.strategies?.promotion_store ? "có promotion store, chưa strategy nào được promote" : "chưa có promotion store",
+     waits:"Qualification, holdout, promotion.", source:"data/promotion_store"},
+    {id:"data", name:"Dữ liệu", state:"idle", why:"Chạy tay. Trang này không quan sát kho dữ liệu thô.", source:"data/raw"},
+    {id:"gapp", gate:true, name:"Duyệt packet", state: packets.length ? "waiting" : "idle", why:`${packets.length} packet chờ duyệt`,
+     waits:"Dữ liệu đã đóng băng.", source:"data/*/protocol.json"},
+    {id:"flows", name:"Luồng nghiên cứu", state: runs.length ? "running" : "idle",
+     why: runs.length ? `${runs.length} run đang chạy` : "Không có run nào. Từ 30/10 không mở giả thuyết thị trường mới.",
+     body: runs.slice(0, 3).map(r => `<div class="small">${esc(r.title)}</div>${progress(r.progress)}`).join(""),
+     waits:"◆ Duyệt packet mới.", source:"/proc · data/*/cells · docs/CAMPAIGN_STATUS.md"},
+    {id:"gnext", gate:true, name:"Đọc thẻ, chọn bước kế", state:"idle", why:"Người quyết, không suy từ file.",
+     waits:"Biên nhận cuối của luồng nghiên cứu.", source:"docs/operations/*_EVIDENCE_CARD.md"},
+    {id:"qual", name:"Qualification, holdout, promotion", state:"code_only", why:"Chưa ứng viên nào tới đây.",
+     waits:"◆ Đọc thẻ, chọn bước kế.", source:"docs/operations/RESEARCH_RUN_PROTOCOL.md"},
+  ];
+}
+const nodeHtml = m => `<div class="node${m.gate ? " gate" : ""}" id="n-${esc(m.id)}" style="grid-area:${esc(m.id)}">
+  <span class="n">${esc(m.name)}</span><span class="st">${chip(m.state || "unknown")}</span>
+  <div class="small muted">${esc(m.why)}</div>${m.body || ""}${m.next ? `<div class="small faint">${esc(m.next)}</div>` : ""}
+  ${m.waits ? `<div class="small"><span class="faint">chờ:</span> ${esc(m.waits)}</div>` : ""}<div class="src">${esc(m.source)}</div></div>`;
+function blockers() {
+  const d = doingData, auto = d.automatic || [], waiting = d.waiting || [], find = (list, title) => list.find(i => i.title.startsWith(title));
+  const health = find(auto, "Health"), books = find(auto, "Sổ sách"), m1 = find(auto, "M1"), sign = find(waiting, "Ký giấy phép M3");
+  const rows = [];
+  if (d.entries_locked) rows.push({who:"Mua (BUY) trong chu kỳ testnet", on:d.entries_locked, kind:"waiting", word:"cần người", clears:"ký M3 sau khi M1 đạt, hoặc promote"});
+  if (sign?.state === "not_yet") rows.push({who:"Ký giấy phép M3", on:m1?.detail, kind:"blocked", word:"chờ module", clears:m1?.next});
+  if (sign?.state === "waiting") rows.push({who:"Ký giấy phép M3", on:sign.detail, kind:"waiting", word:"cần người", clears:"người ký"});
+  for (const item of [health, books]) if (item?.state !== "ok") rows.push({who:item?.title || "Không đọc được", on:item?.detail, kind:"error", word:STATE[item?.state] || "không rõ", clears:"xem nguồn"});
+  for (const item of waiting.filter(isPacket)) rows.push({who:item.title, on:item.detail, kind:"waiting", word:"cần người", clears:"người duyệt packet"});
+  return rows.length ? rows.map(r => `<div class="block"><div class="title">${esc(r.who)}</div><div class="muted">${esc(r.on)}</div>
+    <div class="small">${chip(r.kind, r.word)}<div class="muted">${esc(r.clears)}</div></div></div>`).join("") : `<div class="empty">Không có gì đang chặn.</div>`;
+}
+function renderMap() {
+  const auto = doingData.automatic || [], byTitle = t => auto.find(i => i.title.startsWith(t)) || {}, m1 = byTitle("M1"), m3 = byTitle("M3");
+  document.getElementById("strip").innerHTML = [["M1", m1], ["M3", m3], ["M4", {state:"not_yet", detail:"sau M3 · 30 ngày, 100 lifecycle"}]].map(([id, m]) =>
+    `<div class="ms"><div class="h"><b>${id}</b> ${chip(m.state || "unknown")}</div><div class="small muted">${esc(m.detail)}</div>${progress(m.progress)}</div>`).join(`<span class="arrow">→</span>`);
+  document.getElementById("blockers").innerHTML = blockers();
+  const map = document.getElementById("map"), svg = document.getElementById("wires");
+  map.innerHTML = moduleCards().map(nodeHtml).join("");
+  map.prepend(svg);
+  layout();
+}
+function layout() {
+  const map = document.getElementById("map"), svg = document.getElementById("wires");
+  if (getComputedStyle(svg).display === "none") return;
+  const base = map.getBoundingClientRect(), box = id => { const r = document.getElementById(`n-${id}`)?.getBoundingClientRect();
+    return r && {l:r.left-base.left, r:r.right-base.left, t:r.top-base.top, b:r.bottom-base.top, cx:(r.left+r.right)/2-base.left, cy:(r.top+r.bottom)/2-base.top}; };
+  const paths = WIRES.map(([from, to, kind]) => { const a = box(from), b = box(to); if (!a || !b) return "";
+    const d = Math.abs(a.cy - b.cy) < 40 ? `M${a.r} ${a.cy} C${a.r+18} ${a.cy} ${b.l-18} ${b.cy} ${b.l-3} ${b.cy}`
+      : a.cy > b.cy ? `M${a.cx} ${a.t} C${a.cx} ${a.t-20} ${b.cx} ${b.b+20} ${b.cx} ${b.b+3}`
+      : `M${a.cx} ${a.b} C${a.cx} ${a.b+20} ${b.cx} ${b.t-20} ${b.cx} ${b.t-3}`;
+    return `<path class="w-${kind}" d="${d}" marker-end="url(#ah)"/>`; });
+  svg.innerHTML = `<defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z"/></marker></defs>${paths.join("")}`;
+}
+addEventListener("resize", layout);
 function renderDoing() {
   const d = doingData, el = document.getElementById("doing");
   if (d.error) { el.innerHTML = `<div class="err">Không đọc được: ${esc(d.error)}</div>`; renderTop(); return; }
