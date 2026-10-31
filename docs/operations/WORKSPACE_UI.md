@@ -54,7 +54,9 @@ environments (scheduled, code only, locked).
 - "Running" means alive in `/proc` now. The process registry is not used: it
   holds rows marked running whose heartbeat stopped on 2026-10-20.
 - UNKNOWN is never shown as success. Every value carries the time it was read
-  and its source path; a stale source is shown as stale.
+  and its source path; a stale source is shown as stale. When the server stops
+  answering the chips collapse to one unknown chip, BUY reads allowed only after
+  a run has said so, and the books read unknown without the HMAC key.
 - Times computed from the schedule (next cycle, earliest M1 pass) are labelled
   as projections.
 

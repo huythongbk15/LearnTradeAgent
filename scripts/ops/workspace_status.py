@@ -28,6 +28,7 @@ sys.path[:0] = [str(CODE / "src"), str(CODE / "scripts"), str(CODE / "scripts" /
 from check_live_audit import (  # noqa: E402
     AuditHealthError,
     _runs,
+    critical_events,
     load_events,
     validate_audit_health,
 )
@@ -36,6 +37,8 @@ import daily_check  # noqa: E402
 AUDIT_LOG = "data/execution/binance_live_audit.jsonl"
 CYCLE_LOG = "logs/binance_testnet.log"
 STATE_FILE = "data/binance_testnet_risk_state_v2.json"
+# The audit events that say whether entries are open.
+ENTRY_EVENTS = ("entries_locked_no_promoted_runtime", "operational_track_active")
 HEALTH_LOG_GLOB = "/mnt/c/Users/*/AppData/Local/TradingAgent/health.log"
 HEALTH_STALE = timedelta(minutes=45)
 AUTHORIZE_COMMAND = (
@@ -374,8 +377,12 @@ def books_item(base: Path) -> dict:
     if not state_file.is_file():
         return _item("Sổ sách: ledger và lifecycle", "unknown",
                      detail="không có ledger", source=STATE_FILE)
+    key = os.environ.get("LIVE_SAFETY_HMAC_KEY")
+    if not key:
+        return _item("Sổ sách: ledger và lifecycle", "unknown",
+                     detail="thiếu khóa HMAC, chưa xác minh được ledger", source=STATE_FILE)
     try:
-        store = LiveRiskStateStore(state_file, integrity_key=os.environ.get("LIVE_SAFETY_HMAC_KEY"))
+        store = LiveRiskStateStore(state_file, integrity_key=key)
         unfinished = len(store.unfinished_orders())
         locked = store.state.locked_reason
         # A stop the ledger holds as active is meant to stay open at the venue.
@@ -504,7 +511,8 @@ def milestone_items(m1: dict, m3: dict) -> list[dict]:
     m1_state = {"PASSED": "ok", "on track": "progress", "not started": "not_yet"}.get(m1["state"], "error")
     items = [_item(
         "M1 · lịch chạy ổn định", m1_state,
-        detail=f"{m1['clean']}/{m1['required']} chu kỳ sạch · {m1['hours']:.1f}/{m1['required_hours']} h · {m1['state']}",
+        detail=f"{m1['clean']}/{m1['required']} chu kỳ sạch · {m1['hours']:.1f}/{m1['required_hours']} h · {m1['state']}"
+               + (f" · {len(m1['violations'])} vi phạm, xem daily_check" if m1["violations"] else ""),
         progress=_ratio(m1["clean"], m1["required"], "≥24 chu kỳ sạch trong ≥48 h"),
         next_step=(f"sớm nhất {_short(m1['earliest_pass'])} (dự kiến theo lịch)"
                    if m1.get("earliest_pass") and m1["state"] != "PASSED" else ""),
@@ -544,7 +552,8 @@ def doing(now: datetime | None = None) -> dict:
     runs = [r for r in _runs(events) if r["execute"]]
     m1_start = datetime.fromisoformat(daily_check.DEFAULT_M1_START)
     cycles = daily_check.wrapper_cycles(base / CYCLE_LOG, min(now - timedelta(hours=24), m1_start))
-    m1 = daily_check.m1_status(runs, cycles, m1_start=m1_start, now=now)
+    m1 = daily_check.m1_status(runs, cycles, m1_start=m1_start, now=now,
+                               critical=critical_events(events, since=m1_start, until=now))
     m3 = daily_check.m3_status(events, runs, now=now) if events else {
         "state": "inactive", "reason": "không đọc được audit log", "failed": []}
     try:
@@ -563,6 +572,7 @@ def doing(now: datetime | None = None) -> dict:
         "research_running": research_runs(processes, now),
         "audit": {"error": audit_error, "health": audit_health or "OK"},
         "entries_locked": _entries_lock(events),
+        "entries_known": any(event["event"] in ENTRY_EVENTS for event in events),
     }
 
 

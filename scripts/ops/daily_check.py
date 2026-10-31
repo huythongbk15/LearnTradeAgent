@@ -22,6 +22,7 @@ import sqlite3
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Iterable
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(ROOT / "src"), str(ROOT / "scripts")]
@@ -29,6 +30,7 @@ sys.path[:0] = [str(ROOT / "src"), str(ROOT / "scripts")]
 from check_live_audit import (  # noqa: E402
     AuditHealthError,
     _runs,
+    critical_events,
     load_events,
     validate_audit_health,
 )
@@ -36,6 +38,8 @@ from check_live_audit import (  # noqa: E402
 CADENCE = timedelta(hours=2)
 GAP_LIMIT = timedelta(hours=2, minutes=15)
 MAX_CYCLE_SECONDS = 60.0
+# A scheduled run writes run_started this soon after the wrapper's start line.
+RUN_START_LIMIT = timedelta(minutes=5)
 M1_RUNS, M1_HOURS = 24, 48
 M3_LIFECYCLES, M3_EACH_EXIT = 10, 3
 OPERATIONAL_REASON = "OPERATIONAL_EXERCISER"
@@ -112,9 +116,16 @@ def open_lifecycle_intents(accounts: Path, resting: set[str] = frozenset()) -> l
 
 
 def m1_status(
-    runs: list[dict], cycles: list[dict], *, m1_start: datetime, now: datetime
+    runs: list[dict], cycles: list[dict], *, m1_start: datetime, now: datetime,
+    critical: Iterable[str] = (),
 ) -> dict:
-    """M1 progress since its start, over all scheduled execution runs."""
+    """M1 progress since its start, over all scheduled execution runs.
+
+    ``cycles`` must reach back to ``m1_start`` and ``critical`` must start there.
+    A critical event from before the start does not count, even while the health
+    check still sees it. Of manual intervention, only an execution run that no
+    scheduled cycle started can be seen here.
+    """
     m1_runs = [r for r in runs if r["started"] >= m1_start]
     clean = [
         r for r in m1_runs
@@ -123,7 +134,19 @@ def m1_status(
     ]
     hours = max(0.0, (now - m1_start).total_seconds() / 3600)
     bad_cycles = [c for c in cycles if c["start"] >= m1_start and c["result"] not in ("rc=0", "running")]
-    ok = len(clean) == len(m1_runs) and not bad_cycles
+    starts = sorted(r["started"] for r in m1_runs)
+    violations = [
+        f"no execution start between {earlier:%m-%d %H:%M}Z and {later:%m-%d %H:%M}Z"
+        for earlier, later in zip([m1_start, *starts], [*starts, now])
+        if later - earlier > GAP_LIMIT
+    ]
+    violations += [f"critical event: {name}" for name in critical]
+    violations += [
+        f"execution run at {r['started']:%m-%d %H:%M}Z has no scheduled cycle"
+        for r in m1_runs
+        if not any(timedelta(0) <= r["started"] - c["start"] <= RUN_START_LIMIT for c in cycles)
+    ]
+    ok = len(clean) == len(m1_runs) and not bad_cycles and not violations
     if now < m1_start:
         state = "not started"
     elif ok and len(clean) >= M1_RUNS and hours >= M1_HOURS:
@@ -136,7 +159,7 @@ def m1_status(
                    last + CADENCE * max(0, M1_RUNS - len(clean)))
     return {"clean": len(clean), "required": M1_RUNS, "hours": hours,
             "required_hours": M1_HOURS, "start": m1_start, "state": state,
-            "earliest_pass": earliest if ok else None}
+            "violations": violations, "earliest_pass": earliest if ok else None}
 
 
 def m3_status(events: list[dict], runs: list[dict], *, now: datetime) -> dict:
@@ -293,7 +316,8 @@ def check(args: argparse.Namespace) -> tuple[int, str]:
 
     # Execution runs and health, from the audit log.
     events = load_events(args.audit_log)
-    runs = [r for r in _runs(sorted(events, key=lambda e: e["_timestamp"])) if r["execute"]]
+    ordered = sorted(events, key=lambda e: e["_timestamp"])
+    runs = [r for r in _runs(ordered) if r["execute"]]
     recent = [r for r in runs if r["started"] >= since]
     for run in recent:
         end = run["terminal"]
@@ -329,9 +353,13 @@ def check(args: argparse.Namespace) -> tuple[int, str]:
     print(f"Lifecycle open intents {len(open_intents)}")
     issues.extend(f"lifecycle: {item}" for item in open_intents)
 
-    m1 = m1_status(runs, cycles, m1_start=m1_start, now=now)
+    m1 = m1_status(
+        runs, wrapper_cycles(Path(args.cycle_log), min(since, m1_start)),
+        m1_start=m1_start, now=now, critical=critical_events(ordered, since=m1_start, until=now),
+    )
     print(f"M1       {m1['clean']}/{M1_RUNS} clean cycles, {m1['hours']:.1f}/{M1_HOURS} h since "
           f"{m1_start:%m-%d %H:%MZ}; {m1['state']}")
+    issues.extend(f"M1: {item}" for item in m1["violations"])
 
     m3 = m3_status(events, runs, now=now)
     issues.extend(m3_progress(events, runs, now=now, status=m3))

@@ -294,3 +294,48 @@ def test_page_escapes_everything_it_renders():
     assert "innerHTML" in page and "const esc" in page
     # No external resource can load: every URL in the page is relative.
     assert "http://" not in page and "https://" not in page
+
+
+def test_books_are_unknown_without_the_hmac_key(checkout, monkeypatch):
+    state = checkout / ws.STATE_FILE
+    state.write_text("{}")
+    monkeypatch.delenv("LIVE_SAFETY_HMAC_KEY")
+    item = ws.books_item(checkout)
+    assert item["state"] == "unknown" and "HMAC" in item["detail"]
+
+
+def test_entries_are_known_only_once_a_run_has_said(checkout):
+    audit = checkout / ws.AUDIT_LOG
+    assert ws.doing()["entries_known"] is True
+    audit.write_text("".join(
+        line + "\n" for line in audit.read_text().splitlines()
+        if "entries_locked_no_promoted_runtime" not in line
+    ))
+    doing = ws.doing()
+    assert doing["entries_locked"] is None and doing["entries_known"] is False
+
+
+def test_an_unreadable_audit_log_does_not_read_as_entries_open(checkout):
+    (checkout / ws.AUDIT_LOG).write_text("not json\n")
+    doing = ws.doing()
+    assert doing["audit"]["error"]
+    assert doing["entries_locked"] is None and doing["entries_known"] is False
+
+
+def test_a_critical_event_since_the_m1_start_shows_on_the_milestone(checkout, monkeypatch):
+    audit = checkout / ws.AUDIT_LOG
+    lines = audit.read_text().splitlines()
+    first = json.loads(lines[0])
+    monkeypatch.setattr(ws.daily_check, "DEFAULT_M1_START",
+                        datetime.fromisoformat(first["timestamp"]).isoformat())
+    audit.write_text("\n".join([*lines, json.dumps(
+        {**first, "event": "position_protection_failed", "details": {}})]) + "\n")
+    m1 = next(i for i in ws.doing()["automatic"] if i["title"].startswith("M1"))
+    assert m1["state"] == "error" and "1 vi phạm" in m1["detail"]
+
+
+def test_the_page_shows_nothing_green_when_it_cannot_read():
+    page = workspace_server.PAGE.read_text(encoding="utf-8")
+    assert 'doingData.entries_known ? chip("ok", "Mua được phép") : chip("unknown", "Mua: không rõ")' in page
+    assert 'chip("unknown", "Không đọc được")' in page
+    assert 'esc(d.error)}</div>`; renderTop(); return;' in page

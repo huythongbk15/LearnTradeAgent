@@ -14,6 +14,7 @@ CRITICAL_EVENTS = frozenset(
     {
         "order_submission_unknown",
         "order_non_terminal",
+        "position_protection_failed",
         "reconciliation_blocked",
         "run_failed",
         "run_interrupted",
@@ -114,6 +115,20 @@ def _runs(ordered: list[dict[str, object]]) -> list[dict[str, object]]:
     return runs
 
 
+def critical_events(
+    ordered: list[dict[str, object]], *, since: datetime, until: datetime
+) -> list[str]:
+    """Names of the critical events in the window. A dry run's events do not count."""
+    dry_pids = {run["pid"] for run in _runs(ordered) if not run["execute"]}
+    return [
+        str(item["event"])
+        for item in ordered
+        if since <= item["_timestamp"] <= until
+        and item["event"] in CRITICAL_EVENTS
+        and not (item.get("pid") is not None and item.get("pid") in dry_pids)
+    ]
+
+
 def validate_audit_health(
     events: Iterable[dict[str, object]],
     *,
@@ -147,15 +162,9 @@ def validate_audit_health(
 
     runs = _runs(ordered)
     executions = [run for run in runs if run["execute"]]
-    dry_pids = {run["pid"] for run in runs if not run["execute"]}
-    cutoff = current - timedelta(seconds=lookback_seconds)
-    critical = [
-        str(item["event"])
-        for item in ordered
-        if cutoff <= item["_timestamp"] <= current
-        and item["event"] in CRITICAL_EVENTS
-        and not (item.get("pid") is not None and item.get("pid") in dry_pids)
-    ]
+    critical = critical_events(
+        ordered, since=current - timedelta(seconds=lookback_seconds), until=current
+    )
     if critical:
         raise AuditHealthError("critical live audit events: " + ", ".join(critical))
 
