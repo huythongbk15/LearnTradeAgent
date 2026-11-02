@@ -5,9 +5,10 @@ import os
 import re
 import subprocess
 import sys
+import time
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parents[1]
+REPO =Path(__file__).resolve().parents[1]
 WRAPPER = REPO / "scripts" / "ops" / "run_selection_weekly.sh"
 TASKS = REPO / "scripts" / "ops" / "windows" / "register_tasks.ps1"
 RECORD_CALL = 'printf "%s\\n" "$(nice)" "$PYTHONPATH" "$PWD" "$*" > seen\n'
@@ -57,7 +58,7 @@ def test_the_wrapper_asks_for_the_lowest_priority_itself(tmp_path: Path) -> None
 
 
 def test_the_wrapper_sets_a_limit_of_its_own_inside_the_tasks_hour(tmp_path: Path) -> None:
-    """Stopping the Windows task leaves the Linux job running, and a stuck job would hold the lock and cost next Monday."""
+    """A stopped Windows task may leave the Linux job running, and a stuck job would hold the lock and cost next Monday."""
     script = checkout(tmp_path, "")
     stand_in = tmp_path / "bin" / "timeout"
     stand_in.parent.mkdir()
@@ -91,6 +92,27 @@ def test_a_refused_run_keeps_its_exit_code(tmp_path: Path) -> None:
     script = checkout(tmp_path, "exit 2\n")
     assert run(script).returncode == 2
     assert (tmp_path / "logs" / "selection_weekly.log").read_text(encoding="utf8").endswith("selection end rc=2\n")
+
+
+def test_a_signal_to_the_wrapper_leaves_a_line_and_the_real_end_of_the_job(tmp_path: Path) -> None:
+    """Bash runs the trap after timeout returns: the job was not stopped, so saying it was would be false."""
+    script = checkout(tmp_path, "touch started\nsleep 2\nexit 7\n")
+    job = subprocess.Popen([str(script)])
+    deadline = time.monotonic() + 30
+    while not (tmp_path / "started").exists() and time.monotonic() < deadline:
+        time.sleep(0.05)
+    job.terminate()
+    assert job.wait(timeout=30) == 7
+    text = (tmp_path / "logs" / "selection_weekly.log").read_text(encoding="utf8")
+    assert "selection got SIGTERM, job goes on\n" in text and text.endswith("selection end rc=7\n")
+
+
+def test_a_rehearsal_on_another_root_keeps_out_of_the_log_the_page_reads(tmp_path: Path) -> None:
+    script = checkout(tmp_path, "exit 2\n")
+    env = {**os.environ, "SELECTION_ROOT": str(tmp_path / "rehearsal")}
+    assert subprocess.run([str(script)], env=env, timeout=60, check=False).returncode == 2
+    assert not (tmp_path / "logs" / "selection_weekly.log").exists()
+    assert (tmp_path / "logs" / "selection_rehearsal.log").read_text(encoding="utf8").endswith("selection end rc=2\n")
 
 
 def test_the_wrapper_reaches_the_real_code_and_nothing_else(tmp_path: Path) -> None:

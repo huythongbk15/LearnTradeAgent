@@ -460,6 +460,24 @@ def test_a_seed_step_that_ended_well_still_reads_as_not_started(checkout):
     assert ws.selection_item(ON_THE_WEEK)["state"] == "not_yet"
 
 
+@pytest.mark.parametrize("after_the_seed", [
+    "",  # the task never started
+    "=== 2026-11-09T00:07:01Z selection start pid=10\n",  # the machine died under the job
+    "=== 2026-11-09T00:07:01Z selection start pid=10\n=== 2026-11-09T00:07:09Z selection got SIGHUP, job goes on\n",
+    "=== 2026-11-10T08:00:00Z selection start pid=11\n=== 2026-11-10T08:00:06Z selection end rc=0\n",  # a second seed step
+])
+def test_a_first_monday_that_left_no_record_stops_reading_as_not_started(checkout, after_the_seed):
+    (checkout / ws.SELECTION_LOG).write_text(
+        "=== 2026-11-05T09:00:00Z selection start pid=9\n=== 2026-11-05T09:00:06Z selection end rc=0\n" + after_the_seed)
+    due = datetime(2026, 11, 9, 0, 7, tzinfo=UTC)
+    on_time = ws.selection_item(due + ws.SELECTION_GRACE)
+    assert on_time["state"] == "not_yet" and on_time["next_at"] == due.isoformat()
+    for now in (due + ws.SELECTION_GRACE + timedelta(seconds=1), due + timedelta(days=60)):
+        item = ws.selection_item(now)
+        assert item["state"] == "late" and "quá lịch 09/11" in item["detail"] and item["source"] == ws.SELECTION_LOG
+        assert item["projection"] is True and item["next_at"] > now.isoformat()
+
+
 def test_a_log_is_no_matter_once_a_status_file_exists(checkout):
     _selection_status(checkout)
     (checkout / ws.SELECTION_LOG).write_text("=== 2026-11-02T00:08:02Z selection end rc=1\n")

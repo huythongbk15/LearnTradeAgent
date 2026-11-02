@@ -78,8 +78,9 @@ records, so no line leaves it.
   state and schedule, never a return, a Sharpe, a P&L or the names on its list:
   [SELECTION_PAPER_RUN.md](SELECTION_PAPER_RUN.md) freezes this, because a page
   that shows profit turns the one reading into a watch. No status file reads as
-  not started, unless the job's log says it ended badly. A file that cannot be
-  read reads as an error.
+  not started, unless the job's log says it ended badly, or the first Monday
+  after the seed step passed with no record. A file that cannot be read reads as
+  an error.
 
 ## Safety
 

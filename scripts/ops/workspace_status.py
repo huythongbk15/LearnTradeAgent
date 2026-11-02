@@ -436,13 +436,21 @@ def _selection_exit(path: Path) -> int | None:
     return int(ends[-1]) if ends else None
 
 
+def _selection_first_due(path: Path, now: datetime) -> datetime:
+    """The first Monday due after the log's first line, which the seed step writes. It cannot slide."""
+    text = path.read_text(encoding="utf-8", errors="replace") if path.exists() else ""
+    stamp = re.search(r"^=== (\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ) selection ", text, re.MULTILINE)
+    return _next_selection_run(datetime.fromisoformat(stamp[1]) if stamp else now)
+
+
 def selection_item(now: datetime) -> dict:
     """The weekly paper selection run, from the status file it writes.
 
     Decision, reasons, data health and tripwire state, picked field by field: the
     frozen page rule keeps every return off this page before the read date, so a
     return or a list of names in that file goes no further. No file means the run
-    has not started, which is not an error, unless the job ended badly and left none.
+    has not started, which is not an error, unless the job ended badly and left none,
+    or the first Monday after the seed step went by. The page cannot read the task.
     """
     path = root() / SELECTION_STATUS
     if not path.exists():
@@ -451,7 +459,13 @@ def selection_item(now: datetime) -> dict:
         if failed:
             return _item(SELECTION_TITLE, "error", detail=f"job kết thúc rc={failed}, chưa có bản ghi nào",
                          progress=_none("cohort chưa bắt đầu"), since=_mtime(log), source=SELECTION_LOG)
-        first = _next_selection_run(now)
+        first = _selection_first_due(log, now)
+        if now > first + SELECTION_GRACE:
+            following = _next_selection_run(now)
+            return _item(SELECTION_TITLE, "late",
+                         detail=f"quá lịch {_short(first)}, chưa có bản ghi nào; kiểm tra task TradingAgent-SelectionPaper và log",
+                         progress=_none("cohort chưa bắt đầu"), next_step=f"lần chạy kế theo lịch: {_short(following)}",
+                         since=_mtime(log), source=SELECTION_LOG, next_at=_iso(following), projection=True)
         return _item(SELECTION_TITLE, "not_yet", detail=f"chưa chạy lần nào; phía thật giữ {SELECTION_DECISION}",
                      progress=_none("cohort chưa bắt đầu"),
                      next_step=f"lần đầu theo lịch: {_short(first)}, nếu task đã đăng ký",

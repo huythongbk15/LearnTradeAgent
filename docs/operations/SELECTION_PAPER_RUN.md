@@ -85,7 +85,7 @@ Số đo của 2026-11-01. Phần này không đổi luật nào và không ph�
 
 Phần dương gần như đến từ W2: ba cửa sổ còn lại trung bình khoảng -32 bps/tuần với bốn book và -30 với book phase 0. Book thua hold BTC cả về tổng lẫn Sharpe. EW có mặt nạ yếu hơn EW gốc (+109,7%, Sharpe 0,96), nên khoảng hơn EW không đọc được là lợi thế. Không mặt nạ cùng cơ sở, book phase 0 là +390,7%, Sharpe 0,96, khớp RESULTS, và bốn book là +370,8%, Sharpe 0,97. Gross thực của book có mặt nạ bằng 92,0% book không mặt nạ, vì phần che được phân lại cho tên còn lại.
 
-**Diễn tập trên dữ liệu công khai thật.** Chạy trước khi sửa theo review, tới thứ Hai 2026-10-26. Lần đầu, với 12 list bù và 11 coin mới: 716 lời gọi, 81 MB, 9 phút 39 giây, peak 1,32 GB. Một tuần thường: 437 lời gọi, 19,6 MB, 4 phút 31 giây, peak 1,33 GB. Mọi lời gọi tới `data-api.binance.vision`, 388 cặp, 0 symbol che. Chưa có thứ Hai nào chạy đúng lịch, và wrapper chưa chạy với fetch thật.
+**Diễn tập trên dữ liệu công khai thật.** Chạy trước khi sửa theo review, tới thứ Hai 2026-10-26. Lần đầu, với 12 list bù và 11 coin mới: 716 lời gọi, 81 MB, 9 phút 39 giây, peak 1,32 GB. Một tuần thường: 437 lời gọi, 19,6 MB, 4 phút 31 giây, peak 1,33 GB. Mọi lời gọi tới `data-api.binance.vision`, 388 cặp, 0 symbol che. Sau khi sửa, một lần chạy thật qua wrapper từ shell WSL, tới cùng thứ Hai: 715 lời gọi, 9 phút 43 giây, peak 1,3 GB, 0 lỗi. Chưa có thứ Hai nào chạy đúng lịch, và job chưa từng được Task Scheduler khởi động.
 
 **Ngoại lệ của đường không che.** Để chứng minh port, `acceptance.py` dựng panel 286 coin gồm cả 12 coin che và tính return, trọng số, điểm cho chúng trên discovery, tức trước 2025-07-01. Đó là ngoại lệ của câu "không tính return cho chúng ở bất kỳ ngày nào" ở mục seal. Chỉ `acceptance.py` đi đường này, có test khóa, và `run_weekly` không gọi nó. Báo cáo nằm ở `data/selector_20261101_01/acceptance.json`, không bao giờ nằm trong `data/selection`.
 
@@ -101,16 +101,17 @@ Code đang chạy theo mục "Hiện tại" của từng việc. Không việc n
 
 ## Vận hành
 
-Code nằm ở `tools/selection/`, job là `scripts/ops/run_selection_weekly.sh`, mọi bản ghi nằm ở `data/selection/`. Task Windows chạy trên checkout chính, nên các lệnh dưới chạy ở đó, theo thứ tự của mục kế tiếp. Job dùng nice 19 và tự ghi `logs/selection_weekly.log`, nên kết quả của lệnh tay cũng nằm trong log đó.
+Code nằm ở `tools/selection/`, job là `scripts/ops/run_selection_weekly.sh`, mọi bản ghi nằm ở `data/selection/`. Task Windows chạy trên checkout chính, nên các lệnh dưới chạy ở đó, theo thứ tự của mục kế tiếp. Job dùng nice 19 và tự ghi `logs/selection_weekly.log`, nên kết quả của lệnh tay cũng nằm trong log đó. Có `SELECTION_ROOT` thì ghi `logs/selection_rehearsal.log`, file trang không đọc.
 
 ### Đưa vào chạy
 
 Checkout chính không đi theo `origin/master`: code vào master chưa đưa code vào checkout đó. Thứ tự:
 
-1. Merge code vào `origin/master`. `git add` từng file, không add `docs/proposals/SIGNAL_JOURNAL_DESIGN.md`. Chạy `python scripts/generate_project_map.py` và add `docs/PROJECT_MAP.md`. Bước này không đổi checkout chính.
-2. Operator chốt các việc ở mục trên.
-3. Trong checkout chính, chạy `.venv/bin/python scripts/ops/daily_check.py`. Phải in M1 24/24 PASSED và không có issue. Chưa PASSED thì dừng ở đây, không fast forward. Report tự động lúc 01:10Z thứ Hai đến sau giờ chạy nên không dùng được.
-4. Fast forward, ngoài cửa sổ phút :55 giờ UTC chẵn đến phút :06 giờ UTC lẻ, và khi không có gói research đang chạy, vì bước này đổi file `.py` dưới `scripts/`. Cycle testnet kế tiếp phải rc=0.
+1. Chép thư mục seed sang checkout chính, phần `cp -a` ở mục "Cài seed". Làm trước khi merge: đây là bản duy nhất và worktree có thể bị dọn sau đó. Bước này chỉ thêm một thư mục git bỏ qua.
+2. Merge code vào `origin/master`. `git add` từng file, không add `docs/proposals/SIGNAL_JOURNAL_DESIGN.md`. Chạy `python3 scripts/generate_project_map.py` và add `docs/PROJECT_MAP.md`. Bước này không đổi checkout chính.
+3. Operator chốt các việc ở mục trên.
+4. Trong checkout chính, chạy `.venv/bin/python scripts/ops/daily_check.py`. Dòng M1 phải kết thúc bằng PASSED, số chu kỳ từ 24 trở lên, và phải in `No issues.` Chưa PASSED thì dừng ở đây, không fast forward. Fast forward vào chính sáng thứ Hai thì report tự động lúc 01:10Z đến sau giờ chạy nên không dùng được.
+5. Fast forward, ngoài cửa sổ phút :55 giờ UTC chẵn đến phút :06 giờ UTC lẻ, và khi không có gói research đang chạy, vì bước này đổi file `.py` dưới `scripts/`. Cycle testnet kế tiếp phải rc=0.
 
     ```bash
     cd /home/huythong/.qwenpaw/workspaces/trading
@@ -119,11 +120,11 @@ Checkout chính không đi theo `origin/master`: code vào master chưa đưa co
     ls -l scripts/ops/run_selection_weekly.sh tools/selection/run_weekly.py
     ```
 
-5. Cài seed theo mục dưới.
-6. Đăng ký lịch theo mục dưới. Không bỏ `-Only`. `Get-ScheduledTask -TaskName "TradingAgent-SelectionPaper"` phải thấy task.
-7. Không chạy tay trên `data/selection`. Giữ máy bật và user đăng nhập lúc 00:07Z thứ Hai, tức 07:07 giờ máy.
-8. Sau 00:20Z thứ Hai, đọc `logs/selection_weekly.log`, `data/selection/status.json` và `data/selection/cohort.json`. Task không chạy thì chạy tay `scripts/ops/run_selection_weekly.sh`, bắt đầu trước 06:00Z, tức 13:00 giờ máy, mới còn đúng giờ và mở được cohort.
-9. Trang đọc code mới khi server khởi động lại. Server đang chạy thì restart sau fast forward.
+6. Chạy `--seed-only` theo mục "Cài seed".
+7. Trang đọc code mới khi server khởi động lại. Server là `.venv/bin/python scripts/ops/workspace_server.py`, cổng 8765. Đang chạy thì Ctrl+C trong terminal của nó rồi chạy lại từ checkout chính.
+8. Đăng ký lịch theo mục dưới, sau bước 5 và bước 6. Không bỏ `-Only`. `Get-ScheduledTask -TaskName "TradingAgent-SelectionPaper"` phải thấy task.
+9. Không chạy tay trên `data/selection`. Giữ máy bật và user đăng nhập lúc 00:07Z thứ Hai, tức 07:07 giờ máy.
+10. Sau 00:20Z thứ Hai, đọc `logs/selection_weekly.log`, `data/selection/status.json` và `data/selection/cohort.json`. Log chưa có dòng `selection end` thì job còn đang chạy. Không dựa vào `LastTaskResult`: `conhost --headless` không trả exit code của job. Task không chạy thì chạy tay `scripts/ops/run_selection_weekly.sh`, bắt đầu trước 06:00Z, tức 13:00 giờ máy, mới còn đúng giờ và mở được cohort.
 
 Nếu M1 chưa PASSED trước khoảng 05:30Z thứ Hai thì không fast forward: cohort lùi một tuần, không mất gì khác.
 
@@ -135,6 +136,12 @@ Seed là ma trận của `selector_20261101_01`. Nó bị git bỏ qua và hiệ
 cd /home/huythong/.qwenpaw/workspaces/trading
 mkdir -p data
 cp -a .claude/worktrees/doc-sau-phan-tich-du-an-cc1551/data/selector_20261101_01 data/
+```
+
+Sau fast forward:
+
+```bash
+cd /home/huythong/.qwenpaw/workspaces/trading
 scripts/ops/run_selection_weekly.sh --seed-only
 tail -n 3 logs/selection_weekly.log
 ```
@@ -152,7 +159,7 @@ powershell -ExecutionPolicy Bypass -File \\wsl.localhost\Ubuntu\home\huythong\.q
 
 Lỗi `does not belong to the set "Runner,Health,DailyCheck"` nghĩa là checkout chính chưa fast forward, nên chưa có script mới.
 
-Task `TradingAgent-SelectionPaper` chạy thứ Hai 00:07 UTC. Script đổi giờ đó sang giờ máy lúc đăng ký, trên máy này là 07:07 thứ Hai. Lần chạy đầu luôn ở phía trước: đăng ký sau 00:07 UTC thứ Hai thì lần đầu là thứ Hai tuần sau, và dòng `-WhatIf` in ngày đó. Task chỉ chạy khi user đang đăng nhập. Máy ngủ lúc đó thì task chạy bù khi máy thức, và trễ quá 6 giờ sau stamp thì bản ghi có `LATE_RUN`.
+Task `TradingAgent-SelectionPaper` chạy thứ Hai 00:07 UTC. Script đổi giờ đó sang giờ máy lúc đăng ký, trên máy này là 07:07 thứ Hai. Lần chạy đầu luôn ở phía trước: đăng ký sau 00:07 UTC thứ Hai thì lần đầu là thứ Hai tuần sau, và dòng `-WhatIf` in ngày đó. Task chỉ chạy khi user đang đăng nhập và không đánh thức máy. Máy ngủ lúc đó thì Task Scheduler chạy bù sau khi máy thức, theo Microsoft là trễ khoảng 10 phút, và trễ quá 6 giờ sau stamp thì bản ghi có `LATE_RUN`. User chưa đăng nhập lúc đó thì coi như task không chạy và làm theo bước 10.
 
 ### Lần chạy đầu
 
@@ -180,9 +187,9 @@ Trang đọc `data/selection/status.json`: một dòng `Vòng chọn giấy` tro
 
 | Trang hiện | Nghĩa |
 | --- | --- |
-| `chưa tới lúc`, "chưa chạy lần nào" | Chưa có `status.json` và log không ghi job hỏng. Đây không phải lỗi, nhưng trang không biết task đã đăng ký chưa |
+| `chưa tới lúc`, "chưa chạy lần nào" | Chưa có `status.json`, log không ghi job hỏng, và thứ Hai đầu sau `--seed-only` chưa quá 1 giờ. Đây không phải lỗi, nhưng trang không biết task đã đăng ký chưa. Chưa có log thì trang không có mốc nào và luôn hiện thứ Hai kế |
 | `chạy tốt` | Lần chạy cuối sạch. `NO_TRADE` với `NO_KEPT_SELECTOR` là trạng thái thường |
-| `trễ lịch` | Quá 1 giờ sau lịch mà chưa có bản ghi mới, lần cuối có `LATE_RUN` hay `POLICY_EXPIRED`, có coin tải bar giờ lỗi, hoặc có tuần sổ đang chờ bar |
+| `trễ lịch` | Quá 1 giờ sau lịch mà chưa có bản ghi mới, kể cả thứ Hai đầu tiên: khi đó kiểm tra task và log. Hoặc lần cuối có `LATE_RUN` hay `POLICY_EXPIRED`, có coin tải bar giờ lỗi, hoặc có tuần sổ đang chờ bar |
 | `lỗi` | Tripwire đã bắn, book tới lượt bị giữ, có bước lỗi, quyết định khác `NO_TRADE`, không đọc được `status.json`, hoặc job kết thúc rc khác 0 mà chưa có bản ghi nào |
 
 Mỗi lần chạy có một thư mục `data/selection/runs/<ngày>/`: `decision.json`, `policy_draft.json`, `target.json` (`paper_only` true, `consumer` none) và `manifest.json` (hash, các lỗi, tên coin tải hỏng, giờ thật). `manifest.json` ghi sau cùng, sau cả `status.json`, nên thư mục có file này là lần chạy đã xong.
@@ -223,6 +230,6 @@ Enable-ScheduledTask -TaskName "TradingAgent-SelectionPaper"
 Unregister-ScheduledTask -TaskName "TradingAgent-SelectionPaper" -Confirm:$false
 ```
 
-Dòng đầu tắt, dòng hai bật lại, dòng ba gỡ hẳn. Các lệnh này và giới hạn 1 giờ của task không dừng lần đang chạy: dừng task chỉ dừng phía Windows, job Linux chạy tiếp. Giới hạn thật là 50 phút của `timeout` trong wrapper. Muốn dừng ngay: `pkill -f tools.selection.run_weekly`, rồi xử lý như exit code 1.
+Dòng đầu tắt, dòng hai bật lại, dòng ba gỡ hẳn. Ba lệnh này không dừng lần đang chạy. Dừng task giữa lúc job chạy thì chưa kiểm được job Linux còn chạy tiếp hay không, nên đừng dựa vào nó. Giới hạn thật là 50 phút của `timeout` trong wrapper. Log có dòng `selection got SIG...` nghĩa là wrapper nhận tín hiệu còn job vẫn chạy. Muốn dừng ngay: `pkill -f tools.selection.run_weekly`, rồi xử lý như exit code 1.
 
 Dừng không ảnh hưởng phần còn lại: không có gì đọc `target.json`, runner testnet không biết vòng này tồn tại. Bản ghi giữ nguyên trong `data/selection/`, ngày đọc của cohort không đổi. Sau khi bật lại, thứ Hai đầu tiên có thể ghi `POLICY_EXPIRED`, và trang hiện `trễ lịch` tới khi có bản ghi mới. Cả hai đều đúng luật.

@@ -7,13 +7,16 @@
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
+# The page reads the weekly log, so a rehearsal on another root keeps out of it.
 LOG="$ROOT/logs/selection_weekly.log"
+[ -n "${SELECTION_ROOT:-}" ] && LOG="$ROOT/logs/selection_rehearsal.log"
 mkdir -p "$ROOT/logs"
 echo "=== $(date -u +%FT%TZ) selection start pid=$$" >> "$LOG"
-# A signal to this script leaves a line saying so. Stopping the Windows task sends
-# none: it ends conhost and leaves the Linux job running.
+# A signal to this script does not stop the job: timeout holds it in a process group
+# of its own, and bash runs a trap only once timeout returns. The line says the signal
+# came; the real end line and exit code still follow. To stop a run, see the doc.
 for sig in HUP INT TERM; do
-    trap "echo \"=== \$(date -u +%FT%TZ) selection killed by SIG$sig\" >> \"$LOG\"; exit 1" "$sig"
+    trap "echo \"=== \$(date -u +%FT%TZ) selection got SIG$sig, job goes on\" >> \"$LOG\"" "$sig"
 done
 # nice 19: this machine also runs the testnet cycle, and heavy work has failed it
 # through its latency gate. -u: unbuffered, so the log shows progress. timeout is
