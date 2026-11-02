@@ -46,6 +46,7 @@ HEALTH_STALE = timedelta(minutes=45)
 SELECTION_TITLE = "Vòng chọn giấy"
 SELECTION_STATUS = "data/selection/status.json"
 SELECTION_LOG = "logs/selection_weekly.log"
+SELECTION_RS_WEEKS = 104  # as tools/selection/config.py, the frozen paper book
 SELECTION_RUN_AT = timedelta(minutes=7)  # after Monday 00:00 UTC, as register_tasks.ps1
 SELECTION_GRACE = timedelta(hours=1)  # that task's execution limit
 SELECTION_DECISION = "NO_TRADE"
@@ -480,6 +481,7 @@ def selection_item(now: datetime) -> dict:
             status["decision"], ", ".join(reasons), f"bản ghi {status['as_of']}",
             "book tới lượt giữ danh sách cũ" if status["held"] else "", f"tripwire {tripwire}",
             _selection_health(health), f"lỗi bước {health['errors']}" if health["errors"] else "",
+            f"book RS {int(status.get('rs_blocks', 0))}/{SELECTION_RS_WEEKS} tuần",
         )))
         cohort = status["cohort_start"]
         progress = (_ratio(int(status["weeks_done"]), SELECTION_COHORT_WEEKS,

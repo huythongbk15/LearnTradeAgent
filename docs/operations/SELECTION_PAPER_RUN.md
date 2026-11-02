@@ -99,6 +99,25 @@ Code đang chạy theo mục "Hiện tại" của từng việc. Không việc n
 - **Số cặp co lại.** `exchangeInfo` trả ít cặp hơn mà vẫn đọc được thì list vẫn đủ 18 tên, không lý do nào khớp. Với bảo trì thật đây có thể đúng luật. Hiện tại không có mức sàn. Thêm mức sàn là thêm luật.
 - **Ngoại lệ của đường không che.** Xem phần kết quả nghiệm thu. Hiện tại ngoại lệ đang được dùng, operator chưa xác nhận.
 
+## Book RS, ghi giấy từ 2026-11-09
+
+Operator quyết ngày 2026-11-02: đóng băng một book cố định và ghi forward trên giấy, chạy cùng vòng chọn. Nó không phải bộ chọn, không đặt lệnh, không nối runner. Runner chỉ có spot long nên không chạy được book này. Lý do và các số đo nằm ở `data/state_round_20261102_01/RESULTS.md`. Đây không phải bằng chứng lợi thế: mọi giai đoạn trong đó đã bị đọc nhiều lần.
+
+Luật đóng băng, code ở `tools/selection/rs_book.py`, hằng số ở `config.py`:
+
+- **Danh sách:** list của thứ Hai đó, có mặt nạ, nên 12 coin che không bao giờ vào hai chân. Đây là biến thể khác với book trong nghiên cứu: long leg ở đó chủ yếu là coin lớn.
+- **Xếp hạng:** `dhi30` từ bar trước 00:00 thứ Hai: log của close 4 giờ cuối trừ log của close 4 giờ cao nhất trong 180 close, cần ít nhất 160 close. Dưới 10 tên có hạng thì tuần đó không có book.
+- **Hai chân:** một phần năm trên và một phần năm dưới, mỗi chân 50% vốn, chia đều, mua rồi giữ.
+- **Vào và ra:** vào ở open 4 giờ sau thứ Hai, ra ở open 4 giờ sau thứ Hai kế.
+- **Stop:** short thoát ở open 4 giờ đầu tiên từ 1,5 lần giá vào. Long không có stop.
+- **Chi phí:** 2 lần tier trên turnover tính từ trọng số đã trôi, 37 bps một vòng nếu coin không có tier. Không tính funding, giá spot đứng thay perp, và không lọc coin theo perp: từ 2025-07 không còn lệnh short nào thiếu perp.
+
+Một pick chỉ đọc bar trước thứ Hai của nó, nên chạy muộn vẫn ra cùng pick và lần chạy sau tự bù thứ Hai bị bỏ lỡ nếu có list. Khối đóng ở lần chạy hai thứ Hai sau, vì open cuối của nó nằm sau giờ chạy. Thứ Hai không có list thành khối `missed` và vẫn tính vào 104 tuần. Dòng sổ là cuối cùng.
+
+**Đọc một lần** ở lần chạy 2028-11-13, khi đủ 104 khối từ 2026-11-09. Thống kê là net trung bình mỗi tuần, khối `missed` tính bằng 0. Đạt khi t từ 2 trở lên. Không có tripwire: book chỉ trên giấy.
+
+Bản ghi nằm ở `data/selection/rs_book/`: `picks.jsonl` và `ledger.jsonl`. `ledger.jsonl` chứa lợi nhuận: không mở trước ngày đọc. Trang chỉ hiện số tuần đã đóng, không hiện lợi nhuận. Book lỗi thì lần chạy ghi `rs_book` vào `errors` và trang ở `lỗi`, còn quyết định của vòng chọn không đổi.
+
 ## Vận hành
 
 Code nằm ở `tools/selection/`, job là `scripts/ops/run_selection_weekly.sh`, mọi bản ghi nằm ở `data/selection/`. Task Windows chạy trên checkout chính, nên các lệnh dưới chạy ở đó, theo thứ tự của mục kế tiếp. Job dùng nice 19 và tự ghi `logs/selection_weekly.log`, nên kết quả của lệnh tay cũng nằm trong log đó. Có `SELECTION_ROOT` thì ghi `logs/selection_rehearsal.log`, file trang không đọc.
