@@ -1544,6 +1544,34 @@ def _validated_buy_admission(
     return risk, planning, context
 
 
+def _hold_back(
+    decision: dict,
+    error: MarketConditionError,
+    audit_log_path: str | None,
+    held_back: list[dict] | None,
+) -> None:
+    """Leave an order the market makes unsafe for the next cycle.
+
+    A thin or moving testnet book would otherwise fail the whole run: the
+    ticker's time there is its last trade, so a quiet symbol reads as stale.
+    """
+    pair = decision["market_symbol"]
+    print(f"{pair}: {decision['action']} held back by the market: {error}")
+    if audit_log_path:
+        append_live_audit_event(
+            audit_log_path,
+            "order_held_back_by_market",
+            {
+                "symbol": pair,
+                "side": decision["action"],
+                "reason": decision.get("reason"),
+                "error": str(error)[:500],
+            },
+        )
+    if held_back is not None:
+        held_back.append(decision)
+
+
 def prepare_orders(
     *,
     decisions: list[dict],
@@ -1587,22 +1615,7 @@ def prepare_orders(
                 monitor=monitor,
             )
         except MarketConditionError as exc:
-            # A thin or moving testnet book would otherwise fail the whole run.
-            # The order is planned again next cycle.
-            print(f"{pair}: {decision['action']} held back by the market: {exc}")
-            if audit_log_path:
-                append_live_audit_event(
-                    audit_log_path,
-                    "order_held_back_by_market",
-                    {
-                        "symbol": pair,
-                        "side": decision["action"],
-                        "reason": decision.get("reason"),
-                        "error": str(exc)[:500],
-                    },
-                )
-            if held_back is not None:
-                held_back.append(decision)
+            _hold_back(decision, exc, audit_log_path, held_back)
             continue
         except OrderConstraintError as exc:
             dust = None
@@ -2096,6 +2109,7 @@ def execute_orders(
     gateway: BrokerGateway | None = None,
     sleep_fn=time.sleep,
     monotonic_fn=time.monotonic,
+    held_back: list[dict] | None = None,
 ) -> None:
     if lifecycle is None or gateway is None:
         raise LiveSafetyError(
@@ -2126,6 +2140,9 @@ def execute_orders(
                 limits=limits,
                 monitor=monitor,
             )
+        except MarketConditionError as exc:
+            _hold_back(planned, exc, audit_log_path, held_back)
+            continue
         except OrderConstraintError as exc:
             dust = None
             if planned["action"] == "SELL":
@@ -3451,6 +3468,7 @@ def run_locked(
             limits=limits,
             audit_log_path=args.audit_log,
         )
+        held_at_submission: list[dict] = []
         execute_orders(
             orders=prepared,
             broker=broker,
@@ -3462,6 +3480,18 @@ def run_locked(
             audit_log_path=args.audit_log,
             reconciliation_timeout_seconds=reconciliation_timeout,
             monitor=monitor,
+            held_back=held_at_submission,
+        )
+        protect_held_back_exits(
+            exits=[order for order in held_at_submission if order["action"] == "SELL"],
+            states=states,
+            positions=broker.get_positions(),
+            broker=broker,
+            lifecycle=canonical_lifecycle,
+            gateway=canonical_gateway,
+            store=store,
+            limits=limits,
+            audit_log_path=args.audit_log,
         )
         final_account = broker.get_account()
         final_positions = broker.get_positions()

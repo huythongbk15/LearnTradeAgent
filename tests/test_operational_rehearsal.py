@@ -143,6 +143,8 @@ class Venue:
     stop_fills_on_cancel: bool = False  # the venue fills a stop as it is cancelled
     timeout_after_accept: set = field(default_factory=set)  # symbols, one shot
     ticker_skew: dict = field(default_factory=dict)  # symbol -> quote / last close
+    ticker_turns: dict = field(default_factory=dict)  # symbol -> the skew of every quote after the next
+    ticker_calls: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         self.rng = random.Random(self.seed)
@@ -236,6 +238,10 @@ class Venue:
     def get_ticker(self, symbol):
         started = time.monotonic()
         price = float(self.price(symbol.pair)) * self.ticker_skew.get(symbol.pair, 1.0)
+        if symbol.pair in self.ticker_turns:
+            self.ticker_calls[symbol.pair] = self.ticker_calls.get(symbol.pair, 0) + 1
+            if self.ticker_calls[symbol.pair] > 1:  # the preflight quote passed
+                price *= self.ticker_turns[symbol.pair]
         return {"timestamp": self.clock.now(), "request_started_at": started,
                 "received_at": time.monotonic(), "last": price, "bid": price, "ask": price}
 
@@ -594,6 +600,42 @@ def test_a_quote_off_the_candle_holds_back_only_that_entry(tmp_path, monkeypatch
     assert set(rehearsal.outcomes()) == {"run_completed"}
     line, issues = rehearsal.m3_line(capsys)
     assert issues == [] and "held back by the market 1)" in line
+
+
+def test_a_quote_that_turns_before_submission_holds_back_only_that_entry(
+    tmp_path, monkeypatch
+):
+    rehearsal = Rehearsal(tmp_path, monkeypatch, venue=CALM)
+    rehearsal.venue.ticker_turns["AVAX/USDT"] = 1.015
+    assert rehearsal.run_cycle() == 0
+    rehearsal.check_books()
+    assert sorted(f[0] for f in rehearsal.venue.fills) == ["BTC/USDT", "SOL/USDT"]
+    (held,) = _held_back(tmp_path)
+    assert (held["symbol"], held["side"]) == ("AVAX/USDT", "BUY")
+    assert set(rehearsal.outcomes()) == {"run_completed"}
+
+
+def test_an_exit_that_turns_before_submission_keeps_its_stop_and_sells_next_cycle(
+    tmp_path, monkeypatch
+):
+    rehearsal = Rehearsal(tmp_path, monkeypatch, venue=CALM, tight_stop_every=0)
+    for _ in range(2):  # buy, then hold
+        assert rehearsal.run_cycle() == 0
+        rehearsal.check_books()
+        rehearsal.venue.advance()
+    rehearsal.venue.ticker_turns["BTC/USDT"] = 0.985  # the exit cycle turns after preflight
+    assert rehearsal.run_cycle() == 0
+    rehearsal.check_books()  # BTC still held, under its venue stop
+    assert rehearsal.venue.held["BTC/USDT"] > 0
+    assert [(h["symbol"], h["side"]) for h in _held_back(tmp_path)] == [("BTC/USDT", "SELL")]
+    rehearsal.venue.ticker_turns.clear()
+    rehearsal.venue.advance()
+    assert rehearsal.run_cycle() == 0
+    rehearsal.check_books()
+    assert [(f[1], f[4]) for f in rehearsal.venue.fills if f[0] == "BTC/USDT"] == [
+        ("buy", "market"), ("sell", "market")
+    ]
+    assert set(rehearsal.outcomes()) == {"run_completed"}
 
 
 def test_an_exit_the_market_holds_back_keeps_its_stop_and_sells_next_cycle(

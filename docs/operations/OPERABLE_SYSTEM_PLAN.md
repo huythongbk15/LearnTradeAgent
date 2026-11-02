@@ -83,8 +83,8 @@ Known risks, to be confirmed or cleared by the run itself:
   (`order_held_back_by_market`; `daily_check` counts them on the M3 line); a
   held-back exit stays under its venue stop. Bad data (a missing side, a
   crossed or future-dated quote, a malformed book), latency and every risk
-  limit still fail the run. The re-quote just before each submission still
-  fails the run, so a market that turns within those seconds is exposed.
+  limit still fail the run. The re-quote just before each submission holds
+  back the same way since 2026-11-02 (incident below).
 
 ## Loops
 
@@ -125,3 +125,4 @@ features wait until after M2. Every incident gets one line below.
 | 2026-10-30 (review) | Admission on testnet used the default caps, not the testnet presets: portfolio 0.95 vs 0.50, strategy 0.30 vs 0.20 | The runner and the operational driver built `AuthorityConfig(environment=...)`, which skips the presets in `AuthorityConfig.for_environment` | Both use `for_environment`; this changes `driver_code_sha()`, so it lands before the M3 signature. Neither cap was binding (allocations 3–4 %, orders ≤ $100), and `LiveRiskLimits` already held gross to 0.50. Nothing on the runner path reads the 30 s price age or `live.max_daily_loss_pct`: the limits there are 15 s before each order, 60 s at admission, 2 % daily loss |
 | 2026-10-30 13:01 | A cycle failed in preflight (`BTC/USDT round-trip latency 6.1s exceeds 5.0s limit`, AVAX 5.2 s), rc=1, 33 s, which reset M1 | An analysis agent on the same machine started 12 workers at 13:00:14Z and load reached 18, so the cycle lost CPU. The latency gate did its job; the venue was not the cause | Analysis now runs at the lowest priority (`nice -n 19`) and its start is checked against the next cycle. M1 restarted at the next clean cycle, 15:01Z |
 | 2026-10-31 (review) | M1 could read PASSED after a gap, a critical event or a manual run, and the page stayed green with its server dead, the audit log unreadable or the HMAC key missing | `m1_status` counted only clean runs and hours, and the daily check gave it 24 h of cycles. `position_protection_failed` was not critical for the health check. The page read no answer as a good answer | M1 now fails on a gap, on a critical event from its start and on an execution run no scheduled cycle started. A health failure from before the start does not count. The event is critical, and the page shows unknown as unknown |
+| 2026-11-02 11:01 | The first M3 cycle failed before any order (`quote is stale: 15.2s > 15.0s`), rc=1, and locked new entries | On testnet the ticker time is the last trade: AVAX went 14.8 s without one in a 46 s public sample. Preflight held such an order back; the re-quote just before submission failed the run | The re-quote holds back the same way, a held exit stays under its venue stop, rehearsed. The operator signs again after the review |
