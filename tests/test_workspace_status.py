@@ -7,6 +7,8 @@ from datetime import UTC, datetime, timedelta
 import http.client
 import json
 import os
+from pathlib import Path
+import re
 import socket
 import sys
 import threading
@@ -17,6 +19,11 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts", "ops"))
 import workspace_server
 import workspace_status as ws
+
+from tests.test_selection_status import COHORT, DECISION
+from tools.selection import config as selection_config
+from tools.selection import decide as selection_decide
+from tools.selection import status as selection_status
 
 SECRETS = {
     "LIVE_SAFETY_HMAC_KEY": "sentinel-hmac-key-5f1c",
@@ -348,3 +355,193 @@ def test_the_module_map_is_read_only():
     for control in ("<form", "<input", 'method="post"', "authorize_operational_track", "onclick="):
         assert control not in page
     assert page.count('fetch(`/api/${section}`') == 1 and "fetch(" not in page.replace('fetch(`/api/${section}`', "")
+
+
+# ── Paper selection run ─────────────────────────────────────────────────────
+
+ON_THE_WEEK = datetime(2026, 11, 3, 12, tzinfo=UTC)  # the week after the Monday of DECISION
+
+
+def _selection_status(checkout, tripwire="NOT_ARMED", cohort=COHORT, weeks=3, errors=0, **decision):
+    """status.json as a run writes it: through the run's own writer, so the shapes cannot part."""
+    status = selection_status.build({**DECISION, **decision}, tripwire, cohort, weeks, errors)
+    selection_status.write(checkout / "data" / "selection", status)
+    return status
+
+
+def test_a_selection_run_with_no_status_file_reads_as_not_started(checkout):
+    item = next(i for i in ws.doing()["automatic"] if i["title"] == ws.SELECTION_TITLE)
+    assert item["state"] == "not_yet" and "chưa chạy" in item["detail"]
+    assert item["since"] is None and item["source"] == "data/selection/status.json"
+    assert item["progress"]["kind"] == "none"
+
+
+@pytest.mark.parametrize("now, expected", [
+    (datetime(2026, 11, 1, 12, tzinfo=UTC), "2026-11-02T00:07:00+00:00"),  # a Sunday
+    (datetime(2026, 11, 2, 0, 6, tzinfo=UTC), "2026-11-02T00:07:00+00:00"),  # Monday, before the job
+    (datetime(2026, 11, 2, 0, 7, tzinfo=UTC), "2026-11-09T00:07:00+00:00"),  # Monday, the job has gone
+])
+def test_the_first_selection_run_is_a_labelled_projection(checkout, now, expected):
+    item = ws.selection_item(now)
+    assert item["next_at"] == expected and item["projection"] is True and "theo lịch" in item["next"]
+
+
+def test_a_clean_week_shows_the_decision_reasons_health_and_tripwire(checkout):
+    _selection_status(checkout)
+    item = ws.selection_item(ON_THE_WEEK)
+    assert item["state"] == "ok"
+    for shown in ("NO_TRADE", "NO_KEPT_SELECTOR", "tripwire NOT_ARMED", "19 tên", "0/519"):
+        assert shown in item["detail"]
+    assert item["next_at"] == "2026-11-09T00:07:00+00:00" and "theo lịch" in item["next"]
+    assert item["progress"] == {"kind": "ratio", "done": 3, "total": 60,
+                                "why": "cohort từ 2026-11-02, đọc một lần ngày 2027-12-27"}
+    assert item["since"] and item["source"] == "data/selection/status.json"
+
+
+def test_a_week_before_any_cohort_has_no_denominator(checkout):
+    _selection_status(checkout, cohort=None, weeks=0)
+    progress = ws.selection_item(ON_THE_WEEK)["progress"]
+    assert progress == {"kind": "none", "why": "cohort chưa bắt đầu"}
+
+
+def test_every_reason_is_shown_in_the_order_of_the_record(checkout):
+    reasons = ["NO_KEPT_SELECTOR", "DATA_STALE_OR_GAP", "LATE_RUN", "BOOK_TRIPWIRE"]
+    _selection_status(checkout, reasons=reasons)
+    assert ", ".join(reasons) in ws.selection_item(ON_THE_WEEK)["detail"]
+
+
+@pytest.mark.parametrize("status, word", [
+    ({"tripwire": "FIRED"}, "tripwire FIRED"),
+    ({"reasons": ["NO_KEPT_SELECTOR", "DATA_STALE_OR_GAP"]}, "DATA_STALE_OR_GAP"),
+    ({"reasons": ["NO_KEPT_SELECTOR", "LIST_INCOMPLETE"]}, "LIST_INCOMPLETE"),
+    ({"reasons": ["NO_KEPT_SELECTOR", "SEAL_SCOPE"]}, "SEAL_SCOPE"),
+    ({"errors": 2}, "lỗi bước 2"),
+    ({"decision": "ANYTHING_ELSE"}, "ANYTHING_ELSE"),
+])
+def test_what_needs_the_operator_is_never_green(checkout, status, word):
+    _selection_status(checkout, **status)
+    item = ws.selection_item(ON_THE_WEEK)
+    assert item["state"] == "error" and word in item["detail"]
+
+
+def test_bars_that_could_not_be_read_say_so(checkout):
+    _selection_status(checkout, health={**DECISION["health"], "readable": False},
+                      reasons=["NO_KEPT_SELECTOR", "DATA_STALE_OR_GAP"])
+    item = ws.selection_item(ON_THE_WEEK)
+    assert item["state"] == "error" and "không đọc được bar" in item["detail"]
+    assert "19 tên" not in item["detail"]
+
+
+def test_bars_no_reason_covers_read_late_not_ok(checkout):
+    """A coin on an older list that failed: the rule's reason does not name it, but the score read a short column."""
+    _selection_status(checkout, health={**DECISION["health"], "hourly_failed": 1})
+    item = ws.selection_item(ON_THE_WEEK)
+    assert item["state"] == "late" and "bar giờ lỗi 1" in item["detail"]
+
+
+def test_a_week_of_the_ledger_that_waits_reads_late(checkout):
+    _selection_status(checkout, health={**DECISION["health"], "weeks_waiting": 2})
+    item = ws.selection_item(ON_THE_WEEK)
+    assert item["state"] == "late" and "tuần sổ chờ bar 2" in item["detail"]
+
+
+@pytest.mark.parametrize("code", [1, 2, 124, 127])
+def test_a_job_that_ended_badly_and_left_no_record_is_an_error(checkout, code):
+    """Go-live week: no status file must not read as not started for ever."""
+    (checkout / ws.SELECTION_LOG).write_text(
+        "=== 2026-11-02T00:07:01Z selection start pid=9\n=== 2026-11-02T00:07:01Z selection end rc=0\n"
+        f"=== 2026-11-02T00:08:01Z selection start pid=10\n=== 2026-11-02T00:08:02Z selection end rc={code}\n")
+    item = next(i for i in ws.doing()["automatic"] if i["title"] == ws.SELECTION_TITLE)
+    assert item["state"] == "error" and f"rc={code}" in item["detail"] and item["source"] == ws.SELECTION_LOG
+
+
+def test_a_seed_step_that_ended_well_still_reads_as_not_started(checkout):
+    (checkout / ws.SELECTION_LOG).write_text("=== 2026-11-02T00:07:01Z selection end rc=0\n")
+    assert ws.selection_item(ON_THE_WEEK)["state"] == "not_yet"
+
+
+def test_a_log_is_no_matter_once_a_status_file_exists(checkout):
+    _selection_status(checkout)
+    (checkout / ws.SELECTION_LOG).write_text("=== 2026-11-02T00:08:02Z selection end rc=1\n")
+    assert ws.selection_item(ON_THE_WEEK)["state"] == "ok"
+
+
+def test_a_held_book_says_so(checkout):
+    _selection_status(checkout, held=True, reasons=["NO_KEPT_SELECTOR", "LIST_INCOMPLETE"])
+    assert "giữ danh sách cũ" in ws.selection_item(ON_THE_WEEK)["detail"]
+
+
+@pytest.mark.parametrize("reason", ["LATE_RUN", "POLICY_EXPIRED"])
+def test_a_late_record_reads_late(checkout, reason):
+    _selection_status(checkout, reasons=["NO_KEPT_SELECTOR", reason])
+    assert ws.selection_item(ON_THE_WEEK)["state"] == "late"
+
+
+def test_a_missed_monday_reads_late_only_after_the_task_had_its_hour(checkout):
+    _selection_status(checkout)
+    due = datetime(2026, 11, 9, 0, 7, tzinfo=UTC)
+    assert ws.selection_item(due + ws.SELECTION_GRACE)["state"] == "ok"
+    item = ws.selection_item(due + ws.SELECTION_GRACE + timedelta(seconds=1))
+    assert item["state"] == "late" and "chưa có bản ghi mới" in item["detail"]
+
+
+def test_an_error_outranks_a_missed_monday(checkout):
+    _selection_status(checkout, tripwire="FIRED")
+    item = ws.selection_item(datetime(2026, 11, 20, tzinfo=UTC))
+    assert item["state"] == "error" and "chưa có bản ghi mới" in item["detail"]
+
+
+@pytest.mark.parametrize("text", [
+    "not json", "null", "[]", "{}", '{"reasons": "x"}',
+    json.dumps({**selection_status.build(DECISION, "OK", COHORT, 1, 0), "next_run": "not a date"}),
+    json.dumps({**selection_status.build(DECISION, "OK", COHORT, 1, 0), "data_health": None}),
+])
+def test_a_status_file_that_cannot_be_read_is_an_error_and_the_page_goes_on(checkout, text):
+    status = checkout / ws.SELECTION_STATUS
+    status.parent.mkdir(parents=True)
+    status.write_text(text)
+    item = next(i for i in ws.doing()["automatic"] if i["title"] == ws.SELECTION_TITLE)
+    assert item["state"] == "error" and item["detail"] == "không đọc được status.json"
+
+
+def test_no_return_and_no_name_of_the_book_reaches_the_page(checkout):
+    written = _selection_status(checkout, list=["SENTINELCOIN"])
+    status = checkout / ws.SELECTION_STATUS
+    # Past the run's own allowlist: this read must still stop what it does not name.
+    status.write_text(json.dumps({**written, "net_return": 0.1234, "sharpe": 9.87, "pnl": -55.5,
+                                  "equity": 7777.7, "z": -3.21}))
+    os.utime(status, (1, 1))  # a wall clock in `since` must not spell one of the numbers below
+    before = _snapshot(checkout)
+    text = ws.to_json(ws.selection_item(ON_THE_WEEK))
+    for leak in ("return", "sharpe", "pnl", "equity", "0.1234", "9.87", "55.5", "7777", "3.21", "sentinelcoin"):
+        assert leak not in text.lower()
+    assert set(json.loads(text)) == {"title", "state", "detail", "progress", "next", "since", "source",
+                                     "next_at", "projection"}
+    assert _snapshot(checkout) == before
+
+
+def test_the_page_reads_the_log_the_wrapper_writes():
+    wrapper = (Path(__file__).parents[1] / "scripts" / "ops" / "run_selection_weekly.sh").read_text()
+    assert ws.SELECTION_LOG in wrapper and "selection end rc=" in wrapper
+
+
+def test_the_page_copies_of_the_frozen_values_match_the_run():
+    assert ws.SELECTION_COHORT_WEEKS == selection_config.COHORT_WEEKS
+    assert ws.SELECTION_HOLDS == selection_config.HOLD_REASONS
+    assert ws.SELECTION_LATE <= set(selection_config.REASONS)
+    assert ws.SELECTION_STATUS == "data/selection/" + selection_status.status_path(Path()).name
+    assert ws.SELECTION_DECISION == selection_decide.DECISION
+    tasks = (Path(__file__).parents[1] / "scripts" / "ops" / "windows" / "register_tasks.ps1").read_text()
+    assert f"% 7).AddMinutes({ws.SELECTION_RUN_AT // timedelta(minutes=1)})" in tasks
+    assert f"-ExecutionTimeLimit (New-TimeSpan -Hours {ws.SELECTION_GRACE // timedelta(hours=1)})" in tasks
+
+
+def test_the_selection_card_observes_and_starts_nothing():
+    page = workspace_server.PAGE.read_text(encoding="utf-8")
+    assert f'find(auto, "{ws.SELECTION_TITLE}")' in page  # another title would read as unknown
+    assert '{id:"selection", name:"Vòng chọn giấy"' in page
+    assert '"selection gm3 gprom . ."' in page  # its cell on the map's grid
+    wires = re.search(r"const WIRES = (\[.*?\]);", page, re.S)[1]
+    assert re.findall(r'\[[^\[\]]*"selection"[^\[\]]*\]', wires) == ['["clock","selection","time"]']
+    for command in ("run_weekly", "run_selection_weekly", "register_tasks.ps1 -", "SELECTION_ROOT"):
+        assert command not in page

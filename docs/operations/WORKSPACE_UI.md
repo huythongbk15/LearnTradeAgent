@@ -32,7 +32,8 @@ which stage, why it is blocked, where the evidence is.
 2. *Automatic*: processes alive in `/proc` with their current step; the
    scheduled testnet cycle with the timeline of its last run from the audit log;
    the Windows health check from its own log; M1 and M3 progress from
-   `scripts/ops/daily_check.py`; ledger and lifecycle consistency.
+   `scripts/ops/daily_check.py`; ledger and lifecycle consistency; the weekly
+   paper selection run from `data/selection/status.json`.
 3. *In progress without you*: research processes that are alive.
 
 **Done.** One line per outcome, not per commit: pull requests merged into
@@ -49,15 +50,16 @@ environments (scheduled, code only, locked).
 ## Module map
 
 The page's first section is a map of the process modules: the testnet cycle, the
-health and daily checks, data, the research flows and the qualification path,
-with the human gates between them. It shows the milestones, what is blocked and
-who can clear it, then one card per module.
+health and daily checks, the paper selection run, data, the research flows and
+the qualification path, with the human gates between them. It shows the
+milestones, what is blocked and who can clear it, then one card per module.
 
 The map's shape is declared in `workspace_page.html`. Every state on it comes from
 `/api/doing` and `/api/have`, so it needs no new process, port or event. The lines
 are declarations and start nothing: only the clock starts a module, and only a
 person opens a gate. The map shows gates and their state, never a command or a
-button.
+button. The paper selection card has one line, from the clock: nothing reads its
+records, so no line leaves it.
 
 ## Rules
 
@@ -72,6 +74,12 @@ button.
   a run has said so, and the books read unknown without the HMAC key.
 - Times computed from the schedule (next cycle, earliest M1 pass) are labelled
   as projections.
+- The paper selection run shows its decision, reasons, data health, tripwire
+  state and schedule, never a return, a Sharpe, a P&L or the names on its list:
+  [SELECTION_PAPER_RUN.md](SELECTION_PAPER_RUN.md) freezes this, because a page
+  that shows profit turns the one reading into a watch. No status file reads as
+  not started, unless the job's log says it ended badly. A file that cannot be
+  read reads as an error.
 
 ## Safety
 

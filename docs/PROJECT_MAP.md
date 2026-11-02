@@ -96,6 +96,7 @@
 │   │   ├── RESEARCH_SYNTHESIS_20261030.md
 │   │   ├── RSI_REGIME_SWITCH_EVIDENCE_CARD.md
 │   │   ├── RSI_REGIME_SWITCH_MANIFEST.json
+│   │   ├── SELECTION_PAPER_RUN.md
 │   │   ├── SHORT_SIDE_RESULTS_20261031.md
 │   │   ├── VALIDATION_CLOSURE_20261016.md
 │   │   ├── VALIDATION_REFACTOR_AGENT_PLAYBOOK.md
@@ -228,6 +229,7 @@
 │   │   ├── daily_check.py
 │   │   ├── run_binance_testnet_cycle.sh
 │   │   ├── run_daily_check.sh
+│   │   ├── run_selection_weekly.sh
 │   │   ├── workspace_page.html
 │   │   ├── workspace_server.py
 │   │   └── workspace_status.py
@@ -1002,10 +1004,26 @@
 │   ├── test_s3_evidence_integrity.py
 │   ├── test_s3_study_provenance.py
 │   ├── test_s5_adaptive_campaign.py
+│   ├── test_selection_acceptance.py
 │   ├── test_selection_audit.py
+│   ├── test_selection_config.py
+│   ├── test_selection_decide.py
+│   ├── test_selection_draft.py
 │   ├── test_selection_eligibility.py
+│   ├── test_selection_exchange.py
+│   ├── test_selection_fetch.py
+│   ├── test_selection_fixture.py
+│   ├── test_selection_ledger.py
+│   ├── test_selection_library.py
+│   ├── test_selection_mask.py
+│   ├── test_selection_ops.py
 │   ├── test_selection_packet_paths.py
+│   ├── test_selection_panel.py
 │   ├── test_selection_policy_lifecycle.py
+│   ├── test_selection_run.py
+│   ├── test_selection_selector.py
+│   ├── test_selection_status.py
+│   ├── test_selection_universe.py
 │   ├── test_shadow_mainnet.py
 │   ├── test_shared_capital_allocator.py
 │   ├── test_short_side_backtest.py
@@ -1047,6 +1065,22 @@
 │   ├── test_wfo_validation_envelope.py
 │   ├── test_workspace_status.py
 │   └── test_xsec_relative_strength.py
+├── tools
+│   ├── selection
+│   │   ├── __init__.py
+│   │   ├── acceptance.py
+│   │   ├── config.py
+│   │   ├── decide.py
+│   │   ├── fetch.py
+│   │   ├── ledger.py
+│   │   ├── library.py
+│   │   ├── panel.py
+│   │   ├── policy.py
+│   │   ├── run_weekly.py
+│   │   ├── selector.py
+│   │   ├── status.py
+│   │   └── universe.py
+│   └── __init__.py
 ├── webui
 │   ├── backend
 │   │   ├── __init__.py
