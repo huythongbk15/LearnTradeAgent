@@ -41,6 +41,8 @@ Có ba thiết kế chồng lên nhau, không phải một cơ chế chạy thô
 
 Từ 2026-11-01 có thêm [vòng chọn giấy hằng tuần](operations/SELECTION_PAPER_RUN.md), tách khỏi cả ba thiết kế trên: mỗi thứ Hai nó chọn trong 32 ứng viên trên vũ trụ có mặt nạ, chỉ ghi bản ghi, phía thật giữ `NO_TRADE`, không nối router hay runner. Nó chưa chạy forward lần nào và không phải bằng chứng lợi thế.
 
+Từ 2026-11-09 vòng này ghi thêm một book cố định trên giấy, [book RS](operations/SELECTION_PAPER_RUN.md#book-rs-ghi-giấy-từ-2026-11-09): long coin gần đỉnh 30 ngày, short coin xa đỉnh, đọc một lần ở 2028-11-13. Runner chỉ có spot long nên không chạy được book này.
+
 ## Vì sao chưa thể có một câu "đạt" sạch
 
 - **Dữ liệu.** Holdout 2026-02-06 đến 2026-08-05 đã bị chấm điểm, xem [sổ lộ holdout](RESEARCH_HOLDOUT.md). Cohort chưa đọc đã thỏa thuận trước duy nhất là đọc forward của H-XSEC-01 sau 2027-12-27.

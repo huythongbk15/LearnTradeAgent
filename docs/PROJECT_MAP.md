@@ -1020,6 +1020,7 @@
 │   ├── test_selection_packet_paths.py
 │   ├── test_selection_panel.py
 │   ├── test_selection_policy_lifecycle.py
+│   ├── test_selection_rs_book.py
 │   ├── test_selection_run.py
 │   ├── test_selection_selector.py
 │   ├── test_selection_status.py
@@ -1076,6 +1077,7 @@
 │   │   ├── library.py
 │   │   ├── panel.py
 │   │   ├── policy.py
+│   │   ├── rs_book.py
 │   │   ├── run_weekly.py
 │   │   ├── selector.py
 │   │   ├── status.py

@@ -80,7 +80,7 @@ records, so no line leaves it.
   that shows profit turns the one reading into a watch. No status file reads as
   not started, unless the job's log says it ended badly, or the first Monday
   after the seed step passed with no record. A file that cannot be read reads as
-  an error.
+  an error. The frozen paper book shows a count of closed weeks, never a return.
 
 ## Safety
 

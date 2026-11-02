@@ -62,6 +62,14 @@ TRIPWIRE_WEEKLY_SD_BPS = 510.0
 LATE_LIMIT_HOURS = 6
 POLICY_VALIDITY_DAYS = 8
 
+# The frozen paper book of rs_book.py. Operator's decision of 2026-11-02.
+RS_FIRST_MONDAY = "2026-11-09"
+RS_READ_WEEKS = 104
+RS_ENTRY_HOURS = 4
+RS_SIDE = 0.5
+RS_SHORT_STOP = 0.5
+RS_COST_TIMES = 2.0
+
 QUOTES = ("USDT", "USDC", "FDUSD", "BUSD", "TUSD", "BTC", "EUR")     # read off a symbol by base_of, so a masked coin is known under any quote
 MULTIPLIER = re.compile(r"^(?:10+|1M)(?=[A-Z])")                     # 1000XRP, 1MDOGE: the same coin in a rebased unit
 RUNNER_STORES = ("promotion_store", "state", "execution", "research")        # folders under data/ the testnet runner reads or writes
