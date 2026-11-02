@@ -976,7 +976,7 @@ def test_status_has_no_return_field_of_any_kind(world) -> None:
     s = world.status()
     assert not [k for k in keys_of(s) if BANNED.search(k)]
     assert all(isinstance(x, int) for x in numbers_of(s))
-    assert set(s) == {"as_of", "phase", "due_book", "decision", "main_reason", "reasons", "held", "list", "list_monday", "data_health", "tripwire", "next_run", "cohort_start", "read_date", "weeks_done", "rs_blocks"}
+    assert set(s) == {"as_of", "phase", "due_book", "decision", "main_reason", "reasons", "held", "list", "list_monday", "data_health", "tripwire", "next_run", "cohort_start", "read_date", "weeks_done", "rs_blocks", "lv_blocks"}
 
 
 def test_no_candidate_name_or_slot_reaches_the_page(world) -> None:

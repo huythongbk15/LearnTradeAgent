@@ -118,6 +118,22 @@ Một pick chỉ đọc bar trước thứ Hai của nó, nên chạy muộn v�
 
 Bản ghi nằm ở `data/selection/rs_book/`: `picks.jsonl` và `ledger.jsonl`. `ledger.jsonl` chứa lợi nhuận: không mở trước ngày đọc. Trang chỉ hiện số tuần đã đóng, không hiện lợi nhuận. Book lỗi thì lần chạy ghi `rs_book` vào `errors` và trang ở `lỗi`, còn quyết định của vòng chọn không đổi.
 
+## Book LV, ghi giấy từ 2026-11-09
+
+Operator quyết ngày 2026-11-02: ghi thêm một book biến động thấp, chạy song song book RS. Nó không phải bộ chọn, không đặt lệnh, không nối runner, và book RS giữ nguyên. Lý do và các số đo nằm ở `data/autopsy_20261102_01/RESULTS.md`. Đây không phải bằng chứng lợi thế: trên perp từ 2022 nó đạt trên dữ liệu đã mòn, còn mẫu trước 2020 chưa ngã ngũ.
+
+Luật đóng băng, code ở `tools/selection/lv_book.py`, hằng số ở `config.py`. Mọi luật giống book RS và dùng chung hàm của `rs_book.py`, trừ:
+
+- **Xếp hạng:** âm của độ lệch chuẩn 180 thay đổi của log close 4 giờ trước 00:00 thứ Hai, cần ít nhất 160 thay đổi. Chân long là coin biến động thấp nhất, chân short là coin biến động cao nhất. Coin có bar cuối cũ hơn 6 giờ không có hạng, vì close được mang tiếp trông như yên tĩnh. Vì vậy một coin tải hỏng đúng tuần đó sẽ rời pick của tuần, và pick là cuối cùng.
+- **Danh sách:** có mặt nạ như book RS. Sách đã đo có long leg 91% ở 13 coin lớn, phần lớn bị che ở đây, nên đây là biến thể khác với sách đã đo. Chạy module trên lịch sử đến 2026-02-05: không che net +92,7 bps một tuần, có che +54,3, W1 -40, từ W2 +88,5, chưa tính funding.
+- **Chi phí:** không tính funding như book RS. Trên perp, funding làm mất khoảng 17 bps một tuần.
+
+List không lọc token neo giá vàng, nên `XAUT` có thể vào chân long, như pick đầu của lần diễn tập. Giữ nguyên vì sách đã đo cũng vậy: `PAXG` chỉ đổi 1,8 bps một tuần ở đó.
+
+**Đọc một lần** ở lần chạy 2028-11-13, khi đủ 104 khối từ 2026-11-09, thống kê như book RS. Giữ khi t từ 2 trở lên. Loại khi net trung bình cộng 1,645 sai số chuẩn vẫn dưới +60 bps một tuần. Ở giữa là chưa ngã ngũ, không đóng và không mở bàn về vốn. Với độ lệch chuẩn 577 bps của sách có che trong lịch sử, hai mức đó vào khoảng +113 và -33, và khả năng phát hiện là .17 ở +60, .55 ở +120. Giữ thì mở bàn về vốn, và nếu book RS không đạt thì bỏ `dhi30`. Loại thì đóng biến động thấp, và nếu book RS cũng không đạt thì đóng cả họ. Không có tripwire.
+
+Bản ghi nằm ở `data/selection/lv_book/`: `picks.jsonl` và `ledger.jsonl`. `ledger.jsonl` chứa lợi nhuận: không mở trước ngày đọc. Trang chỉ hiện số tuần đã đóng. Book lỗi thì lần chạy ghi `lv_book` vào `errors` và trang ở `lỗi`, book RS vẫn chạy và quyết định của vòng chọn không đổi. Riêng lỗi seal thì lần chạy thành `SEAL_SCOPE` và giữ book, như mọi bước khác.
+
 ## Vận hành
 
 Code nằm ở `tools/selection/`, job là `scripts/ops/run_selection_weekly.sh`, mọi bản ghi nằm ở `data/selection/`. Task Windows chạy trên checkout chính, nên các lệnh dưới chạy ở đó, theo thứ tự của mục kế tiếp. Job dùng nice 19 và tự ghi `logs/selection_weekly.log`, nên kết quả của lệnh tay cũng nằm trong log đó. Có `SELECTION_ROOT` thì ghi `logs/selection_rehearsal.log`, file trang không đọc.
@@ -146,6 +162,8 @@ Checkout chính không đi theo `origin/master`: code vào master chưa đưa co
 10. Sau 00:20Z thứ Hai, đọc `logs/selection_weekly.log`, `data/selection/status.json` và `data/selection/cohort.json`. Log chưa có dòng `selection end` thì job còn đang chạy. Không dựa vào `LastTaskResult`: `conhost --headless` không trả exit code của job. Task không chạy thì chạy tay `scripts/ops/run_selection_weekly.sh`, bắt đầu trước 06:00Z, tức 13:00 giờ máy, mới còn đúng giờ và mở được cohort.
 
 Nếu M1 chưa PASSED trước khoảng 05:30Z thứ Hai thì không fast forward: cohort lùi một tuần, không mất gì khác.
+
+Book LV đến sau khi checkout chính đã có seed và task, nên chỉ làm lại bước 4, 5 và 7, không làm lại seed và đăng ký. Code vào sau 2026-11-09 thì lần chạy kế tự bù pick của các thứ Hai đã qua từ bar đã lưu.
 
 ### Cài seed
 

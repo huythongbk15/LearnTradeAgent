@@ -70,6 +70,11 @@ RS_SIDE = 0.5
 RS_SHORT_STOP = 0.5
 RS_COST_TIMES = 2.0
 
+# The second frozen paper book, lv_book.py, on rs_book's fills and cost. Operator's decision of 2026-11-02.
+LV_FIRST_MONDAY = "2026-11-09"
+LV_READ_WEEKS = 104
+LV_FRESH_HOURS = 6                  # the study's list held a coin only with a bar this recent
+
 QUOTES = ("USDT", "USDC", "FDUSD", "BUSD", "TUSD", "BTC", "EUR")     # read off a symbol by base_of, so a masked coin is known under any quote
 MULTIPLIER = re.compile(r"^(?:10+|1M)(?=[A-Z])")                     # 1000XRP, 1MDOGE: the same coin in a rebased unit
 RUNNER_STORES = ("promotion_store", "state", "execution", "research")        # folders under data/ the testnet runner reads or writes

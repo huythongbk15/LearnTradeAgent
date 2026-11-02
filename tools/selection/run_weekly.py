@@ -25,7 +25,7 @@ from pathlib import Path
 
 import numpy as np
 
-from tools.selection import config, decide, fetch, ledger, policy, rs_book, status, universe
+from tools.selection import config, decide, fetch, ledger, lv_book, policy, rs_book, status, universe
 from tools.selection import library as lib
 from tools.selection import panel as pn
 from tools.selection import selector as sel
@@ -176,6 +176,7 @@ def manifest(root: Path, seed: Path, folder: Path, as_of: str, report: fetch.Rep
         "files": {p.name: _sha_file(p) for p in sorted(folder.glob("*.json"))},
         "ledger_sha256": _sha_file(ledger.ledger_path(root)) if ledger.ledger_path(root).exists() else None,
         "rs_book_sha256": _sha_tree([rs_book.book_dir(root)]),
+        "lv_book_sha256": _sha_tree([lv_book.book_dir(root)]),
         "store_sha256": _sha_tree([config.bars_dir(root), config.daily_dir(root), config.lists_dir(root)]),
         "seed_sha256": _sha_file(seed_file) if seed_file.exists() else None,
         "code_sha256": hashlib.sha256("".join(_sha_file(p) for p in code).encode()).hexdigest(),
@@ -245,6 +246,9 @@ def _run(as_of: str, fetching: bool, client: fetch.Client | None, now: datetime,
     rs_blocks = 0
     with trail.step("rs_book"):
         rs_blocks = rs_book.update(root, as_of)
+    lv_blocks = 0
+    with trail.step("lv_book"):
+        lv_blocks = lv_book.update(root, as_of)
 
     names: list[str] = []
     with trail.step("list_read"):
@@ -279,7 +283,7 @@ def _run(as_of: str, fetching: bool, client: fetch.Client | None, now: datetime,
     decide.write_text(folder / "target.json", decide.dumps(target))
     if cohort_read:
         cohort = decide.start_cohort(root, as_of, reasons, selected)
-    status.write(root, status.build(decision, tripwire, cohort, done, len(trail.errors), rs_blocks))
+    status.write(root, status.build(decision, tripwire, cohort, done, len(trail.errors), rs_blocks, lv_blocks))
     decide.write_text(folder / "manifest.json", decide.dumps(manifest(root, seed, folder, as_of, report, trail, lists_added, len(written), now, t0)))
     return Outcome(as_of, False, decision["decision"], tuple(reasons))
 
