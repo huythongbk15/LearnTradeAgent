@@ -41,6 +41,17 @@ STATE_FILE = "data/binance_testnet_risk_state_v2.json"
 ENTRY_EVENTS = ("entries_locked_no_promoted_runtime", "operational_track_active")
 HEALTH_LOG_GLOB = "/mnt/c/Users/*/AppData/Local/TradingAgent/health.log"
 HEALTH_STALE = timedelta(minutes=45)
+# The weekly paper selection run (docs/operations/SELECTION_PAPER_RUN.md). Copies of
+# its frozen values, so this read model imports none of its code; a test pins them.
+SELECTION_TITLE = "Vòng chọn giấy"
+SELECTION_STATUS = "data/selection/status.json"
+SELECTION_LOG = "logs/selection_weekly.log"
+SELECTION_RUN_AT = timedelta(minutes=7)  # after Monday 00:00 UTC, as register_tasks.ps1
+SELECTION_GRACE = timedelta(hours=1)  # that task's execution limit
+SELECTION_DECISION = "NO_TRADE"
+SELECTION_COHORT_WEEKS = 60
+SELECTION_HOLDS = {"DATA_STALE_OR_GAP", "LIST_INCOMPLETE", "SEAL_SCOPE"}
+SELECTION_LATE = {"LATE_RUN", "POLICY_EXPIRED"}
 AUTHORIZE_COMMAND = (
     '.venv/bin/python scripts/ops/authorize_operational_track.py '
     '--approver NAME --reason "M3 E2E"'
@@ -400,6 +411,96 @@ def books_item(base: Path) -> dict:
     )
 
 
+def _next_selection_run(now: datetime) -> datetime:
+    """The next Monday 00:07 UTC. A projection: WSL cannot read the Windows task."""
+    at = now.astimezone(UTC)
+    monday = at.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=at.weekday())
+    due = monday + SELECTION_RUN_AT
+    return due if due > at else due + timedelta(days=7)
+
+
+def _selection_health(health: dict) -> str:
+    if not health["readable"]:
+        return "dữ liệu: không đọc được bar"
+    return (f"dữ liệu: {health['checked']} tên, thiếu {health['missing']}, cũ {health['stale']}, "
+            f"hở {health['gaps']}, bar ngày lỗi {health['daily_failed']}/{health['daily_pairs']}, "
+            f"bar giờ lỗi {health['hourly_failed']}"
+            + (f", tuần sổ chờ bar {health['weeks_waiting']}" if health["weeks_waiting"] else ""))
+
+
+def _selection_exit(path: Path) -> int | None:
+    """The exit code of the job's last run, from the line the wrapper writes. None before any run."""
+    if not path.exists():
+        return None
+    ends = re.findall(r"selection end rc=(\d+)", path.read_text(encoding="utf-8", errors="replace"))
+    return int(ends[-1]) if ends else None
+
+
+def _selection_first_due(path: Path, now: datetime) -> datetime:
+    """The first Monday due after the log's first line, which the seed step writes. It cannot slide."""
+    text = path.read_text(encoding="utf-8", errors="replace") if path.exists() else ""
+    stamp = re.search(r"^=== (\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ) selection ", text, re.MULTILINE)
+    return _next_selection_run(datetime.fromisoformat(stamp[1]) if stamp else now)
+
+
+def selection_item(now: datetime) -> dict:
+    """The weekly paper selection run, from the status file it writes.
+
+    Decision, reasons, data health and tripwire state, picked field by field: the
+    frozen page rule keeps every return off this page before the read date, so a
+    return or a list of names in that file goes no further. No file means the run
+    has not started, which is not an error, unless the job ended badly and left none,
+    or the first Monday after the seed step went by. The page cannot read the task.
+    """
+    path = root() / SELECTION_STATUS
+    if not path.exists():
+        log = root() / SELECTION_LOG
+        failed = _selection_exit(log)
+        if failed:
+            return _item(SELECTION_TITLE, "error", detail=f"job kết thúc rc={failed}, chưa có bản ghi nào",
+                         progress=_none("cohort chưa bắt đầu"), since=_mtime(log), source=SELECTION_LOG)
+        first = _selection_first_due(log, now)
+        if now > first + SELECTION_GRACE:
+            following = _next_selection_run(now)
+            return _item(SELECTION_TITLE, "late",
+                         detail=f"quá lịch {_short(first)}, chưa có bản ghi nào; kiểm tra task TradingAgent-SelectionPaper và log",
+                         progress=_none("cohort chưa bắt đầu"), next_step=f"lần chạy kế theo lịch: {_short(following)}",
+                         since=_mtime(log), source=SELECTION_LOG, next_at=_iso(following), projection=True)
+        return _item(SELECTION_TITLE, "not_yet", detail=f"chưa chạy lần nào; phía thật giữ {SELECTION_DECISION}",
+                     progress=_none("cohort chưa bắt đầu"),
+                     next_step=f"lần đầu theo lịch: {_short(first)}, nếu task đã đăng ký",
+                     source=SELECTION_STATUS, next_at=_iso(first), projection=True)
+    status = _read_json(path)
+    try:
+        reasons = [str(reason) for reason in status["reasons"]]
+        health = status["data_health"]
+        tripwire = status["tripwire"]
+        next_at = datetime.fromisoformat(status["next_run"]).replace(tzinfo=UTC) + SELECTION_RUN_AT
+        detail = " · ".join(filter(None, (
+            status["decision"], ", ".join(reasons), f"bản ghi {status['as_of']}",
+            "book tới lượt giữ danh sách cũ" if status["held"] else "", f"tripwire {tripwire}",
+            _selection_health(health), f"lỗi bước {health['errors']}" if health["errors"] else "",
+        )))
+        cohort = status["cohort_start"]
+        progress = (_ratio(int(status["weeks_done"]), SELECTION_COHORT_WEEKS,
+                           f"cohort từ {cohort}, đọc một lần ngày {status['read_date']}")
+                    if cohort else _none("cohort chưa bắt đầu"))
+        blocked = (status["decision"] != SELECTION_DECISION or tripwire == "FIRED"
+                   or health["errors"] or SELECTION_HOLDS & set(reasons))
+        # Bars a score or a closed week reads that did not come in: no reason covers them.
+        behind = SELECTION_LATE & set(reasons) or health["hourly_failed"] or health["weeks_waiting"]
+    except (KeyError, TypeError, ValueError):
+        return _item(SELECTION_TITLE, "error", detail="không đọc được status.json",
+                     since=_mtime(path), source=SELECTION_STATUS)
+    overdue = now > next_at + SELECTION_GRACE
+    if overdue:
+        detail = f"quá lịch {_short(next_at)}, chưa có bản ghi mới · {detail}"
+    state = "error" if blocked else "late" if overdue or behind else "ok"
+    return _item(SELECTION_TITLE, state, detail=detail, progress=progress,
+                 next_step=f"lần chạy kế theo lịch: {_short(next_at)}", since=_mtime(path),
+                 source=SELECTION_STATUS, next_at=_iso(next_at), projection=True)
+
+
 def pending_packets() -> list[dict]:
     """Research packets waiting for the operator: to approve, or approved but not run.
 
@@ -568,7 +669,7 @@ def doing(now: datetime | None = None) -> dict:
         "processes": processes,
         "waiting": m3_waiting(m1, m3) + pending_packets() + code_items(now),
         "automatic": [cycle_job(events, cycles, now), *milestone_items(m1, m3),
-                      health_item(now), books_item(base)],
+                      health_item(now), books_item(base), selection_item(now)],
         "research_running": research_runs(processes, now),
         "audit": {"error": audit_error, "health": audit_health or "OK"},
         "entries_locked": _entries_lock(events),

@@ -44,7 +44,7 @@ details summary{cursor:pointer;list-style:none}details summary::-webkit-details-
 .ms .h{display:flex;gap:8px;align-items:center}.ms .chip{white-space:normal}.arrow{color:var(--faint)}
 .block{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1.4fr) 170px;gap:12px;padding:9px 0;border-bottom:1px solid var(--line);overflow-wrap:anywhere}.block:last-child{border:0}
 .map{position:relative;display:grid;gap:30px 34px;margin-top:10px;padding:12px;background:var(--panel);border:1px solid var(--line);border-radius:12px;
-grid-template-columns:repeat(5,minmax(0,1fr));grid-template-areas:"clock cycle health . ." ". gm3 gprom . ." "data gapp flows gnext qual"}
+grid-template-columns:repeat(5,minmax(0,1fr));grid-template-areas:"clock cycle health . ." "selection gm3 gprom . ." "data gapp flows gnext qual"}
 .wires{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible}
 .wires path{fill:none;stroke:var(--wire);stroke-width:1.5}.wires .w-time{stroke-dasharray:2 4}.wires .w-poll{stroke-dasharray:7 5}.wires .w-dormant{stroke-dasharray:3 6;opacity:.55}
 .wires marker path{fill:var(--wire);stroke:none}
@@ -144,7 +144,7 @@ function renderTop() {
 }
 // The map's shape is declared here; every state on it is read from /api/doing and
 // /api/have. Only the clock starts anything: the other lines start nothing.
-const WIRES = [["clock","cycle","time"],["cycle","health","poll"],["gm3","cycle","poll"],["gprom","cycle","poll"],
+const WIRES = [["clock","cycle","time"],["clock","selection","time"],["cycle","health","poll"],["gm3","cycle","poll"],["gprom","cycle","poll"],
   ["data","gapp","receipt"],["gapp","flows","receipt"],["flows","gnext","receipt"],["gnext","qual","dormant"],["qual","gprom","dormant"]];
 const SEVERITY = ["error","late","stale","unknown","waiting","running","progress","ok"];
 const worst = (...states) => { const seen = states.map(s => s || "unknown"); return SEVERITY.find(s => seen.includes(s)) || "unknown"; };
@@ -153,6 +153,7 @@ function moduleCards() {
   const d = doingData, h = haveData, auto = d.automatic || [], waiting = d.waiting || [];
   const find = (list, title) => list.find(i => i.title.startsWith(title));
   const cycle = find(auto, "Chu kỳ") || {}, health = find(auto, "Health") || {}, books = find(auto, "Sổ sách") || {};
+  const selection = find(auto, "Vòng chọn giấy") || {};
   const sign = find(waiting, "Ký giấy phép M3") || find(auto, "M3") || {};
   const packets = waiting.filter(isPacket), runs = d.research_running || [];
   return [
@@ -163,6 +164,8 @@ function moduleCards() {
     {id:"health", name:"Kiểm tra sức khỏe", state: worst(health.state, books.state),
      why:`Health: ${STATE[health.state] || "không rõ"}. Sổ sách: ${books.state === "ok" ? "khớp" : STATE[books.state] || "không rõ"}.`,
      waits:"Task Scheduler (30 phút). Đọc audit của chu kỳ testnet.", source: health.source},
+    {id:"selection", name:"Vòng chọn giấy", state: selection.state, why: selection.detail, body: progress(selection.progress), next: selection.next,
+     waits:"Task Scheduler (thứ Hai, 00:07Z). Chỉ ghi bản ghi, không nối runner.", source: selection.source},
     {id:"gm3", gate:true, name:"Ký giấy phép M3", state: sign.state, why: sign.detail, source:"scripts/ops/README.md"},
     {id:"gprom", gate:true, name:"Promote", state: h && !h.error ? "code_only" : "unknown",
      why: !h || h.error ? "chưa đọc được" : h.strategies?.promotion_store ? "có promotion store, chưa strategy nào được promote" : "chưa có promotion store",

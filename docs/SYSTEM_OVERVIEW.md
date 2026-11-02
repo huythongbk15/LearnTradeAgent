@@ -39,6 +39,8 @@ Có ba thiết kế chồng lên nhau, không phải một cơ chế chạy thô
 | Ladder tới `TESTNET_ELIGIBLE` | Chưa từng chạy với bằng chứng thật |
 | E4–E6: gắn runner, soak, canary | Chưa chạy với strategy nào |
 
+Từ 2026-11-01 có thêm [vòng chọn giấy hằng tuần](operations/SELECTION_PAPER_RUN.md), tách khỏi cả ba thiết kế trên: mỗi thứ Hai nó chọn trong 32 ứng viên trên vũ trụ có mặt nạ, chỉ ghi bản ghi, phía thật giữ `NO_TRADE`, không nối router hay runner. Nó chưa chạy forward lần nào và không phải bằng chứng lợi thế.
+
 ## Vì sao chưa thể có một câu "đạt" sạch
 
 - **Dữ liệu.** Holdout 2026-02-06 đến 2026-08-05 đã bị chấm điểm, xem [sổ lộ holdout](RESEARCH_HOLDOUT.md). Cohort chưa đọc đã thỏa thuận trước duy nhất là đọc forward của H-XSEC-01 sau 2027-12-27.
