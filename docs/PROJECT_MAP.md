@@ -1015,6 +1015,7 @@
 │   ├── test_selection_fixture.py
 │   ├── test_selection_ledger.py
 │   ├── test_selection_library.py
+│   ├── test_selection_lv_book.py
 │   ├── test_selection_mask.py
 │   ├── test_selection_ops.py
 │   ├── test_selection_packet_paths.py
@@ -1075,6 +1076,7 @@
 │   │   ├── fetch.py
 │   │   ├── ledger.py
 │   │   ├── library.py
+│   │   ├── lv_book.py
 │   │   ├── panel.py
 │   │   ├── policy.py
 │   │   ├── rs_book.py

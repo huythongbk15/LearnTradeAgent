@@ -546,6 +546,7 @@ def test_the_page_reads_the_log_the_wrapper_writes():
 def test_the_page_copies_of_the_frozen_values_match_the_run():
     assert ws.SELECTION_COHORT_WEEKS == selection_config.COHORT_WEEKS
     assert ws.SELECTION_RS_WEEKS == selection_config.RS_READ_WEEKS
+    assert ws.SELECTION_LV_WEEKS == selection_config.LV_READ_WEEKS
     assert ws.SELECTION_HOLDS == selection_config.HOLD_REASONS
     assert ws.SELECTION_LATE <= set(selection_config.REASONS)
     assert ws.SELECTION_STATUS == "data/selection/" + selection_status.status_path(Path()).name

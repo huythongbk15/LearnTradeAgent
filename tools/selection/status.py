@@ -11,7 +11,7 @@ from tools.selection import decide
 
 FIELDS = frozenset({
     "as_of", "phase", "due_book", "decision", "main_reason", "reasons", "held", "list", "list_monday",
-    "data_health", "tripwire", "next_run", "cohort_start", "read_date", "weeks_done", "rs_blocks",
+    "data_health", "tripwire", "next_run", "cohort_start", "read_date", "weeks_done", "rs_blocks", "lv_blocks",
 })
 HEALTH_FIELDS = frozenset({"checked", "readable", "missing", "stale", "gaps", "daily_pairs", "daily_failed", "hourly_failed", "new_coins", "weeks_waiting", "errors"})
 TRIPWIRE_STATES = ("NOT_ARMED", "OK", "FIRED")
@@ -21,7 +21,7 @@ def status_path(root: Path) -> Path:
     return root / "status.json"
 
 
-def build(decision: dict, tripwire: str, cohort: dict | None, weeks_done: int, errors: int, rs_blocks: int = 0) -> dict:
+def build(decision: dict, tripwire: str, cohort: dict | None, weeks_done: int, errors: int, rs_blocks: int = 0, lv_blocks: int = 0) -> dict:
     if tripwire not in TRIPWIRE_STATES:
         raise ValueError(f"unknown tripwire state {tripwire}")
     next_run = date.fromisoformat(decision["as_of"]) + timedelta(days=7)
@@ -42,6 +42,7 @@ def build(decision: dict, tripwire: str, cohort: dict | None, weeks_done: int, e
         "read_date": cohort["read_date"] if cohort else None,
         "weeks_done": weeks_done,
         "rs_blocks": rs_blocks,
+        "lv_blocks": lv_blocks,
     }
 
 
