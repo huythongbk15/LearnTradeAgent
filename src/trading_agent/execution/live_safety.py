@@ -1165,9 +1165,14 @@ class LiveRiskStateStore:
         signal_timestamp: datetime | None = None,
         canonical_intent_id: str = "",
         signal_key: str = "",
+        venue_client_order_id: str = "",
         now: datetime | None = None,
     ) -> None:
-        """Persist an intent before submission so crashes cannot duplicate an order."""
+        """Persist an intent before submission so crashes cannot duplicate an order.
+
+        ``venue_client_order_id`` is the ID the venue receives for the key;
+        reconciliation reads it to know what was really sent.
+        """
 
         if order_key in self.state.reserved_orders:
             raise DuplicateOrderError(f"order intent already reserved: {order_key}")
@@ -1185,6 +1190,7 @@ class LiveRiskStateStore:
         self.state.reserved_orders[order_key] = timestamp
         self.state.order_ledger[order_key] = {
             "client_order_id": order_key,
+            "venue_client_order_id": venue_client_order_id or order_key,
             "canonical_intent_id": canonical_intent_id or order_key,
             "signal_key": dedupe_key,
             "exchange_order_id": "",

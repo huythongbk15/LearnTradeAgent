@@ -247,3 +247,54 @@ def test_client_order_lookup_falls_back_to_closed_order_history():
     assert parsed.raw_status == "closed"
     assert parsed.quote_cost == Decimal("10")
     assert parsed.fee_breakdown == {"USDT": Decimal("0.01")}
+
+
+def test_binance_client_order_id_fits_the_venue_and_is_stable():
+    from trading_agent.exchanges.ccxt_adapter import (
+        binance_accepts_client_order_id,
+        binance_client_order_id,
+    )
+
+    assert binance_client_order_id("lta-ps-1") == "lta-ps-1"
+    long_key = "2bd3d4d592452fce6f51a2f2f297a9da0593b2eab1ef5be346dda4b153752f16"
+    mapped = binance_client_order_id(long_key)
+    assert len(mapped) == 36 and binance_accepts_client_order_id(mapped)
+    assert mapped == binance_client_order_id(long_key)
+    assert mapped != binance_client_order_id(long_key[:-1] + "0")
+    assert not binance_accepts_client_order_id(long_key)
+    assert not binance_accepts_client_order_id("has space")
+
+
+def test_binance_adapter_sends_and_looks_up_the_mapped_client_id():
+    long_key = "a" * 64
+    seen = {}
+
+    class NoopRateLimiter:
+        async def acquire(self, exchange_id, weight=1):
+            return None
+
+    class Venue(FilterExchange):
+        def create_order(self, symbol, kind, side, amount, price, params):
+            seen["create"] = params["clientOrderId"]
+            return {"id": "1", "clientOrderId": params["clientOrderId"], "status": "closed", "symbol": symbol,
+                    "side": side, "type": kind, "amount": amount, "filled": amount, "average": 100, "cost": amount * 100}
+
+        def fetch_order(self, order_id, symbol, params):
+            seen["fetch"] = params["origClientOrderId"]
+            return {"id": "1", "clientOrderId": params["origClientOrderId"], "status": "closed", "symbol": symbol,
+                    "side": "buy", "type": "market", "amount": 0.01, "filled": 0.01, "average": 100, "cost": 1}
+
+        def fetch_my_trades(self, symbol, since, limit):
+            return []
+
+    adapter = adapter_with_filters()
+    adapter.exchange = Venue()
+    adapter.config = SimpleNamespace(id="binance")
+    adapter._rate_limiter = NoopRateLimiter()
+    adapter.get_exchange_symbol = lambda symbol: "BTC/USDT"
+    order = Order(id="", client_order_id=long_key, symbol=btc_symbol(), side=OrderSide.BUY,
+                  type=OrderType.MARKET, size=Decimal("0.01"))
+    placed = asyncio.run(adapter.create_order(order))
+    found = asyncio.run(adapter.fetch_order_by_client_id(long_key, btc_symbol()))
+    assert len(seen["create"]) == 36 and seen["create"] == seen["fetch"]
+    assert placed.client_order_id == long_key and found.client_order_id == long_key

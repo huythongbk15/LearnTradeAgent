@@ -36,7 +36,12 @@ from live_config import (
     STRATEGY_PARAMS,
 )
 
-from trading_agent.exchanges.ccxt_adapter import CCXTAdapter, ExchangeConfig
+from trading_agent.exchanges.ccxt_adapter import (
+    CCXTAdapter,
+    ExchangeConfig,
+    binance_accepts_client_order_id,
+    binance_client_order_id,
+)
 from trading_agent.exchanges.live_broker import LiveBroker
 from trading_agent.exchanges.models import (
     AssetClass,
@@ -2209,6 +2214,7 @@ def execute_orders(
             signal_timestamp=planned["candle_timestamp"],
             canonical_intent_id=intent_id,
             signal_key=signal_key,
+            venue_client_order_id=binance_client_order_id(order_key),
         )
         try:
             if isinstance(active_protective, dict):
@@ -2640,14 +2646,27 @@ def reconcile_unfinished_orders(
         current_status = str(record.get("status") or "reserved").lower()
         if current_status != "reconciling":
             store.update_order(order_key, status="reconciling")
-        result, reconcile_error = poll_order_by_client_id(
-            broker=broker,
-            order_key=order_key,
-            symbol=exchange_symbol(pair),
-            timeout_seconds=timeout_seconds,
-            sleep_fn=sleep_fn,
-            monotonic_fn=monotonic_fn,
-        )
+        # Records written before 2026-11-03 lack the venue field: the raw key went out.
+        sent = str(record.get("venue_client_order_id") or record.get("client_order_id") or order_key)
+        if not binance_accepts_client_order_id(sent):
+            # Binance refuses any request that carries this ID (-1100), so no
+            # order under it can exist: the submission was rejected.
+            result, reconcile_error = {
+                "status": "rejected",
+                "exchange_status": "CLIENT_ORDER_ID_REFUSED",
+                "filled_qty": 0.0,
+                "quote_cost": 0.0,
+                "error": "venue refuses this client order ID; no order can exist",
+            }, ""
+        else:
+            result, reconcile_error = poll_order_by_client_id(
+                broker=broker,
+                order_key=order_key,
+                symbol=exchange_symbol(pair),
+                timeout_seconds=timeout_seconds,
+                sleep_fn=sleep_fn,
+                monotonic_fn=monotonic_fn,
+            )
         if result is None:
             store.update_order(
                 order_key,
