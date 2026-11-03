@@ -81,6 +81,7 @@
 │   │   ├── CAMPAIGN_EVIDENCE_CONTRACT.md
 │   │   ├── CAMPAIGN_EVIDENCE_HANDOFF.md
 │   │   ├── CORE_RUNTIME_BOUNDARY.md
+│   │   ├── FLOWBID_PAPER_RUN.md
 │   │   ├── H_CTX_01_RESULTS.md
 │   │   ├── H_XSEC_01_ENGINE_NOTES.md
 │   │   ├── INTEGRATION_REVIEW_20261028.md
@@ -230,6 +231,7 @@
 │   │   ├── daily_check.py
 │   │   ├── run_binance_testnet_cycle.sh
 │   │   ├── run_daily_check.sh
+│   │   ├── run_flowbid.sh
 │   │   ├── run_newperp_weekly.sh
 │   │   ├── run_selection_weekly.sh
 │   │   ├── workspace_page.html
@@ -910,6 +912,7 @@
 │   ├── test_fill_model_latency.py
 │   ├── test_fill_plus_launcher.py
 │   ├── test_fill_plus_policy_wiring.py
+│   ├── test_flowbid.py
 │   ├── test_forecast_promotion_contract.py
 │   ├── test_frozen_research_input.py
 │   ├── test_full_system_accounting_basis.py
@@ -1071,6 +1074,11 @@
 │   ├── test_workspace_status.py
 │   └── test_xsec_relative_strength.py
 ├── tools
+│   ├── flowbid
+│   │   ├── __init__.py
+│   │   ├── config.py
+│   │   ├── rules.py
+│   │   └── run.py
 │   ├── newperp
 │   │   ├── __init__.py
 │   │   ├── config.py
