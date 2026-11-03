@@ -89,6 +89,7 @@
 │   │   ├── MAIN_FLOW_VALIDATION.md
 │   │   ├── MULTIPAIR_OBSERVATIONS_20261017.md
 │   │   ├── MULTI_STRATEGY_RESEARCH_PLAN.md
+│   │   ├── NEWPERP_PAPER_RUN.md
 │   │   ├── OPERABLE_SYSTEM_PLAN.md
 │   │   ├── QWENPAW_TOOL_NAME_GUARD.md
 │   │   ├── RESEARCH_LESSONS_LEARNED_20261018.md
@@ -229,6 +230,7 @@
 │   │   ├── daily_check.py
 │   │   ├── run_binance_testnet_cycle.sh
 │   │   ├── run_daily_check.sh
+│   │   ├── run_newperp_weekly.sh
 │   │   ├── run_selection_weekly.sh
 │   │   ├── workspace_page.html
 │   │   ├── workspace_server.py
@@ -947,6 +949,7 @@
 │   ├── test_native_policy_binding.py
 │   ├── test_nested_wfo.py
 │   ├── test_nested_wfo_evidence.py
+│   ├── test_newperp.py
 │   ├── test_online_methodology.py
 │   ├── test_open_inventory_accounting.py
 │   ├── test_operational_rehearsal.py
@@ -1068,6 +1071,12 @@
 │   ├── test_workspace_status.py
 │   └── test_xsec_relative_strength.py
 ├── tools
+│   ├── newperp
+│   │   ├── __init__.py
+│   │   ├── config.py
+│   │   ├── fetch.py
+│   │   ├── rules.py
+│   │   └── run.py
 │   ├── selection
 │   │   ├── __init__.py
 │   │   ├── acceptance.py
