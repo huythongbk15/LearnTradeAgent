@@ -92,6 +92,7 @@
 │   │   ├── MULTI_STRATEGY_RESEARCH_PLAN.md
 │   │   ├── NEWPERP_PAPER_RUN.md
 │   │   ├── OPERABLE_SYSTEM_PLAN.md
+│   │   ├── PERP_DEMO_RUNNER.md
 │   │   ├── QWENPAW_TOOL_NAME_GUARD.md
 │   │   ├── RESEARCH_LESSONS_LEARNED_20261018.md
 │   │   ├── RESEARCH_RUN_PROTOCOL.md
@@ -347,6 +348,7 @@
 │   ├── live_data_pipeline.py
 │   ├── live_enhanced_ma.py
 │   ├── live_enhanced_ma_binance.py
+│   ├── live_perp_demo.py
 │   ├── live_status_report.py
 │   ├── llm_pool_cli.py
 │   ├── load_test_phase6.py
@@ -616,6 +618,11 @@
 │       │   │   ├── events.py
 │       │   │   ├── lifecycle.py
 │       │   │   └── store.py
+│       │   ├── perp
+│       │   │   ├── __init__.py
+│       │   │   ├── book.py
+│       │   │   ├── rules.py
+│       │   │   └── venue.py
 │       │   ├── simulator
 │       │   │   ├── __init__.py
 │       │   │   ├── calibration.py
@@ -967,6 +974,7 @@
 │   ├── test_parallel_cell_execution.py
 │   ├── test_parallel_research_protocol.py
 │   ├── test_parameterized_ma_history.py
+│   ├── test_perp_demo.py
 │   ├── test_phase3_audit.py
 │   ├── test_phase6.py
 │   ├── test_phase6_integration.py

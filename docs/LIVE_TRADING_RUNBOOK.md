@@ -6,7 +6,9 @@ operational checklist below.
 
 ## Safety model
 
-- Spot only; no margin, futures or withdrawals.
+- Spot only on this runner; no margin, futures or withdrawals. USD-M perps run
+  only on Binance Demo Trading, through a separate key and runner
+  ([PERP_DEMO_RUNNER](operations/PERP_DEMO_RUNNER.md)).
 - A dedicated Binance account/sub-account may contain only USDT and the managed
   base assets. Unknown positive balances stop the runner.
 - Only fully closed 1-hour candles produce signals.

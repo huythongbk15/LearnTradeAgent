@@ -33,6 +33,8 @@ ALLOWED_BOUNDARIES = {
     Path("src/trading_agent/execution/paper_exchange.py"),
     Path("src/trading_agent/exchanges/live_broker.py"),
     Path("src/trading_agent/exchanges/ccxt_adapter.py"),
+    # USD-M perps on Binance Demo Trading: refuses any host but demo-fapi.
+    Path("src/trading_agent/execution/perp/venue.py"),
     Path("src/trading_agent/exchanges/alpaca_adapter.py"),
     Path("src/trading_agent/exchanges/futures/binance_futures.py"),
     Path("src/trading_agent/exchanges/futures/bybit_futures.py"),

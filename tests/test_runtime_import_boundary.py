@@ -117,6 +117,19 @@ def test_runner_does_not_load_the_adaptive_router(loaded_modules):
     assert "trading_agent.authority.adaptive_router" not in loaded_modules
 
 
+def test_perp_runner_loads_no_research_strategy_or_frozen_code():
+    # The perp demo runner (scripts/live_perp_demo.py) loads no strategy at
+    # all, so it is held to the full list without the xfails above.
+    loaded = _load(str(ROOT / "scripts/live_perp_demo.py"))
+    roots = _roots(loaded)
+    assert not roots & set(FORBIDDEN)
+    assert "trading_agent.strategies" not in roots
+    assert not {
+        m for m in loaded
+        if m.startswith(("trading_agent.exchanges.futures", "trading_agent.exchanges.dex"))
+    }
+
+
 def test_order_planner_does_not_load_the_llm_layer():
     loaded = _load("trading_agent.execution.canonical.order_planner")
     assert not {m for m in loaded if m.startswith("trading_agent.llm")}
