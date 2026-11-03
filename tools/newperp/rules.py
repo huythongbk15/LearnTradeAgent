@@ -17,6 +17,11 @@ def new_perps(info: dict, stamp_ms: int) -> list[dict]:
     return sorted(out, key=lambda x: (x["onboard_ms"], x["symbol"]))
 
 
+def book_of(p: dict) -> str:
+    """"alpha" when the exchange tags the underlying Alpha (Binance Alpha tokens), else "core"."""
+    return "alpha" if "Alpha" in p.get("sub", []) else "core"
+
+
 def book_cost(depth: dict, side: str, usd: float) -> dict:
     """Walk one side of the book for a market order of `usd` notional. Cost in bps against the mid, how much was filled, the spread."""
     bids = [(float(p), float(q)) for p, q in depth.get("bids", [])]

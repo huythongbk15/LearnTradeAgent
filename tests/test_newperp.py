@@ -19,10 +19,10 @@ EXIT = ENTRY + 7 * 24 * H
 
 
 def info():
-    def s(sym, onboard, kind="COIN", status="TRADING", quote="USDT", ctype="PERPETUAL"):
+    def s(sym, onboard, kind="COIN", status="TRADING", quote="USDT", ctype="PERPETUAL", sub=("Crypto",)):
         return {"symbol": sym, "baseAsset": sym[:-4], "quoteAsset": quote, "contractType": ctype, "status": status,
-                "underlyingType": kind, "underlyingSubType": ["Crypto"], "onboardDate": onboard}
-    return {"symbols": [s("NEWUSDT", STAMP - 10 * 24 * H), s("OLDUSDT", STAMP - 40 * 24 * H), s("AAPLUSDT", STAMP - 5 * 24 * H, kind="EQUITY"),
+                "underlyingType": kind, "underlyingSubType": list(sub), "onboardDate": onboard}
+    return {"symbols": [s("NEWUSDT", STAMP - 10 * 24 * H), s("OLDUSDT", STAMP - 40 * 24 * H), s("ALPUSDT", STAMP - 5 * 24 * H, sub=("Meme", "Alpha")), s("AAPLUSDT", STAMP - 5 * 24 * H, kind="EQUITY"),
                         s("SOONUSDT", STAMP + H), s("HALTUSDT", STAMP - 3 * 24 * H, status="SETTLING"), s("NEWUSDC", STAMP - 2 * 24 * H, quote="USDC")]}
 
 
@@ -64,8 +64,10 @@ def client(v):
     return fx.Client(v, pace=0, sleep=lambda s: None)
 
 
-def test_new_perps_keeps_only_young_usdt_coin_perpetuals():
-    assert [p["symbol"] for p in rules.new_perps(info(), STAMP)] == ["NEWUSDT"]
+def test_new_perps_keeps_only_young_usdt_coin_perpetuals_and_splits_alpha():
+    new = rules.new_perps(info(), STAMP)
+    assert [p["symbol"] for p in new] == ["NEWUSDT", "ALPUSDT"]
+    assert [rules.book_of(p) for p in new] == ["core", "alpha"]
 
 
 def test_book_cost_walks_the_bids_for_a_sell():
@@ -109,9 +111,10 @@ def test_two_weeks_open_settle_and_do_not_repeat(monkeypatch, tmp_path):
     now = ENTRY + 7 * 60_000
     monkeypatch.setattr(rn.time, "time", lambda: now / 1000)
     s = rn.run(now, client(v), tmp_path, log=lambda x: None)
-    assert s["short_legs"] == 1 and s["open_legs"] == 2 and s["settled_symbol_weeks"] == 0
+    assert s["core"]["short_legs"] == 1 and s["alpha"]["short_legs"] == 1 and s["open_legs"] == 4 and s["core"]["settled_symbol_weeks"] == 0
     recs = rn.load(cf.ledger_path(tmp_path))
-    leg = next(r for r in recs if r["kind"] == "leg_open" and r["side"] == "short")
+    leg = next(r for r in recs if r["kind"] == "leg_open" and r["side"] == "short" and r["book"] == "core")
+    assert {r["book"] for r in recs if r["kind"] == "leg_open" and r["symbol"] == "BTCUSDT"} == {"core", "alpha"}
     assert leg["weight"] == -.5 and leg["entry_open"] == 1.0 and leg["entry_book"]["paper"]["cost_bps"] > 0
     rn.run(now + 60_000, client(v), tmp_path, log=lambda x: None)
     assert sum(1 for r in rn.load(cf.ledger_path(tmp_path)) if r["kind"] == "week_open") == 1
@@ -121,9 +124,9 @@ def test_two_weeks_open_settle_and_do_not_repeat(monkeypatch, tmp_path):
     closes = {r["id"]: r for r in rn.load(cf.ledger_path(tmp_path)) if r["kind"] == "leg_close"}
     short = closes[leg["id"]]
     assert short["stop"]["f1"] == pytest.approx(1.5) and short["exit_open"] == 0.8 and short["funding"] > 0
-    btc = next(c for k, c in closes.items() if k.endswith("BTCUSDT"))
+    btc = next(c for k, c in closes.items() if k.endswith("BTCUSDT-core"))
     assert btc["exit_open"] == 110.0 and btc["stop"] is None
-    assert s["settled_symbol_weeks"] == 1 and s["stopped"] == 1
+    assert s["core"]["settled_symbol_weeks"] == 1 and s["core"]["stopped"] == 1 and s["alpha"]["settled_symbol_weeks"] == 1
     assert not any(p == "/fapi/v1/order" for p, _ in v.calls)
 
 
@@ -137,4 +140,5 @@ def test_a_replay_records_no_order_book(monkeypatch, tmp_path):
 def test_status_shows_no_return(monkeypatch, tmp_path):
     monkeypatch.setattr(rn.time, "time", lambda: (ENTRY + 60_000) / 1000)
     s = rn.run(ENTRY + 60_000, client(Venue()), tmp_path, log=lambda x: None)
-    assert not any(k in s for k in ("net", "pnl", "return", "bps_week"))
+    flat = json.dumps(s)
+    assert not any(k in flat for k in ("net", "pnl", "return", "bps_week"))
