@@ -1,6 +1,6 @@
 # Registers the scheduled tasks that replace the WSL crontab entries for the
 # Binance testnet runner, plus the daily check, the weekly paper selection
-# run and the weekly NL-P paper log. Run once from Windows PowerShell (not elevated):
+# run, the weekly NL-P paper log and the forced selling paper log. Run once from Windows PowerShell (not elevated):
 #   powershell -ExecutionPolicy Bypass -File \\wsl.localhost\Ubuntu\home\huythong\.qwenpaw\workspaces\trading\scripts\ops\windows\register_tasks.ps1
 # -Only DailyCheck registers that task alone and leaves the others untouched.
 # Remove with:  Unregister-ScheduledTask -TaskName "TradingAgent-*" -Confirm:$false
@@ -8,8 +8,8 @@ param(
     [string]$Distro = "Ubuntu",
     [string]$User = "huythong",
     [string]$Repo = "/home/huythong/.qwenpaw/workspaces/trading",
-    [ValidateSet("Runner", "Health", "DailyCheck", "Selection", "NewPerp")]
-    [string[]]$Only = @("Runner", "Health", "DailyCheck", "Selection", "NewPerp"),
+    [ValidateSet("Runner", "Health", "DailyCheck", "Selection", "NewPerp", "FlowBid")]
+    [string[]]$Only = @("Runner", "Health", "DailyCheck", "Selection", "NewPerp", "FlowBid"),
     [switch]$WhatIf
 )
 $start = (Get-Date).Date.AddMinutes(1)            # 00:01 local, then every 2 h
@@ -56,12 +56,20 @@ $newperp = New-ScheduledTaskAction -Execute "conhost.exe" `
     -Argument "--headless wsl.exe -d $Distro -u $User --exec $Repo/scripts/ops/run_newperp_weekly.sh"
 $newperpTrigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek $newperpAt.DayOfWeek -At $newperpAt
 
+# Every 5 minutes from 00:03 local. The wrapper skips :50 of an even UTC hour to
+# :06 of the odd hour, when the testnet cycle runs, and skips while a run is going.
+$flowbid = New-ScheduledTaskAction -Execute "conhost.exe" `
+    -Argument "--headless wsl.exe -d $Distro -u $User --exec $Repo/scripts/ops/run_flowbid.sh"
+$flowbidTrigger = New-ScheduledTaskTrigger -Once -At $start.AddMinutes(2) `
+    -RepetitionInterval (New-TimeSpan -Minutes 5)
+
 if ($WhatIf) {
     if ($Only -contains "Runner") { "Runner : conhost.exe $($runner.Arguments)  every 2h from $start" }
     if ($Only -contains "Health") { "Health : conhost.exe $($health.Arguments)  every 30 min from $($start.AddMinutes(19))" }
     if ($Only -contains "DailyCheck") { "Daily  : conhost.exe $($daily.Arguments)  daily at $($start.AddHours(8).AddMinutes(9).ToString('HH:mm'))" }
     if ($Only -contains "Selection") { "Select : conhost.exe $($selection.Arguments)  weekly on $($selectionAt.DayOfWeek) at $($selectionAt.ToString('HH:mm')) local (Monday 00:07 UTC), first run $($selectionAt.ToString('yyyy-MM-dd'))" }
     if ($Only -contains "NewPerp") { "NewPerp: conhost.exe $($newperp.Arguments)  weekly on $($newperpAt.DayOfWeek) at $($newperpAt.ToString('HH:mm')) local (Monday 04:07 UTC), first run $($newperpAt.ToString('yyyy-MM-dd'))" }
+    if ($Only -contains "FlowBid") { "FlowBid: conhost.exe $($flowbid.Arguments)  every 5 min from $($start.AddMinutes(2))" }
     exit 0
 }
 if ($Only -contains "Runner") {
@@ -88,4 +96,9 @@ if ($Only -contains "NewPerp") {
     Register-ScheduledTask -TaskName "TradingAgent-NewPerpPaper" -Action $newperp `
         -Trigger $newperpTrigger -Settings $settings `
         -Description "Weekly NL-P paper log, records only (scripts/ops/run_newperp_weekly.sh)" -Force
+}
+if ($Only -contains "FlowBid") {
+    Register-ScheduledTask -TaskName "TradingAgent-FlowBidPaper" -Action $flowbid `
+        -Trigger $flowbidTrigger -Settings $settings `
+        -Description "Forced selling paper log every 5 min, records only (scripts/ops/run_flowbid.sh)" -Force
 }
