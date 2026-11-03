@@ -234,6 +234,7 @@
 │   │   ├── run_daily_check.sh
 │   │   ├── run_flowbid.sh
 │   │   ├── run_newperp_weekly.sh
+│   │   ├── run_perp_demo.sh
 │   │   ├── run_selection_weekly.sh
 │   │   ├── workspace_page.html
 │   │   ├── workspace_server.py
@@ -1092,7 +1093,8 @@
 │   │   ├── config.py
 │   │   ├── fetch.py
 │   │   ├── rules.py
-│   │   └── run.py
+│   │   ├── run.py
+│   │   └── shadow.py
 │   ├── selection
 │   │   ├── __init__.py
 │   │   ├── acceptance.py

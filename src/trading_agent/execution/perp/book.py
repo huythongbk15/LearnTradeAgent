@@ -285,7 +285,7 @@ class Book:
             p.update(short_qty=short["filled_qty"], short_avg=short["avg_fill_price"], entry_ms=now_ms)
             self.pairs.save()
             bpx = self.venue.mark_price(rules.HEDGE)
-            hqty = self.venue.normalize(rules.HEDGE, short["filled_qty"] * short["avg_fill_price"] / bpx, bpx)
+            hqty = self.venue.normalize_nearest(rules.HEDGE, short["filled_qty"] * short["avg_fill_price"] / bpx, bpx)
             hedge = self._market(rules.HEDGE, "buy", hqty, p["hedge_key"], reduce_only=False)
             p.update(hedge_qty=hedge["filled_qty"], hedge_avg=hedge["avg_fill_price"])
             stop_px = rules.stop_price(short["avg_fill_price"])

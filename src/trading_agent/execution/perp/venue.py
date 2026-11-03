@@ -178,6 +178,15 @@ class PerpDemoVenue:
             )
         )
 
+    def normalize_nearest(self, exchange_id: str, qty: float, price: float) -> float:
+        """Like ``normalize`` but to the nearest amount step, not down: a
+        hedge truncated to BTC's 0.0001 step left a $100 pair 6% short."""
+
+        step = (self._ex.market(self.adapter.get_exchange_symbol(self.symbol(exchange_id))).get("precision") or {}).get("amount")
+        if step:
+            qty = max(round(qty / float(step)), 1) * float(step) * (1 + 1e-9)
+        return self.normalize(exchange_id, qty, price)
+
     # ── writes ─────────────────────────────────────────────────────────────
 
     def market(self, exchange_id: str, side: str, qty: float, *, key: str, reduce_only: bool) -> dict:
