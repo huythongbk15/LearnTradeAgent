@@ -153,7 +153,25 @@ class Book:
                 self._record(key, res)
         if res["status"] != "filled":
             raise PerpBookError(f"market order {key} ended {res['status']}")
+        if res["avg_fill_price"] <= 0:
+            res = self._fill_price(symbol, key, res)
         return res
+
+    def _fill_price(self, symbol: str, key: str, res: dict) -> dict:
+        """A market order can come back filled before its average price is set
+        (seen on Demo Trading, 2026-11-03); read the order back by its key."""
+
+        deadline = self.clock() + FILL_WAIT_S
+        while True:
+            polled = self.venue.order_by_key(symbol, key)
+            if polled is not None and polled["status"] == "filled" and polled["avg_fill_price"] > 0:
+                self._record(key, polled)
+                return polled
+            if res["quote_cost"] > 0 and res["filled_qty"] > 0:
+                return {**res, "avg_fill_price": res["quote_cost"] / res["filled_qty"]}
+            if self.clock() > deadline:
+                raise PerpBookError(f"market order {key} filled without a price")
+            self.sleep(1.0)
 
     def reconcile(self) -> None:
         """Settle every unfinished intent from the venue before anything else."""
@@ -262,10 +280,10 @@ class Book:
         self.pairs.pairs[pid] = p
         self.pairs.seen.append(symbol)
         self.pairs.save()
-        short = self._market(symbol, "sell", qty, p["short_key"], reduce_only=False)
-        p.update(short_qty=short["filled_qty"], short_avg=short["avg_fill_price"], entry_ms=now_ms)
-        self.pairs.save()
         try:
+            short = self._market(symbol, "sell", qty, p["short_key"], reduce_only=False)
+            p.update(short_qty=short["filled_qty"], short_avg=short["avg_fill_price"], entry_ms=now_ms)
+            self.pairs.save()
             bpx = self.venue.mark_price(rules.HEDGE)
             hqty = self.venue.normalize(rules.HEDGE, short["filled_qty"] * short["avg_fill_price"] / bpx, bpx)
             hedge = self._market(rules.HEDGE, "buy", hqty, p["hedge_key"], reduce_only=False)
@@ -278,7 +296,9 @@ class Book:
         except Exception:
             # Never leave a naked or unprotected short: take it off, then stop.
             self.audit("perp_pair_unprotected", pair=pid)
-            self._market(symbol, "buy", short["filled_qty"], p["short_key"] + "x", reduce_only=True)
+            held = self.venue.positions().get(symbol)
+            if held is not None and held.qty < 0:
+                self._market(symbol, "buy", -held.qty, p["short_key"] + "x", reduce_only=True)
             if p.get("hedge_qty"):
                 self._market(rules.HEDGE, "sell", p["hedge_qty"], p["hedge_key"] + "x", reduce_only=True)
             self._settle_stop(p)
