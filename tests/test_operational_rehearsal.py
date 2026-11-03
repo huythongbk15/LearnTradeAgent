@@ -145,6 +145,7 @@ class Venue:
     ticker_skew: dict = field(default_factory=dict)  # symbol -> quote / last close
     ticker_turns: dict = field(default_factory=dict)  # symbol -> the skew of every quote after the next
     ticker_calls: dict = field(default_factory=dict)
+    ticker_quiet: dict = field(default_factory=dict)  # symbol -> seconds since its last trade
 
     def __post_init__(self) -> None:
         self.rng = random.Random(self.seed)
@@ -242,14 +243,16 @@ class Venue:
             self.ticker_calls[symbol.pair] = self.ticker_calls.get(symbol.pair, 0) + 1
             if self.ticker_calls[symbol.pair] > 1:  # the preflight quote passed
                 price *= self.ticker_turns[symbol.pair]
-        return {"timestamp": self.clock.now(), "request_started_at": started,
+        when = self.clock.now() - timedelta(seconds=self.ticker_quiet.get(symbol.pair, 1.0))
+        return {"timestamp": when, "request_started_at": started,  # as testnet: its last trade
                 "received_at": time.monotonic(), "last": price, "bid": price, "ask": price}
 
     def get_order_book(self, symbol, limit=50):
         started = time.monotonic()
         price = float(self.price(symbol.pair))
         return {"timestamp": self.clock.now(), "request_started_at": started,
-                "received_at": time.monotonic(), "bids": [(price, 1e6)], "asks": [(price, 1e6)]}
+                "received_at": time.monotonic(), "bids": [(price, 1e6)], "asks": [(price, 1e6)],
+                "sequence": 1000}  # a quiet book keeps its id between two reads
 
     def _step(self, symbol: str) -> Decimal:
         return Decimal(str(get_instrument_rules(symbol).qty_step))
@@ -612,6 +615,20 @@ def test_a_quote_that_turns_before_submission_holds_back_only_that_entry(
     assert sorted(f[0] for f in rehearsal.venue.fills) == ["BTC/USDT", "SOL/USDT"]
     (held,) = _held_back(tmp_path)
     assert (held["symbol"], held["side"]) == ("AVAX/USDT", "BUY")
+    assert set(rehearsal.outcomes()) == {"run_completed"}
+
+
+@pytest.mark.parametrize("quiet", [20.0, 45.0])  # past the quote limit, past the monitor's limit
+def test_a_symbol_with_no_recent_trade_holds_back_only_its_entry(
+    tmp_path, monkeypatch, quiet
+):
+    rehearsal = Rehearsal(tmp_path, monkeypatch, venue=CALM)
+    rehearsal.venue.ticker_quiet["AVAX/USDT"] = quiet
+    assert rehearsal.run_cycle() == 0
+    rehearsal.check_books()
+    assert sorted(f[0] for f in rehearsal.venue.fills) == ["BTC/USDT", "SOL/USDT"]
+    (held,) = _held_back(tmp_path)
+    assert (held["symbol"], held["side"]) == ("AVAX/USDT", "BUY") and "stale" in held["error"]
     assert set(rehearsal.outcomes()) == {"run_completed"}
 
 

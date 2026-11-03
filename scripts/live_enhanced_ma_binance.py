@@ -1412,7 +1412,9 @@ def protected_execution_quote(
         )
         reject_high_latency(ticker_fetch, context=f"{symbol.pair} ticker")
         if monitor is not None:
-            monitor.record_fetch(symbol.pair, ticker_fetch)
+            # The ticker's time is its last trade, so its age is judged below,
+            # where a quiet symbol holds back and does not fail the run.
+            monitor.record_fetch(symbol.pair, ticker_fetch, reject_stale=False)
     validate_spread(bid=float(bid), ask=float(ask), limits=limits)
     top_price = float(ask if side == "BUY" else bid)
     validate_fresh_quote(
@@ -1443,7 +1445,8 @@ def protected_execution_quote(
             monitor.record_fetch(symbol.pair, book_fetch)
     if monitor is not None and book.get("sequence") is not None:
         seq_status = monitor.sequences.on_rest_snapshot(symbol.pair, book["sequence"])
-        if seq_status in ("stale", "duplicate", "invalid"):
+        # A repeated id is a quiet book read twice in a run, not a gap.
+        if seq_status in ("stale", "invalid"):
             raise SequenceGapError(
                 f"order book sequence for {symbol.pair} is untrusted ({seq_status})"
             )
