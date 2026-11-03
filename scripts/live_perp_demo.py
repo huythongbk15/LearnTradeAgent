@@ -3,8 +3,10 @@
 Without --execute it connects to the demo venue's public market list, reads
 mainnet listings and prints what is due; nothing is signed or sent. With
 --execute it also needs TRADING_MODE=testnet, TRADING_EXECUTION_ENABLED=true,
-no TRADING_KILL_SWITCH, the demo keys BINANCE_DEMO_FUTURES_API_KEY and
-BINANCE_DEMO_FUTURES_API_SECRET, and LIVE_SAFETY_HMAC_KEY. Rules:
+no TRADING_KILL_SWITCH, the demo API key BINANCE_DEMO_FUTURES_API_KEY with
+either BINANCE_DEMO_FUTURES_API_SECRET (system-generated) or
+BINANCE_DEMO_FUTURES_PRIVATE_KEY_FILE (self-generated Ed25519, a PEM file
+readable by its owner only), and LIVE_SAFETY_HMAC_KEY. Rules:
 docs/operations/PERP_DEMO_RUNNER.md.
 """
 
@@ -32,7 +34,11 @@ from trading_agent.execution.live_safety import (  # noqa: E402
     require_execution_authorization,
 )
 from trading_agent.execution.perp.book import Book, PairStore, run_cycle  # noqa: E402
-from trading_agent.execution.perp.venue import PerpDemoVenue, demo_config  # noqa: E402
+from trading_agent.execution.perp.venue import (  # noqa: E402
+    PerpDemoVenue,
+    demo_config,
+    load_demo_credentials,
+)
 
 
 def mainnet_listings() -> dict:
@@ -77,10 +83,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     try:
         require_execution_authorization(execute=args.execute, testnet=True, cli_confirmation=None)
-        key = os.getenv("BINANCE_DEMO_FUTURES_API_KEY", "") if args.execute else ""
-        secret = os.getenv("BINANCE_DEMO_FUTURES_API_SECRET", "") if args.execute else ""
-        if args.execute and not (key and secret):
-            raise LiveSafetyError("BINANCE_DEMO_FUTURES_API_KEY and _SECRET are required with --execute")
+        key, secret = load_demo_credentials(os.environ) if args.execute else ("", "")
         integrity = os.getenv("LIVE_SAFETY_HMAC_KEY", "")
         with LiveExecutionLock(root / "writer.lock"):
             venue = PerpDemoVenue(CCXTAdapter(demo_config(key, secret)))
