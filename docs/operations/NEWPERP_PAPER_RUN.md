@@ -18,7 +18,8 @@ What history cannot show is the cost of trading a perp in its first weeks: the o
 
 - **Stamp:** Monday 00:00 UTC.
 - **New:** a USDT perpetual on a crypto underlying (`underlyingType` COIN), trading, listed (`onboardDate`) in the 28 days before the stamp.
-- **Positions:** short every new perp at equal weight, .5 in total, against a BTC perp long of .5. No new perp: flat.
+- **Two books** (operator's ruling of 2026-11-03): perps whose `underlyingSubType` carries Alpha (Binance Alpha tokens) go to book `alpha`, all others to book `core`.
+- **Positions, per book:** short every new perp of the book at equal weight, .5 in total, against that book's own BTC perp long of .5. No new perp: the book is flat.
 - **Entry and exit:** at the 1h open 4 h after the stamp, exit at the open 7 days later.
 - **Stop:** at 1.5x entry, read from 1m bars.
 - **Paper book:** 10,000 USD.
@@ -36,11 +37,20 @@ The rule's constants are in `tools/newperp/config.py`. A change needs the operat
    - the exit book, if the run is within an hour of the exit bar.
 2. **Open** this week's legs: entry open, and a depth-100 snapshot with the cost of a market order of the paper size, of 1,000 USD and of 10,000 USD against the mid, plus the spread.
 
-The ledger `data/newperp/ledger.jsonl` is append only. `data/newperp/status.json` shows counts and entry book cost only, never a price change or a return. Do not compute returns from the ledger before the read.
+The ledger `data/newperp/ledger.jsonl` is append only. `data/newperp/status.json` shows counts and entry book cost per book only, never a price change or a return. Do not compute returns from the ledger before the read.
+
+## Why two books
+
+A post hoc split of the frozen read by today's exchangeInfo tags, pair return per symbol-week (short the perp, long BTC):
+
+- Not tagged Alpha: +396 bps, n 986, positive every year, 2026 +126.
+- Tagged Alpha (from 2024): -177 mean, +327 median, n 527, negative every year (2024 -515, 2025 -115, 2026 -248), driven by squeezes.
+
+So the fade after 2024 is the Alpha share growing. The split was found after reading, and the tags are today's, so it is a hypothesis: the core book is its first clean test, and the alpha book records the other side.
 
 ## Read, once
 
-At the first Monday with 60 settled short symbol-weeks:
+At the first Monday with 60 settled short symbol-weeks in the core book; the alpha book is read at the same date:
 
 - **Primary:** mean weekly net in bps, with the measured entry and exit book cost and fill F2, funding paid.
 - **Bounds:** the same with F3, and at twice the measured book cost.
@@ -51,7 +61,7 @@ At the first Monday with 60 settled short symbol-weeks:
 - 2025: 9 to 31 a month.
 - 2026: 15 in January, then 1 to 8 a month (October: 1).
 
-At 2 to 3 new perps a month and four weeks each, 60 symbol-weeks take about 5 to 7 months. That is an estimate, not a promise.
+In 2026 the non-Alpha perps gave about 7 symbol-weeks a month, so 60 in the core book take about 8 to 9 months. That is an estimate, not a promise.
 
 ## Network
 

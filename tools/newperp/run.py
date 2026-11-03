@@ -112,41 +112,49 @@ def open_week(client: fx.Client, stamp: int, now_ms: int, log) -> list[dict]:
     week = {"kind": "week_open", "stamp": iso(stamp), "stamp_ms": stamp, "entry_ms": entry, "exit_ms": exit_, "found": [n["symbol"] for n in new],
             "skipped": skipped, "book_live": live, "delay_min": round((now_ms - entry) / 60_000, 1)}
     legs = []
-    n = len(new)
-    for p in new:
-        rows = fx.klines(client, p["symbol"], "1h", entry, entry + rules.HOUR_MS)
-        e = rules.open_at(rows, entry)
-        if e is None:
-            skipped.append(p["symbol"])
-            continue
-        usd = cf.BOOK_USD * cf.SHORT_SIDE / n
-        legs.append({"kind": "leg_open", "id": f"{iso(stamp)[:10]}-{p['symbol']}", "stamp_ms": stamp, "symbol": p["symbol"], "side": "short",
-                     "weight": -cf.SHORT_SIDE / n, "usd": usd, "entry_ms": entry, "exit_ms": exit_, "entry_open": e,
-                     "onboard": iso(p["onboard_ms"]), "weeks_since_listing": (stamp - p["onboard_ms"]) // WEEK_MS + 1, "sub": p["sub"],
-                     "entry_book": book(client, p["symbol"], "sell", usd, live)})
-    if legs:
-        rows = fx.klines(client, cf.BTC, "1h", entry, entry + rules.HOUR_MS)
-        usd = cf.BOOK_USD * cf.SHORT_SIDE
-        legs.append({"kind": "leg_open", "id": f"{iso(stamp)[:10]}-{cf.BTC}", "stamp_ms": stamp, "symbol": cf.BTC, "side": "long", "weight": cf.SHORT_SIDE,
-                     "usd": usd, "entry_ms": entry, "exit_ms": exit_, "entry_open": rules.open_at(rows, entry), "entry_book": book(client, cf.BTC, "buy", usd, live)})
+    for book_name in cf.BOOKS:                       # two paper books, each .5 short against its own BTC .5
+        group = [p for p in new if rules.book_of(p) == book_name]
+        n = len(group)
+        shorts = []
+        for p in group:
+            rows = fx.klines(client, p["symbol"], "1h", entry, entry + rules.HOUR_MS)
+            e = rules.open_at(rows, entry)
+            if e is None:
+                skipped.append(p["symbol"])
+                continue
+            usd = cf.BOOK_USD * cf.SHORT_SIDE / n
+            shorts.append({"kind": "leg_open", "id": f"{iso(stamp)[:10]}-{p['symbol']}", "book": book_name, "stamp_ms": stamp, "symbol": p["symbol"],
+                           "side": "short", "weight": -cf.SHORT_SIDE / n, "usd": usd, "entry_ms": entry, "exit_ms": exit_, "entry_open": e,
+                           "onboard": iso(p["onboard_ms"]), "weeks_since_listing": (stamp - p["onboard_ms"]) // WEEK_MS + 1, "sub": p["sub"],
+                           "entry_book": book(client, p["symbol"], "sell", usd, live)})
+        if shorts:
+            rows = fx.klines(client, cf.BTC, "1h", entry, entry + rules.HOUR_MS)
+            usd = cf.BOOK_USD * cf.SHORT_SIDE
+            shorts.append({"kind": "leg_open", "id": f"{iso(stamp)[:10]}-{cf.BTC}-{book_name}", "book": book_name, "stamp_ms": stamp, "symbol": cf.BTC,
+                           "side": "long", "weight": cf.SHORT_SIDE, "usd": usd, "entry_ms": entry, "exit_ms": exit_,
+                           "entry_open": rules.open_at(rows, entry), "entry_book": book(client, cf.BTC, "buy", usd, live)})
+        legs += shorts
     week["legs"] = len(legs)
     log(f"week {week['stamp']}: new perps {week['found']}, legs {len(legs)}, skipped {skipped}, book live {live}")
     return [week] + legs
 
 
 def status(recs: list[dict], now_ms: int) -> dict:
-    """Counts and book costs only. No price change, no return."""
+    """Counts and book costs only, per book. No price change, no return."""
     weeks = [r for r in recs if r["kind"] == "week_open"]
     opens = {r["id"]: r for r in recs if r["kind"] == "leg_open"}
     closes = {r["id"]: r for r in recs if r["kind"] == "leg_close"}
-    shorts = [k for k, r in opens.items() if r["side"] == "short"]
-    settled = [k for k in shorts if k in closes]
-    costs = [opens[k]["entry_book"]["paper"]["cost_bps"] for k in shorts if opens[k].get("entry_book") and opens[k]["entry_book"]["paper"]["cost_bps"] is not None]
-    costs.sort()
-    return {"as_of": iso(now_ms), "weeks": len(weeks), "weeks_with_legs": sum(1 for w in weeks if w["legs"]), "short_legs": len(shorts),
-            "settled_symbol_weeks": len(settled), "stopped": sum(1 for k in settled if closes[k]["stop"]), "open_legs": len(opens) - len(closes),
-            "entry_book_cost_bps_median": costs[len(costs) // 2] if costs else None, "read_at_symbol_weeks": cf.READ_SYMBOL_WEEKS,
-            "first_stamp": cf.FIRST_STAMP, "last_week": weeks[-1]["stamp"] if weeks else None}
+    out: dict = {"as_of": iso(now_ms), "weeks": len(weeks), "weeks_with_legs": sum(1 for w in weeks if w["legs"]),
+                 "open_legs": len(opens) - len(closes), "read_at_core_symbol_weeks": cf.READ_SYMBOL_WEEKS,
+                 "first_stamp": cf.FIRST_STAMP, "last_week": weeks[-1]["stamp"] if weeks else None}
+    for b in cf.BOOKS:
+        shorts = [k for k, r in opens.items() if r["side"] == "short" and r.get("book", "core") == b]
+        settled = [k for k in shorts if k in closes]
+        costs = sorted(opens[k]["entry_book"]["paper"]["cost_bps"] for k in shorts
+                       if opens[k].get("entry_book") and opens[k]["entry_book"]["paper"]["cost_bps"] is not None)
+        out[b] = {"short_legs": len(shorts), "settled_symbol_weeks": len(settled), "stopped": sum(1 for k in settled if closes[k]["stop"]),
+                  "entry_book_cost_bps_median": costs[len(costs) // 2] if costs else None}
+    return out
 
 
 def run(now_ms: int, client: fx.Client, r: Path, log=print) -> dict:

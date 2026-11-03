@@ -21,7 +21,8 @@ DEPTH_LIMIT = 100
 UNDERLYING = "COIN"                 # exchangeInfo underlyingType; equities, commodities, FX, indices and pre-market are out
 BTC = "BTCUSDT"
 FIRST_STAMP = "2026-11-09"
-READ_SYMBOL_WEEKS = 60              # read once, at the first Monday with this many settled symbol-weeks
+BOOKS = ("core", "alpha")           # operator's ruling 2026-11-03: perps tagged Alpha run as a separate paper book
+READ_SYMBOL_WEEKS = 60              # read once, at the first Monday with this many settled symbol-weeks in the core book
 
 
 def root() -> Path:
