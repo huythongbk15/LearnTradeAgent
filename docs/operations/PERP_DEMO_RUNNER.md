@@ -53,11 +53,18 @@ Constants are in `src/trading_agent/execution/perp/rules.py`. A change needs the
 - **Write boundary:** orders leave only through `execution/perp/venue.py`, listed in `tests/test_direct_broker_write_guard.py`.
 
 ## Operator steps
-1. Create API keys on Binance Demo Trading (demo.binance.com, API management) and add them to `.env` yourself:
-   - `BINANCE_DEMO_FUTURES_API_KEY`
-   - `BINANCE_DEMO_FUTURES_API_SECRET`
-
-   Keep the account in one-way position mode.
+1. Create an API key on Binance Demo Trading (demo.binance.com, API management) and enable futures on it. Keep the account in one-way position mode. Then add the key to `.env` yourself.
+   - **Self-generated (Ed25519), preferred:**
+     - Make the key pair outside the repository and paste only the public key into Binance:
+       ```
+       mkdir -p ~/.binance_demo && chmod 700 ~/.binance_demo
+       openssl genpkey -algorithm ed25519 -out ~/.binance_demo/ed25519_private.pem
+       chmod 600 ~/.binance_demo/ed25519_private.pem
+       openssl pkey -in ~/.binance_demo/ed25519_private.pem -pubout -out ~/.binance_demo/ed25519_public.pem
+       ```
+     - Set `BINANCE_DEMO_FUTURES_API_KEY` and `BINANCE_DEMO_FUTURES_PRIVATE_KEY_FILE` (the private key's path).
+     - The run refuses a file readable by anyone but its owner.
+   - **System-generated (HMAC):** set `BINANCE_DEMO_FUTURES_API_KEY` and `BINANCE_DEMO_FUTURES_API_SECRET`.
 2. Read only, nothing signed:
    ```
    PYTHONPATH=src:. .venv/bin/python scripts/live_perp_demo.py

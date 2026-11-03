@@ -9,8 +9,10 @@ futures testnet are refused.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import Decimal
+from pathlib import Path
 from typing import Any
 
 from trading_agent.exchanges.ccxt_adapter import CCXTAdapter, ExchangeConfig
@@ -41,6 +43,34 @@ class PerpPosition:
     qty: float           # signed: short is negative
     entry_price: float
     mark_price: float
+
+
+def load_demo_credentials(env: Mapping[str, str]) -> tuple[str, str]:
+    """API key and signing secret of the demo account.
+
+    The secret is either an HMAC secret (``BINANCE_DEMO_FUTURES_API_SECRET``,
+    a system-generated key) or the path of a self-generated Ed25519 or RSA
+    private key in PEM (``BINANCE_DEMO_FUTURES_PRIVATE_KEY_FILE``). The file
+    must be readable by its owner only. ccxt signs with whichever it gets.
+    """
+
+    key = env.get("BINANCE_DEMO_FUTURES_API_KEY", "").strip()
+    secret = env.get("BINANCE_DEMO_FUTURES_API_SECRET", "").strip()
+    path = env.get("BINANCE_DEMO_FUTURES_PRIVATE_KEY_FILE", "").strip()
+    if secret and path:
+        raise PerpVenueError("set BINANCE_DEMO_FUTURES_API_SECRET or _PRIVATE_KEY_FILE, not both")
+    if path:
+        pem = Path(path).expanduser()
+        if not pem.is_file():
+            raise PerpVenueError("BINANCE_DEMO_FUTURES_PRIVATE_KEY_FILE is not a file")
+        if pem.stat().st_mode & 0o077:
+            raise PerpVenueError("the demo private key file must be readable by its owner only (chmod 600)")
+        secret = pem.read_text(encoding="ascii").strip()
+        if "PRIVATE KEY-----" not in secret or "ENCRYPTED" in secret:
+            raise PerpVenueError("the demo private key file is not an unencrypted PEM private key")
+    if not key or not secret:
+        raise PerpVenueError("demo API key and a secret or private key file are required")
+    return key, secret
 
 
 def demo_config(api_key: str, secret: str) -> ExchangeConfig:

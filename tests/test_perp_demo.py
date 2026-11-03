@@ -12,7 +12,13 @@ from trading_agent.exchanges.ccxt_adapter import CCXTAdapter, ExchangeConfig
 from trading_agent.execution.live_safety import LiveRiskStateStore, LiveSafetyError
 from trading_agent.execution.perp import rules
 from trading_agent.execution.perp.book import Book, PairStore, PerpBookError, run_cycle
-from trading_agent.execution.perp.venue import DEMO_HOST, PerpDemoVenue, PerpVenueError, demo_config
+from trading_agent.execution.perp.venue import (
+    DEMO_HOST,
+    PerpDemoVenue,
+    PerpVenueError,
+    demo_config,
+    load_demo_credentials,
+)
 
 KEY = "k" * 40
 H = rules.HOUR_MS
@@ -310,3 +316,21 @@ def test_entry_lock_still_allows_exits(world):
     i = info(("NEWUSDT", T0, None, "COIN"))
     rep = run_cycle(book, now_ms=T0 + 4 * H, mainnet_info=i, execute=True, entry_lock="TRADING_ENTRY_KILL_SWITCH is active")
     assert rep["entered"] == [] and not [c for c in fake.calls if c[0] == "order"]
+
+
+def test_self_generated_key_is_read_from_an_owner_only_pem(tmp_path):
+    pem = tmp_path / "ed25519_private.pem"
+    pem.write_text("-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n-----END PRIVATE KEY-----\n")
+    pem.chmod(0o600)
+    env = {"BINANCE_DEMO_FUTURES_API_KEY": "api", "BINANCE_DEMO_FUTURES_PRIVATE_KEY_FILE": str(pem)}
+    key, secret = load_demo_credentials(env)
+    assert key == "api" and secret.startswith("-----BEGIN PRIVATE KEY-----") and len(secret) <= 120
+    pem.chmod(0o644)
+    with pytest.raises(PerpVenueError, match="owner only"):
+        load_demo_credentials(env)
+    pem.chmod(0o600)
+    with pytest.raises(PerpVenueError, match="not both"):
+        load_demo_credentials({**env, "BINANCE_DEMO_FUTURES_API_SECRET": "s"})
+    assert load_demo_credentials({"BINANCE_DEMO_FUTURES_API_KEY": "api", "BINANCE_DEMO_FUTURES_API_SECRET": "s"}) == ("api", "s")
+    with pytest.raises(PerpVenueError):
+        load_demo_credentials({"BINANCE_DEMO_FUTURES_API_KEY": "api"})
