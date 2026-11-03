@@ -60,6 +60,10 @@ def write_status(root: Path, report: dict, pairs: PairStore) -> None:
         "skipped_this_run": len(report.get("skipped", [])),
         "due_this_run": len(report.get("due", [])),
     }
+    shadow = root / "shadow.json"
+    if shadow.exists():
+        sh = json.loads(shadow.read_text(encoding="utf-8"))
+        status.update(shadow_open=len(sh.get("open", {})), shadow_closed=int(sh.get("closed", 0)))
     tmp = root / ".status.json.tmp"
     tmp.write_text(json.dumps(status, indent=1, sort_keys=True), encoding="utf-8")
     os.replace(tmp, root / "status.json")
@@ -72,6 +76,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--pair-usd", type=float, default=100.0, help="notional of each leg in USDT")
     ap.add_argument("--rehearse", metavar="SYMBOL", help="open one pair on an existing demo symbol to test the mechanics")
     ap.add_argument("--rehearse-hold-h", type=int, default=2)
+    ap.add_argument("--shadow", action="store_true", help="also record the rule on mainnet prices (paper, public data only)")
     args = ap.parse_args(argv)
 
     load_dotenv(ROOT / ".env")
@@ -81,6 +86,20 @@ def main(argv: list[str] | None = None) -> int:
     if args.rehearse and not args.execute:
         print("--rehearse needs --execute", file=sys.stderr)
         return 2
+    info: dict | None = None
+    if args.shadow:
+        # Paper on public mainnet data; runs even when execution is switched off.
+        try:
+            from tools.newperp import fetch as nf
+            from tools.newperp import shadow
+
+            client = nf.Client()
+            info = client.get(nf.EXCHANGE_INFO, {})
+            counts = shadow.step(client, info, int(time.time() * 1000), root)
+            print(json.dumps({"shadow": counts}, sort_keys=True))
+        except Exception as exc:
+            append_live_audit_event(audit, "perp_shadow_failed", {"error": type(exc).__name__, "detail": str(exc)[:300]})
+            print(f"perp shadow failed: {type(exc).__name__}: {exc}", file=sys.stderr)
     try:
         require_execution_authorization(execute=args.execute, testnet=True, cli_confirmation=None)
         key, secret = load_demo_credentials(os.environ) if args.execute else ("", "")
@@ -102,7 +121,7 @@ def main(argv: list[str] | None = None) -> int:
             report = run_cycle(
                 book,
                 now_ms=now_ms,
-                mainnet_info=mainnet_listings(),
+                mainnet_info=info if info is not None else mainnet_listings(),
                 execute=args.execute,
                 entry_lock=configured_entry_lock_reason(),
                 rehearse=args.rehearse,

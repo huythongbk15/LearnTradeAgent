@@ -51,6 +51,7 @@ Constants are in `src/trading_agent/execution/perp/rules.py`. A change needs the
 - **Failed open:** if anything fails once the short was sent, the run takes off at market the short the venue holds on that symbol, and the hedge if it filled, then stops.
 - **Fill price:** a market order can come back filled with an average price of 0, as on Demo Trading on 2026-11-03. The run then reads the order back by its key before sizing the hedge and the stop.
 - **Audit:** every event goes to `data/perp_demo/audit.jsonl`. `status.json` holds counts only.
+- **Hedge size:** the hedge is sized to the nearest amount step, at least one step. Truncating left the first $100 rehearsal hedge 6% short.
 - **Write boundary:** orders leave only through `execution/perp/venue.py`, listed in `tests/test_direct_broker_write_guard.py`.
 
 ## Operator steps
@@ -75,8 +76,33 @@ Constants are in `src/trading_agent/execution/perp/rules.py`. A change needs the
    TRADING_MODE=testnet TRADING_EXECUTION_ENABLED=true PYTHONPATH=src:. .venv/bin/python scripts/live_perp_demo.py --execute --rehearse ETHUSDT
    ```
 4. Run `--execute` again after 2 h: the pair closes.
+5. Register the hourly task from Windows PowerShell, after a fast forward of the checkout. Add `-WhatIf` first to see the start time.
+   ```
+   powershell -ExecutionPolicy Bypass -File \\wsl.localhost\Ubuntu\home\huythong\.qwenpaw\workspaces\trading\scripts\ops\windows\register_tasks.ps1 -Only PerpDemo
+   ```
 
-No schedule is registered yet. An hourly task comes in a later change, after the rehearsal has run.
+## Schedule
+- `scripts/ops/run_perp_demo.sh` runs `live_perp_demo.py --execute --shadow` every hour at :15 local, at nice 19. It logs to `logs/perp_demo.log`.
+- No run starts from :50 of an even UTC hour to :06 of the odd hour, and a run is skipped while the previous one is going.
+- There is no timeout, so an `--execute` run is never cut between an order and its record. The next run reconciles first.
+- `TRADING_MODE=testnet` is set by the wrapper. The other switches and the demo key come from `.env`, as for the spot runner.
+- A listing's entry window is 2 h, so an hourly run sees every listing.
+
+## Shadow ledger on mainnet prices
+The demo venue lists almost none of the new mainnet perps, so `--shadow` records the same frozen rule for every due listing on public mainnet data. This is paper only, through the NL-P allowlisted client on `fapi.binance.com` (`tools/newperp/shadow.py`).
+- **Open:** the first minute a run sees the listing inside its window, at the 1m open. The delay from listing + 4 h is recorded. A BTC 1m open is recorded the same minute.
+- **Stop:** the first 1m bar whose high reaches 1.5x entry. The fill ratios F1 (max of trigger and open), F2 (minute VWAP) and F3 (minute high) are recorded.
+- **Hold:** the 1m open at entry + 168 h, for the perp and for BTC.
+- **Funding:** the funding sums of both legs over the hold.
+- **Files:**
+  - events go to `data/perp_demo/shadow_ledger.jsonl` (append only);
+  - state goes to `shadow.json`;
+  - `status.json` shows counts only.
+- **Read, proposed, to be ruled by the operator before the first read:**
+  - once, at 30 closed shadow pairs;
+  - primary: the mean net bps per pair (BTC return minus perp return, minus 74 + 8 bps, plus funding), stop at F2;
+  - pass: positive with t >= 2 from a bootstrap by listing month.
+  - Do not compute returns from the ledger before the read.
 
 ## Limits
 - Demo fills come from the demo venue's matching, not mainnet depth.
