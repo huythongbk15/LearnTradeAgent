@@ -48,7 +48,8 @@ Constants are in `src/trading_agent/execution/perp/rules.py`. A change needs the
   - Each run checks venue positions against the book before any entry.
   - Any position the book cannot explain stops the run.
   - The operator decides what to do with it.
-- **Failed open:** if the hedge or the stop fails after the short filled, the run takes the short, and the hedge if filled, off at market, then stops.
+- **Failed open:** if anything fails once the short was sent, the run takes off at market the short the venue holds on that symbol, and the hedge if it filled, then stops.
+- **Fill price:** a market order can come back filled with an average price of 0, as on Demo Trading on 2026-11-03. The run then reads the order back by its key before sizing the hedge and the stop.
 - **Audit:** every event goes to `data/perp_demo/audit.jsonl`. `status.json` holds counts only.
 - **Write boundary:** orders leave only through `execution/perp/venue.py`, listed in `tests/test_direct_broker_write_guard.py`.
 

@@ -47,6 +47,7 @@ class FakeUsdm:
         self.calls: list[tuple] = []
         self.fail_next: str | None = None
         self.leverage: dict[str, int] = {}
+        self.ack_without_price = False   # demo answered a filled market order with average 0
 
     # connection
     def enable_demo_trading(self, on):
@@ -121,6 +122,8 @@ class FakeUsdm:
         o = {"id": f"o{len(self.orders)}", "clientOrderId": cid, "symbol": sym, "type": "market", "side": side,
              "amount": amount, "filled": amount, "average": px, "cost": amount * px, "status": "closed", "reduceOnly": bool(params.get("reduceOnly"))}
         self.orders[cid] = o
+        if self.ack_without_price:
+            return {**o, "average": None, "cost": 0}
         return dict(o)
 
     def fetch_order(self, oid, sym, params=None):
@@ -283,12 +286,14 @@ def test_uncertain_submission_is_reconciled_by_client_key(world):
     i = info(("NEWUSDT", T0, None, "COIN"))
     with pytest.raises(PerpBookError):
         run_cycle(book, now_ms=T0 + 4 * H, mainnet_info=i, execute=True)
-    # The next run finds the fill by key, then refuses the short the book never opened.
+    # The venue took the short, so the failed open took it off again.
+    assert fake.positions["NEW/USDT:USDT"] == pytest.approx(0)
+    # The next run settles the uncertain intent by its key and finds the book flat.
     book2 = Book(book.venue, LiveRiskStateStore(tmp / "order_state.json", integrity_key=KEY),
                  PairStore.load(tmp / "pairs.json", KEY), tmp / "audit.jsonl", 100.0, sleep=lambda s: None)
-    with pytest.raises(PerpBookError, match="do not match"):
-        run_cycle(book2, now_ms=T0 + 5 * H, mainnet_info=i, execute=True)
+    rep = run_cycle(book2, now_ms=T0 + 5 * H, mainnet_info=i, execute=True)
     assert book2.orders.state.order_ledger[short_key]["status"] == "filled"
+    assert rep["entered"] == [] and book2.orders.unfinished_orders() == {}
 
 
 def test_tampered_pair_store_is_refused(world):
@@ -334,3 +339,25 @@ def test_self_generated_key_is_read_from_an_owner_only_pem(tmp_path):
     assert load_demo_credentials({"BINANCE_DEMO_FUTURES_API_KEY": "api", "BINANCE_DEMO_FUTURES_API_SECRET": "s"}) == ("api", "s")
     with pytest.raises(PerpVenueError):
         load_demo_credentials({"BINANCE_DEMO_FUTURES_API_KEY": "api"})
+
+
+def test_fill_price_is_read_back_when_the_venue_acks_without_one(world):
+    fake, book, tmp = world
+    fake.ack_without_price = True
+    rep = run_cycle(book, now_ms=T0, mainnet_info={}, execute=True, rehearse="OLDUSDT", rehearse_hold_h=2)
+    assert rep["entered"] == ["OLDUSDT"]
+    (p,) = PairStore.load(tmp / "pairs.json", KEY).pairs.values()
+    assert p["status"] == "open" and p["short_avg"] == pytest.approx(10.0)
+    assert fake.positions["BTC/USDT:USDT"] == pytest.approx(0.001)
+    (stop,) = fake.algo.values()
+    assert stop["triggerPrice"] == pytest.approx(15.0)
+
+
+def test_a_failure_after_the_short_takes_off_what_the_venue_holds(world):
+    fake, book, tmp = world
+    fake.prices["BTCUSDT"] = 1e12   # the hedge rounds to zero and is refused
+    with pytest.raises(Exception):
+        run_cycle(book, now_ms=T0, mainnet_info={}, execute=True, rehearse="OLDUSDT", rehearse_hold_h=2)
+    assert fake.positions["OLD/USDT:USDT"] == pytest.approx(0)
+    (p,) = PairStore.load(tmp / "pairs.json", KEY).pairs.values()
+    assert p["status"] == "failed"
