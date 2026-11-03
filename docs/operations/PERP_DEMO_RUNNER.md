@@ -1,0 +1,76 @@
+# New perp pair book on Binance USD-M Demo Trading
+
+The first perp order path of the core, on Binance Demo Trading only. Research description, not advice. Mainnet stays NO-GO, and nothing here grants a market right.
+
+## Why
+On 2026-11-03 the operator ruled to open USD-M perpetuals as a second market type of the core, next to spot, so that the measured new perp short can be run as a real order path.
+
+The research behind the book is git-ignored:
+- `data/deep_20261103_01`: event-time short, +195 bps a perp over 16 cells. After the hindsight fix, +130 for all new perps from 2022-11.
+- `data/critique_20261103`: the attacks on that result.
+- `data/fills_20261103`: entry 4 h after listing costs a median of 10 to 14 bps a side up to $10k.
+
+None of it is validated forward. The NL-P paper log (`docs/operations/NEWPERP_PAPER_RUN.md`) stays the evidence for the strategy.
+
+## Venue
+- **Binance Demo Trading:** `demo-fapi.binance.com`, keys from demo.binance.com.
+- **Why not the old futures testnet:** ccxt 4.5.90 refuses private calls on `testnet.binancefuture.com` and points to Demo Trading.
+- **Refused hosts:** `PerpDemoVenue.assert_demo_only` refuses to run unless every futures API root is demo-fapi, so mainnet and the old testnet are refused before anything is signed.
+- **Listings:** on 2026-11-03 the demo venue listed 604 symbols, but only 1 of the 20 mainnet USDT perps listed in the previous 180 days.
+  - Real listings will rarely be tradable there.
+  - The venue mainly proves the mechanics, and `--rehearse SYMBOL` opens one pair on an existing demo symbol for that.
+
+## Book, frozen
+Constants are in `src/trading_agent/execution/perp/rules.py`. A change needs the operator's ruling on this page.
+
+- **Candidates:** USDT perpetuals, trading, `underlyingType` COIN, not tagged Alpha, from the public mainnet exchangeInfo.
+- **Entry:** short at listing + 4 h with a market order, if a run sees it within 2 h of that time and the symbol trades on demo.
+  - A listing past its window, or not on demo, is recorded as skipped and never retried.
+- **Hedge:** a long BTCUSDT perp of the short's filled notional.
+- **Stop:** an exchange-side STOP_MARKET, reduce-only, at 1.5x the short's average fill.
+  - It is a Binance algo order; ccxt routes it.
+  - When it fires, the next run closes the hedge.
+- **Exit:** both legs reduce-only at market 168 h after entry, after the stop is cancelled.
+- **Size:**
+  - `--pair-usd` per leg, default 100 USDT, at most 1,000;
+  - at most 10 open pairs;
+  - an entry needs every pair's two legs together under 90% of equity;
+  - cross margin at 1x, one-way position mode required.
+
+## Safety chain
+- **Gates:** `require_execution_authorization` (TRADING_MODE=testnet, TRADING_EXECUTION_ENABLED, TRADING_KILL_SWITCH). `TRADING_ENTRY_KILL_SWITCH` stops entries but not exits.
+- **Single writer:** one writer at a time, through `LiveExecutionLock` on `data/perp_demo/writer.lock`.
+- **Signed order ledger:** every order intent is reserved in a signed ledger (`LiveRiskStateStore`, `order_state.json`) before it is sent, with the same client key Binance receives.
+  - An outcome that is not known stops the run.
+  - The next run settles it by that key first.
+- **Signed pair store:** pairs live in a signed store (`pairs.json`, `LIVE_SAFETY_HMAC_KEY`). A changed file is refused.
+- **Position check:**
+  - Each run checks venue positions against the book before any entry.
+  - Any position the book cannot explain stops the run.
+  - The operator decides what to do with it.
+- **Failed open:** if the hedge or the stop fails after the short filled, the run takes the short, and the hedge if filled, off at market, then stops.
+- **Audit:** every event goes to `data/perp_demo/audit.jsonl`. `status.json` holds counts only.
+- **Write boundary:** orders leave only through `execution/perp/venue.py`, listed in `tests/test_direct_broker_write_guard.py`.
+
+## Operator steps
+1. Create API keys on Binance Demo Trading (demo.binance.com, API management) and add them to `.env` yourself:
+   - `BINANCE_DEMO_FUTURES_API_KEY`
+   - `BINANCE_DEMO_FUTURES_API_SECRET`
+
+   Keep the account in one-way position mode.
+2. Read only, nothing signed:
+   ```
+   PYTHONPATH=src:. .venv/bin/python scripts/live_perp_demo.py
+   ```
+3. Rehearse the mechanics once, with a 2 h hold:
+   ```
+   TRADING_MODE=testnet TRADING_EXECUTION_ENABLED=true PYTHONPATH=src:. .venv/bin/python scripts/live_perp_demo.py --execute --rehearse ETHUSDT
+   ```
+4. Run `--execute` again after 2 h: the pair closes.
+
+No schedule is registered yet. An hourly task comes in a later change, after the rehearsal has run.
+
+## Limits
+- Demo fills come from the demo venue's matching, not mainnet depth.
+- The book's evidence is discovery on read data. The NL-P forward read decides it.
+- A run that cannot reach the venue does nothing. The exchange-side stop still protects an open short.

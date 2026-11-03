@@ -92,6 +92,9 @@ class ExchangeConfig:
     password: str = ""  # for exchanges requiring passphrase
     sandbox: bool = False
     testnet: bool = False
+    # Binance Demo Trading (demo-fapi.binance.com for USD-M futures). ccxt
+    # refuses private calls on the old futures testnet and points here.
+    demo: bool = False
     # ccxt "rateLimit" is milliseconds between requests, scaled by each
     # endpoint's weight. None keeps ccxt's per-exchange calibration
     # (Binance: 50 ms, fetchBalance weight 4). The old default 1200 (Binance's
@@ -255,7 +258,12 @@ class CCXTAdapter(ExchangeAdapter):
 
             # Sandbox/testnet mode (CCXT: binance → testnet.binance.vision
             # for spot, testnet.binancefuture.com for futures)
-            if self.config.sandbox or self.config.testnet:
+            if self.config.demo:
+                if self.config.sandbox or self.config.testnet:
+                    raise ValueError("demo trading and sandbox mode are exclusive")
+                self.exchange.enable_demo_trading(True)
+                logger.info(f"Demo trading mode ENABLED for {self.config.name}")
+            elif self.config.sandbox or self.config.testnet:
                 self.exchange.set_sandbox_mode(True)
                 logger.info(f"Sandbox/testnet mode ENABLED for {self.config.name}")
 
@@ -591,13 +599,26 @@ class CCXTAdapter(ExchangeAdapter):
             logger.error(f"replace_order failed: {exc}")
             raise
 
-    async def cancel_order(self, order_id: str, symbol: Symbol) -> bool:
-        """Cancel an order"""
+    async def cancel_order(
+        self, order_id: str | None, symbol: Symbol, *, trigger: bool = False,
+        client_order_id: str | None = None,
+    ) -> bool:
+        """Cancel an order. ``trigger`` cancels a conditional (algo) order on
+        Binance futures; ``client_order_id`` cancels by the internal key."""
         ex_symbol = self._unified_to_ccxt_symbol(symbol)
         await self._rate_limiter.acquire(self.config.id, weight=1)
+        params: dict[str, object] = {}
+        if trigger:
+            params["trigger"] = True
+        if client_order_id:
+            params["clientOrderId"] = self._venue_client_id(client_order_id)
 
         try:
-            await self._maybe_await(self.exchange.cancel_order(order_id, ex_symbol))
+            await self._maybe_await(
+                self.exchange.cancel_order(order_id, ex_symbol, params)
+                if params
+                else self.exchange.cancel_order(order_id, ex_symbol)
+            )
             return True
         except Exception as e:
             logger.error(f"cancel_order failed: {e}")
@@ -735,13 +756,19 @@ class CCXTAdapter(ExchangeAdapter):
             symbol=symbol,
         )
 
-    async def fetch_open_orders(self, symbol: Symbol | None = None) -> list[Order]:
-        """Fetch all open orders"""
+    async def fetch_open_orders(
+        self, symbol: Symbol | None = None, *, trigger: bool = False
+    ) -> list[Order]:
+        """Fetch all open orders; ``trigger`` lists conditional (algo) orders."""
         ex_symbol = self._unified_to_ccxt_symbol(symbol) if symbol else None
         await self._rate_limiter.acquire(self.config.id, weight=1)
 
         try:
-            orders = await self._maybe_await(self.exchange.fetch_open_orders(ex_symbol))
+            orders = await self._maybe_await(
+                self.exchange.fetch_open_orders(ex_symbol, None, None, {"trigger": True})
+                if trigger
+                else self.exchange.fetch_open_orders(ex_symbol)
+            )
             parsed = []
             for order in orders:
                 unified = self.get_unified_symbol(order["symbol"])
@@ -1137,9 +1164,13 @@ class CCXTAdapter(ExchangeAdapter):
 
     def _parse_position(self, pos: dict) -> Position:
         symbol = self.get_unified_symbol(pos["symbol"])
+        # ccxt reports contracts unsigned and the direction in "side".
+        size = abs(Decimal(str(pos["contracts"])))
+        if str(pos.get("side") or "").lower() == "short":
+            size = -size
         return Position(
             symbol=symbol,
-            size=Decimal(str(pos["contracts"])),
+            size=size,
             entry_price=Decimal(str(pos["entryPrice"])),
             mark_price=Decimal(str(pos["markPrice"])),
             unrealized_pnl=Decimal(str(pos.get("unrealizedPnl", 0))),

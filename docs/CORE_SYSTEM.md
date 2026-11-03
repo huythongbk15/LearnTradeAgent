@@ -10,7 +10,7 @@
 > - Không strategy nào đạt `RESEARCH_VALIDATED`. Từ 2026-10-30 operator dừng mở market hypothesis mới; tiến độ và mọi ngoại lệ ở [tracker](CAMPAIGN_STATUS.md).
 > - Research và runner là hai hệ thống riêng. Ngoài test, không code nào tạo `EvidenceArtifact` hay gọi `promote`, nên bước `evidence + promotion` của flow dưới đây chưa từng chạy cho strategy thật.
 > - Runner Binance testnet chạy mỗi 2 giờ và tính trạng thái Enhanced MA, nhưng không có runtime được promote nên BUY của strategy bị khóa. Runner quản lý và thoát vị thế; nó chỉ mua khi operator ký track vận hành (M3), bằng bộ kiểm thử vòng đời lệnh, không phải strategy.
-> - Phạm vi đang dùng là Binance Spot, long-only. Mainnet `NO-GO`.
+> - Phạm vi đang dùng là Binance Spot, long-only, và từ 2026-11-03 thêm Binance USD-M perpetual trên Demo Trading cho sổ cặp perp mới ([PERP_DEMO_RUNNER](operations/PERP_DEMO_RUNNER.md)). Mainnet `NO-GO`.
 
 Trang này trả lời: **hệ thống được thiết kế để làm gì, quyết định được tạo ra ở đâu và khi nào một lệnh được phép đi ra ngoài**. Hệ thống đang làm gì thì đọc System Overview trước. Các tài liệu chi tiết, roadmap và khóa học đều phải được đọc sau trang này.
 
@@ -50,7 +50,7 @@ Nếu một mắt xích thiếu bằng chứng hoặc không xác định đư�
 
 ### Không thuộc core execution
 
-LLM/agents, options, DEX/futures adapters, portfolio optimizers, web dashboard, messaging bus, multi-region/Kubernetes và các thử nghiệm online-learning là **bề mặt mở rộng**. Chúng chỉ được nối vào core qua contract đã kiểm thử; không được trở thành một đường đặt lệnh thứ hai.
+LLM/agents, options, DEX/futures adapters (ngoài `execution/perp`, đường perp duy nhất của core), portfolio optimizers, web dashboard, messaging bus, multi-region/Kubernetes và các thử nghiệm online-learning là **bề mặt mở rộng**. Chúng chỉ được nối vào core qua contract đã kiểm thử; không được trở thành một đường đặt lệnh thứ hai.
 
 ## 3. Bản đồ thành phần chuẩn
 

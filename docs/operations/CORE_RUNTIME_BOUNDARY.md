@@ -81,7 +81,7 @@ Bốn cạnh đo lần đầu:
 | `infrastructure` (K8s multi-region, chaos) | 0 | Chỉ script/test riêng |
 | `online_learning` | 1 | |
 | `agents`, `llm` | 7 / 11 | Chỉ được dùng ở runtime qua các cạnh ở §3 |
-| `exchanges/{dex,futures}`, `oanda_adapter`, `order_router`, `websocket_manager` | — | Ngoài phạm vi spot Binance/Alpaca |
+| `exchanges/{dex,futures}`, `oanda_adapter`, `order_router`, `websocket_manager` | — | Ngoài phạm vi spot Binance/Alpaca; perp đi qua `execution/perp` ([PERP_DEMO_RUNNER](PERP_DEMO_RUNNER.md)), không qua `exchanges/futures` |
 | `strategies/{options_strategies,stat_arbitrage,plugins,…}` | — | |
 
 ## 5. Gói việc
