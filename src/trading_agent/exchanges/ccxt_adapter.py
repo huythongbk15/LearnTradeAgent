@@ -8,7 +8,9 @@ Supports: Binance, Bybit, OKX, Coinbase, Kraken, Gate.io, KuCoin, HTX, etc.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
+import re
 import time
 from abc import ABC, abstractmethod
 from collections import defaultdict
@@ -51,6 +53,26 @@ from trading_agent.exchanges.models import (
 
 logger = logging.getLogger(__name__)
 
+
+
+_BINANCE_CLIENT_ID = re.compile(r"[A-Za-z0-9_-]{1,36}")
+
+
+def binance_client_order_id(key: str) -> str:
+    """The client order ID Binance accepts for an internal key.
+
+    Binance takes 1 to 36 characters of ``[a-zA-Z0-9-_]``. A key that fits is
+    sent unchanged; a longer one, such as a 64 character intent digest, maps to
+    a stable 36 character digest of itself, so a lookup finds what was sent.
+    """
+
+    if _BINANCE_CLIENT_ID.fullmatch(key):
+        return key
+    return "lta-k-" + hashlib.sha256(key.encode("utf-8")).hexdigest()[:30]
+
+
+def binance_accepts_client_order_id(key: str) -> bool:
+    return bool(_BINANCE_CLIENT_ID.fullmatch(key))
 
 class ExchangeStatus(Enum):
     HEALTHY = "healthy"
@@ -528,7 +550,9 @@ class CCXTAdapter(ExchangeAdapter):
                     params,
                 )
             )
-            return self._parse_order(result, order.symbol)
+            return self._with_internal_client_id(
+                self._parse_order(result, order.symbol), order.client_order_id
+            )
         except InsufficientFunds:
             logger.error(f"Insufficient funds for order {order}")
             raise
@@ -560,7 +584,9 @@ class CCXTAdapter(ExchangeAdapter):
                     self._order_to_ccxt_params(order),
                 )
             )
-            return self._parse_order(result, order.symbol)
+            return self._with_internal_client_id(
+                self._parse_order(result, order.symbol), order.client_order_id
+            )
         except Exception as exc:
             logger.error(f"replace_order failed: {exc}")
             raise
@@ -592,6 +618,22 @@ class CCXTAdapter(ExchangeAdapter):
             raise
 
     async def fetch_order_by_client_id(
+        self,
+        client_order_id: str,
+        symbol: Symbol,
+    ) -> Order | None:
+        """Fetch an order by its internal client ID, as the venue received it."""
+
+        order = await self._fetch_order_by_venue_client_id(
+            self._venue_client_id(client_order_id), symbol
+        )
+        return (
+            self._with_internal_client_id(order, client_order_id)
+            if order is not None
+            else None
+        )
+
+    async def _fetch_order_by_venue_client_id(
         self,
         client_order_id: str,
         symbol: Symbol,
@@ -870,8 +912,21 @@ class CCXTAdapter(ExchangeAdapter):
         if order.post_only:
             params["postOnly"] = True
         if order.client_order_id:
-            params["clientOrderId"] = order.client_order_id
+            params["clientOrderId"] = self._venue_client_id(order.client_order_id)
         return params
+
+    def _venue_client_id(self, key: str) -> str:
+        """The client order ID this venue receives for an internal key."""
+
+        venue = str(getattr(getattr(self, "config", None), "id", "") or "")
+        return binance_client_order_id(key) if venue.startswith("binance") else key
+
+    def _with_internal_client_id(self, order: Order, key: str | None) -> Order:
+        """A venue-mapped client ID reads back as the internal key it came from."""
+
+        if key and order.client_order_id in (self._venue_client_id(key), None, ""):
+            order.client_order_id = key
+        return order
 
     @staticmethod
     def _payload_client_order_id(payload: dict) -> str:

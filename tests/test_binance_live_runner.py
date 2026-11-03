@@ -1745,3 +1745,52 @@ def test_restart_reconciliation_does_not_double_count_inventory(tmp_path):
     final_order = second_lifecycle.state.order(intent.intent_id)
     assert final_order.size == pytest.approx(0.1)
     assert final_order.filled_size <= final_order.size + 1e-9
+
+
+def test_an_intent_sent_with_an_id_the_venue_refuses_reconciles_as_rejected(tmp_path):
+    """2026-11-03: Binance refused a 64 character client ID (-1100), so no order existed, yet every later cycle stopped on it."""
+
+    class RefusingBroker(PartialBuyBroker):
+        def __init__(self):
+            super().__init__()
+            self.lookups = 0
+
+        def place_order(self, order):
+            raise RuntimeError(
+                'binance {"code":-1100,"msg":"Illegal characters found in parameter \'newClientOrderId\'"}'
+            )
+
+        def get_order_by_client_id(self, client_order_id, symbol):
+            self.lookups += 1
+            return None
+
+    broker = RefusingBroker()
+    store = LiveRiskStateStore(tmp_path / "state.json")
+    order = {**canonical_planned_buy(broker), "atr": 5.0, "observed_high": 100.0}
+    lifecycle, gateway = canonical_stack(tmp_path, broker, dynamic_inventory=True)
+    with pytest.raises(LiveSafetyError):
+        runner.execute_orders(orders=[order], broker=broker, store=store, limits=LiveRiskLimits(),
+                              lifecycle=lifecycle, gateway=gateway, reconciliation_timeout_seconds=0)
+    (key, record), = store.unfinished_orders().items()
+    # What the runner sent before the fix: the raw key, which Binance refuses.
+    store.state.order_ledger[key].pop("venue_client_order_id")
+    store.state.order_ledger[key]["client_order_id"] = "f" * 64
+    store.save()
+    lookups = broker.lookups
+    runner.reconcile_unfinished_orders(broker=broker, store=store, lifecycle=lifecycle, gateway=gateway)
+    assert store.unfinished_orders() == {}
+    assert store.state.order_ledger[key]["status"] == "rejected"
+    assert broker.lookups == lookups
+    intent = order["order_planning"].intent
+    assert lifecycle.state.order(intent.intent_id).status.value == "rejected"
+    lifecycle.store.close()
+
+
+def test_the_ledger_keeps_the_client_id_the_venue_receives(tmp_path):
+    store = LiveRiskStateStore(tmp_path / "state.json")
+    key = "b" * 64
+    store.reserve_order(key, symbol="BTC/USDT", side="BUY", quantity=0.1,
+                        venue_client_order_id=runner.binance_client_order_id(key))
+    record = store.state.order_ledger[key]
+    assert record["client_order_id"] == key
+    assert record["venue_client_order_id"] != key and runner.binance_accepts_client_order_id(record["venue_client_order_id"])
