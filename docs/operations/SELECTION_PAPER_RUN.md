@@ -132,6 +132,8 @@ List không lọc token neo giá vàng, nên `XAUT` có thể vào chân long, n
 
 **Đọc một lần** ở lần chạy 2028-11-13, khi đủ 104 khối từ 2026-11-09, thống kê như book RS. Giữ khi t từ 2 trở lên. Loại khi net trung bình cộng 1,645 sai số chuẩn vẫn dưới +60 bps một tuần. Ở giữa là chưa ngã ngũ, không đóng và không mở bàn về vốn. Với độ lệch chuẩn 577 bps của sách có che trong lịch sử, hai mức đó vào khoảng +113 và -33, và khả năng phát hiện là .17 ở +60, .55 ở +120. Giữ thì mở bàn về vốn, và nếu book RS không đạt thì bỏ `dhi30`. Loại thì đóng biến động thấp, và nếu book RS cũng không đạt thì đóng cả họ. Không có tripwire.
 
+**Trên Demo Trading.** Ngày 2026-11-04 operator cho book LV chạy thêm bằng lệnh trên Binance Demo Trading. Bản demo đọc `picks.jsonl` của book này, luật ở `docs/operations/PERP_DEMO_RUNNER.md`. Book giấy và lần đọc của nó giữ nguyên. Fill và funding của bản demo cũng là lợi nhuận của lần đọc forward, nên đóng như `ledger.jsonl`.
+
 Bản ghi nằm ở `data/selection/lv_book/`: `picks.jsonl` và `ledger.jsonl`. `ledger.jsonl` chứa lợi nhuận: không mở trước ngày đọc. Trang chỉ hiện số tuần đã đóng. Book lỗi thì lần chạy ghi `lv_book` vào `errors` và trang ở `lỗi`, book RS vẫn chạy và quyết định của vòng chọn không đổi. Riêng lỗi seal thì lần chạy thành `SEAL_SCOPE` và giữ book, như mọi bước khác.
 
 ## Vận hành

@@ -82,7 +82,7 @@ Constants are in `src/trading_agent/execution/perp/rules.py`. A change needs the
    ```
 
 ## Schedule
-- `scripts/ops/run_perp_demo.sh` runs `live_perp_demo.py --execute --shadow` every hour at :15 local, at nice 19. It logs to `logs/perp_demo.log`.
+- `scripts/ops/run_perp_demo.sh` runs `live_perp_demo.py --execute --shadow --lv` every hour at :15 local, at nice 19. It logs to `logs/perp_demo.log`.
 - No run starts from :50 of an even UTC hour to :06 of the odd hour, and a run is skipped while the previous one is going.
 - There is no timeout, so an `--execute` run is never cut between an order and its record. The next run reconciles first.
 - `TRADING_MODE=testnet` is set by the wrapper. The other switches and the demo key come from `.env`, as for the spot runner.
@@ -103,6 +103,46 @@ The demo venue lists almost none of the new mainnet perps, so `--shadow` records
   - primary: the mean net bps per pair (BTC return minus perp return, minus 74 + 8 bps, plus funding), stop at F2;
   - pass: positive with t >= 2 from a bootstrap by listing month.
   - Do not compute returns from the ledger before the read.
+
+## Book LV on the same account
+On 2026-11-04 the operator asked for book LV to trade on Demo Trading as well. Book LV is the frozen low volatility paper book of `docs/operations/SELECTION_PAPER_RUN.md`. The paper book stays as it is and keeps its own read. The demo book measures what paper cannot: real fills and funding on perps, the exchange stop on the short leg, and a weekly multi-leg roll.
+
+Code is in `src/trading_agent/execution/perp/lowvol.py`. The hourly run trades it with `--lv`.
+
+- **Pick:** read from `data/selection/lv_book/picks.jsonl`, which the weekly selection run writes on Monday at 00:07 UTC. The first is 2026-11-09.
+  - A masked coin in a pick stops the run before any order.
+  - Weeks before the first pick are not counted as missed.
+- **Names:** each coin maps to its demo USDT perp, including rebased units such as `1000PEPEUSDT`.
+  - A coin without a demo perp is skipped and recorded. On the last stored list, 16 of 18 trade on demo; OPN and XAUT do not.
+  - A coin the pair book holds, or BTCUSDT, is skipped too.
+- **Roll:** at the first run from Monday 04:00 UTC, within 2 h.
+  - **Size:** `--lv-usd`, both legs together, default 1,000 USDT, at most 5,000.
+  - **Legs:** half a side, equal weight over the names it trades.
+  - **Trades:** only the difference to the targets. Reductions go first and are reduce-only, and a side flip goes through flat. A difference below the venue minimum is skipped.
+  - **Equity:** the book plus every open pair must stay under 90% of equity, or the week is missed.
+- **Stop:** each short gets an exchange STOP_MARKET, reduce-only, at 1.5x its mark price at the roll.
+  - This differs from paper, where the stop fills at the first 4 h open at or above 1.5x entry. Real money would use the exchange stop.
+  - A short whose stop fired stays flat until the next roll.
+- **End of a block:** the next roll. Without one, both legs close reduce-only at Monday 06:00 UTC, when the next window ends with no pick, and the week is recorded missed.
+  - Under `TRADING_ENTRY_KILL_SWITCH` there is no roll, but the block still closes.
+  - Funding on the block's symbols is recorded at its close.
+- **Shared account:**
+  - One process runs both books, with one order ledger and one reconcile.
+  - **Position checks:** book LV checks its own legs first: a fired stop, a quantity that differs, or a short without its stop.
+  - **The pair book:** its check then counts LV's legs as explained, so anything else is still refused.
+  - **No shared symbols:** the pair book never enters or rehearses on a symbol LV holds.
+- **Failures:**
+  - **A roll that fails:** it takes off everything the venue holds on the block's symbols, cancels its stops, and marks the block failed. The week is not retried.
+  - **A roll killed midway:** it is left as `rolling`, and the next run flattens it the same way after the reconcile.
+- **Record:** `data/perp_demo/lv_blocks.json`, signed like `pairs.json`. `status.json` shows counts only.
+  - Its fills and funding are returns of the LV forward read. Do not compute them before that read (the 2028-11-13 run).
+  - The demo account's own P&L view shows them too.
+- **Rehearsal:** this rolls a hand-given pick now, with a 2 h hold, to test the mechanics before 2026-11-09. Use coins from the list, never masked ones.
+  ```
+  TRADING_MODE=testnet TRADING_EXECUTION_ENABLED=true PYTHONPATH=src:. .venv/bin/python scripts/live_perp_demo.py --execute --lv --lv-rehearse "LTC,XLM:SUI,WLD"
+  ```
+  - A second rehearsal before the hold ends rolls into the first, which tests the netting.
+  - A rehearsal is refused while a weekly block is live.
 
 ## Limits
 - Demo fills come from the demo venue's matching, not mainnet depth.

@@ -150,6 +150,10 @@ class FakeUsdm:
     def fetch_my_trades(self, sym=None, since=None, limit=None):
         return []
 
+    def fetch_funding_history(self, sym=None, since=None, limit=None, params=None):
+        self.calls.append(("funding", sym, since, dict(params or {})))
+        return [{"symbol": sym, "amount": -0.25}] if sym in self.positions else []
+
     def cancel_order(self, oid, sym, params=None):
         cid = (params or {}).get("clientOrderId")
         if cid not in self.algo:
@@ -377,6 +381,248 @@ def test_hedge_is_sized_to_the_nearest_step(world):
     assert fake.positions["BTC/USDT:USDT"] == pytest.approx(0.002)
 
 
+# ── book LV on the same account ─────────────────────────────────────────────
+
+from trading_agent.execution.perp import lowvol  # noqa: E402
+from trading_agent.execution.perp.lowvol import LowVolBook  # noqa: E402
+
+LV_PRICES = {"BTCUSDT": 80_000.0, "NEWUSDT": 2.0, "AAAUSDT": 1.0, "BBBUSDT": 2.0, "CCCUSDT": 5.0,
+             "1000PEPEUSDT": 0.01, "EEEUSDT": 4.0, "ETHUSDT": 2_000.0}
+MON = lowvol.week_of(T0)[1] + 7 * lowvol.DAY_MS    # a Monday 00:00 UTC
+ROLL = MON + 4 * H + 15 * 60_000                    # the hourly run after the 04:00 open
+WEEK = 7 * lowvol.DAY_MS
+
+
+class Killed(BaseException):
+    """A run that dies mid-roll without running its except blocks."""
+
+
+def iso(ms: int) -> str:
+    return lowvol.week_of(ms)[0]
+
+
+def write_picks(path: Path, *rows: tuple[int, list[str], list[str]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("".join(json.dumps({"monday": iso(m), "long": lo, "short": sh, "ranked": 18}) + "\n" for m, lo, sh in rows))
+
+
+@pytest.fixture
+def lvworld(tmp_path, monkeypatch):
+    fake = FakeUsdm(LV_PRICES)
+    monkeypatch.setattr(ca.ccxt, "binanceusdm", lambda cfg: fake)
+    venue = PerpDemoVenue(CCXTAdapter(demo_config("demo-key", "demo-secret")))
+    venue.connect()
+    orders = LiveRiskStateStore(tmp_path / "order_state.json", integrity_key=KEY)
+    book = Book(venue, orders, PairStore.load(tmp_path / "pairs.json", KEY), tmp_path / "audit.jsonl", 100.0, sleep=lambda s: None)
+    picks = tmp_path / "selection" / "lv_book" / "picks.jsonl"
+    lv = LowVolBook(book, PairStore.load(tmp_path / "lv_blocks.json", KEY), 1000.0, picks, lambda c: c in {"ETH"})
+    return fake, book, lv, picks
+
+
+def cycle(book, lv, at, **kw):
+    return run_cycle(book, now_ms=at, mainnet_info=kw.pop("mainnet_info", {}), execute=True, lv=lv, **kw)
+
+
+def pos(fake, ex_id):
+    return fake.positions.get(f"{ex_id[:-4]}/USDT:USDT", 0.0)
+
+
+def lv_orders(fake, tag=""):
+    return [c for c in fake.calls if c[0] == "order" and c[5]["clientOrderId"].startswith(f"lv{tag}")]
+
+
+def test_week_of_finds_the_monday():
+    monday, ms = lowvol.week_of(ROLL)
+    assert ms == MON and monday == iso(MON)
+    assert lowvol.week_of(MON - 1)[1] == MON - WEEK
+    assert lowvol.perp_symbol("PEPE", {"1000PEPEUSDT"}) == "1000PEPEUSDT"
+    assert lowvol.perp_symbol("XAUT", {"PAXGUSDT"}) is None
+
+
+def test_lv_rolls_into_the_pick_in_its_window_with_stops_on_its_shorts(lvworld):
+    fake, book, lv, picks = lvworld
+    write_picks(picks, (MON, ["AAA", "BBB"], ["CCC", "PEPE", "XAUT"]))
+    assert cycle(book, lv, MON + 3 * H)["lv"] == {"week": iso(MON)}       # before 04:00: nothing
+    assert not lv_orders(fake)
+    rep = cycle(book, lv, ROLL)
+    assert rep["lv"]["rolled"] and rep["lv"]["long"] == 2 and rep["lv"]["short"] == 2
+    # 1000 USDT book, half a side, equal weight over the names the venue lists
+    assert pos(fake, "AAAUSDT") == pytest.approx(250) and pos(fake, "BBBUSDT") == pytest.approx(125)
+    assert pos(fake, "CCCUSDT") == pytest.approx(-50) and pos(fake, "1000PEPEUSDT") == pytest.approx(-25_000)
+    stops = {o["symbol"]: o for o in fake.algo.values()}
+    assert set(stops) == {"CCC/USDT:USDT", "1000PEPE/USDT:USDT"}
+    assert stops["CCC/USDT:USDT"]["triggerPrice"] == pytest.approx(7.5) and stops["CCC/USDT:USDT"]["side"] == "buy"
+    (block,) = PairStore.load(lv.blocks.path, KEY).pairs.values()
+    assert block["status"] == "open" and block["skipped"] == {"XAUT": "not_on_demo"}
+    # later runs that week, inside or after the window, change nothing; the pair book sees no stray
+    n = len(fake.calls)
+    cycle(book, lv, ROLL + H)
+    cycle(book, lv, ROLL + 30 * H)
+    assert not [c for c in fake.calls[n:] if c[0] == "order"]
+
+
+def test_lv_next_roll_trades_only_the_difference(lvworld):
+    fake, book, lv, picks = lvworld
+    write_picks(picks, (MON, ["AAA", "BBB"], ["CCC", "PEPE"]), (MON + WEEK, ["AAA", "CCC"], ["BBB", "EEE"]))
+    cycle(book, lv, ROLL)
+    n = len(fake.calls)
+    cycle(book, lv, ROLL + WEEK)
+    week2 = [c for c in fake.calls[n:] if c[0] == "order"]
+    assert not [c for c in week2 if c[1] == "AAA/USDT:USDT"]             # carried at its target: no trade
+    assert pos(fake, "AAAUSDT") == pytest.approx(250)
+    assert pos(fake, "CCCUSDT") == pytest.approx(50) and pos(fake, "BBBUSDT") == pytest.approx(-125)
+    assert pos(fake, "EEEUSDT") == pytest.approx(-62.5) and pos(fake, "1000PEPEUSDT") == pytest.approx(0)
+    # a flip goes through flat: the reduce-only close comes before the opening order
+    ccc = [c for c in week2 if c[1] == "CCC/USDT:USDT" and "stopLossPrice" not in c[5]]
+    assert [c[5].get("reduceOnly", False) for c in ccc] == [True, False]
+    assert {o["symbol"] for o in fake.algo.values()} == {"BBB/USDT:USDT", "EEE/USDT:USDT"}
+    blocks = PairStore.load(lv.blocks.path, KEY).pairs
+    assert sorted(b["status"] for b in blocks.values()) == ["closed", "open"]
+    assert all(k.endswith("-st") for k in book.orders.unfinished_orders())   # only the two live stops
+
+
+def test_lv_fired_stop_leaves_the_short_flat_until_the_next_roll(lvworld):
+    fake, book, lv, picks = lvworld
+    write_picks(picks, (MON, ["AAA", "BBB"], ["CCC", "PEPE"]), (MON + WEEK, ["AAA", "BBB"], ["CCC", "PEPE"]))
+    cycle(book, lv, ROLL)
+    fake.fire_stop("CCCUSDT")
+    n = len(fake.calls)
+    cycle(book, lv, ROLL + 30 * H)
+    assert not [c for c in fake.calls[n:] if c[0] == "order"]
+    (block,) = PairStore.load(lv.blocks.path, KEY).pairs.values()
+    assert block["legs"]["CCCUSDT"]["state"] == "stopped"
+    assert book.orders.state.order_ledger[block["legs"]["CCCUSDT"]["stop_key"]]["status"] == "filled"
+    cycle(book, lv, ROLL + WEEK)
+    assert pos(fake, "CCCUSDT") == pytest.approx(-50)                      # back in at the next roll
+
+
+def test_lv_week_without_a_pick_ends_flat_at_the_window_end(lvworld):
+    fake, book, lv, picks = lvworld
+    write_picks(picks, (MON, ["AAA", "BBB"], ["CCC", "PEPE"]))
+    cycle(book, lv, ROLL)
+    assert "missed" not in cycle(book, lv, ROLL + WEEK)["lv"]               # still inside the next window
+    assert pos(fake, "AAAUSDT") == pytest.approx(250)
+    rep = cycle(book, lv, MON + WEEK + 6 * H + 60_000)
+    assert rep["lv"]["missed"] == "no_pick" and rep["lv"]["closed"] == "hold"
+    assert all(abs(q) < 1e-9 for q in fake.positions.values()) and fake.algo == {}
+    closes = [c for c in lv_orders(fake) if c[5]["clientOrderId"].endswith("c0")]
+    assert closes and all(c[5].get("reduceOnly") for c in closes)
+    assert book.orders.unfinished_orders() == {}
+    assert ("funding", "AAA/USDT:USDT") in {c[:2] for c in fake.calls if c[0] == "funding"}
+
+
+def test_lv_entry_lock_skips_the_roll_but_not_the_exit(lvworld):
+    fake, book, lv, picks = lvworld
+    write_picks(picks, (MON, ["AAA", "BBB"], ["CCC", "PEPE"]), (MON + WEEK, ["AAA", "BBB"], ["CCC", "PEPE"]))
+    cycle(book, lv, ROLL)
+    lock = "TRADING_ENTRY_KILL_SWITCH is active"
+    n = len(fake.calls)
+    cycle(book, lv, ROLL + WEEK, entry_lock=lock)
+    assert not [c for c in fake.calls[n:] if c[0] == "order"]
+    rep = cycle(book, lv, MON + WEEK + 6 * H + 60_000, entry_lock=lock)
+    assert rep["lv"]["missed"] == "entry_lock" and rep["lv"]["closed"] == "hold"
+    assert all(abs(q) < 1e-9 for q in fake.positions.values())
+
+
+def test_lv_failed_stop_flattens_the_roll_and_never_retries_the_week(lvworld):
+    fake, book, lv, picks = lvworld
+    write_picks(picks, (MON, ["AAA", "BBB"], ["CCC", "PEPE"]))
+    fake.fail_next = "stop"
+    with pytest.raises(PerpBookError):
+        cycle(book, lv, ROLL)
+    assert all(abs(q) < 1e-9 for q in fake.positions.values()) and fake.algo == {}
+    (block,) = PairStore.load(lv.blocks.path, KEY).pairs.values()
+    assert block["status"] == "failed"
+    fake.fail_next = None
+    n = len(fake.calls)
+    cycle(book, lv, ROLL + H)
+    assert not [c for c in fake.calls[n:] if c[0] == "order"]
+    assert book.orders.unfinished_orders() == {}
+
+
+def test_lv_roll_killed_midway_is_flattened_by_the_next_run(lvworld, tmp_path):
+    fake, book, lv, picks = lvworld
+    write_picks(picks, (MON, ["AAA", "BBB"], ["CCC", "PEPE"]))
+    original = fake.create_order
+
+    def dies_on_the_third(sym, typ, side, amount, price=None, params=None):
+        out = original(sym, typ, side, amount, price, params)
+        if len([c for c in fake.calls if c[0] == "order"]) == 3:
+            raise Killed()       # the venue took the order; the process died before recording it
+        return out
+
+    fake.create_order = dies_on_the_third
+    with pytest.raises(Killed):
+        cycle(book, lv, ROLL)
+    fake.create_order = original
+    assert any(abs(q) > 0 for q in fake.positions.values())
+    # a new process: its stores come from disk
+    orders = LiveRiskStateStore(tmp_path / "order_state.json", integrity_key=KEY)
+    book2 = Book(book.venue, orders, PairStore.load(tmp_path / "pairs.json", KEY), tmp_path / "audit.jsonl", 100.0, sleep=lambda s: None)
+    lv2 = LowVolBook(book2, PairStore.load(lv.blocks.path, KEY), 1000.0, picks, lambda c: False)
+    cycle(book2, lv2, ROLL + H)
+    assert all(abs(q) < 1e-9 for q in fake.positions.values())
+    (block,) = PairStore.load(lv.blocks.path, KEY).pairs.values()
+    assert block["status"] == "failed" and block["close_reason"] == "interrupted"
+    events = [json.loads(x)["event"] for x in (tmp_path / "audit.jsonl").read_text().splitlines()]
+    assert "perp_lv_roll_interrupted" in events
+
+
+def test_lv_refuses_a_masked_coin_before_any_order(lvworld):
+    fake, book, lv, picks = lvworld
+    write_picks(picks, (MON, ["AAA", "BBB"], ["CCC", "ETH"]))
+    with pytest.raises(PerpBookError, match="masked"):
+        cycle(book, lv, ROLL)
+    assert not lv_orders(fake)
+
+
+def test_lv_too_big_for_the_account_misses_the_week(lvworld):
+    fake, book, lv, picks = lvworld
+    write_picks(picks, (MON, ["AAA", "BBB"], ["CCC", "PEPE"]))
+    lv.book_usd = 5000.0
+    fake.fetch_balance = lambda: {"info": {"totalMarginBalance": "1000"}}
+    assert cycle(book, lv, ROLL)["lv"]["missed"] == "equity"
+    assert not lv_orders(fake)
+
+
+def test_pair_book_and_lv_share_the_account(lvworld):
+    fake, book, lv, picks = lvworld
+    write_picks(picks, (MON, ["AAA", "BBB"], ["CCC", "PEPE"]))
+    i = info(("NEWUSDT", MON, None, "COIN"))
+    rep = cycle(book, lv, ROLL, mainnet_info=i)
+    assert rep["entered"] == ["NEWUSDT"] and rep["lv"]["rolled"]
+    cycle(book, lv, ROLL + H, mainnet_info=i)                             # each book explains its own legs
+    fake.positions["EEE/USDT:USDT"] = 3.0                                 # a stray is still refused
+    fake.entry["EEE/USDT:USDT"] = 4.0
+    with pytest.raises(PerpBookError):
+        cycle(book, lv, ROLL + 2 * H, mainnet_info=i)
+
+
+def test_lv_rehearsal_rolls_now_and_closes_after_its_hold(lvworld):
+    fake, book, lv, picks = lvworld
+    t = MON + 2 * lowvol.DAY_MS
+    rep = lv.rehearse(["AAA"], ["CCC"], t, 2)
+    assert rep["rolled"].startswith("r")
+    assert pos(fake, "AAAUSDT") == pytest.approx(500) and pos(fake, "CCCUSDT") == pytest.approx(-100)
+    cycle(book, lv, t + H)
+    assert pos(fake, "AAAUSDT") == pytest.approx(500)
+    cycle(book, lv, t + 2 * H)
+    assert all(abs(q) < 1e-9 for q in fake.positions.values()) and fake.algo == {}
+    write_picks(picks, (MON + WEEK, ["AAA", "BBB"], ["CCC", "PEPE"]))
+    cycle(book, lv, ROLL + WEEK)
+    with pytest.raises(PerpBookError, match="weekly"):
+        lv.rehearse(["AAA"], ["CCC"], ROLL + WEEK + H, 2)
+
+
+def test_lv_dry_run_reports_the_pick_and_sends_nothing(lvworld):
+    fake, book, lv, picks = lvworld
+    write_picks(picks, (MON, ["AAA", "BBB"], ["CCC", "PEPE", "XAUT"]))
+    rep = run_cycle(book, now_ms=ROLL, mainnet_info={}, execute=False, lv=lv)
+    assert rep["lv"] == {"week": iso(MON), "in_window": True, "pick": True, "long": 2, "short": 2,
+                         "skipped": {"XAUT": "not_on_demo"}}
+    assert not [c for c in fake.calls if c[0] == "order"]
+
+
 # ── shadow ledger on mainnet prices ─────────────────────────────────────────
 
 from tools.newperp import fetch as nfx  # noqa: E402
@@ -479,7 +725,7 @@ def test_the_wrapper_keeps_out_of_the_testnet_window(tmp_path: Path, hhmm: str) 
 def test_the_wrapper_runs_the_book_with_shadow_and_logs_its_end(tmp_path: Path, hhmm: str) -> None:
     assert wrapper_at(tmp_path, hhmm, 'echo "$TRADING_MODE $*"; exit 3\n').returncode == 3
     lines = (tmp_path / "logs" / "perp_demo.log").read_text(encoding="utf8").splitlines()
-    assert lines[1] == "testnet -u scripts/live_perp_demo.py --execute --shadow"
+    assert lines[1] == "testnet -u scripts/live_perp_demo.py --execute --shadow --lv"
     assert re.fullmatch(r"=== \S+Z perp_demo end rc=3", lines[2])
     assert not re.search(r"^[^#]*\btimeout\b", WRAPPER.read_text(encoding="utf8"), re.M)
 
