@@ -22,7 +22,7 @@ echo "=== $(date -u +%FT%TZ) perp_demo start pid=$$" >> "$LOG"
 # No timeout: an --execute run is never cut between an order and its record;
 # the lock keeps the next run out, and the next run reconciles first.
 TRADING_MODE=testnet PYTHONPATH="$ROOT/src:$ROOT" nice -n 19 "$ROOT/.venv/bin/python" -u \
-    scripts/live_perp_demo.py --execute --shadow --lv "$@" >> "$LOG" 2>&1
+    scripts/live_perp_demo.py --execute --shadow --lv --pair-usd 500 "$@" >> "$LOG" 2>&1
 rc=$?
 # Book HOLD: after its one buy, a run only reconciles and checks the wallet.
 TRADING_MODE=testnet PYTHONPATH="$ROOT/src:$ROOT" nice -n 19 "$ROOT/.venv/bin/python" -u \
