@@ -98,7 +98,8 @@ The demo venue lists almost none of the new mainnet perps, so `--shadow` records
   - events go to `data/perp_demo/shadow_ledger.jsonl` (append only);
   - state goes to `shadow.json`;
   - `status.json` shows counts only.
-- **Read, proposed, to be ruled by the operator before the first read:**
+- **Read** (ruled by merging this page, 2026-11-04; it replaces the proposal below where they differ). At about 8 qualifying listings a year, 30 closed pairs take about 4 years. KEEP needs t ≥ 2 from a bootstrap by listing month. KILL if the one-sided 95% upper bound of the mean net is below 0. Otherwise UNRESOLVED.
+- **Earlier proposal:**
   - once, at 30 closed shadow pairs;
   - primary: the mean net bps per pair (BTC return minus perp return, minus 74 + 8 bps, plus funding), stop at F2;
   - pass: positive with t >= 2 from a bootstrap by listing month.
@@ -143,6 +144,11 @@ Code is in `src/trading_agent/execution/perp/lowvol.py`. The hourly run trades i
   ```
   - A second rehearsal before the hold ends rolls into the first, which tests the netting.
   - A rehearsal is refused while a weekly block is live.
+
+## Blinding of forward returns
+These books' returns belong to sealed reads: the NL-P paper and shadow ledgers, the LV demo book, and the pair book.
+- **Agents:** compute no return, P&L or price change from `audit.jsonl`, `order_state.json`, `pairs.json`, `lv_blocks.json`, `shadow.json` or `shadow_ledger.jsonl` before a book's read. Counts, statuses and errors are fine.
+- **Operator:** the Demo Trading website's P&L, position and order-history pages show the same returns. Avoid them for the demo account; use `status.json` and the logs, which show counts only. A look before a read is recorded in this page's log, and that book's read is then reported as unblinded.
 
 ## Limits
 - Demo fills come from the demo venue's matching, not mainnet depth.
