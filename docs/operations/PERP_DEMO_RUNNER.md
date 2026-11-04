@@ -160,6 +160,12 @@ Book HOLD runs on the spot wallet of the same Demo Trading account (`demo-api.bi
 - **Records:** `data/spot_hold_demo/{hold.json (signed), order_state.json, audit.jsonl, status.json}`.
 - **Read:** its return is BTC's price change less one buy fee, so it is not sealed. What the demo adds is the mechanics: the order path, the fee, and the wallet check.
 
+## Blinding of forward returns
+These books' returns belong to sealed reads: the NL-P paper and shadow ledgers, the LV demo book, and the pair book.
+- **Agents:** compute no return, P&L or price change from `audit.jsonl`, `order_state.json`, `pairs.json`, `lv_blocks.json`, `shadow.json` or `shadow_ledger.jsonl` before a book's read. Counts, statuses and errors are fine.
+- **Operator:** the Demo Trading website's P&L, position and order-history pages show the same returns. Avoid them for the demo account; use `status.json` and the logs, which show counts only. A look before a read is recorded in this page's log, and that book's read is then reported as unblinded.
+- Book HOLD is not sealed: its return is BTC's price change less one fee.
+
 ## Limits
 - Demo fills come from the demo venue's matching, not mainnet depth.
 - The book's evidence is discovery on read data. The NL-P forward read decides it.
