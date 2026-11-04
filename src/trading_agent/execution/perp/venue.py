@@ -233,6 +233,16 @@ class PerpDemoVenue:
         orders = _run(self.adapter.fetch_open_orders(self.symbol(exchange_id), trigger=True))
         return {str(o.client_order_id) for o in orders if o.client_order_id}
 
+    def funding_paid(self, exchange_ids: list[str], since_ms: int, until_ms: int) -> float:
+        """Funding the account booked on these symbols from ``since_ms`` to ``until_ms``, in USDT; paid is negative."""
+
+        total = 0.0
+        for ex_id in exchange_ids:
+            sym = self.adapter.get_exchange_symbol(self.symbol(ex_id))
+            rows = self._ex.fetch_funding_history(sym, since_ms, 1000, {"endTime": until_ms})
+            total += sum(float(r.get("amount") or 0.0) for r in rows)
+        return total
+
 
 def _result(order: Order) -> dict:
     return {

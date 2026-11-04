@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The new perp pair book on Binance USD-M Demo Trading and its shadow ledger on
+# The new perp pair book and book LV on Binance USD-M Demo Trading, and the shadow ledger on
 # mainnet prices, started every hour by Windows Task Scheduler
 # (scripts/ops/windows/register_tasks.ps1). Rules: docs/operations/PERP_DEMO_RUNNER.md.
 # Execution switches (TRADING_EXECUTION_ENABLED, TRADING_KILL_SWITCH,
@@ -22,7 +22,7 @@ echo "=== $(date -u +%FT%TZ) perp_demo start pid=$$" >> "$LOG"
 # No timeout: an --execute run is never cut between an order and its record;
 # the lock keeps the next run out, and the next run reconciles first.
 TRADING_MODE=testnet PYTHONPATH="$ROOT/src:$ROOT" nice -n 19 "$ROOT/.venv/bin/python" -u \
-    scripts/live_perp_demo.py --execute --shadow "$@" >> "$LOG" 2>&1
+    scripts/live_perp_demo.py --execute --shadow --lv "$@" >> "$LOG" 2>&1
 rc=$?
 echo "=== $(date -u +%FT%TZ) perp_demo end rc=$rc" >> "$LOG"
 exit "$rc"

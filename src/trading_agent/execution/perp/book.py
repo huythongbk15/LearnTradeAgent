@@ -17,7 +17,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Mapping, Protocol
 
 from trading_agent.execution.live_safety import (
     LiveRiskStateStore,
@@ -198,8 +198,12 @@ class Book:
 
     # ── positions ──────────────────────────────────────────────────────────
 
-    def check_positions(self) -> None:
-        """Close the hedge of a pair whose stop fired; refuse anything unexplained."""
+    def check_positions(self, elsewhere: Mapping[str, float] | None = None) -> None:
+        """Close the hedge of a pair whose stop fired; refuse anything unexplained.
+
+        ``elsewhere`` holds the symbols another book on this account explains
+        (book LV); that book checks their quantities itself.
+        """
 
         held = self.venue.positions()
         hedge_expected = 0.0
@@ -216,7 +220,7 @@ class Book:
                 raise PerpBookError(f"pair {pid}: venue short {short_qty} differs from book {p['short_qty']}")
             hedge_expected += p["hedge_qty"]
         held = self.venue.positions()
-        explained = {p["symbol"] for p in self.pairs.open_pairs().values()} | {rules.HEDGE}
+        explained = {p["symbol"] for p in self.pairs.open_pairs().values()} | {rules.HEDGE} | set(elsewhere or {})
         stray = sorted(s for s, pos in held.items() if s not in explained and abs(pos.qty) > QTY_TOL)
         hedge = held.get(rules.HEDGE)
         hedge_qty = hedge.qty if hedge is not None else 0.0
@@ -309,6 +313,15 @@ class Book:
         return "opened"
 
 
+class SecondBook(Protocol):
+    """Another book on the same demo account (``lowvol.LowVolBook``)."""
+
+    def check(self) -> None: ...
+    def held(self) -> dict[str, float]: ...
+    def plan(self, now_ms: int) -> dict: ...
+    def step(self, now_ms: int, *, entry_lock: str | None = None) -> dict: ...
+
+
 def run_cycle(
     book: Book,
     *,
@@ -318,6 +331,7 @@ def run_cycle(
     entry_lock: str | None = None,
     rehearse: str | None = None,
     rehearse_hold_h: int = 2,
+    lv: SecondBook | None = None,
 ) -> dict:
     """One run. Without ``execute`` it only reads and reports what is due."""
 
@@ -327,10 +341,17 @@ def run_cycle(
     report["due"] = [d.symbol for d in due]
     if not execute:
         report["skipped"] = skipped
+        if lv is not None:
+            report["lv"] = lv.plan(now_ms)
         return report
     book.reconcile()
-    book.check_positions()
+    if lv is not None:
+        lv.check()
+    book.check_positions(lv.held() if lv is not None else None)
     book.exits(now_ms)
+    if lv is not None:
+        # Before the entry lock returns: a held block still ends at its hold end.
+        report["lv"] = lv.step(now_ms, entry_lock=entry_lock)
     for s in skipped:
         book.pairs.seen.append(s["symbol"])
         report["skipped"].append(s)
@@ -339,12 +360,18 @@ def run_cycle(
     if entry_lock:
         report["entry_lock"] = entry_lock
         return report
+    lv_held = lv.held() if lv is not None else {}
     if rehearse:
-        if rehearse not in book.venue.trading_symbols() or rehearse == rules.HEDGE:
+        if rehearse not in book.venue.trading_symbols() or rehearse == rules.HEDGE or rehearse in lv_held:
             raise PerpBookError(f"cannot rehearse on {rehearse}")
         if book.enter(rehearse, now_ms // 1000, now_ms, hold_h=rehearse_hold_h, rehearsal=True) == "opened":
             report["entered"].append(rehearse)
     for listing in due:
+        if listing.symbol in lv_held:
+            book.pairs.seen.append(listing.symbol)
+            book.audit("perp_entry_skipped", symbol=listing.symbol, reason="held_by_lv")
+            report["skipped"].append({"symbol": listing.symbol, "reason": "held_by_lv"})
+            continue
         if len(book.pairs.open_pairs()) >= rules.MAX_OPEN:
             book.pairs.seen.append(listing.symbol)
             book.audit("perp_entry_skipped", symbol=listing.symbol, reason="max_open")
