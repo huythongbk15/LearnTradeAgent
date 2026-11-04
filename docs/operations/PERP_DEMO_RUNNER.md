@@ -82,7 +82,7 @@ Constants are in `src/trading_agent/execution/perp/rules.py`. A change needs the
    ```
 
 ## Schedule
-- `scripts/ops/run_perp_demo.sh` runs `live_perp_demo.py --execute --shadow --lv` every hour at :15 local, at nice 19. It logs to `logs/perp_demo.log`.
+- `scripts/ops/run_perp_demo.sh` runs `live_perp_demo.py --execute --shadow --lv`, then `live_spot_hold_demo.py --execute` (book HOLD), every hour at :15 local, at nice 19. It logs to `logs/perp_demo.log`.
 - No run starts from :50 of an even UTC hour to :06 of the odd hour, and a run is skipped while the previous one is going.
 - There is no timeout, so an `--execute` run is never cut between an order and its record. The next run reconciles first.
 - `TRADING_MODE=testnet` is set by the wrapper. The other switches and the demo key come from `.env`, as for the spot runner.
@@ -143,6 +143,21 @@ Code is in `src/trading_agent/execution/perp/lowvol.py`. The hourly run trades i
   ```
   - A second rehearsal before the hold ends rolls into the first, which tests the netting.
   - A rehearsal is refused while a weekly block is live.
+
+## Book HOLD and the three options for 10k
+On 2026-11-04 the operator asked to try every option for a 10k USD real account on Demo Trading first, with no real money. The options and the evidence behind them are in the 2026-11-04 discussion (research description, not advice):
+- **A, cash:** hold USDT. Nothing trades. It is the benchmark the other two are read against, at a stated cash rate.
+- **B, BTC held:** buy BTC spot once, no leverage, no timing, no rebalancing. This is book HOLD below.
+- **C, NL-P sleeve:** the pair book and the shadow ledger above, at 1x with a per-pair cap. Its KEEP/KILL read is in `docs/operations/NEWPERP_PAPER_RUN.md`.
+
+Book HOLD runs on the spot wallet of the same Demo Trading account (`demo-api.binance.com`, same key). That wallet is separate from the futures wallet, so its BTC never nets against the pair book's BTCUSDT hedges.
+- **Code:** `src/trading_agent/execution/demo_spot/`. Its `venue.py` is the only place its orders leave, and it refuses any Binance host but Demo Trading. `scripts/live_spot_hold_demo.py` runs it, and the hourly wrapper runs it after the perp run.
+- **Size:** `--hold-usd`, default 2,500 USDT, at most 4,500. The demo spot wallet held 5,000 USDT and 0.05 BTC on 2026-11-04, so the default is a 50/50 split of a 5,000 sleeve: half option B, half option A.
+- **Buy:** once, at market, reserved in a signed order ledger first. A buy whose outcome is unknown is settled by its client key on the next run. A buy that ends rejected or cancelled marks the book failed and is not retried.
+- **Check:** the wallet came with BTC, so the book records the wallet's BTC before its buy. Each run checks that the wallet still holds at least that plus what the book bought. Less stops the run for the operator.
+- **No exit rule.** Closing the book is the operator's call.
+- **Records:** `data/spot_hold_demo/{hold.json (signed), order_state.json, audit.jsonl, status.json}`.
+- **Read:** its return is BTC's price change less one buy fee, so it is not sealed. What the demo adds is the mechanics: the order path, the fee, and the wallet check.
 
 ## Limits
 - Demo fills come from the demo venue's matching, not mainnet depth.

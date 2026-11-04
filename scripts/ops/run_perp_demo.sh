@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# The new perp pair book and book LV on Binance USD-M Demo Trading, and the shadow ledger on
-# mainnet prices, started every hour by Windows Task Scheduler
+# The new perp pair book and book LV on Binance USD-M Demo Trading, the shadow ledger on
+# mainnet prices, and book HOLD (BTC bought once and held) on the same account's spot wallet, started every hour by Windows Task Scheduler
 # (scripts/ops/windows/register_tasks.ps1). Rules: docs/operations/PERP_DEMO_RUNNER.md.
 # Execution switches (TRADING_EXECUTION_ENABLED, TRADING_KILL_SWITCH,
 # TRADING_ENTRY_KILL_SWITCH) and the demo key come from .env, as for the spot runner.
@@ -24,5 +24,10 @@ echo "=== $(date -u +%FT%TZ) perp_demo start pid=$$" >> "$LOG"
 TRADING_MODE=testnet PYTHONPATH="$ROOT/src:$ROOT" nice -n 19 "$ROOT/.venv/bin/python" -u \
     scripts/live_perp_demo.py --execute --shadow --lv "$@" >> "$LOG" 2>&1
 rc=$?
+# Book HOLD: after its one buy, a run only reconciles and checks the wallet.
+TRADING_MODE=testnet PYTHONPATH="$ROOT/src:$ROOT" nice -n 19 "$ROOT/.venv/bin/python" -u \
+    scripts/live_spot_hold_demo.py --execute >> "$LOG" 2>&1
+rc_hold=$?
+[ "$rc" -eq 0 ] && rc=$rc_hold
 echo "=== $(date -u +%FT%TZ) perp_demo end rc=$rc" >> "$LOG"
 exit "$rc"
