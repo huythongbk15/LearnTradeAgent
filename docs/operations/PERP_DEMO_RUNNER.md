@@ -32,7 +32,7 @@ Constants are in `src/trading_agent/execution/perp/rules.py`. A change needs the
   - When it fires, the next run closes the hedge.
 - **Exit:** both legs reduce-only at market 168 h after entry, after the stop is cancelled.
 - **Size:**
-  - `--pair-usd` per leg, default 100 USDT, at most 1,000;
+  - `--pair-usd` per leg, default 100 USDT, at most 1,000. The hourly wrapper passes 500 (operator ruling, 2026-11-04), option C of a 10k account at 1x. Capacity is set by the equity check, not by MAX_OPEN: a new pair needs all pairs' legs under 90% of equity, so a 10k wallet holds at most 9 pairs of 500 a leg. That check counts only the pair book's own pairs, not book LV's legs; LV's own check does count the pairs. Closing that gap is open for the operator's ruling;
   - at most 10 open pairs;
   - an entry needs every pair's two legs together under 90% of equity;
   - cross margin at 1x, one-way position mode required.
@@ -82,7 +82,7 @@ Constants are in `src/trading_agent/execution/perp/rules.py`. A change needs the
    ```
 
 ## Schedule
-- `scripts/ops/run_perp_demo.sh` runs `live_perp_demo.py --execute --shadow --lv` every hour at :15 local, at nice 19. It logs to `logs/perp_demo.log`.
+- `scripts/ops/run_perp_demo.sh` runs `live_perp_demo.py --execute --shadow --lv`, then `live_spot_hold_demo.py --execute` (book HOLD), every hour at :15 local, at nice 19. It logs to `logs/perp_demo.log`.
 - No run starts from :50 of an even UTC hour to :06 of the odd hour, and a run is skipped while the previous one is going.
 - There is no timeout, so an `--execute` run is never cut between an order and its record. The next run reconciles first.
 - `TRADING_MODE=testnet` is set by the wrapper. The other switches and the demo key come from `.env`, as for the spot runner.
@@ -145,10 +145,20 @@ Code is in `src/trading_agent/execution/perp/lowvol.py`. The hourly run trades i
   - A second rehearsal before the hold ends rolls into the first, which tests the netting.
   - A rehearsal is refused while a weekly block is live.
 
-## Blinding of forward returns
-These books' returns belong to sealed reads: the NL-P paper and shadow ledgers, the LV demo book, and the pair book.
-- **Agents:** compute no return, P&L or price change from `audit.jsonl`, `order_state.json`, `pairs.json`, `lv_blocks.json`, `shadow.json` or `shadow_ledger.jsonl` before a book's read. Counts, statuses and errors are fine.
-- **Operator:** the Demo Trading website's P&L, position and order-history pages show the same returns. Avoid them for the demo account; use `status.json` and the logs, which show counts only. A look before a read is recorded in this page's log, and that book's read is then reported as unblinded.
+## Book HOLD and the three options for 10k
+On 2026-11-04 the operator asked to try every option for a 10k USD real account on Demo Trading first, with no real money. The options and the evidence behind them are in the 2026-11-04 discussion (research description, not advice):
+- **A, cash:** hold USDT. Nothing trades. It is the benchmark the other two are read against, at a stated cash rate.
+- **B, BTC held:** buy BTC spot once, no leverage, no timing, no rebalancing. This is book HOLD below.
+- **C, NL-P sleeve:** the pair book and the shadow ledger above, at 1x of a 10k account: 500 USDT a leg, 5% of 10k per name. At most 9 pairs fit under the 90% equity check on a 10k wallet (8 beside a 1,000 LV book, if the gap above is closed). Its KEEP/KILL read is in `docs/operations/NEWPERP_PAPER_RUN.md`.
+
+Book HOLD runs on the spot wallet of the same Demo Trading account (`demo-api.binance.com`, same key). That wallet is separate from the futures wallet, so its BTC never nets against the pair book's BTCUSDT hedges.
+- **Code:** `src/trading_agent/execution/demo_spot/`. Its `venue.py` is the only place its orders leave, and it refuses any Binance host but Demo Trading. `scripts/live_spot_hold_demo.py` runs it, and the hourly wrapper runs it after the perp run.
+- **Size:** `--hold-usd`, default 2,500 USDT, at most 4,500. The demo spot wallet held 5,000 USDT and 0.05 BTC on 2026-11-04, so the default is a 50/50 split of a 5,000 sleeve: half option B, half option A.
+- **Buy:** once, at market, reserved in a signed order ledger first. A buy whose outcome is unknown is settled by its client key on the next run. A buy that ends rejected or cancelled marks the book failed and is not retried.
+- **Check:** the wallet came with BTC, so the book records the wallet's BTC before its buy. Each run checks that the wallet still holds at least that plus what the book bought. Less stops the run for the operator.
+- **No exit rule.** Closing the book is the operator's call.
+- **Records:** `data/spot_hold_demo/{hold.json (signed), order_state.json, audit.jsonl, status.json}`.
+- **Read:** its return is BTC's price change less one buy fee, so it is not sealed. What the demo adds is the mechanics: the order path, the fee, and the wallet check.
 
 ## Limits
 - Demo fills come from the demo venue's matching, not mainnet depth.
