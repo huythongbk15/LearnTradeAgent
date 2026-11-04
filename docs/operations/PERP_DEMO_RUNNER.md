@@ -32,7 +32,7 @@ Constants are in `src/trading_agent/execution/perp/rules.py`. A change needs the
   - When it fires, the next run closes the hedge.
 - **Exit:** both legs reduce-only at market 168 h after entry, after the stop is cancelled.
 - **Size:**
-  - `--pair-usd` per leg, default 100 USDT, at most 1,000. The hourly wrapper passes 500 (operator ruling, 2026-11-04): 10 open pairs of two 500 USDT legs make 10,000 USDT gross, option C of a 10k account at 1x;
+  - `--pair-usd` per leg, default 100 USDT, at most 1,000. The hourly wrapper passes 500 (operator ruling, 2026-11-04), option C of a 10k account at 1x. Capacity is set by the equity check, not by MAX_OPEN: a new pair needs all pairs' legs under 90% of equity, so a 10k wallet holds at most 9 pairs of 500 a leg. That check counts only the pair book's own pairs, not book LV's legs; LV's own check does count the pairs. Closing that gap is open for the operator's ruling;
   - at most 10 open pairs;
   - an entry needs every pair's two legs together under 90% of equity;
   - cross margin at 1x, one-way position mode required.
@@ -148,7 +148,7 @@ Code is in `src/trading_agent/execution/perp/lowvol.py`. The hourly run trades i
 On 2026-11-04 the operator asked to try every option for a 10k USD real account on Demo Trading first, with no real money. The options and the evidence behind them are in the 2026-11-04 discussion (research description, not advice):
 - **A, cash:** hold USDT. Nothing trades. It is the benchmark the other two are read against, at a stated cash rate.
 - **B, BTC held:** buy BTC spot once, no leverage, no timing, no rebalancing. This is book HOLD below.
-- **C, NL-P sleeve:** the pair book and the shadow ledger above, at 1x of a 10k account: 500 USDT a leg, at most 10 pairs, so 10,000 USDT gross at most, and 5% of 10k per name. Its KEEP/KILL read is in `docs/operations/NEWPERP_PAPER_RUN.md`.
+- **C, NL-P sleeve:** the pair book and the shadow ledger above, at 1x of a 10k account: 500 USDT a leg, 5% of 10k per name. At most 9 pairs fit under the 90% equity check on a 10k wallet (8 beside a 1,000 LV book, if the gap above is closed). Its KEEP/KILL read is in `docs/operations/NEWPERP_PAPER_RUN.md`.
 
 Book HOLD runs on the spot wallet of the same Demo Trading account (`demo-api.binance.com`, same key). That wallet is separate from the futures wallet, so its BTC never nets against the pair book's BTCUSDT hedges.
 - **Code:** `src/trading_agent/execution/demo_spot/`. Its `venue.py` is the only place its orders leave, and it refuses any Binance host but Demo Trading. `scripts/live_spot_hold_demo.py` runs it, and the hourly wrapper runs it after the perp run.
