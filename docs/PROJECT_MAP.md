@@ -350,6 +350,7 @@
 │   ├── live_enhanced_ma.py
 │   ├── live_enhanced_ma_binance.py
 │   ├── live_perp_demo.py
+│   ├── live_spot_hold_demo.py
 │   ├── live_status_report.py
 │   ├── llm_pool_cli.py
 │   ├── load_test_phase6.py
@@ -614,6 +615,10 @@
 │       │   │   ├── order_planner.py
 │       │   │   ├── protection.py
 │       │   │   └── risk_decision.py
+│       │   ├── demo_spot
+│       │   │   ├── __init__.py
+│       │   │   ├── hold.py
+│       │   │   └── venue.py
 │       │   ├── lifecycle
 │       │   │   ├── __init__.py
 │       │   │   ├── events.py
@@ -1048,6 +1053,7 @@
 │   ├── test_simulator_calibration.py
 │   ├── test_simulator_partial_ledger.py
 │   ├── test_simulator_provenance_distribution.py
+│   ├── test_spot_hold_demo.py
 │   ├── test_storage.py
 │   ├── test_strategy_security.py
 │   ├── test_synthetic_alerts.py
