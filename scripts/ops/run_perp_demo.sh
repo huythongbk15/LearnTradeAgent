@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # The new perp pair book and book LV on Binance USD-M Demo Trading, the shadow ledger on
-# mainnet prices, and book HOLD (BTC bought once and held) on the same account's spot wallet, started every hour by Windows Task Scheduler
+# mainnet prices, book HOLD (BTC bought once and held) on the same account's spot wallet,
+# and the H-LEARN-11 daily paper log on public mainnet data, started every hour by Windows Task Scheduler
 # (scripts/ops/windows/register_tasks.ps1). Rules: docs/operations/PERP_DEMO_RUNNER.md.
 # Execution switches (TRADING_EXECUTION_ENABLED, TRADING_KILL_SWITCH,
 # TRADING_ENTRY_KILL_SWITCH) and the demo key come from .env, as for the spot runner.
@@ -29,5 +30,11 @@ TRADING_MODE=testnet PYTHONPATH="$ROOT/src:$ROOT" nice -n 19 "$ROOT/.venv/bin/py
     scripts/live_spot_hold_demo.py --execute >> "$LOG" 2>&1
 rc_hold=$?
 [ "$rc" -eq 0 ] && rc=$rc_hold
+# H-LEARN-11 paper log on public mainnet data (docs/operations/LEARN_PAPER_RUN.md):
+# records each due daily decision once.
+PYTHONPATH="$ROOT/src:$ROOT" OMP_NUM_THREADS=4 nice -n 19 "$ROOT/.venv/bin/python" -u \
+    -m tools.learnpaper.run >> "$LOG" 2>&1
+rc_learn=$?
+[ "$rc" -eq 0 ] && rc=$rc_learn
 echo "=== $(date -u +%FT%TZ) perp_demo end rc=$rc" >> "$LOG"
 exit "$rc"
