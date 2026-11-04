@@ -725,8 +725,9 @@ def test_the_wrapper_keeps_out_of_the_testnet_window(tmp_path: Path, hhmm: str) 
 def test_the_wrapper_runs_the_book_with_shadow_and_logs_its_end(tmp_path: Path, hhmm: str) -> None:
     assert wrapper_at(tmp_path, hhmm, 'echo "$TRADING_MODE $*"; exit 3\n').returncode == 3
     lines = (tmp_path / "logs" / "perp_demo.log").read_text(encoding="utf8").splitlines()
-    assert lines[1] == "testnet -u scripts/live_perp_demo.py --execute --shadow --lv"
-    assert re.fullmatch(r"=== \S+Z perp_demo end rc=3", lines[2])
+    assert lines[1] == "testnet -u scripts/live_perp_demo.py --execute --shadow --lv --pair-usd 500"
+    assert lines[2] == "testnet -u scripts/live_spot_hold_demo.py --execute"
+    assert re.fullmatch(r"=== \S+Z perp_demo end rc=3", lines[3])
     assert not re.search(r"^[^#]*\btimeout\b", WRAPPER.read_text(encoding="utf8"), re.M)
 
 
