@@ -969,6 +969,7 @@
 │   ├── test_nested_wfo.py
 │   ├── test_nested_wfo_evidence.py
 │   ├── test_newperp.py
+│   ├── test_newperp_bybit.py
 │   ├── test_online_methodology.py
 │   ├── test_open_inventory_accounting.py
 │   ├── test_operational_rehearsal.py
@@ -1103,6 +1104,7 @@
 │   │   └── run.py
 │   ├── newperp
 │   │   ├── __init__.py
+│   │   ├── bybit.py
 │   │   ├── config.py
 │   │   ├── fetch.py
 │   │   ├── rules.py

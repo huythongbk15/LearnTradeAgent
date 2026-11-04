@@ -22,6 +22,7 @@ UNDERLYING = "COIN"                 # exchangeInfo underlyingType; equities, com
 BTC = "BTCUSDT"
 FIRST_STAMP = "2026-11-09"
 BOOKS = ("core", "alpha")           # operator's ruling 2026-11-03: perps tagged Alpha run as a separate paper book
+BYBIT_BOOK = "bybit"                # operator's ruling 2026-11-04: new Bybit perps with no Binance USD-M perp at the stamp (tools/newperp/bybit.py)
 READ_SYMBOL_WEEKS = 60              # read once, at the first Monday with this many settled symbol-weeks in the core book
 
 

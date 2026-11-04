@@ -15,6 +15,7 @@ import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from tools.newperp import bybit as by
 from tools.newperp import config as cf
 from tools.newperp import fetch as fx
 from tools.newperp import rules
@@ -66,27 +67,75 @@ def stamp_of(now_ms: int) -> int:
     return int(monday.timestamp() * 1000)
 
 
-def book(client: fx.Client, symbol: str, side: str, usd_each: float, live: bool) -> dict | None:
-    if not live:
-        return None
-    d = client.get(fx.DEPTH, {"symbol": symbol, "limit": cf.DEPTH_LIMIT})
+def _walk(d: dict, side: str, usd_each: float) -> dict:
     return {"paper": rules.book_cost(d, side, usd_each), "usd_1k": rules.book_cost(d, side, 1_000), "usd_10k": rules.book_cost(d, side, 10_000),
             "at": iso(int(time.time() * 1000))}
 
 
-def settle(client: fx.Client, legs: list[dict], now_ms: int, log) -> list[dict]:
+def book(client: fx.Client, symbol: str, side: str, usd_each: float, live: bool) -> dict | None:
+    if not live:
+        return None
+    return _walk(client.get(fx.DEPTH, {"symbol": symbol, "limit": cf.DEPTH_LIMIT}), side, usd_each)
+
+
+def bybit_book(client: by.Client, symbol: str, side: str, usd_each: float, live: bool) -> dict | None:
+    if not live:
+        return None
+    return _walk(by.depth(client, symbol), side, usd_each)
+
+
+def _stop(m1: list, entry: float) -> dict | None:
+    """Stop fill from 1m bars, with the 1m path around the trigger."""
+    stop = rules.stop_fill(m1, entry)
+    if stop:
+        stop["path"] = by.stop_path(m1, stop["minute_ms"])
+    return stop
+
+
+def settle_bybit(client: by.Client, leg: dict, now_ms: int) -> dict:
+    """Close a Bybit leg: exit open, stop fill and path from 1m bars, when a mark-price stop would have fired, funding, the exit book."""
+    a, b = leg["entry_ms"], leg["exit_ms"]
+    exit_open = rules.open_at(by.klines(client, leg["symbol"], "60", b, b + rules.HOUR_MS), b)
+    stop, mark_ms = None, None
+    if leg["side"] == "short":
+        stop = _stop(by.klines(client, leg["symbol"], "1", a, b), leg["entry_open"])
+        mark_ms = by.mark_trigger(by.mark_klines(client, leg["symbol"], "1", a, b), leg["entry_open"])
+        if stop:
+            stop["mark_minute_ms"] = mark_ms
+    ev = by.funding(client, leg["symbol"], a, b)
+    end = stop["minute_ms"] if stop else b
+    live = real_time(now_ms) and now_ms - b <= LIVE_BOOK_MINUTES * 60_000
+    bk = bybit_book(client, leg["symbol"], "buy" if leg["side"] == "short" else "sell", leg["usd"], live) if exit_open is not None else None
+    return {"kind": "leg_close", "id": leg["id"], "exit_open": exit_open, "stop": stop, "funding": rules.funding_sum(ev, a, end),
+            "funding_events": sum(1 for t, _ in ev if a <= t < end), "exit_book": bk, "gone": exit_open is None,
+            "mark_stop_ms": mark_ms}           # when a mark-price stop would have fired, also on a leg the last-price stop never closed
+
+
+def settle(client: fx.Client, legs: list[dict], now_ms: int, log, by_client: by.Client | None = None) -> list[dict]:
     """Close every leg whose exit bar has opened: exit open, stop fill from 1m bars, funding, and the exit book when the run is near the exit."""
     out = []
+    bybit_ok = by_client is not None
     for leg in legs:
         a, b = leg["entry_ms"], leg["exit_ms"]
         if b > now_ms - 60_000:
+            continue
+        if leg.get("venue") == "bybit":
+            if not bybit_ok:
+                continue
+            try:
+                out.append(settle_bybit(by_client, leg, now_ms))
+            except by.CallError as e:                 # this leg only: it waits, the other Bybit legs go on
+                log(f"settle {leg['id']}: {e}, left for the next run")
+            except sf.FetchError as e:                # Bybit not answering: no more Bybit calls this run; Binance legs go on
+                log(f"settle {leg['id']}: {e}, Bybit legs left for the next run")
+                bybit_ok = False
             continue
         try:
             h = fx.klines(client, leg["symbol"], "1h", b, b + rules.HOUR_MS)
             exit_open = rules.open_at(h, b)
             stop = None
             if leg["side"] == "short":
-                stop = rules.stop_fill(fx.klines(client, leg["symbol"], "1m", a, b), leg["entry_open"])
+                stop = _stop(fx.klines(client, leg["symbol"], "1m", a, b), leg["entry_open"])
             ev = fx.funding(client, leg["symbol"], a, b)
             end = stop["minute_ms"] if stop else b
             live = real_time(now_ms) and now_ms - b <= LIVE_BOOK_MINUTES * 60_000
@@ -101,7 +150,42 @@ def settle(client: fx.Client, legs: list[dict], now_ms: int, log) -> list[dict]:
     return out
 
 
-def open_week(client: fx.Client, stamp: int, now_ms: int, log) -> list[dict]:
+def open_bybit(client: by.Client, info: dict, stamp: int, entry: int, exit_: int, live: bool, week: dict, log) -> list[dict]:
+    """Book bybit: short every new Bybit perp with no Binance USD-M perp at the stamp, .5 in total, against Bybit BTC .5."""
+    cands = by.candidates(by.instruments(client), stamp, by.binance_bases(info, stamp))
+    new = []
+    for c in cands:
+        start = (c["launch_ms"] - 7 * rules.DAY_MS) // rules.HOUR_MS * rules.HOUR_MS
+        lt = by.listing_ms(by.klines(client, c["symbol"], "60", start, stamp))
+        if lt is not None and stamp - cf.NEW_DAYS * rules.DAY_MS <= lt < stamp:
+            new.append({**c, "listing_ms": lt})
+    week["bybit_found"] = [n["symbol"] for n in new]
+    entries = []
+    for p in new:
+        e = rules.open_at(by.klines(client, p["symbol"], "60", entry, entry + rules.HOUR_MS), entry)
+        if e is None:
+            week["skipped"].append(f"bybit:{p['symbol']}")
+            continue
+        entries.append((p, e))
+    legs = []
+    n = len(entries)
+    for p, e in entries:
+        usd = cf.BOOK_USD * cf.SHORT_SIDE / n
+        legs.append({"kind": "leg_open", "id": f"{iso(stamp)[:10]}-bybit-{p['symbol']}", "book": cf.BYBIT_BOOK, "venue": "bybit", "stamp_ms": stamp,
+                     "symbol": p["symbol"], "side": "short", "weight": -cf.SHORT_SIDE / n, "usd": usd, "entry_ms": entry, "exit_ms": exit_,
+                     "entry_open": e, "onboard": iso(p["listing_ms"]), "launch": iso(p["launch_ms"]), "symbol_type": p["symbol_type"],
+                     "weeks_since_listing": (stamp - p["listing_ms"]) // WEEK_MS + 1, "entry_book": bybit_book(client, p["symbol"], "sell", usd, live)})
+    if legs:
+        usd = cf.BOOK_USD * cf.SHORT_SIDE
+        legs.append({"kind": "leg_open", "id": f"{iso(stamp)[:10]}-bybit-{by.BTC}", "book": cf.BYBIT_BOOK, "venue": "bybit", "stamp_ms": stamp,
+                     "symbol": by.BTC, "side": "long", "weight": cf.SHORT_SIDE, "usd": usd, "entry_ms": entry, "exit_ms": exit_,
+                     "entry_open": rules.open_at(by.klines(client, by.BTC, "60", entry, entry + rules.HOUR_MS), entry),
+                     "entry_book": bybit_book(client, by.BTC, "buy", usd, live)})
+    log(f"week {week['stamp']} bybit: new perps {week['bybit_found']}, legs {len(legs)}")
+    return legs
+
+
+def open_week(client: fx.Client, stamp: int, now_ms: int, log, by_client: by.Client | None = None) -> list[dict]:
     """This week's legs. A new perp without an entry bar is skipped and counted."""
     entry = stamp + cf.ENTRY_HOURS * rules.HOUR_MS
     exit_ = entry + WEEK_MS
@@ -134,6 +218,12 @@ def open_week(client: fx.Client, stamp: int, now_ms: int, log) -> list[dict]:
                            "side": "long", "weight": cf.SHORT_SIDE, "usd": usd, "entry_ms": entry, "exit_ms": exit_,
                            "entry_open": rules.open_at(rows, entry), "entry_book": book(client, cf.BTC, "buy", usd, live)})
         legs += shorts
+    if by_client is not None:
+        try:
+            legs += open_bybit(by_client, info, stamp, entry, exit_, live, week, log)
+        except sf.FetchError as e:                   # the Binance books still open; the Bybit week is recorded as missed
+            week["bybit_error"] = str(e)[:200]
+            log(f"week {week['stamp']} bybit: {e}, week missed")
     week["legs"] = len(legs)
     log(f"week {week['stamp']}: new perps {week['found']}, legs {len(legs)}, skipped {skipped}, book live {live}")
     return [week] + legs
@@ -147,7 +237,7 @@ def status(recs: list[dict], now_ms: int) -> dict:
     out: dict = {"as_of": iso(now_ms), "weeks": len(weeks), "weeks_with_legs": sum(1 for w in weeks if w["legs"]),
                  "open_legs": len(opens) - len(closes), "read_at_core_symbol_weeks": cf.READ_SYMBOL_WEEKS,
                  "first_stamp": cf.FIRST_STAMP, "last_week": weeks[-1]["stamp"] if weeks else None}
-    for b in cf.BOOKS:
+    for b in cf.BOOKS + (cf.BYBIT_BOOK,):
         shorts = [k for k, r in opens.items() if r["side"] == "short" and r.get("book", "core") == b]
         settled = [k for k in shorts if k in closes]
         costs = sorted(opens[k]["entry_book"]["paper"]["cost_bps"] for k in shorts
@@ -157,18 +247,18 @@ def status(recs: list[dict], now_ms: int) -> dict:
     return out
 
 
-def run(now_ms: int, client: fx.Client, r: Path, log=print) -> dict:
+def run(now_ms: int, client: fx.Client, r: Path, log=print, by_client: by.Client | None = None) -> dict:
     path = cf.ledger_path(r)
     recs = load(path)
     opens = [x for x in recs if x["kind"] == "leg_open"]
     closed = {x["id"] for x in recs if x["kind"] == "leg_close"}
-    new = settle(client, [x for x in opens if x["id"] not in closed], now_ms, log)
+    new = settle(client, [x for x in opens if x["id"] not in closed], now_ms, log, by_client)
     stamp = stamp_of(now_ms)
     done = {x["stamp_ms"] for x in recs if x["kind"] == "week_open"}
     first = int(datetime.fromisoformat(cf.FIRST_STAMP).replace(tzinfo=UTC).timestamp() * 1000)
     if stamp >= first and stamp not in done and now_ms >= stamp + cf.ENTRY_HOURS * rules.HOUR_MS:
-        new += open_week(client, stamp, now_ms, log)
-    new.append({"kind": "run", "at": iso(now_ms), "calls": client.calls})
+        new += open_week(client, stamp, now_ms, log, by_client)
+    new.append({"kind": "run", "at": iso(now_ms), "calls": client.calls, "bybit_calls": by_client.calls if by_client else 0})
     append(path, new)
     s = status(recs + new, now_ms)
     write_text(cf.status_path(r), json.dumps(s, indent=1, sort_keys=True))
@@ -184,7 +274,7 @@ def main(argv: list[str] | None = None) -> int:
         print("--as-of writes a replay: set NEWPERP_ROOT outside the repo", file=sys.stderr)
         return 2
     now_ms = int(datetime.fromisoformat(a.as_of).replace(tzinfo=UTC).timestamp() * 1000) if a.as_of else int(time.time() * 1000)
-    s = run(now_ms, fx.Client(), r, log=lambda x: print(x, flush=True))
+    s = run(now_ms, fx.Client(), r, log=lambda x: print(x, flush=True), by_client=by.Client())
     print(json.dumps(s, sort_keys=True), flush=True)
     return 0
 
