@@ -33,6 +33,13 @@ The constants are in `tools/flowbid/config.py`. A change needs the operator's ru
 
 On 2028-11-13, with books RS and LV:
 
+**Decision rule** (written 2026-11-04 before any look; merging this page is the operator's ruling):
+- **Statistic:** the primary below. Events are the cluster unit.
+- **KEEP:** mean > 0 with t ≥ 2, and above the comparator 'buy the equal-weight basket of the flagged coins at the flag's first live minute, same holds'. The comparator is computed at the read from public bars.
+- **KILL:** the one-sided 95% upper bound is below 0.
+- **Otherwise UNRESOLVED.**
+- **Sample size:** about 4 to 13 events a year are expected, so with fewer than 20 events the read can only KILL or stay UNRESOLVED.
+
 - **Primary:** mean net bps per event over all nine depth and hold cells (`PRIMARY_CELLS`), at 148 bps a round trip. Equal weight across the filled coins of an event; events with at least one fill.
   - The operator chose the nine-cell mean on 2026-11-03 in place of the single cell k .20, H 72, because of the walk-forward above.
 - **Replay figures for comparison** (event weighted, 2021 to 2026):
