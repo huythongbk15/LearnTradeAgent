@@ -86,6 +86,7 @@
 │   │   ├── H_XSEC_01_ENGINE_NOTES.md
 │   │   ├── INTEGRATION_REVIEW_20261028.md
 │   │   ├── L2_SELECTION_RULE.md
+│   │   ├── LEARN_PAPER_RUN.md
 │   │   ├── LIVE_READINESS_AGENT_PLAN.md
 │   │   ├── MAIN_FLOW_VALIDATION.md
 │   │   ├── MULTIPAIR_OBSERVATIONS_20261017.md
@@ -938,6 +939,7 @@
 │   ├── test_information_gate_prereg.py
 │   ├── test_l2_selection_rule.py
 │   ├── test_lazy_strategy_registry.py
+│   ├── test_learn_paper.py
 │   ├── test_ledger_and_binding_invariants.py
 │   ├── test_legacy_cutover_migration.py
 │   ├── test_liquidity_reversal_admission.py
@@ -1094,6 +1096,10 @@
 │   │   ├── __init__.py
 │   │   ├── config.py
 │   │   ├── rules.py
+│   │   └── run.py
+│   ├── learnpaper
+│   │   ├── __init__.py
+│   │   ├── model.py
 │   │   └── run.py
 │   ├── newperp
 │   │   ├── __init__.py
