@@ -61,7 +61,18 @@ At the first Monday with 60 settled short symbol-weeks in the core book; the alp
 - 2025: 9 to 31 a month.
 - 2026: 15 in January, then 1 to 8 a month (October: 1).
 
-In 2026 the non-Alpha perps gave about 7 symbol-weeks a month, so 60 in the core book take about 8 to 9 months. That is an estimate, not a promise.
+**Corrected pace (2026-11-04):** the earlier estimate of 8 to 9 months was too optimistic.
+- Only 4 non-Alpha COIN perps were listed in May to October 2026, about 2.7 core symbol-weeks a month.
+- At that pace, 60 core symbol-weeks take about 22 months, so the read is expected around late 2028. That is an estimate, not a promise.
+
+**Decision rule** (written 2026-11-04 before any look; merging this page is the operator's ruling):
+- **Statistic:** the mean net per settled core symbol-week. The t and the one-sided 95% upper bound come from a bootstrap clustered by listing, with symbol-weeks of one listing kept together.
+- **Futility look at 30 settled symbol-weeks:** KILL if the 95% upper bound is below 0. Otherwise keep recording, and look at nothing else.
+- **Read at 60:**
+  - KEEP if the mean is above 0 with t ≥ 2;
+  - KILL if the upper bound is below +30 bps a symbol-week, which is about half of the hindsight-free +57.7;
+  - otherwise UNRESOLVED, which continues to a final read at 120, where it is KEEP if t ≥ 2 and closed otherwise.
+- **Meaning:** KEEP opens a discussion of small capital and grants no order path by itself. KILL closes the listing fade. The alpha book is description only.
 
 ## Network
 

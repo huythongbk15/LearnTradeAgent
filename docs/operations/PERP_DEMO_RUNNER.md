@@ -98,7 +98,8 @@ The demo venue lists almost none of the new mainnet perps, so `--shadow` records
   - events go to `data/perp_demo/shadow_ledger.jsonl` (append only);
   - state goes to `shadow.json`;
   - `status.json` shows counts only.
-- **Read, proposed, to be ruled by the operator before the first read:**
+- **Read** (ruled by merging this page, 2026-11-04; it replaces the proposal below where they differ). At about 8 qualifying listings a year, 30 closed pairs take about 4 years. KEEP needs t ≥ 2 from a bootstrap by listing month. KILL if the one-sided 95% upper bound of the mean net is below 0. Otherwise UNRESOLVED.
+- **Earlier proposal:**
   - once, at 30 closed shadow pairs;
   - primary: the mean net bps per pair (BTC return minus perp return, minus 74 + 8 bps, plus funding), stop at F2;
   - pass: positive with t >= 2 from a bootstrap by listing month.
