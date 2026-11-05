@@ -130,7 +130,10 @@ def test_every_task_can_be_chosen_alone_and_printed() -> None:
     text = TASKS.read_text(encoding="utf8")
     choices = re.findall(r'"(\w+)"', re.search(r"ValidateSet\((.*?)\)", text)[1])
     default = re.findall(r'"(\w+)"', re.search(r"\$Only = @\((.*?)\)", text)[1])
-    assert choices == default and "Selection" in choices
+    # FlowFlush (book FLOW01's 5-minute demo run) is registered only by name: -Only FlowFlush
+    # (docs/operations/PERP_DEMO_RUNNER.md). Every other task is in the default list.
+    opt_in = {"FlowFlush"}
+    assert [c for c in choices if c not in opt_in] == default and "Selection" in choices
     what_if, register = text.split("exit 0")
     for name in choices:
         assert f'$Only -contains "{name}"' in what_if

@@ -48,6 +48,9 @@ SCAN_DIRS = [
     Path("src"),
     Path("scripts"),
     Path("webui/backend"),
+    # Research and data tools; some run inside the signed perp demo process
+    # (tools/learnpaper, tools/flowbtc, tools/flowflush). None is a boundary.
+    Path("tools"),
 ]
 
 

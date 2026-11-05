@@ -98,6 +98,43 @@ def test_client_refuses_other_hosts_paths_parameters_and_masked_coins():
     assert c.url(fx.KLINES, {"symbol": "BTCUSDT", "interval": "1h"}).startswith("https://fapi.binance.com/")
 
 
+def test_client_allows_the_four_futures_data_series_with_their_parameters_only():
+    c = client(Venue())
+    full = {"symbol": "BTCUSDT", "period": "5m", "limit": 500, "startTime": 1, "endTime": 2}
+    for path in fx.STATS:
+        assert c.url(path, full).startswith(f"https://fapi.binance.com{path}?")
+        fx.check_url(c.url(path, {"symbol": "NEWUSDT", "period": "1d"}))
+    for bad in ({**full, "interval": "1h"}, {**full, "period": "3m"}, {"symbol": "BTCUSDT"}, {"period": "5m"},
+                {**full, "limit": 501}, {**full, "limit": 0}):
+        with pytest.raises(ValueError):
+            c.url(fx.OPEN_INTEREST_HIST, bad)
+    with pytest.raises(ValueError):
+        c.url(fx.TOP_POSITION_RATIO, {"symbol": "SOLUSDT", "period": "5m"})       # masked
+    with pytest.raises(ValueError):
+        fx.check_url("https://fapi.binance.com/futures/data/basis")
+    with pytest.raises(ValueError):
+        fx.check_url("https://www.binance.com/futures/data/openInterestHist")
+    with pytest.raises(ValueError):
+        fx.stats(c, fx.KLINES, "BTCUSDT", "5m", 0, 1)
+
+
+def test_stats_asks_in_whole_windows_and_returns_each_stamp_once_oldest_first():
+    step = fx.PERIODS["5m"]
+    calls = []
+
+    def venue(url, timeout):      # answers the newest `limit` rows of the window, newest first
+        fx.check_url(url)
+        q = {k: v[0] for k, v in parse_qs(urlsplit(url).query).items()}
+        calls.append(q)
+        a, b, n = int(q["startTime"]), int(q["endTime"]), int(q["limit"])
+        stamps = [t for t in range(0, 10_000 * step, step) if a <= t <= b][-n:][::-1]
+        return 200, json.dumps([{"symbol": q["symbol"], "timestamp": t, "sumOpenInterest": "1"} for t in stamps]).encode()
+
+    rows = fx.stats(client(venue), fx.OPEN_INTEREST_HIST, "BTCUSDT", "5m", 100 * step, 1300 * step)
+    assert [r["timestamp"] for r in rows] == list(range(100 * step, 1300 * step, step))
+    assert len(calls) == 3 and all(q["limit"] == "500" and q["period"] == "5m" for q in calls)
+
+
 def test_root_stays_in_data_newperp(monkeypatch, tmp_path):
     monkeypatch.setenv("NEWPERP_ROOT", str(cf.REPO / "data" / "other"))
     with pytest.raises(ValueError):

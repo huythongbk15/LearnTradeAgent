@@ -13,7 +13,6 @@ import logging
 import re
 import time
 from abc import ABC, abstractmethod
-from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -127,18 +126,39 @@ class RateLimitState:
     """Track rate limit state per exchange"""
 
     exchange_id: str
-    remaining: int = 100
+    remaining: float = 100  # tokens left; a fraction while the bucket refills
     reset_time: float = 0
     last_request: float = 0
     weight_used: int = 0
+    # Loop time of the last refill; None before the first request.
+    refilled_at: float | None = None
 
 
 class RateLimitManager:
-    """Token bucket rate limiter per exchange"""
+    """Token bucket rate limiter per exchange.
+
+    Each exchange has a bucket of ``CAPACITY`` tokens that starts full. A
+    request takes ``weight`` tokens. Tokens come back with time at
+    ``REFILL_PER_S``, up to ``CAPACITY``, whether or not a rate-limit header
+    was ever seen. A request that finds too few tokens waits until enough
+    have come back, never forever: every adapter call has weight 1, so it
+    waits at most 1 / REFILL_PER_S = 0.6 s. So the first 100 requests of an
+    adapter never wait, and a long burst runs at 100 requests a minute.
+    ccxt's own ``enableRateLimit`` throttle still paces every request.
+
+    ``update_from_headers`` can still set the tokens left and a reset time;
+    at that reset time the bucket is full again, once.
+    """
+
+    CAPACITY = 100
+    REFILL_PER_S = CAPACITY / 60.0  # a full bucket a minute
 
     def __init__(self):
         self._limits: dict[str, RateLimitState] = {}
-        self._locks: dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
+        # exchange id -> (the loop the lock serves, the lock); see get_lock
+        self._locks: dict[
+            str, tuple[asyncio.AbstractEventLoop | None, asyncio.Lock]
+        ] = {}
 
     def get_state(self, exchange_id: str) -> RateLimitState:
         if exchange_id not in self._limits:
@@ -146,42 +166,73 @@ class RateLimitManager:
         return self._limits[exchange_id]
 
     def get_lock(self, exchange_id: str) -> asyncio.Lock:
-        return self._locks[exchange_id]
+        """The lock of ``exchange_id`` for the running event loop.
+
+        An asyncio.Lock binds to the loop it is first contended on, and a
+        contended acquire on another loop then raises RuntimeError. The perp
+        venue runs each adapter call in its own ``asyncio.run``, so each loop
+        gets its own lock. The bucket itself is shared by all loops.
+        """
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:  # called outside a loop
+            loop = None
+        held = self._locks.get(exchange_id)
+        if held is None or held[0] is not loop:
+            held = (loop, asyncio.Lock())
+            self._locks[exchange_id] = held
+        return held[1]
 
     async def acquire(self, exchange_id: str, weight: int = 1) -> None:
         """Acquire permission to make a request"""
         state = self.get_state(exchange_id)
         lock = self.get_lock(exchange_id)
 
+        # A request heavier than the bucket waits for a full bucket, then goes.
+        need = min(weight, self.CAPACITY)
+
         async with lock:
-            now = asyncio.get_event_loop().time()
+            loop = asyncio.get_running_loop()
+            now = self._refill(state, loop.time())
 
-            # Reset if window expired
-            if state.reset_time and now > state.reset_time:
-                state.remaining = 100  # reset to default
-                state.weight_used = 0
-
-            # Wait if needed
-            while state.remaining < weight:
-                wait_time = max(
-                    0.1, (state.reset_time - now) if state.reset_time else 0.1
-                )
-                await asyncio.sleep(wait_time)
-                now = asyncio.get_event_loop().time()
-                if state.reset_time and now > state.reset_time:
-                    state.remaining = 100
-                    state.weight_used = 0
+            # Wait until the refill (or an earlier header reset) gives enough tokens
+            while state.remaining < need:
+                wait_time = (need - state.remaining) / self.REFILL_PER_S
+                if state.reset_time > now:
+                    wait_time = min(wait_time, state.reset_time - now)
+                await asyncio.sleep(max(wait_time, 0.001))
+                now = self._refill(state, loop.time())
 
             state.remaining -= weight
             state.weight_used += weight
             state.last_request = now
 
+    def _refill(self, state: RateLimitState, now: float) -> float:
+        """Give back the tokens earned since the last refill; a passed header reset fills the bucket."""
+
+        if state.reset_time and now >= state.reset_time:
+            state.remaining = self.CAPACITY  # reset to default
+            state.weight_used = 0
+            state.reset_time = 0
+        elif state.refilled_at is not None and state.remaining < self.CAPACITY:
+            earned = max(0.0, now - state.refilled_at) * self.REFILL_PER_S
+            state.remaining = min(self.CAPACITY, state.remaining + earned)
+        state.refilled_at = now
+        return now
+
     def update_from_headers(self, exchange_id: str, headers: dict) -> None:
-        """Update rate limit state from response headers"""
+        """Update rate limit state from response headers.
+
+        A header's count of tokens left replaces the bucket's count. The
+        refill then starts again from the next request, so time that passed
+        before the header adds no tokens on top of its count.
+        """
         state = self.get_state(exchange_id)
         # CCXT handles this internally but we track for monitoring
         if "x-ratelimit-remaining" in headers:
             state.remaining = int(headers["x-ratelimit-remaining"])
+            state.refilled_at = None
         if "x-ratelimit-reset" in headers:
             state.reset_time = float(headers["x-ratelimit-reset"]) / 1000
 

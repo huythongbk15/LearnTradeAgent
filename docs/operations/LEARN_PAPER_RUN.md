@@ -25,10 +25,26 @@ Code: `tools/learnpaper/model.py` (features, model, thresholds) and `tools/learn
 - **Schedule:** `scripts/ops/run_perp_demo.sh` runs `python -m tools.learnpaper.run` every hour after the demo books. A decision is recorded once its entry bar (00:00) has closed, so from 01:00 UTC.
   - A run that was missed records every due day later, from the same bars, with no look-ahead.
   - The first run, on 2026-11-04, recorded 2026-10-26 to 2026-11-03 this way (a replay accepted as a first run).
+  - **Demo book:** from 2026-11-05, book LEARN of the perp demo runs in the same wrapper, just before this run. It reads the same bar store and quarter models (below, "Demo orders").
+    - At its daily decision, the first run from 00:00 UTC, it appends closed bars to the store first, through the same function.
+    - Both run in one wrapper under one lock, one after the other, so they never write the store at once. Book FLOW01's 5-minute task takes the same lock and never steps book LEARN.
 - **Files:**
   - `data/learn_paper/ledger.jsonl` (append only: predictions, positions, entry opens, missing coins, model quarter);
   - `models/` with `manifest.json`;
   - `status.json` (counts only).
+
+## Demo orders
+From 2026-11-05 the same daily decisions also trade on Binance Demo Trading as book LEARN (`docs/operations/PERP_DEMO_RUNNER.md`, "Book LEARN on the same account"). Research description, not advice; mainnet stays NO-GO.
+- **Same decisions:** the demo uses this page's frozen model, bar store and quarter models through the same functions (`tools/learnpaper`).
+  - It appends bars to the same store. It may record a quarter's model before this run does, at the 00:15 run of the quarter's second day, and only once every coin's bars reach the quarter start.
+  - Checks on the 2026Q4 data (2026-11-05): the training rows were the same (845,544 of 845,544), and so were the predictions on five October decision bars (100 of 100).
+  - It never writes `ledger.jsonl`.
+- **Timing:** it enters at the first hourly run after 00:00 UTC, about 15 minutes after this book's 00:00 open.
+- **Blinding:** its records fall under this page's blinding: `data/perp_demo/learn_book.json`, the demo order ledger and the audit. Compute no return, P&L or price change from them before a look.
+  - The paper read stays blind only if the operator also avoids the Demo Trading website's P&L, position and order-history pages, which show the same returns.
+  - A look there before a look date is recorded here, and the read is then reported as unblinded.
+- **First look:** 2027-04-26, the futility look, as for this book.
+- **Demo rules** (triage register, 2026-11-04, section 5 row 5): a cost rule (median cost per side above 15 bps after 200 position changes) and a halt at 25% below the demo book's high. Neither changes this page's decision rules.
 
 ## Blinding
 Compute no return, P&L or price change from `ledger.jsonl` or the bar store's forward bars before a look below. Counts and statuses are fine. A look outside these dates is recorded here, and the read is then reported as unblinded.

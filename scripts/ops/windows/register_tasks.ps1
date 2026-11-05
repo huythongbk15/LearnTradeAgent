@@ -4,12 +4,14 @@
 # demo book. Run once from Windows PowerShell (not elevated):
 #   powershell -ExecutionPolicy Bypass -File \\wsl.localhost\Ubuntu\home\huythong\.qwenpaw\workspaces\trading\scripts\ops\windows\register_tasks.ps1
 # -Only DailyCheck registers that task alone and leaves the others untouched.
+# FlowFlush (book FLOW01's 5-minute demo run) is never in the default list: it is
+# registered only by name, with -Only FlowFlush.
 # Remove with:  Unregister-ScheduledTask -TaskName "TradingAgent-*" -Confirm:$false
 param(
     [string]$Distro = "Ubuntu",
     [string]$User = "huythong",
     [string]$Repo = "/home/huythong/.qwenpaw/workspaces/trading",
-    [ValidateSet("Runner", "Health", "DailyCheck", "Selection", "NewPerp", "FlowBid", "PerpDemo")]
+    [ValidateSet("Runner", "Health", "DailyCheck", "Selection", "NewPerp", "FlowBid", "PerpDemo", "FlowFlush")]
     [string[]]$Only = @("Runner", "Health", "DailyCheck", "Selection", "NewPerp", "FlowBid", "PerpDemo"),
     [switch]$WhatIf
 )
@@ -71,6 +73,16 @@ $perpdemo = New-ScheduledTaskAction -Execute "conhost.exe" `
 $perpdemoTrigger = New-ScheduledTaskTrigger -Once -At $start.AddMinutes(14) `
     -RepetitionInterval (New-TimeSpan -Hours 1)
 
+# Every 5 minutes from 00:02 local (:02, :07, :12, :17, ...): book FLOW01's 5-minute mode.
+# Two minutes after each 5-minute stamp, so a row published up to about 84 s late is seen,
+# and no run starts from :13 to :16, so a signed run has 3 minutes before the hourly run. Most runs only read
+# public data and sign nothing. The wrapper keeps out of :50 of an even UTC hour to
+# :06 of the odd hour, and skips while the hourly perp demo run holds its lock.
+$flowflush = New-ScheduledTaskAction -Execute "conhost.exe" `
+    -Argument "--headless wsl.exe -d $Distro -u $User --exec $Repo/scripts/ops/run_flow_flush.sh"
+$flowflushTrigger = New-ScheduledTaskTrigger -Once -At $start.AddMinutes(1) `
+    -RepetitionInterval (New-TimeSpan -Minutes 5)
+
 if ($WhatIf) {
     if ($Only -contains "Runner") { "Runner : conhost.exe $($runner.Arguments)  every 2h from $start" }
     if ($Only -contains "Health") { "Health : conhost.exe $($health.Arguments)  every 30 min from $($start.AddMinutes(19))" }
@@ -79,6 +91,7 @@ if ($WhatIf) {
     if ($Only -contains "NewPerp") { "NewPerp: conhost.exe $($newperp.Arguments)  weekly on $($newperpAt.DayOfWeek) at $($newperpAt.ToString('HH:mm')) local (Monday 04:07 UTC), first run $($newperpAt.ToString('yyyy-MM-dd'))" }
     if ($Only -contains "FlowBid") { "FlowBid: conhost.exe $($flowbid.Arguments)  every 5 min from $($start.AddMinutes(2))" }
     if ($Only -contains "PerpDemo") { "PerpDemo: conhost.exe $($perpdemo.Arguments)  every hour from $($start.AddMinutes(14))" }
+    if ($Only -contains "FlowFlush") { "FlowFlush: conhost.exe $($flowflush.Arguments)  every 5 min from $($start.AddMinutes(1))" }
     exit 0
 }
 if ($Only -contains "Runner") {
@@ -114,5 +127,10 @@ if ($Only -contains "FlowBid") {
 if ($Only -contains "PerpDemo") {
     Register-ScheduledTask -TaskName "TradingAgent-PerpDemo" -Action $perpdemo `
         -Trigger $perpdemoTrigger -Settings $settings `
-        -Description "Hourly perp pair book on Binance Demo Trading and its mainnet shadow ledger (scripts/ops/run_perp_demo.sh)" -Force
+        -Description "Hourly perp demo books on Binance Demo Trading (pair book with its mainnet shadow ledger, LV, LEARN, FLOW02, FLOW01), book HOLD and the H-LEARN-11 paper log (scripts/ops/run_perp_demo.sh)" -Force
+}
+if ($Only -contains "FlowFlush") {
+    Register-ScheduledTask -TaskName "TradingAgent-FlowFlushDemo" -Action $flowflush `
+        -Trigger $flowflushTrigger -Settings $settings `
+        -Description "Book FLOW01 on Binance Demo Trading every 5 min; signs only when an exit is due or a fresh event is present (scripts/ops/run_flow_flush.sh)" -Force
 }
