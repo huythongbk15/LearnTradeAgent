@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
-# The new perp pair book and book LV on Binance USD-M Demo Trading, the shadow ledger on
+# The new perp pair book, book LV, book LEARN (H-LEARN-11), book FLOW02 (H-FLOW-BTC-02) and
+# book FLOW01 (H-FLOW-BTC-01) on Binance USD-M Demo Trading, the shadow ledger on
 # mainnet prices, book HOLD (BTC bought once and held) on the same account's spot wallet,
 # and the H-LEARN-11 daily paper log on public mainnet data, started every hour by Windows Task Scheduler
 # (scripts/ops/windows/register_tasks.ps1). Rules: docs/operations/PERP_DEMO_RUNNER.md.
+# Book FLOW01 also has a 5-minute wrapper, scripts/ops/run_flow_flush.sh, on the same lock.
 # Execution switches (TRADING_EXECUTION_ENABLED, TRADING_KILL_SWITCH,
 # TRADING_ENTRY_KILL_SWITCH) and the demo key come from .env, as for the spot runner.
 set -uo pipefail
@@ -22,8 +24,9 @@ flock -n 9 || exit 0
 echo "=== $(date -u +%FT%TZ) perp_demo start pid=$$" >> "$LOG"
 # No timeout: an --execute run is never cut between an order and its record;
 # the lock keeps the next run out, and the next run reconciles first.
-TRADING_MODE=testnet PYTHONPATH="$ROOT/src:$ROOT" nice -n 19 "$ROOT/.venv/bin/python" -u \
-    scripts/live_perp_demo.py --execute --shadow --lv --pair-usd 500 "$@" >> "$LOG" 2>&1
+# OMP_NUM_THREADS=4: book LEARN fits the quarter's model in this run once a quarter.
+TRADING_MODE=testnet PYTHONPATH="$ROOT/src:$ROOT" OMP_NUM_THREADS=4 nice -n 19 "$ROOT/.venv/bin/python" -u \
+    scripts/live_perp_demo.py --execute --shadow --lv --learn --flow02 --flow01 --pair-usd 500 "$@" >> "$LOG" 2>&1
 rc=$?
 # Book HOLD: after its one buy, a run only reconciles and checks the wallet.
 TRADING_MODE=testnet PYTHONPATH="$ROOT/src:$ROOT" nice -n 19 "$ROOT/.venv/bin/python" -u \
