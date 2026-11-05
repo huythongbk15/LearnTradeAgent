@@ -369,8 +369,19 @@ class LowVolBook:
         return self.roll(f"r{now_ms // 60_000:x}", pick, now_ms, now_ms + hold_h * HOUR_MS, rehearsal=True)
 
     def _names(self, pick: dict) -> tuple[list[str], list[str], dict[str, str]]:
+        """The pick's demo symbols to hold long and short, and the coins skipped with their reasons.
+
+        Skipped: a coin without a demo perp (``not_on_demo``), one another
+        book holds, or BTCUSDT (``held_by_<holder>``), and one whose symbol
+        still carries a stop a failed LV block could not cancel
+        (``stale_stop``, the block's ``stale_stops``): that reduce-only buy
+        would sit under a new short as a second stop.
+        """
+
         trading = self.venue.trading_symbols()
         taken = {**self.book.taken(self.name), rules.HEDGE: PAIR_BOOK}   # BTCUSDT stays the pair hedges' and the BTC books'
+        stale = {s for b in self.blocks.pairs.values() if b.get("status") == "failed"
+                 for s in (b.get("stale_stops") or {}).values()}
         skipped: dict[str, str] = {}
         out: tuple[list[str], list[str]] = ([], [])
         for side, coins in ((0, pick.get("long") or []), (1, pick.get("short") or [])):
@@ -383,6 +394,8 @@ class LowVolBook:
                     skipped[coin] = "not_on_demo"
                 elif s in taken:
                     skipped[coin] = f"held_by_{taken[s]}"
+                elif s in stale:
+                    skipped[coin] = "stale_stop"
                 else:
                     out[side].append(s)
         return out[0], out[1], skipped
@@ -492,31 +505,51 @@ class LowVolBook:
         Symbols the venue holds short go first, then the rest in the block's
         order: a roll cancels the current shorts' stops before anything else,
         so a short is what a flatten cut short would leave unprotected. Each
-        symbol is taken on its own, its stops and then its position. An error
-        on one symbol (a read, a flatten order whose reply is lost, filled in
-        part or filled without a price) does not stop the others. A cancel is
-        not such an error: ``venue.cancel_stop`` answers False when the venue
-        refuses one or the call fails, and the list read after it decides.
-        Once every symbol was tried, the first error is raised with the block
-        still ``rolling``: the next run's check() records what the venue
-        filled and takes off what it still holds.
+        symbol is taken on its own: its LV stops are listed, then its position
+        is read.
 
-        On each symbol every LV stop the venue lists is cancelled and the list
-        is read again. A stop the venue no longer lists has its intent closed:
-        cancelled when this flatten's cancel took it off. A stop of this block
-        or of the previous one that went without that cancel fired when the
-        venue is flat and the leg still holds a short once the fills of the
-        block's own orders on the symbol that the leg does not hold yet are
-        counted (``_rest``; an order whose outcome is unknown rules it out):
-        the leg is marked ``stopped`` and the intent filled, as check()
-        records a fired stop. Otherwise the previous block's stop (cancelled
-        by the roll, its read-back cut off) is closed as cancelled, and this
-        block's stop (sent with an unknown outcome, or never taken) as
-        rejected. A stop the venue still lists keeps its intent open and goes
-        to the block's ``stale_stops``. On a failed block each later check()
-        tries the cancel again and closes the intent once the stop is gone; a
-        block left ``rolling`` lists and cancels its symbols' stops again in
-        the next flatten. The position is taken off either way.
+        - A short is bought back, reduce-only at market, before any of its
+          stops is cancelled, and they are cancelled only once that order has
+          filled in full. A position read that fails, or a buy-back that
+          fails, whose reply is lost, or that fills only in part, leaves every
+          stop of the symbol at the venue: it keeps protecting what is left,
+          and a reduce-only stop larger than the position cannot open
+          anything.
+        - A short with no stop listed whose own position read fails is bought
+          back by the quantity of the read of all positions that set the
+          order, but only when no stop of this block or the previous one on
+          the symbol that the venue took is still open in the record
+          (``_stop_taken``): the roll cancelled the old stop, and the new one
+          was never sent or its send raised. Nothing but this flatten moves
+          that symbol then, and it would otherwise wait for the next run
+          without a stop. A stop the venue took that it no longer lists may
+          have fired since that read, and a reduce-only buy on a flat symbol
+          is rejected: such a symbol waits for the next pass. A stop whose
+          send raised although the venue took it is not seen this way; if it
+          fires in that same window, the buy-back is rejected and the next
+          reconcile stops every book for operator review.
+        - A long carries no LV stop of its own: any LV stop listed on it is
+          cancelled, then the long is sold, reduce-only. An error while those
+          stops are cancelled or listed again does not hold up the sale.
+        - On a flat symbol the listed stops are cancelled.
+
+        An error on one symbol (a read, an order whose reply is lost, filled
+        in part or filled without a price) does not stop the others. A cancel
+        is not such an error: ``venue.cancel_stop`` answers False when the
+        venue refuses one or the call fails, and the list read after it
+        decides. Once every symbol was tried, the first error is raised with
+        the block still ``rolling``: the next run's check() records what the
+        venue filled, takes off what it still holds, and lists and cancels
+        the stops this pass left.
+
+        Once a symbol's stops are cancelled, the list is read again and the
+        intents are closed (``_close_flatten_stops``). A stop the venue still
+        lists keeps its intent open and goes to the block's ``stale_stops``.
+        On a failed block each later check() tries the cancel again and
+        closes the intent once the stop is gone; a block left ``rolling``
+        lists and cancels its symbols' stops again in the next flatten. The
+        position is taken off either way. A failed block's ``stale_stops``
+        keep their symbols out of the next roll (``_names``).
 
         Each flatten fill is recorded on its leg as it comes. After the
         positions are off, what a cut-off order filled is recorded from the
@@ -528,39 +561,64 @@ class LowVolBook:
 
         legs = b.get("legs") or {}
         prev = (self.blocks.pairs.get(str(b.get("prev") or "")) or {}).get("legs") or {}
+        was_stale = set(b.get("stale_stops") or {})
         order = list(b.get("touched") or legs)
         try:
             held = {s: p.qty for s, p in self.venue.positions().items()}
+            read = True
         except Exception as exc:     # sets the order only: each symbol reads its position again below
             self.book.audit("perp_lv_flatten_error", block=bid, step="order", error=type(exc).__name__)
             held = {s: float((legs.get(s) or {}).get("qty") or 0.0) for s in order}
+            read = False
         order.sort(key=lambda s: held.get(s, 0.0) >= -QTY_TOL)     # shorts first, the block's order kept in each group
         errors: list[Exception] = []
         stale: dict[str, str] = {}
         for s in order:
-            stops = None
+            leg, was = legs.get(s), prev.get(s) or {}
+            before: set[str] | None = None
             try:
                 before = self.venue.open_stop_keys(s)
-                tried = {k: self.venue.cancel_stop(s, key=k) for k in sorted(before) if k.startswith("lv")}
-                stops = (before, tried, self.venue.open_stop_keys(s) if tried else before)
-            except Exception as exc:
+            except Exception as exc:     # the position is still taken off; its stops wait for the next pass
                 errors.append(exc)
                 self.book.audit("perp_lv_flatten_error", block=bid, symbol=s, step="stops", error=type(exc).__name__)
             try:
-                pos = self.venue.positions().get(s)
-                q = pos.qty if pos is not None else 0.0
-                if stops is not None:
-                    self._close_flatten_stops(bid, s, legs.get(s), prev.get(s) or {}, q, *stops, stale=stale)
-                if abs(q) > QTY_TOL:
-                    key = self._fresh_key(bid, s, "f")
-                    side = "buy" if q < 0 else "sell"
-                    res = self.book._market(s, side, abs(q), key, reduce_only=True)
-                    if s in legs:
-                        _add_fill(legs[s], _lv_fill(key, side, res, 0.0), side)
-                        self.blocks.save()
+                try:
+                    pos = self.venue.positions().get(s)
+                    q = pos.qty if pos is not None else 0.0
+                except Exception as exc:
+                    if not (read and before == set() and held.get(s, 0.0) < -QTY_TOL
+                            and not self._stop_taken(bid, s, was)):
+                        raise
+                    # A short with no stop listed and none the venue took (the roll cancelled the old one, the new one
+                    # never reached it): nothing but this flatten moves it, so the read that set the order still holds.
+                    # It is bought back now, not left without a stop until the next run; the error keeps the block
+                    # rolling, and the next pass reads the venue again.
+                    errors.append(exc)
+                    self.book.audit("perp_lv_flatten_error", block=bid, symbol=s, step="position",
+                                    error=type(exc).__name__)
+                    self._flatten_order(bid, s, leg, held[s])
+                    continue
+                if q < -QTY_TOL:
+                    # Bought back before its stops go: ``_market`` returns only once the order has filled in full, and
+                    # until then the stops protect the short.
+                    self._flatten_order(bid, s, leg, q)
             except Exception as exc:
                 errors.append(exc)
                 self.book.audit("perp_lv_flatten_error", block=bid, symbol=s, step="position", error=type(exc).__name__)
+                continue
+            if before is not None:
+                try:
+                    self._cancel_flatten_stops(bid, s, leg, was, q, before, stale=stale, was_stale=was_stale)
+                except Exception as exc:     # a long is still sold below
+                    errors.append(exc)
+                    self.book.audit("perp_lv_flatten_error", block=bid, symbol=s, step="stops", error=type(exc).__name__)
+            if q > QTY_TOL:      # a long: no LV stop of its own
+                try:
+                    self._flatten_order(bid, s, leg, q)
+                except Exception as exc:
+                    errors.append(exc)
+                    self.book.audit("perp_lv_flatten_error", block=bid, symbol=s, step="position",
+                                    error=type(exc).__name__)
         if stale:
             b["stale_stops"] = stale
         else:
@@ -580,21 +638,81 @@ class LowVolBook:
         self.blocks.save()
         self.book.audit("perp_lv_flattened", block=bid, reason=reason)
 
+    def _flatten_order(self, bid: str, s: str, leg: dict | None, q: float) -> None:
+        """The flatten's reduce-only market order for the venue's ``q`` on ``s``, its fill recorded on the leg.
+
+        Raises unless the venue filled it in full (``Book._market``).
+        """
+
+        key = self._fresh_key(bid, s, "f")
+        side = "buy" if q < 0 else "sell"
+        res = self.book._market(s, side, abs(q), key, reduce_only=True)
+        if leg is not None:
+            _add_fill(leg, _lv_fill(key, side, res, 0.0), side)
+            self.blocks.save()
+
+    def _stop_taken(self, bid: str, s: str, was: dict) -> bool:
+        """Whether the venue took a stop of this block or the previous one on ``s`` whose intent is still open.
+
+        Taken: its send was answered (``acknowledged`` or ``open``). A stop
+        the roll cancelled is closed, and one whose send raised may never have
+        reached the venue: neither counts. ``was`` is the previous block's leg.
+        """
+
+        ledger = self.book.orders.state.order_ledger
+        old = was.get("stop_key") if was.get("state") == "rolled" else None
+        return any(str((ledger.get(k) or {}).get("status") or "") in ("acknowledged", "open")
+                   for k in (f"lv{bid}-{s[:18]}-st", old) if k)
+
+    def _cancel_flatten_stops(self, bid: str, s: str, leg: dict | None, was: dict, q: float, before: set[str], *,
+                              stale: dict[str, str], was_stale: set[str]) -> None:
+        """Cancel the LV stops ``before`` lists on ``s``, read the list again and close their intents."""
+
+        tried = {k: self.venue.cancel_stop(s, key=k) for k in sorted(before) if k.startswith("lv")}
+        after = self.venue.open_stop_keys(s) if tried else before
+        self._close_flatten_stops(bid, s, leg, was, q, before, tried, after, stale=stale, was_stale=was_stale)
+
     def _close_flatten_stops(self, bid: str, s: str, leg: dict | None, was: dict, q: float, before: set[str],
-                             tried: dict[str, bool], after: set[str], *, stale: dict[str, str]) -> None:
+                             tried: dict[str, bool], after: set[str], *, stale: dict[str, str],
+                             was_stale: set[str]) -> None:
         """Close the intents of one symbol's LV stops in a flatten, from what the venue lists (``_flatten``).
 
         ``before`` and ``after`` are the stops the venue listed before and after
         this flatten's cancels, ``tried`` each cancel's answer, ``q`` the venue
-        position read after them, ``was`` the previous block's leg. The leg's
-        short counts as gone only with the block's own unrecorded fills on the
-        symbol added (``_rest``).
+        position read before this flatten's own order on the symbol (a short
+        is bought back in full before its stops are cancelled), ``was`` the
+        previous block's leg, ``was_stale`` the block's ``stale_stops`` when
+        this flatten began.
+
+        A stop the venue still lists keeps its intent open and goes to
+        ``stale``. One it no longer lists has its intent closed:
+
+        - cancelled, when this flatten's cancel took it off;
+        - filled (``exchange_status`` triggered), when it went without that
+          cancel while ``q`` is flat and the leg still holds a short once the
+          fills of the block's own orders on the symbol that the leg does not
+          hold yet are counted (``_rest``; an order whose outcome is unknown
+          rules it out): it fired. The leg is saved ``stopped`` before the
+          intent is closed, as check() records a fired stop;
+        - rejected, for this block's own stop that the venue never
+          acknowledged (its send raised) and that no earlier pass found
+          listed (``was_stale``);
+        - otherwise cancelled: the previous block's stop (cancelled by the
+          roll, its read-back cut off), or a stop of this block that the venue
+          took and no longer lists.
+
+        A pass cut off after it saved a leg ``stopped`` and before it closed
+        that stop's intent left the intent open: it is closed here first, as
+        filled.
         """
 
         mine = f"lv{bid}-{s[:18]}-st"
         old = was.get("stop_key") if was.get("state") == "rolled" else None
+        if leg is not None and leg.get("state") == "stopped" and leg.get("stop_key"):
+            self._close_stop_intent(leg["stop_key"], "filled", exchange_status="triggered")
         rest = self._rest(bid, s, leg) if leg is not None and leg.get("state") == "held" and abs(q) <= QTY_TOL else None
         short_gone = rest is not None and rest < -QTY_TOL
+        ledger = self.book.orders.state.order_ledger
         for key in sorted({k for k in before if k.startswith("lv")} | {mine} | ({old} if old else set())):
             if key in after:
                 stale[key] = s
@@ -603,17 +721,19 @@ class LowVolBook:
                 self._close_stop_intent(key, "cancelled")
             elif short_gone and leg is not None and key in (mine, old) and self._stop_live(key):
                 # Gone without this flatten's cancel, with the venue flat and the leg still short once the block's own
-                # fills are counted: it fired.
+                # fills are counted: it fired. The leg is saved first: a run cut off before the intent is closed leaves
+                # a stopped leg, whose intent the next pass closes (above).
                 src = was if key == old else leg
                 leg.update(state="stopped", stopped_at=_now_iso(), stop_key=key)
                 if src.get("stop_price"):
                     leg["stop_price"] = src["stop_price"]
-                self._close_stop_intent(key, "filled", exchange_status="triggered")
                 self.blocks.save()
+                self._close_stop_intent(key, "filled", exchange_status="triggered")
                 self.book.audit("perp_lv_stop", block=bid, symbol=s)
                 short_gone = False
-            elif key == mine and key not in before:       # sent with an unknown outcome, or never taken
-                self._close_stop_intent(key, "rejected", error="block_failed")
+            elif (key == mine and key not in before and key not in was_stale
+                  and str((ledger.get(key) or {}).get("status") or "") in ("submitted", "reconciling")):
+                self._close_stop_intent(key, "rejected", error="block_failed")     # its send raised; never listed
             else:
                 self._close_stop_intent(key, "cancelled")
 

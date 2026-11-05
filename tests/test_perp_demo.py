@@ -1227,12 +1227,12 @@ def test_lv_roll_flatten_keeps_a_stop_it_could_not_cancel_until_a_later_run_does
     assert [k for k, o in fake.algo.items() if o["symbol"] == "CCC/USDT:USDT"] == [f"lv{rep['lv']['rolled']}-CCCUSDT-st"]
 
 
-@pytest.mark.parametrize("fired", ["before_the_run", "as_the_flatten_cancels"])
+@pytest.mark.parametrize("fired", ["before_the_run", "as_the_flatten_lists_it"])
 def test_lv_flatten_records_an_old_stop_that_fired_as_a_stopped_leg(lvworld, fired):
     """The week-2 roll is killed right after its first save, before it cancels CCC's old stop. That stop then fires:
-    before the next run, or just as the next run's flatten cancels it (the cancel finds no order). The flatten finds
-    the venue flat on CCC and the leg still short: it marks the leg stopped and the stop's intent filled, as check()
-    records a fired stop, and sends nothing on CCC."""
+    before the next run, or just after the next run's flatten lists it, before it reads CCC's position (its cancel
+    then finds no order). The flatten finds the venue flat on CCC and the leg still short: it marks the leg stopped
+    and the stop's intent filled, as check() records a fired stop, and sends nothing on CCC."""
 
     fake, book, lv, picks = lvworld
     write_picks(picks, (MON, ["AAA", "BBB"], ["CCC"]), (MON + WEEK, ["AAA", "BBB", "EEE"], ["CCC"]))
@@ -1252,14 +1252,16 @@ def test_lv_flatten_records_an_old_stop_that_fired_as_a_stopped_leg(lvworld, fir
     if fired == "before_the_run":
         fake.fire_stop("CCCUSDT")
     else:
-        real_cancel = fake.cancel_order
+        real_open = fake.fetch_open_orders
 
-        def cancel(oid, sym, params=None):
-            fake.cancel_order = real_cancel
-            fake.fire_stop("CCCUSDT")
-            raise ccxt.OrderNotFound("unknown order")
+        def open_orders(sym=None, since=None, limit=None, params=None):
+            out = real_open(sym, since, limit, params)
+            if (params or {}).get("trigger") and sym == "CCC/USDT:USDT":
+                fake.fetch_open_orders = real_open
+                fake.fire_stop("CCCUSDT")
+            return out
 
-        fake.cancel_order = cancel
+        fake.fetch_open_orders = open_orders
     b2, lv2 = lv_process(lv, picks)
     n = len(fake.calls)
     cycle(b2, lv2, ROLL + WEEK + H)
@@ -1415,6 +1417,463 @@ def test_lv_flatten_orders_by_the_legs_when_its_first_position_read_fails(lvworl
     assert blocks[bid]["status"] == "failed" and "unsettled" not in blocks[bid]
     assert all(leg["qty"] == 0.0 and leg["state"] == "closed" for leg in blocks[bid]["legs"].values())
     assert book.orders.unfinished_orders() == {}
+
+
+@pytest.mark.parametrize("fault", ["positions_down", "orders_down", "thin_book"])
+def test_lv_flatten_cancels_a_shorts_stops_only_after_its_buy_back_filled_in_full(lvworld, fault):
+    """The week-2 roll fails at EEE's new stop, after it placed CCC's and 1000PEPE's. For the rest of that run every
+    position read fails, every market order fails before it acts, or every buy-back fills 40% and expires (a thin
+    Demo book). The flatten tries each short's buy-back before its stops: none fills in full, so CCC and 1000PEPE
+    keep stops that cover what the venue still holds. EEE, whose stop failed, is the one short without one. The block
+    stays rolling. Once positions read again, or the books are deep again, the next run takes everything off."""
+
+    fake, book, lv, picks = lvworld
+    write_picks(picks, (MON, ["AAA", "BBB"], ["CCC", "PEPE"]), (MON + WEEK, ["AAA", "BBB"], ["CCC", "PEPE", "EEE"]))
+    cycle(book, lv, ROLL)
+    real_create, real_positions = fake.create_order, fake.fetch_positions
+    down = {"on": False}
+    reduce_only: list[tuple[str, str, float, float]] = []     # every reduce-only order: side, amount, venue before
+
+    def create(s, typ, side, amount, price=None, params=None):
+        p = params or {}
+        cid = str(p.get("clientOrderId") or "")
+        if "stopLossPrice" in p:
+            if s == "EEE/USDT:USDT":
+                down["on"] = True
+                raise ccxt.NetworkError("stop timeout")
+            return real_create(s, typ, side, amount, price, params)
+        if p.get("reduceOnly"):
+            reduce_only.append((s, side, float(amount), fake.positions.get(s, 0.0)))
+        if down["on"] and fault == "orders_down":
+            raise ccxt.NetworkError("orders endpoint down")
+        if down["on"] and fault == "thin_book" and side == "buy" and p.get("reduceOnly"):
+            q = round(float(amount) * 0.4, 3)
+            fake.calls.append(("order", s, typ, side, amount, dict(p)))
+            fake.positions[s] = round(fake.positions[s] + q, 3)
+            px = fake.prices[fake.markets[s]["id"]]
+            fake.orders[cid] = {"id": f"t{len(fake.orders)}", "clientOrderId": cid, "symbol": s, "type": "market",
+                                "side": side, "amount": amount, "filled": q, "average": px, "cost": q * px,
+                                "status": "expired", "reduceOnly": True}
+            return dict(fake.orders[cid])
+        return real_create(s, typ, side, amount, price, params)
+
+    def positions(symbols=None):
+        if down["on"] and fault == "positions_down":
+            raise ccxt.NetworkError("positionRisk down")
+        return real_positions(symbols)
+
+    fake.create_order, fake.fetch_positions = create, positions
+    with pytest.raises(Exception):
+        cycle(book, lv, ROLL + WEEK)
+    blocks = PairStore.load(lv.blocks.path, KEY).pairs
+    (bid,) = [k for k, b in blocks.items() if b.get("prev")]
+    assert blocks[bid]["status"] == "rolling"
+    kept = [f"lv{bid}-1000PEPEUSDT-st", f"lv{bid}-CCCUSDT-st"]
+    assert sorted(fake.algo) == kept
+    for key in kept:
+        q = fake.positions[fake.algo[key]["symbol"]]
+        assert q < 0 and float(fake.algo[key]["amount"]) >= -q - 1e-9     # still covers what the venue holds
+        assert book.orders.state.order_ledger[key]["status"] == "open"
+    shorts = sorted(s for s, q in fake.positions.items() if q < -1e-9)
+    assert shorts == ["1000PEPE/USDT:USDT", "CCC/USDT:USDT", "EEE/USDT:USDT"]
+    down["on"] = False
+    b2, lv2 = lv_process(lv, picks)
+    if fault == "orders_down":
+        # The buy-backs raised before they acted: the reconcile cannot find them and stops every book for review,
+        # with the shorts still under their stops.
+        with pytest.raises(PerpBookError, match="not at the venue"):
+            cycle(b2, lv2, ROLL + WEEK + H)
+        assert sorted(fake.algo) == kept
+        return
+    cycle(b2, lv2, ROLL + WEEK + H)
+    assert all(abs(q) < 1e-9 for q in fake.positions.values()) and fake.algo == {}
+    b = PairStore.load(lv.blocks.path, KEY).pairs[bid]
+    assert b["status"] == "failed" and "unsettled" not in b and "stale_stops" not in b
+    assert all(leg["qty"] == 0.0 and leg["state"] == "closed" for leg in b["legs"].values())
+    assert all(b2.orders.state.order_ledger[key]["status"] == "cancelled" for key in kept)
+    assert b2.orders.unfinished_orders() == {}
+    for s, side, amount, before in reduce_only:                      # never more than held, never the wrong side
+        assert (before < 0) == (side == "buy") and amount <= abs(before) + 1e-9, (s, side, amount, before)
+
+
+def test_lv_flatten_buys_back_a_short_without_a_stop_when_its_own_position_read_fails(lvworld):
+    """The week-2 roll cancels 1000PEPE's old stop, then cannot cancel CCC's (the cancel times out once). The
+    flatten's read of all positions works; 1000PEPE's own read then times out. 1000PEPE has no stop left and nothing
+    but the flatten moves it, so it is bought back by the quantity of the first read. The block stays rolling for
+    the read error, and the next run finds the venue flat and marks the block failed."""
+
+    fake, book, lv, picks = lvworld
+    write_picks(picks, (MON, ["AAA", "BBB"], ["CCC", "PEPE"]), (MON + WEEK, ["AAA", "CCC"], ["BBB", "EEE"]))
+    cycle(book, lv, ROLL)
+    real_cancel, real_positions = fake.cancel_order, fake.fetch_positions
+    reads = {"after_cancel": None}
+
+    def cancel(oid, sym, params=None):
+        if sym == "CCC/USDT:USDT" and reads["after_cancel"] is None:
+            reads["after_cancel"] = 0
+            raise ccxt.NetworkError("cancel timeout")
+        return real_cancel(oid, sym, params)
+
+    def positions(symbols=None):
+        if reads["after_cancel"] is not None:
+            reads["after_cancel"] += 1
+            if reads["after_cancel"] == 2:                    # the first read sets the order; 1000PEPE's own fails
+                raise ccxt.NetworkError("positions timeout")
+        return real_positions(symbols)
+
+    fake.cancel_order, fake.fetch_positions = cancel, positions
+    with pytest.raises(ccxt.NetworkError, match="positions timeout"):
+        cycle(book, lv, ROLL + WEEK)
+    fake.cancel_order, fake.fetch_positions = real_cancel, real_positions
+    assert all(abs(q) < 1e-9 for q in fake.positions.values()) and fake.algo == {}   # nothing left without a stop
+    blocks = PairStore.load(lv.blocks.path, KEY).pairs
+    (bid,) = [k for k, b in blocks.items() if b.get("prev")]
+    assert blocks[bid]["status"] == "rolling"
+    bad = [e["details"] for e in events(book.audit_path.parent) if e["event"] == "perp_lv_flatten_error"]
+    assert [(e.get("symbol"), e["step"]) for e in bad] == [("1000PEPEUSDT", "position")]
+    assert blocks[bid]["legs"]["1000PEPEUSDT"]["fills"] == [[f"lv{bid}-1000PEPEUSDT-f0", 25_000.0, 0.01]]
+    b2, lv2 = lv_process(lv, picks)
+    n = len(fake.calls)
+    cycle(b2, lv2, ROLL + WEEK + H)
+    assert not [c for c in fake.calls[n:] if c[0] == "order"]
+    b = PairStore.load(lv.blocks.path, KEY).pairs[bid]
+    assert b["status"] == "failed" and "unsettled" not in b
+    assert all(leg["qty"] == 0.0 and leg["state"] == "closed" for leg in b["legs"].values())
+    assert b2.orders.unfinished_orders() == {}
+
+
+def test_lv_flatten_does_not_buy_back_by_its_first_read_a_short_whose_taken_stop_is_no_longer_listed(lvworld):
+    """The week-2 roll fails at EEE's new stop, after it placed CCC's. The flatten's read of all positions finds CCC
+    short; CCC's new stop then fires, so the venue lists no stop on CCC, and CCC's own position read times out. The
+    venue took that stop and its intent is still open: it may have fired since the first read, and a reduce-only buy
+    on a flat symbol would be rejected and stop every book for review. So the flatten sends nothing on CCC, and the
+    next run finds CCC flat and records the stop as fired."""
+
+    fake, book, lv, picks = lvworld
+    write_picks(picks, (MON, ["AAA", "BBB"], ["CCC", "PEPE"]), (MON + WEEK, ["AAA", "BBB"], ["CCC", "PEPE", "EEE"]))
+    cycle(book, lv, ROLL)
+    real_create, real_open, real_positions = fake.create_order, fake.fetch_open_orders, fake.fetch_positions
+    st = {"down": False, "fired": False, "failed": False, "listed": None}
+
+    def create(s, typ, side, amount, price=None, params=None):
+        if "stopLossPrice" in (params or {}) and s == "EEE/USDT:USDT":
+            st["down"] = True
+            raise ccxt.NetworkError("stop timeout")
+        return real_create(s, typ, side, amount, price, params)
+
+    def open_orders(sym=None, since=None, limit=None, params=None):
+        if (params or {}).get("trigger"):
+            st["listed"] = sym
+        return real_open(sym, since, limit, params)
+
+    def positions(symbols=None):
+        if st["down"] and not st["fired"]:            # the flatten's first read; CCC's stop fires right after it
+            out = real_positions(symbols)
+            st["fired"] = True
+            fake.fire_stop("CCCUSDT")
+            return out
+        if st["fired"] and not st["failed"] and st["listed"] == "CCC/USDT:USDT":
+            st["failed"] = True
+            raise ccxt.NetworkError("positions timeout")
+        return real_positions(symbols)
+
+    fake.create_order, fake.fetch_open_orders, fake.fetch_positions = create, open_orders, positions
+    with pytest.raises(ccxt.NetworkError, match="positions timeout"):
+        cycle(book, lv, ROLL + WEEK)
+    fake.create_order, fake.fetch_open_orders, fake.fetch_positions = real_create, real_open, real_positions
+    assert st["fired"] and st["failed"]
+    blocks = PairStore.load(lv.blocks.path, KEY).pairs
+    (bid,) = [k for k, b in blocks.items() if b.get("prev")]
+    mine = f"lv{bid}-CCCUSDT-st"
+    assert blocks[bid]["status"] == "rolling"
+    assert not [k for k in book.orders.state.order_ledger if k.startswith(f"lv{bid}-CCCUSDT-f")]
+    assert all(abs(q) < 1e-9 for q in fake.positions.values()) and fake.algo == {}
+    b2, lv2 = lv_process(lv, picks)
+    n = len(fake.calls)
+    cycle(b2, lv2, ROLL + WEEK + H)
+    assert not [c for c in fake.calls[n:] if c[0] == "order"]
+    b = PairStore.load(lv.blocks.path, KEY).pairs[bid]
+    assert b["status"] == "failed" and "unsettled" not in b
+    assert b["legs"]["CCCUSDT"]["state"] == "stopped" and b["legs"]["CCCUSDT"]["stop_key"] == mine
+    rec = b2.orders.state.order_ledger[mine]
+    assert rec["status"] == "filled" and rec["exchange_status"] == "triggered"
+    assert b2.orders.unfinished_orders() == {}
+
+
+def test_lv_stop_whose_send_raised_but_an_earlier_pass_listed_is_closed_as_cancelled_once_dropped(lvworld):
+    """The week-2 roll sends CCC's new stop: the venue takes it but the reply is lost, so its intent stays
+    reconciling and the roll fails there. The flatten buys CCC back, but its cancel of that stop times out: the stop
+    stays listed (stale). AAA's sell reply is lost, so the block stays rolling. Before the next run the venue drops
+    the stop. The next pass closes its intent as cancelled, not rejected: an earlier pass found it listed, so the
+    venue took it. EEE's stop, never sent, has no intent."""
+
+    fake, book, lv, picks = lvworld
+    write_picks(picks, (MON, ["AAA", "BBB"], ["CCC"]), (MON + WEEK, ["AAA", "BBB"], ["CCC", "EEE"]))
+    cycle(book, lv, ROLL)
+    real_create, real_cancel = fake.create_order, fake.cancel_order
+    st = {"failed": False}
+
+    def create(s, typ, side, amount, price=None, params=None):
+        p = params or {}
+        out = real_create(s, typ, side, amount, price, params)
+        if "stopLossPrice" in p and s == "CCC/USDT:USDT":
+            st["failed"] = True
+            raise ccxt.NetworkError("reply lost")              # the venue took it
+        if st["failed"] and s == "AAA/USDT:USDT" and str(p.get("clientOrderId", "")).endswith("-f0"):
+            raise ccxt.NetworkError("reply lost")
+        return out
+
+    def cancel(oid, sym, params=None):
+        if st["failed"] and sym == "CCC/USDT:USDT":
+            raise ccxt.NetworkError("cancel timeout")
+        return real_cancel(oid, sym, params)
+
+    fake.create_order, fake.cancel_order = create, cancel
+    with pytest.raises(PerpBookError):
+        cycle(book, lv, ROLL + WEEK)
+    fake.create_order, fake.cancel_order = real_create, real_cancel
+    blocks = PairStore.load(lv.blocks.path, KEY).pairs
+    (bid,) = [k for k, b in blocks.items() if b.get("prev")]
+    mine = f"lv{bid}-CCCUSDT-st"
+    assert blocks[bid]["status"] == "rolling" and blocks[bid]["stale_stops"] == {mine: "CCCUSDT"}
+    assert book.orders.state.order_ledger[mine]["status"] == "reconciling"
+    assert set(fake.algo) == {mine} and pos(fake, "CCCUSDT") == pytest.approx(0)
+    del fake.algo[mine]                                       # the venue drops it before the next run
+    b2, lv2 = lv_process(lv, picks)
+    cycle(b2, lv2, ROLL + WEEK + H)
+    b = PairStore.load(lv.blocks.path, KEY).pairs[bid]
+    assert b["status"] == "failed" and "stale_stops" not in b
+    led = b2.orders.state.order_ledger
+    assert led[mine]["status"] == "cancelled" and led[mine].get("error") != "block_failed"
+    assert f"lv{bid}-EEEUSDT-st" not in led
+    assert all(abs(q) < 1e-9 for q in fake.positions.values()) and b2.orders.unfinished_orders() == {}
+
+
+def test_lv_flatten_closes_its_own_acknowledged_stop_the_venue_dropped_as_cancelled(lvworld):
+    """The week-2 roll places CCC's new stop (acknowledged), then fails at EEE's (its send times out; the venue never
+    takes it). Just then the venue drops CCC's stop. The flatten finds CCC still short with no stop listed and buys
+    it back. CCC's stop was taken by the venue, so its intent is closed as cancelled; EEE's, never acknowledged and
+    never listed, as rejected."""
+
+    fake, book, lv, picks = lvworld
+    write_picks(picks, (MON, ["AAA", "BBB"], ["CCC"]), (MON + WEEK, ["AAA", "BBB"], ["CCC", "EEE"]))
+    cycle(book, lv, ROLL)
+    real_create = fake.create_order
+
+    def create(s, typ, side, amount, price=None, params=None):
+        if "stopLossPrice" in (params or {}) and s == "EEE/USDT:USDT":
+            for k in [k for k, o in fake.algo.items() if o["symbol"] == "CCC/USDT:USDT"]:
+                del fake.algo[k]                              # the venue drops CCC's new stop
+            raise ccxt.NetworkError("stop timeout")
+        return real_create(s, typ, side, amount, price, params)
+
+    fake.create_order = create
+    with pytest.raises(PerpBookError, match="outcome unknown"):
+        cycle(book, lv, ROLL + WEEK)
+    fake.create_order = real_create
+    blocks = PairStore.load(lv.blocks.path, KEY).pairs
+    (bid,) = [k for k, b in blocks.items() if b.get("prev")]
+    mine, eee = f"lv{bid}-CCCUSDT-st", f"lv{bid}-EEEUSDT-st"
+    assert blocks[bid]["status"] == "failed" and "stale_stops" not in blocks[bid]
+    assert all(abs(q) < 1e-9 for q in fake.positions.values()) and fake.algo == {}
+    led = book.orders.state.order_ledger
+    assert led[mine]["status"] == "cancelled" and led[mine].get("error") != "block_failed"
+    assert led[eee]["status"] == "rejected" and led[eee]["error"] == "block_failed"
+    assert book.orders.unfinished_orders() == {}
+
+
+def test_lv_flatten_sells_a_long_when_its_stop_list_cannot_be_read_again(lvworld):
+    """CCC flips from short to long in week 2. The roll's cancel of CCC's old stop times out and a lagging list read
+    shows it gone, so the venue keeps that reduce-only buy under the new long. The roll then fails at EEE's stop. The
+    flatten cancels the old stop on CCC, and its read of CCC's stop list after the cancel times out: CCC is still
+    sold. The block stays rolling for the read error, and the next run marks it failed."""
+
+    fake, book, lv, picks = lvworld
+    write_picks(picks, (MON, ["AAA", "BBB"], ["CCC"]), (MON + WEEK, ["AAA", "BBB", "CCC"], ["EEE"]))
+    cycle(book, lv, ROLL)
+    old = lv_block(lv)["legs"]["CCCUSDT"]["stop_key"]
+    real_create, real_cancel, real_open = fake.create_order, fake.cancel_order, fake.fetch_open_orders
+    phase = {"n": 0}
+
+    def create(s, typ, side, amount, price=None, params=None):
+        if "stopLossPrice" in (params or {}) and s == "EEE/USDT:USDT":
+            raise ccxt.NetworkError("stop timeout")
+        return real_create(s, typ, side, amount, price, params)
+
+    def cancel(oid, sym, params=None):
+        if sym == "CCC/USDT:USDT":
+            if phase["n"] == 0:                               # the roll's cancel: the venue keeps the stop
+                phase["n"] = 1
+                raise ccxt.NetworkError("cancel timeout")
+            if phase["n"] == 2:                               # the flatten's cancel works
+                phase["n"] = 3
+        return real_cancel(oid, sym, params)
+
+    def open_orders(sym=None, since=None, limit=None, params=None):
+        if (params or {}).get("trigger") and sym == "CCC/USDT:USDT":
+            if phase["n"] == 1:                               # the roll's read after its cancel lags
+                phase["n"] = 2
+                return []
+            if phase["n"] == 3:                               # the flatten's read after its cancel
+                phase["n"] = 4
+                raise ccxt.NetworkError("open orders timeout")
+        return real_open(sym, since, limit, params)
+
+    fake.create_order, fake.cancel_order, fake.fetch_open_orders = create, cancel, open_orders
+    with pytest.raises(ccxt.NetworkError, match="open orders timeout"):
+        cycle(book, lv, ROLL + WEEK)
+    fake.create_order, fake.cancel_order, fake.fetch_open_orders = real_create, real_cancel, real_open
+    assert phase["n"] == 4
+    assert all(abs(q) < 1e-9 for q in fake.positions.values()) and fake.algo == {}
+    blocks = PairStore.load(lv.blocks.path, KEY).pairs
+    (bid,) = [k for k, b in blocks.items() if b.get("prev")]
+    assert blocks[bid]["status"] == "rolling"
+    bad = [e["details"] for e in events(book.audit_path.parent) if e["event"] == "perp_lv_flatten_error"]
+    assert [(e.get("symbol"), e["step"]) for e in bad] == [("CCCUSDT", "stops")]
+    assert [r[0] for r in blocks[bid]["legs"]["CCCUSDT"]["fills"]][-1] == f"lv{bid}-CCCUSDT-f0"
+    b2, lv2 = lv_process(lv, picks)
+    n = len(fake.calls)
+    cycle(b2, lv2, ROLL + WEEK + H)
+    assert not [c for c in fake.calls[n:] if c[0] == "order"]
+    b = PairStore.load(lv.blocks.path, KEY).pairs[bid]
+    assert b["status"] == "failed" and "unsettled" not in b and "stale_stops" not in b
+    assert all(leg["qty"] == 0.0 and leg["state"] == "closed" for leg in b["legs"].values())
+    assert b2.orders.state.order_ledger[old]["status"] == "cancelled"
+    assert b2.orders.unfinished_orders() == {}
+
+
+@pytest.mark.parametrize("cut", ["after_the_intent", "before_the_intent"])
+def test_lv_flatten_cut_off_while_it_records_a_fired_stop_keeps_the_leg_stopped(lvworld, monkeypatch, cut):
+    """The week-2 roll is killed right after its first save; CCC's old stop then fires. The next run's flatten finds
+    it fired and is killed while it records that: just after the stop's intent is closed as filled, or just before.
+    The leg is saved stopped before the intent is closed, so the run after still records the stop as fired: the leg
+    stopped, the intent filled and triggered."""
+
+    fake, book, lv, picks = lvworld
+    write_picks(picks, (MON, ["AAA", "BBB"], ["CCC"]), (MON + WEEK, ["AAA", "BBB", "EEE"], ["CCC"]))
+    cycle(book, lv, ROLL)
+    old_stop = lv_block(lv)["legs"]["CCCUSDT"]["stop_key"]
+    real_save = lv.blocks.save
+
+    def save():
+        real_save()
+        if any(b.get("status") == "rolling" for b in lv.blocks.pairs.values()):
+            raise Killed()
+
+    lv.blocks.save = save
+    with pytest.raises(Killed):
+        cycle(book, lv, ROLL + WEEK)
+    fake.fire_stop("CCCUSDT")
+    real_close = lowvol.LowVolBook._close_stop_intent
+
+    def close(self, key, final, **extra):
+        if final == "filled" and cut == "before_the_intent":
+            raise Killed()
+        real_close(self, key, final, **extra)
+        if final == "filled":
+            raise Killed()
+
+    monkeypatch.setattr(lowvol.LowVolBook, "_close_stop_intent", close)
+    b2, lv2 = lv_process(lv, picks)
+    with pytest.raises(Killed):
+        cycle(b2, lv2, ROLL + WEEK + H)
+    monkeypatch.setattr(lowvol.LowVolBook, "_close_stop_intent", real_close)
+    b3, lv3 = lv_process(lv, picks)
+    cycle(b3, lv3, ROLL + WEEK + 2 * H)
+    assert all(abs(q) < 1e-9 for q in fake.positions.values()) and fake.algo == {}
+    blocks = PairStore.load(lv.blocks.path, KEY).pairs
+    (bid,) = [k for k, b in blocks.items() if b.get("prev")]
+    leg = blocks[bid]["legs"]["CCCUSDT"]
+    assert leg["state"] == "stopped" and leg["stop_key"] == old_stop and leg["qty"] == -100.0
+    rec = b3.orders.state.order_ledger[old_stop]
+    assert rec["status"] == "filled" and rec["exchange_status"] == "triggered"
+    assert blocks[bid]["status"] == "failed" and b3.orders.unfinished_orders() == {}
+
+
+def test_lv_stale_stop_of_a_rolling_block_that_the_venue_drops_is_closed_as_cancelled(lvworld):
+    """The week-2 roll fails at EEE's new stop (its send times out; the venue never takes it), after CCC's new stop
+    was placed. The flatten buys CCC back, but its cancel of CCC's stop times out: the stop stays listed (stale).
+    AAA's sell reply is lost, so the block stays rolling. Before the next run the venue drops CCC's stop. The next
+    pass closes that intent as cancelled: the venue took the stop. EEE's stop, never acknowledged and never
+    listed, is closed as rejected."""
+
+    fake, book, lv, picks = lvworld
+    write_picks(picks, (MON, ["AAA", "BBB"], ["CCC"]), (MON + WEEK, ["AAA", "BBB"], ["CCC", "EEE"]))
+    cycle(book, lv, ROLL)
+    real_create, real_cancel = fake.create_order, fake.cancel_order
+    st = {"failed": False}
+
+    def create(s, typ, side, amount, price=None, params=None):
+        p = params or {}
+        if "stopLossPrice" in p and s == "EEE/USDT:USDT":
+            st["failed"] = True
+            raise ccxt.NetworkError("stop timeout")
+        out = real_create(s, typ, side, amount, price, params)
+        if st["failed"] and s == "AAA/USDT:USDT" and str(p.get("clientOrderId", "")).endswith("-f0"):
+            raise ccxt.NetworkError("reply lost")
+        return out
+
+    def cancel(oid, sym, params=None):
+        if st["failed"] and sym == "CCC/USDT:USDT":
+            raise ccxt.NetworkError("cancel timeout")
+        return real_cancel(oid, sym, params)
+
+    fake.create_order, fake.cancel_order = create, cancel
+    with pytest.raises(PerpBookError):
+        cycle(book, lv, ROLL + WEEK)
+    fake.create_order, fake.cancel_order = real_create, real_cancel
+    blocks = PairStore.load(lv.blocks.path, KEY).pairs
+    (bid,) = [k for k, b in blocks.items() if b.get("prev")]
+    mine, eee = f"lv{bid}-CCCUSDT-st", f"lv{bid}-EEEUSDT-st"
+    assert blocks[bid]["status"] == "rolling" and blocks[bid]["stale_stops"] == {mine: "CCCUSDT"}
+    assert set(fake.algo) == {mine} and pos(fake, "CCCUSDT") == pytest.approx(0)
+    del fake.algo[mine]                                       # the venue drops it before the next run
+    b2, lv2 = lv_process(lv, picks)
+    cycle(b2, lv2, ROLL + WEEK + H)
+    b = PairStore.load(lv.blocks.path, KEY).pairs[bid]
+    assert b["status"] == "failed" and "stale_stops" not in b
+    led = b2.orders.state.order_ledger
+    assert led[mine]["status"] == "cancelled" and led[mine].get("error") != "block_failed"
+    assert led[eee]["status"] == "rejected" and led[eee]["error"] == "block_failed"
+    assert all(abs(q) < 1e-9 for q in fake.positions.values()) and b2.orders.unfinished_orders() == {}
+
+
+def test_lv_roll_skips_a_symbol_under_a_stop_a_failed_block_could_not_cancel(lvworld):
+    """CCC's old stop cannot be cancelled from week 2 on, so the failed week-2 block keeps it in ``stale_stops``.
+    The week-3 roll leaves CCC out (``stale_stop``) and shorts 1000PEPE: no LV short sits under that stale stop.
+    Once a later run cancels it, the week-4 roll shorts CCC again under one stop."""
+
+    fake, book, lv, picks = lvworld
+    write_picks(picks, (MON, ["AAA", "BBB"], ["CCC"]), (MON + WEEK, ["AAA", "BBB", "EEE"], ["CCC"]),
+                (MON + 2 * WEEK, ["AAA", "BBB"], ["CCC", "PEPE"]), (MON + 3 * WEEK, ["AAA", "BBB"], ["CCC", "PEPE"]))
+    cycle(book, lv, ROLL)
+    old = lv_block(lv)["legs"]["CCCUSDT"]["stop_key"]
+    real_cancel = fake.cancel_order
+
+    def cancel(oid, sym, params=None):
+        if (params or {}).get("clientOrderId") == old:
+            raise ccxt.NetworkError("cancel timeout")
+        return real_cancel(oid, sym, params)
+
+    fake.cancel_order = cancel
+    with pytest.raises(PerpBookError, match="could not be cancelled"):
+        cycle(book, lv, ROLL + WEEK)
+    assert all(abs(q) < 1e-9 for q in fake.positions.values()) and set(fake.algo) == {old}
+    plan = run_cycle(book, now_ms=ROLL + 2 * WEEK, mainnet_info={}, execute=False, lv=lv_reload(lv, picks))["lv"]
+    assert plan["skipped"] == {"CCC": "stale_stop"} and plan["short"] == 1
+    rep = cycle(book, lv_reload(lv, picks), ROLL + 2 * WEEK)
+    assert rep["lv"]["rolled"] and rep["lv"]["short"] == 1 and rep["lv"]["skipped"] == 1
+    blocks = PairStore.load(lv.blocks.path, KEY).pairs
+    assert blocks[rep["lv"]["rolled"]]["skipped"] == {"CCC": "stale_stop"}
+    assert pos(fake, "CCCUSDT") == 0.0 and pos(fake, "1000PEPEUSDT") == pytest.approx(-50_000)
+    assert sorted(o["symbol"] for o in fake.algo.values()) == ["1000PEPE/USDT:USDT", "CCC/USDT:USDT"]
+    fake.cancel_order = real_cancel
+    cycle(book, lv_reload(lv, picks), ROLL + 2 * WEEK + H)    # the failed block's check cancels the stale stop
+    assert [o["symbol"] for o in fake.algo.values()] == ["1000PEPE/USDT:USDT"]
+    rep = cycle(book, lv_reload(lv, picks), ROLL + 3 * WEEK)
+    assert rep["lv"]["rolled"] and rep["lv"]["short"] == 2 and rep["lv"]["skipped"] == 0
+    assert pos(fake, "CCCUSDT") == pytest.approx(-50)
+    assert [k for k, o in fake.algo.items() if o["symbol"] == "CCC/USDT:USDT"] == [f"lv{rep['lv']['rolled']}-CCCUSDT-st"]
 
 
 def test_lv_refuses_a_masked_coin_before_any_order(lvworld):
