@@ -1,9 +1,9 @@
 """The books on Binance USD-M Demo Trading: one run.
 
 The pair book always runs. Book LV (--lv), book LEARN (--learn, H-LEARN-11),
-book FLOW02 (--flow02, H-FLOW-BTC-02) and book FLOW01 (--flow01,
-H-FLOW-BTC-01) run beside it on the same account, in that order, through the
-same order path, ledger, reconcile and writer lock.
+book FLOW02 (--flow02, H-FLOW-BTC-02), book FLOW01 (--flow01, H-FLOW-BTC-01)
+and book KRW (--krw, H-KRW-FADE-16) run beside it on the same account, in that
+order, through the same order path, ledger, reconcile and writer lock.
 
 Without --execute it connects to the demo venue's public market list, reads
 mainnet listings and prints what is due; nothing is signed or sent. With
@@ -21,6 +21,15 @@ book's legs and the venue's positions, then steps book FLOW01 alone. The
 checks can still send orders as in every run (the hedge of a pair whose stop
 fired, an LV roll that was cut off). It needs the same book flags as the
 hourly run, so every book's legs are explained.
+
+--only krw is book KRW's 5-minute mode, the same way. Its pre-check reads
+book KRW's record and the order ledger (both unverified), Upbit's public
+notice list and Binance's public exchangeInfo, without .env or any key, and
+asks for a signed run only when an event is inside its entry window, an exit
+is due, or an order is unsettled. The signed run then steps book KRW alone
+after every check. --krw-resume, once and by hand (the hourly wrapper passes
+it on), starts book KRW's new sleeve after its halt or a new --krw-usd, if
+the book is flat.
 
 Rules: docs/operations/PERP_DEMO_RUNNER.md.
 """
@@ -50,6 +59,7 @@ from trading_agent.execution.live_safety import (  # noqa: E402
 )
 from trading_agent.execution.perp import flowbtc  # noqa: E402
 from trading_agent.execution.perp import flowflush  # noqa: E402
+from trading_agent.execution.perp import krwfade  # noqa: E402
 from trading_agent.execution.perp.book import Book, PairStore, run_cycle  # noqa: E402
 from trading_agent.execution.perp.learnbook import LEARN_USD_CAP, LearnBook  # noqa: E402
 from trading_agent.execution.perp.lowvol import LowVolBook  # noqa: E402
@@ -62,7 +72,8 @@ from trading_agent.execution.perp.venue import (  # noqa: E402
 LEARN_STORE = "learn_book.json"
 FLOW02_STORE = "flow02.json"
 FLOW01_STORE = flowflush.STORE   # "flow01.json"
-ONLY = ("flow01",)               # books that have a mode of their own
+KRW_STORE = krwfade.STORE        # "krw.json"
+ONLY = ("flow01", "krw")         # books that have a mode of their own
 
 
 def now_ms() -> int:
@@ -107,6 +118,37 @@ def flow01_reason(root: Path, at_ms: int, feed) -> str | None:
     return flowflush.signed_run_reason(at_ms, PairStore.peek(root / FLOW01_STORE), feed)
 
 
+def krw_sources(box: dict) -> tuple:
+    """Book KRW's public data: Upbit's notice list (page 1), mainnet exchangeInfo by symbol and the shadow row.
+
+    No key. exchangeInfo is read once a run, and only when a notice needs it; ``box["info"]`` is the run's own
+    exchangeInfo when the pair book has read it already.
+    """
+
+    from tools.krwfade import feed as kf
+    from tools.krwfade import rules as kr
+    from tools.krwfade import shadow as ks
+    from tools.newperp import fetch as nf
+
+    client = nf.Client()
+
+    def symbols() -> dict:
+        if box.get("info") is None:
+            box["info"] = client.get(nf.EXCHANGE_INFO, {})
+        return kr.symbol_map(box["info"])
+
+    return kf.Feed().page, symbols, lambda perp, entry_ms, notice_ms: ks.fetch_row(client, perp, entry_ms, notice_ms)
+
+
+def krw_reason(root: Path, at_ms: int, sources: tuple) -> str | None:
+    """Why book KRW needs a signed run now, or None. Reads krw.json and the order ledger unverified, without a key,
+    and public data only."""
+
+    notices, symbols, _ = sources
+    return krwfade.signed_run_reason(at_ms, PairStore.peek(root / KRW_STORE), notices, symbols,
+                                     krwfade.peek_ledger(root / "order_state.json"))
+
+
 def flow02_signal(root: Path):
     """H-FLOW-BTC-02's store and frozen model (tools/flowbtc/signal.py). Imported here: it loads sklearn."""
 
@@ -139,7 +181,7 @@ def parse_names(text: str) -> tuple[list[str], list[str]]:
 
 
 def book_counts(learn: LearnBook | None, flow02: flowbtc.FlowBtcBook | None,
-                flow01: flowflush.FlowFlushBook | None) -> dict:
+                flow01: flowflush.FlowFlushBook | None, krw: krwfade.KrwFadeBook | None = None) -> dict:
     """Each new book's counts for status.json: counts and statuses only, never an amount."""
 
     out: dict = {}
@@ -149,6 +191,8 @@ def book_counts(learn: LearnBook | None, flow02: flowbtc.FlowBtcBook | None,
         out.update(flowbtc.status(flow02.store))
     if flow01 is not None:
         out.update(flow01.counts())
+    if krw is not None:
+        out.update(krw.counts())
     return out
 
 
@@ -208,6 +252,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--flow01", action="store_true", help="also trade H-FLOW-BTC-01's flush events (book FLOW01)")
     ap.add_argument("--flow01-usd", type=sized(flowflush.USD_CAP), default=1000.0,
                     help=f"notional of book FLOW01 in USDT; at most {flowflush.USD_CAP:g}")
+    ap.add_argument("--krw", action="store_true", help="also trade H-KRW-FADE-16's Upbit KRW listing events (book KRW)")
+    ap.add_argument("--krw-usd", type=sized(krwfade.USD_CAP), default=500.0,
+                    help=f"notional of each leg of a book KRW event in USDT; at most {krwfade.USD_CAP:g}")
+    ap.add_argument("--krw-resume", action="store_true",
+                    help="once, by hand: start book KRW's new sleeve after its halt or a new --krw-usd, if it is flat")
     ap.add_argument("--only", choices=ONLY,
                     help="run one book's own mode: a public pre-check, then, only when needed, every check and that book's step")
     args = ap.parse_args(argv)
@@ -225,14 +274,19 @@ def main(argv: list[str] | None = None) -> int:
     if args.only and (args.shadow or args.rehearse or args.lv_rehearse):
         print("--only runs no shadow ledger and no rehearsal", file=sys.stderr)
         return 2
+    if args.krw_resume and (not args.krw or not args.execute or args.only):
+        print("--krw-resume needs --krw and --execute, and no --only", file=sys.stderr)
+        return 2
     feed = flow01_feed() if args.flow01 else None
+    box: dict = {"info": None}           # the run's mainnet exchangeInfo, read once
+    krw_src = krw_sources(box) if args.krw else None
     reason: str | None = None
-    if args.only == "flow01":
+    if args.only:
         # Before .env, the key, the writer lock or any write: a quiet moment ends here, unsigned.
         try:
-            reason = flow01_reason(root, now_ms(), feed)
+            reason = flow01_reason(root, now_ms(), feed) if args.only == "flow01" else krw_reason(root, now_ms(), krw_src)
         except Exception as exc:
-            print(f"flow01 pre-check failed: {type(exc).__name__}: {str(exc)[:300]}", file=sys.stderr)
+            print(f"{args.only} pre-check failed: {type(exc).__name__}: {str(exc)[:300]}", file=sys.stderr)
             return 1
         if reason is None:
             print(json.dumps({"only": args.only, "signed_run": False}))
@@ -277,14 +331,16 @@ def main(argv: list[str] | None = None) -> int:
             blocks = store("lv_blocks.json") if args.lv else None
             book = Book(venue, orders, pairs, audit, args.pair_usd)
             picks = Path(args.selection_root) / "lv_book" / "picks.jsonl"
-            # The books beside the pair book, in run order (book.py): LV, LEARN, FLOW02, FLOW01.
+            # The books beside the pair book, in run order (book.py): LV, LEARN, FLOW02, FLOW01, KRW.
             lv = LowVolBook(book, blocks, args.lv_usd, picks, sealed_check()) if blocks is not None else None
             learn = (LearnBook(book, store(LEARN_STORE), args.learn_usd, Path(args.learn_root), picks,
                                public_client, sealed_check()) if args.learn else None)
             flow02 = (flowbtc.FlowBtcBook(book, store(FLOW02_STORE), args.flow02_usd, flow02_signal(Path(args.flow02_root)))
                       if args.flow02 else None)
             flow01 = flowflush.FlowFlushBook(book, store(FLOW01_STORE), args.flow01_usd, feed) if args.flow01 else None
-            others = [o for o in (lv, learn, flow02, flow01) if o is not None]
+            krw = (krwfade.KrwFadeBook(book, store(KRW_STORE), args.krw_usd, *krw_src, resume=args.krw_resume)
+                   if krw_src is not None else None)
+            others = [o for o in (lv, learn, flow02, flow01, krw) if o is not None]
             at = now_ms()
             entry_lock = configured_entry_lock_reason()
             if args.execute:
@@ -294,9 +350,11 @@ def main(argv: list[str] | None = None) -> int:
                     "learn_usd": args.learn_usd if learn is not None else 0,
                     "flow02_usd": args.flow02_usd if flow02 is not None else 0,
                     "flow01_usd": args.flow01_usd if flow01 is not None else 0,
+                    "krw_usd": args.krw_usd if krw is not None else 0,
                     "only": args.only or "", "only_reason": reason or ""})
             if info is None and not args.only:
                 info = mainnet_listings()
+            box["info"] = box["info"] or info      # book KRW reuses the pair book's exchangeInfo
             report = run_cycle(
                 book,
                 now_ms=at,
@@ -316,7 +374,7 @@ def main(argv: list[str] | None = None) -> int:
                 longs, shorts = parse_names(args.lv_rehearse)
                 report["lv_rehearsal"] = lv.rehearse(longs, shorts, at, args.lv_rehearse_hold_h)
             if args.execute:
-                write_status(root, report, pairs, blocks, book_counts(learn, flow02, flow01))
+                write_status(root, report, pairs, blocks, book_counts(learn, flow02, flow01, krw))
                 append_live_audit_event(audit, "perp_run_finished", {k: v for k, v in report.items() if k != "skipped"})
     except Exception as exc:  # every stop is audited; the next run reconciles first
         if args.execute:

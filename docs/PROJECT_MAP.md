@@ -631,6 +631,7 @@
 │       │   │   ├── book.py
 │       │   │   ├── flowbtc.py
 │       │   │   ├── flowflush.py
+│       │   │   ├── krwfade.py
 │       │   │   ├── learnbook.py
 │       │   │   ├── legs.py
 │       │   │   ├── lowvol.py
@@ -996,6 +997,7 @@
 │   ├── test_perp_demo.py
 │   ├── test_perp_flowbtc.py
 │   ├── test_perp_flowflush.py
+│   ├── test_perp_krwfade.py
 │   ├── test_perp_learnbook.py
 │   ├── test_phase3_audit.py
 │   ├── test_phase6.py
@@ -1123,6 +1125,12 @@
 │   │   ├── parity.py
 │   │   ├── poll.py
 │   │   └── rules.py
+│   ├── krwfade
+│   │   ├── __init__.py
+│   │   ├── feed.py
+│   │   ├── parity.py
+│   │   ├── rules.py
+│   │   └── shadow.py
 │   ├── learnpaper
 │   │   ├── __init__.py
 │   │   ├── model.py

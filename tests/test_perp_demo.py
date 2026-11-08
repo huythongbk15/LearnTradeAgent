@@ -2311,7 +2311,7 @@ REPO = Path(__file__).resolve().parents[1]
 WRAPPER = REPO / "scripts" / "ops" / "run_perp_demo.sh"
 FLUSH_WRAPPER = REPO / "scripts" / "ops" / "run_flow_flush.sh"
 TASKS = REPO / "scripts" / "ops" / "windows" / "register_tasks.ps1"
-BOOK_FLAGS = "--lv --learn --flow02 --flow01 --pair-usd 500"
+BOOK_FLAGS = "--lv --learn --flow02 --flow01 --krw --pair-usd 500"
 
 
 def wrapper_at(tmp_path: Path, hhmm: str, job: str, wrapper: Path = WRAPPER) -> subprocess.CompletedProcess:
@@ -2330,12 +2330,12 @@ def wrapper_at(tmp_path: Path, hhmm: str, job: str, wrapper: Path = WRAPPER) -> 
     return subprocess.run([str(script)], env={**os.environ, "PATH": f"{stand}:{os.environ['PATH']}"}, timeout=60, check=False)
 
 
-def perp_call(wrapper: Path) -> str:
-    """The arguments the wrapper gives scripts/live_perp_demo.py, as written."""
+def perp_calls(wrapper: Path) -> list[str]:
+    """The arguments the wrapper gives scripts/live_perp_demo.py, each call as written."""
 
     text = wrapper.read_text(encoding="utf8").replace("\\\n", " ")
-    (line,) = [x for x in text.splitlines() if "scripts/live_perp_demo.py" in x and not x.lstrip().startswith("#")]
-    return " ".join(line.split("scripts/live_perp_demo.py", 1)[1].split()).replace(' "$@" >> "$LOG" 2>&1', "")
+    lines = [x for x in text.splitlines() if "scripts/live_perp_demo.py" in x and not x.lstrip().startswith("#")]
+    return [" ".join(x.split("scripts/live_perp_demo.py", 1)[1].split()).replace(' "$@" >> "$LOG" 2>&1', "") for x in lines]
 
 
 @pytest.mark.parametrize("wrapper", [WRAPPER, FLUSH_WRAPPER], ids=["hourly", "5min"])
@@ -2357,22 +2357,52 @@ def test_the_wrapper_runs_the_book_with_shadow_and_logs_its_end(tmp_path: Path, 
 
 
 @pytest.mark.parametrize("hhmm", ["1014", "1159", "0004"])
-def test_the_5_minute_wrapper_runs_flow01_alone_with_every_book_and_logs_its_end(tmp_path: Path, hhmm: str) -> None:
-    job = 'echo "$TRADING_MODE $OMP_NUM_THREADS $*"; exit 3\n'
-    assert wrapper_at(tmp_path, hhmm, job, FLUSH_WRAPPER).returncode == 3
+def test_the_5_minute_wrapper_runs_flow01_then_krw_alone_with_every_book_and_logs_its_end(tmp_path: Path, hhmm: str) -> None:
+    job = 'echo "$TRADING_MODE $OMP_NUM_THREADS $*"; case "$*" in *"only flow01"*) exit 3;; esac; exit 0\n'
+    assert wrapper_at(tmp_path, hhmm, job, FLUSH_WRAPPER).returncode == 3          # the first failure is the exit code
     lines = (tmp_path / "logs" / "flow_flush.log").read_text(encoding="utf8").splitlines()
     assert re.fullmatch(r"=== \S+Z flow_flush start pid=\d+", lines[0])
     assert lines[1] == f"testnet 4 -u scripts/live_perp_demo.py --execute --only flow01 {BOOK_FLAGS}"
-    assert re.fullmatch(r"=== \S+Z flow_flush end rc=3", lines[2]) and len(lines) == 3
+    assert lines[2] == f"testnet 4 -u scripts/live_perp_demo.py --execute --only krw {BOOK_FLAGS}"
+    assert re.fullmatch(r"=== \S+Z flow_flush end rc=3", lines[3]) and len(lines) == 4
     assert not (tmp_path / "logs" / "perp_demo.log").exists()
     assert not re.search(r"^[^#]*\btimeout\b", FLUSH_WRAPPER.read_text(encoding="utf8"), re.M)
     assert "nice -n 19" in FLUSH_WRAPPER.read_text(encoding="utf8")
+    # a failing KRW run is the exit code when FLOW01's went well
+    job = 'case "$*" in *"only krw"*) exit 4;; esac; exit 0\n'
+    assert wrapper_at(tmp_path, hhmm, job, FLUSH_WRAPPER).returncode == 4
+
+
+def test_the_5_minute_wrapper_asks_the_testnet_window_again_before_the_krw_run(tmp_path: Path) -> None:
+    """FLOW01's run started at :49 of an even hour and ended in the testnet window: the KRW run does not start."""
+
+    (tmp_path / "bin").mkdir()
+    clock = tmp_path / "minutes"
+    clock.write_text("49 50\n", encoding="utf8")
+    (tmp_path / "bin" / "date").write_text(
+        '#!/usr/bin/env bash\nset -- "$@"\ncase "$*" in *%H*) echo 10;; *%M*) read -r m rest < "' + str(clock) + '"; '
+        'echo "$m"; [ -n "$rest" ] && echo "$rest" > "' + str(clock) + '";; *) /bin/date "$@";; esac\n', encoding="utf8")
+    (tmp_path / "bin" / "date").chmod(0o755)
+    (tmp_path / "scripts" / "ops").mkdir(parents=True)
+    (tmp_path / ".venv" / "bin").mkdir(parents=True)
+    script = tmp_path / "scripts" / "ops" / FLUSH_WRAPPER.name
+    script.write_text(FLUSH_WRAPPER.read_text(encoding="utf8"), encoding="utf8")
+    script.chmod(0o755)
+    py = tmp_path / ".venv" / "bin" / "python"
+    py.write_text('#!/usr/bin/env bash\necho "$*"\n', encoding="utf8")
+    py.chmod(0o755)
+    env = {**os.environ, "PATH": f"{tmp_path / 'bin'}:{os.environ['PATH']}"}
+    assert subprocess.run([str(script)], env=env, timeout=60, check=False).returncode == 0
+    lines = (tmp_path / "logs" / "flow_flush.log").read_text(encoding="utf8").splitlines()
+    assert [x for x in lines if "live_perp_demo" in x] == [f"-u scripts/live_perp_demo.py --execute --only flow01 {BOOK_FLAGS}"]
 
 
 def test_the_5_minute_run_loads_the_same_books_and_sizes_as_the_hourly_run() -> None:
-    hourly, flush = perp_call(WRAPPER).split(), perp_call(FLUSH_WRAPPER).split()
-    assert hourly == ["--execute", "--shadow"] + BOOK_FLAGS.split()
-    assert flush == ["--execute", "--only", "flow01"] + BOOK_FLAGS.split()
+    (hourly,) = perp_calls(WRAPPER)
+    flow01, krw = perp_calls(FLUSH_WRAPPER)
+    assert hourly.split() == ["--execute", "--shadow"] + BOOK_FLAGS.split()
+    assert flow01.split() == ["--execute", "--only", "flow01"] + BOOK_FLAGS.split()
+    assert krw.split() == ["--execute", "--only", "krw"] + BOOK_FLAGS.split()
 
 
 @pytest.mark.parametrize("wrapper", [WRAPPER, FLUSH_WRAPPER], ids=["hourly", "5min"])
@@ -2421,6 +2451,8 @@ def runner(monkeypatch):
     spec.loader.exec_module(mod)
     monkeypatch.setattr(mod, "load_dotenv", lambda *a, **k: None)
     monkeypatch.setattr(mod, "mainnet_listings", lambda: (_ for _ in ()).throw(AssertionError("no listings in --only")))
+    # Book KRW's public data: a quiet notice list, no exchangeInfo and no shadow row (tests/test_perp_krwfade.py)
+    monkeypatch.setattr(mod, "krw_sources", lambda box: (lambda: [], lambda: {}, lambda *a: {}))
     return mod
 
 
@@ -2430,13 +2462,14 @@ def roots(tmp_path: Path) -> list[str]:
 
 
 def test_runner_flags_refuse_sizes_over_each_books_cap_and_a_lone_only(runner, capsys):
-    for flag, cap in (("--learn-usd", 4000), ("--flow02-usd", 3000), ("--flow01-usd", 3000)):
+    for flag, cap in (("--learn-usd", 4000), ("--flow02-usd", 3000), ("--flow01-usd", 3000), ("--krw-usd", 2000)):
         for bad in (str(cap + 1), "0", "-5", "nan"):
             with pytest.raises(SystemExit) as stop:
                 runner.main([flag, bad])
             assert stop.value.code == 2
     with pytest.raises(SystemExit):
-        runner.main(["--only", "lv"])                    # only book FLOW01 has a mode of its own
+        runner.main(["--only", "lv"])                    # only books FLOW01 and KRW have a mode of their own
+    assert runner.main(["--only", "krw"]) == 2           # needs --krw
     assert runner.main(["--only", "flow01"]) == 2        # needs --flow01
     assert runner.main(["--only", "flow01", "--flow01", "--shadow"]) == 2
     assert runner.main(["--only", "flow01", "--flow01", "--execute", "--rehearse", "OLDUSDT"]) == 2
@@ -2506,12 +2539,12 @@ def test_only_flow01_signed_run_checks_every_book_then_steps_flow01_alone(runner
 
     rep = run(E + 5 * 60_000 + 20_000)                   # a fresh event
     assert rep["only"] == "flow01" and rep["only_reason"] == "fresh_event" and rep["flow01"]["entered"] == 1
-    assert not {"lv", "learn", "flow02"} & set(rep) and rep["entered"] == []
+    assert not {"lv", "learn", "flow02", "krw"} & set(rep) and rep["entered"] == []
     (buy,) = orders_sent(fake)
     assert buy[5]["clientOrderId"].startswith("fb1-") and buy[3] == "buy"
     assert pos(fake, "BTCUSDT") == pytest.approx(0.012) and pos(fake, "LTCUSDT") == pytest.approx(1.0)
     assert (root / runner.LEARN_STORE).read_bytes() == learn_bytes        # LEARN checked, not stepped
-    assert not any((root / f).exists() for f in ("pairs.json", "lv_blocks.json", runner.FLOW02_STORE))
+    assert not any((root / f).exists() for f in ("pairs.json", "lv_blocks.json", runner.FLOW02_STORE, runner.KRW_STORE))
     status = json.loads((root / "status.json").read_text())
     assert status["run"] == "flow01" and status["flow01_open_legs"] == 1 and status["learn_legs"] == 1
     assert status["flow02_status"] == "ok" and status["lv_blocks"]["open"] == 0
@@ -2554,7 +2587,7 @@ def test_a_dry_run_plans_every_book_and_writes_no_store(runner, tmp_path, monkey
     monkeypatch.setattr(runner, "load_demo_credentials", lambda env: (_ for _ in ()).throw(AssertionError("signed")))
     assert runner.main([*BOOK_FLAGS.split(), *roots(tmp_path)]) == 0
     rep = json.loads(capsys.readouterr().out.splitlines()[-1])
-    assert rep["execute"] is False and {"lv", "learn", "flow02", "flow01"} <= set(rep)
+    assert rep["execute"] is False and {"lv", "learn", "flow02", "flow01", "krw"} <= set(rep)
     assert rep["learn"]["bars"] == "no_bar_store" and rep["flow01"]["state"] == "idle"
 
     def no_floats(x) -> bool:
@@ -2565,7 +2598,7 @@ def test_a_dry_run_plans_every_book_and_writes_no_store(runner, tmp_path, monkey
         return not isinstance(x, float)
 
     assert no_floats(rep)
-    stores = ("pairs.json", "lv_blocks.json", "learn_book.json", "flow02.json", "flow01.json", "status.json",
+    stores = ("pairs.json", "lv_blocks.json", "learn_book.json", "flow02.json", "flow01.json", "krw.json", "status.json",
               "audit.jsonl", "order_state.json")
     assert not any((tmp_path / "perp_demo" / f).exists() for f in stores)
     assert not orders_sent(fake)
