@@ -14,12 +14,16 @@ refused, so a stamp is never read nine hours off. ``first_listed_at`` is the not
 a follow-up to the title and moves ``listed_at`` only.
 
 Any failure (network, status, body, a notice that does not parse) raises ``FeedError``; the book records it and its
-exits still run. Research description, not advice.
+exits still run. A 429 or 418 (Upbit asking to slow down) is tried once more after ``RETRY_WAIT_S``, then raised as
+``FeedRateLimited``: the 5-minute pre-check then skips the notice list for that tick (its store and ledger reasons
+are read before the list, so an exit or an unfinished order still gets its signed run). Research description, not
+advice.
 """
 from __future__ import annotations
 
 import http.client
 import json
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -35,6 +39,8 @@ METHOD = "GET"
 TIMEOUT_S = 10.0
 USER_AGENT = "Mozilla/5.0"          # generic; nothing that names this program or its owner
 MAX_BYTES = 1 << 22                 # a page of 20 notices is about 6 kB
+RATE_LIMITED = (418, 429)           # Upbit asks to slow down
+RETRY_WAIT_S = 10.0                 # one more try after this wait, then FeedRateLimited
 
 Transport = Callable[[str, float], tuple[int, bytes]]
 
@@ -45,6 +51,10 @@ class FeedError(Exception):
 
 class FeedRefused(FeedError, ValueError):
     """A call outside the allowlist: another host, path, parameter, value or method."""
+
+
+class FeedRateLimited(FeedError):
+    """Upbit answered 429 or 418 twice in a row: skip the list for now and ask again at a later run."""
 
 
 @dataclass(frozen=True)
@@ -131,9 +141,12 @@ class Feed:
 
     transport: Transport = transport
     timeout: float = TIMEOUT_S
+    sleep: Callable[[float], None] = time.sleep     # the wait before the one retry after a 429/418
 
     def request(self, method: str, url: str) -> bytes:
-        """The one gate every call goes through: GET of the allowlisted URL, status 200, or ``FeedError``."""
+        """The one gate every call goes through: GET of the allowlisted URL, status 200, or ``FeedError``.
+
+        A 429 or 418 raises ``FeedRateLimited``, a ``FeedError``."""
 
         if method != METHOD:
             raise FeedRefused(f"method {method!r} is not allowed")
@@ -144,11 +157,21 @@ class Feed:
             raise
         except Exception as exc:          # network, timeout, a body cut short: any failure is a FeedError
             raise FeedError(type(exc).__name__) from exc
+        if status in RATE_LIMITED:
+            raise FeedRateLimited(f"status {status}")
         if status != 200:
             raise FeedError(f"status {status}")
         return body
 
     def page(self) -> list[Notice]:
-        """Page 1 of the trade notices: the 20 most recently listed or edited."""
+        """Page 1 of the trade notices: the 20 most recently listed or edited.
 
-        return parse(self.request(METHOD, URL))
+        After a 429 or 418 it waits ``RETRY_WAIT_S`` and asks once more; a second one raises ``FeedRateLimited``.
+        """
+
+        try:
+            body = self.request(METHOD, URL)
+        except FeedRateLimited:
+            self.sleep(RETRY_WAIT_S)
+            body = self.request(METHOD, URL)
+        return parse(body)

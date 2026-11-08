@@ -131,13 +131,32 @@ def krw_sources(box: dict) -> tuple:
     from tools.newperp import fetch as nf
 
     client = nf.Client()
+    feed = kf.Feed()
+
+    def notices() -> list:
+        """Upbit's page 1, read once a run: a signed run after the 5-minute pre-check uses the page the pre-check
+        read, so it sees the notice it signed for and asks Upbit nothing more (under a rate limit, a second read
+        could fail and spend the tick)."""
+
+        if box.get("notices") is None:
+            box["notices"] = feed.page()
+        return box["notices"]
 
     def symbols() -> dict:
         if box.get("info") is None:
             box["info"] = client.get(nf.EXCHANGE_INFO, {})
         return kr.symbol_map(box["info"])
 
-    return kf.Feed().page, symbols, lambda perp, entry_ms, notice_ms: ks.fetch_row(client, perp, entry_ms, notice_ms)
+    return notices, symbols, lambda perp, entry_ms, notice_ms: ks.fetch_row(client, perp, entry_ms, notice_ms)
+
+
+def rate_limited(exc: BaseException) -> bool:
+    """A 429 or 418 from Upbit's notice list (``FeedRateLimited``) or Binance's public API (``FetchStop``)."""
+
+    from tools.krwfade.feed import FeedRateLimited
+    from tools.selection.fetch import FetchStop
+
+    return isinstance(exc, (FeedRateLimited, FetchStop))
 
 
 def krw_reason(root: Path, at_ms: int, sources: tuple) -> str | None:
@@ -278,7 +297,7 @@ def main(argv: list[str] | None = None) -> int:
         print("--krw-resume needs --krw and --execute, and no --only", file=sys.stderr)
         return 2
     feed = flow01_feed() if args.flow01 else None
-    box: dict = {"info": None}           # the run's mainnet exchangeInfo, read once
+    box: dict = {"info": None, "notices": None}   # the run's exchangeInfo and Upbit page, each read once
     krw_src = krw_sources(box) if args.krw else None
     reason: str | None = None
     if args.only:
@@ -286,6 +305,13 @@ def main(argv: list[str] | None = None) -> int:
         try:
             reason = flow01_reason(root, now_ms(), feed) if args.only == "flow01" else krw_reason(root, now_ms(), krw_src)
         except Exception as exc:
+            if args.only == "krw" and rate_limited(exc):
+                # Upbit or Binance asked to slow down while reading for new notices. The record's and the ledger's
+                # reasons (an exit due, an unfinished order, a waiting event in its window) come before that read,
+                # so none of them was found: this tick reads nothing more and the next one asks again.
+                print(json.dumps({"only": args.only, "signed_run": False, "skipped": "rate_limited",
+                                  "error": f"{type(exc).__name__}: {str(exc)[:120]}"}))
+                return 0
             print(f"{args.only} pre-check failed: {type(exc).__name__}: {str(exc)[:300]}", file=sys.stderr)
             return 1
         if reason is None:

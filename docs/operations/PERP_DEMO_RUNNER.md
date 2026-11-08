@@ -21,6 +21,17 @@ None of it is validated forward. The NL-P paper log (`docs/operations/NEWPERP_PA
 - **Listings:** on 2026-11-03 the demo venue listed 604 symbols, but only 1 of the 20 mainnet USDT perps listed in the previous 180 days.
   - Real listings will rarely be tradable there.
   - The venue mainly proves the mechanics, and `--rehearse SYMBOL` opens one pair on an existing demo symbol for that.
+- **Clock:** Binance refuses a signed request stamped more than 1 s ahead of its clock (`-1021`, "Timestamp for this request was 1000ms ahead").
+  - **What happened:** on 2026-11-08 the PC clock ran 1.5 s fast after a boot, because Windows had not synced since the machine was off. Every signed run failed (perp demo, book HOLD and the testnet cycle) until the operator pressed Sync now in Windows (Settings, Time & language, Date & time).
+  - **The fix:** every Binance client built through `ExchangeConfig` sets ccxt's `adjustForTimeDifference` in `to_ccxt_config`. That covers `binance`, `binanceusdm` and `binancecoinm`: the perp demo books, book HOLD and the testnet cycle.
+    - `CCXTAdapter.connect` reads the server time (one public `/time`) before the markets load, so even a request signed inside the market load (mainnet with keys) is corrected.
+    - Each signed request is then stamped with the measured offset, so a drifted PC clock no longer fails the run.
+    - The offset is bounded to 0..5 s (`MAX_TIME_ADJUST_MS`). Only a PC that runs ahead is corrected; a PC behind is already accepted within ccxt's 10 s recvWindow. The bound keeps a time sync during the run, or one slow `/time` reply, from making every later request fail.
+    - An explicit `adjustForTimeDifference` in a config's options wins.
+  - **What it does not cover:**
+    - It corrects request stamps only. A runner's own clock checks still read the PC clock, so keeping Windows time synced still matters. An example is the testnet cycle's 2 s data-trust tolerance.
+    - A PC more than 5 s ahead is still refused, which fails closed.
+    - The operator recovery tool `scripts/resolve_unsubmitted_order.py` builds its own ccxt client and is not adjusted. On a fast PC clock it stops with InvalidNonce and writes nothing. Sync the clock first.
 
 ## Book, frozen
 Constants are in `src/trading_agent/execution/perp/rules.py`. A change needs the operator's ruling on this page.
@@ -641,6 +652,12 @@ The hourly run trades it with `--krw`. The 5-minute task runs it with `--only kr
   - an order of book KRW is still in flight or left open in the ledger, or the ledger holds a fill its event has not recorded (`settle`). A naked short a lost reply left is seen this way. An intent in `manual_intervention` is not a reason: only the operator settles it;
   - a fired stop's BTC leg is left, or a hold has ended (`exit_due`);
   - an event, recorded or new on page 1, is inside its entry window (`entry_window`), unless the book is halted.
+  - **Rate limits (2026-11-08):**
+    - The record's and the ledger's reasons are checked before the notice list is read. So a failure of that read can only hide a new notice, never an exit or an unfinished order.
+    - Upbit answered 429 on 2 of the first 9 ticks (12:02 and 12:32 UTC). The list is now asked once more after a 10 s wait, and a second 429 or 418 skips the tick: the wrapper logs `{"only": "krw", "signed_run": false, "skipped": "rate_limited"}` with rc 0, and the next tick asks again. A 429 or 418 from Binance's public exchangeInfo (`FetchStop`) is skipped the same way.
+    - Any other failure of the pre-check still ends the tick with rc 1 and `krw pre-check failed` in `logs/flow_flush.log`.
+    - Upbit's page is read once per run: a signed run after the pre-check uses the page the pre-check read, so it sees the notice it signed for and asks Upbit nothing more.
+    - A notice is missed on Demo only if no tick of its window reads the list and records it, each tick rate-limited or failed. Its shadow row is still recorded by the hourly run.
 - **Operator steps:**
   1. Approve the kill rules above, or change them, before the fast forward.
   2. After the fast forward, nothing else: the hourly task and the 5-minute task (step 7) run the wrappers, which pass `--krw`. No new task.

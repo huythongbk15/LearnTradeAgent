@@ -1033,7 +1033,96 @@ def test_the_feed_parses_kst_stamps_and_fails_on_anything_odd():
             return status, b"{}"
 
         with pytest.raises(kfeed.FeedError):
-            kfeed.Feed(transport=t).page()
+            kfeed.Feed(transport=t, sleep=lambda s: None).page()
+
+
+PAGE = json.dumps({"success": True, "data": {"notices": [
+    {"id": 6714, "title": "닐리온(NIL) KRW 마켓 디지털 자산 추가", "listed_at": "2026-10-27T16:30:00+09:00",
+     "first_listed_at": "2026-10-27T16:30:00+09:00"}]}}).encode()
+
+
+def answers(*statuses: int):
+    """A transport that answers the given statuses in turn (200 with one notice), and counts its calls."""
+
+    calls: list[int] = []
+
+    def t(url, timeout):
+        calls.append(1)
+        status = statuses[len(calls) - 1]
+        return status, (PAGE if status == 200 else b"{}")
+
+    return t, calls
+
+
+@pytest.mark.parametrize("first", [429, 418])
+def test_a_429_or_418_from_upbit_is_tried_once_more_after_a_wait(first):
+    waits: list[float] = []
+    t, calls = answers(first, 200)
+    (nil,) = kfeed.Feed(transport=t, sleep=waits.append).page()
+    assert nil.id == 6714 and len(calls) == 2 and waits == [kfeed.RETRY_WAIT_S]
+    t, calls = answers(first, 429)
+    with pytest.raises(kfeed.FeedRateLimited):
+        kfeed.Feed(transport=t, sleep=waits.append).page()
+    assert len(calls) == 2 and waits == [kfeed.RETRY_WAIT_S] * 2
+
+
+def test_other_statuses_are_plain_feed_errors_with_no_retry():
+    waits: list[float] = []
+    for status in (500, 503, 403):
+        t, calls = answers(status, 200)
+        with pytest.raises(kfeed.FeedError) as err:
+            kfeed.Feed(transport=t, sleep=waits.append).page()
+        assert not isinstance(err.value, kfeed.FeedRateLimited) and len(calls) == 1
+    assert waits == []
+
+
+def rate_limited_notices():
+    raise kfeed.FeedRateLimited("status 429")
+
+
+def test_the_pre_check_finds_an_exit_or_a_waiting_window_before_it_reads_the_notice_list(tmp_path):
+    """A 429 on the notice list can never hide a signed run the record or the ledger asks for."""
+
+    sell = {"key": "krw-101-AAA-o0", "symbol": "AAAUSDT", "side": "sell", "qty": 250.0}
+    buy = {"key": "krw-101-AAA-b0", "symbol": "BTCUSDT", "side": "buy", "qty": 0.006}
+    open_ev = {"kind": "event", "notice_id": 101, "token": "AAA", "perp": "AAAUSDT", "entry_ms": E0, "notice_ms": N0,
+               "status": "open", "fills": [sell, buy]}
+    store = PairStore(tmp_path / kx.STORE, "", {"e101-AAA": open_ev})
+    assert kx.signed_run_reason(E0 + 72 * H, store, rate_limited_notices, dict) == "exit_due"
+    waiting = {"kind": "event", "notice_id": 102, "token": "BBB", "perp": "BBBUSDT", "entry_ms": E0, "notice_ms": N0,
+               "status": "waiting", "fills": []}
+    store = PairStore(tmp_path / kx.STORE, "", {"e102-BBB": waiting})
+    assert kx.signed_run_reason(E0 + 2 * MIN, store, rate_limited_notices, dict) == "entry_window"
+    led = {"krw-101-AAA-c0": {"status": "reconciling"}}
+    store = PairStore(tmp_path / kx.STORE, "", {"e101-AAA": {**open_ev, "status": "failed"}})
+    assert kx.signed_run_reason(E0 + 5 * MIN, store, rate_limited_notices, dict, led) == "settle"
+    store = PairStore(tmp_path / kx.STORE, "", {})
+    with pytest.raises(kfeed.FeedRateLimited):                   # nothing else to do: the list is the only reason
+        kx.signed_run_reason(E0 + 2 * MIN, store, rate_limited_notices, dict)
+    # The two reasons that alone reveal a naked short with no stop, each on its own (review 429-T1):
+    assert kx.signed_run_reason(E0 + 5 * MIN, PairStore(tmp_path / kx.STORE, "", {}), rate_limited_notices, dict,
+                                {"krw-101-AAA-o0": {"status": "submitted"}}) == "settle"    # the ledger alone
+    lost = {**open_ev, "status": "failed", "fills": []}                                     # a take-off cut off
+    assert kx.signed_run_reason(E0 + 5 * MIN, PairStore(tmp_path / kx.STORE, "", {"e101-AAA": lost}),
+                                rate_limited_notices, dict, {}) == "settle"
+
+
+def test_the_signed_run_uses_the_page_the_pre_check_read(krw_runner, monkeypatch):
+    """Review 429-S1: one read of Upbit a run, so a signed run sees the notice it signed for."""
+
+    reads: list[int] = []
+
+    class OnePage:
+        def page(self):
+            reads.append(1)
+            return [note(101, "AAA")]
+
+    from tools.krwfade import feed as live_feed
+
+    monkeypatch.setattr(live_feed, "Feed", OnePage)
+    box: dict = {"info": None, "notices": None}
+    notices, _symbols, _row = krw_runner.krw_sources(box)
+    assert notices() == notices() == [note(101, "AAA")] and len(reads) == 1
 
 
 # ── the runner: flags and book KRW's 5-minute mode ──────────────────────────────
@@ -1092,6 +1181,38 @@ def test_only_krw_with_a_quiet_pre_check_signs_nothing(krw_runner, tmp_path, mon
     pub.fail.add("notices")                                             # a pre-check that cannot read fails, unsigned
     assert krw_runner.main(argv) == 1
     assert "krw pre-check failed" in capsys.readouterr().err and not (tmp_path / "perp_demo").exists()
+
+
+def test_only_krw_skips_a_tick_unsigned_when_upbit_or_binance_asks_to_slow_down(krw_runner, tmp_path, monkeypatch,
+                                                                                 capsys):
+    """A 429/418 on the notice list (after its one retry) or on exchangeInfo: rc 0, nothing signed, reported."""
+
+    from tools.selection.fetch import FetchStop
+
+    def never(*a, **k):
+        raise AssertionError("a rate-limited pre-check reached the signed path")
+
+    for name in ("load_dotenv", "require_execution_authorization", "load_demo_credentials", "LiveExecutionLock",
+                 "LiveRiskStateStore", "PerpDemoVenue", "append_live_audit_event"):
+        monkeypatch.setattr(krw_runner, name, never)
+    pub = Public(note(101, "AAA", at=N0))
+    argv = ["--execute", "--only", "krw", *FLAGS, *run_roots(tmp_path)]
+    monkeypatch.setattr(krw_runner, "now_ms", lambda: E0 + 2 * MIN)       # AAA is new and inside its window
+    monkeypatch.setattr(krw_runner, "krw_sources", lambda box: (rate_limited_notices, pub.symbols, pub.shadow_row))
+    assert krw_runner.main(argv) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert (out["signed_run"], out["skipped"]) == (False, "rate_limited") and "FeedRateLimited" in out["error"]
+
+    def stop():
+        raise FetchStop("status 429")
+
+    monkeypatch.setattr(krw_runner, "krw_sources", lambda box: (pub.notices, stop, pub.shadow_row))
+    assert krw_runner.main(argv) == 0
+    assert json.loads(capsys.readouterr().out)["skipped"] == "rate_limited"
+    pub.fail.add("notices")                                            # any other failure still fails the tick
+    monkeypatch.setattr(krw_runner, "krw_sources", lambda box: (pub.notices, pub.symbols, pub.shadow_row))
+    assert krw_runner.main(argv) == 1 and "krw pre-check failed" in capsys.readouterr().err
+    assert not (tmp_path / "perp_demo").exists()
 
 
 def test_only_krw_signed_run_checks_every_book_then_steps_krw_alone(krw_runner, tmp_path, monkeypatch, capsys):

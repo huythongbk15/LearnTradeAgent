@@ -80,6 +80,13 @@ class ExchangeStatus(Enum):
     MAINTENANCE = "maintenance"
 
 
+# ccxt ids whose signed requests carry a timestamp Binance checks against its own clock (see to_ccxt_config).
+TIME_ADJUSTED_IDS = frozenset({"binance", "binanceusdm", "binancecoinm"})
+# The largest correction applied for a PC clock that runs ahead (CCXTAdapter._bound_time_difference): half of
+# ccxt's 10 s recvWindow for Binance.
+MAX_TIME_ADJUST_MS = 5000
+
+
 @dataclass
 class ExchangeConfig:
     """Configuration for a single exchange"""
@@ -106,6 +113,11 @@ class ExchangeConfig:
     enabled: bool = True
 
     def to_ccxt_config(self) -> dict:
+        # Binance refuses a signed request stamped more than 1 s ahead of its clock (-1021). With this option ccxt
+        # reads the server time when the markets load and stamps every request with the measured offset, so a PC
+        # clock that drifted while the machine was off does not fail every signed call. An explicit setting wins.
+        if self.id in TIME_ADJUSTED_IDS:
+            self.options.setdefault("adjustForTimeDifference", True)
         config = {
             "apiKey": self.api_key,
             "secret": self.secret,
@@ -301,6 +313,38 @@ class CCXTAdapter(ExchangeAdapter):
         self._rate_limiter = RateLimitManager()
         self._connected = False
 
+    async def _measure_time_difference(self) -> None:
+        """Measure the PC clock's offset from the exchange's (one public /time read) when the config asks ccxt to
+        adjust for it (``adjustForTimeDifference``, set for Binance in ``to_ccxt_config``), then bound it."""
+
+        opts = getattr(self.exchange, "options", None)
+        if not isinstance(opts, dict) or not opts.get("adjustForTimeDifference"):
+            return
+        measure = getattr(self.exchange, "load_time_difference", None)
+        if measure is None:
+            return
+        res = measure()
+        if asyncio.iscoroutine(res):
+            await res
+        self._bound_time_difference()
+
+    def _bound_time_difference(self) -> None:
+        """Correct only a PC clock that runs ahead, and by at most ``MAX_TIME_ADJUST_MS``.
+
+        ccxt's offset is one sample, applied both ways and never refreshed. A PC behind the exchange is already
+        accepted (Binance's recvWindow is 10 s in ccxt), so a negative offset would only add a failure: a clock
+        stepped forward by a sync during the run would then stamp requests ahead. A /time reply that arrived late
+        inflates the offset by its delay; the bound keeps one slow reply from pushing every later request outside
+        the recvWindow. A PC more than ``MAX_TIME_ADJUST_MS`` ahead is still refused by the exchange (fail closed).
+        """
+
+        opts = getattr(self.exchange, "options", None)
+        if not isinstance(opts, dict) or not opts.get("adjustForTimeDifference"):
+            return
+        td = opts.get("timeDifference")
+        if isinstance(td, (int, float)) and not isinstance(td, bool):
+            opts["timeDifference"] = int(min(max(td, 0), MAX_TIME_ADJUST_MS))
+
     async def connect(self) -> None:
         """Initialize CCXT exchange instance"""
         try:
@@ -318,10 +362,15 @@ class CCXTAdapter(ExchangeAdapter):
                 self.exchange.set_sandbox_mode(True)
                 logger.info(f"Sandbox/testnet mode ENABLED for {self.config.name}")
 
+            # The clock offset is measured before the markets load: on mainnet with keys, load_markets itself signs
+            # requests (currencies, margin pairs) before ccxt would measure it at the end of fetch_markets.
+            await self._measure_time_difference()
+
             # Load markets (sync ccxt returns dict, ccxt.pro returns coroutine)
             markets_load = self.exchange.load_markets()
             if asyncio.iscoroutine(markets_load):
                 await markets_load
+            self._bound_time_difference()        # fetch_markets measured it again: bound that one too
             self._markets = self.exchange.markets
             self._build_symbol_maps()
 
