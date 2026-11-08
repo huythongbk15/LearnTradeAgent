@@ -2,7 +2,7 @@
 
 The first perp order path of the core, on Binance Demo Trading only. Research description, not advice. Mainnet stays NO-GO, and nothing here grants a market right.
 
-The same Demo Trading futures account also carries book LV (from 2026-11-04); from 2026-11-05, book LEARN (H-LEARN-11), book FLOW02 (H-FLOW-BTC-02) and book FLOW01 (H-FLOW-BTC-01); and book KRW (H-KRW-FADE-16, built 2026-11-08, its kill rules proposed). They share one order path and one set of account caps: see "Books on one account" and "Shared risk caps".
+The same Demo Trading futures account also carries book LV (from 2026-11-04); from 2026-11-05, book LEARN (H-LEARN-11), book FLOW02 (H-FLOW-BTC-02) and book FLOW01 (H-FLOW-BTC-01); and book KRW (H-KRW-FADE-16, built 2026-11-08, its kill rules approved by the operator on 2026-11-08). They share one order path and one set of account caps: see "Books on one account" and "Shared risk caps".
 
 ## Why
 On 2026-11-03 the operator ruled to open USD-M perpetuals as a second market type of the core, next to spot, so that the measured new perp short can be run as a real order path.
@@ -112,7 +112,7 @@ Constants are in `src/trading_agent/execution/perp/rules.py`. A change needs the
    ```
    - This task is never in the script's default list. Running the script without `-Only` does not register it, so it starts only when you name it.
    - Until it is registered, only the hourly run trades FLOW01, and most events are recorded stale (see "Book FLOW01"). On the research panel, that hourly-only entry is the negative row of FLOW01's timing table.
-8. **Book KRW (2026-11-08).** See "Book KRW", operator steps. Its kill rules are proposed: approve or change them before the fast forward that brings it, since both wrappers then run it. The 5-minute task of step 7 runs it too; no new task.
+8. **Book KRW (2026-11-08).** See "Book KRW", operator steps. The operator approved its kill rules on 2026-11-08. Both wrappers run it from the first hourly run after the fast forward that brings it. The 5-minute task of step 7 runs it too; no new task.
 
 ## Schedule
 - **Hourly:** `scripts/ops/run_perp_demo.sh` runs `live_perp_demo.py --execute --shadow --lv --learn --flow02 --flow01 --krw --pair-usd 500`, then `live_spot_hold_demo.py --execute` (book HOLD), then the H-LEARN-11 paper log. It runs every hour at :15 local, at nice 19, and logs to `logs/perp_demo.log`.
@@ -544,7 +544,7 @@ Code:
 
 The hourly run trades it with `--krw`. The 5-minute task runs it with `--only krw`, after FLOW01, in the same wrapper and under the same lock.
 
-- **Kill rules: PROPOSED (2026-11-08).** They need the operator's approval before the book's first run (see "Kill rules" below). Both wrappers pass `--krw`, so the first run is the first hourly run after the fast forward that brings this page. Approve the rules, or change them, before that fast forward.
+- **Kill rules: APPROVED by the operator on 2026-11-08, before the book's first run** (see "Kill rules" below). Both wrappers pass `--krw`, so the first run is the first hourly run after the fast forward that brings this page. A change of these rules needs the operator's ruling on this page.
 - **Rule (frozen, `tools/krwfade/rules.py`):**
   - **Notice:** a title on page 1 of Upbit's trade notices that lists a token on the KRW market. The classifier is the KRW listing family of the audited classifier (`data/notice_feasibility_20261108/verify/classification/classify.py`), ported line for line. It handles a follow-up appended to the original title, several tickers in one bracket, single-letter tickers, a market list per token, and a KRW-market addition for a coin Upbit already lists (an event). BTC- or USDT-only listings, a ticker cancelled in a follow-up, a swap warning's ticker, delistings and warnings are not.
   - **Notice time:** `first_listed_at`, converted from its +09:00 stamp. An edit appends a follow-up to the title and moves `listed_at` only.
@@ -618,7 +618,7 @@ The hourly run trades it with `--krw`. The 5-minute task runs it with `--only kr
     - It is refused, and audited `perp_krw_resume_refused`, when nothing is halted and the size is unchanged (`nothing_to_resume`), or when the book is not flat (`not_flat`): an event with legs, an entry or a stop not settled, a stop left at the venue (`krw_stale_stops`), or an order not settled.
     - `--krw-resume` needs `--krw` and `--execute` and refuses `--only`. Never leave it in a wrapper: it would clear each new halt at the book's next flat moment.
     - **Do not move `krw.json` aside.** A new record would read page 1 again and record its notices of the last 23 to 33 days a second time, each with a second shadow row. If it ever happens, K1 and the read take each (notice id, token) once, from the oldest record.
-- **Kill rules (PROPOSED 2026-11-08, operator approval needed before the first run; also in `data/krw_fade_20261108_01/KILL_RULES.md`):**
+- **Kill rules (approved by the operator on 2026-11-08, before the first run; also in `data/krw_fade_20261108_01/KILL_RULES.md`):**
   - **Settled shadow event:** an event whose shadow row is computed (`done`) and passes check 0a, and that is not `excluded`. An excluded event is one of these:
     - a listing a follow-up cancelled, or a title that no longer lists the token on KRW (`listing_cancelled`, `no_longer_krw`);
     - an ambiguous event research rules not KRW (`ambiguous_not_krw`). The rule is classify.py lines 352-362: the token has a non-ambiguous KRW notice, cancelled or not, more than a day after the event's notice. The book marks the ones it sees. The reader applies the rule to the whole record (`krw_notices`) at each look, so notices that came after the book stopped count too.

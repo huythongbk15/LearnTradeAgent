@@ -54,7 +54,7 @@ It is an ``OtherBook`` (book.py) named "krw", last in the run order. Its alt sho
 are summed into the venue's BTCUSDT by the pair book. Orders go through the pair book's path with keys
 "krw-<notice id>-<TOKEN>-" plus "o<n>" (alt sell), "st" (stop), "b<n>" (BTC buy), "c<n>" (alt buy-back) and "x<n>"
 (BTC sell). ``plan``, ``step``, ``counts`` and the audit events carry counts, statuses, quantities and keys only.
-Store: ``krw.json`` under the perp_demo root. Rules and the proposed kill rules: docs/operations/PERP_DEMO_RUNNER.md,
+Store: ``krw.json`` under the perp_demo root. Rules and the kill rules (approved 2026-11-08): docs/operations/PERP_DEMO_RUNNER.md,
 "Book KRW". Research description, not advice.
 """
 
