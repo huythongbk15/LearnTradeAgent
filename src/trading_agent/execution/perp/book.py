@@ -2,7 +2,7 @@
 
 The pair book (``Book``) is senior: it owns the order path, the order ledger,
 the reconcile and the venue. Every other book on the account (book LV in
-``lowvol.py``; H-LEARN-11, H-FLOW-BTC-02 and H-FLOW-BTC-01 when they come) is
+``lowvol.py``; H-LEARN-11, H-FLOW-BTC-02, H-FLOW-BTC-01 and H-KRW-FADE-16) is
 an ``OtherBook`` that sends its orders through the pair book. One process, one
 order ledger, one reconcile, one writer lock.
 
@@ -12,21 +12,22 @@ other books hold counted as explained; pair exits; each other book's
 ``step()``; pair entries. Anything a book cannot explain stops the run before
 a new entry (fail closed). Every intent is reserved in a signed ledger before
 it is sent, so a crash cannot send it twice. A run of one book (``only``,
-book FLOW01's 5-minute mode) does the same checks, then that book's step alone.
+the 5-minute modes of books FLOW01 and KRW) does the same checks, then that
+book's step alone.
 
 Symbols on the shared account:
 
 - A symbol other than BTCUSDT is exclusive. A book never enters one another
   book holds (``Book.taken``); it skips it and records ``held_by_<holder>``.
   Two books holding one such symbol stop the run for operator review.
-- BTCUSDT is shared by long-only legs: the pair hedges and the BTC books. Each
-  book records its own quantity; the venue's BTCUSDT must equal the sum; every
-  BTC exit is a reduce-only sell of the book's own quantity. A negative BTC
-  quantity in any book is an error.
+- BTCUSDT is shared by long-only legs: the pair hedges, the BTC books and
+  book KRW's hedges. Each book records its own quantity; the venue's BTCUSDT
+  must equal the sum; every BTC exit is a reduce-only sell of the book's own
+  quantity. A negative BTC quantity in any book is an error.
 
 What another book must implement (``OtherBook``):
 
-- ``name: str``: unique and short ("lv", "learn", "flow02", "flow01"); its
+- ``name: str``: unique and short ("lv", "learn", "flow02", "flow01", "krw"); its
   report key in ``run_cycle`` and the holder in skip reasons.
 - ``check() -> None``: verify its exclusive (non-BTC) legs against
   ``venue.positions()``, settle its own fired stops and cut-off closes, and
@@ -51,7 +52,7 @@ How it must trade:
 - Orders go through this book: ``Book._market`` for market orders (most
   easily through ``legs.LegTrader``), ``Book._send`` for an exchange stop.
 - Client keys come from ``Book.fresh_key(stem)``, with the book's own prefix
-  ("lv", "lrn-", "fb2-", "fb1-"; "pp-" is the pair book's): unique in the
+  ("lv", "lrn-", "fb2-", "fb1-", "krw-"; "pp-" is the pair book's): unique in the
   ledger and at most 36 characters. A stop's key ends in "-st": reconcile
   leaves stops to their book's ``check()``.
 - Before a symbol is added: ``Book.taken(name)``. Before exposure is added:
@@ -515,13 +516,13 @@ def run_cycle(
     """One run. Without ``execute`` it only reads and reports what is due.
 
     ``others`` are the books beside the pair book, in run order (LV, LEARN,
-    FLOW02, FLOW01). ``lv`` is the older way to pass book LV alone; it runs
+    FLOW02, FLOW01, KRW). ``lv`` is the older way to pass book LV alone; it runs
     first. Each book's plan or step result is reported under its name.
 
-    ``only`` names one other book for a run of that book alone (book FLOW01's
-    5-minute mode): the reconcile, every book's ``check()`` and the pair
-    book's position check as usual, then that book's ``step()`` and nothing
-    else. No pair entry, no scheduled pair exit and no other book's step;
+    ``only`` names one other book for a run of that book alone (the 5-minute
+    modes of books FLOW01 and KRW): the reconcile, every book's ``check()``
+    and the pair book's position check as usual, then that book's ``step()``
+    and nothing else. No pair entry, no scheduled pair exit and no other book's step;
     the checks still close a hedge whose pair's stop fired and flatten an
     interrupted LV roll, as in every run.
     """

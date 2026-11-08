@@ -4,7 +4,7 @@
 # demo book. Run once from Windows PowerShell (not elevated):
 #   powershell -ExecutionPolicy Bypass -File \\wsl.localhost\Ubuntu\home\huythong\.qwenpaw\workspaces\trading\scripts\ops\windows\register_tasks.ps1
 # -Only DailyCheck registers that task alone and leaves the others untouched.
-# FlowFlush (book FLOW01's 5-minute demo run) is never in the default list: it is
+# FlowFlush (the 5-minute demo runs of books FLOW01 and KRW) is never in the default list: it is
 # registered only by name, with -Only FlowFlush.
 # Remove with:  Unregister-ScheduledTask -TaskName "TradingAgent-*" -Confirm:$false
 param(
@@ -73,7 +73,7 @@ $perpdemo = New-ScheduledTaskAction -Execute "conhost.exe" `
 $perpdemoTrigger = New-ScheduledTaskTrigger -Once -At $start.AddMinutes(14) `
     -RepetitionInterval (New-TimeSpan -Hours 1)
 
-# Every 5 minutes from 00:02 local (:02, :07, :12, :17, ...): book FLOW01's 5-minute mode.
+# Every 5 minutes from 00:02 local (:02, :07, :12, :17, ...): the 5-minute modes of books FLOW01, then KRW.
 # Two minutes after each 5-minute stamp, so a row published up to about 84 s late is seen,
 # and no run starts from :13 to :16, so a signed run has 3 minutes before the hourly run. Most runs only read
 # public data and sign nothing. The wrapper keeps out of :50 of an even UTC hour to
@@ -127,10 +127,10 @@ if ($Only -contains "FlowBid") {
 if ($Only -contains "PerpDemo") {
     Register-ScheduledTask -TaskName "TradingAgent-PerpDemo" -Action $perpdemo `
         -Trigger $perpdemoTrigger -Settings $settings `
-        -Description "Hourly perp demo books on Binance Demo Trading (pair book with its mainnet shadow ledger, LV, LEARN, FLOW02, FLOW01), book HOLD and the H-LEARN-11 paper log (scripts/ops/run_perp_demo.sh)" -Force
+        -Description "Hourly perp demo books on Binance Demo Trading (pair book with its mainnet shadow ledger, LV, LEARN, FLOW02, FLOW01, KRW), book HOLD and the H-LEARN-11 paper log (scripts/ops/run_perp_demo.sh)" -Force
 }
 if ($Only -contains "FlowFlush") {
     Register-ScheduledTask -TaskName "TradingAgent-FlowFlushDemo" -Action $flowflush `
         -Trigger $flowflushTrigger -Settings $settings `
-        -Description "Book FLOW01 on Binance Demo Trading every 5 min; signs only when an exit is due or a fresh event is present (scripts/ops/run_flow_flush.sh)" -Force
+        -Description "Books FLOW01 and KRW on Binance Demo Trading every 5 min; each signs only when an exit is due, an order is unsettled or an event is in its entry window (scripts/ops/run_flow_flush.sh)" -Force
 }

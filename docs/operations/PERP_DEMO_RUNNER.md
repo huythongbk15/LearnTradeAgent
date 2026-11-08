@@ -2,7 +2,7 @@
 
 The first perp order path of the core, on Binance Demo Trading only. Research description, not advice. Mainnet stays NO-GO, and nothing here grants a market right.
 
-The same Demo Trading futures account also carries book LV (from 2026-11-04) and, from 2026-11-05, book LEARN (H-LEARN-11), book FLOW02 (H-FLOW-BTC-02) and book FLOW01 (H-FLOW-BTC-01). They share one order path and one set of account caps: see "Books on one account" and "Shared risk caps".
+The same Demo Trading futures account also carries book LV (from 2026-11-04); from 2026-11-05, book LEARN (H-LEARN-11), book FLOW02 (H-FLOW-BTC-02) and book FLOW01 (H-FLOW-BTC-01); and book KRW (H-KRW-FADE-16, built 2026-11-08, its kill rules proposed). They share one order path and one set of account caps: see "Books on one account" and "Shared risk caps".
 
 ## Why
 On 2026-11-03 the operator ruled to open USD-M perpetuals as a second market type of the core, next to spot, so that the measured new perp short can be run as a real order path.
@@ -48,7 +48,7 @@ Constants are in `src/trading_agent/execution/perp/rules.py`. A change needs the
 - **Signed order ledger:** every order intent is reserved in a signed ledger (`LiveRiskStateStore`, `order_state.json`) before it is sent, with the same client key Binance receives.
   - An outcome that is not known stops the run.
   - The next run settles it by that key first.
-- **Signed stores:** pairs live in a signed store (`pairs.json`, `LIVE_SAFETY_HMAC_KEY`). A changed file is refused. Each other book has its own signed store beside it: `lv_blocks.json`, `learn_book.json`, `flow02.json` and `flow01.json`.
+- **Signed stores:** pairs live in a signed store (`pairs.json`, `LIVE_SAFETY_HMAC_KEY`). A changed file is refused. Each other book has its own signed store beside it: `lv_blocks.json`, `learn_book.json`, `flow02.json`, `flow01.json` and `krw.json`.
 - **Position check:**
   - Each run checks venue positions against every book's record before any entry.
   - Any position the book cannot explain stops the run.
@@ -112,11 +112,13 @@ Constants are in `src/trading_agent/execution/perp/rules.py`. A change needs the
    ```
    - This task is never in the script's default list. Running the script without `-Only` does not register it, so it starts only when you name it.
    - Until it is registered, only the hourly run trades FLOW01, and most events are recorded stale (see "Book FLOW01"). On the research panel, that hourly-only entry is the negative row of FLOW01's timing table.
+8. **Book KRW (2026-11-08).** See "Book KRW", operator steps. Its kill rules are proposed: approve or change them before the fast forward that brings it, since both wrappers then run it. The 5-minute task of step 7 runs it too; no new task.
 
 ## Schedule
-- **Hourly:** `scripts/ops/run_perp_demo.sh` runs `live_perp_demo.py --execute --shadow --lv --learn --flow02 --flow01 --pair-usd 500`, then `live_spot_hold_demo.py --execute` (book HOLD), then the H-LEARN-11 paper log. It runs every hour at :15 local, at nice 19, and logs to `logs/perp_demo.log`.
+- **Hourly:** `scripts/ops/run_perp_demo.sh` runs `live_perp_demo.py --execute --shadow --lv --learn --flow02 --flow01 --krw --pair-usd 500`, then `live_spot_hold_demo.py --execute` (book HOLD), then the H-LEARN-11 paper log. It runs every hour at :15 local, at nice 19, and logs to `logs/perp_demo.log`.
   - `OMP_NUM_THREADS=4` is set for the perp run: once a quarter, book LEARN fits the quarter's model in it.
-- **Every 5 minutes:** `scripts/ops/run_flow_flush.sh` runs `live_perp_demo.py --execute --only flow01`, with the same book flags and sizes as the hourly run. It runs at :02, :07, :12, ... local, at nice 19, and logs to `logs/flow_flush.log`. See "Book FLOW01".
+- **Every 5 minutes:** `scripts/ops/run_flow_flush.sh` runs `live_perp_demo.py --execute --only flow01`, then `--only krw`, each with the same book flags and sizes as the hourly run, one after the other under the lock. It runs at :02, :07, :12, ... local, at nice 19, and logs to `logs/flow_flush.log`. See "Book FLOW01" and "Book KRW".
+  - The testnet window is asked again before the KRW run: a FLOW01 run that ends inside it leaves the KRW run to the next 5-minute run.
 - No run of either wrapper starts from :50 of an even UTC hour to :06 of the odd hour.
 - **One lock:** both wrappers take `logs/.perp_demo.lock`. A run is skipped while a run of either wrapper is going.
   - The hourly run holds the lock to its end, so the 5-minute runs during it are skipped.
@@ -229,10 +231,10 @@ Code is in `src/trading_agent/execution/perp/lowvol.py`. The hourly run trades i
 On 2026-11-05 the operator decided to put three more books on the same Demo Trading futures account: H-LEARN-11 (book LEARN), H-FLOW-BTC-02 (book FLOW02) and H-FLOW-BTC-01 (book FLOW01). The pair book and book LV are senior. All run at 1x, on Demo Trading only. The kill rules were written in the triage register before the books start (`data/triage_20261104_01/REGISTER.md`, section 5, rows 4 to 6). Research description, not advice. Mainnet stays NO-GO.
 
 - **One process:** one order ledger, one reconcile, one writer lock. Orders still leave only through `execution/perp/venue.py`.
-- **Flags:** `--lv`, `--learn`, `--flow02` and `--flow01` add each book to a run. Each book has its own signed store under `data/perp_demo/`. With `--execute` the stores are verified. Without it they are read unverified, and no store is written.
+- **Flags:** `--lv`, `--learn`, `--flow02`, `--flow01` and `--krw` add each book to a run. Each book has its own signed store under `data/perp_demo/`. With `--execute` the stores are verified. Without it they are read unverified, and no store is written.
 - **Order of a run:**
   1. reconcile unfinished orders by client key;
-  2. each book checks its own legs, in the order LV, LEARN, FLOW02, FLOW01;
+  2. each book checks its own legs, in the order LV, LEARN, FLOW02, FLOW01, KRW;
   3. the pair book checks the venue against every book;
   4. pair exits;
   5. each book steps: exits and reductions always, additions only without the entry lock;
@@ -242,27 +244,27 @@ On 2026-11-05 the operator decided to put three more books on the same Demo Trad
   - FLOW02 keeps its own data and model faults inside the book. LEARN does not.
   - FLOW01's 5-minute mode steps FLOW01 alone, so its exits still run there once that task is registered.
   - Isolating the steps from each other is a change of this rule. It needs the operator's ruling.
-- **A run of one book** (`--only flow01`, book FLOW01's 5-minute mode): steps 1 to 3 as above, then FLOW01's step alone. No pair entry, no scheduled pair exit and no other book's step. The checks of steps 2 and 3 still act as in every run: they close the hedge of a pair whose stop fired, and they flatten an LV roll that was cut off.
+- **A run of one book** (`--only flow01` or `--only krw`, the 5-minute modes of books FLOW01 and KRW): steps 1 to 3 as above, then that book's step alone. No pair entry, no scheduled pair exit and no other book's step. The checks of steps 2 and 3 still act as in every run: they close the hedge of a pair whose stop fired, and they flatten an LV roll that was cut off.
 - **Symbols other than BTCUSDT are exclusive:**
   - A book never enters a symbol another book holds. It skips it and records `held_by_<book>`.
   - Two books holding the same symbol stop the run for operator review.
-- **BTCUSDT is shared by long legs only:** the pair hedges, book FLOW02 and book FLOW01.
+- **BTCUSDT is shared by long legs only:** the pair hedges, book FLOW02, book FLOW01 and book KRW's hedges.
   - Each book records its own quantity.
   - The venue's BTCUSDT must equal the sum, or the run stops.
   - Every BTC exit is a reduce-only sell of the book's own quantity.
   - A negative BTC quantity in any book stops the run.
-- **Client keys:** each book has its own prefix: `pp-` (pair book), `lv` (LV), `lrn-` (LEARN), `fb2-` (FLOW02) and `fb1-` (FLOW01). Every key is unique in the order ledger and at most 36 characters.
-- **Halts:** books LEARN, FLOW02 and FLOW01 each halt on their own drawdown rule (sections below).
+- **Client keys:** each book has its own prefix: `pp-` (pair book), `lv` (LV), `lrn-` (LEARN), `fb2-` (FLOW02), `fb1-` (FLOW01) and `krw-` (KRW). Every key is unique in the order ledger and at most 36 characters.
+- **Halts:** books LEARN, FLOW02 and FLOW01 each halt on their own drawdown rule (sections below). Book KRW's halt stops new entries only: its open events still exit at their time.
   - A halted book closes its legs reduce-only, trades nothing more and records `halted`. Reports show only `halted` or `ok`, and `new` (book LEARN, before its first step).
-  - Resuming is the operator's call: once the book is flat, move its store aside. The next run starts a fresh one.
+  - Resuming is the operator's call: once the book is flat, move its store aside. The next run starts a fresh one. Book KRW is the exception: its store also holds the forward record, so it resumes with one run with `--krw-resume` instead ("Book KRW", Halt).
   - Never move a store aside while its book holds a leg: the position check would then refuse that leg and stop every run.
-  - **A new size is a new book:** each halt measures the size stored at the book's first run. With a different `--learn-usd`, `--flow02-usd` or `--flow01-usd`, the book adds nothing and records `size_changed`; exits still run. Move its store aside, once it is flat, to start at the new size.
+  - **A new size is a new book:** each halt measures the size stored at the book's first run. With a different `--learn-usd`, `--flow02-usd`, `--flow01-usd` or `--krw-usd`, the book adds nothing and records `size_changed`; exits still run. Move its store aside, once it is flat, to start at the new size (book KRW: `--krw-resume`).
 - **A fill the ledger holds without a price:** Demo Trading can answer a filled market order with average 0 (seen 2026-11-03). When a book settles such a fill from the order ledger, it reads the order back by its key, else takes its quote cost over its quantity, else the mark at send. Book LEARN keeps no mark per order, so it takes the mark when it settles, and its row's `mark` is empty.
   - The fill row then carries `avg_from` (`venue`, `quote_cost` or `mark`). Book LV's row is a list (key, quantity, average): it carries the source as a fourth field, and the leg carries `exit_from` when that row closed it.
   - A cost read leaves the `quote_cost` and `mark` rows out.
 - **Exact closes** send the leg's quantity rounded to 10 decimals. Summed fills drift (0.3 − 0.2 = 0.09999999999999998), and ccxt truncates an amount to the step, so an unrounded close would leave one step at the venue.
   - Books FLOW02 and FLOW01 round their BTC quantity the same way after each fill. A partial sell of 0.010 from 0.013 then leaves 0.003, not 0.0029999999999999996, which ccxt would send as 0.002.
-- **Code:** `execution/perp/book.py` (the run and the contract), `risk.py` (the caps), `legs.py` (trading toward a target), and the books `lowvol.py`, `learnbook.py`, `flowbtc.py` and `flowflush.py`.
+- **Code:** `execution/perp/book.py` (the run and the contract), `risk.py` (the caps), `legs.py` (trading toward a target), and the books `lowvol.py`, `learnbook.py`, `flowbtc.py`, `flowflush.py` and `krwfade.py`.
 
 ## Shared risk caps
 Operator ruling, 2026-11-05. Code: `src/trading_agent/execution/perp/risk.py`. A change of a cap needs the operator's ruling on this page.
@@ -270,7 +272,7 @@ Operator ruling, 2026-11-05. Code: `src/trading_agent/execution/perp/risk.py`. A
 Both caps hold across all books. They are measured on the venue's positions at mark price, not on what each book thinks it holds.
 
 - **Gross, 90% (`EQUITY_USE`):** after any trade that adds exposure, the account's gross notional stays at or under 90% of equity. Gross notional is the sum over positions of quantity times mark.
-- **Alt shorts, 40% (`ALT_SHORT_CAP`):** after any trade that adds a short on a symbol other than BTCUSDT, the account's short notional on those symbols stays at or under 40% of equity. This bounds the short-alt group: the pair book's shorts, book LV's shorts and book LEARN's shorts.
+- **Alt shorts, 40% (`ALT_SHORT_CAP`):** after any trade that adds a short on a symbol other than BTCUSDT, the account's short notional on those symbols stays at or under 40% of equity. This bounds the short-alt group: the pair book's shorts, book LV's shorts, book LEARN's shorts and book KRW's shorts.
 - **Exits and reductions** are never blocked by a cap.
 - **Order:** a book makes its reductions first, then reads the room left, then adds.
 - **When a cap binds:**
@@ -278,10 +280,12 @@ Both caps hold across all books. They are measured on the venue's positions at m
   - **Book LV:** misses the week, recorded `equity` or `alt_short_cap`. The roll counts LV's current legs as gone, so the check sees the roll's net effect.
   - **Book LEARN:** scales every adding leg down by the same factor, so the additions fit, and records the day `capped`.
   - **Books FLOW02 and FLOW01:** skip the entry and record `equity`. FLOW02 does not try again that day; FLOW01 does not try that event again. A BTC long adds no alt short.
+  - **Book KRW:** an entry adds two legs of gross (2 x `--krw-usd`) and one alt short. When it does not fit, the event is `shadow_only` with `equity` or `alt_short_cap`, and is not tried again.
 - **What it replaces:** the pair book's check counted only its own pairs, and book LV's counted LV plus the pairs. Neither counted everything on the account. The shared caps close that gap.
 - **Worked example** (arithmetic at the default sizes on a 10,000 USDT account, not a measurement):
   - LV 1,000, LEARN up to 2,000, FLOW02 1,000 and FLOW01 1,000 use up to 5,000 of the 9,000 gross. That leaves room for 4 pairs of 500 a leg.
   - LV's shorts are 500. If LEARN is short all 20 coins, its shorts are 2,000. The alt shorts are then 2,500 of the 4,000 allowed, so 3 pairs fit.
+  - Book KRW at its default holds up to 4 events of 1,000 gross and 500 alt short each. Beside the books above at their largest, the gross cap leaves room for 4 of them only when no pair is open, and LEARN short all 20 coins leaves alt-short room for 3. A KRW event the caps do not take is recorded `shadow_only`; its shadow row is kept all the same.
 - **Limits:**
   - The pair book counts an entry at its nominal size. Its hedge is rounded to the nearest BTC step, so it can exceed that by up to one step.
   - A short whose price rises counts more at mark. The caps then block new additions, but they never force a reduction.
@@ -530,6 +534,133 @@ The hourly run trades it with `--flow01`. The 5-minute task runs it with `--only
   - `status.json` shows counts only (`flow01_*`).
 - **Blinding:** the book's returns are sealed until its first look at 20 events ("Blinding of forward returns").
 
+## Book KRW on the same account
+On 2026-11-08 the operator asked for a Demo book of H-KRW-FADE-16 ("Làm sổ Demo"). The research is `data/krw_fade_20261108_01` (git-ignored): 109 events in 106 UTC-day clusters, 2022 to 2026-10, from Upbit KRW-market listing notices. Its verdict was KEEP by its frozen rules. KEEP means a forward record and a Demo discussion, never money. The price fade was strong (gross G +638 bps per event pair, placebo p95 +182), but the net after costs and funding was not significant (U +161 bps, t 0.78): the alt short's funding and squeeze tails decide it. The book records every event's research trade as a shadow row, and trades on Demo the events the venue and the account take. It measures fills, the exchange stop, Demo funding and Demo's coverage of these perps. It cannot confirm the edge.
+
+Code:
+- `tools/krwfade/`: the notice list (`feed.py`), the frozen rule (`rules.py`), the research trade as a shadow row (`shadow.py`) and the parity run on the research packet (`parity.py`).
+- `src/trading_agent/execution/perp/krwfade.py`: the book.
+- Record: `data/perp_demo/krw.json`, signed like `pairs.json`.
+
+The hourly run trades it with `--krw`. The 5-minute task runs it with `--only krw`, after FLOW01, in the same wrapper and under the same lock.
+
+- **Kill rules: PROPOSED (2026-11-08).** They need the operator's approval before the book's first run (see "Kill rules" below). Both wrappers pass `--krw`, so the first run is the first hourly run after the fast forward that brings this page. Approve the rules, or change them, before that fast forward.
+- **Rule (frozen, `tools/krwfade/rules.py`):**
+  - **Notice:** a title on page 1 of Upbit's trade notices that lists a token on the KRW market. The classifier is the KRW listing family of the audited classifier (`data/notice_feasibility_20261108/verify/classification/classify.py`), ported line for line. It handles a follow-up appended to the original title, several tickers in one bracket, single-letter tickers, a market list per token, and a KRW-market addition for a coin Upbit already lists (an event). BTC- or USDT-only listings, a ticker cancelled in a follow-up, a swap warning's ticker, delistings and warnings are not.
+  - **Notice time:** `first_listed_at`, converted from its +09:00 stamp. An edit appends a follow-up to the title and moves `listed_at` only.
+  - **Perp:** the alias table first and alone (Upbit BEAM is BEAMXUSDT, MET2 is METUSDT, AI is AIGENSYNUSDT, RAY is RAYSOLUSDT), else TOKENUSDT, then the 1000, 1000000 and 1M prefixes: the first USDT perpetual that is TRADING in mainnet exchangeInfo. Upbit PROS (Pharos) is denied: Binance's PROSUSDT is another coin.
+  - **Not an event:** the H-XSEC-01 coins, BNSOL and BTC; pegged tokens; a perp onboarded less than 35 days before the notice; a notice within 7 days of the token's previous KRW notice (the 7-day chain below); a ticker cancelled in a follow-up (`listing_cancelled`).
+  - **Entry time E:** the first 1h open at or after the notice + 10 minutes.
+  - **One deviation, forced:** in a title whose one market list covers several tokens and names KRW ("KRW, BTC 마켓 디지털 자산 추가 (SHIB, GAL)"), research ruled a token not KRW when the token got a non-ambiguous KRW notice of its own more than a day later (classify.py lines 352-362). That reads the future. The book takes every such token as KRW when its notice comes, as the title says, and flags the event `ambiguous`.
+    - **Scope:** of the 15 ambiguous KRW rows from 2022-01 to 2026-10, research ruled 6 not KRW: IMX 2022-02-08, GAL 2023-01-18, ALT 2024-02-27, POKT 2024-03-27, BIGTIME 2024-04-23 and OMNI 2024-05-03. Only BIGTIME passes the rest of the rule, so it is the one extra event of the replay (below). IMX, ALT (32.5 days against 35) and OMNI fail the perp age; GAL and POKT have no perp in the exchangeInfo snapshot. Research kept the other 9: AVAX, SHIB, ACS, MASK, PYTH, MNT, AKT, ZETA and SKY.
+    - **Once research's reading is known:** when the token's own non-ambiguous KRW notice comes more than a day later, the book marks the ambiguous event `excluded` (`ambiguous_not_krw`). The ambiguous notice also leaves the token's 7-day chain, so it never merges that later notice away: the later notice is an event of its own, as in research.
+    - **Left to the read:** the record keeps every KRW notice of a token with its time, id, `amb` and `cancelled` (`krw_notices`). So the read can apply classify.py's rule to notices the book did not see. One case the book cannot settle forward is a non-ambiguous notice that came within a day after an ambiguous one and was merged into it (`merged_within_7d`), when a third notice of the token later rules the ambiguous one not KRW. Research would make that merged notice an event. Its id is in `not_events`; it has no shadow row.
+  - **7-day chain:** a notice is merged when the token had a KRW notice within the 7 days before it. As in research, the chain leaves out a cancelled listing and an ambiguous notice research rules not KRW (`rules.chain`).
+  - **Final titles:** research classified the titles as they stood when it fetched them, follow-ups included. Every run reads page 1 again, notices already seen included. A follow-up that cancels the token's listing (`listing_cancelled`), or a title that no longer lists the token on KRW (`no_longer_krw`), marks the event `excluded` and takes the notice out of the token's 7-day chain. A waiting event becomes `cancelled` and is never traded. An event traded already keeps its Demo legs to their exit by the rule. A shadow row not computed yet is not computed (`excluded`).
+  - **Forward record:** the events whose E + 72 h is at or after 2026-11-02 00:00 UTC. Earlier ones are the research sample and are recorded as not events (`research_sample`).
+- **Parity (2026-11-08, `PYTHONPATH=src:. .venv/bin/python -m tools.krwfade.parity`, on the packets in `data/`):**
+  - **Rule:** the 809 research notices with the 2026-11-03 exchangeInfo give 109 events. 106 equal the research events on token, perp, notice time and E. The other differences:
+    - BIGTIME 2024-04-23 is an event here and not in research: the deviation above.
+    - GAL 2024-07-11 is missing here: its perp has left exchangeInfo; research took its age from a store's first bar.
+    - RAY 2025-06-19 and AI 2026-06-30 resolve to RAYSOLUSDT and AIGENSYNUSDT by the alias table. Research took RAYUSDT and AIUSDT, perps that did not trade at the notice and failed check 0a.
+  - **Snapshot:** the snapshot is later than the notices, so a perp settled since shows SETTLING. The replay reads a perp as trading at the notice when it is TRADING, or SETTLING with its delivery after the notice. Read literally, the snapshot would also drop STG, OM, OMNI and IP.
+  - **Shadow:** on the stores `run/main.py` reads, the shadow row agrees on check 0a for 109 of 109 events, and reproduces `g_bps` and `n_bps` of `run/events_out.csv` within 1e-6 for 104 of 104 passing events, equal to the 10 digits printed.
+  - **Exit status:** the script returns 0 only when both halves agree as recorded here. The rule half needs 109 events replayed, 106 equal, and exactly the four differences above. The shadow half needs every event to agree on 0a, and every passing event to agree on g_bps and n_bps within 1e-6, on the stop, on the funding row counts and on the flags. `--rules-only` judges the rule half alone.
+- **Timing:**
+  - Demo trades an event at the first run with E ≤ now ≤ E + 15 min. E is on the hour, so the 5-minute runs at :02, :07 and :12 can enter it. In the testnet window (:50 of an even UTC hour to :06 of the odd hour) the :02 run does not start, so an E at an odd UTC hour enters at :07.
+  - The hourly run's `at` is a few seconds past :15, after the window: **without the 5-minute task (operator step 7), every event is `missed` on Demo.** The shadow records it all the same.
+  - An event no run decides by E + 15 min is `missed`. A run under `TRADING_ENTRY_KILL_SWITCH` leaves it waiting; if the lock lasts past the window, it is missed with the reason `entry_lock`. While the book is halted, the 5-minute pre-check signs for no entry window, so such an event is `shadow_only` with the reason `halted`, also when a run first sees its notice after the window. This applies only when the halt began by the event's window end (the halt stores its time); an event whose window passed before the halt keeps `missed` with its own reason.
+  - Research enters at the 1h open at E. The demo enters minutes later at market; the shadow row keeps the research prices.
+- **Entry:** the event is traded only if all of these hold:
+  - the alt perp trades on Demo;
+  - no other book holds it, and book KRW holds nothing on it (a stop it left at the venue included);
+  - the venue lists no stop on the symbol, whichever book left it. A failed LV block's `stale_stops` is one: LV holds nothing there, so `Book.taken` does not see it, and its reduce-only buy would buy a KRW short back;
+  - the book is not halted, and fewer than 4 events hold legs;
+  - the account caps take a short of `--krw-usd` on the alt and a long of `--krw-usd` on BTCUSDT.
+  - Otherwise the event is `shadow_only`, with the first reason in that order: `not_on_demo`, `held_by_<book>`, `held_by_krw`, `stop_listed`, `halted`, `max_open`, `equity` or `alt_short_cap`; also `size_changed` and `below_venue_minimum`. A venue read that fails before any order went out leaves the event waiting (`error_<name>` in its attempts), for a later run inside the window.
+- **Orders,** the pair book's pattern, in this order:
+  1. sell `--krw-usd / mark` of the alt at market;
+  2. an exchange STOP_MARKET buy, reduce-only, at 1.5x the alt's average fill;
+  3. buy `--krw-usd / mark` of BTCUSDT at market, to the nearest step.
+  - Keys: `krw-<notice id>-<TOKEN>-o<n>` (alt sell), `-st` (stop), `-b<n>` (BTC buy), `-c<n>` (alt buy-back), `-x<n>` (BTC sell).
+  - **A failure after the alt sell went out** (a stop send that fails, a lost reply, anything): the run audits `perp_krw_unprotected`, buys back the short the venue holds, reduce-only, before the stop is settled, sells the BTC it recorded, cancels the stop if the venue took it, marks the event `failed` and stops. A leg a lost reply leaves (a BTC buy that filled) is recorded from the order ledger by the next run and sold.
+  - **A stop that fires inside a failed entry** (the squeeze comes before the take-off reads the positions): the venue holds no short and no longer lists the stop it took. The take-off records the stop's fill as the check records a fired stop, and the event stays `failed`.
+  - **A run killed mid-entry:** the next run's check records the fills from the ledger. With the alt sold, its stop listed and the BTC bought, the event is `open`; otherwise it is `failed` and its legs are unwound.
+  - A failed event is `unwound` once a signed run finds it flat by its fills; until then the 5-minute pre-check signs for it.
+  - **A market order whose send raises before it reaches the venue,** whichever it is (the alt sell, the BTC buy, the buy-back or the BTC sell): the next reconcile does not find it, marks it `manual_intervention` and stops every book for operator review. Nothing is sent again for it.
+  - **A stop whose send raises** is settled by the take-off:
+    - cancelled if the venue lists it;
+    - if not listed while the record still holds a short the venue no longer holds, the stop is read back by its key, and a fill the venue reports is recorded as a fired stop;
+    - otherwise it is closed as `rejected`.
+    - Known limit: if the venue took that stop, it fired, and the read-back cannot confirm it (a read error or no answer), the short stays on the record. The next check then stops every book for operator review, as for the other double faults here.
+- **Stop:** research triggers on a 1h high at 1.5x the entry open and fills at max(1.575x entry, 1.005x that bar's open); Demo's exchange stop triggers at 1.5x the average fill and fills at market.
+  - A signed run that finds the alt flat with its stop gone records the event `stopped`, as book LV does, and sells its BTC. The fill is read back by the stop's key when the venue answers, else taken at 1.05x the trigger (1.575x the fill, research's figure), marked `avg_from`.
+  - The 5-minute pre-check cannot see a fired stop (it needs the venue's positions): its BTC leg is sold by the next hourly run.
+- **Exit:** due from E + 72 h less 2.5 min, or at once after a fired stop. A late run exits at once.
+  - The alt is bought back reduce-only. Its stop is cancelled only after that buy filled in full: a buy-back that fails, loses its reply or fills in part leaves the stop at the venue, and the next run settles the fill and buys the rest back with a fresh key.
+  - Then the event's own BTCUSDT quantity is sold reduce-only.
+    - A sell the venue answers as failed (expired or rejected) or fills in part is sold again by the next run, with a fresh key, for what is left.
+    - A sell whose reply is lost, that times out or comes back filled without a price, or whose run is killed after the send, is settled from the order ledger by the next run's check. That run's step then closes the event.
+    - A sell whose send raises before it reaches the venue stops every book at the next reconcile (above).
+  - A stop the venue still lists after the cancel is kept on the event (`stale_stop`): each check cancels it again, and no KRW event shorts that symbol until it is gone.
+  - Exits run under the entry lock, while halted, and when the feed fails.
+- **Shadow:** from E + 73 h, each event's research row (`tools/krwfade/shadow.py`) is computed from public mainnet 1h klines and funding, through the NL-P allowlisted client, and stored on the event. Every event gets one, traded or not, unless it is `excluded` first.
+  - It is `run/main.py`'s trade exactly: check 0a, entry at the 1h opens at E, the 1.5x stop with its fill and the BTC close, exit at the open at E + 72 h, 74 + 11 bps, and funding with E < t ≤ X. Check 0b is recorded as a flag.
+  - A run that cannot read the data tries again later. The event's shadow is `shadow_failed`, with the reason, only after it failed on 3 runs and 7 days have passed since its first failed try. A long stop of the runs, or one burst of errors, therefore never gives a row up. A 418 or 429 from Binance, whether on the exchangeInfo read of a new notice or on a shadow read, ends that run's shadow and never counts as a failure.
+- **Size:** `--krw-usd` per leg, default 500 USDT, at most 2,000. A larger value is refused when the flags are read.
+  - **A new size is a new sleeve:** the size is stored at the book's first run. With a different `--krw-usd`, new events are `shadow_only` (`size_changed`) until a run with `--krw-resume` (below), once the book is flat.
+- **Halt (K3, automated):**
+  - Trigger: the cumulative realized net of the sleeve's Demo round trips, from fill prices and fees, below −15% of the sleeve (4 x `--krw-usd`, the size stored for the sleeve). A round trip is an event flat by its fills: closed, failed, or closing with a stop the venue still lists (`stale_stop`). The sleeve's events are those decided since it started.
+  - Fees are the venue's USDT fees, or 0.05% a side when a fill reports none. Funding is not included.
+  - A halted book enters nothing more and shows only `halted`. Its open events still exit at their time, and the shadow goes on.
+  - **To resume** (the operator's call), or to start a new size: once the book is flat, run the hourly wrapper by hand, once, with `--krw-resume`: `scripts/ops/run_perp_demo.sh --krw-resume`. The wrapper passes it on to `live_perp_demo.py`. For a new size, first add the new `--krw-usd` to all three calls in the two wrappers, so that every later run uses it too.
+    - The run stores the size again, clears the halt, and starts a new sleeve: K3 then counts only the events decided from that run on. The forward record (events, shadow rows, notices seen) stays as it is.
+    - It is refused, and audited `perp_krw_resume_refused`, when nothing is halted and the size is unchanged (`nothing_to_resume`), or when the book is not flat (`not_flat`): an event with legs, an entry or a stop not settled, a stop left at the venue (`krw_stale_stops`), or an order not settled.
+    - `--krw-resume` needs `--krw` and `--execute` and refuses `--only`. Never leave it in a wrapper: it would clear each new halt at the book's next flat moment.
+    - **Do not move `krw.json` aside.** A new record would read page 1 again and record its notices of the last 23 to 33 days a second time, each with a second shadow row. If it ever happens, K1 and the read take each (notice id, token) once, from the oldest record.
+- **Kill rules (PROPOSED 2026-11-08, operator approval needed before the first run; also in `data/krw_fade_20261108_01/KILL_RULES.md`):**
+  - **Settled shadow event:** an event whose shadow row is computed (`done`) and passes check 0a, and that is not `excluded`. An excluded event is one of these:
+    - a listing a follow-up cancelled, or a title that no longer lists the token on KRW (`listing_cancelled`, `no_longer_krw`);
+    - an ambiguous event research rules not KRW (`ambiguous_not_krw`). The rule is classify.py lines 352-362: the token has a non-ambiguous KRW notice, cancelled or not, more than a day after the event's notice. The book marks the ones it sees. The reader applies the rule to the whole record (`krw_notices`) at each look, so notices that came after the book stopped count too.
+  - **Values and clusters, as in research:** values are bps of one unit a leg (the row's `n_bps`). A cluster is the settled events of one UTC notice day, and its value is the mean of their `n_bps`.
+  - **The statistic, word for word as PROTOCOL.md "Statistics" and `run/main.py` `boot()`:** the mean over clusters, and a month-block bootstrap.
+    - Months are the calendar months (YYYY-MM) of the cluster days; M is their number.
+    - Use `numpy.random.default_rng(20261108)`, and draw all picks at once: `integers(0, M, size=(10000, M))`.
+    - A draw's mean is the mean over all clusters in its picked months, a month counted as often as it is picked: sum of the picked months' cluster sums over the sum of their cluster counts.
+    - SE is the standard deviation (ddof 1) of the 10,000 draw means, and t = the mean over clusters / SE.
+    - The one-sided 95% upper bound is `numpy.percentile(draw means, 95)` (linear).
+  - **K1 futility:** at 30 settled shadow events, kill the book if the mean over clusters is below 0.
+  - **K2 cost:** after 10 Demo round trips, stop Demo orders (the shadow continues) if the median alt cost per side is above 37 bps. The cost of a side is its fee plus |fill − Demo mark at send| / mark.
+  - **K3 drawdown:** the halt above, automated.
+  - **The read, at 60 settled shadow events:** KEEP if the mean over clusters is above 0 with t ≥ 2; KILL if the one-sided 95% upper bound is below 0; otherwise UNRESOLVED.
+  - **Blinding:** nothing computes a return from `krw.json` or the shadow rows before the K1 look.
+  - K1, K2 and the read are taken from the records, not by the runner. At the 2025-2026 research rate (72 clusters in about 22 months), K1 comes in about 9 months and the read in about 18.
+- **Record:** per event: the notice id, token, perp, notice time and E, the title at first sight, `ambiguous`, the status and its reason, `excluded` with its reason when the read leaves it out, the stop price, every order (client key, side, quantity, average fill, fees, the Demo mark at send, the run's start `ms` and the send time `sent_ms`) and the shadow row. Notices that are not events are kept with their reason. Every KRW notice of a token is kept with its time, id, `amb` and `cancelled` (`krw_notices`). A feed page with nothing older than the last one is recorded as a gap. `status.json` shows counts only (`krw_*`, `krw_excluded` and `krw_stale_stops` among them).
+- **The 5-minute pre-check** reads `krw.json` and the order ledger `order_state.json` without a key and unverified (the signed run verifies both), Upbit's public notice list and Binance's public exchangeInfo. It asks for a signed run when:
+  - an event is opening, closing (unless all it has left is a stale stop, which the hourly run's check cancels again), or failed and not yet found flat (`settle`);
+  - an order of book KRW is still in flight or left open in the ledger, or the ledger holds a fill its event has not recorded (`settle`). A naked short a lost reply left is seen this way. An intent in `manual_intervention` is not a reason: only the operator settles it;
+  - a fired stop's BTC leg is left, or a hold has ended (`exit_due`);
+  - an event, recorded or new on page 1, is inside its entry window (`entry_window`), unless the book is halted.
+- **Operator steps:**
+  1. Approve the kill rules above, or change them, before the fast forward.
+  2. After the fast forward, nothing else: the hourly task and the 5-minute task (step 7) run the wrappers, which pass `--krw`. No new task.
+  3. To see the book's plan without signing: `PYTHONPATH=src:. .venv/bin/python scripts/live_perp_demo.py --krw`.
+  4. To resume after the halt, or to change `--krw-usd`: "To resume" above.
+  5. To stop the book:
+     - Wait until it is flat: in `status.json`, `krw_open` 0 and `krw_stale_stops` 0, and no KRW event `opening`, `closing` or `stopped` in `krw_events`. A stop left at the venue would no longer be cancelled by anyone once the book is gone, and could buy back part of a later short of another book on that symbol.
+     - Then, in `scripts/ops/run_flow_flush.sh`, delete the whole book KRW block: the `--only krw` call and its `rc_krw` lines. Removing only `--krw` from it would make that call refuse (`--only krw needs --krw`, exit 2) on every tick.
+     - Take `--krw` out of the other two calls: the FLOW01 call in the same wrapper and the hourly call in `scripts/ops/run_perp_demo.sh`.
+- **Known limits (not handled in code):**
+  - A shared market list can make a non-KRW token an event (the deviation above). It is flagged `ambiguous`; it is excluded once the token's own KRW notice comes, and the read applies research's rule to the rest.
+  - A listing cancelled after it was traded keeps its Demo legs to their exit: the cancel comes as a later follow-up. The event is excluded from the read.
+  - An edit that adds a token to the KRW list of a notice already seen is not read: only removals and cancellations are.
+  - Page 1 holds 20 notices: 23 to 33 days on the research pages of late 2026. A longer stop without a run can miss a notice, or an edit of one; the gap is recorded.
+  - **Not checked on Demo:** the exit sends its reduce-only market buy while the event's reduce-only STOP_MARKET buy is still open, the order book LV's "Not checked on Demo" note describes. If Demo refused that buy, every KRW exit would fail with its short still under its stop, and the next reconcile would stop every book for operator review. Check it on Demo before the first KRW exit, 72 h after the first Demo entry.
+  - A stop that fires as the exit buys back makes the reduce-only buy-back fail, and the next reconcile stops every book for operator review, as for book LV. So does any KRW market order whose send raises before it reaches the venue (the alt sell, the BTC buy, the buy-back or the BTC sell).
+    - The worst case is two faults in one entry: the entry fails, and then the take-off's buy-back send raises too. The short then stays at the venue with no stop until the operator acts. Every run, the 5-minute ones included, stops at the reconcile until then. Seen in 3 of 398 entry fault scenarios on the fakes.
+  - **Stops left at the venue, both ways:** book KRW does not short a symbol on which the venue lists any stop (`stop_listed`). The reverse is not checked: a KRW stop left at the venue (`stale_stop`) holds no leg, so `Book.taken` does not show it to books LV and LEARN, and either could short that symbol under it. Book LV checks only its own blocks' `stale_stops` before it shorts. Until each check cancels the KRW stop, such a short can be bought back in part, and the next check stops every book for operator review.
+  - The book does not avoid this week's LV pick: an LV coin it holds at the Monday roll is skipped by LV (`held_by_krw`).
+
 ## Book HOLD and the three options for 10k
 On 2026-11-04 the operator asked to try every option for a 10k USD real account on Demo Trading first, with no real money. The options and the evidence behind them are in the 2026-11-04 discussion (research description, not advice):
 - **A, cash:** hold USDT. Nothing trades. It is the benchmark the other two are read against, at a stated cash rate.
@@ -546,17 +677,17 @@ Book HOLD runs on the spot wallet of the same Demo Trading account (`demo-api.bi
 - **Read:** its return is BTC's price change less one buy fee, so it is not sealed. What the demo adds is the mechanics: the order path, the fee, and the wallet check.
 
 ## Blinding of forward returns
-These books' returns belong to sealed reads: the NL-P paper and shadow ledgers, the pair book, the LV demo book, and books LEARN, FLOW02 and FLOW01.
-- **First looks:** book LV at its read (2028-11-13); book LEARN at the H-LEARN-11 futility look (2027-04-26); book FLOW02 after 365 decisions; book FLOW01 after 20 events.
-- **Agents:** compute no return, P&L or price change from `audit.jsonl`, `order_state.json`, `pairs.json`, `lv_blocks.json`, `learn_book.json`, `flow02.json`, `flow01.json`, `shadow.json` or `shadow_ledger.jsonl` before a book's read or first look. Counts, statuses and errors are fine.
+These books' returns belong to sealed reads: the NL-P paper and shadow ledgers, the pair book, the LV demo book, and books LEARN, FLOW02, FLOW01 and KRW.
+- **First looks:** book LV at its read (2028-11-13); book LEARN at the H-LEARN-11 futility look (2027-04-26); book FLOW02 after 365 decisions; book FLOW01 after 20 events; book KRW at its K1 look, 30 settled shadow events.
+- **Agents:** compute no return, P&L or price change from `audit.jsonl`, `order_state.json`, `pairs.json`, `lv_blocks.json`, `learn_book.json`, `flow02.json`, `flow01.json`, `data/perp_demo/krw.json` (its fills and its shadow rows), `shadow.json` or `shadow_ledger.jsonl` before a book's read or first look. Counts, statuses and errors are fine.
   - The same holds for book FLOW02's calls joined with the bars in `data/flowbtc/`, and for the H-LEARN-11 bar store (`docs/operations/LEARN_PAPER_RUN.md`).
-- **Runner output:** `status.json`, the dry-run plan, the printed report and the audit events show counts, statuses, quantities and keys only. `perp_run_started` also carries each book's configured size (`pair_usd`, `lv_usd`, `learn_usd`, `flow02_usd`, `flow01_usd`), which are flag values, not results. The halts compute a book value internally and show only `halted` or `ok`.
+- **Runner output:** `status.json`, the dry-run plan, the printed report and the audit events show counts, statuses, quantities and keys only. `perp_run_started` also carries each book's configured size (`pair_usd`, `lv_usd`, `learn_usd`, `flow02_usd`, `flow01_usd`, `krw_usd`), which are flag values, not results. The halts compute a book value internally and show only `halted` or `ok`.
 - **Operator:** the Demo Trading website's P&L, position and order-history pages show the same returns. Avoid them for the demo account; use `status.json` and the logs, which show counts only. A look before a read is recorded in this page's log, and that book's read is then reported as unblinded.
 - Book HOLD is not sealed: its return is BTC's price change less one fee.
 
 ## Limits
 - Demo fills come from the demo venue's matching, not mainnet depth.
-- The demo enters later than research: book LEARN about 15 minutes after the paper's 00:00 open, book FLOW02 about 15 minutes after research's 01:00 open, and book FLOW01 some minutes after research's entry (see its section).
+- The demo enters later than research: book LEARN about 15 minutes after the paper's 00:00 open, book FLOW02 about 15 minutes after research's 01:00 open, book FLOW01 some minutes after research's entry, and book KRW 2 to 15 minutes after its 1h open at E (see their sections).
 - The book's evidence is discovery on read data. The NL-P forward read decides it.
 - A run that cannot reach the venue does nothing. The exchange-side stop still protects an open short.
 - **Client rate limit:** a run's adapter lets 100 rate-limited calls through at once, then 100 a minute (`RateLimitManager` in `src/trading_agent/exchanges/ccxt_adapter.py`). Before 2026-11-05 its tokens never came back, so the 101st call of a run waited for ever while the run held the lock. A call now waits at most 0.6 s. Counted offline on the test fakes, one run with a pair entry, LEARN's first 20 legs, the FLOW02 and FLOW01 entries and a 4+4 LV roll makes 76 such calls when each market order comes back filled with a price, 140 when each needs one read-back, and 178 when the LV roll's stop fails and the roll flattens. The LV roll in that count is a `--lv-rehearse` roll in the same run. A scheduled run cannot hold both LEARN's trade and an LV roll: LEARN trades in [00:00, 02:00) UTC and LV rolls on Monday in [04:00, 06:00) UTC. A scheduled run with the other entries makes fewer calls. The limit adds at most (calls - 100) x 0.6 s, less the time the calls take themselves: 24 s for 140 calls at most, none at 0.2 s a request.
