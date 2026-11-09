@@ -18,6 +18,11 @@ positions) and never changes them or writes the paper's ledger.
   has no demo perp, when another book holds it, or when it is in this week's
   LV pick (``lowvol.pick_symbols``), so the Monday 04:00 roll finds it free.
   Each skip is recorded with its reason.
+- **Monday:** the selection run starts at 00:07 and writes the week's LV pick
+  about ten minutes later, after the 00:15 run. A Monday run before 01:00
+  (``LV_PICK_WAIT_H``) whose pick is not written yet waits (``lv_pick_wait``),
+  so the 01:15 run decides with the pick. From 01:00 the book decides without
+  it. There is no wait before the selection run has written any pick.
 - **Trades:** only the difference to the targets, through ``legs.LegTrader``:
   reductions first, reduce-only; a flip goes through flat; additions last.
   Additions must fit the account caps of ``risk.py``; when they do not, all
@@ -66,6 +71,7 @@ from trading_agent.execution.perp.legs import LegTrader, ledger_price
 HOUR_MS = rules.HOUR_MS
 DAY_MS = 24 * HOUR_MS
 WINDOW_H = 2              # the first run in [00:00, 02:00) UTC trades the day
+LV_PICK_WAIT_H = 1        # on Monday a run before 01:00 UTC waits for the week's LV pick
 SLOTS = 20                # a coin gets learn_usd / 20, whatever coins are present
 LEARN_USD_CAP = 4000.0    # a book above this notional is refused
 HALT_AT = 0.75            # halt when the book value falls below 75% of its high
@@ -432,6 +438,17 @@ class LearnBook:
         self.book.audit("perp_learn_wait", day=day_iso(d), reason=reason)
         return {"wait": reason}
 
+    def _lv_pick_pending(self, d: int, now_ms: int) -> bool:
+        """Is it Monday before ``LV_PICK_WAIT_H`` with this week's LV pick not written yet?
+
+        Only once the selection run has written a pick: a book without the LV paper never waits.
+        """
+
+        monday, monday_ms = lowvol.week_of(now_ms)
+        if monday_ms != d * DAY_MS or now_ms >= monday_ms + LV_PICK_WAIT_H * HOUR_MS:
+            return False
+        return lowvol.first_week(self.picks_path) is not None and lowvol.load_pick(self.picks_path, monday) is None
+
     def _bars_ready(self) -> bool:
         M, R = _paper()
         return all(R.bars_path(self.paper_root, c).exists() for c in M.COINS)
@@ -497,6 +514,8 @@ class LearnBook:
             return self._wait(d, "size_changed")     # a new size is a new book: move the store aside
         if not self._bars_ready():
             return self._wait(d, "no_bar_store")
+        if self._lv_pick_pending(d, now_ms):
+            return self._wait(d, "lv_pick_wait")
         try:
             R.update_bars(self.client_factory(), self.paper_root, now_ms)
         except Exception as exc:  # a fetch that failed leaves the day to a later run in the window
@@ -606,6 +625,8 @@ class LearnBook:
         if not self._bars_ready():
             out["bars"] = "no_bar_store"
             return out
+        if out["in_window"] and self._lv_pick_pending(d, now_ms):
+            out["lv_pick_wait"] = True
         t = decision_bar(d)
         bars = R.load_bars(self.paper_root)
         have = [c for c in M.COINS if has_bar(bars[c], t)]

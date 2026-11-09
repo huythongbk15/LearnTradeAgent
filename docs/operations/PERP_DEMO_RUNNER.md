@@ -327,7 +327,10 @@ Code is in `src/trading_agent/execution/perp/learnbook.py`. It imports the paper
 - **Trades:** reductions first, reduce-only. A flip goes through flat. Additions last. A difference below the venue minimum is skipped and recorded.
 - **Shared account:**
   - **Exclusive symbols:** a coin is not traded when another book holds it (`held_by_<book>`), when it is in this week's LV pick (`lv_pick`), or when it has no demo perp (`not_on_demo`). Each skip is recorded.
-  - **The Monday roll:** a coin the book holds that enters the new LV pick is closed at the Monday decision, so LV's 04:00 roll finds it free. The selection run writes the pick at 00:07 UTC. If it is not there yet at the 00:15 decision, LV skips that coin for the week (`held_by_learn`).
+  - **The Monday roll:** a coin the book holds that enters the new LV pick is closed at the Monday decision, so LV's 04:00 roll finds it free.
+    - The selection run starts at 00:07 UTC and writes the pick about ten minutes later. On 2026-11-09 it ended at 00:16:55, after the 00:15 decision, so LV would skip LEARN's LTC for the week (`held_by_learn`).
+    - Since 2026-11-09, a Monday run before 01:00 UTC whose pick is not written yet waits (`lv_pick_wait`). The 01:15 run then decides with the pick. LEARN's Monday entry is about an hour later than on other days.
+    - From 01:00 the book decides without the pick, as before: a coin it then holds is skipped by LV for the week (`held_by_learn`). There is no wait before the selection run has written its first pick.
   - **Caps:** additions must fit both account caps. When they do not, every adding leg is scaled down by the same factor and the day is recorded `capped`. Reductions are never blocked.
   - **Position check:** before the pair book's check, book LEARN checks its own legs against the venue. A quantity that differs stops the run.
   - **Entry lock:** under `TRADING_ENTRY_KILL_SWITCH` the day is still decided, but only reductions run. The additions held back are recorded. A missed day still closes.

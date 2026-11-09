@@ -226,6 +226,52 @@ def test_a_coin_in_the_new_lv_pick_is_closed_at_the_monday_decision_and_lv_rolls
     assert pos(w.fake, "LTCUSDT") == pytest.approx(25.0)
 
 
+def test_a_monday_run_before_the_lv_pick_waits_and_the_0115_run_decides_with_it(w):
+    """2026-11-09: the selection run wrote the pick at 00:16:55, after LEARN's 00:15 decision."""
+
+    w.preds.update(XLM=0.01, FIL=-0.01, LTC=0.01)
+    write_picks(w.picks, (MON - 7 * DAY, ["AAVE"], ["BCH"]))     # last week's pick: the selection run is live
+    w.run(MON - DAY + RUN)                                         # Sunday: XLM, FIL and LTC are held
+    n = len(orders_sent(w.fake))
+    rep = w.run(MON + RUN, lv=True)                                # Monday 00:15: this week's pick is not written
+    assert rep["learn"]["wait"] == "lv_pick_wait" and learn_orders(w.fake, n) == []
+    assert "2026-11-09" not in w.saved().seen
+    assert [e["details"]["reason"] for e in learn_events(w.tmp) if e["event"] == "perp_learn_wait"] == ["lv_pick_wait"]
+    write_picks(w.picks, (MON - 7 * DAY, ["AAVE"], ["BCH"]), (MON, ["XLM"], ["FIL"]))   # written at 00:17
+    rep = w.run(MON + H + RUN, lv=True)                            # Monday 01:15 decides with the pick
+    assert w.saved().pairs["261109"]["skipped"] == {"XLM": "lv_pick", "FIL": "lv_pick"}
+    assert learn_orders(w.fake, n) == [("lrn-261109-FILUSDT-c0", "buy", size("FIL"), True),
+                                       ("lrn-261109-XLMUSDT-c0", "sell", size("XLM"), True)]
+    rep = w.run(MON + 4 * H + RUN, lv=True)                        # LV's roll finds both free
+    assert rep["lv"]["rolled"] and rep["lv"]["skipped"] == 0
+    assert pos(w.fake, "LTCUSDT") == pytest.approx(size("LTC"))
+
+
+def test_from_0100_monday_decides_without_a_late_pick(w):
+    w.preds.update(XLM=0.01)
+    write_picks(w.picks, (MON - 7 * DAY, ["AAVE"], ["BCH"]))
+    rep = w.run(MON + H + RUN)                                     # the 00:15 run was missed; no pick yet at 01:15
+    assert "wait" not in rep["learn"] and "2026-11-09" in w.saved().seen
+    assert pos(w.fake, "XLMUSDT") == pytest.approx(size("XLM"))
+
+
+def test_no_wait_before_the_selection_run_has_written_any_pick_or_on_other_days(w):
+    w.preds.update(XLM=0.01)
+    rep = w.run(MON + RUN)                                         # no picks file at all
+    assert "wait" not in rep["learn"] and pos(w.fake, "XLMUSDT") == pytest.approx(size("XLM"))
+    write_picks(w.picks, (MON, ["AAVE"], ["BCH"]))                 # this week's pick only; next Monday's not yet
+    rep = w.run(D + RUN)                                           # Tuesday 00:15 never waits
+    assert "wait" not in rep["learn"] and "2026-11-10" in w.saved().seen
+
+
+def test_the_dry_run_plan_shows_the_monday_wait(w):
+    write_picks(w.picks, (MON - 7 * DAY, ["AAVE"], ["BCH"]))
+    book = w.book()
+    plan = w.learn(book, peek=True).plan(MON + RUN)
+    assert plan.get("lv_pick_wait") is True
+    assert "lv_pick_wait" not in w.learn(book, peek=True).plan(MON + H + RUN)
+
+
 def test_the_alt_short_cap_scales_every_adding_leg_pro_rata(w):
     coins = M.COINS[:10]
     w.preds.update({c: 0.01 if i < 5 else -0.01 for i, c in enumerate(coins)})   # 500 long, 500 short
