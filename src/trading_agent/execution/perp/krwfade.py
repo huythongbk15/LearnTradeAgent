@@ -84,6 +84,7 @@ EXIT_EARLY_MS = 150_000               # an exit is due from 2.5 min before E + 7
 STOP_X = 1.5                          # exchange stop at 1.5x the alt's average fill
 STOP_FILL_X = 1.05                    # a fired stop's fill when the venue does not report it: the research's 1.575 / 1.5
 KRW_MAX_OPEN = 4                      # Demo events holding legs at once
+RESERVE_EVENTS = 1                    # alt-short room book LEARN leaves for this many events (risk.short_budget)
 USD_CAP = 2000.0                      # --krw-usd above this is refused
 SLEEVE_EVENTS = 4                     # the halt's sleeve: 4 x usd
 HALT_NET = -0.15                      # halt new entries when realized net < -15% of the sleeve
@@ -327,6 +328,11 @@ class KrwFadeBook:
             if b > QTY_TOL:
                 out[BTC] = round(out.get(BTC, 0.0) + b, DECIMALS)
         return out
+
+    def alt_short_reserve(self) -> float:
+        """The alt-short room book LEARN leaves for this book: ``RESERVE_EVENTS`` events' shorts (risk.short_budget)."""
+
+        return self.usd * RESERVE_EVENTS
 
     def _holding(self) -> list[dict]:
         return [ev for _k, ev in _events(self.store) if has_legs(ev)]

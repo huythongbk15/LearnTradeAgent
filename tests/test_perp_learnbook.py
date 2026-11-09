@@ -627,3 +627,64 @@ def test_book_value_folds_fills_into_entry_realized_and_fees():
     lb.fold_leg(leg, st)
     assert st["realized"] == pytest.approx(6.0 - 9.0) and leg["avg"] == pytest.approx(4.0) and leg["qty"] == -6.0
     assert lb.book_value(st, {"X": 3.0}) == pytest.approx(2000.0 - 3.0 - 0.03 + 6.0)
+
+
+class ReservingBook(FakeBook):
+    """A book beside LEARN that keeps alt-short room for its next entry, as book KRW does."""
+
+    def __init__(self, name: str, need: float, held: dict[str, float] | None = None):
+        super().__init__(name, held)
+        self.need = need
+
+    def alt_short_reserve(self) -> float:
+        return self.need
+
+
+def alt_shorts(fake) -> float:
+    return sum(-pos(fake, s) * p for s, p in PRICES.items() if s != "BTCUSDT" and pos(fake, s) < 0)
+
+
+def test_learn_leaves_room_for_the_lv_roll_and_a_krw_event_and_lv_rolls(w):
+    """2026-11-09: LEARN's 20 shorts filled the alt-short cap and book LV missed its week."""
+
+    w.fake.fetch_balance = lambda: {"info": {"totalMarginBalance": "5000"}}    # cap 2,000 of alt shorts
+    w.preds.update({c: -0.01 for c in M.COINS})
+    w.run(MON - DAY + RUN)                                # Sunday, no reserving book: 19 shorts of 100
+    assert alt_shorts(w.fake) == pytest.approx(1900, rel=1e-3)
+    write_picks(w.picks, (MON, ["XLM"], ["FIL"]))
+    krw = ReservingBook("krw", 500.0)
+    rep = w.run(MON + RUN, lv=True, others=[krw])         # budget 2,000 - 500 (LV) - 500 (KRW) = 1,000
+    f = 1000 / (lb.risk.SHORT_DRIFT * 17 * 100)           # 17 shorts: XLM and FIL are the LV pick
+    rec = w.saved().pairs["261109"]
+    assert rep["learn"]["capped"] is True and rec["reserve_scale"] == pytest.approx(f, rel=1e-4)
+    assert pos(w.fake, "LTCUSDT") == pytest.approx(-f * size("LTC"), rel=1e-2)    # a held short reduced
+    assert all(o[3] for o in learn_orders(w.fake) if o[0].startswith("lrn-261109-"))   # reductions only
+    assert alt_shorts(w.fake) <= 1000 / lb.risk.SHORT_DRIFT + 1
+    rep = w.run(MON + 4 * H + RUN, lv=True, others=[krw])
+    assert rep["lv"]["rolled"] and pos(w.fake, "FILUSDT") == pytest.approx(-500 / PRICES["FILUSDT"])
+    assert alt_shorts(w.fake) <= 2000 - 500 + 1          # one KRW event's short still fits
+
+
+def test_a_reserve_its_book_already_holds_is_not_kept_twice(w):
+    w.fake.fetch_balance = lambda: {"info": {"totalMarginBalance": "5000"}}
+    hold(w.fake, "AAAUSDT", -300.0)
+    krw = ReservingBook("krw", 500.0, {"AAAUSDT": -300.0})     # holds 300 of its 500
+    w.preds.update({c: -0.01 for c in M.COINS})
+    w.run(D + RUN, others=[krw])                           # 2,000 - 300 held - 200 kept = 1,500
+    f = 1500 / (lb.risk.SHORT_DRIFT * 19 * 100)
+    assert w.saved().pairs["261110"]["reserve_scale"] == pytest.approx(f, rel=1e-4)
+
+
+def test_no_reserve_scale_when_the_budget_holds_the_day(w):
+    w.preds.update({c: -0.01 for c in M.COINS[:5]})
+    rep = w.run(D + RUN, others=[ReservingBook("krw", 500.0)])     # 4,000 - 500 leaves room for 500 x 1.1
+    rec = w.saved().pairs["261110"]
+    assert rep["learn"]["capped"] is False and "reserve_scale" not in rec
+    assert pos(w.fake, f"{M.COINS[0]}USDT") == pytest.approx(-size(M.COINS[0]))
+
+
+def test_lv_and_krw_name_their_reserves():
+    from trading_agent.execution.perp import krwfade, lowvol
+    assert lowvol.SIDE == 0.5 and krwfade.RESERVE_EVENTS == 1
+    assert LowVolBook.alt_short_reserve(type("B", (), {"book_usd": 1000.0})()) == 500.0
+    assert krwfade.KrwFadeBook.alt_short_reserve(type("K", (), {"usd": 500.0})()) == 500.0

@@ -28,6 +28,12 @@ positions) and never changes them or writes the paper's ledger.
   Additions must fit the account caps of ``risk.py``; when they do not, all
   adding legs are scaled down pro rata and the day is recorded "capped".
   Under the entry lock only reductions run.
+- **Reserves:** before the trades the whole day is sized to
+  ``risk.short_budget``, which keeps the alt-short room of book LV's next
+  roll and of one KRW event free. Every leg, held or new, gets the same
+  factor (``reserve_scale``, and the recorded target is the scaled one), so
+  held shorts above the budget are reduced that day; the day is recorded
+  "capped".
 - **Halt:** each run values the book from its own fills (average entry per
   leg, realized on reductions, USDT fees, unrealized at the venue mark;
   funding is not counted). Below ``HALT_AT`` of its high the book records
@@ -535,10 +541,11 @@ class LearnBook:
 
         legs = st["legs"]
         marks = {s: self.venue.mark_price(s) for s in sorted(set(want) | set(self.held()))}
+        f = self._reserve_scale(want)
         target: dict[str, float] = {}
         for s, side in want.items():
             try:
-                target[s] = side * self.venue.normalize(s, self.learn_usd / SLOTS / marks[s], marks[s])
+                target[s] = side * self.venue.normalize(s, f * self.learn_usd / SLOTS / marks[s], marks[s])
             except OrderConstraintError:
                 skipped[s[:-4]] = "below_venue_minimum"
         tag = day_tag(d)
@@ -546,7 +553,9 @@ class LearnBook:
         rec.pop("wait", None)
         rec.update(status="running", settled=False, bar=R.iso(t), model=mtag, learn_usd=self.learn_usd,
                    pred=preds, pos=pos, missing=[c for c in M.COINS if c not in have], skipped=skipped,
-                   target=target, capped=False, entry_lock=entry_lock or None, decided_ms=now_ms)
+                   target=target, capped=f < 1.0, entry_lock=entry_lock or None, decided_ms=now_ms)
+        if f < 1.0:
+            rec["reserve_scale"] = round(f, 6)
         rec["attempts"] = int(rec.get("attempts") or 0) + 1
         self.store.save()
         try:
@@ -571,6 +580,25 @@ class LearnBook:
             out["held_back"] = len(rec.get("held_back") or [])
         self.book.audit("perp_learn_decided", **out)
         return out
+
+    def _reserve_scale(self, want: dict[str, int]) -> float:
+        """The factor in [0, 1] that sizes the whole day inside ``risk.short_budget``.
+
+        The budget leaves the reserves of the books beside this one free (book
+        LV's roll, book KRW's event); the day's shorts are counted
+        ``SHORT_DRIFT`` above the mark. Every leg, held or new, is sized by it,
+        so a held short above the budget is reduced at this decision. With no
+        reserving book in the run it is 1: the adding legs still meet the caps.
+        """
+
+        shorts = sum(1 for s, side in want.items() if side < 0 and s != rules.HEDGE)
+        reserves = [(o.alt_short_reserve(), o.held()) for o in self.book.others
+                    if o is not self and hasattr(o, "alt_short_reserve")]
+        if not shorts or not reserves:
+            return 1.0
+        budget = risk.short_budget(self.venue, self.held(), reserves)
+        need = risk.SHORT_DRIFT * shorts * self.learn_usd / SLOTS
+        return min(1.0, max(0.0, budget) / need)
 
     def _trade(self, tag: str, rec: dict, legs: dict, target: dict[str, float], marks: dict[str, float],
                entry_lock: str | None) -> int:

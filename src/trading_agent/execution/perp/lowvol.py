@@ -139,6 +139,11 @@ class LowVolBook:
             return {}
         return {s: leg["qty"] for s, leg in act[1]["legs"].items() if leg["state"] == "held"}
 
+    def alt_short_reserve(self) -> float:
+        """The alt-short room book LEARN leaves for this book: one roll's shorts (risk.short_budget)."""
+
+        return self.book_usd * SIDE
+
     def _fresh_key(self, tag: str, symbol: str, kind: str) -> str:
         return self.book.fresh_key(f"lv{tag}-{symbol[:18]}-{kind}")
 
