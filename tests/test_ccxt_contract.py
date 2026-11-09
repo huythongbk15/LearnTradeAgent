@@ -255,3 +255,24 @@ def test_default_config_keeps_ccxt_exchange_rate_limit():
     assert "rateLimit" not in default and default["enableRateLimit"] is True
     explicit = ExchangeConfig(id="binance", name="Binance", rate_limit=200).to_ccxt_config()
     assert explicit["rateLimit"] == 200
+
+
+def test_binance_clients_stamp_requests_with_the_server_clock_offset():
+    """A PC clock 1.5 s fast made every signed Binance call fail with -1021 (2026-11-08). With
+    adjustForTimeDifference ccxt measures the offset when the markets load and corrects every timestamp."""
+    import ccxt
+
+    from trading_agent.exchanges.ccxt_adapter import TIME_ADJUSTED_IDS, ExchangeConfig
+    from trading_agent.execution.perp.venue import demo_config
+
+    for ex_id in sorted(TIME_ADJUSTED_IDS):
+        assert ExchangeConfig(id=ex_id, name=ex_id).to_ccxt_config()["options"]["adjustForTimeDifference"] is True
+    assert "adjustForTimeDifference" not in ExchangeConfig(id="bybit", name="Bybit").to_ccxt_config()["options"]
+    off = ExchangeConfig(id="binance", name="Binance", options={"adjustForTimeDifference": False}).to_ccxt_config()
+    assert off["options"]["adjustForTimeDifference"] is False                     # an explicit setting wins
+    cfg = demo_config("k", "s").to_ccxt_config()
+    assert cfg["options"] == {"defaultType": "future", "adjustForTimeDifference": True}
+    ex = ccxt.binanceusdm(cfg)                                                    # offline: no request is made here
+    assert ex.options["adjustForTimeDifference"] is True
+    ex.options["timeDifference"] = 1500                                           # the PC 1.5 s ahead of the server
+    assert abs(ex.nonce() - (ex.milliseconds() - 1500)) < 50
