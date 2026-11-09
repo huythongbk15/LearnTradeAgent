@@ -285,15 +285,22 @@ Both caps hold across all books. They are measured on the venue's positions at m
 - **Gross, 90% (`EQUITY_USE`):** after any trade that adds exposure, the account's gross notional stays at or under 90% of equity. Gross notional is the sum over positions of quantity times mark.
 - **Alt shorts, 40% (`ALT_SHORT_CAP`):** after any trade that adds a short on a symbol other than BTCUSDT, the account's short notional on those symbols stays at or under 40% of equity. This bounds the short-alt group: the pair book's shorts, book LV's shorts, book LEARN's shorts and book KRW's shorts.
 - **Exits and reductions** are never blocked by a cap.
+- **Reserves (operator ruling, 2026-11-09, PR "Book LEARN leaves alt-short room for LV and KRW"):**
+  - **Why:** book LEARN holds its shorts day after day. On 2026-11-09 its 20 shorts held about as much alt-short notional as its whole sleeve, which on the Demo account was 80 to 100% of the 40% cap. Book LV's first roll at 04:15 then did not fit and missed the week (`alt_short_cap`). A KRW event would not have fitted either.
+  - **Rule:** book LV keeps room for one roll's shorts (`--lv-usd` x 0.5) and book KRW for one event's short (`--krw-usd`, `RESERVE_EVENTS = 1`). A reserve is kept only for the part its book does not hold now.
+  - **Book LEARN's budget** (`risk.short_budget`): 40% of equity, less every other alt short on the account, less the reserves still kept. Book LEARN counts its day's shorts 10% above the mark (`SHORT_DRIFT`), so a rise of the alts after its decision still leaves the reserves free.
+  - When the day's shorts do not fit the budget, every leg of the day, held or new, is sized by the same factor. Held shorts above the budget are reduced at that decision. The day is recorded `capped` with `reserve_scale`.
+  - The budget applies when a reserving book (LV or KRW) is in the run. The pair book keeps no reserve: its entries take the room that is left.
+  - The reserve sizes are constants; a change needs the operator's ruling on this page.
 - **Order:** a book makes its reductions first, then reads the room left, then adds.
 - **When a cap binds:**
   - **Pair book:** skips the entry and records `equity` or `alt_short_cap`. Later runs inside the listing's 2 h window try again.
   - **Book LV:** misses the week, recorded `equity` or `alt_short_cap`. The roll counts LV's current legs as gone, so the check sees the roll's net effect.
-  - **Book LEARN:** scales every adding leg down by the same factor, so the additions fit, and records the day `capped`.
+  - **Book LEARN:** first sizes the whole day to its budget beside the reserves (above). Then it scales every adding leg down by the same factor, so the additions fit, and records the day `capped`.
   - **Books FLOW02 and FLOW01:** skip the entry and record `equity`. FLOW02 does not try again that day; FLOW01 does not try that event again. A BTC long adds no alt short.
   - **Book KRW:** an entry adds two legs of gross (2 x `--krw-usd`) and one alt short. When it does not fit, the event is `shadow_only` with `equity` or `alt_short_cap`, and is not tried again.
 - **What it replaces:** the pair book's check counted only its own pairs, and book LV's counted LV plus the pairs. Neither counted everything on the account. The shared caps close that gap.
-- **Worked example** (arithmetic at the default sizes on a 10,000 USDT account, not a measurement):
+- **Worked example** (arithmetic at the default sizes on a 10,000 USDT account, not a measurement; the Demo account is smaller, so there the caps bind sooner):
   - LV 1,000, LEARN up to 2,000, FLOW02 1,000 and FLOW01 1,000 use up to 5,000 of the 9,000 gross. That leaves room for 4 pairs of 500 a leg.
   - LV's shorts are 500. If LEARN is short all 20 coins, its shorts are 2,000. The alt shorts are then 2,500 of the 4,000 allowed, so 3 pairs fit.
   - Book KRW at its default holds up to 4 events of 1,000 gross and 500 alt short each. Beside the books above at their largest, the gross cap leaves room for 4 of them only when no pair is open, and LEARN short all 20 coins leaves alt-short room for 3. A KRW event the caps do not take is recorded `shadow_only`; its shadow row is kept all the same.
@@ -331,6 +338,7 @@ Code is in `src/trading_agent/execution/perp/learnbook.py`. It imports the paper
     - The selection run starts at 00:07 UTC and writes the pick about ten minutes later. On 2026-11-09 it ended at 00:16:55, after the 00:15 decision, so LV would skip LEARN's LTC for the week (`held_by_learn`).
     - Since 2026-11-09, a Monday run before 01:00 UTC whose pick is not written yet waits (`lv_pick_wait`). The 01:15 run then decides with the pick. LEARN's Monday entry is about an hour later than on other days.
     - From 01:00 the book decides without the pick, as before: a coin it then holds is skipped by LV for the week (`held_by_learn`). There is no wait before the selection run has written its first pick.
+  - **Reserves:** before trading, the whole day is sized to the alt-short budget that keeps book LV's next roll and one KRW event free (Shared risk caps, Reserves). Held shorts above it are reduced; the day is recorded `capped` with `reserve_scale`.
   - **Caps:** additions must fit both account caps. When they do not, every adding leg is scaled down by the same factor and the day is recorded `capped`. Reductions are never blocked.
   - **Position check:** before the pair book's check, book LEARN checks its own legs against the venue. A quantity that differs stops the run.
   - **Entry lock:** under `TRADING_ENTRY_KILL_SWITCH` the day is still decided, but only reductions run. The additions held back are recorded. A missed day still closes.

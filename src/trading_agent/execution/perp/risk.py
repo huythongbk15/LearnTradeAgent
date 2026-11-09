@@ -24,14 +24,26 @@ reads ``room(venue)`` after its own reductions, then asks the result:
 
 A roll that replaces a book's current legs (book LV) passes them as
 ``release``: they are counted as gone, so the check sees the roll's net effect,
-other positions plus the new book. The caps are constants: a change needs the
-operator's ruling in docs/operations/PERP_DEMO_RUNNER.md. Values here are
-notionals for a decision only; nothing in this module records or prints them.
+other positions plus the new book.
+
+Reserves (operator ruling, 2026-11-09): book LEARN holds its shorts all day
+and day after day, so on its own it can fill the alt-short cap before book
+LV's Monday roll or a KRW event comes. Book LV keeps room for one roll's
+shorts (``lv_usd x 0.5``) and book KRW for one event's short (``krw_usd``);
+each book says so with ``alt_short_reserve()``. ``short_budget`` is the alt
+short book LEARN may hold in total: the cap, less every other alt short on the
+account, less the part of each reserve its book does not hold now. LEARN
+sizes its whole day to it, ``SHORT_DRIFT`` above its shorts at the mark, so a
+rise of the alts after the decision still leaves the reserve free.
+
+The caps and reserves are constants: a change needs the operator's ruling in
+docs/operations/PERP_DEMO_RUNNER.md. Values here are notionals for a decision
+only; nothing in this module records or prints them.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 
 from trading_agent.execution.perp import rules
@@ -41,6 +53,7 @@ ALT_SHORT_CAP = 0.4    # account short notional off BTCUSDT at or under 40% of e
 EQUITY = "equity"            # recorded skip reason: the gross cap binds (stable since the pair book's first check)
 ALT_SHORT = "alt_short_cap"  # recorded skip reason: the alt-short cap binds
 QTY_TOL = 1e-9
+SHORT_DRIFT = 1.10     # book LEARN sizes its shorts as if the alts were 10% higher, so a rise keeps the reserves free
 
 
 def gross_notional(qty: Mapping[str, float], marks: Mapping[str, float]) -> float:
@@ -120,3 +133,23 @@ def room(venue, *, release: Mapping[str, float] | None = None) -> Room:
 
     qty, marks = account(venue, release=release)
     return Room(venue.equity_usdt(), gross_notional(qty, marks), alt_short_notional(qty, marks))
+
+
+def short_budget(venue, own: Mapping[str, float], reserves: Iterable[tuple[float, Mapping[str, float]]]) -> float:
+    """The alt short notional a book may hold in total, its own legs included.
+
+    ``own`` is what the asking book holds (counted as gone); each reserve is
+    ``(need, held)``: a later book's alt-short need and what that book holds
+    now. A reserve is kept only for the part its book does not hold yet. The
+    result can be negative when the account is already over.
+    """
+
+    qty, marks = account(venue, release=own)
+    kept = 0.0
+    for need, held in reserves:
+        shorts = {s: q for s, q in held.items() if s != rules.HEDGE and q < -QTY_TOL}
+        for s in shorts:
+            if not marks.get(s, 0.0) > 0:
+                marks[s] = venue.mark_price(s)
+        kept += max(0.0, need - alt_short_notional(shorts, marks))
+    return ALT_SHORT_CAP * venue.equity_usdt() - alt_short_notional(qty, marks) - kept
