@@ -102,6 +102,7 @@
 │   │   ├── RSI_REGIME_SWITCH_MANIFEST.json
 │   │   ├── SELECTION_PAPER_RUN.md
 │   │   ├── SHORT_SIDE_RESULTS_20261031.md
+│   │   ├── TRADE_JOURNAL.md
 │   │   ├── VALIDATION_CLOSURE_20261016.md
 │   │   ├── VALIDATION_REFACTOR_AGENT_PLAYBOOK.md
 │   │   ├── VALIDATION_REFACTOR_PLAN.md
@@ -1089,6 +1090,7 @@
 │   ├── test_tool_dispatch_audit.py
 │   ├── test_tournament_e2e.py
 │   ├── test_tournament_research_memory_integration.py
+│   ├── test_trade_journal.py
 │   ├── test_trend_pullback_admission.py
 │   ├── test_uncertainty_drift_methodology.py
 │   ├── test_validation_binding_regression.py
@@ -1126,6 +1128,9 @@
 │   │   ├── parity.py
 │   │   ├── poll.py
 │   │   └── rules.py
+│   ├── journal
+│   │   ├── __init__.py
+│   │   └── journal.py
 │   ├── krwfade
 │   │   ├── __init__.py
 │   │   ├── feed.py
