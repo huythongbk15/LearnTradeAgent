@@ -94,6 +94,7 @@
 │   │   ├── NEWPERP_PAPER_RUN.md
 │   │   ├── OPERABLE_SYSTEM_PLAN.md
 │   │   ├── PERP_DEMO_RUNNER.md
+│   │   ├── PERP_LIVE_R0.md
 │   │   ├── QWENPAW_TOOL_NAME_GUARD.md
 │   │   ├── RESEARCH_LESSONS_LEARNED_20261018.md
 │   │   ├── RESEARCH_RUN_PROTOCOL.md
