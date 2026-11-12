@@ -377,6 +377,26 @@ class PerpVenue:
         orders = _run(self.adapter.fetch_open_orders(self.symbol(exchange_id)))
         return {str(o.client_order_id) for o in orders if o.client_order_id}
 
+    def order_fees(self, exchange_id: str, order_id: str) -> dict[str, float]:
+        """The fees of one order's trades, by fee asset (Binance's ``commission`` and ``commissionAsset``).
+
+        Binance USD-M answers an order without its fee, so a fill's fee is read from its trades
+        (``/fapi/v1/userTrades`` with ``orderId``). An order with no trade yet raises: the caller tries later."""
+
+        sym = self.adapter.get_exchange_symbol(self.symbol(exchange_id))
+        rows = self._ex.fetch_my_trades(sym, None, None, {"orderId": str(order_id)})
+        rows = [r for r in rows if str(r.get("order") or "") == str(order_id)]
+        if not rows:
+            raise PerpVenueError(f"{exchange_id}: no trade of order {order_id} yet")
+        fees: dict[str, float] = {}
+        for r in rows:
+            fee = r.get("fee") or {}
+            cur = str(fee.get("currency") or "")
+            if fee.get("cost") is None or not cur:
+                raise PerpVenueError(f"{exchange_id}: a trade of order {order_id} without its fee")
+            fees[cur] = fees.get(cur, 0.0) + float(fee["cost"])
+        return fees
+
     def trade_order_ids(self, exchange_id: str, since_ms: int, until_ms: int) -> list[str]:
         """The venue order id of each of the account's trades on a symbol from ``since_ms`` to ``until_ms``. No
         price or amount: a read for evidence only. Binance answers 7 days and 1000 trades at a time; the span is read

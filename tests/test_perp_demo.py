@@ -58,6 +58,7 @@ class FakeUsdm:
         self.calls: list[tuple] = []
         self.fail_next: str | None = None
         self.leverage: dict[str, int] = {}
+        self.trades: list[dict] = []              # one per filled market order, with its fee
         self.ack_without_price = False   # demo answered a filled market order with average 0
         self.options = {"fetchCurrencies": False, "fetchMargins": False}   # as live_config sets them
 
@@ -148,6 +149,9 @@ class FakeUsdm:
         o = {"id": f"o{len(self.orders)}", "clientOrderId": cid, "symbol": sym, "type": "market", "side": side,
              "amount": amount, "filled": amount, "average": px, "cost": amount * px, "status": "closed", "reduceOnly": bool(params.get("reduceOnly"))}
         self.orders[cid] = o
+        # One trade per market order, with its fee as Binance's userTrades gives it (a taker's 5 bps in USDT).
+        self.trades.append({"order": o["id"], "symbol": sym, "amount": amount, "price": px,
+                            "fee": {"cost": amount * px * 0.0005, "currency": "USDT"}})
         if self.ack_without_price:
             return {**o, "average": None, "cost": 0}
         return dict(o)
@@ -166,8 +170,14 @@ class FakeUsdm:
     def fetch_closed_orders(self, sym=None, since=None, limit=None):
         return []
 
-    def fetch_my_trades(self, sym=None, since=None, limit=None):
-        return []
+    def fetch_my_trades(self, sym=None, since=None, limit=None, params=None):
+        """Only one order's trades (``orderId``), as the KRW records ask; any other read finds none."""
+
+        oid = (params or {}).get("orderId")
+        if oid is None:
+            return []
+        self.calls.append(("trades", sym, oid))
+        return [dict(t) for t in self.trades if t["order"] == oid and t["symbol"] == sym]
 
     def fetch_funding_history(self, sym=None, since=None, limit=None, params=None):
         self.calls.append(("funding", sym, since, dict(params or {})))

@@ -252,7 +252,8 @@ def run(args: argparse.Namespace, out: dict) -> int:
             pairs = PairStore.load(root / "pairs.json", integrity)
             book = Book(venue, orders, pairs, audit, usd)
             krw = krwfade.KrwFadeBook(book, PairStore.load(root / KRW_STORE, integrity), usd, *sources,
-                                      resume=args.resume, max_open=LIVE_MAX_OPEN, exit_now=args.exit_now)
+                                      resume=args.resume, max_open=LIVE_MAX_OPEN, exit_now=args.exit_now,
+                                      funding_rows=box.get("funding"))
             at = now_ms()
             stage_d = allow_orders and (live.get("PERP_LIVE_STAGE") or "").strip().upper() == "D"
             floor = floor_check(venue, PairStore.load(root / FLOOR_STORE, integrity), usd, stage_d=stage_d,

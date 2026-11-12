@@ -133,7 +133,8 @@ def krw_sources(box: dict, share_write: Path | None = None, share_read: Path | N
 
     The shared page (PERP_LIVE_R0.md item 5): the R0 live run passes ``share_write`` and writes the page it read from
     Upbit there; a Demo run passes ``share_read`` and takes that page when it is fresh (``feed.read_share``), else
-    reads Upbit itself. ``box["notices_from"]`` says which: "upbit" or "share".
+    reads Upbit itself. ``box["notices_from"]`` says which: "upbit" or "share". ``box["funding"]`` is set to the
+    public funding read book KRW records each flat event's funding with.
     """
 
     from tools.krwfade import feed as kf
@@ -166,6 +167,8 @@ def krw_sources(box: dict, share_write: Path | None = None, share_read: Path | N
             box["info"] = client.get(nf.EXCHANGE_INFO, {})
         return kr.symbol_map(box["info"])
 
+    # Each flat event's funding on public mainnet rates (PERP_LIVE_R0.md item 6), kept in the box for the book.
+    box["funding"] = lambda perp, lo, hi: ks.funding_rows(nf.funding(client, perp, lo, hi))
     return notices, symbols, lambda perp, entry_ms, notice_ms: ks.fetch_row(client, perp, entry_ms, notice_ms)
 
 
@@ -402,7 +405,7 @@ def main(argv: list[str] | None = None) -> int:
                       if args.flow02 else None)
             flow01 = flowflush.FlowFlushBook(book, store(FLOW01_STORE), args.flow01_usd, feed) if args.flow01 else None
             krw = (krwfade.KrwFadeBook(book, store(KRW_STORE), args.krw_usd, *krw_src, resume=args.krw_resume,
-                                       exit_now=args.krw_exit_now)
+                                       exit_now=args.krw_exit_now, funding_rows=box.get("funding"))
                    if krw_src is not None else None)
             others = [o for o in (lv, learn, flow02, flow01, krw) if o is not None]
             at = now_ms()

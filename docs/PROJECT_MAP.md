@@ -1005,6 +1005,7 @@
 │   ├── test_perp_demo.py
 │   ├── test_perp_flowbtc.py
 │   ├── test_perp_flowflush.py
+│   ├── test_perp_krw_records.py
 │   ├── test_perp_krwfade.py
 │   ├── test_perp_learnbook.py
 │   ├── test_perp_live_alerts.py

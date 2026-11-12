@@ -51,6 +51,12 @@ mainnet data after the hold, is ``tools/krwfade/shadow.py``.
   the event; a run that cannot is retried. It is ``shadow_failed``, with the reason, only after 3 failed tries and 7
   days from the first; a 418 or 429 (``FetchStop``) ends the run's shadow and never counts as a failure. Only the
   shadow rows and the fills hold prices; nothing reads them back into a summary before the K1 look.
+- **Records** (PERP_LIVE_R0.md item 6), after every order of a run so that no read stands between an alt sell and
+  its stop: each fill keeps the mark at send, its order id, and its fee and fee asset read from the order's trades
+  (Binance answers an order without its fee; ``fees_from`` "trades", tried on up to 5 runs); an entry keeps its run's
+  delay against E (``entry_delay_ms``); a flat event gets its funding on public mainnet rates over each leg's real
+  hold, settlement by settlement, with the gaps between settlements (``funding``). Records only: never a reason to
+  keep or close a leg.
 
 It is an ``OtherBook`` (book.py) named "krw", last in the run order. Its alt shorts are exclusive; its BTCUSDT longs
 are summed into the venue's BTCUSDT by the pair book. Orders go through the pair book's path with keys
@@ -94,6 +100,8 @@ FEE_FALLBACK = 0.0005                 # taker rate assumed for the halt when a f
 SHADOW_AFTER_MS = 73 * HOUR_MS        # the shadow row is computed from E + 73 h (the exit bar has closed)
 SHADOW_GIVE_UP_MS = 7 * DAY_MS        # ... and marked shadow_failed 7 days after its first failed try,
 SHADOW_MIN_FAILS = 3                  # ... once it has failed on at least this many runs
+FEE_TRIES = 5                         # a fill's fee is read from its trades on at most this many runs
+FUNDING_GIVE_UP_MS = 7 * DAY_MS       # an event's funding record is given up 7 days after its first failed try
 FORWARD_FROM_MS = 1_793_577_600_000   # 2026-11-02 00:00 UTC: research events end with E + 72 h before it
 STORE = "krw.json"
 PREFIX = "krw-"
@@ -227,6 +235,40 @@ def unsettled(store: PairStore, ledger: Mapping[str, Mapping]) -> bool:
     return False
 
 
+def _flat_round_trip(ev: Mapping) -> bool:
+    """An event that traded and holds nothing: closed, or failed and unwound, with fills and no leg left."""
+
+    if not ev.get("fills") or has_legs(ev):
+        return False
+    return ev.get("status") == "closed" or (ev.get("status") == "failed" and ev.get("unwound") is True)
+
+
+def _row_ms(row: Mapping, ev: Mapping) -> tuple[int | None, str]:
+    """When a fill happened: its send, else its run, else (a fired stop) when a run saw the stop had fired."""
+
+    if row.get("sent_ms") is not None:
+        return int(row["sent_ms"]), "sent"
+    if row.get("ms") is not None:
+        return int(row["ms"]), "run"
+    if row.get("from_stop") and ev.get("stopped_at"):
+        return int(datetime.fromisoformat(str(ev["stopped_at"]).replace("Z", "+00:00")).timestamp() * 1000), "detected"
+    return None, ""
+
+
+def _leg_window(ev: Mapping, symbol: str) -> tuple[int, int, str] | None:
+    """(first fill, last fill, how the last was timed) of one leg of a flat event, or None when it never traded."""
+
+    rows = [f for f in ev.get("fills") or [] if f.get("symbol") == symbol]
+    if not rows:
+        return None
+    timed = [(_row_ms(f, ev), f) for f in rows]
+    if any(t is None for (t, _how), _f in timed):
+        raise ValueError(f"a fill of {symbol} without a time")
+    lo = min(t for (t, _how), _f in timed)
+    hi, how = max(((t, how) for (t, how), _f in timed), key=lambda x: x[0])
+    return int(lo), int(hi), how
+
+
 def holds_legs(store: PairStore) -> bool:
     """Whether any event of the record may hold legs on the venue (read unverified: a cue for a signed check)."""
 
@@ -293,6 +335,8 @@ class KrwFadeBook:
     notices: Callable[[], Sequence]                     # page 1 of Upbit's trade notices (tools.krwfade.feed)
     symbols: Callable[[], Mapping[str, Mapping]]        # mainnet exchangeInfo by symbol (public)
     shadow_row: Callable[[str, int, int], dict]         # (perp, E, notice) -> the research row (tools.krwfade.shadow)
+    # (perp, from, to) -> [(settlement ms, rate)]: public mainnet funding (``_funding``); None records none
+    funding_rows: Callable[[str, int, int], Sequence[tuple[int, float]]] | None = None
     wall: Callable[[], float] = time.time               # the wall clock just before an order goes out
     resume: bool = False                                # --krw-resume: a new sleeve once the book is flat (``_resume``)
     exit_now: bool = False                              # the operator's "exit now": every open event exits this run
@@ -370,7 +414,7 @@ class KrwFadeBook:
     def _fill(self, ev: dict, symbol: str, key: str, side: str, res: dict, mark: float | None, now_ms: int,
               sent: int) -> None:
         row = fill_record(key, side, res, mark)
-        row.update(symbol=symbol, ms=now_ms, sent_ms=sent)
+        row.update(symbol=symbol, ms=now_ms, sent_ms=sent, order_id=str(res.get("exchange_order_id") or ""))
         ev.setdefault("fills", []).append(row)
         self.store.save()
 
@@ -398,7 +442,8 @@ class KrwFadeBook:
             symbol = str(rec.get("symbol") or "")
             avg, src = ledger_price(self.book, key, rec)
             row = {"key": key, "side": str(rec.get("side") or "").lower(), "qty": filled, "avg": avg,
-                   "fees": dict(rec.get("fees") or {}), "mark": None, "symbol": symbol, "from_ledger": True}
+                   "fees": dict(rec.get("fees") or {}), "mark": None, "symbol": symbol, "from_ledger": True,
+                   "order_id": str(rec.get("exchange_order_id") or "")}
             if src:
                 row["avg_from"] = src
             ev.setdefault("fills", []).append(row)
@@ -604,6 +649,7 @@ class KrwFadeBook:
             if got:
                 out[got] = out.get(got, 0) + 1
         out["shadow_rows"] = self._shadow(now_ms)
+        out.update(self._records(now_ms))
         self.store.save()
         out.update(open=len(self._holding()), halted=bool(st.get("halted")))
         if errors:
@@ -974,6 +1020,7 @@ class KrwFadeBook:
         self.store.save()
         try:
             sent = self._sent_ms()
+            ev["entry_delay_ms"] = sent - int(ev["entry_ms"])       # the run's delay against E (item 6)
             res = self.book._market(perp, "sell", qty, key, reduce_only=False)
             self._fill(ev, perp, key, "sell", res, mark, now_ms, sent)
             short, px = float(res["filled_qty"]), float(res["avg_fill_price"])
@@ -1015,15 +1062,17 @@ class KrwFadeBook:
         short = round(-held.qty, DECIMALS) if held is not None and held.qty < -QTY_TOL else 0.0
         if short > QTY_TOL:
             key = self.book.fresh_key(stem(ev) + "c")
+            mark = self._mark(perp)
             sent = self._sent_ms()
             res = self.book._market(perp, "buy", short, key, reduce_only=True)
-            self._fill(ev, perp, key, "buy", res, None, now_ms, sent)
+            self._fill(ev, perp, key, "buy", res, mark, now_ms, sent)
         b = btc_long(ev)
         if b > QTY_TOL:
             key = self.book.fresh_key(stem(ev) + "x")
+            mark = self._mark(BTC)
             sent = self._sent_ms()
             res = self.book._market(BTC, "sell", b, key, reduce_only=True)
-            self._fill(ev, BTC, key, "sell", res, None, now_ms, sent)
+            self._fill(ev, BTC, key, "sell", res, mark, now_ms, sent)
         if ev.get("stop_sent"):
             rec = self.ledger.get(stop_key(ev))
             if rec is not None and rec.get("status") in STOP_PENDING:
@@ -1042,6 +1091,89 @@ class KrwFadeBook:
         self.store.save()
 
     # ── shadow ─────────────────────────────────────────────────────────────
+
+    # ── records (PERP_LIVE_R0.md item 6) ───────────────────────────────────
+
+    def _records(self, now_ms: int) -> dict[str, int]:
+        """After the run's orders: each fill's fee and fee asset read from its trades, and each flat event's funding.
+
+        Records only: a read that fails is tried again by a later run and never stops this one. Done after every
+        order of the run, so no read stands between an alt sell and its stop."""
+
+        return {"fees_read": self._fees(), "funding_rows": self._funding(now_ms)}
+
+    def _fees(self) -> int:
+        """Binance answers a market order without its fee: read it from the order's trades (``PerpVenue.order_fees``)
+        for each fill that has none, on at most ``FEE_TRIES`` runs. A fee read from trades is kept as
+        ``fees_from: "trades"``; one given up as ``fee_read: "failed"``."""
+
+        n = 0
+        for eid, ev in _events(self.store):
+            for row in ev.get("fills") or []:
+                if row.get("fees") or not row.get("order_id") or row.get("fee_read") == "failed":
+                    continue
+                try:
+                    fees = self.venue.order_fees(row["symbol"], row["order_id"])
+                except Exception as exc:       # a record: a later run asks again
+                    row["fee_tries"] = int(row.get("fee_tries") or 0) + 1
+                    if row["fee_tries"] >= FEE_TRIES:
+                        row["fee_read"] = "failed"
+                        self.book.audit("perp_krw_fee_unread", id=eid, key=row["key"], error=type(exc).__name__)
+                    self.store.save()
+                    continue
+                row.update(fees=fees, fees_from="trades")
+                row.pop("fee_tries", None)
+                self.store.save()
+                n += 1
+        return n
+
+    def _funding(self, now_ms: int) -> int:
+        """Each flat event's funding on public mainnet rates over each leg's real hold, settlement by settlement.
+
+        The window of a leg runs from its first fill's send to its last fill (a fired stop's: when the run saw it,
+        ``end_from`` "detected"). Every settlement inside is counted, whatever the interval: capped contracts can
+        move to hourly settlement without notice, so the gaps between settlements are kept (``gaps_h``). The short
+        alt receives the rate and the long BTC pays it, each in bps of its own notional. A 418 or 429 stops the
+        reads for this run; a failed read is tried again and given up 7 days after its first failure."""
+
+        if self.funding_rows is None or getattr(self, "_fetch_stopped", False):
+            return 0
+        made = 0
+        for eid, ev in _events(self.store):
+            fd = ev.get("funding") or {}
+            if fd.get("status") in ("done", "failed") or not _flat_round_trip(ev):
+                continue
+            try:
+                legs = {}
+                for name, symbol, sign in (("alt", ev["perp"], 1.0), ("btc", BTC, -1.0)):
+                    win = _leg_window(ev, symbol)
+                    if win is None:
+                        continue
+                    lo, hi, end_from = win
+                    rows = sorted((int(t), float(r)) for t, r in self.funding_rows(symbol, lo, hi + 1)
+                                  if lo < int(t) <= hi)
+                    times = [t for t, _r in rows]
+                    legs[name] = {"symbol": symbol, "from_ms": lo, "to_ms": hi, "end_from": end_from,
+                                  "n": len(rows), "bps": round(sign * sum(r for _t, r in rows) * 1e4, 4),
+                                  "gaps_h": sorted({round((b - a) / HOUR_MS, 2) for a, b in zip(times, times[1:])})}
+            except Exception as exc:          # public data: a later run tries again
+                stop = type(exc).__name__ == "FetchStop"
+                fd = ev.setdefault("funding", {"status": "due"})
+                fd.update(tries=int(fd.get("tries") or 0) + 1, last_error=type(exc).__name__)
+                if not stop:
+                    fd.setdefault("first_fail_ms", now_ms)
+                    if now_ms >= int(fd["first_fail_ms"]) + FUNDING_GIVE_UP_MS:
+                        fd["status"] = "failed"
+                        self.book.audit("perp_krw_funding_failed", id=eid, error=type(exc).__name__)
+                self.store.save()
+                if stop:
+                    self._fetch_stopped = True
+                    break
+                continue
+            ev["funding"] = {"status": "done", "source": "mainnet_rates", "at_ms": now_ms, **legs}
+            self.store.save()
+            made += 1
+        return made
 
     def _shadow(self, now_ms: int) -> int:
         """Compute each due event's research row from public data; retry later.
