@@ -1006,7 +1006,7 @@
 │   ├── test_perp_flowbtc.py
 │   ├── test_perp_flowflush.py
 │   ├── test_perp_krw_records.py
-│   ├── test_perp_krw_stop_readback.py
+│   ├── test_perp_krw_rehearsal.py
 │   ├── test_perp_krwfade.py
 │   ├── test_perp_learnbook.py
 │   ├── test_perp_live_alerts.py

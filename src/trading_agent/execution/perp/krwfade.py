@@ -30,6 +30,9 @@ mainnet data after the hold, is ``tools/krwfade/shadow.py``.
   sells the BTC it bought, marks the event ``failed`` and stops. A stop that fired before the take-off read the
   positions is recorded as check() records one. Legs a failure leaves are unwound by later runs, and a failed event
   is ``unwound`` once a signed run finds it flat.
+- **Rehearsal** (by hand: ``--krw-rehearse`` on Demo, ``--rehearse`` on the live root; ``_rehearsal``): one event of
+  the book's shape on a perp the operator names, made and entered in that run only, with its own stop multiple
+  (``stop_x``) and hold (``hold_ms``). Marked ``rehearsal``: no shadow row, never in K3, counted apart.
 - **Exit:** due from E + 72 h less 2.5 min (``EXIT_EARLY_MS``, half the 5-minute cadence), or at once after a fired
   stop; a late run exits at once. The operator's "exit now" (``exit_now``: ``--krw-exit-now`` on Demo, ``--exit-now``
   on the live root) exits every open event in that run the same way, with ``close_reason`` "operator". The alt is
@@ -93,6 +96,8 @@ HOLD_MS = 72 * HOUR_MS                # research exit: the 1h open at E + 72 h
 ENTRY_WINDOW_MS = 15 * MIN_MS         # Demo enters at a run with E <= now <= E + 15 min
 EXIT_EARLY_MS = 150_000               # an exit is due from 2.5 min before E + 72 h: half the 5-minute cadence
 STOP_X = 1.5                          # exchange stop at 1.5x the alt's average fill
+REHEARSE_STOP_X = (1.001, STOP_X)     # a rehearsal's stop multiple: tight enough to fire on purpose, never wider
+REHEARSE_HOLD_MS = (5 * 60_000, 24 * 60 * 60_000)   # a rehearsal's hold
 STOP_FILL_X = 1.05                    # a fired stop's fill when the venue does not report it: the research's 1.575 / 1.5
 KRW_MAX_OPEN = 4                      # Demo events holding legs at once
 RESERVE_EVENTS = 1                    # alt-short room book LEARN leaves for this many events (risk.short_budget)
@@ -154,7 +159,7 @@ def in_window(ev: Mapping, now_ms: int) -> bool:
 def exit_due(ev: Mapping, now_ms: int) -> bool:
     """Is the hold over? From 2.5 min before E + 72 h (a run's start-up must not push it a cadence later)."""
 
-    return now_ms + EXIT_EARLY_MS >= int(ev["entry_ms"]) + HOLD_MS
+    return now_ms + EXIT_EARLY_MS >= int(ev["entry_ms"]) + int(ev.get("hold_ms") or HOLD_MS)
 
 
 def _qty(ev: Mapping, symbol: str, sign_sell: int) -> float:
@@ -310,7 +315,7 @@ def signed_run_reason(now_ms: int, store: PairStore, notices: Callable[[], Seque
             return "exit_due"
     if st.get("halted"):
         return None
-    if any(ev["status"] == "waiting" and in_window(ev, now_ms) for _k, ev in evs):
+    if any(ev["status"] == "waiting" and in_window(ev, now_ms) and not ev.get("rehearsal") for _k, ev in evs):
         return "entry_window"
     R = _rules()
     seen = set(store.seen)
@@ -346,6 +351,7 @@ class KrwFadeBook:
     wall: Callable[[], float] = time.time               # the wall clock just before an order goes out
     resume: bool = False                                # --krw-resume: a new sleeve once the book is flat (``_resume``)
     exit_now: bool = False                              # the operator's "exit now": every open event exits this run
+    rehearse: Mapping[str, Any] | None = None           # by hand: {"perp", "stop_x", "hold_ms"} (``_rehearsal``)
     max_open: int = KRW_MAX_OPEN                        # events holding legs at once (1 on the live root)
 
     @property
@@ -400,7 +406,12 @@ class KrwFadeBook:
     def counts(self) -> dict[str, Any]:
         """For status.json: counts and statuses only."""
 
-        evs = [ev for _k, ev in _events(self.store)]
+        every = [ev for _k, ev in _events(self.store)]
+        evs = [ev for ev in every if not ev.get("rehearsal")]       # rehearsals are counted apart
+        rehearsals: dict[str, int] = {}
+        for ev in every:
+            if ev.get("rehearsal"):
+                rehearsals[ev["status"]] = rehearsals.get(ev["status"], 0) + 1
         by: dict[str, int] = {}
         sh: dict[str, int] = {}
         for ev in evs:
@@ -412,7 +423,9 @@ class KrwFadeBook:
                 "krw_shadow": sh, "krw_feed_fails": int((st.get("feed") or {}).get("fails") or 0),
                 "krw_gaps": sum(1 for k in self.store.pairs if k.startswith("g")),
                 "krw_excluded": sum(1 for ev in evs if ev.get("excluded")),
-                "krw_stale_stops": sum(1 for ev in evs if ev.get("stale_stop")),
+                "krw_stale_stops": sum(1 for ev in every if ev.get("stale_stop")), "krw_rehearsals": rehearsals,
+                "krw_rehearsal_stops": sum(1 for ev in every if ev.get("rehearsal")
+                                           and (ev["status"] == "stopped" or ev.get("close_reason") == "stop")),
                 "krw_stops_fired": sum(1 for ev in evs if ev["status"] == "stopped" or ev.get("close_reason") == "stop")}
 
     # ── fills ──────────────────────────────────────────────────────────────
@@ -673,12 +686,19 @@ class KrwFadeBook:
             self.store.save()
             self.book.audit("perp_krw_halted", reason="realized_net_below_limit")
         out["new_events"] = self._read_feed(st, now_ms)
+        if self.rehearse is not None:
+            out["rehearsal"] = self._rehearsal(now_ms)
         for eid, ev in _events(self.store):
             if ev["status"] != "waiting":
                 continue
             got = self._decide(eid, ev, now_ms, entry_lock, blocked=bool(errors))
             if got:
                 out[got] = out.get(got, 0) + 1
+            if ev.get("rehearsal") and ev["status"] == "waiting":     # only the run that made it may enter it
+                ev.update(status="missed", reason=(ev.get("attempts") or [{}])[-1].get("why") or "not_entered",
+                          decided_ms=now_ms)
+                self.store.save()
+                self.book.audit("perp_krw_rehearsal", id=eid, status="missed", reason=ev["reason"])
         out["shadow_rows"] = self._shadow(now_ms)
         out.update(self._records(now_ms))
         self.store.save()
@@ -791,6 +811,8 @@ class KrwFadeBook:
                 continue
             if int(ev.get("decided_ms") or 0) < since:
                 continue        # an earlier sleeve's
+            if ev.get("rehearsal"):
+                continue        # a rehearsal is mechanics, never the sleeve's P&L
             if abs(alt_short(ev)) > QTY_TOL or abs(btc_long(ev)) > QTY_TOL:
                 continue        # legs left, or a fill not settled yet (a lost reply): not a round trip yet
             for f in ev["fills"]:
@@ -1055,7 +1077,7 @@ class KrwFadeBook:
             res = self.book._market(perp, "sell", qty, key, reduce_only=False)
             self._fill(ev, perp, key, "sell", res, mark, now_ms, sent)
             short, px = float(res["filled_qty"]), float(res["avg_fill_price"])
-            stop_px = STOP_X * px
+            stop_px = float(ev.get("stop_x") or STOP_X) * px      # a rehearsal's own multiple
             skey = stop_key(ev)
             ev.update(stop_sent=True, stop_price=stop_px)
             self.store.save()
@@ -1122,6 +1144,43 @@ class KrwFadeBook:
         self.store.save()
 
     # ── shadow ─────────────────────────────────────────────────────────────
+
+    # ── rehearsal (PERP_LIVE_R0.md item 3) ─────────────────────────────────
+
+    def _rehearsal(self, now_ms: int) -> str:
+        """The operator's rehearsal, by hand: one event of the book's shape on ``rehearse["perp"]``, made now and
+        entered in this run only, with its own stop multiple (``stop_x``, tight to fire a stop on purpose) and hold
+        (``hold_ms``). Marked ``rehearsal``: no shadow row, never in K3, counted apart in status.json (so never in
+        the stops that page for K-pause or in K1). Its legs go through every check, stop and exit as an event's do.
+        Returns "made", or why not."""
+
+        r = self.rehearse or {}
+        perp, stop_x, hold_ms = str(r.get("perp") or ""), float(r.get("stop_x") or STOP_X), int(r.get("hold_ms") or 0)
+        if not perp.endswith("USDT") or perp == BTC or len(perp) <= 4:
+            raise PerpBookError(f"rehearsal: not an alt USDT perp: {perp!r}")
+        if not REHEARSE_STOP_X[0] <= stop_x <= REHEARSE_STOP_X[1]:
+            raise PerpBookError(f"rehearsal: stop multiple {stop_x} outside {REHEARSE_STOP_X}")
+        if not REHEARSE_HOLD_MS[0] <= hold_ms <= REHEARSE_HOLD_MS[1]:
+            raise PerpBookError(f"rehearsal: hold {hold_ms} ms outside {REHEARSE_HOLD_MS}")
+        info = self.symbols().get(perp)
+        if not info or str(info.get("status") or "TRADING") != "TRADING":
+            raise PerpBookError(f"rehearsal: {perp} is not a trading perp on mainnet")
+        if any(ev.get("rehearsal") and (has_legs(ev) or ev["status"] in ("waiting", "opening", "closing", "stopped"))
+               for _k, ev in _events(self.store)):
+            return "one_open"
+        rid = now_ms // MIN_MS                 # a minute number: far from Upbit's notice ids
+        token = perp[:-4]
+        ev = {"kind": "event", "rehearsal": True, "notice_id": rid, "token": token, "perp": perp, "notice_ms": now_ms,
+              "notice": _iso(now_ms), "entry_ms": now_ms, "seen_ms": now_ms, "status": "waiting", "stop_x": stop_x,
+              "hold_ms": hold_ms, "shadow": {"status": "rehearsal"}}
+        stem(ev)                               # the client keys must fit
+        eid = event_id(rid, token)
+        if eid in self.store.pairs:
+            return "exists"
+        self.store.pairs[eid] = ev
+        self.store.save()
+        self.book.audit("perp_krw_rehearsal", id=eid, status="made", symbol=perp, stop_x=stop_x, hold_ms=hold_ms)
+        return "made"
 
     # ── records (PERP_LIVE_R0.md item 6) ───────────────────────────────────
 

@@ -22,6 +22,12 @@ the venue refuses every write and the run holds entries under the entry lock.
 --resume, by hand only (the live wrapper never passes it): a signed run whatever the pre-check says, which starts
 book KRW's new sleeve after its K3 halt or a new size, if the book is flat. It is the operator's signature of K-pause.
 
+--rehearse PERP, by hand only (stage C of PERP_LIVE_R0.md): a signed run whatever the pre-check says, in which book KRW
+makes one event of its shape on PERP now, marked ``rehearsal``, and enters it in this run if it can (else it is
+``missed``): its own stop multiple (``--rehearse-stop-x``, default the book's 1.5; a tight one fires a stop on purpose)
+and hold (``--rehearse-hold-min``, after which the scheduled runs exit it as a due exit). No shadow row, never in K3,
+counted apart in status.json.
+
 --exit-now, by hand only (K-ops of PERP_LIVE_R0.md): a signed run whatever the pre-check says, in which book KRW
 exits every open event the way a due exit does (``close_reason`` "operator") and enters nothing.
 
@@ -167,6 +173,14 @@ def write_status(root: Path, report: dict, krw: krwfade.KrwFadeBook, allow_order
     os.replace(tmp, root / "status.json")
 
 
+def rehearsal(args: argparse.Namespace) -> dict | None:
+    """The rehearsal book KRW makes in this run (``KrwFadeBook._rehearsal``), or None."""
+
+    if not args.rehearse:
+        return None
+    return {"perp": args.rehearse.upper(), "stop_x": args.rehearse_stop_x, "hold_ms": args.rehearse_hold_min * 60_000}
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--execute", action="store_true", help="a signed run on mainnet when one is needed")
@@ -177,6 +191,11 @@ def main(argv: list[str] | None = None) -> int:
                     help="by hand only: a signed run that starts book KRW's new sleeve after its halt, if it is flat")
     ap.add_argument("--notice-share", default=None,
                     help="write the Upbit page this run read here, for the Demo roots (a directory this user owns)")
+    ap.add_argument("--rehearse", metavar="PERP",
+                    help="by hand only: a signed run that enters one marked rehearsal event of book KRW's shape now")
+    ap.add_argument("--rehearse-stop-x", type=float, default=krwfade.STOP_X,
+                    help="the rehearsal's stop multiple, 1.001 to 1.5 (tight to fire a stop on purpose)")
+    ap.add_argument("--rehearse-hold-min", type=int, default=30, help="the rehearsal's hold in minutes, 5 to 1440")
     ap.add_argument("--exit-now", action="store_true",
                     help="by hand only: a signed run in which book KRW exits every open event now and enters nothing")
     args = ap.parse_args(argv)
@@ -192,16 +211,17 @@ def run(args: argparse.Namespace, out: dict) -> int:
 
     root = Path(args.root)
     out["signed"] = False
-    if (args.resume or args.exit_now) and not args.execute:
-        print("--resume and --exit-now need --execute", file=sys.stderr)
+    if (args.resume or args.exit_now or args.rehearse) and not args.execute:
+        print("--resume, --exit-now and --rehearse need --execute", file=sys.stderr)
         return 2
-    if args.resume and args.exit_now:
-        print("--resume and --exit-now are separate runs", file=sys.stderr)
+    if sum(map(bool, (args.resume, args.exit_now, args.rehearse))) > 1:
+        print("--resume, --exit-now and --rehearse are separate runs", file=sys.stderr)
         return 2
 
     box: dict = {"info": None, "notices": None}
     sources = krw_sources(box, share_write=Path(args.notice_share) if args.notice_share else None)
-    reason: str | None = "resume" if args.resume else "exit_now" if args.exit_now else None
+    reason: str | None = ("resume" if args.resume else "exit_now" if args.exit_now
+                          else "rehearse" if args.rehearse else None)
     if reason is None:
         # Before the env file, the key, the lock or any write but the outcome record: a quiet moment ends here,
         # unsigned.
@@ -253,6 +273,7 @@ def run(args: argparse.Namespace, out: dict) -> int:
             book = Book(venue, orders, pairs, audit, usd)
             krw = krwfade.KrwFadeBook(book, PairStore.load(root / KRW_STORE, integrity), usd, *sources,
                                       resume=args.resume, max_open=LIVE_MAX_OPEN, exit_now=args.exit_now,
+                                      rehearse=rehearsal(args),
                                       funding_rows=box.get("funding"))
             at = now_ms()
             stage_d = allow_orders and (live.get("PERP_LIVE_STAGE") or "").strip().upper() == "D"
