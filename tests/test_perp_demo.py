@@ -105,7 +105,7 @@ class FakeUsdm:
     def fetch_positions(self, symbols=None):
         return [
             {"symbol": s, "contracts": abs(q), "side": "short" if q < 0 else "long", "entryPrice": self.entry[s],
-             "markPrice": self.prices[self.markets[s]["id"]], "leverage": 1}
+             "markPrice": self.prices[self.markets[s]["id"]], "leverage": 1, "marginMode": "cross"}
             for s, q in self.positions.items() if abs(q) > 1e-12
         ]
 

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import stat
 from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import Decimal
@@ -37,6 +38,11 @@ EXCHANGE_ID = "binanceusdm"
 # ccxt's options that, with a key, make load_markets sign requests on the spot API (api.binance.com/sapi):
 # the currency list and the margin pairs. The live venue needs neither and must stay on fapi.binance.com.
 LIVE_OFF_OPTIONS = ("fetchCurrencies", "fetchMargins")
+# ccxt's proxy settings on an exchange object (applied after the live venue's host check): none may be set.
+PROXY_ATTRS = ("proxy", "proxyUrl", "proxy_url", "proxyUrlCallback", "proxy_url_callback", "httpProxy",
+               "http_proxy", "httpProxyCallback", "http_proxy_callback", "httpsProxy", "https_proxy",
+               "httpsProxyCallback", "https_proxy_callback", "socksProxy", "socks_proxy", "socksProxyCallback", "aiohttpProxy",
+               "aiohttp_proxy", "socks_proxy_callback")
 
 
 class PerpVenueError(RuntimeError):
@@ -109,26 +115,41 @@ def load_live_credentials(env: Mapping[str, str]) -> tuple[str, str]:
         raise PerpVenueError("the live venue takes an Ed25519 key file only; remove BINANCE_LIVE_FUTURES_API_SECRET")
     if not key or not path:
         raise PerpVenueError("BINANCE_LIVE_FUTURES_API_KEY and BINANCE_LIVE_FUTURES_PRIVATE_KEY_FILE are required")
-    pem = Path(path).expanduser()
-    if pem.is_symlink() or not pem.is_file():
-        raise PerpVenueError("BINANCE_LIVE_FUTURES_PRIVATE_KEY_FILE is not a regular file")
-    st = pem.stat()
-    if st.st_uid != os.getuid():
-        raise PerpVenueError("the live private key file must be owned by the user running the live task")
-    if st.st_mode & 0o077:
-        raise PerpVenueError("the live private key file must be readable by its owner only (chmod 600)")
-    secret = pem.read_text(encoding="ascii").strip()
-    if "PRIVATE KEY-----" not in secret or "ENCRYPTED" in secret:
+    # One open, without following a link, then every check on that handle: nothing can be swapped in between.
+    try:
+        fd = os.open(Path(path).expanduser(), os.O_RDONLY | os.O_NOFOLLOW)
+    except OSError as exc:
+        raise PerpVenueError("BINANCE_LIVE_FUTURES_PRIVATE_KEY_FILE cannot be opened as a regular file") from exc
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode):
+            raise PerpVenueError("BINANCE_LIVE_FUTURES_PRIVATE_KEY_FILE is not a regular file")
+        if st.st_uid != os.getuid():
+            raise PerpVenueError("the live private key file must be owned by the user running the live task")
+        if st.st_mode & 0o077:
+            raise PerpVenueError("the live private key file must be readable by its owner only (chmod 600)")
+        raw = os.read(fd, 16_384)
+    finally:
+        os.close(fd)
+    try:
+        text = raw.decode("ascii").strip()
+    except UnicodeDecodeError:
+        raise PerpVenueError("the live private key file is not ASCII PEM") from None
+    if "PRIVATE KEY-----" not in text or "ENCRYPTED" in text:
         raise PerpVenueError("the live private key file is not an unencrypted PEM private key")
+    from cryptography.exceptions import UnsupportedAlgorithm
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-    from cryptography.hazmat.primitives.serialization import load_pem_private_key
+    from cryptography.hazmat.primitives.serialization import Encoding, NoEncryption, PrivateFormat, load_pem_private_key
 
     try:
-        parsed = load_pem_private_key(secret.encode("ascii"), password=None)
-    except (ValueError, TypeError) as exc:
-        raise PerpVenueError("the live private key file does not parse as a private key") from exc
+        parsed = load_pem_private_key(text.encode("ascii"), password=None)
+    except (ValueError, TypeError, UnsupportedAlgorithm):
+        raise PerpVenueError("the live private key file does not parse as a private key") from None
     if not isinstance(parsed, Ed25519PrivateKey):
         raise PerpVenueError("the live private key is not Ed25519")
+    # The key alone, as standard PKCS8 PEM: ccxt signs with Ed25519 only when the secret is at most 120
+    # characters, so a file that also holds the public key or a comment would otherwise be signed as RSA and fail.
+    secret = parsed.private_bytes(Encoding.PEM, PrivateFormat.PKCS8, NoEncryption()).decode("ascii").strip()
     return key, secret
 
 
@@ -329,24 +350,63 @@ class PerpLiveVenue(PerpVenue):
             raise PerpVenueError("live venue requires the binanceusdm adapter on mainnet (no demo, sandbox or testnet)")
         if any(cfg.options.get(k) is not False for k in LIVE_OFF_OPTIONS):
             raise PerpVenueError("live venue requires live_config (no spot API calls when markets load)")
+        if adapter.exchange is not None:
+            raise PerpVenueError("live venue requires an adapter it connects itself")
         super().__init__(adapter)
-        self.allow_orders = bool(allow_orders)
+        self._allow_orders = bool(allow_orders)
+
+    @property
+    def allow_orders(self) -> bool:
+        """Fixed when the venue is built."""
+
+        return self._allow_orders
+
+    @property
+    def adapter(self) -> CCXTAdapter:
+        """The adapter, only while its exchange (if any) carries the host guard: every venue call goes through
+        here, so an exchange connected some other way is never used."""
+
+        ex = self._adapter.exchange
+        if ex is not None and not getattr(ex.fetch, "perp_live_guard", False):
+            raise PerpVenueError("live venue: the host guard is not in place; refusing")
+        return self._adapter
+
+    @adapter.setter
+    def adapter(self, value: CCXTAdapter) -> None:
+        self._adapter = value
 
     def connect(self) -> None:
-        _run(self.adapter.connect(before_load=self._guard))
+        try:
+            _run(self._adapter.connect(before_load=self._guard))
+        except Exception:
+            self._adapter.exchange = None     # an exchange the guard refused is never used
+            raise
         self.assert_mainnet_only()
 
     def _guard(self, ex: Any) -> None:
-        """Called by the adapter on the new exchange object, before any request."""
+        """Called by the adapter on the new exchange object, before any request.
+
+        Every request must go to ``MAINNET_HOST``; while orders are not allowed, only GET requests leave (every
+        Binance write is a POST, PUT or DELETE), so no write reaches the network whichever method sends it. No
+        proxy is allowed (ccxt applies it after this check) and no redirect is followed.
+        """
 
         _check_mainnet_roots(ex)
         if any((getattr(ex, "options", None) or {}).get(k) is not False for k in LIVE_OFF_OPTIONS):
             raise PerpVenueError("live venue: ccxt would sign spot API requests while loading markets; refusing")
+        if any(getattr(ex, a, None) for a in PROXY_ATTRS):
+            raise PerpVenueError("live venue: a proxy is set on the exchange; refusing")
+        session = getattr(ex, "session", None)
+        if session is not None and hasattr(session, "max_redirects"):
+            session.max_redirects = 0
         send = ex.fetch
+        venue = self
 
         def fetch(url, method="GET", headers=None, body=None):
             if not str(url).startswith(MAINNET_HOST):
                 raise PerpVenueError("live venue: a request to a host other than fapi.binance.com was refused")
+            if str(method).upper() != "GET" and not venue._allow_orders:
+                raise PerpVenueError("live venue is read-only: a write request was refused before the network")
             return send(url, method, headers, body)
 
         fetch.perp_live_guard = True
@@ -356,28 +416,43 @@ class PerpLiveVenue(PerpVenue):
         """Every futures API root is fapi.binance.com and the host guard is in place."""
 
         _check_mainnet_roots(self._ex)
-        if not getattr(self._ex.fetch, "perp_live_guard", False):
-            raise PerpVenueError("live venue: the host guard is not in place; refusing")
 
     def _writable(self, what: str) -> None:
         if not self.allow_orders:
             raise PerpVenueError(f"live venue is read-only: {what} refused before the network")
 
     def require_account_shape(self) -> None:
-        """Section 3 of PERP_LIVE_R0.md: one-way position mode, single-asset mode, fees not paid in BNB, and no
-        asset but USDT in the futures wallet. Read-only; stops the run if any differs."""
+        """Section 3 of PERP_LIVE_R0.md: one-way position mode, single-asset mode, fees not paid in BNB, a USDT row
+        and no other asset in the futures wallet, and cross margin at 1x on every position held. Read-only; stops
+        the run if any differs or a reply lacks the field (fail closed)."""
 
-        self.require_one_way_mode()
+        if self._ex.fetch_position_mode().get("hedged") is not False:
+            raise PerpVenueError("account is in hedge mode or its mode is unreadable; R0 needs one-way mode")
         multi = self._ex.fapiPrivateGetMultiAssetsMargin()
         if str((multi or {}).get("multiAssetsMargin")).lower() != "false":
             raise PerpVenueError("account is in multi-assets mode; R0 needs single-asset mode")
         burn = self._ex.fapiPrivateGetFeeBurn()
         if str((burn or {}).get("feeBurn")).lower() != "false":
             raise PerpVenueError("fees are paid in BNB; R0 needs USDT fees (turn BNB fee discount off)")
-        assets = ((self._ex.fetch_balance() or {}).get("info") or {}).get("assets") or []
-        other = [a for a in assets if str(a.get("asset")) != "USDT" and float(a.get("walletBalance") or 0.0) != 0.0]
+        assets = ((self._ex.fetch_balance() or {}).get("info") or {}).get("assets")
+        if not isinstance(assets, list) or not any(str(a.get("asset")) == "USDT" for a in assets):
+            raise PerpVenueError("the futures wallet reply has no USDT row; refusing")
+        other = 0
+        for a in assets:
+            if str(a.get("asset")) == "USDT":
+                continue
+            try:
+                held = float(a["walletBalance"])
+            except (KeyError, TypeError, ValueError):
+                raise PerpVenueError("a futures wallet row has no readable balance; refusing") from None
+            other += held != 0.0
         if other:
-            raise PerpVenueError(f"the futures wallet holds {len(other)} asset(s) besides USDT; R0 holds USDT only")
+            raise PerpVenueError(f"the futures wallet holds {other} asset(s) besides USDT; R0 holds USDT only")
+        for p in self._ex.fetch_positions():
+            if not float(p.get("contracts") or 0.0):
+                continue
+            if str(p.get("marginMode")).lower() != "cross" or float(p.get("leverage") or 0.0) != 1.0:
+                raise PerpVenueError("a position is not cross margin at 1x; R0 holds cross at 1x only")
 
     def prepare(self, exchange_id: str) -> None:
         self._writable("margin and leverage settings")

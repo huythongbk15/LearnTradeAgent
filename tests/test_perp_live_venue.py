@@ -3,6 +3,7 @@ network. Every request ccxt would send is recorded with its host and whether it 
 
 from __future__ import annotations
 
+import asyncio
 import os
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -40,7 +41,8 @@ class Wire:
     def __init__(self):
         self.sent: list[tuple[str, str, bool]] = []   # (method, url without query, signed)
         self.account = {"multiAssetsMargin": False, "feeBurn": False, "dual": False,
-                        "assets": [{"asset": "USDT", "walletBalance": "100", "marginBalance": "100"}]}
+                        "assets": [{"asset": "USDT", "walletBalance": "100", "marginBalance": "100"}],
+                        "positions": []}
 
     def __call__(self, ex, url, method="GET", headers=None, body=None):
         signed = "signature=" in url or "signature=" in str(body or "")
@@ -56,14 +58,20 @@ class Wire:
                  "orderTypes": ["LIMIT", "MARKET", "STOP", "STOP_MARKET", "TAKE_PROFIT_MARKET"],
                  "filters": [{"filterType": "LOT_SIZE", "stepSize": "0.001", "minQty": "0.001", "maxQty": "1000"},
                              {"filterType": "MIN_NOTIONAL", "notional": "50"}]}]},
-            "/fapi/v1/positionSide/dual": {"dualSidePosition": a["dual"]},
+            "/fapi/v1/positionSide/dual": {} if a["dual"] is None else {"dualSidePosition": a["dual"]},
             "/fapi/v1/multiAssetsMargin": {"multiAssetsMargin": a["multiAssetsMargin"]},
             "/fapi/v1/feeBurn": {"feeBurn": a["feeBurn"]},
         }
         if path in replies:
             return replies[path]
         if path in ("/fapi/v2/account", "/fapi/v3/account"):
-            return {"totalMarginBalance": "100", "totalWalletBalance": "100", "assets": a["assets"], "positions": []}
+            out = {"totalMarginBalance": "100", "totalWalletBalance": "100", "positions": []}
+            return out if a["assets"] is None else {**out, "assets": a["assets"]}
+        if path == "/fapi/v1/leverageBracket":
+            return [{"symbol": "BTCUSDT", "brackets": [{"bracket": 1, "initialLeverage": 125, "notionalCap": 50000,
+                                                        "notionalFloor": 0, "maintMarginRatio": 0.004, "cum": 0}]}]
+        if path in ("/fapi/v2/positionRisk", "/fapi/v3/positionRisk"):
+            return a["positions"]
         raise ccxt.ExchangeError(f"unexpected request {method} {path}")
 
 
@@ -143,6 +151,48 @@ def test_read_only_refuses_every_write_before_the_network(wire):
     assert len(wire.sent) == n
 
 
+def test_read_only_refuses_a_write_sent_any_other_way(wire):
+    v = live()
+    v.connect()
+    n = len(wire.sent)
+    for write in (lambda ex: ex.set_leverage(5, "BTC/USDT:USDT"), lambda ex: ex.set_position_mode(True),
+                  lambda ex: ex.cancel_all_orders("BTC/USDT:USDT"),
+                  lambda ex: ex.create_order("BTC/USDT:USDT", "market", "buy", 0.001)):
+        with pytest.raises(PerpVenueError, match="read-only"):
+            write(v._ex)
+    assert len(wire.sent) == n
+    with pytest.raises(AttributeError):
+        v.allow_orders = True
+
+
+def test_a_proxy_on_the_exchange_is_refused_before_the_first_request(wire, monkeypatch):
+    monkeypatch.setattr(ccxt.binanceusdm, "httpsProxy", "http://proxy.example:8080", raising=False)
+    v = live()
+    with pytest.raises(PerpVenueError, match="proxy"):
+        v.connect()
+    assert wire.sent == [] and v.adapter.exchange is None
+
+
+def test_no_redirect_is_followed(wire):
+    v = live()
+    v.connect()
+    assert v.adapter.exchange.session.max_redirects == 0
+
+
+def test_an_exchange_connected_without_the_guard_is_never_used(wire):
+    connected = CCXTAdapter(live_config("live-key", ED_PEM))
+    asyncio.run(connected.connect())
+    with pytest.raises(PerpVenueError, match="connects itself"):
+        PerpLiveVenue(connected)
+    v = live()
+    asyncio.run(v.adapter.connect())                      # connected behind the venue's back: no guard
+    for call in (v.trading_symbols, v.positions, v.equity_usdt, lambda: v.mark_price("BTCUSDT"),
+                 lambda: v.open_stop_keys("BTCUSDT")):
+        with pytest.raises(PerpVenueError, match="guard"):
+            call()
+
+
+
 def test_an_order_goes_signed_to_futures_mainnet_when_allowed(wire):
     v = live(allow_orders=True)
     v.connect()
@@ -159,11 +209,25 @@ def test_account_shape_passes_for_one_way_single_asset_usdt(wire):
     assert all(u.startswith(MAINNET_HOST) for _, u, _ in wire.sent)
 
 
+def position(margin: str = "cross", leverage: str = "1") -> dict:
+    return {"symbol": "BTCUSDT", "positionSide": "BOTH", "positionAmt": "0.001", "entryPrice": "80000",
+            "markPrice": "80000", "unRealizedProfit": "0", "marginType": margin, "isolatedMargin": "0",
+            "leverage": leverage, "notional": "80", "liquidationPrice": "0", "updateTime": T0}
+
+
 @pytest.mark.parametrize("change, match", [
     ({"dual": True}, "hedge mode"),
+    ({"dual": None}, "hedge mode"),                       # the field missing: unreadable is refused
+    ({"dual": "true"}, "hedge mode"),
     ({"multiAssetsMargin": True}, "multi-assets"),
+    ({"multiAssetsMargin": None}, "multi-assets"),
     ({"feeBurn": True}, "BNB"),
     ({"assets": [{"asset": "USDT", "walletBalance": "100"}, {"asset": "BNB", "walletBalance": "0.1"}]}, "besides USDT"),
+    ({"assets": None}, "no USDT row"),
+    ({"assets": [{"asset": "BNB", "walletBalance": "0"}]}, "no USDT row"),
+    ({"assets": [{"asset": "USDT", "walletBalance": "100"}, {"asset": "BNB", "marginBalance": "3"}]}, "no readable"),
+    ({"positions": [position(margin="isolated")]}, "cross margin at 1x"),
+    ({"positions": [position(leverage="5")]}, "cross margin at 1x"),
 ])
 def test_account_shape_stops_on_any_difference(wire, change, match):
     v = live()
@@ -171,6 +235,13 @@ def test_account_shape_stops_on_any_difference(wire, change, match):
     wire.account.update(change)
     with pytest.raises(PerpVenueError, match=match):
         v.require_account_shape()
+
+
+def test_a_cross_1x_position_passes_the_shape_check(wire):
+    v = live()
+    v.connect()
+    wire.account["positions"] = [position()]
+    v.require_account_shape()
 
 
 def test_an_empty_asset_row_besides_usdt_is_fine(wire):
@@ -196,7 +267,23 @@ def test_ed25519_key_file_is_read(tmp_path):
     assert key == "kk" and secret == ED_PEM.strip()
 
 
-@pytest.mark.parametrize("case", ["hmac", "missing", "group_readable", "rsa", "not_pem", "symlink", "other_owner"])
+def test_a_key_file_with_more_than_the_key_still_signs_as_ed25519(tmp_path, wire):
+    """ccxt signs with Ed25519 only for a secret of at most 120 characters; the loader returns the key alone."""
+
+    k = ed25519.Ed25519PrivateKey.generate()
+    pub = k.public_key().public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo)
+    p = _keyfile(tmp_path, "# R0 sub-account key\n" + _pem(k) + pub.decode("ascii"))
+    _, secret = load_live_credentials({"BINANCE_LIVE_FUTURES_API_KEY": "kk",
+                                       "BINANCE_LIVE_FUTURES_PRIVATE_KEY_FILE": str(p)})
+    assert secret == _pem(k).strip() and len(secret) <= 120
+    v = PerpLiveVenue(CCXTAdapter(live_config("kk", secret)))
+    v.connect()
+    v.require_account_shape()                             # signed GETs: ccxt signs them with this secret
+    assert any(signed for *_, signed in wire.sent)
+
+
+@pytest.mark.parametrize("case", ["hmac", "missing", "group_readable", "rsa", "not_pem", "symlink", "other_owner",
+                                  "not_ascii", "directory"])
 def test_anything_but_an_owner_only_ed25519_file_is_refused(tmp_path, monkeypatch, case):
     p = _keyfile(tmp_path, ED_PEM)
     env = {"BINANCE_LIVE_FUTURES_API_KEY": "kk", "BINANCE_LIVE_FUTURES_PRIVATE_KEY_FILE": str(p)}
@@ -214,6 +301,10 @@ def test_anything_but_an_owner_only_ed25519_file_is_refused(tmp_path, monkeypatc
         link = tmp_path / "link.pem"
         link.symlink_to(p)
         env["BINANCE_LIVE_FUTURES_PRIVATE_KEY_FILE"] = str(link)
+    elif case == "not_ascii":
+        p.write_bytes(b"-----BEGIN PRIVATE KEY-----\n\xff\xfe\n-----END PRIVATE KEY-----\n")
+    elif case == "directory":
+        env["BINANCE_LIVE_FUTURES_PRIVATE_KEY_FILE"] = str(tmp_path)
     elif case == "other_owner":
         monkeypatch.setattr(os, "getuid", lambda: os.stat(p).st_uid + 1)
     with pytest.raises(PerpVenueError) as err:

@@ -94,9 +94,9 @@ class ExchangeConfig:
 
     id: str  # ccxt exchange id
     name: str  # human readable name
-    api_key: str = ""
-    secret: str = ""
-    password: str = ""  # for exchanges requiring passphrase
+    api_key: str = field(default="", repr=False)
+    secret: str = field(default="", repr=False)
+    password: str = field(default="", repr=False)  # for exchanges requiring passphrase
     sandbox: bool = False
     testnet: bool = False
     # Binance Demo Trading (demo-fapi.binance.com for USD-M futures). ccxt
