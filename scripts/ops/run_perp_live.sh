@@ -22,9 +22,14 @@ mkdir -p "$ROOT/logs"
 exec 9>"$ROOT/logs/.perp_live.lock"
 flock -n 9 || exit 0
 echo "=== $(date -u +%FT%TZ) perp_live start pid=$$" >> "$LOG"
+start_ms=$(date +%s%3N)
 # No timeout: a signed run is never cut between an order and its record; the next run reconciles first.
 PYTHONPATH="$ROOT/src:$ROOT" "$ROOT/.venv/bin/python" -u scripts/live_perp_r0.py \
     --execute --confirm-live LIVE_TRADING_WITH_REAL_MONEY --env-file "$ENV_FILE" >> "$LOG" 2>&1
 rc=$?
 echo "=== $(date -u +%FT%TZ) perp_live end rc=$rc" >> "$LOG"
+# Alerts that leave the PC (PERP_LIVE_R0.md item 5): a dead-man ping after rc 0, a Telegram message on a failure,
+# a fired stop, a halt, the floor or unsettled orders. A lock skip above never gets here. They never change the rc.
+PYTHONPATH="$ROOT/src:$ROOT" timeout 120 "$ROOT/.venv/bin/python" -u scripts/perp_live_alert.py \
+    --env-file "$ENV_FILE" --rc "$rc" --since-ms "$start_ms" >> "$LOG" 2>&1
 exit "$rc"

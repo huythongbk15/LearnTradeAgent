@@ -377,6 +377,7 @@
 │   ├── o_trade_2_order_optimization.py
 │   ├── o_trade_345_eval.py
 │   ├── optimize_local.py
+│   ├── perp_live_alert.py
 │   ├── perp_resolve_intent.py
 │   ├── pin_image_digests.py
 │   ├── plan_promotable_campaign.py
@@ -633,6 +634,7 @@
 │       │   │   └── store.py
 │       │   ├── perp
 │       │   │   ├── __init__.py
+│       │   │   ├── alerts.py
 │       │   │   ├── book.py
 │       │   │   ├── flowbtc.py
 │       │   │   ├── flowflush.py
@@ -1005,6 +1007,7 @@
 │   ├── test_perp_flowflush.py
 │   ├── test_perp_krwfade.py
 │   ├── test_perp_learnbook.py
+│   ├── test_perp_live_alerts.py
 │   ├── test_perp_live_runner.py
 │   ├── test_perp_live_venue.py
 │   ├── test_perp_way_out.py
