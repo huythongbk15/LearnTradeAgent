@@ -316,6 +316,9 @@ class Order:
     size: Decimal
     price: Optional[Decimal] = None
     stop_price: Optional[Decimal] = None
+    # The price a stop triggers on, as the venue names it (Binance ``workingType``: "CONTRACT_PRICE" is the last
+    # price, "MARK_PRICE" the mark). None leaves the venue's default.
+    stop_trigger: Optional[str] = None
     status: OrderStatus = OrderStatus.OPEN
     filled_size: Decimal = Decimal(0)
     avg_fill_price: Decimal = Decimal(0)

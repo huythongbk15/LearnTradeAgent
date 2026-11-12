@@ -56,15 +56,24 @@ class Http:
         self.wire = Wire()
         self.write: tuple[int, dict] | BaseException = (200, FILLED)
         self.trades: list[dict] = []
+        self.algo: dict[str, dict] = {}                  # GET /fapi/v1/algoOrder answers, by clientAlgoId
         self.sent: list[tuple[str, str, dict]] = []      # (method, path, query)
 
     def __call__(self, session, method, url, data=None, headers=None, **kw):
         path, query = urlsplit(url).path, {k: v[0] for k, v in parse_qs(urlsplit(url).query).items()}
+        if isinstance(data, (str, bytes)) and data:      # a signed write carries its parameters in the body
+            body = data.decode() if isinstance(data, bytes) else data
+            query.update({k: v[0] for k, v in parse_qs(body).items()})
         self.sent.append((method, path, query))
         if method != "GET":
             if isinstance(self.write, BaseException):
                 raise self.write
             return response(url, *self.write)
+        if path == "/fapi/v1/algoOrder" and method == "GET":
+            got = self.algo.get(query.get("clientAlgoId", ""))
+            if got is None:
+                return response(url, 400, {"code": -2013, "msg": "Order does not exist."})
+            return response(url, 200, got)
         if path == "/fapi/v1/userTrades" and "orderId" in query:
             return response(url, 200, [t for t in self.trades if str(t["orderId"]) == query["orderId"]])
         if path == "/fapi/v1/userTrades":
@@ -213,6 +222,39 @@ def test_an_orders_fee_and_fee_asset_are_read_from_its_trades(http, kind):
     assert v.order_fees("BTCUSDT", "8") == {"BNB": pytest.approx(9.0)}
     with pytest.raises(PerpVenueError, match="no trade"):
         v.order_fees("BTCUSDT", "9")
+
+
+@pytest.mark.parametrize("kind", ["demo", "live"])
+def test_a_stop_goes_to_the_algo_api_triggered_on_the_last_price(http, tmp_path, kind):
+    """D12 of PERP_LIVE_R0.md: the trigger type is set explicitly, never left to the venue's default."""
+
+    v = venue(kind)
+    try:
+        v.stop("BTCUSDT", "buy", 0.001, 150_000.0, key="krw-1-AAA-st")
+    except Exception:          # the canned reply is a plain order's; only what was sent matters here
+        pass
+    ((method, path, sent),) = [(m, p, q) for m, p, q in http.sent if m != "GET"]
+    assert (method, path) == ("POST", "/fapi/v1/algoOrder")
+    assert sent["workingType"] == "CONTRACT_PRICE" and sent["algoType"] == "CONDITIONAL"
+    assert sent["clientAlgoId"] == "krw-1-AAA-st" and sent["reduceOnly"] == "true"
+
+
+@pytest.mark.parametrize("kind", ["demo", "live"])
+def test_a_fired_stop_is_read_back_from_its_algo_order_by_client_id(http, kind):
+    v = venue(kind, allow_orders=False)
+    http.algo["krw-1-AAA-st"] = {
+        "algoId": 2146760, "clientAlgoId": "krw-1-AAA-st", "algoType": "CONDITIONAL", "orderType": "STOP_MARKET",
+        "symbol": "BTCUSDT", "side": "BUY", "positionSide": "BOTH", "timeInForce": "GTC", "quantity": "0.001",
+        "algoStatus": "FINISHED", "actualOrderId": "7781", "actualPrice": "150123.4", "actualType": "MARKET",
+        "actualQty": "0.001", "triggerPrice": "150000.0", "price": "0", "workingType": "CONTRACT_PRICE",
+        "priceProtect": False, "reduceOnly": True, "createTime": T0, "updateTime": T0 + 5, "triggerTime": T0 + 3,
+        "goodTillDate": 0}
+    got = v.stop_by_key("BTCUSDT", "krw-1-AAA-st")
+    assert got == {"status": "FINISHED", "actual_order_id": "7781", "actual_price": 150123.4, "actual_qty": 0.001,
+                   "trigger_ms": T0 + 3, "trigger_price": 150000.0, "working_type": "CONTRACT_PRICE"}
+    (query,) = [q for m, p, q in http.sent if p == "/fapi/v1/algoOrder"]
+    assert query["clientAlgoId"] == "krw-1-AAA-st"
+    assert v.stop_by_key("BTCUSDT", "krw-9-ZZZ-st") is None          # the venue does not know it
 
 
 # ── the resolve command ────────────────────────────────────────────────────────

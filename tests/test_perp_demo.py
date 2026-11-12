@@ -59,6 +59,7 @@ class FakeUsdm:
         self.fail_next: str | None = None
         self.leverage: dict[str, int] = {}
         self.trades: list[dict] = []              # one per filled market order, with its fee
+        self.algo_read: dict[str, dict] = {}       # the algo order of each stop that fired, by client id
         self.ack_without_price = False   # demo answered a filled market order with average 0
         self.options = {"fetchCurrencies": False, "fetchMargins": False}   # as live_config sets them
 
@@ -157,6 +158,11 @@ class FakeUsdm:
         return dict(o)
 
     def fetch_order(self, oid, sym, params=None):
+        if (params or {}).get("trigger"):               # the algo order of a stop, by its client id
+            got = self.algo_read.get((params or {}).get("clientAlgoId"))
+            if got is None:
+                raise ccxt.OrderNotFound("unknown algo order")
+            return {"info": dict(got)}
         cid = (params or {}).get("origClientOrderId")
         if cid in self.orders:
             return dict(self.orders[cid])
@@ -191,11 +197,23 @@ class FakeUsdm:
         return {}
 
     # test helpers
-    def fire_stop(self, ex_id):
+    def fire_stop(self, ex_id, fill: float | None = None, at: int = T0):
+        """The stop fires and the short is gone. With ``fill``, the venue also answers the stop's algo order as
+        Binance does after a trigger: the market order it filled with (one trade with its fee), its average and
+        quantity, and when it fired."""
+
         sym = f"{ex_id[:-4]}/USDT:USDT"
         cid = next(c for c, o in self.algo.items() if o["symbol"] == sym)
-        del self.algo[cid]
+        stop = self.algo.pop(cid)
+        qty = -self.positions.get(sym, 0.0)
         self.positions[sym] = 0.0
+        if fill is not None:
+            oid = f"t{len(self.trades)}"
+            self.trades.append({"order": oid, "symbol": sym, "amount": qty, "price": fill,
+                                "fee": {"cost": qty * fill * 0.0005, "currency": "USDT"}})
+            self.algo_read[cid] = {"algoId": 1, "clientAlgoId": cid, "algoStatus": "FINISHED", "actualOrderId": oid,
+                                   "actualPrice": str(fill), "actualQty": str(qty), "triggerTime": at,
+                                   "triggerPrice": str(stop["triggerPrice"]), "workingType": "CONTRACT_PRICE"}
 
 
 def info(*listings: tuple[str, int, list[str] | None, str]) -> dict:
