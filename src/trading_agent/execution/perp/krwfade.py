@@ -17,8 +17,8 @@ mainnet data after the hold, is ``tools/krwfade/shadow.py``.
   notices nor cancelled listings chain the 7-day merge (``rules.chain``). K1 and the read leave excluded events out.
 - **Entry window:** a run with E <= now <= E + 15 min trades the event on Demo when the alt perp trades on the demo
   venue, no other book holds it (``Book.taken``) and this book holds nothing on it, the venue lists no stop on it
-  (another book's left-over stop would buy the short back), the book is not halted, fewer than ``KRW_MAX_OPEN``
-  events hold legs, and ``risk.room`` takes a short of ``usd`` on the alt and a long of ``usd`` on BTCUSDT. Otherwise
+  (another book's left-over stop would buy the short back), the book is not halted, fewer than ``max_open``
+  (``KRW_MAX_OPEN`` on Demo, 1 on the live root of PERP_LIVE_R0.md) events hold legs, and ``risk.room`` takes a short of ``usd`` on the alt and a long of ``usd`` on BTCUSDT. Otherwise
   the event is ``shadow_only`` with the reason. A run under the entry lock leaves it waiting; an event no run decided
   by E + 15 min is ``missed`` (``shadow_only`` with ``halted`` while the book is halted: the 5-minute pre-check does
   not sign for it then). The shadow records every event either way.
@@ -225,6 +225,12 @@ def unsettled(store: PairStore, ledger: Mapping[str, Mapping]) -> bool:
     return False
 
 
+def holds_legs(store: PairStore) -> bool:
+    """Whether any event of the record may hold legs on the venue (read unverified: a cue for a signed check)."""
+
+    return any(has_legs(ev) or ev["status"] in ("opening", "open", "stopped", "closing") for _k, ev in _events(store))
+
+
 def signed_run_reason(now_ms: int, store: PairStore, notices: Callable[[], Sequence],
                       symbols: Callable[[], Mapping[str, Mapping]], ledger: Mapping[str, Mapping] | None = None
                       ) -> str | None:
@@ -287,6 +293,7 @@ class KrwFadeBook:
     shadow_row: Callable[[str, int, int], dict]         # (perp, E, notice) -> the research row (tools.krwfade.shadow)
     wall: Callable[[], float] = time.time               # the wall clock just before an order goes out
     resume: bool = False                                # --krw-resume: a new sleeve once the book is flat (``_resume``)
+    max_open: int = KRW_MAX_OPEN                        # events holding legs at once (1 on the live root)
 
     @property
     def venue(self):
@@ -932,7 +939,7 @@ class KrwFadeBook:
             return "stop_listed"    # a stop another book left (LV's stale_stops): it would buy this short back
         if _state(self.store).get("halted"):
             return "halted"
-        if len(self._holding()) >= KRW_MAX_OPEN:
+        if len(self._holding()) >= self.max_open:
             return "max_open"
         return risk.room(self.venue).binding(2 * self.usd, self.usd)
 
