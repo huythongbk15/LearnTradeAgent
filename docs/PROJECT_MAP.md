@@ -1002,6 +1002,7 @@
 │   ├── test_perp_flowflush.py
 │   ├── test_perp_krwfade.py
 │   ├── test_perp_learnbook.py
+│   ├── test_perp_live_venue.py
 │   ├── test_phase3_audit.py
 │   ├── test_phase6.py
 │   ├── test_phase6_integration.py
