@@ -93,6 +93,12 @@ class FakeUsdm:
     def fetch_position_mode(self, symbol=None):
         return {"hedged": self.hedged}
 
+    def fapiPrivateGetMultiAssetsMargin(self, params=None):   # noqa: N802  (ccxt's name)
+        return {"multiAssetsMargin": False}
+
+    def fapiPrivateGetFeeBurn(self, params=None):   # noqa: N802
+        return {"feeBurn": False}
+
     def set_margin_mode(self, mode, sym):
         self.calls.append(("margin", mode, sym))
 
@@ -100,7 +106,8 @@ class FakeUsdm:
         self.leverage[sym] = lev
 
     def fetch_balance(self):
-        return {"info": {"totalMarginBalance": "10000"}, "USDT": {"free": 10000, "used": 0, "total": 10000}}
+        return {"info": {"totalMarginBalance": "10000", "assets": [{"asset": "USDT", "walletBalance": "10000"}]},
+                "USDT": {"free": 10000, "used": 0, "total": 10000}}
 
     def fetch_positions(self, symbols=None):
         return [
