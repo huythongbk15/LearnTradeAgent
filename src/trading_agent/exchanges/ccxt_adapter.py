@@ -1041,6 +1041,8 @@ class CCXTAdapter(ExchangeAdapter):
             ):
                 raise InvalidOrder("stop-limit orders require a positive limit price")
             params["stopLossPrice"] = float(order.stop_price)
+            if order.stop_trigger:
+                params["workingType"] = order.stop_trigger
         if order.reduce_only:
             params["reduceOnly"] = True
         if order.post_only:

@@ -23,6 +23,8 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
+import ccxt
+
 from trading_agent.exchanges.ccxt_adapter import CCXTAdapter, ExchangeConfig
 from trading_agent.exchanges.models import (
     AssetClass,
@@ -49,6 +51,7 @@ PROXY_ATTRS = ("proxy", "proxyUrl", "proxy_url", "proxyUrlCallback", "proxy_url_
 UNKNOWN_OUTCOME_CODES = frozenset({-1000, -1001, -1006, -1007})
 TRADE_WINDOW_MS = 7 * 24 * 3_600_000    # Binance's longest span for one read of the account's trades
 TRADE_PAGE = 1000                       # ... and its most trades in one answer
+STOP_TRIGGER = "CONTRACT_PRICE"         # D12: every exchange stop triggers on the last price, set explicitly
 
 
 class PerpVenueError(RuntimeError):
@@ -340,7 +343,8 @@ class PerpVenue:
         return _result(_run(self.adapter.create_order(order)))
 
     def stop(self, exchange_id: str, side: str, qty: float, stop_price: float, *, key: str) -> dict:
-        """Exchange-side STOP_MARKET, reduce-only (a Binance algo order)."""
+        """Exchange-side STOP_MARKET, reduce-only (a Binance algo order), triggered on the last price
+        (``STOP_TRIGGER``, D12 of PERP_LIVE_R0.md): set explicitly, never the venue's default."""
 
         sym = self.symbol(exchange_id)
         px = float(self._ex.price_to_precision(self.adapter.get_exchange_symbol(sym), stop_price))
@@ -353,6 +357,7 @@ class PerpVenue:
             stop_price=Decimal(str(px)),
             reduce_only=True,
             client_order_id=key,
+            stop_trigger=STOP_TRIGGER,
         )
         return _result(_run(self.adapter.create_order(order)))
 
@@ -376,6 +381,32 @@ class PerpVenue:
 
         orders = _run(self.adapter.fetch_open_orders(self.symbol(exchange_id)))
         return {str(o.client_order_id) for o in orders if o.client_order_id}
+
+    def stop_by_key(self, exchange_id: str, key: str) -> dict | None:
+        """The exchange stop by its client key, read as the algo order it is (``/fapi/v1/algoOrder`` by
+        ``clientAlgoId``), or None when the venue does not know it.
+
+        Binance fills a fired stop with a market order of its own; the algo order names it (``actualOrderId``) with
+        its average price and quantity (``actualPrice``, ``actualQty``) and when it fired (``triggerTime``). A plain
+        order read by the stop's key never finds that order."""
+
+        sym = self.adapter.get_exchange_symbol(self.symbol(exchange_id))
+        try:
+            got = self._ex.fetch_order(None, sym, {"trigger": True, "clientAlgoId": self.adapter._venue_client_id(key)})
+        except ccxt.OrderNotFound:
+            return None
+        info = (got or {}).get("info") or {}
+
+        def num(name: str) -> float:
+            try:
+                return float(info.get(name) or 0.0)
+            except (TypeError, ValueError):
+                return 0.0
+
+        return {"status": str(info.get("algoStatus") or ""), "actual_order_id": str(info.get("actualOrderId") or ""),
+                "actual_price": num("actualPrice"), "actual_qty": num("actualQty"),
+                "trigger_ms": int(num("triggerTime")), "trigger_price": num("triggerPrice"),
+                "working_type": str(info.get("workingType") or "")}
 
     def order_fees(self, exchange_id: str, order_id: str) -> dict[str, float]:
         """The fees of one order's trades, by fee asset (Binance's ``commission`` and ``commissionAsset``).

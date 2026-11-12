@@ -23,7 +23,8 @@ mainnet data after the hold, is ``tools/krwfade/shadow.py``.
   by E + 15 min is ``missed`` (``shadow_only`` with ``halted`` while the book is halted: the 5-minute pre-check does
   not sign for it then). The shadow records every event either way.
 - **Entry orders**, the pair book's pattern (``Book.enter``) in this order: sell ``usd / mark`` of the alt at market;
-  an exchange STOP_MARKET buy, reduce-only, at 1.5x the alt's average fill (key ``krw-<notice>-<TOKEN>-st``); buy
+  an exchange STOP_MARKET buy, reduce-only, at 1.5x the alt's average fill, triggered on the last price (D12 of
+  PERP_LIVE_R0.md, set explicitly; key ``krw-<notice>-<TOKEN>-st``); buy
   ``usd / BTC mark`` of BTCUSDT at market (to the nearest step). If anything fails after the alt sell went out, the
   run audits ``perp_krw_unprotected``, buys back the short the venue holds (reduce-only) before the stop is settled,
   sells the BTC it bought, marks the event ``failed`` and stops. A stop that fired before the take-off read the
@@ -41,8 +42,10 @@ mainnet data after the hold, is ``tools/krwfade/shadow.py``.
   event whose last order was settled that way is closed by the next step. Exits run under the entry lock and while
   halted.
 - **Stop fired:** ``check()`` finds the alt flat at the venue with its stop gone, as book LV does; the event is
-  ``stopped`` and its BTC leg is sold by the step. The stop's fill is read back by its key when the venue answers,
-  else taken at 1.05x the trigger (the research's 1.575x entry), marked ``avg_from``.
+  ``stopped`` and its BTC leg is sold by the step. The stop's fill is read back from its algo order (Binance fills a
+  fired stop with a market order of its own: ``actualOrderId``, ``actualPrice``, ``actualQty``, ``triggerTime``;
+  ``avg_from`` "algo", with ``fired_ms`` and that order's id for its fee), else from an order read by its key
+  ("venue"), else taken at 1.05x the trigger (the research's 1.575x entry; "stop_trigger").
 - **Halt (K3):** cumulative realized net of the Demo round trips of the sleeve (events flat by their fills: closed,
   failed, or closing with a stop left at the venue), from fill prices and USDT fees (0.05% a side when a fill
   reports none), below -15% of the sleeve (4 x ``usd``, stored at the first run) halts new Demo entries. Funding is
@@ -249,8 +252,11 @@ def _flat_round_trip(ev: Mapping) -> bool:
 
 
 def _row_ms(row: Mapping, ev: Mapping) -> tuple[int | None, str]:
-    """When a fill happened: its send, else its run, else (a fired stop) when a run saw the stop had fired."""
+    """When a fill happened: its send, else its run, else (a fired stop) when it fired by the algo order, else when a
+    run saw it had fired."""
 
+    if row.get("fired_ms"):
+        return int(row["fired_ms"]), "fired"
     if row.get("sent_ms") is not None:
         return int(row["sent_ms"]), "sent"
     if row.get("ms") is not None:
@@ -481,27 +487,52 @@ class KrwFadeBook:
             self.book.orders.update_order(key, status="acknowledged")
         self.book.orders.update_order(key, status=final, **extra)
 
+    def _algo(self, ev: dict) -> dict | None:
+        """The stop read back as the algo order it is (``PerpVenue.stop_by_key``); None when unknown or unreadable."""
+
+        try:
+            return self.venue.stop_by_key(ev["perp"], stop_key(ev))
+        except Exception:           # a read for the record
+            return None
+
     def _stop_filled_at_venue(self, ev: dict) -> bool:
         """Whether the venue answers the stop's key with a fill: a stop whose send raised may still have been taken.
         A read error or no answer counts as not filled (the caller then closes the intent as rejected, and a short
         the record still holds stops the next run for operator review)."""
 
+        algo = self._algo(ev)
+        if algo is not None and (algo["actual_qty"] > 0 or algo["actual_order_id"]):
+            return True
         try:
             got = self.venue.order_by_key(ev["perp"], stop_key(ev))
         except Exception:           # a read for the record
             return False
         return got is not None and got.get("status") == "filled"
 
-    def _stop_fill(self, ev: dict, qty: float) -> tuple[float, str]:
-        """A fired stop's average fill: read back by its key when the venue answers, else 1.05x the trigger."""
+    def _stop_fill(self, ev: dict, qty: float) -> tuple[float, str, dict]:
+        """A fired stop's average fill, where it came from, and what the row keeps of the algo order.
 
+        The algo order names the market order Binance filled the stop with, its average and quantity, and when it
+        fired ("algo"); else an order read by the stop's key ("venue"); else 1.05x the trigger ("stop_trigger")."""
+
+        algo = self._algo(ev)
+        extra: dict[str, Any] = {}
+        if algo is not None:
+            extra = {"order_id": algo["actual_order_id"], "algo_status": algo["status"],
+                     "working_type": algo["working_type"]}
+            if algo["trigger_ms"] > 0:
+                extra["fired_ms"] = algo["trigger_ms"]
+            if algo["actual_qty"] > 0:
+                extra["actual_qty"] = algo["actual_qty"]
+            if algo["actual_price"] > 0:
+                return algo["actual_price"], "algo", extra
         try:
             got = self.venue.order_by_key(ev["perp"], stop_key(ev))
         except Exception:           # a read for the record
             got = None
         if got is not None and got.get("status") == "filled" and float(got.get("avg_fill_price") or 0.0) > 0:
-            return float(got["avg_fill_price"]), "venue"
-        return STOP_FILL_X * float(ev["stop_price"]), "stop_trigger"
+            return float(got["avg_fill_price"]), "venue", extra
+        return STOP_FILL_X * float(ev["stop_price"]), "stop_trigger", extra
 
     # ── each run, before the pair book's position check ────────────────────
 
@@ -580,9 +611,9 @@ class KrwFadeBook:
         ``status`` before the stop intent is closed as filled."""
 
         perp, key = ev["perp"], stop_key(ev)
-        avg, src = self._stop_fill(ev, a)
+        avg, src, extra = self._stop_fill(ev, a)
         ev.setdefault("fills", []).append({"key": key, "side": "buy", "qty": a, "avg": avg, "fees": {}, "mark": None,
-                                           "symbol": perp, "from_stop": True, "avg_from": src})
+                                           "symbol": perp, "from_stop": True, "avg_from": src, **extra})
         ev.update(status=status, stopped_at=_now_iso())
         self.store.save()       # the leg is saved before the intent is closed
         self._close_stop_intent(ev, "filled", exchange_status="triggered")
