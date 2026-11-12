@@ -65,6 +65,8 @@ class Http:
             if isinstance(self.write, BaseException):
                 raise self.write
             return response(url, *self.write)
+        if path == "/fapi/v1/userTrades" and "orderId" in query:
+            return response(url, 200, [t for t in self.trades if str(t["orderId"]) == query["orderId"]])
         if path == "/fapi/v1/userTrades":
             lo, hi = int(query["startTime"]), int(query["endTime"])
             return response(url, 200, [t for t in self.trades if lo <= t["time"] <= hi])
@@ -196,6 +198,21 @@ def test_trades_are_read_in_seven_day_windows_and_a_full_page_fails_closed(http)
     http.trades = [trade(i, T0 + DAY) for i in range(1000)]
     with pytest.raises(PerpVenueError, match="full page"):
         v.trade_order_ids("BTCUSDT", T0, T0 + DAY)
+
+
+@pytest.mark.parametrize("kind", ["demo", "live"])
+def test_an_orders_fee_and_fee_asset_are_read_from_its_trades(http, kind):
+    """PERP_LIVE_R0.md item 6: Binance answers an order without its fee; ccxt reads userTrades by orderId."""
+
+    v = venue(kind, allow_orders=False)
+    http.trades = [{**trade(7, T0), "commission": "0.0125", "commissionAsset": "USDT"},
+                   {**trade(7, T0 + 1), "id": 70, "commission": "0.0025", "commissionAsset": "USDT"},
+                   {**trade(8, T0), "commission": "9", "commissionAsset": "BNB"}]
+    assert v.order_fees("BTCUSDT", "7") == {"USDT": pytest.approx(0.015)}
+    assert [q.get("orderId") for m, p, q in http.sent if p == "/fapi/v1/userTrades"] == ["7"]
+    assert v.order_fees("BTCUSDT", "8") == {"BNB": pytest.approx(9.0)}
+    with pytest.raises(PerpVenueError, match="no trade"):
+        v.order_fees("BTCUSDT", "9")
 
 
 # ── the resolve command ────────────────────────────────────────────────────────
