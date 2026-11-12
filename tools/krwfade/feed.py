@@ -15,9 +15,10 @@ a follow-up to the title and moves ``listed_at`` only.
 
 Any failure (network, status, body, a notice that does not parse) raises ``FeedError``; the book records it and its
 exits still run. A 429 or 418 (Upbit asking to slow down) is tried once more after ``RETRY_WAIT_S``, then raised as
-``FeedRateLimited``: the 5-minute pre-check then skips the notice list for that tick (its store and ledger reasons
-are read before the list, so an exit or an unfinished order still gets its signed run). Research description, not
-advice.
+``FeedRateLimited``. A 403 (Upbit's backend refusing this address, as it refused most cloud ranges tested on
+2026-11-11) is raised at once as ``FeedBlocked``. After either, the 5-minute pre-check skips the notice list for that
+tick as a named skip, rc 0 (its store and ledger reasons are read before the list, so an exit or an unfinished order
+still gets its signed run). Research description, not advice.
 """
 from __future__ import annotations
 
@@ -41,6 +42,7 @@ USER_AGENT = "Mozilla/5.0"          # generic; nothing that names this program o
 MAX_BYTES = 1 << 22                 # a page of 20 notices is about 6 kB
 RATE_LIMITED = (418, 429)           # Upbit asks to slow down
 RETRY_WAIT_S = 10.0                 # one more try after this wait, then FeedRateLimited
+BLOCKED = 403                       # Upbit refuses this address: no retry
 
 Transport = Callable[[str, float], tuple[int, bytes]]
 
@@ -55,6 +57,10 @@ class FeedRefused(FeedError, ValueError):
 
 class FeedRateLimited(FeedError):
     """Upbit answered 429 or 418 twice in a row: skip the list for now and ask again at a later run."""
+
+
+class FeedBlocked(FeedError):
+    """Upbit answered 403: it refuses this address. Skip the list for now and ask again at a later run."""
 
 
 @dataclass(frozen=True)
@@ -146,7 +152,7 @@ class Feed:
     def request(self, method: str, url: str) -> bytes:
         """The one gate every call goes through: GET of the allowlisted URL, status 200, or ``FeedError``.
 
-        A 429 or 418 raises ``FeedRateLimited``, a ``FeedError``."""
+        A 429 or 418 raises ``FeedRateLimited`` and a 403 ``FeedBlocked``, each a ``FeedError``."""
 
         if method != METHOD:
             raise FeedRefused(f"method {method!r} is not allowed")
@@ -159,6 +165,8 @@ class Feed:
             raise FeedError(type(exc).__name__) from exc
         if status in RATE_LIMITED:
             raise FeedRateLimited(f"status {status}")
+        if status == BLOCKED:
+            raise FeedBlocked(f"status {status}")
         if status != 200:
             raise FeedError(f"status {status}")
         return body

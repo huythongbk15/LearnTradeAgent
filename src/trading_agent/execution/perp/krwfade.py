@@ -362,7 +362,8 @@ class KrwFadeBook:
                 "krw_shadow": sh, "krw_feed_fails": int((st.get("feed") or {}).get("fails") or 0),
                 "krw_gaps": sum(1 for k in self.store.pairs if k.startswith("g")),
                 "krw_excluded": sum(1 for ev in evs if ev.get("excluded")),
-                "krw_stale_stops": sum(1 for ev in evs if ev.get("stale_stop"))}
+                "krw_stale_stops": sum(1 for ev in evs if ev.get("stale_stop")),
+                "krw_stops_fired": sum(1 for ev in evs if ev["status"] == "stopped" or ev.get("close_reason") == "stop")}
 
     # ── fills ──────────────────────────────────────────────────────────────
 

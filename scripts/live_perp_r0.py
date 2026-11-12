@@ -30,6 +30,11 @@ when it is below 2.5 x PERP_LIVE_KRW_USD (the room one event needs) or below hal
 began. With PERP_LIVE_STAGE=D and orders allowed, the first signed run records that starting equity in its signed
 record (``floor.json``). Exits always run. The run reports ``ok`` or ``below_floor``, never the amount.
 
+Alerts (item 5): every run that finds the live root writes its outcome record (``last_run.json``: rc, signed or not,
+the reason, a named skip, the error's class and kind); the wrapper then runs ``scripts/perp_live_alert.py``. A 429 or
+418 on Upbit's notice list or Binance's public API, or a 403 from Upbit, is a named skip with rc 0 (``upbit_429``,
+``upbit_403``, ``binance_429``), never a failure.
+
 Nothing here logs an amount: the size, the equity and any transfer stay in the env file, the signed records and the
 operator's notes.
 """
@@ -49,7 +54,7 @@ sys.path[:0] = [str(ROOT / "src"), str(ROOT)]
 
 from dotenv import dotenv_values  # noqa: E402
 
-from scripts.live_perp_demo import krw_reason, krw_sources, now_ms, rate_limited  # noqa: E402
+from scripts.live_perp_demo import krw_reason, krw_sources, now_ms, skip_name  # noqa: E402
 from trading_agent.exchanges.ccxt_adapter import CCXTAdapter  # noqa: E402
 from trading_agent.execution.live_safety import (  # noqa: E402
     LiveExecutionLock,
@@ -59,7 +64,7 @@ from trading_agent.execution.live_safety import (  # noqa: E402
     configured_entry_lock_reason,
     require_execution_authorization,
 )
-from trading_agent.execution.perp import krwfade  # noqa: E402
+from trading_agent.execution.perp import alerts, krwfade  # noqa: E402
 from trading_agent.execution.perp.book import Book, PairStore, run_cycle  # noqa: E402
 from trading_agent.execution.perp.venue import (  # noqa: E402
     PerpLiveVenue,
@@ -172,7 +177,18 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--exit-now", action="store_true",
                     help="by hand only: a signed run in which book KRW exits every open event now and enters nothing")
     args = ap.parse_args(argv)
+    out: dict = {}
+    rc = run(args, out)
+    # The outcome record the alert script reads after the wrapper's run (PERP_LIVE_R0.md item 5): names only.
+    alerts.write_outcome(Path(args.root), rc=rc, **out)
+    return rc
+
+
+def run(args: argparse.Namespace, out: dict) -> int:
+    """One run. ``out`` gets the outcome record's fields: signed, reason, skipped, error (a class name), kind."""
+
     root = Path(args.root)
+    out["signed"] = False
     if (args.resume or args.exit_now) and not args.execute:
         print("--resume and --exit-now need --execute", file=sys.stderr)
         return 2
@@ -184,28 +200,34 @@ def main(argv: list[str] | None = None) -> int:
     sources = krw_sources(box)
     reason: str | None = "resume" if args.resume else "exit_now" if args.exit_now else None
     if reason is None:
-        # Before the env file, the key, the lock or any write: a quiet moment ends here, unsigned.
+        # Before the env file, the key, the lock or any write but the outcome record: a quiet moment ends here,
+        # unsigned.
         at = now_ms()
         try:
             reason = krw_reason(root, at, sources)
         except Exception as exc:
-            if not rate_limited(exc):
+            skip = skip_name(exc)
+            if skip is None:
+                out.update(error=type(exc).__name__, kind="precheck")
                 print(f"krw pre-check failed: {type(exc).__name__}: {str(exc)[:300]}", file=sys.stderr)
                 return 1
+            # Upbit or Binance said "not now": a named skip, rc 0. The record's and the ledger's reasons come first.
             reason = None
             skipped = f"{type(exc).__name__}: {str(exc)[:120]}"
+            out["skipped"] = skip
         else:
             skipped = None
         reason = reason or check_reason(root, at)
         if reason is None:
-            out = {"signed_run": False}
+            line = {"signed_run": False}
             if skipped:
-                out.update(skipped="rate_limited", error=skipped)
-            print(json.dumps(out))
+                line.update(skipped=out["skipped"], error=skipped)
+            print(json.dumps(line))
             return 0
         if not args.execute:
             print(json.dumps({"signed_run": False, "would_sign": reason}))
             return 0
+    out.update(signed=True, reason=reason)
 
     audit = root / "audit.jsonl"
     try:
@@ -251,6 +273,7 @@ def main(argv: list[str] | None = None) -> int:
         if root.is_dir():
             append_live_audit_event(audit, "perp_live_run_failed", {"error": type(exc).__name__,
                                                                     "detail": str(exc)[:300]})
+        out.update(error=type(exc).__name__, kind=alerts.kind_of(exc))
         kind = "stopped" if isinstance(exc, LiveSafetyError) else "failed"
         print(f"perp live run {kind}: {type(exc).__name__}: {exc}", file=sys.stderr)
         return 1

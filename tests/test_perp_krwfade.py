@@ -416,6 +416,7 @@ def test_a_fired_stop_is_recorded_and_the_btc_leg_sold(world):
     rec = book.orders.state.order_ledger["krw-101-AAA-st"]
     assert (rec["status"], rec["exchange_status"]) == ("filled", "triggered")
     assert [e["event"] for e in krw_events(tmp)][-3:] == ["perp_krw_stop", "perp_krw_closing", "perp_krw_closed"]
+    assert krw(book, tmp, Public()).counts()["krw_stops_fired"] == 1      # status.json: the R0 alert reads it
 
 
 def test_a_short_gone_while_its_stop_is_open_or_a_short_without_its_stop_stops_for_review(world):
@@ -1098,6 +1099,7 @@ def test_other_statuses_are_plain_feed_errors_with_no_retry():
         with pytest.raises(kfeed.FeedError) as err:
             kfeed.Feed(transport=t, sleep=waits.append).page()
         assert not isinstance(err.value, kfeed.FeedRateLimited) and len(calls) == 1
+        assert isinstance(err.value, kfeed.FeedBlocked) == (status == 403)    # Upbit refusing this address
     assert waits == []
 
 
@@ -1208,9 +1210,10 @@ def test_only_krw_with_a_quiet_pre_check_signs_nothing(krw_runner, tmp_path, mon
     assert "krw pre-check failed" in capsys.readouterr().err and not (tmp_path / "perp_demo").exists()
 
 
-def test_only_krw_skips_a_tick_unsigned_when_upbit_or_binance_asks_to_slow_down(krw_runner, tmp_path, monkeypatch,
-                                                                                 capsys):
-    """A 429/418 on the notice list (after its one retry) or on exchangeInfo: rc 0, nothing signed, reported."""
+def test_only_krw_skips_a_tick_unsigned_when_upbit_or_binance_says_not_now(krw_runner, tmp_path, monkeypatch,
+                                                                             capsys):
+    """A 429/418 on the notice list (after its one retry), a 403 from Upbit, or a 429/418 on exchangeInfo: rc 0,
+    nothing signed, reported by name."""
 
     from tools.selection.fetch import FetchStop
 
@@ -1226,14 +1229,22 @@ def test_only_krw_skips_a_tick_unsigned_when_upbit_or_binance_asks_to_slow_down(
     monkeypatch.setattr(krw_runner, "krw_sources", lambda box: (rate_limited_notices, pub.symbols, pub.shadow_row))
     assert krw_runner.main(argv) == 0
     out = json.loads(capsys.readouterr().out)
-    assert (out["signed_run"], out["skipped"]) == (False, "rate_limited") and "FeedRateLimited" in out["error"]
+    assert (out["signed_run"], out["skipped"]) == (False, "upbit_429") and "FeedRateLimited" in out["error"]
+
+    def blocked():
+        raise kfeed.FeedBlocked("status 403")
+
+    monkeypatch.setattr(krw_runner, "krw_sources", lambda box: (blocked, pub.symbols, pub.shadow_row))
+    assert krw_runner.main(argv) == 0                                  # Upbit refusing this address: a named skip
+    out = json.loads(capsys.readouterr().out)
+    assert (out["signed_run"], out["skipped"]) == (False, "upbit_403") and "FeedBlocked" in out["error"]
 
     def stop():
         raise FetchStop("status 429")
 
     monkeypatch.setattr(krw_runner, "krw_sources", lambda box: (pub.notices, stop, pub.shadow_row))
     assert krw_runner.main(argv) == 0
-    assert json.loads(capsys.readouterr().out)["skipped"] == "rate_limited"
+    assert json.loads(capsys.readouterr().out)["skipped"] == "binance_429"
     pub.fail.add("notices")                                            # any other failure still fails the tick
     monkeypatch.setattr(krw_runner, "krw_sources", lambda box: (pub.notices, pub.symbols, pub.shadow_row))
     assert krw_runner.main(argv) == 1 and "krw pre-check failed" in capsys.readouterr().err

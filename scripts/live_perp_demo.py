@@ -151,13 +151,21 @@ def krw_sources(box: dict) -> tuple:
     return notices, symbols, lambda perp, entry_ms, notice_ms: ks.fetch_row(client, perp, entry_ms, notice_ms)
 
 
-def rate_limited(exc: BaseException) -> bool:
-    """A 429 or 418 from Upbit's notice list (``FeedRateLimited``) or Binance's public API (``FetchStop``)."""
+def skip_name(exc: BaseException) -> str | None:
+    """The named skip of a public read that says "not now", else None: "upbit_429" (a 429 or 418 on Upbit's notice
+    list after its one retry, ``FeedRateLimited``), "upbit_403" (Upbit refusing this address, ``FeedBlocked``) or
+    "binance_429" (a 429 or 418 from Binance's public API, ``FetchStop``)."""
 
-    from tools.krwfade.feed import FeedRateLimited
+    from tools.krwfade.feed import FeedBlocked, FeedRateLimited
     from tools.selection.fetch import FetchStop
 
-    return isinstance(exc, (FeedRateLimited, FetchStop))
+    if isinstance(exc, FeedRateLimited):
+        return "upbit_429"
+    if isinstance(exc, FeedBlocked):
+        return "upbit_403"
+    if isinstance(exc, FetchStop):
+        return "binance_429"
+    return None
 
 
 def krw_reason(root: Path, at_ms: int, sources: tuple) -> str | None:
@@ -311,11 +319,13 @@ def main(argv: list[str] | None = None) -> int:
         try:
             reason = flow01_reason(root, now_ms(), feed) if args.only == "flow01" else krw_reason(root, now_ms(), krw_src)
         except Exception as exc:
-            if args.only == "krw" and rate_limited(exc):
-                # Upbit or Binance asked to slow down while reading for new notices. The record's and the ledger's
-                # reasons (an exit due, an unfinished order, a waiting event in its window) come before that read,
-                # so none of them was found: this tick reads nothing more and the next one asks again.
-                print(json.dumps({"only": args.only, "signed_run": False, "skipped": "rate_limited",
+            skip = skip_name(exc) if args.only == "krw" else None
+            if skip:
+                # Upbit or Binance said "not now" (slow down, or this address refused) while reading for new notices.
+                # The record's and the ledger's reasons (an exit due, an unfinished order, a waiting event in its
+                # window) come before that read, so none of them was found: this tick reads nothing more and the next
+                # one asks again.
+                print(json.dumps({"only": args.only, "signed_run": False, "skipped": skip,
                                   "error": f"{type(exc).__name__}: {str(exc)[:120]}"}))
                 return 0
             print(f"{args.only} pre-check failed: {type(exc).__name__}: {str(exc)[:300]}", file=sys.stderr)

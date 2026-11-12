@@ -238,3 +238,52 @@ def test_the_floor_needs_room_for_one_event_and_records_no_start_before_stage_d(
     assert rep["floor"] == "below_floor" and rep["krw"]["entered"] == 0 and orders_sent(fake) == []
     rec = tmp / "perp_live" / "floor.json"
     assert not rec.exists() or "start" not in json.loads(rec.read_text())["pairs"]
+
+
+def outcome(tmp: Path) -> dict:
+    return json.loads((tmp / "perp_live" / "last_run.json").read_text())
+
+
+def test_each_run_writes_its_outcome_record_with_names_only(r0, monkeypatch, capsys):
+    """The alert script's input (PERP_LIVE_R0.md item 5): rc, signed or not, the reason, a named skip, the error."""
+
+    mod, fake, pub, env, tmp = r0
+    run(mod, monkeypatch, capsys, E0 - DAY, ["--env-file", str(tmp / "x"), "--root", str(tmp / "perp_live")])
+    assert not (tmp / "perp_live").exists()                     # no root yet: nothing written
+    write_env(tmp, env)
+    run(mod, monkeypatch, capsys, E0 - DAY, argv(tmp))
+    rec = outcome(tmp)
+    assert (rec["rc"], rec["signed"], rec["reason"]) == (0, True, "first_check") and rec["at_ms"] > 0
+    run(mod, monkeypatch, capsys, E0 - DAY + MIN, argv(tmp))
+    assert {k: v for k, v in outcome(tmp).items() if k != "at_ms"} == {"rc": 0, "signed": False}
+    fake.hedged = True                                           # the daily check meets a wrong account mode
+    run(mod, monkeypatch, capsys, E0 + 2 * DAY, argv(tmp), rc=1)
+    rec = outcome(tmp)
+    assert (rec["rc"], rec["signed"], rec["error"], rec["kind"]) == (1, True, "PerpVenueError", "account")
+    assert SIZE not in (tmp / "perp_live" / "last_run.json").read_text()
+
+
+@pytest.mark.parametrize(("exc", "name"), [("FeedRateLimited", "upbit_429"), ("FeedBlocked", "upbit_403")])
+def test_upbit_saying_not_now_is_a_named_skip_with_rc_0(r0, monkeypatch, capsys, exc, name):
+    from tools.krwfade import feed as kfeed
+
+    mod, fake, pub, env, tmp = r0
+    write_env(tmp, env)
+    run(mod, monkeypatch, capsys, E0 - DAY, argv(tmp))
+
+    def refused():
+        raise getattr(kfeed, exc)("status")
+
+    monkeypatch.setattr(mod, "krw_sources", lambda box: (refused, pub.symbols, pub.shadow_row))
+    out = run(mod, monkeypatch, capsys, E0 - DAY + MIN, argv(tmp))
+    assert (out["signed_run"], out["skipped"]) == (False, name)
+    rec = outcome(tmp)
+    assert (rec["rc"], rec["signed"], rec["skipped"]) == (0, False, name)
+
+    def broken():
+        raise kfeed.FeedError("status 500")                      # any other failure of the list still fails
+
+    monkeypatch.setattr(mod, "krw_sources", lambda box: (broken, pub.symbols, pub.shadow_row))
+    run(mod, monkeypatch, capsys, E0 - DAY + 2 * MIN, argv(tmp), rc=1)
+    rec = outcome(tmp)
+    assert (rec["rc"], rec["error"], rec["kind"]) == (1, "FeedError", "precheck")
