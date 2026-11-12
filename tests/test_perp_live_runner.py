@@ -183,3 +183,39 @@ def test_a_wrong_account_shape_stops_the_signed_run_before_any_order(r0, monkeyp
     err = run(mod, monkeypatch, capsys, E0 + 2 * MIN, argv(tmp), rc=1)
     assert "hedge mode" in err and orders_sent(fake) == []
     assert [e["event"] for e in events(tmp / "perp_live")] == ["perp_live_run_failed"]
+
+
+def test_the_floor_holds_entries_and_never_logs_the_equity(r0, monkeypatch, capsys):
+    """Equity 10,000 in the fake. Size 123.25: 2.5 x size is far below it, so the floor is ok until stage D's start
+    is recorded above twice the equity."""
+
+    mod, fake, pub, env, tmp = r0
+    write_env(tmp, {**env, "PERP_LIVE_STAGE": "D"})
+    rep = run(mod, monkeypatch, capsys, E0 - DAY, argv(tmp))
+    assert rep["floor"] == "ok"
+    root = tmp / "perp_live"
+    assert [e["event"] for e in events(root)][:1] == ["perp_live_budget_started"]
+    floor = json.loads((root / "floor.json").read_text())["pairs"]["start"]
+    assert floor["equity"] == 10_000.0
+    assert "10000" not in (root / "audit.jsonl").read_text() and "10000" not in (root / "status.json").read_text()
+    # the account lost more than half since stage D began: entries held, the event still recorded
+    fake.fetch_balance = lambda: {"info": {"totalMarginBalance": "4999", "assets": [{"asset": "USDT",
+                                                                                     "walletBalance": "4999"}]}}
+    pub.notes.append(note(101, "AAA"))
+    rep = run(mod, monkeypatch, capsys, E0 + 2 * MIN, argv(tmp))
+    assert rep["floor"] == "below_floor" and rep["entry_lock"].startswith("below_floor") and orders_sent(fake) == []
+    assert json.loads((root / "status.json").read_text())["floor"] == "below_floor"
+    # the start is recorded once: a later run does not move it
+    assert json.loads((root / "floor.json").read_text())["pairs"]["start"]["equity"] == 10_000.0
+
+
+def test_the_floor_needs_room_for_one_event_and_records_no_start_before_stage_d(r0, monkeypatch, capsys):
+    mod, fake, pub, env, tmp = r0
+    write_env(tmp, {**env, "PERP_LIVE_KRW_USD": "1999"})        # 2.5 x 1999 > 4,000 equity
+    fake.fetch_balance = lambda: {"info": {"totalMarginBalance": "4000", "assets": [{"asset": "USDT",
+                                                                                     "walletBalance": "4000"}]}}
+    pub.notes.append(note(101, "AAA"))
+    rep = run(mod, monkeypatch, capsys, E0 + 2 * MIN, argv(tmp))
+    assert rep["floor"] == "below_floor" and rep["krw"]["entered"] == 0 and orders_sent(fake) == []
+    rec = tmp / "perp_live" / "floor.json"
+    assert not rec.exists() or "start" not in json.loads(rec.read_text())["pairs"]
