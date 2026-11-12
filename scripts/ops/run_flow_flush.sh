@@ -33,12 +33,14 @@ echo "=== $(date -u +%FT%TZ) flow_flush start pid=$$" >> "$LOG"
 # No timeout, as for the hourly run: an --execute run is never cut between an order
 # and its record; the lock keeps the next run out, and the next run reconciles first.
 TRADING_MODE=testnet PYTHONPATH="$ROOT/src:$ROOT" OMP_NUM_THREADS=4 nice -n 19 "$ROOT/.venv/bin/python" -u \
-    scripts/live_perp_demo.py --execute --only flow01 --lv --learn --flow02 --flow01 --krw --pair-usd 500 "$@" >> "$LOG" 2>&1
+    scripts/live_perp_demo.py --execute --only flow01 --lv --learn --flow02 --flow01 --krw --pair-usd 500 \
+    --krw-notice-share /var/tmp/perp_notice_share/upbit_page1.json "$@" >> "$LOG" 2>&1
 rc=$?
 # Book KRW's 5-minute mode, after FLOW01 and under the same lock: no new task.
 if ! testnet_window; then
     TRADING_MODE=testnet PYTHONPATH="$ROOT/src:$ROOT" OMP_NUM_THREADS=4 nice -n 19 "$ROOT/.venv/bin/python" -u \
-        scripts/live_perp_demo.py --execute --only krw --lv --learn --flow02 --flow01 --krw --pair-usd 500 "$@" >> "$LOG" 2>&1
+        scripts/live_perp_demo.py --execute --only krw --lv --learn --flow02 --flow01 --krw --pair-usd 500 \
+        --krw-notice-share /var/tmp/perp_notice_share/upbit_page1.json "$@" >> "$LOG" 2>&1
     rc_krw=$?
     [ "$rc" -eq 0 ] && rc=$rc_krw
 fi

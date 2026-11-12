@@ -1010,6 +1010,7 @@
 │   ├── test_perp_live_alerts.py
 │   ├── test_perp_live_runner.py
 │   ├── test_perp_live_venue.py
+│   ├── test_perp_notice_share.py
 │   ├── test_perp_way_out.py
 │   ├── test_phase3_audit.py
 │   ├── test_phase6.py

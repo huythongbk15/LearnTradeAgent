@@ -23,9 +23,12 @@ exec 9>"$ROOT/logs/.perp_live.lock"
 flock -n 9 || exit 0
 echo "=== $(date -u +%FT%TZ) perp_live start pid=$$" >> "$LOG"
 start_ms=$(date +%s%3N)
+# The Upbit page each run reads is shared with the Demo roots (one read per tick from this PC); it is written only
+# when the operator made that directory as this user, mode 755 (PERP_LIVE_R0.md item 5).
 # No timeout: a signed run is never cut between an order and its record; the next run reconciles first.
 PYTHONPATH="$ROOT/src:$ROOT" "$ROOT/.venv/bin/python" -u scripts/live_perp_r0.py \
-    --execute --confirm-live LIVE_TRADING_WITH_REAL_MONEY --env-file "$ENV_FILE" >> "$LOG" 2>&1
+    --execute --confirm-live LIVE_TRADING_WITH_REAL_MONEY --env-file "$ENV_FILE" \
+    --notice-share /var/tmp/perp_notice_share/upbit_page1.json >> "$LOG" 2>&1
 rc=$?
 echo "=== $(date -u +%FT%TZ) perp_live end rc=$rc" >> "$LOG"
 # Alerts that leave the PC (PERP_LIVE_R0.md item 5): a dead-man ping after rc 0, a Telegram message on a failure,
