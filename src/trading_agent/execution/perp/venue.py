@@ -1,14 +1,20 @@
-"""The only place perp orders leave the process: Binance USD-M on Demo Trading.
+"""The only place perp orders leave the process: Binance USD-M.
 
 Every write goes through ``CCXTAdapter`` with the internal client key, so a
-crash between reserve and acknowledge can be reconciled by that key. Before
-any private call the adapter must point at demo-fapi only; mainnet and the old
-futures testnet are refused.
+crash between reserve and acknowledge can be reconciled by that key.
+
+``PerpDemoVenue`` points at Demo Trading only: before any private call the
+adapter must point at demo-fapi; mainnet and the old futures testnet are
+refused. ``PerpLiveVenue`` is mainnet, for perp tier R0 only
+(docs/operations/PERP_LIVE_R0.md): every request must go to fapi.binance.com,
+checked before the first one leaves the process, and it refuses every write
+unless it was built to trade.
 """
 
 from __future__ import annotations
 
 import asyncio
+import os
 from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import Decimal
@@ -26,7 +32,11 @@ from trading_agent.exchanges.models import (
 )
 
 DEMO_HOST = "https://demo-fapi.binance.com/"
+MAINNET_HOST = "https://fapi.binance.com/"
 EXCHANGE_ID = "binanceusdm"
+# ccxt's options that, with a key, make load_markets sign requests on the spot API (api.binance.com/sapi):
+# the currency list and the margin pairs. The live venue needs neither and must stay on fapi.binance.com.
+LIVE_OFF_OPTIONS = ("fetchCurrencies", "fetchMargins")
 
 
 class PerpVenueError(RuntimeError):
@@ -85,12 +95,58 @@ def demo_config(api_key: str, secret: str) -> ExchangeConfig:
     )
 
 
-class PerpDemoVenue:
-    """Sync surface over a connected ``binanceusdm`` adapter in demo mode."""
+def load_live_credentials(env: Mapping[str, str]) -> tuple[str, str]:
+    """API key and Ed25519 private key of the R0 sub-account (D9 and D10 of PERP_LIVE_R0.md).
+
+    Only a self-generated Ed25519 key is accepted: ``BINANCE_LIVE_FUTURES_PRIVATE_KEY_FILE`` names a PEM file
+    that is a regular file (not a link), owned by the user running this process and readable by that user only.
+    An HMAC secret is refused. No message carries the key or the path's contents.
+    """
+
+    key = env.get("BINANCE_LIVE_FUTURES_API_KEY", "").strip()
+    path = env.get("BINANCE_LIVE_FUTURES_PRIVATE_KEY_FILE", "").strip()
+    if env.get("BINANCE_LIVE_FUTURES_API_SECRET", "").strip():
+        raise PerpVenueError("the live venue takes an Ed25519 key file only; remove BINANCE_LIVE_FUTURES_API_SECRET")
+    if not key or not path:
+        raise PerpVenueError("BINANCE_LIVE_FUTURES_API_KEY and BINANCE_LIVE_FUTURES_PRIVATE_KEY_FILE are required")
+    pem = Path(path).expanduser()
+    if pem.is_symlink() or not pem.is_file():
+        raise PerpVenueError("BINANCE_LIVE_FUTURES_PRIVATE_KEY_FILE is not a regular file")
+    st = pem.stat()
+    if st.st_uid != os.getuid():
+        raise PerpVenueError("the live private key file must be owned by the user running the live task")
+    if st.st_mode & 0o077:
+        raise PerpVenueError("the live private key file must be readable by its owner only (chmod 600)")
+    secret = pem.read_text(encoding="ascii").strip()
+    if "PRIVATE KEY-----" not in secret or "ENCRYPTED" in secret:
+        raise PerpVenueError("the live private key file is not an unencrypted PEM private key")
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from cryptography.hazmat.primitives.serialization import load_pem_private_key
+
+    try:
+        parsed = load_pem_private_key(secret.encode("ascii"), password=None)
+    except (ValueError, TypeError) as exc:
+        raise PerpVenueError("the live private key file does not parse as a private key") from exc
+    if not isinstance(parsed, Ed25519PrivateKey):
+        raise PerpVenueError("the live private key is not Ed25519")
+    return key, secret
+
+
+def live_config(api_key: str, secret: str) -> ExchangeConfig:
+    return ExchangeConfig(
+        id=EXCHANGE_ID,
+        name="Binance USD-M mainnet (perp R0)",
+        api_key=api_key,
+        secret=secret,
+        options={"defaultType": "future", **{k: False for k in LIVE_OFF_OPTIONS}},
+        markets=[MarketType.PERPETUAL],
+    )
+
+
+class PerpVenue:
+    """Sync surface over a connected ``binanceusdm`` adapter. Use ``PerpDemoVenue`` or ``PerpLiveVenue``."""
 
     def __init__(self, adapter: CCXTAdapter):
-        if adapter.config.id != EXCHANGE_ID or not adapter.config.demo:
-            raise PerpVenueError("perp venue requires the binanceusdm adapter in demo mode")
         self.adapter = adapter
 
     @property
@@ -100,16 +156,7 @@ class PerpDemoVenue:
         return self.adapter.exchange
 
     def connect(self) -> None:
-        _run(self.adapter.connect())
-        self.assert_demo_only()
-
-    def assert_demo_only(self) -> None:
-        """Every futures API root must be demo-fapi before anything is signed."""
-
-        api = self._ex.urls.get("api") or {}
-        roots = {k: v for k, v in api.items() if str(k).startswith("fapi")}
-        if not roots or any(not str(v).startswith(DEMO_HOST) for v in roots.values()):
-            raise PerpVenueError("futures API is not Binance Demo Trading; refusing")
+        raise NotImplementedError
 
     # ── symbols ────────────────────────────────────────────────────────────
 
@@ -242,6 +289,118 @@ class PerpDemoVenue:
             rows = self._ex.fetch_funding_history(sym, since_ms, 1000, {"endTime": until_ms})
             total += sum(float(r.get("amount") or 0.0) for r in rows)
         return total
+
+
+class PerpDemoVenue(PerpVenue):
+    """Binance USD-M Demo Trading."""
+
+    def __init__(self, adapter: CCXTAdapter):
+        if adapter.config.id != EXCHANGE_ID or not adapter.config.demo:
+            raise PerpVenueError("perp venue requires the binanceusdm adapter in demo mode")
+        super().__init__(adapter)
+
+    def connect(self) -> None:
+        _run(self.adapter.connect())
+        self.assert_demo_only()
+
+    def assert_demo_only(self) -> None:
+        """Every futures API root must be demo-fapi before anything is signed."""
+
+        api = self._ex.urls.get("api") or {}
+        roots = {k: v for k, v in api.items() if str(k).startswith("fapi")}
+        if not roots or any(not str(v).startswith(DEMO_HOST) for v in roots.values()):
+            raise PerpVenueError("futures API is not Binance Demo Trading; refusing")
+
+
+class PerpLiveVenue(PerpVenue):
+    """Binance USD-M mainnet, perp tier R0 only (docs/operations/PERP_LIVE_R0.md).
+
+    - Hosts: before the adapter sends its first request (on mainnet with a key, ``load_markets`` would sign
+      requests on the spot API), the venue checks that every futures API root is ``MAINNET_HOST`` and wraps the
+      exchange's HTTP call so that a request to any other host is refused before it leaves the process.
+    - Writes: built with ``allow_orders=False`` (the default; stage B's read-only soak) it refuses every order,
+      cancel and account setting before the network. The read-only key would refuse them too; this does not
+      depend on it.
+    """
+
+    def __init__(self, adapter: CCXTAdapter, *, allow_orders: bool = False):
+        cfg = adapter.config
+        if cfg.id != EXCHANGE_ID or cfg.demo or cfg.sandbox or cfg.testnet:
+            raise PerpVenueError("live venue requires the binanceusdm adapter on mainnet (no demo, sandbox or testnet)")
+        if any(cfg.options.get(k) is not False for k in LIVE_OFF_OPTIONS):
+            raise PerpVenueError("live venue requires live_config (no spot API calls when markets load)")
+        super().__init__(adapter)
+        self.allow_orders = bool(allow_orders)
+
+    def connect(self) -> None:
+        _run(self.adapter.connect(before_load=self._guard))
+        self.assert_mainnet_only()
+
+    def _guard(self, ex: Any) -> None:
+        """Called by the adapter on the new exchange object, before any request."""
+
+        _check_mainnet_roots(ex)
+        if any((getattr(ex, "options", None) or {}).get(k) is not False for k in LIVE_OFF_OPTIONS):
+            raise PerpVenueError("live venue: ccxt would sign spot API requests while loading markets; refusing")
+        send = ex.fetch
+
+        def fetch(url, method="GET", headers=None, body=None):
+            if not str(url).startswith(MAINNET_HOST):
+                raise PerpVenueError("live venue: a request to a host other than fapi.binance.com was refused")
+            return send(url, method, headers, body)
+
+        fetch.perp_live_guard = True
+        ex.fetch = fetch
+
+    def assert_mainnet_only(self) -> None:
+        """Every futures API root is fapi.binance.com and the host guard is in place."""
+
+        _check_mainnet_roots(self._ex)
+        if not getattr(self._ex.fetch, "perp_live_guard", False):
+            raise PerpVenueError("live venue: the host guard is not in place; refusing")
+
+    def _writable(self, what: str) -> None:
+        if not self.allow_orders:
+            raise PerpVenueError(f"live venue is read-only: {what} refused before the network")
+
+    def require_account_shape(self) -> None:
+        """Section 3 of PERP_LIVE_R0.md: one-way position mode, single-asset mode, fees not paid in BNB, and no
+        asset but USDT in the futures wallet. Read-only; stops the run if any differs."""
+
+        self.require_one_way_mode()
+        multi = self._ex.fapiPrivateGetMultiAssetsMargin()
+        if str((multi or {}).get("multiAssetsMargin")).lower() != "false":
+            raise PerpVenueError("account is in multi-assets mode; R0 needs single-asset mode")
+        burn = self._ex.fapiPrivateGetFeeBurn()
+        if str((burn or {}).get("feeBurn")).lower() != "false":
+            raise PerpVenueError("fees are paid in BNB; R0 needs USDT fees (turn BNB fee discount off)")
+        assets = ((self._ex.fetch_balance() or {}).get("info") or {}).get("assets") or []
+        other = [a for a in assets if str(a.get("asset")) != "USDT" and float(a.get("walletBalance") or 0.0) != 0.0]
+        if other:
+            raise PerpVenueError(f"the futures wallet holds {len(other)} asset(s) besides USDT; R0 holds USDT only")
+
+    def prepare(self, exchange_id: str) -> None:
+        self._writable("margin and leverage settings")
+        super().prepare(exchange_id)
+
+    def market(self, exchange_id: str, side: str, qty: float, *, key: str, reduce_only: bool) -> dict:
+        self._writable("market order")
+        return super().market(exchange_id, side, qty, key=key, reduce_only=reduce_only)
+
+    def stop(self, exchange_id: str, side: str, qty: float, stop_price: float, *, key: str) -> dict:
+        self._writable("stop order")
+        return super().stop(exchange_id, side, qty, stop_price, key=key)
+
+    def cancel_stop(self, exchange_id: str, *, key: str) -> bool:
+        self._writable("stop cancel")
+        return super().cancel_stop(exchange_id, key=key)
+
+
+def _check_mainnet_roots(ex: Any) -> None:
+    api = (getattr(ex, "urls", None) or {}).get("api") or {}
+    roots = {k: v for k, v in api.items() if str(k).startswith("fapi")}
+    if not roots or any(not str(v).startswith(MAINNET_HOST) for v in roots.values()):
+        raise PerpVenueError("futures API is not Binance USD-M mainnet; refusing")
 
 
 def _result(order: Order) -> dict:

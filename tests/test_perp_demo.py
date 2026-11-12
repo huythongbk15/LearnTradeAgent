@@ -22,8 +22,11 @@ from trading_agent.execution.perp.book import Book, PairStore, PerpBookError, ru
 from trading_agent.execution.perp.venue import (
     DEMO_HOST,
     PerpDemoVenue,
+    PerpLiveVenue,
+    PerpVenue,
     PerpVenueError,
     demo_config,
+    live_config,
     load_demo_credentials,
 )
 
@@ -56,8 +59,12 @@ class FakeUsdm:
         self.fail_next: str | None = None
         self.leverage: dict[str, int] = {}
         self.ack_without_price = False   # demo answered a filled market order with average 0
+        self.options = {"fetchCurrencies": False, "fetchMargins": False}   # as live_config sets them
 
     # connection
+    def fetch(self, url, method="GET", headers=None, body=None):
+        raise AssertionError("the fake answers ccxt's unified calls only; no raw HTTP")
+
     def enable_demo_trading(self, on):
         self.urls["api"] = dict(self.demo_urls)
 
@@ -180,11 +187,22 @@ def info(*listings: tuple[str, int, list[str] | None, str]) -> dict:
          "quoteAsset": "USDT", "status": "TRADING"} for s, t, sub, u in listings]}
 
 
-@pytest.fixture
-def world(tmp_path, monkeypatch):
+VENUES = ("demo", "live")   # the book's tests run against both venue classes (PERP_LIVE_R0.md stage A)
+
+
+def make_venue(kind: str) -> PerpVenue:
+    """A venue over the fake: Demo, or mainnet allowed to trade (the fake's API roots are mainnet's)."""
+
+    if kind == "demo":
+        return PerpDemoVenue(CCXTAdapter(demo_config("demo-key", "demo-secret")))
+    return PerpLiveVenue(CCXTAdapter(live_config("live-key", "live-secret")), allow_orders=True)
+
+
+@pytest.fixture(params=VENUES)
+def world(tmp_path, monkeypatch, request):
     fake = FakeUsdm({"BTCUSDT": 80_000.0, "NEWUSDT": 2.0, "OLDUSDT": 10.0})
     monkeypatch.setattr(ca.ccxt, "binanceusdm", lambda cfg: fake)
-    venue = PerpDemoVenue(CCXTAdapter(demo_config("demo-key", "demo-secret")))
+    venue = make_venue(request.param)
     venue.connect()
     orders = LiveRiskStateStore(tmp_path / "order_state.json", integrity_key=KEY)
     pairs = PairStore.load(tmp_path / "pairs.json", KEY)
