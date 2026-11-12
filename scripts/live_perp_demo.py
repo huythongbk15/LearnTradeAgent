@@ -81,6 +81,12 @@ def now_ms() -> int:
     return int(time.time() * 1000)
 
 
+def wall_ms() -> int:
+    """The wall clock for the shared notice page's age: both roots stamp and judge it by the same clock."""
+
+    return int(time.time() * 1000)
+
+
 def mainnet_listings() -> dict:
     """Public mainnet exchangeInfo through the NL-P allowlisted client."""
 
@@ -119,11 +125,15 @@ def flow01_reason(root: Path, at_ms: int, feed) -> str | None:
     return flowflush.signed_run_reason(at_ms, PairStore.peek(root / FLOW01_STORE), feed)
 
 
-def krw_sources(box: dict) -> tuple:
+def krw_sources(box: dict, share_write: Path | None = None, share_read: Path | None = None) -> tuple:
     """Book KRW's public data: Upbit's notice list (page 1), mainnet exchangeInfo by symbol and the shadow row.
 
     No key. exchangeInfo is read once a run, and only when a notice needs it; ``box["info"]`` is the run's own
     exchangeInfo when the pair book has read it already.
+
+    The shared page (PERP_LIVE_R0.md item 5): the R0 live run passes ``share_write`` and writes the page it read from
+    Upbit there; a Demo run passes ``share_read`` and takes that page when it is fresh (``feed.read_share``), else
+    reads Upbit itself. ``box["notices_from"]`` says which: "upbit" or "share".
     """
 
     from tools.krwfade import feed as kf
@@ -140,7 +150,15 @@ def krw_sources(box: dict) -> tuple:
         could fail and spend the tick)."""
 
         if box.get("notices") is None:
-            box["notices"] = feed.page()
+            page = kf.read_share(share_read, wall_ms()) if share_read is not None else None
+            if page is None:
+                page = feed.page()
+                box["notices_from"] = "upbit"
+                if share_write is not None:
+                    kf.write_share(share_write, page, wall_ms())
+            else:
+                box["notices_from"] = "share"
+            box["notices"] = page
         return box["notices"]
 
     def symbols() -> dict:
@@ -285,6 +303,8 @@ def main(argv: list[str] | None = None) -> int:
                     help=f"notional of each leg of a book KRW event in USDT; at most {krwfade.USD_CAP:g}")
     ap.add_argument("--krw-resume", action="store_true",
                     help="once, by hand: start book KRW's new sleeve after its halt or a new --krw-usd, if it is flat")
+    ap.add_argument("--krw-notice-share", default=None,
+                    help="take Upbit's page from this file when the R0 live run shared it in the last 5.5 min")
     ap.add_argument("--krw-exit-now", action="store_true",
                     help="by hand: book KRW exits every open event in this run; the run enters nothing")
     ap.add_argument("--only", choices=ONLY,
@@ -312,7 +332,8 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     feed = flow01_feed() if args.flow01 else None
     box: dict = {"info": None, "notices": None}   # the run's exchangeInfo and Upbit page, each read once
-    krw_src = krw_sources(box) if args.krw else None
+    share = Path(args.krw_notice_share) if args.krw_notice_share else None
+    krw_src = krw_sources(box, share_read=share) if args.krw else None
     reason: str | None = None
     if args.only:
         # Before .env, the key, the writer lock or any write: a quiet moment ends here, unsigned.

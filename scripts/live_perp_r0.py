@@ -33,7 +33,8 @@ record (``floor.json``). Exits always run. The run reports ``ok`` or ``below_flo
 Alerts (item 5): every run that finds the live root writes its outcome record (``last_run.json``: rc, signed or not,
 the reason, a named skip, the error's class and kind); the wrapper then runs ``scripts/perp_live_alert.py``. A 429 or
 418 on Upbit's notice list or Binance's public API, or a 403 from Upbit, is a named skip with rc 0 (``upbit_429``,
-``upbit_403``, ``binance_429``), never a failure.
+``upbit_403``, ``binance_429``), never a failure. With ``--notice-share`` (the wrapper passes it) the run writes the
+Upbit page it read to that file for the Demo roots (``tools/krwfade/feed.py`` "The shared page"); it never reads one.
 
 Nothing here logs an amount: the size, the equity and any transfer stay in the env file, the signed records and the
 operator's notes.
@@ -174,6 +175,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--root", default=str(ROOT / "data" / "perp_live"))
     ap.add_argument("--resume", action="store_true",
                     help="by hand only: a signed run that starts book KRW's new sleeve after its halt, if it is flat")
+    ap.add_argument("--notice-share", default=None,
+                    help="write the Upbit page this run read here, for the Demo roots (a directory this user owns)")
     ap.add_argument("--exit-now", action="store_true",
                     help="by hand only: a signed run in which book KRW exits every open event now and enters nothing")
     args = ap.parse_args(argv)
@@ -197,7 +200,7 @@ def run(args: argparse.Namespace, out: dict) -> int:
         return 2
 
     box: dict = {"info": None, "notices": None}
-    sources = krw_sources(box)
+    sources = krw_sources(box, share_write=Path(args.notice_share) if args.notice_share else None)
     reason: str | None = "resume" if args.resume else "exit_now" if args.exit_now else None
     if reason is None:
         # Before the env file, the key, the lock or any write but the outcome record: a quiet moment ends here,

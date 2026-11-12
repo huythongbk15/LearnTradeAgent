@@ -18,17 +18,26 @@ exits still run. A 429 or 418 (Upbit asking to slow down) is tried once more aft
 ``FeedRateLimited``. A 403 (Upbit's backend refusing this address, as it refused most cloud ranges tested on
 2026-11-11) is raised at once as ``FeedBlocked``. After either, the 5-minute pre-check skips the notice list for that
 tick as a named skip, rc 0 (its store and ledger reasons are read before the list, so an exit or an unfinished order
-still gets its signed run). Research description, not advice.
+still gets its signed run).
+
+**The shared page** (PERP_LIVE_R0.md section 5 item 5): the R0 live run, which reads the list every 5 minutes as its
+own user, writes the page it read to a file (``write_share``) that the Demo roots read (``read_share``) when it is at
+most ``SHARE_MAX_AGE_MS`` old, so the PC asks Upbit once per tick, not twice, and both roots see the same page. Only
+the Demo reads the share: the live run always reads Upbit itself, so nothing another user writes reaches the live
+book. Research description, not advice.
 """
 from __future__ import annotations
 
 import http.client
 import json
+import os
+import stat
 import time
 import urllib.error
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime
+from pathlib import Path
 from typing import Callable
 from urllib.parse import parse_qsl, urlencode, urlsplit
 
@@ -43,6 +52,8 @@ MAX_BYTES = 1 << 22                 # a page of 20 notices is about 6 kB
 RATE_LIMITED = (418, 429)           # Upbit asks to slow down
 RETRY_WAIT_S = 10.0                 # one more try after this wait, then FeedRateLimited
 BLOCKED = 403                       # Upbit refuses this address: no retry
+SHARE_MAX_AGE_MS = 330_000          # a shared page this old or newer is used: the live run is every 5 min
+SHARE_SKEW_MS = 60_000              # a shared page stamped up to this far ahead is still taken
 
 Transport = Callable[[str, float], tuple[int, bytes]]
 
@@ -183,3 +194,41 @@ class Feed:
             self.sleep(RETRY_WAIT_S)
             body = self.request(METHOD, URL)
         return parse(body)
+
+
+def write_share(path: Path, notes: list[Notice], now_ms: int) -> bool:
+    """Write the page this run read for the Demo roots, atomically and readable by all. Only into a directory (not a
+    link) that the user running this owns and no one else can write; otherwise, or on any error, nothing is written
+    and the run goes on. Returns whether it was written."""
+
+    try:
+        st = path.parent.lstat()
+        if not stat.S_ISDIR(st.st_mode) or st.st_uid != os.getuid() or st.st_mode & 0o022:
+            return False
+        tmp = path.parent / f".{path.name}.{os.getpid()}.tmp"
+        tmp.write_text(json.dumps({"read_ms": int(now_ms), "notices": [asdict(n) for n in notes]}), encoding="utf-8")
+        tmp.chmod(0o644)
+        os.replace(tmp, path)
+        return True
+    except OSError:
+        return False
+
+
+def read_share(path: Path, now_ms: int) -> list[Notice] | None:
+    """The page a live run shared, when it is at most ``SHARE_MAX_AGE_MS`` old and well formed; else None (the caller
+    then reads Upbit itself)."""
+
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        age = int(now_ms) - raw["read_ms"]
+        if type(raw["read_ms"]) is not int or not -SHARE_SKEW_MS <= age <= SHARE_MAX_AGE_MS:
+            return None
+        out = []
+        for n in raw["notices"]:
+            nid, title, first, listed = n["id"], n["title"], n["first_listed_at_ms"], n["listed_at_ms"]
+            if not (type(nid) is int and isinstance(title, str) and type(first) is int and type(listed) is int):
+                return None
+            out.append(Notice(nid, title, first, listed))
+        return out
+    except (OSError, ValueError, KeyError, TypeError):
+        return None

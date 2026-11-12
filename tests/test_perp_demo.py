@@ -2337,6 +2337,8 @@ WRAPPER = REPO / "scripts" / "ops" / "run_perp_demo.sh"
 FLUSH_WRAPPER = REPO / "scripts" / "ops" / "run_flow_flush.sh"
 TASKS = REPO / "scripts" / "ops" / "windows" / "register_tasks.ps1"
 BOOK_FLAGS = "--lv --learn --flow02 --flow01 --krw --pair-usd 500"
+# Every Demo run takes Upbit's page from the R0 live run while it is fresh (PERP_LIVE_R0.md item 5).
+RUN_FLAGS = f"{BOOK_FLAGS} --krw-notice-share /var/tmp/perp_notice_share/upbit_page1.json"
 
 
 def wrapper_at(tmp_path: Path, hhmm: str, job: str, wrapper: Path = WRAPPER) -> subprocess.CompletedProcess:
@@ -2374,7 +2376,7 @@ def test_the_wrapper_keeps_out_of_the_testnet_window(tmp_path: Path, hhmm: str, 
 def test_the_wrapper_runs_the_book_with_shadow_and_logs_its_end(tmp_path: Path, hhmm: str) -> None:
     assert wrapper_at(tmp_path, hhmm, 'echo "$TRADING_MODE $*"; exit 3\n').returncode == 3
     lines = (tmp_path / "logs" / "perp_demo.log").read_text(encoding="utf8").splitlines()
-    assert lines[1] == f"testnet -u scripts/live_perp_demo.py --execute --shadow {BOOK_FLAGS}"
+    assert lines[1] == f"testnet -u scripts/live_perp_demo.py --execute --shadow {RUN_FLAGS}"
     assert lines[2] == "testnet -u scripts/live_spot_hold_demo.py --execute"
     assert lines[3] == " -u -m tools.learnpaper.run"
     assert re.fullmatch(r"=== \S+Z perp_demo end rc=3", lines[4])
@@ -2387,8 +2389,8 @@ def test_the_5_minute_wrapper_runs_flow01_then_krw_alone_with_every_book_and_log
     assert wrapper_at(tmp_path, hhmm, job, FLUSH_WRAPPER).returncode == 3          # the first failure is the exit code
     lines = (tmp_path / "logs" / "flow_flush.log").read_text(encoding="utf8").splitlines()
     assert re.fullmatch(r"=== \S+Z flow_flush start pid=\d+", lines[0])
-    assert lines[1] == f"testnet 4 -u scripts/live_perp_demo.py --execute --only flow01 {BOOK_FLAGS}"
-    assert lines[2] == f"testnet 4 -u scripts/live_perp_demo.py --execute --only krw {BOOK_FLAGS}"
+    assert lines[1] == f"testnet 4 -u scripts/live_perp_demo.py --execute --only flow01 {RUN_FLAGS}"
+    assert lines[2] == f"testnet 4 -u scripts/live_perp_demo.py --execute --only krw {RUN_FLAGS}"
     assert re.fullmatch(r"=== \S+Z flow_flush end rc=3", lines[3]) and len(lines) == 4
     assert not (tmp_path / "logs" / "perp_demo.log").exists()
     assert not re.search(r"^[^#]*\btimeout\b", FLUSH_WRAPPER.read_text(encoding="utf8"), re.M)
@@ -2419,15 +2421,15 @@ def test_the_5_minute_wrapper_asks_the_testnet_window_again_before_the_krw_run(t
     env = {**os.environ, "PATH": f"{tmp_path / 'bin'}:{os.environ['PATH']}"}
     assert subprocess.run([str(script)], env=env, timeout=60, check=False).returncode == 0
     lines = (tmp_path / "logs" / "flow_flush.log").read_text(encoding="utf8").splitlines()
-    assert [x for x in lines if "live_perp_demo" in x] == [f"-u scripts/live_perp_demo.py --execute --only flow01 {BOOK_FLAGS}"]
+    assert [x for x in lines if "live_perp_demo" in x] == [f"-u scripts/live_perp_demo.py --execute --only flow01 {RUN_FLAGS}"]
 
 
 def test_the_5_minute_run_loads_the_same_books_and_sizes_as_the_hourly_run() -> None:
     (hourly,) = perp_calls(WRAPPER)
     flow01, krw = perp_calls(FLUSH_WRAPPER)
-    assert hourly.split() == ["--execute", "--shadow"] + BOOK_FLAGS.split()
-    assert flow01.split() == ["--execute", "--only", "flow01"] + BOOK_FLAGS.split()
-    assert krw.split() == ["--execute", "--only", "krw"] + BOOK_FLAGS.split()
+    assert hourly.split() == ["--execute", "--shadow"] + RUN_FLAGS.split()
+    assert flow01.split() == ["--execute", "--only", "flow01"] + RUN_FLAGS.split()
+    assert krw.split() == ["--execute", "--only", "krw"] + RUN_FLAGS.split()
 
 
 @pytest.mark.parametrize("wrapper", [WRAPPER, FLUSH_WRAPPER], ids=["hourly", "5min"])
@@ -2477,7 +2479,7 @@ def runner(monkeypatch):
     monkeypatch.setattr(mod, "load_dotenv", lambda *a, **k: None)
     monkeypatch.setattr(mod, "mainnet_listings", lambda: (_ for _ in ()).throw(AssertionError("no listings in --only")))
     # Book KRW's public data: a quiet notice list, no exchangeInfo and no shadow row (tests/test_perp_krwfade.py)
-    monkeypatch.setattr(mod, "krw_sources", lambda box: (lambda: [], lambda: {}, lambda *a: {}))
+    monkeypatch.setattr(mod, "krw_sources", lambda box, **_: (lambda: [], lambda: {}, lambda *a: {}))
     return mod
 
 

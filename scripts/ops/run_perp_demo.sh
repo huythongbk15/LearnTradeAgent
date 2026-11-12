@@ -26,7 +26,8 @@ echo "=== $(date -u +%FT%TZ) perp_demo start pid=$$" >> "$LOG"
 # the lock keeps the next run out, and the next run reconciles first.
 # OMP_NUM_THREADS=4: book LEARN fits the quarter's model in this run once a quarter.
 TRADING_MODE=testnet PYTHONPATH="$ROOT/src:$ROOT" OMP_NUM_THREADS=4 nice -n 19 "$ROOT/.venv/bin/python" -u \
-    scripts/live_perp_demo.py --execute --shadow --lv --learn --flow02 --flow01 --krw --pair-usd 500 "$@" >> "$LOG" 2>&1
+    scripts/live_perp_demo.py --execute --shadow --lv --learn --flow02 --flow01 --krw --pair-usd 500 \
+    --krw-notice-share /var/tmp/perp_notice_share/upbit_page1.json "$@" >> "$LOG" 2>&1
 rc=$?
 # Book HOLD: after its one buy, a run only reconciles and checks the wallet.
 TRADING_MODE=testnet PYTHONPATH="$ROOT/src:$ROOT" nice -n 19 "$ROOT/.venv/bin/python" -u \

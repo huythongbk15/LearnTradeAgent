@@ -31,7 +31,7 @@ def r0(monkeypatch, tmp_path):
     fake = FakeUsdm({"BTCUSDT": 80_000.0, "AAAUSDT": 2.0, "BBBUSDT": 10.0})
     monkeypatch.setattr(ca.ccxt, "binanceusdm", lambda cfg: fake)
     pub = Public()
-    monkeypatch.setattr(mod, "krw_sources", lambda box: (pub.notices, pub.symbols, pub.shadow_row))
+    monkeypatch.setattr(mod, "krw_sources", lambda box, **_: (pub.notices, pub.symbols, pub.shadow_row))
     pem = tmp_path / "live.pem"
     pem.write_text(ED_PEM, encoding="ascii")
     pem.chmod(0o600)
@@ -274,7 +274,7 @@ def test_upbit_saying_not_now_is_a_named_skip_with_rc_0(r0, monkeypatch, capsys,
     def refused():
         raise getattr(kfeed, exc)("status")
 
-    monkeypatch.setattr(mod, "krw_sources", lambda box: (refused, pub.symbols, pub.shadow_row))
+    monkeypatch.setattr(mod, "krw_sources", lambda box, **_: (refused, pub.symbols, pub.shadow_row))
     out = run(mod, monkeypatch, capsys, E0 - DAY + MIN, argv(tmp))
     assert (out["signed_run"], out["skipped"]) == (False, name)
     rec = outcome(tmp)
@@ -283,7 +283,7 @@ def test_upbit_saying_not_now_is_a_named_skip_with_rc_0(r0, monkeypatch, capsys,
     def broken():
         raise kfeed.FeedError("status 500")                      # any other failure of the list still fails
 
-    monkeypatch.setattr(mod, "krw_sources", lambda box: (broken, pub.symbols, pub.shadow_row))
+    monkeypatch.setattr(mod, "krw_sources", lambda box, **_: (broken, pub.symbols, pub.shadow_row))
     run(mod, monkeypatch, capsys, E0 - DAY + 2 * MIN, argv(tmp), rc=1)
     rec = outcome(tmp)
     assert (rec["rc"], rec["error"], rec["kind"]) == (1, "FeedError", "precheck")

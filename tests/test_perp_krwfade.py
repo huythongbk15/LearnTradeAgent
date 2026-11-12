@@ -1192,7 +1192,7 @@ def test_the_runner_refuses_a_krw_size_over_its_cap_and_a_lone_only(krw_runner, 
 
 def test_only_krw_with_a_quiet_pre_check_signs_nothing(krw_runner, tmp_path, monkeypatch, capsys):
     pub = Public(note(101, "AAA"))
-    monkeypatch.setattr(krw_runner, "krw_sources", lambda box: (pub.notices, pub.symbols, pub.shadow_row))
+    monkeypatch.setattr(krw_runner, "krw_sources", lambda box, **_: (pub.notices, pub.symbols, pub.shadow_row))
     monkeypatch.setattr(krw_runner, "now_ms", lambda: N0 + 2 * MIN)       # E is ahead
 
     def never(*a, **k):
@@ -1226,7 +1226,7 @@ def test_only_krw_skips_a_tick_unsigned_when_upbit_or_binance_says_not_now(krw_r
     pub = Public(note(101, "AAA", at=N0))
     argv = ["--execute", "--only", "krw", *FLAGS, *run_roots(tmp_path)]
     monkeypatch.setattr(krw_runner, "now_ms", lambda: E0 + 2 * MIN)       # AAA is new and inside its window
-    monkeypatch.setattr(krw_runner, "krw_sources", lambda box: (rate_limited_notices, pub.symbols, pub.shadow_row))
+    monkeypatch.setattr(krw_runner, "krw_sources", lambda box, **_: (rate_limited_notices, pub.symbols, pub.shadow_row))
     assert krw_runner.main(argv) == 0
     out = json.loads(capsys.readouterr().out)
     assert (out["signed_run"], out["skipped"]) == (False, "upbit_429") and "FeedRateLimited" in out["error"]
@@ -1234,7 +1234,7 @@ def test_only_krw_skips_a_tick_unsigned_when_upbit_or_binance_says_not_now(krw_r
     def blocked():
         raise kfeed.FeedBlocked("status 403")
 
-    monkeypatch.setattr(krw_runner, "krw_sources", lambda box: (blocked, pub.symbols, pub.shadow_row))
+    monkeypatch.setattr(krw_runner, "krw_sources", lambda box, **_: (blocked, pub.symbols, pub.shadow_row))
     assert krw_runner.main(argv) == 0                                  # Upbit refusing this address: a named skip
     out = json.loads(capsys.readouterr().out)
     assert (out["signed_run"], out["skipped"]) == (False, "upbit_403") and "FeedBlocked" in out["error"]
@@ -1242,11 +1242,11 @@ def test_only_krw_skips_a_tick_unsigned_when_upbit_or_binance_says_not_now(krw_r
     def stop():
         raise FetchStop("status 429")
 
-    monkeypatch.setattr(krw_runner, "krw_sources", lambda box: (pub.notices, stop, pub.shadow_row))
+    monkeypatch.setattr(krw_runner, "krw_sources", lambda box, **_: (pub.notices, stop, pub.shadow_row))
     assert krw_runner.main(argv) == 0
     assert json.loads(capsys.readouterr().out)["skipped"] == "binance_429"
     pub.fail.add("notices")                                            # any other failure still fails the tick
-    monkeypatch.setattr(krw_runner, "krw_sources", lambda box: (pub.notices, pub.symbols, pub.shadow_row))
+    monkeypatch.setattr(krw_runner, "krw_sources", lambda box, **_: (pub.notices, pub.symbols, pub.shadow_row))
     assert krw_runner.main(argv) == 1 and "krw pre-check failed" in capsys.readouterr().err
     assert not (tmp_path / "perp_demo").exists()
 
@@ -1263,7 +1263,7 @@ def test_only_krw_signed_run_checks_every_book_then_steps_krw_alone(krw_runner, 
     fake = FakeUsdm({"BTCUSDT": 80_000.0, "AAAUSDT": 2.0})
     monkeypatch.setattr(ca.ccxt, "binanceusdm", lambda cfg: fake)
     pub = Public(note(101, "AAA"))
-    monkeypatch.setattr(krw_runner, "krw_sources", lambda box: (pub.notices, pub.symbols, pub.shadow_row))
+    monkeypatch.setattr(krw_runner, "krw_sources", lambda box, **_: (pub.notices, pub.symbols, pub.shadow_row))
 
     class NoSignal:   # book FLOW02's step must not run in this mode
         def update(self, now_ms):
@@ -1931,7 +1931,7 @@ def test_the_runner_passes_the_books_in_run_order_with_krw_last(krw_runner, tmp_
     monkeypatch.setattr(ca.ccxt, "binanceusdm", lambda cfg: fake)
     monkeypatch.setattr(krw_runner, "mainnet_listings", lambda: {})
     pub = Public()
-    monkeypatch.setattr(krw_runner, "krw_sources", lambda box: (pub.notices, pub.symbols, pub.shadow_row))
+    monkeypatch.setattr(krw_runner, "krw_sources", lambda box, **_: (pub.notices, pub.symbols, pub.shadow_row))
 
     class Waiting:   # the FLOW02 store is not seeded
         def update(self, now_ms):
