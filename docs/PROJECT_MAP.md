@@ -239,6 +239,7 @@
 │   │   ├── run_flowbid.sh
 │   │   ├── run_newperp_weekly.sh
 │   │   ├── run_perp_demo.sh
+│   │   ├── run_perp_live.sh
 │   │   ├── run_selection_weekly.sh
 │   │   ├── workspace_page.html
 │   │   ├── workspace_server.py
@@ -354,6 +355,7 @@
 │   ├── live_enhanced_ma.py
 │   ├── live_enhanced_ma_binance.py
 │   ├── live_perp_demo.py
+│   ├── live_perp_r0.py
 │   ├── live_spot_hold_demo.py
 │   ├── live_status_report.py
 │   ├── llm_pool_cli.py
@@ -1002,6 +1004,8 @@
 │   ├── test_perp_flowflush.py
 │   ├── test_perp_krwfade.py
 │   ├── test_perp_learnbook.py
+│   ├── test_perp_live_runner.py
+│   ├── test_perp_live_venue.py
 │   ├── test_phase3_audit.py
 │   ├── test_phase6.py
 │   ├── test_phase6_integration.py

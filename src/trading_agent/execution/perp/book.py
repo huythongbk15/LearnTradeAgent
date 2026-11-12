@@ -81,7 +81,7 @@ from trading_agent.execution.live_safety import (
 )
 from trading_agent.execution.perp import risk, rules
 from trading_agent.execution.perp.risk import EQUITY_USE  # noqa: F401  (its home is risk.py)
-from trading_agent.execution.perp.venue import PerpDemoVenue
+from trading_agent.execution.perp.venue import PerpVenue
 
 QTY_TOL = 1e-9
 FILL_WAIT_S = 15.0
@@ -153,7 +153,7 @@ def _key(symbol: str, tag: int, leg: str) -> str:
 @dataclass
 class Book:
     name: ClassVar[str] = PAIR_BOOK
-    venue: PerpDemoVenue
+    venue: PerpVenue
     orders: LiveRiskStateStore
     pairs: PairStore
     audit_path: Path

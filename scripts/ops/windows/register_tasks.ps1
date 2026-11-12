@@ -6,12 +6,17 @@
 # -Only DailyCheck registers that task alone and leaves the others untouched.
 # FlowFlush (the 5-minute demo runs of books FLOW01 and KRW) is never in the default list: it is
 # registered only by name, with -Only FlowFlush.
+# PerpLive (perp tier R0 on mainnet, docs/operations/PERP_LIVE_R0.md) is never in the default list
+# either: it is registered only by name, with -Only PerpLive, and runs as -LiveUser from -LiveRepo,
+# that user's own checkout.
 # Remove with:  Unregister-ScheduledTask -TaskName "TradingAgent-*" -Confirm:$false
 param(
     [string]$Distro = "Ubuntu",
     [string]$User = "huythong",
     [string]$Repo = "/home/huythong/.qwenpaw/workspaces/trading",
-    [ValidateSet("Runner", "Health", "DailyCheck", "Selection", "NewPerp", "FlowBid", "PerpDemo", "FlowFlush")]
+    [string]$LiveUser = "perplive",
+    [string]$LiveRepo = "/home/perplive/trading-r0",
+    [ValidateSet("Runner", "Health", "DailyCheck", "Selection", "NewPerp", "FlowBid", "PerpDemo", "FlowFlush", "PerpLive")]
     [string[]]$Only = @("Runner", "Health", "DailyCheck", "Selection", "NewPerp", "FlowBid", "PerpDemo"),
     [switch]$WhatIf
 )
@@ -83,6 +88,12 @@ $flowflush = New-ScheduledTaskAction -Execute "conhost.exe" `
 $flowflushTrigger = New-ScheduledTaskTrigger -Once -At $start.AddMinutes(1) `
     -RepetitionInterval (New-TimeSpan -Minutes 5)
 
+# Every 5 minutes from 00:03 local: perp tier R0, as the live user from its own checkout.
+$perplive = New-ScheduledTaskAction -Execute "conhost.exe" `
+    -Argument "--headless wsl.exe -d $Distro -u $LiveUser --exec $LiveRepo/scripts/ops/run_perp_live.sh"
+$perpliveTrigger = New-ScheduledTaskTrigger -Once -At $start.AddMinutes(2) `
+    -RepetitionInterval (New-TimeSpan -Minutes 5)
+
 if ($WhatIf) {
     if ($Only -contains "Runner") { "Runner : conhost.exe $($runner.Arguments)  every 2h from $start" }
     if ($Only -contains "Health") { "Health : conhost.exe $($health.Arguments)  every 30 min from $($start.AddMinutes(19))" }
@@ -91,6 +102,7 @@ if ($WhatIf) {
     if ($Only -contains "NewPerp") { "NewPerp: conhost.exe $($newperp.Arguments)  weekly on $($newperpAt.DayOfWeek) at $($newperpAt.ToString('HH:mm')) local (Monday 04:07 UTC), first run $($newperpAt.ToString('yyyy-MM-dd'))" }
     if ($Only -contains "FlowBid") { "FlowBid: conhost.exe $($flowbid.Arguments)  every 5 min from $($start.AddMinutes(2))" }
     if ($Only -contains "PerpDemo") { "PerpDemo: conhost.exe $($perpdemo.Arguments)  every hour from $($start.AddMinutes(14))" }
+    if ($Only -contains "PerpLive") { "PerpLive: conhost.exe $($perplive.Arguments)  every 5 min from $($start.AddMinutes(2))" }
     if ($Only -contains "FlowFlush") { "FlowFlush: conhost.exe $($flowflush.Arguments)  every 5 min from $($start.AddMinutes(1))" }
     exit 0
 }
@@ -133,4 +145,9 @@ if ($Only -contains "FlowFlush") {
     Register-ScheduledTask -TaskName "TradingAgent-FlowFlushDemo" -Action $flowflush `
         -Trigger $flowflushTrigger -Settings $settings `
         -Description "Books FLOW01 and KRW on Binance Demo Trading every 5 min; each signs only when an exit is due, an order is unsettled or an event is in its entry window (scripts/ops/run_flow_flush.sh)" -Force
+}
+if ($Only -contains "PerpLive") {
+    Register-ScheduledTask -TaskName "TradingAgent-PerpLive" -Action $perplive `
+        -Trigger $perpliveTrigger -Settings $settings `
+        -Description "Perp tier R0: book KRW alone on Binance USD-M mainnet every 5 min, as $LiveUser; signs only when needed (scripts/ops/run_perp_live.sh, docs/operations/PERP_LIVE_R0.md)" -Force
 }

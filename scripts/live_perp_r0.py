@@ -1,0 +1,221 @@
+"""Perp tier R0: book KRW alone on Binance USD-M mainnet, one run.
+
+Rules: docs/operations/PERP_LIVE_R0.md (the operator's ruling). This is the only entrypoint that builds
+``PerpLiveVenue``. It runs book KRW (H-KRW-FADE-16) and nothing else, one event at a time, in its own root
+(``data/perp_live/`` by default), with its own lock, env file, credentials and kill switches. It never reads the
+repo's ``.env``.
+
+Each run first asks, without any key, whether a signed run is needed: book KRW's own reasons (an event inside its
+entry window, an exit due, an order left unsettled; ``krwfade.signed_run_reason``), else a signed check at least every
+hour while the record may hold legs (a fired stop is seen by a signed run only) and at least once a day while flat (a
+revoked key, a foreign position or a wrong account mode is found before an entry window). Otherwise it ends there,
+unsigned.
+
+A signed run (``--execute``) needs, in the live env file (``--env-file``, a file owned by the user running this and
+readable by that user only): TRADING_MODE=live, TRADING_EXECUTION_ENABLED=true,
+TRADING_LIVE_CONFIRMATION=LIVE_TRADING_WITH_REAL_MONEY, no TRADING_KILL_SWITCH, LIVE_SAFETY_HMAC_KEY,
+BINANCE_LIVE_FUTURES_API_KEY, BINANCE_LIVE_FUTURES_PRIVATE_KEY_FILE (Ed25519) and PERP_LIVE_KRW_USD; and on the
+command line ``--confirm-live LIVE_TRADING_WITH_REAL_MONEY``. A kill switch set in the process environment stops it
+too. Orders are allowed only with PERP_LIVE_ALLOW_ORDERS=true in the env file; without it (stage B's read-only soak)
+the venue refuses every write and the run holds entries under the entry lock.
+
+--resume, by hand only (the live wrapper never passes it): a signed run whatever the pre-check says, which starts
+book KRW's new sleeve after its K3 halt or a new size, if the book is flat. It is the operator's signature of K-pause.
+
+Nothing here logs an amount: the size, the equity and any transfer stay in the env file and the operator's notes.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+import time
+from collections.abc import Mapping
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path[:0] = [str(ROOT / "src"), str(ROOT)]
+
+from dotenv import dotenv_values  # noqa: E402
+
+from scripts.live_perp_demo import krw_reason, krw_sources, now_ms, rate_limited  # noqa: E402
+from trading_agent.exchanges.ccxt_adapter import CCXTAdapter  # noqa: E402
+from trading_agent.execution.live_safety import (  # noqa: E402
+    LiveExecutionLock,
+    LiveRiskStateStore,
+    LiveSafetyError,
+    append_live_audit_event,
+    configured_entry_lock_reason,
+    require_execution_authorization,
+)
+from trading_agent.execution.perp import krwfade  # noqa: E402
+from trading_agent.execution.perp.book import Book, PairStore, run_cycle  # noqa: E402
+from trading_agent.execution.perp.venue import (  # noqa: E402
+    PerpLiveVenue,
+    live_config,
+    load_live_credentials,
+)
+
+KRW_STORE = krwfade.STORE
+LIVE_MAX_OPEN = 1                       # one event at a time (PERP_LIVE_R0.md section 3)
+CHECK_OPEN_MS = 60 * 60 * 1000          # a signed check at least hourly while the record may hold legs
+CHECK_FLAT_MS = 24 * 60 * 60 * 1000     # and at least daily while flat
+LAST_SIGNED = "last_signed.json"        # {"at_ms": ...}: the end of the last signed run that finished rc 0
+KILL_NAMES = ("TRADING_KILL_SWITCH", "TRADING_ENTRY_KILL_SWITCH")
+
+
+def read_live_env(path: Path) -> dict[str, str]:
+    """The live env file: a regular file owned by the user running this, readable by that user only."""
+
+    if path.is_symlink() or not path.is_file():
+        raise LiveSafetyError("the live env file is not a regular file")
+    st = path.stat()
+    if st.st_uid != os.getuid() or st.st_mode & 0o077:
+        raise LiveSafetyError("the live env file must be owned by the user running this and mode 600")
+    return {k: v for k, v in dotenv_values(path).items() if v is not None}
+
+
+def gate_env(live: Mapping[str, str]) -> dict[str, str]:
+    """The env the gates read: the live file, with a kill switch set in the process environment winning."""
+
+    env = dict(live)
+    for name in KILL_NAMES:
+        if (os.environ.get(name) or "").strip().lower() == "true":
+            env[name] = "true"
+    return env
+
+
+def krw_usd(live: Mapping[str, str]) -> float:
+    try:
+        v = float(live.get("PERP_LIVE_KRW_USD", ""))
+    except ValueError as exc:
+        raise LiveSafetyError("PERP_LIVE_KRW_USD is not a number") from exc
+    if not 0 < v <= krwfade.USD_CAP:
+        raise LiveSafetyError(f"PERP_LIVE_KRW_USD must be in (0, {krwfade.USD_CAP:g}]")
+    return v
+
+
+def last_signed_ms(root: Path) -> int | None:
+    try:
+        return int(json.loads((root / LAST_SIGNED).read_text(encoding="utf-8"))["at_ms"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def check_reason(root: Path, at_ms: int) -> str | None:
+    """A scheduled signed check: hourly while the record may hold legs, daily while flat, and on a first run."""
+
+    last = last_signed_ms(root)
+    if last is None:
+        return "first_check"
+    store = PairStore.peek(root / KRW_STORE)
+    if krwfade.holds_legs(store):
+        return "hourly_check" if at_ms - last >= CHECK_OPEN_MS else None
+    return "daily_check" if at_ms - last >= CHECK_FLAT_MS else None
+
+
+def mark_signed(root: Path, at_ms: int) -> None:
+    tmp = root / f".{LAST_SIGNED}.tmp"
+    tmp.write_text(json.dumps({"at_ms": at_ms}), encoding="utf-8")
+    os.replace(tmp, root / LAST_SIGNED)
+
+
+def write_status(root: Path, report: dict, krw: krwfade.KrwFadeBook, allow_orders: bool) -> None:
+    """Counts and statuses only, never an amount."""
+
+    status = {"as_of": time.strftime("%Y-%m-%dT%H:%MZ", time.gmtime()), "allow_orders": allow_orders,
+              "reason": report.get("only_reason"), "entry_lock": bool(report.get("entry_lock")), **krw.counts()}
+    tmp = root / ".status.json.tmp"
+    tmp.write_text(json.dumps(status, indent=1, sort_keys=True), encoding="utf-8")
+    os.replace(tmp, root / "status.json")
+
+
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("--execute", action="store_true", help="a signed run on mainnet when one is needed")
+    ap.add_argument("--confirm-live", default=None, help="the live confirmation phrase (PERP_LIVE_R0.md)")
+    ap.add_argument("--env-file", required=True, help="the live env file, outside the repo, mode 600")
+    ap.add_argument("--root", default=str(ROOT / "data" / "perp_live"))
+    ap.add_argument("--resume", action="store_true",
+                    help="by hand only: a signed run that starts book KRW's new sleeve after its halt, if it is flat")
+    args = ap.parse_args(argv)
+    root = Path(args.root)
+    if args.resume and not args.execute:
+        print("--resume needs --execute", file=sys.stderr)
+        return 2
+
+    box: dict = {"info": None, "notices": None}
+    sources = krw_sources(box)
+    reason: str | None = "resume" if args.resume else None
+    if reason is None:
+        # Before the env file, the key, the lock or any write: a quiet moment ends here, unsigned.
+        at = now_ms()
+        try:
+            reason = krw_reason(root, at, sources)
+        except Exception as exc:
+            if not rate_limited(exc):
+                print(f"krw pre-check failed: {type(exc).__name__}: {str(exc)[:300]}", file=sys.stderr)
+                return 1
+            reason = None
+            skipped = f"{type(exc).__name__}: {str(exc)[:120]}"
+        else:
+            skipped = None
+        reason = reason or check_reason(root, at)
+        if reason is None:
+            out = {"signed_run": False}
+            if skipped:
+                out.update(skipped="rate_limited", error=skipped)
+            print(json.dumps(out))
+            return 0
+        if not args.execute:
+            print(json.dumps({"signed_run": False, "would_sign": reason}))
+            return 0
+
+    audit = root / "audit.jsonl"
+    try:
+        live = read_live_env(Path(args.env_file).expanduser())
+        env = gate_env(live)
+        require_execution_authorization(execute=True, testnet=False, cli_confirmation=args.confirm_live, env=env)
+        allow_orders = (live.get("PERP_LIVE_ALLOW_ORDERS") or "").strip().lower() == "true"
+        usd = krw_usd(live)
+        key, secret = load_live_credentials(live)
+        integrity = live.get("LIVE_SAFETY_HMAC_KEY", "")
+        if not integrity:
+            raise LiveSafetyError("LIVE_SAFETY_HMAC_KEY is missing from the live env file")
+        root.mkdir(parents=True, exist_ok=True)
+        with LiveExecutionLock(root / "writer.lock"):
+            venue = PerpLiveVenue(CCXTAdapter(live_config(key, secret)), allow_orders=allow_orders)
+            venue.connect()
+            venue.require_account_shape()
+            orders = LiveRiskStateStore(root / "order_state.json", integrity_key=integrity)
+            pairs = PairStore.load(root / "pairs.json", integrity)
+            book = Book(venue, orders, pairs, audit, usd)
+            krw = krwfade.KrwFadeBook(book, PairStore.load(root / KRW_STORE, integrity), usd, *sources,
+                                      resume=args.resume, max_open=LIVE_MAX_OPEN)
+            entry_lock = configured_entry_lock_reason(env)
+            if not allow_orders:
+                entry_lock = entry_lock or "read-only: PERP_LIVE_ALLOW_ORDERS is not true"
+            at = now_ms()
+            append_live_audit_event(audit, "perp_live_run_started", {"reason": reason, "allow_orders": allow_orders,
+                                                                    "entry_lock": bool(entry_lock)})
+            report = run_cycle(book, now_ms=at, mainnet_info=None, execute=True, entry_lock=entry_lock,
+                               others=[krw], only=krw.name)
+            report["only_reason"] = reason
+            write_status(root, report, krw, allow_orders)
+            append_live_audit_event(audit, "perp_live_run_finished", {k: v for k, v in report.items() if k != "skipped"})
+            mark_signed(root, now_ms())
+    except Exception as exc:  # every stop is audited when the root exists; the next run reconciles first
+        if root.is_dir():
+            append_live_audit_event(audit, "perp_live_run_failed", {"error": type(exc).__name__,
+                                                                    "detail": str(exc)[:300]})
+        kind = "stopped" if isinstance(exc, LiveSafetyError) else "failed"
+        print(f"perp live run {kind}: {type(exc).__name__}: {exc}", file=sys.stderr)
+        return 1
+    print(json.dumps(report, sort_keys=True))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

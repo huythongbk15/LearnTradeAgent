@@ -13,11 +13,12 @@ import logging
 import re
 import time
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
 from enum import Enum
-from typing import Optional
+from typing import Any, Optional
 
 try:
     import ccxt
@@ -93,9 +94,9 @@ class ExchangeConfig:
 
     id: str  # ccxt exchange id
     name: str  # human readable name
-    api_key: str = ""
-    secret: str = ""
-    password: str = ""  # for exchanges requiring passphrase
+    api_key: str = field(default="", repr=False)
+    secret: str = field(default="", repr=False)
+    password: str = field(default="", repr=False)  # for exchanges requiring passphrase
     sandbox: bool = False
     testnet: bool = False
     # Binance Demo Trading (demo-fapi.binance.com for USD-M futures). ccxt
@@ -345,8 +346,12 @@ class CCXTAdapter(ExchangeAdapter):
         if isinstance(td, (int, float)) and not isinstance(td, bool):
             opts["timeDifference"] = int(min(max(td, 0), MAX_TIME_ADJUST_MS))
 
-    async def connect(self) -> None:
-        """Initialize CCXT exchange instance"""
+    async def connect(self, before_load: Callable[[Any], None] | None = None) -> None:
+        """Initialize CCXT exchange instance.
+
+        ``before_load``, if given, is called with the new exchange object after its mode is set and before any
+        request (the clock read, the market load): a caller can check or guard the hosts it will talk to.
+        """
         try:
             exchange_class = getattr(ccxt, self.config.id)
             self.exchange = exchange_class(self.config.to_ccxt_config())
@@ -361,6 +366,8 @@ class CCXTAdapter(ExchangeAdapter):
             elif self.config.sandbox or self.config.testnet:
                 self.exchange.set_sandbox_mode(True)
                 logger.info(f"Sandbox/testnet mode ENABLED for {self.config.name}")
+            if before_load is not None:
+                before_load(self.exchange)
 
             # The clock offset is measured before the markets load: on mainnet with keys, load_markets itself signs
             # requests (currencies, margin pairs) before ccxt would measure it at the end of fetch_markets.

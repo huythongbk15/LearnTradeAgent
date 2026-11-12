@@ -11,15 +11,13 @@ import ccxt
 import pytest
 
 import trading_agent.exchanges.ccxt_adapter as ca
-from tests.test_perp_demo import KEY, FakeBook, FakeUsdm, Killed, events, hold, orders_sent, pos
+from tests.test_perp_demo import VENUES, KEY, FakeBook, FakeUsdm, Killed, events, hold, make_venue, orders_sent, pos
 from tools.krwfade import feed as kfeed
 from tools.krwfade import rules as R
 from tools.krwfade import shadow as S
-from trading_agent.exchanges.ccxt_adapter import CCXTAdapter
 from trading_agent.execution.live_safety import LiveRiskStateStore
 from trading_agent.execution.perp import krwfade as kx
 from trading_agent.execution.perp.book import KEY_MAX, PAIR_BOOK, Book, PairStore, PerpBookError, run_cycle
-from trading_agent.execution.perp.venue import PerpDemoVenue, demo_config
 
 MIN = 60_000
 H = 3_600_000
@@ -69,9 +67,9 @@ class Public:
         return {"pass_0a": True, "entry_ms": entry_ms, "g_bps": 1.0, "n_bps": 0.5}
 
 
-@pytest.fixture
-def world(tmp_path, monkeypatch):
-    """The fake demo venue (BTC at 80,000, equity 10,000) and the pair book."""
+@pytest.fixture(params=VENUES)
+def world(tmp_path, monkeypatch, request):
+    """The fake venue (BTC at 80,000, equity 10,000), Demo or mainnet, and the pair book."""
 
     fake = FakeUsdm({"BTCUSDT": 80_000.0, "AAAUSDT": 2.0, "BBBUSDT": 10.0, "CCCUSDT": 5.0, "DDDUSDT": 1.0,
                      "EEEUSDT": 4.0, "OLDUSDT": 10.0})
@@ -80,7 +78,7 @@ def world(tmp_path, monkeypatch):
     monkeypatch.setattr(ca.RateLimitManager, "REFILL_PER_S", 1e9)
     # Durability is not under test: each store save's fsync costs tens of ms on this disk, hundreds a test.
     monkeypatch.setattr(os, "fsync", lambda fd: None)
-    venue = PerpDemoVenue(CCXTAdapter(demo_config("demo-key", "demo-secret")))
+    venue = make_venue(request.param)
     venue.connect()
     orders = LiveRiskStateStore(tmp_path / "order_state.json", integrity_key=KEY)
     book = Book(venue, orders, PairStore.load(tmp_path / "pairs.json", KEY), tmp_path / "audit.jsonl", 100.0,
