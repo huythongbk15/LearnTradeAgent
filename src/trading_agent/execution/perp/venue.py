@@ -14,6 +14,7 @@ unless it was built to trade.
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import stat
 from collections.abc import Mapping
@@ -43,6 +44,11 @@ PROXY_ATTRS = ("proxy", "proxyUrl", "proxy_url", "proxyUrlCallback", "proxy_url_
                "http_proxy", "httpProxyCallback", "http_proxy_callback", "httpsProxy", "https_proxy",
                "httpsProxyCallback", "https_proxy_callback", "socksProxy", "socks_proxy", "socksProxyCallback", "aiohttpProxy",
                "aiohttp_proxy", "socks_proxy_callback")
+# Binance codes that leave an order's outcome unknown although the HTTP status is 4xx (the futures API docs:
+# "execution status unknown"); a write answered with one of them is never read as refused.
+UNKNOWN_OUTCOME_CODES = frozenset({-1000, -1001, -1006, -1007})
+TRADE_WINDOW_MS = 7 * 24 * 3_600_000    # Binance's longest span for one read of the account's trades
+TRADE_PAGE = 1000                       # ... and its most trades in one answer
 
 
 class PerpVenueError(RuntimeError):
@@ -169,6 +175,7 @@ class PerpVenue:
 
     def __init__(self, adapter: CCXTAdapter):
         self.adapter = adapter
+        self._wire: list[dict] | None = None    # each write request ccxt sent, once ``_watch`` is in place
 
     @property
     def _ex(self) -> Any:
@@ -178,6 +185,69 @@ class PerpVenue:
 
     def connect(self) -> None:
         raise NotImplementedError
+
+    # ── what a failed write did on the wire ────────────────────────────────
+
+    def _watch(self, ex: Any) -> None:
+        """Note every write request (any method but GET) as ccxt hands it to HTTP, and the status and body of its
+        answer. ``Book._send`` asks after a send that raised whether a request left at all (``wire_since``).
+
+        Only on a real ccxt exchange: a test double that answers ccxt's calls without HTTP leaves ``_wire`` None,
+        and then nothing is known about a failed send (its outcome stays unknown, as before).
+        """
+
+        import ccxt
+
+        if not isinstance(ex, ccxt.Exchange):
+            return
+        wire: list[dict] = []
+        send, answered = ex.fetch, ex.on_rest_response
+
+        def fetch(url, method="GET", headers=None, body=None):
+            if str(method).upper() != "GET":
+                wire.append({"answer": None})
+            return send(url, method, headers, body)
+
+        def on_rest_response(code, reason, url, method, response_headers, response_body, request_headers,
+                             request_body):
+            if str(method).upper() != "GET" and wire:
+                wire[-1]["answer"] = (code, response_body)
+            return answered(code, reason, url, method, response_headers, response_body, request_headers,
+                            request_body)
+
+        ex.fetch, ex.on_rest_response = fetch, on_rest_response
+        self._wire = wire
+
+    def wire_mark(self) -> int | None:
+        """A mark to pass to ``wire_since`` after a send; None when the venue cannot see its requests."""
+
+        return None if self._wire is None else len(self._wire)
+
+    def wire_since(self, mark: int | None) -> str | None:
+        """After a send that raised: what its write requests show.
+
+        - ``"not_sent"``: no write request left the process (a local check refused it, or the live venue's guard);
+        - ``"refused:<code>"``: the last one was answered with a definite refusal: HTTP 4xx other than 408, with a
+          Binance error code that does not leave the outcome unknown (``UNKNOWN_OUTCOME_CODES``);
+        - None: anything else (no answer, a timeout, a 5xx, a body without a code): the outcome is unknown.
+        """
+
+        if mark is None or self._wire is None:
+            return None
+        sent = self._wire[mark:]
+        if not sent:
+            return "not_sent"
+        answer = sent[-1]["answer"]
+        if answer is None:
+            return None
+        status, body = answer
+        try:
+            code = int(json.loads(body).get("code"))
+        except (TypeError, ValueError, AttributeError):
+            return None
+        if 400 <= int(status) < 500 and int(status) != 408 and code < 0 and code not in UNKNOWN_OUTCOME_CODES:
+            return f"refused:{code}"
+        return None
 
     # ── symbols ────────────────────────────────────────────────────────────
 
@@ -301,6 +371,29 @@ class PerpVenue:
         orders = _run(self.adapter.fetch_open_orders(self.symbol(exchange_id), trigger=True))
         return {str(o.client_order_id) for o in orders if o.client_order_id}
 
+    def open_order_keys(self, exchange_id: str) -> set[str]:
+        """Client keys of the open plain (not conditional) orders on a symbol."""
+
+        orders = _run(self.adapter.fetch_open_orders(self.symbol(exchange_id)))
+        return {str(o.client_order_id) for o in orders if o.client_order_id}
+
+    def trade_order_ids(self, exchange_id: str, since_ms: int, until_ms: int) -> list[str]:
+        """The venue order id of each of the account's trades on a symbol from ``since_ms`` to ``until_ms``. No
+        price or amount: a read for evidence only. Binance answers 7 days and 1000 trades at a time; the span is read
+        in 7-day windows, and a full page fails closed rather than paging."""
+
+        sym = self.adapter.get_exchange_symbol(self.symbol(exchange_id))
+        ids: list[str] = []
+        start = since_ms
+        while start <= until_ms:
+            end = min(start + TRADE_WINDOW_MS - 1, until_ms)
+            rows = self._ex.fetch_my_trades(sym, start, TRADE_PAGE, {"endTime": end})
+            if len(rows) >= TRADE_PAGE:
+                raise PerpVenueError(f"{exchange_id}: a full page of trades in one window; too many to check")
+            ids += [str(r.get("order") or "") for r in rows]
+            start = end + 1
+        return ids
+
     def funding_paid(self, exchange_ids: list[str], since_ms: int, until_ms: int) -> float:
         """Funding the account booked on these symbols from ``since_ms`` to ``until_ms``, in USDT; paid is negative."""
 
@@ -323,6 +416,7 @@ class PerpDemoVenue(PerpVenue):
     def connect(self) -> None:
         _run(self.adapter.connect())
         self.assert_demo_only()
+        self._watch(self._ex)
 
     def assert_demo_only(self) -> None:
         """Every futures API root must be demo-fapi before anything is signed."""
@@ -399,6 +493,7 @@ class PerpLiveVenue(PerpVenue):
         session = getattr(ex, "session", None)
         if session is not None and hasattr(session, "max_redirects"):
             session.max_redirects = 0
+        self._watch(ex)       # inside the guard: a write the guard refuses never reaches the wire's record
         send = ex.fetch
         venue = self
 

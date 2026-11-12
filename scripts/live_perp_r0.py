@@ -22,6 +22,9 @@ the venue refuses every write and the run holds entries under the entry lock.
 --resume, by hand only (the live wrapper never passes it): a signed run whatever the pre-check says, which starts
 book KRW's new sleeve after its K3 halt or a new size, if the book is flat. It is the operator's signature of K-pause.
 
+--exit-now, by hand only (K-ops of PERP_LIVE_R0.md): a signed run whatever the pre-check says, in which book KRW
+exits every open event the way a due exit does (``close_reason`` "operator") and enters nothing.
+
 Floor (D5, section 3 and K-budget of section 7): every signed run reads the sub-account's equity and holds entries
 when it is below 2.5 x PERP_LIVE_KRW_USD (the room one event needs) or below half the equity recorded when stage D
 began. With PERP_LIVE_STAGE=D and orders allowed, the first signed run records that starting equity in its signed
@@ -166,15 +169,20 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--root", default=str(ROOT / "data" / "perp_live"))
     ap.add_argument("--resume", action="store_true",
                     help="by hand only: a signed run that starts book KRW's new sleeve after its halt, if it is flat")
+    ap.add_argument("--exit-now", action="store_true",
+                    help="by hand only: a signed run in which book KRW exits every open event now and enters nothing")
     args = ap.parse_args(argv)
     root = Path(args.root)
-    if args.resume and not args.execute:
-        print("--resume needs --execute", file=sys.stderr)
+    if (args.resume or args.exit_now) and not args.execute:
+        print("--resume and --exit-now need --execute", file=sys.stderr)
+        return 2
+    if args.resume and args.exit_now:
+        print("--resume and --exit-now are separate runs", file=sys.stderr)
         return 2
 
     box: dict = {"info": None, "notices": None}
     sources = krw_sources(box)
-    reason: str | None = "resume" if args.resume else None
+    reason: str | None = "resume" if args.resume else "exit_now" if args.exit_now else None
     if reason is None:
         # Before the env file, the key, the lock or any write: a quiet moment ends here, unsigned.
         at = now_ms()
@@ -219,12 +227,14 @@ def main(argv: list[str] | None = None) -> int:
             pairs = PairStore.load(root / "pairs.json", integrity)
             book = Book(venue, orders, pairs, audit, usd)
             krw = krwfade.KrwFadeBook(book, PairStore.load(root / KRW_STORE, integrity), usd, *sources,
-                                      resume=args.resume, max_open=LIVE_MAX_OPEN)
+                                      resume=args.resume, max_open=LIVE_MAX_OPEN, exit_now=args.exit_now)
             at = now_ms()
             stage_d = allow_orders and (live.get("PERP_LIVE_STAGE") or "").strip().upper() == "D"
             floor = floor_check(venue, PairStore.load(root / FLOOR_STORE, integrity), usd, stage_d=stage_d,
                                 at_ms=at, audit=audit)
             entry_lock = configured_entry_lock_reason(env)
+            if args.exit_now:
+                entry_lock = entry_lock or "exit_now: the operator's exit, no entry in this run"
             if not allow_orders:
                 entry_lock = entry_lock or "read-only: PERP_LIVE_ALLOW_ORDERS is not true"
             if floor != "ok":

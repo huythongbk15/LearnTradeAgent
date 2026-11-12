@@ -30,11 +30,13 @@ mainnet data after the hold, is ``tools/krwfade/shadow.py``.
   positions is recorded as check() records one. Legs a failure leaves are unwound by later runs, and a failed event
   is ``unwound`` once a signed run finds it flat.
 - **Exit:** due from E + 72 h less 2.5 min (``EXIT_EARLY_MS``, half the 5-minute cadence), or at once after a fired
-  stop; a late run exits at once. The alt is bought back reduce-only; its stop is cancelled only after that buy
-  filled in full (a buy-back that fails, loses its reply or fills in part leaves the stop at the venue); then the
-  book's own BTCUSDT quantity is sold reduce-only. Every try has a fresh key; a cut-off try is settled from the
-  order ledger first (``legs.ledger_price``), and an event whose last order was settled that way is closed by the
-  next step. Exits run under the entry lock and while halted.
+  stop; a late run exits at once. The operator's "exit now" (``exit_now``: ``--krw-exit-now`` on Demo, ``--exit-now``
+  on the live root) exits every open event in that run the same way, with ``close_reason`` "operator". The alt is
+  bought back reduce-only; its stop is cancelled only after that buy filled in full (a buy-back that fails, loses its
+  reply or fills in part leaves the stop at the venue); then the book's own BTCUSDT quantity is sold reduce-only.
+  Every try has a fresh key; a cut-off try is settled from the order ledger first (``legs.ledger_price``), and an
+  event whose last order was settled that way is closed by the next step. Exits run under the entry lock and while
+  halted.
 - **Stop fired:** ``check()`` finds the alt flat at the venue with its stop gone, as book LV does; the event is
   ``stopped`` and its BTC leg is sold by the step. The stop's fill is read back by its key when the venue answers,
   else taken at 1.05x the trigger (the research's 1.575x entry), marked ``avg_from``.
@@ -293,6 +295,7 @@ class KrwFadeBook:
     shadow_row: Callable[[str, int, int], dict]         # (perp, E, notice) -> the research row (tools.krwfade.shadow)
     wall: Callable[[], float] = time.time               # the wall clock just before an order goes out
     resume: bool = False                                # --krw-resume: a new sleeve once the book is flat (``_resume``)
+    exit_now: bool = False                              # the operator's "exit now": every open event exits this run
     max_open: int = KRW_MAX_OPEN                        # events holding legs at once (1 on the live root)
 
     @property
@@ -615,7 +618,7 @@ class KrwFadeBook:
 
         s = ev["status"]
         if s == "open":
-            return exit_due(ev, now_ms)
+            return exit_due(ev, now_ms) or self.exit_now
         if s == "stopped":
             return True
         if s == "closing":
@@ -633,8 +636,9 @@ class KrwFadeBook:
         """
 
         if ev["status"] in ("open", "stopped"):
-            ev.update(status="closing", close_reason="stop" if ev["status"] == "stopped" else "hold",
-                      exit_ms=now_ms)
+            reason = ("stop" if ev["status"] == "stopped" else "hold" if exit_due(ev, now_ms)
+                      else "operator")      # only an exit now ends an open event before its hold
+            ev.update(status="closing", close_reason=reason, exit_ms=now_ms)
             self.store.save()
             self.book.audit("perp_krw_closing", id=eid, reason=ev["close_reason"])
         perp = ev["perp"]

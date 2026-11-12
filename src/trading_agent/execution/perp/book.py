@@ -247,11 +247,23 @@ class Book:
         return status
 
     def _send(self, symbol: str, side: str, qty: float, key: str, send: Callable[[], dict]) -> dict:
+        """Reserve, send, record. A send that raises is ``rejected`` when the venue's wire shows that no request
+        left the process or that the venue refused it outright (``PerpVenue.wire_since``); otherwise its outcome is
+        unknown and the next reconcile settles it by key. Either way the run stops here."""
+
         self.orders.reserve_order(key, symbol=symbol, side=side, quantity=qty, venue_client_order_id=key)
         self.orders.update_order(key, status="submitted")
+        mark = self.venue.wire_mark()
         try:
             res = send()
         except Exception as exc:
+            known = self.venue.wire_since(mark)
+            if known is not None:
+                # The book's way to close an intent with a known end (as _record and _settle_stop do).
+                self.orders.update_order(key, status="acknowledged")
+                self.orders.update_order(key, status="rejected", error=f"{known}:{type(exc).__name__}")
+                self.audit("perp_order_rejected", key=key, symbol=symbol, how=known, error=type(exc).__name__)
+                raise PerpBookError(f"order {key} {known.replace(':', ' ')}: {type(exc).__name__}") from exc
             self.orders.update_order(key, status="reconciling", error=type(exc).__name__)
             self.audit("perp_order_uncertain", key=key, symbol=symbol, error=type(exc).__name__)
             raise PerpBookError(f"order {key} outcome unknown; reconcile before the next entry") from exc

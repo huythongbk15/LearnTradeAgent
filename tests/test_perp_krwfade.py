@@ -372,6 +372,33 @@ def test_a_late_run_exits_at_once(world):
     assert rep["closed"] == 1 and event(tmp)["status"] == "closed"
 
 
+def test_exit_now_closes_every_open_event_before_its_hold_and_its_run_enters_nothing(world):
+    fake, book, tmp = world
+    enter(world)
+    pub = Public(note(101, "AAA"), note(102, "BBB", at=N0 + 3 * H))      # E 09:00, in its window at 09:02
+    n = len(orders_sent(fake))
+    kb = krw(book, tmp, pub, exit_now=True)
+    rep = cycle(book, kb, E0 + 3 * H + 2 * MIN, entry_lock="exit_now")["krw"]
+    assert rep["closed"] == 1 and rep["entered"] == 0 and rep["open"] == 0
+    back, sold = orders_sent(fake)[n:]
+    assert back[5]["clientOrderId"] == "krw-101-AAA-c0" and back[5]["reduceOnly"]
+    assert sold[5]["clientOrderId"] == "krw-101-AAA-x0" and sold[5]["reduceOnly"]
+    assert (event(tmp)["status"], event(tmp)["close_reason"]) == ("closed", "operator")
+    assert event(tmp, 102, "BBB")["status"] == "waiting" and fake.algo == {}
+    closing = [e for e in krw_events(tmp) if e["event"] == "perp_krw_closing"]
+    assert [e["details"]["reason"] for e in closing] == ["operator"]
+    # the next run is an ordinary one: the waiting event enters in its window
+    assert cycle(book, krw(book, tmp, pub), E0 + 3 * H + 4 * MIN)["krw"]["entered"] == 1
+
+
+def test_without_exit_now_an_open_event_holds_to_its_time(world):
+    fake, book, tmp = world
+    enter(world)
+    n = len(orders_sent(fake))
+    assert cycle(book, krw(book, tmp, Public(note(101, "AAA"))), E0 + 3 * H)["krw"]["closed"] == 0
+    assert len(orders_sent(fake)) == n and event(tmp)["status"] == "open"
+
+
 def test_a_fired_stop_is_recorded_and_the_btc_leg_sold(world):
     fake, book, tmp = world
     enter(world)
@@ -1875,6 +1902,15 @@ def test_the_runner_takes_krw_resume_only_with_krw_and_execute_and_without_only(
                  ["--krw-resume", "--krw", "--execute", "--only", "krw"]):
         assert krw_runner.main(argv) == 2
     assert "--krw-resume needs --krw and --execute" in capsys.readouterr().err
+
+
+def test_the_runner_takes_krw_exit_now_by_hand_with_krw_and_execute_alone(krw_runner, capsys):
+    for argv in (["--krw-exit-now"], ["--krw-exit-now", "--krw"], ["--krw-exit-now", "--execute"],
+                 ["--krw-exit-now", "--krw", "--execute", "--only", "krw"],
+                 ["--krw-exit-now", "--krw", "--execute", "--krw-resume"]):
+        assert krw_runner.main(argv) == 2
+    assert "--krw-exit-now needs --krw and --execute" in capsys.readouterr().err
+    assert "exit-now" not in (REPO / "scripts" / "ops" / "run_perp_demo.sh").read_text()     # by hand only
 
 
 def test_the_runner_passes_the_books_in_run_order_with_krw_last(krw_runner, tmp_path, monkeypatch, capsys):

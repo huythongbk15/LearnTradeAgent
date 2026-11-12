@@ -168,6 +168,25 @@ def test_resume_is_a_signed_run_by_hand_only(r0, monkeypatch, capsys):
     assert "--resume" not in wrapper.split("set -uo pipefail", 1)[1] and '"$@"' not in wrapper
 
 
+def test_exit_now_is_a_signed_run_by_hand_that_exits_the_open_event_and_enters_nothing(r0, monkeypatch, capsys):
+    mod, fake, pub, env, tmp = r0
+    write_env(tmp, env)
+    pub.notes.append(note(101, "AAA"))
+    assert run(mod, monkeypatch, capsys, E0 + 2 * MIN, argv(tmp))["krw"]["entered"] == 1
+    pub.notes.append(note(102, "BBB", at=E0 + 5 * MIN))        # in its own window at the next hour's open
+    rep = run(mod, monkeypatch, capsys, E0 + 62 * MIN, argv(tmp, "--exit-now"))
+    assert rep["only_reason"] == "exit_now" and rep["entry_lock"].startswith("exit_now")
+    assert rep["krw"]["closed"] == 1 and rep["krw"]["entered"] == 0 and rep["krw"]["open"] == 0
+    store = json.loads((tmp / "perp_live" / "krw.json").read_text())["pairs"]
+    assert (store["e101-AAA"]["status"], store["e101-AAA"]["close_reason"]) == ("closed", "operator")
+    assert store["e102-BBB"]["status"] == "waiting"
+    no_amount(tmp / "perp_live")
+    assert mod.main(["--exit-now", "--env-file", str(tmp / "perp_live.env")]) == 2
+    assert mod.main(argv(tmp, "--exit-now", "--resume")) == 2
+    wrapper = (REPO / "scripts" / "ops" / "run_perp_live.sh").read_text()
+    assert "--exit-now" not in wrapper
+
+
 def test_without_execute_nothing_is_signed(r0, monkeypatch, capsys):
     mod, fake, pub, env, tmp = r0
     monkeypatch.setattr(mod, "read_live_env", lambda p: (_ for _ in ()).throw(AssertionError("signed")))

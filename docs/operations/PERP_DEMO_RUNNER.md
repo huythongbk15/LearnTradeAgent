@@ -59,6 +59,16 @@ Constants are in `src/trading_agent/execution/perp/rules.py`. A change needs the
 - **Signed order ledger:** every order intent is reserved in a signed ledger (`LiveRiskStateStore`, `order_state.json`) before it is sent, with the same client key Binance receives.
   - An outcome that is not known stops the run.
   - The next run settles it by that key first.
+  - A send that raises with nothing sent, or that the venue refused outright, is closed as `rejected` at once ("Book KRW", Orders, has the rule; it holds for every book).
+  - **Clearing `manual_intervention`:** an intent the venue does not know stops every run of the root at the reconcile, exits included, until the operator clears it with `scripts/perp_resolve_intent.py` (`--venue demo`, or `--venue live --env-file ...` for the R0 root). It closes the intent as never submitted only under the evidence rule of PERP_LIVE_R0.md section 6:
+    - the ledger: `reserved`, `reconciling` or `manual_intervention`, no venue order id, fill, cost or fee, reserved at least 10 minutes ago, and not a stop (a `-st` key is settled by its book);
+    - the venue: no order with that key, no open plain or conditional order with it, and no trade on the symbol since the reservation from an order the ledger does not know;
+    - the operator: `--operator-checked-app`, after looking for the key in the venue's app.
+    - Without `--apply` it only reports. With it, it takes the root's writer lock and writes the evidence to `audit.jsonl` (`perp_intent_resolved`). It reads the venue only (the live venue is built read-only) and prints keys, statuses and counts.
+    ```
+    PYTHONPATH=src:. .venv/bin/python scripts/perp_resolve_intent.py --venue demo --key <key>
+    PYTHONPATH=src:. .venv/bin/python scripts/perp_resolve_intent.py --venue demo --key <key> --apply --operator-checked-app
+    ```
 - **Signed stores:** pairs live in a signed store (`pairs.json`, `LIVE_SAFETY_HMAC_KEY`). A changed file is refused. Each other book has its own signed store beside it: `lv_blocks.json`, `learn_book.json`, `flow02.json`, `flow01.json` and `krw.json`.
 - **Position check:**
   - Each run checks venue positions against every book's record before any entry.
@@ -235,7 +245,7 @@ Code is in `src/trading_agent/execution/perp/lowvol.py`. The hourly run trades i
   - A rehearsal is refused while a weekly block is live.
 - **Left for the operator** (from the 2026-11-05 review of the flatten; each needs a ruling or a change outside `lowvol.py`):
   - **Check the buy-back under an open stop on Demo** (see "Not checked on Demo" above): open a small short with its reduce-only STOP_MARKET buy, then buy the short back reduce-only at market while the stop is still open, and confirm that Demo fills it. The runner has no step that does this on purpose; it could become a step of the next LV rehearsal, before the first weekly roll on 2026-11-09. If Demo refuses that order, every failed roll with a short would leave the short under its stop and stop every book at the next reconcile until the operator acts.
-  - **A reduce-only order the venue rejects is recorded with an unknown outcome** (`Book._send` in `book.py`, shared by every book). The next reconcile cannot find it at the venue and stops every book (`intent ... is not at the venue`). This is how each case above where a stop fires just before a reduce-only buy-back ends. Recording a definite venue rejection as rejected would let the next run go on; that is a change to the shared order path, not to `lowvol.py`.
+  - **A reduce-only order the venue rejects** (done 2026-11-12, PERP_LIVE_R0.md item 4): `Book._send` now records a definite venue refusal, such as -2022, as `rejected`, so the next run goes on ("Safety chain").
   - **A stale LV stop under a book LEARN short** (the known limit under "A stop the venue still lists after the cancel"): covering it needs book LEARN, or the shared position checks, to read LV's `stale_stops`.
 
 ## Books on one account
@@ -609,7 +619,10 @@ The hourly run trades it with `--krw`. The 5-minute task runs it with `--only kr
   - **A stop that fires inside a failed entry** (the squeeze comes before the take-off reads the positions): the venue holds no short and no longer lists the stop it took. The take-off records the stop's fill as the check records a fired stop, and the event stays `failed`.
   - **A run killed mid-entry:** the next run's check records the fills from the ledger. With the alt sold, its stop listed and the BTC bought, the event is `open`; otherwise it is `failed` and its legs are unwound.
   - A failed event is `unwound` once a signed run finds it flat by its fills; until then the 5-minute pre-check signs for it.
-  - **A market order whose send raises before it reaches the venue,** whichever it is (the alt sell, the BTC buy, the buy-back or the BTC sell): the next reconcile does not find it, marks it `manual_intervention` and stops every book for operator review. Nothing is sent again for it.
+  - **A send that raises** (any order of any book, stops included; `Book._send`): the venue's wire record (`PerpVenue.wire_since`) decides what is known.
+    - No write request left the process (a local check refused it: an amount ccxt refuses, a symbol the venue lacks, the live venue's read-only or host guard): the intent is `rejected` with `not_sent:<error>` and audited `perp_order_rejected`. The run stops; the next run's reconcile passes it.
+    - The venue refused it outright (HTTP 4xx other than 408, with a Binance code that does not leave the outcome unknown: not -1000, -1001, -1006 or -1007; for example -2022 "ReduceOnly Order is rejected" or -4164): the same, with `refused:<code>:<error>`.
+    - Anything else (a timeout, a lost connection, a 5xx, an answer without a code): the outcome is unknown. The intent is `reconciling` and audited `perp_order_uncertain`; the next reconcile looks it up by key. When the venue does not know it, the reconcile marks it `manual_intervention` and stops every book until the operator clears it with `scripts/perp_resolve_intent.py` ("Clearing manual_intervention", below). Nothing is sent again for it.
   - **A stop whose send raises** is settled by the take-off:
     - cancelled if the venue lists it;
     - if not listed while the record still holds a short the venue no longer holds, the stop is read back by its key, and a fill the venue reports is recorded as a fired stop;
@@ -619,11 +632,12 @@ The hourly run trades it with `--krw`. The 5-minute task runs it with `--only kr
   - A signed run that finds the alt flat with its stop gone records the event `stopped`, as book LV does, and sells its BTC. The fill is read back by the stop's key when the venue answers, else taken at 1.05x the trigger (1.575x the fill, research's figure), marked `avg_from`.
   - The 5-minute pre-check cannot see a fired stop (it needs the venue's positions): its BTC leg is sold by the next hourly run.
 - **Exit:** due from E + 72 h less 2.5 min, or at once after a fired stop. A late run exits at once.
+  - **Exit now, by hand:** `scripts/ops/run_perp_demo.sh --krw-exit-now` (the wrapper passes it on) exits every open event in that run the same way, with `close_reason` "operator", and puts that run under the entry lock, so it enters nothing for any book. It needs `--krw` and `--execute` and refuses `--only` and `--krw-resume`. Never leave it in a wrapper.
   - The alt is bought back reduce-only. Its stop is cancelled only after that buy filled in full: a buy-back that fails, loses its reply or fills in part leaves the stop at the venue, and the next run settles the fill and buys the rest back with a fresh key.
   - Then the event's own BTCUSDT quantity is sold reduce-only.
     - A sell the venue answers as failed (expired or rejected) or fills in part is sold again by the next run, with a fresh key, for what is left.
     - A sell whose reply is lost, that times out or comes back filled without a price, or whose run is killed after the send, is settled from the order ledger by the next run's check. That run's step then closes the event.
-    - A sell whose send raises before it reaches the venue stops every book at the next reconcile (above).
+    - A sell whose send raises is settled as every send that raises is (above): rejected when it never left or was refused, else by the next reconcile.
   - A stop the venue still lists after the cancel is kept on the event (`stale_stop`): each check cancels it again, and no KRW event shorts that symbol until it is gone.
   - Exits run under the entry lock, while halted, and when the feed fails.
 - **Shadow:** from E + 73 h, each event's research row (`tools/krwfade/shadow.py`) is computed from public mainnet 1h klines and funding, through the NL-P allowlisted client, and stored on the event. Every event gets one, traded or not, unless it is `excluded` first.
