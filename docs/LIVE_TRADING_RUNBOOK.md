@@ -231,5 +231,10 @@ are implemented and acceptance-tested together.
 ## Go/no-go rule
 
 Mainnet is **NO-GO** until all checklist items and the 30-day testnet soak pass.
+
+One exception, outside this runner: perp tier R0 (one book, venue minimum, a
+dedicated futures sub-account, a written end) runs under its own ruling page,
+[PERP_LIVE_R0.md](operations/PERP_LIVE_R0.md). This rule still governs the spot
+runner.
 Technical safeguards reduce execution risk; they do not turn a negative or
 unvalidated strategy into a profitable one.

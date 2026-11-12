@@ -88,6 +88,7 @@ Các file khác là reference chuyên biệt hoặc historical; không cần đ�
 | Hệ thống đang thật sự chạy gì, mục tiêu nào đang theo? | [System Overview](SYSTEM_OVERVIEW.md) |
 | Tiến độ và quyết định mới nhất ở đâu? | [CAMPAIGN_STATUS](CAMPAIGN_STATUS.md) |
 | Vận hành testnet đang ở mốc nào? | [Operable plan](operations/OPERABLE_SYSTEM_PLAN.md) |
+| Tầng tiền thật đầu tiên (perp R0) theo luật nào? | [Perp live R0](operations/PERP_LIVE_R0.md) |
 | Luồng hệ thống được thiết kế thế nào? | [CORE_SYSTEM.md](CORE_SYSTEM.md) |
 | Code đang đạt đến đâu? | [Capability Matrix](CAPABILITY_MATRIX.md) + tests/CI evidence |
 | Mainnet có được phép không? | [Live Readiness](LIVE_TRADING_TODO.md) |
