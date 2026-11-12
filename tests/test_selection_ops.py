@@ -131,9 +131,11 @@ def test_every_task_can_be_chosen_alone_and_printed() -> None:
     choices = re.findall(r'"(\w+)"', re.search(r"ValidateSet\((.*?)\)", text)[1])
     default = re.findall(r'"(\w+)"', re.search(r"\$Only = @\((.*?)\)", text)[1])
     # FlowFlush (book FLOW01's 5-minute demo run) is registered only by name: -Only FlowFlush
-    # (docs/operations/PERP_DEMO_RUNNER.md). Every other task is in the default list.
-    opt_in = {"FlowFlush"}
+    # (docs/operations/PERP_DEMO_RUNNER.md). So is PerpLive, perp tier R0 on mainnet: -Only PerpLive
+    # (docs/operations/PERP_LIVE_R0.md); it must never be in the default list. Every other task is.
+    opt_in = {"FlowFlush", "PerpLive"}
     assert [c for c in choices if c not in opt_in] == default and "Selection" in choices
+    assert "PerpLive" in choices and "PerpLive" not in default
     what_if, register = text.split("exit 0")
     for name in choices:
         assert f'$Only -contains "{name}"' in what_if
