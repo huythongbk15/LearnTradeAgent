@@ -29,7 +29,8 @@ asks for a signed run only when an event is inside its entry window, an exit
 is due, or an order is unsettled. The signed run then steps book KRW alone
 after every check. --krw-resume, once and by hand (the hourly wrapper passes
 it on), starts book KRW's new sleeve after its halt or a new --krw-usd, if
-the book is flat.
+the book is flat. --krw-exit-now, by hand, makes book KRW exit every open
+event in that run (``close_reason`` "operator"); that run enters nothing.
 
 Rules: docs/operations/PERP_DEMO_RUNNER.md.
 """
@@ -276,6 +277,8 @@ def main(argv: list[str] | None = None) -> int:
                     help=f"notional of each leg of a book KRW event in USDT; at most {krwfade.USD_CAP:g}")
     ap.add_argument("--krw-resume", action="store_true",
                     help="once, by hand: start book KRW's new sleeve after its halt or a new --krw-usd, if it is flat")
+    ap.add_argument("--krw-exit-now", action="store_true",
+                    help="by hand: book KRW exits every open event in this run; the run enters nothing")
     ap.add_argument("--only", choices=ONLY,
                     help="run one book's own mode: a public pre-check, then, only when needed, every check and that book's step")
     args = ap.parse_args(argv)
@@ -295,6 +298,9 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     if args.krw_resume and (not args.krw or not args.execute or args.only):
         print("--krw-resume needs --krw and --execute, and no --only", file=sys.stderr)
+        return 2
+    if args.krw_exit_now and (not args.krw or not args.execute or args.only or args.krw_resume):
+        print("--krw-exit-now needs --krw and --execute, and no --only or --krw-resume", file=sys.stderr)
         return 2
     feed = flow01_feed() if args.flow01 else None
     box: dict = {"info": None, "notices": None}   # the run's exchangeInfo and Upbit page, each read once
@@ -364,11 +370,14 @@ def main(argv: list[str] | None = None) -> int:
             flow02 = (flowbtc.FlowBtcBook(book, store(FLOW02_STORE), args.flow02_usd, flow02_signal(Path(args.flow02_root)))
                       if args.flow02 else None)
             flow01 = flowflush.FlowFlushBook(book, store(FLOW01_STORE), args.flow01_usd, feed) if args.flow01 else None
-            krw = (krwfade.KrwFadeBook(book, store(KRW_STORE), args.krw_usd, *krw_src, resume=args.krw_resume)
+            krw = (krwfade.KrwFadeBook(book, store(KRW_STORE), args.krw_usd, *krw_src, resume=args.krw_resume,
+                                       exit_now=args.krw_exit_now)
                    if krw_src is not None else None)
             others = [o for o in (lv, learn, flow02, flow01, krw) if o is not None]
             at = now_ms()
             entry_lock = configured_entry_lock_reason()
+            if args.krw_exit_now:
+                entry_lock = entry_lock or "krw_exit_now: the operator's exit, no entry in this run"
             if args.execute:
                 append_live_audit_event(audit, "perp_run_started", {
                     "pair_usd": args.pair_usd, "rehearse": args.rehearse or "",

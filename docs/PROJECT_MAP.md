@@ -377,6 +377,7 @@
 │   ├── o_trade_2_order_optimization.py
 │   ├── o_trade_345_eval.py
 │   ├── optimize_local.py
+│   ├── perp_resolve_intent.py
 │   ├── pin_image_digests.py
 │   ├── plan_promotable_campaign.py
 │   ├── plan_window_structure.py
@@ -1006,6 +1007,7 @@
 │   ├── test_perp_learnbook.py
 │   ├── test_perp_live_runner.py
 │   ├── test_perp_live_venue.py
+│   ├── test_perp_way_out.py
 │   ├── test_phase3_audit.py
 │   ├── test_phase6.py
 │   ├── test_phase6_integration.py
