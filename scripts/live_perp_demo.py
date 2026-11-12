@@ -31,6 +31,9 @@ after every check. --krw-resume, once and by hand (the hourly wrapper passes
 it on), starts book KRW's new sleeve after its halt or a new --krw-usd, if
 the book is flat. --krw-exit-now, by hand, makes book KRW exit every open
 event in that run (``close_reason`` "operator"); that run enters nothing.
+--krw-rehearse PERP, by hand, makes book KRW enter one marked rehearsal event
+on PERP now, with its own stop multiple and hold (--krw-rehearse-stop-x,
+--krw-rehearse-hold-min): a drill of the order paths, never in K3 or K1.
 
 Rules: docs/operations/PERP_DEMO_RUNNER.md.
 """
@@ -189,6 +192,15 @@ def skip_name(exc: BaseException) -> str | None:
     return None
 
 
+def krw_rehearsal(args: argparse.Namespace) -> dict | None:
+    """``--krw-rehearse``: the rehearsal book KRW makes in this run (``KrwFadeBook._rehearsal``), or None."""
+
+    if not args.krw_rehearse:
+        return None
+    return {"perp": args.krw_rehearse.upper(), "stop_x": args.krw_rehearse_stop_x,
+            "hold_ms": args.krw_rehearse_hold_min * 60_000}
+
+
 def krw_reason(root: Path, at_ms: int, sources: tuple) -> str | None:
     """Why book KRW needs a signed run now, or None. Reads krw.json and the order ledger unverified, without a key,
     and public data only."""
@@ -308,6 +320,11 @@ def main(argv: list[str] | None = None) -> int:
                     help="once, by hand: start book KRW's new sleeve after its halt or a new --krw-usd, if it is flat")
     ap.add_argument("--krw-notice-share", default=None,
                     help="take Upbit's page from this file when the R0 live run shared it in the last 5.5 min")
+    ap.add_argument("--krw-rehearse", metavar="PERP",
+                    help="by hand: book KRW makes one marked rehearsal event on PERP now and enters it in this run")
+    ap.add_argument("--krw-rehearse-stop-x", type=float, default=krwfade.STOP_X,
+                    help="the rehearsal's stop multiple, 1.001 to 1.5")
+    ap.add_argument("--krw-rehearse-hold-min", type=int, default=30, help="the rehearsal's hold in minutes, 5 to 1440")
     ap.add_argument("--krw-exit-now", action="store_true",
                     help="by hand: book KRW exits every open event in this run; the run enters nothing")
     ap.add_argument("--only", choices=ONLY,
@@ -332,6 +349,9 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     if args.krw_exit_now and (not args.krw or not args.execute or args.only or args.krw_resume):
         print("--krw-exit-now needs --krw and --execute, and no --only or --krw-resume", file=sys.stderr)
+        return 2
+    if args.krw_rehearse and (not args.krw or not args.execute or args.only or args.krw_resume or args.krw_exit_now):
+        print("--krw-rehearse needs --krw and --execute, and no --only, --krw-resume or --krw-exit-now", file=sys.stderr)
         return 2
     feed = flow01_feed() if args.flow01 else None
     box: dict = {"info": None, "notices": None}   # the run's exchangeInfo and Upbit page, each read once
@@ -405,7 +425,8 @@ def main(argv: list[str] | None = None) -> int:
                       if args.flow02 else None)
             flow01 = flowflush.FlowFlushBook(book, store(FLOW01_STORE), args.flow01_usd, feed) if args.flow01 else None
             krw = (krwfade.KrwFadeBook(book, store(KRW_STORE), args.krw_usd, *krw_src, resume=args.krw_resume,
-                                       exit_now=args.krw_exit_now, funding_rows=box.get("funding"))
+                                       exit_now=args.krw_exit_now, rehearse=krw_rehearsal(args),
+                                       funding_rows=box.get("funding"))
                    if krw_src is not None else None)
             others = [o for o in (lv, learn, flow02, flow01, krw) if o is not None]
             at = now_ms()
