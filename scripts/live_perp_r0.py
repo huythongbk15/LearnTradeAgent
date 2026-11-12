@@ -22,7 +22,13 @@ the venue refuses every write and the run holds entries under the entry lock.
 --resume, by hand only (the live wrapper never passes it): a signed run whatever the pre-check says, which starts
 book KRW's new sleeve after its K3 halt or a new size, if the book is flat. It is the operator's signature of K-pause.
 
-Nothing here logs an amount: the size, the equity and any transfer stay in the env file and the operator's notes.
+Floor (D5, section 3 and K-budget of section 7): every signed run reads the sub-account's equity and holds entries
+when it is below 2.5 x PERP_LIVE_KRW_USD (the room one event needs) or below half the equity recorded when stage D
+began. With PERP_LIVE_STAGE=D and orders allowed, the first signed run records that starting equity in its signed
+record (``floor.json``). Exits always run. The run reports ``ok`` or ``below_floor``, never the amount.
+
+Nothing here logs an amount: the size, the equity and any transfer stay in the env file, the signed records and the
+operator's notes.
 """
 
 from __future__ import annotations
@@ -64,6 +70,9 @@ CHECK_OPEN_MS = 60 * 60 * 1000          # a signed check at least hourly while t
 CHECK_FLAT_MS = 24 * 60 * 60 * 1000     # and at least daily while flat
 LAST_SIGNED = "last_signed.json"        # {"at_ms": ...}: the end of the last signed run that finished rc 0
 KILL_NAMES = ("TRADING_KILL_SWITCH", "TRADING_ENTRY_KILL_SWITCH")
+FLOOR_STORE = "floor.json"              # signed: the equity when stage D began
+EVENT_ROOM = 2.5                        # x PERP_LIVE_KRW_USD: the equity one event needs (risk.py's alt-short cap)
+K_BUDGET = 0.5                          # entries stop below half the equity at the start of stage D
 
 
 def read_live_env(path: Path) -> dict[str, str]:
@@ -122,11 +131,28 @@ def mark_signed(root: Path, at_ms: int) -> None:
     os.replace(tmp, root / LAST_SIGNED)
 
 
+def floor_check(venue, store: PairStore, usd: float, *, stage_d: bool, at_ms: int, audit: Path) -> str:
+    """``ok`` or ``below_floor`` (D5). Records the starting equity once, at the first signed run of stage D."""
+
+    equity = venue.equity_usdt()
+    start = store.pairs.get("start")
+    if start is None and stage_d:
+        start = {"equity": equity, "at_ms": at_ms}
+        store.pairs["start"] = start
+        store.save()
+        append_live_audit_event(audit, "perp_live_budget_started", {"at_ms": at_ms})
+    floor = EVENT_ROOM * usd
+    if start is not None:
+        floor = max(floor, K_BUDGET * float(start["equity"]))
+    return "ok" if equity >= floor else "below_floor"
+
+
 def write_status(root: Path, report: dict, krw: krwfade.KrwFadeBook, allow_orders: bool) -> None:
     """Counts and statuses only, never an amount."""
 
     status = {"as_of": time.strftime("%Y-%m-%dT%H:%MZ", time.gmtime()), "allow_orders": allow_orders,
-              "reason": report.get("only_reason"), "entry_lock": bool(report.get("entry_lock")), **krw.counts()}
+              "reason": report.get("only_reason"), "entry_lock": bool(report.get("entry_lock")),
+              "floor": report.get("floor"), **krw.counts()}
     tmp = root / ".status.json.tmp"
     tmp.write_text(json.dumps(status, indent=1, sort_keys=True), encoding="utf-8")
     os.replace(tmp, root / "status.json")
@@ -194,15 +220,20 @@ def main(argv: list[str] | None = None) -> int:
             book = Book(venue, orders, pairs, audit, usd)
             krw = krwfade.KrwFadeBook(book, PairStore.load(root / KRW_STORE, integrity), usd, *sources,
                                       resume=args.resume, max_open=LIVE_MAX_OPEN)
+            at = now_ms()
+            stage_d = allow_orders and (live.get("PERP_LIVE_STAGE") or "").strip().upper() == "D"
+            floor = floor_check(venue, PairStore.load(root / FLOOR_STORE, integrity), usd, stage_d=stage_d,
+                                at_ms=at, audit=audit)
             entry_lock = configured_entry_lock_reason(env)
             if not allow_orders:
                 entry_lock = entry_lock or "read-only: PERP_LIVE_ALLOW_ORDERS is not true"
-            at = now_ms()
+            if floor != "ok":
+                entry_lock = entry_lock or "below_floor: the sub-account's equity is under the D5 floor"
             append_live_audit_event(audit, "perp_live_run_started", {"reason": reason, "allow_orders": allow_orders,
-                                                                    "entry_lock": bool(entry_lock)})
+                                                                    "entry_lock": bool(entry_lock), "floor": floor})
             report = run_cycle(book, now_ms=at, mainnet_info=None, execute=True, entry_lock=entry_lock,
                                others=[krw], only=krw.name)
-            report["only_reason"] = reason
+            report.update(only_reason=reason, floor=floor)
             write_status(root, report, krw, allow_orders)
             append_live_audit_event(audit, "perp_live_run_finished", {k: v for k, v in report.items() if k != "skipped"})
             mark_signed(root, now_ms())
