@@ -246,9 +246,11 @@ def config(margin: str = "CROSSED", leverage: int | None = 1, symbol: str = "BTC
     ({"assets": [{"asset": "USDT", "walletBalance": "100"}, {"asset": "BNB", "marginBalance": "3"}]}, "no readable"),
     ({"positions": [position()], "configs": [config(margin="ISOLATED")]}, "cross margin at 1x"),
     ({"positions": [position()], "configs": [config(leverage=5)]}, "cross margin at 1x"),
-    ({"positions": [position()], "configs": [config(leverage=None)]}, "cross margin at 1x"),     # field missing
-    ({"positions": [position()], "configs": []}, "cross margin at 1x"),                          # no row for it
-    ({"positions": [position()], "configs": [config(symbol="ETHUSDT")]}, "cross margin at 1x"),
+    ({"positions": [position()], "configs": [config(leverage=None)]}, "unreadable"),             # field missing
+    ({"positions": [position()], "configs": []}, "unreadable"),                                  # no row for it
+    ({"positions": [position()], "configs": [config(symbol="ETHUSDT")]}, "unreadable"),
+    ({"configs": []}, "unreadable"),            # flat: the probe still runs, so stage B proves the endpoint
+    ({"configs": [config(margin="")]}, "unreadable"),
 ])
 def test_account_shape_stops_on_any_difference(wire, change, match):
     v = live()
@@ -256,6 +258,18 @@ def test_account_shape_stops_on_any_difference(wire, change, match):
     wire.account.update(change)
     with pytest.raises(PerpVenueError, match=match):
         v.require_account_shape()
+
+
+def test_a_flat_account_reads_the_symbol_configuration_too(wire):
+    """Stage B soaks flat: the probe of BTCUSDT's configuration runs anyway, and a symbol never prepared (Binance's
+    default, cross at 20x) is readable, not refused."""
+
+    v = live()
+    v.connect()
+    wire.account["configs"] = [config(leverage=20)]
+    v.require_account_shape()
+    assert ("GET", "/fapi/v1/symbolConfig") in [(m, u.split("?")[0].replace("https://fapi.binance.com", ""))
+                                                for m, u, _ in wire.sent]
 
 
 def test_a_cross_1x_position_passes_the_shape_check(wire):
