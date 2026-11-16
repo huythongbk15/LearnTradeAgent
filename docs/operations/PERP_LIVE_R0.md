@@ -71,6 +71,22 @@ Each item is a PR the operator merges.
 5. **Alerts that leave the PC:** a dead-man ping sent only after a run that ended rc 0 (never on a lock skip); a failure message on rc not 0, a halt, a fired stop, an unexplained position or an unsettled order; Upbit 403 and 429 as named skips, not rc 1; one notice read shared by the Demo and live roots. Messages carry counts and statuses only.
 6. **Records and the loss floor:** per order, the mainnet mark at send, fill, fee and fee asset; per event, funding at the real settlement interval (capped contracts can switch to hourly without notice), run delay against E, stop level and its fill; the equity floor check of section 3.
 
+### Stage A record
+- **Code, by item (each PR merged into `master`):**
+
+  | Item | PRs |
+  |---|---|
+  | 1. Mainnet venue | #127, #128 |
+  | 2. Separation, live-safe K3 resume | #128, #131 (the task-list test) |
+  | 3. Stop path | #128 (signed checks hourly while holding, daily while flat), #136 (D12 trigger, algo read-back), #137 (rehearsal), #138 (outside close) |
+  | 4. Way out | #132 (send rule, resolve-intent, exit now), #138 (settle) |
+  | 5. Alerts | #133 (alerts), #134 (shared notice read) |
+  | 6. Records and the loss floor | #130 (floor; #129 was merged into a stacked base and never reached `master`), #135 (fees, funding, entry delay) |
+- **Book KRW's first Demo exit:** observed on 2026-11-13 at 05:07Z. The reduce-only buy-back filled while the reduce-only stop was open; the stop was then cancelled.
+- **Both venue classes:** the perp tests run against `PerpDemoVenue` and `PerpLiveVenue` (`tests/test_perp_demo.py`, `VENUES`).
+- **Drills on Demo:** [PERP_R0_DEMO_DRILLS.md](PERP_R0_DEMO_DRILLS.md). Open.
+- **Independent review of the mainnet diff:** open.
+
 ## 6. Rules for people and agents
 - **Agents** never read the live key or the live env file, never run a command against the live root with `--execute`, and compute no return from `data/perp_live/` before book KRW's K1 look. Counts, statuses and errors are fine. The operator types every mainnet command of stage C.
 - **Amounts** (transfers, `--krw-usd`, the starting equity) are kept in the live env file and the operator's own notes, never in git, logs or messages. Reports use bps, shares and counts.

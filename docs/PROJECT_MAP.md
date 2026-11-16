@@ -377,6 +377,7 @@
 │   ├── o_trade_2_order_optimization.py
 │   ├── o_trade_345_eval.py
 │   ├── optimize_local.py
+│   ├── perp_krw_settle.py
 │   ├── perp_live_alert.py
 │   ├── perp_resolve_intent.py
 │   ├── pin_image_digests.py
@@ -1005,6 +1006,7 @@
 │   ├── test_perp_demo.py
 │   ├── test_perp_flowbtc.py
 │   ├── test_perp_flowflush.py
+│   ├── test_perp_krw_outside.py
 │   ├── test_perp_krw_records.py
 │   ├── test_perp_krw_rehearsal.py
 │   ├── test_perp_krw_stop_readback.py
