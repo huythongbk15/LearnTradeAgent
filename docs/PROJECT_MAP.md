@@ -83,6 +83,7 @@
 │   │   ├── CORE_RUNTIME_BOUNDARY.md
 │   │   ├── FLOWBID_PAPER_RUN.md
 │   │   ├── H_CTX_01_RESULTS.md
+│   │   ├── H_RANK_18_DEFERRED_READ.md
 │   │   ├── H_XSEC_01_ENGINE_NOTES.md
 │   │   ├── INTEGRATION_REVIEW_20261028.md
 │   │   ├── L2_SELECTION_RULE.md
