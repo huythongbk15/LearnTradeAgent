@@ -118,6 +118,16 @@ class FakeUsdm:
             for s, q in self.positions.items() if abs(q) > 1e-12
         ]
 
+    def fapiPrivateGetSymbolConfig(self, params=None):   # noqa: N802  (ccxt's name)
+        """/fapi/v1/symbolConfig: cross at the leverage set (1 unless set_leverage said otherwise)."""
+
+        ex_id = (params or {}).get("symbol")
+        sym = next((s for s, m in self.markets.items() if m["id"] == ex_id), None)
+        if sym is None:
+            return []
+        return [{"symbol": ex_id, "marginType": "CROSSED", "isAutoAddMargin": "false",
+                 "leverage": self.leverage.get(sym, 1), "maxNotionalValue": "1000000"}]
+
     def fetch_ticker(self, sym):
         px = self.prices[self.markets[sym]["id"]]
         return {"timestamp": T0, "bid": px, "ask": px, "last": px, "high": px, "low": px, "open": px, "close": px,

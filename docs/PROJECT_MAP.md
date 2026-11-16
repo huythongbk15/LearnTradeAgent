@@ -95,6 +95,7 @@
 │   │   ├── OPERABLE_SYSTEM_PLAN.md
 │   │   ├── PERP_DEMO_RUNNER.md
 │   │   ├── PERP_LIVE_R0.md
+│   │   ├── PERP_R0_DEMO_DRILLS.md
 │   │   ├── QWENPAW_TOOL_NAME_GUARD.md
 │   │   ├── RESEARCH_LESSONS_LEARNED_20261018.md
 │   │   ├── RESEARCH_RUN_PROTOCOL.md
@@ -1006,6 +1007,7 @@
 │   ├── test_perp_demo.py
 │   ├── test_perp_flowbtc.py
 │   ├── test_perp_flowflush.py
+│   ├── test_perp_krw_kpause.py
 │   ├── test_perp_krw_outside.py
 │   ├── test_perp_krw_records.py
 │   ├── test_perp_krw_rehearsal.py
