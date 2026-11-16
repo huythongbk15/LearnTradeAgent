@@ -11,8 +11,9 @@ earlier runs, and returns the messages for the operator's Telegram and whether t
   text (its text can hold quantities):
   - a run that failed (rc not 0), with the error's class and a ``kind``; sent again at most hourly while the same
     failure goes on, and one "ok again" when a run ends rc 0 after it;
-  - a fired stop (K-pause), the book's halt and its end (K3), the D5 floor holding entries and its end, and orders
-    the ledger has not settled;
+  - a fired stop (K-pause), a close the book did not order (``krw_outside``: a liquidation, an ADL or a hand close,
+    held until the settle command) and its settle, the book's halt and its end (K3), the D5 floor holding entries and
+    its end, and orders the ledger has not settled;
   - a named skip of the notice list (``upbit_429``, ``upbit_403``, ``binance_429``) going on for
     ``SKIP_ALERT_MS``: the book does not see new listings while it lasts.
 - A message Telegram did not take is kept (at most ``MAX_PENDING``) and sent again after the next run.
@@ -149,6 +150,13 @@ def decide(state: Mapping[str, Any], *, rc: int, outcome: Mapping[str, Any] | No
         if stops > seen:
             msgs.append(f"stop fired: {stops - seen} new, {stops} in all. K-pause: no entry until you sign")
         st["stops"] = stops
+        outside = int(status.get("krw_outside") or 0)
+        if outside > int(st.get("outside") or 0):
+            msgs.append(f"a close the book did not order (liquidation, ADL or a hand close): {outside} event(s). "
+                        "Entries held until the settle command")
+        elif outside == 0 and int(st.get("outside") or 0) > 0:
+            msgs.append("every outside close is settled")
+        st["outside"] = outside
         halted = bool(status.get("krw_halted"))
         if halted != bool(st.get("halted")):
             msgs.append("book KRW halted (K3): entries stop until a --resume run" if halted

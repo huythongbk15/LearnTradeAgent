@@ -151,8 +151,8 @@ class FakeUsdm:
              "amount": amount, "filled": amount, "average": px, "cost": amount * px, "status": "closed", "reduceOnly": bool(params.get("reduceOnly"))}
         self.orders[cid] = o
         # One trade per market order, with its fee as Binance's userTrades gives it (a taker's 5 bps in USDT).
-        self.trades.append({"order": o["id"], "symbol": sym, "amount": amount, "price": px,
-                            "fee": {"cost": amount * px * 0.0005, "currency": "USDT"}})
+        self.trades.append({"order": o["id"], "symbol": sym, "side": side, "amount": amount, "price": px,
+                            "timestamp": None, "fee": {"cost": amount * px * 0.0005, "currency": "USDT"}})
         if self.ack_without_price:
             return {**o, "average": None, "cost": 0}
         return dict(o)
@@ -177,11 +177,15 @@ class FakeUsdm:
         return []
 
     def fetch_my_trades(self, sym=None, since=None, limit=None, params=None):
-        """Only one order's trades (``orderId``), as the KRW records ask; any other read finds none."""
+        """One order's trades (``orderId``), as the KRW records ask; else the symbol's trades from ``since`` to
+        ``endTime`` (a trade without a time is in every window)."""
 
         oid = (params or {}).get("orderId")
         if oid is None:
-            return []
+            end = (params or {}).get("endTime")
+            self.calls.append(("trades_span", sym, since, end))
+            return [dict(t) for t in self.trades if t["symbol"] == sym and (t["timestamp"] is None or (
+                (since is None or t["timestamp"] >= since) and (end is None or t["timestamp"] <= end)))]
         self.calls.append(("trades", sym, oid))
         return [dict(t) for t in self.trades if t["order"] == oid and t["symbol"] == sym]
 
@@ -209,11 +213,42 @@ class FakeUsdm:
         self.positions[sym] = 0.0
         if fill is not None:
             oid = f"t{len(self.trades)}"
-            self.trades.append({"order": oid, "symbol": sym, "amount": qty, "price": fill,
-                                "fee": {"cost": qty * fill * 0.0005, "currency": "USDT"}})
+            self.trades.append({"order": oid, "symbol": sym, "side": "buy", "amount": qty, "price": fill,
+                                "timestamp": at, "fee": {"cost": qty * fill * 0.0005, "currency": "USDT"}})
             self.algo_read[cid] = {"algoId": 1, "clientAlgoId": cid, "algoStatus": "FINISHED", "actualOrderId": oid,
                                    "actualPrice": str(fill), "actualQty": str(qty), "triggerTime": at,
                                    "triggerPrice": str(stop["triggerPrice"]), "workingType": "CONTRACT_PRICE"}
+
+
+    def close_outside(self, ex_id, qty: float | None = None, price: float | None = None, *, at: int = T0,
+                      stop: str = "kept", oid: str | None = None):
+        """A close the book did not order (a hand close in the app, a liquidation, an ADL): ``qty`` of the position
+        (all of it by default) bought or sold back at ``price`` (the mark by default) by an order of the venue's own,
+        one trade with its fee. ``stop``: "kept" (still listed, its algo order NEW), "cancelled" (the venue cancelled
+        it, as at a liquidation) or "unknown" (the venue does not answer its algo order)."""
+
+        sym = f"{ex_id[:-4]}/USDT:USDT"
+        q = self.positions.get(sym, 0.0)
+        qty = abs(q) if qty is None else qty
+        px = self.prices[ex_id] if price is None else price
+        side = "buy" if q < 0 else "sell"
+        self.positions[sym] = q + (qty if q < 0 else -qty)
+        oid = oid or f"h{len(self.trades)}"
+        self.trades.append({"order": oid, "symbol": sym, "side": side, "amount": qty, "price": px, "timestamp": at,
+                            "fee": {"cost": qty * px * 0.0005, "currency": "USDT"}})
+        for cid, o in list(self.algo.items()):
+            if o["symbol"] != sym or stop == "unknown":
+                continue
+            if stop == "cancelled":
+                self.algo.pop(cid)
+            self.algo_read[cid] = {"algoId": 2, "clientAlgoId": cid,
+                                   "algoStatus": "CANCELED" if stop == "cancelled" else "NEW", "actualOrderId": "",
+                                   "actualPrice": "0", "actualQty": "0", "triggerTime": 0,
+                                   "triggerPrice": str(o["triggerPrice"]), "workingType": "CONTRACT_PRICE"}
+        if stop == "unknown":
+            for cid in [c for c, o in self.algo.items() if o["symbol"] == sym]:
+                self.algo.pop(cid)
+        return oid
 
 
 def info(*listings: tuple[str, int, list[str] | None, str]) -> dict:

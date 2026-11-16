@@ -41,11 +41,18 @@ mainnet data after the hold, is ``tools/krwfade/shadow.py``.
   Every try has a fresh key; a cut-off try is settled from the order ledger first (``legs.ledger_price``), and an
   event whose last order was settled that way is closed by the next step. Exits run under the entry lock and while
   halted.
-- **Stop fired:** ``check()`` finds the alt flat at the venue with its stop gone, as book LV does; the event is
-  ``stopped`` and its BTC leg is sold by the step. The stop's fill is read back from its algo order (Binance fills a
-  fired stop with a market order of its own: ``actualOrderId``, ``actualPrice``, ``actualQty``, ``triggerTime``;
-  ``avg_from`` "algo", with ``fired_ms`` and that order's id for its fee), else from an order read by its key
-  ("venue"), else taken at 1.05x the trigger (the research's 1.575x entry; "stop_trigger").
+- **Stop fired:** ``check()`` finds the alt flat at the venue with its stop gone, as book LV does, and the venue's
+  evidence of the fill (its algo order names a fill, or an order read by its key filled); the event is ``stopped``
+  and its BTC leg is sold by the step. The stop's fill is read back from its algo order (Binance fills a fired stop
+  with a market order of its own: ``actualOrderId``, ``actualPrice``, ``actualQty``, ``triggerTime``; ``avg_from``
+  "algo", with ``fired_ms`` and that order's id for its fee), else from an order read by its key ("venue"), else
+  taken at 1.05x the trigger (the research's 1.575x entry; "stop_trigger"). An algo read that raises stops the run.
+- **Outside close** (PERP_LIVE_R0.md items 3 and 4): less short at the venue without that evidence (a liquidation,
+  an ADL, a hand close) makes the event ``outside``, never a fired stop. No order of the book moves it, entries wait,
+  and the position check takes the alt at what the venue holds. The operator's settle (``settle_outside``,
+  ``scripts/perp_krw_settle.py``) records each order the ledger does not know that traded on its legs as a fill
+  from the venue's trades; the event then goes back to its status with a short left, or is ``closing`` (the step
+  sells its BTC, cancels its stop and closes it with ``close_reason`` "outside").
 - **Halt (K3):** cumulative realized net of the Demo round trips of the sleeve (events flat by their fills: closed,
   failed, or closing with a stop left at the venue), from fill prices and USDT fees (0.05% a side when a fill
   reports none), below -15% of the sleeve (4 x ``usd``, stored at the first run) halts new Demo entries. Funding is
@@ -110,6 +117,7 @@ SHADOW_GIVE_UP_MS = 7 * DAY_MS        # ... and marked shadow_failed 7 days afte
 SHADOW_MIN_FAILS = 3                  # ... once it has failed on at least this many runs
 FEE_TRIES = 5                         # a fill's fee is read from its trades on at most this many runs
 FUNDING_GIVE_UP_MS = 7 * DAY_MS       # an event's funding record is given up 7 days after its first failed try
+SETTLE_LOOK_BACK_MS = 60_000          # the settle reads trades from a minute before the entry run (skew)
 FORWARD_FROM_MS = 1_793_577_600_000   # 2026-11-02 00:00 UTC: research events end with E + 72 h before it
 STORE = "krw.json"
 PREFIX = "krw-"
@@ -117,7 +125,9 @@ STATE = "book"                        # the store's state record; events are key
 TERMINAL = ("filled", "cancelled", "rejected", "expired")
 STOP_OPEN = ("submitted", "reconciling", "acknowledged", "open")    # a stop intent sent and not closed
 STOP_PENDING = ("reserved",) + STOP_OPEN                            # ... or reserved and never sent (a killed run)
-LIVE = ("opening", "open", "stopped", "closing", "failed")          # statuses that can hold legs
+LIVE = ("opening", "open", "stopped", "closing", "failed", "outside")   # statuses that can hold legs
+# "outside": the venue holds less of the alt short than the record, and its stop did not fire (a liquidation, an ADL
+# or a hand close). No order of the book moves it; the settle command (``settle_outside``) records what closed it.
 # An order intent a signed run's reconcile settles. "manual_intervention" is left out: no run can settle it, only
 # the operator, and every signed run stops at the reconcile until then.
 UNSETTLED = ("reserved", "submitted", "acknowledged", "open", "partial", "reconciling", "unknown")
@@ -280,6 +290,33 @@ def _leg_window(ev: Mapping, symbol: str) -> tuple[int, int, str] | None:
     return int(lo), int(hi), how
 
 
+def _orders(trades: Sequence[Mapping]) -> list[dict]:
+    """Trades grouped by order: side, quantity, average price, fees by asset (none when a trade lacks its fee) and
+    the last trade's time, in the order of each order's first trade."""
+
+    by: dict[str, dict] = {}
+    for t in trades:
+        o = by.setdefault(t["order_id"], {"order_id": t["order_id"], "side": t["side"], "qty": 0.0, "cost": 0.0,
+                                          "fees": {}, "fee_known": True, "ms": None})
+        if t["side"] != o["side"]:
+            o["side"] = "mixed"
+        o["qty"] += float(t["qty"])
+        o["cost"] += float(t["qty"]) * float(t["price"])
+        if t.get("fee_cost") is None or not t.get("fee_asset"):
+            o["fee_known"] = False
+        else:
+            o["fees"][t["fee_asset"]] = o["fees"].get(t["fee_asset"], 0.0) + float(t["fee_cost"])
+        if t.get("ms") is not None:
+            o["ms"] = max(int(t["ms"]), o["ms"] or 0)
+    out = []
+    for o in by.values():
+        qty = round(o["qty"], DECIMALS)
+        out.append({"order_id": o["order_id"], "side": o["side"], "qty": qty,
+                    "avg": o["cost"] / o["qty"] if o["qty"] > 0 else 0.0,
+                    "fees": o["fees"] if o["fee_known"] else {}, "ms": o["ms"]})
+    return out
+
+
 def holds_legs(store: PairStore) -> bool:
     """Whether any event of the record may hold legs on the venue (read unverified: a cue for a signed check)."""
 
@@ -389,6 +426,8 @@ class KrwFadeBook:
             if ev.get("status") not in LIVE:
                 continue
             a, b = alt_short(ev), btc_long(ev)
+            if ev["status"] == "outside":       # what the venue was last seen to hold of it, never the record's
+                a = abs(float((ev.get("outside") or {}).get("venue_qty") or 0.0))
             if a > QTY_TOL:
                 out[ev["perp"]] = round(out.get(ev["perp"], 0.0) - a, DECIMALS)
             if b > QTY_TOL:
@@ -426,7 +465,9 @@ class KrwFadeBook:
                 "krw_stale_stops": sum(1 for ev in every if ev.get("stale_stop")), "krw_rehearsals": rehearsals,
                 "krw_rehearsal_stops": sum(1 for ev in every if ev.get("rehearsal")
                                            and (ev["status"] == "stopped" or ev.get("close_reason") == "stop")),
-                "krw_stops_fired": sum(1 for ev in evs if ev["status"] == "stopped" or ev.get("close_reason") == "stop")}
+                "krw_stops_fired": sum(1 for ev in evs if ev["status"] == "stopped" or ev.get("close_reason") == "stop"),
+                "krw_outside": sum(1 for ev in every if ev["status"] == "outside"),
+                "krw_outside_closes": sum(1 for ev in every if ev.get("outside"))}
 
     # ── fills ──────────────────────────────────────────────────────────────
 
@@ -500,22 +541,15 @@ class KrwFadeBook:
         A read error or no answer counts as not filled (the caller then closes the intent as rejected, and a short
         the record still holds stops the next run for operator review)."""
 
-        algo = self._algo(ev)
-        if algo is not None and (algo["actual_qty"] > 0 or algo["actual_order_id"]):
-            return True
-        try:
-            got = self.venue.order_by_key(ev["perp"], stop_key(ev))
-        except Exception:           # a read for the record
-            return False
-        return got is not None and got.get("status") == "filled"
+        return self._fired(ev, self._algo(ev))
 
-    def _stop_fill(self, ev: dict, qty: float) -> tuple[float, str, dict]:
+    def _stop_fill(self, ev: dict, qty: float, algo: Mapping | None = None) -> tuple[float, str, dict]:
         """A fired stop's average fill, where it came from, and what the row keeps of the algo order.
 
         The algo order names the market order Binance filled the stop with, its average and quantity, and when it
         fired ("algo"); else an order read by the stop's key ("venue"); else 1.05x the trigger ("stop_trigger")."""
 
-        algo = self._algo(ev)
+        algo = self._algo(ev) if algo is None else algo
         extra: dict[str, Any] = {}
         if algo is not None:
             extra = {"order_id": algo["actual_order_id"], "algo_status": algo["status"],
@@ -563,6 +597,10 @@ class KrwFadeBook:
                 continue
             if ev["status"] == "opening":
                 self._finish_opening(eid, ev)
+            if ev["status"] == "outside":
+                positions = self.venue.positions() if positions is None else positions
+                self._check_outside(eid, ev, positions)
+                continue
             a = alt_short(ev)
             if a < -QTY_TOL:
                 raise PerpBookError(f"KRW {eid}: the record holds more bought back than sold; operator review required")
@@ -585,33 +623,79 @@ class KrwFadeBook:
         self.book.audit("perp_krw_settled", id=eid, status=ev["status"])
 
     def _check_alt(self, eid: str, ev: dict, a: float, positions: Mapping) -> None:
+        """The record's alt short against the venue's. Less short at the venue (flat included) is a fired stop only
+        on the venue's evidence: its algo order names the order it filled with (or an order read by its key filled),
+        its intent was taken, and the venue lists it no longer. Anything else that left less short is a close the
+        book did not order (``_outside``). More short, a long, or a short without its stop stops the run."""
+
         perp = ev["perp"]
         pos = positions.get(perp)
         q = pos.qty if pos is not None else 0.0
         stops = self.venue.open_stop_keys(perp)
         key = stop_key(ev)
-        if abs(q) <= QTY_TOL:
-            if key in stops:
-                self.book.audit("perp_krw_mismatch", id=eid, symbol=perp)
-                raise PerpBookError(f"KRW {perp}: short is gone but its stop is still open")
-            if self.ledger.get(key, {}).get("status") not in ("acknowledged", "open"):
-                self.book.audit("perp_krw_mismatch", id=eid, symbol=perp)
-                raise PerpBookError(f"KRW {perp}: short is gone without a stop the venue took; operator review required")
-            self._record_stop(eid, ev, a, status="stopped")
-            return
-        if abs(-q - a) > QTY_TOL * max(1.0, a):
+        if q > QTY_TOL or -q > a + QTY_TOL * max(1.0, a):
             self.book.audit("perp_krw_mismatch", id=eid, symbol=perp)
             raise PerpBookError(f"KRW {perp}: venue {q} differs from book {-a}")
+        if -q < a - QTY_TOL * max(1.0, a):
+            try:
+                algo = self.venue.stop_by_key(perp, key)
+            except Exception as exc:    # never guess: the next signed run reads it again
+                self.book.audit("perp_krw_stop_unread", id=eid, symbol=perp, error=type(exc).__name__)
+                raise PerpBookError(f"KRW {perp}: short is gone and its stop could not be read ({type(exc).__name__});"
+                                    " the next signed run reads it again") from exc
+            taken = self.ledger.get(key, {}).get("status") in ("acknowledged", "open")
+            if abs(q) <= QTY_TOL and key not in stops and taken and self._fired(ev, algo):
+                self._record_stop(eid, ev, a, status="stopped", algo=algo)
+                return
+            self._outside(eid, ev, q, algo, stop_listed=key in stops)
+            return
         if ev["status"] in ("open", "closing", "stopped") and key not in stops:
             self.book.audit("perp_krw_unprotected", id=eid, symbol=perp)
             raise PerpBookError(f"KRW {perp}: short has no open stop; operator review required")
 
-    def _record_stop(self, eid: str, ev: dict, a: float, *, status: str) -> None:
+    def _fired(self, ev: dict, algo: Mapping | None) -> bool:
+        """The venue's evidence that the stop fired: its algo order names a fill, or an order read by its key filled."""
+
+        if algo is not None and (algo["actual_qty"] > 0 or algo["actual_order_id"]):
+            return True
+        try:
+            got = self.venue.order_by_key(ev["perp"], stop_key(ev))
+        except Exception:           # no evidence
+            return False
+        return got is not None and got.get("status") == "filled"
+
+    def _outside(self, eid: str, ev: dict, q: float, algo: Mapping | None, *, stop_listed: bool) -> None:
+        """A close the book did not order: the event is ``outside``, never a fired stop. No order of the book moves
+        it and entries are held while it lasts; ``settle_outside`` records what closed it."""
+
+        ev["outside"] = {"was": ev["status"], "seen_at": _now_iso(), "venue_qty": round(q, DECIMALS),
+                         "record_qty": round(-alt_short(ev), DECIMALS), "stop_listed": stop_listed,
+                         "algo_status": algo["status"] if algo is not None else "not_found"}
+        ev["status"] = "outside"
+        self.store.save()
+        self.book.audit("perp_krw_outside_close", id=eid, symbol=ev["perp"], venue_qty=round(q, DECIMALS),
+                        stop_listed=stop_listed, algo_status=ev["outside"]["algo_status"])
+
+    def _check_outside(self, eid: str, ev: dict, positions: Mapping) -> None:
+        """An ``outside`` event awaiting its settle: the venue may hold less of the short since (the operator closed
+        more of it), never more and never a long."""
+
+        perp, seen = ev["perp"], float(ev["outside"]["venue_qty"])
+        pos = positions.get(perp)
+        q = pos.qty if pos is not None else 0.0
+        if q > QTY_TOL or -q > -seen + QTY_TOL * max(1.0, -seen):
+            self.book.audit("perp_krw_mismatch", id=eid, symbol=perp)
+            raise PerpBookError(f"KRW {perp}: venue {q} differs from the {seen} seen after its outside close")
+        if abs(q - seen) > QTY_TOL:
+            ev["outside"]["venue_qty"] = round(q, DECIMALS)
+            self.store.save()
+
+    def _record_stop(self, eid: str, ev: dict, a: float, *, status: str, algo: Mapping | None = None) -> None:
         """A fired stop, as book LV records one: its fill on the event (``_stop_fill``), the event saved with
         ``status`` before the stop intent is closed as filled."""
 
         perp, key = ev["perp"], stop_key(ev)
-        avg, src, extra = self._stop_fill(ev, a)
+        avg, src, extra = self._stop_fill(ev, a, algo)
         ev.setdefault("fills", []).append({"key": key, "side": "buy", "qty": a, "avg": avg, "fees": {}, "mark": None,
                                            "symbol": perp, "from_stop": True, "avg_from": src, **extra})
         ev.update(status=status, stopped_at=_now_iso())
@@ -635,6 +719,98 @@ class KrwFadeBook:
         if ev["status"] == "closing" and not has_legs(ev):
             ev.update(status="closed", closed_at=_now_iso())
         self.store.save()
+
+    # ── the operator's settle after an outside close (PERP_LIVE_R0.md item 4) ──
+
+    def settle_outside(self, eid: str, now_ms: int, *, apply: bool) -> dict[str, Any]:
+        """What closed an ``outside`` event, from the venue's trades, and with ``apply`` that record on the event.
+
+        The venue's trades on each leg since the run that entered it, less those of orders the ledger knows, are the
+        closes the book did not order. Each becomes a fill of its own (``from_outside``; its fees from the trades).
+        The order the stop's algo order names, if any, is the stop's fill (``from_stop``) and closes the stop intent
+        as filled. Refused, and nothing written, when the alt's closes found leave a short other than the venue's,
+        an unknown order sold the alt or bought BTC, or more BTC was sold than the event holds.
+
+        Then a short left goes back to the event's earlier status (the book exits it as before); none left makes it
+        ``closing`` with ``close_reason`` "outside" ("stop" when only the stop closed it): the next signed run sells
+        the event's BTC left, cancels a stop still listed and closes it. Reads the venue only; writes the store and
+        the stop intent. The report holds statuses, counts, quantities and keys.
+        """
+
+        ev = self.store.pairs.get(eid)
+        out: dict[str, Any] = {"event": eid, "applied": False, "refusals": []}
+        refusals: list[str] = out["refusals"]
+        if not isinstance(ev, dict) or ev.get("kind") != "event":
+            refusals.append("no such event in book KRW's store")
+            return out
+        out["status"] = ev["status"]
+        if ev["status"] != "outside":
+            refusals.append(f"the event is {ev['status']}, not outside: only a close the book did not order is settled")
+            return out
+        perp = ev["perp"]
+        since = int(ev.get("entry_run_ms") or ev["entry_ms"]) - SETTLE_LOOK_BACK_MS     # the run that entered
+        known = {str(r.get("exchange_order_id")) for r in self.ledger.values()
+                 if isinstance(r, dict) and r.get("exchange_order_id")}
+        known |= {str(f["order_id"]) for f in ev.get("fills") or [] if f.get("order_id")}
+        try:
+            algo = self.venue.stop_by_key(perp, stop_key(ev))
+        except Exception as exc:    # never guess what the stop did
+            refusals.append(f"the stop's algo order could not be read ({type(exc).__name__}); try again")
+            return out
+        stop_oid = str(algo["actual_order_id"]) if algo is not None and algo["actual_order_id"] else ""
+        pos = self.venue.positions().get(perp)
+        q = pos.qty if pos is not None else 0.0
+        alt = _orders([t for t in self.venue.trades(perp, since, now_ms) if t["order_id"] not in known])
+        btc = _orders([t for t in self.venue.trades(BTC, since, now_ms) if t["order_id"] not in known])
+        a, b = alt_short(ev), btc_long(ev)
+        if any(o["side"] != "buy" for o in alt):
+            refusals.append(f"an order the ledger does not know sold {perp}: not a close of this short")
+        if any(o["side"] != "sell" for o in btc):
+            refusals.append(f"an order the ledger does not know bought {BTC}: not a close of this event's leg")
+        bought = round(sum(o["qty"] for o in alt if o["side"] == "buy"), DECIMALS)
+        sold = round(sum(o["qty"] for o in btc if o["side"] == "sell"), DECIMALS)
+        left = round(a - bought, DECIMALS)
+        if q > QTY_TOL or abs(left + q) > QTY_TOL * max(1.0, a):
+            refusals.append(f"the venue holds {q} of {perp}; the record less the closes found holds {-left}")
+        if sold > b + QTY_TOL * max(1.0, b):
+            refusals.append(f"{sold} {BTC} sold by orders the ledger does not know; the event holds {b}")
+        then = ev["outside"].get("was") if left > QTY_TOL else "closing"
+        only_stop = bool(alt) and all(o["order_id"] == stop_oid for o in alt)
+        out.update(perp=perp, then=then, close_reason=None if left > QTY_TOL else ("stop" if only_stop else "outside"),
+                   alt={"record": -a, "venue": q, "orders": len(alt), "bought": bought,
+                        "stop_order": any(o["order_id"] == stop_oid for o in alt)},
+                   btc={"record": b, "orders": len(btc), "sold": sold},
+                   stop_listed=stop_key(ev) in self.venue.open_stop_keys(perp),
+                   algo_status=algo["status"] if algo is not None else "not_found")
+        if not apply or refusals:
+            return out
+        stem_ = stem(ev)
+        for symbol, orders in ((perp, alt), (BTC, btc)):
+            for o in orders:
+                row = {"key": f"{stem_}out-{o['order_id']}", "side": o["side"], "qty": o["qty"], "avg": o["avg"],
+                       "fees": o["fees"], "mark": None, "symbol": symbol, "order_id": o["order_id"],
+                       "ms": o["ms"] if o["ms"] is not None else now_ms}
+                if o["fees"]:
+                    row["fees_from"] = "trades"
+                if symbol == perp and o["order_id"] == stop_oid:
+                    row.update(from_stop=True, avg_from="trades")
+                    if algo is not None and algo["trigger_ms"] > 0:
+                        row["fired_ms"] = algo["trigger_ms"]
+                else:
+                    row["from_outside"] = True
+                ev.setdefault("fills", []).append(row)
+        ev["outside"].update(settled_at=_now_iso(), settled_ms=now_ms, alt_orders=len(alt), btc_orders=len(btc))
+        if left > QTY_TOL:
+            ev["status"] = then
+        else:
+            ev.update(status="closing", close_reason=out["close_reason"], exit_ms=now_ms)
+        self.store.save()           # the fills are saved before the stop intent is closed
+        if stop_oid and any(o["order_id"] == stop_oid for o in alt):
+            self._close_stop_intent(ev, "filled", exchange_status="triggered")
+        self.book.audit("perp_krw_outside_settled", id=eid, alt_orders=len(alt), btc_orders=len(btc),
+                        status=ev["status"])
+        out["applied"] = True
+        return out
 
     # ── the run ────────────────────────────────────────────────────────────
 
@@ -1041,6 +1217,8 @@ class KrwFadeBook:
             return "held_by_krw"
         if self.venue.open_stop_keys(perp):
             return "stop_listed"    # a stop another book left (LV's stale_stops): it would buy this short back
+        if any(x["status"] == "outside" for _k, x in _events(self.store)):
+            return "outside_close"  # a close the book did not order: entries wait for its settle
         if _state(self.store).get("halted"):
             return "halted"
         if len(self._holding()) >= self.max_open:
