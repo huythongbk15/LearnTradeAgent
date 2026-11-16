@@ -42,7 +42,7 @@ Research description and engineering rules. This page is not investment, tax or 
 - **One event at a time** (KRW `max_open` 1 on the live root).
 - **Loss bound (D5), computed by the system:**
   - **Per event:** the size is the venue minimum whatever the sub-account holds. A stopped event loses about two thirds of one leg (research: -6,473 bps on one leg), more in a squeeze that gaps past the stop.
-  - **Per tier:** K3 halts entries when the sleeve's realized net is below -15% of 4 x `--krw-usd`, so one stopped event trips it; K-pause then holds entries until the operator signs. So R0 is bounded to about one stopped event between signatures, not by the sub-account's size.
+  - **Per tier:** K-pause holds entries after any fired stop until the operator signs (`--resume`; enforced in code on the live root since 2026-11-16). K3 halts entries when the sleeve's realized net is below -15% of 4 x `--krw-usd`. A stop filled at its 1.5x trigger loses about 12.5% of that sleeve, so K3 alone does not trip on one stopped event (corrected 2026-11-16; this line said it did); K-pause is what bounds R0 to about one stopped event between signatures, not the sub-account's size.
   - **Floor:** at each signed run the system reads the sub-account's equity and refuses an entry when it is below 2.5 x `--krw-usd` (the 40% alt-short cap in `risk.py` needs that much for one event) or below the K-budget floor in section 7. It logs `ok` or `below_floor`, never the amount.
   - A larger transfer does not raise the size; it only adds room before the floor.
 - **Hedge drift:** the BTC leg is one step while the alt leg is a USDT amount, so the pair is not equal-legged as BTC moves. One more reason R0's P&L is not the research trade.
@@ -85,7 +85,18 @@ Each item is a PR the operator merges.
 - **Book KRW's first Demo exit:** observed on 2026-11-13 at 05:07Z. The reduce-only buy-back filled while the reduce-only stop was open; the stop was then cancelled.
 - **Both venue classes:** the perp tests run against `PerpDemoVenue` and `PerpLiveVenue` (`tests/test_perp_demo.py`, `VENUES`).
 - **Drills on Demo:** [PERP_R0_DEMO_DRILLS.md](PERP_R0_DEMO_DRILLS.md). Open.
-- **Independent review of the mainnet diff:** open.
+- **Independent review of the mainnet diff (2026-11-16):** two reviewers, each finding then checked by an independent agent (14 checks; none refuted).
+  - **Blockers, fixed in the PR after #139:**
+    - the account-shape check read leverage from `/fapi/v3/positionRisk`, which has none, so every signed run after the first fill would have stopped (stage C); it now reads `/fapi/v1/symbolConfig`;
+    - K-pause was not enforced in code and K3 does not trip on one stop at its trigger (stage D); the live root now holds entries after any fired stop (rehearsals aside) until a `--resume` run signs.
+  - **Blocker for the operator before stage B (D10):** on this host the agent's user can become any WSL user through Windows interop (`wsl.exe -u root`), and `/mnt/c` is writable. The D10 commands an agent writes for stage B must turn interop and automount off in `/etc/wsl.conf`, keep Windows tasks from running scripts from the agent-writable checkout, and drop the agent user from the `docker` and `sudo` groups.
+  - **Should-fix, open:**
+    - the dead-man ping stays green while Telegram fails;
+    - `PERP_LIVE_STAGE` arms K-budget but no status says whether it is armed;
+    - one empty position read can make an event `outside`;
+    - the Demo settle can book an order whose reply was lost;
+    - the take-off decides from the stop listing alone.
+  - **Notes:** an unreadable ledger reads as settled in the alert; `wire_since` looks only at the last write (no retries are configured); a stop answered as rejected in a 200 reply is not checked at entry.
 
 ## 6. Rules for people and agents
 - **Agents** never read the live key or the live env file, never run a command against the live root with `--execute`, and compute no return from `data/perp_live/` before book KRW's K1 look. Counts, statuses and errors are fine. The operator types every mainnet command of stage C.
@@ -124,7 +135,7 @@ Unverified when this page was written; stages B and C are where they get answere
 
 ## Operator steps
 1. Merge this page's PR. That approves the *[filled]* lines too; change any of them in the PR first if wanted.
-2. Before stage B: open the futures sub-account (one-way, single-asset, USDT only); create a **read-only** key for it; create the Telegram bot and the dead-man check; set the PC to never sleep and to log on after power loss; say why the PC was off on 2026-11-05 to 11-08; create the separate WSL user of D10 (an agent writes the exact commands when stage A is done).
+2. Before stage B: open the futures sub-account (one-way, single-asset, USDT only); create a **read-only** key for it; create the Telegram bot and the dead-man check; set the PC to never sleep and to log on after power loss; say why the PC was off on 2026-11-05 to 11-08; create the separate WSL user of D10 and harden the host as the stage A review found (Windows interop and automount off, Windows tasks not run from the agent-writable checkout, the agent user out of `docker` and `sudo`; an agent writes the exact commands when stage A is done).
 3. Before stage C: create the Ed25519 trade key (no withdrawal) as that user; transfer the amount of your choice into the sub-account (D8).
 4. Every week: look for news of the first licensed crypto asset provider in Vietnam (K-law).
 

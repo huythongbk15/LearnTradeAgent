@@ -582,8 +582,8 @@ class PerpLiveVenue(PerpVenue):
 
     def require_account_shape(self) -> None:
         """Section 3 of PERP_LIVE_R0.md: one-way position mode, single-asset mode, fees not paid in BNB, a USDT row
-        and no other asset in the futures wallet, and cross margin at 1x on every position held. Read-only; stops
-        the run if any differs or a reply lacks the field (fail closed)."""
+        and no other asset in the futures wallet, and cross margin at 1x on every position held (read from
+        ``/fapi/v1/symbolConfig``). Read-only; stops the run if any differs or a reply lacks the field (fail closed)."""
 
         if self._ex.fetch_position_mode().get("hedged") is not False:
             raise PerpVenueError("account is in hedge mode or its mode is unreadable; R0 needs one-way mode")
@@ -607,10 +607,22 @@ class PerpLiveVenue(PerpVenue):
             other += held != 0.0
         if other:
             raise PerpVenueError(f"the futures wallet holds {other} asset(s) besides USDT; R0 holds USDT only")
+        # The margin type and leverage of each symbol held come from its symbol configuration: the v3 position reply
+        # ccxt reads (/fapi/v3/positionRisk) carries neither, so ccxt's position has leverage None.
         for p in self._ex.fetch_positions():
             if not float(p.get("contracts") or 0.0):
                 continue
-            if str(p.get("marginMode")).lower() != "cross" or float(p.get("leverage") or 0.0) != 1.0:
+            ex_id = str((p.get("info") or {}).get("symbol") or "")
+            if not ex_id and p.get("symbol"):
+                ex_id = str(self._ex.market(p["symbol"]).get("id") or "")
+            rows = self._ex.fapiPrivateGetSymbolConfig({"symbol": ex_id}) if ex_id else None
+            row = next((r for r in rows or [] if isinstance(r, dict) and str(r.get("symbol")) == ex_id), None)
+            try:
+                ok = (row is not None and str(row.get("marginType")).upper() == "CROSSED"
+                      and float(row.get("leverage")) == 1.0)
+            except (TypeError, ValueError):
+                ok = False
+            if not ok:
                 raise PerpVenueError("a position is not cross margin at 1x; R0 holds cross at 1x only")
 
     def prepare(self, exchange_id: str) -> None:

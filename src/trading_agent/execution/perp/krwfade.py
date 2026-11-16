@@ -317,6 +317,19 @@ def _orders(trades: Sequence[Mapping]) -> list[dict]:
     return out
 
 
+def stop_fired(ev: Mapping) -> bool:
+    """An event one of whose fills is its stop's: fired at the venue, recorded by check(), the take-off or the
+    settle."""
+
+    return any(f.get("from_stop") for f in ev.get("fills") or [])
+
+
+def stops_fired(store: PairStore) -> int:
+    """Events, rehearsals aside, whose stop fired: what K-pause counts on the live root."""
+
+    return sum(1 for _k, ev in _events(store) if not ev.get("rehearsal") and stop_fired(ev))
+
+
 def holds_legs(store: PairStore) -> bool:
     """Whether any event of the record may hold legs on the venue (read unverified: a cue for a signed check)."""
 
@@ -390,6 +403,9 @@ class KrwFadeBook:
     exit_now: bool = False                              # the operator's "exit now": every open event exits this run
     rehearse: Mapping[str, Any] | None = None           # by hand: {"perp", "stop_x", "hold_ms"} (``_rehearsal``)
     max_open: int = KRW_MAX_OPEN                        # events holding legs at once (1 on the live root)
+    # K-pause (PERP_LIVE_R0.md section 7, the live root only): after a fired stop no entry until the operator signs
+    # with ``resume`` (``--resume``); a rehearsal's stop does not count. Demo leaves it off: K3 alone, as approved.
+    stop_pause: bool = False
 
     @property
     def venue(self):
@@ -463,9 +479,9 @@ class KrwFadeBook:
                 "krw_gaps": sum(1 for k in self.store.pairs if k.startswith("g")),
                 "krw_excluded": sum(1 for ev in evs if ev.get("excluded")),
                 "krw_stale_stops": sum(1 for ev in every if ev.get("stale_stop")), "krw_rehearsals": rehearsals,
-                "krw_rehearsal_stops": sum(1 for ev in every if ev.get("rehearsal")
-                                           and (ev["status"] == "stopped" or ev.get("close_reason") == "stop")),
-                "krw_stops_fired": sum(1 for ev in evs if ev["status"] == "stopped" or ev.get("close_reason") == "stop"),
+                "krw_rehearsal_stops": sum(1 for ev in every if ev.get("rehearsal") and stop_fired(ev)),
+                "krw_stops_fired": sum(1 for ev in evs if stop_fired(ev)),
+                "krw_paused": self._paused(),
                 "krw_outside": sum(1 for ev in every if ev["status"] == "outside"),
                 "krw_outside_closes": sum(1 for ev in every if ev.get("outside"))}
 
@@ -1006,13 +1022,31 @@ class KrwFadeBook:
                 if has_legs(ev) or ev["status"] == "opening" or ev.get("stale_stop") or _stop_pending(ev, self.ledger))
         return n + int(unsettled(self.store, self.ledger))
 
+    def _paused(self) -> bool:
+        """K-pause on the live root: a stop fired since the operator last signed."""
+
+        return self.stop_pause and stops_fired(self.store) > int(_state(self.store).get("pause_signed_stops") or 0)
+
     def _resume(self, st: dict, now_ms: int) -> str:
         """``--krw-resume``, the operator's call after the K3 halt or a new ``--krw-usd``: once the book is flat, a new
         sleeve starts now. The size is stored again, the halt is cleared and only events decided from now on count
         for K3. The forward record (events, shadow rows, notices) stays as it is. Nothing to resume, or a book that is
-        not flat, is refused and audited."""
+        not flat, is refused and audited.
 
+        On the live root it is also the operator's signature of K-pause: every stop fired so far is signed for, and
+        entries may follow again ("pause_signed" when only that was done)."""
+
+        signed = False
+        if self._paused():
+            n = stops_fired(self.store)
+            st["pause_signed_stops"] = n
+            st.setdefault("pause_signs", []).append({"at_ms": now_ms, "stops": n})
+            self.store.save()
+            self.book.audit("perp_krw_pause_signed", stops=n)
+            signed = True
         if not (st.get("halted") or self._size_changed()):
+            if signed:
+                return "pause_signed"
             why = "nothing_to_resume"
         elif self._busy():
             why = "not_flat"
@@ -1024,7 +1058,7 @@ class KrwFadeBook:
             self.book.audit("perp_krw_resumed", size_changed=bool(st["resumes"][-1]["usd_before"] != self.usd))
             return "resumed"
         self.book.audit("perp_krw_resume_refused", reason=why)
-        return why
+        return "pause_signed" if signed else why
 
     # ── events ─────────────────────────────────────────────────────────────
 
@@ -1219,6 +1253,8 @@ class KrwFadeBook:
             return "stop_listed"    # a stop another book left (LV's stale_stops): it would buy this short back
         if any(x["status"] == "outside" for _k, x in _events(self.store)):
             return "outside_close"  # a close the book did not order: entries wait for its settle
+        if self._paused():
+            return "k_pause"        # a stop fired: entries wait for the operator's signature
         if _state(self.store).get("halted"):
             return "halted"
         if len(self._holding()) >= self.max_open:

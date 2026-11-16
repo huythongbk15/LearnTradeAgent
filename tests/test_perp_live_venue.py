@@ -6,7 +6,7 @@ from __future__ import annotations
 import asyncio
 import os
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlsplit
 
 import ccxt
 import pytest
@@ -47,6 +47,7 @@ class Wire:
     def __call__(self, ex, url, method="GET", headers=None, body=None):
         signed = "signature=" in url or "signature=" in str(body or "")
         path = urlsplit(url).path
+        query = dict(parse_qsl(urlsplit(url).query))
         self.sent.append((method, url.split("?")[0], signed))
         a = self.account
         replies = {
@@ -70,8 +71,12 @@ class Wire:
         if path == "/fapi/v1/leverageBracket":
             return [{"symbol": "BTCUSDT", "brackets": [{"bracket": 1, "initialLeverage": 125, "notionalCap": 50000,
                                                         "notionalFloor": 0, "maintMarginRatio": 0.004, "cum": 0}]}]
-        if path in ("/fapi/v2/positionRisk", "/fapi/v3/positionRisk"):
+        if path == "/fapi/v2/positionRisk":
+            raise ccxt.ExchangeError("the venue reads positions from v3; v2 is not asked")
+        if path == "/fapi/v3/positionRisk":
             return a["positions"]
+        if path == "/fapi/v1/symbolConfig":
+            return [c for c in a.get("configs", [config()]) if c.get("symbol") == query.get("symbol")]
         raise ccxt.ExchangeError(f"unexpected request {method} {path}")
 
 
@@ -209,10 +214,23 @@ def test_account_shape_passes_for_one_way_single_asset_usdt(wire):
     assert all(u.startswith(MAINNET_HOST) for _, u, _ in wire.sent)
 
 
-def position(margin: str = "cross", leverage: str = "1") -> dict:
+def position() -> dict:
+    """A cross position as /fapi/v3/positionRisk answers it: no leverage and no margin type (v2 fields)."""
+
     return {"symbol": "BTCUSDT", "positionSide": "BOTH", "positionAmt": "0.001", "entryPrice": "80000",
-            "markPrice": "80000", "unRealizedProfit": "0", "marginType": margin, "isolatedMargin": "0",
-            "leverage": leverage, "notional": "80", "liquidationPrice": "0", "updateTime": T0}
+            "breakEvenPrice": "80032", "markPrice": "80000", "unRealizedProfit": "0", "liquidationPrice": "0",
+            "isolatedMargin": "0", "notional": "80", "marginAsset": "USDT", "isolatedWallet": "0",
+            "initialMargin": "80", "maintMargin": "0.32", "positionInitialMargin": "80", "openOrderInitialMargin": "0",
+            "adl": 0, "bidNotional": "0", "askNotional": "0", "updateTime": T0}
+
+
+def config(margin: str = "CROSSED", leverage: int | None = 1, symbol: str = "BTCUSDT") -> dict:
+    """A row of /fapi/v1/symbolConfig."""
+
+    row = {"symbol": symbol, "marginType": margin, "isAutoAddMargin": "false", "maxNotionalValue": "1000000"}
+    if leverage is not None:
+        row["leverage"] = leverage
+    return row
 
 
 @pytest.mark.parametrize("change, match", [
@@ -226,8 +244,11 @@ def position(margin: str = "cross", leverage: str = "1") -> dict:
     ({"assets": None}, "no USDT row"),
     ({"assets": [{"asset": "BNB", "walletBalance": "0"}]}, "no USDT row"),
     ({"assets": [{"asset": "USDT", "walletBalance": "100"}, {"asset": "BNB", "marginBalance": "3"}]}, "no readable"),
-    ({"positions": [position(margin="isolated")]}, "cross margin at 1x"),
-    ({"positions": [position(leverage="5")]}, "cross margin at 1x"),
+    ({"positions": [position()], "configs": [config(margin="ISOLATED")]}, "cross margin at 1x"),
+    ({"positions": [position()], "configs": [config(leverage=5)]}, "cross margin at 1x"),
+    ({"positions": [position()], "configs": [config(leverage=None)]}, "cross margin at 1x"),     # field missing
+    ({"positions": [position()], "configs": []}, "cross margin at 1x"),                          # no row for it
+    ({"positions": [position()], "configs": [config(symbol="ETHUSDT")]}, "cross margin at 1x"),
 ])
 def test_account_shape_stops_on_any_difference(wire, change, match):
     v = live()
@@ -238,10 +259,15 @@ def test_account_shape_stops_on_any_difference(wire, change, match):
 
 
 def test_a_cross_1x_position_passes_the_shape_check(wire):
+    """The v3 position reply has no leverage (ccxt parses None); the symbol configuration has it."""
+
     v = live()
     v.connect()
     wire.account["positions"] = [position()]
+    assert v._ex.fetch_positions()[0]["leverage"] is None
     v.require_account_shape()
+    assert ("GET", "/fapi/v1/symbolConfig") in [(m, u.split("?")[0].replace("https://fapi.binance.com", ""))
+                                                for m, u, _ in wire.sent]
 
 
 def test_an_empty_asset_row_besides_usdt_is_fine(wire):

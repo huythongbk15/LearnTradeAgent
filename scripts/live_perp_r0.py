@@ -20,7 +20,9 @@ too. Orders are allowed only with PERP_LIVE_ALLOW_ORDERS=true in the env file; w
 the venue refuses every write and the run holds entries under the entry lock.
 
 --resume, by hand only (the live wrapper never passes it): a signed run whatever the pre-check says, which starts
-book KRW's new sleeve after its K3 halt or a new size, if the book is flat. It is the operator's signature of K-pause.
+book KRW's new sleeve after its K3 halt or a new size, if the book is flat. It is also the operator's signature of
+K-pause: after any fired stop (a rehearsal's aside) the live root enters nothing (``k_pause``, ``krw_paused`` in
+status.json) until a --resume run signs for every stop fired so far.
 
 --rehearse PERP, by hand only (stage C of PERP_LIVE_R0.md): a signed run whatever the pre-check says, in which book KRW
 makes one event of its shape on PERP now, marked ``rehearsal``, and enters it in this run if it can (else it is
@@ -273,6 +275,7 @@ def run(args: argparse.Namespace, out: dict) -> int:
             book = Book(venue, orders, pairs, audit, usd)
             krw = krwfade.KrwFadeBook(book, PairStore.load(root / KRW_STORE, integrity), usd, *sources,
                                       resume=args.resume, max_open=LIVE_MAX_OPEN, exit_now=args.exit_now,
+                                      stop_pause=True,
                                       rehearse=rehearsal(args),
                                       funding_rows=box.get("funding"))
             at = now_ms()
