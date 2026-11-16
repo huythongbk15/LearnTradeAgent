@@ -608,7 +608,17 @@ class PerpLiveVenue(PerpVenue):
         if other:
             raise PerpVenueError(f"the futures wallet holds {other} asset(s) besides USDT; R0 holds USDT only")
         # The margin type and leverage of each symbol held come from its symbol configuration: the v3 position reply
-        # ccxt reads (/fapi/v3/positionRisk) carries neither, so ccxt's position has leverage None.
+        # ccxt reads (/fapi/v3/positionRisk) carries neither, so ccxt's position has leverage None. BTCUSDT's is read on
+        # every run, flat or not, so stage B's flat soak proves the endpoint, the key's permission and the reply shape.
+        probe = self._ex.fapiPrivateGetSymbolConfig({"symbol": "BTCUSDT"})
+        row = next((r for r in probe or [] if isinstance(r, dict) and str(r.get("symbol")) == "BTCUSDT"), None)
+        try:
+            readable = row is not None and str(row.get("marginType")).upper() in ("CROSSED", "ISOLATED") \
+                and float(row.get("leverage")) > 0
+        except (TypeError, ValueError):
+            readable = False
+        if not readable:
+            raise PerpVenueError("the symbol configuration reply is unreadable; refusing")
         for p in self._ex.fetch_positions():
             if not float(p.get("contracts") or 0.0):
                 continue

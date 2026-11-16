@@ -77,3 +77,27 @@ def test_the_live_runner_turns_the_pause_on():
     assert "stop_pause=True" in text
     demo = (Path(__file__).resolve().parents[1] / "scripts" / "live_perp_demo.py").read_text()
     assert "stop_pause" not in demo
+
+
+def test_a_resume_never_signs_a_stop_its_own_run_records(world):
+    """The stop fires at the venue and no run has recorded it. A --resume run records it in its check(): the operator
+    has not read it, so the pause holds and the event in its window is not entered in that run."""
+
+    fake, book, tmp = world
+    enter(world)
+    fake.fire_stop("AAAUSDT", fill=3.0)
+    pub = Public(note(101, "AAA"), note(102, "BBB", at=N0 + 3 * 3_600_000))
+    rep = cycle(book, krw(book, tmp, pub, stop_pause=True, resume=True), E0 + 3 * 3_600_000 + 2 * MIN)["krw"]
+    assert rep["resume"] == "nothing_to_resume"
+    assert "perp_krw_pause_signed" not in [e["event"] for e in krw_events(tmp)]
+    bbb = event(tmp, 102, "BBB")
+    assert (bbb["status"], bbb["reason"]) == ("shadow_only", "k_pause")
+    assert krw(book, tmp, pub, stop_pause=True).counts()["krw_paused"] is True
+
+
+def test_a_resume_that_also_starts_a_sleeve_names_both(world):
+    fake, book, tmp = world
+    pub = stopped_then_new(world, pause=True)
+    rep = cycle(book, krw(book, tmp, pub, usd=400.0, stop_pause=True, resume=True), E1 - 30 * MIN)["krw"]
+    assert rep["resume"] == "resumed+pause_signed"
+

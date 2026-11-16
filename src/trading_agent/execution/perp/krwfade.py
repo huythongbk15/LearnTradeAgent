@@ -406,6 +406,7 @@ class KrwFadeBook:
     # K-pause (PERP_LIVE_R0.md section 7, the live root only): after a fired stop no entry until the operator signs
     # with ``resume`` (``--resume``); a rehearsal's stop does not count. Demo leaves it off: K3 alone, as approved.
     stop_pause: bool = False
+    _stops_before_run: int | None = None                # stops recorded before this run's check(): what a resume signs
 
     @property
     def venue(self):
@@ -601,6 +602,8 @@ class KrwFadeBook:
         BTCUSDT is checked by the pair book, in the sum of every book's BTC.
         """
 
+        if self._stops_before_run is None:     # what the operator could have read before this run (K-pause)
+            self._stops_before_run = stops_fired(self.store)
         positions: dict | None = None          # read once, when an event holds a short
         for eid, ev in _events(self.store):
             if ev["status"] not in LIVE and not ev.get("stale_stop"):
@@ -1033,16 +1036,19 @@ class KrwFadeBook:
         for K3. The forward record (events, shadow rows, notices) stays as it is. Nothing to resume, or a book that is
         not flat, is refused and audited.
 
-        On the live root it is also the operator's signature of K-pause: every stop fired so far is signed for, and
-        entries may follow again ("pause_signed" when only that was done)."""
+        On the live root it is also the operator's signature of K-pause: every stop recorded before this run is signed
+        for, and entries may follow again. A stop this run's own check() records is not signed: the operator has not
+        read it, so the pause holds until a later resume. The result names both parts ("pause_signed",
+        "resumed+pause_signed", "pause_signed+not_flat", ...)."""
 
         signed = False
-        if self._paused():
-            n = stops_fired(self.store)
-            st["pause_signed_stops"] = n
-            st.setdefault("pause_signs", []).append({"at_ms": now_ms, "stops": n})
+        before = stops_fired(self.store) if self._stops_before_run is None else self._stops_before_run
+        if self._paused() and before > int(st.get("pause_signed_stops") or 0):
+            # Only the stops recorded before this run: one this run's check() just found has not been read yet.
+            st["pause_signed_stops"] = before
+            st.setdefault("pause_signs", []).append({"at_ms": now_ms, "stops": before})
             self.store.save()
-            self.book.audit("perp_krw_pause_signed", stops=n)
+            self.book.audit("perp_krw_pause_signed", stops=before)
             signed = True
         if not (st.get("halted") or self._size_changed()):
             if signed:
@@ -1056,9 +1062,9 @@ class KrwFadeBook:
             st.update(usd=self.usd, halted=None, sleeve_from_ms=now_ms)
             self.store.save()
             self.book.audit("perp_krw_resumed", size_changed=bool(st["resumes"][-1]["usd_before"] != self.usd))
-            return "resumed"
+            return "resumed+pause_signed" if signed else "resumed"
         self.book.audit("perp_krw_resume_refused", reason=why)
-        return "pause_signed" if signed else why
+        return f"pause_signed+{why}" if signed else why
 
     # ── events ─────────────────────────────────────────────────────────────
 
