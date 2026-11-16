@@ -8,8 +8,8 @@ import ccxt
 import pytest
 
 from tests import test_perp_krwfade as krwfade_tests
+from tests.test_perp_demo import orders_sent
 from tests.test_perp_krwfade import E0, H, MIN, Public, cycle, enter, event, krw, note
-from trading_agent.execution.perp import krwfade as kx
 
 world = krwfade_tests.world        # the fake venue, Demo and mainnet (a fixture)
 FIRED = E0 + 3 * H + 17 * MIN
@@ -41,14 +41,20 @@ def test_a_fired_stop_is_read_back_from_its_algo_order(world):
     assert row["fees"] == {"USDT": pytest.approx(250.0 * 3.4 * 0.0005)} and row["fees_from"] == "trades"
 
 
-def test_a_stop_the_venue_does_not_answer_falls_back_to_the_trigger_as_before(world):
+def test_a_short_gone_whose_stop_the_venue_does_not_answer_is_an_outside_close_never_a_fired_stop(world):
+    """Without the venue's evidence of a fill the book does not guess one (it took 1.05x the trigger before item
+    3c): the event is ``outside`` and waits for the operator's settle."""
+
     fake, book, tmp = world
     enter(world)
-    fake.fire_stop("AAAUSDT")
+    fake.fire_stop("AAAUSDT")                       # gone, and the venue answers no algo order for its key
+    n = len(orders_sent(fake))
     cycle(book, krw(book, tmp, Public(note(101, "AAA"))), E0 + 5 * H)
-    (row,) = [f for f in event(tmp)["fills"] if f.get("from_stop")]
-    assert (row["avg"], row["avg_from"]) == (pytest.approx(kx.STOP_FILL_X * 3.0), "stop_trigger")
-    assert "fired_ms" not in row and "order_id" not in row
+    ev = event(tmp)
+    assert ev["status"] == "outside" and ev["outside"]["algo_status"] == "not_found"
+    assert not [f for f in ev["fills"] if f.get("from_stop")] and orders_sent(fake)[n:] == []
+    counts = krw(book, tmp, Public()).counts()
+    assert counts["krw_outside"] == 1 and counts["krw_stops_fired"] == 0
 
 
 def test_a_fired_stops_funding_ends_when_it_fired(world):

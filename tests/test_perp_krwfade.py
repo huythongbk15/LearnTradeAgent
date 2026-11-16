@@ -402,7 +402,7 @@ def test_without_exit_now_an_open_event_holds_to_its_time(world):
 def test_a_fired_stop_is_recorded_and_the_btc_leg_sold(world):
     fake, book, tmp = world
     enter(world)
-    fake.fire_stop("AAAUSDT")
+    fake.fire_stop("AAAUSDT", fill=3.15)
     n = len(orders_sent(fake))
     rep = cycle(book, krw(book, tmp, Public(note(101, "AAA"))), E0 + 5 * H)["krw"]
     assert rep["closed"] == 1
@@ -411,27 +411,29 @@ def test_a_fired_stop_is_recorded_and_the_btc_leg_sold(world):
     ev = event(tmp)
     assert (ev["status"], ev["close_reason"]) == ("closed", "stop") and ev["stopped_at"]
     stop_row = [f for f in ev["fills"] if f.get("from_stop")]
-    assert stop_row == [{"key": "krw-101-AAA-st", "side": "buy", "qty": 250.0, "avg": pytest.approx(3.15), "fees": {},
-                         "mark": None, "symbol": "AAAUSDT", "from_stop": True, "avg_from": "stop_trigger"}]
+    ((row,),) = [stop_row]
+    assert {k: row[k] for k in ("key", "side", "qty", "avg", "symbol", "from_stop", "avg_from")} == {
+        "key": "krw-101-AAA-st", "side": "buy", "qty": 250.0, "avg": pytest.approx(3.15), "symbol": "AAAUSDT",
+        "from_stop": True, "avg_from": "algo"}
     rec = book.orders.state.order_ledger["krw-101-AAA-st"]
     assert (rec["status"], rec["exchange_status"]) == ("filled", "triggered")
     assert [e["event"] for e in krw_events(tmp)][-3:] == ["perp_krw_stop", "perp_krw_closing", "perp_krw_closed"]
     assert krw(book, tmp, Public()).counts()["krw_stops_fired"] == 1      # status.json: the R0 alert reads it
 
 
-def test_a_short_gone_while_its_stop_is_open_or_a_short_without_its_stop_stops_for_review(world):
+def test_a_short_without_its_stop_or_more_short_than_the_record_stops_for_review(world):
+    """A short gone or smaller is an outside close (tests/test_perp_krw_outside.py); these stop every book."""
+
     fake, book, tmp = world
     enter(world)
-    fake.positions["AAA/USDT:USDT"] = 0.0           # gone, its stop still listed
-    with pytest.raises(PerpBookError, match="stop is still open"):
+    fake.positions["AAA/USDT:USDT"] = -300.0        # more short than the record
+    with pytest.raises(PerpBookError, match="differs from book"):
         cycle(book, krw(book, tmp, Public()), E0 + 3 * H)
     fake.positions["AAA/USDT:USDT"] = -250.0
     fake.algo.clear()                               # held, its stop gone
     with pytest.raises(PerpBookError, match="no open stop"):
         cycle(book, krw(book, tmp, Public()), E0 + 4 * H)
-    fake.positions["AAA/USDT:USDT"] = -200.0
-    with pytest.raises(PerpBookError, match="differs from book"):
-        cycle(book, krw(book, tmp, Public()), E0 + 5 * H)
+    assert event(tmp)["status"] == "open"
 
 
 def lose_reply(fake, key_part: str):
@@ -1561,9 +1563,10 @@ def test_a_stop_whose_reply_is_lost_and_that_fired_is_recorded_when_the_venue_an
     assert pos(fake, "AAAUSDT") == pytest.approx(0)
 
 
-def test_a_stop_whose_reply_is_lost_and_that_fired_without_a_venue_answer_stops_for_review(world):
-    """V1, the documented limit: with no answer to the key read, the short stays on the record and the next
-    check stops every book for operator review (fail closed)."""
+def test_a_stop_whose_reply_is_lost_and_that_fired_without_a_venue_answer_waits_for_the_settle(world):
+    """V1, the documented limit: with no answer to the key read, the short stays on the record. Since item 3c the
+    next check keeps the event ``outside`` (no order, entries held) for the operator's settle, instead of stopping
+    every book."""
 
     fake, book, tmp = world
     book.venue.order_by_key = lambda perp, key: None
@@ -1575,8 +1578,9 @@ def test_a_stop_whose_reply_is_lost_and_that_fired_without_a_venue_answer_stops_
     assert book.orders.state.order_ledger["krw-101-AAA-st"]["status"] == "rejected"
     assert kx.alt_short(event(tmp)) > 0 and event(tmp).get("unwound") is False
     b = fresh(book, tmp)
-    with pytest.raises(PerpBookError):
-        cycle(b, krw(b, tmp, pub), E0 + 7 * MIN, only="krw")
+    cycle(b, krw(b, tmp, pub), E0 + 7 * MIN, only="krw")      # item 3c: an outside close, never a guessed stop
+    ev = event(tmp)
+    assert ev["status"] == "outside" and ev["outside"]["was"] == "failed"
     assert not [c for c in orders_sent(fake) if c[1] == "AAA/USDT:USDT" and c[3] == "sell"][1:]   # no new short
 
 

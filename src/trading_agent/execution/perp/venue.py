@@ -433,17 +433,30 @@ class PerpVenue:
         price or amount: a read for evidence only. Binance answers 7 days and 1000 trades at a time; the span is read
         in 7-day windows, and a full page fails closed rather than paging."""
 
+        return [r["order_id"] for r in self.trades(exchange_id, since_ms, until_ms)]
+
+    def trades(self, exchange_id: str, since_ms: int, until_ms: int) -> list[dict]:
+        """The account's trades on a symbol from ``since_ms`` to ``until_ms``: order id, side, quantity, price, time
+        and fee (``fee_cost``, ``fee_asset``) each. Binance answers 7 days and 1000 trades at a time; the span is read
+        in 7-day windows, and a full page fails closed rather than paging."""
+
         sym = self.adapter.get_exchange_symbol(self.symbol(exchange_id))
-        ids: list[str] = []
+        out: list[dict] = []
         start = since_ms
         while start <= until_ms:
             end = min(start + TRADE_WINDOW_MS - 1, until_ms)
             rows = self._ex.fetch_my_trades(sym, start, TRADE_PAGE, {"endTime": end})
             if len(rows) >= TRADE_PAGE:
                 raise PerpVenueError(f"{exchange_id}: a full page of trades in one window; too many to check")
-            ids += [str(r.get("order") or "") for r in rows]
+            for r in rows:
+                fee = r.get("fee") or {}
+                out.append({"order_id": str(r.get("order") or ""), "side": str(r.get("side") or "").lower(),
+                            "qty": float(r.get("amount") or 0.0), "price": float(r.get("price") or 0.0),
+                            "ms": int(r["timestamp"]) if r.get("timestamp") is not None else None,
+                            "fee_cost": float(fee["cost"]) if fee.get("cost") is not None else None,
+                            "fee_asset": str(fee.get("currency") or "")})
             start = end + 1
-        return ids
+        return out
 
     def funding_paid(self, exchange_ids: list[str], since_ms: int, until_ms: int) -> float:
         """Funding the account booked on these symbols from ``since_ms`` to ``until_ms``, in USDT; paid is negative."""

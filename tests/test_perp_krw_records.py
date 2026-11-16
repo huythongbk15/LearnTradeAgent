@@ -149,7 +149,7 @@ def test_funding_sums_the_settlements_inside_each_legs_hold(world):
 def test_a_fired_stops_funding_ends_when_a_run_saw_it(world):
     fake, book, tmp = world
     enter(world)
-    fake.fire_stop("AAAUSDT")
+    fake.fire_stop("AAAUSDT", fill=3.4, at=0)       # the algo order names its fill, not when it fired
     funding = Funding({"AAAUSDT": 0.0001, BTC: 0.0001})
     cycle(book, krw(book, tmp, Public(note(101, "AAA")), funding_rows=funding), E0 + 5 * H)
     fd = event(tmp)["funding"]

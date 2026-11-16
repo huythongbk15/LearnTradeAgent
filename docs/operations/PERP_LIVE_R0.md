@@ -115,3 +115,4 @@ Unverified when this page was written; stages B and C are where they get answere
 ## Change log
 - 2026-11-11: drafted from the review at the operator's request ("Mở, soạn trang quy định").
 - 2026-11-11 08:54Z: the operator answered D1, D5, D6, D7, D8 and D16 and agreed to the other proposals ("các ý còn lại đồng ý với đề xuất"). D5 is read as a loss bound the system computes from the sub-account's equity; the end date of D15 and the values of K-budget, K-cost, K-miss and K-ops were filled from the review's proposals and are marked *[filled]*.
+- 2026-11-16: stage A item 3's outside close and item 4's settle command built (`outside` events, `scripts/perp_krw_settle.py`). A short gone without the venue's evidence of a stop fill is no longer booked at 1.05x the trigger: it waits for the settle. Book KRW's first Demo exit (2026-11-13 05:07Z) passed: the reduce-only buy-back filled under the open reduce-only stop, which was then cancelled.

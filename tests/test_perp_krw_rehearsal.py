@@ -61,7 +61,7 @@ def test_a_rehearsal_exits_after_its_own_hold(world):
 def test_a_tight_rehearsal_stop_that_fires_is_counted_apart_from_the_books_stops(world):
     fake, book, tmp = world
     cycle(book, krw(book, tmp, Public(), rehearse=rehearse(stop_x=1.002)), T)
-    fake.fire_stop("CCCUSDT")
+    fake.fire_stop("CCCUSDT", fill=5.02)
     cycle(book, krw(book, tmp, Public()), T + 5 * MIN)
     _eid, ev = rehearsal_event(tmp)
     assert (ev["status"], ev["close_reason"]) == ("closed", "stop")
