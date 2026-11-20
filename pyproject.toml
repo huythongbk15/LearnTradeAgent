@@ -187,6 +187,8 @@ ignore = ["F841", "E402"]
 "src/trading_agent/exchanges/**" = []
 "src/trading_agent/risk/**" = []
 "scripts/live_*.py" = []
+# Frozen research reader (byte copy checked by FROZEN.sha256): style only, pyflakes still enforced.
+"docs/operations/seal_pool_20261120/**" = ["E401", "E702"]
 
 [tool.uv]
 # Runtime image scan: compromised CA bundle and image-decoder fixes.

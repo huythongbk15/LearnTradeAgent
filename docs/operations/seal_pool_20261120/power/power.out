@@ -1,0 +1,67 @@
+member stats (worn): first, last, n, mean, sd, first-half sd
+  RANK18     2020-03-02 2026-07-20 n 334 mean    73.2 sd  400.1 h1sd  451.4 h2/h1 mean 0.65
+  NLP        2020-01-06 2026-10-19 n 355 mean   101.0 sd  596.9 h1sd  550.9 h2/h1 mean 0.55
+  KRW        2022-03-14 2026-10-19 n 241 mean    35.3 sd  607.7 h1sd  351.2 h2/h1 mean 1.32
+  FLOW_RIDGE 2022-01-03 2026-10-12 n 250 mean    28.2 sd  211.2 h1sd  202.8 h2/h1 mean 1.54
+  LEARN11    2023-01-02 2026-10-12 n 198 mean   113.6 sd  538.3 h1sd  542.4 h2/h1 mean 1.09
+  CB9        2020-03-09 2026-10-19 n 346 mean    31.0 sd  156.3 h1sd  153.7 h2/h1 mean 0.83
+
+== window: all weeks; correlations and Sharpe from the same weeks (pairwise) ==
+  six members x1.0: weekly SR 0.362; 105 weeks E[t] 3.71, P(t>=1.96) 0.96; 80% power 1.2 years
+  six members x0.5: weekly SR 0.181; 105 weeks E[t] 1.86, P(t>=1.96) 0.46; 80% power 4.7 years
+  six members x0.3: weekly SR 0.109; 105 weeks E[t] 1.11, P(t>=1.96) 0.20; 80% power 13.1 years
+    without RANK18     x0.5: E[t] 1.70, P 0.40
+    without NLP        x0.5: E[t] 1.76, P 0.42
+    without KRW        x0.5: E[t] 1.93, P 0.49
+    without FLOW_RIDGE x0.5: E[t] 1.68, P 0.39
+    without LEARN11    x0.5: E[t] 1.66, P 0.38
+    without CB9        x0.5: E[t] 1.59, P 0.36
+    single RANK18     x0.5: E[t] 0.94
+    single NLP        x0.5: E[t] 0.87
+    single KRW        x0.5: E[t] 0.30
+    single FLOW_RIDGE x0.5: E[t] 0.68
+    single LEARN11    x0.5: E[t] 1.08
+    single CB9        x0.5: E[t] 1.02
+
+== window: from 2022-03-14; correlations and Sharpe from the same weeks (pairwise) ==
+  six members x1.0: weekly SR 0.333; 105 weeks E[t] 3.41, P(t>=1.96) 0.93; 80% power 1.4 years
+  six members x0.5: weekly SR 0.166; 105 weeks E[t] 1.70, P(t>=1.96) 0.40; 80% power 5.6 years
+  six members x0.3: weekly SR 0.100; 105 weeks E[t] 1.02, P(t>=1.96) 0.17; 80% power 15.6 years
+    without RANK18     x0.5: E[t] 1.58, P 0.35
+    without NLP        x0.5: E[t] 1.65, P 0.38
+    without KRW        x0.5: E[t] 1.76, P 0.42
+    without FLOW_RIDGE x0.5: E[t] 1.48, P 0.32
+    without LEARN11    x0.5: E[t] 1.49, P 0.32
+    without CB9        x0.5: E[t] 1.49, P 0.32
+    single RANK18     x0.5: E[t] 0.81
+    single NLP        x0.5: E[t] 0.69
+    single KRW        x0.5: E[t] 0.30
+    single FLOW_RIDGE x0.5: E[t] 0.74
+    single LEARN11    x0.5: E[t] 1.08
+    single CB9        x0.5: E[t] 0.80
+
+== window: from 2023-01-02; correlations and Sharpe from the same weeks (pairwise) ==
+  six members x1.0: weekly SR 0.324; 105 weeks E[t] 3.32, P(t>=1.96) 0.91; 80% power 1.5 years
+  six members x0.5: weekly SR 0.162; 105 weeks E[t] 1.66, P(t>=1.96) 0.38; 80% power 5.9 years
+  six members x0.3: weekly SR 0.097; 105 weeks E[t] 1.00, P(t>=1.96) 0.17; 80% power 16.4 years
+    without RANK18     x0.5: E[t] 1.57, P 0.35
+    without NLP        x0.5: E[t] 1.64, P 0.37
+    without KRW        x0.5: E[t] 1.73, P 0.41
+    without FLOW_RIDGE x0.5: E[t] 1.42, P 0.29
+    without LEARN11    x0.5: E[t] 1.43, P 0.30
+    without CB9        x0.5: E[t] 1.41, P 0.29
+    single RANK18     x0.5: E[t] 0.69
+    single NLP        x0.5: E[t] 0.61
+    single KRW        x0.5: E[t] 0.28
+    single FLOW_RIDGE x0.5: E[t] 0.73
+    single LEARN11    x0.5: E[t] 1.08
+    single CB9        x0.5: E[t] 0.87
+
+all-week correlations (worn):
+            RANK18   NLP   KRW  FLOW_RIDGE  LEARN11   CB9
+RANK18        1.00  0.17  0.11       -0.15     0.16 -0.03
+NLP           0.17  1.00 -0.01        0.00     0.13  0.08
+KRW           0.11 -0.01  1.00       -0.00     0.06 -0.01
+FLOW_RIDGE   -0.15  0.00 -0.00        1.00     0.00 -0.03
+LEARN11       0.16  0.13  0.06        0.00     1.00 -0.01
+CB9          -0.03  0.08 -0.01       -0.03    -0.01  1.00
