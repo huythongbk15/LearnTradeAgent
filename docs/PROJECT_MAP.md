@@ -74,6 +74,18 @@
 │   ├── operations
 │   │   ├── archive
 │   │   │   └── MULTI_STRATEGY_RESEARCH_PLAN_PRE_E2E_20261025.md
+│   │   ├── seal_pool_20261120
+│   │   │   ├── power
+│   │   │   │   ├── learn_sd.out
+│   │   │   │   ├── learn_sd.py
+│   │   │   │   ├── power.out
+│   │   │   │   └── power.py
+│   │   │   ├── FROZEN.sha256
+│   │   │   ├── PROTOCOL.md
+│   │   │   ├── README.md
+│   │   │   ├── members_brief.md
+│   │   │   ├── pool.py
+│   │   │   └── selftest.out
 │   │   ├── ALTCOIN_INFORMATION_RESEARCH_DISCUSSION.md
 │   │   ├── BNB_ADX25_EVIDENCE_CARD.md
 │   │   ├── BNB_ADX25_RESEARCH_MANIFEST.json

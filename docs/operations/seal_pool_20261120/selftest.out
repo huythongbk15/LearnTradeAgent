@@ -1,0 +1,42 @@
+[selftest null]
+POOL word: chưa rõ
+  weeks 105, members present 6, mean x/s -0.0304, se 0.0336, ratio -0.90, iid t -0.71  (description beside the word)
+  without best 10 weeks: mean x/s -0.0945
+  RANK: opened weeks 105, mean x/s -0.0513
+  NLP: opened weeks 105, mean x/s -0.0719
+  KRW: opened weeks 80, mean x/s -0.2588
+  FLOW02: opened weeks 52, mean x/s -0.0495
+  LEARN: opened weeks 102, mean x/s +0.0441
+  CRASH: opened weeks 105, mean x/s +0.1433
+  without best member (CRASH): mean x/s -0.0714
+  mô tả THREE-CLOCK: weeks 105, mean x/s -0.0347, se 0.0585, ratio -0.59
+  mô tả LEARNED PAIR: weeks 102, mean x/s +0.0125, se 0.0598, ratio +0.21
+[selftest edge .18]
+POOL word: chưa rõ
+  weeks 105, members present 6, mean x/s +0.0886, se 0.0461, ratio +1.92, iid t +2.00  (description beside the word)
+  without best 10 weeks: mean x/s +0.0067
+  RANK: opened weeks 105, mean x/s +0.1206
+  NLP: opened weeks 105, mean x/s -0.0288
+  KRW: opened weeks 80, mean x/s -0.0239
+  FLOW02: opened weeks 52, mean x/s +0.4827
+  LEARN: opened weeks 102, mean x/s +0.1322
+  CRASH: opened weeks 105, mean x/s +0.0222
+  without best member (FLOW02): mean x/s +0.0473
+  mô tả THREE-CLOCK: weeks 105, mean x/s +0.1077, se 0.0533, ratio +2.02
+  mô tả LEARNED PAIR: weeks 102, mean x/s +0.2506, se 0.0762, ratio +3.29
+[selftest negative]
+POOL word: không
+  weeks 105, members present 6, mean x/s -0.1632, se 0.0348, ratio -4.68, iid t -3.88  (description beside the word)
+  without best 10 weeks: mean x/s -0.2389
+  RANK: opened weeks 105, mean x/s -0.1392
+  NLP: opened weeks 105, mean x/s -0.0682
+  KRW: opened weeks 80, mean x/s -0.1025
+  FLOW02: opened weeks 52, mean x/s -0.3795
+  LEARN: opened weeks 102, mean x/s -0.1684
+  CRASH: opened weeks 105, mean x/s -0.2163
+  without best member (NLP): mean x/s -0.1857
+  mô tả THREE-CLOCK: weeks 105, mean x/s -0.2137, se 0.0667, ratio -3.20
+  mô tả LEARNED PAIR: weeks 102, mean x/s -0.2397, se 0.0938, ratio -2.55
+[selftest two members]
+POOL word: quá ít
+[selftest] null 'giữ' rate over 200 synthetic pools: 0.030 (one-sided nominal .025)
