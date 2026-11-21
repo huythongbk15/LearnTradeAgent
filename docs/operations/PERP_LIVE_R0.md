@@ -135,7 +135,7 @@ Unverified when this page was written; stages B and C are where they get answere
 
 ## Operator steps
 1. Merge this page's PR. That approves the *[filled]* lines too; change any of them in the PR first if wanted.
-2. Before stage B: open the futures sub-account (one-way, single-asset, USDT only); create a **read-only** key for it; create the Telegram bot and the dead-man check; set the PC to never sleep and to log on after power loss; say why the PC was off on 2026-11-05 to 11-08; create the separate WSL user of D10 and harden the host as the stage A review found (Windows interop and automount off, Windows tasks not run from the agent-writable checkout, the agent user out of `docker` and `sudo`; an agent writes the exact commands when stage A is done).
+2. Before stage B: open the futures sub-account (one-way, single-asset, USDT only); create a **read-only** key for it; create the Telegram bot and the dead-man check; set the PC to never sleep and to log on after power loss; say why the PC was off on 2026-11-05 to 11-08; create the separate WSL user of D10 and harden the host as the stage A review found (Windows interop and automount off, Windows tasks not run from the agent-writable checkout, the agent user out of `docker` and `sudo`; the commands are in [PERP_R0_D10_HOST.md](PERP_R0_D10_HOST.md)).
 3. Before stage C: create the Ed25519 trade key (no withdrawal) as that user; transfer the amount of your choice into the sub-account (D8).
 4. Every week: look for news of the first licensed crypto asset provider in Vietnam (K-law).
 
